@@ -222,3 +222,32 @@ coba cek.
 - tampilan preview kok jadi jelek lagi, tau udah bagus
 - snapshot tersimpan tidak sesuai yang dipilih. beras kok jadi backing powder
 - fungsi edit juga masih gagal saat simpan
+=====================
+
+tabel log purchase belum ada? ini kan penting untuk rebuild dan audit.  apakah semua log nanti jadi 1 di aud_transaction_log?
+
+pur_purchase_payment_plan, pur_purchase_receipt dan pur_purchase_receipt_line jadinya masih dipakai tidak?
+
+dampaknya pruchase bukan cuma di keuangan, tapi juga stok gudang dan atau bahan baku. coba cek lagi ya logika pruchase di core lalu kita petakan ulang. jangan catatn jika ada perubahan alur atau roadmap
+
+====================
+- berarti nanti ada 2 log untuk setiap modul transaksi ya? 1 di aud_transaction_log, 1 nya di masing masing modul? rawan miss atau aman?
+
+- saya klik ulang sync dampak di /purchase-orders/detail/ muncul baris baru lagi di tabel log nya. apakah itu aman atau berdampak dobel ke keuangan atau pun stok gudang?
+
+- buatkan halaman log purchase nya
+
+- Audit Ringkas yang ada di /purchase-orders/detail/ tetap diambil dari aud_transaction_log atau pindah di pur_purchase_txn_log?
+
+- transaksi belum berdampak ke stok
+
+- SAYA buat purchase-orders/create dengan status langsung PAID, belum masuk ke keuangan, kalau dari perubahan status di purchase-orders bisa masuk
+
+
+- harus ada modul rebuild atau rescync di masing masing. jadi rebuild tidak harus dari purchase tapi sesuai kebutuhan,  misal di gudang butuh audit dan rebuild berarti rebuild dari gudang untuk memeriksa semua tabel terkait. tombolnya bisa by item / transaksi bisa juga global atau by filter
+
+
+- saya lihat di pur_purchase_payment_plan sudah ada transaksi hasil update status pembayaran. tapi di pur_purchase_receipt dan pur_purchase_receipt_line belum ada. itu kalau diaktifkan nanti tumpang tindih dan jadi ada 2 metode nggak?
+
+===============================
+halaman purchase order log belum ada di sidebar

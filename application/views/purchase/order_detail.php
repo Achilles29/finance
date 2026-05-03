@@ -5,6 +5,7 @@ $lines = (array)($detail['lines'] ?? []);
 $payments = (array)($detail['payments'] ?? []);
 $receipts = (array)($detail['receipts'] ?? []);
 $outstanding = (float)($detail['outstanding'] ?? 0);
+$txnRows = (array)($detail['txn_rows'] ?? []);
 $auditRows = (array)($detail['audit_rows'] ?? []);
 
 $currentStatus = strtoupper((string)($order['status'] ?? 'DRAFT'));
@@ -112,6 +113,7 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
     </div>
     <div class="d-flex gap-2">
         <a href="<?php echo site_url('purchase-orders'); ?>" class="btn btn-outline-secondary">Kembali ke Purchase Orders</a>
+        <a href="<?php echo site_url('purchase-orders/logs?q=' . urlencode((string)($order['po_no'] ?? ''))); ?>" class="btn btn-outline-secondary">Log Purchase</a>
         <?php if ($canEditPo && $canEditData): ?>
             <a href="<?php echo site_url('purchase-orders/edit/' . (int)($order['id'] ?? 0)); ?>" class="btn btn-outline-warning">Edit Data PO</a>
         <?php endif; ?>
@@ -165,8 +167,14 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
             </select>
         </div>
         <button type="button" id="btn-po-detail-status-update" class="btn btn-outline-primary btn-sm" <?php echo $canEditPo ? '' : 'disabled'; ?>>Update Status</button>
-        <?php if ($currentStatus === 'PAID'): ?>
-            <button type="button" id="btn-po-detail-paid-reconcile" class="btn btn-outline-warning btn-sm" <?php echo $canEditPo ? '' : 'disabled'; ?>>Sinkronkan Dampak PAID</button>
+        <?php if (in_array($currentStatus, ['RECEIVED', 'PAID'], true)): ?>
+            <button
+                type="button"
+                id="btn-po-detail-impact-reconcile"
+                class="btn btn-outline-warning btn-sm"
+                data-status="<?php echo html_escape($currentStatus); ?>"
+                <?php echo $canEditPo ? '' : 'disabled'; ?>
+            >Sinkronkan Dampak <?php echo html_escape($currentStatus); ?></button>
         <?php endif; ?>
         <?php if ($canEditPo): ?>
             <small class="text-muted">Jika update dari halaman list gagal, gunakan form ini sebagai fallback.</small>
@@ -278,29 +286,55 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
     </div>
 </div>
 
-<?php if (!empty($auditRows)): ?>
+<?php if (!empty($txnRows) || !empty($auditRows)): ?>
 <div class="card mt-3">
     <div class="card-body">
         <h6 class="mb-2">Audit Ringkas</h6>
+        <small class="text-muted d-block mb-2">Sumber utama: pur_purchase_txn_log. Jika data lama belum termigrasi, fallback dari aud_transaction_log.</small>
         <div class="table-responsive">
             <table class="table table-sm align-middle">
                 <thead>
                     <tr>
                         <th>Waktu</th>
                         <th>Aksi</th>
+                        <th>Status</th>
                         <th>Ref</th>
+                        <th class="text-end">Amount</th>
                         <th>Catatan</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($auditRows as $ar): ?>
-                        <tr>
-                            <td><?php echo html_escape((string)($ar['created_at'] ?? '-')); ?></td>
-                            <td><?php echo html_escape((string)($ar['action_code'] ?? '-')); ?></td>
-                            <td><?php echo html_escape((string)($ar['transaction_no'] ?? '-')); ?></td>
-                            <td><?php echo html_escape((string)($ar['notes'] ?? '-')); ?></td>
-                        </tr>
-                    <?php endforeach; ?>
+                    <?php if (!empty($txnRows)): ?>
+                        <?php foreach ($txnRows as $tx): ?>
+                            <?php
+                                $statusBefore = strtoupper(trim((string)($tx['status_before'] ?? '')));
+                                $statusAfter = strtoupper(trim((string)($tx['status_after'] ?? '')));
+                                $statusText = '-';
+                                if ($statusBefore !== '' || $statusAfter !== '') {
+                                    $statusText = ($statusBefore !== '' ? $statusBefore : '-') . ' -> ' . ($statusAfter !== '' ? $statusAfter : '-');
+                                }
+                            ?>
+                            <tr>
+                                <td><?php echo html_escape((string)($tx['created_at'] ?? '-')); ?></td>
+                                <td><?php echo html_escape((string)($tx['action_code'] ?? '-')); ?></td>
+                                <td><?php echo html_escape($statusText); ?></td>
+                                <td><?php echo html_escape((string)($tx['transaction_no'] ?? '-')); ?></td>
+                                <td class="text-end"><?php echo $tx['amount'] !== null ? number_format((float)$tx['amount'], 2, ',', '.') : '-'; ?></td>
+                                <td><?php echo html_escape((string)($tx['notes'] ?? '-')); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <?php foreach ($auditRows as $ar): ?>
+                            <tr>
+                                <td><?php echo html_escape((string)($ar['created_at'] ?? '-')); ?></td>
+                                <td><?php echo html_escape((string)($ar['action_code'] ?? '-')); ?></td>
+                                <td>-</td>
+                                <td><?php echo html_escape((string)($ar['transaction_no'] ?? '-')); ?></td>
+                                <td class="text-end">-</td>
+                                <td><?php echo html_escape((string)($ar['notes'] ?? '-')); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </tbody>
             </table>
         </div>
@@ -332,7 +366,7 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
     var canEditPo = <?php echo $canEditPo ? 'true' : 'false'; ?>;
     var endpoint = <?php echo json_encode(site_url('purchase/order/status-update')); ?>;
     var poId = <?php echo (int)($order['id'] ?? 0); ?>;
-    var reconcileBtn = document.getElementById('btn-po-detail-paid-reconcile');
+    var reconcileBtn = document.getElementById('btn-po-detail-impact-reconcile');
 
     updateBtn.addEventListener('click', function () {
         if (!canEditPo) {
@@ -375,17 +409,17 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
             fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ purchase_order_id: poId, status: 'PAID' })
+                body: JSON.stringify({ purchase_order_id: poId, status: String(reconcileBtn.getAttribute('data-status') || '').toUpperCase() })
             })
             .then(parseJsonResponse)
             .then(function (res) {
                 if (res.status >= 400 || !res.json || !res.json.ok) {
-                    throw new Error((res.json && res.json.message) ? res.json.message : 'Gagal sinkronkan dampak PAID');
+                    throw new Error((res.json && res.json.message) ? res.json.message : 'Gagal sinkronkan dampak transaksi');
                 }
                 window.location.reload();
             })
             .catch(function (err) {
-                window.alert(err.message || 'Gagal sinkronkan dampak PAID');
+                window.alert(err.message || 'Gagal sinkronkan dampak transaksi');
             });
         });
     }

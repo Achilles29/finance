@@ -1304,6 +1304,79 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
+    public function list_purchase_txn_action_codes(): array
+    {
+        if (!$this->db->table_exists('pur_purchase_txn_log')) {
+            return [];
+        }
+
+        $rows = $this->db
+            ->select('action_code')
+            ->from('pur_purchase_txn_log')
+            ->group_by('action_code')
+            ->order_by('action_code', 'ASC')
+            ->get()
+            ->result_array();
+
+        $result = [];
+        foreach ($rows as $row) {
+            $code = strtoupper(trim((string)($row['action_code'] ?? '')));
+            if ($code !== '') {
+                $result[] = $code;
+            }
+        }
+
+        return $result;
+    }
+
+    public function list_purchase_txn_logs(string $q, string $action, string $dateFrom, string $dateTo, int $limit): array
+    {
+        if (!$this->db->table_exists('pur_purchase_txn_log')) {
+            return [];
+        }
+
+        $this->db
+            ->select('l.id, l.purchase_order_id, l.purchase_receipt_id, l.payment_plan_id')
+            ->select('l.action_code, l.status_before, l.status_after, l.transaction_no')
+            ->select('l.ref_table, l.ref_id, l.amount, l.payload_json, l.notes, l.created_by, l.created_at')
+            ->select('po.po_no, po.request_date, po.status AS po_status')
+            ->from('pur_purchase_txn_log l')
+            ->join('pur_purchase_order po', 'po.id = l.purchase_order_id', 'left');
+
+        $action = strtoupper(trim($action));
+        if ($action !== '' && $action !== 'ALL') {
+            $this->db->where('l.action_code', $action);
+        }
+
+        $from = $this->normalizeDate($dateFrom);
+        $to = $this->normalizeDate($dateTo);
+        if ($from !== null) {
+            $this->db->where('DATE(l.created_at) >=', $from, false);
+        }
+        if ($to !== null) {
+            $this->db->where('DATE(l.created_at) <=', $to, false);
+        }
+
+        $q = trim($q);
+        if ($q !== '') {
+            $this->db
+                ->group_start()
+                    ->like('po.po_no', $q)
+                    ->or_like('l.action_code', $q)
+                    ->or_like('l.transaction_no', $q)
+                    ->or_like('l.notes', $q)
+                    ->or_like('l.ref_table', $q)
+                ->group_end();
+        }
+
+        return $this->db
+            ->order_by('l.created_at', 'DESC')
+            ->order_by('l.id', 'DESC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+    }
+
     public function get_purchase_order_detail(int $purchaseOrderId): ?array
     {
         if ($purchaseOrderId <= 0 || !$this->db->table_exists('pur_purchase_order')) {
@@ -1393,6 +1466,18 @@ class Purchase_model extends CI_Model
                 ->result_array();
         }
 
+        $txnRows = [];
+        if ($this->db->table_exists('pur_purchase_txn_log')) {
+            $txnRows = $this->db
+                ->select('id, action_code, status_before, status_after, transaction_no, ref_table, ref_id, amount, notes, created_at')
+                ->from('pur_purchase_txn_log')
+                ->where('purchase_order_id', $purchaseOrderId)
+                ->order_by('created_at', 'ASC')
+                ->order_by('id', 'ASC')
+                ->get()
+                ->result_array();
+        }
+
         $grandTotal = round((float)($order['grand_total'] ?? 0), 2);
         $outstanding = max(0, round($grandTotal - (float)$payments['total_paid'], 2));
 
@@ -1401,6 +1486,7 @@ class Purchase_model extends CI_Model
             'lines' => $lines,
             'payments' => $payments,
             'receipts' => $receipts,
+            'txn_rows' => $txnRows,
             'audit_rows' => $auditRows,
             'outstanding' => $outstanding,
         ];
@@ -1479,28 +1565,77 @@ class Purchase_model extends CI_Model
         ];
 
         if ($newStatus === $current) {
-            if ($current === 'PAID') {
+            if (in_array($current, ['RECEIVED', 'PAID'], true)) {
                 $this->db->trans_begin();
 
-                $paidPosting = $this->autoApplyOutstandingPaymentOnStatusPaid(
+                $receiptPosting = $this->autoPostOutstandingReceiptOnStatusReached(
                     $order,
                     $userId,
                     $sourceIp
                 );
-                if (!($paidPosting['ok'] ?? false)) {
+                if (!($receiptPosting['ok'] ?? false)) {
                     $this->db->trans_rollback();
                     return [
                         'ok' => false,
-                        'message' => (string)($paidPosting['message'] ?? 'Gagal sinkronisasi dampak PAID.'),
+                        'message' => (string)($receiptPosting['message'] ?? 'Gagal sinkronisasi dampak stok untuk status PAID.'),
                     ];
                 }
+                $receiptPostingData = (array)($receiptPosting['data'] ?? []);
 
-                $paidPostingData = (array)($paidPosting['data'] ?? []);
+                $paidPostingData = [];
+                if ($current === 'PAID') {
+                    $paidPosting = $this->autoApplyOutstandingPaymentOnStatusPaid(
+                        $order,
+                        $userId,
+                        $sourceIp
+                    );
+                    if (!($paidPosting['ok'] ?? false)) {
+                        $this->db->trans_rollback();
+                        return [
+                            'ok' => false,
+                            'message' => (string)($paidPosting['message'] ?? 'Gagal sinkronisasi dampak PAID.'),
+                        ];
+                    }
+
+                    $paidPostingData = (array)($paidPosting['data'] ?? []);
+                } else {
+                    $paidPostingData = ['skipped' => 'STATUS_NOT_PAID'];
+                }
+
+                $reconcileActionCode = $current === 'PAID' ? 'PO_PAID_RECONCILE' : 'PO_RECEIVED_RECONCILE';
+                $reconcileLabel = $current === 'PAID' ? 'PAID' : 'RECEIVED';
+                $hasReceiptEffect = empty((string)($receiptPostingData['skipped'] ?? ''));
+                $hasPaymentEffect = $current === 'PAID'
+                    ? empty((string)($paidPostingData['skipped'] ?? ''))
+                    : false;
+
+                if (!$hasReceiptEffect && !$hasPaymentEffect) {
+                    if ($this->db->trans_status() === false) {
+                        $this->db->trans_rollback();
+                        return [
+                            'ok' => false,
+                            'message' => 'Gagal sinkronisasi dampak ' . $reconcileLabel . '.',
+                        ];
+                    }
+
+                    $this->db->trans_commit();
+
+                    return [
+                        'ok' => true,
+                        'message' => 'Status tetap ' . $reconcileLabel . '. Tidak ada dampak baru yang perlu diposting.',
+                        'data' => [
+                            'purchase_order_id' => $purchaseOrderId,
+                            'status' => $current,
+                            'receipt_auto_post' => $receiptPostingData,
+                            'payment_auto_apply' => $paidPostingData,
+                        ],
+                    ];
+                }
 
                 if ($this->db->table_exists('aud_transaction_log')) {
                     $this->db->insert('aud_transaction_log', [
                         'module_code' => 'PURCHASE',
-                        'action_code' => 'PO_PAID_RECONCILE',
+                        'action_code' => $reconcileActionCode,
                         'entity_table' => 'pur_purchase_order',
                         'entity_id' => $purchaseOrderId,
                         'transaction_no' => (string)($order['po_no'] ?? null),
@@ -1511,24 +1646,26 @@ class Purchase_model extends CI_Model
                         'after_payload' => json_encode([
                             'status_before' => $current,
                             'status_after' => $newStatus,
+                            'receipt_auto_post' => $receiptPostingData,
                             'payment_auto_apply' => $paidPostingData,
                         ]),
-                        'notes' => 'Rekonsiliasi dampak PAID tanpa perubahan status',
+                        'notes' => 'Rekonsiliasi dampak ' . $reconcileLabel . ' tanpa perubahan status',
                     ]);
                 }
 
                 $txnLog = $this->writePurchaseTxnLog([
                     'purchase_order_id' => $purchaseOrderId,
-                    'action_code' => 'PO_PAID_RECONCILE',
+                    'action_code' => $reconcileActionCode,
                     'status_before' => $current,
                     'status_after' => $newStatus,
                     'transaction_no' => (string)($order['po_no'] ?? ''),
                     'ref_table' => 'pur_purchase_order',
                     'ref_id' => $purchaseOrderId,
                     'payload' => [
+                        'receipt_auto_post' => $receiptPostingData,
                         'payment_auto_apply' => $paidPostingData,
                     ],
-                    'notes' => 'Sinkronisasi dampak PAID',
+                    'notes' => 'Sinkronisasi dampak ' . $reconcileLabel,
                     'created_by' => $userId,
                 ]);
                 if (!($txnLog['ok'] ?? false)) {
@@ -1543,7 +1680,7 @@ class Purchase_model extends CI_Model
                     $this->db->trans_rollback();
                     return [
                         'ok' => false,
-                        'message' => 'Gagal sinkronisasi dampak PAID.',
+                        'message' => 'Gagal sinkronisasi dampak ' . $reconcileLabel . '.',
                     ];
                 }
 
@@ -1551,10 +1688,11 @@ class Purchase_model extends CI_Model
 
                 return [
                     'ok' => true,
-                    'message' => 'Status tetap PAID. Dampak pembayaran berhasil disinkronkan.',
+                    'message' => 'Status tetap ' . $reconcileLabel . '. Dampak transaksi berhasil disinkronkan.',
                     'data' => [
                         'purchase_order_id' => $purchaseOrderId,
                         'status' => $current,
+                        'receipt_auto_post' => $receiptPostingData,
                         'payment_auto_apply' => $paidPostingData,
                     ],
                 ];
@@ -1581,6 +1719,7 @@ class Purchase_model extends CI_Model
         $this->db->trans_begin();
 
         $rollbackData = [];
+        $receiptPostingData = [];
         $paidPostingData = [];
         if ($newStatus === 'VOID' && in_array($current, ['PARTIAL_RECEIVED', 'RECEIVED', 'PAID', 'CLOSED'], true)) {
             $rollback = $this->rollbackPurchaseOnVoid(
@@ -1597,6 +1736,22 @@ class Purchase_model extends CI_Model
                 ];
             }
             $rollbackData = (array)($rollback['data'] ?? []);
+        }
+
+        if (in_array($newStatus, ['RECEIVED', 'PAID'], true)) {
+            $receiptPosting = $this->autoPostOutstandingReceiptOnStatusReached(
+                $order,
+                $userId,
+                $sourceIp
+            );
+            if (!($receiptPosting['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => (string)($receiptPosting['message'] ?? 'Gagal memposting dampak stok saat update status.'),
+                ];
+            }
+            $receiptPostingData = (array)($receiptPosting['data'] ?? []);
         }
 
         if ($newStatus === 'PAID') {
@@ -1645,6 +1800,7 @@ class Purchase_model extends CI_Model
                     'status_before' => $current,
                     'status_after' => $newStatus,
                     'rollback' => $rollbackData,
+                    'receipt_auto_post' => $receiptPostingData,
                     'payment_auto_apply' => $paidPostingData,
                 ]),
                 'notes' => 'Update status purchase order',
@@ -1661,6 +1817,7 @@ class Purchase_model extends CI_Model
             'ref_id' => $purchaseOrderId,
             'payload' => [
                 'rollback' => $rollbackData,
+                'receipt_auto_post' => $receiptPostingData,
                 'payment_auto_apply' => $paidPostingData,
             ],
             'notes' => 'Update status purchase order',
@@ -1692,7 +1849,105 @@ class Purchase_model extends CI_Model
                 'status_before' => $current,
                 'status_after' => $newStatus,
                 'rollback' => $rollbackData,
+                'receipt_auto_post' => $receiptPostingData,
                 'payment_auto_apply' => $paidPostingData,
+            ],
+        ];
+    }
+
+    private function autoPostOutstandingReceiptOnStatusReached(array $order, int $userId, string $sourceIp = ''): array
+    {
+        $purchaseOrderId = (int)($order['id'] ?? 0);
+        if ($purchaseOrderId <= 0) {
+            return [
+                'ok' => false,
+                'message' => 'Purchase order tidak valid untuk auto-post receipt.',
+            ];
+        }
+
+        $purchaseTypeId = (int)($order['purchase_type_id'] ?? 0);
+        $typeRule = $this->getPurchaseTypeRule($purchaseTypeId);
+        if ($typeRule === null || (int)($typeRule['affects_inventory'] ?? 0) !== 1) {
+            return [
+                'ok' => true,
+                'data' => [
+                    'posted_line_count' => 0,
+                    'skipped' => 'NOT_INVENTORY',
+                ],
+            ];
+        }
+
+        $destinationType = $this->normalizeDestination((string)($order['destination_type'] ?? ''));
+        if ($destinationType === null) {
+            return [
+                'ok' => false,
+                'message' => 'Destination type pada PO tidak valid untuk auto-post receipt.',
+            ];
+        }
+
+        $destinationDivisionId = $this->nullableInt($order['destination_division_id'] ?? null);
+        if ($destinationType !== 'GUDANG' && $destinationDivisionId === null) {
+            $destinationDivisionId = $this->resolveDestinationDivisionId($destinationType);
+        }
+        if ($destinationType !== 'GUDANG' && $destinationDivisionId === null) {
+            return [
+                'ok' => false,
+                'message' => 'Divisi tujuan tidak ditemukan untuk auto-post receipt destination ' . $destinationType . '.',
+            ];
+        }
+
+        $poLines = $this->get_po_lines_for_receipt($purchaseOrderId);
+        $receiptLines = [];
+        foreach ($poLines as $poLine) {
+            $orderedQty = round((float)($poLine['qty_buy'] ?? 0), 4);
+            $receivedQty = round((float)($poLine['qty_buy_received_total'] ?? 0), 4);
+            $remainingQty = round(max(0, $orderedQty - $receivedQty), 4);
+            if ($remainingQty <= 0) {
+                continue;
+            }
+
+            $receiptLines[] = [
+                'purchase_order_line_id' => (int)($poLine['purchase_order_line_id'] ?? 0),
+                'qty_buy_received' => $remainingQty,
+                'notes' => 'Auto receipt saat status PO mencapai RECEIVED/PAID',
+            ];
+        }
+
+        if (empty($receiptLines)) {
+            return [
+                'ok' => true,
+                'data' => [
+                    'posted_line_count' => 0,
+                    'skipped' => 'NO_REMAINING_QTY',
+                ],
+            ];
+        }
+
+        $receiptPayload = [
+            'header' => [
+                'purchase_order_id' => $purchaseOrderId,
+                'receipt_date' => date('Y-m-d'),
+                'destination_type' => $destinationType,
+                'destination_division_id' => $destinationDivisionId,
+                'notes' => 'Auto receipt saat status PO mencapai RECEIVED/PAID',
+            ],
+            'lines' => $receiptLines,
+        ];
+
+        $postReceipt = $this->store_receipt_and_post($receiptPayload, $userId, $sourceIp);
+        if (!($postReceipt['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'message' => (string)($postReceipt['message'] ?? 'Gagal auto-post receipt saat status PO mencapai RECEIVED/PAID.'),
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'data' => [
+                'receipt_id' => (int)($postReceipt['data']['receipt_id'] ?? 0),
+                'receipt_no' => (string)($postReceipt['data']['receipt_no'] ?? ''),
+                'posted_line_count' => (int)($postReceipt['data']['line_count'] ?? 0),
             ],
         ];
     }
@@ -3050,7 +3305,7 @@ class Purchase_model extends CI_Model
         ];
     }
 
-    public function store_order_with_lines(array $header, array $lines, int $userId): array
+    public function store_order_with_lines(array $header, array $lines, int $userId, string $sourceIp = ''): array
     {
         if (!$this->db->table_exists('pur_purchase_order') || !$this->db->table_exists('pur_purchase_order_line')) {
             return [
@@ -3092,7 +3347,7 @@ class Purchase_model extends CI_Model
 
         $paymentAccountId = array_key_exists('payment_account_id', $header)
             ? $this->nullableInt($header['payment_account_id'] ?? null)
-            : $this->nullableInt($order['payment_account_id'] ?? null);
+            : null;
 
         $destinationType = null;
         $destinationDivisionId = null;
@@ -3255,6 +3510,70 @@ class Purchase_model extends CI_Model
             ];
         }
 
+        $statusSyncReceipt = [];
+        $statusSyncPayment = [];
+        if (in_array($status, ['RECEIVED', 'PAID'], true)) {
+            $effectOrder = [
+                'id' => $orderId,
+                'purchase_type_id' => $purchaseTypeId,
+                'destination_type' => $destinationType,
+                'destination_division_id' => $destinationDivisionId,
+                'payment_account_id' => $paymentAccountId,
+                'grand_total' => $grandTotal,
+                'status' => $status,
+            ];
+
+            $receiptPosting = $this->autoPostOutstandingReceiptOnStatusReached(
+                $effectOrder,
+                $userId,
+                $sourceIp
+            );
+            if (!($receiptPosting['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => (string)($receiptPosting['message'] ?? 'Gagal auto-post receipt saat create PO.'),
+                ];
+            }
+            $statusSyncReceipt = (array)($receiptPosting['data'] ?? []);
+
+            if ($status === 'PAID') {
+                $paidPosting = $this->autoApplyOutstandingPaymentOnStatusPaid(
+                    $effectOrder,
+                    $userId,
+                    $sourceIp
+                );
+                if (!($paidPosting['ok'] ?? false)) {
+                    $this->db->trans_rollback();
+                    return [
+                        'ok' => false,
+                        'message' => (string)($paidPosting['message'] ?? 'Gagal auto-post pembayaran saat create PO status PAID.'),
+                    ];
+                }
+                $statusSyncPayment = (array)($paidPosting['data'] ?? []);
+            }
+
+            if ($this->db->table_exists('aud_transaction_log')) {
+                $this->db->insert('aud_transaction_log', [
+                    'module_code' => 'PURCHASE',
+                    'action_code' => 'PO_CREATE_STATUS_SYNC',
+                    'entity_table' => 'pur_purchase_order',
+                    'entity_id' => $orderId,
+                    'transaction_no' => $poNo,
+                    'ref_table' => 'pur_purchase_order',
+                    'ref_id' => $orderId,
+                    'actor_user_id' => $userId > 0 ? $userId : null,
+                    'source_ip' => $sourceIp !== '' ? $sourceIp : null,
+                    'after_payload' => json_encode([
+                        'status_after' => $status,
+                        'receipt_auto_post' => $statusSyncReceipt,
+                        'payment_auto_apply' => $statusSyncPayment,
+                    ]),
+                    'notes' => 'Sinkronisasi dampak saat create PO dengan status final',
+                ]);
+            }
+        }
+
         if ($this->db->trans_status() === false) {
             $this->db->trans_rollback();
             return [
@@ -3276,6 +3595,10 @@ class Purchase_model extends CI_Model
                 'discount_amount' => $discountAmount,
                 'grand_total' => $grandTotal,
                 'line_count' => $lineNo - 1,
+                'status_sync' => [
+                    'receipt_auto_post' => $statusSyncReceipt,
+                    'payment_auto_apply' => $statusSyncPayment,
+                ],
             ],
         ];
     }

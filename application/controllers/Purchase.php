@@ -73,6 +73,34 @@ class Purchase extends MY_Controller
         $this->render('purchase/order_detail', $data);
     }
 
+    public function order_log_index()
+    {
+        $this->require_permission(self::PAGE_ORDER, 'view');
+
+        $q = trim((string)$this->input->get('q', true));
+        $action = strtoupper(trim((string)$this->input->get('action', true)));
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo = trim((string)$this->input->get('date_to', true));
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 1000) {
+            $limit = 300;
+        }
+
+        $data = [
+            'title' => 'Purchase Transaction Log',
+            'active_menu' => 'purchase.order',
+            'q' => $q,
+            'action' => $action,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'limit' => $limit,
+            'action_options' => $this->Purchase_model->list_purchase_txn_action_codes(),
+            'rows' => $this->Purchase_model->list_purchase_txn_logs($q, $action, $dateFrom, $dateTo, $limit),
+        ];
+
+        $this->render('purchase/order_log_index', $data);
+    }
+
     public function order_create()
     {
         $this->require_permission(self::PAGE_ORDER, 'create');
@@ -626,7 +654,8 @@ class Purchase extends MY_Controller
             $store = $this->Purchase_model->store_order_with_lines(
                 $header,
                 $lines,
-                (int)($this->current_user['id'] ?? 0)
+                (int)($this->current_user['id'] ?? 0),
+                (string)$this->input->ip_address()
             );
         } finally {
             $this->db->db_debug = $dbDebugBefore;

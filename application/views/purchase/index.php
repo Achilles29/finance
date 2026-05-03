@@ -74,6 +74,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
     </div>
     <div class="d-flex gap-2">
         <a class="btn btn-primary" href="<?php echo site_url('purchase-orders/create'); ?>">Create Order</a>
+        <a class="btn btn-outline-secondary" href="<?php echo site_url('purchase-orders/logs'); ?>">Log Purchase</a>
         <a class="btn btn-outline-primary" href="<?php echo site_url('purchase-orders/receipt'); ?>">Halaman Receipt</a>
     </div>
 </div>
