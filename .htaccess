@@ -1,0 +1,11 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /finance/
+
+  # Jangan rewrite aset/file yang memang ada
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+
+  # Buang index.php dari URL
+  RewriteRule ^(.*)$ index.php/$1 [L]
+</IfModule>

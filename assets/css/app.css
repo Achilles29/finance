@@ -1,0 +1,27 @@
+﻿/* ============================================================
+   Finance App - Additional CSS
+   (Layout sidebar dihandle Materio core.css + theme-custom.css)
+   ============================================================ */
+
+/* Matrix checkboxes */
+.matrix-cb {
+  cursor: pointer;
+  width: 1.1em;
+  height: 1.1em;
+}
+
+/* Favorit unpin button (tampil on hover) */
+.fav-unpin {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+#layout-menu li[data-fav-id]:hover .fav-unpin {
+  opacity: 1;
+}
+
+/* Table header uppercase */
+.table > :not(caption) > * > th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
