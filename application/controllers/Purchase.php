@@ -8,7 +8,11 @@ class Purchase extends MY_Controller
     const PAGE_ACCOUNT = 'purchase.account.index';
     const PAGE_STOCK_WAREHOUSE = 'purchase.stock.warehouse.index';
     const PAGE_STOCK_DIVISION = 'purchase.stock.division.index';
+    const PAGE_STOCK_WAREHOUSE_MATRIX = 'purchase.stock.warehouse.matrix.index';
+    const PAGE_STOCK_MATERIAL_MATRIX = 'purchase.stock.material.matrix.index';
     const PAGE_RECEIPT = 'purchase.receipt.index';
+    const PAGE_ORDER_LOG = 'purchase.order.log.index';
+    const PAGE_REBUILD_IMPACT = 'purchase.rebuild.impact.index';
 
     public function __construct()
     {
@@ -75,7 +79,9 @@ class Purchase extends MY_Controller
 
     public function order_log_index()
     {
-        $this->require_permission(self::PAGE_ORDER, 'view');
+        if (!$this->can(self::PAGE_ORDER_LOG, 'view')) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
 
         $q = trim((string)$this->input->get('q', true));
         $action = strtoupper(trim((string)$this->input->get('action', true)));
@@ -88,7 +94,7 @@ class Purchase extends MY_Controller
 
         $data = [
             'title' => 'Purchase Transaction Log',
-            'active_menu' => 'purchase.order',
+            'active_menu' => 'purchase.order.log',
             'q' => $q,
             'action' => $action,
             'date_from' => $dateFrom,
@@ -99,6 +105,52 @@ class Purchase extends MY_Controller
         ];
 
         $this->render('purchase/order_log_index', $data);
+    }
+
+    public function rebuild_impact_index()
+    {
+        if (!$this->can(self::PAGE_REBUILD_IMPACT, 'view')) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $data = [
+            'title' => 'Rebuild Impact Purchase',
+            'active_menu' => 'purchase.rebuild.impact',
+            'status_options' => ['DRAFT', 'APPROVED', 'ORDERED', 'REJECTED', 'PARTIAL_RECEIVED', 'RECEIVED', 'PAID', 'VOID'],
+        ];
+
+        $this->render('purchase/rebuild_impact_index', $data);
+    }
+
+    public function rebuild_impact_run()
+    {
+        if (!$this->can(self::PAGE_REBUILD_IMPACT, 'edit') && !$this->can(self::PAGE_ORDER, 'edit')) {
+            $this->jsonError('Anda tidak memiliki izin untuk menjalankan rebuild impact purchase.', 403);
+            return;
+        }
+
+        $payload = $this->requestPayload();
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->rebuild_purchase_impacts(
+                $payload,
+                (int)($this->current_user['id'] ?? 0),
+                (string)$this->input->ip_address()
+            );
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal menjalankan rebuild impact purchase.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
     }
 
     public function order_create()
@@ -219,6 +271,11 @@ class Purchase extends MY_Controller
         }
 
         $q = trim((string)$this->input->get('q', true));
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo = trim((string)$this->input->get('date_to', true));
+        $range = $this->resolveDateRange('', $dateFrom, $dateTo);
+        $dateFrom = $range['date_from'];
+        $dateTo = $range['date_to'];
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 500) {
             $limit = 200;
@@ -228,8 +285,10 @@ class Purchase extends MY_Controller
             'title' => 'Stok Gudang',
             'active_menu' => 'purchase.stock.warehouse',
             'q' => $q,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
             'limit' => $limit,
-            'rows' => $this->Purchase_model->list_warehouse_stock($q, $limit),
+            'rows' => $this->Purchase_model->list_warehouse_stock($q, $limit, $dateFrom, $dateTo),
         ];
 
         $this->render('purchase/stock_warehouse_index', $data);
@@ -295,6 +354,10 @@ class Purchase extends MY_Controller
         $q = trim((string)$this->input->get('q', true));
         $dateFrom = trim((string)$this->input->get('date_from', true));
         $dateTo = trim((string)$this->input->get('date_to', true));
+        $range = $this->resolveDateRange($month, $dateFrom, $dateTo);
+        $month = $range['month'];
+        $dateFrom = $range['date_from'];
+        $dateTo = $range['date_to'];
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 1000) {
             $limit = 300;
@@ -314,6 +377,35 @@ class Purchase extends MY_Controller
         $this->render('purchase/stock_warehouse_daily_index', $data);
     }
 
+    public function stock_warehouse_daily_matrix()
+    {
+        if (!$this->can(self::PAGE_STOCK_WAREHOUSE, 'view') && !$this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $month = trim((string)$this->input->get('month', true));
+        $q = trim((string)$this->input->get('q', true));
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo = trim((string)$this->input->get('date_to', true));
+        $range = $this->resolveDateRange($month, $dateFrom, $dateTo);
+        $month = $range['month'];
+        $dateFrom = $range['date_from'];
+        $dateTo = $range['date_to'];
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 1000) {
+            $limit = 120;
+        }
+
+        $matrix = $this->Purchase_model->list_warehouse_daily_matrix($month, $q, $dateFrom, $dateTo, $limit);
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => true,
+                'data' => $matrix,
+            ]));
+    }
+
     public function stock_warehouse_movement_index()
     {
         if (!$this->can(self::PAGE_STOCK_WAREHOUSE, 'view')) {
@@ -323,6 +415,9 @@ class Purchase extends MY_Controller
         $q = trim((string)$this->input->get('q', true));
         $dateFrom = trim((string)$this->input->get('date_from', true));
         $dateTo = trim((string)$this->input->get('date_to', true));
+        $range = $this->resolveDateRange('', $dateFrom, $dateTo);
+        $dateFrom = $range['date_from'];
+        $dateTo = $range['date_to'];
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 1000) {
             $limit = 300;
@@ -348,6 +443,16 @@ class Purchase extends MY_Controller
         }
 
         $q = trim((string)$this->input->get('q', true));
+        $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destinationFilter === '') {
+            $destinationFilter = 'ALL';
+        }
+        $divisionId = (int)$this->input->get('division_id', true);
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo = trim((string)$this->input->get('date_to', true));
+        $range = $this->resolveDateRange('', $dateFrom, $dateTo);
+        $dateFrom = $range['date_from'];
+        $dateTo = $range['date_to'];
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 500) {
             $limit = 200;
@@ -357,8 +462,13 @@ class Purchase extends MY_Controller
             'title' => 'Stok Divisi',
             'active_menu' => 'purchase.stock.division',
             'q' => $q,
+            'destination' => $destinationFilter,
+            'division_id' => $divisionId,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
             'limit' => $limit,
-            'rows' => $this->Purchase_model->list_division_stock($q, $limit),
+            'divisions' => $this->Purchase_model->list_active_operational_divisions(),
+            'rows' => $this->Purchase_model->list_division_stock($q, $limit, $destinationFilter, $dateFrom, $dateTo, $divisionId > 0 ? $divisionId : null),
         ];
 
         $this->render('purchase/stock_division_index', $data);
@@ -373,7 +483,14 @@ class Purchase extends MY_Controller
         $q = trim((string)$this->input->get('q', true));
         $dateFrom = trim((string)$this->input->get('date_from', true));
         $dateTo = trim((string)$this->input->get('date_to', true));
+        $range = $this->resolveDateRange('', $dateFrom, $dateTo);
+        $dateFrom = $range['date_from'];
+        $dateTo = $range['date_to'];
         $divisionId = (int)$this->input->get('division_id', true);
+        $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destinationFilter === '') {
+            $destinationFilter = 'ALL';
+        }
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 1000) {
             $limit = 300;
@@ -386,9 +503,10 @@ class Purchase extends MY_Controller
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
             'division_id' => $divisionId,
+            'destination' => $destinationFilter,
             'limit' => $limit,
             'divisions' => $this->Purchase_model->list_active_operational_divisions(),
-            'rows' => $this->Purchase_model->list_stock_movements('DIVISION', $q, $dateFrom, $dateTo, $divisionId > 0 ? $divisionId : null, $limit),
+            'rows' => $this->Purchase_model->list_stock_movements('DIVISION', $q, $dateFrom, $dateTo, $divisionId > 0 ? $divisionId : null, $limit, $destinationFilter),
         ];
 
         $this->render('purchase/stock_division_movement_index', $data);
@@ -404,7 +522,15 @@ class Purchase extends MY_Controller
         $q = trim((string)$this->input->get('q', true));
         $dateFrom = trim((string)$this->input->get('date_from', true));
         $dateTo = trim((string)$this->input->get('date_to', true));
+        $range = $this->resolveDateRange($month, $dateFrom, $dateTo);
+        $month = $range['month'];
+        $dateFrom = $range['date_from'];
+        $dateTo = $range['date_to'];
         $divisionId = (int)$this->input->get('division_id', true);
+        $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destinationFilter === '') {
+            $destinationFilter = 'ALL';
+        }
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 1000) {
             $limit = 300;
@@ -418,12 +544,187 @@ class Purchase extends MY_Controller
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
             'division_id' => $divisionId,
+            'destination' => $destinationFilter,
             'limit' => $limit,
             'divisions' => $this->Purchase_model->list_active_operational_divisions(),
-            'rows' => $this->Purchase_model->list_division_daily_rollup($month, $q, $divisionId > 0 ? $divisionId : null, $dateFrom, $dateTo, $limit),
+            'rows' => $this->Purchase_model->list_division_daily_rollup($month, $q, $divisionId > 0 ? $divisionId : null, $dateFrom, $dateTo, $limit, $destinationFilter),
         ];
 
         $this->render('purchase/stock_division_daily_index', $data);
+    }
+
+    public function inventory_warehouse_daily_index()
+    {
+        if (!$this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')) {
+            if (!$this->can(self::PAGE_STOCK_WAREHOUSE, 'view')) {
+                $this->require_permission(self::PAGE_ORDER, 'view');
+            }
+        }
+
+        $month = trim((string)$this->input->get('month', true));
+        $q = trim((string)$this->input->get('q', true));
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo = trim((string)$this->input->get('date_to', true));
+        $range = $this->resolveDateRange($month, $dateFrom, $dateTo);
+        $month = $range['month'];
+        $dateFrom = $range['date_from'];
+        $dateTo = $range['date_to'];
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 1000) {
+            $limit = 120;
+        }
+
+        $data = [
+            'title' => 'Inventory Warehouse Daily',
+            'active_menu' => 'purchase.stock.warehouse.matrix',
+            'month' => $month,
+            'q' => $q,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'limit' => $limit,
+            'matrix_url' => site_url('inventory-warehouse-daily/matrix'),
+            'detail_url' => site_url('inventory-daily/cell-detail'),
+        ];
+
+        $this->render('purchase/inventory_warehouse_daily_index', $data);
+    }
+
+    public function inventory_material_daily_index()
+    {
+        if (!$this->can(self::PAGE_STOCK_MATERIAL_MATRIX, 'view')) {
+            if (!$this->can(self::PAGE_STOCK_DIVISION, 'view')) {
+                $this->require_permission(self::PAGE_ORDER, 'view');
+            }
+        }
+
+        $month = trim((string)$this->input->get('month', true));
+        $q = trim((string)$this->input->get('q', true));
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo = trim((string)$this->input->get('date_to', true));
+        $range = $this->resolveDateRange($month, $dateFrom, $dateTo);
+        $month = $range['month'];
+        $dateFrom = $range['date_from'];
+        $dateTo = $range['date_to'];
+        $divisionId = (int)$this->input->get('division_id', true);
+        $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destinationFilter === '') {
+            $destinationFilter = 'ALL';
+        }
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 1000) {
+            $limit = 120;
+        }
+
+        $data = [
+            'title' => 'Inventory Material Daily',
+            'active_menu' => 'purchase.stock.material.matrix',
+            'month' => $month,
+            'q' => $q,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'division_id' => $divisionId,
+            'destination' => $destinationFilter,
+            'limit' => $limit,
+            'divisions' => $this->Purchase_model->list_active_operational_divisions(),
+            'matrix_url' => site_url('inventory-material-daily/matrix'),
+            'detail_url' => site_url('inventory-daily/cell-detail'),
+        ];
+
+        $this->render('purchase/inventory_material_daily_index', $data);
+    }
+
+    public function stock_daily_cell_detail()
+    {
+        $scope = strtoupper(trim((string)$this->input->get('scope', true)));
+        if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
+            $scope = 'WAREHOUSE';
+        }
+
+        if ($scope === 'DIVISION') {
+            if (!$this->can(self::PAGE_STOCK_DIVISION, 'view') && !$this->can(self::PAGE_STOCK_MATERIAL_MATRIX, 'view')) {
+                $this->require_permission(self::PAGE_ORDER, 'view');
+            }
+        } else {
+            if (!$this->can(self::PAGE_STOCK_WAREHOUSE, 'view') && !$this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')) {
+                $this->require_permission(self::PAGE_ORDER, 'view');
+            }
+        }
+
+        $movementDate = trim((string)$this->input->get('movement_date', true));
+        if ($movementDate === '') {
+            $this->jsonError('movement_date wajib diisi.', 422);
+            return;
+        }
+
+        $payload = [
+            'scope' => $scope,
+            'movement_date' => $movementDate,
+            'division_id' => (int)$this->input->get('division_id', true),
+            'stock_domain' => strtoupper(trim((string)$this->input->get('stock_domain', true))),
+            'item_id' => (int)$this->input->get('item_id', true),
+            'material_id' => (int)$this->input->get('material_id', true),
+            'buy_uom_id' => (int)$this->input->get('buy_uom_id', true),
+            'content_uom_id' => (int)$this->input->get('content_uom_id', true),
+            'destination_type' => trim((string)$this->input->get('destination_type', true)),
+            'profile_key' => trim((string)$this->input->get('profile_key', true)),
+            'limit' => (int)$this->input->get('limit', true),
+        ];
+
+        $rows = $this->Purchase_model->list_stock_movement_cell_detail($payload);
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => true,
+                'rows' => $rows,
+                'meta' => [
+                    'scope' => $scope,
+                    'movement_date' => $movementDate,
+                    'total' => count($rows),
+                ],
+            ]));
+    }
+
+    public function stock_material_daily_matrix()
+    {
+        if (!$this->can(self::PAGE_STOCK_DIVISION, 'view') && !$this->can(self::PAGE_STOCK_MATERIAL_MATRIX, 'view')) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $month = trim((string)$this->input->get('month', true));
+        $q = trim((string)$this->input->get('q', true));
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo = trim((string)$this->input->get('date_to', true));
+        $range = $this->resolveDateRange($month, $dateFrom, $dateTo);
+        $month = $range['month'];
+        $dateFrom = $range['date_from'];
+        $dateTo = $range['date_to'];
+        $divisionId = (int)$this->input->get('division_id', true);
+        $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destinationFilter === '') {
+            $destinationFilter = 'ALL';
+        }
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 1000) {
+            $limit = 120;
+        }
+
+        $matrix = $this->Purchase_model->list_material_daily_matrix(
+            $month,
+            $q,
+            $divisionId > 0 ? $divisionId : null,
+            $dateFrom,
+            $dateTo,
+            $limit,
+            $destinationFilter
+        );
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => true,
+                'data' => $matrix,
+            ]));
     }
 
     public function receipt_index()
@@ -778,6 +1079,37 @@ class Purchase extends MY_Controller
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($result));
+    }
+
+    private function resolveDateRange(string $month, string $dateFrom, string $dateTo): array
+    {
+        $month = trim($month);
+        $monthTs = $month !== '' ? strtotime($month . '-01') : false;
+        if ($monthTs === false) {
+            $monthTs = strtotime(date('Y-m-01'));
+        }
+
+        $monthNorm = date('Y-m', $monthTs);
+        $defaultFrom = date('Y-m-01', $monthTs);
+        $defaultTo = date('Y-m-t', $monthTs);
+
+        $fromTs = trim($dateFrom) !== '' ? strtotime($dateFrom) : false;
+        $toTs = trim($dateTo) !== '' ? strtotime($dateTo) : false;
+
+        $from = $fromTs !== false ? date('Y-m-d', $fromTs) : $defaultFrom;
+        $to = $toTs !== false ? date('Y-m-d', $toTs) : $defaultTo;
+
+        if ($from > $to) {
+            $tmp = $from;
+            $from = $to;
+            $to = $tmp;
+        }
+
+        return [
+            'month' => $monthNorm,
+            'date_from' => $from,
+            'date_to' => $to,
+        ];
     }
 
     private function requestPayload(): array

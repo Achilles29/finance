@@ -116,6 +116,9 @@ $baseUrl = site_url('finance/mutations');
           <div class="col-md-2 d-grid">
             <button class="btn btn-outline-primary" type="submit">Filter</button>
           </div>
+          <div class="col-md-2 d-grid">
+            <a href="<?php echo $baseUrl; ?>" class="btn btn-outline-danger">Clear</a>
+          </div>
         </form>
       </div>
 

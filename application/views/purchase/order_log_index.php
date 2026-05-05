@@ -45,6 +45,9 @@ $actionOptions = is_array($action_options ?? null) ? $action_options : [];
       <div class="col-md-1 d-grid">
         <button type="submit" class="btn btn-outline-primary">Filter</button>
       </div>
+      <div class="col-md-1 d-grid">
+        <a href="<?php echo $baseUrl; ?>" class="btn btn-outline-danger">Clear</a>
+      </div>
     </form>
   </div>
 </div>

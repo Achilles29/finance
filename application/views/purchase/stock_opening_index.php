@@ -1,6 +1,14 @@
 <?php
 $baseUrl = site_url('purchase/stock/opening');
 $storeUrl = site_url('purchase/stock/opening/store');
+$rowsData = is_array($rows ?? null) ? $rows : [];
+$summaryRows = count($rowsData);
+$summaryQtyContent = 0.0;
+$summaryValue = 0.0;
+foreach ($rowsData as $row) {
+  $summaryQtyContent += (float)($row['opening_qty_content'] ?? 0);
+  $summaryValue += (float)($row['opening_total_value'] ?? 0);
+}
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -59,15 +67,15 @@ $storeUrl = site_url('purchase/stock/opening/store');
           </div>
           <div class="col-4">
             <label class="form-label">Qty Beli</label>
-            <input type="number" class="form-control" id="opening_qty_buy" min="0" step="0.0001" value="0">
+            <input type="number" class="form-control" id="opening_qty_buy" min="0" step="0.01" value="0">
           </div>
           <div class="col-4">
             <label class="form-label">Qty Isi</label>
-            <input type="number" class="form-control" id="opening_qty_content" min="0" step="0.0001" value="0" required>
+            <input type="number" class="form-control" id="opening_qty_content" min="0" step="0.01" value="0" required>
           </div>
           <div class="col-4">
             <label class="form-label">Avg Cost/Isi</label>
-            <input type="number" class="form-control" id="opening_avg_cost_per_content" min="0" step="0.000001" value="0">
+            <input type="number" class="form-control" id="opening_avg_cost_per_content" min="0" step="0.01" value="0">
           </div>
           <div class="col-12">
             <label class="form-label">Profile Name</label>
@@ -79,7 +87,7 @@ $storeUrl = site_url('purchase/stock/opening/store');
           </div>
           <div class="col-6">
             <label class="form-label">Isi/Beli</label>
-            <input type="number" class="form-control" id="profile_content_per_buy" min="0.000001" step="0.000001" value="1">
+            <input type="number" class="form-control" id="profile_content_per_buy" min="0.01" step="0.01" value="1">
           </div>
           <div class="col-12">
             <label class="form-label">Keterangan</label>
@@ -123,8 +131,17 @@ $storeUrl = site_url('purchase/stock/opening/store');
           <div class="col-md-2 d-grid">
             <button type="submit" class="btn btn-outline-primary">Filter</button>
           </div>
+          <div class="col-md-2 d-grid">
+            <a href="<?php echo $baseUrl; ?>" class="btn btn-outline-danger">Clear</a>
+          </div>
         </form>
       </div>
+    </div>
+
+    <div class="row g-2 mb-3">
+      <div class="col-6 col-md-4"><div class="card"><div class="card-body py-2"><div class="small text-muted">Snapshot</div><div class="h5 mb-0"><?php echo number_format($summaryRows); ?></div></div></div></div>
+      <div class="col-6 col-md-4"><div class="card"><div class="card-body py-2"><div class="small text-muted">Qty Isi Total</div><div class="h5 mb-0"><?php echo number_format($summaryQtyContent, 2, ',', '.'); ?></div></div></div></div>
+      <div class="col-6 col-md-4"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Value</div><div class="h5 mb-0"><?php echo number_format($summaryValue, 2, ',', '.'); ?></div></div></div></div>
     </div>
 
     <div class="card">
@@ -154,9 +171,9 @@ $storeUrl = site_url('purchase/stock/opening/store');
                     <?php echo html_escape((string)($r['profile_name'] ?? '-')); ?><br>
                     <small class="text-muted"><?php echo html_escape((string)($r['profile_brand'] ?? '-')); ?> | <?php echo html_escape((string)($r['profile_description'] ?? '-')); ?></small>
                   </td>
-                  <td class="text-end"><?php echo number_format((float)$r['opening_qty_buy'], 4, ',', '.'); ?></td>
-                  <td class="text-end"><?php echo number_format((float)$r['opening_qty_content'], 4, ',', '.'); ?></td>
-                  <td class="text-end"><?php echo number_format((float)$r['opening_avg_cost_per_content'], 6, ',', '.'); ?></td>
+                  <td class="text-end"><?php echo ui_num((float)$r['opening_qty_buy']); ?></td>
+                  <td class="text-end"><?php echo ui_num((float)$r['opening_qty_content']); ?></td>
+                  <td class="text-end"><?php echo ui_num((float)$r['opening_avg_cost_per_content']); ?></td>
                   <td class="text-end"><?php echo number_format((float)$r['opening_total_value'], 2, ',', '.'); ?></td>
                   <td><?php echo html_escape((string)($r['source_type'] ?? '-')); ?></td>
                 </tr>

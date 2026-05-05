@@ -431,7 +431,64 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
-    public function list_division_daily_rollup(string $month, string $q, ?int $divisionId, string $dateFrom, string $dateTo, int $limit): array
+    public function list_warehouse_daily_matrix(string $month, string $q, string $dateFrom, string $dateTo, int $limit): array
+    {
+        if (!$this->db->table_exists('inv_warehouse_daily_rollup')) {
+            return [
+                'window' => [
+                    'month_key' => null,
+                    'date_from' => null,
+                    'date_to' => null,
+                ],
+                'dates' => [],
+                'rows' => [],
+            ];
+        }
+
+        $window = $this->resolveDailyWindow($month, $dateFrom, $dateTo);
+        $dates = $this->buildDateSeries($window['date_from'], $window['date_to']);
+
+        $this->db
+            ->select('d.movement_date, d.stock_domain, d.item_id, d.material_id, d.buy_uom_id, d.content_uom_id')
+            ->select('d.profile_key, d.profile_name, d.profile_brand, d.profile_description')
+            ->select('d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
+            ->select('d.opening_qty_content, d.in_qty_content, d.out_qty_content, d.adjustment_qty_content, d.closing_qty_content')
+            ->select('d.total_value, d.mutation_count')
+            ->select('i.item_code, i.item_name, m.material_code, m.material_name')
+            ->from('inv_warehouse_daily_rollup d')
+            ->join('mst_item i', 'i.id = d.item_id', 'left')
+            ->join('mst_material m', 'm.id = d.material_id', 'left')
+            ->where('d.movement_date >=', $window['date_from'])
+            ->where('d.movement_date <=', $window['date_to']);
+
+        if ($q !== '') {
+            $this->db
+                ->group_start()
+                    ->like('i.item_code', $q)
+                    ->or_like('i.item_name', $q)
+                    ->or_like('m.material_code', $q)
+                    ->or_like('m.material_name', $q)
+                    ->or_like('d.profile_name', $q)
+                    ->or_like('d.profile_brand', $q)
+                    ->or_like('d.profile_description', $q)
+                ->group_end();
+        }
+
+        $rows = $this->db
+            ->order_by('COALESCE(i.item_name, m.material_name)', 'ASC', false)
+            ->order_by('d.profile_name', 'ASC')
+            ->order_by('d.movement_date', 'ASC')
+            ->get()
+            ->result_array();
+
+        return [
+            'window' => $window,
+            'dates' => $dates,
+            'rows' => $this->pivotDailyRows($rows, $limit),
+        ];
+    }
+
+    public function list_division_daily_rollup(string $month, string $q, ?int $divisionId, string $dateFrom, string $dateTo, int $limit, ?string $destinationFilter = null): array
     {
         if (!$this->db->table_exists('inv_division_daily_rollup')) {
             return [];
@@ -440,14 +497,29 @@ class Purchase_model extends CI_Model
         $monthKey = $this->normalizeMonth($month);
         $from = $this->normalizeDate($dateFrom);
         $to = $this->normalizeDate($dateTo);
+        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_division_daily_rollup');
+        $destinationTypeSource = $hasDestinationType ? 'd.destination_type' : "'OTHER'";
 
-        $hasDivisionCode = $this->db->field_exists('division_code', 'mst_operational_division');
-        $hasDivisionName = $this->db->field_exists('division_name', 'mst_operational_division');
-        $divisionCodeSelect = $hasDivisionCode ? 'dv.division_code' : 'CAST(d.division_id AS CHAR) AS division_code';
-        $divisionNameSelect = $hasDivisionName ? 'dv.division_name' : 'NULL AS division_name';
+        $destinationGroupExpr = "CASE\n                WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'\n                ELSE 'REGULER'\n            END";
+        $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
+
+        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+            ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $hasDivisionCode = $divisionCodeColumn !== null;
+        $hasDivisionName = $divisionNameColumn !== null;
+        $divisionCodeSelect = $hasDivisionCode ? ('dv.' . $divisionCodeColumn . ' AS division_code') : 'CAST(d.division_id AS CHAR) AS division_code';
+        $divisionNameSelect = $hasDivisionName ? ('dv.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
         $this->db
             ->select('d.id, d.month_key, d.movement_date, d.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect, false)
+            ->select($destinationTypeSource . ' AS destination_type', false)
+            ->select($destinationGroupExpr . ' AS destination_group', false)
+            ->select($destinationNameExpr . ' AS destination_name', false)
             ->select('d.stock_domain, d.item_id, d.material_id, d.profile_name, d.profile_brand, d.profile_description')
             ->select('d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
             ->select('d.opening_qty_content, d.in_qty_content, d.out_qty_content, d.adjustment_qty_content, d.closing_qty_content')
@@ -470,16 +542,25 @@ class Purchase_model extends CI_Model
         if ($to !== null) {
             $this->db->where('d.movement_date <=', $to);
         }
+        if ($destinationFilter !== null && $destinationFilter !== 'ALL' && $hasDestinationType) {
+            if ($destinationFilter === 'REGULER') {
+                $this->db->where_not_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } elseif ($destinationFilter === 'EVENT') {
+                $this->db->where_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } else {
+                $this->db->where('d.destination_type', $destinationFilter);
+            }
+        }
 
         if ($q !== '') {
             $this->db->group_start();
             if ($hasDivisionCode) {
-                $this->db->like('dv.division_code', $q);
+                $this->db->like('dv.' . $divisionCodeColumn, $q);
                 if ($hasDivisionName) {
-                    $this->db->or_like('dv.division_name', $q);
+                    $this->db->or_like('dv.' . $divisionNameColumn, $q);
                 }
             } elseif ($hasDivisionName) {
-                $this->db->like('dv.division_name', $q);
+                $this->db->like('dv.' . $divisionNameColumn, $q);
             }
             $this->db->or_like('i.item_code', $q)
                 ->or_like('i.item_name', $q)
@@ -488,18 +569,124 @@ class Purchase_model extends CI_Model
                 ->or_like('d.profile_name', $q)
                 ->or_like('d.profile_brand', $q)
                 ->or_like('d.profile_description', $q)
+                ->or_like($destinationGroupExpr, $q, 'both', false)
+                ->or_like($destinationNameExpr, $q, 'both', false)
                 ->group_end();
         }
 
         return $this->db
             ->order_by('d.movement_date', 'DESC')
-            ->order_by($hasDivisionName ? 'dv.division_name' : 'd.division_id', 'ASC')
+            ->order_by($hasDivisionName ? ('dv.' . $divisionNameColumn) : 'd.division_id', 'ASC')
             ->limit($limit)
             ->get()
             ->result_array();
     }
 
-    public function list_stock_movements(string $scope, string $q, string $dateFrom, string $dateTo, ?int $divisionId, int $limit): array
+    public function list_material_daily_matrix(string $month, string $q, ?int $divisionId, string $dateFrom, string $dateTo, int $limit, ?string $destinationFilter = null): array
+    {
+        if (!$this->db->table_exists('inv_division_daily_rollup')) {
+            return [
+                'window' => [
+                    'month_key' => null,
+                    'date_from' => null,
+                    'date_to' => null,
+                ],
+                'dates' => [],
+                'rows' => [],
+            ];
+        }
+
+        $window = $this->resolveDailyWindow($month, $dateFrom, $dateTo);
+        $dates = $this->buildDateSeries($window['date_from'], $window['date_to']);
+        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_division_daily_rollup');
+        $destinationTypeSource = $hasDestinationType ? 'd.destination_type' : "'OTHER'";
+
+        $destinationGroupExpr = "CASE\n                WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'\n                ELSE 'REGULER'\n            END";
+        $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
+
+        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+            ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $hasDivisionCode = $divisionCodeColumn !== null;
+        $hasDivisionName = $divisionNameColumn !== null;
+        $divisionCodeSelect = $hasDivisionCode ? ('dv.' . $divisionCodeColumn . ' AS division_code') : 'CAST(d.division_id AS CHAR) AS division_code';
+        $divisionNameSelect = $hasDivisionName ? ('dv.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $this->db
+            ->select('d.movement_date, d.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect, false)
+            ->select($destinationTypeSource . ' AS destination_type', false)
+            ->select($destinationGroupExpr . ' AS destination_group', false)
+            ->select($destinationNameExpr . ' AS destination_name', false)
+            ->select('d.stock_domain, d.item_id, d.material_id, d.buy_uom_id, d.content_uom_id')
+            ->select('d.profile_key, d.profile_name, d.profile_brand, d.profile_description')
+            ->select('d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
+            ->select('d.opening_qty_content, d.in_qty_content, d.out_qty_content, d.adjustment_qty_content, d.closing_qty_content')
+            ->select('d.total_value, d.mutation_count')
+            ->select('i.item_code, i.item_name, m.material_code, m.material_name')
+            ->from('inv_division_daily_rollup d')
+            ->join('mst_operational_division dv', 'dv.id = d.division_id', 'left')
+            ->join('mst_item i', 'i.id = d.item_id', 'left')
+            ->join('mst_material m', 'm.id = d.material_id', 'left')
+            ->where('d.stock_domain', 'MATERIAL')
+            ->where('d.movement_date >=', $window['date_from'])
+            ->where('d.movement_date <=', $window['date_to']);
+
+        if ($divisionId !== null && $divisionId > 0) {
+            $this->db->where('d.division_id', $divisionId);
+        }
+        if ($destinationFilter !== null && $destinationFilter !== 'ALL' && $hasDestinationType) {
+            if ($destinationFilter === 'REGULER') {
+                $this->db->where_not_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } elseif ($destinationFilter === 'EVENT') {
+                $this->db->where_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } else {
+                $this->db->where('d.destination_type', $destinationFilter);
+            }
+        }
+
+        if ($q !== '') {
+            $this->db->group_start();
+            if ($hasDivisionCode) {
+                $this->db->like('dv.' . $divisionCodeColumn, $q);
+                if ($hasDivisionName) {
+                    $this->db->or_like('dv.' . $divisionNameColumn, $q);
+                }
+            } elseif ($hasDivisionName) {
+                $this->db->like('dv.' . $divisionNameColumn, $q);
+            }
+            $this->db
+                ->or_like('i.item_code', $q)
+                ->or_like('i.item_name', $q)
+                ->or_like('m.material_code', $q)
+                ->or_like('m.material_name', $q)
+                ->or_like('d.profile_name', $q)
+                ->or_like('d.profile_brand', $q)
+                ->or_like('d.profile_description', $q)
+                ->or_like($destinationGroupExpr, $q, 'both', false)
+                ->or_like($destinationNameExpr, $q, 'both', false)
+                ->group_end();
+        }
+
+        $rows = $this->db
+            ->order_by($hasDivisionName ? ('dv.' . $divisionNameColumn) : 'd.division_id', 'ASC')
+            ->order_by('COALESCE(m.material_name, i.item_name)', 'ASC', false)
+            ->order_by('d.profile_name', 'ASC')
+            ->order_by('d.movement_date', 'ASC')
+            ->get()
+            ->result_array();
+
+        return [
+            'window' => $window,
+            'dates' => $dates,
+            'rows' => $this->pivotDailyRows($rows, $limit),
+        ];
+    }
+
+    public function list_stock_movements(string $scope, string $q, string $dateFrom, string $dateTo, ?int $divisionId, int $limit, ?string $destinationFilter = null): array
     {
         if (!$this->db->table_exists('inv_stock_movement_log')) {
             return [];
@@ -512,14 +699,29 @@ class Purchase_model extends CI_Model
 
         $from = $this->normalizeDate($dateFrom);
         $to = $this->normalizeDate($dateTo);
+        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
+        $destinationTypeSource = $hasDestinationType ? 'l.destination_type' : "'OTHER'";
 
-        $hasDivisionCode = $this->db->field_exists('division_code', 'mst_operational_division');
-        $hasDivisionName = $this->db->field_exists('division_name', 'mst_operational_division');
-        $divisionCodeSelect = $hasDivisionCode ? 'dv.division_code' : 'CAST(l.division_id AS CHAR) AS division_code';
-        $divisionNameSelect = $hasDivisionName ? 'dv.division_name' : 'NULL AS division_name';
+        $destinationGroupExpr = "CASE\n                WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'\n                ELSE 'REGULER'\n            END";
+        $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
+
+        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+            ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $hasDivisionCode = $divisionCodeColumn !== null;
+        $hasDivisionName = $divisionNameColumn !== null;
+        $divisionCodeSelect = $hasDivisionCode ? ('dv.' . $divisionCodeColumn . ' AS division_code') : 'CAST(l.division_id AS CHAR) AS division_code';
+        $divisionNameSelect = $hasDivisionName ? ('dv.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
         $this->db
             ->select('l.id, l.movement_no, l.movement_date, l.movement_scope, l.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect, false)
+            ->select($destinationTypeSource . ' AS destination_type', false)
+            ->select($destinationGroupExpr . ' AS destination_group', false)
+            ->select($destinationNameExpr . ' AS destination_name', false)
             ->select('l.movement_type, l.item_id, l.material_id, l.profile_name, l.profile_brand, l.profile_description')
             ->select('l.profile_content_per_buy, l.profile_buy_uom_code, l.profile_content_uom_code')
             ->select('l.qty_buy_delta, l.qty_content_delta, l.qty_buy_after, l.qty_content_after, l.unit_cost')
@@ -534,6 +736,15 @@ class Purchase_model extends CI_Model
         if ($scope === 'DIVISION' && $divisionId !== null && $divisionId > 0) {
             $this->db->where('l.division_id', $divisionId);
         }
+        if ($scope === 'DIVISION' && $destinationFilter !== null && $destinationFilter !== 'ALL' && $hasDestinationType) {
+            if ($destinationFilter === 'REGULER') {
+                $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } elseif ($destinationFilter === 'EVENT') {
+                $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } else {
+                $this->db->where('l.destination_type', $destinationFilter);
+            }
+        }
         if ($from !== null) {
             $this->db->where('l.movement_date >=', $from);
         }
@@ -544,12 +755,12 @@ class Purchase_model extends CI_Model
         if ($q !== '') {
             $this->db->group_start();
             if ($hasDivisionCode) {
-                $this->db->like('dv.division_code', $q);
+                $this->db->like('dv.' . $divisionCodeColumn, $q);
                 if ($hasDivisionName) {
-                    $this->db->or_like('dv.division_name', $q);
+                    $this->db->or_like('dv.' . $divisionNameColumn, $q);
                 }
             } elseif ($hasDivisionName) {
-                $this->db->like('dv.division_name', $q);
+                $this->db->like('dv.' . $divisionNameColumn, $q);
             }
             $this->db->or_like('l.movement_no', $q)
                 ->or_like('l.movement_type', $q)
@@ -560,12 +771,130 @@ class Purchase_model extends CI_Model
                 ->or_like('l.profile_name', $q)
                 ->or_like('l.profile_brand', $q)
                 ->or_like('l.profile_description', $q)
+                ->or_like($destinationGroupExpr, $q, 'both', false)
+                ->or_like($destinationNameExpr, $q, 'both', false)
                 ->group_end();
         }
 
         return $this->db
             ->order_by('l.movement_date', 'DESC')
             ->order_by('l.id', 'DESC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function list_stock_movement_cell_detail(array $payload): array
+    {
+        if (!$this->db->table_exists('inv_stock_movement_log')) {
+            return [];
+        }
+
+        $scope = strtoupper(trim((string)($payload['scope'] ?? 'WAREHOUSE')));
+        if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
+            $scope = 'WAREHOUSE';
+        }
+
+        $movementDate = $this->normalizeDate((string)($payload['movement_date'] ?? ''));
+        if ($movementDate === null) {
+            return [];
+        }
+
+        $divisionId = (int)($payload['division_id'] ?? 0);
+        $destinationType = $this->normalizeDestinationFilter((string)($payload['destination_type'] ?? ''));
+        $stockDomain = strtoupper(trim((string)($payload['stock_domain'] ?? '')));
+        $itemId = (int)($payload['item_id'] ?? 0);
+        $materialId = (int)($payload['material_id'] ?? 0);
+        $buyUomId = (int)($payload['buy_uom_id'] ?? 0);
+        $contentUomId = (int)($payload['content_uom_id'] ?? 0);
+        $profileKey = trim((string)($payload['profile_key'] ?? ''));
+        $limit = (int)($payload['limit'] ?? 200);
+        if ($limit <= 0 || $limit > 1000) {
+            $limit = 200;
+        }
+
+        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+            ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $hasDivisionCode = $divisionCodeColumn !== null;
+        $hasDivisionName = $divisionNameColumn !== null;
+        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
+        $destinationTypeSource = $hasDestinationType ? 'l.destination_type' : "'OTHER'";
+        $destinationGroupExpr = "CASE\n                WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'\n                ELSE 'REGULER'\n            END";
+        $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
+        $divisionCodeSelect = $hasDivisionCode ? ('dv.' . $divisionCodeColumn . ' AS division_code') : 'CAST(l.division_id AS CHAR) AS division_code';
+        $divisionNameSelect = $hasDivisionName ? ('dv.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $this->db
+            ->select('l.id, l.movement_no, l.movement_date, l.movement_scope, l.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect, false)
+            ->select($destinationTypeSource . ' AS destination_type', false)
+            ->select($destinationGroupExpr . ' AS destination_group', false)
+            ->select($destinationNameExpr . ' AS destination_name', false)
+            ->select('l.movement_type, l.item_id, l.material_id, l.buy_uom_id, l.content_uom_id')
+            ->select('l.profile_key, l.profile_name, l.profile_brand, l.profile_description')
+            ->select('l.profile_content_per_buy, l.profile_buy_uom_code, l.profile_content_uom_code')
+            ->select('l.qty_buy_delta, l.qty_content_delta, l.qty_buy_after, l.qty_content_after, l.unit_cost')
+            ->select('l.ref_table, l.ref_id, l.receipt_id, l.receipt_line_id, l.notes, l.created_at')
+            ->select('i.item_code, i.item_name, m.material_code, m.material_name')
+            ->from('inv_stock_movement_log l')
+            ->join('mst_operational_division dv', 'dv.id = l.division_id', 'left')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->join('mst_material m', 'm.id = l.material_id', 'left')
+            ->where('l.movement_scope', $scope)
+            ->where('l.movement_date', $movementDate);
+
+        if ($scope === 'DIVISION' && $divisionId > 0) {
+            $this->db->where('l.division_id', $divisionId);
+        }
+        if ($scope === 'DIVISION' && $destinationType !== null && $destinationType !== 'ALL' && $hasDestinationType) {
+            if ($destinationType === 'REGULER') {
+                $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } elseif ($destinationType === 'EVENT') {
+                $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } else {
+                $this->db->where('l.destination_type', $destinationType);
+            }
+        }
+
+        if ($stockDomain === 'MATERIAL') {
+            if ($materialId > 0) {
+                $this->db->where('l.material_id', $materialId);
+            }
+            if ($itemId > 0) {
+                $this->db->where('l.item_id', $itemId);
+            }
+        } elseif ($stockDomain === 'ITEM') {
+            if ($itemId > 0) {
+                $this->db->where('l.item_id', $itemId);
+            }
+            if ($materialId > 0) {
+                $this->db->where('l.material_id', $materialId);
+            }
+        } else {
+            if ($itemId > 0) {
+                $this->db->where('l.item_id', $itemId);
+            }
+            if ($materialId > 0) {
+                $this->db->where('l.material_id', $materialId);
+            }
+        }
+
+        if ($contentUomId > 0) {
+            $this->db->where('l.content_uom_id', $contentUomId);
+        }
+        if ($buyUomId > 0) {
+            $this->db->where('l.buy_uom_id', $buyUomId);
+        }
+        if ($profileKey !== '') {
+            $this->db->where('l.profile_key', $profileKey);
+        }
+
+        return $this->db
+            ->order_by('l.created_at', 'ASC')
+            ->order_by('l.id', 'ASC')
             ->limit($limit)
             ->get()
             ->result_array();
@@ -1094,11 +1423,14 @@ class Purchase_model extends CI_Model
         ];
     }
 
-    public function list_warehouse_stock(string $q, int $limit): array
+    public function list_warehouse_stock(string $q, int $limit, string $dateFrom = '', string $dateTo = ''): array
     {
         if (!$this->db->table_exists('inv_warehouse_stock_balance')) {
             return [];
         }
+
+        $from = $this->normalizeDate($dateFrom);
+        $to = $this->normalizeDate($dateTo);
 
         $this->db
             ->select('s.id, s.item_id, i.item_code, i.item_name, s.profile_key, s.profile_name, s.profile_brand, s.profile_description')
@@ -1106,6 +1438,13 @@ class Purchase_model extends CI_Model
             ->select('s.qty_buy_balance, s.qty_content_balance, s.avg_cost_per_content, s.updated_at')
             ->from('inv_warehouse_stock_balance s')
             ->join('mst_item i', 'i.id = s.item_id', 'left');
+
+        if ($from !== null) {
+            $this->db->where('DATE(s.updated_at) >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('DATE(s.updated_at) <=', $to);
+        }
 
         if ($q !== '') {
             $this->db->group_start()
@@ -1131,19 +1470,37 @@ class Purchase_model extends CI_Model
         return $query->result_array();
     }
 
-    public function list_division_stock(string $q, int $limit): array
+    public function list_division_stock(string $q, int $limit, ?string $destinationFilter = null, string $dateFrom = '', string $dateTo = '', ?int $divisionId = null): array
     {
         if (!$this->db->table_exists('inv_division_stock_balance')) {
             return [];
         }
 
-        $hasDivisionCode = $this->db->field_exists('division_code', 'mst_operational_division');
-        $hasDivisionName = $this->db->field_exists('division_name', 'mst_operational_division');
-        $divisionCodeSelect = $hasDivisionCode ? 'd.division_code' : 'CAST(s.division_id AS CHAR) AS division_code';
-        $divisionNameSelect = $hasDivisionName ? 'd.division_name' : 'NULL AS division_name';
+        $from = $this->normalizeDate($dateFrom);
+        $to = $this->normalizeDate($dateTo);
+        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_division_stock_balance');
+
+        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+            ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $hasDivisionCode = $divisionCodeColumn !== null;
+        $hasDivisionName = $divisionNameColumn !== null;
+        $divisionCodeSelect = $hasDivisionCode ? ('d.' . $divisionCodeColumn . ' AS division_code') : 'CAST(s.division_id AS CHAR) AS division_code';
+        $divisionNameSelect = $hasDivisionName ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+        $destinationTypeSource = $hasDestinationType ? 's.destination_type' : "'OTHER'";
+
+        $destinationGroupExpr = "CASE\n                WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'\n                ELSE 'REGULER'\n            END";
+        $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
 
         $this->db
             ->select('s.id, s.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect . ', s.item_id, s.material_id', false)
+            ->select($destinationTypeSource . ' AS destination_type', false)
+            ->select($destinationGroupExpr . ' AS destination_group', false)
+            ->select($destinationNameExpr . ' AS destination_name', false)
             ->select('i.item_code, i.item_name, m.material_code, m.material_name')
             ->select('s.profile_key, s.profile_name, s.profile_brand, s.profile_description')
             ->select('s.profile_content_per_buy, s.profile_buy_uom_code, s.profile_content_uom_code')
@@ -1153,18 +1510,39 @@ class Purchase_model extends CI_Model
             ->join('mst_item i', 'i.id = s.item_id', 'left')
             ->join('mst_material m', 'm.id = s.material_id', 'left');
 
+        if ($from !== null) {
+            $this->db->where('DATE(s.updated_at) >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('DATE(s.updated_at) <=', $to);
+        }
+
+        if ($divisionId !== null && $divisionId > 0) {
+            $this->db->where('s.division_id', $divisionId);
+        }
+
+        if ($destinationFilter !== null && $destinationFilter !== 'ALL' && $hasDestinationType) {
+            if ($destinationFilter === 'REGULER') {
+                $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } elseif ($destinationFilter === 'EVENT') {
+                $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } else {
+                $this->db->where('s.destination_type', $destinationFilter);
+            }
+        }
+
         if ($q !== '') {
             $this->db->group_start();
             $hasDivisionFilter = false;
             if ($hasDivisionCode) {
-                $this->db->like('d.division_code', $q);
+                $this->db->like('d.' . $divisionCodeColumn, $q);
                 $hasDivisionFilter = true;
             }
             if ($hasDivisionName) {
                 if ($hasDivisionFilter) {
-                    $this->db->or_like('d.division_name', $q);
+                    $this->db->or_like('d.' . $divisionNameColumn, $q);
                 } else {
-                    $this->db->like('d.division_name', $q);
+                    $this->db->like('d.' . $divisionNameColumn, $q);
                 }
                 $hasDivisionFilter = true;
             }
@@ -1179,10 +1557,12 @@ class Purchase_model extends CI_Model
                 ->or_like('s.profile_brand', $q)
                 ->or_like('s.profile_description', $q)
                 ->or_like('s.profile_key', $q)
+                ->or_like($destinationGroupExpr, $q, 'both', false)
+                ->or_like($destinationNameExpr, $q, 'both', false)
                 ->group_end();
         }
 
-        $this->db->order_by($hasDivisionName ? 'd.division_name' : 's.division_id', 'ASC');
+        $this->db->order_by($hasDivisionName ? ('d.' . $divisionNameColumn) : 's.division_id', 'ASC');
 
         $this->db
             ->order_by('i.item_name', 'ASC')
@@ -1375,6 +1755,265 @@ class Purchase_model extends CI_Model
             ->limit($limit)
             ->get()
             ->result_array();
+    }
+
+    public function rebuild_purchase_impacts(array $payload, int $userId, string $sourceIp = ''): array
+    {
+        if (!$this->db->table_exists('pur_purchase_order')) {
+            return [
+                'ok' => false,
+                'message' => 'Tabel pur_purchase_order belum tersedia.',
+            ];
+        }
+
+        $scope = strtoupper(trim((string)($payload['scope'] ?? 'GLOBAL')));
+        if (!in_array($scope, ['TRANSACTION', 'ITEM', 'FILTER', 'GLOBAL'], true)) {
+            return [
+                'ok' => false,
+                'message' => 'Scope rebuild tidak valid. Gunakan TRANSACTION, ITEM, FILTER, atau GLOBAL.',
+            ];
+        }
+
+        $dryRun = !empty($payload['dry_run']);
+        $limit = (int)($payload['limit'] ?? 300);
+        if ($limit <= 0 || $limit > 5000) {
+            $limit = 300;
+        }
+
+        $dateFrom = $this->normalizeDate((string)($payload['date_from'] ?? ''));
+        $dateTo = $this->normalizeDate((string)($payload['date_to'] ?? ''));
+        if ($dateFrom !== null && $dateTo !== null && $dateFrom > $dateTo) {
+            return [
+                'ok' => false,
+                'message' => 'date_from tidak boleh lebih besar dari date_to.',
+            ];
+        }
+
+        $statuses = $this->normalizeRebuildStatuses($payload['statuses'] ?? []);
+        if (empty($statuses) && $scope !== 'TRANSACTION') {
+            $statuses = ['RECEIVED', 'PAID'];
+        }
+
+        $purchaseOrderId = (int)($payload['purchase_order_id'] ?? 0);
+        $poNo = trim((string)($payload['po_no'] ?? ''));
+        $itemId = (int)($payload['item_id'] ?? 0);
+        $materialId = (int)($payload['material_id'] ?? 0);
+
+        if ($scope === 'TRANSACTION') {
+            if ($purchaseOrderId <= 0 && $poNo !== '') {
+                $resolved = $this->db
+                    ->select('id')
+                    ->from('pur_purchase_order')
+                    ->where('po_no', $poNo)
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                $purchaseOrderId = (int)($resolved['id'] ?? 0);
+            }
+
+            if ($purchaseOrderId <= 0) {
+                return [
+                    'ok' => false,
+                    'message' => 'Scope TRANSACTION membutuhkan purchase_order_id valid atau po_no yang terdaftar.',
+                ];
+            }
+        }
+
+        if ($scope === 'ITEM') {
+            if (!$this->db->table_exists('pur_purchase_order_line')) {
+                return [
+                    'ok' => false,
+                    'message' => 'Tabel pur_purchase_order_line belum tersedia untuk scope ITEM.',
+                ];
+            }
+
+            if ($itemId <= 0 && $materialId <= 0) {
+                return [
+                    'ok' => false,
+                    'message' => 'Scope ITEM membutuhkan item_id atau material_id.',
+                ];
+            }
+        }
+
+        $this->db
+            ->distinct()
+            ->select('po.id, po.po_no, po.status, po.request_date')
+            ->from('pur_purchase_order po');
+
+        if ($scope === 'TRANSACTION') {
+            $this->db->where('po.id', $purchaseOrderId);
+        }
+
+        if ($scope === 'ITEM') {
+            $this->db->join('pur_purchase_order_line pol', 'pol.purchase_order_id = po.id', 'inner');
+            if ($itemId > 0) {
+                $this->db->where('pol.item_id', $itemId);
+            }
+            if ($materialId > 0) {
+                $this->db->where('pol.material_id', $materialId);
+            }
+        }
+
+        if ($dateFrom !== null) {
+            $this->db->where('po.request_date >=', $dateFrom);
+        }
+        if ($dateTo !== null) {
+            $this->db->where('po.request_date <=', $dateTo);
+        }
+        if (!empty($statuses)) {
+            $this->db->where_in('po.status', $statuses);
+        }
+
+        $this->db
+            ->order_by('po.request_date', 'DESC')
+            ->order_by('po.id', 'DESC');
+
+        if ($scope === 'TRANSACTION') {
+            $this->db->limit(1);
+        } else {
+            $this->db->limit($limit);
+        }
+
+        $candidates = $this->db->get()->result_array();
+
+        $summary = [
+            'total_candidates' => count($candidates),
+            'planned' => 0,
+            'processed' => 0,
+            'success' => 0,
+            'changed' => 0,
+            'unchanged' => 0,
+            'failed' => 0,
+            'skipped' => 0,
+        ];
+
+        if (empty($candidates)) {
+            return [
+                'ok' => true,
+                'message' => 'Tidak ada purchase order yang cocok dengan filter rebuild.',
+                'data' => [
+                    'scope' => $scope,
+                    'dry_run' => $dryRun,
+                    'summary' => $summary,
+                    'rows' => [],
+                ],
+            ];
+        }
+
+        $eligibleStatuses = ['RECEIVED', 'PAID'];
+        $resultRows = [];
+
+        foreach ($candidates as $row) {
+            $poId = (int)($row['id'] ?? 0);
+            $poNoValue = (string)($row['po_no'] ?? '');
+            $status = strtoupper(trim((string)($row['status'] ?? '')));
+
+            $itemResult = [
+                'purchase_order_id' => $poId,
+                'po_no' => $poNoValue,
+                'status' => $status,
+                'request_date' => (string)($row['request_date'] ?? ''),
+                'result' => 'SKIPPED',
+                'changed' => false,
+                'message' => '',
+                'receipt_effect' => 'SKIPPED',
+                'payment_effect' => 'SKIPPED',
+            ];
+
+            if (!in_array($status, $eligibleStatuses, true)) {
+                $summary['skipped']++;
+                $itemResult['message'] = 'Status tidak eligible untuk rebuild dampak (hanya RECEIVED/PAID).';
+                $resultRows[] = $itemResult;
+                continue;
+            }
+
+            if ($dryRun) {
+                $summary['planned']++;
+                $itemResult['result'] = 'PLANNED';
+                $itemResult['message'] = 'Akan menjalankan reconcile pada status ' . $status . '.';
+                $itemResult['receipt_effect'] = 'POTENTIAL';
+                $itemResult['payment_effect'] = $status === 'PAID' ? 'POTENTIAL' : 'SKIPPED';
+                $resultRows[] = $itemResult;
+                continue;
+            }
+
+            $summary['processed']++;
+
+            $run = $this->update_order_status($poId, $status, $userId, $sourceIp);
+            if (!($run['ok'] ?? false)) {
+                $summary['failed']++;
+                $itemResult['result'] = 'FAILED';
+                $itemResult['message'] = (string)($run['message'] ?? 'Gagal menjalankan reconcile.');
+                $resultRows[] = $itemResult;
+                continue;
+            }
+
+            $summary['success']++;
+
+            $runData = (array)($run['data'] ?? []);
+            $receiptData = (array)($runData['receipt_auto_post'] ?? []);
+            $paymentData = (array)($runData['payment_auto_apply'] ?? []);
+            $receiptChanged = $this->rebuildEffectChanged($receiptData);
+            $paymentChanged = $status === 'PAID' ? $this->rebuildEffectChanged($paymentData) : false;
+            $changed = $receiptChanged || $paymentChanged;
+
+            if ($changed) {
+                $summary['changed']++;
+            } else {
+                $summary['unchanged']++;
+            }
+
+            $itemResult['result'] = 'OK';
+            $itemResult['changed'] = $changed;
+            $itemResult['message'] = (string)($run['message'] ?? 'Rebuild selesai.');
+            $itemResult['receipt_effect'] = $receiptChanged ? 'POSTED' : 'SKIPPED';
+            $itemResult['payment_effect'] = $status === 'PAID'
+                ? ($paymentChanged ? 'POSTED' : 'SKIPPED')
+                : 'SKIPPED';
+            $resultRows[] = $itemResult;
+        }
+
+        if (!$dryRun && $this->db->table_exists('aud_transaction_log')) {
+            $this->db->insert('aud_transaction_log', [
+                'module_code' => 'PURCHASE',
+                'action_code' => 'PO_REBUILD_IMPACT_BATCH',
+                'entity_table' => 'pur_purchase_order',
+                'entity_id' => null,
+                'transaction_no' => null,
+                'actor_user_id' => $userId > 0 ? $userId : null,
+                'source_ip' => $sourceIp !== '' ? $sourceIp : null,
+                'after_payload' => json_encode([
+                    'scope' => $scope,
+                    'filter' => [
+                        'purchase_order_id' => $purchaseOrderId,
+                        'po_no' => $poNo,
+                        'item_id' => $itemId,
+                        'material_id' => $materialId,
+                        'statuses' => $statuses,
+                        'date_from' => $dateFrom,
+                        'date_to' => $dateTo,
+                        'limit' => $limit,
+                    ],
+                    'summary' => $summary,
+                ]),
+                'notes' => 'Batch rebuild impact purchase (' . $scope . ')',
+            ]);
+        }
+
+        $message = $dryRun
+            ? 'Dry-run rebuild selesai. Tidak ada perubahan data.'
+            : 'Rebuild impact purchase selesai diproses.';
+
+        return [
+            'ok' => true,
+            'message' => $message,
+            'data' => [
+                'scope' => $scope,
+                'dry_run' => $dryRun,
+                'summary' => $summary,
+                'rows' => $resultRows,
+            ],
+        ];
     }
 
     public function get_purchase_order_detail(int $purchaseOrderId): ?array
@@ -2234,6 +2873,7 @@ class Purchase_model extends CI_Model
 
             $scope = strtoupper((string)($receipt['destination_type'] ?? '')) === 'GUDANG' ? 'WAREHOUSE' : 'DIVISION';
             $divisionId = $scope === 'DIVISION' ? $this->nullableInt($receipt['destination_division_id'] ?? null) : null;
+            $destinationType = $scope === 'DIVISION' ? $this->normalizeDestination((string)($receipt['destination_type'] ?? '')) : null;
             if ($scope === 'DIVISION' && $divisionId === null) {
                 return [
                     'ok' => false,
@@ -2272,6 +2912,7 @@ class Purchase_model extends CI_Model
                     'material_id' => $this->nullableInt($line['material_id'] ?? null),
                     'buy_uom_id' => $this->nullableInt($line['buy_uom_id'] ?? null),
                     'content_uom_id' => $this->nullableInt($line['content_uom_id'] ?? null),
+                    'destination_type' => $destinationType,
                     'profile_key' => $this->nullableString($line['profile_key'] ?? null),
                 ];
                 $reqKey = $this->buildVoidRollbackRequirementKey($req);
@@ -2283,6 +2924,7 @@ class Purchase_model extends CI_Model
                         'material_id' => $req['material_id'],
                         'buy_uom_id' => $req['buy_uom_id'],
                         'content_uom_id' => $req['content_uom_id'],
+                        'destination_type' => $req['destination_type'],
                         'profile_key' => $req['profile_key'],
                         'profile_name' => $profileName,
                         'qty_buy_needed' => 0.0,
@@ -2345,6 +2987,7 @@ class Purchase_model extends CI_Model
 
             $scope = strtoupper((string)($receipt['destination_type'] ?? '')) === 'GUDANG' ? 'WAREHOUSE' : 'DIVISION';
             $divisionId = $scope === 'DIVISION' ? $this->nullableInt($receipt['destination_division_id'] ?? null) : null;
+            $destinationType = $scope === 'DIVISION' ? $this->normalizeDestination((string)($receipt['destination_type'] ?? '')) : null;
             if ($scope === 'DIVISION' && $divisionId === null) {
                 return [
                     'ok' => false,
@@ -2382,6 +3025,7 @@ class Purchase_model extends CI_Model
                     'movement_date' => $rollbackDate,
                     'movement_scope' => $scope,
                     'division_id' => $divisionId,
+                    'destination_type' => $destinationType,
                     'movement_type' => 'ADJUSTMENT',
                     'stock_domain' => strtoupper((string)($line['line_kind'] ?? 'ITEM')) === 'MATERIAL' ? 'MATERIAL' : 'ITEM',
                     'ref_table' => 'pur_purchase_order',
@@ -2468,6 +3112,7 @@ class Purchase_model extends CI_Model
         return implode('|', [
             strtoupper((string)($requirement['scope'] ?? '')),
             (string)($requirement['division_id'] ?? 0),
+            strtoupper((string)($requirement['destination_type'] ?? '')),
             (string)($requirement['item_id'] ?? 0),
             (string)($requirement['material_id'] ?? 0),
             (string)($requirement['buy_uom_id'] ?? 0),
@@ -2507,25 +3152,51 @@ class Purchase_model extends CI_Model
             return ['qty_buy_balance' => 0.0, 'qty_content_balance' => 0.0];
         }
 
-        $row = $this->db->query(
-            'SELECT qty_buy_balance, qty_content_balance
-             FROM inv_division_stock_balance
-             WHERE division_id <=> ?
-               AND item_id <=> ?
-               AND material_id <=> ?
-               AND buy_uom_id <=> ?
-               AND content_uom_id <=> ?
-               AND profile_key <=> ?
-             LIMIT 1',
-            [
-                $requirement['division_id'] ?? null,
-                $requirement['item_id'] ?? null,
-                $requirement['material_id'] ?? null,
-                $requirement['buy_uom_id'] ?? null,
-                $requirement['content_uom_id'] ?? null,
-                $requirement['profile_key'] ?? null,
-            ]
-        )->row_array();
+        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_division_stock_balance');
+
+        if ($hasDestinationType) {
+            $row = $this->db->query(
+                'SELECT qty_buy_balance, qty_content_balance
+                 FROM inv_division_stock_balance
+                 WHERE division_id <=> ?
+                   AND destination_type <=> ?
+                   AND item_id <=> ?
+                   AND material_id <=> ?
+                   AND buy_uom_id <=> ?
+                   AND content_uom_id <=> ?
+                   AND profile_key <=> ?
+                 LIMIT 1',
+                [
+                    $requirement['division_id'] ?? null,
+                    $requirement['destination_type'] ?? null,
+                    $requirement['item_id'] ?? null,
+                    $requirement['material_id'] ?? null,
+                    $requirement['buy_uom_id'] ?? null,
+                    $requirement['content_uom_id'] ?? null,
+                    $requirement['profile_key'] ?? null,
+                ]
+            )->row_array();
+        } else {
+            $row = $this->db->query(
+                'SELECT qty_buy_balance, qty_content_balance
+                 FROM inv_division_stock_balance
+                 WHERE division_id <=> ?
+                   AND item_id <=> ?
+                   AND material_id <=> ?
+                   AND buy_uom_id <=> ?
+                   AND content_uom_id <=> ?
+                   AND profile_key <=> ?
+                 LIMIT 1',
+                [
+                    $requirement['division_id'] ?? null,
+                    $requirement['item_id'] ?? null,
+                    $requirement['material_id'] ?? null,
+                    $requirement['buy_uom_id'] ?? null,
+                    $requirement['content_uom_id'] ?? null,
+                    $requirement['profile_key'] ?? null,
+                ]
+            )->row_array();
+        }
 
         return [
             'qty_buy_balance' => (float)($row['qty_buy_balance'] ?? 0),
@@ -2734,15 +3405,21 @@ class Purchase_model extends CI_Model
             return [];
         }
 
-        $hasCode = $this->db->field_exists('code', 'mst_operational_division');
-        $hasName = $this->db->field_exists('name', 'mst_operational_division');
+        $codeColumn = $this->db->field_exists('code', 'mst_operational_division')
+            ? 'code'
+            : ($this->db->field_exists('division_code', 'mst_operational_division') ? 'division_code' : null);
+        $nameColumn = $this->db->field_exists('name', 'mst_operational_division')
+            ? 'name'
+            : ($this->db->field_exists('division_name', 'mst_operational_division') ? 'division_name' : null);
+        $hasCode = $codeColumn !== null;
+        $hasName = $nameColumn !== null;
 
         $select = 'id';
         if ($hasCode) {
-            $select .= ', code';
+            $select .= ', ' . $codeColumn . ' AS code';
         }
         if ($hasName) {
-            $select .= ', name';
+            $select .= ', ' . $nameColumn . ' AS name';
         }
 
         $qb = $this->db->select($select, false)->from('mst_operational_division');
@@ -2753,7 +3430,7 @@ class Purchase_model extends CI_Model
             $qb->order_by('sort_order', 'ASC');
         }
         if ($hasName) {
-            $qb->order_by('name', 'ASC');
+            $qb->order_by($nameColumn, 'ASC');
         }
 
         return $qb->get()->result_array();
@@ -2949,6 +3626,7 @@ class Purchase_model extends CI_Model
                 'movement_date' => $receiptDate,
                 'movement_scope' => $movementScope,
                 'division_id' => $movementScope === 'DIVISION' ? $destinationDivisionId : null,
+                'destination_type' => $movementScope === 'DIVISION' ? $destinationType : null,
                 'movement_type' => 'PURCHASE_IN',
                 'stock_domain' => strtoupper((string)($poLine['line_kind'] ?? 'ITEM')) === 'MATERIAL' ? 'MATERIAL' : 'ITEM',
                 'ref_table' => 'pur_purchase_receipt',
@@ -4577,6 +5255,136 @@ class Purchase_model extends CI_Model
         return $this->uomCode($uomId);
     }
 
+    private function resolveDailyWindow(string $month, string $dateFrom, string $dateTo): array
+    {
+        $monthKey = $this->normalizeMonth($month);
+        if ($monthKey === null) {
+            $monthKey = date('Y-m-01');
+        }
+
+        $defaultFrom = $monthKey;
+        $defaultTo = date('Y-m-t', strtotime($monthKey));
+
+        $from = $this->normalizeDate($dateFrom);
+        $to = $this->normalizeDate($dateTo);
+        if ($from === null) {
+            $from = $defaultFrom;
+        }
+        if ($to === null) {
+            $to = $defaultTo;
+        }
+
+        if ($from > $to) {
+            $tmp = $from;
+            $from = $to;
+            $to = $tmp;
+        }
+
+        return [
+            'month_key' => $monthKey,
+            'date_from' => $from,
+            'date_to' => $to,
+        ];
+    }
+
+    private function buildDateSeries(string $from, string $to): array
+    {
+        $result = [];
+        $startTs = strtotime($from);
+        $endTs = strtotime($to);
+        if ($startTs === false || $endTs === false || $startTs > $endTs) {
+            return $result;
+        }
+
+        for ($ts = $startTs; $ts <= $endTs; $ts = strtotime('+1 day', $ts)) {
+            $result[] = date('Y-m-d', $ts);
+        }
+
+        return $result;
+    }
+
+    private function pivotDailyRows(array $sourceRows, int $limitProfiles): array
+    {
+        $limitProfiles = max(1, min(1000, $limitProfiles));
+
+        $pivot = [];
+        foreach ($sourceRows as $row) {
+            $profileKey = implode('|', [
+                (string)($row['division_id'] ?? ''),
+                (string)($row['destination_type'] ?? ''),
+                strtoupper((string)($row['stock_domain'] ?? '')),
+                (int)($row['item_id'] ?? 0),
+                (int)($row['material_id'] ?? 0),
+                (int)($row['buy_uom_id'] ?? 0),
+                (int)($row['content_uom_id'] ?? 0),
+                (string)($row['profile_key'] ?? ''),
+            ]);
+
+            if (!isset($pivot[$profileKey])) {
+                if (count($pivot) >= $limitProfiles) {
+                    continue;
+                }
+
+                $pivot[$profileKey] = [
+                    'stock_domain' => strtoupper((string)($row['stock_domain'] ?? '')),
+                    'division_id' => isset($row['division_id']) ? (int)$row['division_id'] : null,
+                    'division_code' => (string)($row['division_code'] ?? ''),
+                    'division_name' => (string)($row['division_name'] ?? ''),
+                    'destination_type' => (string)($row['destination_type'] ?? 'OTHER'),
+                    'destination_group' => (string)($row['destination_group'] ?? 'REGULER'),
+                    'destination_name' => (string)($row['destination_name'] ?? 'Reguler'),
+                    'item_id' => (int)($row['item_id'] ?? 0),
+                    'material_id' => (int)($row['material_id'] ?? 0),
+                    'buy_uom_id' => (int)($row['buy_uom_id'] ?? 0),
+                    'content_uom_id' => (int)($row['content_uom_id'] ?? 0),
+                    'item_code' => (string)($row['item_code'] ?? ''),
+                    'item_name' => (string)($row['item_name'] ?? ''),
+                    'material_code' => (string)($row['material_code'] ?? ''),
+                    'material_name' => (string)($row['material_name'] ?? ''),
+                    'profile_key' => (string)($row['profile_key'] ?? ''),
+                    'profile_name' => (string)($row['profile_name'] ?? ''),
+                    'profile_brand' => (string)($row['profile_brand'] ?? ''),
+                    'profile_description' => (string)($row['profile_description'] ?? ''),
+                    'profile_content_per_buy' => (float)($row['profile_content_per_buy'] ?? 0),
+                    'profile_buy_uom_code' => (string)($row['profile_buy_uom_code'] ?? ''),
+                    'profile_content_uom_code' => (string)($row['profile_content_uom_code'] ?? ''),
+                    'daily' => [],
+                    'summary' => [
+                        'in_total' => 0.0,
+                        'out_total' => 0.0,
+                        'adjustment_total' => 0.0,
+                        'closing_last' => 0.0,
+                        'total_value_last' => 0.0,
+                    ],
+                ];
+            }
+
+            $day = (string)($row['movement_date'] ?? '');
+            if ($day === '') {
+                continue;
+            }
+
+            $entry = [
+                'opening' => round((float)($row['opening_qty_content'] ?? 0), 2),
+                'in' => round((float)($row['in_qty_content'] ?? 0), 2),
+                'out' => round((float)($row['out_qty_content'] ?? 0), 2),
+                'adjustment' => round((float)($row['adjustment_qty_content'] ?? 0), 2),
+                'closing' => round((float)($row['closing_qty_content'] ?? 0), 2),
+                'mutations' => (int)($row['mutation_count'] ?? 0),
+                'total_value' => round((float)($row['total_value'] ?? 0), 2),
+            ];
+
+            $pivot[$profileKey]['daily'][$day] = $entry;
+            $pivot[$profileKey]['summary']['in_total'] = round($pivot[$profileKey]['summary']['in_total'] + $entry['in'], 2);
+            $pivot[$profileKey]['summary']['out_total'] = round($pivot[$profileKey]['summary']['out_total'] + $entry['out'], 2);
+            $pivot[$profileKey]['summary']['adjustment_total'] = round($pivot[$profileKey]['summary']['adjustment_total'] + $entry['adjustment'], 2);
+            $pivot[$profileKey]['summary']['closing_last'] = $entry['closing'];
+            $pivot[$profileKey]['summary']['total_value_last'] = $entry['total_value'];
+        }
+
+        return array_values($pivot);
+    }
+
     private function normalizeDate(string $raw): ?string
     {
         $raw = trim($raw);
@@ -4621,6 +5429,20 @@ class Purchase_model extends CI_Model
         return in_array($value, $allowed, true) ? $value : null;
     }
 
+    private function normalizeDestinationFilter(?string $value): ?string
+    {
+        $value = strtoupper(trim((string)$value));
+        if ($value === '' || $value === 'ALL') {
+            return null;
+        }
+
+        if (in_array($value, ['REGULER', 'EVENT'], true)) {
+            return $value;
+        }
+
+        return $this->normalizeDestination($value);
+    }
+
     private function positiveDecimal($value, float $fallback): float
     {
         if ($value === null || $value === '') {
@@ -4660,6 +5482,38 @@ class Purchase_model extends CI_Model
     {
         $v = trim((string)$value);
         return $v === '' ? null : $v;
+    }
+
+    private function normalizeRebuildStatuses($value): array
+    {
+        $allowed = ['DRAFT', 'APPROVED', 'ORDERED', 'REJECTED', 'PARTIAL_RECEIVED', 'RECEIVED', 'PAID', 'VOID'];
+        $raw = [];
+
+        if (is_string($value)) {
+            $raw = preg_split('/[\s,]+/', $value) ?: [];
+        } elseif (is_array($value)) {
+            $raw = $value;
+        }
+
+        $result = [];
+        foreach ($raw as $item) {
+            $status = strtoupper(trim((string)$item));
+            if ($status === '' || !in_array($status, $allowed, true)) {
+                continue;
+            }
+            $result[$status] = true;
+        }
+
+        return array_keys($result);
+    }
+
+    private function rebuildEffectChanged(array $effectData): bool
+    {
+        if (empty($effectData)) {
+            return false;
+        }
+
+        return empty((string)($effectData['skipped'] ?? ''));
     }
 
     private function coreColumnExists(string $table, string $column): bool

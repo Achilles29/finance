@@ -175,10 +175,10 @@ $storeUrl = site_url('purchase/receipt/store');
           '<td class="text-center"><input type="checkbox" class="form-check-input line-check" ' + (qtyRemain > 0 ? 'checked' : '') + '></td>' +
           '<td>' + lineLabel + '</td>' +
           '<td>' + esc(profile) + '</td>' +
-          '<td class="text-end">' + qtyPo.toFixed(4) + '</td>' +
-          '<td class="text-end">' + qtyRcv.toFixed(4) + '</td>' +
-          '<td class="text-end">' + qtyRemain.toFixed(4) + '</td>' +
-          '<td><input type="number" min="0" step="0.0001" class="form-control form-control-sm line-qty" value="' + qtyRemain.toFixed(4) + '"></td>' +
+            '<td class="text-end">' + qtyPo.toFixed(2) + '</td>' +
+            '<td class="text-end">' + qtyRcv.toFixed(2) + '</td>' +
+            '<td class="text-end">' + qtyRemain.toFixed(2) + '</td>' +
+            '<td><input type="number" min="0" step="0.01" class="form-control form-control-sm line-qty" value="' + qtyRemain.toFixed(2) + '"></td>' +
           '<td><input type="text" class="form-control form-control-sm line-notes" placeholder="Opsional"></td>' +
           '</tr>');
       }

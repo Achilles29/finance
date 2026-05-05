@@ -11,7 +11,7 @@ $statusBadgeClass = function (string $status): string {
         'REJECTED' => 'bg-danger',
         'PARTIAL_RECEIVED' => 'bg-warning text-dark',
         'RECEIVED' => 'bg-success',
-        'PAID' => 'bg-success',
+        'PAID' => 'bg-info text-dark',
         'CLOSED' => 'bg-dark',
         'VOID' => 'bg-secondary',
     ];
@@ -75,6 +75,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
     <div class="d-flex gap-2">
         <a class="btn btn-primary" href="<?php echo site_url('purchase-orders/create'); ?>">Create Order</a>
         <a class="btn btn-outline-secondary" href="<?php echo site_url('purchase-orders/logs'); ?>">Log Purchase</a>
+        <a class="btn btn-outline-warning" href="<?php echo site_url('purchase/rebuild-impact'); ?>">Rebuild Impact</a>
         <a class="btn btn-outline-primary" href="<?php echo site_url('purchase-orders/receipt'); ?>">Halaman Receipt</a>
     </div>
 </div>
@@ -94,7 +95,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
             <div class="card-body">
                 <small class="text-muted d-block mb-1">Stok Gudang (Profile)</small>
                 <h4 class="mb-1"><?php echo number_format((int)($s['warehouse_profiles'] ?? 0)); ?></h4>
-                <small class="text-muted">Qty isi total: <?php echo number_format((float)($s['warehouse_qty_content'] ?? 0), 4, ',', '.'); ?></small>
+                <small class="text-muted">Qty isi total: <?php echo ui_num((float)($s['warehouse_qty_content'] ?? 0)); ?></small>
             </div>
         </div>
     </div>
@@ -103,7 +104,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
             <div class="card-body">
                 <small class="text-muted d-block mb-1">Stok Divisi (Profile)</small>
                 <h4 class="mb-1"><?php echo number_format((int)($s['division_profiles'] ?? 0)); ?></h4>
-                <small class="text-muted">Qty isi total: <?php echo number_format((float)($s['division_qty_content'] ?? 0), 4, ',', '.'); ?></small>
+                <small class="text-muted">Qty isi total: <?php echo ui_num((float)($s['division_qty_content'] ?? 0)); ?></small>
             </div>
         </div>
     </div>
@@ -121,6 +122,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
                     <?php endforeach; ?>
                 </select>
                 <button type="button" id="btn-filter-po" class="btn btn-sm btn-outline-secondary">Filter</button>
+                <button type="button" id="btn-clear-po" class="btn btn-sm btn-outline-danger">Clear</button>
             </div>
         </div>
 
@@ -298,6 +300,16 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
                 + '?tab=' + encodeURIComponent(currentTab)
                 + '&q=' + encodeURIComponent(q)
                 + '&status=' + encodeURIComponent(status);
+            window.location.href = url;
+        });
+    }
+
+    var clearBtn = document.getElementById('btn-clear-po');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function () {
+            var url = <?php echo json_encode(site_url('purchase-orders')); ?>
+                + '?tab=' + encodeURIComponent(currentTab)
+                + '&status=ALL';
             window.location.href = url;
         });
     }

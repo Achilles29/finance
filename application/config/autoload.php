@@ -11,7 +11,7 @@ $autoload['libraries'] = array('database', 'session', 'email');
 
 $autoload['drivers'] = array();
 
-$autoload['helper'] = array('url', 'form');
+$autoload['helper'] = array('url', 'form', 'ui_number');
 
 
 $autoload['config'] = array();

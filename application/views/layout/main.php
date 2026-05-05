@@ -3,14 +3,42 @@
  * layout/main.php — Materio layout wrapper
  * Di-load dari MY_Controller::render()
  */
+$activeMenuCode = (string)($active_menu ?? '');
+$isPurchaseScope = strpos($activeMenuCode, 'purchase.') === 0;
 $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
 ?>
 <!-- Layout wrapper -->
 <div
-  class="layout-wrapper layout-content-navbar"
+  class="layout-wrapper layout-content-navbar<?php echo $isPurchaseScope ? ' purchase-soft-ui' : ''; ?>"
   data-active-menu="<?= htmlspecialchars($active_menu ?? '', ENT_QUOTES, 'UTF-8') ?>"
   data-current-url="<?= htmlspecialchars(uri_string(), ENT_QUOTES, 'UTF-8') ?>"
 >
+  <?php if ($isPurchaseScope): ?>
+  <style>
+    .purchase-soft-ui .container-xxl,
+    .purchase-soft-ui .container-xxl .card,
+    .purchase-soft-ui .container-xxl .table,
+    .purchase-soft-ui .container-xxl .form-control,
+    .purchase-soft-ui .container-xxl .form-select,
+    .purchase-soft-ui .container-xxl .btn,
+    .purchase-soft-ui .container-xxl .badge {
+      font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+      letter-spacing: 0.01em;
+    }
+    .purchase-soft-ui .container-xxl h1,
+    .purchase-soft-ui .container-xxl h2,
+    .purchase-soft-ui .container-xxl h3,
+    .purchase-soft-ui .container-xxl h4,
+    .purchase-soft-ui .container-xxl h5 {
+      font-family: 'Merriweather', 'Plus Jakarta Sans', serif;
+      letter-spacing: 0.01em;
+    }
+    .purchase-soft-ui .container-xxl .table td,
+    .purchase-soft-ui .container-xxl .table th {
+      line-height: 1.35;
+    }
+  </style>
+  <?php endif; ?>
   <div class="layout-container">
 
     <!-- Sidebar / Menu -->

@@ -62,6 +62,14 @@ class InventoryLedger
             ];
         }
 
+        $destinationType = null;
+        if ($scope === 'DIVISION') {
+            $destinationType = $this->normalizeDestinationType((string)($payload['destination_type'] ?? ''));
+            if ($destinationType === null) {
+                $destinationType = 'OTHER';
+            }
+        }
+
         $itemId = $this->nullableInt($payload['item_id'] ?? null);
         $materialId = $this->nullableInt($payload['material_id'] ?? null);
         if ($itemId === null && $materialId === null) {
@@ -145,6 +153,10 @@ class InventoryLedger
             'created_by' => $this->nullableInt($payload['created_by'] ?? null),
         ];
 
+        if ($scope === 'DIVISION' && $this->ci->db->field_exists('destination_type', 'inv_stock_movement_log')) {
+            $movementData['destination_type'] = $destinationType;
+        }
+
         $this->ci->db->insert('inv_stock_movement_log', $movementData);
 
         if ($this->ci->db->affected_rows() <= 0) {
@@ -160,6 +172,7 @@ class InventoryLedger
         $dailyResult = $this->upsertDailyRollup([
             'movement_scope' => $scope,
             'division_id' => $divisionId,
+            'destination_type' => $destinationType,
             'movement_date' => $movementDate,
             'movement_type' => $movementType,
             'stock_domain' => $stockDomain,
@@ -259,6 +272,14 @@ class InventoryLedger
         $buyUomId = $this->nullableInt($payload['buy_uom_id'] ?? null);
         $contentUomId = $this->nullableInt($payload['content_uom_id'] ?? null);
         $profileKey = $this->nullableString($payload['profile_key'] ?? null);
+        $hasDestinationType = $this->ci->db->field_exists('destination_type', 'inv_division_stock_balance');
+        $destinationType = null;
+        if ($hasDestinationType) {
+            $destinationType = $this->normalizeDestinationType((string)($payload['destination_type'] ?? ''));
+            if ($destinationType === null) {
+                $destinationType = 'OTHER';
+            }
+        }
         if ($divisionId === null || $contentUomId === null) {
             return [
                 'ok' => false,
@@ -266,12 +287,19 @@ class InventoryLedger
             ];
         }
 
-        $row = $this->ci->db->query(
-            'SELECT * FROM inv_division_stock_balance WHERE division_id = ? AND item_id <=> ? AND material_id <=> ? AND buy_uom_id <=> ? AND content_uom_id = ? AND profile_key <=> ? LIMIT 1 FOR UPDATE',
-            [$divisionId, $itemId, $materialId, $buyUomId, $contentUomId, $profileKey]
-        )->row_array();
+        if ($hasDestinationType) {
+            $row = $this->ci->db->query(
+                'SELECT * FROM inv_division_stock_balance WHERE division_id = ? AND destination_type = ? AND item_id <=> ? AND material_id <=> ? AND buy_uom_id <=> ? AND content_uom_id = ? AND profile_key <=> ? LIMIT 1 FOR UPDATE',
+                [$divisionId, $destinationType, $itemId, $materialId, $buyUomId, $contentUomId, $profileKey]
+            )->row_array();
+        } else {
+            $row = $this->ci->db->query(
+                'SELECT * FROM inv_division_stock_balance WHERE division_id = ? AND item_id <=> ? AND material_id <=> ? AND buy_uom_id <=> ? AND content_uom_id = ? AND profile_key <=> ? LIMIT 1 FOR UPDATE',
+                [$divisionId, $itemId, $materialId, $buyUomId, $contentUomId, $profileKey]
+            )->row_array();
+        }
 
-        return $this->applyBalanceMutation('inv_division_stock_balance', $row, $payload, $qtyBuyDelta, $qtyContentDelta, [
+        $keyFields = [
             'division_id' => $divisionId,
             'item_id' => $itemId,
             'material_id' => $materialId,
@@ -279,7 +307,12 @@ class InventoryLedger
             'content_uom_id' => $contentUomId,
             'profile_key' => $profileKey,
             'last_receipt_line_id' => $this->nullableInt($payload['receipt_line_id'] ?? null),
-        ]);
+        ];
+        if ($hasDestinationType) {
+            $keyFields['destination_type'] = $destinationType;
+        }
+
+        return $this->applyBalanceMutation('inv_division_stock_balance', $row, $payload, $qtyBuyDelta, $qtyContentDelta, $keyFields);
     }
 
     private function applyBalanceMutation(string $table, ?array $existing, array $payload, float $qtyBuyDelta, float $qtyContentDelta, array $keyFields): array
@@ -368,6 +401,10 @@ class InventoryLedger
 
         if ($scope === 'DIVISION') {
             $keys['division_id'] = $this->nullableInt($ctx['division_id'] ?? null);
+            if ($this->ci->db->field_exists('destination_type', $table)) {
+                $destinationType = $this->normalizeDestinationType((string)($ctx['destination_type'] ?? ''));
+                $keys['destination_type'] = $destinationType !== null ? $destinationType : 'OTHER';
+            }
         }
 
         $existing = $this->ci->db->from($table);
@@ -480,6 +517,10 @@ class InventoryLedger
         ];
         if ($scope === 'DIVISION') {
             $insert['division_id'] = $this->nullableInt($ctx['division_id'] ?? null);
+            if ($this->ci->db->field_exists('destination_type', $table)) {
+                $destinationType = $this->normalizeDestinationType((string)($ctx['destination_type'] ?? ''));
+                $insert['destination_type'] = $destinationType !== null ? $destinationType : 'OTHER';
+            }
         }
 
         $this->ci->db->insert($table, $insert);
@@ -525,6 +566,17 @@ class InventoryLedger
             return null;
         }
         return date('Y-m-d', $ts);
+    }
+
+    private function normalizeDestinationType(string $value): ?string
+    {
+        $value = strtoupper(trim($value));
+        if ($value === '') {
+            return null;
+        }
+
+        $allowed = ['GUDANG', 'BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'];
+        return in_array($value, $allowed, true) ? $value : null;
     }
 
     private function nullableInt($value): ?int

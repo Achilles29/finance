@@ -250,4 +250,121 @@ dampaknya pruchase bukan cuma di keuangan, tapi juga stok gudang dan atau bahan 
 - saya lihat di pur_purchase_payment_plan sudah ada transaksi hasil update status pembayaran. tapi di pur_purchase_receipt dan pur_purchase_receipt_line belum ada. itu kalau diaktifkan nanti tumpang tindih dan jadi ada 2 metode nggak?
 
 ===============================
-halaman purchase order log belum ada di sidebar
+- halaman purchase order log belum ada di sidebar
+- purchase/stock/warehouse/daily, /purchase/stock/warehouse, purchase/stock/warehouse/movement, purchase/stock/division/movement, purchase/stock/division, purchase/stock/division/daily masih ada desimal lebih dari 2 angka. cek juga untuk yang halaman lain. ingat untuk semua halaman UI desimal cukup 2 angka dibelakang koma. apa mungkin perlu dibuat tempate ?
+
+
+lanjut ke :
+
+- lanjutkan modul rebuild/resync terstruktur (by transaksi, by item, by filter tanggal/status, dan global) khusus purchase.
+
+- tambah halaman khusus Rebuild Impact Purchase agar tidak bergantung tombol detail per PO.
+
+- bantu siapkan checklist uji data riil untuk memastikan stok dan keuangan benar-benar sinkron di environment Anda.
+
+=======================
+
+- saya ingin membuat tampilan mirip inventory-warehouse-daily untuk gudang dan /inventory-material-daily untuk bahan baku. dimana tampilan pertanggal memanjang ke kanan, di masing masing tanggal ada pergerakan keluar masuk stok nya. tabel mana yang bisa dipakai
+===============
+
+
+
+v inventory-warehouse-daily dan inventory-material-daily seharusnya keluar masuk stok nya diakumulasi sampai dengan akhir bulan, bukan harian. stok akhir hari ini jadi stok awal besok. persempit lagi area sebelah kiri agar efisien space nya, dan buat sticky. lalu ketika pertama buka halaman atau setelah refresh possisi default tampilan di tanggal hari ini
+
+stock/division/daily dan purchase/stock/warehouse/movement itu kan ada tanggal di UI nya. jika ada purchase masuk yang identik tapi tanggal beda, apakah buat baris baru atau update stok nya?
+
+
+v pisahkan Stok Divisi Reguler dan Event. di tipe purchase  sudah dipisahkan Tujuan, tapi di halaman purchase/stock/division/daily, purchase/stock/division, purchase/stock/division/movement belum memisahkan tujuan, masih gabung jadi 1 divisi
+
+v tambahkan tujuan setelah kolom divisi
+v divisi dan tujuan jangan tampilkan angka, tapi namanya. gunakan join tabel
+
+v /purchase/stock/division kolom Ukuran Isi masih banyak angka dibelakang koma desimalnya. total nilai belum ada
+
+v lalu tambahkan filter dan card ringkasan  pada SEMUA halaman gudang dan bahan baku. filter range defaultnya bulan ini. buat tampilannya informatif dan user friendly. kejutkan saya
+
+======================
+======================
+
+General: 
+- jangan samakan FONT dengan FONT pada CORE. karena terlalu kaku dan tidak enak dipandang
+- tambahkan tombol clear filter untuk semua halaman yang punya tabel
+
+
+
+inventory-warehouse-daily dan inventory-material-daily
+
+v freeze di kolom ringkasan
+v modal  Detail Mutasi Harian Material pada  tidak bisa di close
+v perkecil space PROFIL, di wrap saja agar tidak terlalu makan space
+v untuk material atau item yang sama, gabungkan jadi 1 dengan ringkasan di rata rata, dan dapat di expand untuk melihat per profile nya
+v pada ringkasan tampilkan : HPP, Stok awal dan akhir pack, stok awal dan akhir isi, Total nilai rupiah sisa
+v pada profil pack tambahkan harga satuan masing masing baris
+v kolom per tanggal nya seharisnya awal, in, out, adj, akhir. jadi awal dan in masing masing tanggal jelas terlihat, tidak digabung
+
+v purchase/stock/warehouse dan purchase/stock/warehouse/movement belum ada kolom nilai total
+v purchase/stock/warehouse kolom Ukuran Isi cukup tampilkan 2 desimal (sekarang masih ,000000)
+
+v purchase/stock/warehouse purchase/stock/division/movement belum ada kolom nilai total
+v filter /stock/division belum berfungsi (dropdownnya tidak sesuai data), buat pola filter divisinya sama dengan di /stock/division/daily saja. 
+v rapikan area filter /stock/division/daily, masak dari tanggal dan sampai tanggal ter enter tidak sejajar
+v filter divisi dan tujuan pada /stock/division/movement juga belum relevan (dropdownnya tidak sesuai data)
+
+- /purchase/stock/warehouse/daily dan /purchase/stock/division itu kan stok bulanan ya, kalau dipisah per tanggal padahal barangnya identik, maka nanti akan banyak baris dengan barang yang sama dan akan kesulitan melihat sisa stok nya. padahal kan yang saya butuhkan pada bulan itu bara dengan profil A, berap keluar masuknya bisa langsung terlihat jelas, tidak peduli tanggalnya.
+bagaimana menurtmu? perlu dirubah skema databasenya? atau skema logika CRUD nya? atau cukup tampilan saja? mana yang menurutmu lebih rapi, efisien dan aman untukk audit?
+
+buat warna badge berbeda untuk masing masing status pada /purchase (saya lihat received dan paid masih sama warnanya)
+
+===============
+inventory-material-daily dan inventory-warehouse-daily:
+- belum di freeze di kolom ringkasan (ketika di scroll ke kanan masih ikut)
+- freeze juga bari JUDUL nya ketika content tabel di scroll kebawah agar terlihat tanggalnya
+- persempit lagi kolom Item / Material,	Profil,	Ringkasan
+- berikan button / arrow expand/collapse di sebelah kiri untuk menampilkan rincian baris , bukan dengan klik tampilkan profil, (default tetap collapse)
+- inventory-warehouse-daily ganti kata material dengan bahan baku
+
+- untuk barang yang hanya berisi 1 rincian langsung tampilkan data tanpa perlu expand collapse
+- berikan warna berbeda untuk yang punya rincian dan yang tidak punya rincian
+- tambahkan harga satuan pada profil pack, bukan cuma hpp, hpp cukup tampilkan di Profil di ringkasang tidak usah agar tidak terlalu banyak. Hpp rata2 cukup tampilkan di ringkasan Parent, child tidak perlu
+ rapikan tampilannya. sesuaikan ukuran font agar tidak terlalu kecil
+- beri stripes berbeda untuk kolom masing masing tanggal agar terlihat beda tanggal nya
+
+KEJUTKAN SAYA
+
+=====================
+
+
+- purchase/stock/division/daily dan /purchase/stock/division/movement, purchase/stock/division dropdown filter tujuan diambil dari mana datanya??? kenapa ada pengulangan pengulangan
+
+- purchase/stock/division balik posisi filter tujuan dan divisi (divisi dulu baru tujuan)
+
+- purchase/stock/division/daily, purchase/stock/division , /purchase/stock/division/movement kolom divisi jangan diulang BAR-BAR , cukup BAR. lalu kolom tujuan cukup Event / reguler
+
+=========
+
+/purchase/stock/warehouse/daily dan /purchase/stock/division/daily bukankah transaksi per tanggal bisa dilihat dari log?
+dan intinya saya ingin tampilan bulanan yang keluar masuk Barang dengan profil yang sama itu jelas 1 baris tidak dipisah per tanggal. bagaimana menurutmu?
+
+=================
+
+inventory-material-daily dan inventory-warehouse-daily:
+- belum di freeze di kolom ringkasan (ketika di scroll ke kanan masih ikut). dan halaman terasa berat
+
+
+purchase/stock/warehouse/daily dan purchase/stock/division/daily gimana jadinya??? saya ingin tampilan keluar masuk per barang dalam 1 bulan seperti ilustrasi pada gambar
+
+
+
+================
+
+saya tanya sekali lagi purchase/stock/warehouse/daily dan purchase/stock/division/daily aman dengan pola seperti itu?
+
+purchase/stock/warehouse/daily itu kan masih di gudang, harusnya data yang tampil bukan isi tapi pack nya. 
+
+jadi sesuaikan tampilan purchase/stock/warehouse/daily dan purchase/stock/division/daily agar yang tampil bukan cuma isi tapi pack nya juga. bagaimana menurutmu?
+
+======
+
+perbaiki lagi tampilan /inventory-warehouse-daily dan inventory-material-daily, kolom tanggal mengecil, refresh berat, tampilan patah patah. seharusnya ketika pertama dibuka atau di refresh, atau di expand freeze tampilan tegas kolom divisi/tujuan atau jenis terlihat bukan tergeser kekiri
+
+=================

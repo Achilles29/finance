@@ -1,5 +1,19 @@
 <?php
 $baseUrl = site_url('purchase/stock/warehouse/movement');
+$rowsData = is_array($rows ?? null) ? $rows : [];
+$summaryRows = count($rowsData);
+$summaryIn = 0.0;
+$summaryOut = 0.0;
+$summaryValue = 0.0;
+foreach ($rowsData as $row) {
+  $delta = (float)($row['qty_content_delta'] ?? 0);
+  $summaryValue += abs($delta) * (float)($row['unit_cost'] ?? 0);
+  if ($delta >= 0) {
+    $summaryIn += $delta;
+  } else {
+    $summaryOut += abs($delta);
+  }
+}
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -36,8 +50,18 @@ $baseUrl = site_url('purchase/stock/warehouse/movement');
       <div class="col-md-2 d-grid">
         <button type="submit" class="btn btn-outline-primary">Filter</button>
       </div>
+      <div class="col-md-2 d-grid">
+        <a href="<?php echo $baseUrl; ?>" class="btn btn-outline-danger">Clear</a>
+      </div>
     </form>
   </div>
+</div>
+
+<div class="row g-2 mb-3">
+  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Baris Mutasi</div><div class="h5 mb-0"><?php echo number_format($summaryRows); ?></div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Masuk</div><div class="h5 mb-0 text-success"><?php echo number_format($summaryIn, 2, ',', '.'); ?></div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Keluar</div><div class="h5 mb-0 text-danger"><?php echo number_format($summaryOut, 2, ',', '.'); ?></div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Nilai</div><div class="h5 mb-0"><?php echo number_format($summaryValue, 2, ',', '.'); ?></div></div></div></div>
 </div>
 
 <div class="card">
@@ -53,12 +77,13 @@ $baseUrl = site_url('purchase/stock/warehouse/movement');
           <th class="text-end">Delta Isi</th>
           <th class="text-end">Saldo Isi</th>
           <th class="text-end">Unit Cost</th>
+          <th class="text-end">Nilai Mutasi</th>
           <th>Ref</th>
         </tr>
       </thead>
       <tbody>
         <?php if (empty($rows)): ?>
-          <tr><td colspan="9" class="text-center text-muted py-4">Belum ada data mutasi gudang.</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4">Belum ada data mutasi gudang.</td></tr>
         <?php else: ?>
           <?php foreach ($rows as $r): ?>
             <?php
@@ -66,6 +91,8 @@ $baseUrl = site_url('purchase/stock/warehouse/movement');
               $materialText = trim((string)($r['material_code'] ?? '') . ' - ' . (string)($r['material_name'] ?? ''));
               $objectText = $itemText !== ' -' && $itemText !== '' ? $itemText : ($materialText !== ' -' && $materialText !== '' ? $materialText : '-');
               $deltaContent = (float)($r['qty_content_delta'] ?? 0);
+              $unitCost = (float)($r['unit_cost'] ?? 0);
+              $mutationValue = abs($deltaContent) * $unitCost;
             ?>
             <tr>
               <td><?php echo html_escape((string)$r['movement_date']); ?></td>
@@ -76,9 +103,10 @@ $baseUrl = site_url('purchase/stock/warehouse/movement');
                 <?php echo html_escape((string)($r['profile_name'] ?? '-')); ?><br>
                 <small class="text-muted"><?php echo html_escape((string)($r['profile_brand'] ?? '-')); ?> | <?php echo html_escape((string)($r['profile_description'] ?? '-')); ?></small>
               </td>
-              <td class="text-end <?php echo $deltaContent >= 0 ? 'text-success' : 'text-danger'; ?>"><?php echo number_format($deltaContent, 4, ',', '.'); ?></td>
-              <td class="text-end fw-semibold"><?php echo number_format((float)($r['qty_content_after'] ?? 0), 4, ',', '.'); ?></td>
-              <td class="text-end"><?php echo number_format((float)($r['unit_cost'] ?? 0), 6, ',', '.'); ?></td>
+              <td class="text-end <?php echo $deltaContent >= 0 ? 'text-success' : 'text-danger'; ?>"><?php echo ui_num($deltaContent); ?></td>
+              <td class="text-end fw-semibold"><?php echo ui_num((float)($r['qty_content_after'] ?? 0)); ?></td>
+              <td class="text-end"><?php echo ui_num($unitCost); ?></td>
+              <td class="text-end"><?php echo number_format($mutationValue, 2, ',', '.'); ?></td>
               <td>
                 <?php echo html_escape((string)($r['ref_table'] ?? '-')); ?>
                 <?php if (!empty($r['ref_id'])): ?>#<?php echo (int)$r['ref_id']; ?><?php endif; ?>

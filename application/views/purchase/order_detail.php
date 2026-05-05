@@ -25,7 +25,7 @@ $statusBadgeClass = function (string $status): string {
         'REJECTED' => 'bg-danger',
         'PARTIAL_RECEIVED' => 'bg-warning text-dark',
         'RECEIVED' => 'bg-success',
-        'PAID' => 'bg-success',
+        'PAID' => 'bg-info text-dark',
         'CLOSED' => 'bg-dark',
         'VOID' => 'bg-secondary',
     ];

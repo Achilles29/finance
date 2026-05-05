@@ -28,6 +28,7 @@ $baseUrl = site_url('purchase/account');
       </div>
       <div class="col-md-2 d-flex gap-2">
         <button type="submit" class="btn btn-outline-primary w-100">Filter</button>
+        <a href="<?php echo $baseUrl; ?>" class="btn btn-outline-danger w-100">Clear</a>
       </div>
     </form>
   </div>
