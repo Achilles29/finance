@@ -71,7 +71,7 @@ Pemisahan ini disengaja agar tidak membingungkan user. Detail lihat: `2026-05-01
 | 4 | Absensi (Terpadu) | 🔲 Belum | | |
 | 5 | Payroll & Penggajian | 🔲 Belum | | |
 | 6 | Pembelian (Purchase) | 🟡 Sedang Berjalan | 2026-05-03 | - |
-| 7 | Inventori & Gudang | 🔲 Belum | | |
+| 7 | Inventori & Gudang | 🟡 Fondasi Berjalan | 2026-05-06 | - |
 | 8 | Produksi & COGS | 🔲 Belum | | |
 | 9 | POS (Point of Sale) | 🔲 Belum | | |
 | 10 | Keuangan & Akuntansi | 🔲 Belum | | |
@@ -145,6 +145,13 @@ Alasan:
 - [x] Fondasi akun perusahaan (BANK/EWALLET/CASH) + payment channel purchase (`fin_company_account`, `pur_payment_channel`) di `sql/2026-05-03i_purchase_affected_finance_inventory_audit_foundation.sql`.
 - [x] Endpoint uji potong saldo payment purchase via channel akun di `application/controllers/Purchase.php`.
 - [x] Fondasi stok terdampak purchase + log audit (`inv_warehouse_stock_balance`, `inv_division_stock_balance`, `inv_stock_movement_log`, `aud_transaction_log`) di `sql/2026-05-03i_purchase_affected_finance_inventory_audit_foundation.sql`.
+- [x] Split halaman Opening Stok Gudang/Divisi + seed menu permission (`sql/2026-05-06e_purchase_stock_opening_split_menu_seed.sql`).
+- [x] Split tabel opening snapshot gudang/divisi (`sql/2026-05-06f_inventory_opening_snapshot_split_tables.sql`).
+- [x] Fondasi flow generate opname bulanan + opening bulan berikutnya (`sql/2026-05-06c_inventory_monthly_opname_and_opening_flow.sql`).
+- [x] Penyesuaian stok 5 komponen (WASTE/SPOILAGE/PROCESS_LOSS/VARIANCE/ADJUSTMENT_PLUS) di daily rollup gudang/divisi (`sql/2026-05-06b_inventory_adjustment_components.sql`).
+- [x] Hardening opening profile: catalog-first fallback saat pencarian + canonical key dari katalog saat simpan opening (`application/models/Purchase_model.php`).
+- [x] Remap historis key non-catalog -> key catalog untuk scope DIVISION berbasis exact identity, dalam 1 transaksi DB, aman dan idempotent (`tools/remap_division_profile_keys_to_catalog.php`).
+- [ ] Remap historis key non-catalog -> key catalog untuk scope WAREHOUSE belum dieksekusi (backlog terukur terakhir: opening=2, balance=0, daily=5, movement=6).
 - [ ] Integrasi UOM BELI/UOM ISI di form PO.
 - [x] Seed permission + menu Purchase (RBAC) via `sql/2026-05-03g_purchase_menu_seed.sql`.
 - [ ] Dokumentasi alur user Purchase final.
@@ -444,6 +451,23 @@ att_request_approval   ← workflow approval
 - [ ] Controllers: `Inventory`, `Material_stock`, `Component_stock`
 - [ ] Migration script dari `core`
 
+### Progress Update Tahap 7 (2026-05-07)
+
+- Dokumen ringkas handoff lintas perangkat dibuat di `docs/2026-05-07_handoff_progress_purchase_inventory.md`.
+- Fondasi inventori yang dipakai alur opening sudah berjalan untuk dua scope (gudang & divisi): opening snapshot split, monthly opname, dan generate opening bulan berikut.
+- Struktur daily rollup untuk gudang/divisi sudah mengakomodir kategori adjustment profesional (5 komponen) termasuk nilai rupiah per kategori.
+- Konsistensi profile identity menuju katalog sudah dikuatkan di layer aplikasi (catalog-first fallback + canonicalisasi saat simpan opening).
+- Remap historis exact identity ke canonical catalog sudah selesai untuk DIVISION dan sudah diverifikasi residual = 0.
+- Scope WAREHOUSE belum diremap; sudah ada baseline hitungan kandidat remap untuk menjaga eksekusi berikutnya terukur.
+
+### Rencana Lanjutan Terdekat (Handoff Friendly)
+
+1. Eksekusi remap WAREHOUSE (exact identity, single transaction, idempotent), lalu simpan output before/after ke dokumen log.
+2. Lakukan verifikasi residual pasca-remap WAREHOUSE sampai 0 untuk opening/balance/daily/movement.
+3. Jalankan smoke test UI opening gudang + divisi untuk pastikan profile_key baru tetap konsisten di pencarian, simpan, dan tampilan riwayat.
+4. Rapikan governance duplikasi identity di `mst_purchase_catalog` (opsional tapi disarankan) agar remap/rematch berikutnya makin deterministik.
+5. Setelah remap gudang clear, lanjutkan checklist Tahap 7: posting/distribusi gudang -> material dan stabilisasi ledger/balance/adjustment.
+
 ---
 
 ## Tahap 8 — Produksi & COGS
@@ -549,3 +573,7 @@ att_request_approval   ← workflow approval
 | 2026-05-03 | Start implementasi Tahap 6 dengan foundation DDL purchase + dokumen struktur | Transisi gate Tahap 2 -> Tahap 6 dieksekusi dan dibuktikan artefak SQL + docs |
 | 2026-05-03 | Tambah fondasi payment purchase + receipt gudang/divisi | Menjawab kebutuhan metode pembayaran dan tujuan masuk PO tanpa menunggu modul keuangan penuh |
 | 2026-05-03 | Tambah fondasi rekening, kas, stok terdampak purchase, dan audit trail | Praktik purchase bisa langsung diuji pengurangan saldo dan mutasi stok dengan jejak audit |
+| 2026-05-06 | Mulai fondasi Tahap 7: split opening gudang/divisi, monthly opname + generate opening, dan adjustment 5 komponen | Menutup gap proses data awal stok dan kesiapan rollup harian sesuai kebutuhan operasional |
+| 2026-05-07 | Hardening konsistensi profile opening berbasis catalog + remap historis DIVISION selesai | Menetapkan catalog sebagai source of truth profile_key dan membersihkan mismatch historis exact identity di scope divisi |
+| 2026-05-07 | Baseline remap WAREHOUSE dicatat (pending eksekusi) | Menjaga kesinambungan kerja lintas perangkat: status backlog terukur sebelum apply berikutnya |
+| 2026-05-07 | Tambah dokumen handoff progress lintas perangkat | Memudahkan lanjut kerja dari laptop lain dengan snapshot status, backlog, dan rencana eksekusi terdekat |
