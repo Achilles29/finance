@@ -1,5 +1,7 @@
 <?php
 $baseUrl = site_url('purchase/stock/warehouse/movement');
+$generateUrl = site_url('purchase/stock/opname/generate');
+$genMonth = !empty($date_from ?? '') ? date('Y-m', strtotime((string)$date_from)) : date('Y-m');
 $rowsData = is_array($rows ?? null) ? $rows : [];
 $summaryRows = count($rowsData);
 $summaryIn = 0.0;
@@ -22,6 +24,12 @@ foreach ($rowsData as $row) {
     <small class="text-muted">Log keluar masuk stok gudang dari inv_stock_movement_log.</small>
   </div>
   <div class="d-flex gap-2">
+    <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname gudang bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
+      <input type="hidden" name="stock_scope" value="WAREHOUSE">
+      <input type="hidden" name="month" value="<?php echo html_escape($genMonth); ?>">
+      <input type="hidden" name="back_url" value="purchase/stock/warehouse/movement?date_from=<?php echo rawurlencode((string)($date_from ?? '')); ?>&date_to=<?php echo rawurlencode((string)($date_to ?? '')); ?>">
+      <button type="submit" class="btn btn-outline-primary">Generate Opname + Stok Awal</button>
+    </form>
     <a href="<?php echo site_url('purchase/stock/warehouse'); ?>" class="btn btn-outline-secondary">Stok Gudang Live</a>
     <a href="<?php echo site_url('purchase/stock/warehouse/daily'); ?>" class="btn btn-outline-secondary">Daily Gudang</a>
     <a href="<?php echo site_url('purchase/stock/division/movement'); ?>" class="btn btn-outline-secondary">Mutasi Divisi</a>
@@ -72,8 +80,10 @@ foreach ($rowsData as $row) {
           <th>Tanggal</th>
           <th>No Mutasi</th>
           <th>Tipe</th>
+          <th>Kategori/Alasan</th>
           <th>Objek</th>
           <th>Profile</th>
+          <th>Keterangan</th>
           <th class="text-end">Delta Isi</th>
           <th class="text-end">Saldo Isi</th>
           <th class="text-end">Unit Cost</th>
@@ -83,13 +93,21 @@ foreach ($rowsData as $row) {
       </thead>
       <tbody>
         <?php if (empty($rows)): ?>
-          <tr><td colspan="10" class="text-center text-muted py-4">Belum ada data mutasi gudang.</td></tr>
+          <tr><td colspan="12" class="text-center text-muted py-4">Belum ada data mutasi gudang.</td></tr>
         <?php else: ?>
           <?php foreach ($rows as $r): ?>
             <?php
+              $movementTypeLabel = trim((string)($r['movement_type_label'] ?? $r['movement_type'] ?? '-'));
               $itemText = trim((string)($r['item_code'] ?? '') . ' - ' . (string)($r['item_name'] ?? ''));
               $materialText = trim((string)($r['material_code'] ?? '') . ' - ' . (string)($r['material_name'] ?? ''));
-              $objectText = $itemText !== ' -' && $itemText !== '' ? $itemText : ($materialText !== ' -' && $materialText !== '' ? $materialText : '-');
+              $preferMaterial = (int)($r['material_id'] ?? 0) > 0;
+              if ($preferMaterial) {
+                $objectText = $materialText !== ' -' && $materialText !== '' ? $materialText : ($itemText !== ' -' && $itemText !== '' ? $itemText : '-');
+              } else {
+                $objectText = $itemText !== ' -' && $itemText !== '' ? $itemText : ($materialText !== ' -' && $materialText !== '' ? $materialText : '-');
+              }
+              $adjustmentCategory = strtoupper(trim((string)($r['adjustment_category'] ?? '')));
+              $adjustmentReason = strtolower(trim((string)($r['adjustment_reason_code'] ?? '')));
               $deltaContent = (float)($r['qty_content_delta'] ?? 0);
               $unitCost = (float)($r['unit_cost'] ?? 0);
               $mutationValue = abs($deltaContent) * $unitCost;
@@ -97,12 +115,17 @@ foreach ($rowsData as $row) {
             <tr>
               <td><?php echo html_escape((string)$r['movement_date']); ?></td>
               <td><?php echo html_escape((string)$r['movement_no']); ?></td>
-              <td><?php echo html_escape((string)$r['movement_type']); ?></td>
+              <td><?php echo html_escape($movementTypeLabel !== '' ? $movementTypeLabel : '-'); ?></td>
+              <td>
+                <div><?php echo html_escape($adjustmentCategory !== '' ? $adjustmentCategory : '-'); ?></div>
+                <small class="text-muted"><?php echo html_escape($adjustmentReason !== '' ? str_replace('_', ' ', $adjustmentReason) : '-'); ?></small>
+              </td>
               <td><?php echo html_escape($objectText); ?></td>
               <td>
                 <?php echo html_escape((string)($r['profile_name'] ?? '-')); ?><br>
                 <small class="text-muted"><?php echo html_escape((string)($r['profile_brand'] ?? '-')); ?> | <?php echo html_escape((string)($r['profile_description'] ?? '-')); ?></small>
               </td>
+              <td><?php echo html_escape((string)($r['notes'] ?? '-')); ?></td>
               <td class="text-end <?php echo $deltaContent >= 0 ? 'text-success' : 'text-danger'; ?>"><?php echo ui_num($deltaContent); ?></td>
               <td class="text-end fw-semibold"><?php echo ui_num((float)($r['qty_content_after'] ?? 0)); ?></td>
               <td class="text-end"><?php echo ui_num($unitCost); ?></td>

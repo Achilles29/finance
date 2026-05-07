@@ -73,6 +73,7 @@ $statusOptions = is_array($status_options ?? null) ? $status_options : [];
       <div class="col-12 d-flex gap-2 flex-wrap">
         <button type="button" class="btn btn-outline-primary btn-run" data-dry-run="1">Dry Run</button>
         <button type="button" class="btn btn-warning btn-run" data-dry-run="0">Execute Rebuild</button>
+        <button type="button" class="btn btn-outline-secondary" id="btn-reset-form">Reset Form</button>
         <span id="scope-help" class="text-muted small align-self-center"></span>
       </div>
     </form>
@@ -115,6 +116,15 @@ $statusOptions = is_array($status_options ?? null) ? $status_options : [];
   var resultCard = document.getElementById('result-card');
   var summaryGrid = document.getElementById('summary-grid');
   var resultBody = document.getElementById('result-tbody');
+  var btnResetForm = document.getElementById('btn-reset-form');
+
+  var fieldPoId = document.getElementById('purchase_order_id');
+  var fieldPoNo = document.getElementById('po_no');
+  var fieldItemId = document.getElementById('item_id');
+  var fieldMaterialId = document.getElementById('material_id');
+  var fieldDateFrom = document.getElementById('date_from');
+  var fieldDateTo = document.getElementById('date_to');
+  var fieldLimit = document.getElementById('limit');
 
   function esc(value) {
     var tmp = document.createElement('div');
@@ -230,6 +240,71 @@ $statusOptions = is_array($status_options ?? null) ? $status_options : [];
     scopeHelp.textContent = textMap[scope] || '';
   }
 
+  function setFieldState(el, enabled) {
+    if (!el) { return; }
+    el.disabled = !enabled;
+    if (!enabled) {
+      if (el.type === 'number' || el.type === 'text' || el.type === 'date') {
+        el.value = '';
+      }
+    }
+  }
+
+  function setStatusEnabled(enabled) {
+    document.querySelectorAll('.rebuild-status').forEach(function (el) {
+      el.disabled = !enabled;
+      if (!enabled) {
+        el.checked = false;
+      }
+    });
+    if (enabled && document.querySelectorAll('.rebuild-status:checked').length === 0) {
+      document.querySelectorAll('.rebuild-status').forEach(function (el) {
+        var code = String(el.value || '').toUpperCase();
+        if (code === 'RECEIVED' || code === 'PAID') {
+          el.checked = true;
+        }
+      });
+    }
+  }
+
+  function applyScopeState() {
+    var scope = String(scopeInput.value || 'GLOBAL').toUpperCase();
+    var isTransaction = scope === 'TRANSACTION';
+    var isItem = scope === 'ITEM';
+    var isFilter = scope === 'FILTER';
+    var isGlobal = scope === 'GLOBAL';
+
+    setFieldState(fieldPoId, isTransaction);
+    setFieldState(fieldPoNo, isTransaction);
+    setFieldState(fieldItemId, isItem);
+    setFieldState(fieldMaterialId, isItem);
+
+    setFieldState(fieldDateFrom, isFilter || isGlobal);
+    setFieldState(fieldDateTo, isFilter || isGlobal);
+    setFieldState(fieldLimit, true);
+    if (fieldLimit && fieldLimit.value === '') {
+      fieldLimit.value = '300';
+    }
+
+    setStatusEnabled(isFilter || isGlobal);
+  }
+
+  function resetFormByScope() {
+    fieldPoId.value = '';
+    fieldPoNo.value = '';
+    fieldItemId.value = '';
+    fieldMaterialId.value = '';
+    fieldDateFrom.value = '';
+    fieldDateTo.value = '';
+    fieldLimit.value = '300';
+    applyScopeState();
+    summaryCard.style.display = 'none';
+    resultCard.style.display = 'none';
+    summaryGrid.innerHTML = '';
+    resultBody.innerHTML = '';
+    setAlert('info', 'Form rebuild impact sudah direset.');
+  }
+
   document.querySelectorAll('.btn-run').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var dryRun = String(btn.getAttribute('data-dry-run') || '1') === '1';
@@ -280,7 +355,14 @@ $statusOptions = is_array($status_options ?? null) ? $status_options : [];
     });
   });
 
-  scopeInput.addEventListener('change', refreshScopeHelp);
+  scopeInput.addEventListener('change', function () {
+    refreshScopeHelp();
+    applyScopeState();
+  });
+  if (btnResetForm) {
+    btnResetForm.addEventListener('click', resetFormByScope);
+  }
   refreshScopeHelp();
+  applyScopeState();
 })();
 </script>

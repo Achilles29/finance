@@ -8,6 +8,7 @@ class Purchase extends MY_Controller
     const PAGE_ACCOUNT = 'purchase.account.index';
     const PAGE_STOCK_WAREHOUSE = 'purchase.stock.warehouse.index';
     const PAGE_STOCK_DIVISION = 'purchase.stock.division.index';
+    const PAGE_STOCK_OPENING = 'purchase.stock.opening.index';
     const PAGE_STOCK_WAREHOUSE_MATRIX = 'purchase.stock.warehouse.matrix.index';
     const PAGE_STOCK_MATERIAL_MATRIX = 'purchase.stock.material.matrix.index';
     const PAGE_RECEIPT = 'purchase.receipt.index';
@@ -296,6 +297,11 @@ class Purchase extends MY_Controller
 
     public function stock_opening_index()
     {
+        redirect('purchase/stock/opening/warehouse');
+    }
+
+    public function stock_opening_warehouse_index()
+    {
         if (!$this->can(self::PAGE_STOCK_WAREHOUSE, 'view')) {
             $this->require_permission(self::PAGE_ORDER, 'view');
         }
@@ -309,25 +315,97 @@ class Purchase extends MY_Controller
 
         $data = [
             'title' => 'Opening Gudang',
-            'active_menu' => 'purchase.stock.warehouse',
+            'active_menu' => 'purchase.stock.opening.warehouse',
+            'stock_scope' => 'WAREHOUSE',
+            'is_division_scope' => false,
+            'base_url_opening' => 'purchase/stock/opening/warehouse',
             'month' => $month,
             'q' => $q,
+            'division_id' => 0,
+            'destination' => 'ALL',
             'limit' => $limit,
-            'rows' => $this->Purchase_model->list_warehouse_opening_snapshots($month, $q, $limit),
-            'items' => $this->Purchase_model->list_opening_items(),
+            'rows' => $this->Purchase_model->list_stock_opening_snapshots('WAREHOUSE', $month, $q, $limit, null, null),
             'uoms' => $this->Purchase_model->list_active_uoms(),
+            'divisions' => [],
         ];
 
         $this->render('purchase/stock_opening_index', $data);
     }
 
+    public function stock_opening_division_index()
+    {
+        if (!$this->can(self::PAGE_STOCK_DIVISION, 'view')) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $month = trim((string)$this->input->get('month', true));
+        $q = trim((string)$this->input->get('q', true));
+        $divisionId = (int)$this->input->get('division_id', true);
+        $destination = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destination === '') {
+            $destination = 'ALL';
+        }
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 500) {
+            $limit = 200;
+        }
+
+        $data = [
+            'title' => 'Opening Bahan Baku Divisi',
+            'active_menu' => 'purchase.stock.opening.division',
+            'stock_scope' => 'DIVISION',
+            'is_division_scope' => true,
+            'base_url_opening' => 'purchase/stock/opening/division',
+            'month' => $month,
+            'q' => $q,
+            'division_id' => $divisionId,
+            'destination' => $destination,
+            'limit' => $limit,
+            'rows' => $this->Purchase_model->list_stock_opening_snapshots('DIVISION', $month, $q, $limit, $divisionId > 0 ? $divisionId : null, $destination),
+            'uoms' => $this->Purchase_model->list_active_uoms(),
+            'divisions' => $this->Purchase_model->list_active_operational_divisions(),
+        ];
+
+        $this->render('purchase/stock_opening_index', $data);
+    }
+
+    public function stock_opening_item_search()
+    {
+        $canWarehouse = $this->can(self::PAGE_STOCK_WAREHOUSE, 'view') || $this->can(self::PAGE_STOCK_WAREHOUSE, 'create');
+        $canDivision = $this->can(self::PAGE_STOCK_DIVISION, 'view') || $this->can(self::PAGE_STOCK_DIVISION, 'create');
+        if (!$canWarehouse && !$canDivision) {
+            $this->jsonError('Anda tidak memiliki izin untuk pencarian item opening.', 403);
+            return;
+        }
+
+        $q = trim((string)$this->input->get('q', true));
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 50) {
+            $limit = 20;
+        }
+
+        $rows = $this->Purchase_model->search_opening_items($q, $limit);
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => true,
+                'items' => $rows,
+                'meta' => [
+                    'q' => $q,
+                    'limit' => $limit,
+                    'count' => count($rows),
+                ],
+            ]));
+    }
+
     public function stock_opening_store()
     {
-        if (!$this->can(self::PAGE_STOCK_WAREHOUSE, 'create')) {
+        if (!$this->can(self::PAGE_STOCK_WAREHOUSE, 'create') && !$this->can(self::PAGE_STOCK_DIVISION, 'create')) {
             $this->require_permission(self::PAGE_ORDER, 'create');
         }
 
         $payload = $this->requestPayload();
+        unset($payload['adjustment_category'], $payload['adjustment_reason_code']);
         $result = $this->Purchase_model->store_warehouse_opening_and_post(
             $payload,
             (int)($this->current_user['id'] ?? 0),
@@ -342,6 +420,66 @@ class Purchase extends MY_Controller
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($result));
+    }
+
+    public function stock_opname_generate()
+    {
+        if (!$this->can(self::PAGE_STOCK_WAREHOUSE, 'create') && !$this->can(self::PAGE_STOCK_DIVISION, 'create')) {
+            $this->require_permission(self::PAGE_ORDER, 'create');
+        }
+
+        $payload = $this->requestPayload();
+        if (empty($payload)) {
+            $payload = [
+                'stock_scope' => (string)$this->input->post('stock_scope', true),
+                'month' => (string)$this->input->post('month', true),
+                'division_id' => (int)$this->input->post('division_id', true),
+                'destination' => (string)$this->input->post('destination', true),
+            ];
+        }
+
+        $result = $this->Purchase_model->generate_monthly_opname_and_opening(
+            $payload,
+            (int)($this->current_user['id'] ?? 0),
+            (string)$this->input->ip_address()
+        );
+
+        $acceptHeader = strtolower((string)$this->input->server('HTTP_ACCEPT'));
+        $contentType = strtolower((string)$this->input->server('CONTENT_TYPE'));
+        $isJsonRequest = strpos($acceptHeader, 'application/json') !== false
+            || strpos($contentType, 'application/json') !== false;
+
+        if ($isJsonRequest) {
+            if (!($result['ok'] ?? false)) {
+                $this->jsonError((string)($result['message'] ?? 'Gagal generate opname.'), 422);
+                return;
+            }
+
+            $this->output
+                ->set_content_type('application/json')
+                ->set_output(json_encode($result));
+            return;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->session->set_flashdata('error', (string)($result['message'] ?? 'Gagal generate opname.'));
+        } else {
+            $this->session->set_flashdata('success', (string)($result['message'] ?? 'Generate opname berhasil.'));
+        }
+
+        $backUrl = (string)$this->input->post('back_url', true);
+        if ($backUrl !== '') {
+            redirect($backUrl);
+            return;
+        }
+
+        $scope = strtoupper(trim((string)($payload['stock_scope'] ?? 'WAREHOUSE')));
+        if ($scope === 'DIVISION') {
+            redirect('purchase/stock/division/daily?month=' . date('Y-m', strtotime((string)($payload['month'] ?? date('Y-m-01')))));
+            return;
+        }
+
+        redirect('purchase/stock/warehouse/daily?month=' . date('Y-m', strtotime((string)($payload['month'] ?? date('Y-m-01')))));
     }
 
     public function stock_warehouse_daily_index()
@@ -1174,6 +1312,7 @@ class Purchase extends MY_Controller
         $contentPerBuy = (string)($row['content_per_buy'] ?? '0');
         $brand = strtoupper(trim((string)($row['brand_name'] ?? '')));
         $desc = strtoupper(trim((string)($row['line_description'] ?? '')));
+        $expiredDate = trim((string)($row['expired_date'] ?? ''));
 
         return implode('|', [
             $lineKind,
@@ -1184,6 +1323,7 @@ class Purchase extends MY_Controller
             $contentPerBuy,
             $brand,
             $desc,
+            $expiredDate,
         ]);
     }
 }

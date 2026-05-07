@@ -69,6 +69,7 @@ foreach ($detailLines as $ln) {
     'qty_buy' => (float)($ln['qty_buy'] ?? 0),
     'discount_percent' => (float)($ln['discount_percent'] ?? 0),
     'tax_percent' => (float)($ln['tax_percent'] ?? 0),
+    'expired_date' => (string)($ln['expired_date'] ?? ($ln['snapshot_expired_date'] ?? '')),
     'notes' => (string)($ln['notes'] ?? ''),
   ];
 }
@@ -296,12 +297,13 @@ foreach ($detailLines as $ln) {
             <th class="line-inventory-col">UOM Isi</th>
             <th class="text-end line-inventory-col">Qty Beli</th>
             <th class="text-end line-inventory-col">Isi/Beli</th>
+            <th class="line-inventory-col">Expired (opsional)</th>
             <th class="text-end">Harga</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="10" class="text-center text-muted py-3">Belum ada line.</td></tr>
+          <tr><td colspan="11" class="text-center text-muted py-3">Belum ada line.</td></tr>
         </tbody>
       </table>
     </div>
@@ -373,6 +375,11 @@ foreach ($detailLines as $ln) {
     return Number.isFinite(n) ? n : 0;
   }
 
+  function dateVal(v) {
+    var t = String(v || '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : '';
+  }
+
   function alertMsg(type, msg) {
     alertArea.innerHTML = '<div class="alert alert-' + type + ' alert-dismissible fade show" role="alert">'
       + msg + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
@@ -421,6 +428,7 @@ foreach ($detailLines as $ln) {
       line.content_per_buy = 1;
       line.conversion_factor_to_content = 1;
     }
+    line.expired_date = '';
   }
 
   function applyLineModeByPurchaseType() {
@@ -464,6 +472,7 @@ foreach ($detailLines as $ln) {
       qty_buy: 0,
       discount_percent: 0,
       tax_percent: 0,
+      expired_date: '',
       notes: ''
     };
   }
@@ -528,6 +537,7 @@ foreach ($detailLines as $ln) {
       qty_buy: num(existing.qty_buy || 0),
       discount_percent: 0,
       tax_percent: 0,
+      expired_date: dateVal(it.expired_date || existing.expired_date || ''),
       notes: existing.notes || ''
     };
     if (num(lines[idx].qty_buy) <= 0) {
@@ -568,7 +578,7 @@ foreach ($detailLines as $ln) {
 
   function refreshLines() {
     if (!lines.length) {
-      lineTbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">Belum ada line.</td></tr>';
+      lineTbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Belum ada line.</td></tr>';
       return;
     }
 
@@ -584,6 +594,7 @@ foreach ($detailLines as $ln) {
       var nameInput = (l.catalog_name || l.item_name || l.material_name || '');
       var buyUomId = Number(l.buy_uom_id || 0);
       var contentUomId = Number(l.content_uom_id || 0);
+      var expiredDate = dateVal(l.expired_date);
       var materialLocked = (kind === 'MATERIAL');
       var invDisabled = !isInventoryType;
       var materialNameInput = (l.material_name || '');
@@ -601,6 +612,7 @@ foreach ($detailLines as $ln) {
         '<td class="line-inventory-col"><select class="form-select form-select-sm line-content-uom"' + ((materialLocked || invDisabled) ? ' disabled' : '') + '>' + buildUomOptions(contentUomId) + '</select></td>' +
         '<td class="line-inventory-col"><input type="number" class="form-control form-control-sm line-qty text-end" min="0" step="0.01" value="' + num(l.qty_buy || 0).toFixed(2) + '"' + (invDisabled ? ' disabled' : '') + '></td>' +
         '<td class="line-inventory-col"><input type="number" class="form-control form-control-sm line-content text-end" min="0" step="0.01" value="' + num(l.content_per_buy || 0).toFixed(2) + '"' + (invDisabled ? ' disabled' : '') + '></td>' +
+        '<td class="line-inventory-col"><input type="date" class="form-control form-control-sm line-expired" value="' + esc(expiredDate) + '"' + (invDisabled ? ' disabled' : '') + '></td>' +
         '<td><input type="number" class="form-control form-control-sm line-price text-end" min="0" step="0.01" value="' + num(l.unit_price || l.last_unit_price || 0).toFixed(2) + '"></td>' +
         '<td><button type="button" class="btn btn-sm btn-outline-danger btn-remove-line">Hapus</button></td>' +
       '</tr>');
@@ -876,6 +888,7 @@ foreach ($detailLines as $ln) {
       lines[idx].content_per_buy = num(e.target.value);
       lines[idx].conversion_factor_to_content = num(e.target.value);
     }
+    if (e.target.classList.contains('line-expired')) lines[idx].expired_date = dateVal(e.target.value || '');
     if (e.target.classList.contains('line-price')) lines[idx].unit_price = num(e.target.value);
   });
 
@@ -1049,6 +1062,12 @@ foreach ($detailLines as $ln) {
           submitLines[i].content_uom_code = (uomById[matContentId] && uomById[matContentId].code) ? uomById[matContentId].code : (submitLines[i].content_uom_code || '');
         }
       }
+      var lineExpired = dateVal(submitLines[i].expired_date || '');
+      if (!isInventoryType) {
+        submitLines[i].expired_date = null;
+      } else {
+        submitLines[i].expired_date = lineExpired !== '' ? lineExpired : null;
+      }
     }
 
     var header = {
@@ -1110,6 +1129,7 @@ foreach ($detailLines as $ln) {
       mapped.unit_price = num(mapped.unit_price);
       mapped.discount_percent = num(mapped.discount_percent);
       mapped.tax_percent = num(mapped.tax_percent);
+      mapped.expired_date = dateVal(mapped.expired_date);
       applyLineTypeDefaults(mapped);
       return mapped;
     });

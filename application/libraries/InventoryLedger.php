@@ -46,7 +46,7 @@ class InventoryLedger
         }
 
         $movementType = strtoupper(trim((string)($payload['movement_type'] ?? '')));
-        $allowedTypes = ['PURCHASE_IN', 'TRANSFER_IN', 'TRANSFER_OUT', 'USAGE_OUT', 'DISCARDED_OUT', 'SPOIL_OUT', 'WASTE_OUT', 'ADJUSTMENT'];
+        $allowedTypes = ['PURCHASE_IN', 'TRANSFER_IN', 'TRANSFER_OUT', 'USAGE_OUT', 'DISCARDED_OUT', 'SPOIL_OUT', 'WASTE_OUT', 'PROCESS_LOSS_OUT', 'VARIANCE_OUT', 'ADJUSTMENT', 'ADJUSTMENT_IN'];
         if (!in_array($movementType, $allowedTypes, true)) {
             return [
                 'ok' => false,
@@ -95,6 +95,15 @@ class InventoryLedger
                 'ok' => false,
                 'message' => 'qty delta tidak boleh keduanya nol.',
             ];
+        }
+
+        $adjustmentCategory = $this->normalizeAdjustmentCategory((string)($payload['adjustment_category'] ?? ''));
+        if ($adjustmentCategory === null) {
+            $adjustmentCategory = $this->resolveAdjustmentCategoryFromMovement($movementType, $qtyBuyDelta, $qtyContentDelta);
+        }
+        $adjustmentReasonCode = $this->normalizeAdjustmentReasonCode((string)($payload['adjustment_reason_code'] ?? ''), $adjustmentCategory);
+        if ($adjustmentCategory !== null && $adjustmentReasonCode === null) {
+            $adjustmentReasonCode = 'other';
         }
 
         $stockDomain = strtoupper(trim((string)($payload['stock_domain'] ?? ($itemId !== null ? 'ITEM' : 'MATERIAL'))));
@@ -152,6 +161,15 @@ class InventoryLedger
             'notes' => $this->nullableString($payload['notes'] ?? null),
             'created_by' => $this->nullableInt($payload['created_by'] ?? null),
         ];
+        if ($this->ci->db->field_exists('profile_expired_date', 'inv_stock_movement_log')) {
+            $movementData['profile_expired_date'] = $this->normalizeDate((string)($payload['profile_expired_date'] ?? ''));
+        }
+        if ($this->ci->db->field_exists('adjustment_category', 'inv_stock_movement_log')) {
+            $movementData['adjustment_category'] = $adjustmentCategory;
+        }
+        if ($this->ci->db->field_exists('adjustment_reason_code', 'inv_stock_movement_log')) {
+            $movementData['adjustment_reason_code'] = $adjustmentReasonCode;
+        }
 
         if ($scope === 'DIVISION' && $this->ci->db->field_exists('destination_type', 'inv_stock_movement_log')) {
             $movementData['destination_type'] = $destinationType;
@@ -175,6 +193,7 @@ class InventoryLedger
             'destination_type' => $destinationType,
             'movement_date' => $movementDate,
             'movement_type' => $movementType,
+            'ref_table' => $this->nullableString($payload['ref_table'] ?? null),
             'stock_domain' => $stockDomain,
             'item_id' => $itemId,
             'material_id' => $materialId,
@@ -184,9 +203,12 @@ class InventoryLedger
             'profile_name' => $this->nullableString($payload['profile_name'] ?? null),
             'profile_brand' => $this->nullableString($payload['profile_brand'] ?? null),
             'profile_description' => $this->nullableString($payload['profile_description'] ?? null),
+            'profile_expired_date' => $this->normalizeDate((string)($payload['profile_expired_date'] ?? '')),
             'profile_content_per_buy' => $this->nullableDecimal($payload['profile_content_per_buy'] ?? null, 6),
             'profile_buy_uom_code' => $this->nullableString($payload['profile_buy_uom_code'] ?? null),
             'profile_content_uom_code' => $this->nullableString($payload['profile_content_uom_code'] ?? null),
+            'adjustment_category' => $adjustmentCategory,
+            'adjustment_reason_code' => $adjustmentReasonCode,
             'qty_buy_delta' => $qtyBuyDelta,
             'qty_content_delta' => $qtyContentDelta,
             'qty_buy_after' => $balanceResult['qty_buy_after'],
@@ -331,6 +353,10 @@ class InventoryLedger
         }
 
         $unitCost = max(0, round((float)($payload['unit_cost'] ?? 0), 6));
+        $forcedAvg = null;
+        if (array_key_exists('force_avg_cost_per_content', $payload) && $payload['force_avg_cost_per_content'] !== null && $payload['force_avg_cost_per_content'] !== '') {
+            $forcedAvg = max(0, round((float)$payload['force_avg_cost_per_content'], 6));
+        }
         $avgAfter = $oldAvg;
         if ($qtyContentAfter <= 0) {
             $avgAfter = 0;
@@ -338,6 +364,9 @@ class InventoryLedger
             $oldValue = $oldQtyContent * $oldAvg;
             $inValue = $qtyContentDelta * $unitCost;
             $avgAfter = round(($oldValue + $inValue) / max(0.000001, $qtyContentAfter), 6);
+        }
+        if ($qtyContentAfter > 0 && $forcedAvg !== null) {
+            $avgAfter = $forcedAvg;
         }
 
         $updateData = [
@@ -353,6 +382,9 @@ class InventoryLedger
             'last_receipt_line_id' => $this->nullableInt($payload['receipt_line_id'] ?? ($existing['last_receipt_line_id'] ?? null)),
             'notes' => $this->nullableString($payload['notes'] ?? ($existing['notes'] ?? null)),
         ];
+        if ($this->ci->db->field_exists('profile_expired_date', $table)) {
+            $updateData['profile_expired_date'] = $this->normalizeDate((string)($payload['profile_expired_date'] ?? ($existing['profile_expired_date'] ?? '')));
+        }
 
         if ($existing) {
             $this->ci->db->where('id', (int)$existing['id'])->update($table, $updateData);
@@ -388,6 +420,9 @@ class InventoryLedger
         $movementDate = (string)$ctx['movement_date'];
         $monthKey = date('Y-m-01', strtotime($movementDate));
         $movementType = (string)$ctx['movement_type'];
+        $refTable = (string)($ctx['ref_table'] ?? '');
+        $isOpeningSnapshotMovement = in_array($refTable, ['inv_warehouse_stock_opening_snapshot', 'inv_division_stock_opening_snapshot'], true);
+        $profileExpiredDate = $this->normalizeDate((string)($ctx['profile_expired_date'] ?? ''));
 
         $keys = [
             'movement_date' => $movementDate,
@@ -415,6 +450,11 @@ class InventoryLedger
 
         $qtyBuyDelta = (float)($ctx['qty_buy_delta'] ?? 0);
         $qtyContentDelta = (float)($ctx['qty_content_delta'] ?? 0);
+        $adjustmentCategory = $this->normalizeAdjustmentCategory((string)($ctx['adjustment_category'] ?? ''));
+        if ($adjustmentCategory === null) {
+            $adjustmentCategory = $this->resolveAdjustmentCategoryFromMovement($movementType, $qtyBuyDelta, $qtyContentDelta);
+        }
+        $mutationValue = round(abs($qtyContentDelta) * max(0, (float)($ctx['avg_cost_per_content'] ?? 0)), 2);
 
         $deltaMap = [
             'in_qty_buy' => 0.0,
@@ -427,8 +467,22 @@ class InventoryLedger
             'spoil_qty_content' => 0.0,
             'waste_qty_buy' => 0.0,
             'waste_qty_content' => 0.0,
+            'process_loss_qty_buy' => 0.0,
+            'process_loss_qty_content' => 0.0,
+            'variance_qty_buy' => 0.0,
+            'variance_qty_content' => 0.0,
+            'adjustment_plus_qty_buy' => 0.0,
+            'adjustment_plus_qty_content' => 0.0,
             'adjustment_qty_buy' => 0.0,
             'adjustment_qty_content' => 0.0,
+        ];
+
+        $valueMap = [
+            'waste_total_value' => 0.0,
+            'spoilage_total_value' => 0.0,
+            'process_loss_total_value' => 0.0,
+            'variance_total_value' => 0.0,
+            'adjustment_plus_total_value' => 0.0,
         ];
 
         if (in_array($movementType, ['PURCHASE_IN', 'TRANSFER_IN'], true)) {
@@ -440,19 +494,100 @@ class InventoryLedger
         } elseif ($movementType === 'DISCARDED_OUT') {
             $deltaMap['discarded_qty_buy'] = abs(min(0, $qtyBuyDelta));
             $deltaMap['discarded_qty_content'] = abs(min(0, $qtyContentDelta));
+            $deltaMap['waste_qty_buy'] = abs(min(0, $qtyBuyDelta));
+            $deltaMap['waste_qty_content'] = abs(min(0, $qtyContentDelta));
+            $valueMap['waste_total_value'] = $mutationValue;
         } elseif ($movementType === 'SPOIL_OUT') {
             $deltaMap['spoil_qty_buy'] = abs(min(0, $qtyBuyDelta));
             $deltaMap['spoil_qty_content'] = abs(min(0, $qtyContentDelta));
+            $valueMap['spoilage_total_value'] = $mutationValue;
         } elseif ($movementType === 'WASTE_OUT') {
             $deltaMap['waste_qty_buy'] = abs(min(0, $qtyBuyDelta));
             $deltaMap['waste_qty_content'] = abs(min(0, $qtyContentDelta));
+            $valueMap['waste_total_value'] = $mutationValue;
+        } elseif ($movementType === 'PROCESS_LOSS_OUT') {
+            $deltaMap['process_loss_qty_buy'] = abs(min(0, $qtyBuyDelta));
+            $deltaMap['process_loss_qty_content'] = abs(min(0, $qtyContentDelta));
+            $deltaMap['adjustment_qty_buy'] = $qtyBuyDelta;
+            $deltaMap['adjustment_qty_content'] = $qtyContentDelta;
+            $valueMap['process_loss_total_value'] = $mutationValue;
+        } elseif ($movementType === 'VARIANCE_OUT') {
+            $deltaMap['variance_qty_buy'] = abs(min(0, $qtyBuyDelta));
+            $deltaMap['variance_qty_content'] = abs(min(0, $qtyContentDelta));
+            $deltaMap['adjustment_qty_buy'] = $qtyBuyDelta;
+            $deltaMap['adjustment_qty_content'] = $qtyContentDelta;
+            $valueMap['variance_total_value'] = $mutationValue;
+        } elseif ($movementType === 'ADJUSTMENT_IN') {
+            $deltaMap['adjustment_plus_qty_buy'] = max(0, $qtyBuyDelta);
+            $deltaMap['adjustment_plus_qty_content'] = max(0, $qtyContentDelta);
+            $deltaMap['adjustment_qty_buy'] = $qtyBuyDelta;
+            $deltaMap['adjustment_qty_content'] = $qtyContentDelta;
+            $valueMap['adjustment_plus_total_value'] = $mutationValue;
         } else {
             $deltaMap['adjustment_qty_buy'] = $qtyBuyDelta;
             $deltaMap['adjustment_qty_content'] = $qtyContentDelta;
         }
 
+        if ($adjustmentCategory === 'WASTE') {
+            $deltaMap['waste_qty_buy'] = max($deltaMap['waste_qty_buy'], abs($qtyBuyDelta));
+            $deltaMap['waste_qty_content'] = max($deltaMap['waste_qty_content'], abs($qtyContentDelta));
+            $valueMap['waste_total_value'] = max($valueMap['waste_total_value'], $mutationValue);
+        } elseif ($adjustmentCategory === 'SPOILAGE') {
+            $deltaMap['spoil_qty_buy'] = max($deltaMap['spoil_qty_buy'], abs($qtyBuyDelta));
+            $deltaMap['spoil_qty_content'] = max($deltaMap['spoil_qty_content'], abs($qtyContentDelta));
+            $valueMap['spoilage_total_value'] = max($valueMap['spoilage_total_value'], $mutationValue);
+        } elseif ($adjustmentCategory === 'PROCESS_LOSS') {
+            $deltaMap['process_loss_qty_buy'] = max($deltaMap['process_loss_qty_buy'], abs($qtyBuyDelta));
+            $deltaMap['process_loss_qty_content'] = max($deltaMap['process_loss_qty_content'], abs($qtyContentDelta));
+            $valueMap['process_loss_total_value'] = max($valueMap['process_loss_total_value'], $mutationValue);
+        } elseif ($adjustmentCategory === 'VARIANCE') {
+            $deltaMap['variance_qty_buy'] = max($deltaMap['variance_qty_buy'], abs($qtyBuyDelta));
+            $deltaMap['variance_qty_content'] = max($deltaMap['variance_qty_content'], abs($qtyContentDelta));
+            $valueMap['variance_total_value'] = max($valueMap['variance_total_value'], $mutationValue);
+        } elseif ($adjustmentCategory === 'ADJUSTMENT_PLUS') {
+            $deltaMap['adjustment_plus_qty_buy'] = max($deltaMap['adjustment_plus_qty_buy'], max(0, $qtyBuyDelta));
+            $deltaMap['adjustment_plus_qty_content'] = max($deltaMap['adjustment_plus_qty_content'], max(0, $qtyContentDelta));
+            $valueMap['adjustment_plus_total_value'] = max($valueMap['adjustment_plus_total_value'], $mutationValue);
+        }
+
+        if ($isOpeningSnapshotMovement) {
+            $deltaMap['in_qty_buy'] = 0.0;
+            $deltaMap['in_qty_content'] = 0.0;
+            $deltaMap['out_qty_buy'] = 0.0;
+            $deltaMap['out_qty_content'] = 0.0;
+            $deltaMap['discarded_qty_buy'] = 0.0;
+            $deltaMap['discarded_qty_content'] = 0.0;
+            $deltaMap['spoil_qty_buy'] = 0.0;
+            $deltaMap['spoil_qty_content'] = 0.0;
+            $deltaMap['waste_qty_buy'] = 0.0;
+            $deltaMap['waste_qty_content'] = 0.0;
+            $deltaMap['process_loss_qty_buy'] = 0.0;
+            $deltaMap['process_loss_qty_content'] = 0.0;
+            $deltaMap['variance_qty_buy'] = 0.0;
+            $deltaMap['variance_qty_content'] = 0.0;
+            $deltaMap['adjustment_plus_qty_buy'] = 0.0;
+            $deltaMap['adjustment_plus_qty_content'] = 0.0;
+            $deltaMap['adjustment_qty_buy'] = 0.0;
+            $deltaMap['adjustment_qty_content'] = 0.0;
+
+            $valueMap['waste_total_value'] = 0.0;
+            $valueMap['spoilage_total_value'] = 0.0;
+            $valueMap['process_loss_total_value'] = 0.0;
+            $valueMap['variance_total_value'] = 0.0;
+            $valueMap['adjustment_plus_total_value'] = 0.0;
+        }
+
         if ($existing) {
+            $openingQtyBuy = (float)($existing['opening_qty_buy'] ?? 0);
+            $openingQtyContent = (float)($existing['opening_qty_content'] ?? 0);
+            if ($isOpeningSnapshotMovement) {
+                $openingQtyBuy += $qtyBuyDelta;
+                $openingQtyContent += $qtyContentDelta;
+            }
+
             $update = [
+                'opening_qty_buy' => round($openingQtyBuy, 4),
+                'opening_qty_content' => round($openingQtyContent, 4),
                 'in_qty_buy' => round(((float)$existing['in_qty_buy']) + $deltaMap['in_qty_buy'], 4),
                 'in_qty_content' => round(((float)$existing['in_qty_content']) + $deltaMap['in_qty_content'], 4),
                 'out_qty_buy' => round(((float)$existing['out_qty_buy']) + $deltaMap['out_qty_buy'], 4),
@@ -472,12 +607,52 @@ class InventoryLedger
                 'mutation_count' => ((int)$existing['mutation_count']) + 1,
                 'last_movement_at' => date('Y-m-d H:i:s'),
             ];
+            if ($this->ci->db->field_exists('process_loss_qty_buy', $table)) {
+                $update['process_loss_qty_buy'] = round(((float)($existing['process_loss_qty_buy'] ?? 0)) + $deltaMap['process_loss_qty_buy'], 4);
+            }
+            if ($this->ci->db->field_exists('process_loss_qty_content', $table)) {
+                $update['process_loss_qty_content'] = round(((float)($existing['process_loss_qty_content'] ?? 0)) + $deltaMap['process_loss_qty_content'], 4);
+            }
+            if ($this->ci->db->field_exists('variance_qty_buy', $table)) {
+                $update['variance_qty_buy'] = round(((float)($existing['variance_qty_buy'] ?? 0)) + $deltaMap['variance_qty_buy'], 4);
+            }
+            if ($this->ci->db->field_exists('variance_qty_content', $table)) {
+                $update['variance_qty_content'] = round(((float)($existing['variance_qty_content'] ?? 0)) + $deltaMap['variance_qty_content'], 4);
+            }
+            if ($this->ci->db->field_exists('adjustment_plus_qty_buy', $table)) {
+                $update['adjustment_plus_qty_buy'] = round(((float)($existing['adjustment_plus_qty_buy'] ?? 0)) + $deltaMap['adjustment_plus_qty_buy'], 4);
+            }
+            if ($this->ci->db->field_exists('adjustment_plus_qty_content', $table)) {
+                $update['adjustment_plus_qty_content'] = round(((float)($existing['adjustment_plus_qty_content'] ?? 0)) + $deltaMap['adjustment_plus_qty_content'], 4);
+            }
+            if ($this->ci->db->field_exists('waste_total_value', $table)) {
+                $update['waste_total_value'] = round(((float)($existing['waste_total_value'] ?? 0)) + $valueMap['waste_total_value'], 2);
+            }
+            if ($this->ci->db->field_exists('spoilage_total_value', $table)) {
+                $update['spoilage_total_value'] = round(((float)($existing['spoilage_total_value'] ?? 0)) + $valueMap['spoilage_total_value'], 2);
+            }
+            if ($this->ci->db->field_exists('process_loss_total_value', $table)) {
+                $update['process_loss_total_value'] = round(((float)($existing['process_loss_total_value'] ?? 0)) + $valueMap['process_loss_total_value'], 2);
+            }
+            if ($this->ci->db->field_exists('variance_total_value', $table)) {
+                $update['variance_total_value'] = round(((float)($existing['variance_total_value'] ?? 0)) + $valueMap['variance_total_value'], 2);
+            }
+            if ($this->ci->db->field_exists('adjustment_plus_total_value', $table)) {
+                $update['adjustment_plus_total_value'] = round(((float)($existing['adjustment_plus_total_value'] ?? 0)) + $valueMap['adjustment_plus_total_value'], 2);
+            }
+            if ($this->ci->db->field_exists('profile_expired_date', $table)) {
+                $update['profile_expired_date'] = $profileExpiredDate;
+            }
             $this->ci->db->where('id', (int)$existing['id'])->update($table, $update);
             return ['ok' => true];
         }
 
         $openingBuy = round(((float)$ctx['qty_buy_after']) - $qtyBuyDelta, 4);
         $openingContent = round(((float)$ctx['qty_content_after']) - $qtyContentDelta, 4);
+        if ($isOpeningSnapshotMovement) {
+            $openingBuy = round((float)$ctx['qty_buy_after'], 4);
+            $openingContent = round((float)$ctx['qty_content_after'], 4);
+        }
 
         $insert = [
             'month_key' => $monthKey,
@@ -515,6 +690,42 @@ class InventoryLedger
             'mutation_count' => 1,
             'last_movement_at' => date('Y-m-d H:i:s'),
         ];
+        if ($this->ci->db->field_exists('process_loss_qty_buy', $table)) {
+            $insert['process_loss_qty_buy'] = $deltaMap['process_loss_qty_buy'];
+        }
+        if ($this->ci->db->field_exists('process_loss_qty_content', $table)) {
+            $insert['process_loss_qty_content'] = $deltaMap['process_loss_qty_content'];
+        }
+        if ($this->ci->db->field_exists('variance_qty_buy', $table)) {
+            $insert['variance_qty_buy'] = $deltaMap['variance_qty_buy'];
+        }
+        if ($this->ci->db->field_exists('variance_qty_content', $table)) {
+            $insert['variance_qty_content'] = $deltaMap['variance_qty_content'];
+        }
+        if ($this->ci->db->field_exists('adjustment_plus_qty_buy', $table)) {
+            $insert['adjustment_plus_qty_buy'] = $deltaMap['adjustment_plus_qty_buy'];
+        }
+        if ($this->ci->db->field_exists('adjustment_plus_qty_content', $table)) {
+            $insert['adjustment_plus_qty_content'] = $deltaMap['adjustment_plus_qty_content'];
+        }
+        if ($this->ci->db->field_exists('waste_total_value', $table)) {
+            $insert['waste_total_value'] = $valueMap['waste_total_value'];
+        }
+        if ($this->ci->db->field_exists('spoilage_total_value', $table)) {
+            $insert['spoilage_total_value'] = $valueMap['spoilage_total_value'];
+        }
+        if ($this->ci->db->field_exists('process_loss_total_value', $table)) {
+            $insert['process_loss_total_value'] = $valueMap['process_loss_total_value'];
+        }
+        if ($this->ci->db->field_exists('variance_total_value', $table)) {
+            $insert['variance_total_value'] = $valueMap['variance_total_value'];
+        }
+        if ($this->ci->db->field_exists('adjustment_plus_total_value', $table)) {
+            $insert['adjustment_plus_total_value'] = $valueMap['adjustment_plus_total_value'];
+        }
+        if ($this->ci->db->field_exists('profile_expired_date', $table)) {
+            $insert['profile_expired_date'] = $profileExpiredDate;
+        }
         if ($scope === 'DIVISION') {
             $insert['division_id'] = $this->nullableInt($ctx['division_id'] ?? null);
             if ($this->ci->db->field_exists('destination_type', $table)) {
@@ -577,6 +788,69 @@ class InventoryLedger
 
         $allowed = ['GUDANG', 'BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'];
         return in_array($value, $allowed, true) ? $value : null;
+    }
+
+    private function resolveAdjustmentCategoryFromMovement(string $movementType, float $qtyBuyDelta, float $qtyContentDelta): ?string
+    {
+        if (in_array($movementType, ['DISCARDED_OUT', 'WASTE_OUT'], true)) {
+            return 'WASTE';
+        }
+        if ($movementType === 'SPOIL_OUT') {
+            return 'SPOILAGE';
+        }
+        if ($movementType === 'PROCESS_LOSS_OUT') {
+            return 'PROCESS_LOSS';
+        }
+        if ($movementType === 'VARIANCE_OUT') {
+            return 'VARIANCE';
+        }
+        if ($movementType === 'ADJUSTMENT_IN') {
+            return 'ADJUSTMENT_PLUS';
+        }
+
+        if ($movementType === 'ADJUSTMENT') {
+            if ($qtyBuyDelta > 0 || $qtyContentDelta > 0) {
+                return 'ADJUSTMENT_PLUS';
+            }
+            return 'VARIANCE';
+        }
+
+        return null;
+    }
+
+    private function normalizeAdjustmentCategory(string $value): ?string
+    {
+        $value = strtoupper(trim($value));
+        if ($value === '') {
+            return null;
+        }
+        $allowed = ['WASTE', 'SPOILAGE', 'PROCESS_LOSS', 'VARIANCE', 'ADJUSTMENT_PLUS'];
+        return in_array($value, $allowed, true) ? $value : null;
+    }
+
+    private function normalizeAdjustmentReasonCode(string $value, ?string $category): ?string
+    {
+        if ($category === null) {
+            return null;
+        }
+        $value = strtolower(trim($value));
+        if ($value === '') {
+            return null;
+        }
+
+        $reasonMap = [
+            'WASTE' => ['cancel_order', 'kitchen_error', 'overproduction', 'spillage', 'prep_trim_excess', 'expired_opened', 'other'],
+            'SPOILAGE' => ['expired', 'temperature_abuse', 'contamination', 'overstock', 'improper_storage', 'other'],
+            'PROCESS_LOSS' => ['defrost_loss', 'trimming_standard', 'cooking_loss', 'evaporation', 'brew_loss', 'absorption_loss', 'process_residue', 'other'],
+            'VARIANCE' => ['over_usage', 'under_usage', 'unrecorded_usage', 'counting_error', 'system_mismatch', 'theft_suspected', 'unknown_shrinkage', 'other'],
+            'ADJUSTMENT_PLUS' => ['other'],
+        ];
+
+        if (!isset($reasonMap[$category])) {
+            return null;
+        }
+
+        return in_array($value, $reasonMap[$category], true) ? $value : 'other';
     }
 
     private function nullableInt($value): ?int

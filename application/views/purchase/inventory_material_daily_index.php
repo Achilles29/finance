@@ -1,5 +1,6 @@
 <?php
 $initialMonth = (string)($month ?? date('Y-m'));
+$generateUrl = site_url('purchase/stock/opname/generate');
 $initialQ = (string)($q ?? '');
 $initialDateFrom = (string)($date_from ?? '');
 $initialDateTo = (string)($date_to ?? '');
@@ -21,6 +22,14 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     <small class="text-muted">Matrix stok bahan baku per divisi/tujuan, bisa digabung item lalu expand ke profil.</small>
   </div>
   <div class="d-flex gap-2 flex-wrap">
+    <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname divisi bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
+      <input type="hidden" name="stock_scope" value="DIVISION">
+      <input type="hidden" name="month" value="<?php echo html_escape(substr($initialMonth, 0, 7)); ?>">
+      <input type="hidden" name="division_id" value="<?php echo (int)$initialDivisionId; ?>">
+      <input type="hidden" name="destination" value="<?php echo html_escape($initialDestination); ?>">
+      <input type="hidden" name="back_url" value="inventory-material-daily?month=<?php echo rawurlencode(substr($initialMonth, 0, 7)); ?>&division_id=<?php echo (int)$initialDivisionId; ?>&destination=<?php echo rawurlencode($initialDestination); ?>">
+      <button type="submit" class="btn btn-primary">Generate Opname + Stok Awal</button>
+    </form>
     <a href="<?php echo site_url('purchase/stock/division'); ?>" class="btn btn-outline-secondary">Stok Divisi Live</a>
     <a href="<?php echo site_url('purchase/stock/division/daily'); ?>" class="btn btn-outline-secondary">Daily Divisi (List)</a>
     <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-outline-primary">Warehouse Daily Matrix</a>
@@ -42,7 +51,7 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
   }
   .pmd-filter-card,
   .pmd-board-card,
-  .pmd-table,
+  .pmd-scroll-table,
   .pmd-modal-card {
     font-family: "Trebuchet MS", Verdana, sans-serif;
   }
@@ -86,27 +95,77 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
   .pmd-dot-adj { background: #7f64d9; }
   .pmd-dot-close { background: #4e6b83; }
   .pmd-table-wrap {
-    max-height: 68vh;
     overflow: auto;
     position: relative;
     background: linear-gradient(180deg, #fffdfa 0%, #fff6f1 100%);
+    isolation: isolate;
   }
-  .pmd-table {
+  .pmd-matrix-shell {
+    display: grid;
+    grid-template-columns: calc(var(--pmd-col-division) + var(--pmd-col-material) + var(--pmd-col-profile) + var(--pmd-col-summary)) minmax(0, 1fr);
+    align-items: start;
+  }
+  .pmd-freeze-pane {
+    position: relative;
+    z-index: 2;
+    background: linear-gradient(180deg, #fffdfa 0%, #fff6f1 100%);
+    border-right: 4px solid #d2a08e;
+    box-shadow: 12px 0 22px -18px rgba(95, 23, 39, 0.26);
+  }
+  .pmd-scroll-pane {
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    position: relative;
+    background: linear-gradient(180deg, #fffdfa 0%, #fff6f1 100%);
+  }
+  .pmd-freeze-table {
+    width: calc(var(--pmd-col-division) + var(--pmd-col-material) + var(--pmd-col-profile) + var(--pmd-col-summary));
+    min-width: calc(var(--pmd-col-division) + var(--pmd-col-material) + var(--pmd-col-profile) + var(--pmd-col-summary));
+    margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+  }
+  .pmd-scroll-table {
+    min-width: 1120px;
+    margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+  }
+  .pmd-freeze-table thead th,
+  .pmd-freeze-table tbody td,
+  .pmd-scroll-table thead th,
+  .pmd-scroll-table tbody td {
+    padding: 0.42rem 0.45rem;
+    vertical-align: middle;
+  }
+  .pmd-freeze-table td {
+    background: #fffaf7;
+    color: #4a2430;
+    box-shadow: inset -2px 0 0 #e6c9bd;
+  }
+  .pmd-freeze-col-1 { width: var(--pmd-col-division); min-width: var(--pmd-col-division); max-width: var(--pmd-col-division); }
+  .pmd-freeze-col-2 { width: var(--pmd-col-material); min-width: var(--pmd-col-material); max-width: var(--pmd-col-material); }
+  .pmd-freeze-col-3 { width: var(--pmd-col-profile); min-width: var(--pmd-col-profile); max-width: var(--pmd-col-profile); }
+  .pmd-freeze-col-4 { width: var(--pmd-col-summary); min-width: var(--pmd-col-summary); max-width: var(--pmd-col-summary); }
+  .pmd-scroll-table {
     min-width: 1720px;
     margin-bottom: 0;
     border-collapse: separate;
     border-spacing: 0;
     table-layout: fixed;
   }
-  .pmd-table thead th,
-  .pmd-table tbody td {
+  .pmd-scroll-table thead th,
+  .pmd-scroll-table tbody td {
     padding: 0.42rem 0.45rem;
     vertical-align: middle;
   }
-  .pmd-table thead tr:first-child th {
+  .pmd-scroll-table thead tr:first-child th {
     position: sticky;
     top: 0;
-    z-index: 12;
+    z-index: 52;
     background: #fff8f4;
     border-bottom: 1px solid #ebd8cf;
     color: #602739;
@@ -115,10 +174,35 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     letter-spacing: 0.08em;
     white-space: nowrap;
   }
-  .pmd-table thead tr:nth-child(2) th {
+  .pmd-freeze-table thead tr:first-child th {
+    position: sticky;
+    top: 0;
+    z-index: 52;
+    background: #fff8f4;
+    border-bottom: 1px solid #ebd8cf;
+    height: var(--pmd-header-row-1);
+    min-height: var(--pmd-header-row-1);
+  }
+  .pmd-freeze-table thead tr:nth-child(2) th {
     position: sticky;
     top: var(--pmd-header-row-1);
-    z-index: 11;
+    z-index: 51;
+    background: #fff2ec;
+    border-bottom: 1px solid #ebd8cf;
+    color: #7b4f49;
+    font-size: 0.73rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .pmd-freeze-spacer {
+    color: transparent;
+    line-height: 0;
+    font-size: 0;
+  }
+  .pmd-scroll-table thead tr:nth-child(2) th {
+    position: sticky;
+    top: var(--pmd-header-row-1);
+    z-index: 51;
     background: #fff2ec;
     border-bottom: 1px solid #ebd8cf;
     color: #7b4f49;
@@ -129,16 +213,6 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     min-width: var(--pmd-date-col);
     max-width: var(--pmd-date-col);
   }
-  .pmd-sticky {
-    position: sticky !important;
-    background: #fffaf8;
-    box-shadow: inset -2px 0 0 #e7cfc4, 10px 0 16px -14px rgba(69, 22, 24, 0.35);
-    z-index: 9;
-  }
-  .pmd-sticky-1 { left: var(--pmd-left-1); width: var(--pmd-col-division); min-width: var(--pmd-col-division); max-width: var(--pmd-col-division); }
-  .pmd-sticky-2 { left: var(--pmd-left-2); width: var(--pmd-col-material); min-width: var(--pmd-col-material); max-width: var(--pmd-col-material); }
-  .pmd-sticky-3 { left: var(--pmd-left-3); width: var(--pmd-col-profile); min-width: var(--pmd-col-profile); max-width: var(--pmd-col-profile); }
-  .pmd-sticky-4 { left: var(--pmd-left-4); width: var(--pmd-col-summary); min-width: var(--pmd-col-summary); max-width: var(--pmd-col-summary); border-right: 4px solid #d2a08e; z-index: 13; }
   .pmd-day-head {
     width: calc(var(--pmd-date-col) * 5);
     min-width: calc(var(--pmd-date-col) * 5);
@@ -315,10 +389,10 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     padding: 0.75rem 0.9rem;
   }
   @media (max-width: 991.98px) {
-    .pmd-sticky { position: static; box-shadow: none; }
-    .pmd-sticky-1, .pmd-sticky-2, .pmd-sticky-3, .pmd-sticky-4 { width: auto; min-width: auto; max-width: none; }
-    .pmd-table { min-width: 1420px; }
+    .pmd-scroll-table { min-width: 1420px; }
     .pmd-day-head { min-width: 300px; }
+    .pmd-matrix-shell { grid-template-columns: 664px minmax(0, 1fr); }
+    .pmd-scroll-table { min-width: 1420px; }
   }
 </style>
 
@@ -406,11 +480,19 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
       <span class="pmd-legend-pill"><span class="pmd-legend-dot pmd-dot-close"></span>Akhir</span>
     </div>
   </div>
-  <div class="pmd-table-wrap" id="pmdTableWrap">
-    <table class="table pmd-table align-middle mb-0">
-      <thead id="pmdHead"></thead>
-      <tbody id="pmdBody"><tr><td colspan="999" class="pmd-loading">Memuat data...</td></tr></tbody>
-    </table>
+  <div class="pmd-matrix-shell" id="pmdMatrixShell">
+    <div class="pmd-freeze-pane">
+      <table class="table pmd-freeze-table align-middle mb-0">
+        <thead id="pmdFreezeHead"></thead>
+        <tbody id="pmdFreezeBody"><tr><td colspan="4" class="pmd-loading">Memuat data...</td></tr></tbody>
+      </table>
+    </div>
+    <div class="pmd-scroll-pane pmd-table-wrap" id="pmdTableWrap">
+      <table class="table pmd-scroll-table align-middle mb-0">
+        <thead id="pmdScrollHead"></thead>
+        <tbody id="pmdScrollBody"><tr><td colspan="999" class="pmd-loading">Memuat data...</td></tr></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -468,9 +550,12 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     expanded: {}
   };
 
-  var tableHead = document.getElementById('pmdHead');
-  var tableBody = document.getElementById('pmdBody');
+  var freezeHead = document.getElementById('pmdFreezeHead');
+  var freezeBody = document.getElementById('pmdFreezeBody');
+  var tableHead = document.getElementById('pmdScrollHead');
+  var tableBody = document.getElementById('pmdScrollBody');
   var tableWrap = document.getElementById('pmdTableWrap');
+  var matrixShell = document.getElementById('pmdMatrixShell');
   var modalEl = document.getElementById('pmdDetailModal');
   var modal = (modalEl && window.bootstrap && bootstrap.Modal) ? new bootstrap.Modal(modalEl) : null;
 
@@ -507,72 +592,54 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     return dateText === (yyyy + '-' + mm + '-' + dd);
   }
 
-  function syncStickyLayout(){
-    if (!tableHead) { return; }
-    var firstRow = tableHead.querySelector('tr');
-    if (!firstRow) { return; }
+  var stickySyncFrame = 0;
 
-    var col1 = firstRow.querySelector('.pmd-sticky-1');
-    var col2 = firstRow.querySelector('.pmd-sticky-2');
-    var col3 = firstRow.querySelector('.pmd-sticky-3');
-    var col4 = firstRow.querySelector('.pmd-sticky-4');
-    if (col1 && col2 && col3 && col4) {
-      var w1 = Math.max(120, Math.ceil(col1.getBoundingClientRect().width));
-      var w2 = Math.max(130, Math.ceil(col2.getBoundingClientRect().width));
-      var w3 = Math.max(130, Math.ceil(col3.getBoundingClientRect().width));
-      var w4 = Math.max(130, Math.ceil(col4.getBoundingClientRect().width));
-      var rootStyle = document.documentElement.style;
-      rootStyle.setProperty('--pmd-col-division', String(w1) + 'px');
-      rootStyle.setProperty('--pmd-col-material', String(w2) + 'px');
-      rootStyle.setProperty('--pmd-col-profile', String(w3) + 'px');
-      rootStyle.setProperty('--pmd-col-summary', String(w4) + 'px');
-      rootStyle.setProperty('--pmd-left-1', '0px');
-      rootStyle.setProperty('--pmd-left-2', String(w1) + 'px');
-      rootStyle.setProperty('--pmd-left-3', String(w1 + w2) + 'px');
-      rootStyle.setProperty('--pmd-left-4', String(w1 + w2 + w3) + 'px');
-      var firstHeight = Math.ceil(firstRow.getBoundingClientRect().height);
-      if (firstHeight > 0) {
-        rootStyle.setProperty('--pmd-header-row-1', String(firstHeight) + 'px');
-      }
+  function applyStickyLayout(){
+    var freezeHeaderRow = freezeHead.querySelector('tr:nth-child(2)');
+    if (!freezeHeaderRow || freezeHeaderRow.children.length < 4) { return; }
+
+    var c1 = freezeHeaderRow.children[0];
+    var c2 = freezeHeaderRow.children[1];
+    var c3 = freezeHeaderRow.children[2];
+    var c4 = freezeHeaderRow.children[3];
+
+    var w1 = Math.max(120, Math.ceil(c1.getBoundingClientRect().width));
+    var w2 = Math.max(140, Math.ceil(c2.getBoundingClientRect().width));
+    var w3 = Math.max(140, Math.ceil(c3.getBoundingClientRect().width));
+    var w4 = Math.max(150, Math.ceil(c4.getBoundingClientRect().width));
+
+    var rootStyle = document.documentElement.style;
+    rootStyle.setProperty('--pmd-col-division', w1 + 'px');
+    rootStyle.setProperty('--pmd-col-material', w2 + 'px');
+    rootStyle.setProperty('--pmd-col-profile', w3 + 'px');
+    rootStyle.setProperty('--pmd-col-summary', w4 + 'px');
+    var firstHeaderRow = tableHead.querySelector('tr');
+    var firstHeaderHeight = firstHeaderRow ? Math.max(0, Math.ceil(firstHeaderRow.getBoundingClientRect().height)) : 0;
+    if (firstHeaderHeight > 0) {
+      rootStyle.setProperty('--pmd-header-row-1', firstHeaderHeight + 'px');
     }
-
     var metricHead = tableHead.querySelector('tr:nth-child(2) th.pmd-metric-cell');
     if (metricHead) {
-      var metricWidth = Math.max(88, Math.ceil(metricHead.getBoundingClientRect().width));
-      document.documentElement.style.setProperty('--pmd-date-col', String(metricWidth) + 'px');
+      var metricWidth = Math.max(86, Math.ceil(metricHead.getBoundingClientRect().width));
+      rootStyle.setProperty('--pmd-date-col', metricWidth + 'px');
     }
-
-    pinStickyColumns();
+    rootStyle.setProperty('--pmd-left-1', '0px');
+    rootStyle.setProperty('--pmd-left-2', w1 + 'px');
+    rootStyle.setProperty('--pmd-left-3', (w1 + w2) + 'px');
+    rootStyle.setProperty('--pmd-left-4', (w1 + w2 + w3) + 'px');
   }
 
-  function pinStickyColumns(){
-    if (!tableWrap) { return; }
-    var rootStyle = getComputedStyle(document.documentElement);
-    var w1 = Number.parseFloat(rootStyle.getPropertyValue('--pmd-col-division')) || 146;
-    var w2 = Number.parseFloat(rootStyle.getPropertyValue('--pmd-col-material')) || 176;
-    var w3 = Number.parseFloat(rootStyle.getPropertyValue('--pmd-col-profile')) || 166;
-    var left1 = 0;
-    var left2 = left1 + w1;
-    var left3 = left2 + w2;
-    var left4 = left3 + w3;
-
-    tableWrap.querySelectorAll('.pmd-sticky-1').forEach(function(cell){ cell.style.left = String(left1) + 'px'; });
-    tableWrap.querySelectorAll('.pmd-sticky-2').forEach(function(cell){ cell.style.left = String(left2) + 'px'; });
-    tableWrap.querySelectorAll('.pmd-sticky-3').forEach(function(cell){ cell.style.left = String(left3) + 'px'; });
-    tableWrap.querySelectorAll('.pmd-sticky-4').forEach(function(cell){ cell.style.left = String(left4) + 'px'; });
+  function syncStickyLayout(){
+    if (stickySyncFrame) {
+      cancelAnimationFrame(stickySyncFrame);
+    }
+    stickySyncFrame = requestAnimationFrame(function(){
+      stickySyncFrame = 0;
+      applyStickyLayout();
+    });
   }
 
   function getStickyOffset(){
-    var offset = 0;
-    if (tableHead) {
-      var stickyCells = tableHead.querySelectorAll('tr:first-child th.pmd-sticky');
-      stickyCells.forEach(function(cell){
-        offset += Math.ceil(cell.getBoundingClientRect().width || 0);
-      });
-    }
-    if (offset > 0) {
-      return offset;
-    }
     var rootStyle = getComputedStyle(document.documentElement);
     return (
       Number.parseFloat(rootStyle.getPropertyValue('--pmd-col-division')) +
@@ -761,11 +828,17 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     var order = [];
 
     (rows || []).forEach(function(row){
+      var materialId = Number(row.material_id || 0);
+      var itemId = Number(row.item_id || 0);
+      var objectKey = materialId > 0 ? ('M-' + materialId) : ('I-' + itemId);
+      if (objectKey === 'M-0' || objectKey === 'I-0') {
+        objectKey += '|' + String(row.material_code || row.item_code || '').toUpperCase();
+      }
+      var destinationGroup = String(row.destination_group || 'REGULER').toUpperCase();
       var key = [
         Number(row.division_id || 0),
-        String(row.destination_type || 'OTHER'),
-        Number(row.item_id || 0),
-        Number(row.material_id || 0)
+        destinationGroup,
+        objectKey
       ].join('|');
 
       if (!map[key]) {
@@ -774,11 +847,11 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
           division_id: Number(row.division_id || 0),
           division_code: String(row.division_code || ''),
           division_name: String(row.division_name || ''),
-          destination_type: String(row.destination_type || 'OTHER'),
-          destination_group: String(row.destination_group || 'REGULER'),
-          destination_name: String(row.destination_name || 'Reguler'),
-          item_id: Number(row.item_id || 0),
-          material_id: Number(row.material_id || 0),
+          destination_type: String(row.destination_type || ''),
+          destination_group: destinationGroup,
+          destination_name: destinationGroup === 'EVENT' ? 'Event' : 'Reguler',
+          item_id: itemId,
+          material_id: materialId,
           item_code: String(row.item_code || ''),
           item_name: String(row.item_name || ''),
           material_code: String(row.material_code || ''),
@@ -788,6 +861,10 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
           metrics: null
         };
         order.push(key);
+      } else {
+        if (String(map[key].destination_type || '') !== String(row.destination_type || '')) {
+          map[key].destination_type = '';
+        }
       }
 
       var profileDaily = normalizeProfileDaily(row.daily || {}, dates);
@@ -805,6 +882,7 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
         profile_name: String(row.profile_name || ''),
         profile_brand: String(row.profile_brand || ''),
         profile_description: String(row.profile_description || ''),
+        profile_expired_date: String(row.profile_expired_date || ''),
         profile_content_per_buy: Number(row.profile_content_per_buy || 0),
         profile_buy_uom_code: String(row.profile_buy_uom_code || ''),
         profile_content_uom_code: String(row.profile_content_uom_code || ''),
@@ -909,6 +987,20 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
       '<div class="pmd-summary-line"><strong>Nilai Sisa:</strong> ' + esc(money(metrics.total_value || 0)) + '</div>';
   }
 
+  function freezeHeaderHtml(){
+    return '' +
+      '<tr>' +
+        '<th class="pmd-freeze-spacer" colspan="4"></th>' +
+      '</tr>' +
+      '<tr>' +
+        '<th class="pmd-freeze-col-1">Divisi / Tujuan</th>' +
+        '<th class="pmd-freeze-col-2">Material</th>' +
+        '<th class="pmd-freeze-col-3">Profil</th>' +
+        '<th class="pmd-freeze-col-4">Ringkasan</th>' +
+      '</tr>' +
+      '';
+  }
+
   function headerHtml(){
     var dayTop = state.dates.map(function(dateText, dateIndex){
       var cls = 'pmd-day-head' + (isToday(dateText) ? ' is-today' : '');
@@ -927,15 +1019,7 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
         '<th class="pmd-metric-cell' + todayCls + bandClass + '">Akhir</th>';
     }).join('');
 
-    return '' +
-      '<tr>' +
-        '<th class="pmd-sticky pmd-sticky-1" rowspan="2">Divisi / Tujuan</th>' +
-        '<th class="pmd-sticky pmd-sticky-2" rowspan="2">Material</th>' +
-        '<th class="pmd-sticky pmd-sticky-3" rowspan="2">Profil</th>' +
-        '<th class="pmd-sticky pmd-sticky-4" rowspan="2">Ringkasan</th>' +
-        dayTop +
-      '</tr>' +
-      '<tr>' + daySub + '</tr>';
+    return '<tr>' + dayTop + '</tr><tr>' + daySub + '</tr>';
   }
 
   function dayCells(dailyMap, groupIndex, profileIndex){
@@ -974,7 +1058,7 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     return isExpandable(group) ? !!state.expanded[group.key] : true;
   }
 
-  function groupRowHtml(group, groupIndex){
+  function freezeGroupRowHtml(group){
     var expandable = isExpandable(group);
     var expanded = isExpanded(group);
     var singleProfile = (!expandable && Array.isArray(group.children) && group.children.length === 1) ? group.children[0] : null;
@@ -989,48 +1073,74 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     if (singleProfile) {
       var singleProfileText = singleProfile.profile_name || '-';
       var singleDetail = [singleProfile.profile_brand || '-', singleProfile.profile_description || '-'].join(' | ');
+      var singleExpiredInfo = singleProfile.profile_expired_date ? ('Exp: ' + singleProfile.profile_expired_date) : 'Exp: -';
       var singleUnitInfo = num(singleProfile.profile_content_per_buy || 0) + ' ' + (singleProfile.profile_content_uom_code || '') + ' / ' + (singleProfile.profile_buy_uom_code || '-');
       var singlePriceInfo = 'Harga Satuan: ' + money((singleProfile.metrics && singleProfile.metrics.unit_price) || 0) + ' / ' + (singleProfile.profile_content_uom_code || '-')
         + ' | Harga/Pack: ' + money((singleProfile.metrics && singleProfile.metrics.unit_price_pack) || 0);
       profileHtml = ''
         + '<div class="pmd-profile-line">' + esc(singleProfileText) + '</div>'
         + '<div class="pmd-profile-line">' + esc(singleDetail) + '</div>'
+        + '<div class="pmd-profile-unit">' + esc(singleExpiredInfo) + '</div>'
         + '<div class="pmd-profile-unit">' + esc(singleUnitInfo) + '</div>'
         + '<div class="pmd-profile-unit">' + esc(singlePriceInfo) + '</div>';
     }
     var rowClass = expandable ? 'pmd-group-row pmd-group-expandable' : 'pmd-group-row pmd-group-single';
-    var parentProfileIndex = singleProfile ? 0 : -1;
 
     return '' +
       '<tr class="' + rowClass + '">' +
-        '<td class="pmd-sticky pmd-sticky-1">' + toggleHtml + '<span class="pmd-division-pill">' + esc(divisionText) + '</span><div class="pmd-code">' + esc(destinationText) + '</div></td>' +
-        '<td class="pmd-sticky pmd-sticky-2"><div class="pmd-name">' + esc(materialName) + '</div><div class="pmd-code">' + esc(materialCode) + '</div></td>' +
-        '<td class="pmd-sticky pmd-sticky-3">' + profileHtml + '</td>' +
-        '<td class="pmd-sticky pmd-sticky-4">' + summaryParentHtml(group.metrics || {}) + '</td>' +
-        dayCells(group.daily || {}, groupIndex, parentProfileIndex) +
+        '<td class="pmd-freeze-col-1">' + toggleHtml + '<span class="pmd-division-pill">' + esc(divisionText) + '</span><div class="pmd-code">' + esc(destinationText) + '</div></td>' +
+        '<td class="pmd-freeze-col-2"><div class="pmd-name">' + esc(materialName) + '</div><div class="pmd-code">' + esc(materialCode) + '</div></td>' +
+        '<td class="pmd-freeze-col-3">' + profileHtml + '</td>' +
+        '<td class="pmd-freeze-col-4">' + summaryParentHtml(group.metrics || {}) + '</td>' +
       '</tr>';
   }
 
-  function profileRowHtml(group, groupIndex, profile, profileIndex){
+  function groupRowHtml(group, groupIndex){
+    var singleProfile = (!isExpandable(group) && Array.isArray(group.children) && group.children.length === 1) ? group.children[0] : null;
+    var parentProfileIndex = singleProfile ? 0 : -1;
+    var rowClass = isExpandable(group) ? 'pmd-group-row pmd-group-expandable' : 'pmd-group-row pmd-group-single';
+    return '<tr class="' + rowClass + '">' + dayCells(group.daily || {}, groupIndex, parentProfileIndex) + '</tr>';
+  }
+
+  function freezeProfileRowHtml(profile){
     var profileText = profile.profile_name || '-';
     var detail = [profile.profile_brand || '-', profile.profile_description || '-'].join(' | ');
+    var expiredInfo = profile.profile_expired_date ? ('Exp: ' + profile.profile_expired_date) : 'Exp: -';
     var unitInfo = num(profile.profile_content_per_buy || 0) + ' ' + (profile.profile_content_uom_code || '') + ' / ' + (profile.profile_buy_uom_code || '-');
     var priceInfo = 'Harga Satuan: ' + money((profile.metrics && profile.metrics.unit_price) || 0) + ' / ' + (profile.profile_content_uom_code || '-')
       + ' | Harga/Pack: ' + money((profile.metrics && profile.metrics.unit_price_pack) || 0);
 
     return '' +
       '<tr class="pmd-child-row">' +
-        '<td class="pmd-sticky pmd-sticky-1"></td>' +
-        '<td class="pmd-sticky pmd-sticky-2"><div class="pmd-code">Profil Material</div></td>' +
-        '<td class="pmd-sticky pmd-sticky-3">' +
+        '<td class="pmd-freeze-col-1"></td>' +
+        '<td class="pmd-freeze-col-2"><div class="pmd-code">Profil Material</div></td>' +
+        '<td class="pmd-freeze-col-3">' +
           '<div class="pmd-profile-line">' + esc(profileText) + '</div>' +
           '<div class="pmd-profile-line">' + esc(detail) + '</div>' +
+          '<div class="pmd-profile-unit">' + esc(expiredInfo) + '</div>' +
           '<div class="pmd-profile-unit">' + esc(unitInfo) + '</div>' +
           '<div class="pmd-profile-unit">' + esc(priceInfo) + '</div>' +
         '</td>' +
-        '<td class="pmd-sticky pmd-sticky-4">' + summaryChildHtml(profile.metrics || {}) + '</td>' +
-        dayCells(profile.daily || {}, groupIndex, profileIndex) +
+        '<td class="pmd-freeze-col-4">' + summaryChildHtml(profile.metrics || {}) + '</td>' +
       '</tr>';
+  }
+
+  function profileRowHtml(group, groupIndex, profile, profileIndex){
+    return '<tr class="pmd-child-row">' + dayCells(profile.daily || {}, groupIndex, profileIndex) + '</tr>';
+  }
+
+  function syncPaneRowHeights(){
+    var freezeRows = Array.prototype.slice.call(freezeBody.querySelectorAll('tr'));
+    var scrollRows = Array.prototype.slice.call(tableBody.querySelectorAll('tr'));
+    var count = Math.min(freezeRows.length, scrollRows.length);
+    var index;
+    for (index = 0; index < count; index += 1) {
+      freezeRows[index].style.height = '';
+      scrollRows[index].style.height = '';
+      var height = Math.max(freezeRows[index].offsetHeight, scrollRows[index].offsetHeight);
+      freezeRows[index].style.height = height + 'px';
+      scrollRows[index].style.height = height + 'px';
+    }
   }
 
   function render(options){
@@ -1038,29 +1148,38 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     var keepScroll = !!opts.keepScroll;
     var focusToday = !!opts.focusToday;
     var previousScrollLeft = tableWrap ? tableWrap.scrollLeft : 0;
+    freezeHead.innerHTML = freezeHeaderHtml();
     tableHead.innerHTML = headerHtml();
     syncStickyLayout();
 
     if (!state.groups.length) {
-      tableBody.innerHTML = '<tr><td colspan="999" class="pmd-empty">Belum ada data untuk filter ini.</td></tr>';
-      requestAnimationFrame(syncStickyLayout);
+      freezeBody.innerHTML = '<tr><td colspan="4" class="pmd-empty">Belum ada data untuk filter ini.</td></tr>';
+      tableBody.innerHTML = '<tr><td colspan="' + Math.max(1, state.dates.length * 5) + '" class="pmd-empty"></td></tr>';
+      requestAnimationFrame(function(){
+        syncStickyLayout();
+        syncPaneRowHeights();
+      });
       return;
     }
 
+    var freezeHtml = '';
     var html = '';
     state.groups.forEach(function(group, groupIndex){
+      freezeHtml += freezeGroupRowHtml(group);
       html += groupRowHtml(group, groupIndex);
       if (isExpandable(group) && isExpanded(group)) {
         (group.children || []).forEach(function(profile, profileIndex){
+          freezeHtml += freezeProfileRowHtml(profile);
           html += profileRowHtml(group, groupIndex, profile, profileIndex);
         });
       }
     });
+    freezeBody.innerHTML = freezeHtml;
     tableBody.innerHTML = html;
 
     requestAnimationFrame(function(){
       syncStickyLayout();
-      pinStickyColumns();
+      syncPaneRowHeights();
       if (!tableWrap) { return; }
       if (focusToday) {
         scrollToTodayColumn();
@@ -1084,7 +1203,7 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
       }
       return '<tr>' +
         '<td>' + esc(String(row.created_at || row.movement_date || '-')) + '</td>' +
-        '<td>' + esc(String(row.movement_type || '-')) + '</td>' +
+        '<td>' + esc(String(row.movement_type_label || row.movement_type || '-')) + '</td>' +
         '<td class="text-end fw-semibold">' + esc(num(row.qty_content_delta || 0)) + '</td>' +
         '<td class="text-end">' + esc(num(row.qty_content_after || 0)) + '</td>' +
         '<td>' + esc(refText || '-') + '</td>' +
@@ -1189,8 +1308,10 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
         render({ focusToday: true });
       })
       .catch(function(err){
+        freezeHead.innerHTML = '';
         tableHead.innerHTML = '';
-        tableBody.innerHTML = '<tr><td colspan="999" class="pmd-empty">Gagal memuat matrix harian material.</td></tr>';
+        freezeBody.innerHTML = '<tr><td colspan="4" class="pmd-empty">Gagal memuat matrix harian.</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="1" class="pmd-empty"></td></tr>';
         showMessage(false, err && err.message ? err.message : 'Terjadi kesalahan saat memuat data.');
       });
   }
@@ -1213,7 +1334,7 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     }
   });
 
-  tableBody.addEventListener('click', function(ev){
+  matrixShell.addEventListener('click', function(ev){
     var toggle = ev.target && ev.target.closest ? ev.target.closest('[data-action="toggle-group"]') : null;
     if (toggle) {
       var groupKey = toggle.getAttribute('data-group-key') || '';
@@ -1257,6 +1378,7 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
 
   window.addEventListener('resize', function(){
     syncStickyLayout();
+    syncPaneRowHeights();
   });
 
   readFilters();

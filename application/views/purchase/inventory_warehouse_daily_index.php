@@ -1,5 +1,6 @@
 <?php
 $initialMonth = (string)($month ?? date('Y-m'));
+$generateUrl = site_url('purchase/stock/opname/generate');
 $initialQ = (string)($q ?? '');
 $initialDateFrom = (string)($date_from ?? '');
 $initialDateTo = (string)($date_to ?? '');
@@ -15,6 +16,12 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     <small class="text-muted">Matrix stok gudang per hari dengan ringkasan item yang bisa di-expand per profil.</small>
   </div>
   <div class="d-flex gap-2 flex-wrap">
+    <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname gudang bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
+      <input type="hidden" name="stock_scope" value="WAREHOUSE">
+      <input type="hidden" name="month" value="<?php echo html_escape(substr($initialMonth, 0, 7)); ?>">
+      <input type="hidden" name="back_url" value="inventory-warehouse-daily?month=<?php echo rawurlencode(substr($initialMonth, 0, 7)); ?>">
+      <button type="submit" class="btn btn-primary">Generate Opname + Stok Awal</button>
+    </form>
     <a href="<?php echo site_url('purchase/stock/warehouse'); ?>" class="btn btn-outline-secondary">Stok Gudang Live</a>
     <a href="<?php echo site_url('purchase/stock/warehouse/daily'); ?>" class="btn btn-outline-secondary">Daily Gudang (List)</a>
     <a href="<?php echo site_url('inventory-material-daily'); ?>" class="btn btn-outline-primary">Bahan Baku Daily Matrix</a>
@@ -36,7 +43,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   }
   .pwd-filter-card,
   .pwd-board-card,
-  .pwd-table,
+  .pwd-scroll-table,
   .pwd-modal-card {
     font-family: "Trebuchet MS", Verdana, sans-serif;
   }
@@ -80,27 +87,77 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   .pwd-dot-adj { background: #7f64d9; }
   .pwd-dot-close { background: #4e6b83; }
   .pwd-table-wrap {
-    max-height: 68vh;
     overflow: auto;
     position: relative;
     background: linear-gradient(180deg, #fffdfa 0%, #fff6f1 100%);
+    isolation: isolate;
   }
-  .pwd-table {
+  .pwd-matrix-shell {
+    display: grid;
+    grid-template-columns: calc(var(--pwd-col-kind) + var(--pwd-col-item) + var(--pwd-col-profile) + var(--pwd-col-summary)) minmax(0, 1fr);
+    align-items: start;
+  }
+  .pwd-freeze-pane {
+    position: relative;
+    z-index: 2;
+    background: linear-gradient(180deg, #fffdfa 0%, #fff6f1 100%);
+    border-right: 4px solid #d2a08e;
+    box-shadow: 12px 0 22px -18px rgba(95, 23, 39, 0.26);
+  }
+  .pwd-scroll-pane {
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    position: relative;
+    background: linear-gradient(180deg, #fffdfa 0%, #fff6f1 100%);
+  }
+  .pwd-freeze-table {
+    width: calc(var(--pwd-col-kind) + var(--pwd-col-item) + var(--pwd-col-profile) + var(--pwd-col-summary));
+    min-width: calc(var(--pwd-col-kind) + var(--pwd-col-item) + var(--pwd-col-profile) + var(--pwd-col-summary));
+    margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+  }
+  .pwd-scroll-table {
+    min-width: 1120px;
+    margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+  }
+  .pwd-freeze-table thead th,
+  .pwd-freeze-table tbody td,
+  .pwd-scroll-table thead th,
+  .pwd-scroll-table tbody td {
+    padding: 0.42rem 0.45rem;
+    vertical-align: middle;
+  }
+  .pwd-freeze-table td {
+    background: #fffaf7;
+    color: #4a2430;
+    box-shadow: inset -2px 0 0 #e6c9bd;
+  }
+  .pwd-freeze-col-1 { width: var(--pwd-col-kind); min-width: var(--pwd-col-kind); max-width: var(--pwd-col-kind); }
+  .pwd-freeze-col-2 { width: var(--pwd-col-item); min-width: var(--pwd-col-item); max-width: var(--pwd-col-item); }
+  .pwd-freeze-col-3 { width: var(--pwd-col-profile); min-width: var(--pwd-col-profile); max-width: var(--pwd-col-profile); }
+  .pwd-freeze-col-4 { width: var(--pwd-col-summary); min-width: var(--pwd-col-summary); max-width: var(--pwd-col-summary); }
+  .pwd-scroll-table {
     min-width: 1660px;
     margin-bottom: 0;
     border-collapse: separate;
     border-spacing: 0;
     table-layout: fixed;
   }
-  .pwd-table thead th,
-  .pwd-table tbody td {
+  .pwd-scroll-table thead th,
+  .pwd-scroll-table tbody td {
     padding: 0.42rem 0.45rem;
     vertical-align: middle;
   }
-  .pwd-table thead tr:first-child th {
+  .pwd-scroll-table thead tr:first-child th {
     position: sticky;
     top: 0;
-    z-index: 12;
+    z-index: 52;
     background: #fff8f4;
     border-bottom: 1px solid #ebd8cf;
     color: #602739;
@@ -109,10 +166,35 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     letter-spacing: 0.08em;
     white-space: nowrap;
   }
-  .pwd-table thead tr:nth-child(2) th {
+  .pwd-freeze-table thead tr:first-child th {
+    position: sticky;
+    top: 0;
+    z-index: 52;
+    background: #fff8f4;
+    border-bottom: 1px solid #ebd8cf;
+    height: var(--pwd-header-row-1);
+    min-height: var(--pwd-header-row-1);
+  }
+  .pwd-freeze-table thead tr:nth-child(2) th {
     position: sticky;
     top: var(--pwd-header-row-1);
-    z-index: 11;
+    z-index: 51;
+    background: #fff2ec;
+    border-bottom: 1px solid #ebd8cf;
+    color: #7b4f49;
+    font-size: 0.73rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .pwd-freeze-spacer {
+    color: transparent;
+    line-height: 0;
+    font-size: 0;
+  }
+  .pwd-scroll-table thead tr:nth-child(2) th {
+    position: sticky;
+    top: var(--pwd-header-row-1);
+    z-index: 51;
     background: #fff2ec;
     border-bottom: 1px solid #ebd8cf;
     color: #7b4f49;
@@ -123,16 +205,6 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     min-width: var(--pwd-date-col);
     max-width: var(--pwd-date-col);
   }
-  .pwd-sticky {
-    position: sticky !important;
-    background: #fffaf8;
-    box-shadow: inset -2px 0 0 #e7cfc4, 10px 0 16px -14px rgba(69, 22, 24, 0.35);
-    z-index: 9;
-  }
-  .pwd-sticky-1 { left: var(--pwd-left-1); width: var(--pwd-col-kind); min-width: var(--pwd-col-kind); max-width: var(--pwd-col-kind); }
-  .pwd-sticky-2 { left: var(--pwd-left-2); width: var(--pwd-col-item); min-width: var(--pwd-col-item); max-width: var(--pwd-col-item); }
-  .pwd-sticky-3 { left: var(--pwd-left-3); width: var(--pwd-col-profile); min-width: var(--pwd-col-profile); max-width: var(--pwd-col-profile); }
-  .pwd-sticky-4 { left: var(--pwd-left-4); width: var(--pwd-col-summary); min-width: var(--pwd-col-summary); max-width: var(--pwd-col-summary); border-right: 4px solid #d2a08e; z-index: 13; }
   .pwd-day-head {
     width: calc(var(--pwd-date-col) * 5);
     min-width: calc(var(--pwd-date-col) * 5);
@@ -309,10 +381,10 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     padding: 0.75rem 0.9rem;
   }
   @media (max-width: 991.98px) {
-    .pwd-sticky { position: static; box-shadow: none; }
-    .pwd-sticky-1, .pwd-sticky-2, .pwd-sticky-3, .pwd-sticky-4 { width: auto; min-width: auto; max-width: none; }
-    .pwd-table { min-width: 1320px; }
+    .pwd-scroll-table { min-width: 1320px; }
     .pwd-day-head { min-width: 300px; }
+    .pwd-matrix-shell { grid-template-columns: 560px minmax(0, 1fr); }
+    .pwd-scroll-table { min-width: 1320px; }
   }
 </style>
 
@@ -371,11 +443,19 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
       <span class="pwd-legend-pill"><span class="pwd-legend-dot pwd-dot-close"></span>Akhir</span>
     </div>
   </div>
-  <div class="pwd-table-wrap" id="pwdTableWrap">
-    <table class="table pwd-table align-middle mb-0">
-      <thead id="pwdHead"></thead>
-      <tbody id="pwdBody"><tr><td colspan="999" class="pwd-loading">Memuat data...</td></tr></tbody>
-    </table>
+  <div class="pwd-matrix-shell" id="pwdMatrixShell">
+    <div class="pwd-freeze-pane">
+      <table class="table pwd-freeze-table align-middle mb-0">
+        <thead id="pwdFreezeHead"></thead>
+        <tbody id="pwdFreezeBody"><tr><td colspan="4" class="pwd-loading">Memuat data...</td></tr></tbody>
+      </table>
+    </div>
+    <div class="pwd-scroll-pane pwd-table-wrap" id="pwdTableWrap">
+      <table class="table pwd-scroll-table align-middle mb-0">
+        <thead id="pwdScrollHead"></thead>
+        <tbody id="pwdScrollBody"><tr><td colspan="999" class="pwd-loading">Memuat data...</td></tr></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -431,9 +511,12 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     expanded: {}
   };
 
-  var tableHead = document.getElementById('pwdHead');
-  var tableBody = document.getElementById('pwdBody');
+  var freezeHead = document.getElementById('pwdFreezeHead');
+  var freezeBody = document.getElementById('pwdFreezeBody');
+  var tableHead = document.getElementById('pwdScrollHead');
+  var tableBody = document.getElementById('pwdScrollBody');
   var tableWrap = document.getElementById('pwdTableWrap');
+  var matrixShell = document.getElementById('pwdMatrixShell');
   var modalEl = document.getElementById('pwdDetailModal');
   var modal = (modalEl && window.bootstrap && bootstrap.Modal) ? new bootstrap.Modal(modalEl) : null;
 
@@ -470,72 +553,54 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     return dateText === (yyyy + '-' + mm + '-' + dd);
   }
 
-  function syncStickyLayout(){
-    if (!tableHead) { return; }
-    var firstRow = tableHead.querySelector('tr');
-    if (!firstRow) { return; }
+  var stickySyncFrame = 0;
 
-    var col1 = firstRow.querySelector('.pwd-sticky-1');
-    var col2 = firstRow.querySelector('.pwd-sticky-2');
-    var col3 = firstRow.querySelector('.pwd-sticky-3');
-    var col4 = firstRow.querySelector('.pwd-sticky-4');
-    if (col1 && col2 && col3 && col4) {
-      var w1 = Math.max(60, Math.ceil(col1.getBoundingClientRect().width));
-      var w2 = Math.max(120, Math.ceil(col2.getBoundingClientRect().width));
-      var w3 = Math.max(130, Math.ceil(col3.getBoundingClientRect().width));
-      var w4 = Math.max(130, Math.ceil(col4.getBoundingClientRect().width));
-      var rootStyle = document.documentElement.style;
-      rootStyle.setProperty('--pwd-col-kind', String(w1) + 'px');
-      rootStyle.setProperty('--pwd-col-item', String(w2) + 'px');
-      rootStyle.setProperty('--pwd-col-profile', String(w3) + 'px');
-      rootStyle.setProperty('--pwd-col-summary', String(w4) + 'px');
-      rootStyle.setProperty('--pwd-left-1', '0px');
-      rootStyle.setProperty('--pwd-left-2', String(w1) + 'px');
-      rootStyle.setProperty('--pwd-left-3', String(w1 + w2) + 'px');
-      rootStyle.setProperty('--pwd-left-4', String(w1 + w2 + w3) + 'px');
-      var firstHeight = Math.ceil(firstRow.getBoundingClientRect().height);
-      if (firstHeight > 0) {
-        rootStyle.setProperty('--pwd-header-row-1', String(firstHeight) + 'px');
-      }
+  function applyStickyLayout(){
+    var freezeHeaderRow = freezeHead.querySelector('tr:nth-child(2)');
+    if (!freezeHeaderRow || freezeHeaderRow.children.length < 4) { return; }
+
+    var c1 = freezeHeaderRow.children[0];
+    var c2 = freezeHeaderRow.children[1];
+    var c3 = freezeHeaderRow.children[2];
+    var c4 = freezeHeaderRow.children[3];
+
+    var w1 = Math.max(64, Math.ceil(c1.getBoundingClientRect().width));
+    var w2 = Math.max(140, Math.ceil(c2.getBoundingClientRect().width));
+    var w3 = Math.max(140, Math.ceil(c3.getBoundingClientRect().width));
+    var w4 = Math.max(150, Math.ceil(c4.getBoundingClientRect().width));
+
+    var rootStyle = document.documentElement.style;
+    rootStyle.setProperty('--pwd-col-kind', w1 + 'px');
+    rootStyle.setProperty('--pwd-col-item', w2 + 'px');
+    rootStyle.setProperty('--pwd-col-profile', w3 + 'px');
+    rootStyle.setProperty('--pwd-col-summary', w4 + 'px');
+    var firstHeaderRow = tableHead.querySelector('tr');
+    var firstHeaderHeight = firstHeaderRow ? Math.max(0, Math.ceil(firstHeaderRow.getBoundingClientRect().height)) : 0;
+    if (firstHeaderHeight > 0) {
+      rootStyle.setProperty('--pwd-header-row-1', firstHeaderHeight + 'px');
     }
-
     var metricHead = tableHead.querySelector('tr:nth-child(2) th.pwd-metric-cell');
     if (metricHead) {
-      var metricWidth = Math.max(88, Math.ceil(metricHead.getBoundingClientRect().width));
-      document.documentElement.style.setProperty('--pwd-date-col', String(metricWidth) + 'px');
+      var metricWidth = Math.max(86, Math.ceil(metricHead.getBoundingClientRect().width));
+      rootStyle.setProperty('--pwd-date-col', metricWidth + 'px');
     }
-
-    pinStickyColumns();
+    rootStyle.setProperty('--pwd-left-1', '0px');
+    rootStyle.setProperty('--pwd-left-2', w1 + 'px');
+    rootStyle.setProperty('--pwd-left-3', (w1 + w2) + 'px');
+    rootStyle.setProperty('--pwd-left-4', (w1 + w2 + w3) + 'px');
   }
 
-  function pinStickyColumns(){
-    if (!tableWrap) { return; }
-    var rootStyle = getComputedStyle(document.documentElement);
-    var w1 = Number.parseFloat(rootStyle.getPropertyValue('--pwd-col-kind')) || 74;
-    var w2 = Number.parseFloat(rootStyle.getPropertyValue('--pwd-col-item')) || 178;
-    var w3 = Number.parseFloat(rootStyle.getPropertyValue('--pwd-col-profile')) || 166;
-    var left1 = 0;
-    var left2 = left1 + w1;
-    var left3 = left2 + w2;
-    var left4 = left3 + w3;
-
-    tableWrap.querySelectorAll('.pwd-sticky-1').forEach(function(cell){ cell.style.left = String(left1) + 'px'; });
-    tableWrap.querySelectorAll('.pwd-sticky-2').forEach(function(cell){ cell.style.left = String(left2) + 'px'; });
-    tableWrap.querySelectorAll('.pwd-sticky-3').forEach(function(cell){ cell.style.left = String(left3) + 'px'; });
-    tableWrap.querySelectorAll('.pwd-sticky-4').forEach(function(cell){ cell.style.left = String(left4) + 'px'; });
+  function syncStickyLayout(){
+    if (stickySyncFrame) {
+      cancelAnimationFrame(stickySyncFrame);
+    }
+    stickySyncFrame = requestAnimationFrame(function(){
+      stickySyncFrame = 0;
+      applyStickyLayout();
+    });
   }
 
   function getStickyOffset(){
-    var offset = 0;
-    if (tableHead) {
-      var stickyCells = tableHead.querySelectorAll('tr:first-child th.pwd-sticky');
-      stickyCells.forEach(function(cell){
-        offset += Math.ceil(cell.getBoundingClientRect().width || 0);
-      });
-    }
-    if (offset > 0) {
-      return offset;
-    }
     var rootStyle = getComputedStyle(document.documentElement);
     return (
       Number.parseFloat(rootStyle.getPropertyValue('--pwd-col-kind')) +
@@ -722,7 +787,13 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     var order = [];
 
     (rows || []).forEach(function(row){
-      var key = [String(row.stock_domain || ''), Number(row.item_id || 0), Number(row.material_id || 0)].join('|');
+      var materialId = Number(row.material_id || 0);
+      var itemId = Number(row.item_id || 0);
+      var objectKey = materialId > 0 ? ('M-' + materialId) : ('I-' + itemId);
+      if (objectKey === 'M-0' || objectKey === 'I-0') {
+        objectKey += '|' + String(row.material_code || row.item_code || '').toUpperCase();
+      }
+      var key = objectKey;
       if (!map[key]) {
         var obj = objectLabel(row);
         map[key] = {
@@ -756,6 +827,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
         profile_name: String(row.profile_name || ''),
         profile_brand: String(row.profile_brand || ''),
         profile_description: String(row.profile_description || ''),
+        profile_expired_date: String(row.profile_expired_date || ''),
         profile_content_per_buy: Number(row.profile_content_per_buy || 0),
         profile_buy_uom_code: String(row.profile_buy_uom_code || ''),
         profile_content_uom_code: String(row.profile_content_uom_code || ''),
@@ -860,6 +932,20 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
       '<div class="pwd-summary-line"><strong>Nilai Sisa:</strong> ' + esc(money(metrics.total_value || 0)) + '</div>';
   }
 
+  function freezeHeaderHtml(){
+    return '' +
+      '<tr>' +
+        '<th class="pwd-freeze-spacer" colspan="4"></th>' +
+      '</tr>' +
+      '<tr>' +
+        '<th class="pwd-freeze-col-1">Jenis</th>' +
+        '<th class="pwd-freeze-col-2">Item / Bahan Baku</th>' +
+        '<th class="pwd-freeze-col-3">Profil</th>' +
+        '<th class="pwd-freeze-col-4">Ringkasan</th>' +
+      '</tr>' +
+      '';
+  }
+
   function headerHtml(){
     var dayTop = state.dates.map(function(dateText, dateIndex){
       var cls = 'pwd-day-head' + (isToday(dateText) ? ' is-today' : '');
@@ -878,15 +964,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
         '<th class="pwd-metric-cell' + todayCls + bandClass + '">Akhir</th>';
     }).join('');
 
-    return '' +
-      '<tr>' +
-        '<th class="pwd-sticky pwd-sticky-1" rowspan="2">Jenis</th>' +
-        '<th class="pwd-sticky pwd-sticky-2" rowspan="2">Item / Bahan Baku</th>' +
-        '<th class="pwd-sticky pwd-sticky-3" rowspan="2">Profil</th>' +
-        '<th class="pwd-sticky pwd-sticky-4" rowspan="2">Ringkasan</th>' +
-        dayTop +
-      '</tr>' +
-      '<tr>' + daySub + '</tr>';
+    return '<tr>' + dayTop + '</tr><tr>' + daySub + '</tr>';
   }
 
   function dayCells(dailyMap, groupIndex, profileIndex){
@@ -925,7 +1003,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     return isExpandable(group) ? !!state.expanded[group.key] : true;
   }
 
-  function groupRowHtml(group, groupIndex){
+  function freezeGroupRowHtml(group){
     var kind = group.stock_domain === 'MATERIAL' ? 'Bahan Baku' : 'Item';
     var expandable = isExpandable(group);
     var expanded = isExpanded(group);
@@ -937,47 +1015,73 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     if (singleProfile) {
       var singleProfileText = singleProfile.profile_name || '-';
       var singleDetail = [singleProfile.profile_brand || '-', singleProfile.profile_description || '-'].join(' | ');
+      var singleExpiredInfo = singleProfile.profile_expired_date ? ('Exp: ' + singleProfile.profile_expired_date) : 'Exp: -';
       var singleUnitInfo = num(singleProfile.profile_content_per_buy || 0) + ' ' + (singleProfile.profile_content_uom_code || '') + ' / ' + (singleProfile.profile_buy_uom_code || '-');
       var singlePriceInfo = 'Harga Satuan: ' + money((singleProfile.metrics && singleProfile.metrics.unit_price) || 0) + ' / ' + (singleProfile.profile_content_uom_code || '-')
         + ' | Harga/Pack: ' + money((singleProfile.metrics && singleProfile.metrics.unit_price_pack) || 0);
       profileHtml = ''
         + '<div class="pwd-profile-line">' + esc(singleProfileText) + '</div>'
         + '<div class="pwd-profile-line">' + esc(singleDetail) + '</div>'
+        + '<div class="pwd-profile-unit">' + esc(singleExpiredInfo) + '</div>'
         + '<div class="pwd-profile-unit">' + esc(singleUnitInfo) + '</div>'
         + '<div class="pwd-profile-unit">' + esc(singlePriceInfo) + '</div>';
     }
     var rowClass = expandable ? 'pwd-group-row pwd-group-expandable' : 'pwd-group-row pwd-group-single';
-    var parentProfileIndex = singleProfile ? 0 : -1;
     return '' +
       '<tr class="' + rowClass + '">' +
-        '<td class="pwd-sticky pwd-sticky-1">' + toggleHtml + '<span class="pwd-kind-pill">' + esc(kind) + '</span></td>' +
-        '<td class="pwd-sticky pwd-sticky-2"><div class="pwd-name">' + esc(group.object_name || '-') + '</div><div class="pwd-code">' + esc(group.object_code || '-') + '</div></td>' +
-        '<td class="pwd-sticky pwd-sticky-3">' + profileHtml + '</td>' +
-        '<td class="pwd-sticky pwd-sticky-4">' + summaryParentHtml(group.metrics || {}) + '</td>' +
-        dayCells(group.daily || {}, groupIndex, parentProfileIndex) +
+        '<td class="pwd-freeze-col-1">' + toggleHtml + '<span class="pwd-kind-pill">' + esc(kind) + '</span></td>' +
+        '<td class="pwd-freeze-col-2"><div class="pwd-name">' + esc(group.object_name || '-') + '</div><div class="pwd-code">' + esc(group.object_code || '-') + '</div></td>' +
+        '<td class="pwd-freeze-col-3">' + profileHtml + '</td>' +
+        '<td class="pwd-freeze-col-4">' + summaryParentHtml(group.metrics || {}) + '</td>' +
       '</tr>';
   }
 
-  function profileRowHtml(group, groupIndex, profile, profileIndex){
+  function groupRowHtml(group, groupIndex){
+    var singleProfile = (!isExpandable(group) && Array.isArray(group.children) && group.children.length === 1) ? group.children[0] : null;
+    var parentProfileIndex = singleProfile ? 0 : -1;
+    var rowClass = isExpandable(group) ? 'pwd-group-row pwd-group-expandable' : 'pwd-group-row pwd-group-single';
+    return '<tr class="' + rowClass + '">' + dayCells(group.daily || {}, groupIndex, parentProfileIndex) + '</tr>';
+  }
+
+  function freezeProfileRowHtml(profile){
     var profileText = profile.profile_name || '-';
     var detail = [profile.profile_brand || '-', profile.profile_description || '-'].join(' | ');
+    var expiredInfo = profile.profile_expired_date ? ('Exp: ' + profile.profile_expired_date) : 'Exp: -';
     var unitInfo = num(profile.profile_content_per_buy || 0) + ' ' + (profile.profile_content_uom_code || '') + ' / ' + (profile.profile_buy_uom_code || '-');
     var priceInfo = 'Harga Satuan: ' + money((profile.metrics && profile.metrics.unit_price) || 0) + ' / ' + (profile.profile_content_uom_code || '-')
       + ' | Harga/Pack: ' + money((profile.metrics && profile.metrics.unit_price_pack) || 0);
 
     return '' +
       '<tr class="pwd-child-row">' +
-        '<td class="pwd-sticky pwd-sticky-1"></td>' +
-        '<td class="pwd-sticky pwd-sticky-2"><div class="pwd-code">Profil Item</div></td>' +
-        '<td class="pwd-sticky pwd-sticky-3">' +
+        '<td class="pwd-freeze-col-1"></td>' +
+        '<td class="pwd-freeze-col-2"><div class="pwd-code">Profil Item</div></td>' +
+        '<td class="pwd-freeze-col-3">' +
           '<div class="pwd-profile-line">' + esc(profileText) + '</div>' +
           '<div class="pwd-profile-line">' + esc(detail) + '</div>' +
+          '<div class="pwd-profile-unit">' + esc(expiredInfo) + '</div>' +
           '<div class="pwd-profile-unit">' + esc(unitInfo) + '</div>' +
           '<div class="pwd-profile-unit">' + esc(priceInfo) + '</div>' +
         '</td>' +
-        '<td class="pwd-sticky pwd-sticky-4">' + summaryChildHtml(profile.metrics || {}) + '</td>' +
-        dayCells(profile.daily || {}, groupIndex, profileIndex) +
+        '<td class="pwd-freeze-col-4">' + summaryChildHtml(profile.metrics || {}) + '</td>' +
       '</tr>';
+  }
+
+  function profileRowHtml(group, groupIndex, profile, profileIndex){
+    return '<tr class="pwd-child-row">' + dayCells(profile.daily || {}, groupIndex, profileIndex) + '</tr>';
+  }
+
+  function syncPaneRowHeights(){
+    var freezeRows = Array.prototype.slice.call(freezeBody.querySelectorAll('tr'));
+    var scrollRows = Array.prototype.slice.call(tableBody.querySelectorAll('tr'));
+    var count = Math.min(freezeRows.length, scrollRows.length);
+    var index;
+    for (index = 0; index < count; index += 1) {
+      freezeRows[index].style.height = '';
+      scrollRows[index].style.height = '';
+      var height = Math.max(freezeRows[index].offsetHeight, scrollRows[index].offsetHeight);
+      freezeRows[index].style.height = height + 'px';
+      scrollRows[index].style.height = height + 'px';
+    }
   }
 
   function render(options){
@@ -985,29 +1089,38 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     var keepScroll = !!opts.keepScroll;
     var focusToday = !!opts.focusToday;
     var previousScrollLeft = tableWrap ? tableWrap.scrollLeft : 0;
+    freezeHead.innerHTML = freezeHeaderHtml();
     tableHead.innerHTML = headerHtml();
     syncStickyLayout();
 
     if (!state.groups.length) {
-      tableBody.innerHTML = '<tr><td colspan="999" class="pwd-empty">Belum ada data untuk filter ini.</td></tr>';
-      requestAnimationFrame(syncStickyLayout);
+      freezeBody.innerHTML = '<tr><td colspan="4" class="pwd-empty">Belum ada data untuk filter ini.</td></tr>';
+      tableBody.innerHTML = '<tr><td colspan="' + Math.max(1, state.dates.length * 5) + '" class="pwd-empty"></td></tr>';
+      requestAnimationFrame(function(){
+        syncStickyLayout();
+        syncPaneRowHeights();
+      });
       return;
     }
 
+    var freezeHtml = '';
     var html = '';
     state.groups.forEach(function(group, groupIndex){
+      freezeHtml += freezeGroupRowHtml(group);
       html += groupRowHtml(group, groupIndex);
       if (isExpandable(group) && isExpanded(group)) {
         (group.children || []).forEach(function(profile, profileIndex){
+          freezeHtml += freezeProfileRowHtml(profile);
           html += profileRowHtml(group, groupIndex, profile, profileIndex);
         });
       }
     });
+    freezeBody.innerHTML = freezeHtml;
     tableBody.innerHTML = html;
 
     requestAnimationFrame(function(){
       syncStickyLayout();
-      pinStickyColumns();
+      syncPaneRowHeights();
       if (!tableWrap) { return; }
       if (focusToday) {
         scrollToTodayColumn();
@@ -1031,7 +1144,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
       }
       return '<tr>' +
         '<td>' + esc(String(row.created_at || row.movement_date || '-')) + '</td>' +
-        '<td>' + esc(String(row.movement_type || '-')) + '</td>' +
+        '<td>' + esc(String(row.movement_type_label || row.movement_type || '-')) + '</td>' +
         '<td class="text-end fw-semibold">' + esc(num(row.qty_content_delta || 0)) + '</td>' +
         '<td class="text-end">' + esc(num(row.qty_content_after || 0)) + '</td>' +
         '<td>' + esc(refText || '-') + '</td>' +
@@ -1128,8 +1241,10 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
         render({ focusToday: true });
       })
       .catch(function(err){
+        freezeHead.innerHTML = '';
         tableHead.innerHTML = '';
-        tableBody.innerHTML = '<tr><td colspan="999" class="pwd-empty">Gagal memuat matrix harian.</td></tr>';
+        freezeBody.innerHTML = '<tr><td colspan="4" class="pwd-empty">Gagal memuat matrix harian.</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="1" class="pwd-empty"></td></tr>';
         showMessage(false, err && err.message ? err.message : 'Terjadi kesalahan saat memuat data.');
       });
   }
@@ -1152,7 +1267,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     }
   });
 
-  tableBody.addEventListener('click', function(ev){
+  matrixShell.addEventListener('click', function(ev){
     var toggle = ev.target && ev.target.closest ? ev.target.closest('[data-action="toggle-group"]') : null;
     if (toggle) {
       var groupKey = toggle.getAttribute('data-group-key') || '';
@@ -1196,6 +1311,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
 
   window.addEventListener('resize', function(){
     syncStickyLayout();
+    syncPaneRowHeights();
   });
 
   readFilters();
