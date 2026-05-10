@@ -9,6 +9,9 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  */
 class MY_Controller extends CI_Controller
 {
+    private const SIDEBAR_CACHE_TTL_SECONDS = 300;
+    private const SIDEBAR_CACHE_DIR = 'sidebar';
+
     /** Data user yang sedang login (dari session) */
     protected $current_user = [];
 
@@ -97,21 +100,122 @@ class MY_Controller extends CI_Controller
 
         // Load sidebar data otomatis (kecuali sudah diset manual oleh controller)
         if (!isset($data['sidebar_main'])) {
-            $this->load->model('Menu_model');
-            $data['sidebar_main']      = $this->Menu_model->get_sidebar_tree(
-                $this->user_perms, $this->is_superadmin(), 'MAIN'
-            );
-            $data['sidebar_my']        = $this->Menu_model->get_sidebar_tree(
-                $this->user_perms, $this->is_superadmin(), 'MY'
-            );
-            $data['sidebar_favorites'] = $this->Menu_model->get_favorites(
-                (int)($this->current_user['id'] ?? 0)
-            );
+            $sidebar = $this->load_sidebar_cached();
+            $data['sidebar_main'] = $sidebar['sidebar_main'];
+            $data['sidebar_my'] = $sidebar['sidebar_my'];
+            $data['sidebar_favorites'] = $sidebar['sidebar_favorites'];
         }
 
         $data['content_view'] = $view;
         $data['content_data'] = $data;
 
         return $this->load->view('layout/main', $data, $return);
+    }
+
+    private function load_sidebar_cached(): array
+    {
+        $userId = (int)($this->current_user['id'] ?? 0);
+        $isSuperadmin = $this->is_superadmin();
+        $permSignature = md5(json_encode($this->user_perms, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $cacheFile = $this->get_sidebar_cache_file($userId, $isSuperadmin, $permSignature);
+        $cachedSidebar = $this->read_sidebar_cache($cacheFile);
+        if ($cachedSidebar !== null) {
+            return $cachedSidebar;
+        }
+
+        $this->load->model('Menu_model');
+        $sidebarData = [
+            'sidebar_main' => $this->Menu_model->get_sidebar_tree($this->user_perms, $isSuperadmin, 'MAIN'),
+            'sidebar_my' => $this->Menu_model->get_sidebar_tree($this->user_perms, $isSuperadmin, 'MY'),
+            'sidebar_favorites' => $this->Menu_model->get_favorites($userId),
+        ];
+
+        $this->write_sidebar_cache($cacheFile, $sidebarData);
+
+        return $sidebarData;
+    }
+
+    private function get_sidebar_cache_file(int $userId, bool $isSuperadmin, string $permSignature): ?string
+    {
+        if ($userId <= 0 || $permSignature === '') {
+            return null;
+        }
+
+        $cacheDir = APPPATH . 'cache/' . self::SIDEBAR_CACHE_DIR;
+        if (!is_dir($cacheDir) && !@mkdir($cacheDir, 0777, true) && !is_dir($cacheDir)) {
+            return null;
+        }
+
+        $this->cleanup_sidebar_cache_dir($cacheDir);
+
+        return $cacheDir
+            . DIRECTORY_SEPARATOR
+            . 'sidebar_'
+            . $userId
+            . '_'
+            . ($isSuperadmin ? '1' : '0')
+            . '_'
+            . $permSignature
+            . '.json';
+    }
+
+    private function read_sidebar_cache(?string $cacheFile): ?array
+    {
+        if ($cacheFile === null || !is_file($cacheFile)) {
+            return null;
+        }
+
+        $modifiedAt = @filemtime($cacheFile);
+        if (!$modifiedAt || $modifiedAt <= (time() - self::SIDEBAR_CACHE_TTL_SECONDS)) {
+            @unlink($cacheFile);
+            return null;
+        }
+
+        $payload = @file_get_contents($cacheFile);
+        if ($payload === false || $payload === '') {
+            return null;
+        }
+
+        $decoded = json_decode($payload, true);
+        if (
+            !is_array($decoded)
+            || !isset($decoded['sidebar_main'], $decoded['sidebar_my'], $decoded['sidebar_favorites'])
+        ) {
+            return null;
+        }
+
+        return [
+            'sidebar_main' => (array)$decoded['sidebar_main'],
+            'sidebar_my' => (array)$decoded['sidebar_my'],
+            'sidebar_favorites' => (array)$decoded['sidebar_favorites'],
+        ];
+    }
+
+    private function write_sidebar_cache(?string $cacheFile, array $sidebarData): void
+    {
+        if ($cacheFile === null) {
+            return;
+        }
+
+        $payload = json_encode($sidebarData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($payload === false) {
+            return;
+        }
+
+        @file_put_contents($cacheFile, $payload, LOCK_EX);
+    }
+
+    private function cleanup_sidebar_cache_dir(string $cacheDir): void
+    {
+        if (mt_rand(1, 100) !== 1) {
+            return;
+        }
+
+        foreach (glob($cacheDir . DIRECTORY_SEPARATOR . 'sidebar_*.json') ?: [] as $cacheFile) {
+            $modifiedAt = @filemtime($cacheFile);
+            if ($modifiedAt && $modifiedAt <= (time() - self::SIDEBAR_CACHE_TTL_SECONDS)) {
+                @unlink($cacheFile);
+            }
+        }
     }
 }

@@ -7,7 +7,7 @@ $autoload['packages'] = array();
 
 //$autoload['libraries'] = array('database', 'session');
 // application/config/autoload.php
-$autoload['libraries'] = array('database', 'session', 'email');
+$autoload['libraries'] = array('database', 'session');
 
 $autoload['drivers'] = array();
 

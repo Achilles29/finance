@@ -38,6 +38,57 @@ class User_model extends CI_Model
         return $row ?: null;
     }
 
+    public function get_employee_options(?int $excludeUserId = null): array
+    {
+        $this->db->select(
+            "e.id,
+             e.employee_code,
+             e.employee_name,
+             d.division_name,
+             p.position_name,
+             u.id AS linked_user_id,
+             u.username AS linked_username",
+            false
+        );
+        $this->db->from('org_employee e');
+        $this->db->join('org_division d', 'd.id = e.division_id', 'left');
+        $this->db->join('org_position p', 'p.id = e.position_id', 'left');
+        $this->db->join('auth_user u', 'u.employee_id = e.id', 'left');
+        $this->db->where('e.is_active', 1);
+        if ($excludeUserId !== null && $excludeUserId > 0) {
+            $this->db->group_start();
+            $this->db->where('u.id IS NULL', null, false);
+            $this->db->or_where('u.id', $excludeUserId);
+            $this->db->group_end();
+        }
+        $this->db->order_by('e.employee_name', 'ASC');
+        return $this->db->get()->result_array();
+    }
+
+    public function employee_exists(int $employeeId): bool
+    {
+        if ($employeeId <= 0) {
+            return false;
+        }
+        return $this->db->where('id', $employeeId)
+            ->where('is_active', 1)
+            ->count_all_results('org_employee') > 0;
+    }
+
+    public function is_employee_linked_to_other_user(int $employeeId, int $excludeUserId = 0): bool
+    {
+        if ($employeeId <= 0) {
+            return false;
+        }
+
+        $this->db->from('auth_user');
+        $this->db->where('employee_id', $employeeId);
+        if ($excludeUserId > 0) {
+            $this->db->where('id !=', $excludeUserId);
+        }
+        return $this->db->count_all_results() > 0;
+    }
+
     /**
      * Ambil daftar role yang dimiliki user
      */

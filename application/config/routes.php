@@ -12,6 +12,78 @@ $route['logout'] = 'auth/logout';
 // Dashboard
 $route['dashboard'] = 'dashboard/index';
 
+// Attendance
+$route['attendance/settings'] = 'attendance/settings';
+$route['attendance/daily'] = 'attendance/daily';
+$route['attendance/logs'] = 'attendance/logs';
+$route['attendance/schedules'] = 'attendance/schedules';
+$route['attendance/schedules-v2'] = 'attendance/schedules_v2';
+$route['attendance/schedule-v2'] = 'attendance/schedules_v2';
+$route['attendance/schedules-v2/save'] = 'attendance/schedule_v2_save';
+$route['attendance/schedules/store'] = 'attendance/schedule_store';
+$route['attendance/schedules/update/(:num)'] = 'attendance/schedule_update/$1';
+$route['attendance/schedules/delete/(:num)'] = 'attendance/schedule_delete/$1';
+$route['attendance/schedules/bulk-store'] = 'attendance/schedule_bulk_store';
+$route['attendance/pending-requests'] = 'attendance/pending_requests';
+$route['attendance/pending-requests/action/(:num)'] = 'attendance/pending_request_action/$1';
+$route['attendance/pending-requests/bulk-action'] = 'attendance/pending_request_bulk_action';
+$route['attendance/overtime-entries'] = 'attendance/overtime_entries';
+$route['attendance/overtime-entries/store'] = 'attendance/overtime_entry_store';
+$route['attendance/overtime-entries/update/(:num)'] = 'attendance/overtime_entry_update/$1';
+$route['attendance/overtime-entries/delete/(:num)'] = 'attendance/overtime_entry_delete/$1';
+$route['attendance/anomalies'] = 'attendance/anomalies';
+$route['attendance/master-health'] = 'attendance/master_health';
+$route['attendance/estimate'] = 'attendance/estimate';
+$route['attendance/estimate/detail/(:num)'] = 'attendance/estimate_detail/$1';
+$route['attendance/ph-assignments'] = 'attendance/ph_assignments';
+$route['attendance/ph-assignments/save'] = 'attendance/ph_assignment_save';
+$route['attendance/ph-ledger'] = 'attendance/ph_ledger';
+$route['attendance/ph-ledger/store'] = 'attendance/ph_ledger_store';
+$route['attendance/ph-ledger/sync-grants'] = 'attendance/ph_ledger_sync_grants';
+$route['attendance/ph-recap'] = 'attendance/ph_recap';
+
+// HR Contract Operational
+$route['hr/contracts'] = 'hr_contracts/index';
+$route['hr/contracts/create-draft'] = 'hr_contracts/create_draft';
+$route['hr/contracts/(:num)'] = 'hr_contracts/view/$1';
+$route['hr/contracts/(:num)/generate'] = 'hr_contracts/generate_contract/$1';
+$route['hr/contracts/(:num)/approve'] = 'hr_contracts/approve/$1';
+$route['hr/contracts/(:num)/sign'] = 'hr_contracts/sign/$1';
+$route['hr/contracts/(:num)/transition/(:any)'] = 'hr_contracts/transition/$1/$2';
+
+// HR Contract compatibility routes (core-like)
+$route['hr-contracts'] = 'hr_contracts/index';
+$route['hr-contracts/templates'] = 'hr_contracts/templates';
+$route['hr-contracts/template-edit'] = 'hr_contracts/template_edit';
+$route['hr-contracts/template-edit/(:num)'] = 'hr_contracts/template_edit/$1';
+$route['hr-contracts/template-delete/(:num)'] = 'hr_contracts/template_delete/$1';
+$route['hr-contracts/template-preview'] = 'hr_contracts/template_preview';
+$route['hr-contracts/generate'] = 'hr_contracts/generate';
+$route['hr-contracts/view/(:num)'] = 'hr_contracts/view/$1';
+$route['hr-contracts/print/(:num)'] = 'hr_contracts/print_view/$1';
+$route['hr-contracts/(:num)/approve'] = 'hr_contracts/approve/$1';
+$route['hr-contracts/(:num)/sign'] = 'hr_contracts/sign/$1';
+$route['hr-contracts/(:num)/transition/(:any)'] = 'hr_contracts/transition/$1/$2';
+$route['hr-contracts/verify/(:any)'] = 'hr_contract_verify/index/$1';
+$route['payroll/preview-thp'] = 'payroll/preview_thp';
+$route['payroll/manual-adjustments'] = 'payroll/manual_adjustments';
+$route['payroll/manual-adjustments/store'] = 'payroll/manual_adjustment_store';
+$route['payroll/manual-adjustments/update/(:num)'] = 'payroll/manual_adjustment_update/$1';
+$route['payroll/manual-adjustments/delete/(:num)'] = 'payroll/manual_adjustment_delete/$1';
+
+// Employee Portal
+$route['my'] = 'my/index';
+$route['my/attendance'] = 'my/attendance';
+$route['my/attendance/mark'] = 'my/attendance_mark';
+$route['my/profile'] = 'my/profile';
+$route['my/schedule'] = 'my/schedule';
+$route['my/payroll'] = 'my/payroll';
+$route['my/leave-requests'] = 'my/leave_requests';
+$route['my/leave-requests/schedule'] = 'my/leave_request_schedule';
+$route['my/leave-requests/cancel/(:num)'] = 'my/leave_request_cancel/$1';
+$route['my/meal-ledger'] = 'my/meal_ledger';
+$route['my/cash-advance'] = 'my/cash_advance';
+
 // Inventory flow (item -> material)
 $route['inventory/item-material-flow'] = 'inventory_flow/item_material';
 $route['inventory/item-material-flow/store'] = 'inventory_flow/item_material_store';
@@ -121,9 +193,11 @@ $route['master/relation/product-extra/delete/(:num)']           = 'master_relati
 $route['master/relation/extra-group']                           = 'master_relation/extra_group_hub';
 $route['master/relation/extra-group/(:num)']                    = 'master_relation/extra_group_products/$1';
 $route['master/relation/extra-group/(:num)/save']               = 'master_relation/extra_group_products_save/$1';
+$route['master/att-holiday/generate-year']      = 'master/att_holiday_generate_year';
 
 $route['master/(:any)']                  = 'master/index/$1';
 $route['master/(:any)/create']           = 'master/create/$1';
+$route['master/(:any)/detail/(:num)']    = 'master/detail/$1/$2';
 $route['master/(:any)/store']            = 'master/store/$1';
 $route['master/(:any)/edit/(:num)']      = 'master/edit/$1/$2';
 $route['master/(:any)/update/(:num)']    = 'master/update/$1/$2';

@@ -5,6 +5,7 @@ $queryBase = [
     'status' => $status,
     'per_page' => $per_page,
 ];
+$isPayrollMaster = in_array($entity, ['pay-component', 'pay-profile', 'pay-profile-line', 'pay-assignment'], true);
 
 $buildPageItems = static function (int $page, int $totalPages): array {
     if ($totalPages <= 7) {
@@ -33,10 +34,68 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 };
 ?>
 
-<div data-master-root>
+<?php if ($isPayrollMaster): ?>
+<style>
+  .master-index--payroll .master-title {
+    font-size: 1.52rem;
+    letter-spacing: 0.01em;
+  }
+  .master-index--payroll .master-filter .form-control,
+  .master-index--payroll .master-filter .form-select,
+  .master-index--payroll .master-filter .btn {
+    min-height: 40px;
+  }
+  .master-index--payroll .master-card {
+    border: 0;
+    box-shadow: 0 0.25rem 0.9rem rgba(67, 30, 30, 0.08);
+  }
+  .master-index--payroll .master-table thead th {
+    background: #f5f6f8 !important;
+    color: #4a4458 !important;
+    border-color: #ebe7ef !important;
+    text-align: left !important;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.73rem;
+  }
+  .master-index--payroll .master-table th,
+  .master-index--payroll .master-table td {
+    padding: 0.72rem 0.88rem;
+    vertical-align: middle;
+  }
+  .master-index--payroll .master-table td {
+    font-size: 0.92rem;
+  }
+  .master-index--payroll .master-table td.number-cell {
+    text-align: right !important;
+  }
+  .master-index--payroll .master-table td.action-cell {
+    text-align: center !important;
+  }
+  .master-index--payroll .payroll-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: nowrap;
+  }
+  .master-index--payroll .payroll-actions .action-icon-btn {
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    border-radius: 9px;
+  }
+  .master-index--payroll .master-footer {
+    border-top: 1px solid #efe8ee;
+    padding-top: 0.72rem;
+    padding-bottom: 0.72rem;
+  }
+</style>
+<?php endif; ?>
+
+<div data-master-root class="master-index <?php echo $isPayrollMaster ? 'master-index--payroll' : ''; ?>">
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
   <div>
-    <h4 class="mb-1"><?php echo html_escape($cfg['title']); ?></h4>
+    <h4 class="mb-1 master-title"><?php echo html_escape($cfg['title']); ?></h4>
     <small class="text-muted" id="masterTotalText">Total data: <?php echo (int)$total; ?></small>
   </div>
   <div class="d-flex flex-wrap gap-2">
@@ -55,6 +114,27 @@ $buildPageItems = static function (int $page, int $totalPages): array {
     <?php endif; ?>
     <?php if ($entity === 'extra-group'): ?>
       <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/extra-group'); ?>">Checklist Produk per Group</a>
+    <?php endif; ?>
+    <?php if ($entity === 'att-overtime-standard'): ?>
+      <a class="btn btn-outline-secondary" href="<?php echo site_url('attendance/overtime-entries'); ?>">
+        <i class="ri-arrow-left-line me-1"></i>Kembali ke Input Lembur
+      </a>
+    <?php endif; ?>
+    <?php if ($entity === 'att-holiday'): ?>
+      <form method="post" action="<?php echo site_url('master/att-holiday/generate-year'); ?>" class="d-flex align-items-center gap-2">
+        <input
+          type="number"
+          name="year"
+          class="form-control form-control-sm"
+          min="2000"
+          max="2100"
+          value="<?php echo (int)date('Y'); ?>"
+          style="width:96px;"
+        >
+        <button type="submit" class="btn btn-outline-primary btn-sm">
+          <i class="ri-calendar-check-line me-1"></i>Generate 1 Tahun
+        </button>
+      </form>
     <?php endif; ?>
   </div>
 </div>
@@ -85,8 +165,8 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 </div>
 <?php endif; ?>
 
-<div class="card mb-3">
-  <div class="card-body py-3">
+<div class="card mb-3 master-card">
+  <div class="card-body py-3 master-filter">
     <form id="filterForm" method="get" action="<?php echo $baseUrl; ?>" class="row g-2 align-items-end">
       <div class="col-md-6 mb-2">
         <label class="form-label mb-1">Pencarian</label>
@@ -108,9 +188,9 @@ $buildPageItems = static function (int $page, int $totalPages): array {
   </div>
 </div>
 
-<div class="card" id="masterListCard">
+<div class="card master-card" id="masterListCard">
   <div class="table-responsive">
-    <table class="table table-striped table-hover mb-0">
+    <table class="table table-striped table-hover mb-0 master-table">
       <thead>
         <tr>
           <th width="60">No</th>
@@ -182,20 +262,25 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                 </td>
               <?php endforeach; ?>
               <td class="action-cell">
-                <a class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit" href="<?php echo site_url('master/' . $entity . '/edit/' . (int)$r['id']); ?>"><i class="ri ri-edit-line"></i></a>
-                <?php if ($entity === 'product'): ?>
-                  <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Recipe" aria-label="Recipe" href="<?php echo site_url('master/relation/product-recipe/' . (int)$r['id']); ?>"><i class="ri ri-book-open-line"></i></a>
-                  <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Extra" aria-label="Extra" href="<?php echo site_url('master/relation/product-extra/' . (int)$r['id']); ?>"><i class="ri ri-links-line"></i></a>
-                <?php endif; ?>
-                <?php if ($entity === 'component'): ?>
-                  <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Formula" aria-label="Formula" href="<?php echo site_url('master/relation/component-formula/' . (int)$r['id']); ?>"><i class="ri ri-function-line"></i></a>
-                <?php endif; ?>
-                <?php if ($entity === 'extra-group'): ?>
-                  <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Checklist Produk" aria-label="Checklist Produk" href="<?php echo site_url('master/relation/extra-group/' . (int)$r['id']); ?>"><i class="ri ri-checkbox-multiple-line"></i></a>
-                <?php endif; ?>
-                <?php if (!empty($cfg['toggle'])): ?>
-                  <a class="btn btn-sm btn-outline-warning action-icon-btn" data-bs-toggle="tooltip" title="Toggle Status" aria-label="Toggle Status" href="<?php echo site_url('master/' . $entity . '/toggle/' . (int)$r['id']); ?>" onclick="return confirm('Ubah status data ini?')"><i class="ri ri-refresh-line"></i></a>
-                <?php endif; ?>
+                <div class="<?php echo $isPayrollMaster ? 'payroll-actions' : ''; ?>">
+                  <?php if ($entity === 'org-employee'): ?>
+                    <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Detail" aria-label="Detail" href="<?php echo site_url('master/' . $entity . '/detail/' . (int)$r['id']); ?>"><i class="ri ri-eye-line"></i></a>
+                  <?php endif; ?>
+                  <a class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit" href="<?php echo site_url('master/' . $entity . '/edit/' . (int)$r['id']); ?>"><i class="ri ri-edit-line"></i></a>
+                  <?php if ($entity === 'product'): ?>
+                    <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Recipe" aria-label="Recipe" href="<?php echo site_url('master/relation/product-recipe/' . (int)$r['id']); ?>"><i class="ri ri-book-open-line"></i></a>
+                    <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Extra" aria-label="Extra" href="<?php echo site_url('master/relation/product-extra/' . (int)$r['id']); ?>"><i class="ri ri-links-line"></i></a>
+                  <?php endif; ?>
+                  <?php if ($entity === 'component'): ?>
+                    <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Formula" aria-label="Formula" href="<?php echo site_url('master/relation/component-formula/' . (int)$r['id']); ?>"><i class="ri ri-function-line"></i></a>
+                  <?php endif; ?>
+                  <?php if ($entity === 'extra-group'): ?>
+                    <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Checklist Produk" aria-label="Checklist Produk" href="<?php echo site_url('master/relation/extra-group/' . (int)$r['id']); ?>"><i class="ri ri-checkbox-multiple-line"></i></a>
+                  <?php endif; ?>
+                  <?php if (!empty($cfg['toggle'])): ?>
+                    <a class="btn btn-sm btn-outline-warning action-icon-btn" data-bs-toggle="tooltip" title="Toggle Status" aria-label="Toggle Status" href="<?php echo site_url('master/' . $entity . '/toggle/' . (int)$r['id']); ?>" onclick="return confirm('Ubah status data ini?')"><i class="ri ri-refresh-line"></i></a>
+                  <?php endif; ?>
+                </div>
               </td>
             </tr>
           <?php endforeach; ?>
@@ -205,7 +290,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
   </div>
 
   <?php if ($total_pages > 1): ?>
-    <div class="card-footer d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="card-footer d-flex justify-content-between align-items-center flex-wrap gap-2 master-footer">
       <small>Halaman <?php echo $page; ?> dari <?php echo $total_pages; ?></small>
       <div class="btn-group">
         <?php

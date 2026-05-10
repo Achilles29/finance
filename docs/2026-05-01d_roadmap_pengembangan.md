@@ -67,9 +67,9 @@ Pemisahan ini disengaja agar tidak membingungkan user. Detail lihat: `2026-05-01
 | 0 | Fondasi & Keputusan Arsitektur | ✅ SELESAI | 2026-05-01 | 2026-05-01 |
 | 1 | Auth, RBAC & Sidebar | 🟡 Sedang Berjalan | 2026-05-01 | - |
 | 2 | Master Data | 🟢 Gate Closed (siap lanjut) | 2026-05-02 | 2026-05-03 |
-| 3 | HR & Organisasi | 🟡 Paralel Terencana | | |
-| 4 | Absensi (Terpadu) | 🔲 Belum | | |
-| 5 | Payroll & Penggajian | 🔲 Belum | | |
+| 3 | HR & Organisasi | 🟡 Sedang Berjalan (fondasi) | 2026-05-07 | - |
+| 4 | Absensi (Terpadu) | 🟡 Fondasi Berjalan | 2026-05-07 | - |
+| 5 | Payroll & Penggajian | 🟡 Fondasi Berjalan | 2026-05-07 | - |
 | 6 | Pembelian (Purchase) | 🟡 Sedang Berjalan | 2026-05-03 | - |
 | 7 | Inventori & Gudang | 🟡 Fondasi Berjalan | 2026-05-06 | - |
 | 8 | Produksi & COGS | 🔲 Belum | | |
@@ -122,17 +122,18 @@ Alasan:
 - [x] Dokumen penutupan gate Tahap 2 dibuat: `docs/2026-05-03e_penutupan_gate_tahap2_schema_snapshot.md`.
 
 #### Tahap 3 — HR & Organisasi (Paralel)
-- [ ] Finalisasi SQL schema HR.
-- [ ] Implement CRUD employee/position/division dasar.
-- [ ] Integrasi role mapping employee untuk RBAC.
+- [x] Finalisasi SQL schema HR (gabung fondasi Tahap 3/4/5) di `sql/2026-05-07a_hr_attendance_payroll_foundation.sql`.
+- [x] Implement CRUD employee/position/division dasar via `Master` (`org-division`, `org-position`, `org-employee`).
+- [x] Seed page/menu/permission fondasi HR/Attendance/Payroll di `sql/2026-05-07b_hr_attendance_payroll_menu_seed.sql`.
+- [ ] Integrasi role mapping employee untuk RBAC (sinkron assignment otomatis employee -> role).
 
 #### Tahap 4 — Absensi
-- [ ] Desain tabel absensi terpadu final.
-- [ ] Implement rekap harian tunggal (`att_daily`).
+- [x] Desain tabel absensi terpadu final (single recap table `att_daily`) di `sql/2026-05-07a_hr_attendance_payroll_foundation.sql`.
+- [ ] Implement rekap harian tunggal (`att_daily`) dari `att_presence` (service generate).
 - [ ] Workflow approval izin/sakit/lembur.
 
 #### Tahap 5 — Payroll
-- [ ] Implement komponen gaji + profile + assignment.
+- [x] Implement fondasi komponen gaji + profile + assignment (schema + CRUD master awal).
 - [ ] Kalkulasi payroll bulanan dari absensi terpadu.
 - [ ] Disbursement gaji + kasbon + THR/bonus.
 

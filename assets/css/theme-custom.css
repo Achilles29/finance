@@ -532,6 +532,23 @@ a:hover {
     padding: 0 !important;
 }
 
+.action-text-btn {
+    min-height: 30px;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    padding-inline: 0.7rem !important;
+}
+
+.table td.action-cell .btn {
+    margin: 0.1rem;
+}
+
+.btn.is-loading {
+    pointer-events: none;
+    opacity: 0.9;
+}
+
 .page-title-icon {
     color: #9d1b1b;
     margin-right: 0.45rem;
@@ -591,6 +608,22 @@ a:hover {
     font-weight: 700;
     color: #34282c;
     margin: 0;
+}
+
+.finance-ui-modal .modal-content {
+    border: 1px solid rgba(157, 16, 16, 0.16);
+    border-radius: 0.8rem;
+    box-shadow: 0 24px 56px rgba(72, 23, 19, 0.18);
+}
+
+.finance-ui-modal .modal-header {
+    background: linear-gradient(135deg, #fff6f5 0%, #fff 75%);
+    border-bottom: 1px solid rgba(157, 16, 16, 0.12);
+}
+
+.finance-ui-modal .modal-title {
+    color: #5b1f1f;
+    font-weight: 700;
 }
 
 /* ================================================================ */

@@ -55,6 +55,7 @@ class Users extends MY_Controller
             'title'       => 'Tambah User Baru',
             'active_menu' => 'sys.users',
             'all_roles'   => $this->Role_model->get_all(true),
+            'employee_options' => $this->User_model->get_employee_options(),
             'form_action' => 'users/store',
             'edit_mode'   => false,
         ];
@@ -87,10 +88,23 @@ class Users extends MY_Controller
             redirect('users/create');
         }
 
+        $employeeId = (int)$this->input->post('employee_id', true);
+        if ($employeeId > 0) {
+            if (!$this->User_model->employee_exists($employeeId)) {
+                $this->session->set_flashdata('error', 'Pegawai tidak valid.');
+                redirect('users/create');
+            }
+            if ($this->User_model->is_employee_linked_to_other_user($employeeId)) {
+                $this->session->set_flashdata('error', 'Pegawai tersebut sudah terhubung ke user lain.');
+                redirect('users/create');
+            }
+        }
+
         $user_id = $this->User_model->create([
             'username' => $username,
             'email'    => $email ?: null,
             'password' => $this->input->post('password'),
+            'employee_id' => $employeeId > 0 ? $employeeId : null,
         ]);
 
         if ($user_id) {
@@ -120,6 +134,7 @@ class Users extends MY_Controller
             'title'        => 'Edit User: ' . htmlspecialchars($user['username']),
             'active_menu'  => 'sys.users',
             'all_roles'    => $this->Role_model->get_all(true),
+            'employee_options' => $this->User_model->get_employee_options($id),
             'user_roles'   => array_column($this->User_model->get_user_roles($id), 'id'),
             'user'         => $user,
             'form_action'  => 'users/update/' . $id,
@@ -150,9 +165,22 @@ class Users extends MY_Controller
             redirect('users/edit/' . $id);
         }
 
+        $employeeId = (int)$this->input->post('employee_id', true);
+        if ($employeeId > 0) {
+            if (!$this->User_model->employee_exists($employeeId)) {
+                $this->session->set_flashdata('error', 'Pegawai tidak valid.');
+                redirect('users/edit/' . $id);
+            }
+            if ($this->User_model->is_employee_linked_to_other_user($employeeId, $id)) {
+                $this->session->set_flashdata('error', 'Pegawai tersebut sudah terhubung ke user lain.');
+                redirect('users/edit/' . $id);
+            }
+        }
+
         $this->User_model->update($id, [
             'email'    => $email ?: null,
             'password' => $this->input->post('password'),
+            'employee_id' => $employeeId > 0 ? $employeeId : null,
         ]);
 
         $role_ids = $this->input->post('role_ids') ?: [];

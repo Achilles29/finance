@@ -10,8 +10,48 @@ class Master extends MY_Controller
         $this->load->library('form_validation');
     }
 
+    private function redirect_contract_operational_if_needed(string $entity, string $action = 'index', int $id = 0): bool
+    {
+        if ($entity === 'hr-contract-template') {
+            if ($action === 'index' || $action === 'create' || $action === 'store') {
+                redirect('hr-contracts/templates');
+                return true;
+            }
+            if ($action === 'edit' || $action === 'update' || $action === 'detail') {
+                redirect('hr-contracts/template-edit/' . $id);
+                return true;
+            }
+            if ($action === 'toggle') {
+                $this->session->set_flashdata('warning', 'Aktif/nonaktif template kontrak sekarang dilakukan dari halaman template kontrak.');
+                redirect('hr-contracts/templates');
+                return true;
+            }
+        }
+
+        if ($entity === 'hr-contract') {
+            if ($action === 'index' || $action === 'create' || $action === 'store') {
+                redirect('hr/contracts');
+                return true;
+            }
+            if ($action === 'edit' || $action === 'update' || $action === 'detail') {
+                redirect('hr-contracts/view/' . $id);
+                return true;
+            }
+            if ($action === 'toggle') {
+                $this->session->set_flashdata('warning', 'Status kontrak diatur dari halaman detail kontrak.');
+                redirect('hr/contracts');
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function index(string $entity = 'uom')
     {
+        if ($this->redirect_contract_operational_if_needed($entity, 'index')) {
+            return;
+        }
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
 
@@ -52,9 +92,10 @@ class Master extends MY_Controller
         $lookupMaps = $this->buildLookupMaps($cfg);
         $rows = $this->decorateRows($rows, $cfg, $lookupMaps);
 
+        $activeMenu = (string)($cfg['active_menu'] ?? 'grp.master');
         $data = [
             'title' => $cfg['title'],
-            'active_menu' => 'grp.master',
+            'active_menu' => $activeMenu,
             'entity' => $entity,
             'cfg' => $cfg,
             'entity_nav' => $this->entityNav(),
@@ -73,14 +114,18 @@ class Master extends MY_Controller
 
     public function create(string $entity)
     {
+        if ($this->redirect_contract_operational_if_needed($entity, 'create')) {
+            return;
+        }
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
 
         $vcDefaults = $this->variableCostDefaultsForEntity($entity);
 
+        $activeMenu = (string)($cfg['active_menu'] ?? 'grp.master');
         $data = [
             'title' => 'Tambah ' . $cfg['title'],
-            'active_menu' => 'grp.master',
+            'active_menu' => $activeMenu,
             'entity' => $entity,
             'cfg' => $cfg,
             'entity_nav' => $this->entityNav(),
@@ -95,10 +140,14 @@ class Master extends MY_Controller
 
     public function store(string $entity)
     {
+        if ($this->redirect_contract_operational_if_needed($entity, 'store')) {
+            return;
+        }
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
 
         $this->autofillCodeFromName($cfg, 0);
+        $this->autofillOrgEmployeeCodeAndNip($cfg, 0);
         $this->applyValidation($cfg);
         if ($this->form_validation->run() === false) {
             $this->session->set_flashdata('error', validation_errors('<li>', '</li>'));
@@ -109,6 +158,12 @@ class Master extends MY_Controller
         if ($payload === null) {
             redirect('master/' . $entity . '/create');
             return;
+        }
+
+        if (($cfg['table'] ?? '') === 'att_location' && $this->db->field_exists('is_default', 'att_location')) {
+            if (!empty($payload['is_default']) && (int)$payload['is_default'] === 1) {
+                $this->db->set('is_default', 0)->update('att_location');
+            }
         }
 
         if (($cfg['table'] ?? '') === 'mst_product') {
@@ -127,6 +182,9 @@ class Master extends MY_Controller
 
     public function edit(string $entity, int $id)
     {
+        if ($this->redirect_contract_operational_if_needed($entity, 'edit', $id)) {
+            return;
+        }
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
 
@@ -135,9 +193,10 @@ class Master extends MY_Controller
 
         $vcDefaults = $this->variableCostDefaultsForEntity($entity);
 
+        $activeMenu = (string)($cfg['active_menu'] ?? 'grp.master');
         $data = [
             'title' => 'Edit ' . $cfg['title'],
-            'active_menu' => 'grp.master',
+            'active_menu' => $activeMenu,
             'entity' => $entity,
             'cfg' => $cfg,
             'entity_nav' => $this->entityNav(),
@@ -150,8 +209,75 @@ class Master extends MY_Controller
         $this->render('master/form', $data);
     }
 
+    public function detail(string $entity, int $id)
+    {
+        if ($this->redirect_contract_operational_if_needed($entity, 'detail', $id)) {
+            return;
+        }
+        $cfg = $this->entityConfig($entity);
+        if (!$cfg) show_404();
+
+        if ($entity !== 'org-employee') {
+            redirect('master/' . $entity . '/edit/' . $id);
+            return;
+        }
+
+        $row = $this->db->select('e.*, d.division_name, p.position_name')
+            ->from('org_employee e')
+            ->join('org_division d', 'd.id = e.division_id', 'left')
+            ->join('org_position p', 'p.id = e.position_id', 'left')
+            ->where('e.id', $id)
+            ->limit(1)
+            ->get()->row_array();
+        if (!$row) {
+            show_404();
+        }
+
+        $linkedUsers = $this->db->select('u.id, u.username, u.email, u.is_active, u.last_login_at, GROUP_CONCAT(DISTINCT r.role_name ORDER BY r.role_name SEPARATOR \', \') AS roles', false)
+            ->from('auth_user u')
+            ->join('auth_user_role ur', 'ur.user_id = u.id', 'left')
+            ->join('auth_role r', 'r.id = ur.role_id', 'left')
+            ->where('u.employee_id', $id)
+            ->group_by('u.id')
+            ->order_by('u.id', 'ASC')
+            ->get()->result_array();
+
+        $schedules = $this->db->select('ss.schedule_date, s.shift_code, s.shift_name, ss.notes, ss.created_at')
+            ->from('att_shift_schedule ss')
+            ->join('att_shift s', 's.id = ss.shift_id', 'left')
+            ->where('ss.employee_id', $id)
+            ->order_by('ss.schedule_date', 'DESC')
+            ->limit(31)
+            ->get()->result_array();
+
+        $attDaily = [];
+        if ($this->db->table_exists('att_daily')) {
+            $attDaily = $this->db->select('attendance_date, attendance_status, checkin_at, checkout_at, late_minutes, work_minutes')
+                ->from('att_daily')
+                ->where('employee_id', $id)
+                ->order_by('attendance_date', 'DESC')
+                ->limit(31)
+                ->get()->result_array();
+        }
+
+        $activeMenu = (string)($cfg['active_menu'] ?? 'grp.master');
+        $this->render('master/detail_org_employee', [
+            'title' => 'Detail Pegawai',
+            'active_menu' => $activeMenu,
+            'entity' => $entity,
+            'cfg' => $cfg,
+            'row' => $row,
+            'linked_users' => $linkedUsers,
+            'schedules' => $schedules,
+            'att_daily_rows' => $attDaily,
+        ]);
+    }
+
     public function update(string $entity, int $id)
     {
+        if ($this->redirect_contract_operational_if_needed($entity, 'update', $id)) {
+            return;
+        }
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
 
@@ -159,6 +285,7 @@ class Master extends MY_Controller
         if (!$row) show_404();
 
         $this->autofillCodeFromName($cfg, $id);
+        $this->autofillOrgEmployeeCodeAndNip($cfg, $id);
         $this->applyValidation($cfg, $id);
         if ($this->form_validation->run() === false) {
             $this->session->set_flashdata('error', validation_errors('<li>', '</li>'));
@@ -169,6 +296,12 @@ class Master extends MY_Controller
         if ($payload === null) {
             redirect('master/' . $entity . '/edit/' . $id);
             return;
+        }
+
+        if (($cfg['table'] ?? '') === 'att_location' && $this->db->field_exists('is_default', 'att_location')) {
+            if (!empty($payload['is_default']) && (int)$payload['is_default'] === 1) {
+                $this->db->where('id !=', $id)->set('is_default', 0)->update('att_location');
+            }
         }
 
         if (($cfg['table'] ?? '') === 'mst_product') {
@@ -187,6 +320,9 @@ class Master extends MY_Controller
 
     public function toggle(string $entity, int $id)
     {
+        if ($this->redirect_contract_operational_if_needed($entity, 'toggle', $id)) {
+            return;
+        }
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
         if (empty($cfg['toggle'])) show_404();
@@ -197,6 +333,80 @@ class Master extends MY_Controller
         $this->Master_model->toggle_active($cfg['table'], $id);
         $this->session->set_flashdata('success', 'Status berhasil diubah.');
         redirect('master/' . $entity);
+    }
+
+    public function att_holiday_generate_year()
+    {
+        $this->require_permission('attendance.holiday.index', 'create');
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $year = (int)$this->input->post('year', true);
+        if ($year < 2000 || $year > 2100) {
+            $this->session->set_flashdata('error', 'Tahun generate libur tidak valid.');
+            redirect('master/att-holiday');
+            return;
+        }
+
+        $sourceExists = $this->db->query(
+            "SELECT COUNT(*) AS c
+             FROM information_schema.tables
+             WHERE table_schema = 'core' AND table_name = 'att_holiday_calendar'"
+        )->row_array();
+        if ((int)($sourceExists['c'] ?? 0) <= 0) {
+            $this->session->set_flashdata('error', 'Tabel sumber core.att_holiday_calendar tidak ditemukan.');
+            redirect('master/att-holiday');
+            return;
+        }
+
+        $sourceRows = $this->db->query(
+            "SELECT holiday_date, holiday_name, holiday_type
+             FROM core.att_holiday_calendar
+             WHERE holiday_date >= ? AND holiday_date <= ? AND COALESCE(is_active,1) = 1
+             ORDER BY holiday_date ASC, holiday_name ASC",
+            [$year . '-01-01', $year . '-12-31']
+        )->result_array();
+
+        if (empty($sourceRows)) {
+            $this->session->set_flashdata('warning', 'Tidak ada data libur tahun ' . $year . ' di database core.');
+            redirect('master/att-holiday');
+            return;
+        }
+
+        $processed = 0;
+        foreach ($sourceRows as $row) {
+            $holidayDate = trim((string)($row['holiday_date'] ?? ''));
+            $holidayName = trim((string)($row['holiday_name'] ?? ''));
+            $holidayType = strtoupper(trim((string)($row['holiday_type'] ?? 'NATIONAL')));
+
+            if ($holidayDate === '' || $holidayName === '') {
+                continue;
+            }
+            if (!in_array($holidayType, ['NATIONAL', 'COMPANY', 'SPECIAL'], true)) {
+                $holidayType = 'NATIONAL';
+            }
+
+            $payload = [
+                'holiday_date' => $holidayDate,
+                'holiday_name' => $holidayName,
+                'holiday_type' => $holidayType,
+                'source_ref' => 'CORE_GENERATE_' . $year,
+                'is_active' => 1,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ];
+            $sql = $this->db->insert_string('att_holiday_calendar', $payload)
+                . ' ON DUPLICATE KEY UPDATE'
+                . ' holiday_type=VALUES(holiday_type),'
+                . ' source_ref=VALUES(source_ref),'
+                . ' is_active=1,'
+                . ' updated_at=VALUES(updated_at)';
+            $this->db->query($sql);
+            $processed++;
+        }
+
+        $this->session->set_flashdata('success', 'Generate hari libur tahun ' . $year . ' selesai. Data diproses: ' . $processed . '.');
+        redirect('master/att-holiday');
     }
 
     private function applyValidation(array $cfg, int $id = 0): void
@@ -237,6 +447,20 @@ class Master extends MY_Controller
                 $exists = $this->Master_model->exists_by_code($cfg['table'], $cfg['code_column'], $code, $id);
                 if ($exists) {
                     $this->session->set_flashdata('error', 'Kode sudah dipakai.');
+                    return null;
+                }
+            }
+        }
+
+        if (($cfg['table'] ?? '') === 'org_employee') {
+            $nip = trim((string)($data['employee_nip'] ?? ''));
+            if ($nip !== '') {
+                $this->db->from('org_employee')->where('employee_nip', $nip);
+                if ($id > 0) {
+                    $this->db->where('id !=', $id);
+                }
+                if ($this->db->count_all_results() > 0) {
+                    $this->session->set_flashdata('error', 'NIP sudah dipakai.');
                     return null;
                 }
             }
@@ -330,6 +554,10 @@ class Master extends MY_Controller
 
         if (($cfg['table'] ?? '') === 'pur_payment_channel') {
             $data['channel_type'] = 'ACCOUNT';
+        }
+
+        if (($cfg['table'] ?? '') === 'pay_objective_override' && $id === 0) {
+            $data['created_by'] = (int)($this->current_user['id'] ?? 0) ?: null;
         }
 
         if (($cfg['table'] ?? '') === 'mst_purchase_catalog') {
@@ -489,6 +717,111 @@ class Master extends MY_Controller
         $_POST[$codeInput] = $generated;
     }
 
+    private function autofillOrgEmployeeCodeAndNip(array $cfg, int $id = 0): void
+    {
+        if (($cfg['table'] ?? '') !== 'org_employee') {
+            return;
+        }
+
+        $joinDateRaw = trim((string)$this->input->post('join_date', true));
+        $joinTs = strtotime($joinDateRaw ?: date('Y-m-d'));
+        if ($joinTs === false) {
+            $joinTs = strtotime(date('Y-m-d'));
+        }
+        $joinDate = date('Y-m-d', $joinTs);
+        $joinYm = date('Ym', $joinTs);
+
+        $birthDateRaw = trim((string)$this->input->post('birth_date', true));
+        $birthTs = strtotime($birthDateRaw);
+        $birthYmd = $birthTs !== false ? date('Ymd', $birthTs) : '00000000';
+        $joinYmd = date('Ymd', $joinTs);
+
+        $existingNip = strtoupper(trim((string)$this->input->post('employee_nip', true)));
+        $existingCode = strtoupper(trim((string)$this->input->post('employee_code', true)));
+
+        if ($id === 0 || $existingNip === '') {
+            $existingNip = $this->generateEmployeeNip($joinYmd, $birthYmd, $id);
+            $_POST['employee_nip'] = $existingNip;
+        }
+
+        if ($id === 0 || $existingCode === '') {
+            $existingCode = $this->generateEmployeeCode($joinYm, $id);
+            $_POST['employee_code'] = $existingCode;
+        }
+
+        if ($joinDateRaw === '') {
+            $_POST['join_date'] = $joinDate;
+        }
+    }
+
+    private function generateEmployeeNip(string $joinYmd, string $birthYmd, int $excludeId = 0): string
+    {
+        $prefix = $joinYmd . $birthYmd;
+        $maxSeq = 0;
+
+        $rows = $this->db->select('employee_nip')
+            ->from('org_employee')
+            ->like('employee_nip', $prefix, 'after')
+            ->get()->result_array();
+
+        foreach ($rows as $row) {
+            $nip = strtoupper((string)($row['employee_nip'] ?? ''));
+            if (preg_match('/^' . preg_quote($prefix, '/') . '(\d{3})$/', $nip, $m)) {
+                $seq = (int)$m[1];
+                if ($seq > $maxSeq) {
+                    $maxSeq = $seq;
+                }
+            }
+        }
+
+        $seq = $maxSeq + 1;
+        while ($seq <= 9999) {
+            $candidate = $prefix . str_pad((string)$seq, 3, '0', STR_PAD_LEFT);
+            $this->db->from('org_employee')->where('employee_nip', $candidate);
+            if ($excludeId > 0) {
+                $this->db->where('id !=', $excludeId);
+            }
+            if ($this->db->count_all_results() === 0) {
+                return $candidate;
+            }
+            $seq++;
+        }
+
+        return $prefix . date('His');
+    }
+
+    private function generateEmployeeCode(string $joinYm, int $excludeId = 0): string
+    {
+        $prefix = 'EMP-' . $joinYm;
+        $maxSeq = 0;
+        $rows = $this->db->select('employee_code')
+            ->from('org_employee')
+            ->like('employee_code', $prefix, 'after')
+            ->get()->result_array();
+
+        foreach ($rows as $row) {
+            $code = strtoupper((string)($row['employee_code'] ?? ''));
+            if (preg_match('/^' . preg_quote($prefix, '/') . '(\d{4,})$/', $code, $m)) {
+                $seq = (int)$m[1];
+                if ($seq > $maxSeq) {
+                    $maxSeq = $seq;
+                }
+            }
+        }
+
+        $seq = $maxSeq + 1;
+        while ($seq <= 999999) {
+            $candidate = $prefix . str_pad((string)$seq, 4, '0', STR_PAD_LEFT);
+            $exists = $this->Master_model->exists_by_code('org_employee', 'employee_code', $candidate, $excludeId);
+            if (!$exists) {
+                return $candidate;
+            }
+            $seq++;
+        }
+
+        return $prefix . date('His');
+    }
+
     private function findFieldMaxLength(array $cfg, string $fieldName, int $default = 50): int
     {
         foreach (($cfg['rules'] ?? []) as $rule) {
@@ -622,6 +955,563 @@ class Master extends MY_Controller
                     ['key' => 'name', 'label' => 'Nama'],
                     ['key' => 'sort_order', 'label' => 'Urutan'],
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'org-division' => [
+                'table' => 'org_division',
+                'title' => 'Master Divisi Organisasi',
+                'order_by' => 'sort_order',
+                'order_dir' => 'ASC',
+                'searchable' => ['division_code', 'division_name'],
+                'toggle' => true,
+                'code_column' => 'division_code',
+                'code_input' => 'division_code',
+                'rules' => [
+                    ['division_code', 'Kode Divisi', 'required|trim|max_length[40]'],
+                    ['division_name', 'Nama Divisi', 'required|trim|max_length[120]'],
+                ],
+                'fields' => [
+                    ['name' => 'division_code', 'label' => 'Kode Divisi', 'type' => 'text'],
+                    ['name' => 'division_name', 'label' => 'Nama Divisi', 'type' => 'text'],
+                    ['name' => 'sort_order', 'label' => 'Urutan', 'type' => 'number'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'division_code', 'label' => 'Kode'],
+                    ['key' => 'division_name', 'label' => 'Nama Divisi'],
+                    ['key' => 'sort_order', 'label' => 'Urutan'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'org-position' => [
+                'table' => 'org_position',
+                'title' => 'Master Jabatan',
+                'order_by' => 'sort_order',
+                'order_dir' => 'ASC',
+                'searchable' => ['position_code', 'position_name'],
+                'toggle' => true,
+                'code_column' => 'position_code',
+                'code_input' => 'position_code',
+                'rules' => [
+                    ['division_id', 'Divisi', 'required|integer'],
+                    ['position_code', 'Kode Jabatan', 'required|trim|max_length[40]'],
+                    ['position_name', 'Nama Jabatan', 'required|trim|max_length[120]'],
+                ],
+                'fields' => [
+                    ['name' => 'division_id', 'label' => 'Divisi', 'type' => 'select', 'lookup' => ['table' => 'org_division', 'value' => 'id', 'label' => 'division_name']],
+                    ['name' => 'position_code', 'label' => 'Kode Jabatan', 'type' => 'text'],
+                    ['name' => 'position_name', 'label' => 'Nama Jabatan', 'type' => 'text'],
+                    ['name' => 'default_role_id', 'label' => 'Default Role', 'type' => 'select', 'lookup' => ['table' => 'auth_role', 'value' => 'id', 'label' => 'role_name', 'active_only' => false]],
+                    ['name' => 'sort_order', 'label' => 'Urutan', 'type' => 'number'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'division_id_label', 'label' => 'Divisi'],
+                    ['key' => 'position_code', 'label' => 'Kode'],
+                    ['key' => 'position_name', 'label' => 'Nama Jabatan'],
+                    ['key' => 'default_role_id_label', 'label' => 'Default Role'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'org-employee' => [
+                'table' => 'org_employee',
+                'title' => 'Master Pegawai',
+                'active_menu' => 'grp.hr',
+                'order_by' => 'employee_name',
+                'order_dir' => 'ASC',
+                'searchable' => ['employee_code', 'employee_nip', 'employee_name', 'mobile_phone', 'email'],
+                'toggle' => true,
+                'code_column' => 'employee_code',
+                'code_input' => 'employee_code',
+                'rules' => [
+                    ['employee_code', 'Kode Pegawai', 'trim|max_length[50]'],
+                    ['employee_nip', 'NIP', 'trim|max_length[24]'],
+                    ['employee_name', 'Nama Pegawai', 'required|trim|max_length[150]'],
+                    ['division_id', 'Divisi', 'integer'],
+                    ['position_id', 'Jabatan', 'integer'],
+                    ['employment_status', 'Status Kerja', 'required|trim|in_list[PERMANENT,CONTRACT,PROBATION,DAILY,RESIGNED]'],
+                ],
+                'fields' => [
+                    ['name' => 'employee_code', 'label' => 'Kode Pegawai', 'type' => 'text'],
+                    ['name' => 'employee_nip', 'label' => 'NIP', 'type' => 'text'],
+                    ['name' => 'employee_name', 'label' => 'Nama Pegawai', 'type' => 'text'],
+                    ['name' => 'gender', 'label' => 'Gender', 'type' => 'select', 'options' => [
+                        ['value' => 'L', 'label' => 'Laki-laki'],
+                        ['value' => 'P', 'label' => 'Perempuan'],
+                    ]],
+                    ['name' => 'birth_date', 'label' => 'Tanggal Lahir (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'join_date', 'label' => 'Tanggal Bergabung (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'mobile_phone', 'label' => 'No HP', 'type' => 'text'],
+                    ['name' => 'email', 'label' => 'Email', 'type' => 'text'],
+                    ['name' => 'address', 'label' => 'Alamat', 'type' => 'textarea'],
+                    ['name' => 'division_id', 'label' => 'Divisi', 'type' => 'select', 'lookup' => ['table' => 'org_division', 'value' => 'id', 'label' => 'division_name']],
+                    ['name' => 'position_id', 'label' => 'Jabatan', 'type' => 'select', 'lookup' => ['table' => 'org_position', 'value' => 'id', 'label' => 'position_name']],
+                    ['name' => 'employment_status', 'label' => 'Status Kerja', 'type' => 'select', 'options' => [
+                        ['value' => 'PERMANENT', 'label' => 'PERMANENT'],
+                        ['value' => 'CONTRACT', 'label' => 'CONTRACT'],
+                        ['value' => 'PROBATION', 'label' => 'PROBATION'],
+                        ['value' => 'DAILY', 'label' => 'DAILY'],
+                        ['value' => 'RESIGNED', 'label' => 'RESIGNED'],
+                    ]],
+                    ['name' => 'basic_salary', 'label' => 'Gaji Pokok', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'position_allowance', 'label' => 'Tunjangan Jabatan', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'objective_allowance', 'label' => 'Tunjangan Objektif', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'meal_rate', 'label' => 'Rate Uang Makan', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'overtime_rate', 'label' => 'Rate Lembur/Jam', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'bank_name', 'label' => 'Bank', 'type' => 'text'],
+                    ['name' => 'bank_account_no', 'label' => 'No Rekening', 'type' => 'text'],
+                    ['name' => 'bank_account_name', 'label' => 'Nama Rekening', 'type' => 'text'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'employee_code', 'label' => 'Kode'],
+                    ['key' => 'employee_nip', 'label' => 'NIP'],
+                    ['key' => 'employee_name', 'label' => 'Nama'],
+                    ['key' => 'division_id_label', 'label' => 'Divisi'],
+                    ['key' => 'position_id_label', 'label' => 'Jabatan'],
+                    ['key' => 'employment_status', 'label' => 'Status Kerja'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'att-shift' => [
+                'table' => 'att_shift',
+                'title' => 'Master Shift',
+                'order_by' => 'shift_name',
+                'order_dir' => 'ASC',
+                'searchable' => ['shift_code', 'shift_name'],
+                'toggle' => true,
+                'code_column' => 'shift_code',
+                'code_input' => 'shift_code',
+                'rules' => [
+                    ['shift_code', 'Kode Shift', 'required|trim|max_length[40]'],
+                    ['shift_name', 'Nama Shift', 'required|trim|max_length[120]'],
+                    ['start_time', 'Jam Mulai', 'required|trim'],
+                    ['end_time', 'Jam Selesai', 'required|trim'],
+                ],
+                'fields' => [
+                    ['name' => 'division_id', 'label' => 'Divisi', 'type' => 'select', 'lookup' => ['table' => 'org_division', 'value' => 'id', 'label' => 'division_name']],
+                    ['name' => 'shift_code', 'label' => 'Kode Shift', 'type' => 'text'],
+                    ['name' => 'shift_name', 'label' => 'Nama Shift', 'type' => 'text'],
+                    ['name' => 'start_time', 'label' => 'Jam Mulai (HH:MM:SS)', 'type' => 'text'],
+                    ['name' => 'end_time', 'label' => 'Jam Selesai (HH:MM:SS)', 'type' => 'text'],
+                    ['name' => 'is_overnight', 'label' => 'Overnight', 'type' => 'checkbox'],
+                    ['name' => 'grace_late_minute', 'label' => 'Grace Telat (menit)', 'type' => 'number'],
+                    ['name' => 'overtime_after_minute', 'label' => 'Lembur Setelah (menit)', 'type' => 'number'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'division_id_label', 'label' => 'Divisi'],
+                    ['key' => 'shift_code', 'label' => 'Kode'],
+                    ['key' => 'shift_name', 'label' => 'Nama Shift'],
+                    ['key' => 'start_time', 'label' => 'Mulai'],
+                    ['key' => 'end_time', 'label' => 'Selesai'],
+                    ['key' => 'is_overnight', 'label' => 'Overnight', 'type' => 'bool'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'att-location' => [
+                'table' => 'att_location',
+                'title' => 'Master Lokasi Absensi',
+                'order_by' => 'location_name',
+                'order_dir' => 'ASC',
+                'searchable' => ['location_code', 'location_name'],
+                'toggle' => true,
+                'code_column' => 'location_code',
+                'code_input' => 'location_code',
+                'rules' => [
+                    ['location_code', 'Kode Lokasi', 'required|trim|max_length[40]'],
+                    ['location_name', 'Nama Lokasi', 'required|trim|max_length[120]'],
+                    ['radius_meter', 'Radius', 'required|numeric'],
+                ],
+                'fields' => [
+                    ['name' => 'location_code', 'label' => 'Kode Lokasi', 'type' => 'text'],
+                    ['name' => 'location_name', 'label' => 'Nama Lokasi', 'type' => 'text'],
+                    ['name' => 'latitude', 'label' => 'Latitude', 'type' => 'number', 'step' => '0.0000001'],
+                    ['name' => 'longitude', 'label' => 'Longitude', 'type' => 'number', 'step' => '0.0000001'],
+                    ['name' => 'radius_meter', 'label' => 'Radius (meter)', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'is_default', 'label' => 'Lokasi Default Absensi', 'type' => 'checkbox'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'location_code', 'label' => 'Kode'],
+                    ['key' => 'location_name', 'label' => 'Nama Lokasi'],
+                    ['key' => 'radius_meter', 'label' => 'Radius'],
+                    ['key' => 'is_default', 'label' => 'Default', 'type' => 'bool'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'att-overtime-standard' => [
+                'table' => 'att_overtime_standard',
+                'title' => 'Master Standar Lembur',
+                'active_menu' => 'hr.att-overtime',
+                'order_by' => 'hourly_rate',
+                'order_dir' => 'ASC',
+                'searchable' => ['standard_code', 'standard_name', 'notes'],
+                'toggle' => true,
+                'code_column' => 'standard_code',
+                'code_input' => 'standard_code',
+                'rules' => [
+                    ['standard_code', 'Kode Standar', 'required|trim|max_length[40]'],
+                    ['standard_name', 'Nama Standar', 'required|trim|max_length[120]'],
+                    ['hourly_rate', 'Nilai per Jam', 'required|numeric'],
+                ],
+                'fields' => [
+                    ['name' => 'standard_code', 'label' => 'Kode Standar', 'type' => 'text'],
+                    ['name' => 'standard_name', 'label' => 'Nama Standar', 'type' => 'text'],
+                    ['name' => 'hourly_rate', 'label' => 'Tarif per Jam', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'notes', 'label' => 'Catatan', 'type' => 'textarea'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'standard_code', 'label' => 'Kode'],
+                    ['key' => 'standard_name', 'label' => 'Nama Standar'],
+                    ['key' => 'hourly_rate', 'label' => 'Tarif/Jam'],
+                    ['key' => 'notes', 'label' => 'Catatan'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'att-holiday' => [
+                'table' => 'att_holiday_calendar',
+                'title' => 'Master Hari Libur',
+                'order_by' => 'holiday_date',
+                'order_dir' => 'DESC',
+                'searchable' => ['holiday_name', 'holiday_type', 'source_ref'],
+                'toggle' => true,
+                'rules' => [
+                    ['holiday_date', 'Tanggal Libur', 'required|trim|max_length[10]'],
+                    ['holiday_name', 'Nama Libur', 'required|trim|max_length[150]'],
+                    ['holiday_type', 'Tipe Libur', 'required|trim|in_list[NATIONAL,COMPANY,SPECIAL]'],
+                ],
+                'fields' => [
+                    ['name' => 'holiday_date', 'label' => 'Tanggal Libur (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'holiday_name', 'label' => 'Nama Libur', 'type' => 'text'],
+                    ['name' => 'holiday_type', 'label' => 'Tipe', 'type' => 'select', 'options' => [
+                        ['value' => 'NATIONAL', 'label' => 'NATIONAL'],
+                        ['value' => 'COMPANY', 'label' => 'COMPANY'],
+                        ['value' => 'SPECIAL', 'label' => 'SPECIAL'],
+                    ]],
+                    ['name' => 'source_ref', 'label' => 'Sumber', 'type' => 'text'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'holiday_date', 'label' => 'Tanggal'],
+                    ['key' => 'holiday_name', 'label' => 'Nama Libur'],
+                    ['key' => 'holiday_type', 'label' => 'Tipe'],
+                    ['key' => 'source_ref', 'label' => 'Sumber'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'pay-component' => [
+                'table' => 'pay_salary_component',
+                'title' => 'Master Komponen Gaji',
+                'active_menu' => 'pay.component',
+                'order_by' => 'sort_order',
+                'order_dir' => 'ASC',
+                'searchable' => ['component_code', 'component_name'],
+                'toggle' => true,
+                'code_column' => 'component_code',
+                'code_input' => 'component_code',
+                'rules' => [
+                    ['component_code', 'Kode Komponen', 'required|trim|max_length[50]'],
+                    ['component_name', 'Nama Komponen', 'required|trim|max_length[150]'],
+                    ['component_type', 'Tipe Komponen', 'required|trim|in_list[EARNING,DEDUCTION]'],
+                    ['calc_method', 'Metode Hitung', 'required|trim|in_list[FIXED,PER_DAY,PER_HOUR,PER_MINUTE,FORMULA]'],
+                ],
+                'fields' => [
+                    ['name' => 'component_code', 'label' => 'Kode Komponen', 'type' => 'text'],
+                    ['name' => 'component_name', 'label' => 'Nama Komponen', 'type' => 'text'],
+                    ['name' => 'component_type', 'label' => 'Tipe Komponen', 'type' => 'select', 'options' => [
+                        ['value' => 'EARNING', 'label' => 'EARNING'],
+                        ['value' => 'DEDUCTION', 'label' => 'DEDUCTION'],
+                    ]],
+                    ['name' => 'calc_method', 'label' => 'Metode Hitung', 'type' => 'select', 'options' => [
+                        ['value' => 'FIXED', 'label' => 'FIXED'],
+                        ['value' => 'PER_DAY', 'label' => 'PER_DAY'],
+                        ['value' => 'PER_HOUR', 'label' => 'PER_HOUR'],
+                        ['value' => 'PER_MINUTE', 'label' => 'PER_MINUTE'],
+                        ['value' => 'FORMULA', 'label' => 'FORMULA'],
+                    ]],
+                    ['name' => 'default_amount', 'label' => 'Nilai Default', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'affects_attendance', 'label' => 'Terdampak Absensi', 'type' => 'checkbox'],
+                    ['name' => 'affects_bpjs_base', 'label' => 'Basis BPJS', 'type' => 'checkbox'],
+                    ['name' => 'is_taxable', 'label' => 'Kena Pajak', 'type' => 'checkbox'],
+                    ['name' => 'sort_order', 'label' => 'Urutan', 'type' => 'number'],
+                    ['name' => 'notes', 'label' => 'Catatan', 'type' => 'textarea'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'component_code', 'label' => 'Kode'],
+                    ['key' => 'component_name', 'label' => 'Nama'],
+                    ['key' => 'component_type', 'label' => 'Tipe'],
+                    ['key' => 'calc_method', 'label' => 'Metode'],
+                    ['key' => 'default_amount', 'label' => 'Default'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'pay-profile' => [
+                'table' => 'pay_salary_profile',
+                'title' => 'Master Profil Gaji',
+                'active_menu' => 'pay.profile',
+                'order_by' => 'profile_name',
+                'order_dir' => 'ASC',
+                'searchable' => ['profile_code', 'profile_name'],
+                'toggle' => true,
+                'code_column' => 'profile_code',
+                'code_input' => 'profile_code',
+                'rules' => [
+                    ['profile_code', 'Kode Profil', 'required|trim|max_length[50]'],
+                    ['profile_name', 'Nama Profil', 'required|trim|max_length[150]'],
+                ],
+                'fields' => [
+                    ['name' => 'profile_code', 'label' => 'Kode Profil', 'type' => 'text'],
+                    ['name' => 'profile_name', 'label' => 'Nama Profil', 'type' => 'text'],
+                    ['name' => 'effective_start', 'label' => 'Efektif Mulai (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'effective_end', 'label' => 'Efektif Selesai (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'notes', 'label' => 'Catatan', 'type' => 'textarea'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'profile_code', 'label' => 'Kode'],
+                    ['key' => 'profile_name', 'label' => 'Nama Profil'],
+                    ['key' => 'effective_start', 'label' => 'Mulai'],
+                    ['key' => 'effective_end', 'label' => 'Selesai'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'pay-assignment' => [
+                'table' => 'pay_salary_assignment',
+                'title' => 'Assignment Profil Gaji',
+                'active_menu' => 'pay.assignment',
+                'order_by' => 'effective_start',
+                'order_dir' => 'DESC',
+                'searchable' => ['notes'],
+                'toggle' => true,
+                'rules' => [
+                    ['employee_id', 'Pegawai', 'required|integer'],
+                    ['profile_id', 'Profil Gaji', 'required|integer'],
+                    ['effective_start', 'Efektif Mulai', 'required|trim|max_length[10]'],
+                ],
+                'fields' => [
+                    ['name' => 'employee_id', 'label' => 'Pegawai', 'type' => 'select', 'lookup' => ['table' => 'org_employee', 'value' => 'id', 'label' => 'employee_name', 'active_only' => false]],
+                    ['name' => 'profile_id', 'label' => 'Profil Gaji', 'type' => 'select', 'lookup' => ['table' => 'pay_salary_profile', 'value' => 'id', 'label' => 'profile_name', 'active_only' => false]],
+                    ['name' => 'effective_start', 'label' => 'Efektif Mulai (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'effective_end', 'label' => 'Efektif Selesai (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'notes', 'label' => 'Catatan', 'type' => 'textarea'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'employee_id_label', 'label' => 'Pegawai'],
+                    ['key' => 'profile_id_label', 'label' => 'Profil'],
+                    ['key' => 'effective_start', 'label' => 'Mulai'],
+                    ['key' => 'effective_end', 'label' => 'Selesai'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'pay-basic-salary' => [
+                'table' => 'pay_basic_salary_standard',
+                'title' => 'Standar Gaji Pokok',
+                'active_menu' => 'pay.basic-salary',
+                'order_by' => 'effective_start',
+                'order_dir' => 'DESC',
+                'searchable' => ['standard_code', 'standard_name', 'employment_type', 'notes'],
+                'toggle' => true,
+                'code_column' => 'standard_code',
+                'code_input' => 'standard_code',
+                'rules' => [
+                    ['standard_code', 'Kode Standar', 'required|trim|max_length[60]'],
+                    ['standard_name', 'Nama Standar', 'required|trim|max_length[120]'],
+                    ['effective_start', 'Mulai Berlaku', 'required|trim|max_length[10]'],
+                    ['start_amount', 'Gaji Awal', 'required|numeric'],
+                    ['annual_increment', 'Kenaikan Tahunan', 'required|numeric'],
+                ],
+                'fields' => [
+                    ['name' => 'standard_code', 'label' => 'Kode Standar', 'type' => 'text'],
+                    ['name' => 'standard_name', 'label' => 'Nama Standar', 'type' => 'text'],
+                    ['name' => 'division_id', 'label' => 'Divisi', 'type' => 'select', 'lookup' => ['table' => 'org_division', 'value' => 'id', 'label' => 'division_name', 'active_only' => false]],
+                    ['name' => 'position_id', 'label' => 'Jabatan', 'type' => 'select', 'lookup' => ['table' => 'org_position', 'value' => 'id', 'label' => 'position_name', 'active_only' => false]],
+                    ['name' => 'employment_type', 'label' => 'Status Kerja (Opsional)', 'type' => 'select', 'options' => [
+                        ['value' => 'PERMANENT', 'label' => 'PERMANENT'],
+                        ['value' => 'CONTRACT', 'label' => 'CONTRACT'],
+                        ['value' => 'PROBATION', 'label' => 'PROBATION'],
+                        ['value' => 'DAILY', 'label' => 'DAILY'],
+                    ]],
+                    ['name' => 'effective_start', 'label' => 'Efektif Mulai (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'effective_end', 'label' => 'Efektif Selesai (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'start_amount', 'label' => 'Gaji Awal', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'annual_increment', 'label' => 'Kenaikan Tahunan', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'year_cap', 'label' => 'Maks Tahun Kenaikan', 'type' => 'number'],
+                    ['name' => 'notes', 'label' => 'Catatan', 'type' => 'textarea'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'standard_code', 'label' => 'Kode'],
+                    ['key' => 'standard_name', 'label' => 'Nama Standar'],
+                    ['key' => 'division_id_label', 'label' => 'Divisi'],
+                    ['key' => 'position_id_label', 'label' => 'Jabatan'],
+                    ['key' => 'employment_type', 'label' => 'Status Kerja'],
+                    ['key' => 'start_amount', 'label' => 'Gaji Awal'],
+                    ['key' => 'annual_increment', 'label' => 'Kenaikan'],
+                    ['key' => 'effective_start', 'label' => 'Mulai'],
+                    ['key' => 'effective_end', 'label' => 'Selesai'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'pay-objective-override' => [
+                'table' => 'pay_objective_override',
+                'title' => 'Override Tunjangan Objektif',
+                'active_menu' => 'pay.objective-override',
+                'order_by' => 'effective_start',
+                'order_dir' => 'DESC',
+                'searchable' => ['reason'],
+                'toggle' => true,
+                'rules' => [
+                    ['employee_id', 'Pegawai', 'required|integer'],
+                    ['effective_start', 'Mulai Berlaku', 'required|trim|max_length[10]'],
+                    ['override_amount', 'Nominal Override', 'required|numeric'],
+                ],
+                'fields' => [
+                    ['name' => 'employee_id', 'label' => 'Pegawai', 'type' => 'select', 'lookup' => ['table' => 'org_employee', 'value' => 'id', 'label' => 'employee_name', 'active_only' => false]],
+                    ['name' => 'effective_start', 'label' => 'Efektif Mulai (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'effective_end', 'label' => 'Efektif Selesai (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'override_amount', 'label' => 'Nominal Override', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'reason', 'label' => 'Alasan/Catatan', 'type' => 'textarea'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'employee_id_label', 'label' => 'Pegawai'],
+                    ['key' => 'override_amount', 'label' => 'Nominal'],
+                    ['key' => 'effective_start', 'label' => 'Mulai'],
+                    ['key' => 'effective_end', 'label' => 'Selesai'],
+                    ['key' => 'reason', 'label' => 'Alasan'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'pay-profile-line' => [
+                'table' => 'pay_salary_profile_line',
+                'title' => 'Komponen per Profil Gaji',
+                'active_menu' => 'grp.payroll',
+                'order_by' => 'sort_order',
+                'order_dir' => 'ASC',
+                'searchable' => ['formula_expr'],
+                'toggle' => true,
+                'rules' => [
+                    ['profile_id', 'Profil Gaji', 'required|integer'],
+                    ['component_id', 'Komponen Gaji', 'required|integer'],
+                    ['amount', 'Nilai', 'required|numeric'],
+                ],
+                'fields' => [
+                    ['name' => 'profile_id', 'label' => 'Profil Gaji', 'type' => 'select', 'lookup' => ['table' => 'pay_salary_profile', 'value' => 'id', 'label' => 'profile_name', 'active_only' => false]],
+                    ['name' => 'component_id', 'label' => 'Komponen', 'type' => 'select', 'lookup' => ['table' => 'pay_salary_component', 'value' => 'id', 'label' => 'component_name', 'active_only' => false]],
+                    ['name' => 'amount', 'label' => 'Nilai', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'formula_expr', 'label' => 'Formula (opsional)', 'type' => 'text'],
+                    ['name' => 'sort_order', 'label' => 'Urutan', 'type' => 'number'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'profile_id_label', 'label' => 'Profil'],
+                    ['key' => 'component_id_label', 'label' => 'Komponen'],
+                    ['key' => 'amount', 'label' => 'Nilai'],
+                    ['key' => 'formula_expr', 'label' => 'Formula'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'hr-contract-template' => [
+                'table' => 'hr_contract_template',
+                'title' => 'Master Template Kontrak',
+                'active_menu' => 'grp.hr',
+                'order_by' => 'template_name',
+                'order_dir' => 'ASC',
+                'searchable' => ['template_code', 'template_name'],
+                'toggle' => true,
+                'code_column' => 'template_code',
+                'code_input' => 'template_code',
+                'rules' => [
+                    ['template_code', 'Kode Template', 'required|trim|max_length[30]'],
+                    ['template_name', 'Nama Template', 'required|trim|max_length[120]'],
+                    ['contract_type', 'Jenis Kontrak', 'required|trim|in_list[K1,K2,K3,CUSTOM]'],
+                ],
+                'fields' => [
+                    ['name' => 'template_code', 'label' => 'Kode Template', 'type' => 'text'],
+                    ['name' => 'template_name', 'label' => 'Nama Template', 'type' => 'text'],
+                    ['name' => 'contract_type', 'label' => 'Jenis Kontrak', 'type' => 'select', 'options' => [
+                        ['value' => 'K1', 'label' => 'K1'],
+                        ['value' => 'K2', 'label' => 'K2'],
+                        ['value' => 'K3', 'label' => 'K3'],
+                        ['value' => 'CUSTOM', 'label' => 'CUSTOM'],
+                    ]],
+                    ['name' => 'duration_months', 'label' => 'Durasi (bulan)', 'type' => 'number'],
+                    ['name' => 'body_html', 'label' => 'Template Dokumen (HTML)', 'type' => 'textarea'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'template_code', 'label' => 'Kode'],
+                    ['key' => 'template_name', 'label' => 'Nama Template'],
+                    ['key' => 'contract_type', 'label' => 'Jenis'],
+                    ['key' => 'duration_months', 'label' => 'Durasi (bulan)'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'hr-contract' => [
+                'table' => 'hr_contract',
+                'title' => 'Master Kontrak Pegawai',
+                'active_menu' => 'grp.hr',
+                'order_by' => 'start_date',
+                'order_dir' => 'DESC',
+                'searchable' => ['contract_number', 'position_snapshot', 'division_snapshot', 'notes'],
+                'toggle' => false,
+                'code_column' => 'contract_number',
+                'code_input' => 'contract_number',
+                'rules' => [
+                    ['contract_number', 'Nomor Kontrak', 'required|trim|max_length[60]'],
+                    ['employee_id', 'Pegawai', 'required|integer'],
+                    ['contract_type', 'Jenis Kontrak', 'required|trim|in_list[K1,K2,K3,CUSTOM]'],
+                    ['status', 'Status', 'required|trim|in_list[DRAFT,GENERATED,SIGNED,ACTIVE,EXPIRED,TERMINATED,CANCELLED]'],
+                    ['start_date', 'Tanggal Mulai', 'required|trim|max_length[10]'],
+                    ['end_date', 'Tanggal Akhir', 'required|trim|max_length[10]'],
+                ],
+                'fields' => [
+                    ['name' => 'contract_number', 'label' => 'Nomor Kontrak', 'type' => 'text'],
+                    ['name' => 'employee_id', 'label' => 'Pegawai', 'type' => 'select', 'lookup' => ['table' => 'org_employee', 'value' => 'id', 'label' => 'employee_name', 'active_only' => false]],
+                    ['name' => 'template_id', 'label' => 'Template Kontrak', 'type' => 'select', 'lookup' => ['table' => 'hr_contract_template', 'value' => 'id', 'label' => 'template_name', 'active_only' => false]],
+                    ['name' => 'previous_contract_id', 'label' => 'Kontrak Sebelumnya', 'type' => 'select', 'lookup' => ['table' => 'hr_contract', 'value' => 'id', 'label' => 'contract_number', 'active_only' => false]],
+                    ['name' => 'contract_type', 'label' => 'Jenis Kontrak', 'type' => 'select', 'options' => [
+                        ['value' => 'K1', 'label' => 'K1'],
+                        ['value' => 'K2', 'label' => 'K2'],
+                        ['value' => 'K3', 'label' => 'K3'],
+                        ['value' => 'CUSTOM', 'label' => 'CUSTOM'],
+                    ]],
+                    ['name' => 'status', 'label' => 'Status Kontrak', 'type' => 'select', 'options' => [
+                        ['value' => 'DRAFT', 'label' => 'DRAFT'],
+                        ['value' => 'GENERATED', 'label' => 'GENERATED'],
+                        ['value' => 'SIGNED', 'label' => 'SIGNED'],
+                        ['value' => 'ACTIVE', 'label' => 'ACTIVE'],
+                        ['value' => 'EXPIRED', 'label' => 'EXPIRED'],
+                        ['value' => 'TERMINATED', 'label' => 'TERMINATED'],
+                        ['value' => 'CANCELLED', 'label' => 'CANCELLED'],
+                    ]],
+                    ['name' => 'position_snapshot', 'label' => 'Jabatan (snapshot)', 'type' => 'text'],
+                    ['name' => 'division_snapshot', 'label' => 'Divisi (snapshot)', 'type' => 'text'],
+                    ['name' => 'basic_salary', 'label' => 'Gaji Pokok', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'position_allowance', 'label' => 'Tunjangan Jabatan', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'other_allowance', 'label' => 'Tunjangan Lain', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'meal_rate', 'label' => 'Uang Makan', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'overtime_rate', 'label' => 'Rate Lembur/Jam', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'start_date', 'label' => 'Tanggal Mulai (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'end_date', 'label' => 'Tanggal Akhir (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'verification_token', 'label' => 'Verification Token', 'type' => 'text'],
+                    ['name' => 'final_document_hash', 'label' => 'Hash Dokumen Final', 'type' => 'text'],
+                    ['name' => 'document_issued_at', 'label' => 'Dokumen Terbit (YYYY-MM-DD HH:MM:SS)', 'type' => 'text'],
+                    ['name' => 'body_html', 'label' => 'Dokumen Kontrak (HTML)', 'type' => 'textarea'],
+                    ['name' => 'notes', 'label' => 'Catatan', 'type' => 'textarea'],
+                ],
+                'columns' => [
+                    ['key' => 'contract_number', 'label' => 'No Kontrak'],
+                    ['key' => 'employee_id_label', 'label' => 'Pegawai'],
+                    ['key' => 'template_id_label', 'label' => 'Template'],
+                    ['key' => 'contract_type', 'label' => 'Jenis'],
+                    ['key' => 'status', 'label' => 'Status'],
+                    ['key' => 'start_date', 'label' => 'Mulai'],
+                    ['key' => 'end_date', 'label' => 'Akhir'],
                 ],
             ],
             'product-division' => [

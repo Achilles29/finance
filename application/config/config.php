@@ -23,7 +23,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 | a PHP script and you can easily do that on your own.
 |
 */
-$config['base_url'] = 'http://localhost/finance/';
+$config['base_url'] = 'https://finance.namuacoffee.com/';
 
 /*
 |--------------------------------------------------------------------------
@@ -383,13 +383,13 @@ $config['encryption_key'] = 'fin4nc3@AppKey#2026!xK9mPqR';
 | except for 'cookie_prefix' and 'cookie_httponly', which are ignored here.
 |
 */
-$config['sess_driver'] = 'database';
+$config['sess_driver'] = 'files';
 $config['sess_cookie_name'] = 'finance_session';
 $config['sess_samesite'] = 'Lax';
-$config['sess_expiration'] = 7200;
-$config['sess_save_path'] = 'ci_sessions';
+$config['sess_expiration'] = 31536000;
+$config['sess_save_path'] = '/tmp/finance_ci_sessions';
 $config['sess_match_ip'] = FALSE;
-$config['sess_time_to_update'] = 300;
+$config['sess_time_to_update'] = 7200;
 $config['sess_regenerate_destroy'] = FALSE;
 
 /*

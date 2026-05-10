@@ -99,7 +99,11 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
           <strong>Struktur Aktual Sidebar <?php echo html_escape($type); ?></strong>
           <div class="text-muted small">Drag-drop langsung di sini untuk atur urutan/parent menu.</div>
         </div>
-        <button type="button" id="btn_save_sidebar_structure" class="btn btn-primary btn-sm">Simpan Struktur</button>
+        <div class="d-flex gap-2">
+          <button type="button" id="btn_expand_all_sidebar" class="btn btn-outline-secondary btn-sm">Expand All</button>
+          <button type="button" id="btn_collapse_all_sidebar" class="btn btn-outline-secondary btn-sm">Collapse All</button>
+          <button type="button" id="btn_save_sidebar_structure" class="btn btn-primary btn-sm" data-loading-label="Menyimpan...">Simpan Struktur</button>
+        </div>
       </div>
       <div class="card-body">
         <div id="sidebar-tree-root"></div>
@@ -221,28 +225,40 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
 (function () {
   var rootEl = document.getElementById('sidebar-tree-root');
   var saveBtn = document.getElementById('btn_save_sidebar_structure');
+  var expandAllBtn = document.getElementById('btn_expand_all_sidebar');
+  var collapseAllBtn = document.getElementById('btn_collapse_all_sidebar');
   var alertBox = document.getElementById('sidebar-save-alert');
   var saveUrl = <?php echo json_encode($saveUrl); ?>;
   var manageBase = <?php echo json_encode($manageBase); ?>;
   var sidebarType = <?php echo json_encode($type); ?>;
   var treeData = <?php echo json_encode($treeEditor, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
 
-  function createNodeLabel(item, depth) {
-    var wrap = document.createElement('div');
-    wrap.className = 'd-flex align-items-center justify-content-between gap-2 sidebar-sort-item';
-    wrap.style.padding = '0.5rem 0.6rem';
-    wrap.style.border = '1px solid rgba(0,0,0,0.08)';
-    wrap.style.borderRadius = '8px';
+  var dragState = {
+    draggedLi: null,
+    dropMode: null,
+    dropTargetLi: null
+  };
+
+  function createNodeLabel(item, depth, hasChild) {
     var isVirtual = Number(item.is_virtual || 0) === 1;
     var isActive = isVirtual ? true : Number(item.is_active || 0) === 1;
-    wrap.style.background = isActive ? '#fff' : '#ffe9e9';
-    wrap.style.borderColor = isActive ? 'rgba(0,0,0,0.08)' : 'rgba(192, 57, 43, 0.45)';
-    wrap.style.borderLeft = isActive ? '4px solid transparent' : '4px solid #c0392b';
-    wrap.style.cursor = 'grab';
+
+    var wrap = document.createElement('div');
+    wrap.className = 'sidebar-sort-item d-flex align-items-center justify-content-between gap-2';
+    wrap.classList.toggle('is-inactive', !isActive);
     wrap.dataset.depth = String(depth || 0);
 
     var left = document.createElement('div');
     left.className = 'd-flex align-items-center gap-2';
+
+    var expander = document.createElement('button');
+    expander.type = 'button';
+    expander.className = 'btn btn-xs btn-outline-secondary sidebar-node-expander';
+    expander.innerHTML = '<i class="ri ri-arrow-down-s-line"></i>';
+    expander.title = 'Expand / Collapse';
+    expander.dataset.collapsed = '0';
+    expander.style.visibility = hasChild ? 'visible' : 'hidden';
+    left.appendChild(expander);
 
     var levelBadge = document.createElement('span');
     levelBadge.className = 'badge text-bg-light border';
@@ -258,9 +274,9 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
     }
     left.appendChild(levelBadge);
 
-    if (Number(item.is_virtual || 0) !== 1) {
+    if (!isVirtual) {
       var handle = document.createElement('i');
-      handle.className = 'ri ri-drag-move-2-line text-muted';
+      handle.className = 'ri ri-drag-move-2-line text-muted sidebar-drag-handle';
       handle.style.cursor = 'grab';
       left.appendChild(handle);
     }
@@ -295,55 +311,126 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
     var level = Number(depth || 0);
     var ul = document.createElement('ul');
     ul.className = 'list-unstyled sidebar-sortable-list';
-    ul.style.paddingLeft = level <= 0 ? '0.25rem' : '1.1rem';
-    ul.style.borderLeft = level > 0 ? '2px dashed rgba(0,0,0,0.12)' : 'none';
+    ul.classList.toggle('sidebar-list-root', level <= 0);
     ul.dataset.depth = String(level);
 
     (items || []).forEach(function (item) {
       var li = document.createElement('li');
-      li.className = 'mb-2';
+      li.className = 'mb-2 sidebar-tree-node';
       li.dataset.id = String(item.id || 0);
       li.dataset.virtual = String(Number(item.is_virtual || 0));
       li.dataset.depth = String(level);
+      li.draggable = Number(item.is_virtual || 0) !== 1;
       if (Number(item.is_virtual || 0) === 1) {
         li.classList.add('sidebar-virtual-node');
       }
-      li.appendChild(createNodeLabel(item, level));
+      var children = Array.isArray(item.children) ? item.children : [];
+      li.appendChild(createNodeLabel(item, level, children.length > 0));
 
-      if (Array.isArray(item.children) && item.children.length) {
-        li.appendChild(buildList(item.children, level + 1));
-      } else {
-        var emptyChild = document.createElement('ul');
-        emptyChild.className = 'list-unstyled sidebar-sortable-list';
-        emptyChild.style.paddingLeft = '1.1rem';
-        emptyChild.style.borderLeft = '2px dashed rgba(0,0,0,0.12)';
-        emptyChild.style.minHeight = '8px';
-        emptyChild.dataset.depth = String(level + 1);
-        li.appendChild(emptyChild);
-        initSortable(emptyChild);
-      }
+      var childList = buildList(children, level + 1);
+      li.appendChild(childList);
 
       ul.appendChild(li);
     });
-
-    initSortable(ul);
     return ul;
   }
 
-  function initSortable(el) {
-    if (typeof Sortable === 'undefined') {
-      throw new Error('SortableJS belum tersedia.');
-    }
-    new Sortable(el, {
-      group: 'sidebar-tree',
-      animation: 150,
-      draggable: 'li:not(.sidebar-virtual-node)',
-      fallbackOnBody: true,
-      swapThreshold: 0.65,
-      invertSwap: true,
-      dragoverBubble: true,
-      emptyInsertThreshold: 12
+  function isDescendant(parent, maybeChild) {
+    if (!parent || !maybeChild) return false;
+    return parent.contains(maybeChild);
+  }
+
+  function clearDropMarks() {
+    rootEl.querySelectorAll('.drop-before, .drop-after, .drop-inside').forEach(function (el) {
+      el.classList.remove('drop-before', 'drop-after', 'drop-inside');
     });
+    dragState.dropMode = null;
+    dragState.dropTargetLi = null;
+  }
+
+  function ensureChildList(li) {
+    var ul = li.querySelector(':scope > ul.sidebar-sortable-list');
+    if (ul) return ul;
+    ul = document.createElement('ul');
+    ul.className = 'list-unstyled sidebar-sortable-list';
+    ul.dataset.depth = String(Number(li.dataset.depth || 0) + 1);
+    li.appendChild(ul);
+    return ul;
+  }
+
+  function refreshDepth(node, depth) {
+    if (!(node instanceof HTMLElement)) return;
+    node.dataset.depth = String(depth);
+    var label = node.querySelector(':scope > .sidebar-sort-item');
+    if (label) {
+      label.dataset.depth = String(depth);
+      var badge = label.querySelector('.badge.text-bg-light');
+      if (badge) {
+        if (depth <= 0) badge.textContent = 'PARENT';
+        else if (depth === 1) badge.textContent = 'CHILD';
+        else badge.textContent = 'CH-2';
+      }
+    }
+    var childUl = node.querySelector(':scope > ul.sidebar-sortable-list');
+    if (!childUl) return;
+    childUl.dataset.depth = String(depth + 1);
+    Array.prototype.slice.call(childUl.children).forEach(function (childLi) {
+      refreshDepth(childLi, depth + 1);
+    });
+  }
+
+  function updateExpanderForNode(li) {
+    var btn = li.querySelector(':scope > .sidebar-sort-item .sidebar-node-expander');
+    if (!btn) return;
+    var childUl = li.querySelector(':scope > ul.sidebar-sortable-list');
+    var hasChild = !!childUl && childUl.children.length > 0;
+    btn.style.visibility = hasChild ? 'visible' : 'hidden';
+    if (!hasChild) {
+      btn.dataset.collapsed = '0';
+      btn.innerHTML = '<i class=\"ri ri-arrow-down-s-line\"></i>';
+      li.classList.remove('is-collapsed');
+    }
+  }
+
+  function updateAllExpanders() {
+    rootEl.querySelectorAll('li.sidebar-tree-node').forEach(function (li) {
+      updateExpanderForNode(li);
+    });
+  }
+
+  function applyDrop(draggedLi, targetLi, mode) {
+    if (!draggedLi || !targetLi || !mode) return;
+    var originParent = draggedLi.parentElement;
+    var targetParent = targetLi.parentElement;
+    if (!originParent || !targetParent) return;
+    if (draggedLi === targetLi) return;
+    if (isDescendant(draggedLi, targetLi)) return;
+
+    if (mode === 'before') {
+      targetParent.insertBefore(draggedLi, targetLi);
+    } else if (mode === 'after') {
+      targetParent.insertBefore(draggedLi, targetLi.nextSibling);
+    } else {
+      var targetChildUl = ensureChildList(targetLi);
+      targetChildUl.appendChild(draggedLi);
+      targetLi.classList.remove('is-collapsed');
+      var expander = targetLi.querySelector(':scope > .sidebar-sort-item .sidebar-node-expander');
+      if (expander) {
+        expander.dataset.collapsed = '0';
+        expander.innerHTML = '<i class=\"ri ri-arrow-down-s-line\"></i>';
+      }
+    }
+
+    var parentNode = draggedLi.parentElement ? draggedLi.parentElement.closest('li.sidebar-tree-node') : null;
+    var parentDepth = parentNode ? Number(parentNode.getAttribute('data-depth') || 0) : -1;
+    refreshDepth(draggedLi, parentDepth + 1);
+    if (originParent.closest('li.sidebar-tree-node')) {
+      updateExpanderForNode(originParent.closest('li.sidebar-tree-node'));
+    }
+    if (targetLi.closest('li.sidebar-tree-node')) {
+      updateExpanderForNode(targetLi.closest('li.sidebar-tree-node'));
+    }
+    updateAllExpanders();
   }
 
   function serializeListForSave(ul) {
@@ -378,9 +465,104 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
     rootEl.innerHTML = '';
     var rootList = buildList(treeData, 0);
     rootEl.appendChild(rootList);
+    updateAllExpanders();
+
+    rootEl.addEventListener('click', function (event) {
+      var expanderBtn = event.target.closest('.sidebar-node-expander');
+      if (expanderBtn) {
+        var nodeLi = expanderBtn.closest('li.sidebar-tree-node');
+        if (!nodeLi) return;
+        var childUl = nodeLi.querySelector(':scope > ul.sidebar-sortable-list');
+        if (!childUl || childUl.children.length === 0) return;
+        var collapsed = expanderBtn.dataset.collapsed === '1';
+        expanderBtn.dataset.collapsed = collapsed ? '0' : '1';
+        expanderBtn.innerHTML = collapsed
+          ? '<i class=\"ri ri-arrow-down-s-line\"></i>'
+          : '<i class=\"ri ri-arrow-right-s-line\"></i>';
+        nodeLi.classList.toggle('is-collapsed', !collapsed);
+        return;
+      }
+    });
+
+    rootEl.addEventListener('dragstart', function (event) {
+      var li = event.target.closest('li.sidebar-tree-node');
+      if (!li || li.classList.contains('sidebar-virtual-node')) {
+        event.preventDefault();
+        return;
+      }
+      dragState.draggedLi = li;
+      li.classList.add('is-dragging');
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', li.dataset.id || '');
+    });
+
+    rootEl.addEventListener('dragend', function () {
+      if (dragState.draggedLi) {
+        dragState.draggedLi.classList.remove('is-dragging');
+      }
+      dragState.draggedLi = null;
+      clearDropMarks();
+    });
+
+    rootEl.addEventListener('dragover', function (event) {
+      if (!dragState.draggedLi) return;
+      var targetLi = event.target.closest('li.sidebar-tree-node');
+      if (!targetLi || targetLi.classList.contains('sidebar-virtual-node')) return;
+      if (targetLi === dragState.draggedLi) return;
+      if (isDescendant(dragState.draggedLi, targetLi)) return;
+
+      event.preventDefault();
+      var rect = targetLi.getBoundingClientRect();
+      var y = event.clientY - rect.top;
+      var ratio = rect.height > 0 ? (y / rect.height) : 0.5;
+      var mode = ratio < 0.28 ? 'before' : (ratio > 0.72 ? 'after' : 'inside');
+
+      clearDropMarks();
+      targetLi.classList.add(mode === 'before' ? 'drop-before' : (mode === 'after' ? 'drop-after' : 'drop-inside'));
+      dragState.dropMode = mode;
+      dragState.dropTargetLi = targetLi;
+    });
+
+    rootEl.addEventListener('drop', function (event) {
+      if (!dragState.draggedLi || !dragState.dropTargetLi || !dragState.dropMode) return;
+      event.preventDefault();
+      applyDrop(dragState.draggedLi, dragState.dropTargetLi, dragState.dropMode);
+      clearDropMarks();
+    });
+
+    if (expandAllBtn) {
+      expandAllBtn.addEventListener('click', function () {
+        rootEl.querySelectorAll('li.sidebar-tree-node').forEach(function (li) {
+          li.classList.remove('is-collapsed');
+          var btn = li.querySelector(':scope > .sidebar-sort-item .sidebar-node-expander');
+          if (btn) {
+            btn.dataset.collapsed = '0';
+            btn.innerHTML = '<i class=\"ri ri-arrow-down-s-line\"></i>';
+          }
+        });
+      });
+    }
+
+    if (collapseAllBtn) {
+      collapseAllBtn.addEventListener('click', function () {
+        rootEl.querySelectorAll('li.sidebar-tree-node').forEach(function (li) {
+          var childUl = li.querySelector(':scope > ul.sidebar-sortable-list');
+          if (!childUl || childUl.children.length === 0) return;
+          li.classList.add('is-collapsed');
+          var btn = li.querySelector(':scope > .sidebar-sort-item .sidebar-node-expander');
+          if (btn) {
+            btn.dataset.collapsed = '1';
+            btn.innerHTML = '<i class=\"ri ri-arrow-right-s-line\"></i>';
+          }
+        });
+      });
+    }
 
     saveBtn.addEventListener('click', function () {
       var payload = serializeListForSave(rootList);
+      saveBtn.disabled = true;
+      saveBtn.classList.add('is-loading');
+      saveBtn.innerHTML = '<span class=\"spinner-border spinner-border-sm me-1\" role=\"status\" aria-hidden=\"true\"></span>Menyimpan...';
 
       $.post(saveUrl, {
         sidebar_type: sidebarType,
@@ -394,46 +576,81 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
         }
       }).fail(function () {
         showAlert('danger', 'Gagal menyimpan struktur sidebar.');
+      }).always(function () {
+        saveBtn.disabled = false;
+        saveBtn.classList.remove('is-loading');
+        saveBtn.textContent = 'Simpan Struktur';
       });
     });
   }
 
-  function ensureSortable(ready) {
-    if (typeof Sortable !== 'undefined') {
-      ready();
-      return;
-    }
-
-    var fallbackUrl = 'https://unpkg.com/sortablejs@1.15.3/Sortable.min.js';
-    var s = document.createElement('script');
-    s.src = fallbackUrl;
-    s.async = true;
-    s.onload = function () {
-      if (typeof Sortable === 'undefined') {
-        showAlert('danger', 'Library drag-drop gagal dimuat. Cek koneksi internet lalu refresh halaman.');
-        return;
-      }
-      ready();
-    };
-    s.onerror = function () {
-      showAlert('danger', 'Library drag-drop gagal dimuat. Cek koneksi internet lalu refresh halaman.');
-    };
-    document.head.appendChild(s);
-  }
-
-  ensureSortable(renderEditor);
+  renderEditor();
 })();
 </script>
 
 <style>
-  #sidebar-tree-root .sidebar-sort-item[data-depth="0"] {
+  #sidebar-tree-root .sidebar-sortable-list {
+    padding-left: 1rem;
+    border-left: 1px dashed rgba(84, 59, 59, 0.23);
+    min-height: 8px;
+  }
+  #sidebar-tree-root .sidebar-list-root {
+    border-left: none;
+    padding-left: 0;
+  }
+  #sidebar-tree-root .sidebar-sort-item {
+    padding: 0.5rem 0.6rem;
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 10px;
+    background: #fff;
+    border-left: 4px solid transparent;
+    cursor: grab;
+    transition: box-shadow 0.15s ease, transform 0.12s ease;
+  }
+  #sidebar-tree-root .sidebar-sort-item.is-inactive,
+  #sidebar-tree-root .sidebar-sort-item[data-depth].is-inactive {
+    background: #fff2f2;
+    border-color: rgba(192, 57, 43, 0.45);
+    border-left-color: #c0392b;
+  }
+  #sidebar-tree-root li.is-dragging > .sidebar-sort-item {
+    opacity: 0.72;
+    transform: scale(0.992);
+    box-shadow: 0 10px 20px rgba(29, 12, 12, 0.16);
+  }
+  #sidebar-tree-root li.drop-before > .sidebar-sort-item {
+    box-shadow: inset 0 3px 0 #198754;
+  }
+  #sidebar-tree-root li.drop-after > .sidebar-sort-item {
+    box-shadow: inset 0 -3px 0 #198754;
+  }
+  #sidebar-tree-root li.drop-inside > .sidebar-sort-item {
+    box-shadow: 0 0 0 2px rgba(25, 135, 84, 0.36);
+  }
+  #sidebar-tree-root .sidebar-drag-handle {
+    font-size: 1rem;
+    opacity: 0.72;
+  }
+  #sidebar-tree-root .sidebar-node-expander {
+    min-width: 24px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #sidebar-tree-root li.is-collapsed > ul.sidebar-sortable-list {
+    display: none;
+  }
+  #sidebar-tree-root .sidebar-sort-item[data-depth=\"0\"] {
     box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.04);
   }
-  #sidebar-tree-root .sidebar-sort-item[data-depth="1"] {
+  #sidebar-tree-root .sidebar-sort-item[data-depth=\"1\"] {
     background: #fafcff;
   }
-  #sidebar-tree-root .sidebar-sort-item[data-depth="2"],
-  #sidebar-tree-root .sidebar-sort-item[data-depth="3"] {
+  #sidebar-tree-root .sidebar-sort-item[data-depth=\"2\"],
+  #sidebar-tree-root .sidebar-sort-item[data-depth=\"3\"] {
     background: #fcfcff;
   }
 </style>

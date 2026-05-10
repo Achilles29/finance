@@ -3,6 +3,8 @@ $autoCodeSource = $cfg['auto_code_source'] ?? '';
 $autoCodeInput = $cfg['code_input'] ?? '';
 $vcProductDefault = (float)($variable_cost_defaults['product'] ?? 20);
 $vcComponentDefault = (float)($variable_cost_defaults['component'] ?? 20);
+$isPayrollMaster = in_array($entity, ['pay-component', 'pay-profile', 'pay-profile-line', 'pay-assignment'], true);
+$isAttLocationMaster = ($entity === 'att-location');
 $current = function ($name, $default = '') use ($row) {
     if (set_value($name) !== '') {
         return set_value($name);
@@ -22,12 +24,64 @@ foreach (($cfg['fields'] ?? []) as $fieldCfg) {
 }
 ?>
 
+<?php if ($isPayrollMaster): ?>
+<style>
+  .master-form--payroll .master-form-title {
+    font-size: 1.45rem;
+    letter-spacing: 0.01em;
+  }
+  .master-form--payroll .master-form-card {
+    border: 0;
+    box-shadow: 0 0.25rem 0.9rem rgba(67, 30, 30, 0.08);
+  }
+  .master-form--payroll .form-control,
+  .master-form--payroll .form-select {
+    min-height: 40px;
+  }
+</style>
+<?php endif; ?>
+
+<?php if ($isAttLocationMaster): ?>
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin=""
+>
+<style>
+  .att-location-map-wrap {
+    border: 1px solid #dec7c7;
+    border-radius: 14px;
+    background: #fff;
+    padding: 12px;
+  }
+  .att-location-map {
+    width: 100%;
+    min-height: 360px;
+    border: 1px solid #d9c8c8;
+    border-radius: 12px;
+  }
+  .att-location-map-toolbar {
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .att-location-map-status {
+    font-size: 0.9rem;
+    color: #4d5966;
+  }
+</style>
+<?php endif; ?>
+
+<div class="master-form <?php echo $isPayrollMaster ? 'master-form--payroll' : ''; ?>">
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="mb-0"><?php echo html_escape($title); ?></h4>
+  <h4 class="mb-0 master-form-title"><?php echo html_escape($title); ?></h4>
   <a href="<?php echo site_url('master/' . $entity); ?>" class="btn btn-outline-secondary">Kembali</a>
 </div>
 
-<div class="card">
+<div class="card master-form-card">
   <div class="card-body">
     <form method="post" action="<?php echo site_url($form_action); ?>" <?php echo $hasFileField ? 'enctype="multipart/form-data"' : ''; ?>>
       <div class="row">
@@ -72,6 +126,7 @@ foreach (($cfg['fields'] ?? []) as $fieldCfg) {
                 class="form-control"
                 value="<?php echo html_escape((string)$val); ?>"
                 <?php echo !empty($f['step']) ? 'step="' . html_escape($f['step']) . '"' : ''; ?>
+                <?php echo ($isAttLocationMaster && in_array($name, ['latitude', 'longitude'], true)) ? 'data-map-coordinate="1"' : ''; ?>
               >
             <?php elseif ($type === 'file'): ?>
               <input type="file" name="<?php echo html_escape($name); ?>" id="id_<?php echo html_escape($name); ?>" class="form-control" accept="image/*">
@@ -105,10 +160,35 @@ foreach (($cfg['fields'] ?? []) as $fieldCfg) {
               <small class="text-muted">Otomatis diisi dari inisial nama, tetap bisa diedit manual.</small>
             <?php endif; ?>
 
+            <?php if ($entity === 'org-employee' && $name === 'employee_code'): ?>
+              <small class="text-muted">Kode pegawai dibuat otomatis saat simpan (skema internal EMP-YYYYMM####).</small>
+            <?php endif; ?>
+
+            <?php if ($entity === 'org-employee' && $name === 'employee_nip'): ?>
+              <small class="text-muted">NIP otomatis: tanggal gabung (YYYYMMDD) + tanggal lahir (YYYYMMDD) + urutan 3 digit.</small>
+            <?php endif; ?>
+
             <?php if ($name === 'variable_cost_percent' && in_array($entity, ['product', 'component'], true)): ?>
               <small class="text-muted">Mode DEFAULT: nilai otomatis dari pengaturan, CUSTOM: isi manual, NONE: disembunyikan.</small>
             <?php endif; ?>
+
+            <?php if ($isAttLocationMaster && in_array($name, ['latitude', 'longitude'], true)): ?>
+              <small class="text-muted">Koordinat dipilih dari peta (drag pin / klik peta).</small>
+            <?php endif; ?>
           </div>
+
+          <?php if ($isAttLocationMaster && $name === 'longitude'): ?>
+            <div class="col-12 mb-3">
+              <label class="form-label mb-2">Pilih Titik Lokasi</label>
+              <div class="att-location-map-wrap">
+                <div class="att-location-map-toolbar">
+                  <button type="button" class="btn btn-outline-secondary btn-sm" id="attLocationUseCurrent">Gunakan Lokasi Saat Ini</button>
+                  <div id="attLocationMapStatus" class="att-location-map-status">Geser pin atau klik peta untuk mengisi koordinat.</div>
+                </div>
+                <div id="attLocationMap" class="att-location-map"></div>
+              </div>
+            </div>
+          <?php endif; ?>
         <?php endforeach; ?>
       </div>
 
@@ -139,6 +219,7 @@ foreach (($cfg['fields'] ?? []) as $fieldCfg) {
       </div>
     </form>
   </div>
+</div>
 </div>
 
 <?php if ($entity === 'item'): ?>
@@ -276,6 +357,128 @@ foreach (($cfg['fields'] ?? []) as $fieldCfg) {
       URL.revokeObjectURL(objectUrl);
     };
   });
+})();
+</script>
+<?php endif; ?>
+
+<?php if ($isAttLocationMaster): ?>
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  crossorigin=""
+></script>
+<script>
+(function () {
+  var latInput = document.getElementById('id_latitude');
+  var lngInput = document.getElementById('id_longitude');
+  var mapEl = document.getElementById('attLocationMap');
+  var statusEl = document.getElementById('attLocationMapStatus');
+  var useCurrentBtn = document.getElementById('attLocationUseCurrent');
+  if (!latInput || !lngInput || !mapEl) return;
+
+  function setStatus(message) {
+    if (statusEl) statusEl.textContent = message;
+  }
+
+  function parseCoordinate(value) {
+    var parsed = parseFloat(String(value || '').replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  var lat = parseCoordinate(latInput.value);
+  var lng = parseCoordinate(lngInput.value);
+  var hasInitial = lat !== null && lng !== null;
+  var defaultPoint = hasInitial ? [lat, lng] : [-6.2000000, 106.8166667];
+
+  if (typeof L === 'undefined') {
+    setStatus('Peta gagal dimuat. Isi koordinat manual untuk sementara.');
+    latInput.readOnly = false;
+    lngInput.readOnly = false;
+    return;
+  }
+
+  latInput.readOnly = true;
+  lngInput.readOnly = true;
+
+  var map = L.map(mapEl, {
+    center: defaultPoint,
+    zoom: hasInitial ? 16 : 12,
+    zoomControl: true
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 20,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  var marker = L.marker(defaultPoint, { draggable: true }).addTo(map);
+
+  function syncInputs(latlng, message) {
+    latInput.value = Number(latlng.lat).toFixed(7);
+    lngInput.value = Number(latlng.lng).toFixed(7);
+    if (message) setStatus(message);
+  }
+
+  function updatePoint(latlng, message) {
+    marker.setLatLng(latlng);
+    map.panTo(latlng);
+    syncInputs(latlng, message);
+  }
+
+  marker.on('dragend', function (event) {
+    updatePoint(event.target.getLatLng(), 'Koordinat diperbarui dari drag pin.');
+  });
+
+  map.on('click', function (event) {
+    updatePoint(event.latlng, 'Koordinat diperbarui dari klik peta.');
+  });
+
+  if (useCurrentBtn) {
+    useCurrentBtn.addEventListener('click', function () {
+      if (!navigator.geolocation) {
+        setStatus('Browser tidak mendukung geolokasi.');
+        return;
+      }
+      useCurrentBtn.disabled = true;
+      setStatus('Mengambil lokasi saat ini...');
+      navigator.geolocation.getCurrentPosition(function (position) {
+        var latlng = L.latLng(position.coords.latitude, position.coords.longitude);
+        map.setZoom(18);
+        updatePoint(latlng, 'Lokasi saat ini berhasil dipakai.');
+        useCurrentBtn.disabled = false;
+      }, function () {
+        setStatus('Lokasi saat ini gagal diambil. Cek izin GPS browser.');
+        useCurrentBtn.disabled = false;
+      }, {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      });
+    });
+  }
+
+  function tryUseCurrentLocationOnOpen() {
+    if (!navigator.geolocation) return;
+    if (hasInitial) return;
+    setStatus('Mendeteksi lokasi saat ini...');
+    navigator.geolocation.getCurrentPosition(function (position) {
+      var latlng = L.latLng(position.coords.latitude, position.coords.longitude);
+      map.setZoom(18);
+      updatePoint(latlng, 'Lokasi saat ini dipakai otomatis.');
+    }, function () {
+      setStatus('Lokasi saat ini tidak tersedia, gunakan drag pin / klik peta.');
+    }, {
+      enableHighAccuracy: true,
+      timeout: 8000,
+      maximumAge: 0
+    });
+  }
+
+  syncInputs(marker.getLatLng(), hasInitial ? 'Koordinat awal dimuat dari data existing.' : 'Set titik lokasi untuk mengisi koordinat.');
+  setTimeout(function () {
+    map.invalidateSize();
+    tryUseCurrentLocationOnOpen();
+  }, 180);
 })();
 </script>
 <?php endif; ?>

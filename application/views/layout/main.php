@@ -22,7 +22,7 @@ $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
     .purchase-soft-ui .container-xxl .form-select,
     .purchase-soft-ui .container-xxl .btn,
     .purchase-soft-ui .container-xxl .badge {
-      font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+      font-family: 'Segoe UI', 'Noto Sans', Arial, sans-serif;
       letter-spacing: 0.01em;
     }
     .purchase-soft-ui .container-xxl h1,
@@ -30,7 +30,7 @@ $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
     .purchase-soft-ui .container-xxl h3,
     .purchase-soft-ui .container-xxl h4,
     .purchase-soft-ui .container-xxl h5 {
-      font-family: 'Merriweather', 'Plus Jakarta Sans', serif;
+      font-family: Georgia, 'Times New Roman', serif;
       letter-spacing: 0.01em;
     }
     .purchase-soft-ui .container-xxl .table td,
