@@ -222,23 +222,28 @@ class Purchase extends MY_Controller
         $this->require_permission(self::PAGE_ORDER, 'view');
 
         $accountId = (int)$this->input->get('account_id', true);
-        $dateFrom = trim((string)$this->input->get('date_from', true));
-        $dateTo = trim((string)$this->input->get('date_to', true));
-        $limit = (int)$this->input->get('limit', true);
-        if ($limit <= 0 || $limit > 1000) {
-            $limit = 200;
-        }
+        $dateFromRaw = trim((string)$this->input->get('date_from', true));
+        $dateToRaw = trim((string)$this->input->get('date_to', true));
+        $range = $this->resolveDateRange('', $dateFromRaw, $dateToRaw);
+        $dateFrom = $range['date_from'];
+        $dateTo = $range['date_to'];
+
+        $perPage = $this->mutation_per_page();
+        $page = max(1, (int)$this->input->get('page', true));
+        $totalRows = $this->Purchase_model->count_account_mutations($accountId, $dateFrom, $dateTo);
+        $pg = $this->build_pagination($totalRows, $perPage, $page);
 
         $data = [
             'title' => 'Mutasi Keuangan Rekening',
             'active_menu' => 'finance.mutation',
             'accounts' => $this->Purchase_model->list_active_company_accounts(),
             'summary' => $this->Purchase_model->get_account_mutation_summary($accountId, $dateFrom, $dateTo),
-            'rows' => $this->Purchase_model->list_account_mutations($accountId, $dateFrom, $dateTo, $limit),
+            'rows' => $this->Purchase_model->list_account_mutations($accountId, $dateFrom, $dateTo, $pg['per_page'], $pg['offset']),
+            'pg' => $pg,
             'filter_account_id' => $accountId,
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
-            'limit' => $limit,
+            'month' => $range['month'],
         ];
 
         $this->render('purchase/finance_mutation_index', $data);
@@ -1247,6 +1252,30 @@ class Purchase extends MY_Controller
             'month' => $monthNorm,
             'date_from' => $from,
             'date_to' => $to,
+        ];
+    }
+
+    private function mutation_per_page(): int
+    {
+        $pp = (int)$this->input->get('per_page', true);
+        if (!in_array($pp, [10, 25, 50, 100, 200], true)) {
+            $pp = 25;
+        }
+        return $pp;
+    }
+
+    private function build_pagination(int $total, int $perPage, int $page): array
+    {
+        $totalPages = max(1, (int)ceil($total / max(1, $perPage)));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        return [
+            'total' => $total,
+            'per_page' => $perPage,
+            'page' => $page,
+            'total_pages' => $totalPages,
+            'offset' => ($page - 1) * $perPage,
         ];
     }
 

@@ -647,8 +647,8 @@ h6,
 .fw-semibold,
 .page-title,
 .card-title {
-    font-family: 'Merriweather', Georgia, serif;
-    letter-spacing: 0.01em;
+    font-family: var(--bs-font-sans-serif);
+    letter-spacing: 0;
 }
 
 .container-xxl.flex-grow-1.container-p-y {

@@ -35,10 +35,14 @@ $route['attendance/anomalies'] = 'attendance/anomalies';
 $route['attendance/master-health'] = 'attendance/master_health';
 $route['attendance/estimate'] = 'attendance/estimate';
 $route['attendance/estimate/detail/(:num)'] = 'attendance/estimate_detail/$1';
+$route['attendance/meal-calendar'] = 'attendance/meal_calendar';
 $route['attendance/ph-assignments'] = 'attendance/ph_assignments';
 $route['attendance/ph-assignments/save'] = 'attendance/ph_assignment_save';
+$route['attendance/ph-assignments/delete/(:num)'] = 'attendance/ph_assignment_delete/$1';
 $route['attendance/ph-ledger'] = 'attendance/ph_ledger';
 $route['attendance/ph-ledger/store'] = 'attendance/ph_ledger_store';
+$route['attendance/ph-ledger/update/(:num)'] = 'attendance/ph_ledger_update/$1';
+$route['attendance/ph-ledger/delete/(:num)'] = 'attendance/ph_ledger_delete/$1';
 $route['attendance/ph-ledger/sync-grants'] = 'attendance/ph_ledger_sync_grants';
 $route['attendance/ph-recap'] = 'attendance/ph_recap';
 
@@ -70,6 +74,25 @@ $route['payroll/manual-adjustments'] = 'payroll/manual_adjustments';
 $route['payroll/manual-adjustments/store'] = 'payroll/manual_adjustment_store';
 $route['payroll/manual-adjustments/update/(:num)'] = 'payroll/manual_adjustment_update/$1';
 $route['payroll/manual-adjustments/delete/(:num)'] = 'payroll/manual_adjustment_delete/$1';
+$route['payroll/meal-disbursements'] = 'payroll/meal_disbursements';
+$route['payroll/meal-disbursements/generate'] = 'payroll/meal_disbursement_generate';
+$route['payroll/meal-disbursements/mark-paid/(:num)'] = 'payroll/meal_disbursement_mark_paid/$1';
+$route['payroll/meal-disbursements/void/(:num)'] = 'payroll/meal_disbursement_void/$1';
+$route['payroll/salary-disbursements'] = 'payroll/salary_disbursements';
+$route['payroll/payroll-periods'] = 'payroll/payroll_periods';
+$route['payroll/salary-disbursements/period-generate'] = 'payroll/payroll_period_generate';
+$route['payroll/salary-disbursements/period-void/(:num)'] = 'payroll/payroll_period_void/$1';
+$route['payroll/salary-disbursements/period-delete/(:num)'] = 'payroll/payroll_period_delete/$1';
+$route['payroll/salary-disbursements/generate'] = 'payroll/salary_disbursement_generate';
+$route['payroll/salary-disbursements/mark-paid/(:num)'] = 'payroll/salary_disbursement_mark_paid/$1';
+$route['payroll/salary-disbursements/void/(:num)'] = 'payroll/salary_disbursement_void/$1';
+$route['payroll/salary-disbursements/delete/(:num)'] = 'payroll/salary_disbursement_delete/$1';
+$route['payroll/cash-advances'] = 'payroll/cash_advances';
+$route['payroll/cash-advances/store'] = 'payroll/cash_advance_store';
+$route['payroll/cash-advances/update/(:num)'] = 'payroll/cash_advance_update/$1';
+$route['payroll/cash-advances/pay-installment/(:num)'] = 'payroll/cash_advance_pay_installment/$1';
+$route['payroll/cash-advances/void/(:num)'] = 'payroll/cash_advance_void/$1';
+$route['payroll/cash-advances/delete/(:num)'] = 'payroll/cash_advance_delete/$1';
 
 // Employee Portal
 $route['my'] = 'my/index';
@@ -82,6 +105,9 @@ $route['my/leave-requests'] = 'my/leave_requests';
 $route['my/leave-requests/schedule'] = 'my/leave_request_schedule';
 $route['my/leave-requests/cancel/(:num)'] = 'my/leave_request_cancel/$1';
 $route['my/meal-ledger'] = 'my/meal_ledger';
+$route['my/overtime'] = 'my/overtime';
+$route['my/ph-ledger'] = 'my/ph_ledger';
+$route['my/manual-adjustments'] = 'my/manual_adjustments';
 $route['my/cash-advance'] = 'my/cash_advance';
 
 // Inventory flow (item -> material)

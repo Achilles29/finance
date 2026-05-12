@@ -222,10 +222,11 @@ class Master extends MY_Controller
             return;
         }
 
-        $row = $this->db->select('e.*, d.division_name, p.position_name')
+        $row = $this->db->select('e.*, d.division_name, p.position_name, COALESCE(b.bank_alias, b.bank_name, e.bank_name) AS bank_display_name', false)
             ->from('org_employee e')
             ->join('org_division d', 'd.id = e.division_id', 'left')
             ->join('org_position p', 'p.id = e.position_id', 'left')
+            ->join('mst_bank b', 'b.id = e.bank_id', 'left')
             ->where('e.id', $id)
             ->limit(1)
             ->get()->row_array();
@@ -464,6 +465,16 @@ class Master extends MY_Controller
                     return null;
                 }
             }
+
+            if (array_key_exists('bank_id', $data)) {
+                $bankId = (int)($data['bank_id'] ?? 0);
+                if ($bankId > 0) {
+                    $data['bank_name'] = $this->resolveBankDisplayName($bankId);
+                } else {
+                    $data['bank_id'] = null;
+                    $data['bank_name'] = null;
+                }
+            }
         }
 
         if (($cfg['table'] ?? '') === 'mst_item') {
@@ -550,6 +561,16 @@ class Master extends MY_Controller
 
             $currency = strtoupper(trim((string)($data['currency_code'] ?? 'IDR')));
             $data['currency_code'] = $currency !== '' ? $currency : 'IDR';
+
+            if (array_key_exists('bank_id', $data)) {
+                $bankId = (int)($data['bank_id'] ?? 0);
+                if ($bankId > 0) {
+                    $data['bank_name'] = $this->resolveBankDisplayName($bankId);
+                } else {
+                    $data['bank_id'] = null;
+                    $data['bank_name'] = null;
+                }
+            }
         }
 
         if (($cfg['table'] ?? '') === 'pur_payment_channel') {
@@ -905,6 +926,34 @@ class Master extends MY_Controller
     private function entities(): array
     {
         return [
+            'bank' => [
+                'table' => 'mst_bank',
+                'title' => 'Master Bank',
+                'order_by' => 'bank_name',
+                'order_dir' => 'ASC',
+                'searchable' => ['bank_code', 'bank_name', 'bank_alias'],
+                'toggle' => true,
+                'code_column' => 'bank_code',
+                'code_input' => 'bank_code',
+                'rules' => [
+                    ['bank_code', 'Kode Bank', 'required|trim|max_length[10]'],
+                    ['bank_name', 'Nama Bank', 'required|trim|max_length[150]'],
+                ],
+                'fields' => [
+                    ['name' => 'bank_code', 'label' => 'Kode Bank', 'type' => 'text'],
+                    ['name' => 'bank_name', 'label' => 'Nama Bank', 'type' => 'text'],
+                    ['name' => 'bank_alias', 'label' => 'Alias Pendek', 'type' => 'text'],
+                    ['name' => 'is_sharia', 'label' => 'Bank Syariah', 'type' => 'checkbox'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'bank_code', 'label' => 'Kode'],
+                    ['key' => 'bank_name', 'label' => 'Nama Bank'],
+                    ['key' => 'bank_alias', 'label' => 'Alias'],
+                    ['key' => 'is_sharia', 'label' => 'Syariah', 'type' => 'bool'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
             'uom' => [
                 'table' => 'mst_uom',
                 'title' => 'Master Satuan (UOM)',
@@ -1029,6 +1078,7 @@ class Master extends MY_Controller
                     ['employee_name', 'Nama Pegawai', 'required|trim|max_length[150]'],
                     ['division_id', 'Divisi', 'integer'],
                     ['position_id', 'Jabatan', 'integer'],
+                    ['bank_id', 'Bank', 'integer'],
                     ['employment_status', 'Status Kerja', 'required|trim|in_list[PERMANENT,CONTRACT,PROBATION,DAILY,RESIGNED]'],
                 ],
                 'fields' => [
@@ -1058,7 +1108,7 @@ class Master extends MY_Controller
                     ['name' => 'objective_allowance', 'label' => 'Tunjangan Objektif', 'type' => 'number', 'step' => '0.01'],
                     ['name' => 'meal_rate', 'label' => 'Rate Uang Makan', 'type' => 'number', 'step' => '0.01'],
                     ['name' => 'overtime_rate', 'label' => 'Rate Lembur/Jam', 'type' => 'number', 'step' => '0.01'],
-                    ['name' => 'bank_name', 'label' => 'Bank', 'type' => 'text'],
+                    ['name' => 'bank_id', 'label' => 'Bank', 'type' => 'select', 'lookup' => ['table' => 'mst_bank', 'value' => 'id', 'label' => 'bank_name']],
                     ['name' => 'bank_account_no', 'label' => 'No Rekening', 'type' => 'text'],
                     ['name' => 'bank_account_name', 'label' => 'Nama Rekening', 'type' => 'text'],
                     ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
@@ -1069,6 +1119,7 @@ class Master extends MY_Controller
                     ['key' => 'employee_name', 'label' => 'Nama'],
                     ['key' => 'division_id_label', 'label' => 'Divisi'],
                     ['key' => 'position_id_label', 'label' => 'Jabatan'],
+                    ['key' => 'bank_id_label', 'label' => 'Bank'],
                     ['key' => 'employment_status', 'label' => 'Status Kerja'],
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
                 ],
@@ -2035,6 +2086,7 @@ class Master extends MY_Controller
                     ['account_code', 'Kode Akun', 'required|trim|max_length[40]'],
                     ['account_name', 'Nama Akun', 'required|trim|max_length[150]'],
                     ['account_type', 'Tipe Akun', 'required|trim|in_list[BANK,EWALLET,CASH,OTHER]'],
+                    ['bank_id', 'Bank', 'integer'],
                 ],
                 'fields' => [
                     ['name' => 'account_code', 'label' => 'Kode Akun', 'type' => 'text'],
@@ -2045,7 +2097,7 @@ class Master extends MY_Controller
                         ['value' => 'CASH', 'label' => 'CASH'],
                         ['value' => 'OTHER', 'label' => 'OTHER'],
                     ]],
-                    ['name' => 'bank_name', 'label' => 'Nama Bank', 'type' => 'text'],
+                    ['name' => 'bank_id', 'label' => 'Bank', 'type' => 'select', 'lookup' => ['table' => 'mst_bank', 'value' => 'id', 'label' => 'bank_name', 'active_only' => false]],
                     ['name' => 'account_no', 'label' => 'No Rekening', 'type' => 'text'],
                     ['name' => 'account_holder', 'label' => 'Atas Nama', 'type' => 'text'],
                     ['name' => 'currency_code', 'label' => 'Currency', 'type' => 'text'],
@@ -2059,7 +2111,7 @@ class Master extends MY_Controller
                     ['key' => 'account_code', 'label' => 'Kode'],
                     ['key' => 'account_name', 'label' => 'Nama Akun'],
                     ['key' => 'account_type', 'label' => 'Tipe'],
-                    ['key' => 'bank_name', 'label' => 'Bank'],
+                    ['key' => 'bank_id_label', 'label' => 'Bank'],
                     ['key' => 'current_balance', 'label' => 'Saldo'],
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
                 ],
@@ -2196,6 +2248,32 @@ class Master extends MY_Controller
                 ],
             ],
         ];
+    }
+
+    private function resolveBankDisplayName(int $bankId): ?string
+    {
+        if ($bankId <= 0 || !$this->db->table_exists('mst_bank')) {
+            return null;
+        }
+
+        $row = $this->db->select('bank_alias, bank_name')
+            ->from('mst_bank')
+            ->where('id', $bankId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        if (!$row) {
+            return null;
+        }
+
+        $alias = trim((string)($row['bank_alias'] ?? ''));
+        if ($alias !== '') {
+            return $alias;
+        }
+
+        $name = trim((string)($row['bank_name'] ?? ''));
+        return $name !== '' ? $name : null;
     }
 
     private function defaultOperationalDivisionId(): ?int

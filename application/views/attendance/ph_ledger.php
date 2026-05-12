@@ -5,6 +5,7 @@ $pg = $pg ?? ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
 $summary = $summary ?? ['grant' => 0, 'use' => 0, 'expire' => 0, 'adjust' => 0, 'balance' => 0];
 $employeeOptions = $employee_options ?? [];
 $txTypeOptions = $tx_type_options ?? ['GRANT', 'USE', 'EXPIRE', 'ADJUST'];
+$editRow = $edit_row ?? null;
 
 $buildQuery = static function (array $overrides = []) use ($filters, $pg): string {
     $base = [
@@ -74,14 +75,17 @@ $buildPageItems = static function (int $page, int $totalPages): array {
   <div class="col-lg-7">
     <div class="card h-100">
       <div class="card-body">
-        <h6 class="mb-3">Input Mutasi PH Manual</h6>
-        <form method="post" action="<?php echo site_url('attendance/ph-ledger/store'); ?>" class="row g-2 align-items-end">
-          <div class="col-md-5"><label class="form-label mb-1">Pegawai</label><select class="form-select" name="employee_id" required><option value="">Pilih pegawai...</option><?php foreach ($employeeOptions as $opt): ?><option value="<?php echo (int)$opt['value']; ?>"><?php echo html_escape((string)$opt['label']); ?></option><?php endforeach; ?></select></div>
-          <div class="col-md-2"><label class="form-label mb-1">Tanggal</label><input type="date" name="tx_date" class="form-control" value="<?php echo date('Y-m-d'); ?>" required></div>
-          <div class="col-md-2"><label class="form-label mb-1">Jenis</label><select name="tx_type" class="form-select" required><?php foreach ($txTypeOptions as $type): ?><option value="<?php echo html_escape($type); ?>"><?php echo html_escape($type); ?></option><?php endforeach; ?></select></div>
-          <div class="col-md-2"><label class="form-label mb-1">Qty Hari</label><input type="number" min="0.01" step="0.01" name="qty_days" class="form-control" value="1" required></div>
-          <div class="col-md-12"><label class="form-label mb-1">Catatan</label><input type="text" name="notes" class="form-control" placeholder="Keterangan mutasi manual"></div>
-          <div class="col-12"><button type="submit" class="btn btn-primary">Simpan Mutasi</button></div>
+        <h6 class="mb-3"><?php echo !empty($editRow) ? 'Edit Mutasi PH Manual' : 'Input Mutasi PH Manual'; ?></h6>
+        <form method="post" action="<?php echo !empty($editRow) ? site_url('attendance/ph-ledger/update/' . (int)$editRow['id']) : site_url('attendance/ph-ledger/store'); ?>" class="row g-2 align-items-end">
+          <div class="col-md-5"><label class="form-label mb-1">Pegawai</label><select class="form-select" name="employee_id" required><option value="">Pilih pegawai...</option><?php foreach ($employeeOptions as $opt): ?><option value="<?php echo (int)$opt['value']; ?>" <?php echo (!empty($editRow) && (int)$editRow['employee_id'] === (int)$opt['value']) ? 'selected' : ''; ?>><?php echo html_escape((string)$opt['label']); ?></option><?php endforeach; ?></select></div>
+          <div class="col-md-2"><label class="form-label mb-1">Tanggal</label><input type="date" name="tx_date" class="form-control" value="<?php echo html_escape((string)($editRow['tx_date'] ?? date('Y-m-d'))); ?>" required></div>
+          <div class="col-md-2"><label class="form-label mb-1">Jenis</label><select name="tx_type" class="form-select" required><?php foreach ($txTypeOptions as $type): ?><option value="<?php echo html_escape($type); ?>" <?php echo (!empty($editRow) && strtoupper((string)($editRow['tx_type'] ?? '')) === $type) ? 'selected' : ''; ?>><?php echo html_escape($type); ?></option><?php endforeach; ?></select></div>
+          <div class="col-md-2"><label class="form-label mb-1">Qty Hari</label><input type="number" min="0.01" step="0.01" name="qty_days" class="form-control" value="<?php echo html_escape((string)($editRow['qty_days'] ?? '1')); ?>" required></div>
+          <div class="col-md-12"><label class="form-label mb-1">Catatan</label><input type="text" name="notes" class="form-control" value="<?php echo html_escape((string)($editRow['notes'] ?? '')); ?>" placeholder="Keterangan mutasi manual"></div>
+          <div class="col-12 d-flex gap-2">
+            <button type="submit" class="btn btn-primary"><?php echo !empty($editRow) ? 'Update Mutasi' : 'Simpan Mutasi'; ?></button>
+            <?php if (!empty($editRow)): ?><a href="<?php echo site_url('attendance/ph-ledger'); ?>" class="btn btn-outline-secondary">Batal Edit</a><?php endif; ?>
+          </div>
         </form>
       </div>
     </div>
@@ -115,11 +119,12 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <th>Mode</th>
           <th>Catatan</th>
           <th>Dibuat Oleh</th>
+          <th class="text-center">Aksi</th>
         </tr>
       </thead>
       <tbody>
         <?php if (empty($rows)): ?>
-          <tr><td colspan="9" class="text-center text-muted py-4">Belum ada mutasi PH.</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4">Belum ada mutasi PH.</td></tr>
         <?php else: foreach ($rows as $row): ?>
           <tr>
             <td><?php echo html_escape((string)($row['tx_date'] ?? '-')); ?></td>
@@ -143,6 +148,18 @@ $buildPageItems = static function (int $page, int $totalPages): array {
             <td><?php echo html_escape((string)($row['entry_mode'] ?? '-')); ?></td>
             <td><?php echo html_escape((string)($row['notes'] ?? '-')); ?></td>
             <td><?php echo html_escape((string)($row['created_by_username'] ?? '-')); ?></td>
+            <td class="text-center">
+              <?php if (strtoupper((string)($row['entry_mode'] ?? 'AUTO')) === 'MANUAL'): ?>
+                <div class="d-inline-flex gap-1">
+                  <a class="btn btn-sm btn-outline-primary" href="<?php echo site_url('attendance/ph-ledger?' . $buildQuery(['edit_id' => (int)$row['id'], 'page' => $pg['page']])); ?>">Edit</a>
+                  <form method="post" action="<?php echo site_url('attendance/ph-ledger/delete/' . (int)$row['id']); ?>" onsubmit="return confirm('Hapus mutasi PH manual ini?');">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Hapus</button>
+                  </form>
+                </div>
+              <?php else: ?>
+                <span class="text-muted small">Auto</span>
+              <?php endif; ?>
+            </td>
           </tr>
         <?php endforeach; endif; ?>
       </tbody>

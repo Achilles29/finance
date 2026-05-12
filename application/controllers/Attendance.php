@@ -35,6 +35,44 @@ class Attendance extends MY_Controller
         ];
     }
 
+    private function normalize_date_range(string $dateStart, string $dateEnd, int $maxDays = 62): array
+    {
+        if ($dateStart === '') {
+            $dateStart = date('Y-m-01');
+        }
+        if ($dateEnd === '') {
+            $dateEnd = date('Y-m-t', strtotime($dateStart));
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart)) {
+            $dateStart = date('Y-m-01');
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEnd)) {
+            $dateEnd = date('Y-m-t', strtotime($dateStart));
+        }
+        if ($dateEnd < $dateStart) {
+            $dateEnd = $dateStart;
+        }
+
+        $startTs = strtotime($dateStart);
+        $endTs = strtotime($dateEnd);
+        if ($startTs <= 0 || $endTs <= 0) {
+            $dateStart = date('Y-m-01');
+            $dateEnd = date('Y-m-t');
+            $startTs = strtotime($dateStart);
+            $endTs = strtotime($dateEnd);
+        }
+
+        if ($maxDays > 0) {
+            $rangeDays = (int)floor(($endTs - $startTs) / 86400) + 1;
+            if ($rangeDays > $maxDays) {
+                $endTs = strtotime('+' . ($maxDays - 1) . ' day', $startTs);
+                $dateEnd = date('Y-m-d', $endTs);
+            }
+        }
+
+        return [$dateStart, $dateEnd];
+    }
+
     private function actor_employee_id(): int
     {
         return (int)($this->current_user['employee_id'] ?? 0);
@@ -845,6 +883,58 @@ class Attendance extends MY_Controller
         ]);
     }
 
+    public function meal_calendar()
+    {
+        $this->require_permission('attendance.estimate.index', 'view');
+
+        $filters = [
+            'q' => trim((string)$this->input->get('q', true)),
+            'division_id' => (int)$this->input->get('division_id', true),
+            'date_start' => trim((string)$this->input->get('date_start', true)),
+            'date_end' => trim((string)$this->input->get('date_end', true)),
+        ];
+        [$filters['date_start'], $filters['date_end']] = $this->normalize_date_range(
+            (string)$filters['date_start'],
+            (string)$filters['date_end'],
+            62
+        );
+
+        $perPage = $this->per_page();
+        $page = $this->page();
+        $total = $this->Attendance_model->count_meal_calendar_employees($filters);
+        $pg = $this->build_pagination($total, $perPage, $page);
+        $rows = $this->Attendance_model->list_meal_calendar_employees($filters, $pg['per_page'], $pg['offset']);
+
+        $employeeIds = array_map(static function ($r) {
+            return (int)($r['employee_id'] ?? 0);
+        }, $rows);
+        $dailyMap = $this->Attendance_model->meal_calendar_daily_map($employeeIds, (string)$filters['date_start'], (string)$filters['date_end']);
+        $summary = $this->Attendance_model->meal_calendar_summary($filters);
+
+        $days = [];
+        $startTs = strtotime((string)$filters['date_start']);
+        $endTs = strtotime((string)$filters['date_end']);
+        for ($ts = $startTs; $ts <= $endTs; $ts = strtotime('+1 day', $ts)) {
+            $days[] = [
+                'date' => date('Y-m-d', $ts),
+                'day' => date('d', $ts),
+                'dow' => date('D', $ts),
+            ];
+        }
+
+        $this->render('attendance/meal_calendar', [
+            'title' => 'Estimasi Uang Makan',
+            'active_menu' => 'hr.att-meal-calendar',
+            'filters' => $filters,
+            'rows' => $rows,
+            'days' => $days,
+            'daily_map' => $dailyMap,
+            'summary' => $summary,
+            'pg' => $pg,
+            'division_options' => $this->Attendance_model->get_division_options(),
+        ]);
+    }
+
     public function ph_assignments()
     {
         $this->require_permission('attendance.ph.assignment.index', 'view');
@@ -896,6 +986,24 @@ class Attendance extends MY_Controller
         ]));
     }
 
+    public function ph_assignment_delete(int $id)
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+        $this->require_permission('attendance.ph.assignment.index', 'delete');
+
+        $result = $this->Attendance_model->delete_ph_assignment($id);
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menghapus assignment PH.'));
+        redirect('attendance/ph-assignments?' . http_build_query([
+            'q' => $this->input->get('q', true),
+            'division_id' => $this->input->get('division_id', true),
+            'is_eligible' => $this->input->get('is_eligible', true),
+            'per_page' => $this->input->get('per_page', true),
+            'page' => $this->input->get('page', true),
+        ]));
+    }
+
     public function ph_ledger()
     {
         $this->require_permission('attendance.ph.ledger.index', 'view');
@@ -920,6 +1028,8 @@ class Attendance extends MY_Controller
         $pg = $this->build_pagination($total, $perPage, $page);
         $rows = $this->Attendance_model->list_ph_ledger($filters, $pg['per_page'], $pg['offset']);
         $summary = $this->Attendance_model->ph_ledger_summary($filters);
+        $editId = (int)$this->input->get('edit_id', true);
+        $editRow = $editId > 0 ? $this->Attendance_model->get_ph_ledger_by_id($editId) : null;
 
         $this->render('attendance/ph_ledger', [
             'title' => 'Ledger & Log PH',
@@ -928,6 +1038,7 @@ class Attendance extends MY_Controller
             'rows' => $rows,
             'pg' => $pg,
             'summary' => $summary,
+            'edit_row' => $editRow,
             'employee_options' => $this->Attendance_model->get_employee_options(),
             'tx_type_options' => ['GRANT', 'USE', 'EXPIRE', 'ADJUST'],
         ]);
@@ -949,6 +1060,42 @@ class Attendance extends MY_Controller
         ], (int)($this->current_user['id'] ?? 0));
 
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan mutasi PH.'));
+        redirect('attendance/ph-ledger');
+    }
+
+    public function ph_ledger_update(int $id)
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+        $this->require_permission('attendance.ph.ledger.index', 'edit');
+
+        $result = $this->Attendance_model->update_ph_ledger_entry(
+            $id,
+            [
+                'employee_id' => (int)$this->input->post('employee_id', true),
+                'tx_date' => trim((string)$this->input->post('tx_date', true)),
+                'tx_type' => strtoupper(trim((string)$this->input->post('tx_type', true))),
+                'qty_days' => (float)$this->input->post('qty_days', true),
+                'notes' => trim((string)$this->input->post('notes', true)),
+            ],
+            (int)($this->current_user['id'] ?? 0),
+            $this->is_superadmin()
+        );
+
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal memperbarui mutasi PH.'));
+        redirect('attendance/ph-ledger');
+    }
+
+    public function ph_ledger_delete(int $id)
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+        $this->require_permission('attendance.ph.ledger.index', 'delete');
+
+        $result = $this->Attendance_model->delete_ph_ledger_entry($id, $this->is_superadmin());
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menghapus mutasi PH.'));
         redirect('attendance/ph-ledger');
     }
 

@@ -98,11 +98,12 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <th class="text-end">Use+Expire</th>
           <th class="text-end">Saldo</th>
           <th>Catatan</th>
+          <th class="text-center">Aksi</th>
         </tr>
       </thead>
       <tbody>
         <?php if (empty($rows)): ?>
-          <tr><td colspan="9" class="text-center text-muted py-4">Belum ada data assignment PH.</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4">Belum ada data assignment PH.</td></tr>
         <?php else: foreach ($rows as $row): ?>
           <?php
             $inVal = (float)($row['grant_adjust_days'] ?? 0);
@@ -122,6 +123,47 @@ $buildPageItems = static function (int $page, int $totalPages): array {
             <td class="text-end text-danger"><?php echo number_format($outVal, 2, ',', '.'); ?></td>
             <td class="text-end fw-semibold <?php echo ($balance >= 0) ? 'text-success' : 'text-danger'; ?>"><?php echo number_format($balance, 2, ',', '.'); ?></td>
             <td><?php echo html_escape((string)($row['notes'] ?? '-')); ?></td>
+            <td class="text-center">
+              <div class="d-flex justify-content-center gap-1">
+                <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#phAssignEdit<?php echo (int)$row['employee_id']; ?>" aria-expanded="false">
+                  Ubah
+                </button>
+                <?php if (!empty($row['assignment_id'])): ?>
+                <form method="post" action="<?php echo site_url('attendance/ph-assignments/delete/' . (int)$row['assignment_id'] . '?' . $buildQuery()); ?>" onsubmit="return confirm('Hapus assignment PH pegawai ini?');">
+                  <button type="submit" class="btn btn-sm btn-outline-danger">Hapus</button>
+                </form>
+                <?php endif; ?>
+              </div>
+            </td>
+          </tr>
+          <tr class="collapse" id="phAssignEdit<?php echo (int)$row['employee_id']; ?>">
+            <td colspan="10" class="bg-light">
+              <form method="post" action="<?php echo site_url('attendance/ph-assignments/save?' . $buildQuery()); ?>" class="row g-2 align-items-end">
+                <input type="hidden" name="employee_id" value="<?php echo (int)$row['employee_id']; ?>">
+                <div class="col-md-3">
+                  <label class="form-label mb-1">Status Hak PH</label>
+                  <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="eligible_<?php echo (int)$row['employee_id']; ?>" name="is_eligible" value="1" <?php echo ((int)($row['is_eligible'] ?? 0) === 1) ? 'checked' : ''; ?>>
+                    <label class="form-check-label" for="eligible_<?php echo (int)$row['employee_id']; ?>">Pegawai ini berhak PH</label>
+                  </div>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label mb-1">Efektif</label>
+                  <input type="date" class="form-control" name="effective_date" value="<?php echo html_escape((string)($row['effective_date'] ?? date('Y-m-d'))); ?>" required>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label mb-1">Expired Override</label>
+                  <input type="number" min="0" class="form-control" name="expiry_months_override" value="<?php echo html_escape((string)($row['expiry_months_override'] ?? '')); ?>" placeholder="bulan">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label mb-1">Catatan</label>
+                  <input type="text" class="form-control" name="notes" value="<?php echo html_escape((string)($row['notes'] ?? '')); ?>" placeholder="Opsional">
+                </div>
+                <div class="col-md-1">
+                  <button type="submit" class="btn btn-sm btn-primary w-100">Simpan</button>
+                </div>
+              </form>
+            </td>
           </tr>
         <?php endforeach; endif; ?>
       </tbody>

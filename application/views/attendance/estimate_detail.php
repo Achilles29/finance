@@ -35,6 +35,7 @@ $backUrl = site_url($backRoute . '?' . http_build_query($backFilters));
       <div class="col-md-2"><small class="text-muted">Pot. Alpha</small><div class="fw-semibold text-danger"><?php echo number_format((float)$summary['alpha_deduction'],2,',','.'); ?></div></div>
       <div class="col-md-2"><small class="text-muted">Adj. Tambahan</small><div class="fw-semibold text-success"><?php echo number_format((float)($summary['manual_addition'] ?? 0),2,',','.'); ?></div></div>
       <div class="col-md-2"><small class="text-muted">Adj. Pengurangan</small><div class="fw-semibold text-danger"><?php echo number_format((float)($summary['manual_deduction'] ?? 0),2,',','.'); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Pot. Kasbon</small><div class="fw-semibold text-danger"><?php echo number_format((float)($summary['cash_advance_cut'] ?? 0),2,',','.'); ?></div></div>
       <div class="col-md-2"><small class="text-muted">Adj. Net</small><div class="fw-semibold <?php echo ((float)($summary['manual_adjustment_net'] ?? 0) >= 0) ? 'text-success' : 'text-danger'; ?>"><?php echo number_format((float)($summary['manual_adjustment_net'] ?? 0),2,',','.'); ?></div></div>
     </div>
   </div>
@@ -45,12 +46,12 @@ $backUrl = site_url($backRoute . '?' . http_build_query($backFilters));
     <table class="table table-striped mb-0">
       <thead>
         <tr>
-          <th>Tanggal</th><th>Shift</th><th>Status</th><th class="text-end">Telat</th><th class="text-end">Pulang Cepat</th><th class="text-end">Kerja</th><th class="text-end">Gaji</th><th class="text-end">Tunjangan</th><th class="text-end">U. Makan</th><th class="text-end">Lembur</th><th class="text-end">Potongan</th><th class="text-end">Adj. (+)</th><th class="text-end">Adj. (-)</th><th class="text-end">Adj. Net</th><th class="text-end">Gross</th><th class="text-end">Net</th><th class="text-end">THP Harian</th>
+          <th>Tanggal</th><th>Shift</th><th>Status</th><th class="text-end">Telat</th><th class="text-end">Pulang Cepat</th><th class="text-end">Kerja</th><th class="text-end">Gaji</th><th class="text-end">Tunjangan</th><th class="text-end">U. Makan</th><th class="text-end">Lembur</th><th class="text-end">Potongan</th><th class="text-end">Adj. (+)</th><th class="text-end">Adj. (-)</th><th class="text-end">Pot. Kasbon</th><th class="text-end">Adj. Net</th><th class="text-end">Gross</th><th class="text-end">Net</th><th class="text-end">THP Harian</th>
         </tr>
       </thead>
       <tbody>
       <?php if (empty($dailyRows)): ?>
-        <tr><td colspan="17" class="text-center text-muted py-4">Tidak ada data absensi pada periode ini.</td></tr>
+        <tr><td colspan="18" class="text-center text-muted py-4">Tidak ada data absensi pada periode ini.</td></tr>
       <?php else: foreach($dailyRows as $r): ?>
         <?php $thpDay = (float)($r['day_total'] ?? 0); ?>
         <tr>
@@ -67,6 +68,7 @@ $backUrl = site_url($backRoute . '?' . http_build_query($backFilters));
           <td class="text-end text-danger"><?php echo number_format((float)$r['late_deduction'] + (float)$r['alpha_deduction'],2,',','.'); ?></td>
           <td class="text-end text-success"><?php echo number_format((float)($r['manual_addition_amount'] ?? 0),2,',','.'); ?></td>
           <td class="text-end text-danger"><?php echo number_format((float)($r['manual_deduction_amount'] ?? 0),2,',','.'); ?></td>
+          <td class="text-end text-danger"><?php echo number_format((float)($r['cash_advance_cut'] ?? 0),2,',','.'); ?></td>
           <td class="text-end <?php echo ((float)($r['manual_adjustment_net_amount'] ?? 0) >= 0) ? 'text-success' : 'text-danger'; ?>"><?php echo number_format((float)($r['manual_adjustment_net_amount'] ?? 0),2,',','.'); ?></td>
           <td class="text-end"><?php echo number_format((float)($r['gross_amount'] ?? 0),2,',','.'); ?></td>
           <td class="text-end"><?php echo number_format((float)($r['net_amount'] ?? 0),2,',','.'); ?></td>

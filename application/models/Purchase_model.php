@@ -122,7 +122,7 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
-    public function list_account_mutations(int $accountId, string $dateFrom, string $dateTo, int $limit): array
+    public function list_account_mutations(int $accountId, string $dateFrom, string $dateTo, int $limit, int $offset = 0): array
     {
         if (!$this->db->table_exists('fin_account_mutation_log')) {
             return [];
@@ -134,25 +134,49 @@ class Purchase_model extends CI_Model
             ->from('fin_account_mutation_log m')
             ->join('fin_company_account a', 'a.id = m.account_id', 'left');
 
+        $this->applyAccountMutationDateFilters('m', $accountId, $dateFrom, $dateTo);
+
+        return $this->db
+            ->order_by('m.mutation_date', 'DESC')
+            ->order_by('m.id', 'DESC')
+            ->limit($limit, max(0, $offset))
+            ->get()
+            ->result_array();
+    }
+
+    public function count_account_mutations(int $accountId, string $dateFrom, string $dateTo): int
+    {
+        if (!$this->db->table_exists('fin_account_mutation_log')) {
+            return 0;
+        }
+
+        $this->db
+            ->from('fin_account_mutation_log m');
+
+        $this->applyAccountMutationDateFilters('m', $accountId, $dateFrom, $dateTo);
+
+        $row = $this->db
+            ->select('COUNT(*) AS total_rows', false)
+            ->get()
+            ->row_array();
+
+        return (int)($row['total_rows'] ?? 0);
+    }
+
+    private function applyAccountMutationDateFilters(string $alias, int $accountId, string $dateFrom, string $dateTo): void
+    {
         if ($accountId > 0) {
-            $this->db->where('m.account_id', $accountId);
+            $this->db->where($alias . '.account_id', $accountId);
         }
 
         $from = $this->normalizeDate($dateFrom);
         $to = $this->normalizeDate($dateTo);
         if ($from !== null) {
-            $this->db->where('m.mutation_date >=', $from);
+            $this->db->where($alias . '.mutation_date >=', $from);
         }
         if ($to !== null) {
-            $this->db->where('m.mutation_date <=', $to);
+            $this->db->where($alias . '.mutation_date <=', $to);
         }
-
-        return $this->db
-            ->order_by('m.mutation_date', 'DESC')
-            ->order_by('m.id', 'DESC')
-            ->limit($limit)
-            ->get()
-            ->result_array();
     }
 
     public function get_account_mutation_summary(int $accountId, string $dateFrom, string $dateTo): array
@@ -209,10 +233,20 @@ class Purchase_model extends CI_Model
 
         $accountId = (int)($payload['account_id'] ?? 0);
         $mutationType = strtoupper(trim((string)($payload['mutation_type'] ?? '')));
+        $toAccountId = (int)($payload['to_account_id'] ?? 0);
         $amount = round((float)($payload['amount'] ?? 0), 2);
         $mutationDate = $this->normalizeDate((string)($payload['mutation_date'] ?? date('Y-m-d')));
+        $referenceNo = $this->nullableString($payload['reference_no'] ?? null);
+        $notes = $this->nullableString($payload['notes'] ?? null);
 
-        if ($accountId <= 0 || !in_array($mutationType, ['IN', 'OUT'], true) || $amount <= 0 || $mutationDate === null) {
+        if ($mutationType === 'TRANSFER') {
+            if ($accountId <= 0 || $toAccountId <= 0 || $accountId === $toAccountId || $amount <= 0 || $mutationDate === null) {
+                return [
+                    'ok' => false,
+                    'message' => 'Transfer wajib mengisi rekening sumber, rekening tujuan (berbeda), amount, mutation_date.',
+                ];
+            }
+        } elseif ($accountId <= 0 || !in_array($mutationType, ['IN', 'OUT'], true) || $amount <= 0 || $mutationDate === null) {
             return [
                 'ok' => false,
                 'message' => 'account_id, mutation_type(IN/OUT), amount, mutation_date wajib valid.',
@@ -221,72 +255,193 @@ class Purchase_model extends CI_Model
 
         $this->db->trans_begin();
 
-        $account = $this->db
-            ->query('SELECT * FROM fin_company_account WHERE id = ? AND is_active = 1 LIMIT 1 FOR UPDATE', [$accountId])
-            ->row_array();
+        $mutationIds = [];
+        $mutationNos = [];
 
-        if (!$account) {
-            $this->db->trans_rollback();
-            return [
-                'ok' => false,
-                'message' => 'Akun rekening tidak ditemukan atau tidak aktif.',
-            ];
-        }
+        if ($mutationType === 'TRANSFER') {
+            $lockRows = $this->db
+                ->query(
+                    'SELECT * FROM fin_company_account WHERE id IN (?, ?) AND is_active = 1 ORDER BY id ASC FOR UPDATE',
+                    [$accountId, $toAccountId]
+                )
+                ->result_array();
+            $accountsById = [];
+            foreach ($lockRows as $row) {
+                $accountsById[(int)($row['id'] ?? 0)] = $row;
+            }
+            $source = $accountsById[$accountId] ?? null;
+            $target = $accountsById[$toAccountId] ?? null;
+            if (!$source || !$target) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Rekening sumber/tujuan tidak ditemukan atau tidak aktif.',
+                ];
+            }
 
-        $balanceBefore = (float)($account['current_balance'] ?? 0);
-        $balanceAfter = $mutationType === 'IN'
-            ? round($balanceBefore + $amount, 2)
-            : round($balanceBefore - $amount, 2);
+            $sourceBefore = (float)($source['current_balance'] ?? 0);
+            $targetBefore = (float)($target['current_balance'] ?? 0);
+            $sourceAfter = round($sourceBefore - $amount, 2);
+            $targetAfter = round($targetBefore + $amount, 2);
 
-        if ($balanceAfter < 0) {
-            $this->db->trans_rollback();
-            return [
-                'ok' => false,
-                'message' => 'Saldo rekening tidak cukup untuk mutasi OUT.',
-            ];
-        }
+            if ($sourceAfter < 0) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Saldo rekening sumber tidak cukup untuk transfer.',
+                ];
+            }
 
-        $this->db->where('id', $accountId)->update('fin_company_account', [
-            'current_balance' => $balanceAfter,
-        ]);
-
-        $mutationNo = $this->generateAccountMutationNo($mutationDate);
-        $this->db->insert('fin_account_mutation_log', [
-            'mutation_no' => $mutationNo,
-            'mutation_date' => $mutationDate,
-            'account_id' => $accountId,
-            'mutation_type' => $mutationType,
-            'amount' => $amount,
-            'balance_before' => $balanceBefore,
-            'balance_after' => $balanceAfter,
-            'ref_module' => 'FINANCE',
-            'ref_table' => null,
-            'ref_id' => null,
-            'ref_no' => $this->nullableString($payload['reference_no'] ?? null),
-            'notes' => $this->nullableString($payload['notes'] ?? null),
-            'created_by' => $userId > 0 ? $userId : null,
-        ]);
-        $mutationId = (int)$this->db->insert_id();
-
-        if ($this->db->table_exists('aud_transaction_log')) {
-            $this->db->insert('aud_transaction_log', [
-                'module_code' => 'FINANCE',
-                'action_code' => 'ACCOUNT_MUTATION',
-                'entity_table' => 'fin_account_mutation_log',
-                'entity_id' => $mutationId > 0 ? $mutationId : null,
-                'transaction_no' => $mutationNo,
-                'actor_user_id' => $userId > 0 ? $userId : null,
-                'source_ip' => $sourceIp !== '' ? $sourceIp : null,
-                'after_payload' => json_encode([
-                    'account_id' => $accountId,
-                    'mutation_type' => $mutationType,
-                    'amount' => $amount,
-                    'balance_before' => $balanceBefore,
-                    'balance_after' => $balanceAfter,
-                    'mutation_date' => $mutationDate,
-                ]),
-                'notes' => 'Mutasi rekening manual',
+            $this->db->where('id', $accountId)->update('fin_company_account', [
+                'current_balance' => $sourceAfter,
             ]);
+            $this->db->where('id', $toAccountId)->update('fin_company_account', [
+                'current_balance' => $targetAfter,
+            ]);
+
+            $transferRef = $referenceNo;
+            if ($transferRef === null || $transferRef === '') {
+                $transferRef = 'TRF-' . date('YmdHis');
+            }
+            $notesOut = $notes !== null && $notes !== ''
+                ? $notes
+                : 'Transfer ke ' . (string)($target['account_code'] ?? ('#' . $toAccountId));
+            $notesIn = $notes !== null && $notes !== ''
+                ? $notes
+                : 'Transfer dari ' . (string)($source['account_code'] ?? ('#' . $accountId));
+
+            $mutationNoOut = $this->generateAccountMutationNo($mutationDate);
+            $this->db->insert('fin_account_mutation_log', [
+                'mutation_no' => $mutationNoOut,
+                'mutation_date' => $mutationDate,
+                'account_id' => $accountId,
+                'mutation_type' => 'OUT',
+                'amount' => $amount,
+                'balance_before' => $sourceBefore,
+                'balance_after' => $sourceAfter,
+                'ref_module' => 'FINANCE_TRANSFER',
+                'ref_table' => null,
+                'ref_id' => null,
+                'ref_no' => $transferRef,
+                'notes' => $notesOut,
+                'created_by' => $userId > 0 ? $userId : null,
+            ]);
+            $mutationIds[] = (int)$this->db->insert_id();
+            $mutationNos[] = $mutationNoOut;
+
+            $mutationNoIn = $this->generateAccountMutationNo($mutationDate);
+            $this->db->insert('fin_account_mutation_log', [
+                'mutation_no' => $mutationNoIn,
+                'mutation_date' => $mutationDate,
+                'account_id' => $toAccountId,
+                'mutation_type' => 'IN',
+                'amount' => $amount,
+                'balance_before' => $targetBefore,
+                'balance_after' => $targetAfter,
+                'ref_module' => 'FINANCE_TRANSFER',
+                'ref_table' => null,
+                'ref_id' => null,
+                'ref_no' => $transferRef,
+                'notes' => $notesIn,
+                'created_by' => $userId > 0 ? $userId : null,
+            ]);
+            $mutationIds[] = (int)$this->db->insert_id();
+            $mutationNos[] = $mutationNoIn;
+
+            if ($this->db->table_exists('aud_transaction_log')) {
+                $this->db->insert('aud_transaction_log', [
+                    'module_code' => 'FINANCE',
+                    'action_code' => 'ACCOUNT_TRANSFER',
+                    'entity_table' => 'fin_account_mutation_log',
+                    'entity_id' => $mutationIds[0] > 0 ? $mutationIds[0] : null,
+                    'transaction_no' => $transferRef,
+                    'actor_user_id' => $userId > 0 ? $userId : null,
+                    'source_ip' => $sourceIp !== '' ? $sourceIp : null,
+                    'after_payload' => json_encode([
+                        'from_account_id' => $accountId,
+                        'to_account_id' => $toAccountId,
+                        'amount' => $amount,
+                        'from_balance_before' => $sourceBefore,
+                        'from_balance_after' => $sourceAfter,
+                        'to_balance_before' => $targetBefore,
+                        'to_balance_after' => $targetAfter,
+                        'mutation_date' => $mutationDate,
+                        'mutation_no_out' => $mutationNoOut,
+                        'mutation_no_in' => $mutationNoIn,
+                    ]),
+                    'notes' => 'Mutasi antar rekening manual',
+                ]);
+            }
+        } else {
+            $account = $this->db
+                ->query('SELECT * FROM fin_company_account WHERE id = ? AND is_active = 1 LIMIT 1 FOR UPDATE', [$accountId])
+                ->row_array();
+
+            if (!$account) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Akun rekening tidak ditemukan atau tidak aktif.',
+                ];
+            }
+
+            $balanceBefore = (float)($account['current_balance'] ?? 0);
+            $balanceAfter = $mutationType === 'IN'
+                ? round($balanceBefore + $amount, 2)
+                : round($balanceBefore - $amount, 2);
+
+            if ($balanceAfter < 0) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Saldo rekening tidak cukup untuk mutasi OUT.',
+                ];
+            }
+
+            $this->db->where('id', $accountId)->update('fin_company_account', [
+                'current_balance' => $balanceAfter,
+            ]);
+
+            $mutationNo = $this->generateAccountMutationNo($mutationDate);
+            $this->db->insert('fin_account_mutation_log', [
+                'mutation_no' => $mutationNo,
+                'mutation_date' => $mutationDate,
+                'account_id' => $accountId,
+                'mutation_type' => $mutationType,
+                'amount' => $amount,
+                'balance_before' => $balanceBefore,
+                'balance_after' => $balanceAfter,
+                'ref_module' => 'FINANCE',
+                'ref_table' => null,
+                'ref_id' => null,
+                'ref_no' => $referenceNo,
+                'notes' => $notes,
+                'created_by' => $userId > 0 ? $userId : null,
+            ]);
+            $mutationId = (int)$this->db->insert_id();
+            $mutationIds[] = $mutationId;
+            $mutationNos[] = $mutationNo;
+
+            if ($this->db->table_exists('aud_transaction_log')) {
+                $this->db->insert('aud_transaction_log', [
+                    'module_code' => 'FINANCE',
+                    'action_code' => 'ACCOUNT_MUTATION',
+                    'entity_table' => 'fin_account_mutation_log',
+                    'entity_id' => $mutationId > 0 ? $mutationId : null,
+                    'transaction_no' => $mutationNo,
+                    'actor_user_id' => $userId > 0 ? $userId : null,
+                    'source_ip' => $sourceIp !== '' ? $sourceIp : null,
+                    'after_payload' => json_encode([
+                        'account_id' => $accountId,
+                        'mutation_type' => $mutationType,
+                        'amount' => $amount,
+                        'balance_before' => $balanceBefore,
+                        'balance_after' => $balanceAfter,
+                        'mutation_date' => $mutationDate,
+                    ]),
+                    'notes' => 'Mutasi rekening manual',
+                ]);
+            }
         }
 
         if ($this->db->trans_status() === false) {
@@ -301,14 +456,18 @@ class Purchase_model extends CI_Model
 
         return [
             'ok' => true,
-            'message' => 'Mutasi rekening berhasil diposting.',
+            'message' => $mutationType === 'TRANSFER'
+                ? 'Mutasi antar rekening berhasil diposting.'
+                : 'Mutasi rekening berhasil diposting.',
             'data' => [
-                'mutation_id' => $mutationId,
-                'mutation_no' => $mutationNo,
+                'mutation_id' => $mutationIds[0] ?? 0,
+                'mutation_no' => $mutationNos[0] ?? null,
+                'mutation_ids' => $mutationIds,
+                'mutation_nos' => $mutationNos,
                 'account_id' => $accountId,
                 'mutation_type' => $mutationType,
                 'amount' => $amount,
-                'balance_after' => $balanceAfter,
+                'to_account_id' => $mutationType === 'TRANSFER' ? $toAccountId : null,
             ],
         ];
     }

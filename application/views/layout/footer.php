@@ -11,6 +11,6 @@
 <!-- Base URL untuk JS -->
 <script>const BASE_URL = '<?= base_url() ?>';</script>
 <!-- Finance App JS -->
-<script src="<?= base_url('assets/js/app.js?v=20260510c') ?>"></script>
+<script src="<?= base_url('assets/js/app.js?v=20260511a') ?>"></script>
 </body>
 </html>

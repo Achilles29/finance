@@ -132,6 +132,60 @@ $(function () {
         });
     }
 
+    function applyAutoTableFit() {
+        var nowrapPatterns = [
+            /\bref\b/,
+            /referensi/,
+            /\bno\b/,
+            /nomor/,
+            /kode/,
+            /\bnip\b/,
+            /tanggal/,
+            /\btgl\b/,
+            /status/,
+            /aksi/,
+            /shift/,
+            /divisi/,
+            /\bjam\b/
+        ];
+        var notesPatterns = [/catatan/, /notes?/, /alasan/, /keterangan/, /deskripsi/];
+
+        document.querySelectorAll('table').forEach(function (table) {
+            var headerCells = Array.prototype.slice.call(table.querySelectorAll('thead th'));
+            if (!headerCells.length) return;
+
+            table.classList.add('table-autofit');
+
+            var colRules = [];
+            headerCells.forEach(function (th, idx) {
+                var label = (th.textContent || '').toLowerCase().trim();
+                var isNotes = notesPatterns.some(function (pattern) { return pattern.test(label); });
+                var isNoWrap = nowrapPatterns.some(function (pattern) { return pattern.test(label); });
+
+                if (isNotes) {
+                    th.classList.add('col-notes');
+                    colRules.push({ idx: idx, className: 'col-notes' });
+                    return;
+                }
+                if (isNoWrap) {
+                    th.classList.add('cell-nowrap');
+                    colRules.push({ idx: idx, className: 'cell-nowrap' });
+                }
+            });
+
+            if (!colRules.length) return;
+            table.querySelectorAll('tbody tr').forEach(function (row) {
+                var cells = row.querySelectorAll('td');
+                if (!cells.length) return;
+                colRules.forEach(function (rule) {
+                    if (cells[rule.idx]) {
+                        cells[rule.idx].classList.add(rule.className);
+                    }
+                });
+            });
+        });
+    }
+
     function reinforceSidebarActivePath() {
         var wrapper = document.querySelector('.layout-wrapper[data-current-url]');
         var currentUrl = wrapper ? (wrapper.getAttribute('data-current-url') || '').replace(/^\/+|\/+$/g, '') : '';
@@ -524,6 +578,7 @@ $(function () {
     applyPageTitleIcon();
     formatTwoDecimals();
     harmonizeLegacyTables();
+    applyAutoTableFit();
     initUiDialogs();
     normalizeInlineConfirmToDataAttr();
     bindUiConfirmAndLoading();

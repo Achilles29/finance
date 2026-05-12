@@ -42,7 +42,10 @@ $buildPageItems = static function (int $page, int $totalPages): array {
     <h4 class="mb-0"><?php echo html_escape($title ?? 'Rekap Gaji Bulanan (Absensi)'); ?></h4>
     <small class="text-muted">Rekap semua pegawai per periode. Klik detail untuk lihat rincian harian per pegawai.</small>
   </div>
-  <span class="text-muted small">Total: <?php echo (int)$pg['total']; ?></span>
+  <div class="d-flex align-items-center gap-2">
+    <a class="btn btn-outline-secondary btn-sm" href="<?php echo site_url('attendance/meal-calendar'); ?>">Estimasi Uang Makan</a>
+    <span class="text-muted small">Total: <?php echo (int)$pg['total']; ?></span>
+  </div>
 </div>
 
 <div class="card mb-3">
@@ -78,6 +81,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <th class="text-end">Potongan</th>
           <th class="text-end">Adj. (+)</th>
           <th class="text-end">Adj. (-)</th>
+          <th class="text-end">Pot. Kasbon</th>
           <th class="text-end">Adj. Net</th>
           <th class="text-end">Gaji Kotor</th>
           <th class="text-end">Net</th>
@@ -87,7 +91,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
       </thead>
       <tbody>
       <?php if (empty($rows)): ?>
-        <tr><td colspan="20" class="text-center text-muted py-4">Tidak ada data pada periode ini.</td></tr>
+        <tr><td colspan="21" class="text-center text-muted py-4">Tidak ada data pada periode ini.</td></tr>
       <?php else: foreach($rows as $r): ?>
         <?php
           $deductionTotal = (float)($r['late_deduction_total'] ?? 0) + (float)($r['alpha_deduction_total'] ?? 0);
@@ -112,6 +116,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <td class="text-end text-danger"><?php echo number_format($deductionTotal, 2, ',', '.'); ?></td>
           <td class="text-end text-success"><?php echo number_format((float)($r['manual_addition_total'] ?? 0), 2, ',', '.'); ?></td>
           <td class="text-end text-danger"><?php echo number_format((float)($r['manual_deduction_total'] ?? 0), 2, ',', '.'); ?></td>
+          <td class="text-end text-danger"><?php echo number_format((float)($r['cash_advance_cut_total'] ?? 0), 2, ',', '.'); ?></td>
           <td class="text-end <?php echo ((float)($r['manual_adjustment_net_total'] ?? 0) >= 0) ? 'text-success' : 'text-danger'; ?>"><?php echo number_format((float)($r['manual_adjustment_net_total'] ?? 0), 2, ',', '.'); ?></td>
           <td class="text-end"><?php echo number_format((float)($r['gross_total'] ?? 0), 2, ',', '.'); ?></td>
           <td class="text-end"><?php echo number_format((float)($r['net_only_total'] ?? $r['net_total'] ?? 0), 2, ',', '.'); ?></td>

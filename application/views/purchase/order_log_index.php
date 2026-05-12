@@ -54,17 +54,17 @@ $actionOptions = is_array($action_options ?? null) ? $action_options : [];
 
 <div class="card">
   <div class="table-responsive">
-    <table class="table table-striped table-hover mb-0">
+    <table class="table table-striped table-hover mb-0 table-autofit">
       <thead>
         <tr>
-          <th>Waktu</th>
-          <th>PO</th>
-          <th>Action</th>
-          <th>Status</th>
-          <th>Transaksi</th>
-          <th>Ref</th>
+          <th class="text-nowrap">Waktu</th>
+          <th class="text-nowrap">PO</th>
+          <th class="text-nowrap">Action</th>
+          <th class="text-nowrap">Status</th>
+          <th class="text-nowrap">Transaksi</th>
+          <th class="text-nowrap">Ref</th>
           <th class="text-end">Amount</th>
-          <th>Catatan</th>
+          <th class="col-notes">Catatan</th>
         </tr>
       </thead>
       <tbody>
@@ -89,7 +89,7 @@ $actionOptions = is_array($action_options ?? null) ? $action_options : [];
               }
             ?>
             <tr>
-              <td><?php echo html_escape((string)($r['created_at'] ?? '-')); ?></td>
+              <td class="text-nowrap"><?php echo html_escape((string)($r['created_at'] ?? '-')); ?></td>
               <td>
                 <?php if ($poId > 0): ?>
                   <a href="<?php echo site_url('purchase-orders/detail/' . $poId); ?>"><?php echo html_escape($poNo); ?></a>
@@ -98,14 +98,14 @@ $actionOptions = is_array($action_options ?? null) ? $action_options : [];
                 <?php endif; ?>
               </td>
               <td><span class="badge bg-secondary"><?php echo html_escape((string)($r['action_code'] ?? '-')); ?></span></td>
-              <td><?php echo html_escape($statusPair); ?></td>
-              <td><?php echo html_escape((string)($r['transaction_no'] ?? '-')); ?></td>
-              <td>
+              <td class="text-nowrap"><?php echo html_escape($statusPair); ?></td>
+              <td class="text-nowrap"><?php echo html_escape((string)($r['transaction_no'] ?? '-')); ?></td>
+              <td class="text-nowrap">
                 <?php echo html_escape((string)($r['ref_table'] ?? '-')); ?>
                 <?php if (!empty($r['ref_id'])): ?>#<?php echo (int)$r['ref_id']; ?><?php endif; ?>
               </td>
               <td class="text-end"><?php echo $r['amount'] !== null ? number_format((float)$r['amount'], 2, ',', '.') : '-'; ?></td>
-              <td><?php echo html_escape((string)($r['notes'] ?? '-')); ?></td>
+              <td class="col-notes"><?php echo html_escape((string)($r['notes'] ?? '-')); ?></td>
             </tr>
           <?php endforeach; ?>
         <?php endif; ?>

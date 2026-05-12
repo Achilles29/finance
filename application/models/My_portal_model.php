@@ -709,8 +709,10 @@ class My_portal_model extends CI_Model
         $grossAmount = 0.0;
         $netAmount = 0.0;
 
+        $isPresentish = in_array($status, ['PRESENT', 'LATE', 'HOLIDAY'], true);
+        $mealEst = ($mealMode === 'CUSTOM' && $isPresentish && $effectiveCheckinTs > 0) ? $mealRate : 0;
+
         if ($hasCompletedCheckout) {
-            $isPresentish = in_array($status, ['PRESENT', 'LATE', 'HOLIDAY'], true);
             $allowanceEligible = $isPresentish;
             if ($allowanceEligible && $allowanceLateTreatment === 'DEDUCT_IF_LATE' && $status === 'LATE') {
                 $allowanceEligible = false;
@@ -718,7 +720,6 @@ class My_portal_model extends CI_Model
 
             $basicEst = $isPresentish ? $basicDailyRate : 0;
             $allowEst = $allowanceEligible ? $allowanceDailyRate : 0;
-            $mealEst = ($mealMode === 'CUSTOM' && $isPresentish) ? $mealRate : 0;
             if ($overtimeMode === 'MANUAL') {
                 $overtimePay = $this->get_manual_overtime_pay($employeeId, $date);
             } else {
@@ -789,6 +790,15 @@ class My_portal_model extends CI_Model
                 'employee_id' => $employeeId,
                 'created_at' => date('Y-m-d H:i:s'),
             ] + $payload);
+        }
+
+        // Trigger grant PH otomatis untuk tanggal ini jika memenuhi policy PH.
+        $CI = get_instance();
+        if ($CI && method_exists($CI, 'load')) {
+            $CI->load->model('Attendance_model');
+            if (isset($CI->Attendance_model) && method_exists($CI->Attendance_model, 'sync_ph_grant_for_employee_date')) {
+                $CI->Attendance_model->sync_ph_grant_for_employee_date($employeeId, $date, 0);
+            }
         }
     }
 
@@ -876,6 +886,286 @@ class My_portal_model extends CI_Model
             'deduction' => round($deduction, 2),
             'net' => round($addition - $deduction, 2),
         ];
+    }
+
+    public function count_my_meal_ledger(int $employeeId, array $filters): int
+    {
+        $this->build_my_meal_ledger_query($employeeId, $filters, false);
+        return (int)$this->db->count_all_results();
+    }
+
+    public function list_my_meal_ledger(int $employeeId, array $filters, int $limit, int $offset): array
+    {
+        $this->build_my_meal_ledger_query($employeeId, $filters, true);
+        return $this->db->order_by('ad.attendance_date', 'DESC')
+            ->limit($limit, $offset)
+            ->get()->result_array();
+    }
+
+    private function build_my_meal_ledger_query(int $employeeId, array $filters, bool $withSelect): void
+    {
+        if ($withSelect) {
+            $this->db->select("
+                ad.attendance_date,
+                ad.meal_amount,
+                ad.attendance_status,
+                mdl.id AS disbursement_line_id,
+                mdl.transfer_status,
+                mdl.transfer_ref_no,
+                mdl.paid_at,
+                md.disbursement_no,
+                md.disbursement_date,
+                md.status AS disbursement_status
+            ", false);
+        }
+
+        $this->db->from('att_daily ad')
+            ->join('pay_meal_disbursement_line mdl', 'mdl.employee_id = ad.employee_id AND mdl.attendance_date = ad.attendance_date', 'left')
+            ->join('pay_meal_disbursement md', 'md.id = mdl.disbursement_id', 'left')
+            ->where('ad.employee_id', $employeeId)
+            ->where('COALESCE(ad.meal_amount,0) >', 0);
+
+        if (!empty($filters['date_start'])) {
+            $this->db->where('ad.attendance_date >=', (string)$filters['date_start']);
+        }
+        if (!empty($filters['date_end'])) {
+            $this->db->where('ad.attendance_date <=', (string)$filters['date_end']);
+        }
+        if (!empty($filters['status'])) {
+            $status = strtoupper((string)$filters['status']);
+            if ($status === 'UNPAID') {
+                $this->db->where('mdl.id IS NULL', null, false);
+            } elseif (in_array($status, ['PENDING', 'PAID', 'FAILED', 'VOID'], true)) {
+                $this->db->where('mdl.transfer_status', $status);
+            }
+        }
+    }
+
+    public function my_meal_ledger_summary(int $employeeId, array $filters): array
+    {
+        $this->build_my_meal_ledger_query($employeeId, $filters, true);
+        $rows = $this->db->get()->result_array();
+        $eligible = 0.0;
+        $paid = 0.0;
+        $pending = 0.0;
+        foreach ($rows as $row) {
+            $amount = (float)($row['meal_amount'] ?? 0);
+            $eligible += $amount;
+            $lineId = (int)($row['disbursement_line_id'] ?? 0);
+            $transferStatus = strtoupper((string)($row['transfer_status'] ?? ''));
+            if ($lineId <= 0) {
+                $pending += $amount;
+                continue;
+            }
+            if ($transferStatus === 'PAID') {
+                $paid += $amount;
+            } elseif ($transferStatus !== 'VOID') {
+                $pending += $amount;
+            }
+        }
+        return [
+            'eligible_total' => round($eligible, 2),
+            'paid_total' => round($paid, 2),
+            'pending_total' => round($pending, 2),
+        ];
+    }
+
+    public function count_my_overtime_entries(int $employeeId, array $filters): int
+    {
+        $this->build_my_overtime_entries_query($employeeId, $filters, false);
+        return (int)$this->db->count_all_results();
+    }
+
+    public function list_my_overtime_entries(int $employeeId, array $filters, int $limit, int $offset): array
+    {
+        $this->build_my_overtime_entries_query($employeeId, $filters, true);
+        return $this->db->order_by('oe.overtime_date', 'DESC')
+            ->order_by('oe.id', 'DESC')
+            ->limit($limit, $offset)
+            ->get()->result_array();
+    }
+
+    private function build_my_overtime_entries_query(int $employeeId, array $filters, bool $withSelect): void
+    {
+        if ($withSelect) {
+            $this->db->select('oe.*, os.standard_name AS overtime_standard_name, os.hourly_rate AS overtime_standard_rate');
+        }
+
+        $this->db->from('att_overtime_entry oe')
+            ->join('att_overtime_standard os', 'os.id = oe.overtime_standard_id', 'left')
+            ->where('oe.employee_id', $employeeId);
+
+        if (!empty($filters['date_start'])) {
+            $this->db->where('oe.overtime_date >=', (string)$filters['date_start']);
+        }
+        if (!empty($filters['date_end'])) {
+            $this->db->where('oe.overtime_date <=', (string)$filters['date_end']);
+        }
+        if (!empty($filters['status'])) {
+            $this->db->where('oe.status', strtoupper((string)$filters['status']));
+        }
+    }
+
+    public function count_my_ph_ledger(int $employeeId, array $filters): int
+    {
+        $this->build_my_ph_ledger_query($employeeId, $filters, false);
+        return (int)$this->db->count_all_results();
+    }
+
+    public function list_my_ph_ledger(int $employeeId, array $filters, int $limit, int $offset): array
+    {
+        $this->build_my_ph_ledger_query($employeeId, $filters, true);
+        return $this->db->order_by('l.tx_date', 'DESC')
+            ->order_by('l.id', 'DESC')
+            ->limit($limit, $offset)
+            ->get()->result_array();
+    }
+
+    private function build_my_ph_ledger_query(int $employeeId, array $filters, bool $withSelect): void
+    {
+        if ($withSelect) {
+            $this->db->select("
+                l.*,
+                (
+                    SELECT COALESCE(SUM(
+                      CASE x.tx_type
+                        WHEN 'GRANT' THEN x.qty_days
+                        WHEN 'ADJUST' THEN x.qty_days
+                        WHEN 'USE' THEN -x.qty_days
+                        WHEN 'EXPIRE' THEN -x.qty_days
+                        ELSE 0
+                      END
+                    ),0)
+                    FROM att_employee_ph_ledger x
+                    WHERE x.employee_id = l.employee_id
+                      AND (x.tx_date < l.tx_date OR (x.tx_date = l.tx_date AND x.id <= l.id))
+                ) AS running_balance
+            ", false);
+        }
+
+        $this->db->from('att_employee_ph_ledger l')
+            ->where('l.employee_id', $employeeId);
+
+        if (!empty($filters['date_start'])) {
+            $this->db->where('l.tx_date >=', (string)$filters['date_start']);
+        }
+        if (!empty($filters['date_end'])) {
+            $this->db->where('l.tx_date <=', (string)$filters['date_end']);
+        }
+        if (!empty($filters['tx_type'])) {
+            $this->db->where('l.tx_type', strtoupper((string)$filters['tx_type']));
+        }
+    }
+
+    public function my_ph_balance_summary(int $employeeId): array
+    {
+        $row = $this->db->select("
+            COALESCE(SUM(CASE WHEN tx_type='GRANT' THEN qty_days ELSE 0 END),0) AS grant_total,
+            COALESCE(SUM(CASE WHEN tx_type='USE' THEN qty_days ELSE 0 END),0) AS use_total,
+            COALESCE(SUM(CASE WHEN tx_type='EXPIRE' THEN qty_days ELSE 0 END),0) AS expire_total,
+            COALESCE(SUM(CASE WHEN tx_type='ADJUST' THEN qty_days ELSE 0 END),0) AS adjust_total
+        ", false)
+            ->from('att_employee_ph_ledger')
+            ->where('employee_id', $employeeId)
+            ->get()->row_array();
+
+        $grant = (float)($row['grant_total'] ?? 0);
+        $use = (float)($row['use_total'] ?? 0);
+        $expire = (float)($row['expire_total'] ?? 0);
+        $adjust = (float)($row['adjust_total'] ?? 0);
+        return [
+            'grant_total' => round($grant, 2),
+            'use_total' => round($use, 2),
+            'expire_total' => round($expire, 2),
+            'adjust_total' => round($adjust, 2),
+            'balance' => round(($grant + $adjust) - ($use + $expire), 2),
+        ];
+    }
+
+    public function count_my_manual_adjustments(int $employeeId, array $filters): int
+    {
+        $this->build_my_manual_adjustment_query($employeeId, $filters, false);
+        return (int)$this->db->count_all_results();
+    }
+
+    public function list_my_manual_adjustments(int $employeeId, array $filters, int $limit, int $offset): array
+    {
+        $this->build_my_manual_adjustment_query($employeeId, $filters, true);
+        return $this->db->order_by('ma.adjustment_date', 'DESC')
+            ->order_by('ma.id', 'DESC')
+            ->limit($limit, $offset)
+            ->get()->result_array();
+    }
+
+    private function build_my_manual_adjustment_query(int $employeeId, array $filters, bool $withSelect): void
+    {
+        if ($withSelect) {
+            $this->db->select('ma.*');
+        }
+        $this->db->from('pay_manual_adjustment ma')
+            ->where('ma.employee_id', $employeeId);
+
+        if (!empty($filters['date_start'])) {
+            $this->db->where('ma.adjustment_date >=', (string)$filters['date_start']);
+        }
+        if (!empty($filters['date_end'])) {
+            $this->db->where('ma.adjustment_date <=', (string)$filters['date_end']);
+        }
+        if (!empty($filters['status'])) {
+            $this->db->where('ma.status', strtoupper((string)$filters['status']));
+        }
+        if (!empty($filters['adjustment_kind'])) {
+            $this->db->where('ma.adjustment_kind', strtoupper((string)$filters['adjustment_kind']));
+        }
+    }
+
+    public function count_my_cash_advances(int $employeeId, array $filters): int
+    {
+        $this->build_my_cash_advance_query($employeeId, $filters, false);
+        return (int)$this->db->count_all_results();
+    }
+
+    public function list_my_cash_advances(int $employeeId, array $filters, int $limit, int $offset): array
+    {
+        $this->build_my_cash_advance_query($employeeId, $filters, true);
+        return $this->db->order_by('ca.request_date', 'DESC')
+            ->order_by('ca.id', 'DESC')
+            ->limit($limit, $offset)
+            ->get()->result_array();
+    }
+
+    private function build_my_cash_advance_query(int $employeeId, array $filters, bool $withSelect): void
+    {
+        if ($withSelect) {
+            $this->db->select("
+                ca.*,
+                COALESCE((SELECT SUM(i.plan_amount) FROM pay_cash_advance_installment i WHERE i.cash_advance_id=ca.id),0) AS installment_plan_total,
+                COALESCE((SELECT SUM(i.paid_amount) FROM pay_cash_advance_installment i WHERE i.cash_advance_id=ca.id),0) AS installment_paid_total
+            ", false);
+        }
+        $this->db->from('pay_cash_advance ca')
+            ->where('ca.employee_id', $employeeId);
+
+        if (!empty($filters['date_start'])) {
+            $this->db->where('ca.request_date >=', (string)$filters['date_start']);
+        }
+        if (!empty($filters['date_end'])) {
+            $this->db->where('ca.request_date <=', (string)$filters['date_end']);
+        }
+        if (!empty($filters['status'])) {
+            $this->db->where('ca.status', strtoupper((string)$filters['status']));
+        }
+    }
+
+    public function list_cash_advance_installments(int $cashAdvanceId): array
+    {
+        if ($cashAdvanceId <= 0) {
+            return [];
+        }
+        return $this->db->from('pay_cash_advance_installment')
+            ->where('cash_advance_id', $cashAdvanceId)
+            ->order_by('installment_no', 'ASC')
+            ->get()->result_array();
     }
 
     private function shift_bounds(string $date, string $startTime, string $endTime, int $isOvernight): array

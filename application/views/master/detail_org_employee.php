@@ -48,7 +48,7 @@ $entity = $entity ?? 'org-employee';
         <div class="small mb-2"><span class="text-muted">Uang Makan:</span> <strong><?php echo number_format((float)($row['meal_rate'] ?? 0), 2, ',', '.'); ?></strong></div>
         <div class="small mb-2"><span class="text-muted">Rate Lembur/Jam:</span> <strong><?php echo number_format((float)($row['overtime_rate'] ?? 0), 2, ',', '.'); ?></strong></div>
         <hr>
-        <div class="small mb-2"><span class="text-muted">Bank:</span> <?php echo html_escape((string)($row['bank_name'] ?? '-')); ?></div>
+        <div class="small mb-2"><span class="text-muted">Bank:</span> <?php echo html_escape((string)($row['bank_display_name'] ?? $row['bank_name'] ?? '-')); ?></div>
         <div class="small mb-2"><span class="text-muted">No Rekening:</span> <?php echo html_escape((string)($row['bank_account_no'] ?? '-')); ?></div>
         <div class="small"><span class="text-muted">Nama Rekening:</span> <?php echo html_escape((string)($row['bank_account_name'] ?? '-')); ?></div>
       </div>

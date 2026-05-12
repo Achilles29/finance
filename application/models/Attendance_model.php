@@ -413,6 +413,207 @@ class Attendance_model extends CI_Model
         return $this->db->order_by('e.employee_name', 'ASC')->get()->result_array();
     }
 
+    private function normalize_meal_calendar_dates(string $dateStart, string $dateEnd): array
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart)) {
+            $dateStart = date('Y-m-01');
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEnd)) {
+            $dateEnd = date('Y-m-t', strtotime($dateStart));
+        }
+        if ($dateEnd < $dateStart) {
+            $dateEnd = $dateStart;
+        }
+
+        $startTs = strtotime($dateStart);
+        $endTs = strtotime($dateEnd);
+        if ($startTs <= 0 || $endTs <= 0) {
+            $dateStart = date('Y-m-01');
+            $dateEnd = date('Y-m-t');
+            $startTs = strtotime($dateStart);
+            $endTs = strtotime($dateEnd);
+        }
+
+        $maxDays = 62;
+        if ((int)floor(($endTs - $startTs) / 86400) + 1 > $maxDays) {
+            $endTs = strtotime('+' . ($maxDays - 1) . ' day', $startTs);
+            $dateEnd = date('Y-m-d', $endTs);
+        }
+
+        return [$dateStart, $dateEnd];
+    }
+
+    private function apply_meal_calendar_filter_conditions(array $filters): void
+    {
+        $this->db->where('e.is_active', 1);
+
+        if (!empty($filters['division_id'])) {
+            $this->db->where('e.division_id', (int)$filters['division_id']);
+        }
+
+        if (!empty($filters['q'])) {
+            $q = trim((string)$filters['q']);
+            $this->db->group_start()
+                ->like('e.employee_code', $q)
+                ->or_like('e.employee_name', $q)
+                ->or_like('d.division_name', $q)
+                ->group_end();
+        }
+    }
+
+    public function count_meal_calendar_employees(array $filters): int
+    {
+        [$dateStart, $dateEnd] = $this->normalize_meal_calendar_dates(
+            (string)($filters['date_start'] ?? ''),
+            (string)($filters['date_end'] ?? '')
+        );
+
+        $this->db->from('org_employee e')
+            ->join('org_division d', 'd.id = e.division_id', 'left')
+            ->join('att_daily ad', 'ad.employee_id = e.id AND ad.attendance_date >= ' . $this->db->escape($dateStart) . ' AND ad.attendance_date <= ' . $this->db->escape($dateEnd), 'inner', false);
+        $this->apply_meal_calendar_filter_conditions($filters);
+        $row = $this->db->select('COUNT(DISTINCT e.id) AS c', false)->get()->row_array();
+        return (int)($row['c'] ?? 0);
+    }
+
+    public function list_meal_calendar_employees(array $filters, int $limit, int $offset): array
+    {
+        [$dateStart, $dateEnd] = $this->normalize_meal_calendar_dates(
+            (string)($filters['date_start'] ?? ''),
+            (string)($filters['date_end'] ?? '')
+        );
+
+        $rows = $this->db->select("
+                e.id AS employee_id,
+                e.employee_code,
+                e.employee_name,
+                d.division_name,
+                COALESCE(e.meal_rate, 0) AS meal_rate,
+                COUNT(ad.id) AS day_rows,
+                SUM(CASE WHEN COALESCE(ad.meal_amount,0) > 0 THEN 1 ELSE 0 END) AS meal_days,
+                SUM(COALESCE(ad.meal_amount,0)) AS meal_total,
+                SUM(
+                    CASE
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM pay_meal_disbursement_line mdl
+                            JOIN pay_meal_disbursement md ON md.id = mdl.disbursement_id
+                            WHERE mdl.employee_id = ad.employee_id
+                              AND mdl.attendance_date = ad.attendance_date
+                              AND mdl.transfer_status = 'PAID'
+                              AND md.status = 'PAID'
+                        ) THEN COALESCE(ad.meal_amount,0)
+                        ELSE 0
+                    END
+                ) AS paid_total
+            ", false)
+            ->from('org_employee e')
+            ->join('org_division d', 'd.id = e.division_id', 'left')
+            ->join('att_daily ad', 'ad.employee_id = e.id AND ad.attendance_date >= ' . $this->db->escape($dateStart) . ' AND ad.attendance_date <= ' . $this->db->escape($dateEnd), 'inner', false)
+            ->group_by('e.id')
+            ->order_by('e.employee_name', 'ASC')
+            ->limit($limit, $offset);
+
+        $this->apply_meal_calendar_filter_conditions($filters);
+        return $rows->get()->result_array();
+    }
+
+    public function meal_calendar_summary(array $filters): array
+    {
+        [$dateStart, $dateEnd] = $this->normalize_meal_calendar_dates(
+            (string)($filters['date_start'] ?? ''),
+            (string)($filters['date_end'] ?? '')
+        );
+
+        $row = $this->db->select("
+                COUNT(DISTINCT e.id) AS employee_count,
+                SUM(CASE WHEN COALESCE(ad.meal_amount,0) > 0 THEN 1 ELSE 0 END) AS meal_days,
+                SUM(COALESCE(ad.meal_amount,0)) AS meal_total,
+                SUM(
+                    CASE
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM pay_meal_disbursement_line mdl
+                            JOIN pay_meal_disbursement md ON md.id = mdl.disbursement_id
+                            WHERE mdl.employee_id = ad.employee_id
+                              AND mdl.attendance_date = ad.attendance_date
+                              AND mdl.transfer_status = 'PAID'
+                              AND md.status = 'PAID'
+                        ) THEN COALESCE(ad.meal_amount,0)
+                        ELSE 0
+                    END
+                ) AS paid_total
+            ", false)
+            ->from('org_employee e')
+            ->join('org_division d', 'd.id = e.division_id', 'left')
+            ->join('att_daily ad', 'ad.employee_id = e.id AND ad.attendance_date >= ' . $this->db->escape($dateStart) . ' AND ad.attendance_date <= ' . $this->db->escape($dateEnd), 'inner', false);
+        $this->apply_meal_calendar_filter_conditions($filters);
+        $row = $row->get()->row_array() ?: [];
+
+        $mealTotal = round((float)($row['meal_total'] ?? 0), 2);
+        $paidTotal = round((float)($row['paid_total'] ?? 0), 2);
+        return [
+            'employee_count' => (int)($row['employee_count'] ?? 0),
+            'meal_days' => (int)($row['meal_days'] ?? 0),
+            'meal_total' => $mealTotal,
+            'paid_total' => $paidTotal,
+            'unpaid_total' => round(max(0, $mealTotal - $paidTotal), 2),
+        ];
+    }
+
+    public function meal_calendar_daily_map(array $employeeIds, string $dateStart, string $dateEnd): array
+    {
+        if (empty($employeeIds)) {
+            return [];
+        }
+        [$dateStart, $dateEnd] = $this->normalize_meal_calendar_dates($dateStart, $dateEnd);
+        $cleanIds = array_values(array_filter(array_map('intval', $employeeIds), static function ($v) {
+            return $v > 0;
+        }));
+        if (empty($cleanIds)) {
+            return [];
+        }
+
+        $rows = $this->db->select("
+                ad.employee_id,
+                ad.attendance_date,
+                ad.attendance_status,
+                ad.checkin_at,
+                ad.checkout_at,
+                ad.meal_amount,
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM pay_meal_disbursement_line mdl
+                        JOIN pay_meal_disbursement md ON md.id = mdl.disbursement_id
+                        WHERE mdl.employee_id = ad.employee_id
+                          AND mdl.attendance_date = ad.attendance_date
+                          AND mdl.transfer_status = 'PAID'
+                          AND md.status = 'PAID'
+                    ) THEN 1 ELSE 0
+                END AS is_paid
+            ", false)
+            ->from('att_daily ad')
+            ->where_in('ad.employee_id', $cleanIds)
+            ->where('ad.attendance_date >=', $dateStart)
+            ->where('ad.attendance_date <=', $dateEnd)
+            ->get()->result_array();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $eid = (int)($row['employee_id'] ?? 0);
+            $date = (string)($row['attendance_date'] ?? '');
+            if ($eid <= 0 || $date === '') {
+                continue;
+            }
+            if (!isset($map[$eid])) {
+                $map[$eid] = [];
+            }
+            $map[$eid][$date] = $row;
+        }
+        return $map;
+    }
+
     public function count_ph_assignments(array $filters): int
     {
         $this->build_ph_assignment_query($filters, false);
@@ -433,6 +634,7 @@ class Attendance_model extends CI_Model
     {
         if ($withSelect) {
             $this->db->select("
+                pe.id AS assignment_id,
                 e.id AS employee_id,
                 e.employee_code,
                 e.employee_name,
@@ -543,6 +745,26 @@ class Attendance_model extends CI_Model
         return ['ok' => true, 'message' => 'Assignment PH pegawai berhasil disimpan.'];
     }
 
+    public function delete_ph_assignment(int $assignmentId): array
+    {
+        if (!$this->db->table_exists('att_ph_eligibility')) {
+            return ['ok' => false, 'message' => 'Tabel assignment PH belum tersedia.'];
+        }
+        if ($assignmentId <= 0) {
+            return ['ok' => false, 'message' => 'ID assignment tidak valid.'];
+        }
+        $row = $this->db->select('id')
+            ->from('att_ph_eligibility')
+            ->where('id', $assignmentId)
+            ->limit(1)
+            ->get()->row_array();
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Assignment PH tidak ditemukan.'];
+        }
+        $this->db->where('id', $assignmentId)->delete('att_ph_eligibility');
+        return ['ok' => true, 'message' => 'Assignment PH berhasil dihapus.'];
+    }
+
     public function count_ph_ledger(array $filters): int
     {
         $this->build_ph_ledger_query($filters, false);
@@ -647,6 +869,82 @@ class Attendance_model extends CI_Model
         ]);
 
         return ['ok' => true, 'message' => 'Mutasi PH manual berhasil ditambahkan.'];
+    }
+
+    public function get_ph_ledger_by_id(int $id): ?array
+    {
+        if ($id <= 0 || !$this->db->table_exists('att_employee_ph_ledger')) {
+            return null;
+        }
+        return $this->db->from('att_employee_ph_ledger')
+            ->where('id', $id)
+            ->limit(1)
+            ->get()->row_array() ?: null;
+    }
+
+    public function update_ph_ledger_entry(int $id, array $payload, int $actorUserId, bool $isSuperadmin = false): array
+    {
+        $row = $this->get_ph_ledger_by_id($id);
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Mutasi PH tidak ditemukan.'];
+        }
+        if (strtoupper((string)($row['entry_mode'] ?? 'AUTO')) !== 'MANUAL' && !$isSuperadmin) {
+            return ['ok' => false, 'message' => 'Mutasi otomatis tidak bisa diedit.'];
+        }
+
+        $employeeId = (int)($payload['employee_id'] ?? 0);
+        $txType = strtoupper(trim((string)($payload['tx_type'] ?? 'ADJUST')));
+        $qtyDays = round((float)($payload['qty_days'] ?? 0), 2);
+        $txDate = trim((string)($payload['tx_date'] ?? ''));
+        $notes = trim((string)($payload['notes'] ?? ''));
+
+        if ($employeeId <= 0 || $qtyDays <= 0 || $txDate === '') {
+            return ['ok' => false, 'message' => 'Pegawai, qty hari, dan tanggal transaksi wajib diisi.'];
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $txDate)) {
+            return ['ok' => false, 'message' => 'Format tanggal transaksi wajib YYYY-MM-DD.'];
+        }
+        if (!in_array($txType, ['GRANT', 'USE', 'EXPIRE', 'ADJUST'], true)) {
+            $txType = 'ADJUST';
+        }
+
+        $employee = $this->db->select('id')
+            ->from('org_employee')
+            ->where('id', $employeeId)
+            ->where('is_active', 1)
+            ->limit(1)
+            ->get()->row_array();
+        if (!$employee) {
+            return ['ok' => false, 'message' => 'Pegawai tidak valid atau nonaktif.'];
+        }
+
+        $updatePayload = [
+            'employee_id' => $employeeId,
+            'tx_date' => $txDate,
+            'tx_type' => $txType,
+            'qty_days' => $qtyDays,
+            'notes' => $notes !== '' ? $notes : null,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+        if ($isSuperadmin) {
+            $updatePayload['created_by'] = $actorUserId > 0 ? $actorUserId : null;
+        }
+
+        $this->db->where('id', $id)->update('att_employee_ph_ledger', $updatePayload);
+        return ['ok' => true, 'message' => 'Mutasi PH berhasil diperbarui.'];
+    }
+
+    public function delete_ph_ledger_entry(int $id, bool $isSuperadmin = false): array
+    {
+        $row = $this->get_ph_ledger_by_id($id);
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Mutasi PH tidak ditemukan.'];
+        }
+        if (strtoupper((string)($row['entry_mode'] ?? 'AUTO')) !== 'MANUAL' && !$isSuperadmin) {
+            return ['ok' => false, 'message' => 'Mutasi otomatis tidak bisa dihapus.'];
+        }
+        $this->db->where('id', $id)->delete('att_employee_ph_ledger');
+        return ['ok' => true, 'message' => 'Mutasi PH berhasil dihapus.'];
     }
 
     public function ph_ledger_summary(array $filters): array
@@ -908,6 +1206,135 @@ class Attendance_model extends CI_Model
             'skipped' => $skipped,
             'total_scanned' => count($rows),
         ];
+    }
+
+    public function sync_ph_grant_for_employee_date(int $employeeId, string $date, int $actorUserId = 0): array
+    {
+        if ($employeeId <= 0 || $date === '') {
+            return ['ok' => false, 'message' => 'Employee/date tidak valid.'];
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return ['ok' => false, 'message' => 'Format tanggal tidak valid.'];
+        }
+        if (!$this->db->table_exists('att_ph_eligibility') || !$this->db->table_exists('att_employee_ph_ledger')) {
+            return ['ok' => false, 'message' => 'Tabel PH belum lengkap.'];
+        }
+
+        $policy = $this->get_active_policy();
+        $grantMode = strtoupper((string)($policy['ph_grant_mode'] ?? 'HOLIDAY_ONLY'));
+        if (!in_array($grantMode, ['SHIFT_ONLY', 'HOLIDAY_ONLY', 'SHIFT_OR_HOLIDAY'], true)) {
+            $grantMode = 'HOLIDAY_ONLY';
+        }
+        $grantHolidayType = strtoupper((string)($policy['ph_grant_holiday_type'] ?? 'ANY'));
+        if (!in_array($grantHolidayType, ['ANY', 'NATIONAL', 'COMPANY', 'SPECIAL'], true)) {
+            $grantHolidayType = 'ANY';
+        }
+        $requireCheckout = (int)($policy['ph_grant_requires_checkout'] ?? 1) === 1;
+        $grantQty = round((float)($policy['ph_grant_qty_per_day'] ?? 1), 2);
+        if ($grantQty <= 0) {
+            $grantQty = 1;
+        }
+        $defaultExpiryMonths = max(0, (int)($policy['ph_expiry_months'] ?? 0));
+
+        $row = $this->db->query("
+            SELECT
+                ad.id AS daily_id,
+                ad.employee_id,
+                ad.attendance_date,
+                ad.checkin_at,
+                ad.checkout_at,
+                ad.attendance_status,
+                s.shift_code,
+                hc.holiday_type,
+                pe.effective_date,
+                pe.expiry_months_override
+            FROM att_daily ad
+            JOIN att_ph_eligibility pe ON pe.employee_id = ad.employee_id AND pe.is_eligible = 1
+            LEFT JOIN att_shift s ON s.id = ad.shift_id
+            LEFT JOIN att_holiday_calendar hc ON hc.holiday_date = ad.attendance_date AND hc.is_active = 1
+            WHERE ad.employee_id = ?
+              AND ad.attendance_date = ?
+              AND ad.attendance_status IN ('PRESENT', 'LATE', 'HOLIDAY')
+            LIMIT 1
+        ", [$employeeId, $date])->row_array();
+
+        if (!$row) {
+            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Tidak memenuhi syarat grant PH.'];
+        }
+
+        $effectiveDate = (string)($row['effective_date'] ?? '');
+        if ($effectiveDate !== '' && $date < $effectiveDate) {
+            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Tanggal absen sebelum effective date PH.'];
+        }
+
+        if ($requireCheckout) {
+            $checkinAt = trim((string)($row['checkin_at'] ?? ''));
+            $checkoutAt = trim((string)($row['checkout_at'] ?? ''));
+            if ($checkinAt === '' || $checkoutAt === '') {
+                return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Grant PH butuh check-in/out lengkap.'];
+            }
+        }
+
+        $shiftCode = strtoupper(trim((string)($row['shift_code'] ?? '')));
+        $holidayType = strtoupper(trim((string)($row['holiday_type'] ?? '')));
+        $isShiftPh = ($shiftCode === 'PH');
+        $isHoliday = ($holidayType !== '');
+        if ($grantHolidayType !== 'ANY' && $holidayType !== $grantHolidayType) {
+            $isHoliday = false;
+        }
+
+        $qualified = false;
+        if ($grantMode === 'SHIFT_ONLY') {
+            $qualified = $isShiftPh;
+        } elseif ($grantMode === 'HOLIDAY_ONLY') {
+            $qualified = $isHoliday;
+        } else {
+            $qualified = $isShiftPh || $isHoliday;
+        }
+        if (!$qualified) {
+            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Tidak memenuhi mode grant PH.'];
+        }
+
+        $dailyId = (int)($row['daily_id'] ?? 0);
+        if ($dailyId <= 0) {
+            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Rekap harian tidak valid.'];
+        }
+        $exists = $this->db->select('id')
+            ->from('att_employee_ph_ledger')
+            ->where('employee_id', $employeeId)
+            ->where('tx_type', 'GRANT')
+            ->where('ref_table', 'att_daily')
+            ->where('ref_id', $dailyId)
+            ->limit(1)
+            ->get()->row_array();
+        if ($exists) {
+            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Grant PH sudah pernah dibuat.'];
+        }
+
+        $expiryMonths = $row['expiry_months_override'] !== null
+            ? max(0, (int)$row['expiry_months_override'])
+            : $defaultExpiryMonths;
+        $expiredAt = null;
+        if ($expiryMonths > 0) {
+            $expiredAt = date('Y-m-d', strtotime($date . ' +' . $expiryMonths . ' month'));
+        }
+
+        $this->db->insert('att_employee_ph_ledger', [
+            'employee_id' => $employeeId,
+            'tx_date' => $date,
+            'tx_type' => 'GRANT',
+            'qty_days' => $grantQty,
+            'expired_at' => $expiredAt,
+            'ref_table' => 'att_daily',
+            'ref_id' => $dailyId,
+            'entry_mode' => 'AUTO',
+            'notes' => 'Auto grant dari absensi PH/holiday',
+            'created_by' => $actorUserId > 0 ? $actorUserId : null,
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        return ['ok' => true, 'inserted' => 1, 'skipped' => 0, 'message' => 'Grant PH dibuat.'];
     }
 
     public function count_overtime_entries(array $f): int
@@ -2061,6 +2488,7 @@ class Attendance_model extends CI_Model
             if (!empty($dailyPayrollPayload)) {
                 $this->db->where('id', (int)$dailyRow['id'])->update('att_daily', $dailyPayrollPayload);
             }
+            $this->sync_ph_grant_for_employee_date($employeeId, $date, 0);
         }
 
         return ['ok' => true, 'message' => ''];
@@ -2219,6 +2647,7 @@ class Attendance_model extends CI_Model
             (int)($dailyRow['shift_id'] ?? 0)
         );
         $isPresentish = in_array($status, ['PRESENT', 'LATE', 'HOLIDAY'], true);
+        $isCheckedIn = $checkinTs > 0;
         $allowanceEligible = $isPresentish;
         if ($allowanceEligible && $allowanceLateTreatment === 'DEDUCT_IF_LATE' && $status === 'LATE') {
             $allowanceEligible = false;
@@ -2233,10 +2662,11 @@ class Attendance_model extends CI_Model
         $grossAmount = 0.0;
         $netAmount = 0.0;
 
+        $mealAmount = ($mealMode === 'CUSTOM' && $isPresentish && $isCheckedIn) ? $mealRate : 0;
+
         if ($hasCompletedCheckout) {
             $basicAmount = $isPresentish ? $basicDailyRate : 0;
             $allowanceAmount = $allowanceEligible ? $allowanceDailyRate : 0;
-            $mealAmount = ($mealMode === 'CUSTOM' && $isPresentish) ? $mealRate : 0;
             if ($overtimeMode === 'MANUAL') {
                 $overtimePay = max(0, $manualOvertimePay);
             } else {

@@ -91,6 +91,7 @@ class Payroll_preview_model extends CI_Model
                 'alpha_deduction_total' => (float)($summary['alpha_deduction'] ?? 0),
                 'manual_addition_total' => (float)($summary['manual_addition'] ?? 0),
                 'manual_deduction_total' => (float)($summary['manual_deduction'] ?? 0),
+                'cash_advance_cut_total' => (float)($summary['cash_advance_cut'] ?? 0),
                 'manual_adjustment_net_total' => (float)($summary['manual_adjustment_net'] ?? 0),
                 'gross_total' => (float)($summary['gross_estimate'] ?? 0),
                 'net_only_total' => (float)($summary['net_only_estimate'] ?? 0),
@@ -164,6 +165,23 @@ class Payroll_preview_model extends CI_Model
             && $this->db->field_exists('gross_amount', 'att_daily')
             && $this->db->field_exists('net_amount', 'att_daily');
 
+        $cashAdvanceCutDateMap = [];
+        if ($this->db->table_exists('pay_manual_adjustment')) {
+            $cashRows = $this->db->select('adjustment_date, COALESCE(SUM(amount),0) AS total_amount', false)
+                ->from('pay_manual_adjustment')
+                ->where('employee_id', $employeeId)
+                ->where('status', 'APPROVED')
+                ->where('adjustment_kind', 'DEDUCTION')
+                ->like('adjustment_name', 'Potongan Kasbon', 'after')
+                ->where('adjustment_date >=', $dateStart)
+                ->where('adjustment_date <=', $dateEnd)
+                ->group_by('adjustment_date')
+                ->get()->result_array();
+            foreach ($cashRows as $row) {
+                $cashAdvanceCutDateMap[(string)($row['adjustment_date'] ?? '')] = round((float)($row['total_amount'] ?? 0), 2);
+            }
+        }
+
         foreach ($rows as $row) {
             $status = strtoupper((string)($row['attendance_status'] ?? 'OFF'));
             $lateMinutes = (int)($row['late_minutes'] ?? 0);
@@ -224,6 +242,7 @@ class Payroll_preview_model extends CI_Model
                 'manual_addition_amount' => $isClosed ? round((float)($row['manual_addition_amount'] ?? 0), 2) : 0.0,
                 'manual_deduction_amount' => $isClosed ? round((float)($row['manual_deduction_amount'] ?? 0), 2) : 0.0,
                 'manual_adjustment_net_amount' => $isClosed ? round((float)($row['manual_adjustment_net_amount'] ?? 0), 2) : 0.0,
+                'cash_advance_cut' => $isClosed ? (float)($cashAdvanceCutDateMap[(string)$row['attendance_date']] ?? 0) : 0.0,
                 'day_total' => round($dailyTakeHome, 2),
             ];
 
@@ -257,6 +276,9 @@ class Payroll_preview_model extends CI_Model
         $thpEstimate = round(array_sum(array_map(static function ($r) {
             return (float)($r['day_total'] ?? 0);
         }, $dailyRows)), 2);
+        $cashAdvanceCutTotal = round(array_sum(array_map(static function ($r) {
+            return (float)($r['cash_advance_cut'] ?? 0);
+        }, $dailyRows)), 2);
 
         if ($hasManualDailyCols) {
             $manualAddition = round(array_sum(array_map(static function ($r) {
@@ -274,6 +296,7 @@ class Payroll_preview_model extends CI_Model
             $manualAdjustment = $this->get_manual_adjustment_summary($employeeId, $dateStart, $dateEnd);
             $manualAddition = (float)($manualAdjustment['addition_total'] ?? 0);
             $manualDeduction = (float)($manualAdjustment['deduction_total'] ?? 0);
+            $cashAdvanceCutTotal = (float)($manualAdjustment['cash_advance_deduction_total'] ?? 0);
             $manualNet = $manualAddition - $manualDeduction;
             $thpBeforeAdjustment = round($thpEstimate, 2);
             $thpAfterAdjustment = round($thpBeforeAdjustment + $manualNet, 2);
@@ -309,6 +332,7 @@ class Payroll_preview_model extends CI_Model
             'net_only_estimate' => round($netOnlyEstimate, 2),
             'manual_addition' => round($manualAddition, 2),
             'manual_deduction' => round($manualDeduction, 2),
+            'cash_advance_cut' => round($cashAdvanceCutTotal, 2),
             'manual_adjustment_net' => round($manualNet, 2),
             'net_estimate_before_adjustment' => $thpBeforeAdjustment,
             'net_estimate' => $thpAfterAdjustment,
@@ -320,7 +344,7 @@ class Payroll_preview_model extends CI_Model
     private function get_manual_adjustment_summary(int $employeeId, string $dateStart, string $dateEnd): array
     {
         if ($employeeId <= 0 || !$this->db->table_exists('pay_manual_adjustment')) {
-            return ['addition_total' => 0.0, 'deduction_total' => 0.0];
+            return ['addition_total' => 0.0, 'deduction_total' => 0.0, 'cash_advance_deduction_total' => 0.0];
         }
 
         $rows = $this->db->select('adjustment_kind, COALESCE(SUM(amount),0) AS total_amount', false)
@@ -344,9 +368,20 @@ class Payroll_preview_model extends CI_Model
             }
         }
 
+        $cashAdvanceCut = (float)($this->db->select('COALESCE(SUM(amount),0) AS total_amount', false)
+            ->from('pay_manual_adjustment')
+            ->where('employee_id', $employeeId)
+            ->where('status', 'APPROVED')
+            ->where('adjustment_kind', 'DEDUCTION')
+            ->like('adjustment_name', 'Potongan Kasbon', 'after')
+            ->where('adjustment_date >=', $dateStart)
+            ->where('adjustment_date <=', $dateEnd)
+            ->get()->row_array()['total_amount'] ?? 0);
+
         return [
             'addition_total' => round($addition, 2),
             'deduction_total' => round($deduction, 2),
+            'cash_advance_deduction_total' => round($cashAdvanceCut, 2),
         ];
     }
 

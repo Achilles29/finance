@@ -25,3 +25,24 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
+
+/* Table content tidy */
+.table-autofit th,
+.table-autofit td {
+  vertical-align: middle;
+}
+
+.table-autofit .col-notes,
+.table td.col-notes,
+.table th.col-notes {
+  min-width: 220px;
+  max-width: 360px;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.table-autofit .cell-nowrap,
+.table td.cell-nowrap,
+.table th.cell-nowrap {
+  white-space: nowrap;
+}
