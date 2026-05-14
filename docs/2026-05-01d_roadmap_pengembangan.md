@@ -1,5 +1,6 @@
 # Roadmap Pengembangan `finance`
 **Tanggal:** 2026-05-01  
+**Update terakhir:** 2026-05-14  
 **Status:** AKTIF — diperbarui setiap ada progress
 
 ---
@@ -67,14 +68,14 @@ Pemisahan ini disengaja agar tidak membingungkan user. Detail lihat: `2026-05-01
 | 0 | Fondasi & Keputusan Arsitektur | ✅ SELESAI | 2026-05-01 | 2026-05-01 |
 | 1 | Auth, RBAC & Sidebar | 🟡 Sedang Berjalan | 2026-05-01 | - |
 | 2 | Master Data | 🟢 Gate Closed (siap lanjut) | 2026-05-02 | 2026-05-03 |
-| 3 | HR & Organisasi | 🟡 Sedang Berjalan (fondasi) | 2026-05-07 | - |
-| 4 | Absensi (Terpadu) | 🟡 Fondasi Berjalan | 2026-05-07 | - |
-| 5 | Payroll & Penggajian | 🟡 Fondasi Berjalan | 2026-05-07 | - |
-| 6 | Pembelian (Purchase) | 🟡 Sedang Berjalan | 2026-05-03 | - |
-| 7 | Inventori & Gudang | 🟡 Fondasi Berjalan | 2026-05-06 | - |
+| 3 | HR & Organisasi | 🟡 Sedang Berjalan (master operasional) | 2026-05-07 | - |
+| 4 | Absensi (Terpadu) | 🟡 Sedang Berjalan (alur admin+employee aktif, hardening policy) | 2026-05-07 | - |
+| 5 | Payroll & Penggajian | 🟡 Sedang Berjalan (period/batch/slip aktif, hardening konsistensi) | 2026-05-07 | - |
+| 6 | Pembelian (Purchase) | 🟡 Sedang Berjalan (stabilisasi & penyempurnaan) | 2026-05-03 | - |
+| 7 | Inventori & Gudang | 🟡 Sedang Berjalan (opening/opname berjalan) | 2026-05-06 | - |
 | 8 | Produksi & COGS | 🔲 Belum | | |
-| 9 | POS (Point of Sale) | 🔲 Belum | | |
-| 10 | Keuangan & Akuntansi | 🔲 Belum | | |
+| 9 | POS (Point of Sale) | 🟠 Persiapan desain integrasi | 2026-05-13 | - |
+| 10 | Keuangan & Akuntansi | 🟠 Fondasi integrasi dimulai | 2026-05-13 | - |
 | 11 | Reports & Dashboard | 🔲 Belum | | |
 
 ### Revisi Urutan Eksekusi (2026-05-03)
@@ -94,6 +95,45 @@ Alasan:
 - POS di `core` sangat bergantung pada recipe, stock, material/component, adjustment, return-to-stock, dan pelaporan margin terkait purchase.
 - Purchase + inventory + production yang matang lebih kritikal untuk operasi FnB harian sebelum ekspansi payroll penuh.
 - Modul SDM tetap penting, tetapi tidak menjadi blocker utama untuk menyalakan alur transaksi barang-penjualan.
+
+### Penajaman Eksekusi Paralel (2026-05-13)
+
+Untuk melanjutkan pengembangan paralel sesuai kondisi implementasi terbaru, eksekusi dibagi menjadi 4 stream yang berjalan bersamaan dengan batas integrasi yang jelas:
+
+1. **Stream A — Operasional Barang (Tahap 6-7):** stabilisasi purchase, remap warehouse profile_key, posting gudang -> material, dan hardening ledger.
+2. **Stream B — SDM Inti (Tahap 3-4):** finalisasi portal employee (clock in/out + pengajuan), approval center bertingkat, dan PH ledger.
+3. **Stream C — Payroll Operasional (Tahap 5):** penguatan engine period payroll, detail breakdown lintas halaman, slip gaji, disbursement + kasbon + meal terhubung mutasi rekening.
+4. **Stream D — Landasan POS + Keuangan (Tahap 9-10):** finalisasi kontrak integrasi posting transaksi lintas modul agar POS siap menyala tanpa rework besar.
+
+Output lintas stream yang wajib dijaga:
+- Satu sumber data absensi/payroll (`att_daily` + payroll result immutable).
+- Satu sumber profile inventory (canonical dari `mst_purchase_catalog`).
+- Satu pola posting saldo rekening (`fin_company_account` + `fin_account_mutation_log`) untuk purchase/payroll/POS.
+
+### Snapshot Review 2026-05-14
+
+Yang sudah berjalan operasional:
+1. HR master inti + adopsi data pegawai/core berjalan.
+2. Absensi harian terpusat di `att_daily` dengan alur admin, employee clock-in/out, approval bertingkat, pending request, dan override ACC.
+3. Payroll period + payroll result + salary disbursement batch berjalan dengan snapshot detail komponen.
+4. Slip gaji cetak (admin + employee portal) sudah aktif.
+5. Kasbon dan meal disbursement sudah terhubung ke mutasi rekening dan sudah ada alur VOID.
+
+Fokus gap yang masih perlu ditutup:
+1. Locking policy payroll/attendance per hari/per period agar audit mode hitung (misal meal `CUSTOM`/`MONTHLY`) tidak ambigu.
+2. Final check konsistensi angka lintas halaman (`attendance/estimate`, `attendance/daily`, `my/payroll`, `salary-disbursements`) pada skenario edge case.
+3. Stabilisasi modul PH (assignment, ledger, recap, dan aturan policy) agar benar-benar konsisten dengan holiday attendance.
+4. Penyelesaian backlog Stream A (remap warehouse profile_key + stabilisasi inventory ledger) sebelum ekspansi POS transaksi penuh.
+
+Update hardening 2026-05-14 (sesi final check):
+1. Policy lock di `att_daily` sudah diaktifkan (snapshot policy mode/rate tersimpan per baris harian saat hitung).
+2. Hardening PH grant selesai: dukung shift `PH`/`PHB`, anti-duplikat di level DB (unique ref), dan insert idempotent (`INSERT IGNORE`).
+3. Konsistensi estimate diperketat: summary mode payroll baca snapshot `att_daily` (bisa menandai `MIXED` jika periode lintas policy).
+4. Hardening kandidat salary disbursement: query kandidat gaji diubah ke pola `NOT EXISTS` disbursement aktif + guard unik per `payroll_result` dan per pegawai pada preview/generate (mencegah baris kandidat dobel setelah siklus VOID/regenerate).
+5. Audit checker otomatis payroll period ditambahkan (UI di detail period + CLI `tools/payroll_audit_checker.php`) untuk validasi `att_daily` vs `pay_payroll_result` vs disbursement aktif.
+6. Guard immutable period ditambahkan untuk perubahan komponen penghasil gaji: manual adjustment dan overtime tidak bisa diubah bila tanggalnya sudah masuk period yang punya batch gaji aktif (non-VOID).
+7. Sinkronisasi snapshot slip/gaji final diperketat: tab gaji final employee memakai snapshot line disbursement (`*_snapshot`) agar histori tidak drift saat result period berubah.
+8. Stream A lanjut: script remap warehouse profile key dibuat (`tools/remap_warehouse_profile_keys_to_catalog.php`) dengan mode dry-run/apply non-destruktif; sisa konflik dipertahankan untuk merge terukur.
 
 ### Checklist Global Per Tahap (Master Progress Board)
 
@@ -129,13 +169,24 @@ Alasan:
 
 #### Tahap 4 — Absensi
 - [x] Desain tabel absensi terpadu final (single recap table `att_daily`) di `sql/2026-05-07a_hr_attendance_payroll_foundation.sql`.
-- [ ] Implement rekap harian tunggal (`att_daily`) dari `att_presence` (service generate).
-- [ ] Workflow approval izin/sakit/lembur.
+- [x] Halaman admin absensi utama aktif (`settings`, `daily`, `logs`, `schedules`, `pending-requests`, `anomalies`, `master-health`, `estimate`).
+- [x] Master absensi dasar aktif via `Master` (`att-shift`, `att-location`, `att-holiday`).
+- [x] Implement rekap harian tunggal (`att_daily`) dari `att_presence` (service generate).
+- [ ] Workflow approval izin/sakit/lembur final (timeline per-level + history).
+- [ ] Halaman employee clock in/out + pengajuan koreksi/izin/sakit/lembur end-to-end.
+- [ ] Halaman PH balance + ledger PH pegawai.
+- [ ] Laporan absensi export (CSV/XLS) dengan agregasi.
 
 #### Tahap 5 — Payroll
 - [x] Implement fondasi komponen gaji + profile + assignment (schema + CRUD master awal).
-- [ ] Kalkulasi payroll bulanan dari absensi terpadu.
-- [ ] Disbursement gaji + kasbon + THR/bonus.
+- [x] Fondasi standar payroll lanjutan aktif (`pay_basic_salary_standard`, `pay_objective_override`, `preview THP` read-only).
+- [x] Alur operasional salary disbursement aktif (Generate/Refresh period -> Generate batch -> Mark Paid/Void/Delete dengan guard status).
+- [x] Alur operasional kasbon aktif (tenor opsional, metode `CASH`/`TRANSFER`/`SALARY_CUT`).
+- [x] Kalkulasi payroll bulanan final dari absensi terpadu (period engine + lock period immutable untuk data mutasi komponen inti: manual adjustment/overtime saat period sudah punya batch aktif).
+- [ ] Sinkronisasi detail breakdown payroll lintas halaman (`attendance/estimate`, `attendance/daily`, `my/payroll`, `salary-disbursements`).
+- [x] Finalisasi meal disbursement agar status PAID konsisten ke mutasi rekening + detail UI per pegawai.
+- [x] Finalisasi slip gaji (detail komponen + cetak).
+- [ ] THR/bonus period terintegrasi ke hasil payroll.
 
 #### Tahap 6 — Purchase (Tahap Berikutnya Setelah Gate Tahap 2)
 - [x] SQL fondasi purchase schema (`pur_purchase_order`, `pur_purchase_order_line`, `mst_purchase_catalog`) di `sql/2026-05-03f_purchase_schema_foundation.sql`.
@@ -152,7 +203,7 @@ Alasan:
 - [x] Penyesuaian stok 5 komponen (WASTE/SPOILAGE/PROCESS_LOSS/VARIANCE/ADJUSTMENT_PLUS) di daily rollup gudang/divisi (`sql/2026-05-06b_inventory_adjustment_components.sql`).
 - [x] Hardening opening profile: catalog-first fallback saat pencarian + canonical key dari katalog saat simpan opening (`application/models/Purchase_model.php`).
 - [x] Remap historis key non-catalog -> key catalog untuk scope DIVISION berbasis exact identity, dalam 1 transaksi DB, aman dan idempotent (`tools/remap_division_profile_keys_to_catalog.php`).
-- [ ] Remap historis key non-catalog -> key catalog untuk scope WAREHOUSE belum dieksekusi (backlog terukur terakhir: opening=2, balance=0, daily=5, movement=6).
+- [~] Remap historis key non-catalog -> key catalog untuk scope WAREHOUSE sedang dijalankan (script tersedia: `tools/remap_warehouse_profile_keys_to_catalog.php`; update non-konflik sudah bisa, sisa conflict menunggu merge terukur).
 - [ ] Integrasi UOM BELI/UOM ISI di form PO.
 - [x] Seed permission + menu Purchase (RBAC) via `sql/2026-05-03g_purchase_menu_seed.sql`.
 - [ ] Dokumentasi alur user Purchase final.
@@ -173,9 +224,11 @@ Alasan:
 - [ ] Loyalty, extra, printer, report POS siap minimum operasional.
 
 #### Tahap 10 — Keuangan
-- [ ] Bank txn + opening + AR/AP siap.
+- [x] Fondasi rekening perusahaan + mutation log sudah dipakai oleh alur purchase dan payroll tertentu.
+- [ ] Halaman mutasi rekening final (filter default bulan berjalan, pagination, ringkasan saldo).
+- [ ] Bank transaction + opening + AR/AP siap.
 - [ ] Cash flow dan monthly summary siap.
-- [ ] Integrasi transaksi lintas modul (purchase/POS/payroll).
+- [ ] Integrasi posting transaksi lintas modul (purchase/POS/payroll) tuntas dan diaudit.
 
 #### Tahap 11 — Reports & Dashboard
 - [ ] Reports hub lintas modul siap.
@@ -393,6 +446,14 @@ att_request_approval   ← workflow approval
 - [ ] Controllers: `Payroll_standards`, `Salary_disbursements`, `Meal_disbursements`, `Cash_advances`, `Payroll_thr`, `Payroll_bonus`
 - [ ] Migration script dari `core`
 
+### Progress Update Tahap 5 (2026-05-11)
+
+- Standar payroll yang diadopsi dari `core` sudah masuk ke struktur `finance` dan aktif untuk operasional master.
+- `salary-disbursements` sudah berjalan dengan pola period result + batch disbursement terpisah.
+- `cash-advances` sudah mendukung tenor opsional (`0` untuk fleksibel) dan metode bayar termasuk `SALARY_CUT`.
+- Panduan operasional user sudah ditulis di `docs/2026-05-11e_panduan_operasional_payroll_disbursement_kasbon.md`.
+- Fokus lanjutan: konsistensi detail breakdown per pegawai, sinkron UI lintas halaman payroll, dan finalisasi slip gaji cetak.
+
 ---
 
 ## Tahap 6 — Pembelian (Purchase)
@@ -418,6 +479,7 @@ att_request_approval   ← workflow approval
 - [ ] Controllers: `Purchase_orders`, `Store_requests`, `Purchase_reports`
 - [ ] Migration script dari `core`
 - [x] Dokumen struktur Tahap 6: `docs/2026-05-03f_tahap6_purchase_foundation.md`
+- [x] Draft rencana Store Request (schema + UI): `docs/2026-05-14c_rencana_store_request_schema_ui.md`
 
 **Checklist Implementasi Tahap 6:**
 - [ ] `pur_purchase_order` + `pur_purchase_order_line` siap CRUD dan validasi status.
@@ -427,6 +489,12 @@ att_request_approval   ← workflow approval
 - [ ] Endpoint AJAX katalog pembelian untuk percepat input PO.
 - [ ] Laporan `price pulse` berbasis histori profile katalog.
 - [ ] Integrasi awal ke posting inventori (hook ke tahap 7).
+
+### Progress Update Tahap 6 (2026-05-14)
+
+- Ditambahkan modul baru terpisah **Procurement Workbench** (`/procurement/workbench`) tanpa mengubah flow `Purchase` lama.
+- Workbench sudah menyiapkan tab terpadu SR + PO, role-aware action untuk SR (draft/submit/approve/reject/void), dan pencarian profile stok gudang berbasis `profile_key`.
+- Draft schema Store Request + fulfillment + approval + seed menu/permission disiapkan di `sql/2026-05-14d_procurement_workbench_store_request.sql`.
 
 ---
 
@@ -578,3 +646,8 @@ att_request_approval   ← workflow approval
 | 2026-05-07 | Hardening konsistensi profile opening berbasis catalog + remap historis DIVISION selesai | Menetapkan catalog sebagai source of truth profile_key dan membersihkan mismatch historis exact identity di scope divisi |
 | 2026-05-07 | Baseline remap WAREHOUSE dicatat (pending eksekusi) | Menjaga kesinambungan kerja lintas perangkat: status backlog terukur sebelum apply berikutnya |
 | 2026-05-07 | Tambah dokumen handoff progress lintas perangkat | Memudahkan lanjut kerja dari laptop lain dengan snapshot status, backlog, dan rencana eksekusi terdekat |
+| 2026-05-08 | Alignment dokumen HR/Absensi/Payroll dengan implementasi ditinjau ulang | Menjaga roadmap tetap selaras dengan real progress dan mencegah overlap implementasi payroll |
+| 2026-05-11 | Panduan operasional salary disbursement dan kasbon dipublikasikan | Menyediakan acuan user operasional sambil menurunkan miskomunikasi antara estimasi, period payroll, dan batch pencairan |
+| 2026-05-13 | Penajaman eksekusi paralel 4 stream (Operasional Barang, SDM Inti, Payroll Operasional, Landasan POS+Keuangan) | Menjawab kebutuhan percepatan paralel tanpa kehilangan guardrail integrasi lintas modul |
+| 2026-05-14 | Review implementasi HR/Absensi/Payroll diperbarui + roadmap next steps ditegaskan | Menjaga prioritas stabilisasi policy-lock dan konsistensi angka sebelum ekspansi POS/keuangan |
+| 2026-05-14 | Final check + hardening policy/PH: snapshot policy lock `att_daily`, PH grant idempotent + unique guard | Menutup gap ambiguity histori policy dan celah duplicate grant PH saat proses paralel |

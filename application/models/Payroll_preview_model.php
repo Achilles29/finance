@@ -164,6 +164,10 @@ class Payroll_preview_model extends CI_Model
             && $this->db->field_exists('alpha_deduction_amount', 'att_daily')
             && $this->db->field_exists('gross_amount', 'att_daily')
             && $this->db->field_exists('net_amount', 'att_daily');
+        $hasAttendanceModeSnapshot = $this->db->field_exists('attendance_mode_snapshot', 'att_daily');
+        $hasMealModeSnapshot = $this->db->field_exists('meal_mode_snapshot', 'att_daily');
+        $attendanceModeSnapshots = [];
+        $mealModeSnapshots = [];
 
         $cashAdvanceCutDateMap = [];
         if ($this->db->table_exists('pay_manual_adjustment')) {
@@ -246,7 +250,29 @@ class Payroll_preview_model extends CI_Model
                 'day_total' => round($dailyTakeHome, 2),
             ];
 
+            if ($isClosed && $hasAttendanceModeSnapshot) {
+                $mode = strtoupper(trim((string)($row['attendance_mode_snapshot'] ?? '')));
+                if ($mode !== '') {
+                    $attendanceModeSnapshots[$mode] = true;
+                }
+            }
+            if ($isClosed && $hasMealModeSnapshot) {
+                $mode = strtoupper(trim((string)($row['meal_mode_snapshot'] ?? '')));
+                if ($mode !== '') {
+                    $mealModeSnapshots[$mode] = true;
+                }
+            }
+
             $totalLateMinutes += $lateMinutes;
+        }
+
+        if (!empty($attendanceModeSnapshots)) {
+            $attendanceModeList = array_keys($attendanceModeSnapshots);
+            $attendanceMode = (count($attendanceModeList) === 1) ? $attendanceModeList[0] : 'MIXED';
+        }
+        if (!empty($mealModeSnapshots)) {
+            $mealModeList = array_keys($mealModeSnapshots);
+            $mealMode = (count($mealModeList) === 1) ? $mealModeList[0] : 'MIXED';
         }
 
         $basicEstimate = round(array_sum(array_map(static function ($r) {

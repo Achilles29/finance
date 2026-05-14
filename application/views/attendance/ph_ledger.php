@@ -12,6 +12,7 @@ $buildQuery = static function (array $overrides = []) use ($filters, $pg): strin
         'q' => $filters['q'] ?? '',
         'employee_id' => $filters['employee_id'] ?? '',
         'tx_type' => $filters['tx_type'] ?? '',
+        'expired_state' => $filters['expired_state'] ?? 'ALL',
         'date_start' => $filters['date_start'] ?? '',
         'date_end' => $filters['date_end'] ?? '',
         'per_page' => $pg['per_page'] ?? 25,
@@ -59,14 +60,20 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 
 <div class="card mb-3">
   <div class="card-body">
+    <div class="d-flex flex-wrap gap-2 mb-3">
+      <a class="btn btn-sm <?php echo (($filters['expired_state'] ?? 'ALL') === 'ALL') ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="<?php echo site_url('attendance/ph-ledger?' . $buildQuery(['expired_state' => 'ALL', 'page' => 1])); ?>">Semua Riwayat</a>
+      <a class="btn btn-sm <?php echo (($filters['expired_state'] ?? 'ALL') === 'ACTIVE') ? 'btn-success' : 'btn-outline-success'; ?>" href="<?php echo site_url('attendance/ph-ledger?' . $buildQuery(['expired_state' => 'ACTIVE', 'page' => 1])); ?>">Grant Aktif</a>
+      <a class="btn btn-sm <?php echo (($filters['expired_state'] ?? 'ALL') === 'EXPIRED') ? 'btn-danger' : 'btn-outline-danger'; ?>" href="<?php echo site_url('attendance/ph-ledger?' . $buildQuery(['expired_state' => 'EXPIRED', 'page' => 1])); ?>">Grant Expired</a>
+    </div>
     <form method="get" action="<?php echo site_url('attendance/ph-ledger'); ?>" class="row g-2 align-items-end">
       <div class="col-md-3"><label class="form-label mb-1">Cari</label><input type="text" class="form-control" name="q" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Nama/NIP/Divisi/Jabatan/Catatan"></div>
       <div class="col-md-3"><label class="form-label mb-1">Pegawai</label><select name="employee_id" class="form-select"><option value="">Semua pegawai</option><?php foreach ($employeeOptions as $opt): ?><option value="<?php echo (int)$opt['value']; ?>" <?php echo ((int)($filters['employee_id'] ?? 0) === (int)$opt['value']) ? 'selected' : ''; ?>><?php echo html_escape((string)$opt['label']); ?></option><?php endforeach; ?></select></div>
       <div class="col-md-2"><label class="form-label mb-1">Jenis</label><select name="tx_type" class="form-select"><option value="">Semua</option><?php foreach ($txTypeOptions as $type): ?><option value="<?php echo html_escape($type); ?>" <?php echo ((string)($filters['tx_type'] ?? '') === $type) ? 'selected' : ''; ?>><?php echo html_escape($type); ?></option><?php endforeach; ?></select></div>
+      <div class="col-md-2"><label class="form-label mb-1">Status Expired</label><select name="expired_state" class="form-select"><option value="ALL" <?php echo (($filters['expired_state'] ?? 'ALL') === 'ALL') ? 'selected' : ''; ?>>Semua</option><option value="ACTIVE" <?php echo (($filters['expired_state'] ?? '') === 'ACTIVE') ? 'selected' : ''; ?>>Grant Aktif</option><option value="EXPIRED" <?php echo (($filters['expired_state'] ?? '') === 'EXPIRED') ? 'selected' : ''; ?>>Grant Expired</option></select></div>
       <div class="col-md-2"><label class="form-label mb-1">Dari</label><input type="date" class="form-control" name="date_start" value="<?php echo html_escape((string)($filters['date_start'] ?? '')); ?>"></div>
       <div class="col-md-2"><label class="form-label mb-1">Sampai</label><input type="date" class="form-control" name="date_end" value="<?php echo html_escape((string)($filters['date_end'] ?? '')); ?>"></div>
       <div class="col-md-2"><label class="form-label mb-1">Per</label><select name="per_page" class="form-select"><?php foreach([10,25,50,100] as $pp): ?><option value="<?php echo $pp; ?>" <?php echo ((int)$pg['per_page']===$pp)?'selected':''; ?>><?php echo $pp; ?></option><?php endforeach; ?></select></div>
-      <div class="col-md-10 d-flex gap-2"><button type="submit" class="btn btn-primary">Filter</button><a class="btn btn-outline-secondary" href="<?php echo site_url('attendance/ph-ledger'); ?>">Reset</a></div>
+      <div class="col-md-12 d-flex gap-2"><button type="submit" class="btn btn-primary">Filter</button><a class="btn btn-outline-secondary" href="<?php echo site_url('attendance/ph-ledger'); ?>">Reset</a></div>
     </form>
   </div>
 </div>
@@ -116,6 +123,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <th>Jenis</th>
           <th class="text-end">Qty</th>
           <th>Ref</th>
+          <th>Expired At</th>
           <th>Mode</th>
           <th>Catatan</th>
           <th>Dibuat Oleh</th>
@@ -124,7 +132,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
       </thead>
       <tbody>
         <?php if (empty($rows)): ?>
-          <tr><td colspan="10" class="text-center text-muted py-4">Belum ada mutasi PH.</td></tr>
+          <tr><td colspan="11" class="text-center text-muted py-4">Belum ada mutasi PH.</td></tr>
         <?php else: foreach ($rows as $row): ?>
           <tr>
             <td><?php echo html_escape((string)($row['tx_date'] ?? '-')); ?></td>
@@ -144,6 +152,20 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                 $refId = (int)($row['ref_id'] ?? 0);
               ?>
               <?php echo $refTable !== '' ? html_escape($refTable . ($refId > 0 ? ('#' . $refId) : '')) : '-'; ?>
+            </td>
+            <td>
+              <?php
+                $exp = trim((string)($row['expired_at'] ?? ''));
+                $isExpired = ($exp !== '' && $exp < date('Y-m-d'));
+              ?>
+              <?php if ($exp === ''): ?>
+                <span class="text-muted">-</span>
+              <?php else: ?>
+                <div><?php echo html_escape($exp); ?></div>
+                <?php if (strtoupper((string)($row['tx_type'] ?? '')) === 'GRANT'): ?>
+                  <small class="<?php echo $isExpired ? 'text-danger' : 'text-success'; ?>"><?php echo $isExpired ? 'Expired' : 'Aktif'; ?></small>
+                <?php endif; ?>
+              <?php endif; ?>
             </td>
             <td><?php echo html_escape((string)($row['entry_mode'] ?? '-')); ?></td>
             <td><?php echo html_escape((string)($row['notes'] ?? '-')); ?></td>

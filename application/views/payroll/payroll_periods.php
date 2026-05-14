@@ -4,6 +4,7 @@ $periodRows = $period_rows ?? [];
 $periodPg = $period_pg ?? ['page' => 1, 'total_pages' => 1, 'per_page' => 10, 'total' => 0];
 $periodDetailRows = $period_detail_rows ?? [];
 $periodBreakdownRows = $period_breakdown_rows ?? [];
+$periodAudit = $period_audit ?? null;
 $periodDetailId = (int)($period_detail_id ?? 0);
 
 $buildQuery = static function ($overrides = []) use ($periodFilters, $periodPg) {
@@ -77,6 +78,66 @@ $buildQuery = static function ($overrides = []) use ($periodFilters, $periodPg) 
 </div>
 
 <?php if ($periodDetailId > 0): ?>
+<?php
+  $auditSummary = (array)($periodAudit['summary'] ?? []);
+  $auditMismatchRows = (array)($periodAudit['mismatch_rows'] ?? []);
+  $auditDupResult = (array)($periodAudit['duplicates_result'] ?? []);
+  $auditDupDisb = (array)($periodAudit['duplicates_disbursement'] ?? []);
+?>
+<div class="card mt-3 border-<?php echo (
+    ((int)($auditSummary['mismatch_rows'] ?? 0) > 0)
+    || ((int)($auditSummary['result_duplicates'] ?? 0) > 0)
+    || ((int)($auditSummary['active_disbursement_duplicates'] ?? 0) > 0)
+    || (abs((float)($auditSummary['raw_vs_attendance_diff_total'] ?? 0)) > 0.009)
+    || (abs((float)($auditSummary['transfer_vs_result_final_diff_total'] ?? 0)) > 0.009)
+) ? 'danger' : 'success'; ?>">
+  <div class="card-header"><strong>Audit Checker Period #<?php echo $periodDetailId; ?></strong></div>
+  <div class="card-body py-2">
+    <div class="row g-2">
+      <div class="col-md-2"><small class="text-muted">Result Rows</small><div class="fw-semibold"><?php echo (int)($auditSummary['result_rows'] ?? 0); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Result Net Raw</small><div class="fw-semibold"><?php echo number_format((float)($auditSummary['result_net_raw_total'] ?? 0),2,',','.'); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Result Net Final</small><div class="fw-semibold"><?php echo number_format((float)($auditSummary['result_net_final_total'] ?? 0),2,',','.'); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Att Daily Net</small><div class="fw-semibold"><?php echo number_format((float)($auditSummary['attendance_net_total'] ?? 0),2,',','.'); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Transfer Aktif</small><div class="fw-semibold"><?php echo number_format((float)($auditSummary['active_disbursement_transfer_total'] ?? 0),2,',','.'); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Diff Raw vs Att</small><div class="fw-semibold <?php echo (abs((float)($auditSummary['raw_vs_attendance_diff_total'] ?? 0)) > 0.009) ? 'text-danger' : 'text-success'; ?>"><?php echo number_format((float)($auditSummary['raw_vs_attendance_diff_total'] ?? 0),2,',','.'); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Diff Transfer vs Final</small><div class="fw-semibold <?php echo (abs((float)($auditSummary['transfer_vs_result_final_diff_total'] ?? 0)) > 0.009) ? 'text-danger' : 'text-success'; ?>"><?php echo number_format((float)($auditSummary['transfer_vs_result_final_diff_total'] ?? 0),2,',','.'); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Dup Result</small><div class="fw-semibold <?php echo ((int)($auditSummary['result_duplicates'] ?? 0) > 0) ? 'text-danger' : 'text-success'; ?>"><?php echo (int)($auditSummary['result_duplicates'] ?? 0); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Dup Disbursement Aktif</small><div class="fw-semibold <?php echo ((int)($auditSummary['active_disbursement_duplicates'] ?? 0) > 0) ? 'text-danger' : 'text-success'; ?>"><?php echo (int)($auditSummary['active_disbursement_duplicates'] ?? 0); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Mismatch Rows</small><div class="fw-semibold <?php echo ((int)($auditSummary['mismatch_rows'] ?? 0) > 0) ? 'text-danger' : 'text-success'; ?>"><?php echo (int)($auditSummary['mismatch_rows'] ?? 0); ?></div></div>
+    </div>
+  </div>
+  <?php if (!empty($auditDupResult) || !empty($auditDupDisb) || !empty($auditMismatchRows)): ?>
+  <div class="table-responsive">
+    <table class="table table-sm table-striped mb-0">
+      <thead><tr><th>Tipe</th><th>Detail</th></tr></thead>
+      <tbody>
+        <?php foreach ($auditDupResult as $x): ?>
+          <tr><td class="text-danger fw-semibold">Duplicate Result</td><td>EmpID <?php echo (int)($x['employee_id'] ?? 0); ?> -> <?php echo html_escape((string)($x['payroll_result_ids'] ?? '')); ?> (<?php echo (int)($x['duplicate_count'] ?? 0); ?> rows)</td></tr>
+        <?php endforeach; ?>
+        <?php foreach ($auditDupDisb as $x): ?>
+          <tr><td class="text-danger fw-semibold">Duplicate Active Disbursement</td><td>ResultID <?php echo (int)($x['payroll_result_id'] ?? 0); ?> -> <?php echo html_escape((string)($x['line_refs'] ?? '')); ?> (<?php echo (int)($x['duplicate_count'] ?? 0); ?> rows)</td></tr>
+        <?php endforeach; ?>
+        <?php foreach ($auditMismatchRows as $x): ?>
+          <tr>
+            <td class="text-warning fw-semibold">Mismatch</td>
+            <td>
+              <?php echo html_escape((string)($x['employee_name_snapshot'] ?? '-')); ?>
+              (<?php echo html_escape((string)($x['employee_code_snapshot'] ?? '-')); ?>):
+              Raw <?php echo number_format((float)($x['result_net_raw'] ?? 0),2,',','.'); ?>,
+              Final <?php echo number_format((float)($x['result_net_final'] ?? 0),2,',','.'); ?>,
+              Att <?php echo number_format((float)($x['attendance_net'] ?? 0),2,',','.'); ?>,
+              Transfer <?php echo number_format((float)($x['active_transfer_total'] ?? 0),2,',','.'); ?>,
+              Diff Raw-Att <?php echo number_format((float)($x['diff_raw_vs_attendance'] ?? 0),2,',','.'); ?>,
+              Diff Transfer-Final <?php echo number_format((float)($x['diff_transfer_vs_final'] ?? 0),2,',','.'); ?>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+  <?php endif; ?>
+</div>
+
 <div class="card mt-3">
   <div class="card-header"><strong>Summary Result Period #<?php echo $periodDetailId; ?></strong></div>
   <div class="table-responsive">
@@ -127,10 +188,10 @@ $buildQuery = static function ($overrides = []) use ($periodFilters, $periodPg) 
             $manualDedTotal = (float)($b['manual_deduction_total'] ?? 0);
             $cashCut = (float)($b['cash_advance_cut'] ?? 0);
             $manualDedOther = max(0, round($manualDedTotal - $cashCut, 2));
-            $grossRiil = round($basic + $allowance + $meal + $overtime + $manualAdd, 2);
-            $riilNet = round($grossRiil - $lateDed - $alphaDed - $manualDedTotal, 2);
+            $grossRiil = round((float)($b['gross_pay'] ?? ($basic + $allowance + $meal + $overtime + $manualAdd)), 2);
             $finalNet = (float)($b['net_pay'] ?? 0);
-            $roundingAdj = round($finalNet - $riilNet, 2);
+            $riilNet = (float)($b['net_pay_raw'] ?? ($finalNet - (float)($b['rounding_adjustment'] ?? 0)));
+            $roundingAdj = round((float)($b['rounding_adjustment'] ?? ($finalNet - $riilNet)), 2);
           ?>
           <tr>
             <td><?php echo html_escape((string)($b['employee_name_snapshot'] ?? '-')); ?><div class="small text-muted"><?php echo html_escape((string)($b['employee_code_snapshot'] ?? '')); ?></div></td>

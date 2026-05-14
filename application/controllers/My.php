@@ -9,6 +9,7 @@ class My extends MY_Controller
         $this->load->model('My_portal_model');
         $this->load->model('Attendance_model');
         $this->load->model('Payroll_preview_model');
+        $this->load->model('Payroll_model');
     }
 
     private function selected_employee_id(): int
@@ -185,8 +186,16 @@ class My extends MY_Controller
 
         $summary = null;
         $dailyRows = [];
+        $generatedRows = [];
+        $generatedSummary = ['count' => 0, 'total_transfer' => 0.0];
         if ($employee) {
             [$summary, $dailyRows] = $this->Payroll_preview_model->estimate_employee_attendance_payroll((int)$employee['id'], $dateStart, $dateEnd);
+            $generatedRows = $this->Payroll_model->list_generated_salary_lines_by_employee((int)$employee['id'], $dateStart, $dateEnd, 100, 0);
+            $generatedSummary['count'] = count($generatedRows);
+            foreach ($generatedRows as $gr) {
+                $generatedSummary['total_transfer'] += (float)($gr['transfer_amount'] ?? 0);
+            }
+            $generatedSummary['total_transfer'] = round((float)$generatedSummary['total_transfer'], 2);
         }
 
         $this->render('my/payroll', [
@@ -199,6 +208,27 @@ class My extends MY_Controller
             'date_end' => $dateEnd,
             'summary' => $summary,
             'daily_rows' => $dailyRows,
+            'generated_rows' => $generatedRows,
+            'generated_summary' => $generatedSummary,
+        ]);
+    }
+
+    public function payroll_slip(int $lineId)
+    {
+        $employeeId = $this->selected_employee_id();
+        $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
+        if (!$employee) {
+            show_404();
+            return;
+        }
+        $line = $this->Payroll_model->get_salary_disbursement_line_slip($lineId, (int)$employee['id']);
+        if (!$line) {
+            show_404();
+            return;
+        }
+        $this->load->view('payroll/salary_slip', [
+            'line' => $line,
+            'context' => 'my',
         ]);
     }
 
@@ -428,15 +458,20 @@ class My extends MY_Controller
 
         $filters = [
             'tx_type' => strtoupper(trim((string)$this->input->get('tx_type', true))),
+            'expired_state' => strtoupper(trim((string)$this->input->get('expired_state', true))),
             'date_start' => trim((string)$this->input->get('date_start', true)),
             'date_end' => trim((string)$this->input->get('date_end', true)),
         ];
+        if (!in_array($filters['expired_state'], ['ALL', 'ACTIVE', 'EXPIRED'], true)) {
+            $filters['expired_state'] = 'ALL';
+        }
         if ($filters['date_start'] === '') {
-            $filters['date_start'] = date('Y-m-01');
+            $filters['date_start'] = date('Y-m-01', strtotime('-3 month'));
         }
         if ($filters['date_end'] === '') {
             $filters['date_end'] = date('Y-m-t');
         }
+        $this->Attendance_model->sync_ph_expiry_ledger(date('Y-m-d'), (int)($this->current_user['id'] ?? 0));
 
         $perPage = $this->per_page();
         $page = $this->page();

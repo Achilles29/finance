@@ -532,6 +532,22 @@ a:hover {
     padding: 0 !important;
 }
 
+.action-icon-btn i,
+.action-icon-btn [class^="ri-"],
+.action-icon-btn [class*=" ri-"] {
+    font-size: 0.95rem;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Keep RemixIcon visible even when markup uses ri-* without base .ri class */
+[class^="ri-"],
+[class*=" ri-"] {
+    font-family: remixicon !important;
+}
+
 .action-text-btn {
     min-height: 30px;
     display: inline-flex !important;

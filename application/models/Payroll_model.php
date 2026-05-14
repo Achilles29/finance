@@ -5,6 +5,7 @@ class Payroll_model extends CI_Model
 {
     private $attDailyFieldCache = [];
     private $tableFieldCache = [];
+    private $lockedPeriodDateCache = [];
 
     private function att_daily_has_field(string $field): bool
     {
@@ -21,6 +22,45 @@ class Payroll_model extends CI_Model
             $this->tableFieldCache[$key] = $this->db->field_exists($field, $table);
         }
         return (bool)$this->tableFieldCache[$key];
+    }
+
+    private function get_locked_period_for_date(string $date): ?array
+    {
+        if ($date === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return null;
+        }
+        if (array_key_exists($date, $this->lockedPeriodDateCache)) {
+            return $this->lockedPeriodDateCache[$date];
+        }
+        if (!$this->db->table_exists('pay_payroll_period') || !$this->db->table_exists('pay_salary_disbursement')) {
+            $this->lockedPeriodDateCache[$date] = null;
+            return null;
+        }
+
+        $row = $this->db->select('p.id, p.period_code, p.period_start, p.period_end, d.id AS disbursement_id, d.disbursement_no, d.status AS disbursement_status')
+            ->from('pay_payroll_period p')
+            ->join('pay_salary_disbursement d', 'd.payroll_period_id = p.id AND d.status <> "VOID"', 'inner')
+            ->where('p.period_start <=', $date)
+            ->where('p.period_end >=', $date)
+            ->order_by('p.period_start', 'DESC')
+            ->order_by('d.id', 'DESC')
+            ->limit(1)
+            ->get()->row_array();
+
+        $this->lockedPeriodDateCache[$date] = $row ?: null;
+        return $this->lockedPeriodDateCache[$date];
+    }
+
+    private function immutable_period_guard_message(string $date): string
+    {
+        $locked = $this->get_locked_period_for_date($date);
+        if (!$locked) {
+            return '';
+        }
+        $periodCode = (string)($locked['period_code'] ?? '#');
+        $disbursementNo = (string)($locked['disbursement_no'] ?? '#');
+        $disbursementStatus = strtoupper((string)($locked['disbursement_status'] ?? '-'));
+        return 'Periode payroll ' . $periodCode . ' sudah terkunci oleh batch gaji ' . $disbursementNo . ' [' . $disbursementStatus . ']. Perubahan data tanggal ini diblokir.';
     }
 
     private function get_manual_adjustment_totals_by_date(int $employeeId, string $date): array
@@ -201,6 +241,11 @@ class Payroll_model extends CI_Model
             return ['ok' => false, 'message' => 'Pegawai tidak ditemukan atau nonaktif.'];
         }
 
+        $lockMessage = $this->immutable_period_guard_message($adjustmentDate);
+        if ($lockMessage !== '') {
+            return ['ok' => false, 'message' => $lockMessage];
+        }
+
         $dbPayload = [
             'employee_id' => $employeeId,
             'adjustment_date' => $adjustmentDate,
@@ -225,8 +270,12 @@ class Payroll_model extends CI_Model
             if (!$exists) {
                 return ['ok' => false, 'message' => 'Data penyesuaian tidak ditemukan.'];
             }
-            $oldEmployeeId = (int)($exists['employee_id'] ?? 0);
             $oldDate = (string)($exists['adjustment_date'] ?? '');
+            $oldLockMessage = $this->immutable_period_guard_message($oldDate);
+            if ($oldLockMessage !== '') {
+                return ['ok' => false, 'message' => $oldLockMessage];
+            }
+            $oldEmployeeId = (int)($exists['employee_id'] ?? 0);
             $this->db->where('id', $id)->update('pay_manual_adjustment', $dbPayload);
             $this->recompute_daily_manual_adjustment($oldEmployeeId, $oldDate);
             if ($oldEmployeeId !== $employeeId || $oldDate !== $adjustmentDate) {
@@ -251,6 +300,10 @@ class Payroll_model extends CI_Model
         if (!$exists) {
             return ['ok' => false, 'message' => 'Data penyesuaian tidak ditemukan.'];
         }
+        $lockMessage = $this->immutable_period_guard_message((string)($exists['adjustment_date'] ?? ''));
+        if ($lockMessage !== '') {
+            return ['ok' => false, 'message' => $lockMessage];
+        }
         $this->db->where('id', $id)->delete('pay_manual_adjustment');
         $this->recompute_daily_manual_adjustment((int)$exists['employee_id'], (string)$exists['adjustment_date']);
         return ['ok' => true, 'message' => 'Data penyesuaian berhasil dihapus.'];
@@ -261,12 +314,167 @@ class Payroll_model extends CI_Model
         if (!$this->db->table_exists('fin_company_account')) {
             return [];
         }
-        return $this->db->select("id AS value, CONCAT(account_code, ' - ', account_name) AS label, account_type, bank_name, account_no", false)
+        return $this->db->select("id AS value, CONCAT(account_code, ' - ', account_name) AS label, account_type, bank_id, bank_name, account_no", false)
             ->from('fin_company_account')
             ->where('is_active', 1)
             ->order_by('is_default', 'DESC')
             ->order_by('account_name', 'ASC')
             ->get()->result_array();
+    }
+
+    private function normalize_bank_key(string $raw): string
+    {
+        $v = strtoupper(trim($raw));
+        if ($v === '') {
+            return '';
+        }
+        $v = preg_replace('/[^A-Z0-9]/', '', $v);
+        return (string)$v;
+    }
+
+    private function default_company_account_id(array $accounts): int
+    {
+        if (empty($accounts)) {
+            return 0;
+        }
+        foreach ($accounts as $a) {
+            if ((int)($a['value'] ?? 0) > 0) {
+                return (int)$a['value'];
+            }
+        }
+        return 0;
+    }
+
+    private function resolve_source_account_id_for_employee(array $candidate, array $accounts, int $fallbackId): int
+    {
+        if (empty($accounts)) {
+            return 0;
+        }
+
+        $employeeBankId = (int)($candidate['bank_id'] ?? 0);
+        $employeeBankNameKey = $this->normalize_bank_key((string)($candidate['bank_name'] ?? ''));
+
+        if ($employeeBankId > 0) {
+            foreach ($accounts as $a) {
+                if ((int)($a['value'] ?? 0) > 0 && (int)($a['bank_id'] ?? 0) === $employeeBankId) {
+                    return (int)$a['value'];
+                }
+            }
+        }
+
+        if ($employeeBankNameKey !== '') {
+            foreach ($accounts as $a) {
+                if ((int)($a['value'] ?? 0) <= 0) {
+                    continue;
+                }
+                $accBankKey = $this->normalize_bank_key((string)($a['bank_name'] ?? ''));
+                if ($accBankKey !== '' && $accBankKey === $employeeBankNameKey) {
+                    return (int)$a['value'];
+                }
+            }
+            foreach ($accounts as $a) {
+                if ((int)($a['value'] ?? 0) <= 0) {
+                    continue;
+                }
+                $accBankKey = $this->normalize_bank_key((string)($a['bank_name'] ?? ''));
+                if ($accBankKey !== '' && (strpos($employeeBankNameKey, $accBankKey) !== false || strpos($accBankKey, $employeeBankNameKey) !== false)) {
+                    return (int)$a['value'];
+                }
+            }
+        }
+
+        return $fallbackId > 0 ? $fallbackId : 0;
+    }
+
+    private function fetch_salary_disbursement_candidates(int $periodId): array
+    {
+        if ($periodId <= 0) {
+            return [];
+        }
+
+        return $this->db->select('
+                r.id AS payroll_result_id,
+                r.employee_id,
+                r.net_pay,
+                r.gross_pay,
+                r.total_deduction,
+                r.employee_code_snapshot,
+                r.employee_name_snapshot,
+                ' . ($this->table_has_field('pay_payroll_result', 'basic_total') ? '
+                r.basic_total,
+                r.allowance_total,
+                r.meal_total,
+                r.overtime_total,
+                r.manual_addition_total,
+                r.late_deduction_total,
+                r.alpha_deduction_total,
+                r.manual_deduction_total,
+                r.cash_advance_cut_total,
+                r.net_pay_raw,
+                r.rounding_adjustment,
+                ' : '') . '
+                e.bank_id,
+                e.bank_name,
+                e.bank_account_no,
+                e.bank_account_name
+            ', false)
+            ->from('pay_payroll_result r')
+            ->join('org_employee e', 'e.id = r.employee_id', 'left')
+            ->where('r.payroll_period_id', $periodId)
+            ->where('COALESCE(r.net_pay,0) >', 0)
+            ->where_in('r.status', ['DRAFT', 'FINALIZED'])
+            ->where('NOT EXISTS (
+                SELECT 1
+                FROM pay_salary_disbursement_line dup
+                INNER JOIN pay_salary_disbursement d
+                    ON d.id = dup.disbursement_id
+                   AND d.status <> "VOID"
+                WHERE dup.payroll_result_id = r.id
+            )', null, false)
+            ->group_by('r.id')
+            ->order_by('r.employee_id', 'ASC')
+            ->get()->result_array();
+    }
+
+    public function preview_salary_disbursement_candidates(int $periodId): array
+    {
+        if ($periodId <= 0) {
+            return [];
+        }
+        $accounts = $this->get_company_account_options();
+        $accountMap = [];
+        foreach ($accounts as $a) {
+            $accountMap[(int)($a['value'] ?? 0)] = $a;
+        }
+        $fallbackId = $this->default_company_account_id($accounts);
+        $rows = $this->fetch_salary_disbursement_candidates($periodId);
+        $uniqueRows = [];
+        $seenResult = [];
+        $seenEmployee = [];
+        foreach ($rows as $row) {
+            $resultId = (int)($row['payroll_result_id'] ?? 0);
+            $employeeId = (int)($row['employee_id'] ?? 0);
+            if ($resultId <= 0 || $employeeId <= 0) {
+                continue;
+            }
+            if (isset($seenResult[$resultId]) || isset($seenEmployee[$employeeId])) {
+                // Hard guard: preview hanya tampil 1 kandidat per payroll_result dan per pegawai.
+                continue;
+            }
+            $seenResult[$resultId] = true;
+            $seenEmployee[$employeeId] = true;
+            $uniqueRows[] = $row;
+        }
+        $rows = $uniqueRows;
+        foreach ($rows as &$row) {
+            $sourceId = $this->resolve_source_account_id_for_employee($row, $accounts, $fallbackId);
+            $source = $accountMap[$sourceId] ?? null;
+            $row['source_account_id'] = $sourceId;
+            $row['source_account_label'] = $source ? (string)($source['label'] ?? '') : '';
+        }
+        unset($row);
+
+        return $rows;
     }
 
     private function next_doc_no(string $table, string $column, string $prefix): string
@@ -886,6 +1094,23 @@ class Payroll_model extends CI_Model
             return ['ok' => false, 'message' => 'Gagal menyiapkan payroll period.'];
         }
 
+        $periodRow = $this->db->select('id, period_code, status')
+            ->from('pay_payroll_period')
+            ->where('id', $periodId)
+            ->limit(1)
+            ->get()->row_array();
+        if ($periodRow && in_array(strtoupper((string)($periodRow['status'] ?? 'DRAFT')), ['PAID', 'CLOSED'], true)) {
+            return ['ok' => false, 'message' => 'Payroll period ' . (string)($periodRow['period_code'] ?? '#') . ' sudah status PAID/CLOSED dan tidak bisa diregenerate.'];
+        }
+        $activeDisbursement = $this->db->select('COUNT(*) AS c', false)
+            ->from('pay_salary_disbursement')
+            ->where('payroll_period_id', $periodId)
+            ->where('status <>', 'VOID')
+            ->get()->row_array();
+        if ((int)($activeDisbursement['c'] ?? 0) > 0) {
+            return ['ok' => false, 'message' => 'Payroll period sudah punya batch gaji aktif. VOID/hapus batch dulu sebelum regenerate.'];
+        }
+
         $rows = $this->db->select("
                 ad.employee_id,
                 e.employee_code,
@@ -1495,11 +1720,371 @@ class Payroll_model extends CI_Model
         return $baseRows;
     }
 
+    public function count_generated_salary_lines_by_employee(int $employeeId, string $dateStart = '', string $dateEnd = ''): int
+    {
+        if ($employeeId <= 0) {
+            return 0;
+        }
+        $this->db->from('pay_salary_disbursement_line l')
+            ->join('pay_salary_disbursement h', 'h.id = l.disbursement_id', 'inner')
+            ->where('l.employee_id', $employeeId)
+            ->where('h.status <>', 'VOID');
+        if ($dateStart !== '') {
+            $this->db->where('h.disbursement_date >=', $dateStart);
+        }
+        if ($dateEnd !== '') {
+            $this->db->where('h.disbursement_date <=', $dateEnd);
+        }
+        return (int)$this->db->count_all_results();
+    }
+
+    public function list_generated_salary_lines_by_employee(int $employeeId, string $dateStart = '', string $dateEnd = '', int $limit = 50, int $offset = 0): array
+    {
+        if ($employeeId <= 0) {
+            return [];
+        }
+        $sourceAccountExpr = $this->table_has_field('pay_salary_disbursement_line', 'company_account_id')
+            ? 'COALESCE(src_line.account_name, src_header.account_name) AS source_account_name'
+            : 'src_header.account_name AS source_account_name';
+
+        $lineSnapshotExpr = $this->table_has_field('pay_salary_disbursement_line', 'net_pay_raw_snapshot')
+            ? '
+                l.net_pay_raw_snapshot,
+                l.rounding_adjustment_snapshot,
+                l.net_pay_snapshot,
+            '
+            : '';
+
+        $this->db->select('
+                l.id AS line_id,
+                l.transfer_amount,
+                l.transfer_status,
+                l.transfer_ref_no,
+                l.paid_at,
+                h.id AS disbursement_id,
+                h.disbursement_no,
+                h.disbursement_date,
+                h.status AS disbursement_status,
+                p.period_code,
+                p.period_start,
+                p.period_end,
+                r.employee_code_snapshot,
+                r.employee_name_snapshot,
+                r.net_pay,
+                r.net_pay_raw,
+                r.rounding_adjustment,
+                ' . $lineSnapshotExpr . '
+                ' . $sourceAccountExpr . '
+            ', false)
+            ->from('pay_salary_disbursement_line l')
+            ->join('pay_salary_disbursement h', 'h.id = l.disbursement_id', 'inner')
+            ->join('pay_payroll_period p', 'p.id = h.payroll_period_id', 'left')
+            ->join('pay_payroll_result r', 'r.id = l.payroll_result_id', 'left')
+            ->join('fin_company_account src_header', 'src_header.id = h.company_account_id', 'left');
+        if ($this->table_has_field('pay_salary_disbursement_line', 'company_account_id')) {
+            $this->db->join('fin_company_account src_line', 'src_line.id = l.company_account_id', 'left');
+        }
+        $this->db->where('l.employee_id', $employeeId)
+            ->where('h.status <>', 'VOID');
+        if ($dateStart !== '') {
+            $this->db->where('h.disbursement_date >=', $dateStart);
+        }
+        if ($dateEnd !== '') {
+            $this->db->where('h.disbursement_date <=', $dateEnd);
+        }
+        $rows = $this->db->order_by('h.disbursement_date', 'DESC')
+            ->order_by('l.id', 'DESC')
+            ->limit($limit, $offset)
+            ->get()->result_array();
+
+        foreach ($rows as &$row) {
+            if ($this->table_has_field('pay_salary_disbursement_line', 'net_pay_raw_snapshot')) {
+                $row['net_pay_raw'] = (float)($row['net_pay_raw_snapshot'] ?? ($row['net_pay_raw'] ?? 0));
+                $row['rounding_adjustment'] = (float)($row['rounding_adjustment_snapshot'] ?? ($row['rounding_adjustment'] ?? 0));
+                $row['net_pay'] = (float)($row['net_pay_snapshot'] ?? ($row['net_pay'] ?? 0));
+            }
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    public function audit_payroll_period_consistency(int $periodId): array
+    {
+        $empty = [
+            'period' => null,
+            'summary' => [
+                'result_rows' => 0,
+                'result_net_raw_total' => 0.0,
+                'result_net_final_total' => 0.0,
+                'attendance_net_total' => 0.0,
+                'active_disbursement_transfer_total' => 0.0,
+                'raw_vs_attendance_diff_total' => 0.0,
+                'transfer_vs_result_final_diff_total' => 0.0,
+                'result_duplicates' => 0,
+                'active_disbursement_duplicates' => 0,
+                'mismatch_rows' => 0,
+            ],
+            'duplicates_result' => [],
+            'duplicates_disbursement' => [],
+            'mismatch_rows' => [],
+        ];
+        if ($periodId <= 0) {
+            return $empty;
+        }
+
+        $period = $this->db->select('*')->from('pay_payroll_period')->where('id', $periodId)->limit(1)->get()->row_array();
+        if (!$period) {
+            return $empty;
+        }
+        $empty['period'] = $period;
+
+        $resultRows = $this->db->select("
+                r.id AS payroll_result_id,
+                r.employee_id,
+                r.employee_code_snapshot,
+                r.employee_name_snapshot,
+                COALESCE(r.net_pay_raw, r.net_pay, 0) AS result_net_raw,
+                COALESCE(r.net_pay, 0) AS result_net_final,
+                COALESCE(att.net_attendance, 0) AS attendance_net,
+                COALESCE(disb.transfer_total, 0) AS active_transfer_total
+            ", false)
+            ->from('pay_payroll_result r')
+            ->join('
+                (
+                    SELECT ad.employee_id, SUM(COALESCE(ad.daily_salary_amount,0)) AS net_attendance
+                    FROM att_daily ad
+                    WHERE ad.attendance_date >= ' . $this->db->escape((string)$period['period_start']) . '
+                      AND ad.attendance_date <= ' . $this->db->escape((string)$period['period_end']) . '
+                      AND ad.checkout_at IS NOT NULL
+                    GROUP BY ad.employee_id
+                ) att
+            ', 'att.employee_id = r.employee_id', 'left', false)
+            ->join('
+                (
+                    SELECT l.payroll_result_id, SUM(COALESCE(l.transfer_amount,0)) AS transfer_total
+                    FROM pay_salary_disbursement_line l
+                    INNER JOIN pay_salary_disbursement h
+                        ON h.id = l.disbursement_id
+                       AND h.status <> "VOID"
+                    GROUP BY l.payroll_result_id
+                ) disb
+            ', 'disb.payroll_result_id = r.id', 'left', false)
+            ->where('r.payroll_period_id', $periodId)
+            ->order_by('r.employee_name_snapshot', 'ASC')
+            ->get()->result_array();
+
+        $duplicatesResult = $this->db->select('r.employee_id, COUNT(*) AS duplicate_count, GROUP_CONCAT(r.id ORDER BY r.id) AS payroll_result_ids', false)
+            ->from('pay_payroll_result r')
+            ->where('r.payroll_period_id', $periodId)
+            ->group_by('r.employee_id')
+            ->having('COUNT(*) > 1', null, false)
+            ->get()->result_array();
+
+        $duplicatesDisbursement = $this->db->select('l.payroll_result_id, COUNT(*) AS duplicate_count, GROUP_CONCAT(CONCAT(h.disbursement_no, "#", l.id) ORDER BY l.id) AS line_refs', false)
+            ->from('pay_salary_disbursement_line l')
+            ->join('pay_salary_disbursement h', 'h.id = l.disbursement_id', 'inner')
+            ->where('h.payroll_period_id', $periodId)
+            ->where('h.status <>', 'VOID')
+            ->group_by('l.payroll_result_id')
+            ->having('COUNT(*) > 1', null, false)
+            ->get()->result_array();
+
+        $summary = $empty['summary'];
+        $summary['result_rows'] = count($resultRows);
+        $mismatchRows = [];
+        foreach ($resultRows as $row) {
+            $resultRaw = round((float)($row['result_net_raw'] ?? 0), 2);
+            $resultFinal = round((float)($row['result_net_final'] ?? 0), 2);
+            $attendance = round((float)($row['attendance_net'] ?? 0), 2);
+            $transfer = round((float)($row['active_transfer_total'] ?? 0), 2);
+            $diffAtt = round($resultRaw - $attendance, 2);
+            $diffTransferFinal = round($transfer - $resultFinal, 2);
+
+            $summary['result_net_raw_total'] += $resultRaw;
+            $summary['result_net_final_total'] += $resultFinal;
+            $summary['attendance_net_total'] += $attendance;
+            $summary['active_disbursement_transfer_total'] += $transfer;
+
+            if (abs($diffAtt) > 0.009 || abs($diffTransferFinal) > 0.009) {
+                $row['diff_raw_vs_attendance'] = $diffAtt;
+                $row['diff_transfer_vs_final'] = $diffTransferFinal;
+                $mismatchRows[] = $row;
+            }
+        }
+        $summary['result_net_raw_total'] = round((float)$summary['result_net_raw_total'], 2);
+        $summary['result_net_final_total'] = round((float)$summary['result_net_final_total'], 2);
+        $summary['attendance_net_total'] = round((float)$summary['attendance_net_total'], 2);
+        $summary['active_disbursement_transfer_total'] = round((float)$summary['active_disbursement_transfer_total'], 2);
+        $summary['raw_vs_attendance_diff_total'] = round($summary['result_net_raw_total'] - $summary['attendance_net_total'], 2);
+        $summary['transfer_vs_result_final_diff_total'] = round($summary['active_disbursement_transfer_total'] - $summary['result_net_final_total'], 2);
+        $summary['result_duplicates'] = count($duplicatesResult);
+        $summary['active_disbursement_duplicates'] = count($duplicatesDisbursement);
+        $summary['mismatch_rows'] = count($mismatchRows);
+
+        return [
+            'period' => $period,
+            'summary' => $summary,
+            'duplicates_result' => $duplicatesResult,
+            'duplicates_disbursement' => $duplicatesDisbursement,
+            'mismatch_rows' => $mismatchRows,
+        ];
+    }
+
+    public function get_salary_disbursement_line_slip(int $lineId, int $employeeId = 0): ?array
+    {
+        if ($lineId <= 0) {
+            return null;
+        }
+
+        $sourceAccountExpr = $this->table_has_field('pay_salary_disbursement_line', 'company_account_id')
+            ? '
+                COALESCE(src_line.account_name, src_header.account_name) AS source_account_name,
+                COALESCE(src_line.account_code, src_header.account_code) AS source_account_code
+            '
+            : '
+                src_header.account_name AS source_account_name,
+                src_header.account_code AS source_account_code
+            ';
+
+        $resultSnapshotExpr = $this->table_has_field('pay_salary_disbursement_line', 'basic_total_snapshot')
+            ? '
+                l.basic_total_snapshot,
+                l.allowance_total_snapshot,
+                l.meal_total_snapshot,
+                l.overtime_total_snapshot,
+                l.manual_addition_total_snapshot,
+                l.late_deduction_total_snapshot,
+                l.alpha_deduction_total_snapshot,
+                l.manual_deduction_total_snapshot,
+                l.cash_advance_cut_total_snapshot,
+                l.gross_pay_snapshot,
+                l.total_deduction_snapshot,
+                l.net_pay_raw_snapshot,
+                l.rounding_adjustment_snapshot,
+                l.net_pay_snapshot,
+            '
+            : '';
+
+        $bankNameExpr = $this->table_has_field('pay_salary_disbursement_line', 'employee_bank_name')
+            ? 'COALESCE(l.employee_bank_name, e.bank_name) AS employee_bank_name'
+            : 'e.bank_name AS employee_bank_name';
+        $bankNoExpr = $this->table_has_field('pay_salary_disbursement_line', 'employee_bank_account_no')
+            ? 'COALESCE(l.employee_bank_account_no, e.bank_account_no) AS employee_bank_account_no'
+            : 'e.bank_account_no AS employee_bank_account_no';
+        $bankHolderExpr = $this->table_has_field('pay_salary_disbursement_line', 'employee_bank_account_name')
+            ? 'COALESCE(l.employee_bank_account_name, e.bank_account_name) AS employee_bank_account_name'
+            : 'e.bank_account_name AS employee_bank_account_name';
+
+        $this->db->select('
+                l.id AS line_id,
+                l.transfer_amount,
+                l.transfer_status,
+                l.transfer_ref_no,
+                l.paid_at,
+                h.id AS disbursement_id,
+                h.disbursement_no,
+                h.disbursement_date,
+                h.status AS disbursement_status,
+                p.period_code,
+                p.period_start,
+                p.period_end,
+                r.employee_id,
+                r.employee_code_snapshot,
+                r.employee_name_snapshot,
+                r.net_pay,
+                r.net_pay_raw,
+                r.rounding_adjustment,
+                ' . $resultSnapshotExpr . '
+                ' . $sourceAccountExpr . ',
+                ' . $bankNameExpr . ',
+                ' . $bankNoExpr . ',
+                ' . $bankHolderExpr . '
+            ', false)
+            ->from('pay_salary_disbursement_line l')
+            ->join('pay_salary_disbursement h', 'h.id = l.disbursement_id', 'inner')
+            ->join('pay_payroll_period p', 'p.id = h.payroll_period_id', 'left')
+            ->join('pay_payroll_result r', 'r.id = l.payroll_result_id', 'left')
+            ->join('org_employee e', 'e.id = l.employee_id', 'left')
+            ->join('fin_company_account src_header', 'src_header.id = h.company_account_id', 'left');
+        if ($this->table_has_field('pay_salary_disbursement_line', 'company_account_id')) {
+            $this->db->join('fin_company_account src_line', 'src_line.id = l.company_account_id', 'left');
+        }
+        $this->db->where('l.id', $lineId)
+            ->where('h.status <>', 'VOID');
+        if ($employeeId > 0) {
+            $this->db->where('l.employee_id', $employeeId);
+        }
+        $row = $this->db->limit(1)->get()->row_array();
+        if (!$row) {
+            return null;
+        }
+
+        if ($this->table_has_field('pay_salary_disbursement_line', 'basic_total_snapshot')) {
+            $row['basic_total'] = (float)($row['basic_total_snapshot'] ?? 0);
+            $row['allowance_total'] = (float)($row['allowance_total_snapshot'] ?? 0);
+            $row['meal_total'] = (float)($row['meal_total_snapshot'] ?? 0);
+            $row['overtime_total'] = (float)($row['overtime_total_snapshot'] ?? 0);
+            $row['manual_addition_total'] = (float)($row['manual_addition_total_snapshot'] ?? 0);
+            $row['late_deduction_total'] = (float)($row['late_deduction_total_snapshot'] ?? 0);
+            $row['alpha_deduction_total'] = (float)($row['alpha_deduction_total_snapshot'] ?? 0);
+            $row['manual_deduction_total'] = (float)($row['manual_deduction_total_snapshot'] ?? 0);
+            $row['cash_advance_cut_total'] = (float)($row['cash_advance_cut_total_snapshot'] ?? 0);
+            $row['gross_pay'] = (float)($row['gross_pay_snapshot'] ?? 0);
+            $row['total_deduction'] = (float)($row['total_deduction_snapshot'] ?? 0);
+            $row['net_pay_raw'] = (float)($row['net_pay_raw_snapshot'] ?? ($row['net_pay'] ?? 0));
+            $row['rounding_adjustment'] = (float)($row['rounding_adjustment_snapshot'] ?? 0);
+            $row['net_pay'] = (float)($row['net_pay_snapshot'] ?? ($row['net_pay'] ?? 0));
+        } else {
+            $row['basic_total'] = 0.0;
+            $row['allowance_total'] = 0.0;
+            $row['meal_total'] = 0.0;
+            $row['overtime_total'] = 0.0;
+            $row['manual_addition_total'] = 0.0;
+            $row['late_deduction_total'] = 0.0;
+            $row['alpha_deduction_total'] = 0.0;
+            $row['manual_deduction_total'] = 0.0;
+            $row['cash_advance_cut_total'] = 0.0;
+            $row['gross_pay'] = (float)($row['net_pay'] ?? 0);
+            $row['total_deduction'] = 0.0;
+            $row['net_pay_raw'] = (float)($row['net_pay_raw'] ?? ($row['net_pay'] ?? 0));
+            $row['rounding_adjustment'] = (float)($row['rounding_adjustment'] ?? 0);
+            $row['net_pay'] = (float)($row['net_pay'] ?? 0);
+        }
+
+        $row['meal_paid_total'] = 0.0;
+        $row['meal_paid_days'] = 0;
+        $row['meal_paid_deduction'] = 0.0;
+        if (
+            $this->db->table_exists('pay_meal_disbursement_line')
+            && $this->db->table_exists('pay_meal_disbursement')
+            && !empty($row['employee_id'])
+            && !empty($row['period_start'])
+            && !empty($row['period_end'])
+        ) {
+            $mealPaid = $this->db->select('COUNT(*) AS day_count, COALESCE(SUM(ml.meal_amount),0) AS paid_total', false)
+                ->from('pay_meal_disbursement_line ml')
+                ->join('pay_meal_disbursement md', 'md.id = ml.disbursement_id', 'inner')
+                ->where('ml.employee_id', (int)$row['employee_id'])
+                ->where('md.status', 'PAID')
+                ->where('ml.transfer_status', 'PAID')
+                ->where('ml.attendance_date >=', (string)$row['period_start'])
+                ->where('ml.attendance_date <=', (string)$row['period_end'])
+                ->get()->row_array() ?: [];
+            $row['meal_paid_total'] = round((float)($mealPaid['paid_total'] ?? 0), 2);
+            $row['meal_paid_days'] = (int)($mealPaid['day_count'] ?? 0);
+            $row['meal_paid_deduction'] = round(min((float)$row['meal_total'], (float)$row['meal_paid_total']), 2);
+        }
+
+        return $row;
+    }
+
     public function generate_salary_disbursement(array $payload, int $actorUserId): array
     {
         $periodId = (int)($payload['payroll_period_id'] ?? 0);
         $disbursementDate = trim((string)($payload['disbursement_date'] ?? date('Y-m-d')));
         $companyAccountId = (int)($payload['company_account_id'] ?? 0);
+        $sourceByEmployee = (array)($payload['employee_source_account'] ?? []);
         $notes = trim((string)($payload['notes'] ?? ''));
 
         if ($periodId <= 0) {
@@ -1508,46 +2093,52 @@ class Payroll_model extends CI_Model
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $disbursementDate)) {
             return ['ok' => false, 'message' => 'Tanggal pencairan tidak valid.'];
         }
-        if ($companyAccountId <= 0) {
-            return ['ok' => false, 'message' => 'Rekening sumber mutasi wajib dipilih sebelum generate batch gaji.'];
+        $accounts = $this->get_company_account_options();
+        $accountMap = [];
+        foreach ($accounts as $a) {
+            $accountMap[(int)($a['value'] ?? 0)] = $a;
         }
+        $fallbackAccountId = $companyAccountId > 0 ? $companyAccountId : $this->default_company_account_id($accounts);
 
-        $candidates = $this->db->select('
-                r.id AS payroll_result_id,
-                r.employee_id,
-                r.net_pay,
-                r.gross_pay,
-                r.total_deduction,
-                ' . ($this->table_has_field('pay_payroll_result', 'basic_total') ? '
-                r.basic_total,
-                r.allowance_total,
-                r.meal_total,
-                r.overtime_total,
-                r.manual_addition_total,
-                r.late_deduction_total,
-                r.alpha_deduction_total,
-                r.manual_deduction_total,
-                r.cash_advance_cut_total,
-                r.net_pay_raw,
-                r.rounding_adjustment,
-                ' : '') . '
-                e.bank_name,
-                e.bank_account_no,
-                e.bank_account_name
-            ', false)
-            ->from('pay_payroll_result r')
-            ->join('org_employee e', 'e.id = r.employee_id', 'left')
-            ->join('pay_salary_disbursement_line dup', 'dup.payroll_result_id = r.id', 'left')
-            ->join('pay_salary_disbursement d', 'd.id = dup.disbursement_id AND d.status <> "VOID"', 'left')
-            ->where('r.payroll_period_id', $periodId)
-            ->where('COALESCE(r.net_pay,0) >', 0)
-            ->where_in('r.status', ['DRAFT', 'FINALIZED'])
-            ->where('d.id IS NULL', null, false)
-            ->order_by('r.employee_id', 'ASC')
-            ->get()->result_array();
+        $candidates = $this->fetch_salary_disbursement_candidates($periodId);
 
         if (empty($candidates)) {
             return ['ok' => false, 'message' => 'Tidak ada kandidat pencairan gaji baru untuk period ini.'];
+        }
+
+        $seenResult = [];
+        $seenEmployee = [];
+        foreach ($candidates as $candidate) {
+            $resultId = (int)($candidate['payroll_result_id'] ?? 0);
+            $employeeId = (int)($candidate['employee_id'] ?? 0);
+            if ($resultId <= 0 || $employeeId <= 0) {
+                return ['ok' => false, 'message' => 'Ada kandidat payroll tidak valid (payroll_result/employee kosong).'];
+            }
+            if (isset($seenResult[$resultId])) {
+                return ['ok' => false, 'message' => 'Kandidat duplikat payroll result terdeteksi. Refresh payroll period lalu coba lagi.'];
+            }
+            if (isset($seenEmployee[$employeeId])) {
+                return ['ok' => false, 'message' => 'Kandidat duplikat pegawai terdeteksi pada periode ini. Refresh payroll period lalu coba lagi.'];
+            }
+            $seenResult[$resultId] = true;
+            $seenEmployee[$employeeId] = true;
+        }
+
+        $lineSources = [];
+        $hasUnresolvedSource = false;
+        foreach ($candidates as $c) {
+            $eid = (int)($c['employee_id'] ?? 0);
+            $chosen = isset($sourceByEmployee[$eid]) ? (int)$sourceByEmployee[$eid] : 0;
+            if ($chosen <= 0 || !isset($accountMap[$chosen])) {
+                $chosen = $this->resolve_source_account_id_for_employee($c, $accounts, $fallbackAccountId);
+            }
+            if ($chosen <= 0) {
+                $hasUnresolvedSource = true;
+            }
+            $lineSources[$eid] = $chosen;
+        }
+        if ($hasUnresolvedSource) {
+            return ['ok' => false, 'message' => 'Ada pegawai yang belum punya rekening sumber perusahaan yang valid. Lakukan preview lalu pilih rekening sumber per pegawai.'];
         }
 
         $no = $this->next_doc_no('pay_salary_disbursement', 'disbursement_no', 'SAL');
@@ -1556,12 +2147,20 @@ class Payroll_model extends CI_Model
             $total += (float)($c['net_pay'] ?? 0);
         }
 
+        $headerAccountId = 0;
+        $distinctSource = array_values(array_unique(array_filter(array_map(static function ($v) {
+            return (int)$v;
+        }, $lineSources))));
+        if (count($distinctSource) === 1) {
+            $headerAccountId = (int)$distinctSource[0];
+        }
+
         $this->db->trans_start();
         $this->db->insert('pay_salary_disbursement', [
             'payroll_period_id' => $periodId,
             'disbursement_no' => $no,
             'disbursement_date' => $disbursementDate,
-            'company_account_id' => $companyAccountId > 0 ? $companyAccountId : null,
+            'company_account_id' => $headerAccountId > 0 ? $headerAccountId : null,
             'status' => 'POSTED',
             'total_amount' => round($total, 2),
             'notes' => $notes !== '' ? $notes : null,
@@ -1581,6 +2180,10 @@ class Payroll_model extends CI_Model
                 'created_at' => date('Y-m-d H:i:s'),
                 'updated_at' => date('Y-m-d H:i:s'),
             ];
+            if ($this->table_has_field('pay_salary_disbursement_line', 'company_account_id')) {
+                $eid = (int)($c['employee_id'] ?? 0);
+                $linePayload['company_account_id'] = (int)($lineSources[$eid] ?? 0) > 0 ? (int)$lineSources[$eid] : null;
+            }
             if ($this->table_has_field('pay_salary_disbursement_line', 'employee_bank_name')) {
                 $linePayload['employee_bank_name'] = trim((string)($c['bank_name'] ?? '')) !== '' ? trim((string)$c['bank_name']) : null;
             }
@@ -1640,19 +2243,33 @@ class Payroll_model extends CI_Model
             return ['ok' => false, 'message' => 'Batch VOID tidak bisa diproses bayar.'];
         }
         $accountId = (int)($header['company_account_id'] ?? 0);
-        if ($accountId <= 0) {
-            $this->db->trans_complete();
-            return ['ok' => false, 'message' => 'Rekening sumber mutasi belum diisi pada batch ini.'];
+        $lineHasSource = $this->table_has_field('pay_salary_disbursement_line', 'company_account_id');
+        $pendingSelect = 'id, payroll_result_id, transfer_amount';
+        if ($lineHasSource) {
+            $pendingSelect .= ', company_account_id';
         }
-
-        $pendingRows = $this->db->select('id, payroll_result_id, transfer_amount')
+        $pendingRows = $this->db->select($pendingSelect, false)
             ->from('pay_salary_disbursement_line')
             ->where('disbursement_id', $disbursementId)
             ->where_in('transfer_status', ['PENDING', 'FAILED'])
             ->get()->result_array();
         $payNowAmount = 0.0;
+        $amountByAccount = [];
         foreach ($pendingRows as $row) {
-            $payNowAmount += (float)($row['transfer_amount'] ?? 0);
+            $amt = (float)($row['transfer_amount'] ?? 0);
+            $payNowAmount += $amt;
+            $lineAccountId = $lineHasSource ? (int)($row['company_account_id'] ?? 0) : 0;
+            if ($lineAccountId <= 0) {
+                $lineAccountId = $accountId;
+            }
+            if ($lineAccountId <= 0) {
+                $this->db->trans_complete();
+                return ['ok' => false, 'message' => 'Ada baris gaji tanpa rekening sumber mutasi.'];
+            }
+            if (!isset($amountByAccount[$lineAccountId])) {
+                $amountByAccount[$lineAccountId] = 0.0;
+            }
+            $amountByAccount[$lineAccountId] += $amt;
         }
         $payNowAmount = round($payNowAmount, 2);
 
@@ -1661,39 +2278,45 @@ class Payroll_model extends CI_Model
                 $this->db->trans_complete();
                 return ['ok' => false, 'message' => 'Tabel mutasi/rekening belum tersedia.'];
             }
-            $account = $this->db->query('SELECT * FROM fin_company_account WHERE id = ? AND is_active = 1 LIMIT 1 FOR UPDATE', [$accountId])->row_array();
-            if (!$account) {
-                $this->db->trans_complete();
-                return ['ok' => false, 'message' => 'Rekening sumber batch gaji tidak ditemukan atau nonaktif.'];
-            }
-            $balanceBefore = round((float)($account['current_balance'] ?? 0), 2);
-            if ($balanceBefore < $payNowAmount) {
-                $this->db->trans_complete();
-                return ['ok' => false, 'message' => 'Saldo rekening tidak cukup untuk menandai batch PAID.'];
-            }
-            $balanceAfter = round($balanceBefore - $payNowAmount, 2);
-
-            $this->db->where('id', $accountId)->update('fin_company_account', [
-                'current_balance' => $balanceAfter,
-            ]);
-
             $mutationDate = (string)($header['disbursement_date'] ?? date('Y-m-d'));
-            $this->db->insert('fin_account_mutation_log', [
-                'mutation_no' => $this->generate_account_mutation_no($mutationDate),
-                'mutation_date' => $mutationDate,
-                'account_id' => $accountId,
-                'mutation_type' => 'OUT',
-                'amount' => $payNowAmount,
-                'balance_before' => $balanceBefore,
-                'balance_after' => $balanceAfter,
-                'ref_module' => 'PAYROLL',
-                'ref_table' => 'pay_salary_disbursement',
-                'ref_id' => $disbursementId,
-                'ref_no' => (string)($header['disbursement_no'] ?? ''),
-                'notes' => 'Pencairan batch gaji ' . (string)($header['disbursement_no'] ?? ''),
-                'created_by' => $actorUserId > 0 ? $actorUserId : null,
-                'created_at' => $now,
-            ]);
+            foreach ($amountByAccount as $lineAccountId => $lineAmountRaw) {
+                $lineAmount = round((float)$lineAmountRaw, 2);
+                if ($lineAmount <= 0) {
+                    continue;
+                }
+                $account = $this->db->query('SELECT * FROM fin_company_account WHERE id = ? AND is_active = 1 LIMIT 1 FOR UPDATE', [(int)$lineAccountId])->row_array();
+                if (!$account) {
+                    $this->db->trans_complete();
+                    return ['ok' => false, 'message' => 'Rekening sumber batch gaji tidak ditemukan atau nonaktif.'];
+                }
+                $balanceBefore = round((float)($account['current_balance'] ?? 0), 2);
+                if ($balanceBefore < $lineAmount) {
+                    $this->db->trans_complete();
+                    return ['ok' => false, 'message' => 'Saldo rekening tidak cukup untuk menandai batch PAID.'];
+                }
+                $balanceAfter = round($balanceBefore - $lineAmount, 2);
+
+                $this->db->where('id', (int)$lineAccountId)->update('fin_company_account', [
+                    'current_balance' => $balanceAfter,
+                ]);
+
+                $this->db->insert('fin_account_mutation_log', [
+                    'mutation_no' => $this->generate_account_mutation_no($mutationDate),
+                    'mutation_date' => $mutationDate,
+                    'account_id' => (int)$lineAccountId,
+                    'mutation_type' => 'OUT',
+                    'amount' => $lineAmount,
+                    'balance_before' => $balanceBefore,
+                    'balance_after' => $balanceAfter,
+                    'ref_module' => 'PAYROLL',
+                    'ref_table' => 'pay_salary_disbursement',
+                    'ref_id' => $disbursementId,
+                    'ref_no' => (string)($header['disbursement_no'] ?? ''),
+                    'notes' => 'Pencairan batch gaji ' . (string)($header['disbursement_no'] ?? ''),
+                    'created_by' => $actorUserId > 0 ? $actorUserId : null,
+                    'created_at' => $now,
+                ]);
+            }
         }
 
         if ($payNowAmount > 0) {
@@ -1746,21 +2369,85 @@ class Payroll_model extends CI_Model
         return ['ok' => true, 'message' => $headerStatus === 'PAID' ? 'Batch gaji ditandai lunas.' : 'Sebagian baris ditandai paid.'];
     }
 
-    public function void_salary_disbursement(int $disbursementId, string $notes = ''): array
+    public function void_salary_disbursement(int $disbursementId, string $notes = '', int $actorUserId = 0): array
     {
         $header = $this->get_salary_disbursement_by_id($disbursementId);
         if (!$header) {
             return ['ok' => false, 'message' => 'Batch gaji tidak ditemukan.'];
         }
-        if (strtoupper((string)$header['status']) === 'PAID') {
-            return ['ok' => false, 'message' => 'Batch PAID tidak bisa di-VOID.'];
-        }
 
         $now = date('Y-m-d H:i:s');
         $this->db->trans_start();
+        $header = $this->db->query('SELECT * FROM pay_salary_disbursement WHERE id = ? LIMIT 1 FOR UPDATE', [$disbursementId])->row_array();
+        if (!$header) {
+            $this->db->trans_complete();
+            return ['ok' => false, 'message' => 'Batch gaji tidak ditemukan.'];
+        }
+        $currentStatus = strtoupper((string)($header['status'] ?? 'DRAFT'));
+        if ($currentStatus === 'VOID') {
+            $this->db->trans_complete();
+            return ['ok' => false, 'message' => 'Batch sudah berstatus VOID.'];
+        }
+
+        if ($currentStatus === 'PAID') {
+            if ($this->db->table_exists('fin_account_mutation_log') && $this->db->table_exists('fin_company_account')) {
+                $outs = $this->db->select('account_id, SUM(COALESCE(amount,0)) AS total_out', false)
+                    ->from('fin_account_mutation_log')
+                    ->where('ref_module', 'PAYROLL')
+                    ->where('ref_table', 'pay_salary_disbursement')
+                    ->where('ref_id', $disbursementId)
+                    ->where('mutation_type', 'OUT')
+                    ->group_by('account_id')
+                    ->get()->result_array();
+
+                foreach ($outs as $out) {
+                    $accountId = (int)($out['account_id'] ?? 0);
+                    $amount = round((float)($out['total_out'] ?? 0), 2);
+                    if ($accountId <= 0 || $amount <= 0) {
+                        continue;
+                    }
+                    $credit = $this->credit_account_and_log_mutation(
+                        $accountId,
+                        $amount,
+                        (string)($header['disbursement_date'] ?? date('Y-m-d')),
+                        'pay_salary_disbursement',
+                        $disbursementId,
+                        (string)($header['disbursement_no'] ?? ''),
+                        'VOID batch gaji ' . (string)($header['disbursement_no'] ?? ''),
+                        $actorUserId
+                    );
+                    if (empty($credit['ok'])) {
+                        $this->db->trans_complete();
+                        return $credit;
+                    }
+                }
+            }
+        }
+
+        $lineRows = $this->db->select('payroll_result_id')
+            ->from('pay_salary_disbursement_line')
+            ->where('disbursement_id', $disbursementId)
+            ->get()->result_array();
+        $resultIds = array_values(array_filter(array_map(static function ($row) {
+            return (int)($row['payroll_result_id'] ?? 0);
+        }, $lineRows)));
+
+        if (!empty($resultIds)) {
+            $this->db->where_in('id', $resultIds)->update('pay_payroll_result', [
+                'status' => 'FINALIZED',
+                'paid_at' => null,
+                'updated_at' => $now,
+            ]);
+        }
+
+        $voidNotes = trim($notes);
+        $mergedNotes = trim((string)($header['notes'] ?? ''));
+        $suffix = $voidNotes !== '' ? ('VOID: ' . $voidNotes) : 'VOID';
+        $mergedNotes = $mergedNotes !== '' ? ($mergedNotes . ' | ' . $suffix) : $suffix;
+
         $this->db->where('id', $disbursementId)->update('pay_salary_disbursement', [
             'status' => 'VOID',
-            'notes' => trim((string)$header['notes'] . ' | VOID: ' . $notes),
+            'notes' => $mergedNotes,
             'updated_at' => $now,
         ]);
         $this->db->where('disbursement_id', $disbursementId)->update('pay_salary_disbursement_line', [

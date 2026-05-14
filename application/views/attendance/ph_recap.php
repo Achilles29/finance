@@ -72,12 +72,13 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <th class="text-end">Adjust Total</th>
           <th class="text-end">Grant Bulan</th>
           <th class="text-end">Use Bulan</th>
+          <th class="text-end">Expire Bulan</th>
           <th class="text-end">Saldo</th>
         </tr>
       </thead>
       <tbody>
         <?php if (empty($rows)): ?>
-          <tr><td colspan="10" class="text-center text-muted py-4">Belum ada data rekap PH.</td></tr>
+          <tr><td colspan="11" class="text-center text-muted py-4">Belum ada data rekap PH.</td></tr>
         <?php else: foreach ($rows as $row): ?>
           <?php
             $grant = (float)($row['grant_total'] ?? 0);
@@ -96,6 +97,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
             <td class="text-end text-info"><?php echo number_format($adjust, 2, ',', '.'); ?></td>
             <td class="text-end"><?php echo number_format((float)($row['grant_month'] ?? 0), 2, ',', '.'); ?></td>
             <td class="text-end"><?php echo number_format((float)($row['use_month'] ?? 0), 2, ',', '.'); ?></td>
+            <td class="text-end text-danger"><?php echo number_format((float)($row['expire_month'] ?? 0), 2, ',', '.'); ?></td>
             <td class="text-end fw-semibold <?php echo ($balance >= 0) ? 'text-success' : 'text-danger'; ?>"><?php echo number_format($balance, 2, ',', '.'); ?></td>
           </tr>
         <?php endforeach; endif; ?>

@@ -85,6 +85,7 @@ $route['payroll/salary-disbursements/period-void/(:num)'] = 'payroll/payroll_per
 $route['payroll/salary-disbursements/period-delete/(:num)'] = 'payroll/payroll_period_delete/$1';
 $route['payroll/salary-disbursements/generate'] = 'payroll/salary_disbursement_generate';
 $route['payroll/salary-disbursements/mark-paid/(:num)'] = 'payroll/salary_disbursement_mark_paid/$1';
+$route['payroll/salary-disbursements/slip/(:num)'] = 'payroll/salary_disbursement_slip/$1';
 $route['payroll/salary-disbursements/void/(:num)'] = 'payroll/salary_disbursement_void/$1';
 $route['payroll/salary-disbursements/delete/(:num)'] = 'payroll/salary_disbursement_delete/$1';
 $route['payroll/cash-advances'] = 'payroll/cash_advances';
@@ -101,6 +102,7 @@ $route['my/attendance/mark'] = 'my/attendance_mark';
 $route['my/profile'] = 'my/profile';
 $route['my/schedule'] = 'my/schedule';
 $route['my/payroll'] = 'my/payroll';
+$route['my/payroll-slip/(:num)'] = 'my/payroll_slip/$1';
 $route['my/leave-requests'] = 'my/leave_requests';
 $route['my/leave-requests/schedule'] = 'my/leave_request_schedule';
 $route['my/leave-requests/cancel/(:num)'] = 'my/leave_request_cancel/$1';
@@ -115,6 +117,19 @@ $route['inventory/item-material-flow'] = 'inventory_flow/item_material';
 $route['inventory/item-material-flow/store'] = 'inventory_flow/item_material_store';
 
 // Purchase
+$route['procurement'] = 'procurement/store_requests';
+$route['procurement/division-requests'] = 'procurement/division_requests';
+$route['procurement/purchasing-desk'] = 'procurement/purchasing_desk';
+$route['store-requests'] = 'procurement/store_requests';
+$route['procurement/division-po-sr'] = 'procurement/division_po_sr';
+$route['procurement/division-po-sr/store'] = 'procurement/division_po_sr_store';
+$route['procurement/store-request/profile-search'] = 'procurement/store_request_profile_search';
+$route['procurement/store-request/store'] = 'procurement/store_request_store';
+$route['procurement/store-request/action/(:num)'] = 'procurement/store_request_action/$1';
+$route['procurement/store-request/split-preview/(:num)'] = 'procurement/store_request_split_preview/$1';
+$route['procurement/store-request/fulfill/(:num)'] = 'procurement/store_request_fulfill/$1';
+$route['procurement/store-request/generate-po/(:num)'] = 'procurement/store_request_generate_po/$1';
+
 $route['purchase-orders'] = 'purchase/index';
 $route['purchase-orders/create'] = 'purchase/order_create';
 $route['purchase-orders/edit/(:num)'] = 'purchase/order_edit/$1';

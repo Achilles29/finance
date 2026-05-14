@@ -12,6 +12,32 @@ class My_portal_model extends CI_Model
         }
         return (bool)$this->attDailyFieldCache[$field];
     }
+
+    private function build_daily_policy_lock_payload(array $policy): array
+    {
+        $payload = [];
+        $set = function (string $field, $value) use (&$payload): void {
+            if ($this->att_daily_has_field($field)) {
+                $payload[$field] = $value;
+            }
+        };
+
+        $set('policy_snapshot_id', (int)($policy['id'] ?? 0) ?: null);
+        $set('policy_snapshot_code', (string)($policy['policy_code'] ?? ''));
+        $set('policy_snapshot_name', (string)($policy['policy_name'] ?? ''));
+        $set('attendance_mode_snapshot', strtoupper((string)($policy['attendance_calc_mode'] ?? 'DAILY')));
+        $set('meal_mode_snapshot', strtoupper((string)($policy['meal_calc_mode'] ?? 'MONTHLY')));
+        $set('prorate_scope_snapshot', strtoupper((string)($policy['prorate_deduction_scope'] ?? ($policy['payroll_late_deduction_scope'] ?? 'BASIC_ONLY'))));
+        $set('overtime_mode_snapshot', strtoupper((string)($policy['overtime_calc_mode'] ?? 'AUTO')));
+        $set('allowance_late_treatment_snapshot', strtoupper((string)($policy['allowance_late_treatment'] ?? 'FULL_IF_PRESENT')));
+        $set('enable_late_deduction_snapshot', (int)($policy['enable_late_deduction'] ?? 1));
+        $set('enable_alpha_deduction_snapshot', (int)($policy['enable_alpha_deduction'] ?? 1));
+        $set('late_deduction_per_minute_snapshot', round((float)($policy['late_deduction_per_minute'] ?? 0), 2));
+        $set('alpha_deduction_per_day_snapshot', round((float)($policy['alpha_deduction_per_day'] ?? 0), 2));
+        $set('work_days_snapshot', (int)($policy['default_work_days_per_month'] ?? 26));
+
+        return $payload;
+    }
     public function count_my_leave_requests(int $employeeId, array $filters): int
     {
         $this->build_my_leave_requests_query($employeeId, $filters, false);
@@ -424,7 +450,7 @@ class My_portal_model extends CI_Model
         }
 
         $shiftCode = strtoupper((string)($schedule['shift_code'] ?? ''));
-        if ($shiftCode === 'PH' && strtoupper((string)($policy['ph_attendance_mode'] ?? 'AUTO_PRESENT')) === 'AUTO_PRESENT') {
+        if (in_array($shiftCode, ['PH', 'PHB'], true) && strtoupper((string)($policy['ph_attendance_mode'] ?? 'AUTO_PRESENT')) === 'AUTO_PRESENT') {
             $this->ensure_auto_ph_presence($employeeId, $date, $policy);
             return ['ok' => 1, 'message' => 'Shift PH otomatis ditandai hadir penuh.'];
         }
@@ -643,6 +669,7 @@ class My_portal_model extends CI_Model
             'remarks' => $effectiveCheckoutTs > 0 ? null : 'Menunggu checkout',
             'updated_at' => date('Y-m-d H:i:s'),
         ];
+        $payload += $this->build_daily_policy_lock_payload($policy);
 
         if ($effectiveCheckinTs > 0 && $effectiveCheckoutTs > 0 && $endTs > 0 && $effectiveCheckoutTs < $endTs) {
             $payload['early_leave_minutes'] = max(0, (int)floor(($endTs - $effectiveCheckoutTs) / 60));
@@ -1054,6 +1081,18 @@ class My_portal_model extends CI_Model
         }
         if (!empty($filters['tx_type'])) {
             $this->db->where('l.tx_type', strtoupper((string)$filters['tx_type']));
+        }
+        $expiredState = strtoupper(trim((string)($filters['expired_state'] ?? 'ALL')));
+        if ($expiredState === 'ACTIVE') {
+            $this->db->where('l.tx_type', 'GRANT');
+            $this->db->group_start()
+                ->where('l.expired_at IS NULL', null, false)
+                ->or_where('l.expired_at >=', date('Y-m-d'))
+                ->group_end();
+        } elseif ($expiredState === 'EXPIRED') {
+            $this->db->where('l.tx_type', 'GRANT');
+            $this->db->where('l.expired_at IS NOT NULL', null, false);
+            $this->db->where('l.expired_at <', date('Y-m-d'));
         }
     }
 

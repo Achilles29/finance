@@ -1012,22 +1012,29 @@ class Attendance extends MY_Controller
             'q' => trim((string)$this->input->get('q', true)),
             'employee_id' => (int)$this->input->get('employee_id', true),
             'tx_type' => strtoupper(trim((string)$this->input->get('tx_type', true))),
+            'expired_state' => strtoupper(trim((string)$this->input->get('expired_state', true))),
             'date_start' => trim((string)$this->input->get('date_start', true)),
             'date_end' => trim((string)$this->input->get('date_end', true)),
         ];
+        if (!in_array($filters['expired_state'], ['ALL', 'ACTIVE', 'EXPIRED'], true)) {
+            $filters['expired_state'] = 'ALL';
+        }
         if ($filters['date_start'] === '') {
-            $filters['date_start'] = date('Y-m-01');
+            $filters['date_start'] = date('Y-m-01', strtotime('-3 month'));
         }
         if ($filters['date_end'] === '') {
             $filters['date_end'] = date('Y-m-t');
         }
+        $this->Attendance_model->sync_ph_expiry_ledger(date('Y-m-d'), (int)($this->current_user['id'] ?? 0));
 
         $perPage = $this->per_page();
         $page = $this->page();
         $total = $this->Attendance_model->count_ph_ledger($filters);
         $pg = $this->build_pagination($total, $perPage, $page);
         $rows = $this->Attendance_model->list_ph_ledger($filters, $pg['per_page'], $pg['offset']);
-        $summary = $this->Attendance_model->ph_ledger_summary($filters);
+        $summary = $this->Attendance_model->ph_ledger_summary([
+            'employee_id' => (int)($filters['employee_id'] ?? 0),
+        ]);
         $editId = (int)$this->input->get('edit_id', true);
         $editRow = $editId > 0 ? $this->Attendance_model->get_ph_ledger_by_id($editId) : null;
 
@@ -1143,6 +1150,7 @@ class Attendance extends MY_Controller
             'is_eligible' => trim((string)$this->input->get('is_eligible', true)),
             'month' => trim((string)$this->input->get('month', true)),
         ];
+        $this->Attendance_model->sync_ph_expiry_ledger(date('Y-m-d'), (int)($this->current_user['id'] ?? 0));
         if (!preg_match('/^\d{4}-\d{2}$/', (string)$filters['month'])) {
             $filters['month'] = date('Y-m');
         }

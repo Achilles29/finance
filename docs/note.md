@@ -1,20 +1,6 @@
 ## JANGAN UBAH FILE INI. INI CATATAN SAYA SENDIRI
 
-kita gunakan 2 directory, finance dan core
 
-finance adalah folder CI3 kosong yang ingin saya gunakan untuk membangun aplikasi keuangan kafe mulai dari absensi, pengelolaan stok, POS, pengelolaan keuangan dan lain sebagainya
-
-sebelumnya kita sudah membuat di directory core dan sudah running online, hanya saja ini saya pull untuk kita kerjakan offline
-
-saya ingin membangunan aplikasi baru yang tidak sepenuhnya baru, yaitu dengan mengadopsi yang sudah kita buat di core agar lebih baik, profesional, mengatasi bug dan kekurangan yang masih banyak terjadi di core.
-
-meskipun kita buat baru, tapi saya ingin data data yang ada di core bisa kita gunakan dan skema alur proses bisnisnya tidak jauh berbeda agar user tidak kesulitan.
-
-fokus saya sebenarnya adalah penyempurnaan core dengan dimulai ulang dari awal agar bisa mengantisipasi kesalahan yang sudah saya buat di core yang agaknya terlalu sulit dan rawan untuk diperbaiki.
-
-jadi pertama aku ingin kamu scan fitur, modul, alur, dan lain lain yang sudah kita buat di core, kemudian kita tentukan alur pengembangan di finance mulai dari alur bisnis, skema database yang lebih baik dan efisien, dan lain sebagainya.
-
-setelah kita matangkan tahap demi tahap modul yang akan kita buat lalu kita kerjakan developingnya
 =============================================
 =============================================
 
@@ -179,64 +165,10 @@ sesuaikan jika ada yang perlu disesuikan. format kolom buat sesuai kebutuhan pro
 ============================
 
 
+add pegawai otomatis menambahkan akses login dan hak akses dan ke staff umum
 
+=====
 
+- divisi dan tujuan harus ada guarding relasi. contoh jika divis bar yang dipilih maka yang muncul BAR reguler atau bar event
 
-- karena ini merupakah satu kesatuan, jadi sekalian buatkan modul pencairan Gaji, dan skema kasbon (bisa adopsi dari core)
-
-
-
-
-
-
-
-
-
-
-- finance/mutations default range filter bulan ini
-- tambahkan pagination
-
-
-- payroll/cash-advances dan /payroll/salary-disbursements sudah adopsi dari core? dan apakah sudah tersambung dengan mutation log? apa bedanya Generate Payroll Period dan Generate Batch Pencairan Gaji. edit / hapus / void nya nggak ada?
-
-- saya tes generate payroll/salary-disbursements atas nama EKO kenapa beda dengan estimasi gaji
-
-- di kasbon ada menu tenor, padahal biasanya pegawai tidak bisa dipastikan berapa lama kasbonnya. boleh beda dengan pola di core asal lebih efisien dan profesional. dan tuliskan panduannya di docs dengan bahasa user
-
-
-===========================
-
-- payroll/meal-disbursements sudah di set paid tapi belum berdampak di saldo rekening dan muation lof
-- rapikan lagi logika tampilan /payroll/meal-disbursements? harusnya menampilkan detail yang dipilih dari no batch di atasnya. jadi walaupun sudah PAID, di kolom aksi  tetap ada button detail. dan detailnya tampilkan per nama jangan per hari, dan bisa dilihat detail nya per nama per hari
-
-
-- /payroll/salary-disbursements seharusnya juga punya data detail seperti pada estimasi gaji, jadi jangan cuma net gross, tapi jelas gaji pokok berapa, tunjangan berapa, lembur, potongan tambahan dan lainnya, pembayaran kasbon, uang makan dijelaskan semua baru dihitung gross dan nett nya sesuai pengaturan yang ditetapkan.
-
-- /payroll/salary-disbursements Generate Payroll Period belum ada tombol hapus / void
-- Generate Batch Pencairan Gaji harusnya bisa dibuat rekening berbeda untuk masing masing pegawai, karena belum tentu rekneingnya sama semua
-
-
-- buat kasbon auto mutation, harus ada pilihan rekeningnya. pencairan kasbon harus mengurangi rekening.
-- kalau di core pembayaran kasbon ada beberapa metode, salah satunya potong gaji. ketika potong gaji dipilih, berarti angka pembayaran kasbon masuk ke kolom pengurang pembayaran gaji sesuai tanggal dan bulan yang dipilih. perlu ditambah kolom kasbon tidak di attendance/estimate , /attendance/daily dan my/payroll? kalau perlu cukup di UI atau kolom databasenya juga?
-
-=============
-
-
-
-
-- Summary Result  dan breakdown jangan langsung pembulatan, tapi tampilkan riilnya dulu, baru buat pembulatan, jadi bisa dibandingkan dengan att daily. dan judul kolom jangan Net Att Daily donk, user nggak paham apa itu Net Att Daily. rapikan juga urutan kolomnya agar tidak bingung.
-
-- Generate Payroll Period dan Generate Batch Pencairan Gaji ambil dari tabel database mana? apakah tabelnya sudah detail? saya liat di tabel belum sedetail Breakdown Komponen Period. Breakdown Komponen Period ambil dari mana?
-
-
-- payroll/salary-disbursements Rek sumber (opsional)? maksudnya bagaimana?
-
-- tambahkan tombol slip gaji
-
-============
-
-Directory /www/wwwroot/finance.
-ini adalah aplikasi baru pengembangan dan penyempurnaan dari aplikasi sebelumnya (directory /www/wwwroot/dashboard dan directory /www/wwwroot/core)
-
-pada aplikasi sebelumnya masih perlu pengembangan pengembangan untuk mengurangi bug dan ketidak efisienan.
-di finance ini saya sudah proses membuat modul sampai dengan tahap purchase dan inventory. pada thread ini saya ingin secara paralel membuat modul management pegawa, absensi, penggajian yang terintegrasi dengan modul yang sudah ada. semua tahap dan rencana kedepa tercatat dalam dokumentasi di docs tapi tidak terbatas dan bisa berubah seiring pengembangannya. coba periksa modul pegawai dan absensi yang sudah di buat di core sebagai acuan dengan mengurangi bug dan hal yang tidak diperlukan dengan tetap efisien dan profesional
+kita pindah dulu. lakukan pengecekan barang di /master/purchase-catalog yang tidak ada di /master/item

@@ -290,6 +290,19 @@ class Payroll extends MY_Controller
         $detailLines = $detailId > 0 ? $this->Payroll_model->list_salary_disbursement_lines($detailId) : [];
         $detailLineBreakdown = $detailId > 0 ? $this->Payroll_model->list_salary_disbursement_line_breakdown($detailId) : [];
 
+        $gen = [
+            'payroll_period_id' => (int)$this->input->get('gen_payroll_period_id', true),
+            'disbursement_date' => trim((string)$this->input->get('gen_disbursement_date', true)),
+            'notes' => trim((string)$this->input->get('gen_notes', true)),
+        ];
+        if ($gen['disbursement_date'] === '') {
+            $gen['disbursement_date'] = date('Y-m-d');
+        }
+        $previewRows = [];
+        if ($gen['payroll_period_id'] > 0) {
+            $previewRows = $this->Payroll_model->preview_salary_disbursement_candidates($gen['payroll_period_id']);
+        }
+
         $this->render('payroll/salary_disbursements', [
             'title' => 'Pencairan Gaji',
             'active_menu' => 'pay.salary-disbursement',
@@ -302,6 +315,8 @@ class Payroll extends MY_Controller
             'payroll_period_options' => $this->Payroll_model->get_payroll_period_options(),
             'company_account_options' => $this->Payroll_model->get_company_account_options(),
             'detail_line_breakdown' => $detailLineBreakdown,
+            'gen' => $gen,
+            'preview_rows' => $previewRows,
         ]);
     }
 
@@ -323,6 +338,7 @@ class Payroll extends MY_Controller
         $periodDetailId = (int)$this->input->get('period_detail_id', true);
         $periodResultRows = $periodDetailId > 0 ? $this->Payroll_model->list_payroll_results_by_period($periodDetailId) : [];
         $periodBreakdownRows = $periodDetailId > 0 ? $this->Payroll_model->list_payroll_result_breakdown_by_period($periodDetailId) : [];
+        $periodAudit = $periodDetailId > 0 ? $this->Payroll_model->audit_payroll_period_consistency($periodDetailId) : null;
 
         $this->render('payroll/payroll_periods', [
             'title' => 'Generate Payroll Period',
@@ -332,6 +348,7 @@ class Payroll extends MY_Controller
             'period_pg' => $periodPg,
             'period_detail_rows' => $periodResultRows,
             'period_breakdown_rows' => $periodBreakdownRows,
+            'period_audit' => $periodAudit,
             'period_detail_id' => $periodDetailId,
             'period_status_options' => ['DRAFT', 'CALCULATED', 'FINALIZED', 'PAID', 'CLOSED'],
         ]);
@@ -389,10 +406,23 @@ class Payroll extends MY_Controller
         }
         $this->require_permission('payroll.salary_disbursement.index', 'create');
 
+        $sourceMapRaw = (array)$this->input->post('employee_source_account');
+        $sourceMap = [];
+        if ((int)$this->input->post('ignore_preview_map', true) !== 1) {
+            foreach ($sourceMapRaw as $employeeId => $accountId) {
+                $eid = (int)$employeeId;
+                if ($eid <= 0) {
+                    continue;
+                }
+                $sourceMap[$eid] = (int)$accountId;
+            }
+        }
+
         $result = $this->Payroll_model->generate_salary_disbursement([
             'payroll_period_id' => (int)$this->input->post('payroll_period_id', true),
             'disbursement_date' => trim((string)$this->input->post('disbursement_date', true)),
             'company_account_id' => (int)$this->input->post('company_account_id', true),
+            'employee_source_account' => $sourceMap,
             'notes' => trim((string)$this->input->post('notes', true)),
         ], $this->actor_employee_id());
 
@@ -419,13 +449,31 @@ class Payroll extends MY_Controller
         redirect('payroll/salary-disbursements?detail_id=' . $id);
     }
 
+    public function salary_disbursement_slip(int $lineId)
+    {
+        $this->require_permission('payroll.salary_disbursement.index', 'view');
+        $line = $this->Payroll_model->get_salary_disbursement_line_slip($lineId, 0);
+        if (!$line) {
+            show_404();
+            return;
+        }
+        $this->load->view('payroll/salary_slip', [
+            'line' => $line,
+            'context' => 'admin',
+        ]);
+    }
+
     public function salary_disbursement_void(int $id)
     {
         if ($this->input->method() !== 'post') {
             show_404();
         }
         $this->require_permission('payroll.salary_disbursement.index', 'delete');
-        $result = $this->Payroll_model->void_salary_disbursement($id, trim((string)$this->input->post('notes', true)));
+        $result = $this->Payroll_model->void_salary_disbursement(
+            $id,
+            trim((string)$this->input->post('notes', true)),
+            (int)($this->current_user['id'] ?? 0)
+        );
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal VOID batch gaji.'));
         redirect('payroll/salary-disbursements');
     }

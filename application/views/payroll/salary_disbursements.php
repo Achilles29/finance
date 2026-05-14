@@ -6,6 +6,8 @@ $detailHeader = $detail_header ?? null;
 $detailLineBreakdown = $detail_line_breakdown ?? [];
 $periodOptions = $payroll_period_options ?? [];
 $accounts = $company_account_options ?? [];
+$gen = $gen ?? ['payroll_period_id' => 0, 'disbursement_date' => date('Y-m-d'), 'notes' => ''];
+$previewRows = $preview_rows ?? [];
 
 $buildQuery = static function ($overrides = []) use ($filters, $pg) {
     $base = [
@@ -38,14 +40,105 @@ $buildQuery = static function ($overrides = []) use ($filters, $pg) {
 <div class="card mb-3">
   <div class="card-header"><strong>Generate Batch Pencairan Gaji</strong></div>
   <div class="card-body">
-    <form method="post" action="<?php echo site_url('payroll/salary-disbursements/generate'); ?>" class="row g-2">
-      <div class="col-md-4"><label class="form-label mb-1">Payroll Period</label><select name="payroll_period_id" class="form-select" required><option value="">Pilih period</option><?php foreach($periodOptions as $p): ?><option value="<?php echo (int)$p['value']; ?>"><?php echo html_escape((string)$p['label']); ?></option><?php endforeach; ?></select></div>
-      <div class="col-md-3"><label class="form-label mb-1">Tgl Pencairan</label><input type="date" name="disbursement_date" class="form-control" required value="<?php echo date('Y-m-d'); ?>"></div>
-      <div class="col-md-5"><label class="form-label mb-1">Rekening Sumber Mutasi (Wajib)</label><select name="company_account_id" class="form-select" required><option value="">Pilih rekening sumber</option><?php foreach($accounts as $a): ?><option value="<?php echo (int)$a['value']; ?>"><?php echo html_escape((string)$a['label']); ?></option><?php endforeach; ?></select></div>
-      <div class="col-12"><small class="text-muted">Rekening ini akan dipakai saat `Mark Paid` untuk mengurangi saldo perusahaan dan membuat mutation log otomatis.</small></div>
-      <div class="col-12"><label class="form-label mb-1">Catatan</label><textarea name="notes" class="form-control" rows="2" placeholder="Opsional"></textarea></div>
-      <div class="col-12"><button type="submit" class="btn btn-primary" data-loading-label="Generating...">Generate Batch Gaji</button></div>
+    <form method="get" action="<?php echo site_url('payroll/salary-disbursements'); ?>" class="row g-2 mb-3">
+      <div class="col-md-4"><label class="form-label mb-1">Payroll Period</label><select name="gen_payroll_period_id" class="form-select" required><option value="">Pilih period</option><?php foreach($periodOptions as $p): ?><option value="<?php echo (int)$p['value']; ?>" <?php echo ((int)$gen['payroll_period_id'] === (int)$p['value']) ? 'selected' : ''; ?>><?php echo html_escape((string)$p['label']); ?></option><?php endforeach; ?></select></div>
+      <div class="col-md-3"><label class="form-label mb-1">Tgl Pencairan</label><input type="date" name="gen_disbursement_date" class="form-control" required value="<?php echo html_escape((string)$gen['disbursement_date']); ?>"></div>
+      <div class="col-md-5"><label class="form-label mb-1">Catatan</label><input type="text" name="gen_notes" class="form-control" placeholder="Opsional" value="<?php echo html_escape((string)$gen['notes']); ?>"></div>
+      <div class="col-12 d-flex gap-2">
+        <button type="submit" class="btn btn-outline-primary">Preview Kandidat</button>
+        <?php if ((int)$gen['payroll_period_id'] > 0): ?>
+          <a href="<?php echo site_url('payroll/salary-disbursements'); ?>" class="btn btn-outline-secondary">Reset Preview</a>
+        <?php endif; ?>
+      </div>
     </form>
+
+    <?php if ((int)$gen['payroll_period_id'] > 0): ?>
+      <form method="post" action="<?php echo site_url('payroll/salary-disbursements/generate'); ?>" class="row g-2">
+        <input type="hidden" name="payroll_period_id" value="<?php echo (int)$gen['payroll_period_id']; ?>">
+        <input type="hidden" name="disbursement_date" value="<?php echo html_escape((string)$gen['disbursement_date']); ?>">
+        <input type="hidden" name="notes" value="<?php echo html_escape((string)$gen['notes']); ?>">
+        <?php
+          $previewCount = count($previewRows);
+          $previewThpFull = 0.0;
+          $previewTransfer = 0.0;
+          foreach ($previewRows as $pr) {
+              $previewThpFull += (float)($pr['net_pay_raw'] ?? ($pr['net_pay'] ?? 0));
+              $previewTransfer += (float)($pr['net_pay'] ?? 0);
+          }
+        ?>
+        <div class="col-12">
+          <div class="small text-muted mb-2">
+            Default rekening sumber perusahaan dipilih otomatis berdasarkan bank yang sama dengan rekening pegawai (untuk minim biaya transfer). Jika perlu, bisa override per pegawai.
+          </div>
+          <?php if ($previewCount > 0): ?>
+            <div class="small fw-semibold mb-2">
+              Kandidat: <?php echo (int)$previewCount; ?> pegawai | Total THP Full: <?php echo number_format($previewThpFull, 2, ',', '.'); ?> | Total Transfer: <?php echo number_format($previewTransfer, 2, ',', '.'); ?>
+            </div>
+          <?php endif; ?>
+          <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle mb-2">
+              <thead>
+                <tr>
+                  <th>Pegawai</th>
+                  <th>Bank Pegawai</th>
+                  <th>No Rekening</th>
+                  <th>Rekening Perusahaan Digunakan</th>
+                  <th class="text-end">THP Full</th>
+                  <th class="text-end">Transfer</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php if (empty($previewRows)): ?>
+                  <tr><td colspan="6" class="text-center text-muted py-3">Tidak ada kandidat baru untuk period ini.</td></tr>
+                <?php else: foreach($previewRows as $r): ?>
+                  <tr>
+                    <td><?php echo html_escape((string)($r['employee_name_snapshot'] ?? '-')); ?><div class="small text-muted"><?php echo html_escape((string)($r['employee_code_snapshot'] ?? '')); ?></div></td>
+                    <td><?php echo html_escape((string)($r['bank_name'] ?? '-')); ?></td>
+                    <td><?php echo html_escape((string)($r['bank_account_no'] ?? '-')); ?><div class="small text-muted"><?php echo html_escape((string)($r['bank_account_name'] ?? '-')); ?></div></td>
+                    <td>
+                      <select class="form-select form-select-sm" name="employee_source_account[<?php echo (int)($r['employee_id'] ?? 0); ?>]">
+                        <option value="">Auto (sesuai bank)</option>
+                        <?php foreach($accounts as $a): ?>
+                          <option value="<?php echo (int)$a['value']; ?>" <?php echo ((int)($r['source_account_id'] ?? 0) === (int)$a['value']) ? 'selected' : ''; ?>>
+                            <?php echo html_escape((string)$a['label']); ?>
+                          </option>
+                        <?php endforeach; ?>
+                      </select>
+                      <?php if (!empty($r['source_account_label'])): ?>
+                        <div class="small text-muted mt-1">Default: <?php echo html_escape((string)$r['source_account_label']); ?></div>
+                      <?php endif; ?>
+                    </td>
+                    <td class="text-end"><?php echo number_format((float)($r['net_pay_raw'] ?? ($r['net_pay'] ?? 0)), 2, ',', '.'); ?></td>
+                    <td class="text-end fw-semibold"><?php echo number_format((float)($r['net_pay'] ?? 0), 2, ',', '.'); ?></td>
+                  </tr>
+                <?php endforeach; endif; ?>
+              </tbody>
+              <?php if (!empty($previewRows)): ?>
+                <tfoot>
+                  <tr>
+                    <th colspan="4" class="text-end">TOTAL PREVIEW</th>
+                    <th class="text-end"><?php echo number_format($previewThpFull, 2, ',', '.'); ?></th>
+                    <th class="text-end"><?php echo number_format($previewTransfer, 2, ',', '.'); ?></th>
+                  </tr>
+                </tfoot>
+              <?php endif; ?>
+            </table>
+          </div>
+        </div>
+        <div class="col-12 d-flex gap-2">
+          <button type="submit" class="btn btn-primary" data-loading-label="Generating...">Generate Batch dari Preview</button>
+          <button type="submit" class="btn btn-outline-primary" name="ignore_preview_map" value="1" data-loading-label="Generating...">Generate Otomatis (Tanpa Override)</button>
+        </div>
+      </form>
+    <?php else: ?>
+      <form method="post" action="<?php echo site_url('payroll/salary-disbursements/generate'); ?>" class="row g-2">
+        <div class="col-md-4"><label class="form-label mb-1">Payroll Period</label><select name="payroll_period_id" class="form-select" required><option value="">Pilih period</option><?php foreach($periodOptions as $p): ?><option value="<?php echo (int)$p['value']; ?>"><?php echo html_escape((string)$p['label']); ?></option><?php endforeach; ?></select></div>
+        <div class="col-md-3"><label class="form-label mb-1">Tgl Pencairan</label><input type="date" name="disbursement_date" class="form-control" required value="<?php echo date('Y-m-d'); ?>"></div>
+        <div class="col-md-5"><label class="form-label mb-1">Catatan</label><input type="text" name="notes" class="form-control" placeholder="Opsional"></div>
+        <div class="col-12"><small class="text-muted">Jika generate langsung, sistem otomatis memilih rekening sumber perusahaan per pegawai berdasarkan kecocokan bank.</small></div>
+        <div class="col-12"><button type="submit" class="btn btn-primary" data-loading-label="Generating...">Generate Otomatis</button></div>
+      </form>
+    <?php endif; ?>
   </div>
 </div>
 
@@ -69,9 +162,13 @@ $buildQuery = static function ($overrides = []) use ($filters, $pg) {
                 <form method="post" action="<?php echo site_url('payroll/salary-disbursements/mark-paid/' . (int)$r['id']); ?>" class="d-inline">
                   <button type="submit" class="btn btn-sm btn-outline-success action-icon-btn" data-bs-toggle="tooltip" title="Tandai Paid" data-loading-label="Posting..."><i class="ri ri-money-dollar-circle-line"></i></button>
                 </form>
+              <?php endif; ?>
+              <?php if ($status !== 'VOID'): ?>
                 <form method="post" action="<?php echo site_url('payroll/salary-disbursements/void/' . (int)$r['id']); ?>" class="d-inline" data-confirm="VOID batch gaji ini?">
-                  <button type="submit" class="btn btn-sm btn-outline-danger action-icon-btn" data-bs-toggle="tooltip" title="Void" data-loading-label="Void..."><i class="ri ri-close-circle-line"></i></button>
+                  <button type="submit" class="btn btn-sm btn-outline-warning action-icon-btn" data-bs-toggle="tooltip" title="Void (Bisa Generate Ulang)" data-loading-label="Void..."><i class="ri ri-close-circle-line"></i></button>
                 </form>
+              <?php endif; ?>
+              <?php if ($status !== 'PAID' && $status !== 'VOID'): ?>
                 <form method="post" action="<?php echo site_url('payroll/salary-disbursements/delete/' . (int)$r['id']); ?>" class="d-inline" data-confirm="Hapus batch gaji ini?">
                   <button type="submit" class="btn btn-sm btn-outline-secondary action-icon-btn" data-bs-toggle="tooltip" title="Hapus" data-loading-label="Hapus..."><i class="ri ri-delete-bin-line"></i></button>
                 </form>
@@ -92,22 +189,22 @@ $buildQuery = static function ($overrides = []) use ($filters, $pg) {
   </div>
   <div class="table-responsive">
     <table class="table table-sm table-striped mb-0">
-      <thead><tr><th>Pegawai</th><th>Rek Tujuan</th><th class="text-end">Pokok</th><th class="text-end">Tunjangan</th><th class="text-end">U. Makan</th><th class="text-end">Lembur</th><th class="text-end">Adj (+)</th><th class="text-end">Kotor Riil</th><th class="text-end">Pot. Telat</th><th class="text-end">Pot. Alpha</th><th class="text-end">Adj (-) Lain</th><th class="text-end">Pot. Kasbon</th><th class="text-end">THP Riil</th><th class="text-end">Pembulatan</th><th class="text-end">THP Final</th><th>Status</th><th>Ref</th><th>Paid At</th></tr></thead>
+      <thead><tr><th>Pegawai</th><th>Rek Tujuan</th><th class="text-end">Pokok</th><th class="text-end">Tunjangan</th><th class="text-end">U. Makan</th><th class="text-end">Lembur</th><th class="text-end">Adj (+)</th><th class="text-end">Kotor Riil</th><th class="text-end">Pot. Telat</th><th class="text-end">Pot. Alpha</th><th class="text-end">Adj (-) Lain</th><th class="text-end">Pot. Kasbon</th><th class="text-end">THP Riil</th><th class="text-end">Pembulatan</th><th class="text-end">THP Final</th><th>Status</th><th>Ref</th><th>Paid At</th><th class="text-center">Cetak Slip</th></tr></thead>
       <tbody>
-      <?php if (empty($detailLineBreakdown)): ?><tr><td colspan="18" class="text-center text-muted py-3">Tidak ada baris detail.</td></tr><?php else: foreach($detailLineBreakdown as $l): ?>
+      <?php if (empty($detailLineBreakdown)): ?><tr><td colspan="19" class="text-center text-muted py-3">Tidak ada baris detail.</td></tr><?php else: foreach($detailLineBreakdown as $l): ?>
       <?php
         $basic = (float)($l['basic_total'] ?? 0);
         $allowance = (float)($l['allowance_total'] ?? 0);
         $meal = (float)($l['meal_total'] ?? 0);
         $overtime = (float)($l['overtime_total'] ?? 0);
         $manualAdd = (float)($l['manual_addition_total'] ?? 0);
-        $grossRiil = round($basic + $allowance + $meal + $overtime + $manualAdd, 2);
+        $grossRiil = round((float)($l['gross_pay'] ?? ($basic + $allowance + $meal + $overtime + $manualAdd)), 2);
         $lateDed = (float)($l['late_deduction_total'] ?? 0);
         $alphaDed = (float)($l['alpha_deduction_total'] ?? 0);
         $manualDedTotal = (float)($l['manual_deduction_total'] ?? 0);
         $cashCut = (float)($l['cash_advance_cut'] ?? 0);
         $manualDedOther = max(0, round($manualDedTotal - $cashCut, 2));
-        $riilNet = round($grossRiil - $lateDed - $alphaDed - $manualDedTotal, 2);
+        $riilNet = (float)($l['net_pay_raw'] ?? ((float)($l['net_pay'] ?? 0) - (float)($l['rounding_adjustment'] ?? 0)));
         $rounding = round((float)($l['rounding_adjustment'] ?? ((float)($l['net_pay'] ?? 0) - $riilNet)), 2);
         $finalNet = (float)($l['transfer_amount'] ?? ($l['net_pay'] ?? 0));
       ?>
@@ -130,6 +227,11 @@ $buildQuery = static function ($overrides = []) use ($filters, $pg) {
         <td><?php echo html_escape((string)($l['transfer_status'] ?? '-')); ?></td>
         <td><?php echo html_escape((string)($l['transfer_ref_no'] ?? '-')); ?></td>
         <td><?php echo html_escape((string)($l['paid_at'] ?? '-')); ?></td>
+        <td class="text-center">
+          <a href="<?php echo site_url('payroll/salary-disbursements/slip/' . (int)($l['line_id'] ?? 0)); ?>" class="btn btn-sm btn-outline-primary action-icon-btn" target="_blank" rel="noopener" data-bs-toggle="tooltip" title="Cetak Slip">
+            <i class="ri ri-printer-line"></i>
+          </a>
+        </td>
       </tr>
       <?php endforeach; endif; ?>
       </tbody>

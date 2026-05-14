@@ -4,6 +4,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 class Attendance_model extends CI_Model
 {
     private $attDailyFieldCache = [];
+    private $lockedPeriodDateCache = [];
 
     private function att_daily_has_field(string $field): bool
     {
@@ -11,6 +12,42 @@ class Attendance_model extends CI_Model
             $this->attDailyFieldCache[$field] = $this->db->field_exists($field, 'att_daily');
         }
         return (bool)$this->attDailyFieldCache[$field];
+    }
+
+    private function get_locked_period_for_date(string $date): ?array
+    {
+        if ($date === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return null;
+        }
+        if (array_key_exists($date, $this->lockedPeriodDateCache)) {
+            return $this->lockedPeriodDateCache[$date];
+        }
+        if (!$this->db->table_exists('pay_payroll_period') || !$this->db->table_exists('pay_salary_disbursement')) {
+            $this->lockedPeriodDateCache[$date] = null;
+            return null;
+        }
+
+        $row = $this->db->select('p.id, p.period_code, d.disbursement_no, d.status AS disbursement_status')
+            ->from('pay_payroll_period p')
+            ->join('pay_salary_disbursement d', 'd.payroll_period_id = p.id AND d.status <> "VOID"', 'inner')
+            ->where('p.period_start <=', $date)
+            ->where('p.period_end >=', $date)
+            ->order_by('p.period_start', 'DESC')
+            ->order_by('d.id', 'DESC')
+            ->limit(1)
+            ->get()->row_array();
+
+        $this->lockedPeriodDateCache[$date] = $row ?: null;
+        return $this->lockedPeriodDateCache[$date];
+    }
+
+    private function immutable_period_guard_message(string $date): string
+    {
+        $locked = $this->get_locked_period_for_date($date);
+        if (!$locked) {
+            return '';
+        }
+        return 'Periode payroll ' . (string)($locked['period_code'] ?? '#') . ' sudah terkunci oleh batch ' . (string)($locked['disbursement_no'] ?? '#') . ' [' . strtoupper((string)($locked['disbursement_status'] ?? '-')) . ']. Perubahan lembur diblokir.';
     }
 
     private function filter_existing_fields(string $table, array $payload): array
@@ -22,6 +59,54 @@ class Attendance_model extends CI_Model
             }
         }
         return $filtered;
+    }
+
+    private function build_daily_policy_lock_payload(array $policy): array
+    {
+        $payload = [];
+        $set = function (string $field, $value) use (&$payload): void {
+            if ($this->att_daily_has_field($field)) {
+                $payload[$field] = $value;
+            }
+        };
+
+        $set('policy_snapshot_id', (int)($policy['id'] ?? 0) ?: null);
+        $set('policy_snapshot_code', (string)($policy['policy_code'] ?? ''));
+        $set('policy_snapshot_name', (string)($policy['policy_name'] ?? ''));
+        $set('attendance_mode_snapshot', strtoupper((string)($policy['attendance_calc_mode'] ?? 'DAILY')));
+        $set('meal_mode_snapshot', strtoupper((string)($policy['meal_calc_mode'] ?? 'MONTHLY')));
+        $set('prorate_scope_snapshot', strtoupper((string)($policy['prorate_deduction_scope'] ?? ($policy['payroll_late_deduction_scope'] ?? 'BASIC_ONLY'))));
+        $set('overtime_mode_snapshot', strtoupper((string)($policy['overtime_calc_mode'] ?? 'AUTO')));
+        $set('allowance_late_treatment_snapshot', strtoupper((string)($policy['allowance_late_treatment'] ?? 'FULL_IF_PRESENT')));
+        $set('enable_late_deduction_snapshot', (int)($policy['enable_late_deduction'] ?? 1));
+        $set('enable_alpha_deduction_snapshot', (int)($policy['enable_alpha_deduction'] ?? 1));
+        $set('late_deduction_per_minute_snapshot', round((float)($policy['late_deduction_per_minute'] ?? 0), 2));
+        $set('alpha_deduction_per_day_snapshot', round((float)($policy['alpha_deduction_per_day'] ?? 0), 2));
+        $set('work_days_snapshot', (int)($policy['default_work_days_per_month'] ?? 26));
+
+        return $payload;
+    }
+
+    private function insert_ph_grant_ledger(array $payload): bool
+    {
+        $sql = "INSERT IGNORE INTO att_employee_ph_ledger
+            (employee_id, tx_date, tx_type, qty_days, expired_at, ref_table, ref_id, entry_mode, notes, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $this->db->query($sql, [
+            (int)($payload['employee_id'] ?? 0),
+            (string)($payload['tx_date'] ?? ''),
+            (string)($payload['tx_type'] ?? 'GRANT'),
+            (float)($payload['qty_days'] ?? 0),
+            $payload['expired_at'] ?? null,
+            (string)($payload['ref_table'] ?? 'att_daily'),
+            isset($payload['ref_id']) ? (int)$payload['ref_id'] : null,
+            (string)($payload['entry_mode'] ?? 'AUTO'),
+            (string)($payload['notes'] ?? ''),
+            isset($payload['created_by']) && (int)$payload['created_by'] > 0 ? (int)$payload['created_by'] : null,
+            (string)($payload['created_at'] ?? date('Y-m-d H:i:s')),
+            (string)($payload['updated_at'] ?? date('Y-m-d H:i:s')),
+        ]);
+        return $this->db->affected_rows() > 0;
     }
 
     public function get_active_policy(): array
@@ -781,6 +866,358 @@ class Attendance_model extends CI_Model
             ->get()->result_array();
     }
 
+    public function sync_ph_expiry_ledger(string $asOfDate, int $actorUserId = 0): array
+    {
+        if (!$this->db->table_exists('att_employee_ph_ledger')) {
+            return ['ok' => false, 'message' => 'Tabel ledger PH belum tersedia.', 'inserted' => 0, 'scanned' => 0];
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOfDate)) {
+            return ['ok' => false, 'message' => 'Format tanggal as-of tidak valid.', 'inserted' => 0, 'scanned' => 0];
+        }
+
+        $candidates = $this->db->select('DISTINCT employee_id', false)
+            ->from('att_employee_ph_ledger')
+            ->where('tx_type', 'GRANT')
+            ->where('expired_at IS NOT NULL', null, false)
+            ->where('expired_at <=', $asOfDate)
+            ->get()->result_array();
+
+        $inserted = 0;
+        $scanned = 0;
+        foreach ($candidates as $candidate) {
+            $employeeId = (int)($candidate['employee_id'] ?? 0);
+            if ($employeeId <= 0) {
+                continue;
+            }
+            $rows = $this->db->select('id, tx_date, tx_type, qty_days, expired_at, ref_table, ref_id')
+                ->from('att_employee_ph_ledger')
+                ->where('employee_id', $employeeId)
+                ->where('tx_date <=', $asOfDate)
+                ->order_by('tx_date', 'ASC')
+                ->order_by('id', 'ASC')
+                ->get()->result_array();
+            if (empty($rows)) {
+                continue;
+            }
+
+            $lots = [];
+            $lotById = [];
+            $consumeFromLots = static function (array &$lots, float $qty): void {
+                $remain = max(0.0, $qty);
+                if ($remain <= 0) {
+                    return;
+                }
+                foreach ($lots as &$lot) {
+                    if ($remain <= 0) {
+                        break;
+                    }
+                    $available = max(0.0, (float)($lot['remaining'] ?? 0));
+                    if ($available <= 0) {
+                        continue;
+                    }
+                    $used = min($available, $remain);
+                    $lot['remaining'] = round($available - $used, 2);
+                    $remain = round($remain - $used, 2);
+                }
+                unset($lot);
+            };
+
+            foreach ($rows as $row) {
+                $txType = strtoupper((string)($row['tx_type'] ?? ''));
+                $qty = round((float)($row['qty_days'] ?? 0), 2);
+                if ($qty <= 0) {
+                    continue;
+                }
+                if ($txType === 'GRANT') {
+                    $lot = [
+                        'ledger_id' => (int)$row['id'],
+                        'remaining' => $qty,
+                        'expired_at' => (string)($row['expired_at'] ?? ''),
+                        'tx_date' => (string)($row['tx_date'] ?? ''),
+                    ];
+                    $lots[] = $lot;
+                    $lotById[(int)$row['id']] = count($lots) - 1;
+                    continue;
+                }
+
+                if ($txType === 'USE') {
+                    $consumeFromLots($lots, $qty);
+                    continue;
+                }
+
+                if ($txType === 'EXPIRE') {
+                    $refTable = (string)($row['ref_table'] ?? '');
+                    $refId = (int)($row['ref_id'] ?? 0);
+                    if ($refTable === 'att_employee_ph_ledger' && $refId > 0 && isset($lotById[$refId])) {
+                        $idx = (int)$lotById[$refId];
+                        $available = max(0.0, (float)($lots[$idx]['remaining'] ?? 0));
+                        $lots[$idx]['remaining'] = round(max(0.0, $available - $qty), 2);
+                    } else {
+                        $consumeFromLots($lots, $qty);
+                    }
+                }
+            }
+
+            foreach ($lots as $lot) {
+                $scanned++;
+                $lotId = (int)($lot['ledger_id'] ?? 0);
+                $remaining = round((float)($lot['remaining'] ?? 0), 2);
+                $expiredAt = (string)($lot['expired_at'] ?? '');
+                if ($lotId <= 0 || $remaining <= 0 || $expiredAt === '' || $expiredAt > $asOfDate) {
+                    continue;
+                }
+
+                $created = $this->insert_ph_grant_ledger([
+                    'employee_id' => $employeeId,
+                    'tx_date' => $expiredAt,
+                    'tx_type' => 'EXPIRE',
+                    'qty_days' => $remaining,
+                    'expired_at' => null,
+                    'ref_table' => 'att_employee_ph_ledger',
+                    'ref_id' => $lotId,
+                    'entry_mode' => 'AUTO',
+                    'notes' => 'Auto expire PH sesuai tanggal expired',
+                    'created_by' => $actorUserId > 0 ? $actorUserId : null,
+                    'created_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+                if ($created) {
+                    $inserted++;
+                }
+            }
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Sinkron auto-expire PH selesai.',
+            'inserted' => $inserted,
+            'scanned' => $scanned,
+        ];
+    }
+
+    private function ph_validate_rows_integrity(array $rows): array
+    {
+        usort($rows, static function (array $a, array $b): int {
+            $cmp = strcmp((string)($a['tx_date'] ?? ''), (string)($b['tx_date'] ?? ''));
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+            return ((int)($a['id'] ?? 0)) <=> ((int)($b['id'] ?? 0));
+        });
+
+        $lots = [];
+        $lotByLedgerId = [];
+        $eps = 0.0001;
+
+        $sumAvailable = static function (array $lotsRef, string $date, callable $matcher): float {
+            $sum = 0.0;
+            foreach ($lotsRef as $lot) {
+                $remaining = (float)($lot['remaining'] ?? 0);
+                if ($remaining <= 0) {
+                    continue;
+                }
+                if ($matcher($lot, $date)) {
+                    $sum += $remaining;
+                }
+            }
+            return round($sum, 2);
+        };
+
+        $consume = static function (array &$lotsRef, float $qty, string $date, callable $matcher): float {
+            $remain = round(max(0.0, $qty), 2);
+            if ($remain <= 0) {
+                return 0.0;
+            }
+            foreach ($lotsRef as &$lot) {
+                if ($remain <= 0) {
+                    break;
+                }
+                $available = round(max(0.0, (float)($lot['remaining'] ?? 0)), 2);
+                if ($available <= 0) {
+                    continue;
+                }
+                if (!$matcher($lot, $date)) {
+                    continue;
+                }
+                $used = min($available, $remain);
+                $lot['remaining'] = round($available - $used, 2);
+                $remain = round($remain - $used, 2);
+            }
+            unset($lot);
+            return $remain;
+        };
+
+        foreach ($rows as $row) {
+            $ledgerId = (int)($row['id'] ?? 0);
+            $txDate = (string)($row['tx_date'] ?? '');
+            $txType = strtoupper((string)($row['tx_type'] ?? ''));
+            $qty = round((float)($row['qty_days'] ?? 0), 2);
+            if ($qty <= 0 || $txDate === '' || $txType === '') {
+                continue;
+            }
+
+            if ($txType === 'GRANT' || $txType === 'ADJUST') {
+                $lots[] = [
+                    'ledger_id' => $ledgerId,
+                    'remaining' => $qty,
+                    'expired_at' => ($txType === 'GRANT') ? (string)($row['expired_at'] ?? '') : '',
+                    'tx_date' => $txDate,
+                    'tx_type' => $txType,
+                ];
+                if ($ledgerId > 0) {
+                    $lotByLedgerId[$ledgerId] = count($lots) - 1;
+                }
+                continue;
+            }
+
+            if ($txType === 'USE') {
+                $activeAvailable = $sumAvailable(
+                    $lots,
+                    $txDate,
+                    static function (array $lot, string $date): bool {
+                        $exp = (string)($lot['expired_at'] ?? '');
+                        return ($exp === '' || $exp >= $date);
+                    }
+                );
+                if ($qty > ($activeAvailable + $eps)) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Mutasi USE melebihi saldo PH aktif pada ' . $txDate . '.',
+                    ];
+                }
+                $remain = $consume(
+                    $lots,
+                    $qty,
+                    $txDate,
+                    static function (array $lot, string $date): bool {
+                        $exp = (string)($lot['expired_at'] ?? '');
+                        return ($exp === '' || $exp >= $date);
+                    }
+                );
+                if ($remain > $eps) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Mutasi USE gagal dialokasikan ke lot aktif pada ' . $txDate . '.',
+                    ];
+                }
+                continue;
+            }
+
+            if ($txType === 'EXPIRE') {
+                $refTable = (string)($row['ref_table'] ?? '');
+                $refId = (int)($row['ref_id'] ?? 0);
+                if ($refTable === 'att_employee_ph_ledger' && $refId > 0 && isset($lotByLedgerId[$refId])) {
+                    $idx = (int)$lotByLedgerId[$refId];
+                    $available = round(max(0.0, (float)($lots[$idx]['remaining'] ?? 0)), 2);
+                    if ($qty > ($available + $eps)) {
+                        return [
+                            'ok' => false,
+                            'message' => 'Mutasi EXPIRE melebihi sisa lot referensi pada ' . $txDate . '.',
+                        ];
+                    }
+                    $lots[$idx]['remaining'] = round(max(0.0, $available - $qty), 2);
+                } else {
+                    $expirableAvailable = $sumAvailable(
+                        $lots,
+                        $txDate,
+                        static function (array $lot, string $date): bool {
+                            $exp = (string)($lot['expired_at'] ?? '');
+                            return ($exp !== '' && $exp <= $date);
+                        }
+                    );
+                    if ($qty > ($expirableAvailable + $eps)) {
+                        return [
+                            'ok' => false,
+                            'message' => 'Mutasi EXPIRE melebihi jatah yang memang sudah expired pada ' . $txDate . '.',
+                        ];
+                    }
+                    $remain = $consume(
+                        $lots,
+                        $qty,
+                        $txDate,
+                        static function (array $lot, string $date): bool {
+                            $exp = (string)($lot['expired_at'] ?? '');
+                            return ($exp !== '' && $exp <= $date);
+                        }
+                    );
+                    if ($remain > $eps) {
+                        return [
+                            'ok' => false,
+                            'message' => 'Mutasi EXPIRE gagal dialokasikan ke lot expired pada ' . $txDate . '.',
+                        ];
+                    }
+                }
+            }
+        }
+
+        return ['ok' => true, 'message' => ''];
+    }
+
+    private function ph_validate_upsert_transaction(
+        int $employeeId,
+        string $txDate,
+        string $txType,
+        float $qtyDays,
+        int $excludeId = 0,
+        int $candidateId = 0,
+        ?string $expiredAt = null,
+        ?string $refTable = null,
+        ?int $refId = null
+    ): array {
+        if (!$this->db->table_exists('att_employee_ph_ledger')) {
+            return ['ok' => false, 'message' => 'Tabel ledger PH belum tersedia.'];
+        }
+        $rows = $this->db->select('id, tx_date, tx_type, qty_days, expired_at, ref_table, ref_id')
+            ->from('att_employee_ph_ledger')
+            ->where('employee_id', $employeeId)
+            ->order_by('tx_date', 'ASC')
+            ->order_by('id', 'ASC')
+            ->get()->result_array();
+
+        if ($excludeId > 0) {
+            $rows = array_values(array_filter($rows, static function (array $r) use ($excludeId): bool {
+                return (int)($r['id'] ?? 0) !== $excludeId;
+            }));
+        }
+
+        $maxId = 0;
+        foreach ($rows as $r) {
+            $maxId = max($maxId, (int)($r['id'] ?? 0));
+        }
+        if ($candidateId <= 0) {
+            $candidateId = $maxId + 1;
+        }
+
+        $rows[] = [
+            'id' => $candidateId,
+            'tx_date' => $txDate,
+            'tx_type' => $txType,
+            'qty_days' => round($qtyDays, 2),
+            'expired_at' => $expiredAt,
+            'ref_table' => $refTable,
+            'ref_id' => $refId,
+        ];
+
+        return $this->ph_validate_rows_integrity($rows);
+    }
+
+    private function ph_validate_delete_transaction(int $employeeId, int $deleteId): array
+    {
+        if (!$this->db->table_exists('att_employee_ph_ledger')) {
+            return ['ok' => false, 'message' => 'Tabel ledger PH belum tersedia.'];
+        }
+        $rows = $this->db->select('id, tx_date, tx_type, qty_days, expired_at, ref_table, ref_id')
+            ->from('att_employee_ph_ledger')
+            ->where('employee_id', $employeeId)
+            ->order_by('tx_date', 'ASC')
+            ->order_by('id', 'ASC')
+            ->get()->result_array();
+        $rows = array_values(array_filter($rows, static function (array $r) use ($deleteId): bool {
+            return (int)($r['id'] ?? 0) !== $deleteId;
+        }));
+        return $this->ph_validate_rows_integrity($rows);
+    }
+
     private function build_ph_ledger_query(array $filters, bool $withSelect): void
     {
         if ($withSelect) {
@@ -805,6 +1242,18 @@ class Attendance_model extends CI_Model
         }
         if (!empty($filters['tx_type'])) {
             $this->db->where('l.tx_type', strtoupper((string)$filters['tx_type']));
+        }
+        $expiredState = strtoupper(trim((string)($filters['expired_state'] ?? 'ALL')));
+        if ($expiredState === 'ACTIVE') {
+            $this->db->where('l.tx_type', 'GRANT');
+            $this->db->group_start()
+                ->where('l.expired_at IS NULL', null, false)
+                ->or_where('l.expired_at >=', date('Y-m-d'))
+                ->group_end();
+        } elseif ($expiredState === 'EXPIRED') {
+            $this->db->where('l.tx_type', 'GRANT');
+            $this->db->where('l.expired_at IS NOT NULL', null, false);
+            $this->db->where('l.expired_at <', date('Y-m-d'));
         }
         if (!empty($filters['date_start'])) {
             $this->db->where('l.tx_date >=', (string)$filters['date_start']);
@@ -854,6 +1303,18 @@ class Attendance_model extends CI_Model
             ->get()->row_array();
         if (!$employee) {
             return ['ok' => false, 'message' => 'Pegawai tidak valid atau nonaktif.'];
+        }
+
+        if (in_array($txType, ['USE', 'EXPIRE'], true)) {
+            $validate = $this->ph_validate_upsert_transaction(
+                $employeeId,
+                $txDate,
+                $txType,
+                $qtyDays
+            );
+            if (empty($validate['ok'])) {
+                return $validate;
+            }
         }
 
         $this->db->insert('att_employee_ph_ledger', [
@@ -918,6 +1379,23 @@ class Attendance_model extends CI_Model
             return ['ok' => false, 'message' => 'Pegawai tidak valid atau nonaktif.'];
         }
 
+        if (in_array($txType, ['USE', 'EXPIRE'], true)) {
+            $validate = $this->ph_validate_upsert_transaction(
+                $employeeId,
+                $txDate,
+                $txType,
+                $qtyDays,
+                $id,
+                $id,
+                (string)($row['expired_at'] ?? ''),
+                (string)($row['ref_table'] ?? ''),
+                isset($row['ref_id']) ? (int)$row['ref_id'] : null
+            );
+            if (empty($validate['ok'])) {
+                return $validate;
+            }
+        }
+
         $updatePayload = [
             'employee_id' => $employeeId,
             'tx_date' => $txDate,
@@ -942,6 +1420,13 @@ class Attendance_model extends CI_Model
         }
         if (strtoupper((string)($row['entry_mode'] ?? 'AUTO')) !== 'MANUAL' && !$isSuperadmin) {
             return ['ok' => false, 'message' => 'Mutasi otomatis tidak bisa dihapus.'];
+        }
+        $employeeId = (int)($row['employee_id'] ?? 0);
+        if ($employeeId > 0) {
+            $validate = $this->ph_validate_delete_transaction($employeeId, $id);
+            if (empty($validate['ok'])) {
+                return $validate;
+            }
         }
         $this->db->where('id', $id)->delete('att_employee_ph_ledger');
         return ['ok' => true, 'message' => 'Mutasi PH berhasil dihapus.'];
@@ -1028,7 +1513,8 @@ class Attendance_model extends CI_Model
                 COALESCE((SELECT SUM(CASE WHEN l.tx_type='EXPIRE' THEN l.qty_days ELSE 0 END) FROM att_employee_ph_ledger l WHERE l.employee_id=e.id),0) AS expire_total,
                 COALESCE((SELECT SUM(CASE WHEN l.tx_type='ADJUST' THEN l.qty_days ELSE 0 END) FROM att_employee_ph_ledger l WHERE l.employee_id=e.id),0) AS adjust_total,
                 COALESCE((SELECT SUM(CASE WHEN l.tx_type='GRANT' THEN l.qty_days ELSE 0 END) FROM att_employee_ph_ledger l WHERE l.employee_id=e.id AND l.tx_date >= " . $this->db->escape($monthStart) . " AND l.tx_date <= " . $this->db->escape($monthEnd) . "),0) AS grant_month,
-                COALESCE((SELECT SUM(CASE WHEN l.tx_type='USE' THEN l.qty_days ELSE 0 END) FROM att_employee_ph_ledger l WHERE l.employee_id=e.id AND l.tx_date >= " . $this->db->escape($monthStart) . " AND l.tx_date <= " . $this->db->escape($monthEnd) . "),0) AS use_month
+                COALESCE((SELECT SUM(CASE WHEN l.tx_type='USE' THEN l.qty_days ELSE 0 END) FROM att_employee_ph_ledger l WHERE l.employee_id=e.id AND l.tx_date >= " . $this->db->escape($monthStart) . " AND l.tx_date <= " . $this->db->escape($monthEnd) . "),0) AS use_month,
+                COALESCE((SELECT SUM(CASE WHEN l.tx_type='EXPIRE' THEN l.qty_days ELSE 0 END) FROM att_employee_ph_ledger l WHERE l.employee_id=e.id AND l.tx_date >= " . $this->db->escape($monthStart) . " AND l.tx_date <= " . $this->db->escape($monthEnd) . "),0) AS expire_month
             ", false);
         }
 
@@ -1142,7 +1628,7 @@ class Attendance_model extends CI_Model
 
             $shiftCode = strtoupper(trim((string)($row['shift_code'] ?? '')));
             $holidayType = strtoupper(trim((string)($row['holiday_type'] ?? '')));
-            $isShiftPh = ($shiftCode === 'PH');
+            $isShiftPh = in_array($shiftCode, ['PH', 'PHB'], true);
             $isHoliday = ($holidayType !== '');
             if ($grantHolidayType !== 'ANY' && $holidayType !== $grantHolidayType) {
                 $isHoliday = false;
@@ -1182,7 +1668,7 @@ class Attendance_model extends CI_Model
                 $expiredAt = date('Y-m-d', strtotime($attendanceDate . ' +' . $expiryMonths . ' month'));
             }
 
-            $this->db->insert('att_employee_ph_ledger', [
+            $created = $this->insert_ph_grant_ledger([
                 'employee_id' => $employeeId,
                 'tx_date' => $attendanceDate,
                 'tx_type' => 'GRANT',
@@ -1196,7 +1682,11 @@ class Attendance_model extends CI_Model
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
-            $inserted++;
+            if ($created) {
+                $inserted++;
+            } else {
+                $skipped++;
+            }
         }
 
         return [
@@ -1277,7 +1767,7 @@ class Attendance_model extends CI_Model
 
         $shiftCode = strtoupper(trim((string)($row['shift_code'] ?? '')));
         $holidayType = strtoupper(trim((string)($row['holiday_type'] ?? '')));
-        $isShiftPh = ($shiftCode === 'PH');
+        $isShiftPh = in_array($shiftCode, ['PH', 'PHB'], true);
         $isHoliday = ($holidayType !== '');
         if ($grantHolidayType !== 'ANY' && $holidayType !== $grantHolidayType) {
             $isHoliday = false;
@@ -1319,7 +1809,7 @@ class Attendance_model extends CI_Model
             $expiredAt = date('Y-m-d', strtotime($date . ' +' . $expiryMonths . ' month'));
         }
 
-        $this->db->insert('att_employee_ph_ledger', [
+        $created = $this->insert_ph_grant_ledger([
             'employee_id' => $employeeId,
             'tx_date' => $date,
             'tx_type' => 'GRANT',
@@ -1334,6 +1824,9 @@ class Attendance_model extends CI_Model
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
 
+        if (!$created) {
+            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Grant PH sudah ada atau gagal dibuat.'];
+        }
         return ['ok' => true, 'inserted' => 1, 'skipped' => 0, 'message' => 'Grant PH dibuat.'];
     }
 
@@ -1446,6 +1939,10 @@ class Attendance_model extends CI_Model
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $overtimeDate)) {
             return ['ok' => false, 'message' => 'Tanggal lembur tidak valid.'];
         }
+        $lockMessage = $this->immutable_period_guard_message($overtimeDate);
+        if ($lockMessage !== '') {
+            return ['ok' => false, 'message' => $lockMessage];
+        }
         if (!preg_match('/^\d{2}:\d{2}$/', $startTime) || !preg_match('/^\d{2}:\d{2}$/', $endTime)) {
             return ['ok' => false, 'message' => 'Format jam lembur harus HH:MM.'];
         }
@@ -1526,8 +2023,12 @@ class Attendance_model extends CI_Model
             if (!$exists) {
                 return ['ok' => false, 'message' => 'Data lembur tidak ditemukan.'];
             }
-            $oldEmployeeId = (int)($exists['employee_id'] ?? 0);
             $oldDate = (string)($exists['overtime_date'] ?? '');
+            $oldLockMessage = $this->immutable_period_guard_message($oldDate);
+            if ($oldLockMessage !== '') {
+                return ['ok' => false, 'message' => $oldLockMessage];
+            }
+            $oldEmployeeId = (int)($exists['employee_id'] ?? 0);
             $this->db->where('id', $id)->update('att_overtime_entry', $dbPayload);
             $this->recompute_overtime_daily_payroll($oldEmployeeId, $oldDate);
             if ($oldEmployeeId !== $employeeId || $oldDate !== $overtimeDate) {
@@ -1550,6 +2051,10 @@ class Attendance_model extends CI_Model
         $exists = $this->get_overtime_entry_by_id($id);
         if (!$exists) {
             return ['ok' => false, 'message' => 'Data lembur tidak ditemukan.'];
+        }
+        $lockMessage = $this->immutable_period_guard_message((string)($exists['overtime_date'] ?? ''));
+        if ($lockMessage !== '') {
+            return ['ok' => false, 'message' => $lockMessage];
         }
         $this->db->where('id', $id)->delete('att_overtime_entry');
         $this->recompute_overtime_daily_payroll((int)$exists['employee_id'], (string)$exists['overtime_date']);
@@ -2711,6 +3216,7 @@ class Attendance_model extends CI_Model
         $payload = [
             'updated_at' => date('Y-m-d H:i:s'),
         ];
+        $payload += $this->build_daily_policy_lock_payload($policy);
         if ($this->att_daily_has_field('snapshot_basic_salary')) {
             $payload['snapshot_basic_salary'] = round($basicSalary, 2);
             $payload['snapshot_position_allowance'] = round($positionAllowance, 2);
