@@ -16,7 +16,7 @@ $canCreate = !empty($can_create);
 
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
-    <h4 class="mb-1"><i class="ri-inbox-line text-danger me-1"></i>PO / SR Divisi</h4>
+    <h4 class="mb-0"><i class="ri-inbox-line page-title-icon me-1"></i><?php echo html_escape($title ?? 'PO / SR Divisi'); ?></h4>
     <small class="text-muted">Divisi mengajukan kebutuhan. Sistem auto-route: stok ada -> SR, stok kurang -> PO.</small>
   </div>
   <a href="<?php echo site_url('store-requests'); ?>" class="btn btn-outline-secondary">Buka Store Request</a>

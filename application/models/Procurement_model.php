@@ -28,6 +28,19 @@ class Procurement_model extends CI_Model
         ];
     }
 
+    public function build_destination_guard_map(array $divisionRows): array
+    {
+        $map = [];
+        foreach ($divisionRows as $row) {
+            $divisionId = (int)($row['id'] ?? 0);
+            if ($divisionId <= 0) {
+                continue;
+            }
+            $map[$divisionId] = $this->allowed_destinations_for_division($divisionId);
+        }
+        return $map;
+    }
+
     public function list_store_request_status_options(): array
     {
         return ['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'PARTIAL_FULFILLED', 'FULFILLED', 'VOID'];
@@ -43,12 +56,15 @@ class Procurement_model extends CI_Model
             'rejected' => 0,
             'fulfilled' => 0,
             'void' => 0,
+            'req_value_total' => 0.0,
+            'fulfilled_value_total' => 0.0,
         ];
 
         if (!$this->has_store_request_schema()) {
             return $summary;
         }
 
+        $costAggSql = $this->build_store_request_line_cost_agg_sql();
         $this->db
             ->select('COUNT(*) AS total', false)
             ->select("SUM(CASE WHEN sr.status = 'DRAFT' THEN 1 ELSE 0 END) AS draft", false)
@@ -57,7 +73,10 @@ class Procurement_model extends CI_Model
             ->select("SUM(CASE WHEN sr.status = 'REJECTED' THEN 1 ELSE 0 END) AS rejected", false)
             ->select("SUM(CASE WHEN sr.status = 'FULFILLED' THEN 1 ELSE 0 END) AS fulfilled", false)
             ->select("SUM(CASE WHEN sr.status = 'VOID' THEN 1 ELSE 0 END) AS void", false)
-            ->from('pur_store_request sr');
+            ->select('COALESCE(SUM(ca.req_total_value), 0) AS req_value_total', false)
+            ->select('COALESCE(SUM(ca.fulfilled_total_value), 0) AS fulfilled_value_total', false)
+            ->from('pur_store_request sr')
+            ->join('(' . $costAggSql . ') ca', 'ca.store_request_id = sr.id', 'left', false);
 
         $this->apply_store_request_filters($filters, 'sr');
         $row = $this->db->get()->row_array();
@@ -65,9 +84,11 @@ class Procurement_model extends CI_Model
             return $summary;
         }
 
-        foreach ($summary as $key => $val) {
+        foreach (['total', 'draft', 'submitted', 'approved', 'rejected', 'fulfilled', 'void'] as $key) {
             $summary[$key] = (int)($row[$key] ?? 0);
         }
+        $summary['req_value_total'] = round((float)($row['req_value_total'] ?? 0), 2);
+        $summary['fulfilled_value_total'] = round((float)($row['fulfilled_value_total'] ?? 0), 2);
 
         return $summary;
     }
@@ -78,7 +99,7 @@ class Procurement_model extends CI_Model
             return [];
         }
 
-        $lineAggSql = "SELECT store_request_id, COUNT(*) AS line_count, SUM(qty_content_requested) AS req_content_total, SUM(qty_content_fulfilled) AS fulfilled_content_total FROM pur_store_request_line GROUP BY store_request_id";
+        $lineAggSql = $this->build_store_request_line_agg_sql();
         $divisionNameCol = $this->resolve_division_name_column();
 
         $this->db
@@ -86,8 +107,12 @@ class Procurement_model extends CI_Model
             ->select($divisionNameCol . ' AS division_name', false)
             ->select('u.username AS created_by_username')
             ->select('COALESCE(la.line_count, 0) AS line_count', false)
+            ->select('COALESCE(la.req_buy_total, 0) AS req_buy_total', false)
             ->select('COALESCE(la.req_content_total, 0) AS req_content_total', false)
+            ->select('COALESCE(la.fulfilled_buy_total, 0) AS fulfilled_buy_total', false)
             ->select('COALESCE(la.fulfilled_content_total, 0) AS fulfilled_content_total', false)
+            ->select('COALESCE(la.req_total_value, 0) AS req_total_value', false)
+            ->select('COALESCE(la.fulfilled_total_value, 0) AS fulfilled_total_value', false)
             ->from('pur_store_request sr')
             ->join('mst_operational_division d', 'd.id = sr.request_division_id', 'left')
             ->join('auth_user u', 'u.id = sr.created_by', 'left')
@@ -114,6 +139,50 @@ class Procurement_model extends CI_Model
 
         $row = $this->db->select('COUNT(*) AS total', false)->get()->row_array();
         return (int)($row['total'] ?? 0);
+    }
+
+    public function list_store_request_lines(array $filters, int $limit, int $offset): array
+    {
+        if (!$this->has_store_request_schema()) {
+            return [];
+        }
+
+        $divisionNameCol = $this->resolve_division_name_column();
+        $lineCostSql = $this->build_store_request_line_cost_sql();
+        $this->db
+            ->select('ln.id AS line_id, ln.line_no, ln.line_kind, ln.item_id, ln.material_id')
+            ->select("CASE
+                WHEN COALESCE(ln.material_id, 0) > 0 THEN 'MATERIAL'
+                WHEN UPPER(TRIM(COALESCE(c.line_kind, ''))) IN ('MATERIAL','ITEM') THEN UPPER(TRIM(c.line_kind))
+                WHEN UPPER(TRIM(COALESCE(ln.line_kind, ''))) IN ('MATERIAL','ITEM') THEN UPPER(TRIM(ln.line_kind))
+                ELSE 'ITEM'
+            END AS effective_line_kind", false)
+            ->select('ln.profile_key, ln.profile_name, ln.profile_brand, ln.profile_description')
+            ->select('ln.profile_buy_uom_code, ln.profile_content_uom_code')
+            ->select('ln.qty_buy_requested, ln.qty_content_requested, ln.qty_buy_fulfilled, ln.qty_content_fulfilled')
+            ->select('COALESCE(lc.unit_cost_ref, 0) AS unit_cost_ref', false)
+            ->select('COALESCE(lc.req_total_value, 0) AS req_total_value', false)
+            ->select('COALESCE(lc.fulfilled_total_value, 0) AS fulfilled_total_value', false)
+            ->select('sr.id AS store_request_id, sr.sr_no, sr.request_date, sr.needed_date, sr.destination_type, sr.status')
+            ->select($divisionNameCol . ' AS division_name', false)
+            ->select('i.item_name, m.material_name')
+            ->from('pur_store_request_line ln')
+            ->join('pur_store_request sr', 'sr.id = ln.store_request_id', 'inner')
+            ->join('mst_operational_division d', 'd.id = sr.request_division_id', 'left')
+            ->join('mst_purchase_catalog c', 'c.profile_key = ln.profile_key', 'left')
+            ->join('mst_item i', 'i.id = ln.item_id', 'left')
+            ->join('mst_material m', 'm.id = ln.material_id', 'left')
+            ->join('(' . $lineCostSql . ') lc', 'lc.line_id = ln.id', 'left', false);
+
+        $this->apply_store_request_filters($filters, 'sr');
+
+        return $this->db
+            ->order_by('sr.request_date', 'DESC')
+            ->order_by('sr.id', 'DESC')
+            ->order_by('ln.line_no', 'ASC')
+            ->limit($limit, max(0, $offset))
+            ->get()
+            ->result_array();
     }
 
     public function list_store_request_timeline_map(array $requestIds): array
@@ -229,11 +298,19 @@ class Procurement_model extends CI_Model
 
         $q = trim($q);
         $hasWhMaterial = $this->db->field_exists('material_id', 'inv_warehouse_stock_balance');
+        $hasWhStockDomain = $this->db->field_exists('stock_domain', 'inv_warehouse_stock_balance');
+        $hasCatalog = $this->db->table_exists('mst_purchase_catalog')
+            && $this->db->field_exists('profile_key', 'mst_purchase_catalog')
+            && $this->db->field_exists('last_purchase_date', 'mst_purchase_catalog');
+        $hasCatalogLineKind = $hasCatalog && $this->db->field_exists('line_kind', 'mst_purchase_catalog');
 
         $this->db
-            ->select('s.item_id, ' . ($hasWhMaterial ? 's.material_id' : 'NULL AS material_id') . ', s.buy_uom_id, s.content_uom_id, s.profile_key', false)
+            ->select('s.item_id, ' . ($hasWhMaterial ? 'COALESCE(s.material_id, i.material_id) AS material_id' : 'i.material_id AS material_id') . ', s.buy_uom_id, s.content_uom_id, s.profile_key', false)
+            ->select($hasWhStockDomain ? 's.stock_domain' : 'NULL AS stock_domain', false)
             ->select('s.profile_name, s.profile_brand, s.profile_description, s.profile_expired_date, s.profile_content_per_buy')
             ->select('s.profile_buy_uom_code, s.profile_content_uom_code, s.qty_buy_balance, s.qty_content_balance')
+            ->select($hasCatalog ? 'c.last_purchase_date' : 'NULL AS last_purchase_date', false)
+            ->select($hasCatalogLineKind ? 'c.line_kind AS catalog_line_kind' : 'NULL AS catalog_line_kind', false)
             ->select('i.item_code, i.item_name, ' . ($hasWhMaterial ? 'm.material_code, m.material_name' : 'NULL AS material_code, NULL AS material_name'), false)
             ->from('inv_warehouse_stock_balance s')
             ->join('mst_item i', 'i.id = s.item_id', 'left')
@@ -242,6 +319,9 @@ class Procurement_model extends CI_Model
         if ($hasWhMaterial) {
             $this->db->join('mst_material m', 'm.id = s.material_id', 'left');
         }
+        if ($hasCatalog) {
+            $this->db->join('mst_purchase_catalog c', 'c.profile_key = s.profile_key', 'left');
+        }
 
         if ($q !== '') {
             $this->db->group_start()
@@ -249,23 +329,64 @@ class Procurement_model extends CI_Model
                 ->or_like('s.profile_brand', $q)
                 ->or_like('s.profile_description', $q)
                 ->or_like('s.profile_key', $q)
-                ->or_like('i.item_name', $q)
-                ->or_like('m.material_name', $q)
-                ->group_end();
+                ->or_like('i.item_name', $q);
+            if ($hasWhMaterial) {
+                $this->db->or_like('m.material_name', $q);
+            }
+            $this->db->group_end();
         }
 
         $rows = $this->db
+            ->order_by('s.qty_buy_balance', 'DESC')
             ->order_by('s.qty_content_balance', 'DESC')
             ->limit(max(1, min(100, $limit)))
             ->get()
             ->result_array();
 
         foreach ($rows as &$row) {
-            $row['line_kind'] = (int)($row['material_id'] ?? 0) > 0 ? 'MATERIAL' : 'ITEM';
+            $stockDomain = strtoupper(trim((string)($row['stock_domain'] ?? '')));
+            $catalogLineKind = strtoupper(trim((string)($row['catalog_line_kind'] ?? '')));
+            if ((int)($row['material_id'] ?? 0) > 0) {
+                $row['line_kind'] = 'MATERIAL';
+            } elseif (in_array($stockDomain, ['MATERIAL', 'ITEM'], true)) {
+                $row['line_kind'] = $stockDomain;
+            } elseif (in_array($catalogLineKind, ['MATERIAL', 'ITEM'], true)) {
+                $row['line_kind'] = $catalogLineKind;
+            } else {
+                $row['line_kind'] = (int)($row['material_id'] ?? 0) > 0 ? 'MATERIAL' : 'ITEM';
+            }
         }
         unset($row);
 
-        return $rows;
+        $dedup = [];
+        foreach ($rows as $row) {
+            $profileKey = trim((string)($row['profile_key'] ?? ''));
+            $key = $profileKey !== ''
+                ? ('PK:' . $profileKey . '|B:' . (int)($row['buy_uom_id'] ?? 0) . '|C:' . (int)($row['content_uom_id'] ?? 0))
+                : ('I:' . (int)($row['item_id'] ?? 0) . '|M:' . (int)($row['material_id'] ?? 0) . '|B:' . (int)($row['buy_uom_id'] ?? 0) . '|C:' . (int)($row['content_uom_id'] ?? 0));
+            $score = strtoupper((string)($row['line_kind'] ?? 'ITEM')) === 'MATERIAL' ? 2 : 1;
+            if (!isset($dedup[$key])) {
+                $dedup[$key] = ['row' => $row, 'score' => $score];
+                continue;
+            }
+            if ($score > $dedup[$key]['score']) {
+                $dedup[$key] = ['row' => $row, 'score' => $score];
+                continue;
+            }
+            if ($score === $dedup[$key]['score']) {
+                $curQty = (float)($dedup[$key]['row']['qty_buy_balance'] ?? 0);
+                $newQty = (float)($row['qty_buy_balance'] ?? 0);
+                if ($newQty > $curQty) {
+                    $dedup[$key] = ['row' => $row, 'score' => $score];
+                }
+            }
+        }
+
+        $finalRows = [];
+        foreach ($dedup as $bucket) {
+            $finalRows[] = $bucket['row'];
+        }
+        return $finalRows;
     }
 
     public function list_division_requests(array $filters, int $limit = 50): array
@@ -656,11 +777,23 @@ class Procurement_model extends CI_Model
         $divisionId = (int)($header['request_division_id'] ?? 0);
         $destinationType = $this->normalize_destination((string)($header['destination_type'] ?? ''));
         $notes = $this->nullable_string($header['notes'] ?? null);
+        $initialStatus = strtoupper(trim((string)($header['status'] ?? 'DRAFT')));
+        if (!in_array($initialStatus, ['DRAFT', 'SUBMITTED'], true)) {
+            $initialStatus = 'DRAFT';
+        }
 
         if ($requestDate === null || $divisionId <= 0 || $destinationType === null) {
             return [
                 'ok' => false,
                 'message' => 'Header belum lengkap: request_date, divisi, dan destination wajib valid.',
+            ];
+        }
+
+        if (!$this->is_destination_allowed_for_division($divisionId, $destinationType)) {
+            $allowed = $this->allowed_destinations_for_division($divisionId);
+            return [
+                'ok' => false,
+                'message' => 'Tujuan tidak sesuai divisi. Pilihan yang diizinkan: ' . implode(', ', $allowed) . '.',
             ];
         }
 
@@ -682,7 +815,7 @@ class Procurement_model extends CI_Model
             'needed_date' => $neededDate,
             'request_division_id' => $divisionId,
             'destination_type' => $destinationType,
-            'status' => 'DRAFT',
+            'status' => $initialStatus,
             'notes' => $notes,
             'created_by' => $userId > 0 ? $userId : null,
             'created_at' => date('Y-m-d H:i:s'),
@@ -695,13 +828,13 @@ class Procurement_model extends CI_Model
             $this->db->insert('pur_store_request_line', $lineData);
         }
 
-        if ($this->db->table_exists('pur_store_request_approval')) {
+        if ($initialStatus === 'SUBMITTED' && $this->db->table_exists('pur_store_request_approval')) {
             $this->db->insert('pur_store_request_approval', [
                 'store_request_id' => $requestId,
                 'action' => 'SUBMIT',
                 'actor_user_id' => $userId > 0 ? $userId : null,
                 'actor_name_snapshot' => null,
-                'notes' => 'Draft dibuat',
+                'notes' => 'Store Request disubmit saat pembuatan',
                 'created_at' => date('Y-m-d H:i:s'),
             ]);
         }
@@ -714,9 +847,138 @@ class Procurement_model extends CI_Model
         $this->db->trans_commit();
         return [
             'ok' => true,
-            'message' => 'Store Request berhasil disimpan sebagai DRAFT.',
+            'message' => $initialStatus === 'SUBMITTED'
+                ? 'Store Request berhasil disimpan dan langsung SUBMITTED.'
+                : 'Store Request berhasil disimpan sebagai DRAFT.',
             'id' => $requestId,
             'sr_no' => $srNo,
+        ];
+    }
+
+    public function get_store_request_detail(int $requestId): ?array
+    {
+        if (!$this->has_store_request_schema() || $requestId <= 0) {
+            return null;
+        }
+
+        $header = $this->db
+            ->from('pur_store_request')
+            ->where('id', $requestId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$header) {
+            return null;
+        }
+
+        $lines = $this->db
+            ->from('pur_store_request_line')
+            ->where('store_request_id', $requestId)
+            ->order_by('line_no', 'ASC')
+            ->get()
+            ->result_array();
+
+        return [
+            'header' => $header,
+            'lines' => $lines,
+        ];
+    }
+
+    public function update_store_request(int $requestId, array $header, array $lines, int $userId): array
+    {
+        if (!$this->has_store_request_schema()) {
+            return ['ok' => false, 'message' => 'Schema Store Request belum tersedia.'];
+        }
+        if ($requestId <= 0) {
+            return ['ok' => false, 'message' => 'Request ID tidak valid.'];
+        }
+
+        $existing = $this->db
+            ->from('pur_store_request')
+            ->where('id', $requestId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$existing) {
+            return ['ok' => false, 'message' => 'Store Request tidak ditemukan.'];
+        }
+
+        $status = strtoupper((string)($existing['status'] ?? 'DRAFT'));
+        if ($status !== 'DRAFT') {
+            return ['ok' => false, 'message' => 'Hanya Store Request status DRAFT yang dapat diedit.'];
+        }
+        $targetStatus = strtoupper(trim((string)($header['status'] ?? 'DRAFT')));
+        if (!in_array($targetStatus, ['DRAFT', 'SUBMITTED'], true)) {
+            $targetStatus = 'DRAFT';
+        }
+
+        $requestDate = $this->normalize_date((string)($header['request_date'] ?? (string)($existing['request_date'] ?? '')));
+        $neededDate = $this->normalize_date((string)($header['needed_date'] ?? (string)($existing['needed_date'] ?? '')));
+        $divisionId = (int)($header['request_division_id'] ?? (int)($existing['request_division_id'] ?? 0));
+        $destinationType = $this->normalize_destination((string)($header['destination_type'] ?? (string)($existing['destination_type'] ?? '')));
+        $notes = $this->nullable_string($header['notes'] ?? ($existing['notes'] ?? null));
+
+        if ($requestDate === null || $divisionId <= 0 || $destinationType === null) {
+            return ['ok' => false, 'message' => 'Header belum lengkap: request_date, divisi, dan destination wajib valid.'];
+        }
+        if (!$this->is_destination_allowed_for_division($divisionId, $destinationType)) {
+            $allowed = $this->allowed_destinations_for_division($divisionId);
+            return ['ok' => false, 'message' => 'Tujuan tidak sesuai divisi. Pilihan yang diizinkan: ' . implode(', ', $allowed) . '.'];
+        }
+
+        $normalizedLines = $this->normalize_store_request_lines($lines);
+        if (!($normalizedLines['ok'] ?? false)) {
+            return $normalizedLines;
+        }
+        $lineRows = (array)($normalizedLines['lines'] ?? []);
+        if (empty($lineRows)) {
+            return ['ok' => false, 'message' => 'Minimal harus ada 1 line request.'];
+        }
+
+        $this->db->trans_begin();
+
+        $this->db
+            ->where('id', $requestId)
+            ->update('pur_store_request', [
+                'request_date' => $requestDate,
+                'needed_date' => $neededDate,
+                'request_division_id' => $divisionId,
+                'destination_type' => $destinationType,
+                'status' => $targetStatus,
+                'notes' => $notes,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+
+        if ($targetStatus === 'SUBMITTED' && $this->db->table_exists('pur_store_request_approval')) {
+            $this->db->insert('pur_store_request_approval', [
+                'store_request_id' => $requestId,
+                'action' => 'SUBMIT',
+                'actor_user_id' => $userId > 0 ? $userId : null,
+                'actor_name_snapshot' => null,
+                'notes' => 'Store Request disubmit saat update draft',
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        $this->db->where('store_request_id', $requestId)->delete('pur_store_request_line');
+        foreach ($lineRows as $lineData) {
+            $lineData['store_request_id'] = $requestId;
+            $this->db->insert('pur_store_request_line', $lineData);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal memperbarui Store Request.'];
+        }
+
+        $this->db->trans_commit();
+        return [
+            'ok' => true,
+            'message' => $targetStatus === 'SUBMITTED'
+                ? 'Store Request berhasil diperbarui dan disubmit.'
+                : 'Store Request berhasil diperbarui.',
+            'id' => $requestId,
+            'sr_no' => (string)($existing['sr_no'] ?? ''),
         ];
     }
 
@@ -743,6 +1005,7 @@ class Procurement_model extends CI_Model
 
         $status = strtoupper((string)($request['status'] ?? 'DRAFT'));
         $nextStatus = $status;
+        $needsReverseFulfillment = false;
 
         if ($action === 'SUBMIT') {
             if ($status !== 'DRAFT') {
@@ -760,13 +1023,23 @@ class Procurement_model extends CI_Model
             }
             $nextStatus = 'REJECTED';
         } elseif ($action === 'VOID') {
-            if (!in_array($status, ['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED'], true)) {
+            if (!in_array($status, ['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'PARTIAL_FULFILLED', 'FULFILLED'], true)) {
                 return ['ok' => false, 'message' => 'Status saat ini tidak bisa di-void pada tahap ini.'];
+            }
+            if (in_array($status, ['PARTIAL_FULFILLED', 'FULFILLED'], true)) {
+                $needsReverseFulfillment = true;
             }
             $nextStatus = 'VOID';
         }
 
         $this->db->trans_begin();
+        if ($needsReverseFulfillment) {
+            $reverseResult = $this->reverse_fulfillments_before_void($requestId, $notes, $userId);
+            if (!($reverseResult['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return $reverseResult;
+            }
+        }
         $update = [
             'status' => $nextStatus,
             'updated_at' => date('Y-m-d H:i:s'),
@@ -984,6 +1257,8 @@ class Procurement_model extends CI_Model
             }
             $qtyBuy = round($qtyContent / max($contentPerBuy, 0.000001), 4);
 
+            $unitCostSnapshot = $this->resolve_store_request_line_unit_cost($line, $contentPerBuy);
+
             $this->db->insert('pur_store_request_fulfillment_line', [
                 'fulfillment_id' => $fulfillmentId,
                 'store_request_line_id' => (int)$line['id'],
@@ -1001,7 +1276,7 @@ class Procurement_model extends CI_Model
                 'profile_content_uom_code' => $this->nullable_string($line['profile_content_uom_code'] ?? null),
                 'qty_buy_posted' => $qtyBuy,
                 'qty_content_posted' => $qtyContent,
-                'unit_cost_snapshot' => 0,
+                'unit_cost_snapshot' => $unitCostSnapshot,
                 'notes' => $this->nullable_string($notes),
                 'created_at' => date('Y-m-d H:i:s'),
             ]);
@@ -1022,6 +1297,7 @@ class Procurement_model extends CI_Model
                 'profile_content_per_buy' => $contentPerBuy,
                 'profile_buy_uom_code' => $this->nullable_string($line['profile_buy_uom_code'] ?? null),
                 'profile_content_uom_code' => $this->nullable_string($line['profile_content_uom_code'] ?? null),
+                'stock_domain' => $this->resolve_line_stock_domain($line),
                 'created_by' => $userId > 0 ? $userId : null,
                 'manage_transaction' => false,
             ];
@@ -1223,11 +1499,13 @@ class Procurement_model extends CI_Model
             $buyUomId = (int)($line['buy_uom_id'] ?? 0);
             $contentUomId = (int)($line['content_uom_id'] ?? 0);
             $contentPerBuy = round((float)($line['profile_content_per_buy'] ?? 0), 6);
-            $qtyBuyRequested = round((float)($line['qty_buy_requested'] ?? 0), 4);
-            $qtyContentRequested = round((float)($line['qty_content_requested'] ?? 0), 4);
+            $qtyBuyRequested = round((float)($line['qty_buy_requested'] ?? 0), 2);
+            $qtyContentRequested = round((float)($line['qty_content_requested'] ?? 0), 2);
 
-            if ($lineKind === '') {
-                $lineKind = $materialId > 0 ? 'MATERIAL' : 'ITEM';
+            if ($materialId > 0) {
+                $lineKind = 'MATERIAL';
+            } elseif ($lineKind === '') {
+                $lineKind = $itemId > 0 ? 'ITEM' : '';
             }
             if (!in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
                 return ['ok' => false, 'message' => 'Line #' . $lineNo . ' line_kind tidak valid.'];
@@ -1248,10 +1526,10 @@ class Procurement_model extends CI_Model
                 return ['ok' => false, 'message' => 'Line #' . $lineNo . ' qty request harus diisi.'];
             }
             if ($qtyContentRequested <= 0 && $qtyBuyRequested > 0) {
-                $qtyContentRequested = round($qtyBuyRequested * $contentPerBuy, 4);
+                $qtyContentRequested = round($qtyBuyRequested * $contentPerBuy, 2);
             }
             if ($qtyBuyRequested <= 0 && $qtyContentRequested > 0) {
-                $qtyBuyRequested = round($qtyContentRequested / max($contentPerBuy, 0.000001), 4);
+                $qtyBuyRequested = round($qtyContentRequested / max($contentPerBuy, 0.000001), 2);
             }
 
             $normalizedLines[] = [
@@ -1303,8 +1581,10 @@ class Procurement_model extends CI_Model
             $qtyBuyRequested = round((float)($line['qty_buy_requested'] ?? 0), 4);
             $qtyContentRequested = round((float)($line['qty_content_requested'] ?? 0), 4);
 
-            if ($lineKind === '') {
-                $lineKind = $materialId > 0 ? 'MATERIAL' : 'ITEM';
+            if ($materialId > 0) {
+                $lineKind = 'MATERIAL';
+            } elseif ($lineKind === '') {
+                $lineKind = $itemId > 0 ? 'ITEM' : '';
             }
             if (!in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
                 return ['ok' => false, 'message' => 'Line #' . $lineNo . ' jenis line tidak valid.'];
@@ -1386,6 +1666,149 @@ class Procurement_model extends CI_Model
         }
     }
 
+    private function build_store_request_line_agg_sql(): string
+    {
+        $costSql = $this->build_store_request_line_cost_sql();
+        return "SELECT
+                ln.store_request_id,
+                COUNT(*) AS line_count,
+                SUM(ln.qty_buy_requested) AS req_buy_total,
+                SUM(ln.qty_content_requested) AS req_content_total,
+                SUM(ln.qty_buy_fulfilled) AS fulfilled_buy_total,
+                SUM(ln.qty_content_fulfilled) AS fulfilled_content_total,
+                SUM(COALESCE(c.req_total_value, 0)) AS req_total_value,
+                SUM(COALESCE(c.fulfilled_total_value, 0)) AS fulfilled_total_value
+            FROM pur_store_request_line ln
+            LEFT JOIN ({$costSql}) c ON c.line_id = ln.id
+            GROUP BY ln.store_request_id";
+    }
+
+    private function build_store_request_line_cost_agg_sql(): string
+    {
+        $costSql = $this->build_store_request_line_cost_sql();
+        return "SELECT
+                ln.store_request_id,
+                SUM(COALESCE(c.req_total_value, 0)) AS req_total_value,
+                SUM(COALESCE(c.fulfilled_total_value, 0)) AS fulfilled_total_value
+            FROM pur_store_request_line ln
+            LEFT JOIN ({$costSql}) c ON c.line_id = ln.id
+            GROUP BY ln.store_request_id";
+    }
+
+    private function build_store_request_line_cost_sql(): string
+    {
+        $fulfillAggSql = "SELECT
+                fl.store_request_line_id,
+                SUM(COALESCE(fl.qty_content_posted, 0)) AS posted_qty_total,
+                SUM(COALESCE(fl.qty_content_posted, 0) * COALESCE(fl.unit_cost_snapshot, 0)) AS posted_total_value
+            FROM pur_store_request_fulfillment_line fl
+            INNER JOIN pur_store_request_fulfillment f ON f.id = fl.fulfillment_id
+            WHERE COALESCE(f.status, '') <> 'VOID'
+            GROUP BY fl.store_request_line_id";
+        $warehouseCostSql = "SELECT
+                COALESCE(w.profile_key, '') AS profile_key,
+                COALESCE(w.buy_uom_id, 0) AS buy_uom_id,
+                COALESCE(w.content_uom_id, 0) AS content_uom_id,
+                AVG(COALESCE(w.avg_cost_per_content, 0)) AS avg_cost_per_content
+            FROM inv_warehouse_stock_balance w
+            GROUP BY COALESCE(w.profile_key, ''), COALESCE(w.buy_uom_id, 0), COALESCE(w.content_uom_id, 0)";
+        $warehouseItemCostSql = "SELECT
+                COALESCE(w.item_id, 0) AS item_id,
+                COALESCE(w.buy_uom_id, 0) AS buy_uom_id,
+                COALESCE(w.content_uom_id, 0) AS content_uom_id,
+                AVG(COALESCE(w.avg_cost_per_content, 0)) AS avg_cost_per_content
+            FROM inv_warehouse_stock_balance w
+            GROUP BY COALESCE(w.item_id, 0), COALESCE(w.buy_uom_id, 0), COALESCE(w.content_uom_id, 0)";
+
+        return "SELECT
+                ln.id AS line_id,
+                CASE
+                    WHEN COALESCE(fa.posted_qty_total, 0) > 0
+                         AND COALESCE(fa.posted_total_value, 0) > 0
+                    THEN (COALESCE(fa.posted_total_value, 0) / NULLIF(fa.posted_qty_total, 0))
+                    ELSE COALESCE(NULLIF(wc.avg_cost_per_content, 0), NULLIF(wci.avg_cost_per_content, 0), 0)
+                END AS unit_cost_ref,
+                COALESCE(ln.qty_content_requested, 0) * CASE
+                    WHEN COALESCE(fa.posted_qty_total, 0) > 0
+                         AND COALESCE(fa.posted_total_value, 0) > 0
+                    THEN (COALESCE(fa.posted_total_value, 0) / NULLIF(fa.posted_qty_total, 0))
+                    ELSE COALESCE(NULLIF(wc.avg_cost_per_content, 0), NULLIF(wci.avg_cost_per_content, 0), 0)
+                END AS req_total_value,
+                COALESCE(fa.posted_total_value, 0) AS fulfilled_total_value
+            FROM pur_store_request_line ln
+            LEFT JOIN ({$fulfillAggSql}) fa ON fa.store_request_line_id = ln.id
+            LEFT JOIN ({$warehouseCostSql}) wc
+                ON COALESCE(wc.profile_key, '') = COALESCE(ln.profile_key, '')
+                AND COALESCE(wc.buy_uom_id, 0) = COALESCE(ln.buy_uom_id, 0)
+                AND COALESCE(wc.content_uom_id, 0) = COALESCE(ln.content_uom_id, 0)
+            LEFT JOIN ({$warehouseItemCostSql}) wci
+                ON COALESCE(wci.item_id, 0) = COALESCE(ln.item_id, 0)
+                AND COALESCE(wci.buy_uom_id, 0) = COALESCE(ln.buy_uom_id, 0)
+                AND COALESCE(wci.content_uom_id, 0) = COALESCE(ln.content_uom_id, 0)";
+    }
+
+    private function resolve_store_request_line_unit_cost(array $line, float $contentPerBuy): float
+    {
+        $itemId = (int)($line['item_id'] ?? 0);
+        $buyUomId = (int)($line['buy_uom_id'] ?? 0);
+        $contentUomId = (int)($line['content_uom_id'] ?? 0);
+        $profileKey = trim((string)($line['profile_key'] ?? ''));
+        $contentPerBuy = $contentPerBuy > 0 ? $contentPerBuy : 1.0;
+
+        if ($this->db->table_exists('inv_warehouse_stock_balance') && $itemId > 0 && $buyUomId > 0 && $contentUomId > 0) {
+            if ($profileKey !== '') {
+                $row = $this->db
+                    ->select('avg_cost_per_content, qty_content_balance')
+                    ->from('inv_warehouse_stock_balance')
+                    ->where('item_id', $itemId)
+                    ->where('buy_uom_id', $buyUomId)
+                    ->where('content_uom_id', $contentUomId)
+                    ->where('profile_key', $profileKey)
+                    ->order_by('qty_content_balance', 'DESC')
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                $v = (float)($row['avg_cost_per_content'] ?? 0);
+                if ($v > 0) {
+                    return round($v, 6);
+                }
+            }
+
+            $row = $this->db
+                ->select('AVG(COALESCE(avg_cost_per_content,0)) AS avg_cost', false)
+                ->from('inv_warehouse_stock_balance')
+                ->where('item_id', $itemId)
+                ->where('buy_uom_id', $buyUomId)
+                ->where('content_uom_id', $contentUomId)
+                ->get()
+                ->row_array();
+            $avg = (float)($row['avg_cost'] ?? 0);
+            if ($avg > 0) {
+                return round($avg, 6);
+            }
+        }
+
+        if ($this->db->table_exists('mst_purchase_catalog') && $profileKey !== '') {
+            $row = $this->db
+                ->select('last_unit_price, standard_price')
+                ->from('mst_purchase_catalog')
+                ->where('profile_key', $profileKey)
+                ->order_by('id', 'DESC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $unitBuy = (float)($row['last_unit_price'] ?? 0);
+            if ($unitBuy <= 0) {
+                $unitBuy = (float)($row['standard_price'] ?? 0);
+            }
+            if ($unitBuy > 0) {
+                return round($unitBuy / max($contentPerBuy, 0.000001), 6);
+            }
+        }
+
+        return 0.0;
+    }
+
     private function resolve_division_name_column(): string
     {
         $columns = [];
@@ -1454,7 +1877,25 @@ class Procurement_model extends CI_Model
         if ($divisionId <= 0) {
             return 'OTHER';
         }
-        $row = $this->db->query('SELECT code, name FROM mst_operational_division WHERE id = ? LIMIT 1', [$divisionId])->row_array();
+        $selectParts = ['id'];
+        if ($this->db->field_exists('code', 'mst_operational_division')) {
+            $selectParts[] = 'code';
+        }
+        if ($this->db->field_exists('name', 'mst_operational_division')) {
+            $selectParts[] = 'name';
+        } elseif ($this->db->field_exists('division_name', 'mst_operational_division')) {
+            $selectParts[] = 'division_name AS name';
+        } elseif ($this->db->field_exists('division', 'mst_operational_division')) {
+            $selectParts[] = 'division AS name';
+        }
+
+        $row = $this->db
+            ->select(implode(', ', $selectParts), false)
+            ->from('mst_operational_division')
+            ->where('id', $divisionId)
+            ->limit(1)
+            ->get()
+            ->row_array();
         $code = strtoupper(trim((string)($row['code'] ?? '')));
         $name = strtoupper(trim((string)($row['name'] ?? '')));
         $text = $code . ' ' . $name;
@@ -1468,6 +1909,30 @@ class Procurement_model extends CI_Model
             return 'OFFICE';
         }
         return 'OTHER';
+    }
+
+    private function allowed_destinations_for_division(int $divisionId): array
+    {
+        $base = $this->infer_destination_from_division($divisionId);
+        if ($base === 'BAR') {
+            return ['BAR', 'BAR_EVENT'];
+        }
+        if ($base === 'KITCHEN') {
+            return ['KITCHEN', 'KITCHEN_EVENT'];
+        }
+        if ($base === 'OFFICE') {
+            return ['OFFICE'];
+        }
+        return ['OTHER'];
+    }
+
+    private function is_destination_allowed_for_division(int $divisionId, string $destinationType): bool
+    {
+        $destinationType = strtoupper(trim($destinationType));
+        if ($divisionId <= 0 || $destinationType === '') {
+            return false;
+        }
+        return in_array($destinationType, $this->allowed_destinations_for_division($divisionId), true);
     }
 
     private function get_warehouse_available_content(?int $itemId, ?int $materialId, ?int $buyUomId, ?int $contentUomId, string $profileKey): float
@@ -1501,6 +1966,170 @@ class Procurement_model extends CI_Model
 
         $row = $this->db->query($sql, $params)->row_array();
         return round((float)($row['qty_content_balance'] ?? 0), 4);
+    }
+
+    private function reverse_fulfillments_before_void(int $requestId, string $notes, int $userId): array
+    {
+        if (!$this->db->table_exists('pur_store_request_fulfillment') || !$this->db->table_exists('pur_store_request_fulfillment_line')) {
+            return ['ok' => false, 'message' => 'Schema fulfillment belum tersedia, tidak bisa void SR fulfilled.'];
+        }
+
+        $header = $this->db
+            ->select('id, sr_no, request_division_id, destination_type')
+            ->from('pur_store_request')
+            ->where('id', $requestId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Store Request tidak ditemukan saat proses void fulfillment.'];
+        }
+
+        $fulfillments = $this->db
+            ->from('pur_store_request_fulfillment')
+            ->where('store_request_id', $requestId)
+            ->where('status', 'POSTED')
+            ->order_by('id', 'DESC')
+            ->get()
+            ->result_array();
+        if (empty($fulfillments)) {
+            return ['ok' => true];
+        }
+
+        $this->load->library('InventoryLedger');
+
+        $srNo = (string)($header['sr_no'] ?? ('SR#' . $requestId));
+        $divisionId = (int)($header['request_division_id'] ?? 0);
+        $destinationType = $this->normalize_destination((string)($header['destination_type'] ?? 'OTHER')) ?? 'OTHER';
+        $voidNote = trim((string)$notes);
+        if ($voidNote === '') {
+            $voidNote = 'Void Store Request ' . $srNo;
+        }
+
+        foreach ($fulfillments as $fulfillment) {
+            $fulfillmentId = (int)($fulfillment['id'] ?? 0);
+            if ($fulfillmentId <= 0) {
+                continue;
+            }
+
+            $lines = $this->db
+                ->from('pur_store_request_fulfillment_line')
+                ->where('fulfillment_id', $fulfillmentId)
+                ->order_by('id', 'ASC')
+                ->get()
+                ->result_array();
+
+            foreach ($lines as $line) {
+                $qtyBuy = round((float)($line['qty_buy_posted'] ?? 0), 4);
+                $qtyContent = round((float)($line['qty_content_posted'] ?? 0), 4);
+                if ($qtyBuy <= 0 || $qtyContent <= 0) {
+                    continue;
+                }
+
+                $stockDomain = $this->resolve_line_stock_domain($line);
+                $contentPerBuy = round((float)($line['profile_content_per_buy'] ?? 1), 6);
+                if ($contentPerBuy <= 0) {
+                    $contentPerBuy = 1;
+                }
+
+                $payload = [
+                    'movement_date' => date('Y-m-d'),
+                    'ref_table' => 'pur_store_request_fulfillment',
+                    'ref_id' => $fulfillmentId,
+                    'item_id' => $this->nullable_int($line['item_id'] ?? null),
+                    'material_id' => $this->nullable_int($line['material_id'] ?? null),
+                    'buy_uom_id' => $this->nullable_int($line['buy_uom_id'] ?? null),
+                    'content_uom_id' => $this->nullable_int($line['content_uom_id'] ?? null),
+                    'profile_key' => $this->nullable_string($line['profile_key'] ?? null),
+                    'profile_name' => $this->nullable_string($line['profile_name'] ?? null),
+                    'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
+                    'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
+                    'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
+                    'profile_content_per_buy' => $contentPerBuy,
+                    'profile_buy_uom_code' => $this->nullable_string($line['profile_buy_uom_code'] ?? null),
+                    'profile_content_uom_code' => $this->nullable_string($line['profile_content_uom_code'] ?? null),
+                    'stock_domain' => $stockDomain,
+                    'created_by' => $userId > 0 ? $userId : null,
+                    'manage_transaction' => false,
+                ];
+
+                $divisionReverse = $this->inventoryledger->post(array_merge($payload, [
+                    'movement_scope' => 'DIVISION',
+                    'movement_type' => 'TRANSFER_OUT',
+                    'division_id' => $divisionId,
+                    'destination_type' => $destinationType,
+                    'qty_buy_delta' => -1 * $qtyBuy,
+                    'qty_content_delta' => -1 * $qtyContent,
+                    'notes' => $voidNote . ' | reverse fulfill #' . $fulfillmentId,
+                ]));
+                if (!($divisionReverse['ok'] ?? false)) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Void gagal: stok divisi sudah terpakai atau tidak cukup untuk reverse. ' . (string)($divisionReverse['message'] ?? ''),
+                    ];
+                }
+
+                $warehouseReverse = $this->inventoryledger->post(array_merge($payload, [
+                    'movement_scope' => 'WAREHOUSE',
+                    'movement_type' => 'TRANSFER_IN',
+                    'qty_buy_delta' => $qtyBuy,
+                    'qty_content_delta' => $qtyContent,
+                    'notes' => $voidNote . ' | rollback ke gudang #' . $fulfillmentId,
+                ]));
+                if (!($warehouseReverse['ok'] ?? false)) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Void gagal saat rollback stok gudang. ' . (string)($warehouseReverse['message'] ?? ''),
+                    ];
+                }
+
+                $srLineId = (int)($line['store_request_line_id'] ?? 0);
+                if ($srLineId > 0) {
+                    $srLine = $this->db->query('SELECT * FROM pur_store_request_line WHERE id = ? LIMIT 1 FOR UPDATE', [$srLineId])->row_array();
+                    if ($srLine) {
+                        $newFulfilledContent = round(max(0, (float)($srLine['qty_content_fulfilled'] ?? 0) - $qtyContent), 4);
+                        $newFulfilledBuy = round(max(0, (float)($srLine['qty_buy_fulfilled'] ?? 0) - $qtyBuy), 4);
+                        $requestedContent = round((float)($srLine['qty_content_requested'] ?? 0), 4);
+                        $lineStatus = 'OPEN';
+                        if ($newFulfilledContent > 0 && $newFulfilledContent + 0.0001 < $requestedContent) {
+                            $lineStatus = 'PARTIAL';
+                        } elseif ($requestedContent > 0 && $newFulfilledContent + 0.0001 >= $requestedContent) {
+                            $lineStatus = 'DONE';
+                        }
+
+                        $this->db
+                            ->where('id', $srLineId)
+                            ->update('pur_store_request_line', [
+                                'qty_content_fulfilled' => $newFulfilledContent,
+                                'qty_buy_fulfilled' => $newFulfilledBuy,
+                                'line_status' => $lineStatus,
+                                'updated_at' => date('Y-m-d H:i:s'),
+                            ]);
+                    }
+                }
+            }
+
+            $this->db
+                ->where('id', $fulfillmentId)
+                ->update('pur_store_request_fulfillment', [
+                    'status' => 'VOID',
+                    'voided_by' => $userId > 0 ? $userId : null,
+                    'voided_at' => date('Y-m-d H:i:s'),
+                    'void_reason' => $voidNote,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+        }
+
+        return ['ok' => true];
+    }
+
+    private function resolve_line_stock_domain(array $line): string
+    {
+        $lineKind = strtoupper(trim((string)($line['line_kind'] ?? '')));
+        if (in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
+            return $lineKind;
+        }
+        return (int)($line['material_id'] ?? 0) > 0 ? 'MATERIAL' : 'ITEM';
     }
 
     private function normalize_destination(string $destination): ?string

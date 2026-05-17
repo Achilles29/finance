@@ -4,26 +4,47 @@ $filters = $filters ?? [];
 $rows = $rows ?? [];
 $summary = $summary ?? [];
 $timelineMap = $timeline_map ?? [];
+$lineRows = $line_rows ?? [];
 $divisionOptions = $division_options ?? [];
 $statusOptions = $status_options ?? [];
 $destinationOptions = $destination_options ?? [];
+$destinationGuardMap = $destination_guard_map ?? [];
 $limit = (int)($limit ?? 50);
+$activeTab = in_array((string)($active_tab ?? 'nota'), ['nota', 'rincian'], true) ? (string)$active_tab : 'nota';
 $canCreate = !empty($can_create);
 $canEdit = !empty($can_edit);
+
+$baseFilters = [
+  'q' => (string)($filters['q'] ?? ''),
+  'status' => (string)($filters['status'] ?? ''),
+  'division_id' => (string)($filters['division_id'] ?? ''),
+  'destination_type' => (string)($filters['destination_type'] ?? ''),
+  'date_start' => (string)($filters['date_start'] ?? ''),
+  'date_end' => (string)($filters['date_end'] ?? ''),
+  'limit' => (string)$limit,
+];
+$tabNotaUrl = site_url('store-requests') . '?' . http_build_query(array_merge($baseFilters, ['tab' => 'nota']));
+$tabRincianUrl = site_url('store-requests') . '?' . http_build_query(array_merge($baseFilters, ['tab' => 'rincian']));
+$resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
 ?>
 
 <style>
-  .sr-action-btn { width: 34px; height: 34px; border-radius: 10px; padding: 0 !important; display: inline-flex; align-items: center; justify-content: center; }
+  .sr-action-wrap { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; min-width: 220px; }
+  .sr-action-btn { border-radius: 9px; padding: 4px 10px !important; display: inline-flex; align-items: center; justify-content: center; min-height: 32px; font-size: 12px; font-weight: 600; line-height: 1.2; }
+  .sr-mini-btn { width: 30px; height: 30px; padding: 0 !important; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; }
+  .sr-tab-link { font-weight: 600; }
   .sr-scroll { max-height: 260px; overflow: auto; }
+  .sr-status-legend code { font-size: 11px; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
-    <h4 class="mb-1"><i class="ri-inbox-archive-line text-danger me-1"></i>Store Request</h4>
+    <h4 class="mb-0"><i class="ri-inbox-archive-line page-title-icon me-1"></i><?php echo html_escape($title ?? 'Store Request'); ?></h4>
     <small class="text-muted">Verifikasi, fulfillment gudang, dan generate PO shortage. PO final tetap diproses di menu <strong>Purchase Order</strong>.</small>
   </div>
   <div class="d-flex gap-2">
     <?php if ($canCreate): ?>
+      <a href="<?php echo site_url('store-requests/create'); ?>" class="btn btn-outline-primary">Form Full SR</a>
       <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#srCreateModal">+ Tambah SR</button>
     <?php endif; ?>
     <a href="<?php echo site_url('purchase-orders'); ?>" class="btn btn-outline-secondary">Buka Purchase Order</a>
@@ -43,11 +64,14 @@ $canEdit = !empty($can_edit);
   <div class="col-md-2"><div class="card"><div class="card-body"><small class="text-muted d-block">Fulfilled</small><h5 class="mb-0"><?php echo (int)($summary['fulfilled'] ?? 0); ?></h5></div></div></div>
   <div class="col-md-2"><div class="card"><div class="card-body"><small class="text-muted d-block">Rejected</small><h5 class="mb-0"><?php echo (int)($summary['rejected'] ?? 0); ?></h5></div></div></div>
   <div class="col-md-2"><div class="card"><div class="card-body"><small class="text-muted d-block">Void</small><h5 class="mb-0"><?php echo (int)($summary['void'] ?? 0); ?></h5></div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body"><small class="text-muted d-block">Nilai Request (Estimasi)</small><h6 class="mb-0">Rp <?php echo number_format((float)($summary['req_value_total'] ?? 0), 2, ',', '.'); ?></h6></div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body"><small class="text-muted d-block">Nilai Fulfilled</small><h6 class="mb-0">Rp <?php echo number_format((float)($summary['fulfilled_value_total'] ?? 0), 2, ',', '.'); ?></h6></div></div></div>
 </div>
 
 <div class="card mb-3">
   <div class="card-body">
     <form class="row g-2 align-items-end" method="get" action="<?php echo site_url('store-requests'); ?>">
+      <input type="hidden" name="tab" value="<?php echo html_escape($activeTab); ?>">
       <div class="col-md-3"><label class="form-label mb-1">Cari</label><input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="No SR / catatan"></div>
       <div class="col-md-2"><label class="form-label mb-1">Status</label><select name="status" class="form-select"><option value="">Semua</option><?php foreach($statusOptions as $st): ?><option value="<?php echo html_escape($st); ?>" <?php echo ((string)($filters['status'] ?? '') === $st) ? 'selected' : ''; ?>><?php echo html_escape($st); ?></option><?php endforeach; ?></select></div>
       <div class="col-md-2"><label class="form-label mb-1">Divisi</label><select name="division_id" class="form-select"><option value="">Semua</option><?php foreach($divisionOptions as $d): ?><option value="<?php echo (int)$d['id']; ?>" <?php echo ((int)($filters['division_id'] ?? 0) === (int)$d['id']) ? 'selected' : ''; ?>><?php echo html_escape((string)($d['division_name'] ?? $d['name'] ?? ('DIV#'.$d['id']))); ?></option><?php endforeach; ?></select></div>
@@ -55,23 +79,55 @@ $canEdit = !empty($can_edit);
       <div class="col-md-1"><label class="form-label mb-1">Dari</label><input type="date" name="date_start" class="form-control" value="<?php echo html_escape((string)($filters['date_start'] ?? '')); ?>"></div>
       <div class="col-md-1"><label class="form-label mb-1">Sampai</label><input type="date" name="date_end" class="form-control" value="<?php echo html_escape((string)($filters['date_end'] ?? '')); ?>"></div>
       <div class="col-md-1"><label class="form-label mb-1">Limit</label><select name="limit" class="form-select"><?php foreach([25,50,100,200] as $lm): ?><option value="<?php echo $lm; ?>" <?php echo $limit === $lm ? 'selected' : ''; ?>><?php echo $lm; ?></option><?php endforeach; ?></select></div>
-      <div class="col-12 d-flex gap-2"><button type="submit" class="btn btn-primary">Filter</button><a href="<?php echo site_url('store-requests'); ?>" class="btn btn-outline-secondary">Reset</a></div>
+      <div class="col-12 d-flex gap-2"><button type="submit" class="btn btn-primary">Filter</button><a href="<?php echo $resetUrl; ?>" class="btn btn-outline-secondary">Reset</a></div>
     </form>
   </div>
 </div>
 
+<div class="card mb-3">
+  <div class="card-body py-2 sr-status-legend">
+    <div class="small">
+      <strong>Fungsi Status:</strong>
+      <code>DRAFT</code> masih draft,
+      <code>SUBMITTED</code> menunggu verifikasi,
+      <code>APPROVED</code> siap fulfillment/split shortage,
+      <code>PARTIAL_FULFILLED</code> terpenuhi sebagian,
+      <code>FULFILLED</code> selesai penuh,
+      <code>REJECTED</code> ditolak,
+      <code>VOID</code> dibatalkan.
+    </div>
+    <div class="small mt-1">
+      <strong>Fungsi Aksi:</strong>
+      <code>Submit</code> kirim draft, <code>Approve/Reject</code> verifikasi, <code>Split</code> lihat pembagian cukup stok vs shortage,
+      <code>Fulfill</code> posting transfer gudang, <code>Gen PO</code> buat draft PO untuk shortage, <code>Void</code> batalkan dokumen.
+    </div>
+  </div>
+</div>
+
 <div class="card">
-  <div class="table-responsive">
-    <table class="table table-striped mb-0">
+  <div class="card-body pb-0">
+    <ul class="nav nav-tabs mb-3" role="tablist">
+      <li class="nav-item" role="presentation">
+        <a class="nav-link sr-tab-link <?php echo $activeTab === 'nota' ? 'active' : ''; ?>" href="<?php echo $tabNotaUrl; ?>">Per Nota</a>
+      </li>
+      <li class="nav-item" role="presentation">
+        <a class="nav-link sr-tab-link <?php echo $activeTab === 'rincian' ? 'active' : ''; ?>" href="<?php echo $tabRincianUrl; ?>">Per Rincian</a>
+      </li>
+    </ul>
+  </div>
+  <div class="tab-content p-0 border-0">
+    <div class="tab-pane fade <?php echo $activeTab === 'nota' ? 'show active' : ''; ?>">
+      <div class="table-responsive">
+        <table class="table table-striped mb-0">
       <thead>
         <tr>
-          <th>No SR</th><th>Tanggal</th><th>Divisi</th><th>Tujuan</th><th>Status</th><th class="text-end">Line</th><th class="text-end">Qty Req</th><th class="text-end">Qty Fulfilled</th><th>Aksi</th>
+          <th>No SR</th><th>Tanggal</th><th>Divisi</th><th>Tujuan</th><th>Status</th><th class="text-end">Line</th><th class="text-end">Qty Req (Pack)</th><th class="text-end">Qty Req (Isi)</th><th class="text-end">Qty Fulfilled (Pack)</th><th class="text-end">Qty Fulfilled (Isi)</th><th class="text-end">Nilai Req</th><th class="text-end">Nilai Fulfilled</th><th>Aksi</th>
         </tr>
       </thead>
       <tbody>
       <?php if (empty($rows)): ?>
         <tr>
-          <td colspan="9" class="text-center text-muted py-3">
+          <td colspan="13" class="text-center text-muted py-3">
             Belum ada Store Request.
             <?php if ($canCreate): ?>
               <button type="button" class="btn btn-sm btn-primary ms-2" data-bs-toggle="modal" data-bs-target="#srCreateModal">Buat SR</button>
@@ -86,22 +142,28 @@ $canEdit = !empty($can_edit);
           <td><?php echo html_escape((string)($r['destination_type'] ?? '-')); ?></td>
           <td><?php echo html_escape($st); ?></td>
           <td class="text-end"><?php echo (int)($r['line_count'] ?? 0); ?></td>
+          <td class="text-end"><?php echo ui_num((float)($r['req_buy_total'] ?? 0)); ?></td>
           <td class="text-end"><?php echo ui_num((float)($r['req_content_total'] ?? 0)); ?></td>
+          <td class="text-end"><?php echo ui_num((float)($r['fulfilled_buy_total'] ?? 0)); ?></td>
           <td class="text-end"><?php echo ui_num((float)($r['fulfilled_content_total'] ?? 0)); ?></td>
+          <td class="text-end">Rp <?php echo number_format((float)($r['req_total_value'] ?? 0), 2, ',', '.'); ?></td>
+          <td class="text-end">Rp <?php echo number_format((float)($r['fulfilled_total_value'] ?? 0), 2, ',', '.'); ?></td>
           <td>
             <?php if ($canEdit): ?>
-            <div class="d-flex flex-wrap gap-1 justify-content-center">
-              <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-success sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="APPROVE" title="Approve"><i class="ri-check-line"></i></button><?php endif; ?>
-              <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-danger sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="REJECT" title="Reject"><i class="ri-close-line"></i></button><?php endif; ?>
-              <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-info text-white sr-action-btn sr-split" data-id="<?php echo $rid; ?>" title="Split"><i class="ri-scissors-cut-line"></i></button><?php endif; ?>
-              <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-warning text-dark sr-action-btn sr-fulfill" data-id="<?php echo $rid; ?>" title="Fulfill"><i class="ri-inbox-archive-line"></i></button><?php endif; ?>
-              <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-secondary sr-action-btn sr-gpo" data-id="<?php echo $rid; ?>" title="Generate PO Shortage"><i class="ri-file-transfer-line"></i></button><?php endif; ?>
-              <?php if (in_array($st, ['DRAFT','SUBMITTED','APPROVED','REJECTED'], true)): ?><button type="button" class="btn btn-sm btn-outline-dark sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="VOID" title="Void"><i class="ri-delete-bin-6-line"></i></button><?php endif; ?>
+            <div class="sr-action-wrap">
+              <?php if ($st === 'DRAFT'): ?><button type="button" class="btn btn-sm btn-primary sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="SUBMIT" title="Submit">Submit</button><?php endif; ?>
+              <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-success sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="APPROVE" title="Approve">Approve</button><?php endif; ?>
+              <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-danger sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="REJECT" title="Reject">Reject</button><?php endif; ?>
+              <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-info text-white sr-action-btn sr-split" data-id="<?php echo $rid; ?>" title="Split">Split</button><?php endif; ?>
+              <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-warning text-dark sr-action-btn sr-fulfill" data-id="<?php echo $rid; ?>" title="Fulfill">Fulfill</button><?php endif; ?>
+              <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-secondary sr-action-btn sr-gpo" data-id="<?php echo $rid; ?>" title="Generate PO Shortage">Gen PO</button><?php endif; ?>
+              <?php if ($st === 'DRAFT'): ?><a href="<?php echo site_url('store-requests/edit/' . $rid); ?>" class="btn btn-sm btn-outline-primary sr-action-btn" title="Edit DRAFT">Edit</a><?php endif; ?>
+              <?php if (in_array($st, ['DRAFT','SUBMITTED','APPROVED','REJECTED','PARTIAL_FULFILLED','FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-dark sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="VOID" title="Void">Void</button><?php endif; ?>
             </div>
             <?php else: ?><span class="text-muted">Read-only</span><?php endif; ?>
           </td>
         </tr>
-        <tr class="bg-light"><td colspan="9">
+        <tr class="bg-light"><td colspan="13">
           <details>
             <summary class="small fw-semibold">Timeline</summary>
             <div class="row mt-2 small">
@@ -113,7 +175,63 @@ $canEdit = !empty($can_edit);
         </td></tr>
       <?php endforeach; endif; ?>
       </tbody>
-    </table>
+      </table>
+      </div>
+    </div>
+    <div class="tab-pane fade <?php echo $activeTab === 'rincian' ? 'show active' : ''; ?>">
+      <div class="table-responsive">
+        <table class="table table-striped mb-0">
+          <thead>
+            <tr>
+              <th>No SR</th>
+              <th>Tanggal</th>
+              <th>Divisi</th>
+              <th>Tujuan</th>
+              <th>Status</th>
+              <th>Line</th>
+              <th>Profile</th>
+              <th>Jenis</th>
+              <th class="text-end">Qty Req (Pack)</th>
+              <th class="text-end">Qty Req (Isi)</th>
+              <th class="text-end">Qty Fulfilled (Pack)</th>
+              <th class="text-end">Qty Fulfilled (Isi)</th>
+              <th class="text-end">Sisa (Pack)</th>
+              <th class="text-end">Sisa (Isi)</th>
+              <th class="text-end">Harga Satuan</th>
+              <th class="text-end">Total Req</th>
+              <th class="text-end">Total Fulfilled</th>
+            </tr>
+          </thead>
+          <tbody>
+          <?php if (empty($lineRows)): ?>
+            <tr><td colspan="17" class="text-center text-muted py-3">Belum ada data rincian Store Request.</td></tr>
+          <?php else: foreach($lineRows as $ln): ?>
+            <?php $remainBuy = (float)($ln['qty_buy_requested'] ?? 0) - (float)($ln['qty_buy_fulfilled'] ?? 0); ?>
+            <?php $remain = (float)($ln['qty_content_requested'] ?? 0) - (float)($ln['qty_content_fulfilled'] ?? 0); ?>
+            <tr>
+              <td><a href="<?php echo site_url('store-requests?tab=nota&q=' . urlencode((string)($ln['sr_no'] ?? ''))); ?>"><strong><?php echo html_escape((string)($ln['sr_no'] ?? '-')); ?></strong></a></td>
+              <td><?php echo html_escape((string)($ln['request_date'] ?? '-')); ?><div class="small text-muted">Need: <?php echo html_escape((string)($ln['needed_date'] ?? '-')); ?></div></td>
+              <td><?php echo html_escape((string)($ln['division_name'] ?? '-')); ?></td>
+              <td><?php echo html_escape((string)($ln['destination_type'] ?? '-')); ?></td>
+              <td><?php echo html_escape((string)($ln['status'] ?? '-')); ?></td>
+              <td>#<?php echo (int)($ln['line_no'] ?? 0); ?></td>
+              <td><strong><?php echo html_escape((string)($ln['profile_name'] ?? '-')); ?></strong></td>
+              <td><?php echo html_escape((string)($ln['effective_line_kind'] ?? $ln['line_kind'] ?? '-')); ?></td>
+              <td class="text-end"><?php echo ui_num((float)($ln['qty_buy_requested'] ?? 0)); ?></td>
+              <td class="text-end"><?php echo ui_num((float)($ln['qty_content_requested'] ?? 0)); ?></td>
+              <td class="text-end"><?php echo ui_num((float)($ln['qty_buy_fulfilled'] ?? 0)); ?></td>
+              <td class="text-end"><?php echo ui_num((float)($ln['qty_content_fulfilled'] ?? 0)); ?></td>
+              <td class="text-end"><?php echo ui_num($remainBuy); ?></td>
+              <td class="text-end"><?php echo ui_num($remain); ?></td>
+              <td class="text-end">Rp <?php echo number_format((float)($ln['unit_cost_ref'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end">Rp <?php echo number_format((float)($ln['req_total_value'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end">Rp <?php echo number_format((float)($ln['fulfilled_total_value'] ?? 0), 2, ',', '.'); ?></td>
+            </tr>
+          <?php endforeach; endif; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -139,13 +257,13 @@ $canEdit = !empty($can_edit);
           <div class="border rounded p-2 mb-2">
             <label class="form-label mb-1">Cari Profile Stok Gudang</label>
             <div class="d-flex gap-2">
-              <input type="text" id="sr_profile_q" class="form-control" placeholder="Nama profile / item / material / profile key">
+              <input type="text" id="sr_profile_q" class="form-control" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Nama profile / item / material">
               <button type="button" id="btnSearchProfile" class="btn btn-outline-primary">Cari</button>
             </div>
             <div class="sr-scroll mt-2">
               <table class="table table-sm mb-0">
-                <thead><tr><th>Profile</th><th>UOM</th><th class="text-end">Stok</th><th style="width:80px">Aksi</th></tr></thead>
-                <tbody id="srProfileResults"><tr><td colspan="4" class="text-muted text-center py-2">Belum ada pencarian.</td></tr></tbody>
+                <thead><tr><th>Profile</th><th>UOM</th><th class="text-end">Stok Gudang</th><th>Tgl Beli Terakhir</th><th style="width:80px">Aksi</th></tr></thead>
+                <tbody id="srProfileResults"><tr><td colspan="5" class="text-muted text-center py-2">Belum ada pencarian.</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -160,7 +278,8 @@ $canEdit = !empty($can_edit);
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
-        <button type="button" class="btn btn-primary" id="btnCreateSr">Simpan DRAFT</button>
+        <button type="button" class="btn btn-outline-primary" id="btnCreateSrSubmit">Simpan & Submit</button>
+        <button type="button" class="btn btn-primary" id="btnCreateSr" data-status="DRAFT">Simpan DRAFT</button>
       </div>
     </div>
   </div>
@@ -191,10 +310,13 @@ $canEdit = !empty($can_edit);
   var splitPreviewUrlBase = <?php echo json_encode(site_url('procurement/store-request/split-preview/')); ?>;
   var fulfillUrlBase = <?php echo json_encode(site_url('procurement/store-request/fulfill/')); ?>;
   var generatePoUrlBase = <?php echo json_encode(site_url('procurement/store-request/generate-po/')); ?>;
-  var reloadUrl = <?php echo json_encode(site_url('store-requests')); ?>;
+  var reloadUrl = <?php echo json_encode($resetUrl); ?>;
+  var destinationGuardMap = <?php echo json_encode($destinationGuardMap); ?>;
   var alertBox = document.getElementById('srAlert');
   var createAlertBox = document.getElementById('srCreateAlert');
   var createLines = [];
+  var profileSearchTimer = null;
+  var profileSearchAbort = null;
 
   function flash(type, msg){ if(!alertBox) return; alertBox.innerHTML='<div class="alert alert-'+type+' py-2 mb-2">'+msg+'</div>'; }
   function flashCreate(type, msg){ if(!createAlertBox) return; createAlertBox.innerHTML='<div class="alert alert-'+type+' py-2 mb-2">'+msg+'</div>'; }
@@ -202,15 +324,63 @@ $canEdit = !empty($can_edit);
   function esc(s){ return String(s||'').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
   function fetchJson(url, opts){ return fetch(url, opts).then(function(res){ return res.text().then(function(t){ var d={}; try{d=t?JSON.parse(t):{};}catch(e){d={};} if(!res.ok && !d.ok){ d.ok=false; d.message=d.message||('Request gagal ('+res.status+')'); } return d;}); }); }
 
+  function parseDestinationOptionMeta(){
+    var destEl = document.getElementById('sr_destination_type');
+    var meta = [];
+    if (!destEl) return meta;
+    for (var i = 0; i < destEl.options.length; i++) {
+      var op = destEl.options[i];
+      meta.push({ value: String(op.value || ''), label: String(op.text || op.value || '') });
+    }
+    return meta;
+  }
+
+  var destinationOptionMeta = parseDestinationOptionMeta();
+
+  function applyDivisionDestinationGuard(){
+    var divisionEl = document.getElementById('sr_division_id');
+    var destinationEl = document.getElementById('sr_destination_type');
+    if (!divisionEl || !destinationEl) return;
+
+    var divisionId = String(divisionEl.value || '');
+    var allowed = destinationGuardMap[divisionId] || [];
+    var allowedSet = {};
+    for (var i = 0; i < allowed.length; i++) {
+      allowedSet[String(allowed[i] || '')] = true;
+    }
+
+    var current = String(destinationEl.value || '');
+    var html = [];
+    destinationOptionMeta.forEach(function(op){
+      if (allowedSet[op.value]) {
+        html.push('<option value="' + esc(op.value) + '">' + esc(op.label) + '</option>');
+      }
+    });
+    destinationEl.innerHTML = html.join('');
+
+    if (current && allowedSet[current]) {
+      destinationEl.value = current;
+    }
+    if (!destinationEl.value && destinationEl.options.length > 0) {
+      destinationEl.selectedIndex = 0;
+    }
+  }
+
   function renderCreateSearch(rows){
     var tb = document.getElementById('srProfileResults'); if(!tb) return;
-    if(!rows || !rows.length){ tb.innerHTML='<tr><td colspan="4" class="text-muted text-center py-2">Tidak ada data.</td></tr>'; return; }
+    if(!rows || !rows.length){ tb.innerHTML='<tr><td colspan="5" class="text-muted text-center py-2">Tidak ada data.</td></tr>'; return; }
     var html='';
     rows.forEach(function(row){
+      var buyCode = esc(row.profile_buy_uom_code || '-');
+      var contentCode = esc(row.profile_content_uom_code || '-');
+      var stockBuy = num(row.qty_buy_balance).toFixed(2);
+      var stockContent = num(row.qty_content_balance).toFixed(2);
+      var lastPurchaseDate = row.last_purchase_date ? esc(row.last_purchase_date) : '-';
       html += '<tr>'
-        + '<td><strong>'+esc(row.profile_name||'-')+'</strong><div class="small text-muted">'+esc(row.profile_key||'')+'</div></td>'
-        + '<td>'+esc(row.profile_buy_uom_code||'-')+' -> '+esc(row.profile_content_uom_code||'-')+'</td>'
-        + '<td class="text-end">'+num(row.qty_content_balance).toFixed(2)+'</td>'
+        + '<td><strong>'+esc(row.profile_name||'-')+'</strong></td>'
+        + '<td>'+buyCode+' -> '+contentCode+'</td>'
+        + '<td class="text-end"><div class="fw-semibold">'+stockBuy+' '+buyCode+'</div><div class="small text-muted">'+stockContent+' '+contentCode+'</div></td>'
+        + '<td>'+lastPurchaseDate+'</td>'
         + '<td><button type="button" class="btn btn-sm btn-outline-primary sr-pick-profile" data-row="'+esc(JSON.stringify(row))+'">Pilih</button></td>'
         + '</tr>';
     });
@@ -223,13 +393,13 @@ $canEdit = !empty($can_edit);
     var html='';
     createLines.forEach(function(line, idx){
       html += '<tr>'
-        + '<td><strong>'+esc(line.profile_name||'-')+'</strong><div class="small text-muted">'+esc(line.profile_key||'')+'</div></td>'
+        + '<td><strong>'+esc(line.profile_name||'-')+'</strong></td>'
         + '<td>'+esc(line.line_kind||'-')+'</td>'
         + '<td>'+esc(line.profile_buy_uom_code||'-')+' -> '+esc(line.profile_content_uom_code||'-')+'</td>'
-        + '<td class="text-end">'+num(line.qty_content_balance).toFixed(2)+'</td>'
-        + '<td><input type="number" step="0.0001" min="0" class="form-control form-control-sm sr-qty-buy" data-idx="'+idx+'" value="'+num(line.qty_buy_requested).toFixed(4)+'"></td>'
-        + '<td><input type="number" step="0.0001" min="0" class="form-control form-control-sm sr-qty-content" data-idx="'+idx+'" value="'+num(line.qty_content_requested).toFixed(4)+'"></td>'
-        + '<td><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-remove-line" data-idx="'+idx+'"><i class="ri-delete-bin-line"></i></button></td>'
+        + '<td class="text-end"><div class="fw-semibold">'+num(line.qty_buy_balance).toFixed(2)+' '+esc(line.profile_buy_uom_code||'-')+'</div><div class="small text-muted">'+num(line.qty_content_balance).toFixed(2)+' '+esc(line.profile_content_uom_code||'-')+'</div></td>'
+        + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm sr-qty-buy" data-idx="'+idx+'" value="'+num(line.qty_buy_requested).toFixed(2)+'"></td>'
+        + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm sr-qty-content" data-idx="'+idx+'" value="'+num(line.qty_content_requested).toFixed(2)+'"></td>'
+        + '<td><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-remove-line" data-idx="'+idx+'">Hapus</button></td>'
         + '</tr>';
     });
     tb.innerHTML = html;
@@ -260,7 +430,7 @@ $canEdit = !empty($can_edit);
       qty_buy_balance: num(row.qty_buy_balance),
       qty_content_balance: num(row.qty_content_balance),
       qty_buy_requested: 1,
-      qty_content_requested: cpb
+      qty_content_requested: Number(cpb.toFixed(2))
     });
     renderCreateLines();
   }
@@ -370,16 +540,62 @@ $canEdit = !empty($can_edit);
   });
 
   if (canCreate){
+    var divisionEl = document.getElementById('sr_division_id');
+    if (divisionEl) {
+      divisionEl.addEventListener('change', applyDivisionDestinationGuard);
+    }
+    applyDivisionDestinationGuard();
+
+    function runProfileSearch() {
+      var q = (document.getElementById('sr_profile_q') || {}).value || '';
+      q = String(q).trim();
+      if (q.length < 2) {
+        renderCreateSearch([]);
+        return;
+      }
+
+      if (profileSearchAbort && typeof profileSearchAbort.abort === 'function') {
+        profileSearchAbort.abort();
+      }
+      profileSearchAbort = new AbortController();
+
+      fetchJson(searchUrl + '?q=' + encodeURIComponent(q) + '&limit=20', {
+        credentials: 'same-origin',
+        signal: profileSearchAbort.signal
+      })
+        .then(function(res){
+          if (!res || res.ok === false){
+            flashCreate('danger', (res && res.message) ? res.message : 'Gagal memuat profile gudang.');
+            return;
+          }
+          renderCreateSearch(res.rows || []);
+        })
+        .catch(function(err){
+          if (err && err.name === 'AbortError') return;
+          flashCreate('danger', 'Gagal memuat profile gudang.');
+        });
+    }
+
     var btnSearch = document.getElementById('btnSearchProfile');
     if (btnSearch){
       btnSearch.addEventListener('click', function(){
-        var q = (document.getElementById('sr_profile_q') || {}).value || '';
-        fetchJson(searchUrl + '?q=' + encodeURIComponent(String(q).trim()) + '&limit=20', { credentials: 'same-origin' })
-          .then(function(res){
-            if (!res || res.ok === false){ flashCreate('danger', (res && res.message) ? res.message : 'Gagal memuat profile gudang.'); return; }
-            renderCreateSearch(res.rows || []);
-          })
-          .catch(function(){ flashCreate('danger', 'Gagal memuat profile gudang.'); });
+        runProfileSearch();
+      });
+    }
+
+    var profileQEl = document.getElementById('sr_profile_q');
+    if (profileQEl) {
+      profileQEl.addEventListener('input', function(){
+        if (profileSearchTimer) {
+          window.clearTimeout(profileSearchTimer);
+        }
+        profileSearchTimer = window.setTimeout(runProfileSearch, 280);
+      });
+      profileQEl.addEventListener('keydown', function(ev){
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          runProfileSearch();
+        }
       });
     }
 
@@ -390,16 +606,28 @@ $canEdit = !empty($can_edit);
         var old = btnCreate.innerHTML;
         btnCreate.disabled = true;
         btnCreate.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Menyimpan...';
+        var desiredStatus = (btnCreate.getAttribute('data-status') || 'DRAFT').toUpperCase();
         var payload = {
           header: {
             request_date: (document.getElementById('sr_request_date') || {}).value || '',
             needed_date: (document.getElementById('sr_needed_date') || {}).value || '',
             request_division_id: Number((document.getElementById('sr_division_id') || {}).value || 0),
             destination_type: (document.getElementById('sr_destination_type') || {}).value || '',
-            notes: (document.getElementById('sr_notes') || {}).value || ''
+            notes: (document.getElementById('sr_notes') || {}).value || '',
+            status: desiredStatus
           },
           lines: createLines
         };
+
+        var divisionId = String(payload.header.request_division_id || '');
+        var allowed = destinationGuardMap[divisionId] || [];
+        if (allowed.indexOf(payload.header.destination_type) === -1) {
+          flashCreate('warning', 'Tujuan tidak sesuai dengan divisi yang dipilih.');
+          btnCreate.disabled = false;
+          btnCreate.innerHTML = old;
+          return;
+        }
+
         fetchJson(storeUrl, {
           method: 'POST',
           credentials: 'same-origin',
@@ -418,6 +646,15 @@ $canEdit = !empty($can_edit);
           btnCreate.disabled = false;
           btnCreate.innerHTML = old;
         });
+      });
+    }
+
+    var btnCreateSubmit = document.getElementById('btnCreateSrSubmit');
+    if (btnCreateSubmit && btnCreate){
+      btnCreateSubmit.addEventListener('click', function(){
+        btnCreate.setAttribute('data-status', 'SUBMITTED');
+        btnCreate.click();
+        btnCreate.setAttribute('data-status', 'DRAFT');
       });
     }
   }

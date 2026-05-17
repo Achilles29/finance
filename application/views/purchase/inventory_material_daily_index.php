@@ -14,6 +14,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   $initialLimit = 120;
 }
 $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
+$destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_guard_map : [];
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -359,6 +360,10 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
   .pmd-metric-out { color: #cd6b35; }
   .pmd-metric-adj { color: #6a52cf; }
   .pmd-metric-close { color: #4f647d; font-weight: 800; }
+  .pmd-cell-pack { display: block; font-size: 0.72rem; font-weight: 800; line-height: 1.05; }
+  .pmd-cell-content { display: block; font-size: 0.68rem; opacity: 0.86; line-height: 1.05; margin-top: 2px; }
+  .pmd-day-start { border-left: 2px solid #d8b8a9 !important; }
+  .pmd-day-end { border-right: 2px solid #d8b8a9 !important; }
   .pmd-date-band-a {
     background-color: #fffefc;
   }
@@ -536,6 +541,18 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
   var matrixUrl = <?php echo json_encode((string)($matrix_url ?? site_url('inventory-material-daily/matrix'))); ?>;
   var detailUrl = <?php echo json_encode((string)($detail_url ?? site_url('inventory-daily/cell-detail'))); ?>;
   var defaultMonth = <?php echo json_encode(substr($initialMonth, 0, 7)); ?>;
+  var destinationGuardMap = <?php echo json_encode($destinationGuardMap, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+  var destinationOptionMeta = [
+    { value: 'ALL', label: 'Semua' },
+    { value: 'REGULER', label: 'Reguler' },
+    { value: 'EVENT', label: 'Event' },
+    { value: 'BAR', label: 'Bar Reguler' },
+    { value: 'KITCHEN', label: 'Kitchen Reguler' },
+    { value: 'BAR_EVENT', label: 'Bar Event' },
+    { value: 'KITCHEN_EVENT', label: 'Kitchen Event' },
+    { value: 'OFFICE', label: 'Office Reguler' },
+    { value: 'OTHER', label: 'Lainnya' }
+  ];
 
   var state = {
     month: defaultMonth,
@@ -679,6 +696,32 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     document.getElementById('pmdDateTo').value = '';
     document.getElementById('pmdLimit').value = '120';
     readFilters();
+  }
+
+  function applyDestinationGuard(){
+    var divisionEl = document.getElementById('pmdDivision');
+    var destinationEl = document.getElementById('pmdDestination');
+    if (!divisionEl || !destinationEl) { return; }
+    var divisionId = parseInt(divisionEl.value || '0', 10);
+    var current = String(state.destination || destinationEl.value || 'ALL').toUpperCase();
+    if (!Number.isFinite(divisionId) || divisionId <= 0 || !destinationGuardMap[String(divisionId)]) {
+      destinationEl.innerHTML = destinationOptionMeta.map(function(opt){
+        return '<option value="' + esc(opt.value) + '">' + esc(opt.label) + '</option>';
+      }).join('');
+    } else {
+      var allowed = (destinationGuardMap[String(divisionId)] || []).map(function(x){ return String(x || '').toUpperCase(); });
+      var options = destinationOptionMeta.filter(function(opt){
+        if (opt.value === 'ALL' || opt.value === 'REGULER' || opt.value === 'EVENT') { return true; }
+        return allowed.indexOf(String(opt.value || '').toUpperCase()) !== -1;
+      });
+      destinationEl.innerHTML = options.map(function(opt){
+        return '<option value="' + esc(opt.value) + '">' + esc(opt.label) + '</option>';
+      }).join('');
+    }
+    var exists = Array.prototype.some.call(destinationEl.options, function(opt){
+      return String(opt.value || '').toUpperCase() === current;
+    });
+    destinationEl.value = exists ? current : 'ALL';
   }
 
   function buildQuery(){
@@ -1022,8 +1065,9 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     return '<tr>' + dayTop + '</tr><tr>' + daySub + '</tr>';
   }
 
-  function dayCells(dailyMap, groupIndex, profileIndex){
+  function dayCells(dailyMap, groupIndex, profileIndex, contentPerBuy){
     var html = '';
+    var packSize = Number(contentPerBuy || 0);
     state.dates.forEach(function(dateText, dateIndex){
       var day = dailyMap[dateText] || { opening: 0, in: 0, out: 0, adjustment: 0, closing: 0 };
       var todayCls = isToday(dateText) ? ' is-today' : '';
@@ -1036,14 +1080,16 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
         { key: 'closing', cls: 'pmd-metric-close' }
       ];
       items.forEach(function(item){
-        var value = Number(day[item.key] || 0);
-        var valueText = esc(num(value));
-        if (Math.abs(value) > 0.000001) {
-          html += '<td class="pmd-metric-cell' + todayCls + bandClass + '">' +
+        var valueContent = Number(day[item.key] || 0);
+        var valuePack = packSize > 0 ? (valueContent / packSize) : 0;
+        var valueText = '<span class="pmd-cell-pack">' + esc(num(valuePack)) + '</span><span class="pmd-cell-content">' + esc(num(valueContent)) + '</span>';
+        var edgeClass = item.key === 'opening' ? ' pmd-day-start' : (item.key === 'closing' ? ' pmd-day-end' : '');
+        if (Math.abs(valueContent) > 0.000001) {
+          html += '<td class="pmd-metric-cell' + todayCls + bandClass + edgeClass + '">' +
             '<button type="button" class="pmd-cell-btn ' + item.cls + '" data-action="detail" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '">' + valueText + '</button>' +
           '</td>';
         } else {
-          html += '<td class="pmd-metric-cell' + todayCls + bandClass + '"><span class="pmd-cell-btn ' + item.cls + '">' + valueText + '</span></td>';
+          html += '<td class="pmd-metric-cell' + todayCls + bandClass + edgeClass + '"><span class="pmd-cell-btn ' + item.cls + '">' + valueText + '</span></td>';
         }
       });
     });
@@ -1099,7 +1145,17 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     var singleProfile = (!isExpandable(group) && Array.isArray(group.children) && group.children.length === 1) ? group.children[0] : null;
     var parentProfileIndex = singleProfile ? 0 : -1;
     var rowClass = isExpandable(group) ? 'pmd-group-row pmd-group-expandable' : 'pmd-group-row pmd-group-single';
-    return '<tr class="' + rowClass + '">' + dayCells(group.daily || {}, groupIndex, parentProfileIndex) + '</tr>';
+    var packSize = 0;
+    if (singleProfile && Number(singleProfile.profile_content_per_buy || 0) > 0) {
+      packSize = Number(singleProfile.profile_content_per_buy || 0);
+    } else {
+      var openingPack = Number((group.metrics && group.metrics.opening_pack) || 0);
+      var openingContent = Number((group.metrics && group.metrics.opening_content) || 0);
+      if (openingPack > 0.000001 && openingContent > 0.000001) {
+        packSize = openingContent / openingPack;
+      }
+    }
+    return '<tr class="' + rowClass + '">' + dayCells(group.daily || {}, groupIndex, parentProfileIndex, packSize) + '</tr>';
   }
 
   function freezeProfileRowHtml(profile){
@@ -1126,7 +1182,7 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
   }
 
   function profileRowHtml(group, groupIndex, profile, profileIndex){
-    return '<tr class="pmd-child-row">' + dayCells(profile.daily || {}, groupIndex, profileIndex) + '</tr>';
+    return '<tr class="pmd-child-row">' + dayCells(profile.daily || {}, groupIndex, profileIndex, Number(profile.profile_content_per_buy || 0)) + '</tr>';
   }
 
   function syncPaneRowHeights(){
@@ -1321,8 +1377,15 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
     loadData();
   });
 
+  document.getElementById('pmdDivision').addEventListener('change', function(){
+    readFilters();
+    applyDestinationGuard();
+    state.destination = document.getElementById('pmdDestination').value || 'ALL';
+  });
+
   document.getElementById('pmdClear').addEventListener('click', function(){
     clearFilters();
+    applyDestinationGuard();
     loadData();
   });
 
@@ -1382,6 +1445,7 @@ $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
   });
 
   readFilters();
+  applyDestinationGuard();
   loadData();
 })();
 </script>

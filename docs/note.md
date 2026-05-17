@@ -168,7 +168,9 @@ sesuaikan jika ada yang perlu disesuikan. format kolom buat sesuai kebutuhan pro
 add pegawai otomatis menambahkan akses login dan hak akses dan ke staff umum
 
 =====
+- /store-requests tampilkan harga satuan dan harga totalnya juga agar tau berapa. lalu buatkan card card ringkasan
 
-- divisi dan tujuan harus ada guarding relasi. contoh jika divis bar yang dipilih maka yang muncul BAR reguler atau bar event
+- /purchase/stock/division/daily , inventory-material-daily , /purchase/stock/division ketika ada barang masuk dengan profile yang sama, seharusnya tidak membuat baris baru, tapi menambah stok profile yang ada. = belum di cek
 
-kita pindah dulu. lakukan pengecekan barang di /master/purchase-catalog yang tidak ada di /master/item
+
+- beri guarding relasi filter di /purchase/stock/division/daily , inventory-material-daily , /purchase/stock/division = belum

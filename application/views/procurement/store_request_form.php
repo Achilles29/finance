@@ -1,0 +1,409 @@
+<?php
+$mode = (string)($mode ?? 'create');
+$isEdit = $mode === 'edit';
+$requestId = (int)($request_id ?? 0);
+$header = (array)($header ?? []);
+$lines = (array)($lines ?? []);
+$divisionOptions = $division_options ?? [];
+$destinationOptions = $destination_options ?? [];
+$destinationGuardMap = $destination_guard_map ?? [];
+
+$initialLines = [];
+foreach ($lines as $ln) {
+    $initialLines[] = [
+        'line_kind' => (string)($ln['line_kind'] ?? ((int)($ln['material_id'] ?? 0) > 0 ? 'MATERIAL' : 'ITEM')),
+        'item_id' => (int)($ln['item_id'] ?? 0) ?: null,
+        'material_id' => (int)($ln['material_id'] ?? 0) ?: null,
+        'profile_key' => (string)($ln['profile_key'] ?? ''),
+        'profile_name' => (string)($ln['profile_name'] ?? ''),
+        'profile_brand' => (string)($ln['profile_brand'] ?? ''),
+        'profile_description' => (string)($ln['profile_description'] ?? ''),
+        'profile_expired_date' => (string)($ln['profile_expired_date'] ?? ''),
+        'buy_uom_id' => (int)($ln['buy_uom_id'] ?? 0),
+        'content_uom_id' => (int)($ln['content_uom_id'] ?? 0),
+        'profile_content_per_buy' => (float)($ln['profile_content_per_buy'] ?? 1),
+        'profile_buy_uom_code' => (string)($ln['profile_buy_uom_code'] ?? ''),
+        'profile_content_uom_code' => (string)($ln['profile_content_uom_code'] ?? ''),
+        'qty_buy_balance' => (float)($ln['qty_buy_balance'] ?? 0),
+        'qty_content_balance' => (float)($ln['qty_content_balance'] ?? 0),
+        'qty_buy_requested' => (float)($ln['qty_buy_requested'] ?? 0),
+        'qty_content_requested' => (float)($ln['qty_content_requested'] ?? 0),
+    ];
+}
+?>
+
+<style>
+  .sr-scroll { max-height: 300px; overflow: auto; }
+  .sr-form-card .table td, .sr-form-card .table th { vertical-align: middle; }
+  .sr-action-btn { border-radius: 9px; padding: 4px 10px !important; display: inline-flex; align-items: center; justify-content: center; min-height: 32px; font-size: 12px; font-weight: 600; line-height: 1.2; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="mb-0"><i class="ri-inbox-archive-line page-title-icon me-1"></i><?php echo html_escape($title ?? ($isEdit ? 'Edit Store Request' : 'Buat Store Request')); ?></h4>
+    <small class="text-muted">Mode full page. Guarding divisi-tujuan dan validasi line sama dengan mode modal.</small>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="<?php echo site_url('store-requests'); ?>" class="btn btn-outline-secondary">Kembali</a>
+  </div>
+</div>
+
+<div id="srFormAlert"></div>
+
+<div class="card sr-form-card">
+  <div class="card-body">
+    <div class="row g-2 mb-2">
+      <div class="col-md-2">
+        <label class="form-label mb-1">Tgl Request</label>
+        <input type="date" id="sr_request_date" class="form-control" value="<?php echo html_escape((string)($header['request_date'] ?? date('Y-m-d'))); ?>">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label mb-1">Tgl Butuh</label>
+        <input type="date" id="sr_needed_date" class="form-control" value="<?php echo html_escape((string)($header['needed_date'] ?? date('Y-m-d'))); ?>">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label mb-1">Divisi</label>
+        <select id="sr_division_id" class="form-select">
+          <?php foreach($divisionOptions as $d): ?>
+            <option value="<?php echo (int)$d['id']; ?>" <?php echo (int)($header['request_division_id'] ?? 0) === (int)$d['id'] ? 'selected' : ''; ?>>
+              <?php echo html_escape((string)($d['division_name'] ?? $d['name'] ?? ('DIV#'.$d['id']))); ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label mb-1">Tujuan</label>
+        <select id="sr_destination_type" class="form-select">
+          <?php foreach($destinationOptions as $op): ?>
+            <option value="<?php echo html_escape((string)$op['value']); ?>" <?php echo (string)($header['destination_type'] ?? '') === (string)$op['value'] ? 'selected' : ''; ?>>
+              <?php echo html_escape((string)$op['label']); ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label mb-1">Catatan</label>
+        <input type="text" id="sr_notes" class="form-control" placeholder="Opsional" value="<?php echo html_escape((string)($header['notes'] ?? '')); ?>">
+      </div>
+    </div>
+
+    <?php if ($isEdit): ?>
+    <div class="mb-2 small text-muted">
+      SR No: <strong><?php echo html_escape((string)($header['sr_no'] ?? '-')); ?></strong>
+      | Status: <strong><?php echo html_escape((string)($header['status'] ?? '-')); ?></strong>
+    </div>
+    <?php endif; ?>
+
+    <div class="border rounded p-2 mb-2">
+      <label class="form-label mb-1">Cari Profile Stok Gudang (AJAX)</label>
+      <div class="d-flex gap-2">
+        <input type="text" id="sr_profile_q" class="form-control" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Nama profile / item / material">
+        <button type="button" id="btnSearchProfile" class="btn btn-outline-primary">Cari</button>
+      </div>
+      <div class="sr-scroll mt-2">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Profile</th><th>UOM</th><th class="text-end">Stok Gudang</th><th>Tgl Beli Terakhir</th><th style="width:80px">Aksi</th></tr></thead>
+          <tbody id="srProfileResults"><tr><td colspan="5" class="text-muted text-center py-2">Belum ada pencarian.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-sm table-striped mb-0">
+        <thead><tr><th>Profile</th><th>Jenis</th><th>UOM</th><th class="text-end">Stok Gudang</th><th>Qty Beli Req</th><th>Qty Isi Req</th><th>Aksi</th></tr></thead>
+        <tbody id="srLineTableBody"><tr><td colspan="7" class="text-muted text-center py-2">Belum ada line.</td></tr></tbody>
+      </table>
+    </div>
+    <div class="d-flex gap-2 justify-content-end mt-3">
+      <a href="<?php echo site_url('store-requests'); ?>" class="btn btn-outline-secondary">Batal</a>
+      <button type="button" class="btn btn-outline-primary" id="btnSaveSrSubmit"><?php echo $isEdit ? 'Update & Submit' : 'Simpan & Submit'; ?></button>
+      <button type="button" class="btn btn-primary" id="btnSaveSr" data-status="DRAFT"><?php echo $isEdit ? 'Update DRAFT' : 'Simpan DRAFT'; ?></button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var isEdit = <?php echo $isEdit ? 'true' : 'false'; ?>;
+  var requestId = <?php echo (int)$requestId; ?>;
+  var searchUrl = <?php echo json_encode(site_url('procurement/store-request/profile-search')); ?>;
+  var storeUrl = <?php echo json_encode(site_url('procurement/store-request/store')); ?>;
+  var updateBaseUrl = <?php echo json_encode(site_url('procurement/store-request/update/')); ?>;
+  var listUrl = <?php echo json_encode(site_url('store-requests')); ?>;
+  var destinationGuardMap = <?php echo json_encode($destinationGuardMap); ?>;
+  var initialLines = <?php echo json_encode($initialLines); ?>;
+  var createLines = Array.isArray(initialLines) ? initialLines : [];
+  var profileSearchTimer = null;
+  var profileSearchAbort = null;
+  var alertBox = document.getElementById('srFormAlert');
+
+  function flash(type, msg){
+    if (!alertBox) return;
+    alertBox.innerHTML = '<div class="alert alert-' + type + ' py-2 mb-2">' + msg + '</div>';
+  }
+  function num(v){ var n = Number(v || 0); return Number.isFinite(n) ? n : 0; }
+  function esc(s){ return String(s || '').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function fetchJson(url, opts){
+    return fetch(url, opts).then(function(res){
+      return res.text().then(function(t){
+        var d = {};
+        try { d = t ? JSON.parse(t) : {}; } catch (e) { d = {}; }
+        if (!res.ok && !d.ok) {
+          d.ok = false;
+          d.message = d.message || ('Request gagal (' + res.status + ')');
+        }
+        return d;
+      });
+    });
+  }
+
+  function parseDestinationOptionMeta(){
+    var destEl = document.getElementById('sr_destination_type');
+    var meta = [];
+    if (!destEl) return meta;
+    for (var i = 0; i < destEl.options.length; i++) {
+      var op = destEl.options[i];
+      meta.push({ value: String(op.value || ''), label: String(op.text || op.value || '') });
+    }
+    return meta;
+  }
+  var destinationOptionMeta = parseDestinationOptionMeta();
+
+  function applyDivisionDestinationGuard(){
+    var divisionEl = document.getElementById('sr_division_id');
+    var destinationEl = document.getElementById('sr_destination_type');
+    if (!divisionEl || !destinationEl) return;
+
+    var divisionId = String(divisionEl.value || '');
+    var allowed = destinationGuardMap[divisionId] || [];
+    var allowedSet = {};
+    for (var i = 0; i < allowed.length; i++) allowedSet[String(allowed[i] || '')] = true;
+
+    var current = String(destinationEl.value || '');
+    var html = [];
+    destinationOptionMeta.forEach(function(op){
+      if (allowedSet[op.value]) {
+        html.push('<option value="' + esc(op.value) + '">' + esc(op.label) + '</option>');
+      }
+    });
+    destinationEl.innerHTML = html.join('');
+    if (current && allowedSet[current]) destinationEl.value = current;
+    if (!destinationEl.value && destinationEl.options.length > 0) destinationEl.selectedIndex = 0;
+  }
+
+  function renderCreateSearch(rows){
+    var tb = document.getElementById('srProfileResults'); if(!tb) return;
+    if(!rows || !rows.length){ tb.innerHTML = '<tr><td colspan="5" class="text-muted text-center py-2">Tidak ada data.</td></tr>'; return; }
+    var html = '';
+    rows.forEach(function(row){
+      var buyCode = esc(row.profile_buy_uom_code || '-');
+      var contentCode = esc(row.profile_content_uom_code || '-');
+      var stockBuy = num(row.qty_buy_balance).toFixed(2);
+      var stockContent = num(row.qty_content_balance).toFixed(2);
+      var lastPurchaseDate = row.last_purchase_date ? esc(row.last_purchase_date) : '-';
+      html += '<tr>'
+        + '<td><strong>' + esc(row.profile_name || '-') + '</strong></td>'
+        + '<td>' + buyCode + ' -> ' + contentCode + '</td>'
+        + '<td class="text-end"><div class="fw-semibold">' + stockBuy + ' ' + buyCode + '</div><div class="small text-muted">' + stockContent + ' ' + contentCode + '</div></td>'
+        + '<td>' + lastPurchaseDate + '</td>'
+        + '<td><button type="button" class="btn btn-sm btn-outline-primary sr-pick-profile" data-row="' + esc(JSON.stringify(row)) + '">Pilih</button></td>'
+        + '</tr>';
+    });
+    tb.innerHTML = html;
+  }
+
+  function renderCreateLines(){
+    var tb = document.getElementById('srLineTableBody'); if(!tb) return;
+    if(!createLines.length){ tb.innerHTML = '<tr><td colspan="7" class="text-muted text-center py-2">Belum ada line.</td></tr>'; return; }
+    var html = '';
+    createLines.forEach(function(line, idx){
+      html += '<tr>'
+        + '<td><strong>' + esc(line.profile_name || '-') + '</strong></td>'
+        + '<td>' + esc(line.line_kind || '-') + '</td>'
+        + '<td>' + esc(line.profile_buy_uom_code || '-') + ' -> ' + esc(line.profile_content_uom_code || '-') + '</td>'
+        + '<td class="text-end"><div class="fw-semibold">' + num(line.qty_buy_balance).toFixed(2) + ' ' + esc(line.profile_buy_uom_code || '-') + '</div><div class="small text-muted">' + num(line.qty_content_balance).toFixed(2) + ' ' + esc(line.profile_content_uom_code || '-') + '</div></td>'
+        + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm sr-qty-buy" data-idx="' + idx + '" value="' + num(line.qty_buy_requested).toFixed(2) + '"></td>'
+        + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm sr-qty-content" data-idx="' + idx + '" value="' + num(line.qty_content_requested).toFixed(2) + '"></td>'
+        + '<td><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-remove-line" data-idx="' + idx + '">Hapus</button></td>'
+        + '</tr>';
+    });
+    tb.innerHTML = html;
+  }
+
+  function addCreateLine(row){
+    var key = [row.profile_key||'', row.item_id||0, row.material_id||0, row.buy_uom_id||0, row.content_uom_id||0].join('|');
+    for (var i = 0; i < createLines.length; i++) {
+      var x = createLines[i];
+      var xk = [x.profile_key||'', x.item_id||0, x.material_id||0, x.buy_uom_id||0, x.content_uom_id||0].join('|');
+      if (xk === key) { flash('warning', 'Line dengan profile dan UOM yang sama sudah ada.'); return; }
+    }
+    var cpb = num(row.profile_content_per_buy); if(cpb <= 0) cpb = 1;
+    createLines.push({
+      line_kind: row.line_kind || ((num(row.material_id) > 0) ? 'MATERIAL' : 'ITEM'),
+      item_id: num(row.item_id)||null,
+      material_id: num(row.material_id)||null,
+      profile_key: row.profile_key || '',
+      profile_name: row.profile_name || '',
+      profile_brand: row.profile_brand || '',
+      profile_description: row.profile_description || '',
+      profile_expired_date: row.profile_expired_date || '',
+      buy_uom_id: num(row.buy_uom_id),
+      content_uom_id: num(row.content_uom_id),
+      profile_content_per_buy: cpb,
+      profile_buy_uom_code: row.profile_buy_uom_code || '',
+      profile_content_uom_code: row.profile_content_uom_code || '',
+      qty_buy_balance: num(row.qty_buy_balance),
+      qty_content_balance: num(row.qty_content_balance),
+      qty_buy_requested: 1,
+      qty_content_requested: Number(cpb.toFixed(2))
+    });
+    renderCreateLines();
+  }
+
+  function runProfileSearch(){
+    var q = (document.getElementById('sr_profile_q') || {}).value || '';
+    q = String(q).trim();
+    if (q.length < 2) { renderCreateSearch([]); return; }
+
+    if (profileSearchAbort && typeof profileSearchAbort.abort === 'function') {
+      profileSearchAbort.abort();
+    }
+    profileSearchAbort = new AbortController();
+
+    fetchJson(searchUrl + '?q=' + encodeURIComponent(q) + '&limit=20', {
+      credentials: 'same-origin',
+      signal: profileSearchAbort.signal
+    }).then(function(res){
+      if (!res || res.ok === false) {
+        flash('danger', (res && res.message) ? res.message : 'Gagal memuat profile gudang.');
+        return;
+      }
+      renderCreateSearch(res.rows || []);
+    }).catch(function(err){
+      if (err && err.name === 'AbortError') return;
+      flash('danger', 'Gagal memuat profile gudang.');
+    });
+  }
+
+  document.addEventListener('click', function(e){
+    var pick = e.target.closest('.sr-pick-profile');
+    if (pick){
+      e.preventDefault();
+      try { addCreateLine(JSON.parse(pick.getAttribute('data-row') || '{}')); } catch(err){ flash('danger', 'Data profile tidak valid.'); }
+      return;
+    }
+    var del = e.target.closest('.sr-remove-line');
+    if (del){
+      e.preventDefault();
+      var idxDel = parseInt(del.getAttribute('data-idx') || '-1', 10);
+      if (idxDel >= 0){ createLines.splice(idxDel, 1); renderCreateLines(); }
+      return;
+    }
+  });
+
+  document.addEventListener('input', function(e){
+    var buy = e.target.closest('.sr-qty-buy');
+    if (buy){
+      var idxB = parseInt(buy.getAttribute('data-idx') || '-1', 10);
+      if (idxB >= 0 && createLines[idxB]){
+        var cpbB = num(createLines[idxB].profile_content_per_buy); if(cpbB <= 0) cpbB = 1;
+        createLines[idxB].qty_buy_requested = num(buy.value);
+        createLines[idxB].qty_content_requested = createLines[idxB].qty_buy_requested * cpbB;
+        renderCreateLines();
+      }
+      return;
+    }
+    var content = e.target.closest('.sr-qty-content');
+    if (content){
+      var idxC = parseInt(content.getAttribute('data-idx') || '-1', 10);
+      if (idxC >= 0 && createLines[idxC]){
+        var cpbC = num(createLines[idxC].profile_content_per_buy); if(cpbC <= 0) cpbC = 1;
+        createLines[idxC].qty_content_requested = num(content.value);
+        createLines[idxC].qty_buy_requested = createLines[idxC].qty_content_requested / cpbC;
+        renderCreateLines();
+      }
+    }
+  });
+
+  var divEl = document.getElementById('sr_division_id');
+  if (divEl) divEl.addEventListener('change', applyDivisionDestinationGuard);
+  applyDivisionDestinationGuard();
+  renderCreateLines();
+
+  var btnSearch = document.getElementById('btnSearchProfile');
+  if (btnSearch) btnSearch.addEventListener('click', runProfileSearch);
+
+  var profileQEl = document.getElementById('sr_profile_q');
+  if (profileQEl){
+    profileQEl.addEventListener('input', function(){
+      if (profileSearchTimer) window.clearTimeout(profileSearchTimer);
+      profileSearchTimer = window.setTimeout(runProfileSearch, 280);
+    });
+    profileQEl.addEventListener('keydown', function(ev){
+      if (ev.key === 'Enter'){ ev.preventDefault(); runProfileSearch(); }
+    });
+  }
+
+  var btnSave = document.getElementById('btnSaveSr');
+  if (btnSave){
+    btnSave.addEventListener('click', function(){
+      if (!createLines.length) { flash('warning', 'Line Store Request belum ada.'); return; }
+      var old = btnSave.innerHTML;
+      btnSave.disabled = true;
+      btnSave.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Menyimpan...';
+
+      var desiredStatus = (btnSave.getAttribute('data-status') || 'DRAFT').toUpperCase();
+      var payload = {
+        header: {
+          request_date: (document.getElementById('sr_request_date') || {}).value || '',
+          needed_date: (document.getElementById('sr_needed_date') || {}).value || '',
+          request_division_id: Number((document.getElementById('sr_division_id') || {}).value || 0),
+          destination_type: (document.getElementById('sr_destination_type') || {}).value || '',
+          notes: (document.getElementById('sr_notes') || {}).value || '',
+          status: desiredStatus
+        },
+        lines: createLines
+      };
+
+      var divisionId = String(payload.header.request_division_id || '');
+      var allowed = destinationGuardMap[divisionId] || [];
+      if (allowed.indexOf(payload.header.destination_type) === -1) {
+        flash('warning', 'Tujuan tidak sesuai dengan divisi yang dipilih.');
+        btnSave.disabled = false;
+        btnSave.innerHTML = old;
+        return;
+      }
+
+      var submitUrl = isEdit ? (updateBaseUrl + requestId) : storeUrl;
+      fetchJson(submitUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).then(function(res){
+        if (!res || !res.ok) {
+          flash('danger', (res && res.message) ? res.message : 'Gagal menyimpan Store Request.');
+          btnSave.disabled = false;
+          btnSave.innerHTML = old;
+          return;
+        }
+        window.location.href = listUrl;
+      }).catch(function(){
+        flash('danger', 'Gagal menyimpan Store Request.');
+        btnSave.disabled = false;
+        btnSave.innerHTML = old;
+      });
+    });
+  }
+
+  var btnSaveSubmit = document.getElementById('btnSaveSrSubmit');
+  if (btnSaveSubmit && btnSave){
+    btnSaveSubmit.addEventListener('click', function(){
+      btnSave.setAttribute('data-status', 'SUBMITTED');
+      btnSave.click();
+      btnSave.setAttribute('data-status', 'DRAFT');
+    });
+  }
+})();
+</script>

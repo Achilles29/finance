@@ -1139,7 +1139,7 @@ class Purchase_model extends CI_Model
             ->select($destinationTypeSource . ' AS destination_type', false)
             ->select($destinationGroupExpr . ' AS destination_group', false)
             ->select($destinationNameExpr . ' AS destination_name', false)
-            ->select('d.stock_domain, d.item_id, d.material_id, d.buy_uom_id, d.content_uom_id')
+            ->select('d.stock_domain, d.item_id, COALESCE(d.material_id, i.material_id) AS material_id, d.buy_uom_id, d.content_uom_id', false)
             ->select('d.profile_key, d.profile_name, d.profile_brand, d.profile_description')
             ->select('d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
             ->select('d.opening_qty_content, d.in_qty_content, d.out_qty_content, d.adjustment_qty_content, d.closing_qty_content')
@@ -1262,7 +1262,7 @@ class Purchase_model extends CI_Model
             ->select($destinationTypeSource . ' AS destination_type', false)
             ->select($destinationGroupExpr . ' AS destination_group', false)
             ->select($destinationNameExpr . ' AS destination_name', false)
-            ->select('d.stock_domain, d.item_id, d.material_id, d.buy_uom_id, d.content_uom_id')
+            ->select('d.stock_domain, d.item_id, COALESCE(d.material_id, i.material_id) AS material_id, d.buy_uom_id, d.content_uom_id', false)
             ->select('d.profile_key, d.profile_name, d.profile_brand, d.profile_description')
             ->select('d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
             ->select('d.opening_qty_content, d.in_qty_content, d.out_qty_content, d.adjustment_qty_content, d.closing_qty_content')
@@ -2833,7 +2833,7 @@ class Purchase_model extends CI_Model
         $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
 
         $this->db
-            ->select('s.id, s.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect . ', s.item_id, s.material_id', false)
+            ->select('s.id, s.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect . ', s.item_id, COALESCE(s.material_id, i.material_id) AS material_id', false)
             ->select($destinationTypeSource . ' AS destination_type', false)
             ->select($destinationGroupExpr . ' AS destination_group', false)
             ->select($destinationNameExpr . ' AS destination_name', false)
@@ -3357,6 +3357,458 @@ class Purchase_model extends CI_Model
         ];
     }
 
+    public function reclassify_item_material_by_profile_key(array $payload, int $userId, string $sourceIp = ''): array
+    {
+        if (!$this->db->table_exists('mst_purchase_catalog')) {
+            return [
+                'ok' => false,
+                'message' => 'Tabel mst_purchase_catalog belum tersedia.',
+            ];
+        }
+        if (!$this->db->field_exists('profile_key', 'mst_purchase_catalog') || !$this->db->field_exists('line_kind', 'mst_purchase_catalog')) {
+            return [
+                'ok' => false,
+                'message' => 'Kolom profile_key/line_kind di mst_purchase_catalog belum tersedia.',
+            ];
+        }
+
+        $dryRun = !empty($payload['dry_run']);
+        $limit = (int)($payload['limit'] ?? 200);
+        if ($limit <= 0 || $limit > 2000) {
+            $limit = 200;
+        }
+
+        $profileKeyFilter = trim((string)($payload['profile_key'] ?? ''));
+        $q = trim((string)($payload['q'] ?? ''));
+        $lineKind = strtoupper(trim((string)($payload['line_kind'] ?? 'ALL')));
+        if (!in_array($lineKind, ['ALL', 'ITEM', 'MATERIAL'], true)) {
+            $lineKind = 'ALL';
+        }
+
+        $targetTables = $this->reclassify_target_tables();
+        if (empty($targetTables)) {
+            return [
+                'ok' => false,
+                'message' => 'Tidak ada tabel snapshot inventory yang bisa direclassify pada database ini.',
+            ];
+        }
+
+        $rawProfiles = [];
+        $seenKeys = [];
+        $candidateRowsByKey = [];
+
+        foreach ($targetTables as $cfg) {
+            $table = (string)$cfg['table'];
+            if ($table === '') {
+                continue;
+            }
+
+            $this->db
+                ->select('profile_key, stock_domain, item_id, material_id, profile_name, profile_brand')
+                ->from($table)
+                ->where('profile_key IS NOT NULL', null, false)
+                ->where("TRIM(profile_key) <> ''", null, false)
+                ->where_in('stock_domain', ['ITEM', 'MATERIAL']);
+
+            if ($profileKeyFilter !== '') {
+                $this->db->where('profile_key', $profileKeyFilter);
+            } elseif ($q !== '') {
+                $this->db->group_start()
+                    ->like('profile_key', $q)
+                    ->or_like('profile_name', $q)
+                    ->or_like('profile_brand', $q)
+                    ->group_end();
+            }
+
+            $rows = $this->db->order_by('id', 'DESC')->limit($limit)->get()->result_array();
+            foreach ($rows as $r) {
+                $key = trim((string)($r['profile_key'] ?? ''));
+                if ($key === '') {
+                    continue;
+                }
+                if (!isset($candidateRowsByKey[$key])) {
+                    $candidateRowsByKey[$key] = [];
+                }
+                $candidateRowsByKey[$key][] = $r;
+            }
+        }
+
+        if (empty($candidateRowsByKey)) {
+            return [
+                'ok' => true,
+                'message' => 'Tidak ada data snapshot dengan profile_key yang cocok filter.',
+                'data' => [
+                    'dry_run' => $dryRun,
+                    'summary' => [
+                        'profiles_scanned' => 0,
+                        'profiles_affected' => 0,
+                        'tables_affected' => 0,
+                        'rows_before' => 0,
+                        'rows_after' => 0,
+                        'rows_merged' => 0,
+                        'rows_changed' => 0,
+                    ],
+                    'table_summary' => [],
+                    'profiles' => [],
+                ],
+            ];
+        }
+
+        foreach ($candidateRowsByKey as $candidateKey => $rows) {
+            if (count($rawProfiles) >= $limit) {
+                break;
+            }
+            if (isset($seenKeys[$candidateKey])) {
+                continue;
+            }
+            $seenKeys[$candidateKey] = true;
+
+            $catalog = $this->db
+                ->select('profile_key, line_kind, item_id, material_id, catalog_name, brand_name')
+                ->from('mst_purchase_catalog')
+                ->where('profile_key', $candidateKey)
+                ->order_by('id', 'DESC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+
+            $lineKindResolved = '';
+            $itemIdResolved = 0;
+            $materialIdResolved = 0;
+            $catalogName = '';
+            $brandName = '';
+
+            if (!empty($catalog)) {
+                $lineKindResolved = strtoupper(trim((string)($catalog['line_kind'] ?? '')));
+                $itemIdResolved = (int)($catalog['item_id'] ?? 0);
+                $materialIdResolved = (int)($catalog['material_id'] ?? 0);
+                $catalogName = (string)($catalog['catalog_name'] ?? '');
+                $brandName = (string)($catalog['brand_name'] ?? '');
+            }
+
+            if ($itemIdResolved <= 0 || $materialIdResolved <= 0 || $lineKindResolved === '') {
+                foreach ($rows as $rr) {
+                    if ($itemIdResolved <= 0) {
+                        $itemIdResolved = (int)($rr['item_id'] ?? 0);
+                    }
+                    if ($materialIdResolved <= 0) {
+                        $materialIdResolved = (int)($rr['material_id'] ?? 0);
+                    }
+                    if ($catalogName === '') {
+                        $catalogName = trim((string)($rr['profile_name'] ?? ''));
+                    }
+                    if ($brandName === '') {
+                        $brandName = trim((string)($rr['profile_brand'] ?? ''));
+                    }
+                }
+            }
+
+            if ($itemIdResolved > 0 && $this->db->table_exists('mst_item')) {
+                $item = $this->db
+                    ->select('material_id')
+                    ->from('mst_item')
+                    ->where('id', $itemIdResolved)
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                $itemMaterialId = (int)($item['material_id'] ?? 0);
+                if ($materialIdResolved <= 0 && $itemMaterialId > 0) {
+                    $materialIdResolved = $itemMaterialId;
+                }
+            }
+
+            if ($lineKindResolved === '') {
+                $hasMaterialDomain = false;
+                foreach ($rows as $rr) {
+                    $dom = strtoupper(trim((string)($rr['stock_domain'] ?? '')));
+                    if ($dom === 'MATERIAL') {
+                        $hasMaterialDomain = true;
+                        break;
+                    }
+                }
+                $lineKindResolved = ($materialIdResolved > 0 || $hasMaterialDomain) ? 'MATERIAL' : 'ITEM';
+            }
+            if (!in_array($lineKindResolved, ['ITEM', 'MATERIAL'], true)) {
+                $lineKindResolved = $materialIdResolved > 0 ? 'MATERIAL' : 'ITEM';
+            }
+
+            if ($lineKind !== 'ALL' && $lineKindResolved !== $lineKind) {
+                continue;
+            }
+
+            $rawProfiles[] = [
+                'profile_key' => $candidateKey,
+                'line_kind' => $lineKindResolved,
+                'item_id' => $itemIdResolved > 0 ? $itemIdResolved : null,
+                'material_id' => $materialIdResolved > 0 ? $materialIdResolved : null,
+                'catalog_name' => $catalogName !== '' ? $catalogName : '(inferred from snapshot)',
+                'brand_name' => $brandName,
+            ];
+        }
+
+        $profileRows = $rawProfiles;
+
+        if (empty($profileRows)) {
+            return [
+                'ok' => true,
+                'message' => 'Tidak ada profile_key yang cocok dengan filter.',
+                'data' => [
+                    'dry_run' => $dryRun,
+                    'summary' => [
+                        'profiles_scanned' => 0,
+                        'profiles_affected' => 0,
+                        'tables_affected' => 0,
+                        'rows_before' => 0,
+                        'rows_after' => 0,
+                        'rows_merged' => 0,
+                        'rows_changed' => 0,
+                    ],
+                    'table_summary' => [],
+                    'profiles' => [],
+                ],
+            ];
+        }
+
+        $tableSummary = [];
+        foreach ($targetTables as $cfg) {
+            $tableSummary[$cfg['table']] = [
+                'table' => $cfg['table'],
+                'profiles' => 0,
+                'rows_before' => 0,
+                'rows_after' => 0,
+                'rows_merged' => 0,
+                'rows_changed' => 0,
+            ];
+        }
+
+        $summary = [
+            'profiles_scanned' => count($profileRows),
+            'profiles_affected' => 0,
+            'tables_affected' => 0,
+            'rows_before' => 0,
+            'rows_after' => 0,
+            'rows_merged' => 0,
+            'rows_changed' => 0,
+        ];
+
+        $applyQueue = [];
+        $profileResult = [];
+        foreach ($profileRows as $profile) {
+            $profileKey = trim((string)($profile['profile_key'] ?? ''));
+            if ($profileKey === '') {
+                continue;
+            }
+
+            $targetDomain = strtoupper(trim((string)($profile['line_kind'] ?? 'ITEM'))) === 'MATERIAL' ? 'MATERIAL' : 'ITEM';
+            $targetItemId = (int)($profile['item_id'] ?? 0);
+            $targetMaterialId = (int)($profile['material_id'] ?? 0);
+
+            if ($targetDomain === 'MATERIAL' && $targetMaterialId <= 0 && $targetItemId > 0 && $this->db->table_exists('mst_item')) {
+                $item = $this->db->select('material_id')->from('mst_item')->where('id', $targetItemId)->limit(1)->get()->row_array();
+                $targetMaterialId = (int)($item['material_id'] ?? 0);
+            }
+            if ($targetDomain !== 'MATERIAL') {
+                $targetMaterialId = 0;
+            }
+
+            $profileTouched = false;
+            $profileTableDetails = [];
+
+            foreach ($targetTables as $cfg) {
+                $table = $cfg['table'];
+                $rows = $this->db
+                    ->from($table)
+                    ->where('profile_key', $profileKey)
+                    ->where_in('stock_domain', ['ITEM', 'MATERIAL'])
+                    ->order_by('id', 'DESC')
+                    ->get()
+                    ->result_array();
+
+                if (empty($rows)) {
+                    continue;
+                }
+
+                $transformedRows = [];
+                $changedCount = 0;
+                foreach ($rows as $row) {
+                    $oldDomain = strtoupper(trim((string)($row['stock_domain'] ?? 'ITEM')));
+                    $newRow = $row;
+
+                    if ($oldDomain !== $targetDomain) {
+                        $newRow['stock_domain'] = $targetDomain;
+                        $changedCount++;
+                    }
+
+                    $existingMaterialId = (int)($row['material_id'] ?? 0);
+                    if ($targetDomain === 'MATERIAL') {
+                        $resolvedMaterialId = $targetMaterialId > 0 ? $targetMaterialId : $existingMaterialId;
+                        if ($resolvedMaterialId > 0 && $resolvedMaterialId !== $existingMaterialId) {
+                            $newRow['material_id'] = $resolvedMaterialId;
+                            $changedCount++;
+                        }
+                    } else {
+                        if (!empty($row['material_id'])) {
+                            $newRow['material_id'] = null;
+                            $changedCount++;
+                        }
+                    }
+
+                    $transformedRows[] = $newRow;
+                }
+
+                $mergedRows = $this->reclassify_merge_rows($table, $transformedRows, $cfg['unique']);
+                $beforeCount = count($rows);
+                $afterCount = count($mergedRows);
+                $mergeCount = max(0, $beforeCount - $afterCount);
+
+                if ($changedCount <= 0 && $mergeCount <= 0) {
+                    continue;
+                }
+
+                $profileTouched = true;
+                $tableSummary[$table]['profiles']++;
+                $tableSummary[$table]['rows_before'] += $beforeCount;
+                $tableSummary[$table]['rows_after'] += $afterCount;
+                $tableSummary[$table]['rows_merged'] += $mergeCount;
+                $tableSummary[$table]['rows_changed'] += $changedCount;
+
+                $summary['rows_before'] += $beforeCount;
+                $summary['rows_after'] += $afterCount;
+                $summary['rows_merged'] += $mergeCount;
+                $summary['rows_changed'] += $changedCount;
+
+                $profileTableDetails[] = [
+                    'table' => $table,
+                    'rows_before' => $beforeCount,
+                    'rows_after' => $afterCount,
+                    'rows_merged' => $mergeCount,
+                    'rows_changed' => $changedCount,
+                ];
+
+                if (!$dryRun) {
+                    $ids = [];
+                    foreach ($rows as $row) {
+                        $id = (int)($row['id'] ?? 0);
+                        if ($id > 0) {
+                            $ids[] = $id;
+                        }
+                    }
+                    if (!empty($ids)) {
+                        $applyQueue[] = [
+                            'table' => $table,
+                            'ids' => array_values(array_unique($ids)),
+                            'rows' => $mergedRows,
+                        ];
+                    }
+                }
+            }
+
+            if ($profileTouched) {
+                $summary['profiles_affected']++;
+                $profileResult[] = [
+                    'profile_key' => $profileKey,
+                    'line_kind' => strtoupper(trim((string)($profile['line_kind'] ?? 'ITEM'))),
+                    'target_domain' => $targetDomain,
+                    'target_item_id' => $targetItemId > 0 ? $targetItemId : null,
+                    'target_material_id' => $targetMaterialId > 0 ? $targetMaterialId : null,
+                    'catalog_name' => (string)($profile['catalog_name'] ?? ''),
+                    'brand_name' => (string)($profile['brand_name'] ?? ''),
+                    'tables' => $profileTableDetails,
+                ];
+            }
+        }
+
+        $summary['tables_affected'] = 0;
+        foreach ($tableSummary as $table => $stat) {
+            if ($stat['rows_before'] > 0) {
+                $summary['tables_affected']++;
+            }
+        }
+
+        if (!$dryRun && !empty($applyQueue)) {
+            $this->db->trans_begin();
+            try {
+                foreach ($applyQueue as $job) {
+                    $table = (string)$job['table'];
+                    $ids = (array)$job['ids'];
+                    $rows = (array)$job['rows'];
+
+                    if (empty($ids)) {
+                        continue;
+                    }
+
+                    $this->db->where_in('id', $ids)->delete($table);
+
+                    foreach ($rows as $row) {
+                        if (!is_array($row) || empty($row)) {
+                            continue;
+                        }
+
+                        unset($row['id'], $row['__source_ids']);
+                        $insert = [];
+                        $columns = $this->listTableFields($table);
+                        foreach ($row as $col => $val) {
+                            if (!isset($columns[$col])) {
+                                continue;
+                            }
+                            $insert[$col] = $val;
+                        }
+                        if (!empty($insert)) {
+                            $this->db->insert($table, $insert);
+                        }
+                    }
+                }
+
+                if ($this->db->trans_status() === false) {
+                    throw new Exception('DB transaction gagal.');
+                }
+
+                if ($this->db->table_exists('aud_transaction_log')) {
+                    $this->db->insert('aud_transaction_log', [
+                        'module_code' => 'PURCHASE',
+                        'action_code' => 'INV_RECLASSIFY_DOMAIN',
+                        'entity_table' => 'mst_purchase_catalog',
+                        'entity_id' => null,
+                        'transaction_no' => null,
+                        'actor_user_id' => $userId > 0 ? $userId : null,
+                        'source_ip' => $sourceIp !== '' ? $sourceIp : null,
+                        'after_payload' => json_encode([
+                            'filter' => [
+                                'profile_key' => $profileKeyFilter,
+                                'q' => $q,
+                                'line_kind' => $lineKind,
+                                'limit' => $limit,
+                            ],
+                            'summary' => $summary,
+                        ]),
+                        'notes' => 'Reclassify ITEM/MATERIAL by profile_key (snapshot cleanup)',
+                    ]);
+                }
+
+                $this->db->trans_commit();
+            } catch (Throwable $e) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Gagal apply reclassify: ' . $e->getMessage(),
+                ];
+            }
+        }
+
+        return [
+            'ok' => true,
+            'message' => $dryRun
+                ? 'Dry-run selesai. Tidak ada perubahan data.'
+                : 'Reclassify ITEM/MATERIAL by profile_key berhasil diterapkan.',
+            'data' => [
+                'dry_run' => $dryRun,
+                'summary' => $summary,
+                'table_summary' => array_values($tableSummary),
+                'profiles' => $profileResult,
+            ],
+        ];
+    }
+
     public function get_purchase_order_detail(int $purchaseOrderId): ?array
     {
         if ($purchaseOrderId <= 0 || !$this->db->table_exists('pur_purchase_order')) {
@@ -3477,6 +3929,243 @@ class Purchase_model extends CI_Model
             'audit_rows' => $auditRows,
             'outstanding' => $outstanding,
         ];
+    }
+
+    private function reclassify_target_tables(): array
+    {
+        $targets = [
+            [
+                'table' => 'inv_warehouse_daily_rollup',
+                'unique' => ['movement_date', 'stock_domain', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'],
+            ],
+            [
+                'table' => 'inv_division_daily_rollup',
+                'unique' => ['movement_date', 'division_id', 'destination_type', 'stock_domain', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'],
+            ],
+            [
+                'table' => 'inv_warehouse_monthly_opname',
+                'unique' => ['month_key', 'stock_domain', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'],
+            ],
+            [
+                'table' => 'inv_division_monthly_opname',
+                'unique' => ['month_key', 'division_id', 'destination_type', 'stock_domain', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'],
+            ],
+            [
+                'table' => 'inv_warehouse_stock_opening_snapshot',
+                'unique' => ['snapshot_month', 'stock_domain', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'],
+            ],
+            [
+                'table' => 'inv_division_stock_opening_snapshot',
+                'unique' => ['snapshot_month', 'division_id', 'destination_type', 'stock_domain', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'],
+            ],
+            [
+                'table' => 'inv_stock_opening_snapshot',
+                'unique' => ['snapshot_month', 'stock_scope', 'division_id', 'destination_type', 'stock_domain', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'],
+            ],
+        ];
+
+        $result = [];
+        foreach ($targets as $cfg) {
+            $table = (string)($cfg['table'] ?? '');
+            if ($table === '' || !$this->db->table_exists($table)) {
+                continue;
+            }
+            if (!$this->db->field_exists('profile_key', $table) || !$this->db->field_exists('stock_domain', $table)) {
+                continue;
+            }
+            $result[] = $cfg;
+        }
+
+        return $result;
+    }
+
+    private function reclassify_merge_rows(string $table, array $rows, array $uniqueColumns): array
+    {
+        if (empty($rows)) {
+            return [];
+        }
+
+        $columns = $this->listTableFields($table);
+        $fields = $this->db->field_data($table);
+        $fieldTypes = [];
+        foreach ($fields as $f) {
+            $fieldTypes[(string)$f->name] = strtolower((string)$f->type);
+        }
+
+        $sumExclude = [
+            'id' => true,
+            'division_id' => true,
+            'item_id' => true,
+            'material_id' => true,
+            'buy_uom_id' => true,
+            'content_uom_id' => true,
+            'created_by' => true,
+            'generated_by' => true,
+            'stock_domain' => true,
+            'stock_scope' => true,
+            'month_key' => true,
+            'movement_date' => true,
+            'snapshot_month' => true,
+            'destination_type' => true,
+            'profile_key' => true,
+            'profile_name' => true,
+            'profile_brand' => true,
+            'profile_description' => true,
+            'profile_expired_date' => true,
+            'profile_content_per_buy' => true,
+            'profile_buy_uom_code' => true,
+            'profile_content_uom_code' => true,
+            'source_type' => true,
+            'notes' => true,
+            'created_at' => true,
+            'updated_at' => true,
+            'generated_at' => true,
+            'last_movement_at' => true,
+            'rebuild_batch_no' => true,
+            'avg_cost_per_content' => true,
+            'opening_avg_cost_per_content' => true,
+        ];
+
+        $numericTypes = [
+            'int' => true, 'tinyint' => true, 'smallint' => true, 'mediumint' => true, 'bigint' => true,
+            'decimal' => true, 'float' => true, 'double' => true, 'real' => true, 'numeric' => true,
+        ];
+        $sumColumns = [];
+        foreach ($fieldTypes as $col => $type) {
+            if (!isset($columns[$col])) {
+                continue;
+            }
+            if (isset($sumExclude[$col])) {
+                continue;
+            }
+            if (!isset($numericTypes[$type])) {
+                continue;
+            }
+            $sumColumns[$col] = true;
+        }
+
+        $groups = [];
+        foreach ($rows as $row) {
+            $groupTokens = [];
+            foreach ($uniqueColumns as $col) {
+                $groupTokens[] = $this->reclassify_key_token($row[$col] ?? null);
+            }
+            $groupKey = implode('|', $groupTokens);
+
+            if (!isset($groups[$groupKey])) {
+                $base = $row;
+                $base['__source_ids'] = [];
+                $id = (int)($row['id'] ?? 0);
+                if ($id > 0) {
+                    $base['__source_ids'][] = $id;
+                }
+                $groups[$groupKey] = $base;
+                continue;
+            }
+
+            $dst = $groups[$groupKey];
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0) {
+                $dst['__source_ids'][] = $id;
+            }
+
+            foreach ($sumColumns as $col => $dummy) {
+                $dst[$col] = (float)($dst[$col] ?? 0) + (float)($row[$col] ?? 0);
+            }
+
+            foreach (['profile_name', 'profile_brand', 'profile_description', 'profile_buy_uom_code', 'profile_content_uom_code', 'notes', 'source_type', 'rebuild_batch_no'] as $textCol) {
+                if (!isset($columns[$textCol])) {
+                    continue;
+                }
+                $left = trim((string)($dst[$textCol] ?? ''));
+                $right = trim((string)($row[$textCol] ?? ''));
+                if ($left === '' && $right !== '') {
+                    $dst[$textCol] = $right;
+                }
+            }
+
+            foreach (['profile_content_per_buy', 'avg_cost_per_content', 'opening_avg_cost_per_content'] as $numCol) {
+                if (!isset($columns[$numCol])) {
+                    continue;
+                }
+                $left = (float)($dst[$numCol] ?? 0);
+                $right = (float)($row[$numCol] ?? 0);
+                if ($left <= 0 && $right > 0) {
+                    $dst[$numCol] = $right;
+                }
+            }
+
+            if (isset($columns['profile_expired_date'])) {
+                $left = trim((string)($dst['profile_expired_date'] ?? ''));
+                $right = trim((string)($row['profile_expired_date'] ?? ''));
+                if ($left === '' && $right !== '') {
+                    $dst['profile_expired_date'] = $right;
+                }
+            }
+
+            if (isset($columns['created_at'])) {
+                $left = trim((string)($dst['created_at'] ?? ''));
+                $right = trim((string)($row['created_at'] ?? ''));
+                if ($left === '' || ($right !== '' && $right < $left)) {
+                    $dst['created_at'] = $right;
+                }
+            }
+            if (isset($columns['updated_at'])) {
+                $left = trim((string)($dst['updated_at'] ?? ''));
+                $right = trim((string)($row['updated_at'] ?? ''));
+                if ($left === '' || ($right !== '' && $right > $left)) {
+                    $dst['updated_at'] = $right;
+                }
+            }
+            if (isset($columns['generated_at'])) {
+                $left = trim((string)($dst['generated_at'] ?? ''));
+                $right = trim((string)($row['generated_at'] ?? ''));
+                if ($left === '' || ($right !== '' && $right > $left)) {
+                    $dst['generated_at'] = $right;
+                }
+            }
+            if (isset($columns['last_movement_at'])) {
+                $left = trim((string)($dst['last_movement_at'] ?? ''));
+                $right = trim((string)($row['last_movement_at'] ?? ''));
+                if ($left === '' || ($right !== '' && $right > $left)) {
+                    $dst['last_movement_at'] = $right;
+                }
+            }
+
+            $groups[$groupKey] = $dst;
+        }
+
+        $merged = array_values($groups);
+        foreach ($merged as &$row) {
+            if (isset($columns['avg_cost_per_content']) && isset($columns['total_value']) && isset($columns['closing_qty_content'])) {
+                $den = (float)($row['closing_qty_content'] ?? 0);
+                $num = (float)($row['total_value'] ?? 0);
+                if ($den > 0) {
+                    $row['avg_cost_per_content'] = round($num / $den, 6);
+                }
+            }
+            if (isset($columns['opening_avg_cost_per_content']) && isset($columns['opening_total_value']) && isset($columns['opening_qty_content'])) {
+                $den = (float)($row['opening_qty_content'] ?? 0);
+                $num = (float)($row['opening_total_value'] ?? 0);
+                if ($den > 0) {
+                    $row['opening_avg_cost_per_content'] = round($num / $den, 6);
+                }
+            }
+        }
+        unset($row);
+
+        return $merged;
+    }
+
+    private function reclassify_key_token($value): string
+    {
+        if ($value === null || $value === '') {
+            return '__NULL__';
+        }
+        if (is_numeric($value)) {
+            return (string)+$value;
+        }
+        return trim((string)$value);
     }
 
     public function get_order_data_editability(int $purchaseOrderId): array
@@ -5533,7 +6222,11 @@ class Purchase_model extends CI_Model
         $lineNo = 1;
 
         foreach ($lines as $row) {
-            $lineResult = $this->buildLinePayload((array)$row, $vendorId !== null ? $vendorId : 0);
+            $lineResult = $this->buildLinePayload(
+                (array)$row,
+                $vendorId !== null ? $vendorId : 0,
+                $isInventory && $destinationBehavior !== 'NONE'
+            );
             if (!($lineResult['ok'] ?? false)) {
                 $this->db->trans_rollback();
                 return [
@@ -5906,7 +6599,11 @@ class Purchase_model extends CI_Model
         $lineNo = 1;
 
         foreach ($lines as $row) {
-            $lineResult = $this->buildLinePayload((array)$row, $vendorId !== null ? $vendorId : 0);
+            $lineResult = $this->buildLinePayload(
+                (array)$row,
+                $vendorId !== null ? $vendorId : 0,
+                $isInventory && $destinationBehavior !== 'NONE'
+            );
             if (!($lineResult['ok'] ?? false)) {
                 $this->db->trans_rollback();
                 return [
@@ -6349,7 +7046,7 @@ class Purchase_model extends CI_Model
         return '(' . implode(' + ', $parts) . ')';
     }
 
-    private function buildLinePayload(array $line, int $vendorId): array
+    private function buildLinePayload(array $line, int $vendorId, bool $requireEntityLink = false): array
     {
         $lineKind = strtoupper(trim((string)($line['line_kind'] ?? 'ITEM')));
         if (!in_array($lineKind, ['ITEM', 'MATERIAL', 'SERVICE', 'ASSET'], true)) {
@@ -6366,11 +7063,28 @@ class Purchase_model extends CI_Model
             return ['ok' => false, 'message' => 'buy_uom_id wajib diisi.'];
         }
 
-        if ($lineKind === 'ITEM' && $itemId === null && $lineName !== null) {
+        $allowAutoCreate = in_array($lineKind, ['ITEM', 'SERVICE', 'ASSET'], true);
+        if (
+            $allowAutoCreate
+            && $itemId === null
+            && $materialId === null
+            && $lineName !== null
+            && ($lineKind === 'ITEM' || $requireEntityLink)
+        ) {
             $autoItemId = $this->ensureItemFromPurchaseLine($lineName, $buyUomId, $contentUomId, (float)($line['content_per_buy'] ?? 1), (float)($line['unit_price'] ?? 0));
             if ($autoItemId !== null) {
                 $itemId = $autoItemId;
+                if ($lineKind !== 'MATERIAL') {
+                    $lineKind = 'ITEM';
+                }
             }
+        }
+
+        if ($requireEntityLink && $itemId === null && $materialId === null) {
+            return [
+                'ok' => false,
+                'message' => 'Line inventory wajib memiliki item/material. Isi nama barang + UOM beli agar sistem auto-create item, atau pilih ulang dari katalog yang sudah terhubung.',
+            ];
         }
 
         $entity = $this->resolveEntitySnapshot($itemId, $materialId);

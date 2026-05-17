@@ -14,6 +14,7 @@ class Purchase extends MY_Controller
     const PAGE_RECEIPT = 'purchase.receipt.index';
     const PAGE_ORDER_LOG = 'purchase.order.log.index';
     const PAGE_REBUILD_IMPACT = 'purchase.rebuild.impact.index';
+    const PAGE_RECLASSIFY_PROFILE_DOMAIN = 'purchase.reclassify.profile.domain.index';
 
     public function __construct()
     {
@@ -146,6 +147,59 @@ class Purchase extends MY_Controller
 
         if (!($result['ok'] ?? false)) {
             $this->jsonError((string)($result['message'] ?? 'Gagal menjalankan rebuild impact purchase.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    public function reclassify_profile_domain_index()
+    {
+        if (
+            !$this->can(self::PAGE_RECLASSIFY_PROFILE_DOMAIN, 'view')
+            && !$this->can(self::PAGE_REBUILD_IMPACT, 'view')
+            && !$this->can(self::PAGE_ORDER, 'view')
+        ) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $data = [
+            'title' => 'Reclassify ITEM/MATERIAL by Profile Key',
+            'active_menu' => 'purchase.reclassify-profile-domain',
+        ];
+
+        $this->render('purchase/reclassify_profile_domain_index', $data);
+    }
+
+    public function reclassify_profile_domain_run()
+    {
+        if (
+            !$this->can(self::PAGE_RECLASSIFY_PROFILE_DOMAIN, 'edit')
+            && !$this->can(self::PAGE_REBUILD_IMPACT, 'edit')
+            && !$this->can(self::PAGE_ORDER, 'edit')
+        ) {
+            $this->jsonError('Anda tidak memiliki izin untuk menjalankan reclassify profile domain.', 403);
+            return;
+        }
+
+        $payload = $this->requestPayload();
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->reclassify_item_material_by_profile_key(
+                $payload,
+                (int)($this->current_user['id'] ?? 0),
+                (string)$this->input->ip_address()
+            );
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal menjalankan reclassify.'), 422);
             return;
         }
 
@@ -585,12 +639,15 @@ class Purchase extends MY_Controller
             $this->require_permission(self::PAGE_ORDER, 'view');
         }
 
+        $divisions = $this->Purchase_model->list_active_operational_divisions();
+        $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
         $q = trim((string)$this->input->get('q', true));
         $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destinationFilter === '') {
             $destinationFilter = 'ALL';
         }
         $divisionId = (int)$this->input->get('division_id', true);
+        $destinationFilter = $this->normalizeDestinationForDivisionFilter($destinationFilter, $divisionId, $destinationGuardMap);
         $dateFrom = trim((string)$this->input->get('date_from', true));
         $dateTo = trim((string)$this->input->get('date_to', true));
         $range = $this->resolveDateRange('', $dateFrom, $dateTo);
@@ -610,7 +667,8 @@ class Purchase extends MY_Controller
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
             'limit' => $limit,
-            'divisions' => $this->Purchase_model->list_active_operational_divisions(),
+            'divisions' => $divisions,
+            'destination_guard_map' => $destinationGuardMap,
             'rows' => $this->Purchase_model->list_division_stock($q, $limit, $destinationFilter, $dateFrom, $dateTo, $divisionId > 0 ? $divisionId : null),
         ];
 
@@ -661,6 +719,8 @@ class Purchase extends MY_Controller
             $this->require_permission(self::PAGE_ORDER, 'view');
         }
 
+        $divisions = $this->Purchase_model->list_active_operational_divisions();
+        $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
         $month = trim((string)$this->input->get('month', true));
         $q = trim((string)$this->input->get('q', true));
         $dateFrom = trim((string)$this->input->get('date_from', true));
@@ -674,6 +734,7 @@ class Purchase extends MY_Controller
         if ($destinationFilter === '') {
             $destinationFilter = 'ALL';
         }
+        $destinationFilter = $this->normalizeDestinationForDivisionFilter($destinationFilter, $divisionId, $destinationGuardMap);
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 1000) {
             $limit = 300;
@@ -689,7 +750,8 @@ class Purchase extends MY_Controller
             'division_id' => $divisionId,
             'destination' => $destinationFilter,
             'limit' => $limit,
-            'divisions' => $this->Purchase_model->list_active_operational_divisions(),
+            'divisions' => $divisions,
+            'destination_guard_map' => $destinationGuardMap,
             'rows' => $this->Purchase_model->list_division_daily_rollup($month, $q, $divisionId > 0 ? $divisionId : null, $dateFrom, $dateTo, $limit, $destinationFilter),
         ];
 
@@ -740,6 +802,8 @@ class Purchase extends MY_Controller
             }
         }
 
+        $divisions = $this->Purchase_model->list_active_operational_divisions();
+        $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
         $month = trim((string)$this->input->get('month', true));
         $q = trim((string)$this->input->get('q', true));
         $dateFrom = trim((string)$this->input->get('date_from', true));
@@ -753,6 +817,7 @@ class Purchase extends MY_Controller
         if ($destinationFilter === '') {
             $destinationFilter = 'ALL';
         }
+        $destinationFilter = $this->normalizeDestinationForDivisionFilter($destinationFilter, $divisionId, $destinationGuardMap);
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 1000) {
             $limit = 120;
@@ -768,7 +833,8 @@ class Purchase extends MY_Controller
             'division_id' => $divisionId,
             'destination' => $destinationFilter,
             'limit' => $limit,
-            'divisions' => $this->Purchase_model->list_active_operational_divisions(),
+            'divisions' => $divisions,
+            'destination_guard_map' => $destinationGuardMap,
             'matrix_url' => site_url('inventory-material-daily/matrix'),
             'detail_url' => site_url('inventory-daily/cell-detail'),
         ];
@@ -834,6 +900,8 @@ class Purchase extends MY_Controller
             $this->require_permission(self::PAGE_ORDER, 'view');
         }
 
+        $divisions = $this->Purchase_model->list_active_operational_divisions();
+        $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
         $month = trim((string)$this->input->get('month', true));
         $q = trim((string)$this->input->get('q', true));
         $dateFrom = trim((string)$this->input->get('date_from', true));
@@ -847,6 +915,7 @@ class Purchase extends MY_Controller
         if ($destinationFilter === '') {
             $destinationFilter = 'ALL';
         }
+        $destinationFilter = $this->normalizeDestinationForDivisionFilter($destinationFilter, $divisionId, $destinationGuardMap);
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 1000) {
             $limit = 120;
@@ -1253,6 +1322,41 @@ class Purchase extends MY_Controller
             'date_from' => $from,
             'date_to' => $to,
         ];
+    }
+
+    private function buildDivisionDestinationGuardMap(array $divisions): array
+    {
+        $map = [];
+        foreach ($divisions as $row) {
+            $divisionId = (int)($row['id'] ?? 0);
+            if ($divisionId <= 0) {
+                continue;
+            }
+            $allowedCsv = strtoupper(trim((string)($row['destination_allowed'] ?? '')));
+            $allowed = array_values(array_filter(array_map('trim', explode(',', $allowedCsv)), static function ($x) {
+                return $x !== '';
+            }));
+            if (empty($allowed)) {
+                $allowed = ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'];
+            }
+            $map[$divisionId] = array_values(array_unique($allowed));
+        }
+        return $map;
+    }
+
+    private function normalizeDestinationForDivisionFilter(string $destination, int $divisionId, array $guardMap): string
+    {
+        $dest = strtoupper(trim($destination));
+        if ($dest === '') {
+            $dest = 'ALL';
+        }
+        if (!in_array($dest, ['ALL', 'REGULER', 'EVENT', 'BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'], true)) {
+            $dest = 'ALL';
+        }
+        if ($divisionId <= 0 || !isset($guardMap[$divisionId]) || in_array($dest, ['ALL', 'REGULER', 'EVENT'], true)) {
+            return $dest;
+        }
+        return in_array($dest, (array)$guardMap[$divisionId], true) ? $dest : 'ALL';
     }
 
     private function mutation_per_page(): int

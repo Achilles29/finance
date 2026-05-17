@@ -11,6 +11,7 @@ $statusOptions = is_array($status_options ?? null) ? $status_options : [];
   <div class="d-flex gap-2">
     <a href="<?php echo site_url('purchase-orders'); ?>" class="btn btn-outline-secondary">Kembali ke Purchase</a>
     <a href="<?php echo site_url('purchase-orders/logs'); ?>" class="btn btn-outline-secondary">Log Purchase</a>
+    <a href="<?php echo site_url('purchase/reclassify-profile-domain'); ?>" class="btn btn-outline-danger">Reclassify Profile</a>
   </div>
 </div>
 

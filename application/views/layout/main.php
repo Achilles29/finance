@@ -30,7 +30,8 @@ $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
     .purchase-soft-ui .container-xxl h3,
     .purchase-soft-ui .container-xxl h4,
     .purchase-soft-ui .container-xxl h5 {
-      font-family: Georgia, 'Times New Roman', serif;
+      font-family: 'Segoe UI', 'Noto Sans', Arial, sans-serif;
+      font-weight: 700;
       letter-spacing: 0.01em;
     }
     .purchase-soft-ui .container-xxl .table td,

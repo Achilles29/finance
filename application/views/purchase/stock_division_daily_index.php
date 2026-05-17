@@ -342,6 +342,7 @@ $destinationValue = strtoupper(trim((string)($destination ?? 'ALL')));
 if ($destinationValue === '') {
   $destinationValue = 'ALL';
 }
+$destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_guard_map : [];
 $formatDivisionLabel = static function (string $code, string $name, $fallbackId = '-'): string {
   $code = trim($code);
   $name = trim($name);
@@ -410,10 +411,16 @@ $formatDestination = static function (string $group): string {
       </div>
       <div class="col-md-2">
         <label class="form-label mb-1">Tujuan</label>
-        <select class="form-select" name="destination">
+        <select class="form-select" name="destination" id="sddDestination">
           <option value="ALL" <?php echo $destinationValue === 'ALL' ? 'selected' : ''; ?>>Semua</option>
           <option value="REGULER" <?php echo $destinationValue === 'REGULER' ? 'selected' : ''; ?>>Reguler</option>
           <option value="EVENT" <?php echo $destinationValue === 'EVENT' ? 'selected' : ''; ?>>Event</option>
+          <option value="BAR" <?php echo $destinationValue === 'BAR' ? 'selected' : ''; ?>>Bar Reguler</option>
+          <option value="KITCHEN" <?php echo $destinationValue === 'KITCHEN' ? 'selected' : ''; ?>>Kitchen Reguler</option>
+          <option value="BAR_EVENT" <?php echo $destinationValue === 'BAR_EVENT' ? 'selected' : ''; ?>>Bar Event</option>
+          <option value="KITCHEN_EVENT" <?php echo $destinationValue === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>Kitchen Event</option>
+          <option value="OFFICE" <?php echo $destinationValue === 'OFFICE' ? 'selected' : ''; ?>>Office</option>
+          <option value="OTHER" <?php echo $destinationValue === 'OTHER' ? 'selected' : ''; ?>>Other</option>
         </select>
       </div>
       <div class="col-md-3">
@@ -606,6 +613,46 @@ $formatDestination = static function (string $group): string {
 
 <script>
 (function(){
+  var guardMap = <?php echo json_encode($destinationGuardMap, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+  var destinationEl = document.getElementById('sddDestination');
+  var divisionEl = document.querySelector('select[name="division_id"]');
+  var allOptions = [
+    { value: 'ALL', label: 'Semua' },
+    { value: 'REGULER', label: 'Reguler' },
+    { value: 'EVENT', label: 'Event' },
+    { value: 'BAR', label: 'Bar Reguler' },
+    { value: 'KITCHEN', label: 'Kitchen Reguler' },
+    { value: 'BAR_EVENT', label: 'Bar Event' },
+    { value: 'KITCHEN_EVENT', label: 'Kitchen Event' },
+    { value: 'OFFICE', label: 'Office' },
+    { value: 'OTHER', label: 'Other' }
+  ];
+  function esc(v){
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function syncDestinationOptions(){
+    if (!destinationEl || !divisionEl) { return; }
+    var divisionId = parseInt(divisionEl.value || '0', 10);
+    var current = String(destinationEl.value || 'ALL').toUpperCase();
+    var options = allOptions.slice();
+    if (Number.isFinite(divisionId) && divisionId > 0 && guardMap[String(divisionId)]) {
+      var allowed = (guardMap[String(divisionId)] || []).map(function(x){ return String(x || '').toUpperCase(); });
+      options = allOptions.filter(function(opt){
+        if (opt.value === 'ALL' || opt.value === 'REGULER' || opt.value === 'EVENT') { return true; }
+        return allowed.indexOf(opt.value) !== -1;
+      });
+    }
+    destinationEl.innerHTML = options.map(function(opt){
+      return '<option value="' + esc(opt.value) + '">' + esc(opt.label) + '</option>';
+    }).join('');
+    var exists = options.some(function(opt){ return opt.value === current; });
+    destinationEl.value = exists ? current : 'ALL';
+  }
+  if (divisionEl) {
+    divisionEl.addEventListener('change', syncDestinationOptions);
+  }
+  syncDestinationOptions();
+
   document.querySelectorAll('.sdd-toggle').forEach(function(btn){
     btn.addEventListener('click', function(){
       var target = btn.getAttribute('data-target');

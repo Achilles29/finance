@@ -360,6 +360,8 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   .pwd-date-band-b .pwd-cell-btn {
     background: rgba(255, 255, 255, 0.56);
   }
+  .pwd-day-start { border-left: 2px solid #d8b8a9 !important; }
+  .pwd-day-end { border-right: 2px solid #d8b8a9 !important; }
   .pwd-empty,
   .pwd-loading {
     text-align: center;
@@ -782,6 +784,27 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     };
   }
 
+  function convertDailyToPack(dailyByDate, contentPerBuy, dates){
+    var map = {};
+    var packSize = Number(contentPerBuy || 0);
+    if (!Number.isFinite(packSize) || packSize <= 0) {
+      packSize = 1;
+    }
+    dates.forEach(function(dateKey){
+      var day = dailyByDate[dateKey] || {};
+      map[dateKey] = {
+        opening: Number(day.opening || 0) / packSize,
+        in: Number(day.in || 0) / packSize,
+        out: Number(day.out || 0) / packSize,
+        adjustment: Number(day.adjustment || 0) / packSize,
+        closing: Number(day.closing || 0) / packSize,
+        mutations: Number(day.mutations || 0),
+        total_value: Number(day.total_value || 0)
+      };
+    });
+    return map;
+  }
+
   function buildGroups(rows, dates){
     var map = {};
     var order = [];
@@ -816,6 +839,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
 
       var profileDaily = normalizeProfileDaily(row.daily || {}, dates);
       var profileMetrics = calcMetrics(profileDaily, Number(row.profile_content_per_buy || 0), dates);
+      var profileDailyPack = convertDailyToPack(profileDaily, Number(row.profile_content_per_buy || 0), dates);
 
       map[key].children.push({
         stock_domain: String(row.stock_domain || ''),
@@ -832,6 +856,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
         profile_buy_uom_code: String(row.profile_buy_uom_code || ''),
         profile_content_uom_code: String(row.profile_content_uom_code || ''),
         daily: profileDaily,
+        daily_pack: profileDailyPack,
         metrics: profileMetrics
       });
     });
@@ -839,8 +864,10 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     order.forEach(function(key){
       var group = map[key];
       var summaryDaily = {};
+      var summaryDailyPack = {};
       dates.forEach(function(dateKey){
         summaryDaily[dateKey] = { opening: 0, in: 0, out: 0, adjustment: 0, closing: 0, mutations: 0, total_value: 0 };
+        summaryDailyPack[dateKey] = { opening: 0, in: 0, out: 0, adjustment: 0, closing: 0, mutations: 0, total_value: 0 };
       });
 
       var agg = {
@@ -859,6 +886,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
       group.children.forEach(function(child){
         dates.forEach(function(dateKey){
           var d = child.daily[dateKey] || { opening: 0, in: 0, out: 0, adjustment: 0, closing: 0, mutations: 0, total_value: 0 };
+          var dp = child.daily_pack[dateKey] || { opening: 0, in: 0, out: 0, adjustment: 0, closing: 0, mutations: 0, total_value: 0 };
           summaryDaily[dateKey].opening += Number(d.opening || 0);
           summaryDaily[dateKey].in += Number(d.in || 0);
           summaryDaily[dateKey].out += Number(d.out || 0);
@@ -866,6 +894,13 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
           summaryDaily[dateKey].closing += Number(d.closing || 0);
           summaryDaily[dateKey].mutations += Number(d.mutations || 0);
           summaryDaily[dateKey].total_value += Number(d.total_value || 0);
+          summaryDailyPack[dateKey].opening += Number(dp.opening || 0);
+          summaryDailyPack[dateKey].in += Number(dp.in || 0);
+          summaryDailyPack[dateKey].out += Number(dp.out || 0);
+          summaryDailyPack[dateKey].adjustment += Number(dp.adjustment || 0);
+          summaryDailyPack[dateKey].closing += Number(dp.closing || 0);
+          summaryDailyPack[dateKey].mutations += Number(dp.mutations || 0);
+          summaryDailyPack[dateKey].total_value += Number(dp.total_value || 0);
         });
 
         agg.in_total += Number(child.metrics.in_total || 0);
@@ -888,6 +923,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
       }
 
       group.daily = summaryDaily;
+      group.daily_pack = summaryDailyPack;
       group.metrics = agg;
     });
 
@@ -983,12 +1019,13 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
       items.forEach(function(item){
         var value = Number(day[item.key] || 0);
         var valueText = esc(num(value));
+        var edgeClass = item.key === 'opening' ? ' pwd-day-start' : (item.key === 'closing' ? ' pwd-day-end' : '');
         if (Math.abs(value) > 0.000001) {
-          html += '<td class="pwd-metric-cell' + todayCls + bandClass + '">' +
+          html += '<td class="pwd-metric-cell' + todayCls + bandClass + edgeClass + '">' +
             '<button type="button" class="pwd-cell-btn ' + item.cls + '" data-action="detail" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '">' + valueText + '</button>' +
           '</td>';
         } else {
-          html += '<td class="pwd-metric-cell' + todayCls + bandClass + '"><span class="pwd-cell-btn ' + item.cls + '">' + valueText + '</span></td>';
+          html += '<td class="pwd-metric-cell' + todayCls + bandClass + edgeClass + '"><span class="pwd-cell-btn ' + item.cls + '">' + valueText + '</span></td>';
         }
       });
     });
@@ -1040,7 +1077,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     var singleProfile = (!isExpandable(group) && Array.isArray(group.children) && group.children.length === 1) ? group.children[0] : null;
     var parentProfileIndex = singleProfile ? 0 : -1;
     var rowClass = isExpandable(group) ? 'pwd-group-row pwd-group-expandable' : 'pwd-group-row pwd-group-single';
-    return '<tr class="' + rowClass + '">' + dayCells(group.daily || {}, groupIndex, parentProfileIndex) + '</tr>';
+    return '<tr class="' + rowClass + '">' + dayCells(group.daily_pack || group.daily || {}, groupIndex, parentProfileIndex) + '</tr>';
   }
 
   function freezeProfileRowHtml(profile){
@@ -1067,7 +1104,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   }
 
   function profileRowHtml(group, groupIndex, profile, profileIndex){
-    return '<tr class="pwd-child-row">' + dayCells(profile.daily || {}, groupIndex, profileIndex) + '</tr>';
+    return '<tr class="pwd-child-row">' + dayCells(profile.daily_pack || profile.daily || {}, groupIndex, profileIndex) + '</tr>';
   }
 
   function syncPaneRowHeights(){

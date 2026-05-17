@@ -30,6 +30,10 @@ class Procurement extends MY_Controller
     public function store_requests()
     {
         $this->require_permission(self::PAGE_WORKBENCH, 'view');
+        $activeTab = strtolower(trim((string)$this->input->get('tab', true)));
+        if (!in_array($activeTab, ['nota', 'rincian'], true)) {
+            $activeTab = 'nota';
+        }
 
         $filters = [
             'q' => trim((string)$this->input->get('q', true)),
@@ -45,24 +49,32 @@ class Procurement extends MY_Controller
         }
 
         $rows = $this->Procurement_model->list_store_requests($filters, $limit, 0);
+        $lineRows = $activeTab === 'rincian'
+            ? $this->Procurement_model->list_store_request_lines($filters, $limit, 0)
+            : [];
         $ids = array_values(array_filter(array_map(static function ($row) {
             return (int)($row['id'] ?? 0);
         }, $rows), static function ($id) {
             return $id > 0;
         }));
 
+        $divisionOptions = $this->Purchase_model->list_active_operational_divisions();
+
         $data = [
             'title' => 'Store Request',
             'active_menu' => 'procurement.store-request',
             'has_schema' => $this->Procurement_model->has_store_request_schema(),
             'filters' => $filters,
+            'active_tab' => $activeTab,
             'limit' => $limit,
             'rows' => $rows,
+            'line_rows' => $lineRows,
             'summary' => $this->Procurement_model->get_store_request_summary($filters),
             'timeline_map' => $this->Procurement_model->list_store_request_timeline_map($ids),
-            'division_options' => $this->Purchase_model->list_active_operational_divisions(),
+            'division_options' => $divisionOptions,
             'status_options' => $this->Procurement_model->list_store_request_status_options(),
             'destination_options' => $this->Procurement_model->list_destination_options(),
+            'destination_guard_map' => $this->Procurement_model->build_destination_guard_map($divisionOptions),
             'can_create' => (
                 $this->can(self::PAGE_WORKBENCH, 'create')
                 || $this->can(self::PAGE_WORKBENCH, 'edit')
@@ -74,6 +86,84 @@ class Procurement extends MY_Controller
             ),
         ];
         $this->render('procurement/store_requests', $data);
+    }
+
+    public function store_request_create()
+    {
+        $this->require_permission(self::PAGE_WORKBENCH, 'create');
+
+        $divisionOptions = $this->Purchase_model->list_active_operational_divisions();
+        $data = [
+            'title' => 'Buat Store Request',
+            'active_menu' => 'procurement.store-request',
+            'mode' => 'create',
+            'request_id' => 0,
+            'header' => [
+                'request_date' => date('Y-m-d'),
+                'needed_date' => date('Y-m-d'),
+                'request_division_id' => (int)($divisionOptions[0]['id'] ?? 0),
+                'destination_type' => '',
+                'notes' => '',
+                'sr_no' => '',
+                'status' => 'DRAFT',
+            ],
+            'lines' => [],
+            'division_options' => $divisionOptions,
+            'destination_options' => $this->Procurement_model->list_destination_options(),
+            'destination_guard_map' => $this->Procurement_model->build_destination_guard_map($divisionOptions),
+            'can_create' => true,
+            'can_edit' => true,
+        ];
+
+        $this->render('procurement/store_request_form', $data);
+    }
+
+    public function store_request_edit(int $id = 0)
+    {
+        $this->require_permission(self::PAGE_WORKBENCH, 'edit');
+        if ($id <= 0) {
+            show_404();
+            return;
+        }
+
+        $detail = $this->Procurement_model->get_store_request_detail($id);
+        if (!$detail) {
+            show_404();
+            return;
+        }
+
+        $header = (array)($detail['header'] ?? []);
+        $status = strtoupper((string)($header['status'] ?? 'DRAFT'));
+        if ($status !== 'DRAFT') {
+            $this->session->set_flashdata('error', 'Hanya Store Request status DRAFT yang dapat diedit.');
+            redirect('store-requests');
+            return;
+        }
+
+        $divisionOptions = $this->Purchase_model->list_active_operational_divisions();
+        $data = [
+            'title' => 'Edit Store Request',
+            'active_menu' => 'procurement.store-request',
+            'mode' => 'edit',
+            'request_id' => $id,
+            'header' => [
+                'request_date' => (string)($header['request_date'] ?? date('Y-m-d')),
+                'needed_date' => (string)($header['needed_date'] ?? date('Y-m-d')),
+                'request_division_id' => (int)($header['request_division_id'] ?? 0),
+                'destination_type' => (string)($header['destination_type'] ?? ''),
+                'notes' => (string)($header['notes'] ?? ''),
+                'sr_no' => (string)($header['sr_no'] ?? ''),
+                'status' => (string)($header['status'] ?? 'DRAFT'),
+            ],
+            'lines' => (array)($detail['lines'] ?? []),
+            'division_options' => $divisionOptions,
+            'destination_options' => $this->Procurement_model->list_destination_options(),
+            'destination_guard_map' => $this->Procurement_model->build_destination_guard_map($divisionOptions),
+            'can_create' => true,
+            'can_edit' => true,
+        ];
+
+        $this->render('procurement/store_request_form', $data);
     }
 
     public function division_po_sr()
@@ -157,7 +247,17 @@ class Procurement extends MY_Controller
             $limit = 20;
         }
 
-        $rows = $this->Procurement_model->search_warehouse_profiles($q, $limit);
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $rows = $this->Procurement_model->search_warehouse_profiles($q, $limit);
+        } catch (Throwable $e) {
+            $this->db->db_debug = $dbDebugBefore;
+            $this->jsonError('Gagal memuat profile gudang: ' . $e->getMessage(), 500);
+            return;
+        }
+        $this->db->db_debug = $dbDebugBefore;
+
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode([
@@ -192,6 +292,45 @@ class Procurement extends MY_Controller
 
         if (!($result['ok'] ?? false)) {
             $this->jsonError((string)($result['message'] ?? 'Gagal membuat Store Request.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    public function store_request_update(int $id = 0)
+    {
+        $this->require_permission(self::PAGE_WORKBENCH, 'edit');
+        if ($id <= 0) {
+            $this->jsonError('Request ID tidak valid.', 422);
+            return;
+        }
+
+        $payload = $this->requestPayload();
+        $header = (array)($payload['header'] ?? []);
+        $lines = $payload['lines'] ?? [];
+        if (!is_array($lines) || empty($lines)) {
+            $this->jsonError('Line Store Request wajib diisi.', 422);
+            return;
+        }
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Procurement_model->update_store_request(
+                $id,
+                $header,
+                $lines,
+                (int)($this->current_user['id'] ?? 0)
+            );
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal memperbarui Store Request.'), 422);
             return;
         }
 
