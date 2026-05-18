@@ -1,0 +1,1136 @@
+# Panduan Pola Coding — Finance App
+**Status:** WAJIB DIBACA sebelum coding  
+**Terakhir diperbarui:** 2026-05-18  
+**Berlaku untuk:** Semua pengembangan di direktori `finance/`
+
+> Dokumen ini adalah **satu-satunya acuan pola coding**. Setiap halaman baru, controller baru, atau fitur baru harus mengikuti pola di sini — tidak boleh improvisasi sendiri. Jika ada pola baru yang disepakati, tuliskan di sini, jangan hanya di kepala atau di chat.
+
+---
+
+## DAFTAR ISI
+
+1. [Stack & Teknologi](#1-stack--teknologi)
+2. [Struktur Direktori](#2-struktur-direktori)
+3. [Konvensi Nama Database](#3-konvensi-nama-database)
+4. [Pola Controller](#4-pola-controller)
+5. [Pola Model](#5-pola-model)
+6. [Pola View — Struktur Halaman](#6-pola-view--struktur-halaman)
+7. [Pola View — Judul Halaman](#7-pola-view--judul-halaman)
+8. [Pola Filter & Search](#8-pola-filter--search)
+9. [Pola Tabel Data](#9-pola-tabel-data)
+10. [Pola Pagination](#10-pola-pagination)
+11. [Pola AJAX & Fetch API](#11-pola-ajax--fetch-api)
+12. [Pola Form Modal](#12-pola-form-modal)
+13. [Flash Message](#13-flash-message)
+14. [Format Angka & Tanggal](#14-format-angka--tanggal)
+15. [Keamanan & Escaping](#15-keamanan--escaping)
+16. [Status Badge](#16-status-badge)
+17. [Tombol Aksi](#17-tombol-aksi)
+18. [Pola Routing](#18-pola-routing)
+19. [Pola Permission](#19-pola-permission)
+20. [Summary Card](#20-summary-card)
+
+---
+
+## 1. Stack & Teknologi
+
+| Layer | Keputusan | Catatan |
+|---|---|---|
+| Backend | CodeIgniter 3.1.x | Tidak naik ke CI4 |
+| PHP | 7.4+ | XAMPP lokal dan server |
+| Database | MySQL 5.7+ / MariaDB | Database `db_finance` (terpisah dari `core`) |
+| Frontend | Bootstrap 5 + Materio theme | Tema merah (#c0392b) + krem |
+| Icons | Remix Icons (`ri-*`) | Bukan FontAwesome, bukan Bootstrap Icons |
+| DataTable | Server-side via PHP, bukan DataTables.js | Gunakan pola tabel + pagination manual |
+| AJAX | Fetch API (bukan jQuery $.ajax) | `Content-Type: application/json` |
+| CSS Custom | `assets/css/app.css` | Tambahkan di sini, bukan inline style |
+| JS Custom | `assets/js/app.js` | Tambahkan fungsi global di sini |
+
+**Catatan:** `jQuery` masih ada (via Materio) tapi **penggunaan baru pakai Fetch API**, bukan `$.ajax()`.
+
+---
+
+## 2. Struktur Direktori
+
+```
+finance/
+├── application/
+│   ├── config/           — konfigurasi CI (database, routes, autoload)
+│   ├── controllers/      — 1 file per modul utama (Purchase.php, Payroll.php, dll.)
+│   ├── models/           — 1 file per entitas utama (Purchase_model.php, dll.)
+│   ├── views/
+│   │   ├── layout/       — template bersama (JANGAN diubah tanpa koordinasi)
+│   │   │   ├── header.php   — <head>, CSS
+│   │   │   ├── main.php     — wrapper layout + flash message
+│   │   │   ├── navbar.php   — top bar
+│   │   │   ├── sidebar.php  — navigasi kiri
+│   │   │   └── footer.php   — JS libraries
+│   │   ├── auth/         — login, dll.
+│   │   ├── purchase/     — semua view Purchase controller
+│   │   ├── payroll/      — semua view Payroll controller
+│   │   └── [modul]/      — folder = nama controller (lowercase)
+│   ├── core/
+│   │   └── MY_Controller.php  — base controller (JANGAN diubah kecuali perlu)
+│   ├── helpers/
+│   │   └── ui_number_helper.php  — fungsi ui_num()
+│   └── libraries/
+│       └── InventoryLedger.php
+├── assets/
+│   ├── css/app.css       — custom CSS global
+│   ├── js/app.js         — custom JS global
+│   └── libs/             — vendor libraries
+├── docs/                 — dokumentasi (file ini ada di sini)
+└── sql/                  — migration scripts
+```
+
+---
+
+## 3. Konvensi Nama Database
+
+### Prefix Tabel
+
+| Prefix | Domain |
+|---|---|
+| `sys_` | Sistem: menu, konfigurasi, audit log |
+| `auth_` | Autentikasi & RBAC |
+| `org_` | Organisasi & HR: karyawan, jabatan, divisi |
+| `att_` | Absensi |
+| `pay_` | Payroll & pencairan gaji |
+| `mst_` | Master data lintas domain |
+| `pur_` | Pembelian (purchase) |
+| `inv_` | Inventori & gudang |
+| `prd_` | Produksi |
+| `pos_` | Point of Sale |
+| `crm_` | Customer & loyalty |
+| `fin_` | Keuangan & akuntansi |
+| `rpt_` | View/tabel laporan |
+
+### Konvensi Kolom
+
+| Tipe | Konvensi | Contoh |
+|---|---|---|
+| Primary key | `id` BIGINT UNSIGNED AUTO_INCREMENT | Semua tabel |
+| Foreign key | `{entitas}_id` | `employee_id`, `order_id` |
+| Nomor dokumen | `{entitas}_no` | `po_no`, `order_no` |
+| Kode unik | `{entitas}_code` | `employee_code` |
+| Status | `status` ENUM | `'DRAFT'`, `'ACTIVE'`, `'VOID'` |
+| Boolean | `is_{kondisi}` TINYINT(1) | `is_active`, `is_locked` |
+| Snapshot | `{field}_snapshot` | `employee_name_snapshot` |
+| Timestamp | `created_at`, `updated_at` DATETIME | Semua tabel |
+| Dibuat oleh | `created_by` INT (FK ke `auth_user.id`) | |
+| Nominal/Amount | DECIMAL(18,2) | `amount`, `total_amount` |
+| Quantity bahan | DECIMAL(18,6) | Lebih presisi untuk perhitungan |
+| Quantity orang | DECIMAL(10,2) | `qty_person` |
+
+### Format Nomor Dokumen
+
+| Dokumen | Format | Contoh |
+|---|---|---|
+| Purchase Order | `PO-{YYYY}{MM}-{NNN}` | `PO-202605-001` |
+| Store Request | `SR-{YYYY}{MM}-{NNN}` | `SR-202605-001` |
+| Disbursement Gaji | `SLD-{YYYY}{MM}-{NNN}` | `SLD-202605-001` |
+| Kasbon | `KSB-{YYYY}{MM}-{NNN}` | `KSB-202605-001` |
+| Uang Makan | `UM-{YYYY}W{WW}-{NNN}` | `UM-2026W18-001` |
+| POS Order | `ORD-{YYYYMMDD}-{NNN}` | `ORD-20260501-001` |
+| NIP Karyawan | `EMP-{YYYY}{MM}{NNN}` | `EMP-2026050001` |
+
+### Konvensi File SQL
+
+Format: `YYYY-MM-DD[a/b/c]_deskripsi_singkat.sql`  
+Huruf suffix = urutan eksekusi di hari yang sama.
+
+**Prinsip:** Tidak ada ALTER TABLE tanpa file SQL baru. Perubahan tabel = file baru di `sql/`.
+
+---
+
+## 4. Pola Controller
+
+```php
+<?php
+// Nama file: NamaModul.php
+// Extends MY_Controller — WAJIB
+
+class Purchase extends MY_Controller
+{
+    // === KONSTANTA PERMISSION ===
+    // Format: '{modul}.{sub}.{action}' atau '{modul}.{sub}'
+    const PAGE_ORDER       = 'purchase.order';
+    const PAGE_CATALOG     = 'purchase.catalog';
+    const PAGE_RECEIPT     = 'purchase.receipt';
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->load->model('Purchase_model');
+    }
+
+    // === HALAMAN DAFTAR (INDEX) ===
+    public function index()
+    {
+        $this->require_permission(self::PAGE_ORDER, 'view');
+
+        // Sanitasi input filter
+        $q      = trim((string)($this->input->get('q', true) ?? ''));
+        $status = strtoupper(trim((string)($this->input->get('status', true) ?? '')));
+        $page   = max(1, (int)($this->input->get('page', true) ?? 1));
+        $limit  = (int)($this->input->get('limit', true) ?? 50);
+        if ($limit <= 0 || $limit > 300) $limit = 50;
+
+        $data = [
+            'title'       => 'Purchase Order',           // Judul halaman
+            'active_menu' => 'purchase.order',           // Kode menu sidebar
+            'q'           => $q,
+            'status'      => $status,
+            'page'        => $page,
+            'limit'       => $limit,
+            'rows'        => $this->Purchase_model->list_orders($q, $status, $page, $limit),
+            'total'       => $this->Purchase_model->count_orders($q, $status),
+            'summary'     => $this->Purchase_model->get_summary(),
+        ];
+
+        $this->render('purchase/index', $data);
+    }
+
+    // === HALAMAN FORM BUAT BARU ===
+    public function create()
+    {
+        $this->require_permission(self::PAGE_ORDER, 'create');
+        $data = [
+            'title'       => 'Buat Purchase Order',
+            'active_menu' => 'purchase.order',
+            'vendors'     => $this->Purchase_model->get_vendors(),
+        ];
+        $this->render('purchase/form', $data);
+    }
+
+    // === ENDPOINT SIMPAN (AJAX POST) ===
+    public function store()
+    {
+        if (!$this->can(self::PAGE_ORDER, 'create')) {
+            $this->jsonError('Tidak ada izin.', 403);
+            return;
+        }
+
+        $payload = $this->requestPayload();   // Ambil JSON body
+
+        // Validasi
+        if (empty($payload['vendor_id'])) {
+            $this->jsonError('Vendor wajib diisi.', 422);
+            return;
+        }
+
+        $result = $this->Purchase_model->create_order($payload, $this->current_user['id']);
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError($result['message'] ?? 'Gagal menyimpan.', 422);
+            return;
+        }
+
+        $this->jsonOk($result['data'] ?? [], 'Purchase Order berhasil dibuat.');
+    }
+
+    // === ENDPOINT DELETE (AJAX) ===
+    public function delete($id = 0)
+    {
+        if (!$this->can(self::PAGE_ORDER, 'delete')) {
+            $this->jsonError('Tidak ada izin.', 403);
+            return;
+        }
+        $result = $this->Purchase_model->delete_order((int)$id, $this->current_user['id']);
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError($result['message'] ?? 'Gagal menghapus.', 422);
+            return;
+        }
+        $this->jsonOk([], 'Berhasil dihapus.');
+    }
+}
+```
+
+**Aturan penting controller:**
+- Semua controller extends `MY_Controller`
+- Konstanta permission wajib didefinisikan di atas
+- Input SELALU di-sanitasi sebelum dipakai (`trim`, cast tipe, range check)
+- AJAX endpoint gunakan `$this->jsonOk()` / `$this->jsonError()`
+- `active_menu` harus cocok dengan kode menu di database agar sidebar aktif benar
+
+---
+
+## 5. Pola Model
+
+```php
+<?php
+
+class Purchase_model extends CI_Model
+{
+    public function __construct()
+    {
+        parent::__construct();
+    }
+
+    // === QUERY LIST (dengan filter + pagination) ===
+    public function list_orders(string $q, string $status, int $page, int $limit): array
+    {
+        $offset = ($page - 1) * $limit;
+
+        $this->db->select('po.*, v.vendor_name');
+        $this->db->from('pur_purchase_order po');
+        $this->db->join('mst_vendor v', 'v.id = po.vendor_id', 'left');
+
+        if ($q !== '') {
+            $this->db->group_start();
+            $this->db->like('po.po_no', $q);
+            $this->db->or_like('v.vendor_name', $q);
+            $this->db->group_end();
+        }
+        if ($status !== '') {
+            $this->db->where('po.status', $status);
+        }
+
+        $this->db->order_by('po.created_at', 'DESC');
+        $this->db->limit($limit, $offset);
+
+        return $this->db->get()->result_array();
+    }
+
+    public function count_orders(string $q, string $status): int
+    {
+        // Query sama tapi tanpa limit/offset, hanya COUNT
+        $this->db->from('pur_purchase_order po');
+        $this->db->join('mst_vendor v', 'v.id = po.vendor_id', 'left');
+        if ($q !== '') {
+            $this->db->group_start();
+            $this->db->like('po.po_no', $q);
+            $this->db->or_like('v.vendor_name', $q);
+            $this->db->group_end();
+        }
+        if ($status !== '') {
+            $this->db->where('po.status', $status);
+        }
+        return (int)$this->db->count_all_results();
+    }
+
+    // === WRITE (INSERT/UPDATE) — selalu return array {ok, message, data} ===
+    public function create_order(array $payload, int $user_id): array
+    {
+        $this->db->trans_begin();
+        try {
+            // Insert
+            $this->db->insert('pur_purchase_order', [
+                'vendor_id'  => (int)$payload['vendor_id'],
+                'status'     => 'DRAFT',
+                'created_by' => $user_id,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            $id = $this->db->insert_id();
+
+            $this->db->trans_commit();
+            return ['ok' => true, 'message' => 'Berhasil', 'data' => ['id' => $id]];
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+}
+```
+
+**Aturan penting model:**
+- Semua fungsi write (insert/update/delete) mengembalikan `['ok' => bool, 'message' => string, 'data' => array]`
+- Operasi multi-tabel WAJIB pakai `trans_begin` / `trans_commit` / `trans_rollback`
+- Tidak ada logika presentasi di model (tidak ada `htmlspecialchars`, tidak ada `number_format`)
+- Gunakan Query Builder CI3, bukan raw query kecuali kompleksitas mengharuskan
+
+---
+
+## 6. Pola View — Struktur Halaman
+
+**Setiap halaman view mengikuti urutan ini persis:**
+
+```php
+<?php
+// ============================================================
+// BAGIAN 1: Persiapan data PHP (di atas, sebelum HTML)
+// ============================================================
+$baseUrl    = site_url('purchase-orders');
+$createUrl  = site_url('purchase-orders/create');
+$rows       = is_array($rows ?? null) ? $rows : [];
+$q          = $q ?? '';
+$statusFilter = $status ?? '';
+
+// Hitung pagination
+$totalPages = $limit > 0 ? (int)ceil($total / $limit) : 1;
+$prevPage   = max(1, $page - 1);
+$nextPage   = min($totalPages, $page + 1);
+
+// Helper URL builder (pertahankan filter saat ganti halaman)
+$buildQuery = function(array $override = []) use ($q, $statusFilter, $limit): string {
+    return http_build_query(array_filter(array_merge(
+        ['q' => $q, 'status' => $statusFilter, 'limit' => $limit],
+        $override
+    ), fn($v) => $v !== '' && $v !== null));
+};
+?>
+
+<!-- ============================================================ -->
+<!-- BAGIAN 2: Judul Halaman + Tombol Aksi                       -->
+<!-- ============================================================ -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-1">
+            <i class="ri ri-shopping-cart-2-line me-1 text-primary"></i>
+            <?= html_escape($title) ?>
+        </h4>
+        <small class="text-muted">Kelola semua purchase order</small>
+    </div>
+    <div class="d-flex gap-2">
+        <?php if ($this->can('purchase.order', 'create')): ?>
+        <a href="<?= $createUrl ?>" class="btn btn-primary">
+            <i class="ri ri-add-line me-1"></i>Buat PO
+        </a>
+        <?php endif; ?>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- BAGIAN 3: Summary Cards (jika ada)                          -->
+<!-- ============================================================ -->
+<!-- Lihat Bagian 20 untuk pola summary card -->
+
+<!-- ============================================================ -->
+<!-- BAGIAN 4: Alert Area (untuk pesan AJAX)                     -->
+<!-- ============================================================ -->
+<div id="alert-area" class="mb-3"></div>
+
+<!-- ============================================================ -->
+<!-- BAGIAN 5: Filter & Search                                    -->
+<!-- ============================================================ -->
+<!-- Lihat Bagian 8 untuk pola filter -->
+
+<!-- ============================================================ -->
+<!-- BAGIAN 6: Tabel Data                                        -->
+<!-- ============================================================ -->
+<!-- Lihat Bagian 9 untuk pola tabel -->
+
+<!-- ============================================================ -->
+<!-- BAGIAN 7: Modal (jika ada)                                  -->
+<!-- ============================================================ -->
+<!-- Lihat Bagian 12 untuk pola modal -->
+
+<!-- ============================================================ -->
+<!-- BAGIAN 8: Script JS (di bawah semua HTML)                   -->
+<!-- ============================================================ -->
+<script>
+// Semua JS untuk halaman ini di sini
+// Gunakan fungsi dari app.js jika tersedia
+</script>
+```
+
+---
+
+## 7. Pola View — Judul Halaman
+
+**Wajib konsisten.** Setiap halaman punya judul dengan format ini:
+
+```php
+<!-- Halaman index/daftar -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-1">
+            <i class="ri ri-[icon-name] me-1 text-primary"></i>
+            <?= html_escape($title) ?>
+        </h4>
+        <small class="text-muted">[deskripsi singkat halaman]</small>
+    </div>
+    <div class="d-flex gap-2">
+        <!-- Tombol aksi utama (Tambah, Export, dll.) -->
+    </div>
+</div>
+```
+
+```php
+<!-- Halaman detail / form -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-1">
+            <i class="ri ri-[icon-name] me-1 text-primary"></i>
+            <?= html_escape($title) ?>
+        </h4>
+        <!-- Breadcrumb -->
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-0">
+                <li class="breadcrumb-item">
+                    <a href="<?= site_url('purchase-orders') ?>">Purchase Order</a>
+                </li>
+                <li class="breadcrumb-item active">Detail PO</li>
+            </ol>
+        </nav>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="<?= site_url('purchase-orders') ?>" class="btn btn-outline-secondary">
+            <i class="ri ri-arrow-left-line me-1"></i>Kembali
+        </a>
+    </div>
+</div>
+```
+
+**`$title` diset di controller**, bukan di view. Tidak boleh hardcode teks judul di view.
+
+---
+
+## 8. Pola Filter & Search
+
+**Wajib pakai GET form.** Filter tidak pernah pakai POST. Clear = link ke URL bersih.
+
+```php
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" action="<?= $baseUrl ?>" class="row g-2 align-items-end">
+
+            <!-- Search teks -->
+            <div class="col-12 col-md-4">
+                <label class="form-label mb-1 small">Cari</label>
+                <input type="text" name="q" class="form-control form-control-sm"
+                       placeholder="No. PO, nama vendor..."
+                       value="<?= html_escape($q) ?>">
+            </div>
+
+            <!-- Filter status (dropdown) -->
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-1 small">Status</label>
+                <select name="status" class="form-select form-select-sm">
+                    <option value="">Semua</option>
+                    <option value="DRAFT"    <?= $status === 'DRAFT'    ? 'selected' : '' ?>>Draft</option>
+                    <option value="APPROVED" <?= $status === 'APPROVED' ? 'selected' : '' ?>>Approved</option>
+                    <option value="PAID"     <?= $status === 'PAID'     ? 'selected' : '' ?>>Paid</option>
+                    <option value="VOID"     <?= $status === 'VOID'     ? 'selected' : '' ?>>Void</option>
+                </select>
+            </div>
+
+            <!-- Filter tanggal (jika diperlukan) -->
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-1 small">Bulan</label>
+                <input type="month" name="month" class="form-control form-control-sm"
+                       value="<?= html_escape($month ?? '') ?>">
+            </div>
+
+            <!-- Tombol -->
+            <div class="col-12 col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-sm btn-outline-primary flex-fill">
+                    <i class="ri ri-search-line"></i> Filter
+                </button>
+                <a href="<?= $baseUrl ?>" class="btn btn-sm btn-outline-danger">
+                    <i class="ri ri-close-line"></i>
+                </a>
+            </div>
+
+        </form>
+    </div>
+</div>
+```
+
+**Aturan filter:**
+- `name` atribut harus sama dengan variabel yang dibaca di controller
+- Value input selalu diisi dari PHP variable (biar tidak kosong saat reload)
+- Tombol clear = anchor tag ke `$baseUrl` tanpa parameter
+- Filter tanggal pakai `type="month"` (`YYYY-MM`) atau `type="date"` (`YYYY-MM-DD`)
+
+---
+
+## 9. Pola Tabel Data
+
+```php
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-striped table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:140px">No. PO</th>
+                    <th>Vendor</th>
+                    <th>Tgl Order</th>
+                    <th class="text-end" style="width:140px">Total</th>
+                    <th style="width:100px">Status</th>
+                    <th style="width:100px" class="text-center">Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (empty($rows)): ?>
+                <tr>
+                    <td colspan="6" class="text-center text-muted py-5">
+                        <i class="ri ri-inbox-line ri-2x d-block mb-2"></i>
+                        Belum ada data<?= $q ? ' yang cocok dengan filter' : '' ?>.
+                    </td>
+                </tr>
+                <?php else: ?>
+                <?php foreach ($rows as $row): ?>
+                <tr>
+                    <td>
+                        <a href="<?= site_url('purchase-orders/' . $row['id']) ?>"
+                           class="fw-semibold text-decoration-none">
+                            <?= html_escape($row['po_no']) ?>
+                        </a>
+                    </td>
+                    <td><?= html_escape($row['vendor_name']) ?></td>
+                    <td><?= date('d M Y', strtotime($row['order_date'])) ?></td>
+                    <td class="text-end"><?= ui_num($row['total_amount']) ?></td>
+                    <td><?= status_badge($row['status']) /* lihat Bagian 16 */ ?></td>
+                    <td class="text-center">
+                        <!-- Lihat Bagian 17 untuk tombol aksi -->
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Footer: info jumlah + pagination -->
+    <div class="card-footer d-flex justify-content-between align-items-center py-2">
+        <small class="text-muted">
+            Menampilkan <?= count($rows) ?> dari <?= number_format($total) ?> data
+        </small>
+        <?php // Lihat Bagian 10 untuk pagination ?>
+    </div>
+</div>
+```
+
+**Aturan tabel:**
+- Selalu pakai `table-striped table-hover align-middle`
+- Header tabel: `table-light`
+- Kolom nominal/angka: `class="text-end"`, pakai `ui_num()`
+- Kolom aksi: `class="text-center"`, lebar tetap
+- Empty state wajib ada dengan ikon dan teks yang informatif
+- Link ke detail: teks utama baris, bukan tombol terpisah
+
+---
+
+## 10. Pola Pagination
+
+```php
+<?php
+// Hitung di controller atau di atas view
+$totalPages = $limit > 0 ? (int)ceil($total / $limit) : 1;
+$prevPage   = max(1, $page - 1);
+$nextPage   = min($totalPages, $page + 1);
+
+// Builder halaman dengan ellipsis
+$pageItems = [];
+if ($totalPages <= 7) {
+    $pageItems = range(1, $totalPages);
+} else {
+    $pageItems = [1];
+    if ($page > 3) $pageItems[] = '...';
+    foreach (range(max(2, $page - 1), min($totalPages - 1, $page + 1)) as $p) {
+        $pageItems[] = $p;
+    }
+    if ($page < $totalPages - 2) $pageItems[] = '...';
+    $pageItems[] = $totalPages;
+}
+?>
+
+<?php if ($totalPages > 1): ?>
+<div class="d-flex gap-1">
+    <a class="btn btn-sm btn-outline-secondary <?= $page <= 1 ? 'disabled' : '' ?>"
+       href="<?= site_url($baseUrl . '?' . $buildQuery(['page' => $prevPage])) ?>">
+        <i class="ri ri-arrow-left-s-line"></i>
+    </a>
+    <?php foreach ($pageItems as $item): ?>
+        <?php if ($item === '...'): ?>
+            <span class="btn btn-sm btn-outline-secondary disabled">…</span>
+        <?php else: ?>
+            <a class="btn btn-sm <?= ($page === $item) ? 'btn-primary' : 'btn-outline-secondary' ?>"
+               href="<?= site_url($baseUrl . '?' . $buildQuery(['page' => $item])) ?>">
+                <?= $item ?>
+            </a>
+        <?php endif; ?>
+    <?php endforeach; ?>
+    <a class="btn btn-sm btn-outline-secondary <?= $page >= $totalPages ? 'disabled' : '' ?>"
+       href="<?= site_url($baseUrl . '?' . $buildQuery(['page' => $nextPage])) ?>">
+        <i class="ri ri-arrow-right-s-line"></i>
+    </a>
+</div>
+<?php endif; ?>
+```
+
+**Aturan pagination:**
+- `$buildQuery()` wajib dipakai agar filter aktif tidak hilang saat ganti halaman
+- Default `$limit = 50` kecuali modul tertentu butuh berbeda
+- Tombol prev/next disable saat di halaman pertama/terakhir
+
+---
+
+## 11. Pola AJAX & Fetch API
+
+### Endpoint AJAX (Controller)
+
+```php
+// Di controller — SEMUA AJAX endpoint return JSON
+public function store()
+{
+    if (!$this->can(self::PAGE_XXX, 'create')) {
+        $this->jsonError('Tidak ada izin.', 403);
+        return;
+    }
+
+    $payload = $this->requestPayload();  // Baca JSON body
+
+    // Validasi
+    if (empty($payload['field_wajib'])) {
+        $this->jsonError('Field wajib wajib diisi.', 422);
+        return;
+    }
+
+    $result = $this->Model->do_something($payload, $this->current_user['id']);
+
+    if (!($result['ok'] ?? false)) {
+        $this->jsonError($result['message'] ?? 'Gagal.', 422);
+        return;
+    }
+
+    $this->jsonOk($result['data'] ?? [], 'Berhasil disimpan.');
+}
+```
+
+### Fetch API (View/JS)
+
+```javascript
+// Fungsi helper — tersedia global via assets/js/app.js
+// showAlert(type, message) — tampilkan pesan di #alert-area
+// showAlertIn(selector, type, message) — tampilkan di elemen tertentu
+
+// Pola standar AJAX POST
+function submitForm(url, payload, onSuccess) {
+    const btn = document.getElementById('btn-submit');
+    if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan...'; }
+
+    fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(r => r.json().then(j => ({ status: r.status, json: j })))
+    .then(res => {
+        if (res.status >= 400 || !res.json?.ok) {
+            throw new Error(res.json?.message || 'Terjadi kesalahan.');
+        }
+        showAlert('success', res.json.message || 'Berhasil disimpan.');
+        if (typeof onSuccess === 'function') onSuccess(res.json);
+    })
+    .catch(err => {
+        showAlert('danger', err.message);
+    })
+    .finally(() => {
+        if (btn) { btn.disabled = false; btn.textContent = 'Simpan'; }
+    });
+}
+
+// Contoh pemakaian
+document.getElementById('btn-save').addEventListener('click', function() {
+    const payload = {
+        vendor_id: Number(document.getElementById('vendor_id').value || 0),
+        notes:     document.getElementById('notes').value.trim() || null
+    };
+
+    // Validasi client-side
+    if (!payload.vendor_id) {
+        showAlert('danger', 'Vendor wajib dipilih.');
+        return;
+    }
+
+    submitForm(BASE_URL + 'purchase/order/store', payload, function(data) {
+        setTimeout(() => window.location.href = BASE_URL + 'purchase-orders/' + data.data.id, 600);
+    });
+});
+```
+
+**Aturan AJAX:**
+- `BASE_URL` sudah tersedia di semua halaman (di-set di `layout/footer.php`)
+- Selalu disable tombol submit saat request berlangsung
+- Selalu tampilkan pesan error dari server (jangan hanya "Terjadi kesalahan")
+- Setelah sukses: reload, redirect, atau update DOM — pilih sesuai konteks
+- Jangan pakai `$.ajax()` untuk kode baru
+
+---
+
+## 12. Pola Form Modal
+
+```html
+<!-- Trigger button -->
+<button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalForm">
+    <i class="ri ri-add-line me-1"></i>Tambah
+</button>
+
+<!-- Modal -->
+<div class="modal fade" id="modalForm" tabindex="-1" aria-labelledby="modalFormLabel">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalFormLabel">Tambah Data</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="modal-alert-area" class="mb-3"></div>
+
+                <div class="mb-3">
+                    <label class="form-label">Nama Vendor <span class="text-danger">*</span></label>
+                    <input type="text" id="vendor_name" class="form-control"
+                           placeholder="Masukkan nama vendor">
+                </div>
+                <!-- Field lainnya -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary"
+                        data-bs-dismiss="modal">Batal</button>
+                <button type="button" class="btn btn-primary" id="btn-modal-save">
+                    Simpan
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Reset modal saat ditutup
+document.getElementById('modalForm').addEventListener('hidden.bs.modal', function() {
+    document.getElementById('vendor_name').value = '';
+    document.getElementById('modal-alert-area').innerHTML = '';
+});
+
+// Submit modal
+document.getElementById('btn-modal-save').addEventListener('click', function() {
+    const payload = {
+        vendor_name: document.getElementById('vendor_name').value.trim()
+    };
+    if (!payload.vendor_name) {
+        showAlertIn('#modal-alert-area', 'danger', 'Nama vendor wajib diisi.');
+        return;
+    }
+    submitForm(BASE_URL + 'master/vendor/store', payload, function() {
+        bootstrap.Modal.getInstance(document.getElementById('modalForm')).hide();
+        setTimeout(() => window.location.reload(), 400);
+    });
+});
+</script>
+```
+
+**Aturan modal:**
+- Selalu ada `id="modal-alert-area"` di dalam modal untuk pesan error
+- Reset field saat modal ditutup (`hidden.bs.modal`)
+- Label field wajib pakai `<span class="text-danger">*</span>`
+- Modal ukuran default `modal-dialog-centered`, pakai `modal-lg` jika form besar
+
+---
+
+## 13. Flash Message
+
+### Set di Controller (redirect setelah aksi)
+
+```php
+$this->session->set_flashdata('success', 'Purchase Order berhasil dibuat.');
+redirect('purchase-orders');
+
+$this->session->set_flashdata('error', 'Terjadi kesalahan. Silakan coba lagi.');
+redirect('purchase-orders');
+
+$this->session->set_flashdata('warning', 'Stok hampir habis.');
+redirect('purchase-orders');
+```
+
+### Sudah otomatis tampil di layout/main.php
+
+Tidak perlu tambahkan apapun di view — flash message muncul otomatis di atas konten.
+
+### Alert inline (untuk AJAX, tanpa redirect)
+
+```javascript
+// Tersedia via app.js
+showAlert('success', 'Data berhasil disimpan.');   // di #alert-area
+showAlert('danger', 'Terjadi kesalahan.');
+showAlert('warning', 'Perhatian: stok menipis.');
+showAlert('info', 'Sedang diproses...');
+```
+
+---
+
+## 14. Format Angka & Tanggal
+
+### Angka (PHP)
+
+```php
+// Helper ui_num() — format Indonesia (koma = desimal, titik = ribuan)
+echo ui_num(1234567.89);           // → 1.234.567,89
+echo ui_num(1234567.89, 0);        // → 1.234.568
+echo ui_num($row['amount']);       // Default 2 desimal
+
+// JANGAN pakai number_format() langsung di view — pakai ui_num()
+// KECUALI ada kebutuhan format khusus yang tidak bisa ui_num() tangani
+```
+
+### Angka (JavaScript)
+
+```javascript
+// Tersedia via app.js
+formatRupiah(1234567.89)    // → "1.234.567,89"
+formatRupiahIDR(1234567.89) // → "Rp 1.234.567"
+```
+
+### Tanggal (PHP)
+
+```php
+// Format tampilan Indonesia
+date('d M Y', strtotime($row['created_at']))          // → 18 Mei 2026
+date('d M Y H:i', strtotime($row['created_at']))      // → 18 Mei 2026 14:30
+date('d/m/Y', strtotime($row['date']))                // → 18/05/2026 (tabel padat)
+
+// JANGAN echo langsung datetime dari DB (format tidak manusiawi)
+// echo $row['created_at'];  // ❌ "2026-05-18 14:30:00"
+```
+
+### Tanggal (Input Form)
+
+```html
+<!-- Selalu format YYYY-MM-DD untuk value input type="date" -->
+<input type="date" name="order_date"
+       value="<?= html_escape($row['order_date'] ?? date('Y-m-d')) ?>">
+```
+
+---
+
+## 15. Keamanan & Escaping
+
+```php
+// WAJIB: Semua output ke HTML pakai html_escape()
+<?= html_escape($row['name']) ?>
+<?= html_escape((string)($value ?? '')) ?>
+
+// WAJIB: Data ke attribute HTML pakai htmlspecialchars
+<button data-id="<?= htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8') ?>">
+
+// WAJIB: Data ke JavaScript pakai json_encode()
+<script>
+const rowData = <?= json_encode($rows) ?>;
+const config  = <?= json_encode(['base_url' => base_url()]) ?>;
+</script>
+
+// JANGAN: echo langsung tanpa escaping
+<?= $row['name'] ?>  // ❌ XSS vulnerability
+
+// Input dari user SELALU disanitasi di controller sebelum dikirim ke model
+$name = trim((string)($this->input->post('name', true) ?? ''));
+```
+
+---
+
+## 16. Status Badge
+
+```php
+// Fungsi helper di ui_number_helper.php (atau tambahkan di sana)
+// Penggunaan konsisten di seluruh aplikasi:
+
+// Status mapping warna
+$status_class = [
+    'DRAFT'      => 'secondary',
+    'PENDING'    => 'warning',
+    'APPROVED'   => 'info',
+    'ACTIVE'     => 'success',
+    'PAID'       => 'success',
+    'CLOSED'     => 'dark',
+    'VOID'       => 'danger',
+    'REJECTED'   => 'danger',
+    'PARTIAL'    => 'warning',
+];
+$cls = $status_class[$row['status']] ?? 'secondary';
+?>
+<span class="badge bg-<?= $cls ?>"><?= html_escape($row['status']) ?></span>
+```
+
+**Aturan badge:**
+- Selalu pakai `badge bg-{warna}` Bootstrap
+- Warna status harus konsisten antar halaman (lihat mapping di atas)
+- Status tampil dalam UPPERCASE sesuai nilai enum di DB
+
+---
+
+## 17. Tombol Aksi
+
+```php
+<!-- Pola tombol aksi di kolom tabel (gunakan dropdown jika >2 aksi) -->
+
+<!-- 1-2 aksi: tombol langsung -->
+<td class="text-center">
+    <a href="<?= site_url('purchase-orders/' . $row['id']) ?>"
+       class="btn btn-sm btn-info" title="Lihat Detail">
+        <i class="ri ri-eye-line"></i>
+    </a>
+    <?php if ($this->can('purchase.order', 'edit') && $row['status'] === 'DRAFT'): ?>
+    <a href="<?= site_url('purchase-orders/edit/' . $row['id']) ?>"
+       class="btn btn-sm btn-warning" title="Edit">
+        <i class="ri ri-edit-line"></i>
+    </a>
+    <?php endif; ?>
+</td>
+
+<!-- >2 aksi: dropdown -->
+<td class="text-center">
+    <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                type="button" data-bs-toggle="dropdown">
+            <i class="ri ri-more-2-fill"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="...">
+                <i class="ri ri-eye-line me-2"></i>Detail</a></li>
+            <li><a class="dropdown-item" href="...">
+                <i class="ri ri-edit-line me-2"></i>Edit</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item text-danger" href="#"
+                   onclick="confirmDelete(<?= $row['id'] ?>)">
+                <i class="ri ri-delete-bin-line me-2"></i>Hapus</a></li>
+        </ul>
+    </div>
+</td>
+```
+
+**Aturan tombol aksi:**
+- Aksi destruktif (hapus, void) selalu `text-danger` + konfirmasi
+- Aksi edit hanya tampil jika status memungkinkan (cek kondisi)
+- Jika ada >2 aksi, pakai dropdown — jangan buat kolom terlalu lebar
+- Icon wajib ada untuk semua tombol (tidak boleh teks saja di tabel)
+
+---
+
+## 18. Pola Routing
+
+```php
+// File: application/config/routes.php
+
+// === POLA STANDAR PER MODUL ===
+
+// Halaman daftar
+$route['purchase-orders']              = 'purchase/index';
+$route['purchase-orders/(:num)']       = 'purchase/detail/$1';
+$route['purchase-orders/create']       = 'purchase/create';
+$route['purchase-orders/edit/(:num)']  = 'purchase/edit/$1';
+
+// Endpoint aksi (AJAX atau form POST) — pakai sub-path /action
+$route['purchase/order/store']           = 'purchase/order_store';
+$route['purchase/order/update/(:num)']   = 'purchase/order_update/$1';
+$route['purchase/order/delete/(:num)']   = 'purchase/order_delete/$1';
+$route['purchase/order/approve/(:num)']  = 'purchase/order_approve/$1';
+$route['purchase/order/void/(:num)']     = 'purchase/order_void/$1';
+
+// Endpoint AJAX search/lookup
+$route['purchase/catalog/search']   = 'purchase/catalog_search';
+$route['purchase/vendor/search']    = 'purchase/vendor_search';
+
+// Master data via controller Master (polymorphic)
+$route['master/(:any)/list']   = 'master/list/$1';
+$route['master/(:any)/store']  = 'master/store/$1';
+$route['master/(:any)/update'] = 'master/update/$1';
+$route['master/(:any)/delete'] = 'master/delete/$1';
+```
+
+**Aturan routing:**
+- URL halaman (yang dibuka user) = kata benda plural + kebab-case: `purchase-orders`, `salary-disbursements`
+- URL endpoint aksi = prefiks modul + sub-path: `purchase/order/store`
+- Tidak pakai nama method controller langsung di URL publik
+- ID resource di URL: `(:num)` untuk integer, `(:any)` untuk string/slug
+
+---
+
+## 19. Pola Permission
+
+```php
+// Di controller — definisikan konstanta
+const PAGE_ORDER = 'purchase.order';
+
+// Halaman yang perlu login dan permission
+$this->require_permission(self::PAGE_ORDER, 'view');    // Redirect jika tidak ada izin
+
+// Cek izin sebelum aksi (AJAX)
+if (!$this->can(self::PAGE_ORDER, 'delete')) {
+    $this->jsonError('Tidak ada izin.', 403);
+    return;
+}
+
+// Di view — cek untuk tampilkan/sembunyikan elemen
+<?php if ($this->can('purchase.order', 'create')): ?>
+    <a href="..." class="btn btn-primary">Buat PO</a>
+<?php endif; ?>
+
+<?php if ($this->can('purchase.order', 'delete')): ?>
+    <button onclick="confirmDelete(...)">Hapus</button>
+<?php endif; ?>
+```
+
+**Aksi permission yang tersedia:** `view`, `create`, `edit`, `delete`, `export`
+
+---
+
+## 20. Summary Card
+
+```php
+<!-- Pola summary card di atas tabel -->
+<div class="row g-2 mb-3">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3 px-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="small text-muted mb-1">Total PO</div>
+                        <div class="h5 mb-0 fw-bold">
+                            <?= number_format($summary['total'] ?? 0) ?>
+                        </div>
+                    </div>
+                    <div class="text-primary opacity-75">
+                        <i class="ri ri-file-list-3-line ri-xl"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-3 px-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="small text-muted mb-1">Nilai Total</div>
+                        <div class="h5 mb-0 fw-bold">
+                            <?= ui_num($summary['total_amount'] ?? 0, 0) ?>
+                        </div>
+                    </div>
+                    <div class="text-success opacity-75">
+                        <i class="ri ri-money-dollar-circle-line ri-xl"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+```
+
+**Aturan summary card:**
+- Maksimal 4 kartu per baris di desktop (col-md-3)
+- Di mobile: 2 kartu per baris (col-6)
+- Ikon kanan atas setiap kartu, warna sesuai konteks
+- Nilai pakai `ui_num()` atau `number_format()` — tidak pernah raw number
+
+---
+
+## Catatan Tambahan
+
+### Hal yang sering tidak konsisten dan HARUS diperhatikan
+
+1. **`active_menu`** — Wajib diisi di setiap `$data` array controller. Jika tidak diisi, sidebar tidak highlight menu aktif.
+2. **`$title`** — Wajib diisi di `$data`. Tidak boleh hardcode judul di view.
+3. **Filter `value=`** — Semua input filter wajib diisi dari variabel PHP. Jika lupa, filter hilang saat submit.
+4. **Empty state** — Setiap tabel wajib ada kondisi `empty($rows)` dengan pesan yang informatif.
+5. **Tombol clear filter** — Selalu ada link ke URL bersih tanpa parameter.
+6. **`html_escape()`** — Wajib di semua output. Tidak boleh ada `<?= $var ?>` tanpa escaping.
+7. **Angka** — Selalu `ui_num()`. Tidak boleh echo raw decimal dari DB.
+8. **Modal reset** — Selalu ada event `hidden.bs.modal` yang reset field dan alert area.
+9. **Permission cek di view** — Tombol aksi sensistif (edit, delete) wajib dicek dengan `$this->can()`.
+10. **`$buildQuery()`** — Wajib dipakai di pagination agar filter tidak hilang saat ganti halaman.
