@@ -2,13 +2,17 @@
 /**
  * roles/index.php — Daftar role dengan user count, page count, division scope
  */
+$isSuperadmin  = !empty($current_user['is_superadmin']);
+$canCreate     = $isSuperadmin || !empty($user_perms['auth.roles.manage']['can_create']);
+$canEdit       = $isSuperadmin || !empty($user_perms['auth.roles.manage']['can_edit']);
+$canDelete     = $isSuperadmin || !empty($user_perms['auth.roles.manage']['can_delete']);
 ?>
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <div>
     <h5 class="fw-bold mb-0"><i class="ri ri-shield-keyhole-line me-2 text-primary"></i>Manajemen Role & Hak Akses</h5>
     <p class="text-muted small mb-0">Role menentukan halaman apa yang bisa diakses. User bisa punya beberapa role sekaligus.</p>
   </div>
-  <?php if ($this->can('auth.roles.manage', 'create')): ?>
+  <?php if ($canCreate): ?>
   <a href="<?= base_url('roles/create') ?>" class="btn btn-primary btn-sm">
     <i class="ri ri-add-line me-1"></i> Buat Role Baru
   </a>
@@ -91,12 +95,12 @@
                 <a href="<?= base_url('roles/users/' . $r['id']) ?>" class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Lihat User">
                   <i class="ri ri-group-line"></i>
                 </a>
-                <?php if ($this->can('auth.roles.manage', 'edit')): ?>
+                <?php if ($canEdit): ?>
                 <a href="<?= base_url('roles/edit/' . $r['id']) ?>" class="btn btn-sm btn-outline-secondary action-icon-btn" data-bs-toggle="tooltip" title="Edit">
                   <i class="ri ri-edit-line"></i>
                 </a>
                 <?php endif; ?>
-                <?php if ($this->can('auth.roles.manage', 'delete') && $r['role_code'] !== 'SUPERADMIN'): ?>
+                <?php if ($canDelete && $r['role_code'] !== 'SUPERADMIN'): ?>
                 <a href="<?= base_url('roles/delete/' . $r['id']) ?>" class="btn btn-sm btn-outline-danger action-icon-btn"
                    data-bs-toggle="tooltip" title="Hapus"
                    onclick="return confirm('Hapus role <?= htmlspecialchars(addslashes($r['role_name'])) ?>? Tidak bisa jika masih ada user.')">
