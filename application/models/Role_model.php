@@ -12,16 +12,43 @@ class Role_model extends CI_Model
 
     public function get_all(bool $active_only = false): array
     {
+        $this->db->select('r.*, COALESCE(d.division_name, \'—\') AS division_scope_name,
+            (SELECT COUNT(*) FROM auth_user_role ur WHERE ur.role_id = r.id) AS user_count,
+            (SELECT COUNT(*) FROM auth_role_permission rp WHERE rp.role_id = r.id) AS page_count', false);
+        $this->db->from('auth_role r');
+        $this->db->join('org_division d', 'd.id = r.division_scope_id', 'left');
         if ($active_only) {
-            $this->db->where('is_active', 1);
+            $this->db->where('r.is_active', 1);
         }
-        $this->db->order_by('role_name');
-        return $this->db->get('auth_role')->result_array();
+        $this->db->order_by('r.role_name');
+        return $this->db->get()->result_array();
     }
 
     public function get_by_id(int $id): ?array
     {
-        return $this->db->get_where('auth_role', ['id' => $id])->row_array() ?: null;
+        $this->db->select('r.*, COALESCE(d.division_name, NULL) AS division_scope_name', false);
+        $this->db->from('auth_role r');
+        $this->db->join('org_division d', 'd.id = r.division_scope_id', 'left');
+        $this->db->where('r.id', $id);
+        $this->db->limit(1);
+        return $this->db->get()->row_array() ?: null;
+    }
+
+    /**
+     * Ambil semua user yang memiliki role ini.
+     */
+    public function get_users_in_role(int $role_id): array
+    {
+        $this->db->select('u.id, u.username, u.email, u.is_active, u.last_login_at,
+            e.employee_name, p.position_name, div.division_name', false);
+        $this->db->from('auth_user_role ur');
+        $this->db->join('auth_user u', 'u.id = ur.user_id');
+        $this->db->join('org_employee e', 'e.id = u.employee_id', 'left');
+        $this->db->join('org_position p', 'p.id = e.position_id', 'left');
+        $this->db->join('org_division div', 'div.id = e.division_id', 'left');
+        $this->db->where('ur.role_id', $role_id);
+        $this->db->order_by('u.username');
+        return $this->db->get()->result_array();
     }
 
     /**
@@ -75,11 +102,12 @@ class Role_model extends CI_Model
         if ($this->_code_exists($data['role_code'])) return false;
 
         $this->db->insert('auth_role', [
-            'role_code'   => strtoupper(preg_replace('/\s+/', '_', trim($data['role_code']))),
-            'role_name'   => $data['role_name'],
-            'description' => $data['description'] ?? null,
-            'is_active'   => 1,
-            'created_at'  => date('Y-m-d H:i:s'),
+            'role_code'         => strtoupper(preg_replace('/\s+/', '_', trim($data['role_code']))),
+            'role_name'         => $data['role_name'],
+            'description'       => $data['description'] ?? null,
+            'division_scope_id' => isset($data['division_scope_id']) ? ((int)$data['division_scope_id'] ?: null) : null,
+            'is_active'         => 1,
+            'created_at'        => date('Y-m-d H:i:s'),
         ]);
         return (int) $this->db->insert_id();
     }
@@ -92,10 +120,11 @@ class Role_model extends CI_Model
     {
         $this->db->where('id', $id);
         return $this->db->update('auth_role', [
-            'role_name'   => $data['role_name'],
-            'description' => $data['description'] ?? null,
-            'is_active'   => isset($data['is_active']) ? (int)$data['is_active'] : 1,
-            'updated_at'  => date('Y-m-d H:i:s'),
+            'role_name'         => $data['role_name'],
+            'description'       => $data['description'] ?? null,
+            'division_scope_id' => isset($data['division_scope_id']) ? ((int)$data['division_scope_id'] ?: null) : null,
+            'is_active'         => isset($data['is_active']) ? (int)$data['is_active'] : 1,
+            'updated_at'        => date('Y-m-d H:i:s'),
         ]);
     }
 
@@ -160,5 +189,16 @@ class Role_model extends CI_Model
         $this->db->where('role_code', strtoupper($code));
         if ($exclude_id > 0) $this->db->where('id !=', $exclude_id);
         return $this->db->count_all_results('auth_role') > 0;
+    }
+
+    /**
+     * Ambil semua divisi operasional untuk opsi division_scope pada form role.
+     */
+    public function get_division_options(): array
+    {
+        return $this->db->select('id, division_name')
+            ->order_by('division_name')
+            ->get('org_division')
+            ->result_array();
     }
 }

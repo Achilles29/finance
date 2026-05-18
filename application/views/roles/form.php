@@ -4,17 +4,20 @@
  * $role: array|null
  * $edit_mode: bool
  * $form_action: string
+ * $division_options: array
  */
-$role = $role ?? null;
+$role             = $role ?? null;
+$division_options = $division_options ?? [];
+$selected_div_id  = (int)($role['division_scope_id'] ?? 0);
 ?>
 <div class="d-flex align-items-center gap-2 mb-4">
   <a href="<?= base_url('roles') ?>" class="btn btn-sm btn-outline-secondary">
-    <i class="fas fa-arrow-left me-1"></i>Kembali
+    <i class="ri ri-arrow-left-line me-1"></i>Kembali
   </a>
   <h5 class="fw-bold mb-0"><?= htmlspecialchars($title ?? '') ?></h5>
 </div>
 
-<div class="card border-0 shadow-sm" style="max-width:520px;">
+<div class="card border-0 shadow-sm" style="max-width:540px;">
   <div class="card-body">
     <?= form_open($form_action) ?>
 
@@ -24,7 +27,7 @@ $role = $role ?? null;
       <label class="form-label fw-semibold">Kode Role <span class="text-danger">*</span></label>
       <input type="text" name="role_code" class="form-control text-uppercase" maxlength="50" required
              pattern="[a-zA-Z0-9_\-]+" title="Hanya huruf besar, angka, _ dan -"
-             placeholder="contoh: KASIR"
+             placeholder="contoh: KITCHEN_CREW"
              value="<?= set_value('role_code') ?>"
              oninput="this.value = this.value.toUpperCase()">
       <div class="form-text">Tidak bisa diubah setelah dibuat.</div>
@@ -40,7 +43,7 @@ $role = $role ?? null;
     <div class="mb-3">
       <label class="form-label fw-semibold">Nama Role <span class="text-danger">*</span></label>
       <input type="text" name="role_name" class="form-control" maxlength="100" required
-             placeholder="contoh: Kasir"
+             placeholder="contoh: Kitchen Crew"
              value="<?= set_value('role_name', htmlspecialchars($role['role_name'] ?? '')) ?>">
     </div>
 
@@ -50,6 +53,20 @@ $role = $role ?? null;
       <input type="text" name="description" class="form-control" maxlength="255"
              placeholder="Penjelasan singkat role ini"
              value="<?= set_value('description', htmlspecialchars($role['description'] ?? '')) ?>">
+    </div>
+
+    <!-- Scope Divisi (opsional) -->
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Scope Divisi <span class="text-muted fw-normal">(opsional)</span></label>
+      <select name="division_scope_id" class="form-select">
+        <option value="">— Lintas divisi (tidak terikat satu divisi) —</option>
+        <?php foreach ($division_options as $div): ?>
+          <option value="<?= $div['id'] ?>" <?= $selected_div_id === (int)$div['id'] ? 'selected' : '' ?>>
+            <?= htmlspecialchars($div['division_name']) ?>
+          </option>
+        <?php endforeach; ?>
+      </select>
+      <div class="form-text">Role seperti "Kitchen Crew" bisa ditandai scope Kitchen agar mudah diidentifikasi.</div>
     </div>
 
     <!-- Status (hanya saat edit) -->
@@ -65,7 +82,7 @@ $role = $role ?? null;
 
     <div class="d-flex gap-2">
       <button type="submit" class="btn btn-primary px-4">
-        <i class="fas fa-save me-1"></i> <?= $edit_mode ? 'Simpan' : 'Buat Role' ?>
+        <i class="ri ri-save-line me-1"></i> <?= $edit_mode ? 'Simpan' : 'Buat Role' ?>
       </button>
       <a href="<?= base_url('roles') ?>" class="btn btn-outline-secondary">Batal</a>
     </div>

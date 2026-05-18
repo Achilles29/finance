@@ -3,15 +3,26 @@
  * roles/matrix.php — Matrix izin CRUD per halaman untuk satu role
  * $role: array
  * $pages_by_module: ['MODULE' => [['page_id','page_code','page_name','can_view',...], ...]]
+ * $users_in_role: array
  */
+$users_in_role = $users_in_role ?? [];
 ?>
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
   <a href="<?= base_url('roles') ?>" class="btn btn-sm btn-outline-secondary">
-    <i class="fas fa-arrow-left me-1"></i>Kembali
+    <i class="ri ri-arrow-left-line me-1"></i>Kembali
   </a>
   <div>
     <h5 class="fw-bold mb-0">Matrix Izin: <span class="text-primary"><?= htmlspecialchars($role['role_name']) ?></span></h5>
-    <p class="text-muted small mb-0">Role code: <code><?= htmlspecialchars($role['role_code']) ?></code></p>
+    <p class="text-muted small mb-0">
+      Role code: <code><?= htmlspecialchars($role['role_code']) ?></code>
+      <?php if (!empty($role['division_scope_id'])): ?>
+        &nbsp;·&nbsp;<span class="badge bg-info-subtle text-info"><i class="ri ri-building-line me-1"></i><?= htmlspecialchars($role['division_scope_name'] ?? '') ?></span>
+      <?php endif; ?>
+      &nbsp;·&nbsp;
+      <a href="<?= base_url('roles/users/' . $role['id']) ?>" class="text-muted small">
+        <i class="ri ri-group-line me-1"></i><?= count($users_in_role) ?> user
+      </a>
+    </p>
   </div>
 </div>
 
@@ -91,7 +102,7 @@
 
 <div class="d-flex gap-2 mt-3 mb-5">
   <button type="submit" class="btn btn-primary px-4">
-    <i class="fas fa-save me-1"></i>Simpan Matrix Izin
+    <i class="ri ri-save-line me-1"></i>Simpan Matrix Izin
   </button>
   <a href="<?= base_url('roles') ?>" class="btn btn-outline-secondary">Batal</a>
 </div>

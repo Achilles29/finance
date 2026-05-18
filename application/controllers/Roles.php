@@ -9,6 +9,7 @@ class Roles extends MY_Controller
     const PAGE_INDEX  = 'auth.roles.index';
     const PAGE_MANAGE = 'auth.roles.manage';
     const PAGE_MATRIX = 'auth.roles.matrix';
+    const PAGE_USERS  = 'auth.roles.users';
 
     public function __construct()
     {
@@ -43,11 +44,12 @@ class Roles extends MY_Controller
         $this->require_permission(self::PAGE_MANAGE, 'create');
 
         $data = [
-            'title'       => 'Buat Role Baru',
-            'active_menu' => 'sys.roles',
-            'form_action' => 'roles/store',
-            'edit_mode'   => false,
-            'role'        => null,
+            'title'             => 'Buat Role Baru',
+            'active_menu'       => 'sys.roles',
+            'form_action'       => 'roles/store',
+            'edit_mode'         => false,
+            'role'              => null,
+            'division_options'  => $this->Role_model->get_division_options(),
         ];
 
         $this->render('roles/form', $data);
@@ -67,9 +69,10 @@ class Roles extends MY_Controller
         }
 
         $role_id = $this->Role_model->create([
-            'role_code'   => $this->input->post('role_code', true),
-            'role_name'   => $this->input->post('role_name', true),
-            'description' => $this->input->post('description', true),
+            'role_code'         => $this->input->post('role_code', true),
+            'role_name'         => $this->input->post('role_name', true),
+            'description'       => $this->input->post('description', true),
+            'division_scope_id' => (int)$this->input->post('division_scope_id') ?: null,
         ]);
 
         if ($role_id === false) {
@@ -93,11 +96,12 @@ class Roles extends MY_Controller
         if (!$role) show_404();
 
         $data = [
-            'title'       => 'Edit Role: ' . htmlspecialchars($role['role_name']),
-            'active_menu' => 'sys.roles',
-            'form_action' => 'roles/update/' . $id,
-            'edit_mode'   => true,
-            'role'        => $role,
+            'title'             => 'Edit Role: ' . htmlspecialchars($role['role_name']),
+            'active_menu'       => 'sys.roles',
+            'form_action'       => 'roles/update/' . $id,
+            'edit_mode'         => true,
+            'role'              => $role,
+            'division_options'  => $this->Role_model->get_division_options(),
         ];
 
         $this->render('roles/form', $data);
@@ -119,9 +123,10 @@ class Roles extends MY_Controller
         }
 
         $this->Role_model->update($id, [
-            'role_name'   => $this->input->post('role_name', true),
-            'description' => $this->input->post('description', true),
-            'is_active'   => $this->input->post('is_active') ? 1 : 0,
+            'role_name'         => $this->input->post('role_name', true),
+            'description'       => $this->input->post('description', true),
+            'is_active'         => $this->input->post('is_active') ? 1 : 0,
+            'division_scope_id' => (int)$this->input->post('division_scope_id') ?: null,
         ]);
 
         $this->session->set_flashdata('success', 'Role berhasil diperbarui.');
@@ -169,6 +174,7 @@ class Roles extends MY_Controller
             'active_menu'      => 'sys.roles',
             'role'             => $role,
             'pages_by_module'  => $this->Role_model->get_pages_with_permissions($id),
+            'users_in_role'    => $this->Role_model->get_users_in_role($id),
         ];
 
         $this->render('roles/matrix', $data);
@@ -202,5 +208,26 @@ class Roles extends MY_Controller
 
         $this->session->set_flashdata('success', 'Matrix izin berhasil disimpan.');
         redirect('roles/matrix/' . $id);
+    }
+
+    // ---------------------------------------------------------------
+    // DAFTAR USER DALAM ROLE
+    // ---------------------------------------------------------------
+
+    public function users(int $id)
+    {
+        $this->require_permission(self::PAGE_INDEX);
+
+        $role = $this->Role_model->get_by_id($id);
+        if (!$role) show_404();
+
+        $data = [
+            'title'       => 'User dalam Role: ' . htmlspecialchars($role['role_name']),
+            'active_menu' => 'sys.roles',
+            'role'        => $role,
+            'users'       => $this->Role_model->get_users_in_role($id),
+        ];
+
+        $this->render('roles/users', $data);
     }
 }

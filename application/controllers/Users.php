@@ -109,6 +109,8 @@ class Users extends MY_Controller
 
         if ($user_id) {
             $role_ids = $this->input->post('role_ids') ?: [];
+            // Auto-include default role dari jabatan pegawai (jika ada)
+            $role_ids = $this->_merge_position_default_role($role_ids, $employeeId);
             $this->User_model->sync_roles($user_id, $role_ids, $this->current_user['id']);
 
             $this->session->set_flashdata('success', 'User berhasil dibuat.');
@@ -184,6 +186,8 @@ class Users extends MY_Controller
         ]);
 
         $role_ids = $this->input->post('role_ids') ?: [];
+        // Auto-include default role dari jabatan pegawai (jika ada)
+        $role_ids = $this->_merge_position_default_role($role_ids, $employeeId);
         $this->User_model->sync_roles($id, $role_ids, $this->current_user['id']);
 
         // Jika user yang diedit sedang login, refresh permissions
@@ -293,5 +297,41 @@ class Users extends MY_Controller
         }
 
         redirect('users/permissions/' . $id);
+    }
+
+    // ---------------------------------------------------------------
+    // PRIVATE HELPERS
+    // ---------------------------------------------------------------
+
+    /**
+     * Ambil default_role_id dari jabatan pegawai (via org_position),
+     * lalu merge ke dalam array role_ids yang dipilih admin.
+     * Jika tidak ada pegawai atau jabatan tidak punya default role, kembalikan apa adanya.
+     */
+    private function _merge_position_default_role(array $role_ids, int $employee_id): array
+    {
+        if ($employee_id <= 0) {
+            return $role_ids;
+        }
+
+        $row = $this->db->select('p.default_role_id')
+            ->from('org_employee e')
+            ->join('org_position p', 'p.id = e.position_id', 'left')
+            ->where('e.id', $employee_id)
+            ->limit(1)
+            ->get()->row_array();
+
+        $defaultRoleId = (int)($row['default_role_id'] ?? 0);
+        if ($defaultRoleId <= 0) {
+            return $role_ids;
+        }
+
+        // Tambahkan jika belum ada
+        $role_ids = array_map('intval', $role_ids);
+        if (!in_array($defaultRoleId, $role_ids, true)) {
+            $role_ids[] = $defaultRoleId;
+        }
+
+        return $role_ids;
     }
 }

@@ -1,5 +1,5 @@
 # Roadmap Pengembangan — Finance App
-**Terakhir diperbarui:** 2026-05-18  
+**Terakhir diperbarui:** 2026-05-18 (sinkronisasi kondisi kode aktual)  
 **Target selesai:** 31 Mei 2026 (stabilisasi)  
 **Target live:** 1 Juni 2026
 
@@ -28,10 +28,10 @@ Tahap 0  — Fondasi & Arsitektur         ✅ SELESAI
 Tahap 1  — Auth, RBAC & Sidebar         🟡 BERJALAN (90%)
 Tahap 2  — Master Data                  ✅ GATE CLOSED
 Tahap 3  — HR & Organisasi              🟡 BERJALAN (80%)
-Tahap 4  — Absensi                      🟡 BERJALAN (70%)
-Tahap 5  — Payroll & Penggajian         🟡 BERJALAN (80%)
-Tahap 6  — Pembelian (Purchase)         🟡 BERJALAN (75%)
-Tahap 7  — Inventori & Gudang           🟡 BERJALAN (40%)
+Tahap 4  — Absensi                      🟡 BERJALAN (95%)
+Tahap 5  — Payroll & Penggajian         🟡 BERJALAN (85%)
+Tahap 6  — Pembelian (Purchase)         🟡 BERJALAN (90%)
+Tahap 7  — Inventori & Gudang           🟡 BERJALAN (65%)
 Tahap 8  — Produksi & COGS              🔲 BELUM MULAI
 Tahap 9  — POS                          🟠 PERSIAPAN DESAIN
 Tahap 10 — Keuangan & Akuntansi         🟠 FONDASI DIMULAI
@@ -90,8 +90,8 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 - [x] Permission per halaman, cek `can()` di controller dan view
 
 **Yang belum selesai:**
-- [ ] Integrasi role mapping otomatis employee → role saat employee ditambahkan
-- [ ] Finalisasi dokumen status Tahap 1
+- [x] Integrasi role mapping otomatis employee → role saat employee ditambahkan (`Users.php` — `_merge_position_default_role()`)
+- [x] RBAC UI: user count per role clickable, division scope pada role (`auth_role.division_scope_id`), view daftar user per role
 - [ ] Audit log akses terintegrasi di `sys_audit_log`
 
 **Tabel kunci:**
@@ -129,7 +129,7 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 
 ### TAHAP 3 — HR & Organisasi 🟡
 
-**Status:** 80% (master operasional berjalan, masih perlu: RBAC sync otomatis)
+**Status:** 85% (master operasional berjalan, masih perlu: RBAC sync otomatis)
 
 **Yang sudah berjalan:**
 - [x] CRUD employee (nama, jabatan, divisi, NIP, rekening bank, status)
@@ -139,36 +139,40 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 - [x] Adopsi data pegawai dari `core` berjalan
 
 **Yang belum selesai:**
-- [ ] Integrasi role mapping otomatis employee → role (jabatan → role default)
+- [x] Integrasi role mapping otomatis employee → role (jabatan → `org_position.default_role_id` → `auth_role`)
 - [ ] Halaman riwayat kontrak per karyawan yang rapi
 
 ---
 
 ### TAHAP 4 — Absensi 🟡
 
-**Status:** 70% (alur admin + employee aktif, masih perlu: approval flow final, PH ledger)
+**Status:** 95% (hampir semua fitur berjalan, hanya export yang tersisa)
 
 **Yang sudah berjalan:**
 - [x] Tabel absensi terpadu `att_daily` (single source of truth)
 - [x] Admin: input manual absensi harian
 - [x] Admin: halaman `settings`, `daily`, `logs`, `schedules`, `pending-requests`, `anomalies`, `master-health`, `estimate`
-- [x] Employee: clock in/out dari portal My
+- [x] Employee: clock in/out dari portal My (`My::attendance_mark`)
 - [x] Master: shift, lokasi, hari libur (holiday)
 - [x] Policy lock per hari/per period aktif (snapshot policy mode/rate tersimpan di `att_daily`)
 - [x] Holiday grant: shift `PH`/`PHB`, anti-duplikat, insert idempotent
 - [x] Rekap harian dari `att_presence`
+- [x] Workflow approval izin/sakit/lembur: `pending_request_action` + `pending_request_bulk_action` di admin
+- [x] Employee portal pengajuan izin/sakit/koreksi (`My::leave_requests` POST handler aktif)
+- [x] Employee portal pembatalan pengajuan (`My::leave_request_cancel`)
+- [x] PH balance + ledger admin (`Attendance::ph_ledger`, `ph_assignments`, `ph_recap`)
+- [x] PH ledger employee (`My::ph_ledger`)
+- [x] Overtime entries admin + employee portal (`My::overtime`)
+- [x] Meal calendar dan meal ledger employee
 
 **Yang belum selesai:**
-- [ ] Workflow approval izin/sakit/lembur final (timeline per-level + history)
-- [ ] Halaman employee clock in/out + pengajuan koreksi/izin/sakit/lembur end-to-end
-- [ ] Halaman PH balance + ledger PH pegawai
 - [ ] Laporan absensi export (CSV/XLS)
 
 ---
 
 ### TAHAP 5 — Payroll & Penggajian 🟡
 
-**Status:** 80% (period/batch/slip aktif, masih perlu: THR, beberapa edge case)
+**Status:** 85% (period/batch/slip aktif, kasbon, meal disbursement — semua inti berjalan. Sisa: THR dan export)
 
 **Yang sudah berjalan:**
 - [x] Profil gaji karyawan (gaji pokok, tunjangan jabatan, tunjangan objektif)
@@ -182,17 +186,17 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 - [x] Audit checker payroll period (UI + CLI `tools/payroll_audit_checker.php`)
 - [x] Guard dobel kandidat disbursement (NOT EXISTS + unique per payroll_result)
 - [x] Tab gaji final employee pakai snapshot line disbursement agar histori tidak drift
+- [x] Employee portal: payroll, payroll_slip, cash_advance, manual_adjustments
 
 **Yang belum selesai:**
 - [ ] THR / bonus period terintegrasi ke hasil payroll
-- [ ] Sinkronisasi detail breakdown payroll lintas halaman (final check semua angka match)
 - [ ] Laporan payroll export
 
 ---
 
 ### TAHAP 6 — Pembelian (Purchase) 🟡
 
-**Status:** 75% (fondasi berjalan, masih perlu: UOM BELI/ISI di form PO, store request)
+**Status:** 90% (Store Request sudah berjalan penuh via controller Procurement, UOM BELI/ISI sudah ada di data layer)
 
 **Yang sudah berjalan:**
 - [x] Purchase Order CRUD + status flow
@@ -205,33 +209,38 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 - [x] Opening stok gudang / divisi (split halaman)
 - [x] Opname bulanan + opening bulan berikutnya
 - [x] Komponen penyesuaian stok: WASTE/SPOILAGE/PROCESS_LOSS/VARIANCE/ADJUSTMENT_PLUS
-- [x] Remap key catalog untuk DIVISION (script idempotent tersedia)
-- [x] Remap key catalog untuk WAREHOUSE (script tersedia, konflik parsial menunggu merge)
+- [x] Remap key catalog untuk DIVISION dan WAREHOUSE
 - [x] Permission + menu RBAC purchase
+- [x] UOM BELI / UOM ISI (`buy_uom_id` + `content_uom_id`) ada di controller dan data layer
+- [x] Store Request penuh: CRUD, SUBMIT/APPROVE/REJECT, FULFILL, VOID (`Procurement` controller)
+- [x] Store Request → generate PO otomatis (`store_request_generate_po`)
+- [x] Division PO SR: workbench penghubung SR ke PO
 
 **Yang belum selesai:**
-- [ ] Integrasi UOM BELI / UOM ISI di form PO (tampil konteks pack profile)
-- [ ] Store Request: permintaan barang dari divisi → PO
-- [ ] Dokumentasi alur user Purchase final
+- [ ] UI form PO: tampilkan konteks pack profile (nama brand, isi/kemasan) saat memilih item (UX enhancement)
+- [ ] Dokumentasi alur user Purchase + Store Request final
 
 ---
 
 ### TAHAP 7 — Inventori & Gudang 🟡
 
-**Status:** 40% (opening/opname berjalan, posting dari purchase belum)
+**Status:** 65% (opening/opname/receipt/views berjalan, flow item→material ada, distribusi otomatis belum)
 
 **Yang sudah berjalan:**
-- [x] Opening stok gudang
+- [x] Opening stok gudang dan divisi
 - [x] Opname bulanan gudang dan divisi
 - [x] Ledger pergerakan stok (log)
 - [x] Balance stok gudang dan divisi
 - [x] Komponen adjustment (waste, variance, dll.)
+- [x] Receipt purchase → posting stok gudang (`receipt_store` aktif)
+- [x] View daily matrix gudang dan material
+- [x] View movement gudang dan divisi
+- [x] Flow item → material (`Inventory_flow::item_material` + `inv_item_material_source_map`)
 
 **Yang belum selesai:**
-- [ ] Posting dari receipt purchase ke gudang item (flow lengkap)
-- [ ] Distribusi gudang item → stok material via `mst_material_item_source`
+- [ ] Distribusi otomatis gudang item → stok material via `mst_material_item_source` (trigger dari receipt/transfer)
 - [ ] Lot tracking bahan baku stabil
-- [ ] Hardening ledger: konsistensi balance setelah setiap transaksi
+- [ ] Hardening ledger: konsistensi balance setelah setiap transaksi diaudit end-to-end
 
 ---
 
@@ -307,8 +316,11 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 
 | Tanggal | Target |
 |---|---|
-| 25 Mei 2026 | Tahap 3/4/5 checklist selesai semua |
-| 28 Mei 2026 | Store Request + UOM BELI/ISI di PO berjalan |
+| 20 Mei 2026 | Tahap 4 selesai: export absensi CSV/XLS |
+| 22 Mei 2026 | Tahap 5: THR/bonus terintegrasi ke payroll |
+| 24 Mei 2026 | Tahap 3: auto role mapping employee → role |
+| 26 Mei 2026 | Tahap 6: UX pack profile context di form PO (polish) |
+| 28 Mei 2026 | Tahap 7: distribusi otomatis item → material via `mst_material_item_source` |
 | 31 Mei 2026 | Stabilisasi — semua modul yang ada bebas bug kritis |
 | 1 Jun 2026 | Go-live: modul HR/Payroll/Purchase/Inventory aktif |
 | 30 Jun 2026 | POS minimum viable berjalan |
