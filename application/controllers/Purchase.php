@@ -26,11 +26,20 @@ class Purchase extends MY_Controller
     {
         $this->require_permission(self::PAGE_ORDER, 'view');
 
+        $today = date('Y-m-d');
         $q = trim((string)$this->input->get('q', true));
         $status = strtoupper(trim((string)$this->input->get('status', true)));
+        $dateStart = trim((string)$this->input->get('date_start', true));
+        $dateEnd = trim((string)$this->input->get('date_end', true));
         $tab = strtolower(trim((string)$this->input->get('tab', true)));
         if (!in_array($tab, ['nota', 'rincian'], true)) {
             $tab = 'nota';
+        }
+        if ($dateStart === '') {
+            $dateStart = $today;
+        }
+        if ($dateEnd === '') {
+            $dateEnd = $today;
         }
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 300) {
@@ -43,11 +52,13 @@ class Purchase extends MY_Controller
             'summary' => $this->Purchase_model->get_dashboard_summary(),
             'q' => $q,
             'status' => $status,
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
             'tab' => $tab,
             'limit' => $limit,
             'status_options' => ['ALL', 'DRAFT', 'APPROVED', 'ORDERED', 'REJECTED', 'PARTIAL_RECEIVED', 'RECEIVED', 'PAID', 'VOID'],
-            'rows' => $this->Purchase_model->list_purchase_orders_dashboard($q, $status, $limit),
-            'line_rows' => $this->Purchase_model->list_purchase_order_lines_dashboard($q, $status, $limit),
+            'rows' => $this->Purchase_model->list_purchase_orders_dashboard($q, $status, $dateStart, $dateEnd, $limit),
+            'line_rows' => $this->Purchase_model->list_purchase_order_lines_dashboard($q, $status, $dateStart, $dateEnd, $limit),
         ];
 
         $this->render('purchase/index', $data);
@@ -155,6 +166,50 @@ class Purchase extends MY_Controller
             ->set_output(json_encode($result));
     }
 
+    public function repair_inventory_opening_history_cli()
+    {
+        if (!$this->input->is_cli_request()) {
+            show_404();
+            return;
+        }
+
+        $argv = $_SERVER['argv'] ?? [];
+        $cliArgs = [];
+        for ($i = 3; $i < count($argv); $i += 2) {
+            $key = isset($argv[$i]) ? trim((string)$argv[$i]) : '';
+            if ($key === '') {
+                continue;
+            }
+            $cliArgs[$key] = isset($argv[$i + 1]) ? trim((string)$argv[$i + 1]) : '';
+        }
+
+        $scope = strtoupper(trim((string)($cliArgs['scope'] ?? 'WAREHOUSE')));
+        $monthFrom = trim((string)($cliArgs['month_from'] ?? date('Y-m-01')));
+        $itemId = (int)($cliArgs['item_id'] ?? 0);
+        $limit = (int)($cliArgs['limit'] ?? 500);
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->repair_inventory_opening_history([
+                'stock_scope' => $scope,
+                'month_from' => $monthFrom,
+                'item_id' => $itemId,
+                'limit' => $limit,
+            ], 0, 'CLI');
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            fwrite(STDERR, (string)($result['message'] ?? 'Repair opening gagal.') . PHP_EOL);
+            exit(1);
+        }
+
+        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+        exit(0);
+    }
+
     public function reclassify_profile_domain_index()
     {
         if (
@@ -220,7 +275,7 @@ class Purchase extends MY_Controller
             'divisions' => $this->Purchase_model->list_active_operational_divisions(),
             'uoms' => $this->Purchase_model->list_active_uoms(),
             'payment_accounts' => $this->Purchase_model->list_active_payment_accounts(),
-            'status_options' => ['DRAFT', 'APPROVED', 'ORDERED', 'REJECTED', 'PARTIAL_RECEIVED', 'RECEIVED', 'PAID', 'VOID'],
+            'status_options' => ['DRAFT'],
         ];
 
         $this->render('purchase/order_create', $data);
@@ -264,6 +319,33 @@ class Purchase extends MY_Controller
         ];
 
         $this->render('purchase/order_create', $data);
+    }
+
+    public function vendor_quick_store()
+    {
+        if (!$this->can(self::PAGE_ORDER, 'create') && !$this->can(self::PAGE_ORDER, 'edit')) {
+            $this->jsonError('Anda tidak memiliki izin untuk menambah vendor dari halaman purchase.', 403);
+            return;
+        }
+
+        $payload = $this->requestPayload();
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->quick_create_vendor($payload);
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal menambah vendor.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
     }
 
     public function account_index()
@@ -356,7 +438,7 @@ class Purchase extends MY_Controller
 
     public function stock_opening_index()
     {
-        redirect('purchase/stock/opening/warehouse');
+        redirect('inventory/stock/opening/warehouse');
     }
 
     public function stock_opening_warehouse_index()
@@ -377,7 +459,7 @@ class Purchase extends MY_Controller
             'active_menu' => 'purchase.stock.opening.warehouse',
             'stock_scope' => 'WAREHOUSE',
             'is_division_scope' => false,
-            'base_url_opening' => 'purchase/stock/opening/warehouse',
+            'base_url_opening' => 'inventory/stock/opening/warehouse',
             'month' => $month,
             'q' => $q,
             'division_id' => 0,
@@ -414,7 +496,7 @@ class Purchase extends MY_Controller
             'active_menu' => 'purchase.stock.opening.division',
             'stock_scope' => 'DIVISION',
             'is_division_scope' => true,
-            'base_url_opening' => 'purchase/stock/opening/division',
+            'base_url_opening' => 'inventory/stock/opening/division',
             'month' => $month,
             'q' => $q,
             'division_id' => $divisionId,
@@ -465,11 +547,17 @@ class Purchase extends MY_Controller
 
         $payload = $this->requestPayload();
         unset($payload['adjustment_category'], $payload['adjustment_reason_code']);
-        $result = $this->Purchase_model->store_warehouse_opening_and_post(
-            $payload,
-            (int)($this->current_user['id'] ?? 0),
-            (string)$this->input->ip_address()
-        );
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->store_warehouse_opening_and_post(
+                $payload,
+                (int)($this->current_user['id'] ?? 0),
+                (string)$this->input->ip_address()
+            );
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
 
         if (!($result['ok'] ?? false)) {
             $this->jsonError((string)($result['message'] ?? 'Gagal menyimpan opening gudang.'), 422);
@@ -534,11 +622,11 @@ class Purchase extends MY_Controller
 
         $scope = strtoupper(trim((string)($payload['stock_scope'] ?? 'WAREHOUSE')));
         if ($scope === 'DIVISION') {
-            redirect('purchase/stock/division/daily?month=' . date('Y-m', strtotime((string)($payload['month'] ?? date('Y-m-01')))));
+            redirect('inventory/stock/division/daily?month=' . date('Y-m', strtotime((string)($payload['month'] ?? date('Y-m-01')))));
             return;
         }
 
-        redirect('purchase/stock/warehouse/daily?month=' . date('Y-m', strtotime((string)($payload['month'] ?? date('Y-m-01')))));
+        redirect('inventory/stock/warehouse/daily?month=' . date('Y-m', strtotime((string)($payload['month'] ?? date('Y-m-01')))));
     }
 
     public function stock_warehouse_daily_index()
@@ -1147,6 +1235,7 @@ class Purchase extends MY_Controller
 
         $payload = $this->requestPayload();
         $header = (array)($payload['header'] ?? []);
+        $header['status'] = 'DRAFT';
         $lines = $payload['lines'] ?? [];
 
         if (!is_array($lines) || empty($lines)) {
@@ -1236,6 +1325,13 @@ class Purchase extends MY_Controller
         $payload = $this->requestPayload();
         $header = (array)($payload['header'] ?? []);
         $lines = $payload['lines'] ?? [];
+        $targetStatus = strtoupper(trim((string)($header['status'] ?? '')));
+        $currentStatus = '';
+
+        $editability = $this->Purchase_model->get_order_data_editability($purchaseOrderId);
+        if ($editability['ok'] ?? false) {
+            $currentStatus = strtoupper(trim((string)($editability['data']['status'] ?? '')));
+        }
 
         if (!is_array($lines) || empty($lines)) {
             $this->jsonError('Baris purchase order wajib diisi.', 422);
@@ -1265,6 +1361,22 @@ class Purchase extends MY_Controller
         if (!($result['ok'] ?? false)) {
             $this->jsonError((string)($result['message'] ?? 'Gagal update purchase order.'), 422);
             return;
+        }
+
+        if ($targetStatus !== '' && $currentStatus !== '' && $targetStatus !== $currentStatus) {
+            $statusResult = $this->Purchase_model->update_order_status(
+                $purchaseOrderId,
+                $targetStatus,
+                (int)($this->current_user['id'] ?? 0),
+                (string)$this->input->ip_address()
+            );
+            if (!($statusResult['ok'] ?? false)) {
+                $this->jsonError('Data PO tersimpan, tetapi ubah status gagal: ' . (string)($statusResult['message'] ?? 'error'), 422);
+                return;
+            }
+
+            $result['message'] = 'Purchase order berhasil diperbarui dan status ditinjau ulang.';
+            $result['data']['status_change'] = (array)($statusResult['data'] ?? []);
         }
 
         $this->output
@@ -1409,7 +1521,7 @@ class Purchase extends MY_Controller
             $headerKeys = [
                 'po_no', 'request_date', 'expected_date', 'purchase_type_id', 'destination_type',
                 'destination_division_id', 'vendor_id', 'payment_account_id', 'status',
-                'currency_code', 'exchange_rate', 'external_ref_no', 'notes',
+                'currency_code', 'exchange_rate', 'external_ref_no', 'notes', 'review_confirmed',
             ];
             $header = [];
             foreach ($headerKeys as $key) {

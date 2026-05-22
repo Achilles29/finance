@@ -30,6 +30,7 @@ class Procurement extends MY_Controller
     public function store_requests()
     {
         $this->require_permission(self::PAGE_WORKBENCH, 'view');
+        $today = date('Y-m-d');
         $activeTab = strtolower(trim((string)$this->input->get('tab', true)));
         if (!in_array($activeTab, ['nota', 'rincian'], true)) {
             $activeTab = 'nota';
@@ -43,6 +44,12 @@ class Procurement extends MY_Controller
             'date_start' => trim((string)$this->input->get('date_start', true)),
             'date_end' => trim((string)$this->input->get('date_end', true)),
         ];
+        if ($filters['date_start'] === '') {
+            $filters['date_start'] = $today;
+        }
+        if ($filters['date_end'] === '') {
+            $filters['date_end'] = $today;
+        }
         $limit = (int)$this->input->get('limit', true);
         if (!in_array($limit, [25, 50, 100, 200], true)) {
             $limit = 50;
@@ -84,6 +91,7 @@ class Procurement extends MY_Controller
                 $this->can(self::PAGE_WORKBENCH, 'edit')
                 || in_array(strtoupper((string)($this->current_user['role_code'] ?? '')), ['SUPERADMIN', 'CEO', 'ADMIN'], true)
             ),
+            'can_repair_history' => $this->canRepairStoreRequestHistory(),
         ];
         $this->render('procurement/store_requests', $data);
     }
@@ -166,17 +174,60 @@ class Procurement extends MY_Controller
         $this->render('procurement/store_request_form', $data);
     }
 
-    public function division_po_sr()
+    public function store_request_detail(int $id = 0)
     {
         $this->require_permission(self::PAGE_WORKBENCH, 'view');
+        if ($id <= 0) {
+            show_404();
+            return;
+        }
+
+        $detail = $this->Procurement_model->get_store_request_detail($id);
+        if (!$detail) {
+            show_404();
+            return;
+        }
+
+        $data = [
+            'title' => 'Store Request / Detail',
+            'active_menu' => 'procurement.store-request',
+            'detail' => $detail,
+        ];
+
+        $this->render('procurement/store_request_detail', $data);
+    }
+
+    public function division_po_sr()
+    {
+        $scope = $this->divisionPoSrScope();
+        if (!$scope['can_view']) {
+            show_error('Anda tidak memiliki akses ke pengajuan divisi.', 403, 'Akses Ditolak');
+            return;
+        }
 
         $filters = [
+            'tab' => trim((string)$this->input->get('tab', true)),
             'q' => trim((string)$this->input->get('q', true)),
             'status' => strtoupper(trim((string)$this->input->get('status', true))),
             'division_id' => (int)$this->input->get('division_id', true),
             'date_start' => trim((string)$this->input->get('date_start', true)),
             'date_end' => trim((string)$this->input->get('date_end', true)),
         ];
+        if (!in_array($filters['tab'], ['notes', 'lines'], true)) {
+            $filters['tab'] = 'notes';
+        }
+        if (!$scope['is_purchase']) {
+            $filters['allowed_division_ids'] = $scope['allowed_division_ids'];
+            if (
+                $filters['division_id'] > 0
+                && !in_array((int)$filters['division_id'], $scope['allowed_division_ids'], true)
+            ) {
+                $filters['division_id'] = 0;
+            }
+            if ($filters['division_id'] <= 0 && count($scope['allowed_division_ids']) === 1) {
+                $filters['division_id'] = (int)$scope['allowed_division_ids'][0];
+            }
+        }
         $limit = (int)$this->input->get('limit', true);
         if (!in_array($limit, [25, 50, 100, 200], true)) {
             $limit = 50;
@@ -194,14 +245,217 @@ class Procurement extends MY_Controller
             'active_menu' => 'procurement.division',
             'has_schema' => $this->Procurement_model->has_division_request_schema(),
             'filters' => $filters,
+            'active_tab' => $filters['tab'],
             'limit' => $limit,
             'rows' => $rows,
+            'line_rows' => $this->Procurement_model->list_division_request_line_rows($filters, $limit),
             'links_map' => $this->Procurement_model->list_division_request_links_map($requestIds),
-            'division_options' => $this->Purchase_model->list_active_operational_divisions(),
-            'can_create' => $this->can(self::PAGE_WORKBENCH, 'create'),
+            'division_options' => $scope['division_options'],
+            'can_create' => $scope['can_create'],
+            'can_verify' => $scope['can_verify'],
+            'can_manage_own' => $scope['can_edit_own'],
+            'is_purchase_scope' => $scope['is_purchase'],
         ];
 
         $this->render('procurement/division_po_sr', $data);
+    }
+
+    public function division_po_sr_create()
+    {
+        $scope = $this->divisionPoSrScope();
+        if (!$scope['can_create']) {
+            show_error('Anda tidak memiliki akses membuat pengajuan divisi.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $destinationGuardMap = $this->Procurement_model->build_destination_guard_map($scope['division_options']);
+        $defaultDivisionId = (int)($scope['default_division_id'] ?? 0);
+        $defaultDestination = (string)(($destinationGuardMap[$defaultDivisionId] ?? ['OTHER'])[0] ?? 'OTHER');
+
+        $header = [
+            'request_date' => date('Y-m-d'),
+            'needed_date' => date('Y-m-d'),
+            'division_id' => (int)($scope['default_division_id'] ?? 0),
+            'destination_type' => $defaultDestination,
+            'notes' => '',
+            'request_no' => '',
+            'status' => 'SUBMITTED',
+        ];
+        $lines = [];
+
+        if (strtolower((string)$this->input->method()) === 'post') {
+            [$headerInput, $linesInput] = $this->readDivisionRequestFormPayload();
+            if ($headerInput !== null) {
+                $header = array_merge($header, $headerInput);
+                $lines = $linesInput;
+                if (!$scope['is_purchase']) {
+                    $header['division_id'] = $this->sanitizeDivisionRequestDivisionId((int)($header['division_id'] ?? 0), $scope);
+                }
+
+                $dbDebugBefore = (bool)$this->db->db_debug;
+                $this->db->db_debug = false;
+                try {
+                    $result = $this->Procurement_model->create_division_request(
+                        $header,
+                        $lines,
+                        (int)($this->current_user['id'] ?? 0),
+                        (string)$this->input->ip_address()
+                    );
+                } finally {
+                    $this->db->db_debug = $dbDebugBefore;
+                }
+
+                if ($result['ok'] ?? false) {
+                    $this->session->set_flashdata('success', (string)($result['message'] ?? 'Pengajuan divisi berhasil dibuat.'));
+                    redirect('procurement/division-po-sr/detail/' . (int)($result['data']['request_id'] ?? 0));
+                    return;
+                }
+
+                $this->session->set_flashdata('error', (string)($result['message'] ?? 'Gagal membuat pengajuan divisi.'));
+            }
+        }
+
+        $this->render('procurement/division_po_sr_form', [
+            'title' => 'Buat Pengajuan Divisi',
+            'active_menu' => 'procurement.division',
+            'mode' => 'create',
+            'header' => $header,
+            'lines' => $lines,
+            'division_options' => $scope['division_options'],
+            'destination_options' => $this->Procurement_model->list_destination_options(),
+            'destination_guard_map' => $destinationGuardMap,
+            'uom_options' => $this->Purchase_model->list_active_uoms(),
+            'vendor_options' => $this->Purchase_model->list_active_vendors(),
+            'is_purchase_scope' => $scope['is_purchase'],
+            'can_verify' => false,
+        ]);
+    }
+
+    public function division_po_sr_edit(int $id = 0)
+    {
+        $scope = $this->divisionPoSrScope();
+        if (!$scope['can_view'] || $id <= 0) {
+            show_error('Pengajuan divisi tidak ditemukan atau tidak dapat diakses.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $detail = $this->Procurement_model->get_division_request_detail($id);
+        if (!$detail) {
+            show_404();
+            return;
+        }
+        if (!$this->isDivisionRequestAccessible((int)($detail['header']['division_id'] ?? 0), $scope)) {
+            show_error('Pengajuan ini berada di luar scope divisi Anda.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $status = strtoupper((string)($detail['header']['status'] ?? 'SUBMITTED'));
+        $hasDocs = !empty((array)($detail['links'] ?? []));
+        $canVerify = $scope['can_verify'] && $status === 'SUBMITTED';
+        $canEditOwn = $scope['can_edit_own'] && in_array($status, ['SUBMITTED', 'REJECTED'], true) && !$hasDocs;
+        if (!$canVerify && !$canEditOwn) {
+            $this->session->set_flashdata('error', 'Pengajuan ini tidak dapat diedit pada status saat ini.');
+            redirect('procurement/division-po-sr/detail/' . $id);
+            return;
+        }
+
+        $destinationGuardMap = $this->Procurement_model->build_destination_guard_map($scope['division_options']);
+
+        $header = [
+            'request_no' => (string)($detail['header']['request_no'] ?? ''),
+            'request_date' => (string)($detail['header']['request_date'] ?? date('Y-m-d')),
+            'needed_date' => (string)($detail['header']['needed_date'] ?? date('Y-m-d')),
+            'division_id' => (int)($detail['header']['division_id'] ?? 0),
+            'destination_type' => (string)($detail['header']['destination_type'] ?? (($destinationGuardMap[(int)($detail['header']['division_id'] ?? 0)] ?? ['OTHER'])[0] ?? 'OTHER')),
+            'notes' => (string)($detail['header']['notes'] ?? ''),
+            'status' => (string)($detail['header']['status'] ?? 'SUBMITTED'),
+        ];
+        $lines = (array)($detail['lines'] ?? []);
+
+        if (strtolower((string)$this->input->method()) === 'post') {
+            [$headerInput, $linesInput] = $this->readDivisionRequestFormPayload();
+            if ($headerInput !== null) {
+                $header = array_merge($header, $headerInput);
+                $header['division_id'] = (int)($detail['header']['division_id'] ?? 0);
+                $lines = $linesInput;
+
+                $dbDebugBefore = (bool)$this->db->db_debug;
+                $this->db->db_debug = false;
+                try {
+                    $result = $canVerify
+                        ? $this->Procurement_model->verify_division_request(
+                            $id,
+                            $header,
+                            $lines,
+                            (int)($this->current_user['id'] ?? 0),
+                            (string)$this->input->ip_address()
+                        )
+                        : $this->Procurement_model->update_division_request(
+                            $id,
+                            $header,
+                            $lines,
+                            (int)($this->current_user['id'] ?? 0)
+                        );
+                } finally {
+                    $this->db->db_debug = $dbDebugBefore;
+                }
+
+                if ($result['ok'] ?? false) {
+                    $this->session->set_flashdata('success', (string)($result['message'] ?? 'Pengajuan divisi berhasil diperbarui.'));
+                    redirect('procurement/division-po-sr/detail/' . $id);
+                    return;
+                }
+
+                $this->session->set_flashdata('error', (string)($result['message'] ?? 'Gagal memproses pengajuan divisi.'));
+            }
+        }
+
+        $this->render('procurement/division_po_sr_form', [
+            'title' => $canVerify ? 'Verifikasi Pengajuan Divisi' : 'Edit Pengajuan Divisi',
+            'active_menu' => 'procurement.division',
+            'mode' => $canVerify ? 'verify' : 'edit',
+            'request_id' => $id,
+            'header' => $header,
+            'lines' => $lines,
+            'division_options' => $scope['division_options'],
+            'destination_options' => $this->Procurement_model->list_destination_options(),
+            'destination_guard_map' => $destinationGuardMap,
+            'uom_options' => $this->Purchase_model->list_active_uoms(),
+            'vendor_options' => $this->Purchase_model->list_active_vendors(),
+            'is_purchase_scope' => $scope['is_purchase'],
+            'can_verify' => $canVerify,
+        ]);
+    }
+
+    public function division_po_sr_profile_search()
+    {
+        $this->require_permission(self::PAGE_WORKBENCH, 'view');
+
+        $q = trim((string)$this->input->get('q', true));
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 100) {
+            $limit = 20;
+        }
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Procurement_model->search_division_request_candidates($q, $limit);
+        } catch (Throwable $e) {
+            $this->db->db_debug = $dbDebugBefore;
+            $this->jsonError('Gagal memuat kandidat pengajuan divisi: ' . $e->getMessage(), 500);
+            return;
+        }
+        $this->db->db_debug = $dbDebugBefore;
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => true,
+                'rows' => (array)($result['rows'] ?? []),
+                'source' => (string)($result['source'] ?? 'EMPTY'),
+                'allow_manual' => !empty($result['allow_manual']),
+            ]));
     }
 
     public function division_po_sr_store()
@@ -235,6 +489,142 @@ class Procurement extends MY_Controller
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($result));
+    }
+
+    public function division_po_sr_detail(int $id = 0)
+    {
+        $scope = $this->divisionPoSrScope();
+        if (!$scope['can_view'] || $id <= 0) {
+            show_error('Pengajuan divisi tidak ditemukan atau tidak dapat diakses.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $detail = $this->Procurement_model->get_division_request_detail($id);
+        if (!$detail) {
+            show_404();
+            return;
+        }
+        if (!$this->isDivisionRequestAccessible((int)($detail['header']['division_id'] ?? 0), $scope)) {
+            show_error('Pengajuan ini berada di luar scope divisi Anda.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $status = strtoupper((string)($detail['header']['status'] ?? 'SUBMITTED'));
+        $hasDocs = !empty((array)($detail['links'] ?? []));
+        $canVerify = $scope['can_verify'] && $status === 'SUBMITTED';
+        $canEditOwn = $scope['can_edit_own'] && in_array($status, ['SUBMITTED', 'REJECTED'], true) && !$hasDocs;
+        $canVoid = ($scope['can_verify'] || $canEditOwn) && in_array($status, ['SUBMITTED', 'REJECTED'], true);
+
+        $this->render('procurement/division_po_sr_detail', [
+            'title' => 'Detail Pengajuan Divisi',
+            'active_menu' => 'procurement.division',
+            'detail' => $detail,
+            'can_verify' => $canVerify,
+            'can_edit' => $canEditOwn,
+            'can_reject' => $scope['can_verify'] && $status === 'SUBMITTED',
+            'can_void' => $canVoid,
+            'is_purchase_scope' => $scope['is_purchase'],
+        ]);
+    }
+
+    public function division_po_sr_verify(int $id = 0)
+    {
+        $this->require_permission(self::PAGE_WORKBENCH, 'edit');
+        if ($id <= 0) {
+            $this->jsonError('Request ID tidak valid.', 422);
+            return;
+        }
+
+        $payload = $this->requestPayload();
+        $header = (array)($payload['header'] ?? []);
+        $lines = $payload['lines'] ?? [];
+        if (!is_array($lines) || empty($lines)) {
+            $this->jsonError('Baris hasil verifikasi wajib diisi.', 422);
+            return;
+        }
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Procurement_model->verify_division_request(
+                $id,
+                $header,
+                $lines,
+                (int)($this->current_user['id'] ?? 0),
+                (string)$this->input->ip_address()
+            );
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal menyimpan verifikasi purchase.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    public function division_po_sr_action(int $id = 0)
+    {
+        if (strtolower((string)$this->input->method()) !== 'post') {
+            show_error('Method tidak diizinkan.', 405, 'Method Not Allowed');
+            return;
+        }
+        if ($id <= 0) {
+            show_404();
+            return;
+        }
+
+        $scope = $this->divisionPoSrScope();
+        if (!$scope['can_view']) {
+            show_error('Anda tidak memiliki akses ke pengajuan divisi.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $detail = $this->Procurement_model->get_division_request_detail($id);
+        if (!$detail || !$this->isDivisionRequestAccessible((int)($detail['header']['division_id'] ?? 0), $scope)) {
+            show_error('Pengajuan ini berada di luar scope divisi Anda.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $action = strtoupper(trim((string)$this->input->post('action', true)));
+        $notes = trim((string)$this->input->post('notes', true));
+        if ($action === '') {
+            $this->session->set_flashdata('error', 'Action wajib diisi.');
+            redirect('procurement/division-po-sr/detail/' . $id);
+            return;
+        }
+
+        if ($action === 'REJECT' && !$scope['can_verify']) {
+            show_error('Hanya purchase yang dapat me-reject pengajuan.', 403, 'Akses Ditolak');
+            return;
+        }
+        if ($action === 'VOID' && !($scope['can_verify'] || $scope['can_edit_own'])) {
+            show_error('Anda tidak memiliki akses untuk meng-void pengajuan.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Procurement_model->apply_division_request_action(
+                $id,
+                $action,
+                $notes,
+                (int)($this->current_user['id'] ?? 0)
+            );
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        $this->session->set_flashdata(
+            ($result['ok'] ?? false) ? 'success' : 'error',
+            (string)($result['message'] ?? 'Gagal memproses aksi pengajuan divisi.')
+        );
+        redirect('procurement/division-po-sr/detail/' . $id);
     }
 
     public function store_request_profile_search()
@@ -382,7 +772,17 @@ class Procurement extends MY_Controller
             return;
         }
 
-        $result = $this->Procurement_model->preview_split($id);
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Procurement_model->preview_split($id);
+        } catch (Throwable $e) {
+            $this->db->db_debug = $dbDebugBefore;
+            $this->jsonError('Gagal membaca split shortage: ' . $e->getMessage(), 500);
+            return;
+        }
+        $this->db->db_debug = $dbDebugBefore;
+
         if (!($result['ok'] ?? false)) {
             $this->jsonError((string)($result['message'] ?? 'Gagal membaca split shortage.'), 422);
             return;
@@ -414,12 +814,53 @@ class Procurement extends MY_Controller
                 $notes,
                 (int)($this->current_user['id'] ?? 0)
             );
+        } catch (Throwable $e) {
+            $this->db->db_debug = $dbDebugBefore;
+            $this->jsonError('Gagal posting fulfillment: ' . $e->getMessage(), 500);
+            return;
         } finally {
             $this->db->db_debug = $dbDebugBefore;
         }
 
         if (!($result['ok'] ?? false)) {
             $this->jsonError((string)($result['message'] ?? 'Gagal posting fulfillment.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    public function store_request_repair_history(int $id = 0)
+    {
+        $this->require_permission(self::PAGE_WORKBENCH, 'edit');
+        if ($id <= 0) {
+            $this->jsonError('Request ID tidak valid.', 422);
+            return;
+        }
+        if (!$this->canRepairStoreRequestHistory()) {
+            $this->jsonError('Akses repair histori SR dibatasi untuk admin.', 403);
+            return;
+        }
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Procurement_model->repair_void_store_request_history(
+                $id,
+                (int)($this->current_user['id'] ?? 0)
+            );
+        } catch (Throwable $e) {
+            $this->db->db_debug = $dbDebugBefore;
+            $this->jsonError('Gagal repair histori SR: ' . $e->getMessage(), 500);
+            return;
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal repair histori SR.'), 422);
             return;
         }
 
@@ -505,6 +946,143 @@ class Procurement extends MY_Controller
             ]));
     }
 
+    private function divisionPoSrScope(): array
+    {
+        static $scope = null;
+        if ($scope !== null) {
+            return $scope;
+        }
+
+        $roleCode = strtoupper((string)($this->current_user['role_code'] ?? ''));
+        $isAdminRole = in_array($roleCode, ['SUPERADMIN', 'CEO', 'ADMIN'], true);
+        $canModuleView = $this->can(self::PAGE_WORKBENCH, 'view');
+        $canModuleCreate = $this->can(self::PAGE_WORKBENCH, 'create');
+        $canModuleEdit = $this->can(self::PAGE_WORKBENCH, 'edit');
+        $isPurchase = $canModuleEdit || $isAdminRole;
+
+        $allDivisionOptions = $this->Purchase_model->list_active_operational_divisions();
+        $divisionScope = $this->resolveCurrentUserDivisionScope($allDivisionOptions);
+
+        $canDivisionScopedCrud = !empty($divisionScope['allowed_division_ids']);
+        $scope = [
+            'is_purchase' => $isPurchase,
+            'can_view' => $canModuleView || $isPurchase || $canDivisionScopedCrud,
+            'can_create' => $canModuleCreate || $isPurchase || $canDivisionScopedCrud,
+            'can_edit_own' => !$isPurchase && ($canModuleCreate || $canDivisionScopedCrud),
+            'can_verify' => $isPurchase,
+            'allowed_division_ids' => $isPurchase ? [] : (array)$divisionScope['allowed_division_ids'],
+            'division_options' => $isPurchase ? $allDivisionOptions : (array)$divisionScope['division_options'],
+            'default_division_id' => $isPurchase
+                ? (int)($allDivisionOptions[0]['id'] ?? 0)
+                : (int)($divisionScope['default_division_id'] ?? 0),
+        ];
+
+        return $scope;
+    }
+
+    private function resolveCurrentUserDivisionScope(array $allDivisionOptions): array
+    {
+        $employeeId = (int)($this->current_user['employee_id'] ?? 0);
+        if ($employeeId <= 0) {
+            return [
+                'allowed_division_ids' => [],
+                'division_options' => [],
+                'default_division_id' => 0,
+            ];
+        }
+
+        $employee = $this->db
+            ->select('d.division_code, d.division_name')
+            ->from('org_employee e')
+            ->join('org_division d', 'd.id = e.division_id', 'left')
+            ->where('e.id', $employeeId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        $divisionCode = strtoupper(trim((string)($employee['division_code'] ?? '')));
+        $allowedCodes = [];
+        if ($divisionCode === 'BAR') {
+            $allowedCodes = ['BAR', 'BAR_EVENT'];
+        } elseif ($divisionCode === 'KITCHEN') {
+            $allowedCodes = ['KITCHEN', 'KITCHEN_EVENT'];
+        }
+
+        if (empty($allowedCodes)) {
+            return [
+                'allowed_division_ids' => [],
+                'division_options' => [],
+                'default_division_id' => 0,
+            ];
+        }
+
+        $divisionOptions = [];
+        foreach ($allDivisionOptions as $option) {
+            $code = strtoupper(trim((string)($option['code'] ?? '')));
+            if (in_array($code, $allowedCodes, true)) {
+                $divisionOptions[] = $option;
+            }
+        }
+
+        return [
+            'allowed_division_ids' => array_values(array_map(static function ($option) {
+                return (int)($option['id'] ?? 0);
+            }, $divisionOptions)),
+            'division_options' => $divisionOptions,
+            'default_division_id' => (int)($divisionOptions[0]['id'] ?? 0),
+        ];
+    }
+
+    private function isDivisionRequestAccessible(int $divisionId, array $scope): bool
+    {
+        if ($scope['is_purchase'] ?? false) {
+            return true;
+        }
+        return $divisionId > 0 && in_array($divisionId, (array)($scope['allowed_division_ids'] ?? []), true);
+    }
+
+    private function sanitizeDivisionRequestDivisionId(int $divisionId, array $scope): int
+    {
+        $allowedDivisionIds = (array)($scope['allowed_division_ids'] ?? []);
+        if (empty($allowedDivisionIds)) {
+            return $divisionId;
+        }
+        if (in_array($divisionId, $allowedDivisionIds, true)) {
+            return $divisionId;
+        }
+        return (int)($allowedDivisionIds[0] ?? 0);
+    }
+
+    private function readDivisionRequestFormPayload(): array
+    {
+        $requestDate = trim((string)$this->input->post('request_date', true));
+        $neededDate = trim((string)$this->input->post('needed_date', true));
+        $divisionId = (int)$this->input->post('division_id', true);
+        $destinationType = strtoupper(trim((string)$this->input->post('destination_type', true)));
+        $notes = trim((string)$this->input->post('notes', true));
+        $linesJson = (string)$this->input->post('lines_json', false);
+        $decodedLines = json_decode($linesJson, true);
+        if (!is_array($decodedLines)) {
+            $decodedLines = [];
+        }
+
+        if ($requestDate === '' || $divisionId <= 0 || $destinationType === '') {
+            $this->session->set_flashdata('error', 'Tanggal request, divisi, dan lokasi stok wajib diisi.');
+            return [null, []];
+        }
+        if (empty($decodedLines)) {
+            $this->session->set_flashdata('error', 'Minimal 1 line pengajuan wajib diisi.');
+            return [null, []];
+        }
+
+        return [[
+            'request_date' => $requestDate,
+            'needed_date' => $neededDate,
+            'division_id' => $divisionId,
+            'destination_type' => $destinationType,
+            'notes' => $notes,
+        ], $decodedLines];
+    }
+
     private function requestPayload(): array
     {
         $raw = (string)$this->input->raw_input_stream;
@@ -528,5 +1106,14 @@ class Procurement extends MY_Controller
                 'ok' => false,
                 'message' => $message,
             ]));
+    }
+
+    private function canRepairStoreRequestHistory(): bool
+    {
+        return in_array(
+            strtoupper((string)($this->current_user['role_code'] ?? '')),
+            ['SUPERADMIN', 'CEO', 'ADMIN'],
+            true
+        );
     }
 }

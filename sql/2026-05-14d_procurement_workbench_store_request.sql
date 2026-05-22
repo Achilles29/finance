@@ -175,6 +175,8 @@ CREATE TABLE IF NOT EXISTS pur_division_request_line (
   profile_content_per_buy DECIMAL(18,6) NOT NULL DEFAULT 1,
   profile_buy_uom_code VARCHAR(40) NULL,
   profile_content_uom_code VARCHAR(40) NULL,
+  request_uom_mode ENUM('BUY','CONTENT') NOT NULL DEFAULT 'BUY',
+  vendor_id BIGINT UNSIGNED NULL,
   qty_buy_requested DECIMAL(18,4) NOT NULL DEFAULT 0,
   qty_content_requested DECIMAL(18,4) NOT NULL DEFAULT 0,
   qty_content_available_snapshot DECIMAL(18,4) NOT NULL DEFAULT 0,
@@ -191,7 +193,8 @@ CREATE TABLE IF NOT EXISTS pur_division_request_line (
   CONSTRAINT fk_pur_division_request_line_item FOREIGN KEY (item_id) REFERENCES mst_item(id),
   CONSTRAINT fk_pur_division_request_line_material FOREIGN KEY (material_id) REFERENCES mst_material(id),
   CONSTRAINT fk_pur_division_request_line_buy_uom FOREIGN KEY (buy_uom_id) REFERENCES mst_uom(id),
-  CONSTRAINT fk_pur_division_request_line_content_uom FOREIGN KEY (content_uom_id) REFERENCES mst_uom(id)
+  CONSTRAINT fk_pur_division_request_line_content_uom FOREIGN KEY (content_uom_id) REFERENCES mst_uom(id),
+  CONSTRAINT fk_pur_division_request_line_vendor FOREIGN KEY (vendor_id) REFERENCES mst_vendor(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS pur_division_request_link (

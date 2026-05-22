@@ -3,18 +3,12 @@ $poLinesUrl = site_url('purchase/receipt/po-lines');
 $storeUrl = site_url('purchase/receipt/store');
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div>
-    <h4 class="mb-1"><i class="ri ri-inbox-archive-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-    <small class="text-muted">Posting penerimaan barang purchase ke gudang atau divisi, sekaligus update stock balance dan movement log.</small>
-  </div>
-  <div class="d-flex gap-2">
-    <a href="<?php echo site_url('purchase-orders'); ?>" class="btn btn-outline-secondary">Purchase Orders</a>
-    <a href="<?php echo site_url('purchase-orders/create'); ?>" class="btn btn-outline-secondary">Purchase Orders / Create</a>
-    <a href="<?php echo site_url('purchase/stock/warehouse'); ?>" class="btn btn-outline-secondary">Stok Gudang</a>
-    <a href="<?php echo site_url('purchase/stock/division'); ?>" class="btn btn-outline-secondary">Stok Divisi</a>
-  </div>
+<div class="mb-2">
+  <h4 class="mb-1"><i class="ri ri-inbox-archive-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
+  <small class="text-muted">Posting penerimaan barang purchase ke gudang atau divisi, sekaligus update stock balance dan movement log.</small>
 </div>
+
+<?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'receipt-purchase']); ?>
 
 <div id="alert-area"></div>
 
@@ -142,7 +136,9 @@ $storeUrl = site_url('purchase/receipt/store');
       return;
     }
 
+    var loadOrigHtml = btnLoad.innerHTML;
     btnLoad.disabled = true;
+    btnLoad.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Memuat...';
     fetch(poLinesUrl + '?purchase_order_id=' + encodeURIComponent(poId), {
       headers: { 'Accept': 'application/json' }
     })
@@ -191,6 +187,7 @@ $storeUrl = site_url('purchase/receipt/store');
     })
     .finally(function () {
       btnLoad.disabled = false;
+      btnLoad.innerHTML = loadOrigHtml;
     });
   });
 
@@ -238,7 +235,9 @@ $storeUrl = site_url('purchase/receipt/store');
       lines: selectedLines
     };
 
+    var submitOrigHtml = btnSubmit.innerHTML;
     btnSubmit.disabled = true;
+    btnSubmit.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Memposting...';
     fetch(storeUrl, {
       method: 'POST',
       headers: {
@@ -265,6 +264,7 @@ $storeUrl = site_url('purchase/receipt/store');
     })
     .finally(function () {
       btnSubmit.disabled = false;
+      btnSubmit.innerHTML = submitOrigHtml;
     });
   });
 })();

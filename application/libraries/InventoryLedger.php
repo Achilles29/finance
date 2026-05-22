@@ -321,6 +321,18 @@ class InventoryLedger
             )->row_array();
         }
 
+        if (!$row) {
+            $row = $this->findMatchingDivisionBalanceByProfileIdentity(
+                $divisionId,
+                $destinationType,
+                $itemId,
+                $materialId,
+                $buyUomId,
+                $contentUomId,
+                $payload
+            );
+        }
+
         $keyFields = [
             'division_id' => $divisionId,
             'item_id' => $itemId,
@@ -382,6 +394,9 @@ class InventoryLedger
             'last_receipt_line_id' => $this->nullableInt($payload['receipt_line_id'] ?? ($existing['last_receipt_line_id'] ?? null)),
             'notes' => $this->nullableString($payload['notes'] ?? ($existing['notes'] ?? null)),
         ];
+        if (array_key_exists('profile_key', $existing ?? []) && $this->nullableString($payload['profile_key'] ?? null) !== null) {
+            $updateData['profile_key'] = $this->nullableString($payload['profile_key'] ?? null);
+        }
         if ($this->ci->db->field_exists('profile_expired_date', $table)) {
             $updateData['profile_expired_date'] = $this->normalizeDate((string)($payload['profile_expired_date'] ?? ($existing['profile_expired_date'] ?? '')));
         }
@@ -874,6 +889,52 @@ class InventoryLedger
             return null;
         }
         return round((float)$value, $precision);
+    }
+
+    private function findMatchingDivisionBalanceByProfileIdentity(
+        int $divisionId,
+        ?string $destinationType,
+        ?int $itemId,
+        ?int $materialId,
+        ?int $buyUomId,
+        ?int $contentUomId,
+        array $payload
+    ): ?array {
+        $profileName = $this->nullableString($payload['profile_name'] ?? null);
+        $profileBrand = $this->nullableString($payload['profile_brand'] ?? null);
+        $profileDescription = $this->nullableString($payload['profile_description'] ?? null);
+        $profileExpiredDate = null;
+        if ($this->ci->db->field_exists('profile_expired_date', 'inv_division_stock_balance')) {
+            $profileExpiredDate = $this->normalizeDate((string)($payload['profile_expired_date'] ?? ''));
+        }
+
+        if ($contentUomId === null || ($profileName === null && $profileBrand === null && $profileDescription === null && $profileExpiredDate === null)) {
+            return null;
+        }
+
+        $qb = $this->ci->db
+            ->from('inv_division_stock_balance')
+            ->where('division_id', $divisionId)
+            ->where('content_uom_id', $contentUomId);
+
+        if ($this->ci->db->field_exists('destination_type', 'inv_division_stock_balance')) {
+            $qb->where('destination_type', $destinationType !== null ? $destinationType : 'OTHER');
+        }
+        $this->whereNullable($qb, 'item_id', $itemId);
+        $this->whereNullable($qb, 'material_id', $materialId);
+        $this->whereNullable($qb, 'buy_uom_id', $buyUomId);
+        $this->whereNullable($qb, 'profile_name', $profileName);
+        $this->whereNullable($qb, 'profile_brand', $profileBrand);
+        $this->whereNullable($qb, 'profile_description', $profileDescription);
+        if ($this->ci->db->field_exists('profile_expired_date', 'inv_division_stock_balance')) {
+            $this->whereNullable($qb, 'profile_expired_date', $profileExpiredDate);
+        }
+
+        return $qb
+            ->order_by('id', 'ASC')
+            ->limit(1)
+            ->get()
+            ->row_array() ?: null;
     }
 
     private function whereNullable(CI_DB_query_builder $qb, string $column, $value): void

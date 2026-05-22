@@ -82,7 +82,7 @@
   .table-responsive {
     border: 1px solid rgba(170, 95, 78, 0.22);
     border-radius: 14px;
-    overflow: hidden;
+    overflow-x: auto;
     background: rgba(255, 255, 255, 0.92);
   }
   table.table {

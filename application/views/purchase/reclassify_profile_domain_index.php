@@ -2,16 +2,12 @@
 $runUrl = site_url('purchase/reclassify-profile-domain/run');
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div>
-    <h4 class="mb-0 fw-bold"><i class="ri-shuffle-line page-title-icon me-1"></i><?php echo html_escape($title ?? 'Reclassify ITEM/MATERIAL by Profile Key'); ?></h4>
-    <small class="text-muted">Tool utilitas untuk membersihkan data snapshot lama yang dobel domain `ITEM/MATERIAL` berdasarkan `mst_purchase_catalog.profile_key`.</small>
-  </div>
-  <div class="d-flex gap-2">
-    <a href="<?php echo site_url('purchase/rebuild-impact'); ?>" class="btn btn-outline-secondary">Rebuild Impact</a>
-    <a href="<?php echo site_url('purchase-orders'); ?>" class="btn btn-outline-secondary">Kembali ke Purchase</a>
-  </div>
+<div class="mb-2">
+  <h4 class="mb-0 fw-bold"><i class="ri-shuffle-line page-title-icon me-1"></i><?php echo html_escape($title ?? 'Reclassify ITEM/MATERIAL by Profile Key'); ?></h4>
+  <small class="text-muted">Tool utilitas untuk membersihkan data snapshot lama yang dobel domain `ITEM/MATERIAL` berdasarkan `mst_purchase_catalog.profile_key`.</small>
 </div>
+
+<?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'reclassify-profile']); ?>
 
 <div id="alert-area"></div>
 

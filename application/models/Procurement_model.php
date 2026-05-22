@@ -10,6 +10,21 @@ class Procurement_model extends CI_Model
             && $this->db->table_exists('pur_division_request_link');
     }
 
+    private function has_division_request_request_uom_mode_column(): bool
+    {
+        return $this->db->field_exists('request_uom_mode', 'pur_division_request_line');
+    }
+
+    private function has_division_request_vendor_column(): bool
+    {
+        return $this->db->field_exists('vendor_id', 'pur_division_request_line');
+    }
+
+    private function normalize_division_request_uom_mode($value): string
+    {
+        return strtoupper(trim((string)$value)) === 'CONTENT' ? 'CONTENT' : 'BUY';
+    }
+
     public function has_store_request_schema(): bool
     {
         return $this->db->table_exists('pur_store_request')
@@ -389,6 +404,50 @@ class Procurement_model extends CI_Model
         return $finalRows;
     }
 
+    public function search_division_request_candidates(string $q, int $limit = 20): array
+    {
+        $q = trim($q);
+        $limit = max(1, min(100, $limit));
+        $catalogLimit = max($limit, min(250, $limit * 5));
+
+        if ($q === '') {
+            return [
+                'rows' => [],
+                'source' => 'EMPTY',
+                'allow_manual' => false,
+            ];
+        }
+
+        $warehouseRows = $this->search_warehouse_profiles($q, $limit);
+        if (!empty($warehouseRows)) {
+            foreach ($warehouseRows as &$row) {
+                $row['source_type'] = 'WAREHOUSE';
+                $row['search_source'] = 'WAREHOUSE';
+            }
+            unset($row);
+
+            return [
+                'rows' => $warehouseRows,
+                'source' => 'WAREHOUSE',
+                'allow_manual' => false,
+            ];
+        }
+
+        $this->load->model('Purchase_model');
+        $catalogRows = $this->Purchase_model->search_catalog_profiles($q, 0, '', 0, 0, $catalogLimit);
+        if (empty($catalogRows)) {
+            $catalogRows = $this->Purchase_model->search_master_fallback($q, '', 0, 0, $catalogLimit);
+        }
+
+        $normalizedRows = $this->normalize_division_request_candidate_rows($catalogRows);
+
+        return [
+            'rows' => array_slice($normalizedRows, 0, $limit),
+            'source' => empty($catalogRows) ? 'MANUAL' : 'CATALOG',
+            'allow_manual' => empty($catalogRows),
+        ];
+    }
+
     public function list_division_requests(array $filters, int $limit = 50): array
     {
         if (!$this->has_division_request_schema()) {
@@ -400,10 +459,13 @@ class Procurement_model extends CI_Model
         $status = strtoupper(trim((string)($filters['status'] ?? '')));
         $dateStart = $this->normalize_date((string)($filters['date_start'] ?? ''));
         $dateEnd = $this->normalize_date((string)($filters['date_end'] ?? ''));
+        $allowedDivisionIds = array_values(array_unique(array_filter(array_map('intval', (array)($filters['allowed_division_ids'] ?? [])), static function ($value) {
+            return $value > 0;
+        })));
         $divisionNameCol = $this->resolve_division_name_column();
 
         $this->db
-            ->select('r.id, r.request_no, r.request_date, r.needed_date, r.division_id, r.status, r.notes, r.created_at')
+            ->select('r.id, r.request_no, r.request_date, r.needed_date, r.division_id, r.destination_type, r.status, r.notes, r.created_at')
             ->select($divisionNameCol . ' AS division_name', false)
             ->select('u.username AS created_by_username')
             ->select('COALESCE(la.line_total,0) AS line_total, COALESCE(la.qty_total,0) AS qty_total', false)
@@ -423,6 +485,9 @@ class Procurement_model extends CI_Model
         if ($divisionId > 0) {
             $this->db->where('r.division_id', $divisionId);
         }
+        if (!empty($allowedDivisionIds)) {
+            $this->db->where_in('r.division_id', $allowedDivisionIds);
+        }
         if ($status !== '' && $status !== 'ALL') {
             $this->db->where('r.status', $status);
         }
@@ -436,6 +501,71 @@ class Procurement_model extends CI_Model
         return $this->db
             ->order_by('r.request_date', 'DESC')
             ->order_by('r.id', 'DESC')
+            ->limit(max(1, min(300, $limit)))
+            ->get()
+            ->result_array();
+    }
+
+    public function list_division_request_line_rows(array $filters, int $limit = 50): array
+    {
+        if (!$this->has_division_request_schema()) {
+            return [];
+        }
+
+        $q = trim((string)($filters['q'] ?? ''));
+        $divisionId = (int)($filters['division_id'] ?? 0);
+        $status = strtoupper(trim((string)($filters['status'] ?? '')));
+        $dateStart = $this->normalize_date((string)($filters['date_start'] ?? ''));
+        $dateEnd = $this->normalize_date((string)($filters['date_end'] ?? ''));
+        $allowedDivisionIds = array_values(array_unique(array_filter(array_map('intval', (array)($filters['allowed_division_ids'] ?? [])), static function ($value) {
+            return $value > 0;
+        })));
+        $divisionNameCol = $this->resolve_division_name_column();
+        $hasRequestUomMode = $this->has_division_request_request_uom_mode_column();
+
+        $this->db
+            ->select('r.id AS request_id, r.request_no, r.request_date, r.needed_date, r.division_id, r.destination_type, r.status')
+            ->select($divisionNameCol . ' AS division_name', false)
+            ->select('u.username AS created_by_username')
+            ->select('l.id AS line_id, l.line_no, l.profile_name, l.line_kind, l.profile_buy_uom_code, l.profile_content_uom_code')
+            ->select('l.qty_buy_requested, l.qty_content_requested, l.qty_content_available_snapshot, l.qty_content_to_sr, l.qty_content_to_po, l.notes AS line_notes')
+            ->from('pur_division_request_line l')
+            ->join('pur_division_request r', 'r.id = l.request_id')
+            ->join('mst_operational_division d', 'd.id = r.division_id', 'left')
+            ->join('auth_user u', 'u.id = r.created_by', 'left');
+
+        if ($hasRequestUomMode) {
+            $this->db->select('l.request_uom_mode');
+        }
+
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('r.request_no', $q)
+                ->or_like('r.notes', $q)
+                ->or_like('l.profile_name', $q)
+                ->or_like('l.notes', $q)
+                ->group_end();
+        }
+        if ($divisionId > 0) {
+            $this->db->where('r.division_id', $divisionId);
+        }
+        if (!empty($allowedDivisionIds)) {
+            $this->db->where_in('r.division_id', $allowedDivisionIds);
+        }
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('r.status', $status);
+        }
+        if ($dateStart !== null) {
+            $this->db->where('r.request_date >=', $dateStart);
+        }
+        if ($dateEnd !== null) {
+            $this->db->where('r.request_date <=', $dateEnd);
+        }
+
+        return $this->db
+            ->order_by('r.request_date', 'DESC')
+            ->order_by('r.id', 'DESC')
+            ->order_by('l.line_no', 'ASC')
             ->limit(max(1, min(300, $limit)))
             ->get()
             ->result_array();
@@ -482,20 +612,61 @@ class Procurement_model extends CI_Model
         return $map;
     }
 
+    public function get_division_request_detail(int $requestId): ?array
+    {
+        if (!$this->has_division_request_schema() || $requestId <= 0) {
+            return null;
+        }
+
+        $divisionNameCol = $this->resolve_division_name_column();
+        $header = $this->db
+            ->select('r.id, r.request_no, r.request_date, r.needed_date, r.division_id, r.destination_type, r.status, r.notes, r.created_at, r.updated_at')
+            ->select($divisionNameCol . ' AS division_name', false)
+            ->select('u.username AS created_by_username')
+            ->from('pur_division_request r')
+            ->join('mst_operational_division d', 'd.id = r.division_id', 'left')
+            ->join('auth_user u', 'u.id = r.created_by', 'left')
+            ->where('r.id', $requestId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$header) {
+            return null;
+        }
+
+        $this->db
+            ->from('pur_division_request_line l')
+            ->where('l.request_id', $requestId)
+            ->order_by('l.line_no', 'ASC')
+            ->select('l.*');
+        if ($this->has_division_request_vendor_column() && $this->db->table_exists('mst_vendor')) {
+            $this->db
+                ->select('v.vendor_name')
+                ->join('mst_vendor v', 'v.id = l.vendor_id', 'left');
+        }
+        $lines = $this->db->get()->result_array();
+
+        $linksMap = $this->list_division_request_links_map([$requestId]);
+
+        return [
+            'header' => $header,
+            'lines' => $lines,
+            'links' => (array)($linksMap[$requestId] ?? []),
+        ];
+    }
+
     public function create_division_request(array $header, array $lines, int $userId, string $sourceIp = ''): array
     {
         if (!$this->has_division_request_schema()) {
             return ['ok' => false, 'message' => 'Schema PO/SR Divisi belum tersedia. Jalankan SQL terbaru dulu.'];
         }
-        if (!$this->has_store_request_schema()) {
-            return ['ok' => false, 'message' => 'Schema Store Request belum tersedia.'];
-        }
 
         $requestDate = $this->normalize_date((string)($header['request_date'] ?? date('Y-m-d')));
         $neededDate = $this->normalize_date((string)($header['needed_date'] ?? ''));
         $divisionId = (int)($header['division_id'] ?? 0);
+        $destinationType = $this->resolve_division_request_destination_type($divisionId, (string)($header['destination_type'] ?? ''));
         $notes = $this->nullable_string($header['notes'] ?? null);
-        if ($requestDate === null || $divisionId <= 0) {
+        if ($requestDate === null || $divisionId <= 0 || $destinationType === null) {
             return ['ok' => false, 'message' => 'Header belum lengkap (tanggal/divisi).'];
         }
 
@@ -508,113 +679,9 @@ class Procurement_model extends CI_Model
             return ['ok' => false, 'message' => 'Minimal 1 baris pengajuan wajib diisi.'];
         }
 
-        $this->load->model('Purchase_model');
-        $purchaseTypeId = $this->find_inventory_purchase_type_id();
-        if ($purchaseTypeId === null || $purchaseTypeId <= 0) {
-            return ['ok' => false, 'message' => 'Purchase type inventory untuk auto-PO belum tersedia.'];
-        }
-
         $requestNo = $this->generate_division_request_no($requestDate);
-        $srLines = [];
-        $poLines = [];
-        $insertLines = [];
-        $lineNo = 1;
-
-        foreach ($lineRows as $line) {
-            $availableContent = $this->get_warehouse_available_content(
-                $this->nullable_int($line['item_id'] ?? null),
-                $this->nullable_int($line['material_id'] ?? null),
-                $this->nullable_int($line['buy_uom_id'] ?? null),
-                $this->nullable_int($line['content_uom_id'] ?? null),
-                (string)($line['profile_key'] ?? '')
-            );
-            $requestedContent = round((float)($line['qty_content_requested'] ?? 0), 4);
-            $requestedBuy = round((float)($line['qty_buy_requested'] ?? 0), 4);
-            $cpb = round((float)($line['profile_content_per_buy'] ?? 1), 6);
-            if ($cpb <= 0) {
-                $cpb = 1;
-            }
-
-            $srContent = min($requestedContent, $availableContent);
-            if ($srContent < 0) {
-                $srContent = 0;
-            }
-            $poContent = max(0, $requestedContent - $srContent);
-            $srBuy = round($srContent / max($cpb, 0.000001), 4);
-            $poBuy = round($poContent / max($cpb, 0.000001), 4);
-
-            $routeType = $srContent > 0 && $poContent > 0 ? 'MIXED' : ($srContent > 0 ? 'SR' : 'PO');
-            $insertLines[] = [
-                'line_no' => $lineNo++,
-                'line_kind' => (string)$line['line_kind'],
-                'item_id' => $this->nullable_int($line['item_id'] ?? null),
-                'material_id' => $this->nullable_int($line['material_id'] ?? null),
-                'profile_key' => (string)$line['profile_key'],
-                'profile_name' => $this->nullable_string($line['profile_name'] ?? null),
-                'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
-                'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
-                'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
-                'buy_uom_id' => (int)$line['buy_uom_id'],
-                'content_uom_id' => (int)$line['content_uom_id'],
-                'profile_content_per_buy' => $cpb,
-                'profile_buy_uom_code' => $this->nullable_string($line['profile_buy_uom_code'] ?? null),
-                'profile_content_uom_code' => $this->nullable_string($line['profile_content_uom_code'] ?? null),
-                'qty_buy_requested' => $requestedBuy,
-                'qty_content_requested' => $requestedContent,
-                'qty_content_available_snapshot' => $availableContent,
-                'routed_to' => $routeType,
-                'qty_content_to_sr' => $srContent,
-                'qty_content_to_po' => $poContent,
-                'notes' => $this->nullable_string($line['notes'] ?? null),
-                'created_at' => date('Y-m-d H:i:s'),
-            ];
-
-            if ($srContent > 0) {
-                $srLines[] = [
-                    'line_kind' => (string)$line['line_kind'],
-                    'item_id' => $this->nullable_int($line['item_id'] ?? null),
-                    'material_id' => $this->nullable_int($line['material_id'] ?? null),
-                    'profile_key' => (string)$line['profile_key'],
-                    'profile_name' => $this->nullable_string($line['profile_name'] ?? null),
-                    'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
-                    'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
-                    'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
-                    'buy_uom_id' => (int)$line['buy_uom_id'],
-                    'content_uom_id' => (int)$line['content_uom_id'],
-                    'profile_content_per_buy' => $cpb,
-                    'profile_buy_uom_code' => $this->nullable_string($line['profile_buy_uom_code'] ?? null),
-                    'profile_content_uom_code' => $this->nullable_string($line['profile_content_uom_code'] ?? null),
-                    'qty_buy_requested' => $srBuy,
-                    'qty_content_requested' => $srContent,
-                    'notes' => 'Auto route SR dari ' . $requestNo,
-                ];
-            }
-            if ($poContent > 0) {
-                $poLines[] = [
-                    'line_kind' => (string)$line['line_kind'],
-                    'item_id' => $this->nullable_int($line['item_id'] ?? null),
-                    'material_id' => $this->nullable_int($line['material_id'] ?? null),
-                    'line_description' => 'Auto shortage dari ' . $requestNo,
-                    'brand_name' => null,
-                    'qty_buy' => $poBuy,
-                    'buy_uom_id' => (int)$line['buy_uom_id'],
-                    'content_per_buy' => $cpb,
-                    'qty_content' => $poContent,
-                    'content_uom_id' => (int)$line['content_uom_id'],
-                    'conversion_factor_to_content' => 1,
-                    'unit_price' => 0,
-                    'discount_percent' => 0,
-                    'tax_percent' => 0,
-                    'profile_key' => (string)$line['profile_key'],
-                    'snapshot_item_name' => (string)($line['profile_name'] ?? ''),
-                    'snapshot_material_name' => (string)($line['profile_name'] ?? ''),
-                    'snapshot_brand_name' => null,
-                    'snapshot_line_description' => 'Auto shortage dari ' . $requestNo,
-                    'snapshot_buy_uom_code' => (string)($line['profile_buy_uom_code'] ?? ''),
-                    'snapshot_content_uom_code' => (string)($line['profile_content_uom_code'] ?? ''),
-                ];
-            }
-        }
+        $prepared = $this->prepare_division_request_routes($requestNo, $lineRows);
+        $insertLines = (array)($prepared['stored_lines'] ?? []);
 
         $this->db->trans_begin();
         $this->db->insert('pur_division_request', [
@@ -622,6 +689,7 @@ class Procurement_model extends CI_Model
             'request_date' => $requestDate,
             'needed_date' => $neededDate,
             'division_id' => $divisionId,
+            'destination_type' => $destinationType,
             'status' => 'SUBMITTED',
             'notes' => $notes,
             'created_by' => $userId > 0 ? $userId : null,
@@ -638,62 +706,6 @@ class Procurement_model extends CI_Model
             $this->db->insert('pur_division_request_line', $row);
         }
 
-        $createdSr = null;
-        $createdPo = null;
-
-        if (!empty($srLines)) {
-            $createSr = $this->create_store_request([
-                'request_date' => $requestDate,
-                'needed_date' => $neededDate,
-                'request_division_id' => $divisionId,
-                'destination_type' => $this->infer_destination_from_division($divisionId),
-                'notes' => 'Auto SR dari ' . $requestNo,
-            ], $srLines, $userId);
-            if (!($createSr['ok'] ?? false)) {
-                $this->db->trans_rollback();
-                return ['ok' => false, 'message' => 'Gagal membuat SR: ' . (string)($createSr['message'] ?? 'error')];
-            }
-
-            $srId = (int)($createSr['id'] ?? 0);
-            $this->apply_store_request_action($srId, 'SUBMIT', 'Submit otomatis dari ' . $requestNo, $userId);
-            $createdSr = ['id' => $srId, 'no' => (string)($createSr['sr_no'] ?? '')];
-
-            $this->db->insert('pur_division_request_link', [
-                'request_id' => $requestId,
-                'doc_type' => 'SR',
-                'doc_id' => $srId,
-                'created_at' => date('Y-m-d H:i:s'),
-                'notes' => 'Auto route dari division request',
-            ]);
-        }
-
-        if (!empty($poLines)) {
-            $createPo = $this->Purchase_model->store_order_with_lines([
-                'request_date' => $requestDate,
-                'expected_date' => $neededDate ?: $requestDate,
-                'purchase_type_id' => $purchaseTypeId,
-                'destination_type' => 'GUDANG',
-                'status' => 'DRAFT',
-                'external_ref_no' => $requestNo,
-                'notes' => 'Auto PO shortage dari ' . $requestNo,
-            ], $poLines, $userId, $sourceIp);
-            if (!($createPo['ok'] ?? false)) {
-                $this->db->trans_rollback();
-                return ['ok' => false, 'message' => 'Gagal membuat PO: ' . (string)($createPo['message'] ?? 'error')];
-            }
-            $poData = (array)($createPo['data'] ?? []);
-            $poId = (int)($poData['purchase_order_id'] ?? 0);
-            $createdPo = ['id' => $poId, 'no' => (string)($poData['po_no'] ?? '')];
-
-            $this->db->insert('pur_division_request_link', [
-                'request_id' => $requestId,
-                'doc_type' => 'PO',
-                'doc_id' => $poId,
-                'created_at' => date('Y-m-d H:i:s'),
-                'notes' => 'Auto route shortage dari division request',
-            ]);
-        }
-
         if ($this->db->trans_status() === false) {
             $this->db->trans_rollback();
             return ['ok' => false, 'message' => 'Gagal menyimpan pengajuan PO/SR divisi.'];
@@ -702,13 +714,337 @@ class Procurement_model extends CI_Model
 
         return [
             'ok' => true,
-            'message' => 'Pengajuan PO/SR divisi berhasil dibuat.',
+            'message' => 'Pengajuan PO/SR divisi berhasil dibuat dan menunggu verifikasi purchase.',
             'data' => [
                 'request_id' => $requestId,
                 'request_no' => $requestNo,
-                'created_sr' => $createdSr,
-                'created_po' => $createdPo,
             ],
+        ];
+    }
+
+    public function update_division_request(int $requestId, array $header, array $lines, int $userId): array
+    {
+        if (!$this->has_division_request_schema()) {
+            return ['ok' => false, 'message' => 'Schema PO/SR Divisi belum tersedia.'];
+        }
+        if ($requestId <= 0) {
+            return ['ok' => false, 'message' => 'Request ID tidak valid.'];
+        }
+
+        $existing = $this->db
+            ->from('pur_division_request')
+            ->where('id', $requestId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$existing) {
+            return ['ok' => false, 'message' => 'Pengajuan PO/SR divisi tidak ditemukan.'];
+        }
+
+        $status = strtoupper((string)($existing['status'] ?? 'SUBMITTED'));
+        if (!in_array($status, ['SUBMITTED', 'REJECTED'], true)) {
+            return ['ok' => false, 'message' => 'Hanya pengajuan SUBMITTED/REJECTED yang dapat diedit.'];
+        }
+
+        $linkCount = (int)$this->db
+            ->where('request_id', $requestId)
+            ->count_all_results('pur_division_request_link');
+        if ($linkCount > 0) {
+            return ['ok' => false, 'message' => 'Pengajuan yang sudah punya dokumen hasil tidak dapat diedit lagi.'];
+        }
+
+        $requestDate = $this->normalize_date((string)($header['request_date'] ?? (string)($existing['request_date'] ?? '')));
+        $neededDate = $this->normalize_date((string)($header['needed_date'] ?? (string)($existing['needed_date'] ?? '')));
+        $divisionId = (int)($header['division_id'] ?? (int)($existing['division_id'] ?? 0));
+        $destinationType = $this->resolve_division_request_destination_type($divisionId, (string)($header['destination_type'] ?? (string)($existing['destination_type'] ?? '')));
+        $notes = $this->nullable_string($header['notes'] ?? ($existing['notes'] ?? null));
+        if ($requestDate === null || $divisionId <= 0 || $destinationType === null) {
+            return ['ok' => false, 'message' => 'Header belum lengkap (tanggal/divisi).'];
+        }
+
+        $normalized = $this->normalize_division_request_lines($lines);
+        if (!($normalized['ok'] ?? false)) {
+            return $normalized;
+        }
+        $lineRows = (array)($normalized['lines'] ?? []);
+        if (empty($lineRows)) {
+            return ['ok' => false, 'message' => 'Minimal 1 baris pengajuan wajib diisi.'];
+        }
+
+        $prepared = $this->prepare_division_request_routes((string)($existing['request_no'] ?? ''), $lineRows);
+        $insertLines = (array)($prepared['stored_lines'] ?? []);
+
+        $this->db->trans_begin();
+
+        $this->db
+            ->where('id', $requestId)
+            ->update('pur_division_request', [
+                'request_date' => $requestDate,
+                'needed_date' => $neededDate,
+                'division_id' => $divisionId,
+                'destination_type' => $destinationType,
+                'status' => 'SUBMITTED',
+                'notes' => $notes,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+
+        $this->db->where('request_id', $requestId)->delete('pur_division_request_line');
+        foreach ($insertLines as $row) {
+            $row['request_id'] = $requestId;
+            $this->db->insert('pur_division_request_line', $row);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal memperbarui pengajuan PO/SR divisi.'];
+        }
+
+        $this->db->trans_commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Pengajuan PO/SR divisi berhasil diperbarui.',
+            'data' => [
+                'request_id' => $requestId,
+                'request_no' => (string)($existing['request_no'] ?? ''),
+            ],
+        ];
+    }
+
+    public function verify_division_request(int $requestId, array $header, array $lines, int $userId, string $sourceIp = ''): array
+    {
+        if (!$this->has_division_request_schema()) {
+            return ['ok' => false, 'message' => 'Schema PO/SR Divisi belum tersedia.'];
+        }
+        if (!$this->has_store_request_schema()) {
+            return ['ok' => false, 'message' => 'Schema Store Request belum tersedia.'];
+        }
+        if ($requestId <= 0) {
+            return ['ok' => false, 'message' => 'Request ID tidak valid.'];
+        }
+
+        $existing = $this->db
+            ->from('pur_division_request')
+            ->where('id', $requestId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$existing) {
+            return ['ok' => false, 'message' => 'Pengajuan PO/SR divisi tidak ditemukan.'];
+        }
+
+        $status = strtoupper((string)($existing['status'] ?? 'SUBMITTED'));
+        if ($status !== 'SUBMITTED') {
+            return ['ok' => false, 'message' => 'Hanya pengajuan status SUBMITTED yang dapat diverifikasi purchase.'];
+        }
+
+        $requestDate = $this->normalize_date((string)($header['request_date'] ?? (string)($existing['request_date'] ?? '')));
+        $neededDate = $this->normalize_date((string)($header['needed_date'] ?? (string)($existing['needed_date'] ?? '')));
+        $divisionId = (int)($header['division_id'] ?? (int)($existing['division_id'] ?? 0));
+        $destinationType = $this->resolve_division_request_destination_type($divisionId, (string)($header['destination_type'] ?? (string)($existing['destination_type'] ?? '')));
+        $notes = $this->nullable_string($header['notes'] ?? ($existing['notes'] ?? null));
+        if ($requestDate === null || $divisionId <= 0 || $destinationType === null) {
+            return ['ok' => false, 'message' => 'Header verifikasi belum lengkap (tanggal/divisi).'];
+        }
+
+        $normalized = $this->normalize_division_request_lines($lines);
+        if (!($normalized['ok'] ?? false)) {
+            return $normalized;
+        }
+        $lineRows = (array)($normalized['lines'] ?? []);
+        if (empty($lineRows)) {
+            return ['ok' => false, 'message' => 'Minimal 1 baris hasil verifikasi wajib diisi.'];
+        }
+
+        $prepared = $this->prepare_division_request_routes((string)($existing['request_no'] ?? ''), $lineRows);
+        $insertLines = (array)($prepared['stored_lines'] ?? []);
+        $srLines = (array)($prepared['sr_lines'] ?? []);
+        $poLines = (array)($prepared['po_lines'] ?? []);
+        if (empty($insertLines)) {
+            return ['ok' => false, 'message' => 'Tidak ada line hasil verifikasi yang valid.'];
+        }
+
+        $this->load->model('Purchase_model');
+        $purchaseTypeId = $this->find_inventory_purchase_type_id($destinationType);
+        if (!empty($poLines) && ($purchaseTypeId === null || $purchaseTypeId <= 0)) {
+            return ['ok' => false, 'message' => 'Purchase type inventory untuk draft PO belum tersedia.'];
+        }
+
+        $this->db->trans_begin();
+
+        $this->db->where('request_id', $requestId)->delete('pur_division_request_link');
+        $this->db->where('request_id', $requestId)->delete('pur_division_request_line');
+        foreach ($insertLines as $row) {
+            $row['request_id'] = $requestId;
+            $this->db->insert('pur_division_request_line', $row);
+        }
+
+        $createdSr = null;
+        if (!empty($srLines)) {
+            $createSr = $this->create_store_request([
+                'request_date' => $requestDate,
+                'needed_date' => $neededDate,
+                'request_division_id' => $divisionId,
+                'destination_type' => $destinationType,
+                'status' => 'SUBMITTED',
+                'notes' => null,
+            ], $srLines, $userId);
+            if (!($createSr['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Gagal membuat SR hasil verifikasi: ' . (string)($createSr['message'] ?? 'error')];
+            }
+
+            $srId = (int)($createSr['id'] ?? 0);
+            $approveSr = $this->apply_store_request_action($srId, 'APPROVE', '', $userId);
+            if (!($approveSr['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Gagal approve SR hasil verifikasi: ' . (string)($approveSr['message'] ?? 'error')];
+            }
+
+            $createdSr = ['id' => $srId, 'no' => (string)($createSr['sr_no'] ?? '')];
+            $this->db->insert('pur_division_request_link', [
+                'request_id' => $requestId,
+                'doc_type' => 'SR',
+                'doc_id' => $srId,
+                'created_at' => date('Y-m-d H:i:s'),
+                'notes' => null,
+            ]);
+        }
+
+        $createdPo = [];
+        if (!empty($poLines)) {
+            $poGroups = [];
+            foreach ($poLines as $poLine) {
+                $vendorId = (int)($poLine['vendor_id'] ?? 0);
+                if ($vendorId <= 0) {
+                    $this->db->trans_rollback();
+                    return ['ok' => false, 'message' => 'Vendor wajib dipilih untuk setiap line yang masuk PO.'];
+                }
+                if (!isset($poGroups[$vendorId])) {
+                    $poGroups[$vendorId] = [];
+                }
+                $linePayload = $poLine;
+                unset($linePayload['source_line_no']);
+                $poGroups[$vendorId][] = $linePayload;
+            }
+
+            foreach ($poGroups as $vendorId => $vendorLines) {
+                $createPo = $this->Purchase_model->store_order_with_lines([
+                    'request_date' => $requestDate,
+                    'expected_date' => $neededDate ?: $requestDate,
+                    'purchase_type_id' => (int)$purchaseTypeId,
+                    'destination_type' => $destinationType,
+                    'status' => 'DRAFT',
+                    'destination_division_id' => $divisionId,
+                    'vendor_id' => (int)$vendorId,
+                    'external_ref_no' => (string)($existing['request_no'] ?? ''),
+                    'notes' => null,
+                ], $vendorLines, $userId, $sourceIp);
+                if (!($createPo['ok'] ?? false)) {
+                    $this->db->trans_rollback();
+                    return ['ok' => false, 'message' => 'Gagal membuat draft PO hasil verifikasi: ' . (string)($createPo['message'] ?? 'error')];
+                }
+
+                $poData = (array)($createPo['data'] ?? []);
+                $poId = (int)($poData['purchase_order_id'] ?? 0);
+                $createdPo[] = [
+                    'id' => $poId,
+                    'no' => (string)($poData['po_no'] ?? ''),
+                    'vendor_id' => (int)$vendorId,
+                ];
+                $this->db->insert('pur_division_request_link', [
+                    'request_id' => $requestId,
+                    'doc_type' => 'PO',
+                    'doc_id' => $poId,
+                    'created_at' => date('Y-m-d H:i:s'),
+                    'notes' => null,
+                ]);
+            }
+        }
+
+        $this->db
+            ->where('id', $requestId)
+            ->update('pur_division_request', [
+                'request_date' => $requestDate,
+                'needed_date' => $neededDate,
+                'division_id' => $divisionId,
+                'destination_type' => $destinationType,
+                'status' => 'VERIFIED',
+                'notes' => $notes,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal menyimpan hasil verifikasi purchase.'];
+        }
+
+        $this->db->trans_commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Verifikasi purchase berhasil disimpan dan dokumen final sudah dibuat.',
+            'data' => [
+                'request_id' => $requestId,
+                'request_no' => (string)($existing['request_no'] ?? ''),
+                'created_sr' => $createdSr,
+                'created_po' => count($createdPo) === 1 ? $createdPo[0] : null,
+                'created_po_list' => $createdPo,
+            ],
+        ];
+    }
+
+    public function apply_division_request_action(int $requestId, string $action, string $notes, int $userId): array
+    {
+        if (!$this->has_division_request_schema()) {
+            return ['ok' => false, 'message' => 'Schema PO/SR Divisi belum tersedia.'];
+        }
+        if ($requestId <= 0) {
+            return ['ok' => false, 'message' => 'Request ID tidak valid.'];
+        }
+
+        $action = strtoupper(trim($action));
+        if (!in_array($action, ['REJECT', 'VOID'], true)) {
+            return ['ok' => false, 'message' => 'Aksi pengajuan divisi tidak valid.'];
+        }
+
+        $header = $this->db
+            ->from('pur_division_request')
+            ->where('id', $requestId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Pengajuan PO/SR divisi tidak ditemukan.'];
+        }
+
+        $status = strtoupper((string)($header['status'] ?? 'SUBMITTED'));
+        if ($action === 'REJECT' && $status !== 'SUBMITTED') {
+            return ['ok' => false, 'message' => 'Hanya pengajuan SUBMITTED yang dapat direject.'];
+        }
+        if ($action === 'VOID' && !in_array($status, ['SUBMITTED', 'REJECTED'], true)) {
+            return ['ok' => false, 'message' => 'Hanya pengajuan SUBMITTED/REJECTED yang dapat di-void.'];
+        }
+
+        $nextStatus = $action === 'REJECT' ? 'REJECTED' : 'VOID';
+        $mergedNotes = $this->merge_division_request_notes((string)($header['notes'] ?? ''), $notes, $nextStatus);
+
+        $this->db
+            ->where('id', $requestId)
+            ->update('pur_division_request', [
+                'status' => $nextStatus,
+                'notes' => $mergedNotes,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+
+        if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+            return ['ok' => false, 'message' => 'Gagal memproses aksi pengajuan divisi.'];
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Aksi berhasil diproses. Status: ' . $nextStatus,
+            'status' => $nextStatus,
         ];
     }
 
@@ -862,8 +1198,11 @@ class Procurement_model extends CI_Model
         }
 
         $header = $this->db
-            ->from('pur_store_request')
-            ->where('id', $requestId)
+            ->select('sr.*')
+            ->select('COALESCE(d.division_name, d.name) AS division_name', false)
+            ->from('pur_store_request sr')
+            ->join('mst_operational_division d', 'd.id = sr.request_division_id', 'left')
+            ->where('sr.id', $requestId)
             ->limit(1)
             ->get()
             ->row_array();
@@ -872,15 +1211,99 @@ class Procurement_model extends CI_Model
         }
 
         $lines = $this->db
-            ->from('pur_store_request_line')
-            ->where('store_request_id', $requestId)
+            ->select('l.*')
+            ->select('bu.code AS buy_uom_code, cu.code AS content_uom_code', false)
+            ->from('pur_store_request_line l')
+            ->join('mst_uom bu', 'bu.id = l.buy_uom_id', 'left')
+            ->join('mst_uom cu', 'cu.id = l.content_uom_id', 'left')
+            ->where('l.store_request_id', $requestId)
             ->order_by('line_no', 'ASC')
             ->get()
             ->result_array();
 
+        $fulfillments = [];
+        if ($this->db->table_exists('pur_store_request_fulfillment') && $this->db->table_exists('pur_store_request_fulfillment_line')) {
+            $fulfillments = $this->db
+                ->select('f.*')
+                ->select('COUNT(fl.id) AS line_count', false)
+                ->select('COALESCE(SUM(fl.qty_buy_posted), 0) AS qty_buy_total', false)
+                ->select('COALESCE(SUM(fl.qty_content_posted), 0) AS qty_content_total', false)
+                ->from('pur_store_request_fulfillment f')
+                ->join('pur_store_request_fulfillment_line fl', 'fl.fulfillment_id = f.id', 'left')
+                ->where('f.store_request_id', $requestId)
+                ->group_by('f.id')
+                ->order_by('f.fulfillment_date', 'ASC')
+                ->order_by('f.id', 'ASC')
+                ->get()
+                ->result_array();
+
+            $fulfillmentIds = array_values(array_filter(array_map(static function ($row) {
+                return (int)($row['id'] ?? 0);
+            }, $fulfillments), static function ($id) {
+                return $id > 0;
+            }));
+
+            if (!empty($fulfillmentIds)) {
+                $fulfillmentLineRows = $this->db
+                    ->select('fl.*')
+                    ->select('srl.line_no AS request_line_no', false)
+                    ->select('bu.code AS buy_uom_code, cu.code AS content_uom_code', false)
+                    ->from('pur_store_request_fulfillment_line fl')
+                    ->join('pur_store_request_line srl', 'srl.id = fl.store_request_line_id', 'left')
+                    ->join('mst_uom bu', 'bu.id = fl.buy_uom_id', 'left')
+                    ->join('mst_uom cu', 'cu.id = fl.content_uom_id', 'left')
+                    ->where_in('fl.fulfillment_id', $fulfillmentIds)
+                    ->order_by('fl.fulfillment_id', 'ASC')
+                    ->order_by('fl.id', 'ASC')
+                    ->get()
+                    ->result_array();
+
+                $issueIds = array_values(array_filter(array_unique(array_map(static function ($row) {
+                    return (int)($row['fifo_issue_id'] ?? 0);
+                }, $fulfillmentLineRows)), static function ($id) {
+                    return $id > 0;
+                }));
+
+                $allocationMap = [];
+                if (
+                    !empty($issueIds)
+                    && $this->db->table_exists('inv_material_fifo_issue_line')
+                    && $this->db->table_exists('inv_material_fifo_lot')
+                ) {
+                    $allocationRows = $this->db
+                        ->select('il.issue_id, il.lot_id AS source_lot_id, il.target_lot_id, il.qty_out, il.unit_cost, il.total_cost')
+                        ->select('sl.lot_no AS source_lot_no, sl.receipt_date AS source_receipt_date, sl.expiry_date AS source_expiry_date', false)
+                        ->select('tl.lot_no AS target_lot_no, tl.receipt_date AS target_receipt_date, tl.expiry_date AS target_expiry_date', false)
+                        ->from('inv_material_fifo_issue_line il')
+                        ->join('inv_material_fifo_lot sl', 'sl.id = il.lot_id', 'left')
+                        ->join('inv_material_fifo_lot tl', 'tl.id = il.target_lot_id', 'left')
+                        ->where_in('il.issue_id', $issueIds)
+                        ->order_by('il.issue_id', 'ASC')
+                        ->order_by('il.id', 'ASC')
+                        ->get()
+                        ->result_array();
+                    foreach ($allocationRows as $allocationRow) {
+                        $allocationMap[(int)($allocationRow['issue_id'] ?? 0)][] = $allocationRow;
+                    }
+                }
+
+                $fulfillmentLineMap = [];
+                foreach ($fulfillmentLineRows as $fulfillmentLineRow) {
+                    $fulfillmentLineRow['lot_rows'] = $allocationMap[(int)($fulfillmentLineRow['fifo_issue_id'] ?? 0)] ?? [];
+                    $fulfillmentLineMap[(int)($fulfillmentLineRow['fulfillment_id'] ?? 0)][] = $fulfillmentLineRow;
+                }
+
+                foreach ($fulfillments as &$fulfillmentRow) {
+                    $fulfillmentRow['lines'] = $fulfillmentLineMap[(int)($fulfillmentRow['id'] ?? 0)] ?? [];
+                }
+                unset($fulfillmentRow);
+            }
+        }
+
         return [
             'header' => $header,
             'lines' => $lines,
+            'fulfillments' => $fulfillments,
         ];
     }
 
@@ -1203,6 +1626,11 @@ class Procurement_model extends CI_Model
         }
 
         $this->load->library('InventoryLedger');
+        $this->load->library('MaterialFifoManager');
+        $fifoReady = $this->materialfifomanager->ensureReady();
+        if (!($fifoReady['ok'] ?? false)) {
+            return $fifoReady;
+        }
         $divisionId = (int)($header['request_division_id'] ?? 0);
         $destinationType = $this->normalize_destination((string)($header['destination_type'] ?? 'OTHER')) ?? 'OTHER';
         $fulfillmentNo = $this->generate_fulfillment_no($date);
@@ -1259,7 +1687,7 @@ class Procurement_model extends CI_Model
 
             $unitCostSnapshot = $this->resolve_store_request_line_unit_cost($line, $contentPerBuy);
 
-            $this->db->insert('pur_store_request_fulfillment_line', [
+            $fulfillmentLineData = [
                 'fulfillment_id' => $fulfillmentId,
                 'store_request_line_id' => (int)$line['id'],
                 'item_id' => $this->nullable_int($line['item_id'] ?? null),
@@ -1279,6 +1707,53 @@ class Procurement_model extends CI_Model
                 'unit_cost_snapshot' => $unitCostSnapshot,
                 'notes' => $this->nullable_string($notes),
                 'created_at' => date('Y-m-d H:i:s'),
+            ];
+            if ($this->db->field_exists('fifo_issue_id', 'pur_store_request_fulfillment_line')) {
+                $fulfillmentLineData['fifo_issue_id'] = null;
+            }
+            if ($this->db->field_exists('fifo_issue_no', 'pur_store_request_fulfillment_line')) {
+                $fulfillmentLineData['fifo_issue_no'] = null;
+            }
+            $this->db->insert('pur_store_request_fulfillment_line', $fulfillmentLineData);
+            $fulfillmentLineId = (int)$this->db->insert_id();
+            if ($fulfillmentLineId <= 0) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Gagal menyimpan detail fulfillment SR.'];
+            }
+
+            $fifoTransfer = $this->materialfifomanager->transferWarehouseToDivision([
+                'issue_date' => $date,
+                'division_id' => $divisionId,
+                'destination_type' => $destinationType,
+                'item_id' => $this->nullable_int($line['item_id'] ?? null),
+                'material_id' => $this->nullable_int($line['material_id'] ?? null),
+                'buy_uom_id' => $this->nullable_int($line['buy_uom_id'] ?? null),
+                'content_uom_id' => $this->nullable_int($line['content_uom_id'] ?? null),
+                'profile_key' => $this->nullable_string($line['profile_key'] ?? null),
+                'qty_content_out' => $qtyContent,
+                'source_module' => 'PROCUREMENT_SR',
+                'source_table' => 'pur_store_request_fulfillment',
+                'source_id' => $fulfillmentId,
+                'source_line_id' => $fulfillmentLineId,
+                'notes' => 'SR ' . $srNo . ' fulfill ke divisi',
+            ]);
+            if (!($fifoTransfer['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => (string)($fifoTransfer['message'] ?? 'Gagal consume FIFO gudang untuk fulfillment SR.')];
+            }
+
+            $fifoIssueId = (int)($fifoTransfer['data']['issue_id'] ?? 0);
+            $fifoIssueNo = $this->nullable_string($fifoTransfer['data']['issue_no'] ?? null);
+            $fifoUnitCost = round((float)($fifoTransfer['data']['avg_unit_cost'] ?? 0), 6);
+            if ($fifoUnitCost > 0) {
+                $unitCostSnapshot = $fifoUnitCost;
+            }
+
+            $this->db->where('id', $fulfillmentLineId)->update('pur_store_request_fulfillment_line', [
+                'unit_cost_snapshot' => $unitCostSnapshot,
+                'fifo_issue_id' => $fifoIssueId > 0 ? $fifoIssueId : null,
+                'fifo_issue_no' => $fifoIssueNo,
+                'updated_at' => date('Y-m-d H:i:s'),
             ]);
 
             $commonPayload = [
@@ -1297,6 +1772,7 @@ class Procurement_model extends CI_Model
                 'profile_content_per_buy' => $contentPerBuy,
                 'profile_buy_uom_code' => $this->nullable_string($line['profile_buy_uom_code'] ?? null),
                 'profile_content_uom_code' => $this->nullable_string($line['profile_content_uom_code'] ?? null),
+                'unit_cost' => $unitCostSnapshot,
                 'stock_domain' => $this->resolve_line_stock_domain($line),
                 'created_by' => $userId > 0 ? $userId : null,
                 'manage_transaction' => false,
@@ -1387,6 +1863,53 @@ class Procurement_model extends CI_Model
         ];
     }
 
+    public function repair_void_store_request_history(int $requestId, int $userId = 0): array
+    {
+        if (!$this->has_store_request_schema()) {
+            return ['ok' => false, 'message' => 'Schema Store Request belum tersedia.'];
+        }
+        if ($requestId <= 0) {
+            return ['ok' => false, 'message' => 'Request ID tidak valid.'];
+        }
+
+        $header = $this->db
+            ->select('id, sr_no, request_division_id, destination_type')
+            ->from('pur_store_request')
+            ->where('id', $requestId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Store Request tidak ditemukan.'];
+        }
+
+        $voidFulfillments = $this->db
+            ->from('pur_store_request_fulfillment')
+            ->where('store_request_id', $requestId)
+            ->where('status', 'VOID')
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
+        if (empty($voidFulfillments)) {
+            return ['ok' => true, 'message' => 'Tidak ada fulfillment VOID yang perlu direpair.', 'data' => ['rebuild_targets' => 0]];
+        }
+
+        $this->db->trans_begin();
+        $repair = $this->purge_fulfillment_movements_and_rebuild($header, $voidFulfillments, $userId);
+        if (!($repair['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return $repair;
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal repair histori void fulfillment SR.'];
+        }
+
+        $this->db->trans_commit();
+        return $repair;
+    }
+
     public function get_shortage_po_payload(int $requestId): array
     {
         $preview = $this->preview_split($requestId);
@@ -1415,24 +1938,25 @@ class Procurement_model extends CI_Model
                 'line_kind' => (string)($row['line_kind'] ?? 'ITEM'),
                 'item_id' => (int)($row['item_id'] ?? 0) > 0 ? (int)$row['item_id'] : null,
                 'material_id' => (int)($row['material_id'] ?? 0) > 0 ? (int)$row['material_id'] : null,
-                'line_description' => 'Auto shortage dari SR ' . (string)($header['sr_no'] ?? ''),
-                'brand_name' => null,
+                'line_description' => $this->nullable_string($row['profile_description'] ?? null),
+                'brand_name' => $this->nullable_string($row['profile_brand'] ?? null),
                 'qty_buy' => round($shortageContent / max($cpb, 0.000001), 4),
                 'buy_uom_id' => (int)($row['buy_uom_id'] ?? 0),
                 'content_per_buy' => $cpb,
                 'qty_content' => $shortageContent,
                 'content_uom_id' => (int)($row['content_uom_id'] ?? 0),
-                'conversion_factor_to_content' => 1,
+                'conversion_factor_to_content' => $cpb,
                 'unit_price' => 0,
                 'discount_percent' => 0,
                 'tax_percent' => 0,
                 'profile_key' => (string)($row['profile_key'] ?? ''),
                 'snapshot_item_name' => (string)($row['profile_name'] ?? ''),
                 'snapshot_material_name' => (string)($row['profile_name'] ?? ''),
-                'snapshot_brand_name' => null,
-                'snapshot_line_description' => 'Auto shortage dari SR ' . (string)($header['sr_no'] ?? ''),
+                'snapshot_brand_name' => $this->nullable_string($row['profile_brand'] ?? null),
+                'snapshot_line_description' => $this->nullable_string($row['profile_description'] ?? null),
                 'snapshot_buy_uom_code' => (string)($row['profile_buy_uom_code'] ?? ''),
                 'snapshot_content_uom_code' => (string)($row['profile_content_uom_code'] ?? ''),
+                'notes' => 'Auto shortage dari SR ' . (string)($header['sr_no'] ?? ''),
             ];
         }
 
@@ -1447,14 +1971,35 @@ class Procurement_model extends CI_Model
         ];
     }
 
-    public function find_inventory_purchase_type_id(): ?int
+    public function find_inventory_purchase_type_id(?string $destinationType = null): ?int
     {
         if (!$this->db->table_exists('mst_purchase_type')) {
             return null;
         }
 
+        $destination = strtoupper(trim((string)$destinationType));
+        $preferredCodes = ['INV_STOK'];
+        if ($destination === 'BAR') {
+            $preferredCodes = ['BAR_STOK', 'INV_BAR', 'INV_STOK'];
+        } elseif ($destination === 'KITCHEN') {
+            $preferredCodes = ['KITCHEN_STOK', 'INV_KITCHEN', 'INV_STOK'];
+        } elseif ($destination === 'BAR_EVENT') {
+            $preferredCodes = ['BAR_STOK_EVENT', 'BAR_STOK', 'INV_BAR', 'INV_STOK'];
+        } elseif ($destination === 'KITCHEN_EVENT') {
+            $preferredCodes = ['KITCHEN_STOK_EVENT', 'KITCHEN_STOK', 'INV_KITCHEN', 'INV_STOK'];
+        } elseif ($destination === 'OFFICE') {
+            $preferredCodes = ['OPERASIONAL_OFFICE', 'INV_STOK'];
+        }
+
+        $escapedCodes = array_map([$this->db, 'escape'], $preferredCodes);
+        $fieldOrderSql = implode(',', array_map(static function (string $code): string {
+            return "'" . strtoupper(trim($code)) . "'";
+        }, $preferredCodes));
+
         $row = $this->db->query(
-            "SELECT id FROM mst_purchase_type WHERE is_active = 1 AND UPPER(TRIM(type_code)) IN ('INV_STOK','INV_BAR','INV_KITCHEN') ORDER BY FIELD(UPPER(TRIM(type_code)), 'INV_STOK','INV_BAR','INV_KITCHEN'), id ASC LIMIT 1"
+            'SELECT id FROM mst_purchase_type '
+            . 'WHERE is_active = 1 AND UPPER(TRIM(type_code)) IN (' . implode(',', $escapedCodes) . ') '
+            . 'ORDER BY FIELD(UPPER(TRIM(type_code)), ' . $fieldOrderSql . '), id ASC LIMIT 1'
         )->row_array();
 
         return $row ? (int)($row['id'] ?? 0) : null;
@@ -1578,22 +2123,44 @@ class Procurement_model extends CI_Model
             $buyUomId = (int)($line['buy_uom_id'] ?? 0);
             $contentUomId = (int)($line['content_uom_id'] ?? 0);
             $contentPerBuy = round((float)($line['profile_content_per_buy'] ?? 0), 6);
+            $requestUomModeRaw = strtoupper(trim((string)($line['request_uom_mode'] ?? '')));
+            if (!in_array($requestUomModeRaw, ['BUY', 'CONTENT'], true)) {
+                return ['ok' => false, 'message' => 'Line #' . $lineNo . ' pilih mode input dulu (per beli / per isi).'];
+            }
+            $requestUomMode = $requestUomModeRaw;
+            $vendorId = (int)($line['vendor_id'] ?? 0);
             $qtyBuyRequested = round((float)($line['qty_buy_requested'] ?? 0), 4);
             $qtyContentRequested = round((float)($line['qty_content_requested'] ?? 0), 4);
+            $qtyBuyPoRequested = round((float)($line['qty_buy_po_requested'] ?? 0), 4);
+            $qtyContentPoRequested = round((float)($line['qty_content_po_requested'] ?? 0), 4);
+            $estimatedUnitPrice = round((float)($line['estimated_unit_price'] ?? ($line['unit_price'] ?? 0)), 2);
+            $sourceType = strtoupper(trim((string)($line['source_type'] ?? ($line['search_source'] ?? 'WAREHOUSE'))));
+            $profileName = $this->nullable_string($line['profile_name'] ?? ($line['catalog_name'] ?? ($line['item_name'] ?? null)));
+            $profileBrand = $this->nullable_string($line['profile_brand'] ?? ($line['brand_name'] ?? null));
+            $profileDescription = $this->nullable_string($line['profile_description'] ?? ($line['line_description'] ?? null));
 
             if ($materialId > 0) {
                 $lineKind = 'MATERIAL';
             } elseif ($lineKind === '') {
-                $lineKind = $itemId > 0 ? 'ITEM' : '';
+                $lineKind = ($itemId > 0 || $sourceType === 'MANUAL') ? 'ITEM' : '';
             }
             if (!in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
                 return ['ok' => false, 'message' => 'Line #' . $lineNo . ' jenis line tidak valid.'];
             }
-            if ($lineKind === 'ITEM' && $itemId <= 0) {
+            if ($lineKind === 'ITEM' && $itemId <= 0 && $sourceType !== 'MANUAL') {
                 return ['ok' => false, 'message' => 'Line #' . $lineNo . ' wajib item.'];
             }
             if ($lineKind === 'MATERIAL' && $materialId <= 0) {
                 return ['ok' => false, 'message' => 'Line #' . $lineNo . ' wajib material.'];
+            }
+            if ($sourceType === 'MANUAL') {
+                if ($profileName === null) {
+                    return ['ok' => false, 'message' => 'Line #' . $lineNo . ' nama barang manual wajib diisi.'];
+                }
+                $lineKind = 'ITEM';
+                if ($profileKey === '') {
+                    $profileKey = $this->build_division_request_manual_profile_key($profileName, $buyUomId, $contentUomId, $profileDescription);
+                }
             }
             if ($profileKey === '' || $buyUomId <= 0 || $contentUomId <= 0) {
                 return ['ok' => false, 'message' => 'Line #' . $lineNo . ' profile/UOM belum lengkap.'];
@@ -1610,23 +2177,45 @@ class Procurement_model extends CI_Model
             if ($qtyBuyRequested <= 0 || $qtyContentRequested <= 0) {
                 return ['ok' => false, 'message' => 'Line #' . $lineNo . ' qty tidak valid.'];
             }
+            if ($qtyContentPoRequested <= 0 && $qtyBuyPoRequested > 0) {
+                $qtyContentPoRequested = round($qtyBuyPoRequested * $contentPerBuy, 4);
+            }
+            if ($qtyBuyPoRequested <= 0 && $qtyContentPoRequested > 0) {
+                $qtyBuyPoRequested = round($qtyContentPoRequested / max($contentPerBuy, 0.000001), 4);
+            }
+            if ($qtyBuyPoRequested < 0 || $qtyContentPoRequested < 0) {
+                return ['ok' => false, 'message' => 'Line #' . $lineNo . ' qty tambahan PO tidak valid.'];
+            }
+            if ($estimatedUnitPrice < 0) {
+                return ['ok' => false, 'message' => 'Line #' . $lineNo . ' harga estimasi tidak valid.'];
+            }
+            if ($qtyContentPoRequested > $qtyContentRequested) {
+                $qtyContentPoRequested = $qtyContentRequested;
+                $qtyBuyPoRequested = round($qtyContentPoRequested / max($contentPerBuy, 0.000001), 4);
+            }
 
             $normalizedLines[] = [
                 'line_kind' => $lineKind,
                 'item_id' => $itemId > 0 ? $itemId : null,
                 'material_id' => $materialId > 0 ? $materialId : null,
                 'profile_key' => substr($profileKey, 0, 64),
-                'profile_name' => $this->nullable_string($line['profile_name'] ?? null),
-                'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
-                'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
+                'profile_name' => $profileName,
+                'profile_brand' => $profileBrand,
+                'profile_description' => $profileDescription,
                 'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
                 'buy_uom_id' => $buyUomId,
                 'content_uom_id' => $contentUomId,
                 'profile_content_per_buy' => $contentPerBuy,
                 'profile_buy_uom_code' => $this->nullable_string($line['profile_buy_uom_code'] ?? null),
                 'profile_content_uom_code' => $this->nullable_string($line['profile_content_uom_code'] ?? null),
+                'request_uom_mode' => $requestUomMode,
+                'vendor_id' => $vendorId > 0 ? $vendorId : null,
                 'qty_buy_requested' => $qtyBuyRequested,
                 'qty_content_requested' => $qtyContentRequested,
+                'qty_buy_po_requested' => $qtyBuyPoRequested,
+                'qty_content_po_requested' => $qtyContentPoRequested,
+                'estimated_unit_price' => max(0, $estimatedUnitPrice),
+                'source_type' => in_array($sourceType, ['WAREHOUSE', 'CATALOG', 'MASTER', 'MANUAL'], true) ? $sourceType : 'WAREHOUSE',
                 'notes' => $this->nullable_string($line['notes'] ?? null),
             ];
         }
@@ -1872,6 +2461,285 @@ class Procurement_model extends CI_Model
         return $no;
     }
 
+    private function prepare_division_request_routes(string $requestNo, array $lineRows): array
+    {
+        $storedLines = [];
+        $srLines = [];
+        $poLines = [];
+        $lineNo = 1;
+        $hasRequestUomMode = $this->has_division_request_request_uom_mode_column();
+        $hasVendorColumn = $this->has_division_request_vendor_column();
+        $hasEstimatedUnitPrice = $this->db->field_exists('estimated_unit_price', 'pur_division_request_line');
+
+        foreach ($lineRows as $line) {
+            $sourceType = strtoupper(trim((string)($line['source_type'] ?? 'WAREHOUSE')));
+            $availableContent = $sourceType === 'WAREHOUSE'
+                ? $this->get_warehouse_available_content(
+                    $this->nullable_int($line['item_id'] ?? null),
+                    $this->nullable_int($line['material_id'] ?? null),
+                    $this->nullable_int($line['buy_uom_id'] ?? null),
+                    $this->nullable_int($line['content_uom_id'] ?? null),
+                    (string)($line['profile_key'] ?? '')
+                )
+                : 0.0;
+            $requestedContent = round((float)($line['qty_content_requested'] ?? 0), 4);
+            $requestedBuy = round((float)($line['qty_buy_requested'] ?? 0), 4);
+            $requestedPoContent = round((float)($line['qty_content_po_requested'] ?? 0), 4);
+            $cpb = round((float)($line['profile_content_per_buy'] ?? 1), 6);
+            if ($cpb <= 0) {
+                $cpb = 1;
+            }
+            $estimatedUnitPrice = round((float)($line['estimated_unit_price'] ?? 0), 2);
+            if ($estimatedUnitPrice < 0) {
+                $estimatedUnitPrice = 0;
+            }
+            $profileBrand = $this->nullable_string($line['profile_brand'] ?? null);
+            $profileDescription = $this->nullable_string($line['profile_description'] ?? null);
+
+            $srContent = 0.0;
+            $poContent = 0.0;
+            if ($sourceType === 'WAREHOUSE') {
+                if ($requestedPoContent > 0) {
+                    $poContent = min($requestedContent, $requestedPoContent);
+                    $srContent = min(max(0, $requestedContent - $poContent), $availableContent);
+                    $remainingContent = max(0, $requestedContent - $srContent - $poContent);
+                    if ($remainingContent > 0) {
+                        $poContent += $remainingContent;
+                    }
+                } else {
+                    $srContent = min($requestedContent, $availableContent);
+                    $poContent = max(0, $requestedContent - $srContent);
+                }
+            } else {
+                $poContent = $requestedContent;
+            }
+
+            if ($srContent < 0) {
+                $srContent = 0;
+            }
+            if ($poContent < 0) {
+                $poContent = 0;
+            }
+            $srBuy = round($srContent / max($cpb, 0.000001), 4);
+            $poBuy = round($poContent / max($cpb, 0.000001), 4);
+            $routeType = $srContent > 0 && $poContent > 0 ? 'MIXED' : ($srContent > 0 ? 'SR' : 'PO');
+
+            $storedLine = [
+                'line_no' => $lineNo++,
+                'line_kind' => (string)$line['line_kind'],
+                'item_id' => $this->nullable_int($line['item_id'] ?? null),
+                'material_id' => $this->nullable_int($line['material_id'] ?? null),
+                'profile_key' => (string)$line['profile_key'],
+                'profile_name' => $this->nullable_string($line['profile_name'] ?? null),
+                'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
+                'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
+                'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
+                'buy_uom_id' => (int)$line['buy_uom_id'],
+                'content_uom_id' => (int)$line['content_uom_id'],
+                'profile_content_per_buy' => $cpb,
+                'profile_buy_uom_code' => $this->nullable_string($line['profile_buy_uom_code'] ?? null),
+                'profile_content_uom_code' => $this->nullable_string($line['profile_content_uom_code'] ?? null),
+                'qty_buy_requested' => $requestedBuy,
+                'qty_content_requested' => $requestedContent,
+                'qty_content_available_snapshot' => $availableContent,
+                'routed_to' => $routeType,
+                'qty_content_to_sr' => $srContent,
+                'qty_content_to_po' => $poContent,
+                'notes' => $this->nullable_string($line['notes'] ?? null),
+                'created_at' => date('Y-m-d H:i:s'),
+            ];
+            if ($hasRequestUomMode) {
+                $storedLine['request_uom_mode'] = $this->normalize_division_request_uom_mode($line['request_uom_mode'] ?? 'BUY');
+            }
+            if ($hasVendorColumn) {
+                $storedLine['vendor_id'] = $this->nullable_int($line['vendor_id'] ?? null);
+            }
+            if ($hasEstimatedUnitPrice) {
+                $storedLine['estimated_unit_price'] = $estimatedUnitPrice;
+            }
+            $storedLines[] = $storedLine;
+
+            if ($srContent > 0) {
+                $srLines[] = [
+                    'line_kind' => (string)$line['line_kind'],
+                    'item_id' => $this->nullable_int($line['item_id'] ?? null),
+                    'material_id' => $this->nullable_int($line['material_id'] ?? null),
+                    'profile_key' => (string)$line['profile_key'],
+                    'profile_name' => $this->nullable_string($line['profile_name'] ?? null),
+                    'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
+                    'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
+                    'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
+                    'buy_uom_id' => (int)$line['buy_uom_id'],
+                    'content_uom_id' => (int)$line['content_uom_id'],
+                    'profile_content_per_buy' => $cpb,
+                    'profile_buy_uom_code' => $this->nullable_string($line['profile_buy_uom_code'] ?? null),
+                    'profile_content_uom_code' => $this->nullable_string($line['profile_content_uom_code'] ?? null),
+                    'qty_buy_requested' => $srBuy,
+                    'qty_content_requested' => $srContent,
+                    'notes' => null,
+                ];
+            }
+
+            if ($poContent > 0) {
+                $poLineNotes = [];
+                $requestMarker = trim($requestNo);
+                if ($requestMarker !== '') {
+                    $poLineNotes[] = 'Dari pengajuan divisi ' . $requestMarker;
+                }
+                $lineNoteText = trim((string)($line['notes'] ?? ''));
+                if ($lineNoteText !== '') {
+                    $poLineNotes[] = $lineNoteText;
+                }
+                $poLines[] = [
+                    'source_line_no' => (int)($storedLine['line_no'] ?? 0),
+                    'line_kind' => (string)$line['line_kind'],
+                    'item_id' => $this->nullable_int($line['item_id'] ?? null),
+                    'material_id' => $this->nullable_int($line['material_id'] ?? null),
+                    'vendor_id' => $this->nullable_int($line['vendor_id'] ?? null),
+                    'catalog_name' => (string)($line['profile_name'] ?? ''),
+                    'item_name' => (string)($line['profile_name'] ?? ''),
+                    'line_description' => $profileDescription,
+                    'brand_name' => $profileBrand,
+                    'qty_buy' => $poBuy,
+                    'buy_uom_id' => (int)$line['buy_uom_id'],
+                    'content_per_buy' => $cpb,
+                    'qty_content' => $poContent,
+                    'content_uom_id' => (int)$line['content_uom_id'],
+                    'conversion_factor_to_content' => $cpb,
+                    'unit_price' => $estimatedUnitPrice,
+                    'discount_percent' => 0,
+                    'tax_percent' => 0,
+                    'profile_key' => (string)$line['profile_key'],
+                    'snapshot_item_name' => (string)($line['profile_name'] ?? ''),
+                    'snapshot_material_name' => (string)($line['profile_name'] ?? ''),
+                    'snapshot_brand_name' => $profileBrand,
+                    'snapshot_line_description' => $profileDescription,
+                    'snapshot_buy_uom_code' => (string)($line['profile_buy_uom_code'] ?? ''),
+                    'snapshot_content_uom_code' => (string)($line['profile_content_uom_code'] ?? ''),
+                    'notes' => $this->nullable_string(implode(' | ', $poLineNotes)),
+                ];
+            }
+        }
+
+        return [
+            'stored_lines' => $storedLines,
+            'sr_lines' => $srLines,
+            'po_lines' => $poLines,
+        ];
+    }
+
+    private function normalize_division_request_candidate_rows(array $rows): array
+    {
+        $normalized = [];
+        $seen = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $profileName = $this->nullable_string($row['catalog_name'] ?? ($row['item_name'] ?? ($row['material_name'] ?? null)));
+            if ($profileName === null) {
+                continue;
+            }
+
+            $lineKind = strtoupper(trim((string)($row['line_kind'] ?? 'ITEM')));
+            $itemId = $this->nullable_int($row['item_id'] ?? null);
+            $materialId = $this->nullable_int($row['material_id'] ?? null);
+            if ($materialId !== null && $materialId > 0) {
+                $lineKind = 'MATERIAL';
+            }
+            if (!in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
+                if ($itemId === null || $itemId <= 0) {
+                    continue;
+                }
+                $lineKind = 'ITEM';
+            }
+
+            $buyUomId = (int)($row['buy_uom_id'] ?? 0);
+            $contentUomId = (int)($row['content_uom_id'] ?? 0);
+            if ($buyUomId <= 0 || $contentUomId <= 0) {
+                continue;
+            }
+
+            $contentPerBuy = round((float)($row['content_per_buy'] ?? ($row['conversion_factor_to_content'] ?? 1)), 6);
+            if ($contentPerBuy <= 0) {
+                $contentPerBuy = 1;
+            }
+
+            $profileKey = trim((string)($row['profile_key'] ?? ''));
+            if ($profileKey === '') {
+                $profileKey = hash('sha256', implode('|', [
+                    'DREQCAT',
+                    $lineKind,
+                    (int)($row['item_id'] ?? 0),
+                    (int)($row['material_id'] ?? 0),
+                    $profileName,
+                    $buyUomId,
+                    $contentUomId,
+                    $contentPerBuy,
+                ]));
+            }
+
+            $identity = $this->build_division_request_candidate_identity([
+                'line_kind' => $lineKind,
+                'item_id' => $itemId,
+                'material_id' => $materialId,
+                'profile_name' => $profileName,
+            ]);
+            if (isset($seen[$identity])) {
+                continue;
+            }
+            $seen[$identity] = true;
+
+            $normalized[] = [
+                'line_kind' => $lineKind,
+                'item_id' => $itemId,
+                'material_id' => $materialId,
+                'profile_key' => substr($profileKey, 0, 64),
+                'profile_name' => $profileName,
+                'profile_brand' => $this->nullable_string($row['brand_name'] ?? null),
+                'profile_description' => $this->nullable_string($row['line_description'] ?? ($row['notes'] ?? null)),
+                'profile_expired_date' => $this->normalize_date((string)($row['expired_date'] ?? '')),
+                'buy_uom_id' => $buyUomId,
+                'content_uom_id' => $contentUomId,
+                'profile_content_per_buy' => $contentPerBuy,
+                'profile_buy_uom_code' => $this->nullable_string($row['buy_uom_code'] ?? null),
+                'profile_content_uom_code' => $this->nullable_string($row['content_uom_code'] ?? null),
+                'qty_content_balance' => 0,
+                'source_type' => strtoupper(trim((string)($row['source_type'] ?? 'CATALOG'))),
+                'search_source' => 'CATALOG',
+            ];
+        }
+
+        return $normalized;
+    }
+
+    private function build_division_request_candidate_identity(array $row): string
+    {
+        $lineKind = strtoupper(trim((string)($row['line_kind'] ?? 'ITEM')));
+        $itemId = (int)($row['item_id'] ?? 0);
+        $materialId = (int)($row['material_id'] ?? 0);
+        if ($materialId > 0) {
+            return 'MATERIAL|' . $materialId;
+        }
+        if ($itemId > 0) {
+            return $lineKind . '|' . $itemId;
+        }
+
+        return $lineKind . '|NAME|' . strtoupper(trim((string)($row['profile_name'] ?? '')));
+    }
+
+    private function build_division_request_manual_profile_key(string $profileName, int $buyUomId, int $contentUomId, ?string $profileDescription): string
+    {
+        return hash('sha256', implode('|', [
+            'DREQMANUAL',
+            strtoupper(trim($profileName)),
+            $buyUomId,
+            $contentUomId,
+            strtoupper(trim((string)$profileDescription)),
+        ]));
+    }
+
     private function infer_destination_from_division(int $divisionId): string
     {
         if ($divisionId <= 0) {
@@ -1935,6 +2803,27 @@ class Procurement_model extends CI_Model
         return in_array($destinationType, $this->allowed_destinations_for_division($divisionId), true);
     }
 
+    private function resolve_division_request_destination_type(int $divisionId, string $requestedDestination): ?string
+    {
+        if ($divisionId <= 0) {
+            return null;
+        }
+
+        $allowed = $this->allowed_destinations_for_division($divisionId);
+        if (empty($allowed)) {
+            return null;
+        }
+
+        $requestedDestination = strtoupper(trim($requestedDestination));
+        if ($requestedDestination === '') {
+            return (string)($allowed[0] ?? null);
+        }
+
+        return in_array($requestedDestination, $allowed, true)
+            ? $requestedDestination
+            : null;
+    }
+
     private function get_warehouse_available_content(?int $itemId, ?int $materialId, ?int $buyUomId, ?int $contentUomId, string $profileKey): float
     {
         if (!$this->db->table_exists('inv_warehouse_stock_balance')) {
@@ -1954,13 +2843,16 @@ class Procurement_model extends CI_Model
                   AND content_uom_id = ?
                   AND profile_key <=> ?';
         $params = [$buyUomId, $contentUomId, $profileKey];
+        $hasWarehouseMaterial = $this->db->field_exists('material_id', 'inv_warehouse_stock_balance');
 
-        if ($materialId !== null && $materialId > 0) {
+        if ($hasWarehouseMaterial && $materialId !== null && $materialId > 0) {
             $sql .= ' AND material_id = ?';
             $params[] = $materialId;
-        } else {
+        } elseif ($itemId !== null && $itemId > 0) {
             $sql .= ' AND item_id = ?';
             $params[] = $itemId;
+        } else {
+            return 0.0;
         }
         $sql .= ' LIMIT 1';
 
@@ -1996,7 +2888,22 @@ class Procurement_model extends CI_Model
             return ['ok' => true];
         }
 
-        $this->load->library('InventoryLedger');
+        return $this->purge_fulfillment_movements_and_rebuild($header, $fulfillments, $userId, $notes);
+    }
+
+    private function purge_fulfillment_movements_and_rebuild(array $header, array $fulfillments, int $userId, string $notes = ''): array
+    {
+        $requestId = (int)($header['id'] ?? 0);
+        if ($requestId <= 0) {
+            return ['ok' => false, 'message' => 'Store Request tidak valid untuk rollback fulfillment.'];
+        }
+
+        $this->load->model('Purchase_model');
+        $this->load->library('MaterialFifoManager');
+        $fifoReady = $this->materialfifomanager->ensureReady();
+        if (!($fifoReady['ok'] ?? false)) {
+            return $fifoReady;
+        }
 
         $srNo = (string)($header['sr_no'] ?? ('SR#' . $requestId));
         $divisionId = (int)($header['request_division_id'] ?? 0);
@@ -2006,11 +2913,18 @@ class Procurement_model extends CI_Model
             $voidNote = 'Void Store Request ' . $srNo;
         }
 
+        $rebuildTargets = [];
         foreach ($fulfillments as $fulfillment) {
             $fulfillmentId = (int)($fulfillment['id'] ?? 0);
             if ($fulfillmentId <= 0) {
                 continue;
             }
+
+            $fulfillmentDate = $this->normalize_date((string)($fulfillment['fulfillment_date'] ?? ''));
+            if ($fulfillmentDate === null) {
+                $fulfillmentDate = date('Y-m-d');
+            }
+            $rebuildStartDate = date('Y-m-01', strtotime($fulfillmentDate));
 
             $lines = $this->db
                 ->from('pur_store_request_fulfillment_line')
@@ -2019,69 +2933,45 @@ class Procurement_model extends CI_Model
                 ->get()
                 ->result_array();
 
+            $fifoRollback = $this->materialfifomanager->rollbackTransferLotsBySource(
+                'pur_store_request_fulfillment',
+                $fulfillmentId,
+                null,
+                $voidNote
+            );
+            if (!($fifoRollback['ok'] ?? false)) {
+                return $fifoRollback;
+            }
+
             foreach ($lines as $line) {
                 $qtyBuy = round((float)($line['qty_buy_posted'] ?? 0), 4);
                 $qtyContent = round((float)($line['qty_content_posted'] ?? 0), 4);
-                if ($qtyBuy <= 0 || $qtyContent <= 0) {
+                if ($qtyBuy <= 0 && $qtyContent <= 0) {
                     continue;
                 }
 
                 $stockDomain = $this->resolve_line_stock_domain($line);
-                $contentPerBuy = round((float)($line['profile_content_per_buy'] ?? 1), 6);
-                if ($contentPerBuy <= 0) {
-                    $contentPerBuy = 1;
-                }
-
-                $payload = [
-                    'movement_date' => date('Y-m-d'),
-                    'ref_table' => 'pur_store_request_fulfillment',
-                    'ref_id' => $fulfillmentId,
-                    'item_id' => $this->nullable_int($line['item_id'] ?? null),
+                $baseIdentity = [
+                    'stock_domain' => $stockDomain,
+                    'item_id' => (int)($line['item_id'] ?? 0),
                     'material_id' => $this->nullable_int($line['material_id'] ?? null),
                     'buy_uom_id' => $this->nullable_int($line['buy_uom_id'] ?? null),
-                    'content_uom_id' => $this->nullable_int($line['content_uom_id'] ?? null),
+                    'content_uom_id' => (int)($line['content_uom_id'] ?? 0),
                     'profile_key' => $this->nullable_string($line['profile_key'] ?? null),
                     'profile_name' => $this->nullable_string($line['profile_name'] ?? null),
                     'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
                     'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
                     'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
-                    'profile_content_per_buy' => $contentPerBuy,
+                    'profile_content_per_buy' => round((float)($line['profile_content_per_buy'] ?? 1), 6),
                     'profile_buy_uom_code' => $this->nullable_string($line['profile_buy_uom_code'] ?? null),
                     'profile_content_uom_code' => $this->nullable_string($line['profile_content_uom_code'] ?? null),
-                    'stock_domain' => $stockDomain,
-                    'created_by' => $userId > 0 ? $userId : null,
-                    'manage_transaction' => false,
                 ];
 
-                $divisionReverse = $this->inventoryledger->post(array_merge($payload, [
-                    'movement_scope' => 'DIVISION',
-                    'movement_type' => 'TRANSFER_OUT',
-                    'division_id' => $divisionId,
-                    'destination_type' => $destinationType,
-                    'qty_buy_delta' => -1 * $qtyBuy,
-                    'qty_content_delta' => -1 * $qtyContent,
-                    'notes' => $voidNote . ' | reverse fulfill #' . $fulfillmentId,
-                ]));
-                if (!($divisionReverse['ok'] ?? false)) {
-                    return [
-                        'ok' => false,
-                        'message' => 'Void gagal: stok divisi sudah terpakai atau tidak cukup untuk reverse. ' . (string)($divisionReverse['message'] ?? ''),
-                    ];
-                }
-
-                $warehouseReverse = $this->inventoryledger->post(array_merge($payload, [
-                    'movement_scope' => 'WAREHOUSE',
-                    'movement_type' => 'TRANSFER_IN',
-                    'qty_buy_delta' => $qtyBuy,
-                    'qty_content_delta' => $qtyContent,
-                    'notes' => $voidNote . ' | rollback ke gudang #' . $fulfillmentId,
-                ]));
-                if (!($warehouseReverse['ok'] ?? false)) {
-                    return [
-                        'ok' => false,
-                        'message' => 'Void gagal saat rollback stok gudang. ' . (string)($warehouseReverse['message'] ?? ''),
-                    ];
-                }
+                $this->register_inventory_rebuild_target($rebuildTargets, 'WAREHOUSE', $rebuildStartDate, $baseIdentity);
+                $divisionIdentity = $baseIdentity;
+                $divisionIdentity['division_id'] = $divisionId;
+                $divisionIdentity['destination_type'] = $destinationType;
+                $this->register_inventory_rebuild_target($rebuildTargets, 'DIVISION', $rebuildStartDate, $divisionIdentity);
 
                 $srLineId = (int)($line['store_request_line_id'] ?? 0);
                 if ($srLineId > 0) {
@@ -2110,6 +3000,11 @@ class Procurement_model extends CI_Model
             }
 
             $this->db
+                ->where('ref_table', 'pur_store_request_fulfillment')
+                ->where('ref_id', $fulfillmentId)
+                ->delete('inv_stock_movement_log');
+
+            $this->db
                 ->where('id', $fulfillmentId)
                 ->update('pur_store_request_fulfillment', [
                     'status' => 'VOID',
@@ -2120,7 +3015,66 @@ class Procurement_model extends CI_Model
                 ]);
         }
 
-        return ['ok' => true];
+        foreach ($rebuildTargets as $target) {
+            $rebuild = $this->Purchase_model->rebuild_inventory_history_for_identity(
+                (string)$target['scope'],
+                (string)$target['start_date'],
+                (array)$target['identity']
+            );
+            if (!($rebuild['ok'] ?? false)) {
+                $message = (string)($rebuild['message'] ?? 'Gagal rebuild histori stok setelah purge fulfillment.');
+                if (!empty($rebuild['data']['negative_samples']) && is_array($rebuild['data']['negative_samples'])) {
+                    $message .= ' Contoh: ' . implode('; ', array_slice($rebuild['data']['negative_samples'], 0, 3));
+                }
+                return [
+                    'ok' => false,
+                    'message' => $message,
+                ];
+            }
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Fulfillment SR berhasil dihapus dari histori stok dan direbuild ulang.',
+            'data' => [
+                'rebuild_targets' => count($rebuildTargets),
+            ],
+        ];
+    }
+
+    private function register_inventory_rebuild_target(array &$targets, string $scope, string $startDate, array $identity): void
+    {
+        $scope = strtoupper(trim($scope));
+        $normalizedDate = $this->normalize_date($startDate);
+        if ($normalizedDate === null) {
+            $normalizedDate = date('Y-m-01');
+        }
+
+        $keyParts = [
+            $scope,
+            strtoupper((string)($identity['stock_domain'] ?? 'ITEM')),
+            (int)($identity['division_id'] ?? 0),
+            strtoupper((string)($identity['destination_type'] ?? 'OTHER')),
+            (int)($identity['item_id'] ?? 0),
+            (int)($identity['material_id'] ?? 0),
+            (int)($identity['buy_uom_id'] ?? 0),
+            (int)($identity['content_uom_id'] ?? 0),
+            (string)($identity['profile_key'] ?? ''),
+        ];
+        $key = implode('|', $keyParts);
+
+        if (!isset($targets[$key])) {
+            $targets[$key] = [
+                'scope' => $scope,
+                'start_date' => $normalizedDate,
+                'identity' => $identity,
+            ];
+            return;
+        }
+
+        if ($normalizedDate < (string)$targets[$key]['start_date']) {
+            $targets[$key]['start_date'] = $normalizedDate;
+        }
     }
 
     private function resolve_line_stock_domain(array $line): string

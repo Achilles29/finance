@@ -1,239 +1,402 @@
 <?php
-$hasSchema = !empty($has_schema);
 $filters = $filters ?? [];
 $rows = $rows ?? [];
+$lineRows = $line_rows ?? [];
 $linksMap = $links_map ?? [];
 $divisionOptions = $division_options ?? [];
 $limit = (int)($limit ?? 50);
+$activeTab = ($active_tab ?? 'notes') === 'lines' ? 'lines' : 'notes';
+$notesCount = count((array)$rows);
+$lineCount = count((array)$lineRows);
 $canCreate = !empty($can_create);
+$canVerify = !empty($can_verify);
+$canManageOwn = !empty($can_manage_own);
+$isPurchaseScope = !empty($is_purchase_scope);
+
+if (!function_exists('finance_dreq_status_badge')) {
+    function finance_dreq_status_badge($status)
+    {
+        switch (strtoupper((string)$status)) {
+            case 'SUBMITTED':
+                return 'bg-warning text-dark';
+            case 'VERIFIED':
+                return 'bg-success';
+            case 'REJECTED':
+                return 'bg-danger';
+            case 'VOID':
+                return 'bg-secondary';
+            default:
+                return 'bg-light text-dark';
+        }
+    }
+}
+
+  if (!function_exists('finance_dreq_location_badge')) {
+    function finance_dreq_location_badge($destinationType)
+    {
+      $destinationType = strtoupper(trim((string)$destinationType));
+      if (strpos($destinationType, 'EVENT') !== false) {
+        return 'Event';
+      }
+      if (in_array($destinationType, ['BAR', 'KITCHEN', 'OFFICE'], true)) {
+        return 'Reguler';
+      }
+      return $destinationType !== '' ? $destinationType : '-';
+    }
+  }
+
+    if (!function_exists('finance_dreq_route_badge')) {
+      function finance_dreq_route_badge($qtyToSr, $qtyToPo)
+      {
+        $qtyToSr = (float)$qtyToSr;
+        $qtyToPo = (float)$qtyToPo;
+        if ($qtyToSr > 0 && $qtyToPo > 0) {
+          return ['label' => 'SR + PO', 'class' => 'bg-info-subtle text-dark border'];
+        }
+        if ($qtyToSr > 0) {
+          return ['label' => 'SR', 'class' => 'bg-success-subtle text-success border'];
+        }
+        return ['label' => 'PO', 'class' => 'bg-warning-subtle text-dark border'];
+      }
+    }
+
+    $tabQuery = [
+      'q' => (string)($filters['q'] ?? ''),
+      'status' => (string)($filters['status'] ?? ''),
+      'division_id' => (int)($filters['division_id'] ?? 0),
+      'date_start' => (string)($filters['date_start'] ?? ''),
+      'date_end' => (string)($filters['date_end'] ?? ''),
+      'limit' => $limit,
+    ];
+    $notesTabUrl = site_url('procurement/division-po-sr') . '?' . http_build_query(array_merge($tabQuery, ['tab' => 'notes']));
+    $linesTabUrl = site_url('procurement/division-po-sr') . '?' . http_build_query(array_merge($tabQuery, ['tab' => 'lines']));
 ?>
 
 <style>
-  .dreq-action-btn { width: 34px; height: 34px; border-radius: 10px; padding: 0 !important; display: inline-flex; align-items: center; justify-content: center; }
-  .dreq-line-table th, .dreq-line-table td { vertical-align: middle; }
-  .dreq-scroll { max-height: 260px; overflow: auto; }
+  .dreq-view-tabs-wrap {
+    padding: 0 1rem 1rem;
+  }
+  .dreq-view-tabs {
+    gap: .5rem;
+    padding: .5rem;
+    border: 1px solid #eaded7;
+    border-radius: 16px;
+    background: linear-gradient(180deg, #fffaf7 0%, #f7f1ee 100%);
+  }
+  .dreq-view-tab {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    min-width: 260px;
+    padding: .9rem 1rem;
+    border: 0;
+    border-radius: 12px;
+    color: #7a2e2b;
+    background: transparent;
+    transition: all .18s ease;
+  }
+  .dreq-view-tab:hover {
+    color: #5f161b;
+    background: rgba(157, 27, 45, .06);
+  }
+  .dreq-view-tab.active {
+    color: #fff;
+    background: linear-gradient(135deg, #8f1023 0%, #b51d35 100%);
+    box-shadow: 0 10px 24px rgba(143, 16, 35, .18);
+  }
+  .dreq-view-tab-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(157, 27, 45, .10);
+    font-size: 1.1rem;
+    flex: 0 0 auto;
+  }
+  .dreq-view-tab.active .dreq-view-tab-icon {
+    background: rgba(255,255,255,.18);
+  }
+  .dreq-view-tab-body {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 1.2;
+    min-width: 0;
+  }
+  .dreq-view-tab-title {
+    font-weight: 700;
+    font-size: .98rem;
+  }
+  .dreq-view-tab-subtitle {
+    font-size: .76rem;
+    opacity: .82;
+  }
+  .dreq-view-tab-count {
+    margin-left: auto;
+    border-radius: 999px;
+    padding: .3rem .6rem;
+    font-weight: 700;
+    background: rgba(157, 27, 45, .10);
+    color: inherit;
+  }
+  .dreq-view-tab.active .dreq-view-tab-count {
+    background: rgba(255,255,255,.18);
+  }
+  @media (max-width: 767.98px) {
+    .dreq-view-tab {
+      min-width: 0;
+      width: 100%;
+    }
+    .dreq-view-tabs-wrap {
+      padding: 0 .75rem .75rem;
+    }
+  }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
   <div>
     <h4 class="mb-0"><i class="ri-inbox-line page-title-icon me-1"></i><?php echo html_escape($title ?? 'PO / SR Divisi'); ?></h4>
-    <small class="text-muted">Divisi mengajukan kebutuhan. Sistem auto-route: stok ada -> SR, stok kurang -> PO.</small>
+    <small class="text-muted">
+      <?php echo $isPurchaseScope
+        ? 'Purchase meninjau pengajuan divisi, menyesuaikan item bila perlu, lalu membentuk SR/PO final.'
+        : 'Pegawai divisi membuat dan mengelola pengajuan untuk divisinya sendiri sebelum diverifikasi purchase.'; ?>
+    </small>
   </div>
-  <a href="<?php echo site_url('store-requests'); ?>" class="btn btn-outline-secondary">Buka Store Request</a>
+  <?php if ($canCreate): ?>
+    <a href="<?php echo site_url('procurement/division-po-sr/create'); ?>" class="btn btn-primary">Buat Pengajuan</a>
+  <?php endif; ?>
 </div>
 
-<?php if (!$hasSchema): ?>
-<div class="alert alert-warning">Schema PO/SR Divisi belum tersedia. Jalankan SQL terbaru modul procurement.</div>
+<?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'division-po-sr']); ?>
+
+<?php if ($this->session->flashdata('success')): ?>
+  <div class="alert alert-success"><?php echo html_escape((string)$this->session->flashdata('success')); ?></div>
+<?php endif; ?>
+<?php if ($this->session->flashdata('error')): ?>
+  <div class="alert alert-danger"><?php echo html_escape((string)$this->session->flashdata('error')); ?></div>
 <?php endif; ?>
 
-<?php if ($canCreate && $hasSchema): ?>
 <div class="card mb-3">
   <div class="card-body">
-    <h6 class="mb-3">Pengajuan PO/SR Baru</h6>
-    <div id="dreqAlert"></div>
-    <form id="dreqForm">
-      <div class="row g-2 mb-2">
-        <div class="col-md-2"><label class="form-label mb-1">Tgl Request</label><input type="date" id="dreq_request_date" class="form-control" value="<?php echo date('Y-m-d'); ?>"></div>
-        <div class="col-md-2"><label class="form-label mb-1">Tgl Butuh</label><input type="date" id="dreq_needed_date" class="form-control" value="<?php echo date('Y-m-d'); ?>"></div>
-        <div class="col-md-4"><label class="form-label mb-1">Divisi</label><select id="dreq_division_id" class="form-select"><?php foreach($divisionOptions as $d): ?><option value="<?php echo (int)$d['id']; ?>"><?php echo html_escape((string)($d['division_name'] ?? $d['name'] ?? ('DIV#'.$d['id']))); ?></option><?php endforeach; ?></select></div>
-        <div class="col-md-4"><label class="form-label mb-1">Catatan</label><input type="text" id="dreq_notes" class="form-control" placeholder="Opsional"></div>
+    <form class="row g-2 align-items-end" method="get" action="<?php echo site_url('procurement/division-po-sr'); ?>">
+      <input type="hidden" name="tab" value="<?php echo html_escape($activeTab); ?>">
+      <div class="col-md-3">
+        <label class="form-label mb-1">Cari</label>
+        <input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="No request / catatan">
       </div>
-
-      <div class="border rounded p-2 mb-2">
-        <label class="form-label mb-1">Cari Barang (cek stok gudang)</label>
-        <div class="d-flex gap-2">
-          <input type="text" id="dreq_profile_q" class="form-control" placeholder="Nama profile / item / material">
-          <button type="button" id="btnDreqSearch" class="btn btn-outline-primary">Cari</button>
-        </div>
-        <div class="dreq-scroll mt-2">
-          <table class="table table-sm mb-0">
-            <thead><tr><th>Profile</th><th>UOM</th><th class="text-end">Stok Isi</th><th style="width:80px">Aksi</th></tr></thead>
-            <tbody id="dreqSearchRows"><tr><td colspan="4" class="text-muted text-center py-2">Belum ada pencarian.</td></tr></tbody>
-          </table>
-        </div>
+      <div class="col-md-3">
+        <label class="form-label mb-1">Divisi</label>
+        <select name="division_id" class="form-select">
+          <option value="">Semua</option>
+          <?php foreach ($divisionOptions as $d): ?>
+            <option value="<?php echo (int)$d['id']; ?>" <?php echo ((int)($filters['division_id'] ?? 0) === (int)$d['id']) ? 'selected' : ''; ?>>
+              <?php echo html_escape((string)($d['name'] ?? $d['division_name'] ?? ('DIV#' . $d['id']))); ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
       </div>
-
-      <div class="table-responsive">
-        <table class="table table-striped table-sm dreq-line-table">
-          <thead><tr><th>Profile</th><th>Jenis</th><th>UOM</th><th class="text-end">Stok Gudang</th><th>Qty Beli</th><th>Qty Isi</th><th>Aksi</th></tr></thead>
-          <tbody id="dreqLines"><tr><td colspan="7" class="text-muted text-center py-2">Belum ada line.</td></tr></tbody>
-        </table>
+      <div class="col-md-2">
+        <label class="form-label mb-1">Status</label>
+        <select name="status" class="form-select">
+          <option value="">Semua</option>
+          <?php foreach (['SUBMITTED', 'VERIFIED', 'REJECTED', 'VOID'] as $statusOption): ?>
+            <option value="<?php echo $statusOption; ?>" <?php echo ((string)($filters['status'] ?? '') === $statusOption) ? 'selected' : ''; ?>><?php echo $statusOption; ?></option>
+          <?php endforeach; ?>
+        </select>
       </div>
-
-      <button type="submit" class="btn btn-primary" id="btnDreqSubmit">Ajukan PO/SR</button>
+      <div class="col-md-2">
+        <label class="form-label mb-1">Dari</label>
+        <input type="date" name="date_start" class="form-control" value="<?php echo html_escape((string)($filters['date_start'] ?? '')); ?>">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label mb-1">Sampai</label>
+        <input type="date" name="date_end" class="form-control" value="<?php echo html_escape((string)($filters['date_end'] ?? '')); ?>">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label mb-1">Limit</label>
+        <select name="limit" class="form-select">
+          <?php foreach ([25, 50, 100, 200] as $rowLimit): ?>
+            <option value="<?php echo $rowLimit; ?>" <?php echo $limit === $rowLimit ? 'selected' : ''; ?>><?php echo $rowLimit; ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="col-md-10 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">Filter</button>
+        <a href="<?php echo site_url('procurement/division-po-sr'); ?>" class="btn btn-outline-secondary">Reset</a>
+      </div>
     </form>
   </div>
 </div>
-<?php endif; ?>
 
 <div class="card">
-  <div class="card-body border-bottom">
-    <form class="row g-2 align-items-end" method="get" action="<?php echo site_url('procurement/division-po-sr'); ?>">
-      <div class="col-md-3"><label class="form-label mb-1">Cari</label><input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="No request/catatan"></div>
-      <div class="col-md-3"><label class="form-label mb-1">Divisi</label><select name="division_id" class="form-select"><option value="">Semua</option><?php foreach($divisionOptions as $d): ?><option value="<?php echo (int)$d['id']; ?>" <?php echo ((int)($filters['division_id'] ?? 0) === (int)$d['id']) ? 'selected' : ''; ?>><?php echo html_escape((string)($d['division_name'] ?? $d['name'] ?? ('DIV#'.$d['id']))); ?></option><?php endforeach; ?></select></div>
-      <div class="col-md-2"><label class="form-label mb-1">Status</label><select name="status" class="form-select"><option value="">Semua</option><?php foreach(['SUBMITTED','VERIFIED','REJECTED','VOID'] as $st): ?><option value="<?php echo $st; ?>" <?php echo ((string)($filters['status'] ?? '') === $st) ? 'selected' : ''; ?>><?php echo $st; ?></option><?php endforeach; ?></select></div>
-      <div class="col-md-2"><label class="form-label mb-1">Dari</label><input type="date" name="date_start" class="form-control" value="<?php echo html_escape((string)($filters['date_start'] ?? '')); ?>"></div>
-      <div class="col-md-2"><label class="form-label mb-1">Sampai</label><input type="date" name="date_end" class="form-control" value="<?php echo html_escape((string)($filters['date_end'] ?? '')); ?>"></div>
-      <div class="col-md-2"><label class="form-label mb-1">Limit</label><select name="limit" class="form-select"><?php foreach([25,50,100,200] as $lm): ?><option value="<?php echo $lm; ?>" <?php echo $limit === $lm ? 'selected' : ''; ?>><?php echo $lm; ?></option><?php endforeach; ?></select></div>
-      <div class="col-md-10 d-flex gap-2"><button type="submit" class="btn btn-primary">Filter</button><a href="<?php echo site_url('procurement/division-po-sr'); ?>" class="btn btn-outline-secondary">Reset</a></div>
-    </form>
+  <div class="dreq-view-tabs-wrap">
+    <ul class="nav dreq-view-tabs">
+      <li class="nav-item">
+        <a class="nav-link dreq-view-tab <?php echo $activeTab === 'notes' ? 'active' : ''; ?>" href="<?php echo html_escape($notesTabUrl); ?>">
+          <span class="dreq-view-tab-icon"><i class="ri-file-list-3-line"></i></span>
+          <span class="dreq-view-tab-body">
+            <span class="dreq-view-tab-title">Per Nota</span>
+            <span class="dreq-view-tab-subtitle">Ringkasan per request</span>
+          </span>
+          <span class="dreq-view-tab-count"><?php echo $notesCount; ?></span>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link dreq-view-tab <?php echo $activeTab === 'lines' ? 'active' : ''; ?>" href="<?php echo html_escape($linesTabUrl); ?>">
+          <span class="dreq-view-tab-icon"><i class="ri-list-check-3"></i></span>
+          <span class="dreq-view-tab-body">
+            <span class="dreq-view-tab-title">Detail Rincian</span>
+            <span class="dreq-view-tab-subtitle">Audit line per barang</span>
+          </span>
+          <span class="dreq-view-tab-count"><?php echo $lineCount; ?></span>
+        </a>
+      </li>
+    </ul>
   </div>
 
-  <div class="table-responsive">
-    <table class="table table-striped mb-0">
-      <thead><tr><th>No Request</th><th>Tanggal</th><th>Divisi</th><th>Status</th><th class="text-end">Line</th><th class="text-end">Qty</th><th>Dokumen</th></tr></thead>
-      <tbody>
-        <?php if (empty($rows)): ?>
-          <tr><td colspan="7" class="text-center text-muted py-3">Belum ada pengajuan.</td></tr>
-        <?php else: foreach($rows as $r): $rid=(int)($r['id'] ?? 0); $links=(array)($linksMap[$rid] ?? []); ?>
+  <?php if ($activeTab === 'notes'): ?>
+    <div class="table-responsive">
+      <table class="table table-striped table-hover mb-0">
+        <thead>
           <tr>
-            <td><strong><?php echo html_escape((string)($r['request_no'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape((string)($r['created_by_username'] ?? '-')); ?></div></td>
-            <td><?php echo html_escape((string)($r['request_date'] ?? '-')); ?><div class="small text-muted">Need: <?php echo html_escape((string)($r['needed_date'] ?? '-')); ?></div></td>
-            <td><?php echo html_escape((string)($r['division_name'] ?? '-')); ?></td>
-            <td><?php echo html_escape((string)($r['status'] ?? '-')); ?></td>
-            <td class="text-end"><?php echo (int)($r['line_total'] ?? 0); ?></td>
-            <td class="text-end"><?php echo ui_num((float)($r['qty_total'] ?? 0)); ?></td>
-            <td>
-              <?php if (empty($links)): ?>
-                <span class="text-muted">-</span>
-              <?php else: foreach($links as $ln): ?>
-                <?php if (strtoupper((string)($ln['doc_type'] ?? '')) === 'SR'): ?>
-                  <a href="<?php echo site_url('store-requests?q=' . urlencode((string)($ln['doc_no'] ?? ''))); ?>" class="badge bg-info text-dark text-decoration-none me-1">SR: <?php echo html_escape((string)($ln['doc_no'] ?? '')); ?> (<?php echo html_escape((string)($ln['doc_status'] ?? '-')); ?>)</a>
-                <?php else: ?>
-                  <a href="<?php echo site_url('purchase-orders/detail/' . (int)($ln['doc_id'] ?? 0)); ?>" class="badge bg-secondary text-decoration-none me-1">PO: <?php echo html_escape((string)($ln['doc_no'] ?? '')); ?> (<?php echo html_escape((string)($ln['doc_status'] ?? '-')); ?>)</a>
-                <?php endif; ?>
-              <?php endforeach; endif; ?>
-            </td>
+            <th>Tanggal</th>
+            <th>No Request</th>
+            <th>Divisi</th>
+            <th>Lokasi</th>
+            <th>Pengaju</th>
+            <th>Status</th>
+            <th class="text-end">Line</th>
+            <th class="text-end">Qty</th>
+            <th>Dokumen</th>
+            <th class="text-end">Aksi</th>
           </tr>
-        <?php endforeach; endif; ?>
-      </tbody>
-    </table>
-  </div>
+        </thead>
+        <tbody>
+          <?php if (empty($rows)): ?>
+            <tr>
+              <td colspan="10" class="text-center text-muted py-4">Belum ada pengajuan divisi.</td>
+            </tr>
+          <?php else: ?>
+            <?php foreach ($rows as $row): ?>
+              <?php
+                $requestId = (int)($row['id'] ?? 0);
+                $status = strtoupper((string)($row['status'] ?? 'SUBMITTED'));
+                $links = (array)($linksMap[$requestId] ?? []);
+                $hasDocs = !empty($links);
+                $canEditRow = $canManageOwn && in_array($status, ['SUBMITTED', 'REJECTED'], true) && !$hasDocs;
+                $canVerifyRow = $canVerify && $status === 'SUBMITTED';
+              ?>
+              <tr>
+                <td class="text-nowrap">
+                  <?php echo html_escape((string)($row['request_date'] ?? '-')); ?>
+                  <div class="small text-muted">Need: <?php echo html_escape((string)($row['needed_date'] ?? '-')); ?></div>
+                </td>
+                <td>
+                  <a href="<?php echo site_url('procurement/division-po-sr/detail/' . $requestId); ?>" class="fw-semibold text-decoration-none">
+                    <?php echo html_escape((string)($row['request_no'] ?? '-')); ?>
+                  </a>
+                </td>
+                <td><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>
+                <td><span class="badge bg-light text-dark border"><?php echo html_escape(finance_dreq_location_badge((string)($row['destination_type'] ?? ''))); ?></span></td>
+                <td><?php echo html_escape((string)($row['created_by_username'] ?? '-')); ?></td>
+                <td><span class="badge <?php echo finance_dreq_status_badge($status); ?>"><?php echo html_escape($status); ?></span></td>
+                <td class="text-end"><?php echo (int)($row['line_total'] ?? 0); ?></td>
+                <td class="text-end"><?php echo ui_num((float)($row['qty_total'] ?? 0)); ?></td>
+                <td>
+                  <?php if (empty($links)): ?>
+                    <span class="text-muted small">Belum ada dokumen hasil</span>
+                  <?php else: ?>
+                    <?php foreach ($links as $link): ?>
+                      <div class="mb-1">
+                        <span class="badge bg-light text-dark border">
+                          <?php echo html_escape((string)($link['doc_type'] ?? '-')); ?>:
+                          <?php echo html_escape((string)($link['doc_no'] ?? '-')); ?>
+                          (<?php echo html_escape((string)($link['doc_status'] ?? '-')); ?>)
+                        </span>
+                      </div>
+                    <?php endforeach; ?>
+                  <?php endif; ?>
+                </td>
+                <td class="text-end text-nowrap">
+                  <a href="<?php echo site_url('procurement/division-po-sr/detail/' . $requestId); ?>" class="btn btn-sm btn-outline-primary">Detail</a>
+                  <?php if ($canEditRow || $canVerifyRow): ?>
+                    <a href="<?php echo site_url('procurement/division-po-sr/edit/' . $requestId); ?>" class="btn btn-sm <?php echo $canVerifyRow ? 'btn-primary' : 'btn-outline-warning'; ?>">
+                      <?php echo $canVerifyRow ? 'Verifikasi' : 'Edit'; ?>
+                    </a>
+                  <?php endif; ?>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          <?php endif; ?>
+        </tbody>
+      </table>
+    </div>
+  <?php else: ?>
+    <div class="table-responsive">
+      <table class="table table-striped table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Tanggal</th>
+            <th>No Request</th>
+            <th>Divisi</th>
+            <th>Lokasi</th>
+            <th>Profile</th>
+            <th>Jenis</th>
+            <th>Route</th>
+            <th>UOM</th>
+            <th class="text-end">Qty Beli</th>
+            <th class="text-end">Qty Isi</th>
+            <th class="text-end">Snapshot Stok</th>
+            <th>Pengaju</th>
+            <th class="text-end">Aksi</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php if (empty($lineRows)): ?>
+            <tr>
+              <td colspan="13" class="text-center text-muted py-4">Belum ada rincian pengajuan divisi.</td>
+            </tr>
+          <?php else: ?>
+            <?php foreach ($lineRows as $line): ?>
+              <?php
+                $requestId = (int)($line['request_id'] ?? 0);
+                $route = finance_dreq_route_badge((float)($line['qty_content_to_sr'] ?? 0), (float)($line['qty_content_to_po'] ?? 0));
+              ?>
+              <tr>
+                <td class="text-nowrap">
+                  <?php echo html_escape((string)($line['request_date'] ?? '-')); ?>
+                  <div class="small text-muted">Line #<?php echo (int)($line['line_no'] ?? 0); ?></div>
+                </td>
+                <td>
+                  <a href="<?php echo site_url('procurement/division-po-sr/detail/' . $requestId); ?>" class="fw-semibold text-decoration-none">
+                    <?php echo html_escape((string)($line['request_no'] ?? '-')); ?>
+                  </a>
+                </td>
+                <td><?php echo html_escape((string)($line['division_name'] ?? '-')); ?></td>
+                <td><span class="badge bg-light text-dark border"><?php echo html_escape(finance_dreq_location_badge((string)($line['destination_type'] ?? ''))); ?></span></td>
+                <td>
+                  <div class="fw-semibold"><?php echo html_escape((string)($line['profile_name'] ?? '-')); ?></div>
+                  <?php if (trim((string)($line['line_notes'] ?? '')) !== ''): ?>
+                    <div class="small text-muted"><?php echo html_escape((string)($line['line_notes'] ?? '')); ?></div>
+                  <?php endif; ?>
+                </td>
+                <td><?php echo html_escape((string)($line['line_kind'] ?? '-')); ?></td>
+                <td><span class="badge <?php echo html_escape((string)($route['class'] ?? 'bg-light text-dark border')); ?>"><?php echo html_escape((string)($route['label'] ?? '-')); ?></span></td>
+                <td><?php echo html_escape((string)($line['profile_buy_uom_code'] ?? '-')); ?> -> <?php echo html_escape((string)($line['profile_content_uom_code'] ?? '-')); ?></td>
+                <td class="text-end"><?php echo ui_num((float)($line['qty_buy_requested'] ?? 0)); ?></td>
+                <td class="text-end"><?php echo ui_num((float)($line['qty_content_requested'] ?? 0)); ?></td>
+                <td class="text-end"><?php echo ui_num((float)($line['qty_content_available_snapshot'] ?? 0)); ?></td>
+                <td><?php echo html_escape((string)($line['created_by_username'] ?? '-')); ?></td>
+                <td class="text-end text-nowrap">
+                  <a href="<?php echo site_url('procurement/division-po-sr/detail/' . $requestId); ?>" class="btn btn-sm btn-outline-primary">Detail</a>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          <?php endif; ?>
+        </tbody>
+      </table>
+    </div>
+  <?php endif; ?>
 </div>
-
-<script>
-(function(){
-  'use strict';
-  var hasSchema = <?php echo $hasSchema ? 'true' : 'false'; ?>;
-  var canCreate = <?php echo $canCreate ? 'true' : 'false'; ?>;
-  var searchUrl = <?php echo json_encode(site_url('procurement/store-request/profile-search')); ?>;
-  var storeUrl = <?php echo json_encode(site_url('procurement/division-po-sr/store')); ?>;
-  var reloadUrl = <?php echo json_encode(site_url('procurement/division-po-sr')); ?>;
-  var lines = [];
-
-  function esc(s){ return String(s || '').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
-  function num(v){ var n = Number(v || 0); return Number.isFinite(n) ? n : 0; }
-  function flash(type, msg){ var el=document.getElementById('dreqAlert'); if(!el) return; el.innerHTML='<div class="alert alert-'+type+' py-2 mb-2">'+msg+'</div>'; }
-
-  function fetchJson(url, opts){
-    return fetch(url, opts).then(function(res){ return res.text().then(function(t){ var d={}; try{d=t?JSON.parse(t):{};}catch(e){d={};} if(!res.ok && !d.ok){ d.ok=false; d.message=d.message||('Request gagal ('+res.status+')'); } return d;}); });
-  }
-
-  function renderSearch(rows){
-    var tb=document.getElementById('dreqSearchRows'); if(!tb) return;
-    if(!rows || !rows.length){ tb.innerHTML='<tr><td colspan="4" class="text-muted text-center py-2">Tidak ada data.</td></tr>'; return; }
-    var html='';
-    rows.forEach(function(r){
-      html += '<tr>'
-        + '<td><strong>'+esc(r.profile_name||'-')+'</strong><div class="small text-muted">'+esc(r.profile_key||'')+'</div></td>'
-        + '<td>'+esc(r.profile_buy_uom_code||'-')+' -> '+esc(r.profile_content_uom_code||'-')+'</td>'
-        + '<td class="text-end">'+num(r.qty_content_balance).toFixed(2)+'</td>'
-        + '<td><button type="button" class="btn btn-sm btn-outline-primary dreq-pick" data-row="'+esc(JSON.stringify(r))+'">Pilih</button></td>'
-        + '</tr>';
-    });
-    tb.innerHTML = html;
-  }
-
-  function renderLines(){
-    var tb=document.getElementById('dreqLines'); if(!tb) return;
-    if(!lines.length){ tb.innerHTML='<tr><td colspan="7" class="text-muted text-center py-2">Belum ada line.</td></tr>'; return; }
-    var html='';
-    lines.forEach(function(r, idx){
-      html += '<tr>'
-      + '<td><strong>'+esc(r.profile_name||'-')+'</strong><div class="small text-muted">'+esc(r.profile_key||'')+'</div></td>'
-      + '<td>'+esc(r.line_kind||'-')+'</td>'
-      + '<td>'+esc(r.profile_buy_uom_code||'-')+' -> '+esc(r.profile_content_uom_code||'-')+'</td>'
-      + '<td class="text-end">'+num(r.qty_content_balance).toFixed(2)+'</td>'
-      + '<td><input type="number" step="0.0001" min="0" class="form-control form-control-sm dreq-buy" data-idx="'+idx+'" value="'+num(r.qty_buy_requested).toFixed(4)+'"></td>'
-      + '<td><input type="number" step="0.0001" min="0" class="form-control form-control-sm dreq-content" data-idx="'+idx+'" value="'+num(r.qty_content_requested).toFixed(4)+'"></td>'
-      + '<td><button type="button" class="btn btn-sm btn-outline-danger dreq-action-btn dreq-del" data-idx="'+idx+'"><i class="ri-delete-bin-line"></i></button></td>'
-      + '</tr>';
-    });
-    tb.innerHTML = html;
-  }
-
-  function addLine(row){
-    var key=[row.profile_key||'', row.item_id||0, row.material_id||0, row.buy_uom_id||0, row.content_uom_id||0].join('|');
-    for(var i=0;i<lines.length;i++){ var x=lines[i]; var xk=[x.profile_key||'', x.item_id||0, x.material_id||0, x.buy_uom_id||0, x.content_uom_id||0].join('|'); if(xk===key){ flash('warning','Profile ini sudah dipilih.'); return; } }
-    var cpb = num(row.profile_content_per_buy); if(cpb<=0) cpb=1;
-    lines.push({
-      line_kind: row.line_kind || ((num(row.material_id)>0)?'MATERIAL':'ITEM'),
-      item_id: num(row.item_id)||null,
-      material_id: num(row.material_id)||null,
-      profile_key: row.profile_key||'',
-      profile_name: row.profile_name||'',
-      profile_brand: row.profile_brand||'',
-      profile_description: row.profile_description||'',
-      profile_expired_date: row.profile_expired_date||'',
-      buy_uom_id: num(row.buy_uom_id),
-      content_uom_id: num(row.content_uom_id),
-      profile_content_per_buy: cpb,
-      profile_buy_uom_code: row.profile_buy_uom_code||'',
-      profile_content_uom_code: row.profile_content_uom_code||'',
-      qty_buy_balance: num(row.qty_buy_balance),
-      qty_content_balance: num(row.qty_content_balance),
-      qty_buy_requested: 1,
-      qty_content_requested: cpb
-    });
-    renderLines();
-  }
-
-  var btnSearch=document.getElementById('btnDreqSearch');
-  if(btnSearch && hasSchema && canCreate){
-    btnSearch.addEventListener('click', function(){
-      var q=(document.getElementById('dreq_profile_q')||{}).value||'';
-      fetchJson(searchUrl+'?q='+encodeURIComponent(String(q).trim())+'&limit=20', {credentials:'same-origin'})
-        .then(function(res){ if(!res || res.ok===false){ flash('danger', (res&&res.message)?res.message:'Gagal memuat barang.'); return; } renderSearch(res.rows||[]); })
-        .catch(function(){ flash('danger','Gagal memuat barang.'); });
-    });
-  }
-
-  document.addEventListener('click', function(e){
-    var pick=e.target.closest('.dreq-pick');
-    if(pick){ e.preventDefault(); try{ addLine(JSON.parse(pick.getAttribute('data-row')||'{}')); }catch(err){ flash('danger','Data barang tidak valid.'); } return; }
-    var del=e.target.closest('.dreq-del');
-    if(del){ e.preventDefault(); var idx=parseInt(del.getAttribute('data-idx')||'-1',10); if(idx>=0){ lines.splice(idx,1); renderLines(); } return; }
-  });
-
-  document.addEventListener('input', function(e){
-    var buy=e.target.closest('.dreq-buy');
-    if(buy){ var idx=parseInt(buy.getAttribute('data-idx')||'-1',10); if(idx>=0&&lines[idx]){ var cpb=num(lines[idx].profile_content_per_buy); if(cpb<=0) cpb=1; lines[idx].qty_buy_requested=num(buy.value); lines[idx].qty_content_requested=lines[idx].qty_buy_requested*cpb; renderLines(); } return; }
-    var content=e.target.closest('.dreq-content');
-    if(content){ var idx2=parseInt(content.getAttribute('data-idx')||'-1',10); if(idx2>=0&&lines[idx2]){ var cpb2=num(lines[idx2].profile_content_per_buy); if(cpb2<=0) cpb2=1; lines[idx2].qty_content_requested=num(content.value); lines[idx2].qty_buy_requested=lines[idx2].qty_content_requested/cpb2; renderLines(); } }
-  });
-
-  var form=document.getElementById('dreqForm');
-  if(form && hasSchema && canCreate){
-    form.addEventListener('submit', function(e){
-      e.preventDefault();
-      if(!lines.length){ flash('warning','Line pengajuan belum ada.'); return; }
-      var btn=document.getElementById('btnDreqSubmit'); var old=btn?btn.innerHTML:'';
-      if(btn){ btn.disabled=true; btn.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span>Menyimpan...'; }
-      var payload={
-        header:{
-          request_date:(document.getElementById('dreq_request_date')||{}).value||'',
-          needed_date:(document.getElementById('dreq_needed_date')||{}).value||'',
-          division_id:Number((document.getElementById('dreq_division_id')||{}).value||0),
-          notes:(document.getElementById('dreq_notes')||{}).value||''
-        },
-        lines: lines
-      };
-      fetchJson(storeUrl, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
-        .then(function(res){
-          if(!res || !res.ok){ flash('danger', (res&&res.message)?res.message:'Gagal menyimpan.'); if(btn){btn.disabled=false; btn.innerHTML=old;} return; }
-          window.location.href = reloadUrl;
-        }).catch(function(){ flash('danger','Gagal menyimpan.'); if(btn){btn.disabled=false; btn.innerHTML=old;} });
-    });
-  }
-})();
-</script>

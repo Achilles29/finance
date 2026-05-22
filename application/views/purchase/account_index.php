@@ -10,8 +10,8 @@ $baseUrl = site_url('purchase/account');
   <div class="d-flex gap-2">
     <a href="<?php echo site_url('purchase/receipt'); ?>" class="btn btn-primary">Receipt Purchase</a>
     <a href="<?php echo site_url('purchase'); ?>" class="btn btn-outline-secondary">Purchase</a>
-    <a href="<?php echo site_url('purchase/stock/warehouse'); ?>" class="btn btn-outline-secondary">Stok Gudang</a>
-    <a href="<?php echo site_url('purchase/stock/division'); ?>" class="btn btn-outline-secondary">Stok Divisi</a>
+    <a href="<?php echo site_url('inventory/stock/warehouse'); ?>" class="btn btn-outline-secondary">Stok Gudang</a>
+    <a href="<?php echo site_url('inventory/stock/division'); ?>" class="btn btn-outline-secondary">Stok Divisi</a>
   </div>
 </div>
 

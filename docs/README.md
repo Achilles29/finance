@@ -24,6 +24,7 @@ File berikut masih aktif karena belum diimplementasi atau berisi panduan operasi
 | `2026-05-03i_desain_tabel_stok_live_dan_daily.md` | Desain tabel stok live & daily rollup | Referensi desain aktif |
 | `2026-05-11e_panduan_operasional_payroll_disbursement_kasbon.md` | Panduan operasional user untuk payroll & kasbon (bahasa non-teknis) | Aktif — berguna untuk training |
 | `2026-05-14c_rencana_store_request_schema_ui.md` | Schema + UI plan Store Request — **belum diimplementasi** | Working spec sprint berikutnya |
+| `2026-05-20a_desain_produksi_base_prepare_schema_ui.md` | Schema + UI plan Produksi Base/Prepare — **draft verifikasi** | Working spec tahap produksi |
 
 ---
 
@@ -34,3 +35,4 @@ File berikut masih aktif karena belum diimplementasi atau berisi panduan operasi
 3. Jika ada pola coding baru yang disepakati → tambahkan di `CODING_STANDARDS.md`
 4. Jika ada progress modul → update `ROADMAP.md`
 5. File arsip tidak diedit — hanya untuk referensi historis
+

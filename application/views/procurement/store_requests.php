@@ -13,6 +13,7 @@ $limit = (int)($limit ?? 50);
 $activeTab = in_array((string)($active_tab ?? 'nota'), ['nota', 'rincian'], true) ? (string)$active_tab : 'nota';
 $canCreate = !empty($can_create);
 $canEdit = !empty($can_edit);
+$canRepairHistory = !empty($can_repair_history);
 
 $baseFilters = [
   'q' => (string)($filters['q'] ?? ''),
@@ -29,26 +30,44 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
 ?>
 
 <style>
-  .sr-action-wrap { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; min-width: 220px; }
-  .sr-action-btn { border-radius: 9px; padding: 4px 10px !important; display: inline-flex; align-items: center; justify-content: center; min-height: 32px; font-size: 12px; font-weight: 600; line-height: 1.2; }
+  .sr-nota-table { table-layout: fixed; }
+  .sr-nota-table th,
+  .sr-nota-table td { vertical-align: top; }
+  .sr-nota-table th:nth-child(1), .sr-nota-table td:nth-child(1) { width: 18%; }
+  .sr-nota-table th:nth-child(2), .sr-nota-table td:nth-child(2) { width: 34%; }
+  .sr-nota-table th:nth-child(3), .sr-nota-table td:nth-child(3) { width: 10%; }
+  .sr-nota-table th:nth-child(4), .sr-nota-table td:nth-child(4) { width: 18%; }
+  .sr-nota-table th:nth-child(5), .sr-nota-table td:nth-child(5) { width: 20%; }
+  .sr-action-cell { white-space: nowrap; text-align: center; }
+  .sr-action-wrap { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; min-width: 0; width: 100%; max-width: 100%; margin: 0 auto; }
+  .sr-action-btn { border-radius: 9px; padding: 4px 9px !important; display: inline-flex; align-items: center; justify-content: center; min-height: 30px; font-size: 11px; font-weight: 600; line-height: 1.1; flex: 0 0 auto; white-space: nowrap; }
   .sr-mini-btn { width: 30px; height: 30px; padding: 0 !important; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; }
   .sr-tab-link { font-weight: 600; }
   .sr-scroll { max-height: 260px; overflow: auto; }
   .sr-status-legend code { font-size: 11px; }
+  .sr-note-meta { min-width: 0; }
+  .sr-note-stack { display: flex; flex-direction: column; gap: 2px; }
+  .sr-note-qty strong { display: block; font-size: 13px; }
+  .sr-note-qty small { display: block; color: #6c757d; }
+  .sr-note-value strong { display: block; font-size: 13px; }
+  .sr-status-badge { font-size: 11px; letter-spacing: .02em; }
+  .sr-request-meta { display: flex; flex-direction: column; gap: 3px; }
+  .sr-request-meta strong { font-size: 13px; }
+  .sr-qty-stack { display: flex; flex-direction: column; gap: 2px; }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h4 class="mb-0"><i class="ri-inbox-archive-line page-title-icon me-1"></i><?php echo html_escape($title ?? 'Store Request'); ?></h4>
-    <small class="text-muted">Verifikasi, fulfillment gudang, dan generate PO shortage. PO final tetap diproses di menu <strong>Purchase Order</strong>.</small>
-  </div>
-  <div class="d-flex gap-2">
-    <?php if ($canCreate): ?>
-      <a href="<?php echo site_url('store-requests/create'); ?>" class="btn btn-outline-primary">Form Full SR</a>
-      <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#srCreateModal">+ Tambah SR</button>
-    <?php endif; ?>
-    <a href="<?php echo site_url('purchase-orders'); ?>" class="btn btn-outline-secondary">Buka Purchase Order</a>
-  </div>
+<div class="mb-2">
+  <h4 class="mb-0"><i class="ri-inbox-archive-line page-title-icon me-1"></i><?php echo html_escape($title ?? 'Store Request'); ?></h4>
+  <small class="text-muted">Verifikasi, fulfillment gudang, dan generate PO shortage. PO final tetap diproses di menu <strong>Purchase Order</strong>.</small>
+</div>
+
+<?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'store-request']); ?>
+
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  <?php if ($canCreate): ?>
+    <a href="<?php echo site_url('store-requests/create'); ?>" class="btn btn-outline-primary">Form Full SR</a>
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#srCreateModal">+ Tambah SR</button>
+  <?php endif; ?>
 </div>
 
 <?php if (!$hasSchema): ?>
@@ -118,61 +137,47 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
   <div class="tab-content p-0 border-0">
     <div class="tab-pane fade <?php echo $activeTab === 'nota' ? 'show active' : ''; ?>">
       <div class="table-responsive">
-        <table class="table table-striped mb-0">
+        <table class="table table-striped mb-0 sr-nota-table">
       <thead>
         <tr>
-          <th>No SR</th><th>Tanggal</th><th>Divisi</th><th>Tujuan</th><th>Status</th><th class="text-end">Line</th><th class="text-end">Qty Req (Pack)</th><th class="text-end">Qty Req (Isi)</th><th class="text-end">Qty Fulfilled (Pack)</th><th class="text-end">Qty Fulfilled (Isi)</th><th class="text-end">Nilai Req</th><th class="text-end">Nilai Fulfilled</th><th>Aksi</th>
+          <th>SR</th><th>Ringkasan</th><th>Status</th><th>Qty</th><th>Aksi</th>
         </tr>
       </thead>
       <tbody>
       <?php if (empty($rows)): ?>
         <tr>
-          <td colspan="13" class="text-center text-muted py-3">
+          <td colspan="5" class="text-center text-muted py-3">
             Belum ada Store Request.
             <?php if ($canCreate): ?>
               <button type="button" class="btn btn-sm btn-primary ms-2" data-bs-toggle="modal" data-bs-target="#srCreateModal">Buat SR</button>
             <?php endif; ?>
           </td>
         </tr>
-      <?php else: foreach($rows as $r): $st=strtoupper((string)($r['status'] ?? 'DRAFT')); $rid=(int)($r['id'] ?? 0); $tl=(array)($timelineMap[$rid] ?? ['approvals'=>[], 'fulfillments'=>[], 'po_links'=>[]]); ?>
+      <?php else: foreach($rows as $r): $st=strtoupper((string)($r['status'] ?? 'DRAFT')); $rid=(int)($r['id'] ?? 0); $remainBuy=(float)($r['req_buy_total'] ?? 0) - (float)($r['fulfilled_buy_total'] ?? 0); $remainContent=(float)($r['req_content_total'] ?? 0) - (float)($r['fulfilled_content_total'] ?? 0); $statusClass = 'secondary'; if ($st === 'APPROVED') { $statusClass = 'success'; } elseif ($st === 'SUBMITTED') { $statusClass = 'primary'; } elseif ($st === 'PARTIAL_FULFILLED') { $statusClass = 'warning text-dark'; } elseif ($st === 'FULFILLED') { $statusClass = 'dark'; } elseif (in_array($st, ['REJECTED', 'VOID'], true)) { $statusClass = 'danger'; } ?>
         <tr>
-          <td><strong><?php echo html_escape((string)($r['sr_no'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape((string)($r['created_by_username'] ?? '-')); ?></div></td>
-          <td><?php echo html_escape((string)($r['request_date'] ?? '-')); ?><div class="small text-muted">Need: <?php echo html_escape((string)($r['needed_date'] ?? '-')); ?></div></td>
-          <td><?php echo html_escape((string)($r['division_name'] ?? '-')); ?></td>
-          <td><?php echo html_escape((string)($r['destination_type'] ?? '-')); ?></td>
-          <td><?php echo html_escape($st); ?></td>
-          <td class="text-end"><?php echo (int)($r['line_count'] ?? 0); ?></td>
-          <td class="text-end"><?php echo ui_num((float)($r['req_buy_total'] ?? 0)); ?></td>
-          <td class="text-end"><?php echo ui_num((float)($r['req_content_total'] ?? 0)); ?></td>
-          <td class="text-end"><?php echo ui_num((float)($r['fulfilled_buy_total'] ?? 0)); ?></td>
-          <td class="text-end"><?php echo ui_num((float)($r['fulfilled_content_total'] ?? 0)); ?></td>
-          <td class="text-end">Rp <?php echo number_format((float)($r['req_total_value'] ?? 0), 2, ',', '.'); ?></td>
-          <td class="text-end">Rp <?php echo number_format((float)($r['fulfilled_total_value'] ?? 0), 2, ',', '.'); ?></td>
-          <td>
-            <?php if ($canEdit): ?>
+          <td class="sr-note-meta"><div class="sr-request-meta"><strong><?php echo html_escape((string)($r['sr_no'] ?? '-')); ?></strong><span class="small text-muted"><?php echo html_escape((string)($r['request_date'] ?? '-')); ?></span><span class="small text-muted">By <?php echo html_escape((string)($r['created_by_username'] ?? '-')); ?></span></div></td>
+          <td class="sr-note-meta"><div class="sr-request-meta"><strong><?php echo html_escape((string)($r['division_name'] ?? '-')); ?> | <?php echo html_escape((string)($r['destination_type'] ?? '-')); ?></strong><span class="small text-muted">Need <?php echo html_escape((string)($r['needed_date'] ?? '-')); ?></span><span class="small text-muted">Line <?php echo (int)($r['line_count'] ?? 0); ?></span></div></td>
+          <td><span class="badge bg-<?php echo $statusClass; ?> sr-status-badge"><?php echo html_escape($st); ?></span></td>
+          <td class="text-end sr-note-qty"><div class="sr-qty-stack"><strong><?php echo ui_num((float)($r['req_buy_total'] ?? 0)); ?> pack</strong><small>Fulfilled <?php echo ui_num((float)($r['fulfilled_buy_total'] ?? 0)); ?> pack</small><small>Sisa <?php echo ui_num($remainBuy); ?> pack</small></div></td>
+          <td class="sr-action-cell">
+            <div class="sr-action-wrap mb-1">
+              <a href="<?php echo site_url('store-requests/detail/' . $rid); ?>" class="btn btn-sm btn-outline-secondary sr-action-btn" title="Detail SR">Detail</a>
+            </div>
+            <?php if ($canEdit || ($canRepairHistory && $st === 'VOID')): ?>
             <div class="sr-action-wrap">
               <?php if ($st === 'DRAFT'): ?><button type="button" class="btn btn-sm btn-primary sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="SUBMIT" title="Submit">Submit</button><?php endif; ?>
-              <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-success sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="APPROVE" title="Approve">Approve</button><?php endif; ?>
-              <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-danger sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="REJECT" title="Reject">Reject</button><?php endif; ?>
-              <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-info text-white sr-action-btn sr-split" data-id="<?php echo $rid; ?>" title="Split">Split</button><?php endif; ?>
+              <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-success sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="APPROVE" title="Approve">Setuju</button><?php endif; ?>
+              <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-danger sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="REJECT" title="Reject">Tolak</button><?php endif; ?>
+              <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-info text-white sr-action-btn sr-split" data-id="<?php echo $rid; ?>" title="Cek Split">Split</button><?php endif; ?>
               <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-warning text-dark sr-action-btn sr-fulfill" data-id="<?php echo $rid; ?>" title="Fulfill">Fulfill</button><?php endif; ?>
-              <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-secondary sr-action-btn sr-gpo" data-id="<?php echo $rid; ?>" title="Generate PO Shortage">Gen PO</button><?php endif; ?>
+              <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-secondary sr-action-btn sr-gpo" data-id="<?php echo $rid; ?>" title="Generate PO Shortage">PO</button><?php endif; ?>
               <?php if ($st === 'DRAFT'): ?><a href="<?php echo site_url('store-requests/edit/' . $rid); ?>" class="btn btn-sm btn-outline-primary sr-action-btn" title="Edit DRAFT">Edit</a><?php endif; ?>
               <?php if (in_array($st, ['DRAFT','SUBMITTED','APPROVED','REJECTED','PARTIAL_FULFILLED','FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-dark sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="VOID" title="Void">Void</button><?php endif; ?>
+              <?php if ($st === 'VOID' && $canRepairHistory): ?><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-repair-history" data-id="<?php echo $rid; ?>" title="Repair histori stok SR VOID">Repair</button><?php endif; ?>
             </div>
-            <?php else: ?><span class="text-muted">Read-only</span><?php endif; ?>
+            <?php else: ?><span class="text-muted">Aksi edit tidak tersedia.</span><?php endif; ?>
           </td>
         </tr>
-        <tr class="bg-light"><td colspan="13">
-          <details>
-            <summary class="small fw-semibold">Timeline</summary>
-            <div class="row mt-2 small">
-              <div class="col-md-4"><div class="fw-semibold mb-1">Approval</div><?php if(empty($tl['approvals'])): ?><div class="text-muted">Belum ada.</div><?php else: foreach((array)$tl['approvals'] as $x): ?><div>• <?php echo html_escape((string)($x['created_at'] ?? '-')); ?> | <?php echo html_escape((string)($x['action'] ?? '-')); ?> | <?php echo html_escape((string)($x['actor_username'] ?? '-')); ?></div><?php endforeach; endif; ?></div>
-              <div class="col-md-4"><div class="fw-semibold mb-1">Fulfillment</div><?php if(empty($tl['fulfillments'])): ?><div class="text-muted">Belum ada.</div><?php else: foreach((array)$tl['fulfillments'] as $x): ?><div>• <?php echo html_escape((string)($x['fulfillment_no'] ?? '-')); ?> | <?php echo html_escape((string)($x['fulfillment_date'] ?? '-')); ?> | <?php echo html_escape((string)($x['status'] ?? '-')); ?></div><?php endforeach; endif; ?></div>
-              <div class="col-md-4"><div class="fw-semibold mb-1">Link PO</div><?php if(empty($tl['po_links'])): ?><div class="text-muted">Belum ada.</div><?php else: foreach((array)$tl['po_links'] as $x): ?><div>• <a href="<?php echo site_url('purchase-orders/detail/' . (int)($x['purchase_order_id'] ?? 0)); ?>"><?php echo html_escape((string)($x['po_no'] ?? ('PO#' . (int)($x['purchase_order_id'] ?? 0)))); ?></a> | <?php echo html_escape((string)($x['status'] ?? '-')); ?></div><?php endforeach; endif; ?></div>
-            </div>
-          </details>
-        </td></tr>
       <?php endforeach; endif; ?>
       </tbody>
       </table>
@@ -209,7 +214,7 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
             <?php $remainBuy = (float)($ln['qty_buy_requested'] ?? 0) - (float)($ln['qty_buy_fulfilled'] ?? 0); ?>
             <?php $remain = (float)($ln['qty_content_requested'] ?? 0) - (float)($ln['qty_content_fulfilled'] ?? 0); ?>
             <tr>
-              <td><a href="<?php echo site_url('store-requests?tab=nota&q=' . urlencode((string)($ln['sr_no'] ?? ''))); ?>"><strong><?php echo html_escape((string)($ln['sr_no'] ?? '-')); ?></strong></a></td>
+              <td><a href="<?php echo site_url('store-requests/detail/' . (int)($ln['store_request_id'] ?? 0)); ?>"><strong><?php echo html_escape((string)($ln['sr_no'] ?? '-')); ?></strong></a></td>
               <td><?php echo html_escape((string)($ln['request_date'] ?? '-')); ?><div class="small text-muted">Need: <?php echo html_escape((string)($ln['needed_date'] ?? '-')); ?></div></td>
               <td><?php echo html_escape((string)($ln['division_name'] ?? '-')); ?></td>
               <td><?php echo html_escape((string)($ln['destination_type'] ?? '-')); ?></td>
@@ -294,7 +299,11 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body"><div id="srSplitModalBody" class="small text-muted">Belum ada data.</div></div>
-      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Tutup</button></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
+        <button type="button" class="btn btn-warning text-dark" id="btnSrSplitFulfill" hidden>Fulfill yang tersedia</button>
+        <button type="button" class="btn btn-secondary" id="btnSrSplitGenPo" hidden>Generate PO shortage</button>
+      </div>
     </div>
   </div>
 </div>
@@ -309,20 +318,68 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
   var actionUrlBase = <?php echo json_encode(site_url('procurement/store-request/action/')); ?>;
   var splitPreviewUrlBase = <?php echo json_encode(site_url('procurement/store-request/split-preview/')); ?>;
   var fulfillUrlBase = <?php echo json_encode(site_url('procurement/store-request/fulfill/')); ?>;
+  var repairHistoryUrlBase = <?php echo json_encode(site_url('procurement/store-request/repair-history/')); ?>;
   var generatePoUrlBase = <?php echo json_encode(site_url('procurement/store-request/generate-po/')); ?>;
   var reloadUrl = <?php echo json_encode($resetUrl); ?>;
   var destinationGuardMap = <?php echo json_encode($destinationGuardMap); ?>;
+  var canRepairHistory = <?php echo $canRepairHistory ? 'true' : 'false'; ?>;
   var alertBox = document.getElementById('srAlert');
   var createAlertBox = document.getElementById('srCreateAlert');
+  var splitModalEl = document.getElementById('srSplitModal');
+  var splitModalBody = document.getElementById('srSplitModalBody');
+  var splitFulfillBtn = document.getElementById('btnSrSplitFulfill');
+  var splitGenPoBtn = document.getElementById('btnSrSplitGenPo');
   var createLines = [];
   var profileSearchTimer = null;
   var profileSearchAbort = null;
+  var currentSplitRequestId = 0;
 
   function flash(type, msg){ if(!alertBox) return; alertBox.innerHTML='<div class="alert alert-'+type+' py-2 mb-2">'+msg+'</div>'; }
   function flashCreate(type, msg){ if(!createAlertBox) return; createAlertBox.innerHTML='<div class="alert alert-'+type+' py-2 mb-2">'+msg+'</div>'; }
   function num(v){ var n=Number(v||0); return Number.isFinite(n)?n:0; }
   function esc(s){ return String(s||'').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
   function fetchJson(url, opts){ return fetch(url, opts).then(function(res){ return res.text().then(function(t){ var d={}; try{d=t?JSON.parse(t):{};}catch(e){d={};} if(!res.ok && !d.ok){ d.ok=false; d.message=d.message||('Request gagal ('+res.status+')'); } return d;}); }); }
+  function uiConfirm(message, options){
+    if(window.FinanceUI && typeof window.FinanceUI.confirm === 'function'){
+      return window.FinanceUI.confirm(message, options || {});
+    }
+    return Promise.resolve(window.confirm(String(message || 'Lanjutkan aksi?')));
+  }
+  function localDateInputValue(){ var now=new Date(); var y=now.getFullYear(); var m=String(now.getMonth()+1).padStart(2,'0'); var d=String(now.getDate()).padStart(2,'0'); return y+'-'+m+'-'+d; }
+  function setBusy(btn, busy){ if(!btn) return ''; if(busy){ var old=btn.innerHTML; btn.disabled=true; btn.setAttribute('data-old-html', old); btn.innerHTML='<span class="spinner-border spinner-border-sm"></span>'; return old; } btn.disabled=false; btn.innerHTML=btn.getAttribute('data-old-html') || btn.innerHTML; return btn.innerHTML; }
+
+  function runFulfill(requestId, btn){
+    if(requestId<=0) return Promise.resolve(false);
+    if(btn){ setBusy(btn, true); }
+    return fetchJson(fulfillUrlBase+requestId, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fulfillment_date:localDateInputValue(), notes:''}) })
+      .then(function(res){
+        if(!res || !res.ok){ flash('danger',(res&&res.message)?res.message:'Gagal fulfill SR.'); if(btn){ setBusy(btn, false); } return false; }
+        window.location.href=reloadUrl;
+        return true;
+      })
+      .catch(function(){ flash('danger','Gagal fulfill SR.'); if(btn){ setBusy(btn, false); } return false; });
+  }
+
+  function runGeneratePo(requestId, btn){
+    if(requestId<=0) return Promise.resolve(false);
+    if(btn){ setBusy(btn, true); }
+    return fetchJson(generatePoUrlBase+requestId, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({}) })
+      .then(function(res){
+        if(!res || !res.ok){ flash('danger',(res&&res.message)?res.message:'Gagal generate draft PO.'); if(btn){ setBusy(btn, false); } return false; }
+        if(res.data && res.data.redirect_url){ window.location.href=String(res.data.redirect_url); return true; }
+        window.location.href=reloadUrl;
+        return true;
+      })
+      .catch(function(){ flash('danger','Gagal generate draft PO.'); if(btn){ setBusy(btn, false); } return false; });
+  }
+
+  function updateSplitActions(requestId, totals){
+    currentSplitRequestId = requestId > 0 ? requestId : 0;
+    var fulfillable = num((totals||{}).fulfillable_content);
+    var shortage = num((totals||{}).shortage_content);
+    if(splitFulfillBtn){ splitFulfillBtn.hidden = !(currentSplitRequestId > 0 && fulfillable > 0); }
+    if(splitGenPoBtn){ splitGenPoBtn.hidden = !(currentSplitRequestId > 0 && shortage > 0); }
+  }
 
   function parseDestinationOptionMeta(){
     var destEl = document.getElementById('sr_destination_type');
@@ -451,6 +508,27 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
       return;
     }
 
+    var repairBtn=e.target.closest('.sr-repair-history');
+    if(repairBtn && canRepairHistory){
+      e.preventDefault();
+      var repairId=parseInt(repairBtn.getAttribute('data-id')||'0',10); if(repairId<=0) return;
+      uiConfirm('Repair histori akan menghapus ulang jejak fulfillment SR VOID dari movement log lalu rebuild stok gudang dan divisi yang terdampak.', {
+        title: 'Konfirmasi Repair Histori SR VOID',
+        okText: 'Repair Histori',
+        cancelText: 'Batal'
+      }).then(function(ok){
+        if(!ok) return;
+        setBusy(repairBtn, true);
+        fetchJson(repairHistoryUrlBase+repairId, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({}) })
+          .then(function(res){
+            if(!res || !res.ok){ flash('danger',(res&&res.message)?res.message:'Gagal repair histori SR VOID.'); setBusy(repairBtn, false); return; }
+            window.location.href=reloadUrl;
+          })
+          .catch(function(){ flash('danger','Gagal repair histori SR VOID.'); setBusy(repairBtn, false); });
+      });
+      return;
+    }
+
     if(!canEdit) return;
 
     var act=e.target.closest('.sr-action');
@@ -475,13 +553,18 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
           splitBtn.disabled=false; splitBtn.innerHTML=olds;
           if(!res || !res.ok){ flash('danger',(res&&res.message)?res.message:'Gagal preview split.'); return; }
           var rows=(res.rows||[]); var html=[];
-          html.push('<div class="mb-2"><strong>Req:</strong> '+num((res.totals||{}).request_content).toFixed(2)+' | <strong>Dapat Gudang:</strong> '+num((res.totals||{}).fulfillable_content).toFixed(2)+' | <strong>Shortage:</strong> '+num((res.totals||{}).shortage_content).toFixed(2)+'</div>');
+          html.push('<div class="sr-split-summary">'
+            + '<div class="card"><div class="card-body py-2"><small class="text-muted d-block">Request</small><strong>'+num((res.totals||{}).request_content).toFixed(2)+'</strong></div></div>'
+            + '<div class="card"><div class="card-body py-2"><small class="text-muted d-block">Bisa Dipenuhi</small><strong>'+num((res.totals||{}).fulfillable_content).toFixed(2)+'</strong></div></div>'
+            + '<div class="card"><div class="card-body py-2"><small class="text-muted d-block">Shortage</small><strong>'+num((res.totals||{}).shortage_content).toFixed(2)+'</strong></div></div>'
+            + '</div>');
           html.push('<div class="table-responsive"><table class="table table-sm table-striped mb-0"><thead><tr><th>Line</th><th>Profile</th><th class="text-end">Req</th><th class="text-end">Avail</th><th class="text-end">Fulfill</th><th class="text-end">Shortage</th></tr></thead><tbody>');
           if(!rows.length){ html.push('<tr><td colspan="6" class="text-center text-muted">Tidak ada data.</td></tr>'); }
           else { rows.forEach(function(r){ html.push('<tr><td>'+esc(r.line_no)+'</td><td>'+esc(r.profile_name||'-')+'</td><td class="text-end">'+num(r.request_remain_content).toFixed(2)+'</td><td class="text-end">'+num(r.available_content).toFixed(2)+'</td><td class="text-end">'+num(r.fulfillable_content).toFixed(2)+'</td><td class="text-end">'+num(r.shortage_content).toFixed(2)+'</td></tr>'); }); }
           html.push('</tbody></table></div>');
-          var body=document.getElementById('srSplitModalBody'); if(body){ body.innerHTML=html.join(''); }
-          if(window.bootstrap && document.getElementById('srSplitModal')){ window.bootstrap.Modal.getOrCreateInstance(document.getElementById('srSplitModal')).show(); }
+          if(splitModalBody){ splitModalBody.innerHTML=html.join(''); }
+          updateSplitActions(sid, res.totals || {});
+          if(window.bootstrap && splitModalEl){ window.bootstrap.Modal.getOrCreateInstance(splitModalEl).show(); }
         }).catch(function(){ splitBtn.disabled=false; splitBtn.innerHTML=olds; flash('danger','Gagal preview split.'); });
       return;
     }
@@ -490,11 +573,14 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
     if(fulfillBtn){
       e.preventDefault();
       var fid=parseInt(fulfillBtn.getAttribute('data-id')||'0',10); if(fid<=0) return;
-      if(!window.confirm('Post fulfillment dari stok gudang untuk SR ini?')) return;
-      var oldf=fulfillBtn.innerHTML; fulfillBtn.disabled=true; fulfillBtn.innerHTML='<span class="spinner-border spinner-border-sm"></span>';
-      fetchJson(fulfillUrlBase+fid, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fulfillment_date:new Date().toISOString().slice(0,10), notes:''}) })
-        .then(function(res){ if(!res || !res.ok){ flash('danger',(res&&res.message)?res.message:'Gagal fulfill SR.'); fulfillBtn.disabled=false; fulfillBtn.innerHTML=oldf; return; } window.location.href=reloadUrl; })
-        .catch(function(){ flash('danger','Gagal fulfill SR.'); fulfillBtn.disabled=false; fulfillBtn.innerHTML=oldf; });
+      uiConfirm('Fulfillment akan memindahkan stok gudang ke divisi tujuan untuk SR ini.', {
+        title: 'Konfirmasi Fulfillment SR',
+        okText: 'Post Fulfillment',
+        cancelText: 'Batal'
+      }).then(function(ok){
+        if(!ok) return;
+        runFulfill(fid, fulfillBtn);
+      });
       return;
     }
 
@@ -502,17 +588,45 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
     if(poBtn){
       e.preventDefault();
       var pid=parseInt(poBtn.getAttribute('data-id')||'0',10); if(pid<=0) return;
-      if(!window.confirm('Generate draft PO shortage dari SR ini?')) return;
-      var oldp=poBtn.innerHTML; poBtn.disabled=true; poBtn.innerHTML='<span class="spinner-border spinner-border-sm"></span>';
-      fetchJson(generatePoUrlBase+pid, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({}) })
-        .then(function(res){
-          if(!res || !res.ok){ flash('danger',(res&&res.message)?res.message:'Gagal generate draft PO.'); poBtn.disabled=false; poBtn.innerHTML=oldp; return; }
-          if(res.data && res.data.redirect_url){ window.location.href=String(res.data.redirect_url); return; }
-          window.location.href=reloadUrl;
-        })
-        .catch(function(){ flash('danger','Gagal generate draft PO.'); poBtn.disabled=false; poBtn.innerHTML=oldp; });
+      uiConfirm('Draft PO akan dibuat hanya untuk kebutuhan shortage dari SR ini.', {
+        title: 'Konfirmasi Generate Draft PO',
+        okText: 'Generate PO',
+        cancelText: 'Batal'
+      }).then(function(ok){
+        if(!ok) return;
+        runGeneratePo(pid, poBtn);
+      });
+      return;
     }
   });
+
+  if(splitFulfillBtn){
+    splitFulfillBtn.addEventListener('click', function(){
+      if(currentSplitRequestId<=0) return;
+      uiConfirm('Qty yang tersedia dari hasil split akan langsung diposting sebagai fulfillment.', {
+        title: 'Konfirmasi Fulfillment Split',
+        okText: 'Post Fulfillment',
+        cancelText: 'Batal'
+      }).then(function(ok){
+        if(!ok) return;
+        runFulfill(currentSplitRequestId, splitFulfillBtn);
+      });
+    });
+  }
+
+  if(splitGenPoBtn){
+    splitGenPoBtn.addEventListener('click', function(){
+      if(currentSplitRequestId<=0) return;
+      uiConfirm('Draft PO akan dibuat hanya untuk kekurangan stok dari hasil split ini.', {
+        title: 'Konfirmasi Generate PO Shortage',
+        okText: 'Generate PO',
+        cancelText: 'Batal'
+      }).then(function(ok){
+        if(!ok) return;
+        runGeneratePo(currentSplitRequestId, splitGenPoBtn);
+      });
+    });
+  }
 
   document.addEventListener('input', function(e){
     if (!canCreate) return;

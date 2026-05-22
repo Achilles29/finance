@@ -1,6 +1,6 @@
 <?php
-$baseUrl = site_url('purchase/stock/warehouse/movement');
-$generateUrl = site_url('purchase/stock/opname/generate');
+$baseUrl = site_url('inventory/stock/warehouse/movement');
+$generateUrl = site_url('inventory/stock/opname/generate');
 $genMonth = !empty($date_from ?? '') ? date('Y-m', strtotime((string)$date_from)) : date('Y-m');
 $rowsData = is_array($rows ?? null) ? $rows : [];
 $summaryRows = count($rowsData);
@@ -18,22 +18,22 @@ foreach ($rowsData as $row) {
 }
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div>
-    <h4 class="mb-1"><i class="ri ri-arrow-left-right-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-    <small class="text-muted">Log keluar masuk stok gudang dari inv_stock_movement_log.</small>
-  </div>
-  <div class="d-flex gap-2">
-    <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname gudang bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
-      <input type="hidden" name="stock_scope" value="WAREHOUSE">
-      <input type="hidden" name="month" value="<?php echo html_escape($genMonth); ?>">
-      <input type="hidden" name="back_url" value="purchase/stock/warehouse/movement?date_from=<?php echo rawurlencode((string)($date_from ?? '')); ?>&date_to=<?php echo rawurlencode((string)($date_to ?? '')); ?>">
-      <button type="submit" class="btn btn-outline-primary">Generate Opname + Stok Awal</button>
-    </form>
-    <a href="<?php echo site_url('purchase/stock/warehouse'); ?>" class="btn btn-outline-secondary">Stok Gudang Live</a>
-    <a href="<?php echo site_url('purchase/stock/warehouse/daily'); ?>" class="btn btn-outline-secondary">Daily Gudang</a>
-    <a href="<?php echo site_url('purchase/stock/division/movement'); ?>" class="btn btn-outline-secondary">Mutasi Divisi</a>
-  </div>
+<div class="mb-2">
+  <h4 class="mb-1"><i class="ri ri-arrow-left-right-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
+  <small class="text-muted">Log keluar masuk stok gudang dari inv_stock_movement_log.</small>
+</div>
+<div class="d-flex flex-wrap gap-1 align-items-center mb-3">
+  <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname gudang bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
+    <input type="hidden" name="stock_scope" value="WAREHOUSE">
+    <input type="hidden" name="month" value="<?php echo html_escape($genMonth); ?>">
+    <input type="hidden" name="back_url" value="inventory/stock/warehouse/movement?date_from=<?php echo rawurlencode((string)($date_from ?? '')); ?>&date_to=<?php echo rawurlencode((string)($date_to ?? '')); ?>">
+    <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal</button>
+  </form>
+  <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-sm btn-outline-secondary">Daily Gudang Matrix</a>
+  <a href="<?php echo site_url('inventory/stock/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Stok Gudang</a>
+  <a href="<?php echo site_url('inventory/stock/opening/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Opening Gudang</a>
+  <a href="<?php echo site_url('inventory/stock/warehouse/movement'); ?>" class="btn btn-sm btn-dark">Keluar Masuk Gudang</a>
+  <a href="<?php echo site_url('inventory/stock/warehouse/daily'); ?>" class="btn btn-sm btn-outline-secondary">Stok Bulanan/Daily</a>
 </div>
 
 <div class="card mb-3">

@@ -3,17 +3,12 @@ $runUrl = site_url('purchase/rebuild-impact/run');
 $statusOptions = is_array($status_options ?? null) ? $status_options : [];
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div>
-    <h4 class="mb-1">Rebuild Impact Purchase</h4>
-    <small class="text-muted">Resync dampak stok/finance purchase secara terstruktur: by transaksi, by item, by filter, atau global.</small>
-  </div>
-  <div class="d-flex gap-2">
-    <a href="<?php echo site_url('purchase-orders'); ?>" class="btn btn-outline-secondary">Kembali ke Purchase</a>
-    <a href="<?php echo site_url('purchase-orders/logs'); ?>" class="btn btn-outline-secondary">Log Purchase</a>
-    <a href="<?php echo site_url('purchase/reclassify-profile-domain'); ?>" class="btn btn-outline-danger">Reclassify Profile</a>
-  </div>
+<div class="mb-2">
+  <h4 class="mb-1">Rebuild Impact Purchase</h4>
+  <small class="text-muted">Resync dampak stok/finance purchase secara terstruktur: by transaksi, by item, by filter, atau global.</small>
 </div>
+
+<?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'rebuild-impact']); ?>
 
 <div id="alert-area"></div>
 

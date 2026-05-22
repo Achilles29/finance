@@ -1,6 +1,6 @@
 <?php
-$baseUrl = site_url('purchase/stock/division/daily');
-$generateUrl = site_url('purchase/stock/opname/generate');
+$baseUrl = site_url('inventory/stock/division/daily');
+$generateUrl = site_url('inventory/stock/opname/generate');
 $genMonth = $month !== '' ? substr((string)$month, 0, 7) : date('Y-m');
 $rowsData = is_array($rows ?? null) ? $rows : [];
 $monthlyMap = [];
@@ -376,14 +376,14 @@ $formatDestination = static function (string $group): string {
       <input type="hidden" name="month" value="<?php echo html_escape($genMonth); ?>">
       <input type="hidden" name="division_id" value="<?php echo (int)($division_id ?? 0); ?>">
       <input type="hidden" name="destination" value="<?php echo html_escape($destinationValue); ?>">
-      <input type="hidden" name="back_url" value="purchase/stock/division/daily?month=<?php echo rawurlencode($genMonth); ?>&division_id=<?php echo (int)($division_id ?? 0); ?>&destination=<?php echo rawurlencode($destinationValue); ?>">
+      <input type="hidden" name="back_url" value="inventory/stock/division/daily?month=<?php echo rawurlencode($genMonth); ?>&division_id=<?php echo (int)($division_id ?? 0); ?>&destination=<?php echo rawurlencode($destinationValue); ?>">
       <button type="submit" class="btn btn-primary">Generate Opname + Stok Awal</button>
     </form>
-    <a href="<?php echo site_url('inventory-material-daily'); ?>" class="btn btn-outline-primary">Daily Material Matrix</a>
-    <a href="<?php echo site_url('purchase/stock/division/movement'); ?>" class="btn btn-outline-secondary">Keluar Masuk Divisi</a>
-    <a href="<?php echo site_url('purchase/stock/division'); ?>" class="btn btn-outline-secondary">Stok Divisi Live</a>
-    <a href="<?php echo site_url('purchase/stock/opening/division'); ?>" class="btn btn-outline-secondary">Opening Divisi</a>
-    <a href="<?php echo site_url('purchase/stock/warehouse/daily'); ?>" class="btn btn-outline-secondary">Daily Gudang</a>
+    <a href="<?php echo site_url('inventory-material-daily'); ?>" class="btn btn-outline-secondary">Daily Material Matrix</a>
+    <a href="<?php echo site_url('inventory/stock/division'); ?>" class="btn btn-outline-secondary">Stok Divisi</a>
+    <a href="<?php echo site_url('inventory/stock/opening/division'); ?>" class="btn btn-outline-secondary">Opening Divisi</a>
+    <a href="<?php echo site_url('inventory/stock/division/movement'); ?>" class="btn btn-outline-secondary">Keluar Masuk Divisi</a>
+    <a href="<?php echo site_url('inventory/stock/division/daily'); ?>" class="btn btn-dark">Stok Bulanan/Daily Divisi</a>
   </div>
 </div>
 

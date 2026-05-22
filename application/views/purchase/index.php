@@ -1,6 +1,8 @@
 <?php
 $s = $summary ?? [];
 $activeTab = in_array((string)($tab ?? 'nota'), ['nota', 'rincian'], true) ? (string)$tab : 'nota';
+$dateStart = (string)($date_start ?? '');
+$dateEnd = (string)($date_end ?? '');
 
 $statusBadgeClass = function (string $status): string {
     $status = strtoupper(trim($status));
@@ -67,18 +69,15 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
     }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <div>
-        <h4 class="mb-1">Purchase Dashboard</h4>
-        <small class="text-muted">Monitoring ringkas purchase, rekening perusahaan, stok gudang, dan stok divisi.</small>
-    </div>
-    <div class="d-flex gap-2">
-        <a class="btn btn-primary" href="<?php echo site_url('purchase-orders/create'); ?>">Create Order</a>
-        <a class="btn btn-outline-secondary" href="<?php echo site_url('purchase-orders/logs'); ?>">Log Purchase</a>
-        <a class="btn btn-outline-warning" href="<?php echo site_url('purchase/rebuild-impact'); ?>">Rebuild Impact</a>
-        <a class="btn btn-outline-danger" href="<?php echo site_url('purchase/reclassify-profile-domain'); ?>">Reclassify Profile</a>
-        <a class="btn btn-outline-primary" href="<?php echo site_url('purchase-orders/receipt'); ?>">Halaman Receipt</a>
-    </div>
+<div class="mb-2">
+    <h4 class="mb-1">Purchase Order</h4>
+    <small class="text-muted">Pusat monitoring PO, receipt, SR, dan utilitas sinkronisasi modul pembelian.</small>
+</div>
+
+<?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'purchase-order']); ?>
+
+<div class="d-flex gap-2 mb-3 flex-wrap">
+    <a class="btn btn-primary" href="<?php echo site_url('purchase-orders/create'); ?>">Create Order</a>
 </div>
 
 <div class="row g-3 mb-3">
@@ -122,6 +121,8 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
                         <option value="<?php echo html_escape((string)$st); ?>" <?php echo ((string)($status ?? 'ALL') === (string)$st) ? 'selected' : ''; ?>><?php echo html_escape((string)$st); ?></option>
                     <?php endforeach; ?>
                 </select>
+                <input type="date" id="po-date-start" class="form-control form-control-sm" value="<?php echo html_escape($dateStart); ?>">
+                <input type="date" id="po-date-end" class="form-control form-control-sm" value="<?php echo html_escape($dateEnd); ?>">
                 <button type="button" id="btn-filter-po" class="btn btn-sm btn-outline-secondary">Filter</button>
                 <button type="button" id="btn-clear-po" class="btn btn-sm btn-outline-danger">Clear</button>
             </div>
@@ -129,10 +130,10 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
 
         <ul class="nav nav-tabs mb-3" role="tablist">
             <li class="nav-item" role="presentation">
-                <a class="nav-link po-tab-link <?php echo $activeTab === 'nota' ? 'active' : ''; ?>" href="<?php echo site_url('purchase-orders') . '?tab=nota&q=' . urlencode((string)($q ?? '')) . '&status=' . urlencode((string)($status ?? 'ALL')); ?>">Per Nota</a>
+                <a class="nav-link po-tab-link <?php echo $activeTab === 'nota' ? 'active' : ''; ?>" href="<?php echo site_url('purchase-orders') . '?tab=nota&q=' . urlencode((string)($q ?? '')) . '&status=' . urlencode((string)($status ?? 'ALL')) . '&date_start=' . urlencode($dateStart) . '&date_end=' . urlencode($dateEnd); ?>">Per Nota</a>
             </li>
             <li class="nav-item" role="presentation">
-                <a class="nav-link po-tab-link <?php echo $activeTab === 'rincian' ? 'active' : ''; ?>" href="<?php echo site_url('purchase-orders') . '?tab=rincian&q=' . urlencode((string)($q ?? '')) . '&status=' . urlencode((string)($status ?? 'ALL')); ?>">Per Rincian</a>
+                <a class="nav-link po-tab-link <?php echo $activeTab === 'rincian' ? 'active' : ''; ?>" href="<?php echo site_url('purchase-orders') . '?tab=rincian&q=' . urlencode((string)($q ?? '')) . '&status=' . urlencode((string)($status ?? 'ALL')) . '&date_start=' . urlencode($dateStart) . '&date_end=' . urlencode($dateEnd); ?>">Per Rincian</a>
             </li>
         </ul>
 
@@ -160,6 +161,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
                                 <?php foreach (($rows ?? []) as $r): ?>
                                     <?php $statusCurrent = strtoupper((string)($r['status'] ?? 'DRAFT')); ?>
                                     <?php $canEditData = in_array($statusCurrent, ['DRAFT', 'APPROVED'], true); ?>
+                                    <?php $requiresEditReview = (int)($r['requires_edit_review'] ?? 0) === 1; ?>
                                     <tr>
                                         <td><strong><?php echo html_escape((string)($r['po_no'] ?? '-')); ?></strong></td>
                                         <td><?php echo html_escape((string)($r['request_date'] ?? '-')); ?></td>
@@ -188,13 +190,17 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
                                                         $nextOptions[] = $nextStatus;
                                                     }
                                                 }
+                                                $statusUpdateDisabled = !$canEditPo || empty($nextOptions) || $requiresEditReview;
                                             ?>
-                                            <select class="form-select form-select-sm po-status-next" data-id="<?php echo (int)($r['id'] ?? 0); ?>" <?php echo empty($nextOptions) ? 'disabled' : ''; ?>>
+                                            <select class="form-select form-select-sm po-status-next" data-id="<?php echo (int)($r['id'] ?? 0); ?>" <?php echo $statusUpdateDisabled ? 'disabled' : ''; ?>>
                                                 <option value="">Pilih status...</option>
                                                 <?php foreach ($nextOptions as $st): ?>
                                                     <option value="<?php echo html_escape($st); ?>"><?php echo html_escape($st); ?></option>
                                                 <?php endforeach; ?>
                                             </select>
+                                            <?php if ($requiresEditReview): ?>
+                                                <div class="small text-warning mt-1">PO hasil verifikasi: review buyer via Edit Data dulu.</div>
+                                            <?php endif; ?>
                                         </td>
                                         <td>
                                             <div class="po-cell-actions">
@@ -202,8 +208,10 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
                                                 <?php if ($canEditPo && $canEditData): ?>
                                                     <a href="<?php echo site_url('purchase-orders/edit/' . (int)($r['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-warning po-action-btn">Edit Data</a>
                                                 <?php endif; ?>
-                                                <?php if ($canEditPo && !empty($nextOptions)): ?>
+                                                <?php if (!$statusUpdateDisabled): ?>
                                                     <button type="button" class="btn btn-sm btn-outline-primary btn-po-status-update po-action-btn" data-id="<?php echo (int)($r['id'] ?? 0); ?>">Update</button>
+                                                <?php elseif ($requiresEditReview): ?>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary po-action-btn" disabled title="Wajib review buyer via Edit Data dulu">Update</button>
                                                 <?php else: ?>
                                                     <button type="button" class="btn btn-sm btn-outline-secondary po-action-btn" disabled title="Butuh izin edit">Update</button>
                                                 <?php endif; ?>
@@ -297,10 +305,14 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
         filterBtn.addEventListener('click', function () {
             var q = document.getElementById('po-q').value || '';
             var status = document.getElementById('po-status').value || 'ALL';
+            var dateStart = document.getElementById('po-date-start').value || '';
+            var dateEnd = document.getElementById('po-date-end').value || '';
             var url = <?php echo json_encode(site_url('purchase-orders')); ?>
                 + '?tab=' + encodeURIComponent(currentTab)
                 + '&q=' + encodeURIComponent(q)
-                + '&status=' + encodeURIComponent(status);
+                + '&status=' + encodeURIComponent(status)
+                + '&date_start=' + encodeURIComponent(dateStart)
+                + '&date_end=' + encodeURIComponent(dateEnd);
             window.location.href = url;
         });
     }
@@ -310,7 +322,9 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
         clearBtn.addEventListener('click', function () {
             var url = <?php echo json_encode(site_url('purchase-orders')); ?>
                 + '?tab=' + encodeURIComponent(currentTab)
-                + '&status=ALL';
+                + '&status=ALL'
+                + '&date_start=' + encodeURIComponent(<?php echo json_encode(date('Y-m-d')); ?>)
+                + '&date_end=' + encodeURIComponent(<?php echo json_encode(date('Y-m-d')); ?>);
             window.location.href = url;
         });
     }

@@ -130,7 +130,15 @@ class Sidebar extends MY_Controller
         if ($type !== 'MAIN') {
             return $tree;
         }
-        return $this->regroup_master_preview_tree($tree);
+        $tree = $this->regroup_master_preview_tree($tree);
+        $tree = $this->regroup_inventory_preview_tree($tree);
+        foreach ($tree as &$item) {
+            if (($item['menu_code'] ?? '') === 'grp.purchase') {
+                $item['menu_label'] = 'PO & SR';
+            }
+        }
+        unset($item);
+        return $tree;
     }
 
     private function regroup_master_preview_tree(array $tree): array
@@ -217,6 +225,90 @@ class Sidebar extends MY_Controller
                 'id' => -1000 - $order,
                 'parent_id' => null,
                 'menu_code' => 'master.group.' . $bucketKey,
+                'menu_label' => $buckets[$bucketKey]['label'],
+                'icon' => $buckets[$bucketKey]['icon'],
+                'url' => null,
+                'is_virtual' => 1,
+                'children' => $grouped[$bucketKey],
+            ];
+            $order++;
+        }
+
+        foreach ($grouped['other'] as $other) {
+            $result[] = $other;
+        }
+
+        return $result;
+    }
+
+    private function regroup_inventory_preview_tree(array $tree): array
+    {
+        foreach ($tree as &$item) {
+            if (($item['menu_code'] ?? '') === 'grp.inventory' && !empty($item['children'])) {
+                $item['menu_label'] = 'Inventory';
+                $item['icon'] = 'ri-archive-stack-line';
+                $item['children'] = $this->regroup_inventory_children_preview((array)$item['children']);
+            }
+        }
+        unset($item);
+        return $tree;
+    }
+
+    private function regroup_inventory_children_preview(array $children): array
+    {
+        $buckets = [
+            'warehouse' => [
+                'label' => 'Stok Gudang',
+                'icon' => 'ri-building-2-line',
+                'match' => [
+                    'purchase.stock.warehouse',
+                    'purchase.stock.opening.warehouse',
+                ],
+            ],
+            'division' => [
+                'label' => 'Stok Divisi',
+                'icon' => 'ri-store-2-line',
+                'match' => [
+                    'purchase.stock.division',
+                    'purchase.stock.opening.division',
+                    'purchase.stock.material.matrix',
+                ],
+            ],
+        ];
+
+        $grouped = [
+            'warehouse' => [],
+            'division' => [],
+            'other' => [],
+        ];
+
+        foreach ($children as $child) {
+            $code = (string)($child['menu_code'] ?? '');
+            $placed = false;
+            foreach ($buckets as $bucketKey => $bucket) {
+                foreach ($bucket['match'] as $needle) {
+                    if (strpos($code, $needle) === 0) {
+                        $grouped[$bucketKey][] = $child;
+                        $placed = true;
+                        break 2;
+                    }
+                }
+            }
+            if (!$placed) {
+                $grouped['other'][] = $child;
+            }
+        }
+
+        $result = [];
+        $order = 1;
+        foreach (['warehouse', 'division'] as $bucketKey) {
+            if (empty($grouped[$bucketKey])) {
+                continue;
+            }
+            $result[] = [
+                'id' => -2000 - $order,
+                'parent_id' => null,
+                'menu_code' => 'inventory.group.' . $bucketKey,
                 'menu_label' => $buckets[$bucketKey]['label'],
                 'icon' => $buckets[$bucketKey]['icon'],
                 'url' => null,

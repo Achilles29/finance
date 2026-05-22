@@ -211,9 +211,12 @@ class Roles extends MY_Controller
     }
 
     // ---------------------------------------------------------------
-    // DAFTAR USER DALAM ROLE
+    // ASSIGN USER KE ROLE
     // ---------------------------------------------------------------
 
+    /**
+     * Halaman assign user: tampilkan semua user aktif dengan checkbox.
+     */
     public function users(int $id)
     {
         $this->require_permission(self::PAGE_INDEX);
@@ -221,13 +224,49 @@ class Roles extends MY_Controller
         $role = $this->Role_model->get_by_id($id);
         if (!$role) show_404();
 
+        $all_users = $this->Role_model->get_all_users_with_role_flag($id);
+
+        // Kelompokkan per divisi untuk tampilan
+        $users_by_division = [];
+        foreach ($all_users as $u) {
+            $div = $u['division_name'] ?: '— Tanpa Divisi';
+            $users_by_division[$div][] = $u;
+        }
+        ksort($users_by_division);
+
         $data = [
-            'title'       => 'User dalam Role: ' . htmlspecialchars($role['role_name']),
-            'active_menu' => 'sys.roles',
-            'role'        => $role,
-            'users'       => $this->Role_model->get_users_in_role($id),
+            'title'             => 'Assign User — ' . $role['role_name'],
+            'active_menu'       => 'sys.roles',
+            'role'              => $role,
+            'all_users'         => $all_users,
+            'users_by_division' => $users_by_division,
         ];
 
         $this->render('roles/users', $data);
+    }
+
+    /**
+     * Simpan assignment user ke role (POST dari form roles/users).
+     */
+    public function save_users(int $id)
+    {
+        $this->require_permission(self::PAGE_MANAGE, 'edit');
+
+        $role = $this->Role_model->get_by_id($id);
+        if (!$role) show_404();
+
+        $user_ids = $this->input->post('user_ids') ?: [];
+        $count    = $this->Role_model->save_user_assignments(
+            $id,
+            $user_ids,
+            (int)$this->current_user['id']
+        );
+
+        $this->session->set_flashdata(
+            'success',
+            "{$count} user di-assign ke role <b>" . htmlspecialchars($role['role_name']) . "</b>. "
+            . "User yang terdampak perlu login ulang agar perubahan izin aktif."
+        );
+        redirect('roles/users/' . $id);
     }
 }

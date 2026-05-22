@@ -4,6 +4,7 @@ $order = (array)($detail['order'] ?? []);
 $lines = (array)($detail['lines'] ?? []);
 $payments = (array)($detail['payments'] ?? []);
 $receipts = (array)($detail['receipts'] ?? []);
+$receiptRows = (array)($detail['receipt_rows'] ?? []);
 $outstanding = (float)($detail['outstanding'] ?? 0);
 $txnRows = (array)($detail['txn_rows'] ?? []);
 $auditRows = (array)($detail['audit_rows'] ?? []);
@@ -103,6 +104,10 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
     }
     .po-timeline-item.is-pending {
         opacity: 0.6;
+    }
+    .po-lot-table td,
+    .po-lot-table th {
+        vertical-align: top;
     }
 </style>
 
@@ -281,6 +286,104 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                    <div>
+                        <h6 class="mb-0">Receipt & Lot</h6>
+                        <small class="text-muted">Drill-down per receipt untuk melihat lot inbound yang terbentuk saat barang diterima.</small>
+                    </div>
+                    <span class="badge bg-light text-dark"><?php echo (int)($receipts['receipt_count'] ?? 0); ?> receipt</span>
+                </div>
+                <?php if (empty($receiptRows)): ?>
+                    <div class="text-muted small">Belum ada receipt yang tercatat untuk PO ini.</div>
+                <?php else: ?>
+                    <div class="accordion" id="poReceiptAccordion">
+                        <?php foreach ($receiptRows as $receiptIndex => $receiptRow): ?>
+                            <?php $collapseId = 'po-receipt-' . (int)($receiptRow['id'] ?? 0); ?>
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="<?php echo $collapseId; ?>-header">
+                                    <button class="accordion-button <?php echo $receiptIndex === 0 ? '' : 'collapsed'; ?>" type="button" data-bs-toggle="collapse" data-bs-target="#<?php echo $collapseId; ?>" aria-expanded="<?php echo $receiptIndex === 0 ? 'true' : 'false'; ?>" aria-controls="<?php echo $collapseId; ?>">
+                                        <span class="me-3"><strong><?php echo html_escape((string)($receiptRow['receipt_no'] ?? '-')); ?></strong></span>
+                                        <span class="me-3 small text-muted">Tgl <?php echo html_escape((string)($receiptRow['receipt_date'] ?? '-')); ?></span>
+                                        <span class="me-3 small text-muted">Tujuan <?php echo html_escape((string)($receiptRow['destination_type'] ?? '-')); ?><?php echo !empty($receiptRow['destination_division_name']) ? ' / ' . html_escape((string)$receiptRow['destination_division_name']) : ''; ?></span>
+                                        <span class="small text-muted">Line <?php echo (int)($receiptRow['line_count'] ?? 0); ?></span>
+                                    </button>
+                                </h2>
+                                <div id="<?php echo $collapseId; ?>" class="accordion-collapse collapse <?php echo $receiptIndex === 0 ? 'show' : ''; ?>" aria-labelledby="<?php echo $collapseId; ?>-header" data-bs-parent="#poReceiptAccordion">
+                                    <div class="accordion-body">
+                                        <div class="row g-2 mb-3">
+                                            <div class="col-md-3"><small class="text-muted d-block">Status</small><strong><?php echo html_escape((string)($receiptRow['status'] ?? '-')); ?></strong></div>
+                                            <div class="col-md-3"><small class="text-muted d-block">Qty Beli Total</small><strong><?php echo number_format((float)($receiptRow['qty_buy_total'] ?? 0), 2, ',', '.'); ?></strong></div>
+                                            <div class="col-md-3"><small class="text-muted d-block">Qty Isi Total</small><strong><?php echo number_format((float)($receiptRow['qty_content_total'] ?? 0), 2, ',', '.'); ?></strong></div>
+                                            <div class="col-md-3"><small class="text-muted d-block">Posted At</small><strong><?php echo html_escape((string)($receiptRow['posted_at'] ?? $receiptRow['created_at'] ?? '-')); ?></strong></div>
+                                            <?php if (!empty($receiptRow['notes'])): ?>
+                                                <div class="col-12"><small class="text-muted d-block">Catatan</small><strong><?php echo html_escape((string)$receiptRow['notes']); ?></strong></div>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div class="table-responsive">
+                                            <table class="table table-sm align-middle po-lot-table mb-0">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Line</th>
+                                                        <th>Profile</th>
+                                                        <th class="text-end">Qty Receipt</th>
+                                                        <th>Lot Inbound</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <?php $receiptLines = (array)($receiptRow['lines'] ?? []); ?>
+                                                    <?php if (empty($receiptLines)): ?>
+                                                        <tr><td colspan="4" class="text-center text-muted py-3">Tidak ada line receipt.</td></tr>
+                                                    <?php else: ?>
+                                                        <?php foreach ($receiptLines as $receiptLine): ?>
+                                                            <?php
+                                                                $profileName = trim((string)($receiptLine['item_name'] ?? ''));
+                                                                if ($profileName === '') {
+                                                                    $profileName = trim((string)($receiptLine['material_name'] ?? '-'));
+                                                                }
+                                                                $lotRows = (array)($receiptLine['lot_rows'] ?? []);
+                                                            ?>
+                                                            <tr>
+                                                                <td>#<?php echo (int)($receiptLine['po_line_no'] ?? 0); ?></td>
+                                                                <td>
+                                                                    <strong><?php echo html_escape($profileName); ?></strong>
+                                                                    <div class="small text-muted"><?php echo html_escape((string)($receiptLine['brand_name'] ?? '-')); ?></div>
+                                                                    <div class="small text-muted"><?php echo html_escape((string)($receiptLine['line_description'] ?? '-')); ?></div>
+                                                                </td>
+                                                                <td class="text-end">
+                                                                    <div><?php echo number_format((float)($receiptLine['qty_buy_received'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($receiptLine['buy_uom_code'] ?? '-')); ?></div>
+                                                                    <div class="small text-muted"><?php echo number_format((float)($receiptLine['qty_content_received'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($receiptLine['content_uom_code'] ?? '-')); ?></div>
+                                                                </td>
+                                                                <td>
+                                                                    <?php if (empty($lotRows)): ?>
+                                                                        <span class="text-muted small">Lot belum tersedia.</span>
+                                                                    <?php else: ?>
+                                                                        <?php foreach ($lotRows as $lotRow): ?>
+                                                                            <div class="border rounded p-2 mb-2">
+                                                                                <div><strong><?php echo html_escape((string)($lotRow['lot_no'] ?? '-')); ?></strong></div>
+                                                                                <div class="small text-muted">Receipt date: <?php echo html_escape((string)($lotRow['receipt_date'] ?? '-')); ?></div>
+                                                                                <div class="small text-muted">Qty masuk <?php echo number_format((float)($lotRow['qty_in'] ?? 0), 2, ',', '.'); ?> | saldo <?php echo number_format((float)($lotRow['qty_balance'] ?? 0), 2, ',', '.'); ?></div>
+                                                                                <div class="small text-muted">Unit cost Rp <?php echo number_format((float)($lotRow['unit_cost'] ?? 0), 2, ',', '.'); ?><?php echo !empty($lotRow['expiry_date']) ? ' | Exp ' . html_escape((string)$lotRow['expiry_date']) : ''; ?></div>
+                                                                            </div>
+                                                                        <?php endforeach; ?>
+                                                                    <?php endif; ?>
+                                                                </td>
+                                                            </tr>
+                                                        <?php endforeach; ?>
+                                                    <?php endif; ?>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>

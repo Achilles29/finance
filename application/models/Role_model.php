@@ -201,4 +201,68 @@ class Role_model extends CI_Model
             ->get('org_division')
             ->result_array();
     }
+
+    // ---------------------------------------------------------------
+    // USER ASSIGNMENT
+    // ---------------------------------------------------------------
+
+    /**
+     * Ambil SEMUA user aktif beserta flag apakah memiliki role ini.
+     * Disertai info karyawan, jabatan, divisi untuk tampilan.
+     *
+     * Return: [['id', 'username', 'email', 'employee_name', 'position_name',
+     *           'division_name', 'division_id', 'last_login_at', 'has_role'], ...]
+     */
+    public function get_all_users_with_role_flag(int $role_id): array
+    {
+        $this->db->select('u.id, u.username, u.email, u.last_login_at,
+            e.employee_name, p.position_name,
+            div.division_name, div.id AS division_id,
+            CASE WHEN ur.user_id IS NOT NULL THEN 1 ELSE 0 END AS has_role,
+            ur.assigned_at', false);
+        $this->db->from('auth_user u');
+        $this->db->join('org_employee e',   'e.id = u.employee_id', 'left');
+        $this->db->join('org_position p',   'p.id = e.position_id', 'left');
+        $this->db->join('org_division div', 'div.id = e.division_id', 'left');
+        $this->db->join('auth_user_role ur',
+            'ur.user_id = u.id AND ur.role_id = ' . (int)$role_id, 'left');
+        $this->db->where('u.is_active', 1);
+        $this->db->order_by('div.division_name, e.employee_name, u.username');
+        return $this->db->get()->result_array();
+    }
+
+    /**
+     * Simpan daftar user yang memiliki role ini.
+     * Hapus semua assignment lama, insert ulang yang baru.
+     *
+     * @param  int   $role_id
+     * @param  array $user_ids   Array of user IDs yang di-assign
+     * @param  int   $assigned_by User ID yang melakukan perubahan
+     * @return int   Jumlah user yang di-assign
+     */
+    public function save_user_assignments(int $role_id, array $user_ids, int $assigned_by = 0): int
+    {
+        $new_ids = array_unique(array_filter(array_map('intval', $user_ids)));
+
+        $this->db->trans_start();
+
+        // Hapus semua assignment lama untuk role ini
+        $this->db->where('role_id', $role_id)->delete('auth_user_role');
+
+        // Insert ulang
+        $now = date('Y-m-d H:i:s');
+        foreach ($new_ids as $uid) {
+            if ($uid <= 0) continue;
+            $this->db->insert('auth_user_role', [
+                'user_id'     => $uid,
+                'role_id'     => $role_id,
+                'assigned_by' => $assigned_by ?: null,
+                'assigned_at' => $now,
+            ]);
+        }
+
+        $this->db->trans_complete();
+
+        return count($new_ids);
+    }
 }

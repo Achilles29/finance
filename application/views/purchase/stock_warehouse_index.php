@@ -1,6 +1,6 @@
 <?php
-$baseUrl = site_url('purchase/stock/warehouse');
-$generateUrl = site_url('purchase/stock/opname/generate');
+$baseUrl = site_url('inventory/stock/warehouse');
+$generateUrl = site_url('inventory/stock/opname/generate');
 $genMonth = date('Y-m');
 if (!empty($date_from ?? '')) {
   $genMonth = date('Y-m', strtotime((string)$date_from));
@@ -175,26 +175,22 @@ $summaryItemCount = count($parentRows);
   }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div>
-    <h4 class="mb-1"><i class="ri ri-building-2-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-    <small class="text-muted">Posisi stok gudang per profile purchase (nama, merk, keterangan, ukuran/UOM).</small>
-  </div>
-  <div class="d-flex gap-2">
-    <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname gudang bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
-      <input type="hidden" name="stock_scope" value="WAREHOUSE">
-      <input type="hidden" name="month" value="<?php echo html_escape($genMonth); ?>">
-      <input type="hidden" name="back_url" value="purchase/stock/warehouse?month=<?php echo rawurlencode($genMonth); ?>">
-      <button type="submit" class="btn btn-outline-primary">Generate Opname + Stok Awal</button>
-    </form>
-    <a href="<?php echo site_url('purchase-orders/receipt'); ?>" class="btn btn-primary">Receipt Purchase</a>
-    <a href="<?php echo site_url('purchase-orders'); ?>" class="btn btn-outline-secondary">Purchase Orders</a>
-    <a href="<?php echo site_url('purchase/stock/opening/warehouse'); ?>" class="btn btn-outline-secondary">Opening Gudang</a>
-    <a href="<?php echo site_url('purchase/stock/warehouse/movement'); ?>" class="btn btn-outline-secondary">Keluar Masuk Gudang</a>
-    <a href="<?php echo site_url('purchase/stock/warehouse/daily'); ?>" class="btn btn-outline-secondary">Stok Bulanan/Daily</a>
-    <a href="<?php echo site_url('master/company-account'); ?>" class="btn btn-outline-secondary">Rekening</a>
-    <a href="<?php echo site_url('purchase/stock/division'); ?>" class="btn btn-outline-secondary">Stok Divisi</a>
-  </div>
+<div class="mb-2">
+  <h4 class="mb-1"><i class="ri ri-building-2-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
+  <small class="text-muted">Posisi stok gudang per profile purchase (nama, merk, keterangan, ukuran/UOM).</small>
+</div>
+<div class="d-flex flex-wrap gap-1 align-items-center mb-3">
+  <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname gudang bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
+    <input type="hidden" name="stock_scope" value="WAREHOUSE">
+    <input type="hidden" name="month" value="<?php echo html_escape($genMonth); ?>">
+    <input type="hidden" name="back_url" value="inventory/stock/warehouse?month=<?php echo rawurlencode($genMonth); ?>">
+    <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal</button>
+  </form>
+  <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-sm btn-outline-secondary">Daily Gudang Matrix</a>
+  <a href="<?php echo site_url('inventory/stock/warehouse'); ?>" class="btn btn-sm btn-dark">Stok Gudang</a>
+  <a href="<?php echo site_url('inventory/stock/opening/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Opening Gudang</a>
+  <a href="<?php echo site_url('inventory/stock/warehouse/movement'); ?>" class="btn btn-sm btn-outline-secondary">Keluar Masuk Gudang</a>
+  <a href="<?php echo site_url('inventory/stock/warehouse/daily'); ?>" class="btn btn-sm btn-outline-secondary">Stok Bulanan/Daily</a>
 </div>
 
 <div class="card mb-3">
@@ -244,13 +240,14 @@ $summaryItemCount = count($parentRows);
           <th class="text-end">Qty Beli</th>
           <th class="text-end">Qty Isi</th>
           <th class="text-end">Avg Cost / Isi</th>
+          <th class="text-end">HPP / Pack</th>
           <th class="text-end">Total Nilai</th>
           <th>Update</th>
         </tr>
       </thead>
       <tbody>
         <?php if (empty($parentRows)): ?>
-          <tr><td colspan="10" class="text-center text-muted py-4">Belum ada data stok gudang.</td></tr>
+          <tr><td colspan="11" class="text-center text-muted py-4">Belum ada data stok gudang.</td></tr>
         <?php else: ?>
           <?php foreach ($parentRows as $idx => $parent): ?>
             <?php
@@ -259,6 +256,8 @@ $summaryItemCount = count($parentRows);
               $isExpandable = ((int)($parent['profile_count'] ?? 0) > 1);
               $singleChild = (!$isExpandable && !empty($parent['children'])) ? $parent['children'][0] : null;
               $parentAvgCost = (float)($parent['avg_cost_per_content'] ?? 0);
+              $parentCPB = is_array($singleChild) ? (float)($singleChild['profile_content_per_buy'] ?? 0) : 0.0;
+              $parentAvgCostPerPack = $parentCPB > 0 ? $parentAvgCost * $parentCPB : null;
 
               $profileCol = '<strong>' . (int)($parent['profile_count'] ?? 0) . ' profil</strong>';
               $brandCol = '-';
@@ -294,6 +293,7 @@ $summaryItemCount = count($parentRows);
               <td class="text-end fw-semibold"><?php echo ui_num((float)($parent['qty_buy_balance'] ?? 0)); ?></td>
               <td class="text-end fw-semibold"><?php echo ui_num((float)($parent['qty_content_balance'] ?? 0)); ?></td>
               <td class="text-end fw-semibold"><?php echo ui_num($parentAvgCost); ?></td>
+              <td class="text-end fw-semibold"><?php echo $parentAvgCostPerPack !== null ? ui_num($parentAvgCostPerPack) : '-'; ?></td>
               <td class="text-end fw-semibold"><?php echo number_format((float)($parent['total_value'] ?? 0), 2, ',', '.'); ?></td>
               <td><?php echo html_escape((string)($parent['updated_at'] ?? '-')); ?></td>
             </tr>
@@ -309,6 +309,8 @@ $summaryItemCount = count($parentRows);
                 $childAvgCost = ((float)($child['qty_content_balance'] ?? 0) !== 0.0)
                   ? ((float)($child['total_value'] ?? 0) / (float)($child['qty_content_balance'] ?? 0))
                   : 0.0;
+                $childCPB = (float)($child['profile_content_per_buy'] ?? 0);
+                $childAvgCostPerPack = $childCPB > 0 ? $childAvgCost * $childCPB : 0.0;
                 $childClass = 'collapse ' . $collapseClass;
               ?>
               <tr class="wh-child-row <?php echo html_escape($childClass); ?>">
@@ -320,6 +322,7 @@ $summaryItemCount = count($parentRows);
                 <td class="text-end"><?php echo ui_num((float)($child['qty_buy_balance'] ?? 0)); ?></td>
                 <td class="text-end"><?php echo ui_num((float)($child['qty_content_balance'] ?? 0)); ?></td>
                 <td class="text-end"><?php echo ui_num($childAvgCost); ?></td>
+                <td class="text-end"><?php echo ui_num($childAvgCostPerPack); ?></td>
                 <td class="text-end"><?php echo number_format((float)($child['total_value'] ?? 0), 2, ',', '.'); ?></td>
                 <td><?php echo html_escape((string)($child['updated_at'] ?? '-')); ?></td>
               </tr>

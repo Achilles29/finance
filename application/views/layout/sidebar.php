@@ -55,6 +55,7 @@ if (!function_exists('_get_ri_icon')) {
             'pos.menu'              => 'ri-restaurant-line',
             'grp.material'          => 'ri-flask-line',
             'grp.production'        => 'ri-tools-line',
+            'production.component.cost.variable' => 'ri-percent-line',
             'grp.purchase'          => 'ri-shopping-cart-2-line',
             'grp.finance'           => 'ri-bank-line',
             'fin.transactions'      => 'ri-exchange-line',
@@ -287,6 +288,95 @@ if (!function_exists('_regroup_master_sidebar_tree')) {
   }
 }
 
+if (!function_exists('_regroup_inventory_children')) {
+  function _regroup_inventory_children(array $children): array
+  {
+    $buckets = [
+      'warehouse' => [
+        'label' => 'Stok Gudang',
+        'icon' => 'ri-building-2-line',
+        'match' => [
+          'purchase.stock.warehouse',
+          'purchase.stock.opening.warehouse',
+        ],
+      ],
+      'division' => [
+        'label' => 'Stok Divisi',
+        'icon' => 'ri-store-2-line',
+        'match' => [
+          'purchase.stock.division',
+          'purchase.stock.opening.division',
+          'purchase.stock.material.matrix',
+        ],
+      ],
+    ];
+
+    $grouped = [
+      'warehouse' => [],
+      'division' => [],
+      'other' => [],
+    ];
+
+    foreach ($children as $child) {
+      $code = (string)($child['menu_code'] ?? '');
+      $placed = false;
+      foreach ($buckets as $bucketKey => $bucket) {
+        foreach ($bucket['match'] as $needle) {
+          if (strpos($code, $needle) === 0) {
+            $grouped[$bucketKey][] = $child;
+            $placed = true;
+            break 2;
+          }
+        }
+      }
+      if (!$placed) {
+        $grouped['other'][] = $child;
+      }
+    }
+
+    $result = [];
+    $order = 1;
+    foreach (['warehouse', 'division'] as $bucketKey) {
+      if (empty($grouped[$bucketKey])) {
+        continue;
+      }
+      $result[] = [
+        'id' => -2000 - $order,
+        'parent_id' => null,
+        'menu_code' => 'inventory.group.' . $bucketKey,
+        'menu_label' => $buckets[$bucketKey]['label'],
+        'icon' => $buckets[$bucketKey]['icon'],
+        'url' => null,
+        'page_id' => null,
+        'sort_order' => $order,
+        'children' => $grouped[$bucketKey],
+      ];
+      $order++;
+    }
+
+    foreach ($grouped['other'] as $other) {
+      $result[] = $other;
+    }
+
+    return $result;
+  }
+}
+
+if (!function_exists('_regroup_inventory_sidebar_tree')) {
+  function _regroup_inventory_sidebar_tree(array $tree): array
+  {
+    foreach ($tree as &$item) {
+      if (($item['menu_code'] ?? '') === 'grp.inventory' && !empty($item['children'])) {
+        $item['menu_label'] = 'Inventory';
+        $item['icon'] = 'ri-archive-stack-line';
+        $item['children'] = _regroup_inventory_children($item['children']);
+      }
+    }
+    unset($item);
+    return $tree;
+  }
+}
+
 // ---------------------------------------------------------------
 // Render rekursif tree menu (Materio style)
 // ---------------------------------------------------------------
@@ -373,6 +463,13 @@ if (!empty($sidebar_favorites) && is_array($sidebar_favorites)) {
 
 if (!$is_employee_portal && !empty($sidebar_main)) {
   $sidebar_main = _regroup_master_sidebar_tree((array)$sidebar_main);
+  $sidebar_main = _regroup_inventory_sidebar_tree((array)$sidebar_main);
+  foreach ($sidebar_main as &$sb_item) {
+    if (($sb_item['menu_code'] ?? '') === 'grp.purchase') {
+      $sb_item['menu_label'] = 'PO & SR';
+    }
+  }
+  unset($sb_item);
 }
 
 $active_source_tree = $is_employee_portal ? (array)($sidebar_my ?? []) : (array)($sidebar_main ?? []);

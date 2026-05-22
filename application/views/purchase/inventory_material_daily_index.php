@@ -1,6 +1,6 @@
 <?php
 $initialMonth = (string)($month ?? date('Y-m'));
-$generateUrl = site_url('purchase/stock/opname/generate');
+$generateUrl = site_url('inventory/stock/opname/generate');
 $initialQ = (string)($q ?? '');
 $initialDateFrom = (string)($date_from ?? '');
 $initialDateTo = (string)($date_to ?? '');
@@ -31,9 +31,11 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       <input type="hidden" name="back_url" value="inventory-material-daily?month=<?php echo rawurlencode(substr($initialMonth, 0, 7)); ?>&division_id=<?php echo (int)$initialDivisionId; ?>&destination=<?php echo rawurlencode($initialDestination); ?>">
       <button type="submit" class="btn btn-primary">Generate Opname + Stok Awal</button>
     </form>
-    <a href="<?php echo site_url('purchase/stock/division'); ?>" class="btn btn-outline-secondary">Stok Divisi Live</a>
-    <a href="<?php echo site_url('purchase/stock/division/daily'); ?>" class="btn btn-outline-secondary">Daily Divisi (List)</a>
-    <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-outline-primary">Warehouse Daily Matrix</a>
+    <a href="<?php echo site_url('inventory-material-daily'); ?>" class="btn btn-dark">Daily Material Matrix</a>
+    <a href="<?php echo site_url('inventory/stock/division'); ?>" class="btn btn-outline-secondary">Stok Divisi</a>
+    <a href="<?php echo site_url('inventory/stock/opening/division'); ?>" class="btn btn-outline-secondary">Opening Divisi</a>
+    <a href="<?php echo site_url('inventory/stock/division/movement'); ?>" class="btn btn-outline-secondary">Keluar Masuk Divisi</a>
+    <a href="<?php echo site_url('inventory/stock/division/daily'); ?>" class="btn btn-outline-secondary">Stok Bulanan/Daily Divisi</a>
   </div>
 </div>
 

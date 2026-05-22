@@ -95,6 +95,16 @@ class MY_Controller extends CI_Controller
      */
     protected function render(string $view, array $data = [], bool $return = false)
     {
+        // Normalisasi judul tab browser:
+        // beberapa halaman kirim `page_title`, sedangkan layout header memakai `title`.
+        if (
+            (!isset($data['title']) || trim((string)$data['title']) === '')
+            && isset($data['page_title'])
+            && trim((string)$data['page_title']) !== ''
+        ) {
+            $data['title'] = (string)$data['page_title'];
+        }
+
         $data['current_user'] = $this->current_user;
         $data['user_perms']   = $this->user_perms;
 

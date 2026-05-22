@@ -3,15 +3,12 @@ $baseUrl = site_url('purchase-orders/logs');
 $actionOptions = is_array($action_options ?? null) ? $action_options : [];
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div>
-    <h4 class="mb-1">Purchase Transaction Log</h4>
-    <small class="text-muted">Timeline khusus modul purchase dari pur_purchase_txn_log.</small>
-  </div>
-  <div class="d-flex gap-2">
-    <a href="<?php echo site_url('purchase-orders'); ?>" class="btn btn-outline-secondary">Kembali ke Purchase</a>
-  </div>
+<div class="mb-2">
+  <h4 class="mb-1">Log Purchase</h4>
+  <small class="text-muted">Timeline khusus modul purchase dari pur_purchase_txn_log.</small>
 </div>
+
+<?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'log-purchase']); ?>
 
 <div class="card mb-3">
   <div class="card-body py-3">

@@ -1,6 +1,6 @@
 # Panduan Pola Coding — Finance App
 **Status:** WAJIB DIBACA sebelum coding  
-**Terakhir diperbarui:** 2026-05-18  
+**Terakhir diperbarui:** 2026-05-19  
 **Berlaku untuk:** Semua pengembangan di direktori `finance/`
 
 > Dokumen ini adalah **satu-satunya acuan pola coding**. Setiap halaman baru, controller baru, atau fitur baru harus mengikuti pola di sini — tidak boleh improvisasi sendiri. Jika ada pola baru yang disepakati, tuliskan di sini, jangan hanya di kepala atau di chat.
@@ -26,9 +26,10 @@
 15. [Keamanan & Escaping](#15-keamanan--escaping)
 16. [Status Badge](#16-status-badge)
 17. [Tombol Aksi](#17-tombol-aksi)
-18. [Pola Routing](#18-pola-routing)
-19. [Pola Permission](#19-pola-permission)
-20. [Summary Card](#20-summary-card)
+18. [Dialog Konfirmasi UI](#18-dialog-konfirmasi-ui)
+19. [Pola Routing](#19-pola-routing)
+20. [Pola Permission](#20-pola-permission)
+21. [Summary Card](#21-summary-card)
 
 ---
 
@@ -383,7 +384,7 @@ $buildQuery = function(array $override = []) use ($q, $statusFilter, $limit): st
         <small class="text-muted">Kelola semua purchase order</small>
     </div>
     <div class="d-flex gap-2">
-        <?php if ($this->can('purchase.order', 'create')): ?>
+        <?php if ($canCreate): ?>
         <a href="<?= $createUrl ?>" class="btn btn-primary">
             <i class="ri ri-add-line me-1"></i>Buat PO
         </a>
@@ -697,10 +698,27 @@ public function store()
 // showAlert(type, message) — tampilkan pesan di #alert-area
 // showAlertIn(selector, type, message) — tampilkan di elemen tertentu
 
+// ── Spinner helper (gunakan di semua tombol transaksi) ────────
+// Simpan origHtml sebelum fetch, restore di .finally()
+//
+//   var origHtml = btn.innerHTML;
+//   btn.disabled = true;
+//   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Menyimpan...';
+//   fetch(...)
+//   .then(...)
+//   .catch(...)
+//   .finally(function () { btn.disabled = false; btn.innerHTML = origHtml; });
+//
+// Label spinner sesuaikan konteks: Menyimpan... / Memuat... / Memposting... / Memproses...
+
 // Pola standar AJAX POST
 function submitForm(url, payload, onSuccess) {
     const btn = document.getElementById('btn-submit');
-    if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan...'; }
+    const origHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Menyimpan...';
+    }
 
     fetch(url, {
         method: 'POST',
@@ -722,7 +740,7 @@ function submitForm(url, payload, onSuccess) {
         showAlert('danger', err.message);
     })
     .finally(() => {
-        if (btn) { btn.disabled = false; btn.textContent = 'Simpan'; }
+        if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
     });
 }
 
@@ -876,6 +894,15 @@ formatRupiah(1234567.89)    // → "1.234.567,89"
 formatRupiahIDR(1234567.89) // → "Rp 1.234.567"
 ```
 
+### Angka (Form Qty)
+
+```text
+- Untuk form input qty operasional/procurement di UI: tampilkan dan input maksimal 2 angka di belakang koma.
+- Input HTML quantity gunakan `step="0.01"` dan default value seperti `1.00`, bukan `1` atau `1.0000`.
+- Nilai turunan yang readonly (mis. `qty_content` hasil konversi dari `qty_buy`) tetap ditampilkan 2 desimal.
+- Jangan tampilkan raw decimal 4-6 digit di form/table preview kecuali memang halaman analitis/perhitungan teknis membutuhkan presisi lebih tinggi.
+```
+
 ### Tanggal (PHP)
 
 ```php
@@ -964,7 +991,7 @@ $cls = $status_class[$row['status']] ?? 'secondary';
        class="btn btn-sm btn-info" title="Lihat Detail">
         <i class="ri ri-eye-line"></i>
     </a>
-    <?php if ($this->can('purchase.order', 'edit') && $row['status'] === 'DRAFT'): ?>
+    <?php if ($canEdit && $row['status'] === 'DRAFT'): ?>
     <a href="<?= site_url('purchase-orders/edit/' . $row['id']) ?>"
        class="btn btn-sm btn-warning" title="Edit">
         <i class="ri ri-edit-line"></i>
@@ -998,10 +1025,43 @@ $cls = $status_class[$row['status']] ?? 'secondary';
 - Aksi edit hanya tampil jika status memungkinkan (cek kondisi)
 - Jika ada >2 aksi, pakai dropdown — jangan buat kolom terlalu lebar
 - Icon wajib ada untuk semua tombol (tidak boleh teks saja di tabel)
+- Untuk tabel yang memang butuh banyak tombol inline, pertahankan kolom aksi tetap satu baris dengan `nowrap + overflow-x auto`; rapatkan kolom lain dulu sebelum tombol dibiarkan turun baris
 
 ---
 
-## 18. Pola Routing
+## 18. Dialog Konfirmasi UI
+
+**Standar wajib:** jangan pakai `window.alert()` atau `window.confirm()` langsung untuk fitur baru di halaman Finance.
+
+Gunakan helper global dari `assets/js/app.js`:
+
+```js
+function uiConfirm(message, options) {
+    if (window.FinanceUI && typeof window.FinanceUI.confirm === 'function') {
+        return window.FinanceUI.confirm(message, options || {});
+    }
+    return Promise.resolve(window.confirm(String(message || 'Lanjutkan aksi?')));
+}
+
+uiConfirm('Fulfillment akan memindahkan stok gudang ke divisi tujuan.', {
+    title: 'Konfirmasi Fulfillment',
+    okText: 'Post Fulfillment',
+    cancelText: 'Batal'
+}).then(function (ok) {
+    if (!ok) return;
+    // lanjutkan aksi
+});
+```
+
+**Aturan dialog konfirmasi:**
+- Gunakan `FinanceUI.confirm` sebagai tampilan utama; `window.confirm` hanya fallback darurat
+- Judul dialog harus spesifik sesuai aksi, bukan generik
+- Tombol utama pakai kata kerja final yang jelas: `Post Fulfillment`, `Generate PO`, `Void Dokumen`
+- Pesan dialog menjelaskan dampak bisnis singkat, bukan hanya `Yakin?`
+
+---
+
+## 19. Pola Routing
 
 ```php
 // File: application/config/routes.php
@@ -1040,7 +1100,7 @@ $route['master/(:any)/delete'] = 'master/delete/$1';
 
 ---
 
-## 19. Pola Permission
+## 20. Pola Permission
 
 ```php
 // Di controller — definisikan konstanta
@@ -1054,13 +1114,22 @@ if (!$this->can(self::PAGE_ORDER, 'delete')) {
     $this->jsonError('Tidak ada izin.', 403);
     return;
 }
+```
 
-// Di view — cek untuk tampilkan/sembunyikan elemen
-<?php if ($this->can('purchase.order', 'create')): ?>
+```php
+// Di view — JANGAN pakai $this->can() (CI3: $this di view = CI_Loader, bukan controller)
+// WAJIB: definisikan variabel permission di BAGIAN 1 (persiapan data PHP) view:
+$_is_super = !empty($current_user['is_superadmin']);
+$canCreate = $_is_super || !empty($user_perms['purchase.order']['can_create']);
+$canEdit   = $_is_super || !empty($user_perms['purchase.order']['can_edit']);
+$canDelete = $_is_super || !empty($user_perms['purchase.order']['can_delete']);
+
+// Lalu gunakan variabel tersebut:
+<?php if ($canCreate): ?>
     <a href="..." class="btn btn-primary">Buat PO</a>
 <?php endif; ?>
 
-<?php if ($this->can('purchase.order', 'delete')): ?>
+<?php if ($canDelete): ?>
     <button onclick="confirmDelete(...)">Hapus</button>
 <?php endif; ?>
 ```
@@ -1069,7 +1138,7 @@ if (!$this->can(self::PAGE_ORDER, 'delete')) {
 
 ---
 
-## 20. Summary Card
+## 21. Summary Card
 
 ```php
 <!-- Pola summary card di atas tabel -->
@@ -1120,6 +1189,113 @@ if (!$this->can(self::PAGE_ORDER, 'delete')) {
 
 ---
 
+## 21. Sistem Visual & Tipografi — Finance vs Core
+
+Finance App menggunakan **Materio** sebagai tema dasar (bukan Tabler seperti Core App).
+Perbedaan visual ini **disengaja** dan harus dipertahankan agar kedua aplikasi mudah dibedakan.
+
+### 21.1  Identitas Tipografi Finance
+
+| Token | Nilai | Keterangan |
+|---|---|---|
+| Font utama | `'Plus Jakarta Sans'` | Dimuat dari Google Fonts |
+| Fallback | `'Segoe UI', Tahoma, sans-serif` | |
+| Body size | `0.9375rem` (15px) | Lebih besar dari default Materio |
+| Body weight | `400` + `500` untuk penekanan | Bukan thin/300 |
+| Label/header kolom | `0.8125rem`, weight `700` | Uppercase + letter-spacing |
+| Heading h4 | `1.25rem`, weight `800` | Judul halaman |
+| Heading h5 | `1.0rem`, weight `700` | Judul card/section |
+| Heading h6 | `0.875rem`, weight `700` | Sub-label |
+| Font utama dimuat di | `views/layout/header.php` | Google Fonts CDN (preconnect) |
+
+### 21.2  Token CSS (dideklarasi di `assets/css/app.css`)
+
+```css
+:root {
+  --fin-font:       'Plus Jakarta Sans', 'Segoe UI', Tahoma, sans-serif;
+  --fin-body-sz:    0.9375rem;
+  --fin-body-wt:    400;
+  --fin-emph-wt:    500;
+  --fin-strong-wt:  600;
+  --fin-label-sz:   0.8125rem;
+  --fin-label-wt:   700;
+  --fin-small-sz:   0.75rem;
+  --fin-h4-sz:      1.25rem;  --fin-h4-wt: 800;
+  --fin-h5-sz:      1.0rem;   --fin-h5-wt: 700;
+  --fin-card-radius: 12px;
+  --fin-btn-height:  32px;
+  --fin-btn-icon-sz: 28px;
+}
+```
+
+### 21.3  Pola Page Header Standar
+
+Setiap halaman list/detail **wajib** menggunakan struktur `.fin-page-header`:
+
+```html
+<div class="fin-page-header">
+  <div>
+    <p class="fin-breadcrumb"><a href="<?= base_url('dashboard') ?>">Dashboard</a> / Modul</p>
+    <h4 class="fin-page-title">Judul Halaman</h4>
+    <p class="fin-page-subtitle">Deskripsi singkat halaman</p>
+  </div>
+  <div class="fin-page-actions">
+    <?php if ($canCreate): ?>
+    <a href="<?= base_url('modul/create') ?>" class="btn btn-primary btn-sm">
+      <i class="ri ri-add-line"></i> Tambah
+    </a>
+    <?php endif; ?>
+  </div>
+</div>
+```
+
+### 21.4  Tombol Aksi di Kolom Tabel
+
+Gunakan `td.action-cell` + `action-icon-btn` — jangan pernah pakai `flex-wrap` di action cell:
+
+```html
+<td class="action-cell">
+  <div class="d-flex gap-1 flex-nowrap justify-content-end">
+    <a href="..." class="btn btn-sm btn-outline-info action-icon-btn" title="...">
+      <i class="ri ri-eye-line"></i>
+    </a>
+    <?php if ($canEdit): ?>
+    <a href="..." class="btn btn-sm btn-outline-secondary action-icon-btn" title="Edit">
+      <i class="ri ri-edit-line"></i>
+    </a>
+    <?php endif; ?>
+  </div>
+</td>
+```
+
+CSS yang berlaku (dari `app.css`):
+- `td.action-cell` → `white-space: nowrap`, `text-align: right`, `width: 1%`
+- `.action-icon-btn` → `28×28px`, `border-radius: 8px`, hover naik 1px
+
+### 21.5  Perbedaan Finance vs Core (referensi)
+
+| Aspek | Core (Tabler) | Finance (Materio) |
+|---|---|---|
+| Font | System-UI / Inter | Plus Jakarta Sans |
+| Body weight | 400 / thin | 400 + emphasis 500 |
+| Heading weight | 600 | 700–800 |
+| Card | Flat, border | Shadow, borderless, radius 12px |
+| Tabel header | Lowercase, abu | Uppercase, bold 700, warm |
+| Tombol aksi | Flat text-link | Icon button 28×28, hover shadow |
+| Background | Putih/abu | Cream `#f5f0eb` |
+| Primary | Biru/teal | Merah `#c0392b` |
+| Sidebar | Light abu | Merah gradient gelap |
+
+### 21.6  Aturan
+
+1. **Jangan** load font dari file statis lokal kecuali sudah disetujui — gunakan Google Fonts CDN dengan `preconnect`.
+2. **Jangan** override `var(--fin-*)` per halaman — ubah di `app.css` saja.
+3. **Jangan** gunakan `font-size < 12px` untuk teks yang bisa dibaca pengguna.
+4. Semua `th` di tabel Finance sudah dapat styling otomatis dari `app.css §4` — tidak perlu tambah class.
+5. Setiap kali menambah CSS baru ke `app.css`, bump versi query string di `header.php`: `?v=YYYYMMDD{rev}`.
+
+---
+
 ## Catatan Tambahan
 
 ### Hal yang sering tidak konsisten dan HARUS diperhatikan
@@ -1132,5 +1308,37 @@ if (!$this->can(self::PAGE_ORDER, 'delete')) {
 6. **`html_escape()`** — Wajib di semua output. Tidak boleh ada `<?= $var ?>` tanpa escaping.
 7. **Angka** — Selalu `ui_num()`. Tidak boleh echo raw decimal dari DB.
 8. **Modal reset** — Selalu ada event `hidden.bs.modal` yang reset field dan alert area.
-9. **Permission cek di view** — Tombol aksi sensistif (edit, delete) wajib dicek dengan `$this->can()`.
+9. **Permission cek di view** — Tombol aksi sensitif (edit, delete) wajib dicek dengan variabel `$canEdit`, `$canDelete` yang didefinisikan di bagian persiapan PHP atas view (bukan `$this->can()` — di CI3 `$this` di view adalah CI_Loader, bukan controller).
 10. **`$buildQuery()`** — Wajib dipakai di pagination agar filter tidak hilang saat ganti halaman.
+---
+
+## Aturan Tambahan - Clear Filter (Wajib)
+
+Untuk semua halaman list yang memiliki filter/search:
+
+1. Harus ada tombol `Clear Filter`.
+2. `Clear Filter` mengembalikan state ke default halaman:
+   - keyword/search kosong
+   - tab status kembali default (umumnya `ACTIVE`)
+   - filter select kembali `Semua`
+   - page kembali `1`
+   - limit kembali default (umumnya `50`)
+3. Setelah `Clear Filter`, data harus langsung refresh tanpa pindah halaman lain.
+4. Setelah aksi CRUD (tambah/edit/hapus/toggle), user harus tetap berada pada state filter + page terakhir.
+
+---
+
+## Aturan Tambahan - Status Badge (Wajib)
+
+Untuk semua kolom/status di list dan detail:
+
+1. Jangan tampilkan status sebagai teks polos.
+2. Wajib gunakan badge berwarna sesuai status.
+3. Gunakan helper `ui_status_badge()` agar konsisten lintas halaman.
+4. Mapping minimal:
+   - `ACTIVE/AKTIF` -> hijau
+   - `INACTIVE/NONAKTIF` -> abu
+   - `DRAFT` -> kuning
+   - `POSTED/APPROVED/DONE` -> biru
+   - `VOID/CANCEL/REJECTED` -> merah
+5. Untuk status baru di luar mapping, gunakan badge netral lalu update helper global.
