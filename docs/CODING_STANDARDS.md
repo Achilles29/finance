@@ -989,12 +989,12 @@ $cls = $status_class[$row['status']] ?? 'secondary';
 <!-- 1-2 aksi: tombol langsung -->
 <td class="text-center">
     <a href="<?= site_url('purchase-orders/' . $row['id']) ?>"
-       class="btn btn-sm btn-info" title="Lihat Detail">
+       class="btn btn-sm btn-outline-info action-icon-btn" title="Lihat Detail">
         <i class="ri ri-eye-line"></i>
     </a>
     <?php if ($canEdit && $row['status'] === 'DRAFT'): ?>
     <a href="<?= site_url('purchase-orders/edit/' . $row['id']) ?>"
-       class="btn btn-sm btn-warning" title="Edit">
+       class="btn btn-sm btn-outline-primary action-icon-btn" title="Edit">
         <i class="ri ri-edit-line"></i>
     </a>
     <?php endif; ?>
@@ -1027,6 +1027,8 @@ $cls = $status_class[$row['status']] ?? 'secondary';
 - Jika ada >2 aksi, pakai dropdown — jangan buat kolom terlalu lebar
 - Icon wajib ada untuk semua tombol (tidak boleh teks saja di tabel)
 - Untuk tabel yang memang butuh banyak tombol inline, pertahankan kolom aksi tetap satu baris dengan `nowrap + overflow-x auto`; rapatkan kolom lain dulu sebelum tombol dibiarkan turun baris
+- Di modul yang memakai tombol ikon inline, pakai kamus ikon yang konsisten: `Detail/Lihat = ri-eye-line`, `Edit/Ubah = ri-edit-line`, `Toggle Status = ri-refresh-line`, `Hapus = ri-delete-bin-line`, `Post = ri-upload-2-line`
+- Jangan tukar ikon detail ke `book-open`, `external-link`, atau ikon lain dalam modul yang sama kecuali maknanya benar-benar berbeda
 
 ---
 

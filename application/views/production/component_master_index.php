@@ -81,7 +81,7 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
               <th>DIGUNAKAN</th>
               <th>Resep</th>
               <th>Status</th>
-              <th style="width:260px;">Aksi</th>
+              <th style="width:160px;" class="text-center">Aksi</th>
             </tr>
           </thead>
           <tbody id="table-body"></tbody>
@@ -281,11 +281,16 @@ function renderRows(rows) {
           : `<a href="<?php echo site_url('production/component-formulas/detail'); ?>/${r.id}" class="badge bg-secondary-subtle text-secondary-emphasis text-decoration-none">Belum ada</a>`
         }
       </td>
-      <td>${parseInt(r.is_active || 0, 10) === 1 ? '<span class="fin-status-badge fin-status-active">AKTIF</span>' : '<span class="fin-status-badge fin-status-inactive">NONAKTIF</span>'}</td>
-      <td>
-        <button class="btn btn-sm btn-outline-primary js-edit" data-id="${r.id}">Edit</button>
-        <a class="btn btn-sm btn-outline-info" href="<?php echo site_url('production/component-formulas/detail'); ?>/${r.id}">Formula</a>
-        <button class="btn btn-sm btn-outline-secondary js-toggle" data-id="${r.id}">Toggle</button>
+      <td>${parseInt(r.is_active || 0, 10) === 1
+        ? '<span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">AKTIF</span>'
+        : '<span class="badge bg-danger-subtle text-danger-emphasis border border-danger-subtle">NONAKTIF</span>'
+      }</td>
+      <td class="component-action-cell">
+        <div class="component-action-stack">
+          <a class="btn btn-outline-info action-icon-btn component-action-btn" href="<?php echo site_url('production/component-formulas/detail'); ?>/${r.id}" title="Detail Formula" aria-label="Detail Formula"><i class="ri ri-eye-line"></i></a>
+          <button class="btn btn-outline-primary action-icon-btn component-action-btn js-edit" data-id="${r.id}" title="Edit" aria-label="Edit"><i class="ri ri-edit-line"></i></button>
+          <button class="btn btn-outline-warning action-icon-btn component-action-btn js-toggle" data-id="${r.id}" title="Toggle Status" aria-label="Toggle Status"><i class="ri ri-refresh-line"></i></button>
+        </div>
       </td>
     </tr>
   `).join('');

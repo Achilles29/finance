@@ -147,11 +147,11 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
                 <td><?php echo html_escape((string)($row['component_code'] ?? '')); ?> - <?php echo html_escape((string)($row['component_name'] ?? '')); ?></td>
                 <td><?php echo number_format((float)($row['output_qty'] ?? 0), 4, ',', '.'); ?> <?php echo html_escape((string)($row['uom_code'] ?? '')); ?></td>
                 <td><?php echo ui_status_badge((string)($row['status'] ?? 'DRAFT')); ?></td>
-                <td>
+                <td class="component-action-cell">
                   <?php if (strtoupper((string)($row['status'] ?? '')) === 'DRAFT'): ?>
-                    <div class="d-flex gap-1">
-                      <button type="button" class="btn btn-success btn-sm btn-post" data-id="<?php echo (int)$row['id']; ?>">Post</button>
-                      <button type="button" class="btn btn-danger btn-sm btn-del" data-id="<?php echo (int)$row['id']; ?>">Delete</button>
+                    <div class="component-action-stack">
+                      <button type="button" class="btn btn-success btn-sm action-icon-btn component-action-btn btn-post" data-id="<?php echo (int)$row['id']; ?>" title="Post" aria-label="Post"><i class="ri ri-upload-2-line"></i></button>
+                      <button type="button" class="btn btn-outline-danger btn-sm action-icon-btn component-action-btn btn-del" data-id="<?php echo (int)$row['id']; ?>" title="Delete" aria-label="Delete"><i class="ri ri-delete-bin-line"></i></button>
                     </div>
                   <?php endif; ?>
                 </td>

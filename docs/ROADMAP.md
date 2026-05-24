@@ -1,5 +1,5 @@
 # Roadmap Pengembangan — Finance App
-**Terakhir diperbarui:** 2026-05-24 (implementasi workbench component + editor operasional + carry-forward bulanan)  
+**Terakhir diperbarui:** 2026-05-25 (hardening production/component: usage tracking, picker AJAX, performa list, dan standarisasi action icon)  
 **Target selesai:** 31 Mei 2026 (stabilisasi)  
 **Target live:** 1 Juni 2026
 
@@ -250,7 +250,7 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 
 ### TAHAP 8 — Produksi & COGS 🟡
 
-**Status:** 58% (surface component operasional sudah dipoles ke workbench yang lebih utuh; COGS dan integrasi lintas modul masih tahap berikutnya)
+**Status:** 58% (surface component master/formula/usage dan editor operasional sudah lebih utuh; COGS dan integrasi lintas modul masih tahap berikutnya)
 
 **Yang sudah berjalan:**
 - [x] Stok Base/Prepare
@@ -261,12 +261,17 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 - [x] Batch produksi component (BASE/PREPARE) dengan editor input material/component
 - [x] Workbench navigasi component: master, formula, variable cost, dan operasional sudah terhubung konsisten
 - [x] Monthly carry-forward component dari daily rollup ke monthly opname + opening bulan berikutnya
+- [x] AJAX picker component/material menggantikan dropdown statis di surface operasional component
+- [x] Usage tracking component tampil di master dan formula, dengan halaman usage detail terpisah
+- [x] HPP live component master diselaraskan dengan formula summary + cache request-level untuk list yang lebih ringan
+- [x] Action icon component distandarkan lintas halaman dan dicatat di coding standards
 
 **Yang belum selesai:**
 - [ ] COGS calculation: HPP aktual dari batch
 - [ ] Integrasi: konsumsi stok dari POS saat order
 - [ ] Hardening carry-forward component: audit conflict manual opening dan review UX posting ke dokumen operasional
 - [ ] Satukan detail/edit formula dan halaman turunan component lain ke pola workbench yang sama sampai benar-benar terasa satu modul
+- [ ] Browser smoke test visual untuk seluruh halaman component setelah hardening UI terakhir
 
 ---
 

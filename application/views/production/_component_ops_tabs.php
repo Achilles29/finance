@@ -41,6 +41,24 @@ $buttonClass = static function (string $key) use ($activeTab): string {
     color: #7a6d62;
     padding-top: .35rem;
   }
+  .component-action-stack {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    flex-wrap: nowrap;
+    justify-content: center;
+  }
+  .component-action-cell {
+    white-space: nowrap;
+    width: 1%;
+    text-align: center;
+  }
+  .component-action-btn {
+    flex-shrink: 0;
+  }
+  .component-action-btn i {
+    line-height: 1;
+  }
 </style>
 
 <?php foreach ($groups as $group): ?>

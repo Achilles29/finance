@@ -4,9 +4,15 @@ Directory finance (C:\xampp\htdocs\finance).
 ini adalah pengembangan dan penyempurnaan dari repo core (C:\xampp\htdocs\core). baca README.md dan seluruh dokumen terkait. temukan polanya. dan catat yang perlu dicatat sesuai ketentuan. kita kerjakan secara paralel 
 ======================
 ======================
+production/component-masters fallback hpp live nya ambil sama dengan production/component-formulas
+production/component-formulas icon kolom aksi terlalu kecil
+production/component-formulas tambahkan kolom digunakan seperti pada production/component-masters
+production/component-masters kolom status aktif / tidak aktif beri warna badge berbeda
 
-- /production/component-openings pencairan component cukup nama saja, kode tidak usah, UOM kurang lebar dan tampilkan nama UOM nya saja, 
 
-production/component-masters:
-- kolom aksi formula ketika di klik menuju ke detail formula, bukan edit formula
-- tambahkan kolom "DIGUNAKAN" di UI nya, jika digunakan makan Ya (jumlah ), jika belum ada base / prepare / produk yang menggunakan maka tidak. kemudian hiperlink menuju halaman yang menununjukan base / prepare / produk yang menggunakan resepnya apa saja
+
+penggunaan icon mu tidak kosisten antar halaman. buat yang consisten donk!
+masukkan dalam coding standar, misal icon detail seperti apa, toggle seperti apa, hapus dan update seperti apa. 
+
+contoh di /production/component-masters
+perbaiki juga untuk semua halaman lain

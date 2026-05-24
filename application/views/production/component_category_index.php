@@ -176,18 +176,20 @@ foreach ($rows as $r) {
                   <td><?php echo html_escape((string)($r['parent_name'] ?? '-')); ?></td>
                   <td class="text-end"><?php echo number_format((int)($r['component_count'] ?? 0), 0, ',', '.'); ?></td>
                   <td><?php echo ui_status_badge((int)($r['is_active'] ?? 0) === 1 ? 'ACTIVE' : 'INACTIVE', 'active'); ?></td>
-                  <td>
-                    <div class="d-flex gap-1">
+                  <td class="component-action-cell">
+                    <div class="component-action-stack">
                       <button
                         type="button"
-                        class="btn btn-sm btn-outline-primary js-edit"
+                        class="btn btn-sm btn-outline-primary action-icon-btn component-action-btn js-edit"
                         data-row="<?php echo html_escape(json_encode($r, JSON_INVALID_UTF8_SUBSTITUTE)); ?>"
                         data-bs-toggle="modal"
                         data-bs-target="#categoryModal"
+                        title="Edit"
+                        aria-label="Edit"
                       >
-                        Edit
+                        <i class="ri ri-edit-line"></i>
                       </button>
-                      <button type="button" class="btn btn-sm btn-outline-secondary js-toggle" data-id="<?php echo (int)$r['id']; ?>">Toggle</button>
+                      <button type="button" class="btn btn-sm btn-outline-warning action-icon-btn component-action-btn js-toggle" data-id="<?php echo (int)$r['id']; ?>" title="Toggle Status" aria-label="Toggle Status"><i class="ri ri-refresh-line"></i></button>
                     </div>
                   </td>
                 </tr>

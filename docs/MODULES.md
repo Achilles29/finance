@@ -499,7 +499,26 @@ Catatan cost variable produksi:
 Batch produksi komponen (BASE/PREPARE) dan kalkulasi biaya produksi (COGS).
 
 ### Status
-**BELUM MULAI** — akan dikembangkan setelah Tahap 7 stabil.
+**SEDANG BERJALAN** — surface `component` utama sudah aktif sebagai workbench produksi, sedangkan COGS batch final dan integrasi lintas modul masih tahap lanjutan.
+
+### Surface Yang Sudah Aktif
+- Master component (BASE/PREPARE) dengan kategori, status, usage count, dan akses formula
+- Formula component dengan summary HPP standar/live/total dan indikator penggunaan
+- Usage detail component yang dipisah antara BASE, PREPARE, dan PRODUK
+- Editor operasional component: opening, adjustment, batch, dan daily matrix
+- AJAX picker untuk component/material pada surface operasional yang sebelumnya memakai dropdown statis
+- Monthly carry-forward component dari daily rollup ke monthly opname + opening bulan berikutnya
+
+### File Kunci Saat Ini
+| Tipe | File |
+|---|---|
+| Controller | `application/controllers/Production.php` |
+| Model | `application/models/Production_model.php` |
+| Shared tabs / action helper | `application/views/production/_component_ops_tabs.php` |
+| Master component | `application/views/production/component_master_index.php` |
+| Formula component | `application/views/production/component_formula_index.php` |
+| Usage detail component | `application/views/production/component_usage_detail.php` |
+| Opening / Adjustment / Batch | `application/views/production/component_opening_index.php`, `component_adjustment_index.php`, `component_batch_index.php` |
 
 ### Rencana Tabel
 ```

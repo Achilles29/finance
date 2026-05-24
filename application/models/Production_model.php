@@ -3,6 +3,15 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Production_model extends CI_Model
 {
+    private $componentFormulaLinesCache = [];
+    private $componentFormulaSummaryCache = [];
+    private $formulaLineCostCache = [];
+    private $itemMaterialCache = [];
+    private $materialLookupCache = [];
+    private $materialBalanceCache = [];
+    private $componentLookupCache = [];
+    private $componentBalanceCache = [];
+
     private function division_name_column()
     {
         if ($this->db->field_exists('division_name', 'mst_operational_division')) {
@@ -1051,7 +1060,7 @@ class Production_model extends CI_Model
                 WHERE s.component_id = c.id
                 ORDER BY s.updated_at DESC, s.id DESC
                 LIMIT 1
-            ) AS hpp_live,
+            ) AS stock_hpp_live,
             {$formulaCountExpr} AS formula_count,
             {$componentUsageExpr} AS component_usage_count,
             {$productUsageExpr} AS product_usage_count
@@ -1064,6 +1073,15 @@ class Production_model extends CI_Model
         $rows = $this->db->get()->result_array();
 
         foreach ($rows as &$row) {
+            $stockHppLive = (float)($row['stock_hpp_live'] ?? 0);
+            if ($stockHppLive > 0) {
+                $row['hpp_live'] = round($stockHppLive, 6);
+            } else {
+                $mode = strtoupper((string)($row['variable_cost_mode'] ?? 'DEFAULT'));
+                $percent = (float)($row['variable_cost_percent'] ?? 0);
+                $summary = $this->component_formula_cost_summary((int)($row['id'] ?? 0), (int)($row['operational_division_id'] ?? 0), $mode, $percent);
+                $row['hpp_live'] = (float)($summary['hpp_live'] ?? 0);
+            }
             $row['usage_count'] = (int)($row['component_usage_count'] ?? 0) + (int)($row['product_usage_count'] ?? 0);
         }
         unset($row);
@@ -1314,12 +1332,15 @@ class Production_model extends CI_Model
 
     public function list_component_formulas(int $componentId): array
     {
+        if (array_key_exists($componentId, $this->componentFormulaLinesCache)) {
+            return $this->componentFormulaLinesCache[$componentId];
+        }
         $uomSelect = "COALESCE(mu.code, cu.code) AS uom_code";
         $materialExpr = "COALESCE(f.material_id, i.material_id)";
         if (!$this->db->field_exists('material_id', 'mst_component_formula')) {
             $materialExpr = "i.material_id";
         }
-        return $this->db->select("f.*, {$materialExpr} AS material_id, m.material_name AS material_name, c.component_name AS sub_component_name, {$uomSelect}", false)
+        $rows = $this->db->select("f.*, {$materialExpr} AS material_id, m.material_name AS material_name, c.component_name AS sub_component_name, {$uomSelect}", false)
             ->from('mst_component_formula f')
             ->join('mst_item i', 'i.id = f.material_item_id', 'left')
             ->join('mst_material m', "m.id = {$materialExpr}", 'left')
@@ -1329,6 +1350,8 @@ class Production_model extends CI_Model
             ->where('f.component_id', $componentId)
             ->order_by('f.line_no', 'ASC')
             ->get()->result_array();
+        $this->componentFormulaLinesCache[$componentId] = $rows;
+        return $rows;
     }
 
     public function list_component_formula_components_paginated(array $filters): array
@@ -1382,6 +1405,21 @@ class Production_model extends CI_Model
             $offset = ($page - 1) * $limit;
         }
 
+        $componentUsageExpr = $this->db->table_exists('mst_component_formula')
+            ? "(
+                SELECT COUNT(DISTINCT f.component_id)
+                FROM mst_component_formula f
+                WHERE f.sub_component_id = c.id
+            )"
+            : '0';
+        $productUsageExpr = $this->db->table_exists('mst_product_recipe')
+            ? "(
+                SELECT COUNT(DISTINCT r.product_id)
+                FROM mst_product_recipe r
+                WHERE r.component_id = c.id
+            )"
+            : '0';
+
         $this->db->select("
             c.id,
             c.component_code,
@@ -1401,7 +1439,9 @@ class Production_model extends CI_Model
                 SELECT COUNT(1)
                 FROM mst_component_formula f
                 WHERE f.component_id = c.id
-            ) AS formula_line_count
+            ) AS formula_line_count,
+            {$componentUsageExpr} AS component_usage_count,
+            {$productUsageExpr} AS product_usage_count
         ", false);
         $this->db->order_by('c.component_type', 'ASC');
         $this->db->order_by('d.name', 'ASC');
@@ -1413,18 +1453,12 @@ class Production_model extends CI_Model
         $rows = $this->db->get()->result_array();
 
         foreach ($rows as &$row) {
-            $std = (float)($row['hpp_standard'] ?? 0);
             $mode = strtoupper((string)($row['variable_cost_mode'] ?? 'DEFAULT'));
             $percent = (float)($row['variable_cost_percent'] ?? 0);
-            if ($mode === 'NONE') {
-                $effectivePercent = 0.0;
-            } elseif ($mode === 'CUSTOM') {
-                $effectivePercent = max(0.0, $percent);
-            } else {
-                $effectivePercent = $this->variable_cost_default_percent('COMPONENT');
-            }
-            $row['hpp_live'] = round($std, 6);
-            $row['hpp_total'] = round($std * (1 + ($effectivePercent / 100)), 6);
+            $summary = $this->component_formula_cost_summary((int)($row['id'] ?? 0), (int)($row['operational_division_id'] ?? 0), $mode, $percent);
+            $row['hpp_live'] = (float)($summary['hpp_live'] ?? 0);
+            $row['hpp_total'] = (float)($summary['hpp_total'] ?? 0);
+            $row['usage_count'] = (int)($row['component_usage_count'] ?? 0) + (int)($row['product_usage_count'] ?? 0);
         }
         unset($row);
 
@@ -1919,6 +1953,10 @@ class Production_model extends CI_Model
 
     private function component_formula_cost_summary(int $componentId, int $divisionId, string $mode, float $percent): array
     {
+        $cacheKey = $componentId . '|' . $divisionId . '|' . strtoupper($mode) . '|' . number_format($percent, 4, '.', '');
+        if (isset($this->componentFormulaSummaryCache[$cacheKey])) {
+            return $this->componentFormulaSummaryCache[$cacheKey];
+        }
         $lines = $this->list_component_formulas($componentId);
         $lineCount = 0;
         $materialCount = 0;
@@ -1942,13 +1980,15 @@ class Production_model extends CI_Model
         } else {
             $effectivePercent = $this->variable_cost_default_percent('COMPONENT');
         }
-        return [
+        $summary = [
             'line_count' => $lineCount,
             'material_count' => $materialCount,
             'component_count' => $componentCount,
             'hpp_live' => round($hppLive, 6),
             'hpp_total' => round($hppLive * (1 + ($effectivePercent / 100)), 6),
         ];
+        $this->componentFormulaSummaryCache[$cacheKey] = $summary;
+        return $summary;
     }
 
     private function resolve_formula_line_cost(array $line, int $divisionId): array
@@ -1958,42 +1998,60 @@ class Production_model extends CI_Model
             $materialCol = $this->formula_material_column();
             $materialId = (int)($line[$materialCol] ?? 0);
             if ($materialId <= 0 && !empty($line['material_item_id'])) {
-                $legacy = $this->db->select('material_id')->from('mst_item')->where('id', (int)$line['material_item_id'])->limit(1)->get()->row_array();
+                $itemId = (int)$line['material_item_id'];
+                if (!array_key_exists($itemId, $this->itemMaterialCache)) {
+                    $this->itemMaterialCache[$itemId] = $this->db->select('material_id')->from('mst_item')->where('id', $itemId)->limit(1)->get()->row_array();
+                }
+                $legacy = $this->itemMaterialCache[$itemId];
                 $materialId = (int)($legacy['material_id'] ?? 0);
             }
-            $material = $this->db->select('id, material_name, hpp_standard')
-                ->from('mst_material')
-                ->where('id', $materialId)
-                ->limit(1)
-                ->get()
-                ->row_array();
-            $standard = (float)($material['hpp_standard'] ?? 0);
-            $live = 0.0;
-            if ($divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {
-                $bal = $this->db->select('avg_cost_per_content')
-                    ->from('inv_division_stock_balance')
-                    ->where('division_id', $divisionId)
-                    ->where('material_id', $materialId)
-                    ->order_by('updated_at', 'DESC')
+            $cacheKey = 'M|' . $divisionId . '|' . $materialId;
+            if (isset($this->formulaLineCostCache[$cacheKey])) {
+                return $this->formulaLineCostCache[$cacheKey];
+            }
+            if (!array_key_exists($materialId, $this->materialLookupCache)) {
+                $this->materialLookupCache[$materialId] = $this->db->select('id, material_name, hpp_standard')
+                    ->from('mst_material')
+                    ->where('id', $materialId)
                     ->limit(1)
                     ->get()
                     ->row_array();
-                $live = (float)($bal['avg_cost_per_content'] ?? 0);
+            }
+            $material = $this->materialLookupCache[$materialId];
+            $standard = (float)($material['hpp_standard'] ?? 0);
+            $live = 0.0;
+            if ($divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {
+                $balanceKey = $divisionId . '|' . $materialId;
+                if (!array_key_exists($balanceKey, $this->materialBalanceCache)) {
+                    $liveRow = $this->db->select('avg_cost_per_content')
+                        ->from('inv_division_stock_balance')
+                        ->where('division_id', $divisionId)
+                        ->where('material_id', $materialId)
+                        ->order_by('updated_at', 'DESC')
+                        ->limit(1)
+                        ->get()
+                        ->row_array();
+                    $qtyRow = $this->db->select('SUM(COALESCE(qty_content_balance,0)) AS qty_balance', false)
+                        ->from('inv_division_stock_balance')
+                        ->where('division_id', $divisionId)
+                        ->where('material_id', $materialId)
+                        ->get()
+                        ->row_array();
+                    $this->materialBalanceCache[$balanceKey] = [
+                        'avg_cost_per_content' => (float)($liveRow['avg_cost_per_content'] ?? 0),
+                        'qty_balance' => (float)($qtyRow['qty_balance'] ?? 0),
+                    ];
+                }
+                $live = (float)($this->materialBalanceCache[$balanceKey]['avg_cost_per_content'] ?? 0);
             }
             if ($live <= 0) {
                 $live = $standard;
             }
             $availableQty = 0.0;
             if ($divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {
-                $balQty = $this->db->select('SUM(COALESCE(qty_content_balance,0)) AS qty_balance', false)
-                    ->from('inv_division_stock_balance')
-                    ->where('division_id', $divisionId)
-                    ->where('material_id', $materialId)
-                    ->get()
-                    ->row_array();
-                $availableQty = (float)($balQty['qty_balance'] ?? 0);
+                $availableQty = (float)($this->materialBalanceCache[$divisionId . '|' . $materialId]['qty_balance'] ?? 0);
             }
-            return [
+            $result = [
                 'standard_unit_cost' => round($standard, 6),
                 'live_unit_cost' => round($live, 6),
                 'source_label' => 'MATERIAL',
@@ -2001,41 +2059,57 @@ class Production_model extends CI_Model
                 'live_cost_source' => $live > 0 && $live !== $standard ? 'STOCK_DIVISION' : 'FALLBACK_STANDARD',
                 'live_cost_source_label' => $live > 0 && $live !== $standard ? 'Stok Divisi' : 'Fallback Std',
             ];
+            $this->formulaLineCostCache[$cacheKey] = $result;
+            return $result;
         }
 
         $subComponentId = (int)($line['sub_component_id'] ?? 0);
-        $sub = $this->db->select('id, component_name, hpp_standard')
-            ->from('mst_component')
-            ->where('id', $subComponentId)
-            ->limit(1)
-            ->get()
-            ->row_array();
+        $cacheKey = 'C|' . $divisionId . '|' . $subComponentId;
+        if (isset($this->formulaLineCostCache[$cacheKey])) {
+            return $this->formulaLineCostCache[$cacheKey];
+        }
+        if (!array_key_exists($subComponentId, $this->componentLookupCache)) {
+            $this->componentLookupCache[$subComponentId] = $this->db->select('id, component_name, hpp_standard')
+                ->from('mst_component')
+                ->where('id', $subComponentId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+        }
+        $sub = $this->componentLookupCache[$subComponentId];
         $standard = (float)($sub['hpp_standard'] ?? 0);
         $live = 0.0;
         if ($this->db->table_exists('inv_component_stock_balance')) {
-            $this->db->select('avg_cost')->from('inv_component_stock_balance')->where('component_id', $subComponentId);
-            if ($divisionId > 0) {
-                $this->db->where('division_id', $divisionId);
+            $balanceKey = $divisionId . '|' . $subComponentId;
+            if (!array_key_exists($balanceKey, $this->componentBalanceCache)) {
+                $this->db->select('avg_cost')->from('inv_component_stock_balance')->where('component_id', $subComponentId);
+                if ($divisionId > 0) {
+                    $this->db->where('division_id', $divisionId);
+                }
+                $liveRow = $this->db->order_by('updated_at', 'DESC')->limit(1)->get()->row_array();
+                $this->db->select('SUM(COALESCE(qty_on_hand,0)) AS qty_balance', false)
+                    ->from('inv_component_stock_balance')
+                    ->where('component_id', $subComponentId);
+                if ($divisionId > 0) {
+                    $this->db->where('division_id', $divisionId);
+                }
+                $qtyRow = $this->db->get()->row_array();
+                $this->componentBalanceCache[$balanceKey] = [
+                    'avg_cost' => (float)($liveRow['avg_cost'] ?? 0),
+                    'qty_balance' => (float)($qtyRow['qty_balance'] ?? 0),
+                ];
             }
-            $bal = $this->db->order_by('updated_at', 'DESC')->limit(1)->get()->row_array();
-            $live = (float)($bal['avg_cost'] ?? 0);
+            $live = (float)($this->componentBalanceCache[$balanceKey]['avg_cost'] ?? 0);
         }
         if ($live <= 0) {
             $live = $standard;
         }
         $availableQty = 0.0;
         if ($this->db->table_exists('inv_component_stock_balance')) {
-            $this->db->select('SUM(COALESCE(qty_on_hand,0)) AS qty_balance', false)
-                ->from('inv_component_stock_balance')
-                ->where('component_id', $subComponentId);
-            if ($divisionId > 0) {
-                $this->db->where('division_id', $divisionId);
-            }
-            $balQty = $this->db->get()->row_array();
-            $availableQty = (float)($balQty['qty_balance'] ?? 0);
+            $availableQty = (float)($this->componentBalanceCache[$divisionId . '|' . $subComponentId]['qty_balance'] ?? 0);
         }
         $liveSource = ($live > 0 && $live !== $standard) ? 'STOCK_COMPONENT' : 'FALLBACK_STANDARD';
-        return [
+        $result = [
             'standard_unit_cost' => round($standard, 6),
             'live_unit_cost' => round($live, 6),
             'source_label' => 'COMPONENT',
@@ -2043,6 +2117,8 @@ class Production_model extends CI_Model
             'live_cost_source' => $liveSource,
             'live_cost_source_label' => $liveSource === 'STOCK_COMPONENT' ? 'Stok Component' : 'Fallback Std',
         ];
+        $this->formulaLineCostCache[$cacheKey] = $result;
+        return $result;
     }
 
     private function resolve_formula_uom_id(string $lineType, ?int $materialId, ?int $subComponentId): int

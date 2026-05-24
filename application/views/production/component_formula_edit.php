@@ -117,7 +117,7 @@ document.addEventListener('DOMContentLoaded', function () {
         <td><input class="form-control form-control-sm line-qty" type="number" min="0" step="0.01" value="${Number(line.qty||0).toFixed(2)}"></td>
         <td><span class="badge bg-secondary-subtle text-secondary-emphasis line-uom-view">${uomLabel}</span></td>
         <td><input class="form-control form-control-sm line-notes" value="${esc(line.notes||'')}"></td>
-        <td><button type="button" class="btn btn-sm btn-outline-danger js-del"><i class="ri ri-delete-bin-line"></i></button></td>
+        <td class="component-action-cell"><button type="button" class="btn btn-sm btn-outline-danger action-icon-btn component-action-btn js-del" title="Hapus baris" aria-label="Hapus baris"><i class="ri ri-delete-bin-line"></i></button></td>
       </tr>`;
   }
 

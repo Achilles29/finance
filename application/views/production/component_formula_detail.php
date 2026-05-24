@@ -22,7 +22,7 @@ $totalLive = (float)($summary['total_cogs_live'] ?? 0);
     </div>
     <div class="d-flex gap-2">
       <a class="btn btn-outline-secondary btn-sm" href="<?php echo site_url('production/component-formulas'); ?>">Kembali</a>
-      <a class="btn btn-primary btn-sm" href="<?php echo site_url('production/component-formulas/edit/' . (int)($component['id'] ?? 0)); ?>">Edit</a>
+      <a class="btn btn-outline-primary btn-sm action-icon-btn component-action-btn" href="<?php echo site_url('production/component-formulas/edit/' . (int)($component['id'] ?? 0)); ?>" title="Edit Formula" aria-label="Edit Formula"><i class="ri ri-edit-line"></i></a>
     </div>
   </div>
 
@@ -117,7 +117,7 @@ $totalLive = (float)($summary['total_cogs_live'] ?? 0);
         </table>
       </div>
       <div class="d-flex justify-content-center gap-2 py-3 border-top">
-        <a class="btn btn-primary btn-sm" href="<?php echo site_url('production/component-formulas/edit/' . (int)($component['id'] ?? 0)); ?>">Edit</a>
+        <a class="btn btn-outline-primary btn-sm action-icon-btn component-action-btn" href="<?php echo site_url('production/component-formulas/edit/' . (int)($component['id'] ?? 0)); ?>" title="Edit Formula" aria-label="Edit Formula"><i class="ri ri-edit-line"></i></a>
         <a class="btn btn-outline-secondary btn-sm" href="<?php echo site_url('production/component-formulas'); ?>">Kembali</a>
       </div>
     </div>

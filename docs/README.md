@@ -1,5 +1,5 @@
 # Index Dokumentasi — Finance App
-**Terakhir diperbarui:** 2026-05-24
+**Terakhir diperbarui:** 2026-05-25
 
 ---
 
@@ -11,6 +11,8 @@
 | **[CODING_STANDARDS.md](CODING_STANDARDS.md)** | Pola coding: controller, model, view, AJAX, tabel, pagination, filter | Sebelum membuat halaman / fitur baru |
 | **[ROADMAP.md](ROADMAP.md)** | Progress per tahap, target, status checklist | Review progress, planning sprint |
 | **[MODULES.md](MODULES.md)** | Detail setiap modul: tabel, alur, file kunci, catatan | Saat mulai mengerjakan modul tertentu |
+
+Catatan update terbaru: surface `production/component` sudah naik dari fondasi schema menjadi workbench aktif dengan editor operasional, usage tracking, carry-forward bulanan, dan standarisasi action icon.
 
 ---
 

@@ -74,8 +74,9 @@ $divisions = is_array($divisions ?? null) ? $divisions : [];
               <th class="text-end">HPP Std</th>
               <th class="text-end">HPP Live</th>
               <th class="text-end">HPP Total</th>
+              <th>Digunakan</th>
               <th>Status</th>
-              <th style="width:120px;" class="text-center">Aksi</th>
+              <th style="width:140px;" class="text-center">Aksi</th>
             </tr>
           </thead>
           <tbody id="table-body"></tbody>
@@ -164,10 +165,18 @@ document.addEventListener('DOMContentLoaded', function () {
         <td class="text-end">${fmt(r.hpp_standard || 0, 2)}</td>
         <td class="text-end">${fmt(r.hpp_live || 0, 2)}</td>
         <td class="text-end fw-semibold">${fmt(r.hpp_total || 0, 2)}</td>
+        <td>
+          ${parseInt(r.usage_count || 0, 10) > 0
+            ? `<a href="<?php echo site_url('production/component-masters/usage'); ?>/${Number(r.id || 0)}" class="badge bg-warning-subtle text-warning-emphasis text-decoration-none">Ya (${parseInt(r.usage_count || 0, 10)})</a><div class="small text-muted mt-1">${parseInt(r.component_usage_count || 0, 10)} base/prepare • ${parseInt(r.product_usage_count || 0, 10)} produk</div>`
+            : `<span class="badge bg-light text-body-secondary border">Tidak</span>`
+          }
+        </td>
         <td>${statusBadge(r.is_active)}</td>
-        <td class="text-center">
-          <a href="<?php echo site_url('production/component-formulas/detail'); ?>/${Number(r.id || 0)}" class="btn btn-sm btn-outline-info" title="Detail Formula" aria-label="Detail Formula"><i class="ri ri-eye-line"></i></a>
-          <a href="<?php echo site_url('production/component-formulas/edit'); ?>/${Number(r.id || 0)}" class="btn btn-sm btn-outline-primary" title="Edit Formula" aria-label="Edit Formula"><i class="ri ri-edit-line"></i></a>
+        <td class="component-action-cell">
+          <div class="component-action-stack">
+            <a href="<?php echo site_url('production/component-formulas/detail'); ?>/${Number(r.id || 0)}" class="btn btn-outline-info action-icon-btn component-action-btn" title="Detail Formula" aria-label="Detail Formula"><i class="ri ri-eye-line"></i></a>
+            <a href="<?php echo site_url('production/component-formulas/edit'); ?>/${Number(r.id || 0)}" class="btn btn-outline-primary action-icon-btn component-action-btn" title="Edit Formula" aria-label="Edit Formula"><i class="ri ri-edit-line"></i></a>
+          </div>
         </td>
       </tr>
     `).join('');
