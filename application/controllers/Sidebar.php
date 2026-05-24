@@ -256,6 +256,21 @@ class Sidebar extends MY_Controller
 
     private function regroup_inventory_children_preview(array $children): array
     {
+        $hasStructuredGroups = false;
+        foreach ($children as &$child) {
+            $code = (string)($child['menu_code'] ?? '');
+            if ($code === 'purchase.stock.warehouse' || $code === 'inventory.group.warehouse' || $code === 'inventory.stock.group.warehouse') {
+                $hasStructuredGroups = true;
+            } elseif ($code === 'purchase.stock.division' || $code === 'inventory.group.division' || $code === 'inventory.stock.group.division') {
+                $hasStructuredGroups = true;
+            }
+        }
+        unset($child);
+
+        if ($hasStructuredGroups) {
+            return $children;
+        }
+
         $buckets = [
             'warehouse' => [
                 'label' => 'Stok Gudang',
@@ -324,7 +339,6 @@ class Sidebar extends MY_Controller
 
         return $result;
     }
-
     public function menu_store()
     {
         if (!$this->is_superadmin()) {

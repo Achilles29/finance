@@ -26,6 +26,8 @@ $totalLive = (float)($summary['total_cogs_live'] ?? 0);
     </div>
   </div>
 
+  <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'formula']); ?>
+
   <div class="card border-0 shadow-sm mb-3">
     <div class="card-body row g-3">
       <div class="col-md-3">

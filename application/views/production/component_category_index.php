@@ -20,6 +20,8 @@ foreach ($rows as $r) {
 }
 ?>
 <div class="container-xxl py-3">
+  <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'category']); ?>
+
   <div class="card border-0 shadow-sm mb-3" style="background:linear-gradient(120deg,#fff8f2 0%,#ffffff 55%,#f4f9ff 100%);">
     <div class="card-body">
       <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
@@ -72,14 +74,8 @@ foreach ($rows as $r) {
       <form id="quick-map-form" class="row g-2 mt-1">
         <div class="col-md-6">
           <label class="form-label mb-1">Component</label>
-          <select class="form-select" name="component_id" required>
-            <option value="">Pilih component...</option>
-            <?php foreach ($componentsForMapping as $c): ?>
-              <option value="<?php echo (int)$c['id']; ?>">
-                <?php echo html_escape((string)$c['component_name']); ?> - <?php echo html_escape((string)$c['component_type']); ?> | <?php echo html_escape((string)($c['category_name'] ?? '-')); ?>
-              </option>
-            <?php endforeach; ?>
-          </select>
+          <input type="hidden" name="component_id" id="quick-map-component-id" value="">
+          <input type="text" class="form-control" id="quick-map-component-search" placeholder="Ketik kode/nama component..." autocomplete="off" required>
         </div>
         <div class="col-md-4">
           <label class="form-label mb-1">Target Kategori</label>
@@ -256,6 +252,8 @@ foreach ($rows as $r) {
   </div>
 </div>
 
+<?php $this->load->view('production/_ajax_picker_helper'); ?>
+
 <script>
 (() => {
   const form = document.getElementById('form-save');
@@ -264,6 +262,8 @@ foreach ($rows as $r) {
   const nameEl = form.querySelector('[name="name"]');
   const codeEl = form.querySelector('[name="code"]');
   const parentEl = form.querySelector('[name="parent_id"]');
+  const quickMapComponentId = document.getElementById('quick-map-component-id');
+  const quickMapComponentSearch = document.getElementById('quick-map-component-search');
 
   const slugifyCode = (name) => String(name || '')
     .normalize('NFKD')
@@ -283,6 +283,22 @@ foreach ($rows as $r) {
     if (!r.ok || !j.ok) throw new Error(j.message || 'Gagal');
     return j;
   };
+
+  const pickerLabel = (row) => [row.code || '', row.name || ''].filter(Boolean).join(' - ');
+  const pickerSubLabel = (row) => [row.entity_type || '', row.category_name || '', row.uom_code || ''].filter(Boolean).join(' | ');
+
+  window.ProductionAjaxPicker.bind(quickMapComponentSearch, {
+    entity: 'COMPONENT',
+    renderLabel: pickerLabel,
+    renderSubLabel: pickerSubLabel,
+    onType: () => {
+      quickMapComponentId.value = '';
+    },
+    onSelect: (result) => {
+      quickMapComponentId.value = String(result.id || '');
+      quickMapComponentSearch.value = pickerLabel(result);
+    }
+  });
 
   const resetForm = () => {
     form.reset();
@@ -346,6 +362,11 @@ foreach ($rows as $r) {
   document.getElementById('quick-map-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const payload = Object.fromEntries(new FormData(e.currentTarget).entries());
+    if (!payload.component_id) {
+      alert('Pilih component dari hasil pencarian terlebih dahulu.');
+      quickMapComponentSearch?.focus();
+      return;
+    }
     try {
       await postJson('<?php echo site_url('production/component-categories/quick-map'); ?>', payload);
       location.reload();

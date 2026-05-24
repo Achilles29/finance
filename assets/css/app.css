@@ -274,12 +274,42 @@ small,
   border: 1px solid transparent;
   line-height: 1.15;
 }
-.fin-status-active { background: #e8f7ee; color: #1f7a45; border-color: #b8e4c7; }
-.fin-status-inactive { background: #f5f5f5; color: #6b7280; border-color: #e5e7eb; }
-.fin-status-draft { background: #fff8e6; color: #9a6700; border-color: #f4d999; }
-.fin-status-posted { background: #e8f2ff; color: #1d4ed8; border-color: #bfd6ff; }
-.fin-status-void { background: #feecec; color: #b42318; border-color: #fecaca; }
-.fin-status-neutral { background: #f3f4f6; color: #4b5563; border-color: #e5e7eb; }
+
+.fin-status-active {
+  background: #e8f7ee;
+  color: #1f7a45;
+  border-color: #b8e4c7;
+}
+
+.fin-status-inactive {
+  background: #f5f5f5;
+  color: #6b7280;
+  border-color: #e5e7eb;
+}
+
+.fin-status-draft {
+  background: #fff8e6;
+  color: #9a6700;
+  border-color: #f4d999;
+}
+
+.fin-status-posted {
+  background: #e8f2ff;
+  color: #1d4ed8;
+  border-color: #bfd6ff;
+}
+
+.fin-status-void {
+  background: #feecec;
+  color: #b42318;
+  border-color: #fecaca;
+}
+
+.fin-status-neutral {
+  background: #f3f4f6;
+  color: #4b5563;
+  border-color: #e5e7eb;
+}
 
 /* Autofit utilities */
 .table-autofit th,
@@ -300,6 +330,51 @@ small,
 .table td.cell-nowrap,
 .table th.cell-nowrap {
   white-space: nowrap;
+}
+
+.fin-audit-table .col-date,
+.fin-audit-table .col-no,
+.fin-audit-table .col-type,
+.fin-audit-table .col-amount,
+.fin-audit-table .col-balance,
+.fin-audit-table .col-delta,
+.fin-audit-table .col-ref {
+  white-space: nowrap;
+}
+
+.fin-audit-table .col-notes {
+  min-width: 220px;
+  max-width: 360px;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.fin-audit-metric {
+  line-height: 1.35;
+}
+
+.fin-audit-primary {
+  font-weight: var(--fin-strong-wt) !important;
+  color: var(--fin-head-color);
+}
+
+.fin-audit-secondary {
+  display: block;
+  font-size: var(--fin-small-sz);
+  color: var(--fin-muted-color);
+}
+
+.fin-audit-delta-positive .fin-audit-primary {
+  color: #1f7a45;
+}
+
+.fin-audit-delta-negative .fin-audit-primary {
+  color: #b42318;
+}
+
+.fin-audit-note {
+  font-size: var(--fin-small-sz);
+  color: var(--fin-muted-color);
 }
 
 

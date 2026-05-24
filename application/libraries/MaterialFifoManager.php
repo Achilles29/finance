@@ -246,6 +246,10 @@ class MaterialFifoManager
                 'qty_out' => $takeQty,
                 'unit_cost' => $unitCost,
                 'total_cost' => $lineCost,
+                'source_balance_before' => $lotBalance,
+                'source_balance_after' => round((float)($warehouseMutation['data']['qty_balance'] ?? 0), 4),
+                'target_balance_before' => 0,
+                'target_balance_after' => round((float)($divisionMutation['data']['qty_balance'] ?? 0), 4),
             ]);
             if ((int)($this->ci->db->insert_id() ?? 0) <= 0) {
                 return ['ok' => false, 'message' => 'Gagal menyimpan detail issue FIFO.'];
@@ -274,6 +278,190 @@ class MaterialFifoManager
         return [
             'ok' => true,
             'message' => 'Transfer FIFO warehouse ke division berhasil.',
+            'data' => [
+                'issue_id' => $issueId,
+                'issue_no' => $issueNo,
+                'allocations' => $allocations,
+                'total_cost' => $totalCost,
+                'avg_unit_cost' => $qtyNeed > 0 ? round($totalCost / $qtyNeed, 6) : 0.0,
+            ],
+        ];
+    }
+
+    public function consumeWarehouseUsage(array $payload): array
+    {
+        $ensure = $this->ensureSchema();
+        if (!($ensure['ok'] ?? false)) {
+            return $ensure;
+        }
+
+        $issueDate = $this->normalizeDate((string)($payload['issue_date'] ?? ($payload['movement_date'] ?? '')));
+        $qtyNeed = round((float)($payload['qty_content_out'] ?? 0), 4);
+        if ($issueDate === null) {
+            return ['ok' => false, 'message' => 'Pemakaian FIFO gudang membutuhkan issue_date yang valid.'];
+        }
+        if ($qtyNeed <= 0) {
+            return ['ok' => false, 'message' => 'qty_content_out wajib lebih besar dari nol.'];
+        }
+
+        $identity = $this->normalizeLotIdentity(array_merge($payload, [
+            'location_scope' => 'WAREHOUSE',
+            'division_id' => null,
+            'destination_type' => 'GUDANG',
+        ]), true);
+        if (!($identity['ok'] ?? false)) {
+            return $identity;
+        }
+
+        $coverage = $this->synchronizeWarehouseLotsFromAggregate($identity);
+        if (!($coverage['ok'] ?? false)) {
+            return $coverage;
+        }
+
+        $warehouseLots = $this->findIssueSourceLots($identity, [
+            'allow_any_item_id' => ($identity['item_id'] ?? null) === null && ($identity['material_id'] ?? null) !== null,
+            'allow_any_buy_uom' => ($identity['buy_uom_id'] ?? null) === null,
+            'allow_any_profile_key' => ($identity['profile_key'] ?? null) === null,
+        ]);
+
+        $available = 0.0;
+        foreach ($warehouseLots as $lot) {
+            $available += round((float)($lot['qty_balance'] ?? 0), 4);
+        }
+        $available = round($available, 4);
+        if ($available + 0.0001 < $qtyNeed) {
+            return [
+                'ok' => false,
+                'message' => 'Saldo FIFO gudang tidak cukup. Dibutuhkan ' . number_format($qtyNeed, 4, '.', '') . ', tersedia ' . number_format($available, 4, '.', '') . '.',
+            ];
+        }
+
+        $issueNo = $this->generateIssueNo($issueDate);
+        $issueData = [
+            'issue_no' => $issueNo,
+            'issue_date' => $issueDate,
+            'issue_datetime' => date('Y-m-d H:i:s'),
+            'location_scope' => 'WAREHOUSE',
+            'division_id' => null,
+            'destination_type' => 'GUDANG',
+            'target_scope' => null,
+            'target_division_id' => null,
+            'target_destination_type' => null,
+            'item_id' => $identity['item_id'],
+            'material_id' => $identity['material_id'],
+            'buy_uom_id' => $identity['buy_uom_id'],
+            'content_uom_id' => $identity['content_uom_id'],
+            'profile_key' => $identity['profile_key'],
+            'issue_qty' => $qtyNeed,
+            'total_cost' => 0,
+            'source_module' => $this->nullableString($payload['source_module'] ?? 'INVENTORY_ADJUSTMENT'),
+            'source_table' => $this->nullableString($payload['source_table'] ?? null),
+            'source_id' => $this->nullableInt($payload['source_id'] ?? null),
+            'source_line_id' => $this->nullableInt($payload['source_line_id'] ?? null),
+            'notes' => $this->nullableString($payload['notes'] ?? null),
+            'status' => 'POSTED',
+        ];
+        $this->ci->db->insert('inv_material_fifo_issue_log', $issueData);
+        $issueId = (int)$this->ci->db->insert_id();
+        if ($issueId <= 0) {
+            return ['ok' => false, 'message' => 'Gagal membuat log usage FIFO gudang.'];
+        }
+
+        $remaining = $qtyNeed;
+        $totalCost = 0.0;
+        $allocations = [];
+
+        foreach ($warehouseLots as $lot) {
+            if ($remaining <= 0) {
+                break;
+            }
+
+            $lotId = (int)($lot['id'] ?? 0);
+            $lotBalance = round((float)($lot['qty_balance'] ?? 0), 4);
+            if ($lotId <= 0 || $lotBalance <= 0) {
+                continue;
+            }
+
+            $takeQty = round(min($remaining, $lotBalance), 4);
+            if ($takeQty <= 0) {
+                continue;
+            }
+
+            $warehouseMutation = $this->applyLotMutation([
+                'lot_id' => $lotId,
+                'location_scope' => 'WAREHOUSE',
+                'division_id' => null,
+                'destination_type' => 'GUDANG',
+                'item_id' => $this->nullableInt($lot['item_id'] ?? null),
+                'material_id' => $this->nullableInt($lot['material_id'] ?? null),
+                'buy_uom_id' => $this->nullableInt($lot['buy_uom_id'] ?? null),
+                'content_uom_id' => $this->nullableInt($lot['content_uom_id'] ?? null),
+                'profile_key' => $this->nullableString($lot['profile_key'] ?? null),
+                'lot_no' => (string)($lot['lot_no'] ?? ''),
+                'receipt_date' => (string)($lot['receipt_date'] ?? $issueDate),
+                'expiry_date' => $this->normalizeDate((string)($lot['expiry_date'] ?? '')),
+                'unit_cost' => max(0, round((float)($lot['unit_cost'] ?? 0), 6)),
+                'source_table' => $this->nullableString($lot['source_table'] ?? null),
+                'source_id' => $this->nullableInt($lot['source_id'] ?? null),
+                'source_line_id' => $this->nullableInt($lot['source_line_id'] ?? null),
+                'receipt_id' => $this->nullableInt($lot['receipt_id'] ?? null),
+                'receipt_line_id' => $this->nullableInt($lot['receipt_line_id'] ?? null),
+                'parent_lot_id' => $this->nullableInt($lot['parent_lot_id'] ?? null),
+            ], 0.0, $takeQty);
+            if (!($warehouseMutation['ok'] ?? false)) {
+                return $warehouseMutation;
+            }
+
+            $unitCost = max(0, round((float)($lot['unit_cost'] ?? 0), 6));
+            $lineCost = round($takeQty * $unitCost, 2);
+            $this->ci->db->insert('inv_material_fifo_issue_line', [
+                'issue_id' => $issueId,
+                'lot_id' => $lotId,
+                'target_lot_id' => null,
+                'qty_out' => $takeQty,
+                'unit_cost' => $unitCost,
+                'total_cost' => $lineCost,
+                'source_balance_before' => $lotBalance,
+                'source_balance_after' => round((float)($warehouseMutation['data']['qty_balance'] ?? 0), 4),
+                'target_balance_before' => null,
+                'target_balance_after' => null,
+            ]);
+            if ((int)($this->ci->db->insert_id() ?? 0) <= 0) {
+                return ['ok' => false, 'message' => 'Gagal menyimpan detail usage FIFO gudang.'];
+            }
+
+            $allocations[] = [
+                'source_lot_id' => $lotId,
+                'source_lot_no' => (string)($lot['lot_no'] ?? ''),
+                'qty_content' => $takeQty,
+                'unit_cost' => $unitCost,
+                'total_cost' => $lineCost,
+                'source_lot' => [
+                    'item_id' => $this->nullableInt($lot['item_id'] ?? null),
+                    'material_id' => $this->nullableInt($lot['material_id'] ?? null),
+                    'buy_uom_id' => $this->nullableInt($lot['buy_uom_id'] ?? null),
+                    'content_uom_id' => $this->nullableInt($lot['content_uom_id'] ?? null),
+                    'profile_key' => $this->nullableString($lot['profile_key'] ?? null),
+                    'lot_no' => (string)($lot['lot_no'] ?? ''),
+                    'receipt_date' => (string)($lot['receipt_date'] ?? ''),
+                    'expiry_date' => $this->normalizeDate((string)($lot['expiry_date'] ?? '')),
+                ],
+            ];
+            $totalCost = round($totalCost + $lineCost, 2);
+            $remaining = round($remaining - $takeQty, 4);
+        }
+
+        if ($remaining > 0.0001) {
+            return ['ok' => false, 'message' => 'FIFO usage gudang tidak lengkap.'];
+        }
+
+        $this->ci->db->where('id', $issueId)->update('inv_material_fifo_issue_log', [
+            'total_cost' => $totalCost,
+        ]);
+
+        return [
+            'ok' => true,
+            'message' => 'Pemakaian FIFO gudang berhasil diposting.',
             'data' => [
                 'issue_id' => $issueId,
                 'issue_no' => $issueNo,
@@ -415,6 +603,10 @@ class MaterialFifoManager
                 'qty_out' => $takeQty,
                 'unit_cost' => $unitCost,
                 'total_cost' => $lineCost,
+                'source_balance_before' => $lotBalance,
+                'source_balance_after' => round((float)($divisionMutation['data']['qty_balance'] ?? 0), 4),
+                'target_balance_before' => null,
+                'target_balance_after' => null,
             ]);
             if ((int)($this->ci->db->insert_id() ?? 0) <= 0) {
                 return ['ok' => false, 'message' => 'Gagal menyimpan detail usage FIFO divisi.'];
@@ -836,6 +1028,18 @@ class MaterialFifoManager
         $table = 'inv_material_fifo_issue_line';
         if (!$this->ci->db->field_exists('target_lot_id', $table)) {
             $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN target_lot_id BIGINT(20) UNSIGNED NULL AFTER lot_id");
+        }
+        if (!$this->ci->db->field_exists('source_balance_before', $table)) {
+            $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN source_balance_before DECIMAL(18,4) NULL AFTER total_cost");
+        }
+        if (!$this->ci->db->field_exists('source_balance_after', $table)) {
+            $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN source_balance_after DECIMAL(18,4) NULL AFTER source_balance_before");
+        }
+        if (!$this->ci->db->field_exists('target_balance_before', $table)) {
+            $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN target_balance_before DECIMAL(18,4) NULL AFTER source_balance_after");
+        }
+        if (!$this->ci->db->field_exists('target_balance_after', $table)) {
+            $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN target_balance_after DECIMAL(18,4) NULL AFTER target_balance_before");
         }
         if (!$this->hasIndex($table, 'idx_inv_material_fifo_issue_line_target')) {
             $this->ci->db->query("ALTER TABLE {$table} ADD KEY idx_inv_material_fifo_issue_line_target (target_lot_id)");

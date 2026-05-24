@@ -1,6 +1,6 @@
 # Panduan Pola Coding — Finance App
 **Status:** WAJIB DIBACA sebelum coding  
-**Terakhir diperbarui:** 2026-05-19  
+**Terakhir diperbarui:** 2026-05-23  
 **Berlaku untuk:** Semua pengembangan di direktori `finance/`
 
 > Dokumen ini adalah **satu-satunya acuan pola coding**. Setiap halaman baru, controller baru, atau fitur baru harus mengikuti pola di sini — tidak boleh improvisasi sendiri. Jika ada pola baru yang disepakati, tuliskan di sini, jangan hanya di kepala atau di chat.
@@ -30,6 +30,7 @@
 19. [Pola Routing](#19-pola-routing)
 20. [Pola Permission](#20-pola-permission)
 21. [Summary Card](#21-summary-card)
+22. [Pola Audit Log](#22-pola-audit-log)
 
 ---
 
@@ -1293,6 +1294,46 @@ CSS yang berlaku (dari `app.css`):
 3. **Jangan** gunakan `font-size < 12px` untuk teks yang bisa dibaca pengguna.
 4. Semua `th` di tabel Finance sudah dapat styling otomatis dari `app.css §4` — tidak perlu tambah class.
 5. Setiap kali menambah CSS baru ke `app.css`, bump versi query string di `header.php`: `?v=YYYYMMDD{rev}`.
+
+---
+
+## 22. Pola Audit Log
+
+Audit log untuk modul keuangan, gudang, purchase, store request, dan produksi **harus mengikuti prinsip yang sama jelasnya dengan** `fin_account_mutation_log`: pengguna harus bisa melihat nilai/status **sebelum** dan **sesudah** transaksi, bukan hanya delta atau catatan umum.
+
+### 22.1 Prinsip Wajib
+
+1. Setiap transaksi yang mengubah saldo, kuantitas, status, atau nilai dokumen wajib menyimpan metadata referensi: modul, tabel sumber, ID referensi, nomor dokumen, aktor, timestamp.
+2. Audit log wajib menyimpan atau bisa menampilkan dengan deterministik nilai **before** dan **after**.
+3. Untuk nominal rekening: gunakan pola `balance_before` + `balance_after` seperti `fin_account_mutation_log`.
+4. Untuk stok/inventori: minimal harus tersedia `qty_delta` dan `qty_after`; di UI audit wajib tampilkan juga `qty_before = qty_after - qty_delta` bila kolom before tidak disimpan.
+5. Untuk status dokumen: wajib simpan `status_before` dan `status_after`.
+6. Untuk lot/FIFO: wajib ada referensi lot sumber/tujuan, qty mutasi, unit cost, dan saldo lot setelah transaksi. Jika before tidak disimpan sebagai kolom, tampilan audit tetap harus menghitung dan menampilkan before secara eksplisit.
+7. Catatan audit tidak boleh hanya berbunyi "updated" atau "posted"; harus menyebut konteks bisnis singkat, misalnya `Pembayaran PO`, `Fulfillment SR`, `Usage batch produksi`, `Void receipt`.
+
+### 22.2 Format Minimal per Domain
+
+| Domain | Kolom minimum yang harus ada / bisa ditampilkan |
+|---|---|
+| Keuangan | `amount`, `balance_before`, `balance_after`, `mutation_type` |
+| Gudang / stok | `qty_buy_delta`, `qty_content_delta`, `qty_buy_after`, `qty_content_after`, `unit_cost` |
+| Purchase / SR status | `action_code`, `status_before`, `status_after`, `notes` |
+| FIFO / lot | `lot_no`, `source_lot_no`, `target_lot_no`, `qty_out`, `unit_cost`, `saldo_before`, `saldo_after` |
+
+### 22.3 Aturan Tampilan UI Audit
+
+1. Halaman audit/detail harus menampilkan kolom before dan after secara berdampingan bila relevan.
+2. Jangan hanya tampilkan delta (`-10`, `+50000`) tanpa konteks posisi akhir.
+3. Untuk stok, format yang dianjurkan: `Opening / Delta / Closing` atau `Before / Delta / After`.
+4. Untuk status, format yang dianjurkan: `DRAFT -> APPROVED`, `APPROVED -> VOID`.
+5. Untuk lot, tampilkan minimal: lot sumber, lot target, qty, unit cost, saldo lot sesudah mutasi.
+
+### 22.4 Aturan Implementasi Baru
+
+1. Saat membuat tabel log baru, default-kan desain ke pola before/after; jangan menunda dengan alasan "nanti dihitung manual" kecuali ada alasan kuat.
+2. Jika modul lama belum punya kolom before, UI audit baru tetap harus menghitung before dari data yang tersedia bila perhitungannya deterministik.
+3. Jika perubahan menyentuh transaksi finansial atau inventori, reviewer wajib memeriksa apakah audit trail-nya sudah cukup untuk rekonstruksi histori.
+4. Pola `fin_account_mutation_log` adalah referensi utama untuk audit trail yang jelas dan mudah dibaca.
 
 ---
 

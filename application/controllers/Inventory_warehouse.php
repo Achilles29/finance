@@ -15,6 +15,11 @@ class Inventory_warehouse extends Purchase
         parent::stock_opening_warehouse_index();
     }
 
+    public function adjustment()
+    {
+        parent::stock_adjustment_warehouse_index();
+    }
+
     public function daily()
     {
         parent::stock_warehouse_daily_index();
@@ -33,5 +38,10 @@ class Inventory_warehouse extends Purchase
     public function matrix_view()
     {
         parent::inventory_warehouse_daily_index();
+    }
+
+    public function lot()
+    {
+        parent::warehouse_lot_audit_index();
     }
 }

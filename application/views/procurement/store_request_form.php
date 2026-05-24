@@ -19,11 +19,15 @@ foreach ($lines as $ln) {
         'profile_brand' => (string)($ln['profile_brand'] ?? ''),
         'profile_description' => (string)($ln['profile_description'] ?? ''),
         'profile_expired_date' => (string)($ln['profile_expired_date'] ?? ''),
+        'expiry_policy' => (string)($ln['expiry_policy'] ?? (!empty($ln['required_expiry_date']) || !empty($ln['profile_expired_date']) ? 'EXACT_DATE' : 'NONE')),
+        'required_expiry_date' => (string)($ln['required_expiry_date'] ?? ($ln['profile_expired_date'] ?? '')),
+        'min_remaining_days' => !empty($ln['min_remaining_days']) ? (int)$ln['min_remaining_days'] : null,
         'buy_uom_id' => (int)($ln['buy_uom_id'] ?? 0),
         'content_uom_id' => (int)($ln['content_uom_id'] ?? 0),
         'profile_content_per_buy' => (float)($ln['profile_content_per_buy'] ?? 1),
         'profile_buy_uom_code' => (string)($ln['profile_buy_uom_code'] ?? ''),
         'profile_content_uom_code' => (string)($ln['profile_content_uom_code'] ?? ''),
+        'last_unit_price' => (float)($ln['last_unit_price'] ?? ($ln['standard_price'] ?? 0)),
         'qty_buy_balance' => (float)($ln['qty_buy_balance'] ?? 0),
         'qty_content_balance' => (float)($ln['qty_content_balance'] ?? 0),
         'qty_buy_requested' => (float)($ln['qty_buy_requested'] ?? 0),
@@ -44,7 +48,7 @@ foreach ($lines as $ln) {
     <small class="text-muted">Mode full page. Guarding divisi-tujuan dan validasi line sama dengan mode modal.</small>
   </div>
   <div class="d-flex gap-2">
-    <a href="<?php echo site_url('store-requests'); ?>" class="btn btn-outline-secondary">Kembali</a>
+    <a href="<?php echo site_url('store-requests'); ?>" class="btn btn-outline-secondary sr-action-btn"><i class="ri ri-arrow-left-line me-1"></i><span>Kembali</span></a>
   </div>
 </div>
 
@@ -102,16 +106,16 @@ foreach ($lines as $ln) {
       </div>
       <div class="sr-scroll mt-2">
         <table class="table table-sm mb-0">
-          <thead><tr><th>Profile</th><th>UOM</th><th class="text-end">Stok Gudang</th><th>Tgl Beli Terakhir</th><th style="width:80px">Aksi</th></tr></thead>
-          <tbody id="srProfileResults"><tr><td colspan="5" class="text-muted text-center py-2">Belum ada pencarian.</td></tr></tbody>
+          <thead><tr><th>Profile</th><th>Keterangan</th><th>UOM</th><th class="text-end">Stok Gudang</th><th class="text-end">Harga Satuan</th><th>Exp Date</th><th>Tgl Beli Terakhir</th><th style="width:80px">Aksi</th></tr></thead>
+          <tbody id="srProfileResults"><tr><td colspan="8" class="text-muted text-center py-2">Belum ada pencarian.</td></tr></tbody>
         </table>
       </div>
     </div>
 
     <div class="table-responsive">
       <table class="table table-sm table-striped mb-0">
-        <thead><tr><th>Profile</th><th>Jenis</th><th>UOM</th><th class="text-end">Stok Gudang</th><th>Qty Beli Req</th><th>Qty Isi Req</th><th>Aksi</th></tr></thead>
-        <tbody id="srLineTableBody"><tr><td colspan="7" class="text-muted text-center py-2">Belum ada line.</td></tr></tbody>
+        <thead><tr><th>Profile</th><th>Keterangan</th><th>Jenis</th><th>UOM</th><th class="text-end">Stok Gudang</th><th class="text-end">Harga Satuan</th><th>Exp Date</th><th>Qty Beli Req</th><th>Qty Isi Req</th><th>Aksi</th></tr></thead>
+        <tbody id="srLineTableBody"><tr><td colspan="10" class="text-muted text-center py-2">Belum ada line.</td></tr></tbody>
       </table>
     </div>
     <div class="d-flex gap-2 justify-content-end mt-3">
@@ -144,6 +148,8 @@ foreach ($lines as $ln) {
   }
   function num(v){ var n = Number(v || 0); return Number.isFinite(n) ? n : 0; }
   function esc(s){ return String(s || '').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function fmtMoney(v){ return 'Rp ' + num(v).toLocaleString('id-ID', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+  function fmtDate(v){ return v ? esc(v) : '-'; }
   function fetchJson(url, opts){
     return fetch(url, opts).then(function(res){
       return res.text().then(function(t){
@@ -194,18 +200,24 @@ foreach ($lines as $ln) {
 
   function renderCreateSearch(rows){
     var tb = document.getElementById('srProfileResults'); if(!tb) return;
-    if(!rows || !rows.length){ tb.innerHTML = '<tr><td colspan="5" class="text-muted text-center py-2">Tidak ada data.</td></tr>'; return; }
+    if(!rows || !rows.length){ tb.innerHTML = '<tr><td colspan="8" class="text-muted text-center py-2">Tidak ada data.</td></tr>'; return; }
     var html = '';
     rows.forEach(function(row){
       var buyCode = esc(row.profile_buy_uom_code || '-');
       var contentCode = esc(row.profile_content_uom_code || '-');
       var stockBuy = num(row.qty_buy_balance).toFixed(2);
       var stockContent = num(row.qty_content_balance).toFixed(2);
+      var brandText = row.profile_brand ? '<div class="small text-muted">Brand: ' + esc(row.profile_brand) + '</div>' : '';
+      var descriptionText = row.profile_description ? esc(row.profile_description) : '<span class="text-muted">-</span>';
+      var expDateText = fmtDate(row.profile_expired_date || '');
       var lastPurchaseDate = row.last_purchase_date ? esc(row.last_purchase_date) : '-';
       html += '<tr>'
-        + '<td><strong>' + esc(row.profile_name || '-') + '</strong></td>'
+        + '<td><strong>' + esc(row.profile_name || '-') + '</strong>' + brandText + '</td>'
+        + '<td class="small">' + descriptionText + '</td>'
         + '<td>' + buyCode + ' -> ' + contentCode + '</td>'
         + '<td class="text-end"><div class="fw-semibold">' + stockBuy + ' ' + buyCode + '</div><div class="small text-muted">' + stockContent + ' ' + contentCode + '</div></td>'
+        + '<td class="text-end"><div class="fw-semibold">' + fmtMoney(row.last_unit_price) + '</div><div class="small text-muted">/ ' + buyCode + '</div></td>'
+        + '<td>' + expDateText + '</td>'
         + '<td>' + lastPurchaseDate + '</td>'
         + '<td><button type="button" class="btn btn-sm btn-outline-primary sr-pick-profile" data-row="' + esc(JSON.stringify(row)) + '">Pilih</button></td>'
         + '</tr>';
@@ -215,14 +227,19 @@ foreach ($lines as $ln) {
 
   function renderCreateLines(){
     var tb = document.getElementById('srLineTableBody'); if(!tb) return;
-    if(!createLines.length){ tb.innerHTML = '<tr><td colspan="7" class="text-muted text-center py-2">Belum ada line.</td></tr>'; return; }
+    if(!createLines.length){ tb.innerHTML = '<tr><td colspan="10" class="text-muted text-center py-2">Belum ada line.</td></tr>'; return; }
     var html = '';
     createLines.forEach(function(line, idx){
+      var lineBrand = line.profile_brand ? '<div class="small text-muted">Brand: ' + esc(line.profile_brand) + '</div>' : '';
+      var lineDescription = line.profile_description ? esc(line.profile_description) : '<span class="text-muted">-</span>';
       html += '<tr>'
-        + '<td><strong>' + esc(line.profile_name || '-') + '</strong></td>'
+        + '<td><strong>' + esc(line.profile_name || '-') + '</strong>' + lineBrand + '</td>'
+        + '<td class="small">' + lineDescription + '</td>'
         + '<td>' + esc(line.line_kind || '-') + '</td>'
         + '<td>' + esc(line.profile_buy_uom_code || '-') + ' -> ' + esc(line.profile_content_uom_code || '-') + '</td>'
         + '<td class="text-end"><div class="fw-semibold">' + num(line.qty_buy_balance).toFixed(2) + ' ' + esc(line.profile_buy_uom_code || '-') + '</div><div class="small text-muted">' + num(line.qty_content_balance).toFixed(2) + ' ' + esc(line.profile_content_uom_code || '-') + '</div></td>'
+        + '<td class="text-end"><div class="fw-semibold">' + fmtMoney(line.last_unit_price) + '</div><div class="small text-muted">/ ' + esc(line.profile_buy_uom_code || '-') + '</div></td>'
+        + '<td>' + fmtDate(line.profile_expired_date || '') + '</td>'
         + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm sr-qty-buy" data-idx="' + idx + '" value="' + num(line.qty_buy_requested).toFixed(2) + '"></td>'
         + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm sr-qty-content" data-idx="' + idx + '" value="' + num(line.qty_content_requested).toFixed(2) + '"></td>'
         + '<td><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-remove-line" data-idx="' + idx + '">Hapus</button></td>'
@@ -248,11 +265,15 @@ foreach ($lines as $ln) {
       profile_brand: row.profile_brand || '',
       profile_description: row.profile_description || '',
       profile_expired_date: row.profile_expired_date || '',
+      expiry_policy: row.expiry_policy || ((row.required_expiry_date || row.profile_expired_date) ? 'EXACT_DATE' : 'NONE'),
+      required_expiry_date: row.required_expiry_date || row.profile_expired_date || '',
+      min_remaining_days: num(row.min_remaining_days || 0) || null,
       buy_uom_id: num(row.buy_uom_id),
       content_uom_id: num(row.content_uom_id),
       profile_content_per_buy: cpb,
       profile_buy_uom_code: row.profile_buy_uom_code || '',
       profile_content_uom_code: row.profile_content_uom_code || '',
+      last_unit_price: num(row.last_unit_price || row.standard_price),
       qty_buy_balance: num(row.qty_buy_balance),
       qty_content_balance: num(row.qty_content_balance),
       qty_buy_requested: 1,

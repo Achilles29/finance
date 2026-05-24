@@ -1,6 +1,9 @@
 <?php
 $initialMonth = (string)($month ?? date('Y-m'));
 $generateUrl = site_url('inventory/stock/opname/generate');
+$lotAuditBaseUrl = site_url('inventory/stock/division/lot');
+$adjustmentStoreUrl = site_url('inventory/stock/adjustment/store');
+$adjustmentPostBaseUrl = site_url('inventory/stock/adjustment/post');
 $initialQ = (string)($q ?? '');
 $initialDateFrom = (string)($date_from ?? '');
 $initialDateTo = (string)($date_to ?? '');
@@ -36,6 +39,8 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     <a href="<?php echo site_url('inventory/stock/opening/division'); ?>" class="btn btn-outline-secondary">Opening Divisi</a>
     <a href="<?php echo site_url('inventory/stock/division/movement'); ?>" class="btn btn-outline-secondary">Keluar Masuk Divisi</a>
     <a href="<?php echo site_url('inventory/stock/division/daily'); ?>" class="btn btn-outline-secondary">Stok Bulanan/Daily Divisi</a>
+    <a href="<?php echo $lotAuditBaseUrl; ?>" class="btn btn-outline-secondary">Halaman Lot</a>
+    <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-outline-secondary">Audit FIFO</a>
   </div>
 </div>
 
@@ -343,7 +348,9 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   .pmd-metric-cell .pmd-cell-btn {
     border: 1px solid #f0e1db;
     border-radius: 8px;
-    display: inline-block;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
     padding: 0.18rem 0.26rem;
     width: 100%;
     text-align: right;
@@ -352,10 +359,50 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     background: #fff;
     font-size: 0.77rem;
     color: #5f4b46;
+    min-height: 2.35rem;
+    overflow: hidden;
   }
   .pmd-metric-cell .pmd-cell-btn:hover {
     border-color: #d6b2a5;
     background: #fff8f3;
+  }
+  .pmd-cell-action-wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 32px;
+    align-items: stretch;
+    gap: 4px;
+    width: 100%;
+  }
+  .pmd-cell-action-wrap .pmd-cell-btn {
+    width: 100%;
+    min-width: 0;
+  }
+  .pmd-cell-adjust-trigger {
+    border: 1px solid #dec5bb;
+    background: #fff8f4;
+    color: #7a4858;
+    border-radius: 8px;
+    width: 32px;
+    min-width: 32px;
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    line-height: 1;
+    font-size: 0.95rem;
+    font-weight: 700;
+    box-shadow: inset 0 -1px 0 rgba(122, 72, 88, 0.08);
+  }
+  .pmd-cell-adjust-trigger:hover {
+    background: #fcefe8;
+    border-color: #cfa692;
+    color: #5f2432;
+  }
+  .pmd-cell-adjust-glyph {
+    display: block;
+    line-height: 1;
+    transform: translateY(-1px);
   }
   .pmd-metric-open { color: #2f5b95; }
   .pmd-metric-in { color: #248c5d; }
@@ -364,6 +411,11 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   .pmd-metric-close { color: #4f647d; font-weight: 800; }
   .pmd-cell-pack { display: block; font-size: 0.72rem; font-weight: 800; line-height: 1.05; }
   .pmd-cell-content { display: block; font-size: 0.68rem; opacity: 0.86; line-height: 1.05; margin-top: 2px; }
+  .pmd-cell-pack,
+  .pmd-cell-content {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .pmd-day-start { border-left: 2px solid #d8b8a9 !important; }
   .pmd-day-end { border-right: 2px solid #d8b8a9 !important; }
   .pmd-date-band-a {
@@ -394,6 +446,20 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     border-radius: 12px;
     background: #fff9f6;
     padding: 0.75rem 0.9rem;
+  }
+  .pmd-adjust-selected {
+    border: 1px dashed #d8b8a9;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #fff7f2 100%);
+    padding: 0.85rem 0.95rem;
+  }
+  .pmd-adjust-help {
+    border: 1px solid #edd8cf;
+    border-radius: 12px;
+    background: #fffaf7;
+    padding: 0.75rem 0.85rem;
+    font-size: 0.83rem;
+    color: #6f4d47;
   }
   @media (max-width: 991.98px) {
     .pmd-scroll-table { min-width: 1420px; }
@@ -516,18 +582,19 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
           <div class="small text-muted" id="pmdModalSubtitle">-</div>
         </div>
         <div id="pmdModalListWrap" class="table-responsive">
-          <table class="table table-sm table-striped align-middle mb-0">
+          <table class="table table-sm table-striped align-middle mb-0 fin-audit-table">
             <thead>
               <tr>
-                <th>Waktu</th>
-                <th>Tipe</th>
-                <th class="text-end">Delta</th>
-                <th class="text-end">Saldo</th>
-                <th>Ref</th>
-                <th>Catatan</th>
+                <th class="col-date">Waktu</th>
+                <th class="col-type">Tipe</th>
+                <th class="text-end col-balance">Before</th>
+                <th class="text-end col-delta">Delta</th>
+                <th class="text-end col-balance">After</th>
+                <th class="col-ref">Ref</th>
+                <th class="col-notes">Catatan</th>
               </tr>
             </thead>
-            <tbody id="pmdModalBody"><tr><td colspan="6" class="text-center text-muted py-3">Belum ada data.</td></tr></tbody>
+            <tbody id="pmdModalBody"><tr><td colspan="7" class="text-center text-muted py-3">Belum ada data.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -538,12 +605,157 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   </div>
 </div>
 
+<div class="modal fade" id="pmdAdjustModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="small text-uppercase text-muted fw-semibold">Adjustment Harian Divisi</div>
+          <h5 class="modal-title mb-0">Penyesuaian Bahan Baku Langsung</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="pmdAdjustAlert" class="mb-2"></div>
+        <div class="pmd-adjust-selected mb-3">
+          <div class="fw-semibold" id="pmdAdjustTitle">-</div>
+          <div class="small text-muted" id="pmdAdjustSubtitle">-</div>
+          <div class="row g-2 mt-1 small">
+            <div class="col-md-3"><div class="text-muted">Tanggal</div><div class="fw-semibold" id="pmdAdjustDateLabel">-</div></div>
+            <div class="col-md-3"><div class="text-muted">Divisi / Tujuan</div><div class="fw-semibold" id="pmdAdjustDivisionLabel">-</div></div>
+            <div class="col-md-3"><div class="text-muted">Adj existing</div><div class="fw-semibold" id="pmdAdjustExistingLabel">0,00</div></div>
+            <div class="col-md-3"><div class="text-muted">Akhir hari</div><div class="fw-semibold" id="pmdAdjustClosingLabel">0,00</div></div>
+          </div>
+        </div>
+        <div class="pmd-adjust-help mb-3">
+          <div class="fw-semibold mb-1">Pola input divisi</div>
+          <div>Qty diisi dalam satuan isi, biaya diisi per satuan isi. Dokumen akan langsung disimpan dan diposting pada tanggal, divisi, dan tujuan yang dipilih dari row matrix.</div>
+        </div>
+        <form id="pmdAdjustForm" class="row g-2" autocomplete="off">
+          <div class="col-md-6">
+            <label class="form-label">Catatan Header</label>
+            <input type="text" class="form-control" id="pmdAdjustHeaderNotes" placeholder="Opsional, misalnya koreksi stok bar pagi">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Catatan Line</label>
+            <input type="text" class="form-control" id="pmdAdjustLineNote" placeholder="Opsional">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Waste (Isi)</label>
+            <input type="number" class="form-control" id="pmdQtyWaste" min="0" step="0.01" value="0">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">Reason Waste</label>
+            <select class="form-select" id="pmdWasteReason"></select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Spoil (Isi)</label>
+            <input type="number" class="form-control" id="pmdQtySpoil" min="0" step="0.01" value="0">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">Reason Spoil</label>
+            <select class="form-select" id="pmdSpoilReason"></select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Process Loss (Isi)</label>
+            <input type="number" class="form-control" id="pmdQtyProcessLoss" min="0" step="0.01" value="0">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">Reason Process Loss</label>
+            <select class="form-select" id="pmdProcessLossReason"></select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Variance (Isi)</label>
+            <input type="number" class="form-control" id="pmdQtyVariance" min="0" step="0.01" value="0">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">Reason Variance</label>
+            <select class="form-select" id="pmdVarianceReason"></select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Adjustment + (Isi)</label>
+            <input type="number" class="form-control" id="pmdQtyPlus" min="0" step="0.01" value="0">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">Reason Adjustment +</label>
+            <select class="form-select" id="pmdPlusReason"></select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Cost / Isi</label>
+            <input type="number" class="form-control" id="pmdUnitCostInput" min="0" step="0.01" value="0">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Lot Masuk Manual</label>
+            <input type="text" class="form-control" id="pmdInboundLotNo" placeholder="Opsional untuk adjustment +">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Exp Date Lot Masuk</label>
+            <input type="date" class="form-control" id="pmdInboundExpiryDate">
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-primary" id="pmdAdjustSubmit">Simpan &amp; Post</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   var matrixUrl = <?php echo json_encode((string)($matrix_url ?? site_url('inventory-material-daily/matrix'))); ?>;
   var detailUrl = <?php echo json_encode((string)($detail_url ?? site_url('inventory-daily/cell-detail'))); ?>;
+  var adjustmentStoreUrl = <?php echo json_encode($adjustmentStoreUrl); ?>;
+  var adjustmentPostBaseUrl = <?php echo json_encode($adjustmentPostBaseUrl); ?>;
   var defaultMonth = <?php echo json_encode(substr($initialMonth, 0, 7)); ?>;
   var destinationGuardMap = <?php echo json_encode($destinationGuardMap, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+  var adjustmentReasonOptions = {
+    WASTE: [
+      { value: 'other', label: 'Other' },
+      { value: 'cancel_order', label: 'Cancel Order' },
+      { value: 'kitchen_error', label: 'Kitchen Error' },
+      { value: 'overproduction', label: 'Overproduction' },
+      { value: 'spillage', label: 'Spillage / Tumpah' },
+      { value: 'prep_trim_excess', label: 'Prep Trim Excess' },
+      { value: 'expired_opened', label: 'Expired Opened' }
+    ],
+    SPOILAGE: [
+      { value: 'other', label: 'Other' },
+      { value: 'expired', label: 'Expired' },
+      { value: 'temperature_abuse', label: 'Temperature Abuse' },
+      { value: 'contamination', label: 'Contamination' },
+      { value: 'overstock', label: 'Overstock' },
+      { value: 'improper_storage', label: 'Improper Storage' }
+    ],
+    PROCESS_LOSS: [
+      { value: 'other', label: 'Other' },
+      { value: 'defrost_loss', label: 'Defrost Loss' },
+      { value: 'trimming_standard', label: 'Trimming Standard' },
+      { value: 'cooking_loss', label: 'Cooking Loss' },
+      { value: 'evaporation', label: 'Evaporation' },
+      { value: 'brew_loss', label: 'Brew Loss' },
+      { value: 'absorption_loss', label: 'Absorption Loss' },
+      { value: 'process_residue', label: 'Process Residue' },
+      { value: 'variable_process_consumable', label: 'Variable Process Consumable' }
+    ],
+    VARIANCE: [
+      { value: 'other', label: 'Other' },
+      { value: 'over_usage', label: 'Over Usage' },
+      { value: 'under_usage', label: 'Under Usage' },
+      { value: 'unrecorded_usage', label: 'Unrecorded Usage' },
+      { value: 'counting_error', label: 'Counting Error' },
+      { value: 'system_mismatch', label: 'System Mismatch' },
+      { value: 'theft_suspected', label: 'Theft Suspected' },
+      { value: 'unknown_shrinkage', label: 'Unknown Shrinkage' }
+    ],
+    ADJUSTMENT_PLUS: [
+      { value: 'other', label: 'Other' },
+      { value: 'opening_correction', label: 'Opening Correction' },
+      { value: 'stock_found', label: 'Stock Found' },
+      { value: 'manual_reclass', label: 'Manual Reclass' }
+    ]
+  };
   var destinationOptionMeta = [
     { value: 'ALL', label: 'Semua' },
     { value: 'REGULER', label: 'Reguler' },
@@ -577,6 +789,10 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   var matrixShell = document.getElementById('pmdMatrixShell');
   var modalEl = document.getElementById('pmdDetailModal');
   var modal = (modalEl && window.bootstrap && bootstrap.Modal) ? new bootstrap.Modal(modalEl) : null;
+  var adjustModalEl = document.getElementById('pmdAdjustModal');
+  var adjustModal = (adjustModalEl && window.bootstrap && bootstrap.Modal) ? new bootstrap.Modal(adjustModalEl) : null;
+  var adjustContext = null;
+  var adjustBackdropEl = null;
 
   function esc(value){
     return String(value == null ? '' : value)
@@ -639,7 +855,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     }
     var metricHead = tableHead.querySelector('tr:nth-child(2) th.pmd-metric-cell');
     if (metricHead) {
-      var metricWidth = Math.max(86, Math.ceil(metricHead.getBoundingClientRect().width));
+      var metricWidth = Math.max(112, Math.ceil(metricHead.getBoundingClientRect().width));
       rootStyle.setProperty('--pmd-date-col', metricWidth + 'px');
     }
     rootStyle.setProperty('--pmd-left-1', '0px');
@@ -762,6 +978,215 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     box.innerHTML = '<div class="alert ' + (ok ? 'alert-success' : 'alert-danger') + ' py-2 mb-0">' + esc(text) + '</div>';
   }
 
+  function requestJson(url, options){
+    return fetch(url, options || {}).then(parseJson);
+  }
+
+  function fillReasonSelect(selectId, category){
+    var el = document.getElementById(selectId);
+    if (!el) { return; }
+    var options = adjustmentReasonOptions[category] || [];
+    el.innerHTML = options.map(function(opt){
+      return '<option value="' + esc(opt.value) + '">' + esc(opt.label) + '</option>';
+    }).join('');
+    el.value = 'other';
+  }
+
+  function showAdjustAlert(ok, text){
+    var box = document.getElementById('pmdAdjustAlert');
+    if (!box) { return; }
+    if (!text) {
+      box.innerHTML = '';
+      return;
+    }
+    box.innerHTML = '<div class="alert ' + (ok ? 'alert-success' : 'alert-danger') + ' py-2 mb-0">' + esc(text) + '</div>';
+  }
+
+  function openAdjustModalFallback(){
+    if (!adjustModalEl || adjustModal) { return; }
+    adjustModalEl.style.display = 'block';
+    adjustModalEl.classList.add('show');
+    adjustModalEl.removeAttribute('aria-hidden');
+    adjustModalEl.setAttribute('aria-modal', 'true');
+    document.body.classList.add('modal-open');
+    if (!adjustBackdropEl) {
+      adjustBackdropEl = document.createElement('div');
+      adjustBackdropEl.className = 'modal-backdrop fade show';
+      document.body.appendChild(adjustBackdropEl);
+    }
+  }
+
+  function closeAdjustModalFallback(){
+    if (!adjustModalEl || adjustModal) { return; }
+    adjustModalEl.classList.remove('show');
+    adjustModalEl.style.display = 'none';
+    adjustModalEl.setAttribute('aria-hidden', 'true');
+    adjustModalEl.removeAttribute('aria-modal');
+    document.body.classList.remove('modal-open');
+    if (adjustBackdropEl) {
+      adjustBackdropEl.remove();
+      adjustBackdropEl = null;
+    }
+  }
+
+  function resetAdjustForm(){
+    ['pmdQtyWaste', 'pmdQtySpoil', 'pmdQtyProcessLoss', 'pmdQtyVariance', 'pmdQtyPlus', 'pmdUnitCostInput'].forEach(function(id){
+      var el = document.getElementById(id);
+      if (!el) { return; }
+      el.value = '0';
+    });
+    ['pmdWasteReason', 'pmdSpoilReason', 'pmdProcessLossReason', 'pmdVarianceReason', 'pmdPlusReason'].forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) { el.value = 'other'; }
+    });
+    ['pmdAdjustHeaderNotes', 'pmdAdjustLineNote', 'pmdInboundLotNo', 'pmdInboundExpiryDate'].forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) { el.value = ''; }
+    });
+    showAdjustAlert(true, '');
+  }
+
+  function openAdjust(groupIndex, profileIndex, dateText){
+    var group = state.groups[groupIndex];
+    var row = group && group.children ? group.children[profileIndex] : null;
+    if (!group || !row || !dateText) {
+      showMessage(false, 'Untuk adjustment langsung, pilih baris profile/material tunggal. Jika masih grup, expand dulu.');
+      return;
+    }
+
+    var day = (row.daily && row.daily[dateText]) ? row.daily[dateText] : null;
+    adjustContext = {
+      date: dateText,
+      group: group,
+      row: row,
+      day: day || { adjustment: 0, closing: 0 },
+      defaultUnitCostInput: Number((row.metrics && row.metrics.unit_price) || 0)
+    };
+
+    resetAdjustForm();
+    document.getElementById('pmdAdjustTitle').textContent = (group.material_name || group.item_name || '-') + ' | ' + (row.profile_name || '-');
+    document.getElementById('pmdAdjustSubtitle').textContent = [
+      group.material_code || group.item_code || '-',
+      row.profile_brand || '-',
+      row.profile_description || '-'
+    ].join(' | ');
+    document.getElementById('pmdAdjustDateLabel').textContent = dateText;
+    document.getElementById('pmdAdjustDivisionLabel').textContent = divisionLabel(group) + ' / ' + destinationLabel(group);
+    document.getElementById('pmdAdjustExistingLabel').textContent = num(Number(adjustContext.day.adjustment || 0)) + (row.profile_content_uom_code ? (' ' + row.profile_content_uom_code) : '');
+    document.getElementById('pmdAdjustClosingLabel').textContent = num(Number(adjustContext.day.closing || 0)) + (row.profile_content_uom_code ? (' ' + row.profile_content_uom_code) : '');
+    document.getElementById('pmdUnitCostInput').value = String(Number.isFinite(adjustContext.defaultUnitCostInput) ? adjustContext.defaultUnitCostInput : 0);
+    document.getElementById('pmdInboundExpiryDate').value = '';
+
+    if (adjustModal) {
+      adjustModal.show();
+    } else {
+      openAdjustModalFallback();
+    }
+  }
+
+  function buildAdjustPayload(){
+    if (!adjustContext || !adjustContext.row) {
+      throw new Error('Konteks adjustment belum siap.');
+    }
+
+    var qtyWaste = Number(document.getElementById('pmdQtyWaste').value || 0);
+    var qtySpoil = Number(document.getElementById('pmdQtySpoil').value || 0);
+    var qtyProcessLoss = Number(document.getElementById('pmdQtyProcessLoss').value || 0);
+    var qtyVariance = Number(document.getElementById('pmdQtyVariance').value || 0);
+    var qtyPlus = Number(document.getElementById('pmdQtyPlus').value || 0);
+    var unitCostInput = Number(document.getElementById('pmdUnitCostInput').value || 0);
+
+    if ((qtyWaste + qtySpoil + qtyProcessLoss + qtyVariance + qtyPlus) <= 0) {
+      throw new Error('Isi minimal satu qty adjustment lebih dari nol.');
+    }
+
+    return {
+      stock_scope: 'DIVISION',
+      adjustment_date: adjustContext.date,
+      division_id: Number(adjustContext.group.division_id || adjustContext.row.division_id || 0),
+      destination_type: String(adjustContext.row.destination_type || adjustContext.group.destination_type || 'OTHER'),
+      notes: document.getElementById('pmdAdjustHeaderNotes').value || '',
+      lines: [{
+        stock_domain: 'MATERIAL',
+        item_id: Number(adjustContext.row.item_id || adjustContext.group.item_id || 0),
+        material_id: Number(adjustContext.row.material_id || adjustContext.group.material_id || 0),
+        buy_uom_id: Number(adjustContext.row.buy_uom_id || 0),
+        content_uom_id: Number(adjustContext.row.content_uom_id || 0),
+        profile_key: String(adjustContext.row.profile_key || ''),
+        profile_name: String(adjustContext.row.profile_name || ''),
+        profile_brand: String(adjustContext.row.profile_brand || ''),
+        profile_description: String(adjustContext.row.profile_description || ''),
+        profile_content_per_buy: Number(adjustContext.row.profile_content_per_buy || 1),
+        profile_buy_uom_code: String(adjustContext.row.profile_buy_uom_code || ''),
+        profile_content_uom_code: String(adjustContext.row.profile_content_uom_code || ''),
+        qty_waste_content: qtyWaste,
+        waste_reason_code: document.getElementById('pmdWasteReason').value || 'other',
+        qty_spoil_content: qtySpoil,
+        spoil_reason_code: document.getElementById('pmdSpoilReason').value || 'other',
+        qty_process_loss_content: qtyProcessLoss,
+        process_loss_reason_code: document.getElementById('pmdProcessLossReason').value || 'other',
+        qty_variance_content: qtyVariance,
+        variance_reason_code: document.getElementById('pmdVarianceReason').value || 'other',
+        qty_adjustment_plus_content: qtyPlus,
+        adjustment_plus_reason_code: document.getElementById('pmdPlusReason').value || 'other',
+        unit_cost: unitCostInput,
+        inbound_lot_no: document.getElementById('pmdInboundLotNo').value || '',
+        inbound_expiry_date: document.getElementById('pmdInboundExpiryDate').value || '',
+        note: document.getElementById('pmdAdjustLineNote').value || ''
+      }]
+    };
+  }
+
+  function submitAdjust(){
+    var submitBtn = document.getElementById('pmdAdjustSubmit');
+    var savedResult = null;
+    try {
+      var payload = buildAdjustPayload();
+      showAdjustAlert(true, '');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Memproses...';
+      requestJson(adjustmentStoreUrl, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify(payload)
+      }).then(function(result){
+        savedResult = result;
+        return requestJson(adjustmentPostBaseUrl + '/' + String(result.id || 0), {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: '{}'
+        });
+      }).then(function(){
+        if (adjustModal) {
+          adjustModal.hide();
+        } else {
+          closeAdjustModalFallback();
+        }
+        showMessage(true, 'Adjustment ' + (savedResult && savedResult.adjustment_no ? savedResult.adjustment_no : '') + ' berhasil diposting.');
+        loadData();
+      }).catch(function(err){
+        var msg = err && err.message ? err.message : 'Gagal memproses adjustment.';
+        if (savedResult && savedResult.adjustment_no) {
+          msg += ' Draft ' + savedResult.adjustment_no + ' sudah tersimpan.';
+        }
+        showAdjustAlert(false, msg);
+      }).finally(function(){
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Simpan & Post';
+      });
+    } catch (err) {
+      showAdjustAlert(false, err && err.message ? err.message : 'Payload adjustment tidak valid.');
+    }
+  }
+
   function divisionLabel(row){
     var code = row.division_code || '';
     var name = row.division_name || '';
@@ -778,12 +1203,13 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     return String(row.destination_group || '').toUpperCase() === 'EVENT' ? 'Event' : 'Reguler';
   }
 
-  function normalizeProfileDaily(rowDaily, dates){
+  function normalizeProfileDaily(rowDaily, dates, contentPerBuy){
     var source = rowDaily && typeof rowDaily === 'object' ? rowDaily : {};
     var normalized = {};
     var prevClosing = 0;
     var prevValue = 0;
     var initialized = false;
+    var packSize = Number(contentPerBuy || 0);
 
     dates.forEach(function(dateKey){
       var raw = source[dateKey] || null;
@@ -796,11 +1222,13 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       var totalValue = prevValue;
 
       if (raw) {
-        opening = Number(raw.opening || opening);
+        opening = initialized ? prevClosing : Number(raw.opening || opening);
         inQty = Number(raw.in || 0);
         outQty = Number(raw.out || 0);
         adjQty = Number(raw.adjustment || 0);
-        closing = Number(raw.closing || opening);
+        var rawClosing = Number(raw.closing || opening);
+        var computedClosing = opening + inQty - outQty + adjQty;
+        closing = Math.abs(rawClosing - computedClosing) > 0.0001 ? computedClosing : rawClosing;
         mutations = Number(raw.mutations || 0);
         totalValue = Number(raw.total_value || totalValue);
       }
@@ -811,6 +1239,11 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         out: outQty,
         adjustment: adjQty,
         closing: closing,
+        opening_pack: packSize > 0 ? (opening / packSize) : 0,
+        in_pack: packSize > 0 ? (inQty / packSize) : 0,
+        out_pack: packSize > 0 ? (outQty / packSize) : 0,
+        adjustment_pack: packSize > 0 ? (adjQty / packSize) : 0,
+        closing_pack: packSize > 0 ? (closing / packSize) : 0,
         mutations: mutations,
         total_value: totalValue
       };
@@ -912,7 +1345,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         }
       }
 
-      var profileDaily = normalizeProfileDaily(row.daily || {}, dates);
+      var profileDaily = normalizeProfileDaily(row.daily || {}, dates, Number(row.profile_content_per_buy || 0));
       var profileMetrics = calcMetrics(profileDaily, Number(row.profile_content_per_buy || 0), dates);
 
       map[key].children.push({
@@ -940,7 +1373,20 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       var group = map[key];
       var summaryDaily = {};
       dates.forEach(function(dateKey){
-        summaryDaily[dateKey] = { opening: 0, in: 0, out: 0, adjustment: 0, closing: 0, mutations: 0, total_value: 0 };
+        summaryDaily[dateKey] = {
+          opening: 0,
+          in: 0,
+          out: 0,
+          adjustment: 0,
+          closing: 0,
+          opening_pack: 0,
+          in_pack: 0,
+          out_pack: 0,
+          adjustment_pack: 0,
+          closing_pack: 0,
+          mutations: 0,
+          total_value: 0
+        };
       });
 
       var agg = {
@@ -958,12 +1404,30 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
 
       group.children.forEach(function(child){
         dates.forEach(function(dateKey){
-          var d = child.daily[dateKey] || { opening: 0, in: 0, out: 0, adjustment: 0, closing: 0, mutations: 0, total_value: 0 };
+          var d = child.daily[dateKey] || {
+            opening: 0,
+            in: 0,
+            out: 0,
+            adjustment: 0,
+            closing: 0,
+            opening_pack: 0,
+            in_pack: 0,
+            out_pack: 0,
+            adjustment_pack: 0,
+            closing_pack: 0,
+            mutations: 0,
+            total_value: 0
+          };
           summaryDaily[dateKey].opening += Number(d.opening || 0);
           summaryDaily[dateKey].in += Number(d.in || 0);
           summaryDaily[dateKey].out += Number(d.out || 0);
           summaryDaily[dateKey].adjustment += Number(d.adjustment || 0);
           summaryDaily[dateKey].closing += Number(d.closing || 0);
+          summaryDaily[dateKey].opening_pack += Number(d.opening_pack || 0);
+          summaryDaily[dateKey].in_pack += Number(d.in_pack || 0);
+          summaryDaily[dateKey].out_pack += Number(d.out_pack || 0);
+          summaryDaily[dateKey].adjustment_pack += Number(d.adjustment_pack || 0);
+          summaryDaily[dateKey].closing_pack += Number(d.closing_pack || 0);
           summaryDaily[dateKey].mutations += Number(d.mutations || 0);
           summaryDaily[dateKey].total_value += Number(d.total_value || 0);
         });
@@ -1083,10 +1547,23 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       ];
       items.forEach(function(item){
         var valueContent = Number(day[item.key] || 0);
-        var valuePack = packSize > 0 ? (valueContent / packSize) : 0;
+        var packField = item.key + '_pack';
+        var valuePack = Object.prototype.hasOwnProperty.call(day, packField)
+          ? Number(day[packField] || 0)
+          : (packSize > 0 ? (valueContent / packSize) : 0);
         var valueText = '<span class="pmd-cell-pack">' + esc(num(valuePack)) + '</span><span class="pmd-cell-content">' + esc(num(valueContent)) + '</span>';
         var edgeClass = item.key === 'opening' ? ' pmd-day-start' : (item.key === 'closing' ? ' pmd-day-end' : '');
-        if (Math.abs(valueContent) > 0.000001) {
+        if (item.key === 'adjustment') {
+          var detailHtml = Math.abs(valueContent) > 0.000001
+            ? '<button type="button" class="pmd-cell-btn ' + item.cls + '" data-action="detail" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '">' + valueText + '</button>'
+            : '<span class="pmd-cell-btn ' + item.cls + '">' + valueText + '</span>';
+          html += '<td class="pmd-metric-cell' + todayCls + bandClass + edgeClass + '">' +
+            '<div class="pmd-cell-action-wrap">' +
+              detailHtml +
+              '<button type="button" class="pmd-cell-adjust-trigger" data-action="adjust" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '" title="Adjustment langsung" aria-label="Adjustment langsung"><span class="pmd-cell-adjust-glyph" aria-hidden="true">&#9998;</span></button>' +
+            '</div>' +
+          '</td>';
+        } else if (Math.abs(valueContent) > 0.000001) {
           html += '<td class="pmd-metric-cell' + todayCls + bandClass + edgeClass + '">' +
             '<button type="button" class="pmd-cell-btn ' + item.cls + '" data-action="detail" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '">' + valueText + '</button>' +
           '</td>';
@@ -1106,6 +1583,31 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     return isExpandable(group) ? !!state.expanded[group.key] : true;
   }
 
+  function buildDivisionLotUrl(row){
+    var params = new URLSearchParams();
+    var searchToken = String(row.profile_key || row.material_code || row.item_code || row.material_name || row.item_name || '').trim();
+    if (searchToken) {
+      params.set('q', searchToken);
+    }
+    if (String(row.profile_key || '').trim() !== '') {
+      params.set('profile_key', String(row.profile_key || '').trim());
+    }
+    if (Number(row.division_id || 0) > 0) {
+      params.set('division_id', String(Number(row.division_id || 0)));
+    }
+    if (String(row.destination_type || row.destination_group || '').trim() !== '') {
+      params.set('destination', String(row.destination_type || row.destination_group || '').trim());
+    }
+    if (Number(row.item_id || 0) > 0) {
+      params.set('item_id', String(Number(row.item_id || 0)));
+    }
+    if (Number(row.material_id || 0) > 0) {
+      params.set('material_id', String(Number(row.material_id || 0)));
+    }
+    var query = params.toString();
+    return <?php echo json_encode($lotAuditBaseUrl); ?> + (query ? ('?' + query) : '');
+  }
+
   function freezeGroupRowHtml(group){
     var expandable = isExpandable(group);
     var expanded = isExpanded(group);
@@ -1121,16 +1623,15 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     if (singleProfile) {
       var singleProfileText = singleProfile.profile_name || '-';
       var singleDetail = [singleProfile.profile_brand || '-', singleProfile.profile_description || '-'].join(' | ');
-      var singleExpiredInfo = singleProfile.profile_expired_date ? ('Exp: ' + singleProfile.profile_expired_date) : 'Exp: -';
       var singleUnitInfo = num(singleProfile.profile_content_per_buy || 0) + ' ' + (singleProfile.profile_content_uom_code || '') + ' / ' + (singleProfile.profile_buy_uom_code || '-');
       var singlePriceInfo = 'Harga Satuan: ' + money((singleProfile.metrics && singleProfile.metrics.unit_price) || 0) + ' / ' + (singleProfile.profile_content_uom_code || '-')
         + ' | Harga/Pack: ' + money((singleProfile.metrics && singleProfile.metrics.unit_price_pack) || 0);
       profileHtml = ''
         + '<div class="pmd-profile-line">' + esc(singleProfileText) + '</div>'
         + '<div class="pmd-profile-line">' + esc(singleDetail) + '</div>'
-        + '<div class="pmd-profile-unit">' + esc(singleExpiredInfo) + '</div>'
         + '<div class="pmd-profile-unit">' + esc(singleUnitInfo) + '</div>'
-        + '<div class="pmd-profile-unit">' + esc(singlePriceInfo) + '</div>';
+        + '<div class="pmd-profile-unit">' + esc(singlePriceInfo) + '</div>'
+        + '<div class="pmd-profile-unit"><a href="' + esc(buildDivisionLotUrl(singleProfile)) + '">Lihat Lot</a></div>';
     }
     var rowClass = expandable ? 'pmd-group-row pmd-group-expandable' : 'pmd-group-row pmd-group-single';
 
@@ -1163,7 +1664,6 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   function freezeProfileRowHtml(profile){
     var profileText = profile.profile_name || '-';
     var detail = [profile.profile_brand || '-', profile.profile_description || '-'].join(' | ');
-    var expiredInfo = profile.profile_expired_date ? ('Exp: ' + profile.profile_expired_date) : 'Exp: -';
     var unitInfo = num(profile.profile_content_per_buy || 0) + ' ' + (profile.profile_content_uom_code || '') + ' / ' + (profile.profile_buy_uom_code || '-');
     var priceInfo = 'Harga Satuan: ' + money((profile.metrics && profile.metrics.unit_price) || 0) + ' / ' + (profile.profile_content_uom_code || '-')
       + ' | Harga/Pack: ' + money((profile.metrics && profile.metrics.unit_price_pack) || 0);
@@ -1172,12 +1672,12 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       '<tr class="pmd-child-row">' +
         '<td class="pmd-freeze-col-1"></td>' +
         '<td class="pmd-freeze-col-2"><div class="pmd-code">Profil Material</div></td>' +
-        '<td class="pmd-freeze-col-3">' +
-          '<div class="pmd-profile-line">' + esc(profileText) + '</div>' +
-          '<div class="pmd-profile-line">' + esc(detail) + '</div>' +
-          '<div class="pmd-profile-unit">' + esc(expiredInfo) + '</div>' +
-          '<div class="pmd-profile-unit">' + esc(unitInfo) + '</div>' +
+        '<td class="pmd-freeze-col-3">'
+          + '<div class="pmd-profile-line">' + esc(profileText) + '</div>'
+          + '<div class="pmd-profile-line">' + esc(detail) + '</div>'
+          + '<div class="pmd-profile-unit">' + esc(unitInfo) + '</div>'
           '<div class="pmd-profile-unit">' + esc(priceInfo) + '</div>' +
+          '<div class="pmd-profile-unit"><a href="' + esc(buildDivisionLotUrl(profile)) + '">Lihat Lot</a></div>' +
         '</td>' +
         '<td class="pmd-freeze-col-4">' + summaryChildHtml(profile.metrics || {}) + '</td>' +
       '</tr>';
@@ -1250,22 +1750,31 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   function renderDetailRows(rows){
     var body = document.getElementById('pmdModalBody');
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Tidak ada mutasi pada sel ini.</td></tr>';
+      body.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Tidak ada mutasi pada sel ini.</td></tr>';
       return;
     }
 
     body.innerHTML = rows.map(function(row){
       var refText = '';
+      var beforeContent = Number(row.qty_content_after || 0) - Number(row.qty_content_delta || 0);
+      var beforeBuy = Number(row.qty_buy_after || 0) - Number(row.qty_buy_delta || 0);
+      var deltaContent = Number(row.qty_content_delta || 0);
+      var deltaBuy = Number(row.qty_buy_delta || 0);
+      var afterContent = Number(row.qty_content_after || 0);
+      var afterBuy = Number(row.qty_buy_after || 0);
+      var buyUomCode = String(row.profile_buy_uom_code || '');
+      var deltaClass = deltaContent >= 0 ? 'fin-audit-delta-positive' : 'fin-audit-delta-negative';
       if (row.ref_table) {
         refText = row.ref_table + (row.ref_id ? (' #' + row.ref_id) : '');
       }
       return '<tr>' +
-        '<td>' + esc(String(row.created_at || row.movement_date || '-')) + '</td>' +
-        '<td>' + esc(String(row.movement_type_label || row.movement_type || '-')) + '</td>' +
-        '<td class="text-end fw-semibold">' + esc(num(row.qty_content_delta || 0)) + '</td>' +
-        '<td class="text-end">' + esc(num(row.qty_content_after || 0)) + '</td>' +
-        '<td>' + esc(refText || '-') + '</td>' +
-        '<td>' + esc(String(row.notes || '-')) + '</td>' +
+        '<td class="col-date">' + esc(String(row.created_at || row.movement_date || '-')) + '</td>' +
+        '<td class="col-type">' + esc(String(row.movement_type_label || row.movement_type || '-')) + '</td>' +
+        '<td class="text-end col-balance"><div class="fin-audit-metric"><div class="fin-audit-primary">' + esc(num(beforeContent)) + '</div><small class="fin-audit-secondary">' + esc(num(beforeBuy) + (buyUomCode ? (' ' + buyUomCode) : '')) + '</small></div></td>' +
+        '<td class="text-end col-delta ' + deltaClass + '"><div class="fin-audit-metric"><div class="fin-audit-primary">' + esc(num(deltaContent)) + '</div><small class="fin-audit-secondary">' + esc(num(deltaBuy) + (buyUomCode ? (' ' + buyUomCode) : '')) + '</small></div></td>' +
+        '<td class="text-end col-balance"><div class="fin-audit-metric"><div class="fin-audit-primary">' + esc(num(afterContent)) + '</div><small class="fin-audit-secondary">' + esc(num(afterBuy) + (buyUomCode ? (' ' + buyUomCode) : '')) + '</small></div></td>' +
+        '<td class="col-ref">' + esc(refText || '-') + '</td>' +
+        '<td class="col-notes">' + esc(String(row.notes || '-')) + '</td>' +
       '</tr>';
     }).join('');
   }
@@ -1309,7 +1818,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
 
     document.getElementById('pmdModalTitle').textContent = title;
     document.getElementById('pmdModalSubtitle').textContent = subtitleParts.join(' | ');
-    document.getElementById('pmdModalBody').innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Memuat detail mutasi...</td></tr>';
+    document.getElementById('pmdModalBody').innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Memuat detail mutasi...</td></tr>';
 
     if (modal) {
       modal.show();
@@ -1348,7 +1857,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         renderDetailRows(Array.isArray(result.rows) ? result.rows : []);
       })
       .catch(function(err){
-        document.getElementById('pmdModalBody').innerHTML = '<tr><td colspan="6" class="text-center text-danger py-3">' + esc(err && err.message ? err.message : 'Gagal memuat detail mutasi.') + '</td></tr>';
+        document.getElementById('pmdModalBody').innerHTML = '<tr><td colspan="7" class="text-center text-danger py-3">' + esc(err && err.message ? err.message : 'Gagal memuat detail mutasi.') + '</td></tr>';
       });
   }
 
@@ -1410,6 +1919,17 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       return;
     }
 
+    var adjustBtn = ev.target && ev.target.closest ? ev.target.closest('[data-action="adjust"]') : null;
+    if (adjustBtn) {
+      var adjustGroupIndex = parseInt(adjustBtn.getAttribute('data-group-index') || '', 10);
+      var adjustProfileIndex = parseInt(adjustBtn.getAttribute('data-profile-index') || '', 10);
+      var adjustDateText = adjustBtn.getAttribute('data-date') || '';
+      if (!Number.isFinite(adjustGroupIndex) || adjustGroupIndex < 0) { return; }
+      if (!Number.isFinite(adjustProfileIndex)) { adjustProfileIndex = -1; }
+      openAdjust(adjustGroupIndex, adjustProfileIndex, adjustDateText);
+      return;
+    }
+
     var btn = ev.target && ev.target.closest ? ev.target.closest('[data-action="detail"]') : null;
     if (!btn) { return; }
     var groupIndex = parseInt(btn.getAttribute('data-group-index') || '', 10);
@@ -1440,6 +1960,27 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       }
     });
   }
+
+  if (!adjustModal) {
+    adjustModalEl.querySelectorAll('[data-bs-dismiss="modal"]').forEach(function(btn){
+      btn.addEventListener('click', function(event){
+        event.preventDefault();
+        closeAdjustModalFallback();
+      });
+    });
+    adjustModalEl.addEventListener('click', function(event){
+      if (event.target === adjustModalEl) {
+        closeAdjustModalFallback();
+      }
+    });
+  }
+
+  fillReasonSelect('pmdWasteReason', 'WASTE');
+  fillReasonSelect('pmdSpoilReason', 'SPOILAGE');
+  fillReasonSelect('pmdProcessLossReason', 'PROCESS_LOSS');
+  fillReasonSelect('pmdVarianceReason', 'VARIANCE');
+  fillReasonSelect('pmdPlusReason', 'ADJUSTMENT_PLUS');
+  document.getElementById('pmdAdjustSubmit').addEventListener('click', submitAdjust);
 
   window.addEventListener('resize', function(){
     syncStickyLayout();

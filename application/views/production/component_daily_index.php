@@ -9,6 +9,8 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
   <small class="text-muted">Read-only daily rollup base/prepare per tanggal.</small>
 </div>
 
+<?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'daily']); ?>
+
 <div class="card mb-3">
   <div class="card-body">
     <form method="get" action="<?php echo site_url('production/component-daily'); ?>" class="row g-2 align-items-end">

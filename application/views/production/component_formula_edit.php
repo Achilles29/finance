@@ -18,6 +18,8 @@ $components = is_array($components ?? null) ? $components : [];
     </div>
   </div>
 
+  <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'formula']); ?>
+
   <div class="card border-0 shadow-sm mb-3">
     <div class="card-body row g-2">
       <div class="col-md-2"><small class="text-muted d-block">Total Baris</small><strong id="sum-line"><?php echo (int)($summary['line_count'] ?? 0); ?></strong></div>

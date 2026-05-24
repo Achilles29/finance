@@ -29,11 +29,8 @@ foreach ($rowsData as $row) {
     <input type="hidden" name="back_url" value="inventory/stock/warehouse/movement?date_from=<?php echo rawurlencode((string)($date_from ?? '')); ?>&date_to=<?php echo rawurlencode((string)($date_to ?? '')); ?>">
     <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal</button>
   </form>
-  <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-sm btn-outline-secondary">Daily Gudang Matrix</a>
-  <a href="<?php echo site_url('inventory/stock/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Stok Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/opening/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Opening Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/warehouse/movement'); ?>" class="btn btn-sm btn-dark">Keluar Masuk Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/warehouse/daily'); ?>" class="btn btn-sm btn-outline-secondary">Stok Bulanan/Daily</a>
+  <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'movement']); ?>
+  <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-sm btn-outline-secondary">Audit FIFO</a>
 </div>
 
 <div class="card mb-3">
@@ -73,8 +70,11 @@ foreach ($rowsData as $row) {
 </div>
 
 <div class="card">
+  <div class="card-body pb-0">
+    <small class="fin-audit-note">Audit stok ditampilkan seragam: Before, Delta, After. Nilai bawah menunjukkan satuan beli jika tersedia.</small>
+  </div>
   <div class="table-responsive">
-    <table class="table table-striped table-hover mb-0">
+    <table class="table table-striped table-hover mb-0 fin-audit-table">
       <thead>
         <tr>
           <th>Tanggal</th>
@@ -84,16 +84,17 @@ foreach ($rowsData as $row) {
           <th>Objek</th>
           <th>Profile</th>
           <th>Keterangan</th>
-          <th class="text-end">Delta Isi</th>
-          <th class="text-end">Saldo Isi</th>
-          <th class="text-end">Unit Cost</th>
-          <th class="text-end">Nilai Mutasi</th>
-          <th>Ref</th>
+          <th class="text-end col-balance">Before</th>
+          <th class="text-end col-delta">Delta Isi</th>
+          <th class="text-end col-balance">After</th>
+          <th class="text-end col-amount">Unit Cost</th>
+          <th class="text-end col-amount">Nilai Mutasi</th>
+          <th class="col-ref">Ref</th>
         </tr>
       </thead>
       <tbody>
         <?php if (empty($rows)): ?>
-          <tr><td colspan="12" class="text-center text-muted py-4">Belum ada data mutasi gudang.</td></tr>
+          <tr><td colspan="13" class="text-center text-muted py-4">Belum ada data mutasi gudang.</td></tr>
         <?php else: ?>
           <?php foreach ($rows as $r): ?>
             <?php
@@ -109,6 +110,11 @@ foreach ($rowsData as $row) {
               $adjustmentCategory = strtoupper(trim((string)($r['adjustment_category'] ?? '')));
               $adjustmentReason = strtolower(trim((string)($r['adjustment_reason_code'] ?? '')));
               $deltaContent = (float)($r['qty_content_delta'] ?? 0);
+              $afterContent = (float)($r['qty_content_after'] ?? 0);
+              $beforeContent = $afterContent - $deltaContent;
+              $deltaBuy = (float)($r['qty_buy_delta'] ?? 0);
+              $afterBuy = (float)($r['qty_buy_after'] ?? 0);
+              $beforeBuy = $afterBuy - $deltaBuy;
               $unitCost = (float)($r['unit_cost'] ?? 0);
               $mutationValue = abs($deltaContent) * $unitCost;
             ?>
@@ -126,11 +132,27 @@ foreach ($rowsData as $row) {
                 <small class="text-muted"><?php echo html_escape((string)($r['profile_brand'] ?? '-')); ?> | <?php echo html_escape((string)($r['profile_description'] ?? '-')); ?></small>
               </td>
               <td><?php echo html_escape((string)($r['notes'] ?? '-')); ?></td>
-              <td class="text-end <?php echo $deltaContent >= 0 ? 'text-success' : 'text-danger'; ?>"><?php echo ui_num($deltaContent); ?></td>
-              <td class="text-end fw-semibold"><?php echo ui_num((float)($r['qty_content_after'] ?? 0)); ?></td>
-              <td class="text-end"><?php echo ui_num($unitCost); ?></td>
-              <td class="text-end"><?php echo number_format($mutationValue, 2, ',', '.'); ?></td>
-              <td>
+              <td class="text-end col-balance">
+                <div class="fin-audit-metric">
+                  <div class="fin-audit-primary"><?php echo ui_num($beforeContent); ?></div>
+                  <small class="fin-audit-secondary"><?php echo ui_num($beforeBuy); ?> <?php echo html_escape((string)($r['profile_buy_uom_code'] ?? '')); ?></small>
+                </div>
+              </td>
+              <td class="text-end col-delta <?php echo $deltaContent >= 0 ? 'fin-audit-delta-positive' : 'fin-audit-delta-negative'; ?>">
+                <div class="fin-audit-metric">
+                  <div class="fin-audit-primary"><?php echo ui_num($deltaContent); ?></div>
+                  <small class="fin-audit-secondary"><?php echo ui_num($deltaBuy); ?> <?php echo html_escape((string)($r['profile_buy_uom_code'] ?? '')); ?></small>
+                </div>
+              </td>
+              <td class="text-end col-balance">
+                <div class="fin-audit-metric">
+                  <div class="fin-audit-primary"><?php echo ui_num($afterContent); ?></div>
+                  <small class="fin-audit-secondary"><?php echo ui_num($afterBuy); ?> <?php echo html_escape((string)($r['profile_buy_uom_code'] ?? '')); ?></small>
+                </div>
+              </td>
+              <td class="text-end col-amount"><?php echo ui_num($unitCost); ?></td>
+              <td class="text-end col-amount"><?php echo number_format($mutationValue, 2, ',', '.'); ?></td>
+              <td class="col-ref">
                 <?php echo html_escape((string)($r['ref_table'] ?? '-')); ?>
                 <?php if (!empty($r['ref_id'])): ?>#<?php echo (int)$r['ref_id']; ?><?php endif; ?>
               </td>

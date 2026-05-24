@@ -9,6 +9,8 @@ class Purchase extends MY_Controller
     const PAGE_STOCK_WAREHOUSE = 'purchase.stock.warehouse.index';
     const PAGE_STOCK_DIVISION = 'purchase.stock.division.index';
     const PAGE_STOCK_OPENING = 'purchase.stock.opening.index';
+    const PAGE_STOCK_ADJUSTMENT_WAREHOUSE = 'purchase.stock.adjustment.warehouse.index';
+    const PAGE_STOCK_ADJUSTMENT_DIVISION = 'purchase.stock.adjustment.division.index';
     const PAGE_STOCK_WAREHOUSE_MATRIX = 'purchase.stock.warehouse.matrix.index';
     const PAGE_STOCK_MATERIAL_MATRIX = 'purchase.stock.material.matrix.index';
     const PAGE_RECEIPT = 'purchase.receipt.index';
@@ -46,10 +48,15 @@ class Purchase extends MY_Controller
             $limit = 100;
         }
 
+        $rangeStatus = 'ALL';
+
         $data = [
             'title' => 'Purchase Order',
             'active_menu' => 'purchase.order',
             'summary' => $this->Purchase_model->get_dashboard_summary(),
+            'card_summary' => $this->Purchase_model->get_purchase_order_filtered_summary($q, $rangeStatus, $dateStart, $dateEnd),
+            'filtered_summary' => $this->Purchase_model->get_purchase_order_filtered_summary($q, $status, $dateStart, $dateEnd),
+            'line_summary' => $this->Purchase_model->get_purchase_order_line_filtered_summary($q, $status, $dateStart, $dateEnd),
             'q' => $q,
             'status' => $status,
             'date_start' => $dateStart,
@@ -569,6 +576,263 @@ class Purchase extends MY_Controller
             ->set_output(json_encode($result));
     }
 
+    public function stock_adjustment_index()
+    {
+        redirect('inventory/stock/adjustment/warehouse');
+    }
+
+    public function stock_adjustment_warehouse_index()
+    {
+        $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE, 'view');
+
+        $month = trim((string)$this->input->get('month', true));
+        $q = trim((string)$this->input->get('q', true));
+        $activeTab = strtolower(trim((string)$this->input->get('tab', true)));
+        if (!in_array($activeTab, ['input', 'rincian'], true)) {
+            $activeTab = 'input';
+        }
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 500) {
+            $limit = 200;
+        }
+
+        $this->render('purchase/stock_adjustment_index', [
+            'title' => 'Adjustment Stok Gudang',
+            'active_menu' => 'purchase.stock.adjustment.warehouse',
+            'stock_scope' => 'WAREHOUSE',
+            'is_division_scope' => false,
+            'base_url_adjustment' => 'inventory/stock/adjustment/warehouse',
+            'active_tab' => $activeTab,
+            'month' => $month,
+            'q' => $q,
+            'division_id' => 0,
+            'destination' => 'ALL',
+            'limit' => $limit,
+            'rows' => $this->Purchase_model->list_stock_adjustments('WAREHOUSE', $month, $q, $limit, null, null),
+            'line_rows' => $activeTab === 'rincian'
+                ? $this->Purchase_model->list_stock_adjustment_detail_rows('WAREHOUSE', $month, $q, $limit, null, null)
+                : [],
+            'divisions' => [],
+            'destination_guard_map' => [],
+        ]);
+    }
+
+    public function stock_adjustment_division_index()
+    {
+        $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'view');
+
+        $month = trim((string)$this->input->get('month', true));
+        $q = trim((string)$this->input->get('q', true));
+        $activeTab = strtolower(trim((string)$this->input->get('tab', true)));
+        if (!in_array($activeTab, ['input', 'rincian'], true)) {
+            $activeTab = 'input';
+        }
+        $divisionId = (int)$this->input->get('division_id', true);
+        $destination = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destination === '') {
+            $destination = 'ALL';
+        }
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 500) {
+            $limit = 200;
+        }
+
+        $divisions = $this->Purchase_model->list_active_operational_divisions();
+        $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
+        $destination = $this->normalizeDestinationForDivisionFilter($destination, $divisionId, $destinationGuardMap);
+
+        $this->render('purchase/stock_adjustment_index', [
+            'title' => 'Adjustment Stok Bahan Baku Divisi',
+            'active_menu' => 'purchase.stock.adjustment.division',
+            'stock_scope' => 'DIVISION',
+            'is_division_scope' => true,
+            'base_url_adjustment' => 'inventory/stock/adjustment/division',
+            'active_tab' => $activeTab,
+            'month' => $month,
+            'q' => $q,
+            'division_id' => $divisionId,
+            'destination' => $destination,
+            'limit' => $limit,
+            'rows' => $this->Purchase_model->list_stock_adjustments('DIVISION', $month, $q, $limit, $divisionId > 0 ? $divisionId : null, $destination),
+            'line_rows' => $activeTab === 'rincian'
+                ? $this->Purchase_model->list_stock_adjustment_detail_rows('DIVISION', $month, $q, $limit, $divisionId > 0 ? $divisionId : null, $destination)
+                : [],
+            'divisions' => $divisions,
+            'destination_guard_map' => $destinationGuardMap,
+        ]);
+    }
+
+    public function stock_adjustment_item_search()
+    {
+        $canWarehouse = $this->can(self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE, 'view') || $this->can(self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE, 'create');
+        $canDivision = $this->can(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'view') || $this->can(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'create');
+        if (!$canWarehouse && !$canDivision) {
+            $this->jsonError('Anda tidak memiliki izin untuk pencarian item adjustment.', 403);
+            return;
+        }
+
+        $q = trim((string)$this->input->get('q', true));
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 50) {
+            $limit = 20;
+        }
+
+        $scope = strtoupper(trim((string)$this->input->get('stock_scope', true)));
+        if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
+            $scope = 'WAREHOUSE';
+        }
+
+        $rows = $this->Purchase_model->search_stock_adjustment_items([
+            'stock_scope' => $scope,
+            'division_id' => (int)$this->input->get('division_id', true),
+            'destination_type' => (string)$this->input->get('destination', true),
+        ], $q, $limit);
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => true,
+                'items' => $rows,
+                'meta' => [
+                    'q' => $q,
+                    'limit' => $limit,
+                    'count' => count($rows),
+                ],
+            ]));
+    }
+
+    public function stock_adjustment_store()
+    {
+        $payload = $this->requestPayload();
+        $scope = strtoupper(trim((string)($payload['stock_scope'] ?? 'WAREHOUSE')));
+        if ($scope === 'DIVISION') {
+            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'create');
+        } else {
+            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE, 'create');
+        }
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->save_stock_adjustment([
+                'id' => (int)($payload['id'] ?? 0),
+                'adjustment_no' => (string)($payload['adjustment_no'] ?? ''),
+                'adjustment_date' => (string)($payload['adjustment_date'] ?? date('Y-m-d')),
+                'stock_scope' => $scope,
+                'division_id' => !empty($payload['division_id']) ? (int)$payload['division_id'] : null,
+                'destination_type' => (string)($payload['destination_type'] ?? ''),
+                'notes' => (string)($payload['notes'] ?? ''),
+            ], (array)($payload['lines'] ?? []), (int)($this->current_user['id'] ?? 0));
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal menyimpan adjustment stok.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    public function stock_adjustment_post($id)
+    {
+        $header = $this->Purchase_model->get_stock_adjustment((int)$id);
+        if (!$header) {
+            $this->jsonError('Adjustment tidak ditemukan.', 404);
+            return;
+        }
+
+        if (strtoupper((string)($header['stock_scope'] ?? 'WAREHOUSE')) === 'DIVISION') {
+            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'edit');
+        } else {
+            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE, 'edit');
+        }
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->post_stock_adjustment((int)$id, (int)($this->current_user['id'] ?? 0), (string)$this->input->ip_address());
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal posting adjustment stok.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    public function stock_adjustment_delete($id)
+    {
+        $header = $this->Purchase_model->get_stock_adjustment((int)$id);
+        if (!$header) {
+            $this->jsonError('Adjustment tidak ditemukan.', 404);
+            return;
+        }
+
+        if (strtoupper((string)($header['stock_scope'] ?? 'WAREHOUSE')) === 'DIVISION') {
+            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'delete');
+        } else {
+            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE, 'delete');
+        }
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->delete_draft_stock_adjustment((int)$id);
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal menghapus draft adjustment stok.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    public function stock_adjustment_void($id)
+    {
+        $header = $this->Purchase_model->get_stock_adjustment((int)$id);
+        if (!$header) {
+            $this->jsonError('Adjustment tidak ditemukan.', 404);
+            return;
+        }
+
+        if (strtoupper((string)($header['stock_scope'] ?? 'WAREHOUSE')) === 'DIVISION') {
+            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'delete');
+        } else {
+            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE, 'delete');
+        }
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->void_posted_stock_adjustment((int)$id, (int)($this->current_user['id'] ?? 0), (string)$this->input->ip_address());
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal VOID adjustment stok.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
     public function stock_opname_generate()
     {
         if (!$this->can(self::PAGE_STOCK_WAREHOUSE, 'create') && !$this->can(self::PAGE_STOCK_DIVISION, 'create')) {
@@ -930,6 +1194,192 @@ class Purchase extends MY_Controller
         $this->render('purchase/inventory_material_daily_index', $data);
     }
 
+    public function fifo_audit_index()
+    {
+        $canView = $this->can(self::PAGE_STOCK_WAREHOUSE, 'view')
+            || $this->can(self::PAGE_STOCK_DIVISION, 'view')
+            || $this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')
+            || $this->can(self::PAGE_STOCK_MATERIAL_MATRIX, 'view');
+        if (!$canView) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $divisions = $this->Purchase_model->list_active_operational_divisions();
+        $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
+        $month = trim((string)$this->input->get('month', true));
+        $q = trim((string)$this->input->get('q', true));
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo = trim((string)$this->input->get('date_to', true));
+        $range = $this->resolveDateRange($month, $dateFrom, $dateTo);
+        $month = $range['month'];
+        $dateFrom = $range['date_from'];
+        $dateTo = $range['date_to'];
+        $scope = strtoupper(trim((string)$this->input->get('scope', true)));
+        if (!in_array($scope, ['ALL', 'WAREHOUSE', 'DIVISION'], true)) {
+            $scope = 'ALL';
+        }
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['ALL', 'POSTED', 'VOID'], true)) {
+            $status = 'POSTED';
+        }
+        $divisionId = (int)$this->input->get('division_id', true);
+        $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destinationFilter === '') {
+            $destinationFilter = 'ALL';
+        }
+        $destinationFilter = $this->normalizeDestinationForDivisionFilter($destinationFilter, $divisionId, $destinationGuardMap);
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 500) {
+            $limit = 100;
+        }
+
+        $issues = $this->Purchase_model->list_fifo_issue_audit([
+            'q' => $q,
+            'scope' => $scope,
+            'status' => $status,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'division_id' => $divisionId,
+            'destination' => $destinationFilter,
+        ], $limit);
+
+        $data = [
+            'title' => 'Audit FIFO Material',
+            'active_menu' => 'purchase.stock.warehouse',
+            'month' => $month,
+            'q' => $q,
+            'scope' => $scope,
+            'status' => $status,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'division_id' => $divisionId,
+            'destination' => $destinationFilter,
+            'limit' => $limit,
+            'divisions' => $divisions,
+            'destination_guard_map' => $destinationGuardMap,
+            'issues' => $issues,
+        ];
+
+        $this->render('purchase/fifo_audit_index', $data);
+    }
+
+    protected function render_lot_audit_page(
+        string $defaultScope = 'ALL',
+        bool $scopeLocked = false,
+        string $title = 'Audit Lot Material',
+        string $activeMenu = 'purchase.stock.warehouse',
+        string $baseRoute = 'inventory/lot-audit',
+        string $subtitle = 'Posisi lot FIFO per scope, profile, dan lokasi stok.'
+    ): void {
+        $canView = $this->can(self::PAGE_STOCK_WAREHOUSE, 'view')
+            || $this->can(self::PAGE_STOCK_DIVISION, 'view')
+            || $this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')
+            || $this->can(self::PAGE_STOCK_MATERIAL_MATRIX, 'view');
+        if (!$canView) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $divisions = $this->Purchase_model->list_active_operational_divisions();
+        $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
+        $q = trim((string)$this->input->get('q', true));
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo = trim((string)$this->input->get('date_to', true));
+        $defaultScope = strtoupper(trim($defaultScope));
+        if (!in_array($defaultScope, ['ALL', 'WAREHOUSE', 'DIVISION'], true)) {
+            $defaultScope = 'ALL';
+        }
+        $scope = strtoupper(trim((string)$this->input->get('scope', true)));
+        if ($scopeLocked) {
+            $scope = $defaultScope;
+        } elseif (!in_array($scope, ['ALL', 'WAREHOUSE', 'DIVISION'], true)) {
+            $scope = $defaultScope;
+        }
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['ALL', 'OPEN', 'CLOSED'], true)) {
+            $status = 'OPEN';
+        }
+        $divisionId = (int)$this->input->get('division_id', true);
+        $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destinationFilter === '') {
+            $destinationFilter = 'ALL';
+        }
+        $destinationFilter = $this->normalizeDestinationForDivisionFilter($destinationFilter, $divisionId, $destinationGuardMap);
+        $profileKey = trim((string)$this->input->get('profile_key', true));
+        $itemId = (int)$this->input->get('item_id', true);
+        $materialId = (int)$this->input->get('material_id', true);
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 500) {
+            $limit = 200;
+        }
+
+        $rows = $this->Purchase_model->list_fifo_lot_audit([
+            'q' => $q,
+            'scope' => $scope,
+            'status' => $status,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'division_id' => $divisionId,
+            'destination' => $destinationFilter,
+            'profile_key' => $profileKey,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+        ], $limit);
+
+        $data = [
+            'title' => $title,
+            'subtitle' => $subtitle,
+            'active_menu' => $activeMenu,
+            'base_url' => site_url($baseRoute),
+            'q' => $q,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'scope' => $scope,
+            'page_scope' => $defaultScope,
+            'scope_locked' => $scopeLocked,
+            'status' => $status,
+            'division_id' => $divisionId,
+            'destination' => $destinationFilter,
+            'profile_key' => $profileKey,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'limit' => $limit,
+            'divisions' => $divisions,
+            'destination_guard_map' => $destinationGuardMap,
+            'rows' => $rows,
+        ];
+
+        $this->render('purchase/lot_audit_index', $data);
+    }
+
+    public function lot_audit_index()
+    {
+        $this->render_lot_audit_page();
+    }
+
+    public function warehouse_lot_audit_index()
+    {
+        $this->render_lot_audit_page(
+            'WAREHOUSE',
+            true,
+            'Lot Stok Gudang',
+            'purchase.stock.warehouse.lot',
+            'inventory/stock/warehouse/lot',
+            'Posisi lot FIFO untuk stok gudang.'
+        );
+    }
+
+    public function division_lot_audit_index()
+    {
+        $this->render_lot_audit_page(
+            'DIVISION',
+            true,
+            'Lot Stok Divisi',
+            'purchase.stock.division.lot',
+            'inventory/stock/division/lot',
+            'Posisi lot FIFO untuk stok divisi operasional.'
+        );
+    }
+
     public function stock_daily_cell_detail()
     {
         $scope = strtoupper(trim((string)$this->input->get('scope', true)));
@@ -1130,25 +1580,71 @@ class Purchase extends MY_Controller
             $limit = 25;
         }
 
-        $catalogRows = $this->Purchase_model->search_catalog_profiles(
+        $resultLimit = $vendorId > 0 ? min($limit, 5) : $limit;
+
+        $vendorCatalogRows = $this->Purchase_model->search_catalog_profiles(
             $q,
             $vendorId,
             $lineKind,
             $itemId,
             $materialId,
-            $limit
+            $resultLimit
         );
+        $generalCatalogRows = [];
+        if ($vendorId > 0 && count($vendorCatalogRows) < $resultLimit) {
+            $generalCatalogRows = $this->Purchase_model->search_catalog_profiles(
+                $q,
+                0,
+                $lineKind,
+                $itemId,
+                $materialId,
+                $resultLimit
+            );
+        }
+
+        $catalogRows = $vendorCatalogRows;
+        if (!empty($generalCatalogRows)) {
+            $seenKeys = [];
+            foreach ($catalogRows as $row) {
+                $seenKeys[] = implode('|', [
+                    (string)($row['source_type'] ?? 'CATALOG'),
+                    (string)($row['catalog_id'] ?? 0),
+                    (string)($row['profile_key'] ?? ''),
+                    (string)($row['item_id'] ?? 0),
+                    (string)($row['material_id'] ?? 0),
+                ]);
+            }
+
+            foreach ($generalCatalogRows as $row) {
+                if (count($catalogRows) >= $resultLimit) {
+                    break;
+                }
+
+                $rowKey = implode('|', [
+                    (string)($row['source_type'] ?? 'CATALOG'),
+                    (string)($row['catalog_id'] ?? 0),
+                    (string)($row['profile_key'] ?? ''),
+                    (string)($row['item_id'] ?? 0),
+                    (string)($row['material_id'] ?? 0),
+                ]);
+                if (in_array($rowKey, $seenKeys, true)) {
+                    continue;
+                }
+
+                $catalogRows[] = $row;
+                $seenKeys[] = $rowKey;
+            }
+        }
         $fallbackRows = [];
 
-        // Layered search: prioritize purchase catalog (nama + merk).
-        // Only when no catalog results, fallback to item name search.
+        // Layered search: vendor catalog -> general catalog -> master fallback.
         if (count($catalogRows) === 0) {
             $fallbackRows = $this->Purchase_model->search_master_fallback(
                 $q,
                 'ITEM',
                 $itemId,
                 0,
-                $limit
+                $resultLimit
             );
         }
 
@@ -1163,6 +1659,9 @@ class Purchase extends MY_Controller
                     'q' => $q,
                     'vendor_id' => $vendorId,
                     'line_kind' => $lineKind,
+                    'result_limit' => $resultLimit,
+                    'vendor_catalog_count' => count($vendorCatalogRows),
+                    'general_catalog_count' => count($generalCatalogRows),
                     'catalog_count' => count($catalogRows),
                     'fallback_count' => count($fallbackRows),
                     'total' => count($rows),

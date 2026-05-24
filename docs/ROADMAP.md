@@ -1,5 +1,5 @@
 # Roadmap Pengembangan — Finance App
-**Terakhir diperbarui:** 2026-05-18 (sinkronisasi kondisi kode aktual)  
+**Terakhir diperbarui:** 2026-05-24 (implementasi workbench component + editor operasional + carry-forward bulanan)  
 **Target selesai:** 31 Mei 2026 (stabilisasi)  
 **Target live:** 1 Juni 2026
 
@@ -30,9 +30,9 @@ Tahap 2  — Master Data                  ✅ GATE CLOSED
 Tahap 3  — HR & Organisasi              🟡 BERJALAN (80%)
 Tahap 4  — Absensi                      🟡 BERJALAN (95%)
 Tahap 5  — Payroll & Penggajian         🟡 BERJALAN (85%)
-Tahap 6  — Pembelian (Purchase)         🟡 BERJALAN (90%)
-Tahap 7  — Inventori & Gudang           🟡 BERJALAN (65%)
-Tahap 8  — Produksi & COGS              🔲 BELUM MULAI
+Tahap 6  — Pembelian (Purchase)         🟡 BERJALAN (92%)
+Tahap 7  — Inventori & Gudang           🟡 BERJALAN (72%)
+Tahap 8  — Produksi & COGS              🟡 BERJALAN (58%)
 Tahap 9  — POS                          🟠 PERSIAPAN DESAIN
 Tahap 10 — Keuangan & Akuntansi         🟠 FONDASI DIMULAI
 Tahap 11 — Reports & Dashboard          🔲 BELUM MULAI
@@ -196,7 +196,7 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 
 ### TAHAP 6 — Pembelian (Purchase) 🟡
 
-**Status:** 90% (Store Request sudah berjalan penuh via controller Procurement, UOM BELI/ISI sudah ada di data layer)
+**Status:** 92% (PO/SR utama sudah berjalan, Division PO SR aktif, sisa hardening utama pindah ke expiry/lot dan dokumentasi user)
 
 **Yang sudah berjalan:**
 - [x] Purchase Order CRUD + status flow
@@ -215,16 +215,18 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 - [x] Store Request penuh: CRUD, SUBMIT/APPROVE/REJECT, FULFILL, VOID (`Procurement` controller)
 - [x] Store Request → generate PO otomatis (`store_request_generate_po`)
 - [x] Division PO SR: workbench penghubung SR ke PO
+- [x] Pengajuan divisi: verify per line, fallback gudang → katalog purchase, PDF server-side, dan UOM PACK/ISI
 
 **Yang belum selesai:**
 - [ ] UI form PO: tampilkan konteks pack profile (nama brand, isi/kemasan) saat memilih item (UX enhancement)
 - [ ] Dokumentasi alur user Purchase + Store Request final
+- [ ] Hardening rule split Division Request → SR/PO supaya guard route dan rollback dokumen turunannya makin tegas
 
 ---
 
 ### TAHAP 7 — Inventori & Gudang 🟡
 
-**Status:** 65% (opening/opname/receipt/views berjalan, flow item→material ada, distribusi otomatis belum)
+**Status:** 72% (opening/opname/receipt/views berjalan, flow item→material ada, sisa berat ada di lot/expiry-aware ledger dan distribusi otomatis)
 
 **Yang sudah berjalan:**
 - [x] Opening stok gudang dan divisi
@@ -236,23 +238,35 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 - [x] View daily matrix gudang dan material
 - [x] View movement gudang dan divisi
 - [x] Flow item → material (`Inventory_flow::item_material` + `inv_item_material_source_map`)
+- [x] Landasan audit lot/expiry untuk procurement sudah dipetakan di dokumen desain dan audit 2026-05-22 / 2026-05-24
 
 **Yang belum selesai:**
 - [ ] Distribusi otomatis gudang item → stok material via `mst_material_item_source` (trigger dari receipt/transfer)
-- [ ] Lot tracking bahan baku stabil
+- [ ] Receipt PO dan fulfill SR harus menyimpan/memakai lot aktual end-to-end
+- [ ] Rekey profile procurement agar expiry tidak lagi menjadi bagian identity catalog/profile
 - [ ] Hardening ledger: konsistensi balance setelah setiap transaksi diaudit end-to-end
 
 ---
 
-### TAHAP 8 — Produksi & COGS 🔲
+### TAHAP 8 — Produksi & COGS 🟡
 
-**Status:** BELUM MULAI
+**Status:** 58% (surface component operasional sudah dipoles ke workbench yang lebih utuh; COGS dan integrasi lintas modul masih tahap berikutnya)
 
-**Rencana:**
-- [ ] Batch produksi component (BASE dan PREPARE)
-- [ ] Konsumsi stok material/component saat batch produksi
+**Yang sudah berjalan:**
+- [x] Stok Base/Prepare
+- [x] Mutasi Base/Prepare
+- [x] Opening Base/Prepare dengan editor baris, tanpa JSON mentah
+- [x] Adjustment Base/Prepare dengan editor baris, tanpa JSON mentah
+- [x] Daily matrix Base/Prepare
+- [x] Batch produksi component (BASE/PREPARE) dengan editor input material/component
+- [x] Workbench navigasi component: master, formula, variable cost, dan operasional sudah terhubung konsisten
+- [x] Monthly carry-forward component dari daily rollup ke monthly opname + opening bulan berikutnya
+
+**Yang belum selesai:**
 - [ ] COGS calculation: HPP aktual dari batch
 - [ ] Integrasi: konsumsi stok dari POS saat order
+- [ ] Hardening carry-forward component: audit conflict manual opening dan review UX posting ke dokumen operasional
+- [ ] Satukan detail/edit formula dan halaman turunan component lain ke pola workbench yang sama sampai benar-benar terasa satu modul
 
 ---
 

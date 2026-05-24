@@ -14,6 +14,44 @@ class Production_model extends CI_Model
         return null;
     }
 
+    private function normalize_month_key(string $value): ?string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+        if (preg_match('/^\d{4}-\d{2}$/', $value)) {
+            return $value;
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return substr($value, 0, 7);
+        }
+        $timestamp = strtotime($value);
+        if ($timestamp === false) {
+            return null;
+        }
+        return date('Y-m', $timestamp);
+    }
+
+    private function upsert_by_unique(string $table, array $rowData, array $uniqueColumns): void
+    {
+        $query = $this->db->from($table);
+        foreach ($uniqueColumns as $column) {
+            $value = $rowData[$column] ?? null;
+            if ($value === null) {
+                $this->db->where($column . ' IS NULL', null, false);
+            } else {
+                $this->db->where($column, $value);
+            }
+        }
+        $existing = $query->limit(1)->get()->row_array();
+        if ($existing) {
+            $this->db->where('id', (int)$existing['id'])->update($table, $rowData);
+            return;
+        }
+        $this->db->insert($table, $rowData);
+    }
+
     public function component_stock_rows(array $filters, $limit = 200)
     {
         $q = trim((string)($filters['q'] ?? ''));
@@ -206,14 +244,34 @@ class Production_model extends CI_Model
     public function list_component_openings(array $filters = [], int $limit = 200): array
     {
         $q = trim((string)($filters['q'] ?? ''));
-        $this->db->select('h.*, d.name AS division_name');
+        $monthKey = $this->normalize_month_key((string)($filters['month'] ?? ''));
+        $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : null;
+        $divisionNameColumn = $this->division_name_column();
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $this->db->select('h.*, ' . $divisionNameSelect, false);
         $this->db->from('inv_component_opening h');
         $this->db->join('mst_operational_division d', 'd.id = h.division_id', 'left');
+        if ($monthKey !== null) {
+            $this->db->where('h.opening_date >=', $monthKey . '-01');
+            $this->db->where('h.opening_date <=', date('Y-m-t', strtotime($monthKey . '-01')));
+        }
+        if ($locationType !== '') {
+            $this->db->where('h.location_type', $locationType);
+        }
+        if ($divisionId !== null) {
+            $this->db->where('h.division_id', $divisionId);
+        }
         if ($q !== '') {
-            $this->db->group_start()
+            $this->db->group_start();
+            $this->db
                 ->like('h.opening_no', $q)
-                ->or_like('h.location_type', $q)
-                ->group_end();
+                ->or_like('h.location_type', $q);
+            if ($divisionNameColumn !== null) {
+                $this->db->or_like('d.' . $divisionNameColumn, $q);
+            }
+            $this->db->group_end();
         }
         $this->db->order_by('h.opening_date', 'DESC')->order_by('h.id', 'DESC')->limit(max(1, $limit));
         return $this->db->get()->result_array();
@@ -234,6 +292,291 @@ class Production_model extends CI_Model
             ->where('l.opening_id', $openingId)
             ->order_by('l.line_no', 'ASC')
             ->get()->result_array();
+    }
+
+    public function list_component_monthly_openings(array $filters = [], int $limit = 200): array
+    {
+        if (!$this->db->table_exists('inv_component_monthly_opening')) {
+            return [];
+        }
+
+        $q = trim((string)($filters['q'] ?? ''));
+        $monthKey = $this->normalize_month_key((string)($filters['month'] ?? ''));
+        $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : null;
+        $divisionNameColumn = $this->division_name_column();
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $this->db->select('m.*, c.component_code, c.component_name, c.component_type, u.code AS uom_code, u.name AS uom_name, ' . $divisionNameSelect, false);
+        $this->db->from('inv_component_monthly_opening m');
+        $this->db->join('mst_component c', 'c.id = m.component_id', 'left');
+        $this->db->join('mst_uom u', 'u.id = m.uom_id', 'left');
+        $this->db->join('mst_operational_division d', 'd.id = m.division_id', 'left');
+
+        if ($monthKey !== null) {
+            $this->db->where('m.month_key', $monthKey);
+        }
+        if ($locationType !== '') {
+            $this->db->where('m.location_type', $locationType);
+        }
+        if ($divisionId !== null) {
+            $this->db->where('m.division_id', $divisionId);
+        }
+        if ($q !== '') {
+            $this->db->group_start();
+            $this->db
+                ->like('c.component_name', $q)
+                ->or_like('c.component_code', $q)
+                ->or_like('m.location_type', $q);
+            if ($divisionNameColumn !== null) {
+                $this->db->or_like('d.' . $divisionNameColumn, $q);
+            }
+            $this->db->group_end();
+        }
+
+        $this->db->order_by('m.month_key', 'DESC');
+        $this->db->order_by('m.location_type', 'ASC');
+        if ($divisionNameColumn !== null) {
+            $this->db->order_by('d.' . $divisionNameColumn, 'ASC');
+        }
+        $this->db->order_by('c.component_name', 'ASC');
+        $this->db->limit(max(1, $limit));
+        return $this->db->get()->result_array();
+    }
+
+    public function generate_component_monthly_opname_and_opening(array $payload, int $userId): array
+    {
+        $monthKey = $this->normalize_month_key((string)($payload['month'] ?? $payload['month_key'] ?? date('Y-m')));
+        if ($monthKey === null) {
+            return [
+                'ok' => false,
+                'message' => 'Parameter bulan tidak valid.',
+            ];
+        }
+
+        if (!$this->db->table_exists('inv_component_daily_rollup')) {
+            return [
+                'ok' => false,
+                'message' => 'Tabel inv_component_daily_rollup belum tersedia.',
+            ];
+        }
+        if (!$this->db->table_exists('inv_component_monthly_opname')) {
+            return [
+                'ok' => false,
+                'message' => 'Tabel inv_component_monthly_opname belum tersedia.',
+            ];
+        }
+        if (!$this->db->table_exists('inv_component_monthly_opening')) {
+            return [
+                'ok' => false,
+                'message' => 'Tabel inv_component_monthly_opening belum tersedia.',
+            ];
+        }
+
+        $locationType = strtoupper(trim((string)($payload['location_type'] ?? '')));
+        $divisionId = !empty($payload['division_id']) ? (int)$payload['division_id'] : null;
+        $monthStart = $monthKey . '-01';
+        $monthEnd = date('Y-m-t', strtotime($monthStart));
+        $nextMonth = date('Y-m', strtotime('+1 month', strtotime($monthStart)));
+        $nextOpeningDate = $nextMonth . '-01';
+
+        $this->db->select('r.movement_date, r.location_type, r.division_id, r.component_id, r.uom_id, r.opening_qty, r.closing_qty, r.avg_cost, r.total_value, r.mutation_count, c.component_code, c.component_name');
+        $this->db->from('inv_component_daily_rollup r');
+        $this->db->join('mst_component c', 'c.id = r.component_id', 'left');
+        $this->db->where('r.movement_date >=', $monthStart);
+        $this->db->where('r.movement_date <=', $monthEnd);
+        if ($locationType !== '') {
+            $this->db->where('r.location_type', $locationType);
+        }
+        if ($divisionId !== null) {
+            $this->db->where('r.division_id', $divisionId);
+        }
+        $rows = $this->db
+            ->order_by('r.movement_date', 'ASC')
+            ->order_by('r.location_type', 'ASC')
+            ->order_by('r.division_id', 'ASC')
+            ->order_by('r.component_id', 'ASC')
+            ->get()
+            ->result_array();
+
+        if (empty($rows)) {
+            return [
+                'ok' => false,
+                'message' => 'Belum ada daily rollup component untuk bulan ' . $monthKey . '.',
+            ];
+        }
+
+        $negativeSamples = [];
+        foreach ($rows as $row) {
+            $closingQty = round((float)($row['closing_qty'] ?? 0), 4);
+            if ($closingQty >= 0) {
+                continue;
+            }
+            $negativeSamples[] = trim((string)($row['movement_date'] ?? ''))
+                . ' | ' . (string)($row['location_type'] ?? '-')
+                . ' | ' . (string)($row['component_code'] ?? '-')
+                . ' - ' . (string)($row['component_name'] ?? '-')
+                . ' | closing=' . number_format($closingQty, 4, '.', '');
+            if (count($negativeSamples) >= 5) {
+                break;
+            }
+        }
+        if (!empty($negativeSamples)) {
+            return [
+                'ok' => false,
+                'message' => 'Generate ditolak karena masih ada stok minus pada daily rollup component.',
+                'data' => ['negative_samples' => $negativeSamples],
+            ];
+        }
+
+        $aggregated = [];
+        foreach ($rows as $row) {
+            $groupKey = implode('|', [
+                strtoupper((string)($row['location_type'] ?? '')),
+                (int)($row['division_id'] ?? 0),
+                (int)($row['component_id'] ?? 0),
+                (int)($row['uom_id'] ?? 0),
+            ]);
+
+            if (!isset($aggregated[$groupKey])) {
+                $aggregated[$groupKey] = [
+                    'month_key' => $monthKey,
+                    'location_type' => strtoupper((string)($row['location_type'] ?? '')),
+                    'division_id' => !empty($row['division_id']) ? (int)$row['division_id'] : null,
+                    'component_id' => (int)($row['component_id'] ?? 0),
+                    'uom_id' => (int)($row['uom_id'] ?? 0),
+                    'opname_date' => $monthEnd,
+                    'closing_qty' => 0.0,
+                    'hpp_live' => 0.0,
+                    'total_value' => 0.0,
+                    'generated_by' => $userId > 0 ? $userId : null,
+                    '_last_date' => '0000-00-00',
+                    '_mutation_count' => 0,
+                ];
+            }
+
+            $movementDate = (string)($row['movement_date'] ?? '');
+            $aggregated[$groupKey]['_mutation_count'] += (int)($row['mutation_count'] ?? 0);
+            if ($movementDate >= $aggregated[$groupKey]['_last_date']) {
+                $aggregated[$groupKey]['_last_date'] = $movementDate;
+                $aggregated[$groupKey]['closing_qty'] = round((float)($row['closing_qty'] ?? 0), 4);
+                $aggregated[$groupKey]['hpp_live'] = round((float)($row['avg_cost'] ?? 0), 6);
+                $aggregated[$groupKey]['total_value'] = round((float)($row['total_value'] ?? 0), 2);
+            }
+        }
+
+        foreach ($aggregated as $groupKey => $row) {
+            unset($aggregated[$groupKey]['_last_date'], $aggregated[$groupKey]['_mutation_count']);
+        }
+
+        $conflictQuery = $this->db->from('inv_component_monthly_opening')
+            ->where('month_key', $nextMonth)
+            ->group_start()
+                ->where('source_month IS NULL', null, false)
+                ->or_where('source_month <>', $monthKey)
+            ->group_end();
+        if ($locationType !== '') {
+            $this->db->where('location_type', $locationType);
+        }
+        if ($divisionId !== null) {
+            $this->db->where('division_id', $divisionId);
+        }
+        $manualConflictCount = (int)$conflictQuery->count_all_results();
+        if ($manualConflictCount > 0) {
+            return [
+                'ok' => false,
+                'message' => 'Opening bulanan untuk ' . $nextMonth . ' sudah ada dan bukan hasil carry-forward bulan ' . $monthKey . '. Bersihkan dulu data manual yang bentrok.',
+            ];
+        }
+
+        $this->db->trans_begin();
+
+        $this->db->where('month_key', $monthKey);
+        if ($locationType !== '') {
+            $this->db->where('location_type', $locationType);
+        }
+        if ($divisionId !== null) {
+            $this->db->where('division_id', $divisionId);
+        }
+        $this->db->delete('inv_component_monthly_opname');
+
+        $this->db->where('month_key', $nextMonth);
+        $this->db->where('source_month', $monthKey);
+        if ($locationType !== '') {
+            $this->db->where('location_type', $locationType);
+        }
+        if ($divisionId !== null) {
+            $this->db->where('division_id', $divisionId);
+        }
+        $this->db->delete('inv_component_monthly_opening');
+
+        $generatedRows = 0;
+        $carriedRows = 0;
+        foreach ($aggregated as $row) {
+            $this->upsert_by_unique('inv_component_monthly_opname', $row, ['month_key', 'location_type', 'division_id', 'component_id', 'uom_id']);
+            $generatedRows++;
+
+            if ((float)$row['closing_qty'] <= 0) {
+                continue;
+            }
+
+            $openingRow = [
+                'month_key' => $nextMonth,
+                'location_type' => (string)$row['location_type'],
+                'division_id' => $row['division_id'],
+                'component_id' => (int)$row['component_id'],
+                'uom_id' => (int)$row['uom_id'],
+                'opening_date' => $nextOpeningDate,
+                'opening_qty' => round((float)$row['closing_qty'], 4),
+                'hpp_live' => round((float)$row['hpp_live'], 6),
+                'total_value' => round((float)$row['total_value'], 2),
+                'source_month' => $monthKey,
+                'generated_by' => $userId > 0 ? $userId : null,
+            ];
+            $this->upsert_by_unique('inv_component_monthly_opening', $openingRow, ['month_key', 'location_type', 'division_id', 'component_id', 'uom_id']);
+            $carriedRows++;
+        }
+
+        if ($this->db->table_exists('aud_transaction_log')) {
+            $this->db->insert('aud_transaction_log', [
+                'module_code' => 'PRODUCTION',
+                'action_code' => 'COMPONENT_MONTHLY_GENERATE',
+                'entity_table' => 'inv_component_monthly_opname',
+                'entity_id' => null,
+                'transaction_no' => null,
+                'actor_user_id' => $userId > 0 ? $userId : null,
+                'after_payload' => json_encode([
+                    'month' => $monthKey,
+                    'next_month' => $nextMonth,
+                    'location_type' => $locationType,
+                    'division_id' => $divisionId,
+                    'generated_rows' => $generatedRows,
+                    'carried_rows' => $carriedRows,
+                ]),
+                'notes' => 'Generate opname bulanan dan opening otomatis modul component',
+            ]);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return [
+                'ok' => false,
+                'message' => 'Gagal generate carry-forward bulanan component.',
+            ];
+        }
+
+        $this->db->trans_commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Generate opname bulanan component berhasil. Opening bulan berikutnya juga sudah dibuat.',
+            'data' => [
+                'month' => $monthKey,
+                'next_month' => $nextMonth,
+                'generated_rows' => $generatedRows,
+                'carried_rows' => $carriedRows,
+            ],
+        ];
     }
 
     public function save_component_opening(array $header, array $lines, int $actorEmployeeId): array
@@ -674,6 +1017,28 @@ class Production_model extends CI_Model
         }
         $offset = ($page - 1) * $limit;
 
+        $formulaCountExpr = $this->db->table_exists('mst_component_formula')
+            ? "(
+                SELECT COUNT(1)
+                FROM mst_component_formula f
+                WHERE f.component_id = c.id
+            )"
+            : '0';
+        $componentUsageExpr = $this->db->table_exists('mst_component_formula')
+            ? "(
+                SELECT COUNT(DISTINCT f.component_id)
+                FROM mst_component_formula f
+                WHERE f.sub_component_id = c.id
+            )"
+            : '0';
+        $productUsageExpr = $this->db->table_exists('mst_product_recipe')
+            ? "(
+                SELECT COUNT(DISTINCT r.product_id)
+                FROM mst_product_recipe r
+                WHERE r.component_id = c.id
+            )"
+            : '0';
+
         $this->db->select("
             c.*,
             cat.name AS category_name,
@@ -687,11 +1052,9 @@ class Production_model extends CI_Model
                 ORDER BY s.updated_at DESC, s.id DESC
                 LIMIT 1
             ) AS hpp_live,
-            (
-                SELECT COUNT(1)
-                FROM mst_component_formula f
-                WHERE f.component_id = c.id
-            ) AS formula_count
+            {$formulaCountExpr} AS formula_count,
+            {$componentUsageExpr} AS component_usage_count,
+            {$productUsageExpr} AS product_usage_count
         ", false);
         $this->db->order_by('c.component_type', 'ASC');
         $this->db->order_by('d.name', 'ASC');
@@ -699,6 +1062,11 @@ class Production_model extends CI_Model
         $this->db->order_by('c.component_name', 'ASC');
         $this->db->limit($limit, $offset);
         $rows = $this->db->get()->result_array();
+
+        foreach ($rows as &$row) {
+            $row['usage_count'] = (int)($row['component_usage_count'] ?? 0) + (int)($row['product_usage_count'] ?? 0);
+        }
+        unset($row);
 
         return [
             'rows' => $rows,
@@ -825,6 +1193,61 @@ class Production_model extends CI_Model
             ->order_by('c.component_type', 'ASC')
             ->order_by('d.name', 'ASC')
             ->order_by('cat.name', 'ASC')
+            ->order_by('c.component_name', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function search_picker_options(string $entity, string $q = '', int $limit = 20, array $options = []): array
+    {
+        $entity = strtoupper(trim($entity));
+        $q = trim($q);
+        $limit = max(1, min(50, $limit));
+
+        if ($entity === 'MATERIAL') {
+            $this->db->select("m.id, m.material_code AS code, m.material_name AS name, 'MATERIAL' AS entity_type, m.content_uom_id AS uom_id, u.code AS uom_code, u.name AS uom_name", false);
+            $this->db->from('mst_material m');
+            $this->db->join('mst_uom u', 'u.id = m.content_uom_id', 'left');
+            $this->db->where('m.is_active', 1);
+            if ($q !== '') {
+                $this->db->group_start()
+                    ->like('m.material_code', $q)
+                    ->or_like('m.material_name', $q)
+                    ->group_end();
+            }
+            return $this->db
+                ->order_by('m.material_name', 'ASC')
+                ->limit($limit)
+                ->get()
+                ->result_array();
+        }
+
+        $excludeId = (int)($options['exclude_id'] ?? 0);
+        $type = strtoupper(trim((string)($options['component_type'] ?? 'ALL')));
+        if (!in_array($type, ['ALL', 'BASE', 'PREPARE'], true)) {
+            $type = 'ALL';
+        }
+
+        $this->db->select('c.id, c.component_code AS code, c.component_name AS name, c.component_type AS entity_type, c.uom_id, u.code AS uom_code, u.name AS uom_name, cat.name AS category_name');
+        $this->db->from('mst_component c');
+        $this->db->join('mst_uom u', 'u.id = c.uom_id', 'left');
+        $this->db->join('mst_component_category cat', 'cat.id = c.component_category_id', 'left');
+        $this->db->where('c.is_active', 1);
+        if ($excludeId > 0) {
+            $this->db->where('c.id <>', $excludeId);
+        }
+        if (in_array($type, ['BASE', 'PREPARE'], true)) {
+            $this->db->where('c.component_type', $type);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('c.component_code', $q)
+                ->or_like('c.component_name', $q)
+                ->group_end();
+        }
+        return $this->db
+            ->order_by('c.component_type', 'ASC')
             ->order_by('c.component_name', 'ASC')
             ->limit($limit)
             ->get()
@@ -1120,6 +1543,66 @@ class Production_model extends CI_Model
                 'bottleneck_source' => (string)($potencyBottleneck ?? '-'),
             ],
             'lines' => $detailedLines,
+        ];
+    }
+
+    public function component_usage_detail(int $componentId): array
+    {
+        $component = $this->db->select('c.id, c.component_code, c.component_name, c.component_type, u.name AS uom_name')
+            ->from('mst_component c')
+            ->join('mst_uom u', 'u.id = c.uom_id', 'left')
+            ->where('c.id', $componentId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$component) {
+            return ['ok' => false, 'message' => 'Component tidak ditemukan.'];
+        }
+
+        $componentRows = [];
+        if ($this->db->table_exists('mst_component_formula')) {
+            $componentRows = $this->db->select("'COMPONENT' AS usage_type, parent.id AS target_id, parent.component_code AS target_code, parent.component_name AS target_name, parent.component_type AS target_kind, d.name AS division_name, COUNT(f.id) AS usage_line_count", false)
+                ->from('mst_component_formula f')
+                ->join('mst_component parent', 'parent.id = f.component_id', 'inner')
+                ->join('mst_operational_division d', 'd.id = parent.operational_division_id', 'left')
+                ->where('f.sub_component_id', $componentId)
+                ->group_by(['parent.id', 'parent.component_code', 'parent.component_name', 'parent.component_type', 'd.name'])
+                ->order_by('parent.component_name', 'ASC')
+                ->get()
+                ->result_array();
+        }
+
+        $productRows = [];
+        if ($this->db->table_exists('mst_product_recipe')) {
+            $productRows = $this->db->select("'PRODUCT' AS usage_type, p.id AS target_id, p.product_code AS target_code, p.product_name AS target_name, 'PRODUCT' AS target_kind, pd.name AS division_name, COUNT(r.id) AS usage_line_count", false)
+                ->from('mst_product_recipe r')
+                ->join('mst_product p', 'p.id = r.product_id', 'inner')
+                ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
+                ->where('r.component_id', $componentId)
+                ->group_by(['p.id', 'p.product_code', 'p.product_name', 'pd.name'])
+                ->order_by('p.product_name', 'ASC')
+                ->get()
+                ->result_array();
+        }
+
+        $rows = array_merge($componentRows, $productRows);
+        usort($rows, static function (array $left, array $right): int {
+            $typeCompare = strcmp((string)($left['usage_type'] ?? ''), (string)($right['usage_type'] ?? ''));
+            if ($typeCompare !== 0) {
+                return $typeCompare;
+            }
+            return strcasecmp((string)($left['target_name'] ?? ''), (string)($right['target_name'] ?? ''));
+        });
+
+        return [
+            'ok' => true,
+            'component' => $component,
+            'rows' => $rows,
+            'summary' => [
+                'component_usage_count' => count($componentRows),
+                'product_usage_count' => count($productRows),
+                'usage_count' => count($rows),
+            ],
         ];
     }
 

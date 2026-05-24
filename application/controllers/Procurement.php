@@ -59,6 +59,8 @@ class Procurement extends MY_Controller
         $lineRows = $activeTab === 'rincian'
             ? $this->Procurement_model->list_store_request_lines($filters, $limit, 0)
             : [];
+        $rangeFilters = $filters;
+        $rangeFilters['status'] = '';
         $ids = array_values(array_filter(array_map(static function ($row) {
             return (int)($row['id'] ?? 0);
         }, $rows), static function ($id) {
@@ -76,7 +78,9 @@ class Procurement extends MY_Controller
             'limit' => $limit,
             'rows' => $rows,
             'line_rows' => $lineRows,
-            'summary' => $this->Procurement_model->get_store_request_summary($filters),
+            'summary' => $this->Procurement_model->get_store_request_summary($rangeFilters),
+            'filtered_summary' => $this->Procurement_model->get_store_request_summary($filters),
+            'line_summary' => $this->Procurement_model->get_store_request_line_summary($filters),
             'timeline_map' => $this->Procurement_model->list_store_request_timeline_map($ids),
             'division_options' => $divisionOptions,
             'status_options' => $this->Procurement_model->list_store_request_status_options(),
@@ -205,40 +209,14 @@ class Procurement extends MY_Controller
             return;
         }
 
-        $filters = [
-            'tab' => trim((string)$this->input->get('tab', true)),
-            'q' => trim((string)$this->input->get('q', true)),
-            'status' => strtoupper(trim((string)$this->input->get('status', true))),
-            'division_id' => (int)$this->input->get('division_id', true),
-            'date_start' => trim((string)$this->input->get('date_start', true)),
-            'date_end' => trim((string)$this->input->get('date_end', true)),
-        ];
-        if (!in_array($filters['tab'], ['notes', 'lines'], true)) {
-            $filters['tab'] = 'notes';
-        }
-        if (!$scope['is_purchase']) {
-            $filters['allowed_division_ids'] = $scope['allowed_division_ids'];
-            if (
-                $filters['division_id'] > 0
-                && !in_array((int)$filters['division_id'], $scope['allowed_division_ids'], true)
-            ) {
-                $filters['division_id'] = 0;
-            }
-            if ($filters['division_id'] <= 0 && count($scope['allowed_division_ids']) === 1) {
-                $filters['division_id'] = (int)$scope['allowed_division_ids'][0];
-            }
-        }
+        $filters = $this->readDivisionPoSrFilters($scope);
         $limit = (int)$this->input->get('limit', true);
         if (!in_array($limit, [25, 50, 100, 200], true)) {
             $limit = 50;
         }
 
-        $rows = $this->Procurement_model->list_division_requests($filters, $limit);
-        $requestIds = array_values(array_filter(array_map(static function ($row) {
-            return (int)($row['id'] ?? 0);
-        }, $rows), static function ($id) {
-            return $id > 0;
-        }));
+        $reportPayload = $this->buildDivisionPoSrReportPayload($filters, $limit, $scope);
+        $printPicker = $this->buildDivisionPoSrPrintPicker($filters);
 
         $data = [
             'title' => 'PO/SR Divisi',
@@ -247,17 +225,106 @@ class Procurement extends MY_Controller
             'filters' => $filters,
             'active_tab' => $filters['tab'],
             'limit' => $limit,
-            'rows' => $rows,
-            'line_rows' => $this->Procurement_model->list_division_request_line_rows($filters, $limit),
-            'links_map' => $this->Procurement_model->list_division_request_links_map($requestIds),
+            'rows' => $reportPayload['rows'],
+            'line_rows' => $reportPayload['line_rows'],
+            'links_map' => $reportPayload['links_map'],
             'division_options' => $scope['division_options'],
             'can_create' => $scope['can_create'],
             'can_verify' => $scope['can_verify'],
             'can_manage_own' => $scope['can_edit_own'],
             'is_purchase_scope' => $scope['is_purchase'],
+            'print_picker_rows' => $printPicker['rows'],
+            'print_picker_links_map' => $printPicker['links_map'],
+            'print_picker_week_start' => $printPicker['week_start'],
+            'print_picker_week_end' => $printPicker['week_end'],
         ];
 
         $this->render('procurement/division_po_sr', $data);
+    }
+
+    public function division_po_sr_print()
+    {
+        $scope = $this->divisionPoSrScope();
+        if (!$scope['can_view']) {
+            show_error('Anda tidak memiliki akses ke pengajuan divisi.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $filters = $this->readDivisionPoSrFilters($scope);
+        $selectedDate = (string)($filters['date_start'] ?: $filters['date_end'] ?: date('Y-m-d'));
+        $filters['date_field'] = 'NEEDED_DATE';
+        $filters['date_start'] = $selectedDate;
+        $filters['date_end'] = $selectedDate;
+        $filters['tab'] = 'lines';
+        $reportPayload = $this->buildDivisionPoSrReportPayload($filters, 2000, $scope);
+
+        $this->load->view('procurement/division_po_sr_print', [
+            'title' => 'Cetak Pengajuan Divisi',
+            'rows' => $reportPayload['rows'],
+            'line_rows' => $reportPayload['line_rows'],
+            'links_map' => $reportPayload['links_map'],
+            'filters' => $filters,
+            'summary' => $reportPayload['summary'],
+            'is_purchase_scope' => $scope['is_purchase'],
+            'back_url' => site_url('procurement/division-po-sr') . '?' . http_build_query([
+                'tab' => 'notes',
+                'q' => (string)($filters['q'] ?? ''),
+                'status' => (string)($filters['status'] ?? ''),
+                'date_field' => 'NEEDED_DATE',
+                'division_id' => (int)($filters['division_id'] ?? 0),
+                'date_start' => $selectedDate,
+                'date_end' => $selectedDate,
+                'limit' => 50,
+            ]),
+            'printed_at' => date('Y-m-d H:i:s'),
+            'show_print_controls' => true,
+            'pdf_mode' => false,
+        ]);
+    }
+
+    public function division_po_sr_pdf()
+    {
+        $scope = $this->divisionPoSrScope();
+        if (!$scope['can_view']) {
+            show_error('Anda tidak memiliki akses ke pengajuan divisi.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $filters = $this->readDivisionPoSrFilters($scope);
+        $selectedDate = (string)($filters['date_start'] ?: $filters['date_end'] ?: date('Y-m-d'));
+        $filters['date_field'] = 'NEEDED_DATE';
+        $filters['date_start'] = $selectedDate;
+        $filters['date_end'] = $selectedDate;
+        $filters['tab'] = 'lines';
+        $reportPayload = $this->buildDivisionPoSrReportPayload($filters, 2000, $scope);
+
+        $html = $this->load->view('procurement/division_po_sr_print', [
+            'title' => 'Cetak Pengajuan Divisi',
+            'rows' => $reportPayload['rows'],
+            'line_rows' => $reportPayload['line_rows'],
+            'links_map' => $reportPayload['links_map'],
+            'filters' => $filters,
+            'summary' => $reportPayload['summary'],
+            'is_purchase_scope' => $scope['is_purchase'],
+            'back_url' => site_url('procurement/division-po-sr'),
+            'printed_at' => date('Y-m-d H:i:s'),
+            'show_print_controls' => false,
+            'pdf_mode' => true,
+        ], true);
+
+        $pdfBinary = $this->renderDivisionPoSrPdfBinary($html);
+        if ($pdfBinary === null) {
+            show_error('Gagal membuat file PDF otomatis. Pastikan Microsoft Edge atau Google Chrome tersedia di server.', 500, 'PDF Gagal Dibuat');
+            return;
+        }
+
+        $dateLabel = $selectedDate;
+        $fileName = 'division-po-sr-' . preg_replace('/[^0-9\-]+/', '-', $dateLabel) . '.pdf';
+        $this->output
+            ->set_content_type('application/pdf')
+            ->set_header('Content-Disposition: attachment; filename="' . $fileName . '"')
+            ->set_output($pdfBinary);
+        return;
     }
 
     public function division_po_sr_create()
@@ -274,7 +341,7 @@ class Procurement extends MY_Controller
 
         $header = [
             'request_date' => date('Y-m-d'),
-            'needed_date' => date('Y-m-d'),
+            'needed_date' => date('Y-m-d', strtotime('+1 day')),
             'division_id' => (int)($scope['default_division_id'] ?? 0),
             'destination_type' => $defaultDestination,
             'notes' => '',
@@ -978,6 +1045,192 @@ class Procurement extends MY_Controller
         ];
 
         return $scope;
+    }
+
+    private function readDivisionPoSrFilters(array $scope): array
+    {
+        $today = date('Y-m-d');
+        $filters = [
+            'tab' => trim((string)$this->input->get('tab', true)),
+            'q' => trim((string)$this->input->get('q', true)),
+            'status' => strtoupper(trim((string)$this->input->get('status', true))),
+            'date_field' => strtoupper(trim((string)$this->input->get('date_field', true))),
+            'division_id' => (int)$this->input->get('division_id', true),
+            'date_start' => trim((string)$this->input->get('date_start', true)),
+            'date_end' => trim((string)$this->input->get('date_end', true)),
+        ];
+
+        if (!in_array($filters['tab'], ['notes', 'lines'], true)) {
+            $filters['tab'] = 'notes';
+        }
+        if (!in_array($filters['date_field'], ['REQUEST_DATE', 'NEEDED_DATE'], true)) {
+            $filters['date_field'] = 'REQUEST_DATE';
+        }
+        if ($filters['date_start'] === '' && $filters['date_end'] === '') {
+            $filters['date_start'] = $today;
+            $filters['date_end'] = $today;
+        } elseif ($filters['date_start'] === '' && $filters['date_end'] !== '') {
+            $filters['date_start'] = $filters['date_end'];
+        } elseif ($filters['date_end'] === '' && $filters['date_start'] !== '') {
+            $filters['date_end'] = $filters['date_start'];
+        }
+        if (!$scope['is_purchase']) {
+            $filters['allowed_division_ids'] = $scope['allowed_division_ids'];
+            if (
+                $filters['division_id'] > 0
+                && !in_array((int)$filters['division_id'], $scope['allowed_division_ids'], true)
+            ) {
+                $filters['division_id'] = 0;
+            }
+            if ($filters['division_id'] <= 0 && count($scope['allowed_division_ids']) === 1) {
+                $filters['division_id'] = (int)$scope['allowed_division_ids'][0];
+            }
+        }
+
+        return $filters;
+    }
+
+    private function buildDivisionPoSrReportPayload(array $filters, int $limit, array $scope): array
+    {
+        $rows = $this->Procurement_model->list_division_requests($filters, $limit);
+        $lineRows = $this->Procurement_model->list_division_request_line_rows($filters, $limit);
+        $requestIds = array_values(array_unique(array_filter(array_merge(
+            array_map(static function ($row) {
+                return (int)($row['id'] ?? 0);
+            }, $rows),
+            array_map(static function ($line) {
+                return (int)($line['request_id'] ?? 0);
+            }, $lineRows)
+        ), static function ($id) {
+            return $id > 0;
+        })));
+        $linksMap = $this->Procurement_model->list_division_request_links_map($requestIds);
+
+        $summary = [
+            'request_count' => count($requestIds),
+            'line_total' => count($lineRows),
+            'qty_total' => 0.0,
+            'division_count' => 0,
+            'sr_doc_count' => 0,
+            'po_doc_count' => 0,
+            'status_counts' => [
+                'SUBMITTED' => 0,
+                'VERIFIED' => 0,
+                'REJECTED' => 0,
+                'VOID' => 0,
+            ],
+        ];
+
+        $divisionNames = [];
+        foreach ($rows as $row) {
+            $divisionName = trim((string)($row['division_name'] ?? ''));
+            if ($divisionName !== '') {
+                $divisionNames[$divisionName] = true;
+            }
+            $summary['sr_doc_count'] += (int)($row['sr_count'] ?? 0);
+            $summary['po_doc_count'] += (int)($row['po_count'] ?? 0);
+            $statusKey = strtoupper((string)($row['status'] ?? ''));
+            if (isset($summary['status_counts'][$statusKey])) {
+                $summary['status_counts'][$statusKey]++;
+            }
+        }
+        foreach ($lineRows as $line) {
+            $summary['qty_total'] += (float)($line['qty_content_requested'] ?? 0);
+            $divisionName = trim((string)($line['division_name'] ?? ''));
+            if ($divisionName !== '') {
+                $divisionNames[$divisionName] = true;
+            }
+        }
+        $summary['division_count'] = count($divisionNames);
+
+        return [
+            'rows' => $rows,
+            'line_rows' => $lineRows,
+            'links_map' => $linksMap,
+            'summary' => $summary,
+            'scope' => $scope,
+        ];
+    }
+
+    private function buildDivisionPoSrPrintPicker(array $filters): array
+    {
+        $weekStart = date('Y-m-d', strtotime('monday this week'));
+        $weekEnd = date('Y-m-d', strtotime('sunday this week'));
+        $tomorrow = date('Y-m-d', strtotime('+1 day'));
+        if ($tomorrow > $weekEnd) {
+            $weekEnd = $tomorrow;
+        }
+
+        $pickerFilters = $filters;
+        $pickerFilters['tab'] = 'notes';
+        $pickerFilters['date_field'] = 'NEEDED_DATE';
+        $pickerFilters['date_start'] = $weekStart;
+        $pickerFilters['date_end'] = $weekEnd;
+
+        $rows = $this->Procurement_model->list_division_requests($pickerFilters, 500);
+        $requestIds = array_values(array_unique(array_filter(array_map(static function ($row) {
+            return (int)($row['id'] ?? 0);
+        }, $rows), static function ($id) {
+            return $id > 0;
+        })));
+
+        return [
+            'rows' => $rows,
+            'links_map' => $this->Procurement_model->list_division_request_links_map($requestIds),
+            'week_start' => $weekStart,
+            'week_end' => $weekEnd,
+        ];
+    }
+
+    private function renderDivisionPoSrPdfBinary(string $html): ?string
+    {
+        $browserPath = $this->resolvePdfBrowserBinary();
+        if ($browserPath === null) {
+            return null;
+        }
+
+        $htmlFile = tempnam(sys_get_temp_dir(), 'dreq_html_');
+        $pdfFile = tempnam(sys_get_temp_dir(), 'dreq_pdf_');
+        if ($htmlFile === false || $pdfFile === false) {
+            return null;
+        }
+
+        $htmlPath = $htmlFile . '.html';
+        $pdfPath = $pdfFile . '.pdf';
+        @rename($htmlFile, $htmlPath);
+        @rename($pdfFile, $pdfPath);
+        file_put_contents($htmlPath, $html);
+
+        $fileUrl = 'file:///' . str_replace(' ', '%20', str_replace('\\', '/', $htmlPath));
+        $command = '"' . $browserPath . '" --headless --disable-gpu --allow-file-access-from-files --print-to-pdf="' . $pdfPath . '" --print-to-pdf-no-header "' . $fileUrl . '"';
+        exec($command, $output, $exitCode);
+
+        $binary = null;
+        if ($exitCode === 0 && is_file($pdfPath) && filesize($pdfPath) > 0) {
+            $binary = file_get_contents($pdfPath);
+        }
+
+        @unlink($htmlPath);
+        @unlink($pdfPath);
+        return $binary !== false ? $binary : null;
+    }
+
+    private function resolvePdfBrowserBinary(): ?string
+    {
+        $candidates = [
+            'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+            'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+            'C:/Program Files/Google/Chrome/Application/chrome.exe',
+            'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     private function resolveCurrentUserDivisionScope(array $allDivisionOptions): array

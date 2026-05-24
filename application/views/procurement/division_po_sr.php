@@ -3,15 +3,23 @@ $filters = $filters ?? [];
 $rows = $rows ?? [];
 $lineRows = $line_rows ?? [];
 $linksMap = $links_map ?? [];
+$printPickerRows = $print_picker_rows ?? [];
+$printPickerLinksMap = $print_picker_links_map ?? [];
 $divisionOptions = $division_options ?? [];
 $limit = (int)($limit ?? 50);
 $activeTab = ($active_tab ?? 'notes') === 'lines' ? 'lines' : 'notes';
+$dateField = strtoupper((string)($filters['date_field'] ?? 'REQUEST_DATE'));
+if (!in_array($dateField, ['REQUEST_DATE', 'NEEDED_DATE'], true)) {
+  $dateField = 'REQUEST_DATE';
+}
 $notesCount = count((array)$rows);
 $lineCount = count((array)$lineRows);
 $canCreate = !empty($can_create);
 $canVerify = !empty($can_verify);
 $canManageOwn = !empty($can_manage_own);
 $isPurchaseScope = !empty($is_purchase_scope);
+$printPickerWeekStart = (string)($print_picker_week_start ?? date('Y-m-d', strtotime('monday this week')));
+$printPickerWeekEnd = (string)($print_picker_week_end ?? date('Y-m-d', strtotime('sunday this week')));
 
 if (!function_exists('finance_dreq_status_badge')) {
     function finance_dreq_status_badge($status)
@@ -30,6 +38,23 @@ if (!function_exists('finance_dreq_status_badge')) {
         }
     }
 }
+
+  if (!function_exists('finance_dreq_export_progress_badge')) {
+    function finance_dreq_export_progress_badge($status, array $links)
+    {
+      $status = strtoupper(trim((string)$status));
+      if ($status === 'VOID') {
+        return ['label' => 'Void', 'class' => 'bg-secondary'];
+      }
+      if ($status === 'REJECTED') {
+        return ['label' => 'Rejected', 'class' => 'bg-danger'];
+      }
+      if (!empty($links)) {
+        return ['label' => 'Sudah Fulfill', 'class' => 'bg-success'];
+      }
+      return ['label' => 'Belum Fulfill', 'class' => 'bg-warning text-dark'];
+    }
+  }
 
   if (!function_exists('finance_dreq_location_badge')) {
     function finance_dreq_location_badge($destinationType)
@@ -63,6 +88,7 @@ if (!function_exists('finance_dreq_status_badge')) {
     $tabQuery = [
       'q' => (string)($filters['q'] ?? ''),
       'status' => (string)($filters['status'] ?? ''),
+      'date_field' => $dateField,
       'division_id' => (int)($filters['division_id'] ?? 0),
       'date_start' => (string)($filters['date_start'] ?? ''),
       'date_end' => (string)($filters['date_end'] ?? ''),
@@ -153,6 +179,35 @@ if (!function_exists('finance_dreq_status_badge')) {
       padding: 0 .75rem .75rem;
     }
   }
+  .dreq-action-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    flex-wrap: nowrap;
+  }
+  .dreq-action-btn {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    padding: 0 !important;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    line-height: 1;
+  }
+  .dreq-action-btn i {
+    font-size: .92rem;
+  }
+  .dreq-action-btn.btn-outline-secondary { color: #6c757d; border-color: rgba(108,117,125,.55); }
+  .dreq-action-btn.btn-outline-primary { color: #0d6efd; border-color: rgba(13,110,253,.55); }
+  .dreq-action-btn.btn-outline-success { color: #198754; border-color: rgba(25,135,84,.55); }
+  .dreq-action-btn.btn-outline-warning { color: #d39e00; border-color: rgba(211,158,0,.55); }
+  .dreq-picker-row td { vertical-align: middle; }
+  .dreq-picker-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .dreq-picker-note { background: #fff8ef; border: 1px solid #f0dfcf; color: #7b5a4a; border-radius: 12px; padding: .7rem .85rem; }
 </style>
 
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
@@ -165,7 +220,7 @@ if (!function_exists('finance_dreq_status_badge')) {
     </small>
   </div>
   <?php if ($canCreate): ?>
-    <a href="<?php echo site_url('procurement/division-po-sr/create'); ?>" class="btn btn-primary">Buat Pengajuan</a>
+    <a href="<?php echo site_url('procurement/division-po-sr/create'); ?>" class="btn btn-primary"><i class="ri ri-add-line me-1"></i>Buat Pengajuan</a>
   <?php endif; ?>
 </div>
 
@@ -207,6 +262,13 @@ if (!function_exists('finance_dreq_status_badge')) {
         </select>
       </div>
       <div class="col-md-2">
+        <label class="form-label mb-1">Dasar Tanggal</label>
+        <select name="date_field" class="form-select">
+          <option value="REQUEST_DATE" <?php echo $dateField === 'REQUEST_DATE' ? 'selected' : ''; ?>>Tanggal Request</option>
+          <option value="NEEDED_DATE" <?php echo $dateField === 'NEEDED_DATE' ? 'selected' : ''; ?>>Tanggal Butuh</option>
+        </select>
+      </div>
+      <div class="col-md-2">
         <label class="form-label mb-1">Dari</label>
         <input type="date" name="date_start" class="form-control" value="<?php echo html_escape((string)($filters['date_start'] ?? '')); ?>">
       </div>
@@ -222,9 +284,18 @@ if (!function_exists('finance_dreq_status_badge')) {
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-md-10 d-flex gap-2">
-        <button type="submit" class="btn btn-primary">Filter</button>
-        <a href="<?php echo site_url('procurement/division-po-sr'); ?>" class="btn btn-outline-secondary">Reset</a>
+      <div class="col-12">
+        <small class="text-muted d-block mb-2">Rentang default halaman ini adalah hari ini. Preview cetak dan PDF selalu dibuat per 1 tanggal butuh, memakai tanggal pada field Dari.</small>
+        <div class="d-flex gap-2 flex-wrap">
+          <button type="submit" class="btn btn-primary"><i class="ri ri-filter-3-line me-1"></i>Filter</button>
+          <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dreqPrintPickerModal">
+            <i class="ri ri-printer-line me-1"></i>Preview Cetak
+          </button>
+          <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#dreqPrintPickerModal">
+            <i class="ri ri-file-pdf-line me-1"></i>Download PDF
+          </button>
+          <a href="<?php echo site_url('procurement/division-po-sr'); ?>" class="btn btn-outline-secondary"><i class="ri ri-refresh-line me-1"></i>Reset</a>
+        </div>
       </div>
     </form>
   </div>
@@ -320,12 +391,12 @@ if (!function_exists('finance_dreq_status_badge')) {
                   <?php endif; ?>
                 </td>
                 <td class="text-end text-nowrap">
-                  <a href="<?php echo site_url('procurement/division-po-sr/detail/' . $requestId); ?>" class="btn btn-sm btn-outline-primary">Detail</a>
-                  <?php if ($canEditRow || $canVerifyRow): ?>
-                    <a href="<?php echo site_url('procurement/division-po-sr/edit/' . $requestId); ?>" class="btn btn-sm <?php echo $canVerifyRow ? 'btn-primary' : 'btn-outline-warning'; ?>">
-                      <?php echo $canVerifyRow ? 'Verifikasi' : 'Edit'; ?>
-                    </a>
-                  <?php endif; ?>
+                  <div class="dreq-action-wrap">
+                    <a href="<?php echo site_url('procurement/division-po-sr/detail/' . $requestId); ?>" class="btn btn-sm btn-outline-secondary dreq-action-btn" title="Detail Pengajuan" aria-label="Detail Pengajuan"><i class="ri ri-eye-line"></i></a>
+                    <?php if ($canEditRow || $canVerifyRow): ?>
+                      <a href="<?php echo site_url('procurement/division-po-sr/edit/' . $requestId); ?>" class="btn btn-sm <?php echo $canVerifyRow ? 'btn-outline-success' : 'btn-outline-warning'; ?> dreq-action-btn" title="<?php echo $canVerifyRow ? 'Verifikasi Pengajuan' : 'Edit Pengajuan'; ?>" aria-label="<?php echo $canVerifyRow ? 'Verifikasi Pengajuan' : 'Edit Pengajuan'; ?>"><i class="ri <?php echo $canVerifyRow ? 'ri-check-line' : 'ri-pencil-line'; ?>"></i></a>
+                    <?php endif; ?>
+                  </div>
                 </td>
               </tr>
             <?php endforeach; ?>
@@ -390,7 +461,9 @@ if (!function_exists('finance_dreq_status_badge')) {
                 <td class="text-end"><?php echo ui_num((float)($line['qty_content_available_snapshot'] ?? 0)); ?></td>
                 <td><?php echo html_escape((string)($line['created_by_username'] ?? '-')); ?></td>
                 <td class="text-end text-nowrap">
-                  <a href="<?php echo site_url('procurement/division-po-sr/detail/' . $requestId); ?>" class="btn btn-sm btn-outline-primary">Detail</a>
+                  <div class="dreq-action-wrap">
+                    <a href="<?php echo site_url('procurement/division-po-sr/detail/' . $requestId); ?>" class="btn btn-sm btn-outline-secondary dreq-action-btn" title="Detail Pengajuan" aria-label="Detail Pengajuan"><i class="ri ri-eye-line"></i></a>
+                  </div>
                 </td>
               </tr>
             <?php endforeach; ?>
@@ -399,4 +472,110 @@ if (!function_exists('finance_dreq_status_badge')) {
       </table>
     </div>
   <?php endif; ?>
+</div>
+
+<div class="modal fade" id="dreqPrintPickerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Pilih Pengajuan Untuk Cetak / PDF</h5>
+          <small class="text-muted">Range minggu ini + besok: <?php echo html_escape($printPickerWeekStart); ?> s/d <?php echo html_escape($printPickerWeekEnd); ?>. Pengajuan dengan tanggal butuh yang sama akan masuk file yang sama.</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="dreq-picker-note small mb-3">
+          Tanggal patokan export selalu <strong>Tanggal Butuh</strong>. Status di bawah membantu melihat pengajuan yang sudah fulfill dan yang belum.
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-striped align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Tgl Butuh</th>
+                <th>No Request</th>
+                <th>Divisi / Lokasi</th>
+                <th>Status Nota</th>
+                <th>Status Fulfill</th>
+                <th>Dokumen</th>
+                <th class="text-end">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (empty($printPickerRows)): ?>
+                <tr>
+                  <td colspan="7" class="text-center text-muted py-4">Tidak ada pengajuan dalam range minggu ini + besok.</td>
+                </tr>
+              <?php else: ?>
+                <?php foreach ($printPickerRows as $row): ?>
+                  <?php
+                    $pickerRequestId = (int)($row['id'] ?? 0);
+                    $pickerStatus = strtoupper((string)($row['status'] ?? 'SUBMITTED'));
+                    $pickerLinks = (array)($printPickerLinksMap[$pickerRequestId] ?? []);
+                    $progressBadge = finance_dreq_export_progress_badge($pickerStatus, $pickerLinks);
+                    $neededDate = (string)($row['needed_date'] ?? date('Y-m-d'));
+                    $exportQuery = [
+                      'tab' => 'notes',
+                      'q' => (string)($filters['q'] ?? ''),
+                      'status' => (string)($filters['status'] ?? ''),
+                      'division_id' => (int)($filters['division_id'] ?? 0),
+                      'date_field' => 'NEEDED_DATE',
+                      'date_start' => $neededDate,
+                      'date_end' => $neededDate,
+                      'limit' => 50,
+                    ];
+                    $pickerPrintUrl = site_url('procurement/division-po-sr/print') . '?' . http_build_query($exportQuery);
+                    $pickerPdfUrl = site_url('procurement/division-po-sr/pdf') . '?' . http_build_query($exportQuery);
+                  ?>
+                  <tr class="dreq-picker-row">
+                    <td class="text-nowrap">
+                      <?php echo html_escape($neededDate); ?>
+                      <div class="small text-muted">Req: <?php echo html_escape((string)($row['request_date'] ?? '-')); ?></div>
+                    </td>
+                    <td>
+                      <a href="<?php echo site_url('procurement/division-po-sr/detail/' . $pickerRequestId); ?>" class="fw-semibold text-decoration-none">
+                        <?php echo html_escape((string)($row['request_no'] ?? '-')); ?>
+                      </a>
+                    </td>
+                    <td>
+                      <div class="fw-semibold"><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></div>
+                      <div class="small text-muted"><?php echo html_escape(finance_dreq_location_badge((string)($row['destination_type'] ?? ''))); ?></div>
+                    </td>
+                    <td><span class="badge <?php echo finance_dreq_status_badge($pickerStatus); ?>"><?php echo html_escape($pickerStatus); ?></span></td>
+                    <td><span class="badge <?php echo html_escape((string)($progressBadge['class'] ?? 'bg-warning text-dark')); ?>"><?php echo html_escape((string)($progressBadge['label'] ?? '-')); ?></span></td>
+                    <td>
+                      <?php if (empty($pickerLinks)): ?>
+                        <span class="text-muted small">Belum ada dokumen hasil</span>
+                      <?php else: ?>
+                        <?php foreach ($pickerLinks as $link): ?>
+                          <div class="small text-muted mb-1">
+                            <?php echo html_escape((string)($link['doc_type'] ?? '-')); ?>:
+                            <?php echo html_escape((string)($link['doc_no'] ?? '-')); ?>
+                            (<?php echo html_escape((string)($link['doc_status'] ?? '-')); ?>)
+                          </div>
+                        <?php endforeach; ?>
+                      <?php endif; ?>
+                    </td>
+                    <td class="text-end text-nowrap">
+                      <div class="dreq-picker-actions">
+                        <a href="<?php echo html_escape($pickerPrintUrl); ?>" target="_blank" class="btn btn-sm btn-outline-dark">
+                          <i class="ri ri-printer-line me-1"></i>Cetak
+                        </a>
+                        <a href="<?php echo html_escape($pickerPdfUrl); ?>" class="btn btn-sm btn-outline-danger">
+                          <i class="ri ri-file-pdf-line me-1"></i>PDF
+                        </a>
+                      </div>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
+      </div>
+    </div>
+  </div>
 </div>

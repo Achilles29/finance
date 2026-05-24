@@ -1,14 +1,41 @@
 <?php
 $baseUrl = site_url('inventory/stock/warehouse/daily');
 $generateUrl = site_url('inventory/stock/opname/generate');
+$lotAuditBaseUrl = site_url('inventory/stock/warehouse/lot');
 $genMonth = $month !== '' ? substr((string)$month, 0, 7) : date('Y-m');
+$buildLotUrl = static function (array $row) use ($lotAuditBaseUrl): string {
+  $searchToken = trim((string)($row['profile_key'] ?? ''));
+  if ($searchToken === '') {
+    $searchToken = trim((string)($row['item_code'] ?? ''));
+  }
+  if ($searchToken === '') {
+    $searchToken = trim((string)($row['material_code'] ?? ''));
+  }
+  if ($searchToken === '') {
+    $searchToken = trim((string)($row['item_name'] ?? ''));
+  }
+  if ($searchToken === '') {
+    $searchToken = trim((string)($row['material_name'] ?? ''));
+  }
+
+  $params = [
+    'q' => $searchToken,
+    'profile_key' => trim((string)($row['profile_key'] ?? '')),
+    'item_id' => (int)($row['item_id'] ?? 0) > 0 ? (int)($row['item_id'] ?? 0) : null,
+    'material_id' => (int)($row['material_id'] ?? 0) > 0 ? (int)($row['material_id'] ?? 0) : null,
+  ];
+  $params = array_filter($params, static function ($value) {
+    return $value !== null && $value !== '';
+  });
+
+  return $lotAuditBaseUrl . (!empty($params) ? ('?' . http_build_query($params)) : '');
+};
 $rowsData = is_array($rows ?? null) ? $rows : [];
 $monthlyMap = [];
 foreach ($rowsData as $row) {
   $profileNameKey = strtoupper(trim((string)($row['profile_name'] ?? '')));
   $profileBrandKey = strtoupper(trim((string)($row['profile_brand'] ?? '')));
   $profileDescKey = strtoupper(trim((string)($row['profile_description'] ?? '')));
-  $profileExpiredKey = trim((string)($row['profile_expired_date'] ?? ''));
   $profileContentPerBuyKey = number_format((float)($row['profile_content_per_buy'] ?? 0), 6, '.', '');
   $key = implode('|', [
     strtoupper((string)($row['stock_domain'] ?? 'ITEM')),
@@ -20,7 +47,6 @@ foreach ($rowsData as $row) {
     $profileNameKey,
     $profileBrandKey,
     $profileDescKey,
-    $profileExpiredKey,
     $profileContentPerBuyKey,
     strtoupper(trim((string)($row['profile_buy_uom_code'] ?? ''))),
     strtoupper(trim((string)($row['profile_content_uom_code'] ?? ''))),
@@ -313,11 +339,7 @@ foreach ($monthlyRows as $row) {
     <input type="hidden" name="back_url" value="inventory/stock/warehouse/daily?month=<?php echo rawurlencode($genMonth); ?>">
     <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal</button>
   </form>
-  <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-sm btn-outline-secondary">Daily Gudang Matrix</a>
-  <a href="<?php echo site_url('inventory/stock/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Stok Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/opening/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Opening Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/warehouse/movement'); ?>" class="btn btn-sm btn-outline-secondary">Keluar Masuk Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/warehouse/daily'); ?>" class="btn btn-sm btn-dark">Stok Bulanan/Daily</a>
+  <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'daily']); ?>
 </div>
 
 <div class="card mb-3">
@@ -424,19 +446,18 @@ foreach ($monthlyRows as $row) {
                     $profileLines = [];
                     $brandText = trim((string)($singleProfile['profile_brand'] ?? ''));
                     $descText = trim((string)($singleProfile['profile_description'] ?? ''));
-                    $expiredText = trim((string)($singleProfile['profile_expired_date'] ?? ''));
                     if ($brandText !== '' && $brandText !== '-') {
                       $profileLines[] = 'Merk: ' . html_escape($brandText);
                     }
                     if ($descText !== '' && $descText !== '-') {
                       $profileLines[] = 'Ket: ' . html_escape($descText);
                     }
-                    if ($expiredText !== '' && $expiredText !== '-') {
-                      $profileLines[] = 'Exp: ' . html_escape($expiredText);
-                    }
                   ?>
                   <?php if (!empty($profileLines)): ?>
                     <?php echo implode('<br>', $profileLines); ?>
+                  <?php endif; ?>
+                  <?php if (is_array($singleChild)): ?>
+                    <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($singleChild)); ?>">Lihat Lot</a></div>
                   <?php endif; ?>
                 <?php endif; ?>
               </td>
@@ -476,8 +497,8 @@ foreach ($monthlyRows as $row) {
                 <td>
                   <?php echo html_escape((string)($child['profile_name'] ?? '-')); ?><br>
                   <small class="text-muted">Brand: <?php echo html_escape((string)($child['profile_brand'] ?? '-')); ?></small><br>
-                  <small class="text-muted">Exp: <?php echo html_escape((string)($child['profile_expired_date'] ?? '-') !== '' ? (string)($child['profile_expired_date'] ?? '-') : '-'); ?></small><br>
                   <small class="text-muted"><?php echo number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape($childUomContent); ?> / <?php echo html_escape($childUomPack); ?></small>
+                  <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($child)); ?>">Lihat Lot</a></div>
                 </td>
                 <td><?php echo html_escape($childUomPack); ?></td>
                 <td class="text-end"><?php echo number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape($childUomContent); ?></td>

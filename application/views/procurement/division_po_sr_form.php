@@ -11,7 +11,9 @@ $isPurchaseScope = !empty($is_purchase_scope);
 $canVerify = !empty($can_verify);
 $requestId = (int)($request_id ?? 0);
 $showVendorColumn = $canVerify;
-$lineColumnCount = $showVendorColumn ? 14 : 13;
+$lineColumnCount = $canVerify ? 9 : ($showVendorColumn ? 14 : 13);
+$defaultRequestDate = (string)($header['request_date'] ?? date('Y-m-d'));
+$defaultNeededDate = (string)($header['needed_date'] ?? date('Y-m-d', strtotime('+1 day')));
 
 $formAction = $mode === 'create'
     ? site_url('procurement/division-po-sr/create')
@@ -25,6 +27,13 @@ if ($mode === 'edit') {
 $divisionLocked = $mode !== 'create' || count($divisionOptions) <= 1 || !$isPurchaseScope;
 $selectedDivisionId = (int)($header['division_id'] ?? 0);
 $allowedDestinationValues = (array)($destinationGuardMap[$selectedDivisionId] ?? []);
+$selectedDivisionLabel = '-';
+foreach ($divisionOptions as $option) {
+  if ((int)($option['id'] ?? 0) === $selectedDivisionId) {
+    $selectedDivisionLabel = (string)($option['name'] ?? $option['division_name'] ?? ('DIV#' . $selectedDivisionId));
+    break;
+  }
+}
 $initialLines = [];
 foreach ((array)$lines as $line) {
   $contentPerBuy = (float)($line['profile_content_per_buy'] ?? 1);
@@ -45,6 +54,9 @@ foreach ((array)$lines as $line) {
         'profile_brand' => (string)($line['profile_brand'] ?? ''),
         'profile_description' => (string)($line['profile_description'] ?? ''),
         'profile_expired_date' => (string)($line['profile_expired_date'] ?? ''),
+        'expiry_policy' => (string)($line['expiry_policy'] ?? (!empty($line['required_expiry_date']) || !empty($line['profile_expired_date']) ? 'EXACT_DATE' : 'NONE')),
+        'required_expiry_date' => (string)($line['required_expiry_date'] ?? ($line['profile_expired_date'] ?? '')),
+        'min_remaining_days' => !empty($line['min_remaining_days']) ? (int)$line['min_remaining_days'] : null,
         'buy_uom_id' => (int)($line['buy_uom_id'] ?? 0),
         'content_uom_id' => (int)($line['content_uom_id'] ?? 0),
         'profile_content_per_buy' => $contentPerBuy,
@@ -62,6 +74,7 @@ foreach ((array)$lines as $line) {
         'estimated_unit_price' => (float)($line['estimated_unit_price'] ?? 0),
         'source_type' => $qtyContentBalance > 0 ? 'WAREHOUSE' : 'CATALOG',
         'notes' => (string)($line['notes'] ?? ''),
+        'line_reviewed' => !$canVerify || !empty($line['line_reviewed']),
     ];
 }
 ?>
@@ -84,11 +97,38 @@ if (!function_exists('finance_dreq_location_label')) {
 
 <style>
   .dreq-line-table th, .dreq-line-table td { vertical-align: middle; }
+  .dreq-line-table th { padding: .55rem .45rem; white-space: nowrap; }
+  .dreq-line-table td { padding: .45rem .4rem; }
   .dreq-line-table { min-width: 1760px; }
+  .dreq-line-table.is-verify {
+    min-width: 940px;
+    table-layout: fixed;
+  }
+  .dreq-line-table.is-verify th,
+  .dreq-line-table.is-verify td {
+    white-space: normal;
+    word-break: break-word;
+  }
+  .dreq-line-table.is-verify th:nth-child(1),
+  .dreq-line-table.is-verify td:nth-child(1) { width: 24%; }
+  .dreq-line-table.is-verify th:nth-child(2),
+  .dreq-line-table.is-verify td:nth-child(2) { width: 8%; }
+  .dreq-line-table.is-verify th:nth-child(3),
+  .dreq-line-table.is-verify td:nth-child(3) { width: 9%; }
+  .dreq-line-table.is-verify th:nth-child(4),
+  .dreq-line-table.is-verify td:nth-child(4) { width: 16%; }
+  .dreq-line-table.is-verify th:nth-child(5),
+  .dreq-line-table.is-verify td:nth-child(5) { width: 13%; }
+  .dreq-line-table.is-verify th:nth-child(6),
+  .dreq-line-table.is-verify td:nth-child(6) { width: 12%; }
+  .dreq-line-table.is-verify th:nth-child(7),
+  .dreq-line-table.is-verify td:nth-child(7) { width: 7%; }
+  .dreq-line-table.is-verify th:nth-child(8),
+  .dreq-line-table.is-verify td:nth-child(8) { width: 11%; }
   .dreq-search-scroll { max-height: 260px; overflow: auto; }
   .dreq-manual-card { display: none; }
   .dreq-search-table th, .dreq-search-table td { vertical-align: middle; }
-  .dreq-profile-cell { min-width: 260px; }
+  .dreq-profile-cell { min-width: 360px; }
   .dreq-uom-cell { min-width: 140px; }
   .dreq-vendor-cell { min-width: 240px; }
   .dreq-stock-cell { min-width: 95px; }
@@ -96,9 +136,51 @@ if (!function_exists('finance_dreq_location_label')) {
   .dreq-qty-input { min-width: 110px; }
   .dreq-po-input { min-width: 120px; }
   .dreq-qty-readonly { min-width: 110px; background: #f8f9fa; }
-  .dreq-notes-input { min-width: 220px; }
-  .dreq-action-btn { min-width: 72px; }
-  .dreq-route-note { font-size: .74rem; line-height: 1.3; color: #6c757d; margin-top: .3rem; display: block; }
+  .dreq-notes-input { min-width: 160px; }
+  .dreq-action-btn { min-width: 72px; white-space: nowrap; }
+  .dreq-line-table.is-verify th:last-child,
+  .dreq-line-table.is-verify td:last-child {
+    min-width: 124px;
+    width: 124px;
+  }
+  .dreq-line-table.is-verify .dreq-action-btn {
+    min-width: 108px;
+    padding: .32rem .45rem;
+    font-size: .78rem;
+    line-height: 1.2;
+  }
+  .dreq-line-table.is-verify td:last-child .d-grid {
+    gap: .35rem !important;
+  }
+  .dreq-line-table.is-verify .dreq-profile-cell,
+  .dreq-line-table.is-verify .dreq-vendor-cell,
+  .dreq-line-table.is-verify .dreq-uom-cell,
+  .dreq-line-table.is-verify .dreq-request-cell {
+    min-width: 0;
+  }
+  .dreq-line-table.is-verify .dreq-profile-meta {
+    gap: .18rem .35rem;
+  }
+  .dreq-vendor-title {
+    line-height: 1.3;
+  }
+  .dreq-vendor-caption {
+    display: inline-flex;
+    align-items: center;
+    padding: .14rem .48rem;
+    border-radius: 999px;
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .02em;
+  }
+  .dreq-vendor-caption.is-required {
+    background: rgba(138, 21, 56, .12);
+    color: #8a1538;
+  }
+  .dreq-vendor-caption.is-optional {
+    background: rgba(25, 135, 84, .12);
+    color: #1d6f46;
+  }
   .dreq-qty-input.is-overstock { border-color: #f0ad4e; background: #fff8ea; }
   .dreq-po-input.is-active-po { border-color: #7f5af0; background: #f7f2ff; }
   .dreq-stock-split { color: #9a6700; font-weight: 600; }
@@ -111,16 +193,140 @@ if (!function_exists('finance_dreq_location_label')) {
   .dreq-vendor-wrap { display: flex; align-items: center; gap: .45rem; }
   .dreq-vendor-select { min-width: 0; flex: 1 1 auto; }
   .dreq-vendor-add { min-width: 42px; flex: 0 0 auto; border-radius: 10px; }
-  .dreq-vendor-meta { font-size: .72rem; line-height: 1.35; color: #8c7771; }
+  .dreq-vendor-meta { display: none; }
   .dreq-request-mode { min-width: 130px; }
-  .dreq-mode-caption { font-size: .71rem; font-weight: 700; color: #8a1538; text-transform: uppercase; letter-spacing: .04em; margin-bottom: .2rem; }
-  .dreq-buyer-caption { font-size: .68rem; font-weight: 700; color: #6b4f3f; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .3rem; }
+  .dreq-request-stack { display: grid; gap: .35rem; }
   .dreq-profile-editor { border-top: 1px dashed #dfd2c8; padding-top: .55rem; }
+  .dreq-profile-title { line-height: 1.35; }
+  .dreq-profile-meta { display: flex; flex-wrap: wrap; gap: .25rem .45rem; align-items: center; margin-top: .25rem; }
+  .dreq-profile-hint { font-size: .73rem; line-height: 1.35; color: #7b6a61; }
+  .dreq-profile-editor {
+    border-top: 1px dashed #dfd2c8;
+    padding-top: .45rem;
+    background: #fffaf4;
+    border-radius: 12px;
+    padding: .45rem;
+  }
+  .dreq-profile-editor-grid { display: grid; gap: .35rem; }
+  .dreq-buyer-row {
+    display: grid;
+    grid-template-columns: minmax(105px, .95fr) minmax(155px, 1.35fr);
+    gap: .35rem;
+  }
+  .dreq-est-row {
+    display: grid;
+    grid-template-columns: 44px minmax(150px, 1fr) auto;
+    gap: .35rem;
+    align-items: center;
+  }
+  .dreq-est-label {
+    font-size: .74rem;
+    font-weight: 700;
+    color: #8a1538;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    text-align: center;
+  }
+  .dreq-est-input {
+    min-width: 0;
+    text-align: right;
+  }
+  .dreq-suggest-btn {
+    min-width: 92px;
+    white-space: nowrap;
+  }
   .dreq-suggestion-list { display: flex; flex-direction: column; gap: .35rem; }
   .dreq-suggestion-chip { text-align: left; white-space: normal; border-radius: 12px; padding: .5rem .65rem; }
   .dreq-suggestion-chip strong,
   .dreq-suggestion-chip small { display: block; }
   .dreq-suggestion-chip small { font-size: .72rem; line-height: 1.35; color: #6c757d; }
+  .dreq-draft-modal .modal-content {
+    border: 0;
+    border-radius: 20px;
+    overflow: hidden;
+  }
+  .dreq-draft-head {
+    padding: 1rem 1.15rem;
+    background: linear-gradient(135deg, #8a1538 0%, #b43c5c 100%);
+    color: #fff9f6;
+  }
+  .dreq-draft-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+  .dreq-draft-subtitle {
+    margin-top: .2rem;
+    opacity: .88;
+    font-size: .84rem;
+  }
+  .dreq-draft-body {
+    padding: 1rem 1.15rem 1.1rem;
+    background: linear-gradient(180deg, #fffaf5 0%, #ffffff 100%);
+  }
+  .dreq-draft-note {
+    padding: .5rem .7rem;
+    border-radius: 12px;
+    background: #fff3db;
+    color: #8a5a00;
+    font-size: .82rem;
+    font-weight: 600;
+  }
+  .dreq-draft-summary {
+    border: 1px solid #ead9cc;
+    border-radius: 14px;
+    background: #fff;
+    padding: .75rem .85rem;
+  }
+  .dreq-review-badge {
+    font-size: .71rem;
+    font-weight: 700;
+    letter-spacing: .02em;
+  }
+  .dreq-review-summary {
+    margin-top: .45rem;
+    border-top: 1px dashed #dfd2c8;
+    padding-top: .45rem;
+  }
+  .dreq-verify-modal .modal-content {
+    border: 0;
+    border-radius: 22px;
+    overflow: hidden;
+  }
+  .dreq-verify-head {
+    padding: 1rem 1.15rem;
+    background: linear-gradient(135deg, #7f1020 0%, #b43c5c 100%);
+    color: #fff7f2;
+  }
+  .dreq-verify-body {
+    padding: 1rem 1.15rem 1.1rem;
+    background: linear-gradient(180deg, #fff9f4 0%, #ffffff 100%);
+  }
+  .dreq-verify-note {
+    padding: .5rem .7rem;
+    border-radius: 12px;
+    background: #fef1d8;
+    color: #8a5a00;
+    font-size: .82rem;
+    font-weight: 600;
+  }
+  .dreq-verify-suggestions {
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+  }
+  @media (max-width: 991.98px) {
+    .dreq-buyer-row,
+    .dreq-est-row {
+      grid-template-columns: 1fr;
+    }
+    .dreq-est-label {
+      text-align: left;
+    }
+    .dreq-suggest-btn {
+      width: 100%;
+    }
+  }
 </style>
 
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
@@ -154,23 +360,25 @@ if (!function_exists('finance_dreq_location_label')) {
         </div>
         <div class="col-md-2">
           <label class="form-label mb-1">Tgl Request</label>
-          <input type="date" name="request_date" class="form-control" value="<?php echo html_escape((string)($header['request_date'] ?? date('Y-m-d'))); ?>" required>
+          <input type="date" name="request_date" class="form-control" value="<?php echo html_escape($defaultRequestDate); ?>" required>
         </div>
         <div class="col-md-2">
           <label class="form-label mb-1">Tgl Butuh</label>
-          <input type="date" name="needed_date" class="form-control" value="<?php echo html_escape((string)($header['needed_date'] ?? date('Y-m-d'))); ?>">
+          <input type="date" name="needed_date" class="form-control" value="<?php echo html_escape($defaultNeededDate); ?>">
         </div>
         <div class="col-md-3">
           <label class="form-label mb-1">Divisi</label>
-          <select name="division_id" id="fieldDivisionId" class="form-select" <?php echo $divisionLocked ? 'disabled' : ''; ?>>
-            <?php foreach ($divisionOptions as $option): ?>
-              <option value="<?php echo (int)$option['id']; ?>" <?php echo ((int)($header['division_id'] ?? 0) === (int)$option['id']) ? 'selected' : ''; ?>>
-                <?php echo html_escape((string)($option['name'] ?? $option['division_name'] ?? ('DIV#' . $option['id']))); ?>
-              </option>
-            <?php endforeach; ?>
-          </select>
           <?php if ($divisionLocked): ?>
+            <input type="text" class="form-control" value="<?php echo html_escape($selectedDivisionLabel); ?>" readonly>
             <input type="hidden" name="division_id" value="<?php echo (int)($header['division_id'] ?? 0); ?>">
+          <?php else: ?>
+            <select name="division_id" id="fieldDivisionId" class="form-select">
+              <?php foreach ($divisionOptions as $option): ?>
+                <option value="<?php echo (int)$option['id']; ?>" <?php echo ((int)($header['division_id'] ?? 0) === (int)$option['id']) ? 'selected' : ''; ?>>
+                  <?php echo html_escape((string)($option['name'] ?? $option['division_name'] ?? ('DIV#' . $option['id']))); ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
           <?php endif; ?>
         </div>
         <div class="col-md-2">
@@ -216,14 +424,17 @@ if (!function_exists('finance_dreq_location_label')) {
           <thead>
             <tr>
               <th>Profile</th>
+              <th>Keterangan</th>
               <th>UOM</th>
-              <th class="text-end">Stok Beli</th>
-              <th class="text-end">Stok Isi</th>
+              <th class="text-end">Stok Gudang</th>
+              <th class="text-end">Harga Satuan</th>
+              <th>Exp Date</th>
+              <th>Tgl Beli Terakhir</th>
               <th style="width:90px">Aksi</th>
             </tr>
           </thead>
           <tbody id="searchResultRows">
-            <tr><td colspan="5" class="text-center text-muted py-3">Belum ada pencarian.</td></tr>
+            <tr><td colspan="8" class="text-center text-muted py-3">Belum ada pencarian.</td></tr>
           </tbody>
         </table>
       </div>
@@ -285,10 +496,12 @@ if (!function_exists('finance_dreq_location_label')) {
     <div class="card-body">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <h6 class="mb-0">Line Pengajuan</h6>
-        <small class="text-muted">Pilih mode input per line. `Qty Request`, `Ke SR`, `Qty Tambahan PO`, dan `Ke PO` akan mengikuti UOM beli atau isi yang dipilih, sementara sistem tetap menyimpan konversi buy-content yang konsisten.</small>
+        <small class="text-muted"><?php echo $canVerify
+          ? 'Purchase review per line lewat tombol Verifikasi. Di dalam modal, buyer bisa cek data pengajuan, cari saran profile, lalu simpan hasil review per baris.'
+          : 'Pilih mode input per line. `Qty Request`, `Ke SR`, `Qty Tambahan PO`, dan `Ke PO` akan mengikuti UOM beli atau isi yang dipilih, sementara sistem tetap menyimpan konversi buy-content yang konsisten.'; ?></small>
       </div>
       <div class="table-responsive">
-        <table class="table table-striped table-sm dreq-line-table mb-0">
+        <table class="table table-striped table-sm dreq-line-table<?php echo $canVerify ? ' is-verify' : ''; ?> mb-0">
           <thead>
             <tr>
               <th>Profile</th>
@@ -296,15 +509,19 @@ if (!function_exists('finance_dreq_location_label')) {
               <th>Route</th>
               <?php if ($showVendorColumn): ?><th>Vendor PO</th><?php endif; ?>
               <th>UOM</th>
+              <?php if (!$canVerify): ?>
               <th class="text-end">Stok Beli</th>
               <th class="text-end">Stok Isi</th>
+              <?php endif; ?>
               <th>Input Request</th>
               <th>Ke SR</th>
-              <th>Qty Tambahan PO</th>
               <th>Ke PO</th>
+              <?php if (!$canVerify): ?>
+              <th>Qty Tambahan PO</th>
               <th>Qty Isi</th>
               <th>Catatan</th>
-              <th style="width:90px">Aksi</th>
+              <?php endif; ?>
+              <th style="width:140px">Aksi</th>
             </tr>
           </thead>
           <tbody id="requestLineRows">
@@ -323,6 +540,188 @@ if (!function_exists('finance_dreq_location_label')) {
   </div>
 </form>
 
+<div class="modal fade dreq-draft-modal" id="dreqDraftModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content shadow-lg">
+      <div class="dreq-draft-head">
+        <div class="small opacity-75">Draft barang terpilih</div>
+        <div class="dreq-draft-title" id="dreqDraftTitle">-</div>
+        <div class="dreq-draft-subtitle" id="dreqDraftSubtitle">Klik hasil pencarian untuk isi detail dulu sebelum line masuk ke tabel pengajuan.</div>
+      </div>
+      <div class="modal-body dreq-draft-body">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+          <div class="small text-muted mb-0 flex-grow-1">Pola ini mengikuti form PO: buyer/divisi cek data inti dulu, lalu baru tambahkan ke line pengajuan.</div>
+          <div class="dreq-draft-note" id="dreqDraftSourceNote">Baris belum ditambahkan.</div>
+        </div>
+        <div id="dreqDraftAlert"></div>
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label mb-1">Jenis Line</label>
+            <input type="text" class="form-control" id="dreqDraftKind" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Merk</label>
+            <input type="text" class="form-control" id="dreqDraftBrand" placeholder="Merk final">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1">Keterangan</label>
+            <input type="text" class="form-control" id="dreqDraftDescription" placeholder="Keterangan/spec final">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">UOM Beli</label>
+            <input type="text" class="form-control" id="dreqDraftBuyUom" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">UOM Isi</label>
+            <input type="text" class="form-control" id="dreqDraftContentUom" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Isi per Beli</label>
+            <input type="text" class="form-control" id="dreqDraftPack" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Stok Snapshot</label>
+            <input type="text" class="form-control" id="dreqDraftStock" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Mode Input</label>
+            <select class="form-select" id="dreqDraftRequestMode">
+              <option value="">Pilih mode input</option>
+              <option value="BUY">PACK / UOM Beli</option>
+              <option value="CONTENT">ISI</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Qty Request</label>
+            <input type="number" class="form-control text-end" id="dreqDraftQty" min="0.01" step="0.01" placeholder="0.00">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Expired</label>
+            <input type="date" class="form-control" id="dreqDraftExpired">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Harga Estimasi</label>
+            <input type="number" class="form-control text-end" id="dreqDraftPrice" min="0" step="0.01" placeholder="0.00">
+          </div>
+          <div class="col-12">
+            <label class="form-label mb-1">Catatan Line</label>
+            <input type="text" class="form-control" id="dreqDraftNotes" placeholder="Opsional">
+          </div>
+        </div>
+        <div class="dreq-draft-summary mt-3">
+          <div class="small text-muted mb-1">Preview route</div>
+          <div class="fw-semibold" id="dreqDraftRouteLabel">Pilih mode input dan qty request dulu.</div>
+          <div class="small text-muted mt-1" id="dreqDraftRouteNote">Baris baru akan ditambahkan setelah data wajib diisi.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-primary" id="btnApplyDreqDraft">Tambahkan ke Pengajuan</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade dreq-verify-modal" id="dreqVerifyLineModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content shadow-lg">
+      <div class="dreq-verify-head">
+        <div class="small opacity-75">Review line pengajuan</div>
+        <div class="dreq-draft-title" id="dreqVerifyTitle">-</div>
+        <div class="dreq-draft-subtitle" id="dreqVerifySubtitle">Verifikasi line satu per satu sebelum bentuk SR atau PO hasil review.</div>
+      </div>
+      <div class="modal-body dreq-verify-body">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+          <div class="small text-muted mb-0 flex-grow-1">Modal ini dipakai purchase untuk cek line pengajuan, menyesuaikan data final buyer, dan memakai cari saran bila perlu.</div>
+          <div class="dreq-verify-note" id="dreqVerifyNote">Line belum direview.</div>
+        </div>
+        <div id="dreqVerifyAlert"></div>
+        <div class="border rounded p-3 mb-3 bg-white">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            <label class="form-label mb-0">Cari Saran Profile Buyer</label>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="btnDreqVerifySuggest">Cari Saran</button>
+          </div>
+          <div class="dreq-verify-suggestions" id="dreqVerifySuggestionList">
+            <div class="small text-muted">Belum ada saran. Klik Cari Saran untuk melihat kandidat buyer.</div>
+          </div>
+        </div>
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label mb-1">Jenis Line</label>
+            <input type="text" class="form-control" id="dreqVerifyKind" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Merk Final</label>
+            <input type="text" class="form-control" id="dreqVerifyBrand" placeholder="Merk final">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1">Keterangan Final</label>
+            <input type="text" class="form-control" id="dreqVerifyDescription" placeholder="Keterangan/spec final">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">UOM Beli</label>
+            <input type="text" class="form-control" id="dreqVerifyBuyUom" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">UOM Isi</label>
+            <input type="text" class="form-control" id="dreqVerifyContentUom" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Isi per Beli</label>
+            <input type="text" class="form-control" id="dreqVerifyPack" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Stok Snapshot</label>
+            <input type="text" class="form-control" id="dreqVerifyStock" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Mode Input</label>
+            <select class="form-select" id="dreqVerifyRequestMode">
+              <option value="">Pilih mode input</option>
+              <option value="BUY">PACK / UOM Beli</option>
+              <option value="CONTENT">ISI</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Qty Request</label>
+            <input type="number" class="form-control text-end" id="dreqVerifyQty" min="0.01" step="0.01" placeholder="0.00">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Qty Tambahan PO</label>
+            <input type="number" class="form-control text-end" id="dreqVerifyPoQty" min="0.00" step="0.01" placeholder="0.00">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Harga Estimasi</label>
+            <input type="number" class="form-control text-end" id="dreqVerifyPrice" min="0" step="0.01" placeholder="0.00">
+          </div>
+          <?php if ($showVendorColumn): ?>
+          <div class="col-md-9">
+            <label class="form-label mb-1">Vendor PO</label>
+            <div class="dreq-vendor-wrap">
+              <select class="form-select" id="dreqVerifyVendor"></select>
+              <button type="button" class="btn btn-outline-primary dreq-vendor-add" id="btnDreqVerifyVendorAdd" title="Tambah vendor baru">+</button>
+            </div>
+          </div>
+          <?php endif; ?>
+          <div class="col-12">
+            <label class="form-label mb-1">Catatan Line</label>
+            <input type="text" class="form-control" id="dreqVerifyNotes" placeholder="Opsional">
+          </div>
+        </div>
+        <div class="dreq-draft-summary mt-3">
+          <div class="small text-muted mb-1">Preview hasil review</div>
+          <div class="fw-semibold" id="dreqVerifyRouteLabel">Pilih mode input dan qty request dulu.</div>
+          <div class="small text-muted mt-1" id="dreqVerifyRouteNote">Route SR/PO dan kebutuhan vendor akan dihitung dari data review ini.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-primary" id="btnApplyDreqVerify">Simpan Hasil Review Line</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <?php $this->load->view('purchase/_vendor_quick_create_modal'); ?>
 
 <script>
@@ -338,6 +737,53 @@ if (!function_exists('finance_dreq_location_label')) {
   var isVerifyMode = <?php echo $canVerify ? 'true' : 'false'; ?>;
   var lineColumnCount = <?php echo (int)$lineColumnCount; ?>;
   var requestLines = <?php echo json_encode($initialLines, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?> || [];
+  var draftModalEl = document.getElementById('dreqDraftModal');
+  var draftModal = (draftModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(draftModalEl) : null;
+  var draftTitleEl = document.getElementById('dreqDraftTitle');
+  var draftSubtitleEl = document.getElementById('dreqDraftSubtitle');
+  var draftSourceNoteEl = document.getElementById('dreqDraftSourceNote');
+  var draftKindEl = document.getElementById('dreqDraftKind');
+  var draftBrandEl = document.getElementById('dreqDraftBrand');
+  var draftDescriptionEl = document.getElementById('dreqDraftDescription');
+  var draftBuyUomEl = document.getElementById('dreqDraftBuyUom');
+  var draftContentUomEl = document.getElementById('dreqDraftContentUom');
+  var draftPackEl = document.getElementById('dreqDraftPack');
+  var draftStockEl = document.getElementById('dreqDraftStock');
+  var draftModeEl = document.getElementById('dreqDraftRequestMode');
+  var draftQtyEl = document.getElementById('dreqDraftQty');
+  var draftExpiredEl = document.getElementById('dreqDraftExpired');
+  var draftPriceEl = document.getElementById('dreqDraftPrice');
+  var draftNotesEl = document.getElementById('dreqDraftNotes');
+  var draftRouteLabelEl = document.getElementById('dreqDraftRouteLabel');
+  var draftRouteNoteEl = document.getElementById('dreqDraftRouteNote');
+  var draftAlertEl = document.getElementById('dreqDraftAlert');
+  var draftApplyBtn = document.getElementById('btnApplyDreqDraft');
+  var pendingDraftRow = null;
+  var verifyModalEl = document.getElementById('dreqVerifyLineModal');
+  var verifyTitleEl = document.getElementById('dreqVerifyTitle');
+  var verifySubtitleEl = document.getElementById('dreqVerifySubtitle');
+  var verifyNoteEl = document.getElementById('dreqVerifyNote');
+  var verifyAlertEl = document.getElementById('dreqVerifyAlert');
+  var verifyKindEl = document.getElementById('dreqVerifyKind');
+  var verifyBrandEl = document.getElementById('dreqVerifyBrand');
+  var verifyDescriptionEl = document.getElementById('dreqVerifyDescription');
+  var verifyBuyUomEl = document.getElementById('dreqVerifyBuyUom');
+  var verifyContentUomEl = document.getElementById('dreqVerifyContentUom');
+  var verifyPackEl = document.getElementById('dreqVerifyPack');
+  var verifyStockEl = document.getElementById('dreqVerifyStock');
+  var verifyModeEl = document.getElementById('dreqVerifyRequestMode');
+  var verifyQtyEl = document.getElementById('dreqVerifyQty');
+  var verifyPoQtyEl = document.getElementById('dreqVerifyPoQty');
+  var verifyPriceEl = document.getElementById('dreqVerifyPrice');
+  var verifyVendorEl = document.getElementById('dreqVerifyVendor');
+  var verifyNotesEl = document.getElementById('dreqVerifyNotes');
+  var verifySuggestionListEl = document.getElementById('dreqVerifySuggestionList');
+  var verifyRouteLabelEl = document.getElementById('dreqVerifyRouteLabel');
+  var verifyRouteNoteEl = document.getElementById('dreqVerifyRouteNote');
+  var verifySuggestBtn = document.getElementById('btnDreqVerifySuggest');
+  var verifyVendorAddBtn = document.getElementById('btnDreqVerifyVendorAdd');
+  var verifyApplyBtn = document.getElementById('btnApplyDreqVerify');
+  var activeVerifyLineIdx = -1;
 
   function esc(value) {
     return String(value || '').replace(/[&<>"']/g, function (char) {
@@ -417,6 +863,15 @@ if (!function_exists('finance_dreq_location_label')) {
     return [row.profile_key || '', row.profile_name || '', row.item_id || 0, row.material_id || 0, row.buy_uom_id || 0, row.content_uom_id || 0].join('|');
   }
 
+  function hasExistingLineKey(key) {
+    for (var i = 0; i < requestLines.length; i++) {
+      if (lineKey(requestLines[i]) === key) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function normalizeRow(row) {
     var contentPerBuy = num(row.profile_content_per_buy);
     if (contentPerBuy <= 0) {
@@ -436,6 +891,9 @@ if (!function_exists('finance_dreq_location_label')) {
       profile_brand: row.profile_brand || '',
       profile_description: row.profile_description || '',
       profile_expired_date: row.profile_expired_date || '',
+      expiry_policy: row.expiry_policy || ((row.required_expiry_date || row.profile_expired_date) ? 'EXACT_DATE' : 'NONE'),
+      required_expiry_date: row.required_expiry_date || row.profile_expired_date || '',
+      min_remaining_days: num(row.min_remaining_days || 0) || null,
       buy_uom_id: num(row.buy_uom_id),
       content_uom_id: num(row.content_uom_id),
       profile_content_per_buy: contentPerBuy,
@@ -450,12 +908,17 @@ if (!function_exists('finance_dreq_location_label')) {
       qty_content_po_requested: round2(num(row.qty_content_po_requested)),
       qty_buy_balance: round2(qtyBuyBalance),
       qty_content_balance: round2(qtyContentBalance),
+      standard_price: round2(num(row.standard_price || 0)),
+      last_unit_price: round2(num(row.last_unit_price || row.standard_price || 0)),
+      last_purchase_date: row.last_purchase_date || '',
+      catalog_id: num(row.catalog_id) > 0 ? num(row.catalog_id) : null,
       estimated_unit_price: round2(num(row.estimated_unit_price || row.last_unit_price || row.standard_price || 0)),
       catalog_suggestions: Array.isArray(row.catalog_suggestions) ? row.catalog_suggestions : [],
       suggestion_loading: !!row.suggestion_loading,
       suggestion_query: row.suggestion_query || '',
       source_type: row.source_type || row.search_source || (num(row.qty_content_balance || row.qty_content_available_snapshot) > 0 ? 'WAREHOUSE' : 'CATALOG'),
-      notes: row.notes || ''
+      notes: row.notes || '',
+      line_reviewed: isVerifyMode ? !!row.line_reviewed : true
     };
 
     if (!hasRequestModeSelection(normalized)) {
@@ -604,6 +1067,13 @@ if (!function_exists('finance_dreq_location_label')) {
     return 'Wajib dipilih Purchase untuk line yang masuk PO.';
   }
 
+  function vendorVerifyCaption(row, plan) {
+    if (!canAssignVendor) {
+      return '';
+    }
+    return requiresVendor(row, plan) ? 'PO wajib' : 'SR saja';
+  }
+
   function renderVendorOptions(selectedId) {
     var html = ['<option value="">Pilih vendor</option>'];
     vendorOptions.forEach(function (vendor) {
@@ -630,10 +1100,20 @@ if (!function_exists('finance_dreq_location_label')) {
     if (sourceType === 'WAREHOUSE') {
       return 'Gudang';
     }
+    if (sourceType === 'MASTER') {
+      return 'Master';
+    }
     if (sourceType === 'MANUAL') {
       return 'Manual';
     }
     return 'Katalog';
+  }
+
+  function packSummary(row) {
+    var factor = round2(num(row && row.profile_content_per_buy) || 1);
+    var buyCode = String(row && row.profile_buy_uom_code || '').trim() || '-';
+    var contentCode = String(row && row.profile_content_uom_code || '').trim() || '-';
+    return '1 ' + buyCode + ' = ' + fixed2(factor) + ' ' + contentCode;
   }
 
   function locationLabel(destinationType) {
@@ -645,6 +1125,534 @@ if (!function_exists('finance_dreq_location_label')) {
       return 'Reguler';
     }
     return value || '-';
+  }
+
+  function setDraftAlert(type, message) {
+    if (!draftAlertEl) {
+      return;
+    }
+    if (!message) {
+      draftAlertEl.innerHTML = '';
+      return;
+    }
+    draftAlertEl.innerHTML = '<div class="alert alert-' + type + ' py-2 mb-3">' + message + '</div>';
+  }
+
+  function removeDraftBackdrop() {
+    document.querySelectorAll('.modal-backdrop.dreq-fallback-backdrop').forEach(function (el) {
+      if (el && el.parentNode) {
+        el.parentNode.removeChild(el);
+      }
+    });
+  }
+
+  function showModalElement(modalEl) {
+    if (!modalEl) {
+      return;
+    }
+    try {
+      if (window.bootstrap && window.bootstrap.Modal) {
+        window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        return;
+      }
+    } catch (error) {}
+    try {
+      if (window.jQuery && window.jQuery.fn && window.jQuery.fn.modal) {
+        window.jQuery(modalEl).modal('show');
+        return;
+      }
+    } catch (error) {}
+
+    modalEl.style.display = 'block';
+    modalEl.classList.add('show');
+    modalEl.removeAttribute('aria-hidden');
+    modalEl.setAttribute('aria-modal', 'true');
+    document.body.classList.add('modal-open');
+    document.body.style.overflow = 'hidden';
+    removeDraftBackdrop();
+    var backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop fade show dreq-fallback-backdrop';
+    document.body.appendChild(backdrop);
+  }
+
+  function hideModalElement(modalEl, onManualHide) {
+    if (!modalEl) {
+      if (typeof onManualHide === 'function') {
+        onManualHide();
+      }
+      return;
+    }
+    try {
+      if (window.bootstrap && window.bootstrap.Modal) {
+        window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+        return;
+      }
+    } catch (error) {}
+    try {
+      if (window.jQuery && window.jQuery.fn && window.jQuery.fn.modal) {
+        window.jQuery(modalEl).modal('hide');
+        return;
+      }
+    } catch (error) {}
+
+    modalEl.classList.remove('show');
+    modalEl.style.display = 'none';
+    modalEl.setAttribute('aria-hidden', 'true');
+    modalEl.removeAttribute('aria-modal');
+    document.body.classList.remove('modal-open');
+    document.body.style.overflow = '';
+    removeDraftBackdrop();
+    if (typeof onManualHide === 'function') {
+      onManualHide();
+    }
+  }
+
+  function showDraftModal() {
+    showModalElement(draftModalEl);
+  }
+
+  function hideDraftModal() {
+    hideModalElement(draftModalEl, clearDraftState);
+  }
+
+  function clearDraftState() {
+    pendingDraftRow = null;
+    setDraftAlert('', '');
+    if (draftTitleEl) {
+      draftTitleEl.textContent = '-';
+    }
+    if (draftSubtitleEl) {
+      draftSubtitleEl.textContent = 'Klik hasil pencarian untuk isi detail dulu sebelum line masuk ke tabel pengajuan.';
+    }
+    if (draftSourceNoteEl) {
+      draftSourceNoteEl.textContent = 'Baris belum ditambahkan.';
+    }
+    if (draftKindEl) {
+      draftKindEl.value = '';
+    }
+    if (draftBrandEl) {
+      draftBrandEl.value = '';
+    }
+    if (draftDescriptionEl) {
+      draftDescriptionEl.value = '';
+    }
+    if (draftBuyUomEl) {
+      draftBuyUomEl.value = '';
+    }
+    if (draftContentUomEl) {
+      draftContentUomEl.value = '';
+    }
+    if (draftPackEl) {
+      draftPackEl.value = '';
+    }
+    if (draftStockEl) {
+      draftStockEl.value = '';
+    }
+    if (draftModeEl) {
+      draftModeEl.value = '';
+    }
+    if (draftQtyEl) {
+      draftQtyEl.value = '';
+    }
+    if (draftExpiredEl) {
+      draftExpiredEl.value = '';
+    }
+    if (draftPriceEl) {
+      draftPriceEl.value = '';
+    }
+    if (draftNotesEl) {
+      draftNotesEl.value = '';
+    }
+    if (draftRouteLabelEl) {
+      draftRouteLabelEl.textContent = 'Pilih mode input dan qty request dulu.';
+    }
+    if (draftRouteNoteEl) {
+      draftRouteNoteEl.textContent = 'Baris baru akan ditambahkan setelah data wajib diisi.';
+    }
+  }
+
+  function draftStockSummary(row) {
+    var sourceType = String(row && row.source_type || '').toUpperCase();
+    if (sourceType !== 'WAREHOUSE') {
+      return 'Fallback katalog/manual';
+    }
+    return fixed2(num(row && row.qty_buy_balance)) + ' ' + String(row && row.profile_buy_uom_code || '-').trim()
+      + ' | ' + fixed2(num(row && row.qty_content_balance)) + ' ' + String(row && row.profile_content_uom_code || '-').trim();
+  }
+
+  function reviewBadgeHtml(row) {
+    if (!isVerifyMode) {
+      return '';
+    }
+    return row && row.line_reviewed
+      ? '<span class="badge bg-success dreq-review-badge">Sudah direview</span>'
+      : '<span class="badge bg-warning text-dark dreq-review-badge">Belum direview</span>';
+  }
+
+  function setVerifyAlert(type, message) {
+    if (!verifyAlertEl) {
+      return;
+    }
+    if (!message) {
+      verifyAlertEl.innerHTML = '';
+      return;
+    }
+    verifyAlertEl.innerHTML = '<div class="alert alert-' + type + ' py-2 mb-3">' + message + '</div>';
+  }
+
+  function clearVerifyState() {
+    activeVerifyLineIdx = -1;
+    setVerifyAlert('', '');
+    if (verifyTitleEl) {
+      verifyTitleEl.textContent = '-';
+    }
+    if (verifySubtitleEl) {
+      verifySubtitleEl.textContent = 'Verifikasi line satu per satu sebelum bentuk SR atau PO hasil review.';
+    }
+    if (verifyNoteEl) {
+      verifyNoteEl.textContent = 'Line belum direview.';
+    }
+    if (verifyKindEl) {
+      verifyKindEl.value = '';
+    }
+    if (verifyBrandEl) {
+      verifyBrandEl.value = '';
+    }
+    if (verifyDescriptionEl) {
+      verifyDescriptionEl.value = '';
+    }
+    if (verifyBuyUomEl) {
+      verifyBuyUomEl.value = '';
+    }
+    if (verifyContentUomEl) {
+      verifyContentUomEl.value = '';
+    }
+    if (verifyPackEl) {
+      verifyPackEl.value = '';
+    }
+    if (verifyStockEl) {
+      verifyStockEl.value = '';
+    }
+    if (verifyModeEl) {
+      verifyModeEl.value = '';
+    }
+    if (verifyQtyEl) {
+      verifyQtyEl.value = '';
+    }
+    if (verifyPoQtyEl) {
+      verifyPoQtyEl.value = '';
+      verifyPoQtyEl.disabled = false;
+    }
+    if (verifyPriceEl) {
+      verifyPriceEl.value = '';
+    }
+    if (verifyVendorEl) {
+      verifyVendorEl.innerHTML = renderVendorOptions('');
+      verifyVendorEl.disabled = false;
+    }
+    if (verifyNotesEl) {
+      verifyNotesEl.value = '';
+    }
+    if (verifySuggestionListEl) {
+      verifySuggestionListEl.innerHTML = '<div class="small text-muted">Belum ada saran. Klik Cari Saran untuk melihat kandidat buyer.</div>';
+    }
+    if (verifyRouteLabelEl) {
+      verifyRouteLabelEl.textContent = 'Pilih mode input dan qty request dulu.';
+    }
+    if (verifyRouteNoteEl) {
+      verifyRouteNoteEl.textContent = 'Route SR/PO dan kebutuhan vendor akan dihitung dari data review ini.';
+    }
+  }
+
+  function hideVerifyModal() {
+    hideModalElement(verifyModalEl, clearVerifyState);
+  }
+
+  function showVerifyModal() {
+    showModalElement(verifyModalEl);
+  }
+
+  function markLineNeedsReview(idx) {
+    if (!isVerifyMode || idx < 0 || !requestLines[idx]) {
+      return;
+    }
+    requestLines[idx].line_reviewed = false;
+  }
+
+  function renderVerifySuggestionList() {
+    if (!verifySuggestionListEl) {
+      return;
+    }
+    if (activeVerifyLineIdx < 0 || !requestLines[activeVerifyLineIdx]) {
+      verifySuggestionListEl.innerHTML = '<div class="small text-muted">Belum ada saran. Klik Cari Saran untuk melihat kandidat buyer.</div>';
+      return;
+    }
+    var row = requestLines[activeVerifyLineIdx];
+    if (row.suggestion_loading) {
+      verifySuggestionListEl.innerHTML = '<div class="small text-muted">Memuat saran...</div>';
+      return;
+    }
+    if (Array.isArray(row.catalog_suggestions) && row.catalog_suggestions.length) {
+      verifySuggestionListEl.innerHTML = renderProfileSuggestionButtons(activeVerifyLineIdx, row.catalog_suggestions);
+      return;
+    }
+    verifySuggestionListEl.innerHTML = '<div class="small text-muted">Belum ada saran. Klik Cari Saran untuk melihat kandidat buyer.</div>';
+  }
+
+  function buildVerifyModalRow() {
+    if (activeVerifyLineIdx < 0 || !requestLines[activeVerifyLineIdx]) {
+      return null;
+    }
+    var row = normalizeRow(Object.assign({}, requestLines[activeVerifyLineIdx], {
+      profile_brand: verifyBrandEl ? String(verifyBrandEl.value || '').trim() : '',
+      profile_description: verifyDescriptionEl ? String(verifyDescriptionEl.value || '').trim() : '',
+      request_uom_mode: verifyModeEl ? selectedRequestMode(verifyModeEl.value) : '',
+      vendor_id: verifyVendorEl ? (num(verifyVendorEl.value) > 0 ? num(verifyVendorEl.value) : null) : null,
+      estimated_unit_price: verifyPriceEl ? round2(Math.max(0, num(verifyPriceEl.value))) : 0,
+      notes: verifyNotesEl ? String(verifyNotesEl.value || '').trim() : '',
+      line_reviewed: false
+    }));
+    if (hasRequestModeSelection(row)) {
+      syncRowTotalsFromRequest(row, verifyQtyEl ? verifyQtyEl.value : 0);
+      if (verifyPoQtyEl && !verifyPoQtyEl.disabled && String(verifyPoQtyEl.value || '').trim() !== '') {
+        syncRowTotalsFromPo(row, verifyPoQtyEl.value, routePlan(row));
+      }
+    } else {
+      row.qty_buy_requested = 0;
+      row.qty_content_requested = 0;
+      row.qty_buy_po_requested = 0;
+      row.qty_content_po_requested = 0;
+    }
+    row.vendor_name = vendorNameById(row.vendor_id);
+    return row;
+  }
+
+  function updateVerifyModalPreview() {
+    var row = buildVerifyModalRow();
+    if (!row) {
+      return;
+    }
+    var plan = routePlan(row);
+    if (verifyPoQtyEl) {
+      verifyPoQtyEl.disabled = !(String(row.source_type || '').toUpperCase() === 'WAREHOUSE' && num(row.qty_content_balance) > 0.00001 && hasRequestModeSelection(row));
+      if (verifyPoQtyEl.disabled) {
+        verifyPoQtyEl.value = hasRequestModeSelection(row) ? fixed2(requestPoQtyValue(row)) : '';
+      }
+    }
+    if (verifyVendorEl) {
+      verifyVendorEl.disabled = !requiresVendor(row, plan);
+      if (verifyVendorEl.disabled) {
+        verifyVendorEl.value = '';
+      }
+    }
+    if (!hasRequestModeSelection(row)) {
+      if (verifyRouteLabelEl) {
+        verifyRouteLabelEl.textContent = 'Pilih mode input dulu.';
+      }
+      if (verifyRouteNoteEl) {
+        verifyRouteNoteEl.textContent = 'Line ini belum bisa diverifikasi sebelum mode input dipilih.';
+      }
+      return;
+    }
+    if (num(requestQtyValue(row)) <= 0) {
+      if (verifyRouteLabelEl) {
+        verifyRouteLabelEl.textContent = 'Isi qty request lebih dulu.';
+      }
+      if (verifyRouteNoteEl) {
+        verifyRouteNoteEl.textContent = 'Qty request dipakai untuk hitung split SR dan PO.';
+      }
+      return;
+    }
+    if (verifyRouteLabelEl) {
+      verifyRouteLabelEl.textContent = 'Route: ' + routeLabel(row) + ' | Request ' + qtyWithCode(requestQtyValue(row), requestUnitCode(row));
+    }
+    if (verifyRouteNoteEl) {
+      var note = routeNote(row);
+      if (requiresVendor(row, plan) && num(row.vendor_id) <= 0) {
+        note += ' Vendor PO wajib dipilih.';
+      }
+      verifyRouteNoteEl.textContent = note;
+    }
+  }
+
+  function populateVerifyModal(idx) {
+    if (idx < 0 || !requestLines[idx]) {
+      return;
+    }
+    activeVerifyLineIdx = idx;
+    var row = normalizeRow(requestLines[idx]);
+    requestLines[idx] = row;
+    setVerifyAlert('', '');
+    if (verifyTitleEl) {
+      verifyTitleEl.textContent = row.profile_name || '-';
+    }
+    if (verifySubtitleEl) {
+      verifySubtitleEl.textContent = sourceLabel(String(row.source_type || '').toUpperCase()) + ' | ' + packSummary(row);
+    }
+    if (verifyNoteEl) {
+      verifyNoteEl.textContent = row.line_reviewed ? 'Line sudah pernah direview. Anda bisa cek ulang sebelum simpan akhir.' : 'Line belum direview. Simpan hasil review line ini dulu.';
+    }
+    if (verifyKindEl) {
+      verifyKindEl.value = row.line_kind || '-';
+    }
+    if (verifyBrandEl) {
+      verifyBrandEl.value = row.profile_brand || '';
+    }
+    if (verifyDescriptionEl) {
+      verifyDescriptionEl.value = row.profile_description || '';
+    }
+    if (verifyBuyUomEl) {
+      verifyBuyUomEl.value = row.profile_buy_uom_code || '-';
+    }
+    if (verifyContentUomEl) {
+      verifyContentUomEl.value = row.profile_content_uom_code || '-';
+    }
+    if (verifyPackEl) {
+      verifyPackEl.value = packSummary(row);
+    }
+    if (verifyStockEl) {
+      verifyStockEl.value = draftStockSummary(row);
+    }
+    if (verifyModeEl) {
+      verifyModeEl.value = selectedRequestMode(row.request_uom_mode);
+    }
+    if (verifyQtyEl) {
+      verifyQtyEl.value = hasRequestModeSelection(row) ? fixed2(requestQtyValue(row)) : '';
+    }
+    if (verifyPoQtyEl) {
+      verifyPoQtyEl.value = hasRequestModeSelection(row) ? fixed2(requestPoQtyValue(row)) : '';
+    }
+    if (verifyPriceEl) {
+      verifyPriceEl.value = fixed2(row.estimated_unit_price || 0);
+    }
+    if (verifyVendorEl) {
+      verifyVendorEl.innerHTML = renderVendorOptions(row.vendor_id || '');
+      verifyVendorEl.value = row.vendor_id ? String(row.vendor_id) : '';
+    }
+    if (verifyNotesEl) {
+      verifyNotesEl.value = row.notes || '';
+    }
+    renderVerifySuggestionList();
+    updateVerifyModalPreview();
+  }
+
+  function openVerifyModal(idx) {
+    populateVerifyModal(idx);
+    showVerifyModal();
+  }
+
+  function buildDraftRow() {
+    if (!pendingDraftRow) {
+      return null;
+    }
+    var row = normalizeRow(Object.assign({}, pendingDraftRow, {
+      profile_brand: draftBrandEl ? String(draftBrandEl.value || '').trim() : '',
+      profile_description: draftDescriptionEl ? String(draftDescriptionEl.value || '').trim() : '',
+      required_expiry_date: draftExpiredEl ? String(draftExpiredEl.value || '').trim() : '',
+      expiry_policy: (draftExpiredEl && String(draftExpiredEl.value || '').trim() !== '') ? 'EXACT_DATE' : 'NONE',
+      estimated_unit_price: draftPriceEl ? round2(Math.max(0, num(draftPriceEl.value))) : 0,
+      notes: draftNotesEl ? String(draftNotesEl.value || '').trim() : '',
+      request_uom_mode: draftModeEl ? selectedRequestMode(draftModeEl.value) : ''
+    }));
+    if (hasRequestModeSelection(row)) {
+      syncRowTotalsFromRequest(row, draftQtyEl ? draftQtyEl.value : 0);
+    } else {
+      row.qty_buy_requested = 0;
+      row.qty_content_requested = 0;
+      row.qty_buy_po_requested = 0;
+      row.qty_content_po_requested = 0;
+    }
+    return row;
+  }
+
+  function updateDraftPreview() {
+    var row = buildDraftRow();
+    if (!row) {
+      return;
+    }
+    if (!hasRequestModeSelection(row)) {
+      if (draftRouteLabelEl) {
+        draftRouteLabelEl.textContent = 'Pilih mode input dulu.';
+      }
+      if (draftRouteNoteEl) {
+        draftRouteNoteEl.textContent = 'Baru setelah itu sistem bisa menghitung arah SR/PO.';
+      }
+      return;
+    }
+    if (num(requestQtyValue(row)) <= 0) {
+      if (draftRouteLabelEl) {
+        draftRouteLabelEl.textContent = 'Isi qty request lebih dulu.';
+      }
+      if (draftRouteNoteEl) {
+        draftRouteNoteEl.textContent = 'Qty dipakai untuk menghitung split SR dan PO.';
+      }
+      return;
+    }
+    if (draftRouteLabelEl) {
+      draftRouteLabelEl.textContent = 'Route: ' + routeLabel(row) + ' | Qty ' + qtyWithCode(requestQtyValue(row), requestUnitCode(row));
+    }
+    if (draftRouteNoteEl) {
+      draftRouteNoteEl.textContent = routeNote(row);
+    }
+  }
+
+  function openDraftModal(row) {
+    var normalized = normalizeRow(row || {});
+    if (hasExistingLineKey(lineKey(normalized))) {
+      flash('warning', 'Profile ini sudah ada di line pengajuan.');
+      return;
+    }
+    pendingDraftRow = normalized;
+    setDraftAlert('', '');
+    if (draftTitleEl) {
+      draftTitleEl.textContent = normalized.profile_name || '-';
+    }
+    if (draftSubtitleEl) {
+      draftSubtitleEl.textContent = sourceLabel(String(normalized.source_type || '').toUpperCase()) + ' | ' + packSummary(normalized);
+    }
+    if (draftSourceNoteEl) {
+      draftSourceNoteEl.textContent = String(normalized.source_type || '').toUpperCase() === 'WAREHOUSE'
+        ? 'Stok gudang ditemukan. Isi kebutuhan total dulu sebelum line ditambahkan.'
+        : 'Fallback katalog/master. Line ini akan cenderung masuk PO jika stok gudang tidak ada saat proses.';
+    }
+    if (draftKindEl) {
+      draftKindEl.value = normalized.line_kind || '-';
+    }
+    if (draftBrandEl) {
+      draftBrandEl.value = normalized.profile_brand || '';
+    }
+    if (draftDescriptionEl) {
+      draftDescriptionEl.value = normalized.profile_description || '';
+    }
+    if (draftBuyUomEl) {
+      draftBuyUomEl.value = normalized.profile_buy_uom_code || '-';
+    }
+    if (draftContentUomEl) {
+      draftContentUomEl.value = normalized.profile_content_uom_code || '-';
+    }
+    if (draftPackEl) {
+      draftPackEl.value = packSummary(normalized);
+    }
+    if (draftStockEl) {
+      draftStockEl.value = draftStockSummary(normalized);
+    }
+    if (draftModeEl) {
+      draftModeEl.value = selectedRequestMode(normalized.request_uom_mode || defaultRequestModeForRow(normalized));
+    }
+    if (draftQtyEl) {
+      draftQtyEl.value = hasRequestModeSelection(normalized) ? fixed2(requestQtyValue(normalized)) : '';
+    }
+    if (draftExpiredEl) {
+      draftExpiredEl.value = normalized.required_expiry_date || normalized.profile_expired_date || '';
+    }
+    if (draftPriceEl) {
+      draftPriceEl.value = fixed2(normalized.estimated_unit_price || 0);
+    }
+    if (draftNotesEl) {
+      draftNotesEl.value = normalized.notes || '';
+    }
+    updateDraftPreview();
+    showDraftModal();
   }
 
   function applyDivisionDestinationGuard() {
@@ -951,6 +1959,10 @@ if (!function_exists('finance_dreq_location_label')) {
 
         requestLines[idx].catalog_suggestions = filtered;
         requestLines[idx].suggestion_loading = false;
+        if (activeVerifyLineIdx === idx) {
+          renderVerifySuggestionList();
+          updateVerifyModalPreview();
+        }
         renderLines();
       })
       .catch(function (error) {
@@ -959,6 +1971,9 @@ if (!function_exists('finance_dreq_location_label')) {
         }
         requestLines[idx].catalog_suggestions = [];
         requestLines[idx].suggestion_loading = false;
+        if (activeVerifyLineIdx === idx) {
+          renderVerifySuggestionList();
+        }
         renderLines();
         flash('warning', error && error.message ? error.message : 'Gagal memuat saran profile.');
       });
@@ -982,6 +1997,9 @@ if (!function_exists('finance_dreq_location_label')) {
     row.profile_brand = String(suggestion.brand_name || '');
     row.profile_description = String(suggestion.line_description || '');
     row.profile_expired_date = String(suggestion.expired_date || row.profile_expired_date || '');
+    row.required_expiry_date = String(suggestion.required_expiry_date || suggestion.expired_date || row.required_expiry_date || row.profile_expired_date || '');
+    row.expiry_policy = row.required_expiry_date ? 'EXACT_DATE' : (row.expiry_policy || 'NONE');
+    row.min_remaining_days = num(suggestion.min_remaining_days || row.min_remaining_days || 0) || null;
     row.buy_uom_id = num(suggestion.buy_uom_id) > 0 ? num(suggestion.buy_uom_id) : row.buy_uom_id;
     row.content_uom_id = num(suggestion.content_uom_id) > 0 ? num(suggestion.content_uom_id) : row.content_uom_id;
     row.profile_content_per_buy = num(suggestion.content_per_buy || suggestion.conversion_factor_to_content || row.profile_content_per_buy || 1);
@@ -994,6 +2012,7 @@ if (!function_exists('finance_dreq_location_label')) {
     row.catalog_suggestions = [];
     row.suggestion_loading = false;
     row.suggestion_query = '';
+    row.line_reviewed = false;
 
     if (num(row.vendor_id) <= 0 && num(suggestion.vendor_id) > 0) {
       row.vendor_id = num(suggestion.vendor_id);
@@ -1009,6 +2028,9 @@ if (!function_exists('finance_dreq_location_label')) {
     }
 
     renderLines();
+    if (activeVerifyLineIdx === idx) {
+      populateVerifyModal(idx);
+    }
     flash('success', 'Profile buyer dipakai. Split SR/PO final akan dihitung ulang saat verifikasi disimpan.');
   }
 
@@ -1061,52 +2083,90 @@ if (!function_exists('finance_dreq_location_label')) {
       var poCaption = poInputCaption(row, plan);
       var vendorRequired = requiresVendor(row, plan);
       var vendorValue = num(row.vendor_id) > 0 ? num(row.vendor_id) : '';
+      var vendorText = row.vendor_name || vendorNameById(vendorValue) || '-';
       var vendorCellHtml = '';
-      var profileCellHtml = '<td class="dreq-profile-cell"><strong>' + esc(row.profile_name || '-') + '</strong><div class="small mt-1"><span class="badge bg-' + badgeClass + '">' + esc(sourceLabel(sourceType)) + '</span></div>';
+      var profileMeta = [];
+      if (String(row.profile_brand || '').trim() !== '') {
+        profileMeta.push('Merk: ' + String(row.profile_brand || '').trim());
+      }
+      if (String(row.profile_description || '').trim() !== '') {
+        profileMeta.push(String(row.profile_description || '').trim());
+      }
+      var profileCellHtml = '<td class="dreq-profile-cell"><div class="dreq-profile-title"><strong>' + esc(row.profile_name || '-') + '</strong></div><div class="dreq-profile-meta"><span class="badge bg-' + badgeClass + '">' + esc(sourceLabel(sourceType)) + '</span>' + reviewBadgeHtml(row) + (profileMeta.length ? '<span class="dreq-profile-hint">' + esc(profileMeta.join(' | ')) + '</span>' : '') + '</div>';
       if (isVerifyMode) {
-        var suggestionHtml = '<div class="small text-muted mt-2">Buyer bisa koreksi merk, keterangan, dan harga estimasi lalu klik Cari Saran Profil.</div>';
-        if (row.suggestion_loading) {
-          suggestionHtml = '<div class="small text-muted mt-2">Memuat saran profile...</div>';
-        } else if (Array.isArray(row.catalog_suggestions) && row.catalog_suggestions.length) {
-          suggestionHtml = '<div class="dreq-suggestion-list mt-2">' + renderProfileSuggestionButtons(idx, row.catalog_suggestions) + '</div>';
+        var reviewSummary = [];
+        if (String(row.profile_brand || '').trim() !== '') {
+          reviewSummary.push('Merk ' + String(row.profile_brand || '').trim());
         }
-        profileCellHtml += '<div class="dreq-profile-editor mt-2">'
-          + '<div class="dreq-buyer-caption">Buyer Correction</div>'
-          + '<input type="text" class="form-control form-control-sm line-profile-brand mb-1" data-idx="' + idx + '" value="' + esc(row.profile_brand || '') + '" placeholder="Merk final">'
-          + '<input type="text" class="form-control form-control-sm line-profile-description mb-1" data-idx="' + idx + '" value="' + esc(row.profile_description || '') + '" placeholder="Keterangan/spec final">'
-          + '<div class="input-group input-group-sm"><span class="input-group-text">Est</span><input type="number" min="0" step="0.01" class="form-control line-estimated-price" data-idx="' + idx + '" value="' + fixed2(row.estimated_unit_price || 0) + '" placeholder="Harga estimasi"><button type="button" class="btn btn-outline-primary line-profile-suggest" data-idx="' + idx + '">Cari Saran</button></div>'
-          + suggestionHtml
-          + '</div>';
+        if (String(row.profile_description || '').trim() !== '') {
+          reviewSummary.push(String(row.profile_description || '').trim());
+        }
+        reviewSummary.push('Est ' + fixed2(row.estimated_unit_price || 0));
+        profileCellHtml += '<div class="dreq-review-summary small text-muted">' + esc(reviewSummary.join(' | ')) + '</div>';
       }
       profileCellHtml += '</td>';
       if (canAssignVendor) {
-        vendorCellHtml = '<td class="dreq-vendor-cell"><div class="dreq-vendor-wrap"><select class="form-select form-select-sm line-vendor dreq-vendor-select" data-idx="' + idx + '"' + (vendorRequired ? '' : ' disabled') + '>'
-          + renderVendorOptions(vendorValue)
-          + '</select><button type="button" class="btn btn-sm btn-outline-primary line-vendor-add dreq-vendor-add" data-idx="' + idx + '" title="Tambah vendor baru">+</button></div><div class="dreq-vendor-meta mt-1">' + esc(vendorInputCaption(row, plan)) + '</div></td>';
+        if (isVerifyMode) {
+          vendorCellHtml = '<td class="dreq-vendor-cell"><div class="fw-semibold dreq-vendor-title">' + esc(vendorText) + '</div><div class="mt-1"><span class="dreq-vendor-caption ' + (vendorRequired ? 'is-required' : 'is-optional') + '">' + esc(vendorVerifyCaption(row, plan)) + '</span></div></td>';
+        } else {
+          vendorCellHtml = '<td class="dreq-vendor-cell"><div class="dreq-vendor-wrap"><select class="form-select form-select-sm line-vendor dreq-vendor-select" data-idx="' + idx + '"' + (vendorRequired ? '' : ' disabled') + '>'
+            + renderVendorOptions(vendorValue)
+            + '</select><button type="button" class="btn btn-sm btn-outline-primary line-vendor-add dreq-vendor-add" data-idx="' + idx + '" title="Tambah vendor baru">+</button></div></td>';
+        }
       }
       var srCellHtml = isDirectPo
-        ? '<div class="form-control form-control-sm dreq-qty-readonly text-center">-</div><div class="small text-muted mt-1">Langsung PO</div>'
-        : '<input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + (hasMode ? fixed2(requestPlanQty(plan, row, 'SR')) : '') + '" readonly><div class="small text-muted mt-1">' + esc(hasMode ? requestUnitCode(row) : '-') + '</div>';
+        ? '<div class="form-control form-control-sm dreq-qty-readonly text-center">-</div>'
+        : '<input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + (hasMode ? fixed2(requestPlanQty(plan, row, 'SR')) : '') + '" readonly>';
       var poInputClass = 'form-control form-control-sm line-po dreq-po-input' + ((canSplitWarehouse && requestPoQtyValue(row) > 0) ? ' is-active-po' : '');
-      var poInputHtml = canSplitWarehouse
-        ? '<input type="number" min="0.00" step="0.01" class="' + poInputClass + '" data-idx="' + idx + '" value="' + (hasMode ? fixed2(requestPoQtyValue(row)) : '') + '"' + (hasMode ? '' : ' disabled') + '><div class="small text-muted mt-1">' + esc(poCaption) + '</div>' + (hasMode && poSummary ? '<div class="small text-muted">~ ' + esc(poSummary) + '</div>' : '')
-        : '<input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + (hasMode ? fixed2(requestPlanQty(plan, row, 'PO')) : '') + '" readonly><div class="small text-muted mt-1">' + esc(poCaption) + '</div>';
-      html += '<tr>'
-        + profileCellHtml
-        + '<td>' + esc(row.line_kind || '-') + '</td>'
-        + '<td><span class="badge bg-' + routeClass + '">' + esc(routeLabel(row)) + '</span><span class="dreq-route-note ' + (overStock ? 'dreq-stock-split' : '') + '">' + esc(routeNote(row)) + '</span></td>'
-        + vendorCellHtml
-        + '<td class="dreq-uom-cell">' + esc(row.profile_buy_uom_code || '-') + ' -> ' + esc(row.profile_content_uom_code || '-') + '</td>'
-        + '<td class="text-end dreq-stock-cell">' + fixed2(row.qty_buy_balance) + (overStock ? '<div class="small dreq-stock-split">butuh lebih</div>' : '') + '</td>'
-        + '<td class="text-end dreq-stock-cell">' + fixed2(row.qty_content_balance) + '</td>'
-        + '<td class="dreq-request-cell"><div class="dreq-mode-caption">Mode Input</div><select class="form-select form-select-sm line-request-mode dreq-request-mode mb-1" data-idx="' + idx + '"><option value=""' + (!hasMode ? ' selected' : '') + '>Pilih mode input</option><option value="BUY"' + (mode === 'BUY' && hasMode ? ' selected' : '') + '>PACK / UOM Beli (' + esc(row.profile_buy_uom_code || '-') + ')</option><option value="CONTENT"' + (mode === 'CONTENT' && hasMode ? ' selected' : '') + '>ISI (' + esc(row.profile_content_uom_code || '-') + ')</option></select><input type="number" min="0.01" step="0.01" class="form-control form-control-sm line-request dreq-qty-input ' + (overStock ? 'is-overstock' : '') + '" data-idx="' + idx + '" value="' + (hasMode ? fixed2(requestQtyValue(row)) : '') + '"' + (hasMode ? '' : ' disabled') + '><div class="small text-muted mt-1">' + esc(requestCaption) + '</div>' + (hasMode && requestSummary ? '<div class="small text-muted">~ ' + esc(requestSummary) + '</div>' : '') + '</td>'
-        + '<td>' + srCellHtml + '</td>'
-        + '<td>' + poInputHtml + '</td>'
-        + '<td><input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + fixed2(requestPlanQty(plan, row, 'PO')) + '" readonly><div class="small text-muted mt-1">' + esc(requestUnitCode(row)) + '</div></td>'
-        + '<td><input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + fixed2(row.qty_content_requested) + '" readonly><div class="small text-muted mt-1">' + esc(row.profile_content_uom_code || '-') + '</div></td>'
-        + '<td><input type="text" class="form-control form-control-sm line-notes dreq-notes-input" data-idx="' + idx + '" value="' + esc(row.notes || '') + '" placeholder="Opsional"></td>'
-        + '<td><button type="button" class="btn btn-sm btn-outline-danger line-del dreq-action-btn" data-idx="' + idx + '">Hapus</button></td>'
-        + '</tr>';
+      var poInputHtml = isVerifyMode
+        ? '<div class="dreq-request-stack"><input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + (hasMode ? fixed2(requestPoQtyValue(row)) : '') + '" readonly>' + (hasMode && poSummary ? '<div class="small text-muted">~ ' + esc(poSummary) + '</div>' : '<div class="small text-muted">' + esc(poCaption) + '</div>') + '</div>'
+        : (canSplitWarehouse
+          ? '<div class="dreq-request-stack"><input type="number" min="0.00" step="0.01" class="' + poInputClass + '" data-idx="' + idx + '" value="' + (hasMode ? fixed2(requestPoQtyValue(row)) : '') + '"' + (hasMode ? '' : ' disabled') + '>' + (hasMode && poSummary ? '<div class="small text-muted">~ ' + esc(poSummary) + '</div>' : '') + '</div>'
+          : '<input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + (hasMode ? fixed2(requestPlanQty(plan, row, 'PO')) : '') + '" readonly>');
+      var requestDisplayHtml = hasMode
+        ? '<div class="fw-semibold">' + esc((mode === 'CONTENT' ? 'ISI' : 'PACK') + ' | ' + qtyWithCode(requestQtyValue(row), requestUnitCode(row))) + '</div>'
+        : '<div class="text-muted">Belum dipilih</div>';
+      var srDisplayHtml = '<div class="fw-semibold">' + (hasMode ? esc(qtyWithCode(requestPlanQty(plan, row, 'SR'), requestUnitCode(row))) : '-') + '</div>';
+      var poDisplayHtml = '<div class="fw-semibold">' + (hasMode ? esc(qtyWithCode(requestPlanQty(plan, row, 'PO'), requestUnitCode(row))) : '-') + '</div>';
+      var requestCellHtml = isVerifyMode
+        ? '<td class="dreq-request-cell"><div class="dreq-request-stack"><div class="fw-semibold">' + (hasMode ? esc((mode === 'CONTENT' ? 'ISI' : 'PACK') + ' | ' + qtyWithCode(requestQtyValue(row), requestUnitCode(row))) : '<span class="text-muted">Belum dipilih</span>') + '</div>' + (hasMode && requestSummary ? '<div class="small text-muted">~ ' + esc(requestSummary) + '</div>' : '<div class="small text-muted">' + esc(requestCaption) + '</div>') + '</div></td>'
+        : '<td class="dreq-request-cell"><div class="dreq-request-stack"><select class="form-select form-select-sm line-request-mode dreq-request-mode" data-idx="' + idx + '"><option value=""' + (!hasMode ? ' selected' : '') + '>Pilih mode input</option><option value="BUY"' + (mode === 'BUY' && hasMode ? ' selected' : '') + '>PACK / UOM Beli (' + esc(row.profile_buy_uom_code || '-') + ')</option><option value="CONTENT"' + (mode === 'CONTENT' && hasMode ? ' selected' : '') + '>ISI (' + esc(row.profile_content_uom_code || '-') + ')</option></select><input type="number" min="0.01" step="0.01" class="form-control form-control-sm line-request dreq-qty-input ' + (overStock ? 'is-overstock' : '') + '" data-idx="' + idx + '" value="' + (hasMode ? fixed2(requestQtyValue(row)) : '') + '"' + (hasMode ? '' : ' disabled') + '>' + (hasMode && requestSummary ? '<div class="small text-muted">~ ' + esc(requestSummary) + '</div>' : '') + '</div></td>';
+      var notesCellHtml = isVerifyMode
+        ? '<td><div class="small">' + esc(row.notes || '-') + '</div></td>'
+        : '<td><input type="text" class="form-control form-control-sm line-notes dreq-notes-input" data-idx="' + idx + '" value="' + esc(row.notes || '') + '" placeholder="Opsional"></td>';
+      var actionCellHtml = isVerifyMode
+        ? '<td><div class="d-grid gap-1"><button type="button" class="btn btn-sm btn-outline-primary line-verify dreq-action-btn" data-idx="' + idx + '">' + (row.line_reviewed ? 'Ulangi' : 'Review') + '</button><button type="button" class="btn btn-sm btn-outline-danger line-del dreq-action-btn" data-idx="' + idx + '">Hapus</button></div></td>'
+        : '<td><button type="button" class="btn btn-sm btn-outline-danger line-del dreq-action-btn" data-idx="' + idx + '">Hapus</button></td>';
+      if (isVerifyMode) {
+        html += '<tr>'
+          + profileCellHtml
+          + '<td>' + esc(row.line_kind || '-') + '</td>'
+          + '<td><span class="badge bg-' + routeClass + '">' + esc(routeLabel(row)) + '</span></td>'
+          + vendorCellHtml
+          + '<td class="dreq-uom-cell"><div class="fw-semibold">' + esc(row.profile_buy_uom_code || '-') + ' -> ' + esc(row.profile_content_uom_code || '-') + '</div><div class="small text-muted">' + esc(packSummary(row)) + '</div></td>'
+          + '<td><div class="dreq-request-stack">' + requestDisplayHtml + (hasMode && requestSummary ? '<div class="small text-muted">~ ' + esc(requestSummary) + '</div>' : '<div class="small text-muted">' + esc(requestCaption) + '</div>') + '</div></td>'
+          + '<td>' + srDisplayHtml + '</td>'
+          + '<td><div class="dreq-request-stack">' + poDisplayHtml + (hasMode && poSummary ? '<div class="small text-muted">~ ' + esc(poSummary) + '</div>' : '<div class="small text-muted">' + esc(poCaption) + '</div>') + '</div></td>'
+          + actionCellHtml
+          + '</tr>';
+      } else {
+        html += '<tr>'
+          + profileCellHtml
+          + '<td>' + esc(row.line_kind || '-') + '</td>'
+          + '<td><span class="badge bg-' + routeClass + '">' + esc(routeLabel(row)) + '</span></td>'
+          + vendorCellHtml
+          + '<td class="dreq-uom-cell"><div class="fw-semibold">' + esc(row.profile_buy_uom_code || '-') + ' -> ' + esc(row.profile_content_uom_code || '-') + '</div><div class="small text-muted">' + esc(packSummary(row)) + '</div></td>'
+          + '<td class="text-end dreq-stock-cell">' + fixed2(row.qty_buy_balance) + '</td>'
+          + '<td class="text-end dreq-stock-cell">' + fixed2(row.qty_content_balance) + '</td>'
+          + requestCellHtml
+          + '<td>' + srCellHtml + '</td>'
+          + '<td>' + poInputHtml + '</td>'
+          + '<td><input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + fixed2(requestPlanQty(plan, row, 'PO')) + '" readonly></td>'
+          + '<td><input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + fixed2(row.qty_content_requested) + '" readonly></td>'
+          + notesCellHtml
+          + actionCellHtml
+          + '</tr>';
+      }
     });
     tbody.innerHTML = html;
     setLinesJson();
@@ -1119,7 +2179,7 @@ if (!function_exists('finance_dreq_location_label')) {
     }
     toggleManualCard(allowManual, query);
     if (!rows || !rows.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Tidak ada data.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Tidak ada data.</td></tr>';
       if (allowManual) {
         setSearchMeta('Stok gudang dan katalog tidak menemukan barang. Lanjut input manual untuk diarahkan ke PO.');
       } else {
@@ -1139,11 +2199,24 @@ if (!function_exists('finance_dreq_location_label')) {
       var normalized = normalizeRow(row);
       var sourceType = String(row.source_type || source || 'CATALOG').toUpperCase();
       var badgeClass = sourceType === 'WAREHOUSE' ? 'success' : 'info text-dark';
+      var buyCode = esc(normalized.profile_buy_uom_code || '-');
+      var contentCode = esc(normalized.profile_content_uom_code || '-');
+      var brandText = normalized.profile_brand ? '<div class="small text-muted">Brand: ' + esc(normalized.profile_brand) + '</div>' : '';
+      var descriptionText = normalized.profile_description ? esc(normalized.profile_description) : '<span class="text-muted">-</span>';
+      var stockCell = sourceType === 'WAREHOUSE'
+        ? '<div class="fw-semibold">' + fixed2(normalized.qty_buy_balance) + ' ' + buyCode + '</div><div class="small text-muted">' + fixed2(normalized.qty_content_balance) + ' ' + contentCode + '</div>'
+        : '<span class="text-muted small">Fallback katalog</span>';
+      var priceValue = num(normalized.last_unit_price || normalized.standard_price || normalized.estimated_unit_price || 0);
+      var expDateText = normalized.profile_expired_date ? esc(normalized.profile_expired_date) : '-';
+      var lastPurchaseDate = normalized.last_purchase_date ? esc(normalized.last_purchase_date) : '-';
       html += '<tr>'
-        + '<td class="dreq-profile-cell"><strong>' + esc(normalized.profile_name || '-') + '</strong><div class="small mt-1"><span class="badge bg-' + badgeClass + '">' + esc(sourceLabel(sourceType)) + '</span></div></td>'
-        + '<td class="dreq-uom-cell">' + esc(normalized.profile_buy_uom_code || '-') + ' -> ' + esc(normalized.profile_content_uom_code || '-') + '</td>'
-        + '<td class="text-end dreq-stock-cell">' + fixed2(normalized.qty_buy_balance) + '</td>'
-        + '<td class="text-end dreq-stock-cell">' + fixed2(normalized.qty_content_balance) + '</td>'
+        + '<td class="dreq-profile-cell"><strong>' + esc(normalized.profile_name || '-') + '</strong>' + brandText + '<div class="small mt-1"><span class="badge bg-' + badgeClass + '">' + esc(sourceLabel(sourceType)) + '</span></div></td>'
+        + '<td class="small">' + descriptionText + '</td>'
+        + '<td class="dreq-uom-cell"><div class="fw-semibold">' + buyCode + ' -> ' + contentCode + '</div><div class="small text-muted">' + esc(packSummary(normalized)) + '</div></td>'
+        + '<td class="text-end dreq-stock-cell">' + stockCell + '</td>'
+        + '<td class="text-end"><div class="fw-semibold">' + fixed2(priceValue) + '</div><div class="small text-muted">/ ' + buyCode + '</div></td>'
+        + '<td>' + expDateText + '</td>'
+        + '<td>' + lastPurchaseDate + '</td>'
         + '<td><button type="button" class="btn btn-sm btn-outline-primary dreq-action-btn search-pick" data-row="' + esc(JSON.stringify(normalized)) + '">Pilih</button></td>'
         + '</tr>';
     });
@@ -1153,14 +2226,13 @@ if (!function_exists('finance_dreq_location_label')) {
   function addLine(row) {
     var normalized = normalizeRow(row);
     var key = lineKey(normalized);
-    for (var i = 0; i < requestLines.length; i++) {
-      if (lineKey(requestLines[i]) === key) {
-        flash('warning', 'Profile ini sudah ada di line pengajuan.');
-        return;
-      }
+    if (hasExistingLineKey(key)) {
+      flash('warning', 'Profile ini sudah ada di line pengajuan.');
+      return false;
     }
     requestLines.push(normalized);
     renderLines();
+    return true;
   }
 
   function selectCode(selectId) {
@@ -1202,6 +2274,9 @@ if (!function_exists('finance_dreq_location_label')) {
       profile_brand: '',
       profile_description: description,
       profile_expired_date: '',
+      expiry_policy: 'NONE',
+      required_expiry_date: '',
+      min_remaining_days: null,
       buy_uom_id: buyUomId,
       content_uom_id: contentUomId,
       profile_content_per_buy: contentPerBuy,
@@ -1318,7 +2393,7 @@ if (!function_exists('finance_dreq_location_label')) {
     if (pick) {
       event.preventDefault();
       try {
-        addLine(JSON.parse(pick.getAttribute('data-row') || '{}'));
+        openDraftModal(JSON.parse(pick.getAttribute('data-row') || '{}'));
       } catch (error) {
         flash('danger', 'Data barang tidak valid.');
       }
@@ -1332,6 +2407,16 @@ if (!function_exists('finance_dreq_location_label')) {
       if (idx >= 0) {
         requestLines.splice(idx, 1);
         renderLines();
+      }
+      return;
+    }
+
+    var verifyLine = event.target.closest('.line-verify');
+    if (verifyLine) {
+      event.preventDefault();
+      var verifyIdx = parseInt(verifyLine.getAttribute('data-idx') || '-1', 10);
+      if (verifyIdx >= 0 && requestLines[verifyIdx]) {
+        openVerifyModal(verifyIdx);
       }
       return;
     }
@@ -1377,12 +2462,131 @@ if (!function_exists('finance_dreq_location_label')) {
     }
   });
 
+  if (verifyModalEl) {
+    ['input', 'change'].forEach(function (eventName) {
+      verifyModalEl.addEventListener(eventName, function (event) {
+        if (event.target && event.target.closest('#dreqVerifyBrand, #dreqVerifyDescription, #dreqVerifyRequestMode, #dreqVerifyQty, #dreqVerifyPoQty, #dreqVerifyPrice, #dreqVerifyVendor, #dreqVerifyNotes')) {
+          setVerifyAlert('', '');
+          updateVerifyModalPreview();
+        }
+      });
+    });
+    verifyModalEl.addEventListener('hidden.bs.modal', function () {
+      clearVerifyState();
+    });
+    verifyModalEl.addEventListener('click', function (event) {
+      if (event.target === verifyModalEl || (event.target && event.target.closest('[data-bs-dismiss="modal"]'))) {
+        hideVerifyModal();
+      }
+    });
+  }
+
+  if (verifySuggestBtn) {
+    verifySuggestBtn.addEventListener('click', function () {
+      if (activeVerifyLineIdx >= 0) {
+        fetchLineProfileSuggestions(activeVerifyLineIdx);
+        renderVerifySuggestionList();
+      }
+    });
+  }
+
+  if (verifyVendorAddBtn) {
+    verifyVendorAddBtn.addEventListener('click', function () {
+      if (activeVerifyLineIdx >= 0 && window.FinanceQuickVendor) {
+        window.FinanceQuickVendor.open({
+          title: 'Tambah Vendor PO',
+          onCreated: function (vendor) {
+            upsertVendorOption(vendor);
+            if (verifyVendorEl) {
+              verifyVendorEl.innerHTML = renderVendorOptions(vendor.id);
+              verifyVendorEl.value = String(num(vendor.id));
+            }
+            updateVerifyModalPreview();
+            flash('success', 'Vendor baru siap dipakai untuk line review ini.');
+          }
+        });
+      }
+    });
+  }
+
+  if (verifyApplyBtn) {
+    verifyApplyBtn.addEventListener('click', function () {
+      var reviewedRow = buildVerifyModalRow();
+      if (!reviewedRow) {
+        setVerifyAlert('danger', 'Line review tidak ditemukan. Tutup modal lalu buka lagi.');
+        return;
+      }
+      if (!hasRequestModeSelection(reviewedRow)) {
+        setVerifyAlert('warning', 'Pilih mode input dulu untuk line ini.');
+        return;
+      }
+      if (num(requestQtyValue(reviewedRow)) <= 0) {
+        setVerifyAlert('warning', 'Qty request line harus lebih dari 0.');
+        return;
+      }
+      var reviewedPlan = routePlan(reviewedRow);
+      if (requiresVendor(reviewedRow, reviewedPlan) && num(reviewedRow.vendor_id) <= 0) {
+        setVerifyAlert('warning', 'Vendor wajib dipilih untuk line yang masuk PO.');
+        return;
+      }
+      reviewedRow.line_reviewed = true;
+      requestLines[activeVerifyLineIdx] = reviewedRow;
+      renderLines();
+      hideVerifyModal();
+      flash('success', 'Hasil review line disimpan. Lanjutkan ke line berikutnya atau simpan akhir jika semua sudah selesai.');
+    });
+  }
+
+  if (draftModalEl) {
+    ['input', 'change'].forEach(function (eventName) {
+      draftModalEl.addEventListener(eventName, function (event) {
+        if (event.target && event.target.closest('#dreqDraftBrand, #dreqDraftDescription, #dreqDraftRequestMode, #dreqDraftQty, #dreqDraftExpired, #dreqDraftPrice, #dreqDraftNotes')) {
+          setDraftAlert('', '');
+          updateDraftPreview();
+        }
+      });
+    });
+    draftModalEl.addEventListener('hidden.bs.modal', function () {
+      clearDraftState();
+    });
+    draftModalEl.addEventListener('click', function (event) {
+      if (event.target === draftModalEl || (event.target && event.target.closest('[data-bs-dismiss="modal"]'))) {
+        hideDraftModal();
+      }
+    });
+  }
+
+  if (draftApplyBtn) {
+    draftApplyBtn.addEventListener('click', function () {
+      var row = buildDraftRow();
+      if (!row) {
+        setDraftAlert('danger', 'Draft barang belum siap. Ulangi pilih dari preview.');
+        return;
+      }
+      if (!hasRequestModeSelection(row)) {
+        setDraftAlert('warning', 'Pilih mode input dulu sebelum menambahkan line.');
+        return;
+      }
+      if (num(requestQtyValue(row)) <= 0) {
+        setDraftAlert('warning', 'Qty request harus lebih dari 0.');
+        return;
+      }
+      if (!addLine(row)) {
+        setDraftAlert('warning', 'Profile ini sudah ada di line pengajuan.');
+        return;
+      }
+      hideDraftModal();
+      flash('success', 'Barang ditambahkan ke line pengajuan.');
+    });
+  }
+
   document.addEventListener('input', function (event) {
     var requestInput = event.target.closest('.line-request');
     if (requestInput) {
       var requestIdx = parseInt(requestInput.getAttribute('data-idx') || '-1', 10);
       if (requestIdx >= 0 && requestLines[requestIdx] && hasRequestModeSelection(requestLines[requestIdx])) {
         syncRowTotalsFromRequest(requestLines[requestIdx], requestInput.value);
+        markLineNeedsReview(requestIdx);
         setLinesJson();
       }
       return;
@@ -1394,6 +2598,7 @@ if (!function_exists('finance_dreq_location_label')) {
       if (poIdx >= 0 && requestLines[poIdx] && hasRequestModeSelection(requestLines[poIdx])) {
         var previousPlan = routePlan(requestLines[poIdx]);
         syncRowTotalsFromPo(requestLines[poIdx], po.value, previousPlan);
+        markLineNeedsReview(poIdx);
         setLinesJson();
       }
       return;
@@ -1405,6 +2610,7 @@ if (!function_exists('finance_dreq_location_label')) {
       if (vendorIdx >= 0 && requestLines[vendorIdx]) {
         requestLines[vendorIdx].vendor_id = num(vendor.value) > 0 ? num(vendor.value) : null;
         requestLines[vendorIdx].vendor_name = vendorNameById(vendor.value);
+        markLineNeedsReview(vendorIdx);
         setLinesJson();
       }
       return;
@@ -1415,6 +2621,7 @@ if (!function_exists('finance_dreq_location_label')) {
       var notesIdx = parseInt(notes.getAttribute('data-idx') || '-1', 10);
       if (notesIdx >= 0 && requestLines[notesIdx]) {
         requestLines[notesIdx].notes = notes.value || '';
+        markLineNeedsReview(notesIdx);
         setLinesJson();
       }
       return;
@@ -1425,6 +2632,7 @@ if (!function_exists('finance_dreq_location_label')) {
       var brandIdx = parseInt(profileBrand.getAttribute('data-idx') || '-1', 10);
       if (brandIdx >= 0 && requestLines[brandIdx]) {
         requestLines[brandIdx].profile_brand = profileBrand.value || '';
+        markLineNeedsReview(brandIdx);
         setLinesJson();
       }
       return;
@@ -1435,6 +2643,7 @@ if (!function_exists('finance_dreq_location_label')) {
       var descIdx = parseInt(profileDescription.getAttribute('data-idx') || '-1', 10);
       if (descIdx >= 0 && requestLines[descIdx]) {
         requestLines[descIdx].profile_description = profileDescription.value || '';
+        markLineNeedsReview(descIdx);
         setLinesJson();
       }
       return;
@@ -1445,6 +2654,7 @@ if (!function_exists('finance_dreq_location_label')) {
       var priceIdx = parseInt(estimatedPrice.getAttribute('data-idx') || '-1', 10);
       if (priceIdx >= 0 && requestLines[priceIdx]) {
         requestLines[priceIdx].estimated_unit_price = round2(Math.max(0, num(estimatedPrice.value)));
+        markLineNeedsReview(priceIdx);
         setLinesJson();
       }
     }
@@ -1456,6 +2666,7 @@ if (!function_exists('finance_dreq_location_label')) {
       var idx = parseInt(mode.getAttribute('data-idx') || '-1', 10);
       if (idx >= 0 && requestLines[idx]) {
         requestLines[idx].request_uom_mode = selectedRequestMode(mode.value);
+        markLineNeedsReview(idx);
         renderLines();
       }
       return;
@@ -1470,6 +2681,7 @@ if (!function_exists('finance_dreq_location_label')) {
           return;
         }
         syncRowTotalsFromRequest(requestLines[requestIdx], requestInput.value);
+        markLineNeedsReview(requestIdx);
         renderLines();
       }
       return;
@@ -1485,6 +2697,7 @@ if (!function_exists('finance_dreq_location_label')) {
         }
         var previousPlan = routePlan(requestLines[poIdx]);
         syncRowTotalsFromPo(requestLines[poIdx], po.value, previousPlan);
+        markLineNeedsReview(poIdx);
         renderLines();
       }
       return;
@@ -1496,6 +2709,7 @@ if (!function_exists('finance_dreq_location_label')) {
       if (vendorIdx >= 0 && requestLines[vendorIdx]) {
         requestLines[vendorIdx].vendor_id = num(vendor.value) > 0 ? num(vendor.value) : null;
         requestLines[vendorIdx].vendor_name = vendorNameById(vendor.value);
+        markLineNeedsReview(vendorIdx);
         setLinesJson();
       }
     }
@@ -1510,6 +2724,12 @@ if (!function_exists('finance_dreq_location_label')) {
         return;
       }
       for (var i = 0; i < requestLines.length; i++) {
+        if (isVerifyMode && !requestLines[i].line_reviewed) {
+          event.preventDefault();
+          flash('warning', 'Review dan simpan dulu setiap line lewat tombol Verifikasi sebelum bentuk dokumen akhir.');
+          openVerifyModal(i);
+          return;
+        }
         if (!hasRequestModeSelection(requestLines[i])) {
           event.preventDefault();
           flash('warning', 'Pilih mode input dulu untuk semua line pengajuan.');

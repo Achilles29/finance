@@ -71,23 +71,38 @@ class Master extends MY_Controller
             $perPage = 25;
         }
 
-        $total = $this->Master_model->count_filtered($cfg['table'], $cfg['searchable'], $q, $isActiveFilter);
+        if (($cfg['table'] ?? '') === 'mst_purchase_catalog_vendor') {
+            $total = $this->Master_model->count_purchase_catalog_vendor_filtered($q, $isActiveFilter);
+        } else {
+            $total = $this->Master_model->count_filtered($cfg['table'], $cfg['searchable'], $q, $isActiveFilter);
+        }
         $offset = ($page - 1) * $perPage;
         if ($offset >= $total && $total > 0) {
             $page = 1;
             $offset = 0;
         }
 
-        $rows = $this->Master_model->get_filtered(
-            $cfg['table'],
-            $cfg['searchable'],
-            $q,
-            $perPage,
-            $offset,
-            $cfg['order_by'],
-            $cfg['order_dir'],
-            $isActiveFilter
-        );
+        if (($cfg['table'] ?? '') === 'mst_purchase_catalog_vendor') {
+            $rows = $this->Master_model->get_purchase_catalog_vendor_filtered(
+                $q,
+                $perPage,
+                $offset,
+                $cfg['order_by'],
+                $cfg['order_dir'],
+                $isActiveFilter
+            );
+        } else {
+            $rows = $this->Master_model->get_filtered(
+                $cfg['table'],
+                $cfg['searchable'],
+                $q,
+                $perPage,
+                $offset,
+                $cfg['order_by'],
+                $cfg['order_dir'],
+                $isActiveFilter
+            );
+        }
 
         $lookupMaps = $this->buildLookupMaps($cfg);
         $rows = $this->decorateRows($rows, $cfg, $lookupMaps);
@@ -588,7 +603,6 @@ class Master extends MY_Controller
             }
             $data['line_kind'] = $lineKind;
 
-            $vendorId = (int)($data['vendor_id'] ?? 0);
             $itemId = isset($data['item_id']) ? (int)$data['item_id'] : 0;
             $materialId = isset($data['material_id']) ? (int)$data['material_id'] : 0;
             $buyUomId = (int)($data['buy_uom_id'] ?? 0);
@@ -596,10 +610,6 @@ class Master extends MY_Controller
             $contentPerBuy = (float)($data['content_per_buy'] ?? 1);
             $factor = (float)($data['conversion_factor_to_content'] ?? $contentPerBuy);
 
-            if ($vendorId <= 0) {
-                $this->session->set_flashdata('error', 'Vendor wajib dipilih untuk Purchase Catalog.');
-                return null;
-            }
             if ($buyUomId <= 0) {
                 $this->session->set_flashdata('error', 'UOM Beli wajib dipilih untuk Purchase Catalog.');
                 return null;
@@ -624,16 +634,38 @@ class Master extends MY_Controller
                 $contentUomId = $buyUomId;
             }
             if ($contentPerBuy <= 0) {
-                $contentPerBuy = 1;
+                $contentPerBuy = $factor > 0 ? $factor : 1;
             }
-            if ($factor <= 0) {
-                $factor = $contentPerBuy;
-            }
+            $factor = $contentPerBuy;
 
             $data['content_uom_id'] = $contentUomId;
             $data['content_per_buy'] = round($contentPerBuy, 6);
             $data['conversion_factor_to_content'] = round($factor, 8);
             $data['profile_key'] = $this->generatePurchaseCatalogProfileKey($data);
+        }
+
+        if (($cfg['table'] ?? '') === 'mst_purchase_catalog_vendor') {
+            $catalogId = (int)($data['catalog_id'] ?? 0);
+            $vendorId = (int)($data['vendor_id'] ?? 0);
+            if ($catalogId <= 0) {
+                $this->session->set_flashdata('error', 'Catalog master wajib dipilih untuk vendor purchase catalog.');
+                return null;
+            }
+            if ($vendorId <= 0) {
+                $this->session->set_flashdata('error', 'Vendor wajib dipilih untuk vendor purchase catalog.');
+                return null;
+            }
+
+            if (array_key_exists('standard_price', $data)) {
+                $data['standard_price'] = round((float)($data['standard_price'] ?? 0), 2);
+            }
+            if (array_key_exists('last_unit_price', $data)) {
+                $data['last_unit_price'] = round((float)($data['last_unit_price'] ?? 0), 2);
+            }
+            if (array_key_exists('last_purchase_date', $data)) {
+                $date = trim((string)($data['last_purchase_date'] ?? ''));
+                $data['last_purchase_date'] = $date !== '' ? $date : null;
+            }
         }
 
         return $data;
@@ -645,12 +677,13 @@ class Master extends MY_Controller
             strtoupper((string)($data['line_kind'] ?? 'ITEM')),
             (string)((int)($data['item_id'] ?? 0)),
             (string)((int)($data['material_id'] ?? 0)),
-            (string)((int)($data['vendor_id'] ?? 0)),
             (string)((int)($data['buy_uom_id'] ?? 0)),
             (string)((int)($data['content_uom_id'] ?? 0)),
+            strtoupper(trim((string)($data['catalog_name'] ?? ''))),
             number_format((float)($data['content_per_buy'] ?? 1), 6, '.', ''),
             strtoupper(trim((string)($data['brand_name'] ?? ''))),
             strtoupper(trim((string)($data['line_description'] ?? ''))),
+            trim((string)($data['expired_date'] ?? '')),
         ]));
     }
 
@@ -2019,7 +2052,6 @@ class Master extends MY_Controller
                 'toggle' => true,
                 'rules' => [
                     ['line_kind', 'Line Kind', 'required|trim'],
-                    ['vendor_id', 'Vendor', 'required|integer'],
                     ['catalog_name', 'Nama Katalog', 'required|trim|max_length[150]'],
                     ['buy_uom_id', 'UOM Beli', 'required|integer'],
                     ['content_per_buy', 'Isi per Beli', 'required|numeric'],
@@ -2032,7 +2064,6 @@ class Master extends MY_Controller
                         ['value' => 'SERVICE', 'label' => 'SERVICE'],
                         ['value' => 'ASSET', 'label' => 'ASSET'],
                     ]],
-                    ['name' => 'vendor_id', 'label' => 'Vendor', 'type' => 'select', 'lookup' => ['table' => 'mst_vendor', 'value' => 'id', 'label' => 'vendor_name', 'active_only' => false]],
                     ['name' => 'item_id', 'label' => 'Item', 'type' => 'select', 'lookup' => ['table' => 'mst_item', 'value' => 'id', 'label' => 'item_name', 'active_only' => false]],
                     ['name' => 'material_id', 'label' => 'Material', 'type' => 'select', 'lookup' => ['table' => 'mst_material', 'value' => 'id', 'label' => 'material_name', 'active_only' => false]],
                     ['name' => 'catalog_name', 'label' => 'Nama Katalog', 'type' => 'text'],
@@ -2051,7 +2082,6 @@ class Master extends MY_Controller
                 'columns' => [
                     ['key' => 'catalog_name', 'label' => 'Nama Katalog'],
                     ['key' => 'line_kind', 'label' => 'Line Kind'],
-                    ['key' => 'vendor_id_label', 'label' => 'Vendor'],
                     ['key' => 'item_id_label', 'label' => 'Item'],
                     ['key' => 'material_id_label', 'label' => 'Material'],
                     ['key' => 'brand_name', 'label' => 'Merk'],
@@ -2069,6 +2099,42 @@ class Master extends MY_Controller
                     ['key' => 'profile_key', 'label' => 'Profile Key'],
                     ['key' => 'notes', 'label' => 'Catatan'],
                     ['key' => 'created_at', 'label' => 'Created At'],
+                    ['key' => 'updated_at', 'label' => 'Updated At'],
+                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+            ],
+            'purchase-catalog-vendor' => [
+                'table' => 'mst_purchase_catalog_vendor',
+                'title' => 'Master Purchase Catalog Vendor',
+                'order_by' => 'catalog_id',
+                'order_dir' => 'ASC',
+                'searchable' => ['notes'],
+                'active_menu' => 'master.purchase.catalog_vendor',
+                'toggle' => true,
+                'rules' => [
+                    ['catalog_id', 'Catalog Master', 'required|integer'],
+                    ['vendor_id', 'Vendor', 'required|integer'],
+                ],
+                'fields' => [
+                    ['name' => 'catalog_id', 'label' => 'Catalog Master', 'type' => 'select', 'lookup' => ['table' => 'mst_purchase_catalog', 'value' => 'id', 'label' => 'catalog_name', 'active_only' => false]],
+                    ['name' => 'vendor_id', 'label' => 'Vendor', 'type' => 'select', 'lookup' => ['table' => 'mst_vendor', 'value' => 'id', 'label' => 'vendor_name', 'active_only' => false]],
+                    ['name' => 'standard_price', 'label' => 'Harga Standar Vendor', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'last_unit_price', 'label' => 'Harga Beli Terakhir Vendor', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'last_purchase_date', 'label' => 'Tanggal Beli Terakhir', 'type' => 'text'],
+                    ['name' => 'last_purchase_order_id', 'label' => 'Last PO ID', 'type' => 'number'],
+                    ['name' => 'last_purchase_line_id', 'label' => 'Last PO Line ID', 'type' => 'number'],
+                    ['name' => 'notes', 'label' => 'Catatan', 'type' => 'textarea'],
+                    ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                ],
+                'columns' => [
+                    ['key' => 'catalog_id_label', 'label' => 'Catalog Master'],
+                    ['key' => 'vendor_id_label', 'label' => 'Vendor'],
+                    ['key' => 'standard_price', 'label' => 'Harga Standar'],
+                    ['key' => 'last_unit_price', 'label' => 'Harga Beli Terakhir'],
+                    ['key' => 'last_purchase_date', 'label' => 'Tgl Beli Terakhir'],
+                    ['key' => 'last_purchase_order_id', 'label' => 'Last PO ID'],
+                    ['key' => 'last_purchase_line_id', 'label' => 'Last PO Line ID'],
+                    ['key' => 'notes', 'label' => 'Catatan'],
                     ['key' => 'updated_at', 'label' => 'Updated At'],
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
                 ],

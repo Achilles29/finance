@@ -1,0 +1,38 @@
+<?php
+$tabScope = strtoupper(trim((string)($tab_scope ?? 'WAREHOUSE')));
+$activeTab = strtolower(trim((string)($active_tab ?? 'stock')));
+
+if (!in_array($tabScope, ['WAREHOUSE', 'DIVISION'], true)) {
+    return;
+}
+
+$buttonClass = static function (string $tabKey) use ($activeTab): string {
+    return $activeTab === $tabKey ? 'btn btn-sm btn-dark' : 'btn btn-sm btn-outline-secondary';
+};
+
+if ($tabScope === 'DIVISION') {
+    $links = [
+        ['key' => 'daily_matrix', 'label' => 'Daily Material Matrix', 'url' => site_url('inventory-material-daily')],
+        ['key' => 'stock', 'label' => 'Stok Divisi', 'url' => site_url('inventory/stock/division')],
+        ['key' => 'opening', 'label' => 'Opening Divisi', 'url' => site_url('inventory/stock/opening/division')],
+        ['key' => 'adjustment', 'label' => 'Adjustment Divisi', 'url' => site_url('inventory/stock/adjustment/division')],
+        ['key' => 'movement', 'label' => 'Keluar Masuk Divisi', 'url' => site_url('inventory/stock/division/movement')],
+        ['key' => 'daily', 'label' => 'Stok Bulanan/Daily Divisi', 'url' => site_url('inventory/stock/division/daily')],
+        ['key' => 'lot', 'label' => 'Lot Divisi', 'url' => site_url('inventory/stock/division/lot')],
+    ];
+} else {
+    $links = [
+        ['key' => 'daily_matrix', 'label' => 'Daily Gudang Matrix', 'url' => site_url('inventory-warehouse-daily')],
+        ['key' => 'stock', 'label' => 'Stok Gudang', 'url' => site_url('inventory/stock/warehouse')],
+        ['key' => 'opening', 'label' => 'Opening Gudang', 'url' => site_url('inventory/stock/opening/warehouse')],
+        ['key' => 'adjustment', 'label' => 'Adjustment Gudang', 'url' => site_url('inventory/stock/adjustment/warehouse')],
+        ['key' => 'movement', 'label' => 'Keluar Masuk Gudang', 'url' => site_url('inventory/stock/warehouse/movement')],
+        ['key' => 'daily', 'label' => 'Stok Bulanan/Daily', 'url' => site_url('inventory/stock/warehouse/daily')],
+        ['key' => 'lot', 'label' => 'Lot Gudang', 'url' => site_url('inventory/stock/warehouse/lot')],
+    ];
+}
+
+foreach ($links as $link):
+?>
+  <a href="<?php echo $link['url']; ?>" class="<?php echo $buttonClass((string)$link['key']); ?>"><?php echo html_escape((string)$link['label']); ?></a>
+<?php endforeach; ?>

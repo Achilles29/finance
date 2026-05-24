@@ -45,7 +45,10 @@ TRUNCATE TABLE inv_component_movement_log;
 TRUNCATE TABLE inv_component_opening;
 TRUNCATE TABLE inv_component_opening_line;
 TRUNCATE TABLE inv_component_stock_balance;
-
+TRUNCATE TABLE inv_material_source_balance;
+TRUNCATE TABLE inv_material_fifo_lot;
+TRUNCATE TABLE inv_material_fifo_issue_log;
+TRUNCATE TABLE inv_material_fifo_issue_line;
 
 -- ── Payroll ──────────────────────────────────────────────────
 TRUNCATE TABLE pay_cash_advance;

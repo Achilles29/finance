@@ -15,6 +15,11 @@ class Inventory_division extends Purchase
         parent::stock_opening_division_index();
     }
 
+    public function adjustment()
+    {
+        parent::stock_adjustment_division_index();
+    }
+
     public function daily()
     {
         parent::stock_division_daily_index();
@@ -33,5 +38,10 @@ class Inventory_division extends Purchase
     public function matrix_view()
     {
         parent::inventory_material_daily_index();
+    }
+
+    public function lot()
+    {
+        parent::division_lot_audit_index();
     }
 }

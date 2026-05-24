@@ -13,6 +13,8 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
     </div>
   </div>
 
+  <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'master']); ?>
+
   <div class="card border-0 shadow-sm">
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center mb-3">
@@ -76,6 +78,7 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
               <th>UOM</th>
               <th class="text-end">HPP Standar</th>
               <th class="text-end">HPP Live</th>
+              <th>DIGUNAKAN</th>
               <th>Resep</th>
               <th>Status</th>
               <th style="width:260px;">Aksi</th>
@@ -267,15 +270,21 @@ function renderRows(rows) {
       <td class="text-end">${Number(r.hpp_standard || 0).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 6})}</td>
       <td class="text-end">${Number(r.hpp_live || 0).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 6})}</td>
       <td>
+        ${parseInt(r.usage_count || 0, 10) > 0
+          ? `<a href="<?php echo site_url('production/component-masters/usage'); ?>/${r.id}" class="badge bg-warning-subtle text-warning-emphasis text-decoration-none">Ya (${parseInt(r.usage_count || 0, 10)})</a><div class="small text-muted mt-1">${parseInt(r.component_usage_count || 0, 10)} base/prepare • ${parseInt(r.product_usage_count || 0, 10)} produk</div>`
+          : `<span class="badge bg-light text-body-secondary border">Tidak</span>`
+        }
+      </td>
+      <td>
         ${parseInt(r.formula_count || 0, 10) > 0
-          ? `<a href="<?php echo site_url('production/component-formulas/edit'); ?>/${r.id}" class="badge bg-success-subtle text-success-emphasis text-decoration-none">${parseInt(r.formula_count || 0, 10)} line</a>`
-          : `<a href="<?php echo site_url('production/component-formulas/edit'); ?>/${r.id}" class="badge bg-secondary-subtle text-secondary-emphasis text-decoration-none">Belum ada</a>`
+          ? `<a href="<?php echo site_url('production/component-formulas/detail'); ?>/${r.id}" class="badge bg-success-subtle text-success-emphasis text-decoration-none">${parseInt(r.formula_count || 0, 10)} line</a>`
+          : `<a href="<?php echo site_url('production/component-formulas/detail'); ?>/${r.id}" class="badge bg-secondary-subtle text-secondary-emphasis text-decoration-none">Belum ada</a>`
         }
       </td>
       <td>${parseInt(r.is_active || 0, 10) === 1 ? '<span class="fin-status-badge fin-status-active">AKTIF</span>' : '<span class="fin-status-badge fin-status-inactive">NONAKTIF</span>'}</td>
       <td>
         <button class="btn btn-sm btn-outline-primary js-edit" data-id="${r.id}">Edit</button>
-        <a class="btn btn-sm btn-outline-info" href="<?php echo site_url('production/component-formulas/edit'); ?>/${r.id}">Formula</a>
+        <a class="btn btn-sm btn-outline-info" href="<?php echo site_url('production/component-formulas/detail'); ?>/${r.id}">Formula</a>
         <button class="btn btn-sm btn-outline-secondary js-toggle" data-id="${r.id}">Toggle</button>
       </td>
     </tr>

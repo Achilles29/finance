@@ -24,11 +24,111 @@ class Procurement_model extends CI_Model
     {
         return strtoupper(trim((string)$value)) === 'CONTENT' ? 'CONTENT' : 'BUY';
     }
+    private function normalize_expiry_policy($value): string
+    {
+        $policy = strtoupper(trim((string)$value));
+        if (in_array($policy, ['NONE', 'EXACT_DATE', 'MIN_REMAINING_DAYS'], true)) {
+            return $policy;
+        }
+        return 'NONE';
+    }
+
+    private function normalize_min_remaining_days($value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        $days = (int)$value;
+        return $days > 0 ? $days : null;
+    }
+
+    private function extract_expiry_requirement(array $source, string $legacyDateKey = 'profile_expired_date'): array
+    {
+        $requiredDate = $this->normalize_date((string)($source['required_expiry_date'] ?? ($source[$legacyDateKey] ?? '')));
+        $minRemainingDays = $this->normalize_min_remaining_days($source['min_remaining_days'] ?? null);
+        $policy = $this->normalize_expiry_policy($source['expiry_policy'] ?? '');
+
+        if ($policy === 'NONE') {
+            if ($requiredDate !== null) {
+                $policy = 'EXACT_DATE';
+            } elseif ($minRemainingDays !== null) {
+                $policy = 'MIN_REMAINING_DAYS';
+            }
+        }
+
+        if ($policy !== 'MIN_REMAINING_DAYS') {
+            $minRemainingDays = null;
+        }
+        if ($policy === 'MIN_REMAINING_DAYS' && $requiredDate === null) {
+            $requiredDate = null;
+        }
+
+        return [
+            'expiry_policy' => $policy,
+            'required_expiry_date' => $requiredDate,
+            'min_remaining_days' => $minRemainingDays,
+        ];
+    }
+
+    private function append_expiry_requirement_columns(string $table, array &$target, array $source, string $legacyDateKey = 'profile_expired_date'): void
+    {
+        if (!$this->db->table_exists($table)) {
+            return;
+        }
+
+        $expiry = $this->extract_expiry_requirement($source, $legacyDateKey);
+        if ($this->db->field_exists('expiry_policy', $table)) {
+            $target['expiry_policy'] = $expiry['expiry_policy'];
+        }
+        if ($this->db->field_exists('required_expiry_date', $table)) {
+            $target['required_expiry_date'] = $expiry['required_expiry_date'];
+        }
+        if ($this->db->field_exists('min_remaining_days', $table)) {
+            $target['min_remaining_days'] = $expiry['min_remaining_days'];
+        }
+    }
 
     public function has_store_request_schema(): bool
     {
         return $this->db->table_exists('pur_store_request')
             && $this->db->table_exists('pur_store_request_line');
+    }
+
+    private function purchaseCatalogVendorTableExists(): bool
+    {
+        return $this->db->table_exists('mst_purchase_catalog_vendor')
+            && $this->db->field_exists('catalog_id', 'mst_purchase_catalog_vendor')
+            && $this->db->field_exists('vendor_id', 'mst_purchase_catalog_vendor');
+    }
+
+    private function latestCatalogVendorPriceSubquerySql(): string
+    {
+        return "
+            SELECT
+                src.catalog_id,
+                src.vendor_id,
+                src.standard_price,
+                src.last_unit_price,
+                src.last_purchase_date
+            FROM mst_purchase_catalog_vendor src
+            INNER JOIN (
+                SELECT
+                    catalog_id,
+                    MAX(CONCAT(
+                        COALESCE(DATE_FORMAT(last_purchase_date, '%Y%m%d'), '00000000'),
+                        LPAD(CAST(id AS CHAR), 20, '0')
+                    )) AS pick_key
+                FROM mst_purchase_catalog_vendor
+                WHERE COALESCE(is_active, 1) = 1
+                GROUP BY catalog_id
+            ) picked
+                ON picked.catalog_id = src.catalog_id
+               AND CONCAT(
+                    COALESCE(DATE_FORMAT(src.last_purchase_date, '%Y%m%d'), '00000000'),
+                    LPAD(CAST(src.id AS CHAR), 20, '0')
+               ) = picked.pick_key
+            WHERE COALESCE(src.is_active, 1) = 1
+        ";
     }
 
     public function list_destination_options(): array
@@ -73,6 +173,8 @@ class Procurement_model extends CI_Model
             'void' => 0,
             'req_value_total' => 0.0,
             'fulfilled_value_total' => 0.0,
+            'pending_fulfillment_count' => 0,
+            'pending_fulfillment_value_total' => 0.0,
         ];
 
         if (!$this->has_store_request_schema()) {
@@ -90,6 +192,8 @@ class Procurement_model extends CI_Model
             ->select("SUM(CASE WHEN sr.status = 'VOID' THEN 1 ELSE 0 END) AS void", false)
             ->select('COALESCE(SUM(ca.req_total_value), 0) AS req_value_total', false)
             ->select('COALESCE(SUM(ca.fulfilled_total_value), 0) AS fulfilled_value_total', false)
+            ->select("SUM(CASE WHEN sr.status IN ('DRAFT','SUBMITTED','APPROVED','PARTIAL_FULFILLED') THEN 1 ELSE 0 END) AS pending_fulfillment_count", false)
+            ->select("COALESCE(SUM(CASE WHEN sr.status IN ('DRAFT','SUBMITTED','APPROVED','PARTIAL_FULFILLED') THEN ca.req_total_value ELSE 0 END), 0) AS pending_fulfillment_value_total", false)
             ->from('pur_store_request sr')
             ->join('(' . $costAggSql . ') ca', 'ca.store_request_id = sr.id', 'left', false);
 
@@ -99,9 +203,51 @@ class Procurement_model extends CI_Model
             return $summary;
         }
 
-        foreach (['total', 'draft', 'submitted', 'approved', 'rejected', 'fulfilled', 'void'] as $key) {
+        foreach (['total', 'draft', 'submitted', 'approved', 'rejected', 'fulfilled', 'void', 'pending_fulfillment_count'] as $key) {
             $summary[$key] = (int)($row[$key] ?? 0);
         }
+        $summary['req_value_total'] = round((float)($row['req_value_total'] ?? 0), 2);
+        $summary['fulfilled_value_total'] = round((float)($row['fulfilled_value_total'] ?? 0), 2);
+        $summary['pending_fulfillment_value_total'] = round((float)($row['pending_fulfillment_value_total'] ?? 0), 2);
+
+        return $summary;
+    }
+
+    public function get_store_request_line_summary(array $filters): array
+    {
+        $summary = [
+            'total_lines' => 0,
+            'req_buy_total' => 0.0,
+            'fulfilled_buy_total' => 0.0,
+            'req_value_total' => 0.0,
+            'fulfilled_value_total' => 0.0,
+        ];
+
+        if (!$this->has_store_request_schema()) {
+            return $summary;
+        }
+
+        $lineCostSql = $this->build_store_request_line_cost_sql();
+        $this->db
+            ->select('COUNT(*) AS total_lines', false)
+            ->select('COALESCE(SUM(ln.qty_buy_requested), 0) AS req_buy_total', false)
+            ->select('COALESCE(SUM(ln.qty_buy_fulfilled), 0) AS fulfilled_buy_total', false)
+            ->select('COALESCE(SUM(lc.req_total_value), 0) AS req_value_total', false)
+            ->select('COALESCE(SUM(lc.fulfilled_total_value), 0) AS fulfilled_value_total', false)
+            ->from('pur_store_request_line ln')
+            ->join('pur_store_request sr', 'sr.id = ln.store_request_id', 'inner')
+            ->join('(' . $lineCostSql . ') lc', 'lc.line_id = ln.id', 'left', false);
+
+        $this->apply_store_request_filters($filters, 'sr');
+
+        $row = $this->db->get()->row_array();
+        if (!$row) {
+            return $summary;
+        }
+
+        $summary['total_lines'] = (int)($row['total_lines'] ?? 0);
+        $summary['req_buy_total'] = round((float)($row['req_buy_total'] ?? 0), 4);
+        $summary['fulfilled_buy_total'] = round((float)($row['fulfilled_buy_total'] ?? 0), 4);
         $summary['req_value_total'] = round((float)($row['req_value_total'] ?? 0), 2);
         $summary['fulfilled_value_total'] = round((float)($row['fulfilled_value_total'] ?? 0), 2);
 
@@ -191,13 +337,44 @@ class Procurement_model extends CI_Model
 
         $this->apply_store_request_filters($filters, 'sr');
 
+        $purchaseTypeSortSql = $this->build_store_request_purchase_type_sort_sql('sr.destination_type');
+
         return $this->db
+            ->order_by($purchaseTypeSortSql, 'ASC', false)
             ->order_by('sr.request_date', 'DESC')
             ->order_by('sr.id', 'DESC')
             ->order_by('ln.line_no', 'ASC')
             ->limit($limit, max(0, $offset))
             ->get()
             ->result_array();
+    }
+
+    private function build_store_request_purchase_type_sort_sql(string $destinationExpr): string
+    {
+        $destinationMap = [
+            'BAR' => $this->find_inventory_purchase_type_id('BAR'),
+            'KITCHEN' => $this->find_inventory_purchase_type_id('KITCHEN'),
+            'BAR_EVENT' => $this->find_inventory_purchase_type_id('BAR_EVENT'),
+            'KITCHEN_EVENT' => $this->find_inventory_purchase_type_id('KITCHEN_EVENT'),
+            'OFFICE' => $this->find_inventory_purchase_type_id('OFFICE'),
+        ];
+        $defaultId = $this->find_inventory_purchase_type_id(null);
+        $defaultSort = $defaultId > 0 ? $defaultId : 999999;
+
+        $cases = [];
+        foreach ($destinationMap as $destination => $purchaseTypeId) {
+            $sortId = (int)$purchaseTypeId;
+            if ($sortId <= 0) {
+                continue;
+            }
+            $cases[] = "WHEN UPPER(TRIM(COALESCE(" . $destinationExpr . ", ''))) = '" . $this->db->escape_str($destination) . "' THEN " . $sortId;
+        }
+
+        if (empty($cases)) {
+            return (string)$defaultSort;
+        }
+
+        return '(CASE ' . implode(' ', $cases) . ' ELSE ' . $defaultSort . ' END)';
     }
 
     public function list_store_request_timeline_map(array $requestIds): array
@@ -317,14 +494,21 @@ class Procurement_model extends CI_Model
         $hasCatalog = $this->db->table_exists('mst_purchase_catalog')
             && $this->db->field_exists('profile_key', 'mst_purchase_catalog')
             && $this->db->field_exists('last_purchase_date', 'mst_purchase_catalog');
+        $hasCatalogVendorPrice = $hasCatalog && $this->purchaseCatalogVendorTableExists();
+        $latestVendorPriceSql = $hasCatalogVendorPrice ? $this->latestCatalogVendorPriceSubquerySql() : '';
         $hasCatalogLineKind = $hasCatalog && $this->db->field_exists('line_kind', 'mst_purchase_catalog');
+        $hasCatalogLastUnitPrice = $hasCatalog && $this->db->field_exists('last_unit_price', 'mst_purchase_catalog');
+        $hasCatalogStandardPrice = $hasCatalog && $this->db->field_exists('standard_price', 'mst_purchase_catalog');
 
         $this->db
             ->select('s.item_id, ' . ($hasWhMaterial ? 'COALESCE(s.material_id, i.material_id) AS material_id' : 'i.material_id AS material_id') . ', s.buy_uom_id, s.content_uom_id, s.profile_key', false)
             ->select($hasWhStockDomain ? 's.stock_domain' : 'NULL AS stock_domain', false)
             ->select('s.profile_name, s.profile_brand, s.profile_description, s.profile_expired_date, s.profile_content_per_buy')
             ->select('s.profile_buy_uom_code, s.profile_content_uom_code, s.qty_buy_balance, s.qty_content_balance')
-            ->select($hasCatalog ? 'c.last_purchase_date' : 'NULL AS last_purchase_date', false)
+            ->select(($hasCatalogVendorPrice || $hasCatalogLastUnitPrice || $hasCatalogStandardPrice)
+                ? 'COALESCE(' . ($hasCatalogVendorPrice ? 'cvp.last_unit_price, cvp.standard_price, ' : '') . ($hasCatalogLastUnitPrice ? 'c.last_unit_price' : 'NULL') . ', ' . ($hasCatalogStandardPrice ? 'c.standard_price' : 'NULL') . ', 0) AS last_unit_price'
+                : '0 AS last_unit_price', false)
+            ->select($hasCatalog ? 'COALESCE(' . ($hasCatalogVendorPrice ? 'cvp.last_purchase_date, ' : '') . 'c.last_purchase_date) AS last_purchase_date' : 'NULL AS last_purchase_date', false)
             ->select($hasCatalogLineKind ? 'c.line_kind AS catalog_line_kind' : 'NULL AS catalog_line_kind', false)
             ->select('i.item_code, i.item_name, ' . ($hasWhMaterial ? 'm.material_code, m.material_name' : 'NULL AS material_code, NULL AS material_name'), false)
             ->from('inv_warehouse_stock_balance s')
@@ -336,6 +520,9 @@ class Procurement_model extends CI_Model
         }
         if ($hasCatalog) {
             $this->db->join('mst_purchase_catalog c', 'c.profile_key = s.profile_key', 'left');
+            if ($hasCatalogVendorPrice) {
+                $this->db->join('(' . $latestVendorPriceSql . ') cvp', 'cvp.catalog_id = c.id', 'left', false);
+            }
         }
 
         if ($q !== '') {
@@ -389,9 +576,7 @@ class Procurement_model extends CI_Model
                 continue;
             }
             if ($score === $dedup[$key]['score']) {
-                $curQty = (float)($dedup[$key]['row']['qty_buy_balance'] ?? 0);
-                $newQty = (float)($row['qty_buy_balance'] ?? 0);
-                if ($newQty > $curQty) {
+                if ($this->should_prefer_division_request_candidate($dedup[$key]['row'], $row, true)) {
                     $dedup[$key] = ['row' => $row, 'score' => $score];
                 }
             }
@@ -457,6 +642,8 @@ class Procurement_model extends CI_Model
         $q = trim((string)($filters['q'] ?? ''));
         $divisionId = (int)($filters['division_id'] ?? 0);
         $status = strtoupper(trim((string)($filters['status'] ?? '')));
+        $dateField = strtoupper(trim((string)($filters['date_field'] ?? 'REQUEST_DATE')));
+        $dateColumn = $dateField === 'NEEDED_DATE' ? 'r.needed_date' : 'r.request_date';
         $dateStart = $this->normalize_date((string)($filters['date_start'] ?? ''));
         $dateEnd = $this->normalize_date((string)($filters['date_end'] ?? ''));
         $allowedDivisionIds = array_values(array_unique(array_filter(array_map('intval', (array)($filters['allowed_division_ids'] ?? [])), static function ($value) {
@@ -492,16 +679,16 @@ class Procurement_model extends CI_Model
             $this->db->where('r.status', $status);
         }
         if ($dateStart !== null) {
-            $this->db->where('r.request_date >=', $dateStart);
+            $this->db->where($dateColumn . ' >=', $dateStart);
         }
         if ($dateEnd !== null) {
-            $this->db->where('r.request_date <=', $dateEnd);
+            $this->db->where($dateColumn . ' <=', $dateEnd);
         }
 
         return $this->db
             ->order_by('r.request_date', 'DESC')
             ->order_by('r.id', 'DESC')
-            ->limit(max(1, min(300, $limit)))
+            ->limit(max(1, min(5000, $limit)))
             ->get()
             ->result_array();
     }
@@ -515,6 +702,8 @@ class Procurement_model extends CI_Model
         $q = trim((string)($filters['q'] ?? ''));
         $divisionId = (int)($filters['division_id'] ?? 0);
         $status = strtoupper(trim((string)($filters['status'] ?? '')));
+        $dateField = strtoupper(trim((string)($filters['date_field'] ?? 'REQUEST_DATE')));
+        $dateColumn = $dateField === 'NEEDED_DATE' ? 'r.needed_date' : 'r.request_date';
         $dateStart = $this->normalize_date((string)($filters['date_start'] ?? ''));
         $dateEnd = $this->normalize_date((string)($filters['date_end'] ?? ''));
         $allowedDivisionIds = array_values(array_unique(array_filter(array_map('intval', (array)($filters['allowed_division_ids'] ?? [])), static function ($value) {
@@ -556,17 +745,17 @@ class Procurement_model extends CI_Model
             $this->db->where('r.status', $status);
         }
         if ($dateStart !== null) {
-            $this->db->where('r.request_date >=', $dateStart);
+            $this->db->where($dateColumn . ' >=', $dateStart);
         }
         if ($dateEnd !== null) {
-            $this->db->where('r.request_date <=', $dateEnd);
+            $this->db->where($dateColumn . ' <=', $dateEnd);
         }
 
         return $this->db
             ->order_by('r.request_date', 'DESC')
             ->order_by('r.id', 'DESC')
             ->order_by('l.line_no', 'ASC')
-            ->limit(max(1, min(300, $limit)))
+            ->limit(max(1, min(5000, $limit)))
             ->get()
             ->result_array();
     }
@@ -703,6 +892,7 @@ class Procurement_model extends CI_Model
 
         foreach ($insertLines as $row) {
             $row['request_id'] = $requestId;
+            $this->append_expiry_requirement_columns('pur_division_request_line', $row, $row, 'profile_expired_date');
             $this->db->insert('pur_division_request_line', $row);
         }
 
@@ -791,6 +981,7 @@ class Procurement_model extends CI_Model
         $this->db->where('request_id', $requestId)->delete('pur_division_request_line');
         foreach ($insertLines as $row) {
             $row['request_id'] = $requestId;
+            $this->append_expiry_requirement_columns('pur_division_request_line', $row, $row, 'profile_expired_date');
             $this->db->insert('pur_division_request_line', $row);
         }
 
@@ -1161,6 +1352,7 @@ class Procurement_model extends CI_Model
 
         foreach ($lineRows as $lineData) {
             $lineData['store_request_id'] = $requestId;
+            $this->append_expiry_requirement_columns('pur_store_request_line', $lineData, $lineData, 'profile_expired_date');
             $this->db->insert('pur_store_request_line', $lineData);
         }
 
@@ -1197,9 +1389,16 @@ class Procurement_model extends CI_Model
             return null;
         }
 
+        $divisionNameSelect = 'NULL AS division_name';
+        if ($this->db->field_exists('division_name', 'mst_operational_division')) {
+            $divisionNameSelect = 'd.division_name AS division_name';
+        } elseif ($this->db->field_exists('name', 'mst_operational_division')) {
+            $divisionNameSelect = 'd.name AS division_name';
+        }
+
         $header = $this->db
             ->select('sr.*')
-            ->select('COALESCE(d.division_name, d.name) AS division_name', false)
+            ->select($divisionNameSelect, false)
             ->from('pur_store_request sr')
             ->join('mst_operational_division d', 'd.id = sr.request_division_id', 'left')
             ->where('sr.id', $requestId)
@@ -1222,6 +1421,7 @@ class Procurement_model extends CI_Model
             ->result_array();
 
         $fulfillments = [];
+        $movementRows = [];
         if ($this->db->table_exists('pur_store_request_fulfillment') && $this->db->table_exists('pur_store_request_fulfillment_line')) {
             $fulfillments = $this->db
                 ->select('f.*')
@@ -1270,8 +1470,21 @@ class Procurement_model extends CI_Model
                     && $this->db->table_exists('inv_material_fifo_issue_line')
                     && $this->db->table_exists('inv_material_fifo_lot')
                 ) {
+                    $sourceBalanceBeforeSelect = $this->db->field_exists('source_balance_before', 'inv_material_fifo_issue_line')
+                        ? 'il.source_balance_before'
+                        : 'NULL AS source_balance_before';
+                    $sourceBalanceAfterSelect = $this->db->field_exists('source_balance_after', 'inv_material_fifo_issue_line')
+                        ? 'il.source_balance_after'
+                        : 'NULL AS source_balance_after';
+                    $targetBalanceBeforeSelect = $this->db->field_exists('target_balance_before', 'inv_material_fifo_issue_line')
+                        ? 'il.target_balance_before'
+                        : 'NULL AS target_balance_before';
+                    $targetBalanceAfterSelect = $this->db->field_exists('target_balance_after', 'inv_material_fifo_issue_line')
+                        ? 'il.target_balance_after'
+                        : 'NULL AS target_balance_after';
                     $allocationRows = $this->db
                         ->select('il.issue_id, il.lot_id AS source_lot_id, il.target_lot_id, il.qty_out, il.unit_cost, il.total_cost')
+                        ->select($sourceBalanceBeforeSelect . ', ' . $sourceBalanceAfterSelect . ', ' . $targetBalanceBeforeSelect . ', ' . $targetBalanceAfterSelect, false)
                         ->select('sl.lot_no AS source_lot_no, sl.receipt_date AS source_receipt_date, sl.expiry_date AS source_expiry_date', false)
                         ->select('tl.lot_no AS target_lot_no, tl.receipt_date AS target_receipt_date, tl.expiry_date AS target_expiry_date', false)
                         ->from('inv_material_fifo_issue_line il')
@@ -1298,12 +1511,35 @@ class Procurement_model extends CI_Model
                 }
                 unset($fulfillmentRow);
             }
+
+            if (!empty($fulfillmentIds) && $this->db->table_exists('inv_stock_movement_log')) {
+                $movementRows = $this->db
+                    ->select('id, ref_id AS fulfillment_id, movement_scope, movement_type, movement_date, movement_no, division_id, destination_type, item_id, material_id, profile_name, profile_brand, profile_description, profile_buy_uom_code, profile_content_uom_code, qty_buy_delta, qty_content_delta, qty_buy_after, qty_content_after, unit_cost, notes, created_at')
+                    ->from('inv_stock_movement_log')
+                    ->where('ref_table', 'pur_store_request_fulfillment')
+                    ->where_in('ref_id', $fulfillmentIds)
+                    ->order_by('movement_date', 'ASC')
+                    ->order_by('id', 'ASC')
+                    ->get()
+                    ->result_array();
+
+                $movementMap = [];
+                foreach ($movementRows as $movementRow) {
+                    $movementMap[(int)($movementRow['fulfillment_id'] ?? 0)][] = $movementRow;
+                }
+
+                foreach ($fulfillments as &$fulfillmentRow) {
+                    $fulfillmentRow['movement_rows'] = $movementMap[(int)($fulfillmentRow['id'] ?? 0)] ?? [];
+                }
+                unset($fulfillmentRow);
+            }
         }
 
         return [
             'header' => $header,
             'lines' => $lines,
             'fulfillments' => $fulfillments,
+            'movement_rows' => $movementRows,
         ];
     }
 
@@ -1386,6 +1622,7 @@ class Procurement_model extends CI_Model
         $this->db->where('store_request_id', $requestId)->delete('pur_store_request_line');
         foreach ($lineRows as $lineData) {
             $lineData['store_request_id'] = $requestId;
+            $this->append_expiry_requirement_columns('pur_store_request_line', $lineData, $lineData, 'profile_expired_date');
             $this->db->insert('pur_store_request_line', $lineData);
         }
 
@@ -1708,6 +1945,7 @@ class Procurement_model extends CI_Model
                 'notes' => $this->nullable_string($notes),
                 'created_at' => date('Y-m-d H:i:s'),
             ];
+            $this->append_expiry_requirement_columns('pur_store_request_fulfillment_line', $fulfillmentLineData, $line, 'profile_expired_date');
             if ($this->db->field_exists('fifo_issue_id', 'pur_store_request_fulfillment_line')) {
                 $fulfillmentLineData['fifo_issue_id'] = null;
             }
@@ -2077,6 +2315,8 @@ class Procurement_model extends CI_Model
                 $qtyBuyRequested = round($qtyContentRequested / max($contentPerBuy, 0.000001), 2);
             }
 
+            $expiryRequirement = $this->extract_expiry_requirement($line, 'profile_expired_date');
+
             $normalizedLines[] = [
                 'line_no' => $lineNo,
                 'line_kind' => $lineKind,
@@ -2087,6 +2327,9 @@ class Procurement_model extends CI_Model
                 'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
                 'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
                 'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
+                'expiry_policy' => $expiryRequirement['expiry_policy'],
+                'required_expiry_date' => $expiryRequirement['required_expiry_date'],
+                'min_remaining_days' => $expiryRequirement['min_remaining_days'],
                 'buy_uom_id' => $buyUomId,
                 'content_uom_id' => $contentUomId,
                 'profile_content_per_buy' => $contentPerBuy,
@@ -2194,6 +2437,8 @@ class Procurement_model extends CI_Model
                 $qtyBuyPoRequested = round($qtyContentPoRequested / max($contentPerBuy, 0.000001), 4);
             }
 
+            $expiryRequirement = $this->extract_expiry_requirement($line, 'profile_expired_date');
+
             $normalizedLines[] = [
                 'line_kind' => $lineKind,
                 'item_id' => $itemId > 0 ? $itemId : null,
@@ -2203,6 +2448,9 @@ class Procurement_model extends CI_Model
                 'profile_brand' => $profileBrand,
                 'profile_description' => $profileDescription,
                 'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
+                'expiry_policy' => $expiryRequirement['expiry_policy'],
+                'required_expiry_date' => $expiryRequirement['required_expiry_date'],
+                'min_remaining_days' => $expiryRequirement['min_remaining_days'],
                 'buy_uom_id' => $buyUomId,
                 'content_uom_id' => $contentUomId,
                 'profile_content_per_buy' => $contentPerBuy,
@@ -2378,18 +2626,32 @@ class Procurement_model extends CI_Model
         }
 
         if ($this->db->table_exists('mst_purchase_catalog') && $profileKey !== '') {
-            $row = $this->db
-                ->select('last_unit_price, standard_price')
-                ->from('mst_purchase_catalog')
-                ->where('profile_key', $profileKey)
-                ->order_by('id', 'DESC')
-                ->limit(1)
-                ->get()
-                ->row_array();
-            $unitBuy = (float)($row['last_unit_price'] ?? 0);
-            if ($unitBuy <= 0) {
-                $unitBuy = (float)($row['standard_price'] ?? 0);
+            $hasCatalogVendorPrice = $this->purchaseCatalogVendorTableExists();
+            $latestVendorPriceSql = $hasCatalogVendorPrice ? $this->latestCatalogVendorPriceSubquerySql() : '';
+            if ($hasCatalogVendorPrice) {
+                $row = $this->db
+                    ->select('COALESCE(cvp.last_unit_price, cvp.standard_price, c.last_unit_price, c.standard_price) AS unit_buy', false)
+                    ->from('mst_purchase_catalog c')
+                    ->join('(' . $latestVendorPriceSql . ') cvp', 'cvp.catalog_id = c.id', 'left', false)
+                    ->where('c.profile_key', $profileKey)
+                    ->order_by('COALESCE(cvp.last_purchase_date, c.last_purchase_date)', 'DESC', false)
+                    ->order_by('c.id', 'DESC')
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+            } else {
+                $row = $this->db
+                    ->select('COALESCE(c.last_unit_price, c.standard_price) AS unit_buy', false)
+                    ->from('mst_purchase_catalog c')
+                    ->where('c.profile_key', $profileKey)
+                    ->order_by('c.last_purchase_date', 'DESC')
+                    ->order_by('c.id', 'DESC')
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
             }
+
+            $unitBuy = (float)($row['unit_buy'] ?? 0);
             if ($unitBuy > 0) {
                 return round($unitBuy / max($contentPerBuy, 0.000001), 6);
             }
@@ -2548,6 +2810,7 @@ class Procurement_model extends CI_Model
                 'notes' => $this->nullable_string($line['notes'] ?? null),
                 'created_at' => date('Y-m-d H:i:s'),
             ];
+            $this->append_expiry_requirement_columns('pur_division_request_line', $storedLine, $line, 'profile_expired_date');
             if ($hasRequestUomMode) {
                 $storedLine['request_uom_mode'] = $this->normalize_division_request_uom_mode($line['request_uom_mode'] ?? 'BUY');
             }
@@ -2560,7 +2823,7 @@ class Procurement_model extends CI_Model
             $storedLines[] = $storedLine;
 
             if ($srContent > 0) {
-                $srLines[] = [
+                $srLine = [
                     'line_kind' => (string)$line['line_kind'],
                     'item_id' => $this->nullable_int($line['item_id'] ?? null),
                     'material_id' => $this->nullable_int($line['material_id'] ?? null),
@@ -2578,6 +2841,8 @@ class Procurement_model extends CI_Model
                     'qty_content_requested' => $srContent,
                     'notes' => null,
                 ];
+                $this->append_expiry_requirement_columns('pur_store_request_line', $srLine, $line, 'profile_expired_date');
+                $srLines[] = $srLine;
             }
 
             if ($poContent > 0) {
@@ -2631,7 +2896,6 @@ class Procurement_model extends CI_Model
     private function normalize_division_request_candidate_rows(array $rows): array
     {
         $normalized = [];
-        $seen = [];
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
@@ -2684,34 +2948,47 @@ class Procurement_model extends CI_Model
                 'line_kind' => $lineKind,
                 'item_id' => $itemId,
                 'material_id' => $materialId,
+                'profile_key' => $profileKey,
                 'profile_name' => $profileName,
+                'buy_uom_id' => $buyUomId,
+                'content_uom_id' => $contentUomId,
+                'profile_content_per_buy' => $contentPerBuy,
             ]);
-            if (isset($seen[$identity])) {
-                continue;
-            }
-            $seen[$identity] = true;
+            $expiryRequirement = $this->extract_expiry_requirement(['required_expiry_date' => $row['expired_date'] ?? null], 'required_expiry_date');
 
-            $normalized[] = [
+            $candidate = [
                 'line_kind' => $lineKind,
                 'item_id' => $itemId,
                 'material_id' => $materialId,
+                'catalog_id' => $this->nullable_int($row['catalog_id'] ?? null),
                 'profile_key' => substr($profileKey, 0, 64),
                 'profile_name' => $profileName,
                 'profile_brand' => $this->nullable_string($row['brand_name'] ?? null),
                 'profile_description' => $this->nullable_string($row['line_description'] ?? ($row['notes'] ?? null)),
                 'profile_expired_date' => $this->normalize_date((string)($row['expired_date'] ?? '')),
+                'expiry_policy' => $expiryRequirement['expiry_policy'],
+                'required_expiry_date' => $expiryRequirement['required_expiry_date'],
+                'min_remaining_days' => $expiryRequirement['min_remaining_days'],
                 'buy_uom_id' => $buyUomId,
                 'content_uom_id' => $contentUomId,
                 'profile_content_per_buy' => $contentPerBuy,
                 'profile_buy_uom_code' => $this->nullable_string($row['buy_uom_code'] ?? null),
                 'profile_content_uom_code' => $this->nullable_string($row['content_uom_code'] ?? null),
+                'qty_buy_balance' => 0,
                 'qty_content_balance' => 0,
+                'standard_price' => round((float)($row['standard_price'] ?? 0), 2),
+                'last_unit_price' => round((float)($row['last_unit_price'] ?? ($row['standard_price'] ?? 0)), 2),
+                'last_purchase_date' => $this->normalize_date((string)($row['last_purchase_date'] ?? '')),
                 'source_type' => strtoupper(trim((string)($row['source_type'] ?? 'CATALOG'))),
                 'search_source' => 'CATALOG',
             ];
+
+            if (!isset($normalized[$identity]) || $this->should_prefer_division_request_candidate($normalized[$identity], $candidate, false)) {
+                $normalized[$identity] = $candidate;
+            }
         }
 
-        return $normalized;
+        return array_values($normalized);
     }
 
     private function build_division_request_candidate_identity(array $row): string
@@ -2719,14 +2996,50 @@ class Procurement_model extends CI_Model
         $lineKind = strtoupper(trim((string)($row['line_kind'] ?? 'ITEM')));
         $itemId = (int)($row['item_id'] ?? 0);
         $materialId = (int)($row['material_id'] ?? 0);
+        $profileKey = strtoupper(trim((string)($row['profile_key'] ?? '')));
+        $buyUomId = (int)($row['buy_uom_id'] ?? 0);
+        $contentUomId = (int)($row['content_uom_id'] ?? 0);
+        $contentPerBuy = round((float)($row['profile_content_per_buy'] ?? 1), 6);
+        $suffix = '|PK:' . $profileKey . '|B:' . $buyUomId . '|C:' . $contentUomId . '|CPB:' . $contentPerBuy;
         if ($materialId > 0) {
-            return 'MATERIAL|' . $materialId;
+            return 'MATERIAL|' . $materialId . $suffix;
         }
         if ($itemId > 0) {
-            return $lineKind . '|' . $itemId;
+            return $lineKind . '|' . $itemId . $suffix;
         }
 
-        return $lineKind . '|NAME|' . strtoupper(trim((string)($row['profile_name'] ?? '')));
+        return $lineKind . '|NAME|' . strtoupper(trim((string)($row['profile_name'] ?? ''))) . $suffix;
+    }
+
+    private function should_prefer_division_request_candidate(array $currentRow, array $candidateRow, bool $preferHigherStock): bool
+    {
+        $currentDate = (string)($this->normalize_date((string)($currentRow['last_purchase_date'] ?? '')) ?? '');
+        $candidateDate = (string)($this->normalize_date((string)($candidateRow['last_purchase_date'] ?? '')) ?? '');
+        if ($candidateDate !== $currentDate) {
+            return $candidateDate > $currentDate;
+        }
+
+        $currentCatalogId = (int)($currentRow['catalog_id'] ?? 0);
+        $candidateCatalogId = (int)($candidateRow['catalog_id'] ?? 0);
+        if ($candidateCatalogId !== $currentCatalogId) {
+            return $candidateCatalogId > $currentCatalogId;
+        }
+
+        $currentPrice = (float)($currentRow['last_unit_price'] ?? ($currentRow['standard_price'] ?? 0));
+        $candidatePrice = (float)($candidateRow['last_unit_price'] ?? ($candidateRow['standard_price'] ?? 0));
+        if (abs($candidatePrice - $currentPrice) > 0.00001) {
+            return $candidatePrice > $currentPrice;
+        }
+
+        if ($preferHigherStock) {
+            $currentQty = (float)($currentRow['qty_content_balance'] ?? ($currentRow['qty_buy_balance'] ?? 0));
+            $candidateQty = (float)($candidateRow['qty_content_balance'] ?? ($candidateRow['qty_buy_balance'] ?? 0));
+            if (abs($candidateQty - $currentQty) > 0.00001) {
+                return $candidateQty > $currentQty;
+            }
+        }
+
+        return false;
     }
 
     private function build_division_request_manual_profile_key(string $profileName, int $buyUomId, int $contentUomId, ?string $profileDescription): string

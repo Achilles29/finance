@@ -46,19 +46,7 @@ foreach ($rowsData as $row) {
     <input type="hidden" name="back_url" value="<?php echo html_escape((string)($base_url_opening ?? 'inventory/stock/opening')); ?>?month=<?php echo rawurlencode($month !== '' ? substr((string)$month, 0, 7) : date('Y-m')); ?><?php echo $isDivisionScope ? ('&division_id=' . (int)$selectedDivisionId . '&destination=' . rawurlencode($selectedDestination)) : ''; ?>">
     <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal</button>
   </form>
-  <?php if ($isDivisionScope): ?>
-    <a href="<?php echo site_url('inventory-material-daily'); ?>" class="btn btn-sm btn-outline-secondary">Daily Material Matrix</a>
-    <a href="<?php echo site_url('inventory/stock/division'); ?>" class="btn btn-sm btn-outline-secondary">Stok Divisi</a>
-    <a href="<?php echo site_url('inventory/stock/opening/division'); ?>" class="btn btn-sm btn-dark">Opening Divisi</a>
-    <a href="<?php echo site_url('inventory/stock/division/movement'); ?>" class="btn btn-sm btn-outline-secondary">Keluar Masuk Divisi</a>
-    <a href="<?php echo site_url('inventory/stock/division/daily'); ?>" class="btn btn-sm btn-outline-secondary">Stok Bulanan/Daily Divisi</a>
-  <?php else: ?>
-    <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-sm btn-outline-secondary">Daily Gudang Matrix</a>
-    <a href="<?php echo site_url('inventory/stock/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Stok Gudang</a>
-    <a href="<?php echo site_url('inventory/stock/opening/warehouse'); ?>" class="btn btn-sm btn-dark">Opening Gudang</a>
-    <a href="<?php echo site_url('inventory/stock/warehouse/movement'); ?>" class="btn btn-sm btn-outline-secondary">Keluar Masuk Gudang</a>
-    <a href="<?php echo site_url('inventory/stock/warehouse/daily'); ?>" class="btn btn-sm btn-outline-secondary">Stok Bulanan/Daily</a>
-  <?php endif; ?>
+  <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => $isDivisionScope ? 'DIVISION' : 'WAREHOUSE', 'active_tab' => 'opening']); ?>
 </div>
 
 <div id="alert-area"></div>

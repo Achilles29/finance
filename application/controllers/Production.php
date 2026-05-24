@@ -80,11 +80,27 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.opening.index', 'view');
         $q = trim((string)$this->input->get('q', true));
-        $rows = $this->Production_model->list_component_openings(['q' => $q], 300);
+        $month = trim((string)$this->input->get('month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $locationType = $this->normalize_location_type($this->input->get('location_type', true));
+        $divisionId = (int)$this->input->get('division_id', true);
+        $filters = [
+            'q' => $q,
+            'month' => $month,
+            'location_type' => $locationType,
+            'division_id' => $divisionId > 0 ? $divisionId : null,
+        ];
+        $rows = $this->Production_model->list_component_openings($filters, 300);
         $this->render('production/component_opening_index', [
             'page_title' => 'Opening Base/Prepare',
             'rows' => $rows,
             'q' => $q,
+            'month' => $month,
+            'selected_location_type' => $locationType,
+            'selected_division_id' => $divisionId,
+            'monthly_rows' => $this->Production_model->list_component_monthly_openings($filters, 250),
             'location_options' => $this->location_options(),
             'components' => $this->active_components(),
             'uoms' => $this->active_uoms(),
@@ -162,6 +178,25 @@ class Production extends MY_Controller
             return;
         }
         $this->json_ok(['id' => (int)$id]);
+    }
+
+    public function component_opening_generate_monthly()
+    {
+        $this->require_permission('production.component.opening.index', 'create');
+        $payload = $this->request_payload();
+        $result = $this->Production_model->generate_component_monthly_opname_and_opening(
+            [
+                'month' => (string)($payload['month'] ?? date('Y-m')),
+                'location_type' => $this->normalize_location_type($payload['location_type'] ?? ''),
+                'division_id' => !empty($payload['division_id']) ? (int)$payload['division_id'] : null,
+            ],
+            (int)($this->current_user['employee_id'] ?? 0)
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal generate carry-forward component.'), 422);
+            return;
+        }
+        $this->json_ok(['result' => $result['data'] ?? []]);
     }
 
     public function component_adjustments()
@@ -251,6 +286,7 @@ class Production extends MY_Controller
             'q' => $q,
             'location_options' => $this->location_options(),
             'components' => $this->active_components(),
+            'materials' => $this->active_materials(),
             'uoms' => $this->active_uoms(),
             'divisions' => $this->active_divisions(),
         ]);
@@ -316,6 +352,38 @@ class Production extends MY_Controller
             return;
         }
         $this->json_ok(['id' => (int)$id]);
+    }
+
+    public function component_picker_search()
+    {
+        $canAccess = $this->can('production.component.opening.index', 'view')
+            || $this->can('production.component.adjustment.index', 'view')
+            || $this->can('production.component.batch.index', 'view')
+            || $this->can('production.component.category.index', 'view')
+            || $this->can('production.component.master.index', 'view')
+            || $this->can('production.component.formula.index', 'view');
+        if (!$canAccess) {
+            $this->json_error('Anda tidak memiliki izin untuk pencarian component.', 403);
+            return;
+        }
+
+        $entity = strtoupper(trim((string)$this->input->get('entity', true)));
+        if (!in_array($entity, ['COMPONENT', 'MATERIAL'], true)) {
+            $entity = 'COMPONENT';
+        }
+        $q = trim((string)$this->input->get('q', true));
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 50) {
+            $limit = 20;
+        }
+        $excludeId = (int)$this->input->get('exclude_id', true);
+        $componentType = strtoupper(trim((string)$this->input->get('component_type', true)));
+
+        $rows = $this->Production_model->search_picker_options($entity, $q, $limit, [
+            'exclude_id' => $excludeId,
+            'component_type' => $componentType,
+        ]);
+        $this->json_ok(['rows' => $rows]);
     }
 
     public function component_categories()
@@ -415,6 +483,25 @@ class Production extends MY_Controller
             return;
         }
         $this->json_ok(['id' => (int)$id, 'is_active' => (int)$result['is_active']]);
+    }
+
+    public function component_master_usage($componentId)
+    {
+        $this->require_permission('production.component.master.index', 'view');
+        $componentId = (int)$componentId;
+        if ($componentId <= 0) {
+            show_error('Component tidak valid.', 422, 'Invalid Request');
+            return;
+        }
+        $detail = $this->Production_model->component_usage_detail($componentId);
+        if (!($detail['ok'] ?? false)) {
+            show_error((string)($detail['message'] ?? 'Pemakaian component tidak ditemukan.'), 404, 'Not Found');
+            return;
+        }
+        $this->render('production/component_usage_detail', [
+            'page_title' => 'Pemakaian Component',
+            'detail' => $detail,
+        ]);
     }
 
     public function component_formulas()
@@ -770,7 +857,7 @@ class Production extends MY_Controller
 
     private function active_materials(): array
     {
-        return $this->db->select('m.id, m.material_code, m.material_name, u.code AS content_uom_code')
+        return $this->db->select('m.id, m.material_code, m.material_name, m.content_uom_id, u.code AS content_uom_code')
             ->from('mst_material m')
             ->join('mst_uom u', 'u.id = m.content_uom_id', 'left')
             ->where('m.is_active', 1)

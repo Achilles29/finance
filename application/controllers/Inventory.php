@@ -9,4 +9,14 @@ class Inventory extends Purchase
     {
         redirect('inventory/stock/warehouse');
     }
+
+    public function fifo_audit()
+    {
+        parent::fifo_audit_index();
+    }
+
+    public function lot_audit()
+    {
+        parent::lot_audit_index();
+    }
 }

@@ -285,7 +285,12 @@ class Inventory_tools extends CI_Controller
         });
 
         $cases[] = $this->runSmokeCase('sr_fulfill_division', function () use ($fx, $smokeDate, $userId) {
-            $qty = $this->smokeRequestQty((array)$fx['inventory_profile'], false);
+            $profile = $this->ensureSmokeWarehouseProfile($fx, $smokeDate, $userId);
+            if (!($profile['ok'] ?? false)) {
+                return $profile;
+            }
+            $inventoryProfile = (array)($profile['data']['profile'] ?? []);
+            $qty = $this->smokeRequestQty($inventoryProfile, false);
             $create = $this->Procurement_model->create_store_request([
                 'request_date' => $smokeDate,
                 'needed_date' => $smokeDate,
@@ -294,7 +299,7 @@ class Inventory_tools extends CI_Controller
                 'status' => 'DRAFT',
                 'notes' => 'Smoke test SR fulfill',
             ], [
-                $this->buildSmokeStoreRequestLine((array)$fx['inventory_profile'], $qty['qty_buy'], $qty['qty_content']),
+                $this->buildSmokeStoreRequestLine($inventoryProfile, $qty['qty_buy'], $qty['qty_content']),
             ], $userId);
             if (!($create['ok'] ?? false)) {
                 return $create;
@@ -337,7 +342,12 @@ class Inventory_tools extends CI_Controller
         });
 
         $cases[] = $this->runSmokeCase('component_batch_material_usage_trace', function () use ($fx, $smokeDate, $userId) {
-            $qty = $this->smokeRequestQty((array)$fx['inventory_profile'], false);
+            $profile = $this->ensureSmokeWarehouseProfile($fx, $smokeDate, $userId);
+            if (!($profile['ok'] ?? false)) {
+                return $profile;
+            }
+            $inventoryProfile = (array)($profile['data']['profile'] ?? []);
+            $qty = $this->smokeRequestQty($inventoryProfile, false);
             $create = $this->Procurement_model->create_store_request([
                 'request_date' => $smokeDate,
                 'needed_date' => $smokeDate,
@@ -346,7 +356,7 @@ class Inventory_tools extends CI_Controller
                 'status' => 'DRAFT',
                 'notes' => 'Smoke test material usage batch',
             ], [
-                $this->buildSmokeStoreRequestLine((array)$fx['inventory_profile'], $qty['qty_buy'], $qty['qty_content']),
+                $this->buildSmokeStoreRequestLine($inventoryProfile, $qty['qty_buy'], $qty['qty_content']),
             ], $userId);
             if (!($create['ok'] ?? false)) {
                 return $create;
@@ -548,16 +558,17 @@ class Inventory_tools extends CI_Controller
             }
 
             $receiptAfter = $this->db->from('pur_purchase_receipt')->where('id', (int)$receipt['id'])->limit(1)->get()->row_array();
-            $adjustments = $this->db
-                ->select('movement_scope, movement_type, COUNT(*) AS row_count, ROUND(SUM(qty_content_delta), 4) AS qty_content_total', false)
+            $receiptMovementCount = (int)$this->db
+                ->from('inv_stock_movement_log')
+                ->where('ref_table', 'pur_purchase_receipt')
+                ->where('ref_id', (int)$receipt['id'])
+                ->count_all_results();
+            $adjustmentCount = (int)$this->db
                 ->from('inv_stock_movement_log')
                 ->where('ref_table', 'pur_purchase_order')
                 ->where('ref_id', $poId)
                 ->where('movement_type', 'ADJUSTMENT')
-                ->group_by('movement_scope')
-                ->group_by('movement_type')
-                ->get()
-                ->result_array();
+                ->count_all_results();
 
             if (strtoupper((string)($receiptAfter['status'] ?? '')) !== 'VOID') {
                 return ['ok' => false, 'message' => 'Receipt tidak berubah ke VOID saat PO di-VOID.'];
@@ -565,17 +576,21 @@ class Inventory_tools extends CI_Controller
             if (!$this->movementSummaryHas($beforeSummary, 'WAREHOUSE', 'PURCHASE_IN')) {
                 return ['ok' => false, 'message' => 'Setup uji rollback PO tidak memiliki PURCHASE_IN awal.'];
             }
-            if (!$this->movementSummaryHas($adjustments, 'WAREHOUSE', 'ADJUSTMENT')) {
-                return ['ok' => false, 'message' => 'VOID PO tidak membentuk ADJUSTMENT rollback stok gudang.', 'data' => ['adjustments' => $adjustments]];
+            if ($receiptMovementCount !== 0) {
+                return ['ok' => false, 'message' => 'VOID PO tidak menghapus movement receipt dari histori.', 'data' => ['movement_count' => $receiptMovementCount]];
+            }
+            if ($adjustmentCount !== 0) {
+                return ['ok' => false, 'message' => 'VOID PO masih menyisakan ADJUSTMENT rollback pada histori stok.', 'data' => ['adjustment_count' => $adjustmentCount]];
             }
 
             return [
                 'ok' => true,
-                'message' => 'VOID PO receipt berhasil me-rollback stok dan me-VOID receipt.',
+                'message' => 'VOID PO receipt berhasil menghapus histori receipt dari stok dan me-VOID receipt.',
                 'data' => [
                     'po_id' => $poId,
                     'receipt_id' => (int)$receipt['id'],
-                    'rollback_summary' => $adjustments,
+                    'movement_count' => $receiptMovementCount,
+                    'adjustment_count' => $adjustmentCount,
                 ],
             ];
         });
@@ -673,7 +688,12 @@ class Inventory_tools extends CI_Controller
         });
 
         $cases[] = $this->runSmokeCase('sr_void_rollback_after_fulfill', function () use ($fx, $smokeDate, $userId) {
-            $qty = $this->smokeRequestQty((array)$fx['inventory_profile'], false);
+            $profile = $this->ensureSmokeWarehouseProfile($fx, $smokeDate, $userId);
+            if (!($profile['ok'] ?? false)) {
+                return $profile;
+            }
+            $inventoryProfile = (array)($profile['data']['profile'] ?? []);
+            $qty = $this->smokeRequestQty($inventoryProfile, false);
             $create = $this->Procurement_model->create_store_request([
                 'request_date' => $smokeDate,
                 'needed_date' => $smokeDate,
@@ -682,7 +702,7 @@ class Inventory_tools extends CI_Controller
                 'status' => 'DRAFT',
                 'notes' => 'Smoke test SR void rollback',
             ], [
-                $this->buildSmokeStoreRequestLine((array)$fx['inventory_profile'], $qty['qty_buy'], $qty['qty_content']),
+                $this->buildSmokeStoreRequestLine($inventoryProfile, $qty['qty_buy'], $qty['qty_content']),
             ], $userId);
             if (!($create['ok'] ?? false)) {
                 return $create;
@@ -903,6 +923,157 @@ class Inventory_tools extends CI_Controller
         exit(0);
     }
 
+    public function repair_po_receipt_conversion()
+    {
+        $cliArgs = $this->parseCliArgs();
+
+        $poId = (int)($cliArgs['id'] ?? 0);
+        $poNo = trim((string)($cliArgs['po_no'] ?? ''));
+        $userId = (int)($cliArgs['user_id'] ?? 0);
+        $normalizeCatalog = !in_array(strtolower(trim((string)($cliArgs['normalize_catalog'] ?? '1'))), ['0', 'false', 'no'], true);
+
+        if ($poId <= 0 && $poNo === '') {
+            fwrite(STDERR, "Parameter id atau po_no wajib diisi." . PHP_EOL);
+            exit(1);
+        }
+
+        if ($poId <= 0 && $poNo !== '') {
+            $row = $this->db
+                ->select('id')
+                ->from('pur_purchase_order')
+                ->where('po_no', $poNo)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $poId = (int)($row['id'] ?? 0);
+        }
+
+        if ($poId <= 0) {
+            fwrite(STDERR, "Purchase order tidak ditemukan." . PHP_EOL);
+            exit(1);
+        }
+
+        $result = $this->Purchase_model->repairPostedReceiptConversion($poId, $userId, $normalizeCatalog);
+        if (!($result['ok'] ?? false)) {
+            fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+            exit(1);
+        }
+
+        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+        exit(0);
+    }
+
+    public function rebuild_inventory_identity()
+    {
+        $cliArgs = $this->parseCliArgs();
+
+        $scope = strtoupper(trim((string)($cliArgs['scope'] ?? 'DIVISION')));
+        $startDate = (string)($cliArgs['start_date'] ?? date('Y-m-01'));
+        $stockDomain = strtoupper(trim((string)($cliArgs['stock_domain'] ?? 'ITEM')));
+        if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
+            fwrite(STDERR, "Parameter scope harus WAREHOUSE atau DIVISION." . PHP_EOL);
+            exit(1);
+        }
+        if (!in_array($stockDomain, ['ITEM', 'MATERIAL'], true)) {
+            $stockDomain = 'ITEM';
+        }
+
+        $identity = [
+            'stock_domain' => $stockDomain,
+            'division_id' => isset($cliArgs['division_id']) && $cliArgs['division_id'] !== '' ? (int)$cliArgs['division_id'] : null,
+            'destination_type' => isset($cliArgs['destination_type']) && trim((string)$cliArgs['destination_type']) !== '' ? strtoupper(trim((string)$cliArgs['destination_type'])) : null,
+            'item_id' => isset($cliArgs['item_id']) && $cliArgs['item_id'] !== '' ? (int)$cliArgs['item_id'] : null,
+            'material_id' => isset($cliArgs['material_id']) && $cliArgs['material_id'] !== '' ? (int)$cliArgs['material_id'] : null,
+            'buy_uom_id' => isset($cliArgs['buy_uom_id']) && $cliArgs['buy_uom_id'] !== '' ? (int)$cliArgs['buy_uom_id'] : null,
+            'content_uom_id' => isset($cliArgs['content_uom_id']) && $cliArgs['content_uom_id'] !== '' ? (int)$cliArgs['content_uom_id'] : null,
+            'profile_key' => isset($cliArgs['profile_key']) ? trim((string)$cliArgs['profile_key']) : null,
+            'profile_name' => isset($cliArgs['profile_name']) ? trim((string)$cliArgs['profile_name']) : null,
+            'profile_brand' => isset($cliArgs['profile_brand']) ? trim((string)$cliArgs['profile_brand']) : null,
+            'profile_description' => isset($cliArgs['profile_description']) ? trim((string)$cliArgs['profile_description']) : null,
+            'profile_expired_date' => isset($cliArgs['profile_expired_date']) ? trim((string)$cliArgs['profile_expired_date']) : null,
+            'profile_content_per_buy' => isset($cliArgs['profile_content_per_buy']) && $cliArgs['profile_content_per_buy'] !== '' ? (float)$cliArgs['profile_content_per_buy'] : 0,
+            'profile_buy_uom_code' => isset($cliArgs['profile_buy_uom_code']) ? trim((string)$cliArgs['profile_buy_uom_code']) : null,
+            'profile_content_uom_code' => isset($cliArgs['profile_content_uom_code']) ? trim((string)$cliArgs['profile_content_uom_code']) : null,
+        ];
+
+        $result = $this->Purchase_model->rebuild_inventory_history_for_identity($scope, $startDate, $identity);
+        if (!($result['ok'] ?? false)) {
+            fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+            exit(1);
+        }
+
+        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+        exit(0);
+    }
+
+    public function normalize_purchase_catalog_conversion()
+    {
+        $cliArgs = $this->parseCliArgs();
+        $catalogId = (int)($cliArgs['catalog_id'] ?? 0);
+        $profileKey = trim((string)($cliArgs['profile_key'] ?? ''));
+
+        $filters = [];
+        if ($catalogId > 0) {
+            $filters['catalog_ids'] = [$catalogId];
+        }
+        if ($profileKey !== '') {
+            $filters['profile_keys'] = [$profileKey];
+        }
+
+        $result = $this->Purchase_model->normalizePurchaseCatalogConversion($filters, true);
+        if (!($result['ok'] ?? false)) {
+            fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+            exit(1);
+        }
+
+        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+        exit(0);
+    }
+
+    public function normalize_purchase_catalog_profile_keys()
+    {
+        $this->run_purchase_catalog_profile_key_normalize_cli(false);
+    }
+
+    public function audit_purchase_catalog_expiry_phase1()
+    {
+        $this->run_purchase_catalog_profile_key_normalize_cli(true);
+    }
+
+    public function normalize_purchase_catalog_expiry_phase1()
+    {
+        $this->run_purchase_catalog_profile_key_normalize_cli(false);
+    }
+
+    private function run_purchase_catalog_profile_key_normalize_cli(bool $forceDryRun = false): void
+    {
+        $cliArgs = $this->parseCliArgs();
+        $catalogId = (int)($cliArgs['catalog_id'] ?? 0);
+        $profileKey = trim((string)($cliArgs['profile_key'] ?? ''));
+        $limit = (int)($cliArgs['limit'] ?? 10000);
+        $dryRun = $forceDryRun || !isset($cliArgs['dry_run']) || !in_array(strtolower(trim((string)($cliArgs['dry_run'] ?? '1'))), ['0', 'false', 'no'], true);
+
+        $filters = [
+            'dry_run' => $dryRun,
+            'limit' => $limit,
+        ];
+        if ($catalogId > 0) {
+            $filters['catalog_ids'] = [$catalogId];
+        }
+        if ($profileKey !== '') {
+            $filters['profile_keys'] = [$profileKey];
+        }
+
+        $result = $this->Purchase_model->normalizePurchaseCatalogProfileKeys($filters, true);
+        if (!($result['ok'] ?? false)) {
+            fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+            exit(1);
+        }
+
+        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+        exit(0);
+    }
+
     private function parseCliArgs(): array
     {
         $argv = $_SERVER['argv'] ?? [];
@@ -963,8 +1134,9 @@ class Inventory_tools extends CI_Controller
         if (empty($accounts)) {
             return ['ok' => false, 'message' => 'Master rekening aktif tidak tersedia untuk smoke test.'];
         }
-        if (empty($profiles)) {
-            return ['ok' => false, 'message' => 'Stok gudang aktif tidak tersedia untuk smoke test SR/inventory PO.'];
+        $seedProfile = $this->resolveSmokeSeedProfile($profiles);
+        if ($seedProfile === null) {
+            return ['ok' => false, 'message' => 'Profile inventory aktif tidak tersedia untuk smoke test SR/inventory PO.'];
         }
 
         $profile = null;
@@ -975,7 +1147,7 @@ class Inventory_tools extends CI_Controller
             }
         }
         if ($profile === null) {
-            $profile = $profiles[0] ?? null;
+            $profile = $seedProfile;
         }
         if ($profile === null) {
             return ['ok' => false, 'message' => 'Profile stok gudang tidak ditemukan untuk smoke test.'];
@@ -1007,10 +1179,159 @@ class Inventory_tools extends CI_Controller
                 'vendor' => $vendors[0],
                 'account' => $accounts[0],
                 'inventory_profile' => $profile,
+                'inventory_profile_seed' => $seedProfile,
+                'warehouse_profile_available' => !empty($profiles),
                 'sr_division' => $division,
                 'sr_destination' => $destination,
                 'component' => $this->resolveSmokeComponent((int)($division['id'] ?? 0)),
                 'uom_id' => $uomId,
+            ],
+        ];
+    }
+
+    private function resolveSmokeSeedProfile(array $warehouseProfiles): ?array
+    {
+        foreach ($warehouseProfiles as $row) {
+            $normalized = $this->normalizeSmokeProfileRow((array)$row);
+            if ($normalized !== null) {
+                return $normalized;
+            }
+        }
+
+        $catalogRows = $this->Purchase_model->search_catalog_profiles('', 0, '', 0, 0, 20);
+        foreach ($catalogRows as $row) {
+            $normalized = $this->normalizeSmokeProfileRow([
+                'line_kind' => (string)($row['line_kind'] ?? ''),
+                'item_id' => (int)($row['item_id'] ?? 0),
+                'material_id' => (int)($row['material_id'] ?? 0),
+                'profile_key' => (string)($row['profile_key'] ?? ''),
+                'profile_name' => (string)($row['catalog_name'] ?? ''),
+                'profile_brand' => (string)($row['brand_name'] ?? ''),
+                'profile_description' => (string)($row['line_description'] ?? ''),
+                'profile_expired_date' => (string)($row['expired_date'] ?? ''),
+                'buy_uom_id' => (int)($row['buy_uom_id'] ?? 0),
+                'content_uom_id' => (int)($row['content_uom_id'] ?? 0),
+                'profile_content_per_buy' => (float)($row['content_per_buy'] ?? $row['conversion_factor_to_content'] ?? 1),
+                'profile_buy_uom_code' => (string)($row['buy_uom_code'] ?? ''),
+                'profile_content_uom_code' => (string)($row['content_uom_code'] ?? ''),
+                'qty_buy_balance' => 0,
+                'qty_content_balance' => 0,
+            ]);
+            if ($normalized !== null) {
+                return $normalized;
+            }
+        }
+
+        $masterRows = $this->Purchase_model->search_master_fallback('', '', 0, 0, 20);
+        foreach ($masterRows as $row) {
+            $normalized = $this->normalizeSmokeProfileRow([
+                'line_kind' => (string)($row['line_kind'] ?? ''),
+                'item_id' => (int)($row['item_id'] ?? 0),
+                'material_id' => (int)($row['material_id'] ?? 0),
+                'profile_key' => (string)($row['profile_key'] ?? ''),
+                'profile_name' => (string)($row['catalog_name'] ?? ''),
+                'profile_brand' => (string)($row['brand_name'] ?? ''),
+                'profile_description' => (string)($row['line_description'] ?? ''),
+                'profile_expired_date' => (string)($row['expired_date'] ?? ''),
+                'buy_uom_id' => (int)($row['buy_uom_id'] ?? 0),
+                'content_uom_id' => (int)($row['content_uom_id'] ?? 0),
+                'profile_content_per_buy' => (float)($row['content_per_buy'] ?? $row['conversion_factor_to_content'] ?? 1),
+                'profile_buy_uom_code' => (string)($row['buy_uom_code'] ?? ''),
+                'profile_content_uom_code' => (string)($row['content_uom_code'] ?? ''),
+                'qty_buy_balance' => 0,
+                'qty_content_balance' => 0,
+            ]);
+            if ($normalized !== null) {
+                return $normalized;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeSmokeProfileRow(array $row): ?array
+    {
+        $buyUomId = (int)($row['buy_uom_id'] ?? 0);
+        $contentUomId = (int)($row['content_uom_id'] ?? 0);
+        $itemId = (int)($row['item_id'] ?? 0);
+        $materialId = (int)($row['material_id'] ?? 0);
+        if ($buyUomId <= 0 || $contentUomId <= 0 || ($itemId <= 0 && $materialId <= 0)) {
+            return null;
+        }
+
+        $lineKind = strtoupper(trim((string)($row['line_kind'] ?? '')));
+        if (!in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
+            $lineKind = $materialId > 0 ? 'MATERIAL' : 'ITEM';
+        }
+
+        $contentPerBuy = round((float)($row['profile_content_per_buy'] ?? 1), 6);
+        if ($contentPerBuy <= 0) {
+            $contentPerBuy = 1;
+        }
+
+        return [
+            'line_kind' => $lineKind,
+            'item_id' => $itemId > 0 ? $itemId : null,
+            'material_id' => $materialId > 0 ? $materialId : null,
+            'profile_key' => (string)($row['profile_key'] ?? ''),
+            'profile_name' => (string)($row['profile_name'] ?? ''),
+            'profile_brand' => (string)($row['profile_brand'] ?? ''),
+            'profile_description' => (string)($row['profile_description'] ?? ''),
+            'profile_expired_date' => (string)($row['profile_expired_date'] ?? ''),
+            'buy_uom_id' => $buyUomId,
+            'content_uom_id' => $contentUomId,
+            'profile_content_per_buy' => $contentPerBuy,
+            'profile_buy_uom_code' => (string)($row['profile_buy_uom_code'] ?? ''),
+            'profile_content_uom_code' => (string)($row['profile_content_uom_code'] ?? ''),
+            'qty_buy_balance' => round((float)($row['qty_buy_balance'] ?? 0), 4),
+            'qty_content_balance' => round((float)($row['qty_content_balance'] ?? 0), 4),
+        ];
+    }
+
+    private function ensureSmokeWarehouseProfile(array $fixtures, string $smokeDate, int $userId): array
+    {
+        $profiles = $this->Procurement_model->search_warehouse_profiles('', 20);
+        $profile = $this->resolveSmokeSeedProfile($profiles);
+        if ($profile !== null && (float)($profile['qty_content_balance'] ?? 0) > 0) {
+            return ['ok' => true, 'data' => ['profile' => $profile, 'bootstrapped' => false]];
+        }
+
+        $seedProfile = $this->normalizeSmokeProfileRow((array)($fixtures['inventory_profile_seed'] ?? $fixtures['inventory_profile'] ?? []));
+        if ($seedProfile === null) {
+            return ['ok' => false, 'message' => 'Profile seed inventory tidak tersedia untuk bootstrap stok gudang smoke test.'];
+        }
+
+        $warehouseType = $this->firstSmokeType((array)($fixtures['purchase_types'] ?? []), ['INV_STOK']);
+        if ($warehouseType === null) {
+            return ['ok' => false, 'message' => 'Purchase type INV_STOK tidak tersedia untuk bootstrap stok gudang smoke test.'];
+        }
+
+        $bootstrap = $this->Purchase_model->store_order_with_lines([
+            'request_date' => $smokeDate,
+            'expected_date' => $smokeDate,
+            'purchase_type_id' => (int)($warehouseType['id'] ?? 0),
+            'vendor_id' => (int)(($fixtures['vendor']['id'] ?? 0)),
+            'status' => 'RECEIVED',
+            'notes' => 'Smoke bootstrap warehouse stock',
+        ], [
+            $this->buildSmokeInventoryPurchaseLine($seedProfile, 1.0),
+        ], $userId, 'CLI_SMOKE');
+        if (!($bootstrap['ok'] ?? false)) {
+            return $bootstrap;
+        }
+
+        $profiles = $this->Procurement_model->search_warehouse_profiles('', 20);
+        $profile = $this->resolveSmokeSeedProfile($profiles);
+        if ($profile === null || (float)($profile['qty_content_balance'] ?? 0) <= 0) {
+            return ['ok' => false, 'message' => 'Bootstrap stok gudang smoke test gagal menghasilkan saldo gudang aktif.'];
+        }
+
+        return [
+            'ok' => true,
+            'data' => [
+                'profile' => $profile,
+                'bootstrapped' => true,
+                'purchase_order_id' => (int)($bootstrap['data']['purchase_order_id'] ?? 0),
             ],
         ];
     }

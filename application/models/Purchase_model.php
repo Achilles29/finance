@@ -74,6 +74,129 @@ class Purchase_model extends CI_Model
         return $summary;
     }
 
+    public function get_purchase_order_filtered_summary(string $q, string $status, string $dateStart, string $dateEnd): array
+    {
+        $summary = [
+            'total_count' => 0,
+            'total_value' => 0.0,
+            'paid_count' => 0,
+            'paid_value' => 0.0,
+            'unpaid_count' => 0,
+            'unpaid_value' => 0.0,
+        ];
+
+        if (!$this->db->table_exists('pur_purchase_order')) {
+            return $summary;
+        }
+
+        $from = $this->normalizeDate($dateStart);
+        $to = $this->normalizeDate($dateEnd);
+
+        $this->db
+            ->select('COUNT(*) AS total_count', false)
+            ->select('COALESCE(SUM(po.grand_total), 0) AS total_value', false)
+            ->select("SUM(CASE WHEN po.status = 'PAID' THEN 1 ELSE 0 END) AS paid_count", false)
+            ->select("COALESCE(SUM(CASE WHEN po.status = 'PAID' THEN po.grand_total ELSE 0 END), 0) AS paid_value", false)
+            ->select("SUM(CASE WHEN po.status IN ('DRAFT','APPROVED','ORDERED','PARTIAL_RECEIVED','RECEIVED') THEN 1 ELSE 0 END) AS unpaid_count", false)
+            ->select("COALESCE(SUM(CASE WHEN po.status IN ('DRAFT','APPROVED','ORDERED','PARTIAL_RECEIVED','RECEIVED') THEN po.grand_total ELSE 0 END), 0) AS unpaid_value", false)
+            ->from('pur_purchase_order po')
+            ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
+            ->join('mst_vendor v', 'v.id = po.vendor_id', 'left');
+
+        $status = strtoupper(trim($status));
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('po.status', $status);
+        }
+        if ($from !== null) {
+            $this->db->where('po.request_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('po.request_date <=', $to);
+        }
+
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('po.po_no', $q)
+                ->or_like('v.vendor_name', $q)
+                ->or_like('pt.type_name', $q)
+                ->or_like('po.notes', $q)
+                ->group_end();
+        }
+
+        $row = $this->db->get()->row_array();
+        if (!$row) {
+            return $summary;
+        }
+
+        $summary['total_count'] = (int)($row['total_count'] ?? 0);
+        $summary['total_value'] = round((float)($row['total_value'] ?? 0), 2);
+        $summary['paid_count'] = (int)($row['paid_count'] ?? 0);
+        $summary['paid_value'] = round((float)($row['paid_value'] ?? 0), 2);
+        $summary['unpaid_count'] = (int)($row['unpaid_count'] ?? 0);
+        $summary['unpaid_value'] = round((float)($row['unpaid_value'] ?? 0), 2);
+
+        return $summary;
+    }
+
+    public function get_purchase_order_line_filtered_summary(string $q, string $status, string $dateStart, string $dateEnd): array
+    {
+        $summary = [
+            'total_lines' => 0,
+            'total_qty_buy' => 0.0,
+            'total_value' => 0.0,
+        ];
+
+        if (!$this->db->table_exists('pur_purchase_order_line') || !$this->db->table_exists('pur_purchase_order')) {
+            return $summary;
+        }
+
+        $from = $this->normalizeDate($dateStart);
+        $to = $this->normalizeDate($dateEnd);
+
+        $this->db
+            ->select('COUNT(*) AS total_lines', false)
+            ->select('COALESCE(SUM(l.qty_buy), 0) AS total_qty_buy', false)
+            ->select('COALESCE(SUM(l.line_subtotal), 0) AS total_value', false)
+            ->from('pur_purchase_order_line l')
+            ->join('pur_purchase_order po', 'po.id = l.purchase_order_id', 'inner')
+            ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
+            ->join('mst_vendor v', 'v.id = po.vendor_id', 'left');
+
+        $status = strtoupper(trim($status));
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('po.status', $status);
+        }
+        if ($from !== null) {
+            $this->db->where('po.request_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('po.request_date <=', $to);
+        }
+
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('po.po_no', $q)
+                ->or_like('pt.type_name', $q)
+                ->or_like('v.vendor_name', $q)
+                ->or_like('l.snapshot_item_name', $q)
+                ->or_like('l.snapshot_material_name', $q)
+                ->or_like('l.snapshot_brand_name', $q)
+                ->or_like('l.snapshot_line_description', $q)
+                ->group_end();
+        }
+
+        $row = $this->db->get()->row_array();
+        if (!$row) {
+            return $summary;
+        }
+
+        $summary['total_lines'] = (int)($row['total_lines'] ?? 0);
+        $summary['total_qty_buy'] = round((float)($row['total_qty_buy'] ?? 0), 4);
+        $summary['total_value'] = round((float)($row['total_value'] ?? 0), 2);
+
+        return $summary;
+    }
+
     public function list_company_accounts(string $q, int $limit): array
     {
         if (!$this->db->table_exists('fin_company_account')) {
@@ -772,7 +895,6 @@ class Purchase_model extends CI_Model
                     strtoupper(trim((string)($row['profile_name'] ?? ''))),
                     strtoupper(trim((string)($row['profile_brand'] ?? ''))),
                     strtoupper(trim((string)($row['profile_description'] ?? ''))),
-                    (string)($row['profile_expired_date'] ?? ''),
                 ]);
                 if (isset($seen[$dedupeKey])) {
                     continue;
@@ -800,7 +922,6 @@ class Purchase_model extends CI_Model
                 strtoupper(trim((string)($row['profile_name'] ?? ''))),
                 strtoupper(trim((string)($row['profile_brand'] ?? ''))),
                 strtoupper(trim((string)($row['profile_description'] ?? ''))),
-                (string)($row['profile_expired_date'] ?? ''),
             ]);
             if (isset($seen[$dedupeKey])) {
                 continue;
@@ -1048,12 +1169,24 @@ class Purchase_model extends CI_Model
 
         $window = $this->resolveDailyWindow($month, $dateFrom, $dateTo);
         $dates = $this->buildDateSeries($window['date_from'], $window['date_to']);
+        $hasDiscardQtyContent = $this->db->field_exists('discarded_qty_content', 'inv_warehouse_daily_rollup');
+        $hasSpoilQtyContent = $this->db->field_exists('spoil_qty_content', 'inv_warehouse_daily_rollup');
+        $hasWasteQtyContent = $this->db->field_exists('waste_qty_content', 'inv_warehouse_daily_rollup');
+        $hasProcessLossQtyContent = $this->db->field_exists('process_loss_qty_content', 'inv_warehouse_daily_rollup');
+        $hasVarianceQtyContent = $this->db->field_exists('variance_qty_content', 'inv_warehouse_daily_rollup');
+        $hasAdjustmentPlusQtyContent = $this->db->field_exists('adjustment_plus_qty_content', 'inv_warehouse_daily_rollup');
 
         $this->db
             ->select('d.movement_date, d.stock_domain, d.item_id, d.material_id, d.buy_uom_id, d.content_uom_id')
             ->select('d.profile_key, d.profile_name, d.profile_brand, d.profile_description')
             ->select('d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
             ->select('d.opening_qty_content, d.in_qty_content, d.out_qty_content, d.adjustment_qty_content, d.closing_qty_content')
+            ->select(($hasDiscardQtyContent ? 'd.discarded_qty_content' : '0') . ' AS discarded_qty_content', false)
+            ->select(($hasSpoilQtyContent ? 'd.spoil_qty_content' : '0') . ' AS spoil_qty_content', false)
+            ->select(($hasWasteQtyContent ? 'd.waste_qty_content' : '0') . ' AS waste_qty_content', false)
+            ->select(($hasProcessLossQtyContent ? 'd.process_loss_qty_content' : '0') . ' AS process_loss_qty_content', false)
+            ->select(($hasVarianceQtyContent ? 'd.variance_qty_content' : '0') . ' AS variance_qty_content', false)
+            ->select(($hasAdjustmentPlusQtyContent ? 'd.adjustment_plus_qty_content' : '0') . ' AS adjustment_plus_qty_content', false)
             ->select('d.total_value, d.mutation_count')
             ->select('i.item_code, i.item_name, m.material_code, m.material_name')
             ->from('inv_warehouse_daily_rollup d')
@@ -1241,6 +1374,12 @@ class Purchase_model extends CI_Model
         $dates = $this->buildDateSeries($window['date_from'], $window['date_to']);
         $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
         $hasDestinationType = $this->db->field_exists('destination_type', 'inv_division_daily_rollup');
+        $hasDiscardQtyContent = $this->db->field_exists('discarded_qty_content', 'inv_division_daily_rollup');
+        $hasSpoilQtyContent = $this->db->field_exists('spoil_qty_content', 'inv_division_daily_rollup');
+        $hasWasteQtyContent = $this->db->field_exists('waste_qty_content', 'inv_division_daily_rollup');
+        $hasProcessLossQtyContent = $this->db->field_exists('process_loss_qty_content', 'inv_division_daily_rollup');
+        $hasVarianceQtyContent = $this->db->field_exists('variance_qty_content', 'inv_division_daily_rollup');
+        $hasAdjustmentPlusQtyContent = $this->db->field_exists('adjustment_plus_qty_content', 'inv_division_daily_rollup');
         $destinationTypeSource = $hasDestinationType ? 'd.destination_type' : "'OTHER'";
 
         $destinationGroupExpr = "CASE\n                WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'\n                ELSE 'REGULER'\n            END";
@@ -1266,6 +1405,12 @@ class Purchase_model extends CI_Model
             ->select('d.profile_key, d.profile_name, d.profile_brand, d.profile_description')
             ->select('d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
             ->select('d.opening_qty_content, d.in_qty_content, d.out_qty_content, d.adjustment_qty_content, d.closing_qty_content')
+            ->select(($hasDiscardQtyContent ? 'd.discarded_qty_content' : '0') . ' AS discarded_qty_content', false)
+            ->select(($hasSpoilQtyContent ? 'd.spoil_qty_content' : '0') . ' AS spoil_qty_content', false)
+            ->select(($hasWasteQtyContent ? 'd.waste_qty_content' : '0') . ' AS waste_qty_content', false)
+            ->select(($hasProcessLossQtyContent ? 'd.process_loss_qty_content' : '0') . ' AS process_loss_qty_content', false)
+            ->select(($hasVarianceQtyContent ? 'd.variance_qty_content' : '0') . ' AS variance_qty_content', false)
+            ->select(($hasAdjustmentPlusQtyContent ? 'd.adjustment_plus_qty_content' : '0') . ' AS adjustment_plus_qty_content', false)
             ->select('d.total_value, d.mutation_count')
             ->select('i.item_code, i.item_name, m.material_code, m.material_name')
             ->from('inv_division_daily_rollup d')
@@ -1593,6 +1738,343 @@ class Purchase_model extends CI_Model
             ->limit($limit)
             ->get()
             ->result_array();
+    }
+
+    public function list_fifo_lot_audit(array $filters, int $limit = 200): array
+    {
+        if (!$this->db->table_exists('inv_material_fifo_lot')) {
+            return [];
+        }
+
+        $scope = strtoupper(trim((string)($filters['scope'] ?? 'ALL')));
+        if (!in_array($scope, ['ALL', 'WAREHOUSE', 'DIVISION'], true)) {
+            $scope = 'ALL';
+        }
+        $status = strtoupper(trim((string)($filters['status'] ?? 'OPEN')));
+        if (!in_array($status, ['ALL', 'OPEN', 'CLOSED'], true)) {
+            $status = 'OPEN';
+        }
+
+        $q = trim((string)($filters['q'] ?? ''));
+        $from = $this->normalizeDate((string)($filters['date_from'] ?? ''));
+        $to = $this->normalizeDate((string)($filters['date_to'] ?? ''));
+        $divisionId = (int)($filters['division_id'] ?? 0);
+        $itemId = (int)($filters['item_id'] ?? 0);
+        $materialId = (int)($filters['material_id'] ?? 0);
+        $profileKey = trim((string)($filters['profile_key'] ?? ''));
+        $destinationFilter = $this->normalizeDestinationFilter((string)($filters['destination'] ?? $filters['destination_type'] ?? ''));
+        if ($limit <= 0 || $limit > 500) {
+            $limit = 200;
+        }
+
+        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+            ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $divisionCodeSelect = $divisionCodeColumn !== null ? ('dv.' . $divisionCodeColumn . ' AS division_code') : 'CAST(l.division_id AS CHAR) AS division_code';
+        $divisionNameSelect = $divisionNameColumn !== null ? ('dv.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+        $destinationExpr = "CASE WHEN l.location_scope = 'WAREHOUSE' AND l.destination_type IS NULL THEN 'GUDANG' ELSE COALESCE(l.destination_type, 'OTHER') END";
+        $destinationNameExpr = "CASE " . $destinationExpr . "
+                WHEN 'BAR' THEN 'Bar Reguler'
+                WHEN 'KITCHEN' THEN 'Kitchen Reguler'
+                WHEN 'BAR_EVENT' THEN 'Bar Event'
+                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'
+                WHEN 'OFFICE' THEN 'Office Reguler'
+                WHEN 'GUDANG' THEN 'Gudang'
+                ELSE 'Reguler'
+            END";
+        $hasReceiptTable = $this->db->table_exists('pur_purchase_receipt');
+        $hasFulfillmentTable = $this->db->table_exists('pur_store_request_fulfillment');
+        $hasComponentBatchTable = $this->db->table_exists('inv_component_batch');
+
+        $this->db
+            ->select('l.id, l.lot_no, l.location_scope, l.receipt_date, l.expiry_date, l.division_id, l.item_id, l.material_id, l.buy_uom_id, l.content_uom_id, l.profile_key')
+            ->select('l.qty_in, l.qty_out, l.qty_balance, l.unit_cost, l.source_table, l.source_id, l.source_line_id, l.receipt_id, l.receipt_line_id, l.parent_lot_id, l.status, l.created_at, l.updated_at')
+            ->select($divisionCodeSelect . ', ' . $divisionNameSelect, false)
+            ->select($destinationExpr . ' AS destination_type', false)
+            ->select($destinationNameExpr . ' AS destination_name', false)
+            ->select('i.item_code, i.item_name, m.material_code, m.material_name, bu.code AS buy_uom_code, cu.code AS content_uom_code', false)
+            ->select('pl.lot_no AS parent_lot_no, pl.receipt_date AS parent_receipt_date', false)
+            ->select('COUNT(il.id) AS issue_line_count, COALESCE(SUM(il.qty_out), 0) AS issue_qty_total', false)
+            ->from('inv_material_fifo_lot l')
+            ->join('mst_operational_division dv', 'dv.id = l.division_id', 'left')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->join('mst_material m', 'm.id = l.material_id', 'left')
+            ->join('mst_uom bu', 'bu.id = l.buy_uom_id', 'left')
+            ->join('mst_uom cu', 'cu.id = l.content_uom_id', 'left')
+            ->join('inv_material_fifo_lot pl', 'pl.id = l.parent_lot_id', 'left')
+            ->join('inv_material_fifo_issue_line il', 'il.lot_id = l.id', 'left');
+
+        if ($hasReceiptTable) {
+            $this->db
+                ->select('pr.purchase_order_id AS receipt_purchase_order_id, pr.receipt_no AS receipt_no', false)
+                ->join('pur_purchase_receipt pr', "pr.id = IF(l.receipt_id IS NOT NULL AND l.receipt_id > 0, l.receipt_id, l.source_id) AND l.source_table = 'pur_purchase_receipt'", 'left', false);
+        } else {
+            $this->db->select('NULL AS receipt_purchase_order_id, NULL AS receipt_no', false);
+        }
+
+        if ($hasFulfillmentTable) {
+            $this->db
+                ->select('sf.store_request_id AS source_store_request_id, sf.fulfillment_no AS source_fulfillment_no', false)
+                ->join('pur_store_request_fulfillment sf', "sf.id = l.source_id AND l.source_table = 'pur_store_request_fulfillment'", 'left', false);
+        } else {
+            $this->db->select('NULL AS source_store_request_id, NULL AS source_fulfillment_no', false);
+        }
+
+        if ($hasComponentBatchTable) {
+            $this->db
+                ->select('cb.batch_no AS source_batch_no', false)
+                ->join('inv_component_batch cb', "cb.id = l.source_id AND l.source_table = 'inv_component_batch'", 'left', false);
+        } else {
+            $this->db->select('NULL AS source_batch_no', false);
+        }
+
+        if ($scope !== 'ALL') {
+            $this->db->where('l.location_scope', $scope);
+        }
+        if ($status !== 'ALL') {
+            $this->db->where('l.status', $status);
+        }
+        if ($from !== null) {
+            $this->db->where('l.receipt_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('l.receipt_date <=', $to);
+        }
+        if ($divisionId > 0) {
+            $this->db->where('l.division_id', $divisionId);
+        }
+        if ($itemId > 0) {
+            $this->db->where('l.item_id', $itemId);
+        }
+        if ($materialId > 0) {
+            $this->db->where('l.material_id', $materialId);
+        }
+        if ($profileKey !== '') {
+            $this->db->where('l.profile_key', $profileKey);
+        }
+        if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
+            if ($destinationFilter === 'REGULER') {
+                $this->db->where($destinationExpr . " NOT IN ('BAR_EVENT','KITCHEN_EVENT')", null, false);
+            } elseif ($destinationFilter === 'EVENT') {
+                $this->db->where($destinationExpr . " IN ('BAR_EVENT','KITCHEN_EVENT')", null, false);
+            } else {
+                $this->db->where($destinationExpr . ' = ' . $this->db->escape($destinationFilter), null, false);
+            }
+        }
+
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('l.lot_no', $q)
+                ->or_like('l.profile_key', $q)
+                ->or_like('i.item_code', $q)
+                ->or_like('i.item_name', $q)
+                ->or_like('m.material_code', $q)
+                ->or_like('m.material_name', $q)
+                ->or_like('pl.lot_no', $q)
+                ->or_like('l.source_table', $q)
+                ->group_end();
+        }
+
+        return $this->db
+            ->group_by('l.id')
+            ->order_by('l.qty_balance', 'DESC')
+            ->order_by('l.receipt_date', 'ASC')
+            ->order_by('l.id', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function list_fifo_issue_audit(array $filters, int $limit = 100): array
+    {
+        if (!$this->db->table_exists('inv_material_fifo_issue_log')) {
+            return [];
+        }
+
+        $scope = strtoupper(trim((string)($filters['scope'] ?? 'ALL')));
+        if (!in_array($scope, ['ALL', 'WAREHOUSE', 'DIVISION'], true)) {
+            $scope = 'ALL';
+        }
+        $status = strtoupper(trim((string)($filters['status'] ?? 'POSTED')));
+        if (!in_array($status, ['ALL', 'POSTED', 'VOID'], true)) {
+            $status = 'POSTED';
+        }
+
+        $q = trim((string)($filters['q'] ?? ''));
+        $from = $this->normalizeDate((string)($filters['date_from'] ?? ''));
+        $to = $this->normalizeDate((string)($filters['date_to'] ?? ''));
+        $divisionId = (int)($filters['division_id'] ?? 0);
+        $destinationFilter = $this->normalizeDestinationFilter((string)($filters['destination'] ?? $filters['destination_type'] ?? ''));
+        if ($limit <= 0 || $limit > 500) {
+            $limit = 100;
+        }
+
+        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+            ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $hasDivisionCode = $divisionCodeColumn !== null;
+        $hasDivisionName = $divisionNameColumn !== null;
+        $sourceDivisionCodeSelect = $hasDivisionCode ? ('dvs.' . $divisionCodeColumn . ' AS source_division_code') : 'CAST(l.division_id AS CHAR) AS source_division_code';
+        $sourceDivisionNameSelect = $hasDivisionName ? ('dvs.' . $divisionNameColumn . ' AS source_division_name') : 'NULL AS source_division_name';
+        $targetDivisionCodeSelect = $hasDivisionCode ? ('dvt.' . $divisionCodeColumn . ' AS target_division_code') : 'CAST(l.target_division_id AS CHAR) AS target_division_code';
+        $targetDivisionNameSelect = $hasDivisionName ? ('dvt.' . $divisionNameColumn . ' AS target_division_name') : 'NULL AS target_division_name';
+
+        $effectiveDivisionExpr = "CASE WHEN l.target_scope = 'DIVISION' AND l.target_division_id IS NOT NULL THEN l.target_division_id ELSE l.division_id END";
+        $effectiveDestinationExpr = "CASE WHEN l.target_scope = 'DIVISION' AND l.target_destination_type IS NOT NULL THEN l.target_destination_type ELSE COALESCE(l.destination_type, 'OTHER') END";
+        $sourceDestinationNameExpr = "CASE COALESCE(l.destination_type, 'OTHER')
+                WHEN 'BAR' THEN 'Bar Reguler'
+                WHEN 'KITCHEN' THEN 'Kitchen Reguler'
+                WHEN 'BAR_EVENT' THEN 'Bar Event'
+                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'
+                WHEN 'OFFICE' THEN 'Office Reguler'
+                WHEN 'GUDANG' THEN 'Gudang'
+                ELSE 'Reguler'
+            END";
+        $targetDestinationNameExpr = "CASE COALESCE(l.target_destination_type, 'OTHER')
+                WHEN 'BAR' THEN 'Bar Reguler'
+                WHEN 'KITCHEN' THEN 'Kitchen Reguler'
+                WHEN 'BAR_EVENT' THEN 'Bar Event'
+                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'
+                WHEN 'OFFICE' THEN 'Office Reguler'
+                WHEN 'GUDANG' THEN 'Gudang'
+                ELSE 'Reguler'
+            END";
+
+        $hasIssueLineTable = $this->db->table_exists('inv_material_fifo_issue_line');
+
+        $this->db
+            ->select('l.id, l.issue_no, l.issue_date, l.issue_datetime, l.location_scope, l.division_id, l.destination_type, l.target_scope, l.target_division_id, l.target_destination_type')
+            ->select('l.item_id, l.material_id, l.buy_uom_id, l.content_uom_id, l.profile_key, l.issue_qty, l.total_cost')
+            ->select('l.source_module, l.source_table, l.source_id, l.source_line_id, l.notes, l.status, l.voided_at, l.created_at')
+            ->select($sourceDivisionCodeSelect . ', ' . $sourceDivisionNameSelect . ', ' . $targetDivisionCodeSelect . ', ' . $targetDivisionNameSelect, false)
+            ->select($sourceDestinationNameExpr . ' AS source_destination_name', false)
+            ->select($targetDestinationNameExpr . ' AS target_destination_name', false)
+            ->select('i.item_code, i.item_name, m.material_code, m.material_name, cu.code AS content_uom_code', false)
+            ->from('inv_material_fifo_issue_log l')
+            ->join('mst_operational_division dvs', 'dvs.id = l.division_id', 'left')
+            ->join('mst_operational_division dvt', 'dvt.id = l.target_division_id', 'left')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->join('mst_material m', 'm.id = l.material_id', 'left')
+            ->join('mst_uom cu', 'cu.id = l.content_uom_id', 'left');
+
+        if ($hasIssueLineTable) {
+            $this->db
+                ->select('COUNT(il.id) AS line_count, COALESCE(SUM(il.qty_out), 0) AS allocated_qty_total', false)
+                ->join('inv_material_fifo_issue_line il', 'il.issue_id = l.id', 'left');
+        } else {
+            $this->db->select('0 AS line_count, 0 AS allocated_qty_total', false);
+        }
+
+        if ($scope !== 'ALL') {
+            $this->db->where('l.location_scope', $scope);
+        }
+        if ($status !== 'ALL') {
+            $this->db->where('l.status', $status);
+        }
+        if ($from !== null) {
+            $this->db->where('l.issue_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('l.issue_date <=', $to);
+        }
+        if ($divisionId > 0) {
+            $this->db->where($effectiveDivisionExpr . ' = ' . (int)$divisionId, null, false);
+        }
+        if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
+            if ($destinationFilter === 'REGULER') {
+                $this->db->where($effectiveDestinationExpr . " NOT IN ('BAR_EVENT','KITCHEN_EVENT')", null, false);
+            } elseif ($destinationFilter === 'EVENT') {
+                $this->db->where($effectiveDestinationExpr . " IN ('BAR_EVENT','KITCHEN_EVENT')", null, false);
+            } else {
+                $this->db->where($effectiveDestinationExpr . ' = ' . $this->db->escape($destinationFilter), null, false);
+            }
+        }
+
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('l.issue_no', $q)
+                ->or_like('l.source_module', $q)
+                ->or_like('l.source_table', $q)
+                ->or_like('l.profile_key', $q)
+                ->or_like('i.item_code', $q)
+                ->or_like('i.item_name', $q)
+                ->or_like('m.material_code', $q)
+                ->or_like('m.material_name', $q)
+                ->or_like('dvs.' . ($divisionNameColumn ?? 'id'), $q, 'both', $hasDivisionName === false)
+                ->or_like('dvt.' . ($divisionNameColumn ?? 'id'), $q, 'both', $hasDivisionName === false)
+                ->or_like('l.notes', $q)
+                ->group_end();
+        }
+
+        if ($hasIssueLineTable) {
+            $this->db->group_by('l.id');
+        }
+
+        $issues = $this->db
+            ->order_by('l.issue_date', 'DESC')
+            ->order_by('l.id', 'DESC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+
+        if (empty($issues) || !$hasIssueLineTable) {
+            return $issues;
+        }
+
+        $issueIds = array_values(array_filter(array_map(static function ($row) {
+            return (int)($row['id'] ?? 0);
+        }, $issues), static function ($id) {
+            return $id > 0;
+        }));
+
+        if (empty($issueIds)) {
+            return $issues;
+        }
+
+        $sourceBalanceBeforeSelect = $this->db->field_exists('source_balance_before', 'inv_material_fifo_issue_line')
+            ? 'il.source_balance_before'
+            : 'NULL AS source_balance_before';
+        $sourceBalanceAfterSelect = $this->db->field_exists('source_balance_after', 'inv_material_fifo_issue_line')
+            ? 'il.source_balance_after'
+            : 'NULL AS source_balance_after';
+        $targetBalanceBeforeSelect = $this->db->field_exists('target_balance_before', 'inv_material_fifo_issue_line')
+            ? 'il.target_balance_before'
+            : 'NULL AS target_balance_before';
+        $targetBalanceAfterSelect = $this->db->field_exists('target_balance_after', 'inv_material_fifo_issue_line')
+            ? 'il.target_balance_after'
+            : 'NULL AS target_balance_after';
+
+        $lineRows = $this->db
+            ->select('il.id, il.issue_id, il.lot_id AS source_lot_id, il.target_lot_id, il.qty_out, il.unit_cost, il.total_cost')
+            ->select($sourceBalanceBeforeSelect . ', ' . $sourceBalanceAfterSelect . ', ' . $targetBalanceBeforeSelect . ', ' . $targetBalanceAfterSelect, false)
+            ->select('sl.lot_no AS source_lot_no, sl.receipt_date AS source_receipt_date, sl.expiry_date AS source_expiry_date, sl.qty_balance AS source_live_balance', false)
+            ->select('tl.lot_no AS target_lot_no, tl.receipt_date AS target_receipt_date, tl.expiry_date AS target_expiry_date, tl.qty_balance AS target_live_balance', false)
+            ->from('inv_material_fifo_issue_line il')
+            ->join('inv_material_fifo_lot sl', 'sl.id = il.lot_id', 'left')
+            ->join('inv_material_fifo_lot tl', 'tl.id = il.target_lot_id', 'left')
+            ->where_in('il.issue_id', $issueIds)
+            ->order_by('il.issue_id', 'ASC')
+            ->order_by('il.id', 'ASC')
+            ->get()
+            ->result_array();
+
+        $lineMap = [];
+        foreach ($lineRows as $lineRow) {
+            $lineMap[(int)($lineRow['issue_id'] ?? 0)][] = $lineRow;
+        }
+
+        foreach ($issues as &$issue) {
+            $issue['line_rows'] = $lineMap[(int)($issue['id'] ?? 0)] ?? [];
+        }
+        unset($issue);
+
+        return $issues;
     }
 
     public function sync_purchase_setup_from_core(int $limit = 2000): array
@@ -2166,6 +2648,994 @@ class Purchase_model extends CI_Model
         ];
     }
 
+    public function list_stock_adjustments(string $scope, string $month, string $q, int $limit, ?int $divisionId = null, ?string $destination = null): array
+    {
+        if (!$this->db->table_exists('inv_stock_adjustment')) {
+            return [];
+        }
+
+        $scope = strtoupper(trim($scope));
+        if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
+            $scope = 'WAREHOUSE';
+        }
+
+        $month = trim($month);
+        if ($month !== '' && preg_match('/^\d{4}\-\d{2}$/', $month) !== 1) {
+            $month = '';
+        }
+        $q = trim($q);
+        $limit = max(1, min(500, $limit));
+
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $this->db
+            ->select('h.*, ' . $divisionNameSelect, false)
+            ->select('COUNT(l.id) AS line_count', false)
+            ->select('SUM(COALESCE(l.qty_waste_content, 0)) AS total_waste_content', false)
+            ->select('SUM(CASE WHEN COALESCE(l.profile_content_per_buy, 0) > 0 THEN COALESCE(l.qty_waste_content, 0) / l.profile_content_per_buy ELSE 0 END) AS total_waste_buy', false)
+            ->select('SUM(COALESCE(l.qty_spoil_content, 0)) AS total_spoil_content', false)
+            ->select('SUM(CASE WHEN COALESCE(l.profile_content_per_buy, 0) > 0 THEN COALESCE(l.qty_spoil_content, 0) / l.profile_content_per_buy ELSE 0 END) AS total_spoil_buy', false)
+            ->select('SUM(COALESCE(l.qty_process_loss_content, 0)) AS total_process_loss_content', false)
+            ->select('SUM(CASE WHEN COALESCE(l.profile_content_per_buy, 0) > 0 THEN COALESCE(l.qty_process_loss_content, 0) / l.profile_content_per_buy ELSE 0 END) AS total_process_loss_buy', false)
+            ->select('SUM(COALESCE(l.qty_variance_content, 0)) AS total_variance_content', false)
+            ->select('SUM(CASE WHEN COALESCE(l.profile_content_per_buy, 0) > 0 THEN COALESCE(l.qty_variance_content, 0) / l.profile_content_per_buy ELSE 0 END) AS total_variance_buy', false)
+            ->select('SUM(COALESCE(l.qty_adjustment_plus_content, 0)) AS total_adjustment_plus_content', false)
+            ->select('SUM(CASE WHEN COALESCE(l.profile_content_per_buy, 0) > 0 THEN COALESCE(l.qty_adjustment_plus_content, 0) / l.profile_content_per_buy ELSE 0 END) AS total_adjustment_plus_buy', false)
+            ->from('inv_stock_adjustment h')
+            ->join('inv_stock_adjustment_line l', 'l.adjustment_id = h.id', 'left')
+            ->join('mst_operational_division d', 'd.id = h.division_id', 'left')
+            ->where('h.stock_scope', $scope);
+
+        if ($month !== '') {
+            $this->db->where("DATE_FORMAT(h.adjustment_date, '%Y-%m') =", $month, false);
+        }
+        if ($scope === 'DIVISION' && $divisionId !== null && $divisionId > 0) {
+            $this->db->where('h.division_id', $divisionId);
+        }
+        $destination = $this->normalizeStockAdjustmentDestination($destination, false);
+        if ($scope === 'DIVISION' && $destination !== null && $destination !== 'ALL') {
+            $this->db->where('COALESCE(h.destination_type, "OTHER") =', $destination, false);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('h.adjustment_no', $q)
+                ->or_like('h.notes', $q)
+                ->or_like('h.status', $q);
+            if ($divisionNameColumn !== null) {
+                $this->db->or_like('d.' . $divisionNameColumn, $q);
+            }
+            $this->db->group_end();
+        }
+
+        return $this->db
+            ->group_by('h.id')
+            ->order_by('h.adjustment_date', 'DESC')
+            ->order_by('h.id', 'DESC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function list_stock_adjustment_detail_rows(string $scope, string $month, string $q, int $limit, ?int $divisionId = null, ?string $destination = null): array
+    {
+        if (!$this->db->table_exists('inv_stock_adjustment') || !$this->db->table_exists('inv_stock_adjustment_line')) {
+            return [];
+        }
+
+        $scope = strtoupper(trim($scope));
+        if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
+            $scope = 'WAREHOUSE';
+        }
+
+        $month = trim($month);
+        if ($month !== '' && preg_match('/^\d{4}\-\d{2}$/', $month) !== 1) {
+            $month = '';
+        }
+        $q = trim($q);
+        $limit = max(1, min(500, $limit));
+        $lineLimit = max(50, min(2000, $limit * 5));
+
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $this->db
+            ->select('h.id AS adjustment_id, h.adjustment_no, h.adjustment_date, h.status, h.stock_scope, h.division_id, h.destination_type, h.notes AS header_notes', false)
+            ->select($divisionNameSelect, false)
+            ->select('l.*, i.item_code, i.item_name, m.material_code, m.material_name')
+            ->from('inv_stock_adjustment_line l')
+            ->join('inv_stock_adjustment h', 'h.id = l.adjustment_id')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->join('mst_material m', 'm.id = l.material_id', 'left')
+            ->join('mst_operational_division d', 'd.id = h.division_id', 'left')
+            ->where('h.stock_scope', $scope);
+
+        if ($month !== '') {
+            $this->db->where("DATE_FORMAT(h.adjustment_date, '%Y-%m') =", $month, false);
+        }
+        if ($scope === 'DIVISION' && $divisionId !== null && $divisionId > 0) {
+            $this->db->where('h.division_id', $divisionId);
+        }
+
+        $destination = $this->normalizeStockAdjustmentDestination($destination, false);
+        if ($scope === 'DIVISION' && $destination !== null && $destination !== 'ALL') {
+            $this->db->where('COALESCE(h.destination_type, "OTHER") =', $destination, false);
+        }
+
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('h.adjustment_no', $q)
+                ->or_like('h.notes', $q)
+                ->or_like('h.status', $q)
+                ->or_like('l.line_note', $q)
+                ->or_like('l.inbound_lot_no', $q)
+                ->or_like('l.profile_key', $q)
+                ->or_like('l.profile_name', $q)
+                ->or_like('l.profile_brand', $q)
+                ->or_like('l.profile_description', $q)
+                ->or_like('i.item_code', $q)
+                ->or_like('i.item_name', $q)
+                ->or_like('m.material_code', $q)
+                ->or_like('m.material_name', $q);
+            if ($divisionNameColumn !== null) {
+                $this->db->or_like('d.' . $divisionNameColumn, $q);
+            }
+            $this->db->group_end();
+        }
+
+        return $this->db
+            ->order_by('h.adjustment_date', 'DESC')
+            ->order_by('h.id', 'DESC')
+            ->order_by('l.line_no', 'ASC')
+            ->limit($lineLimit)
+            ->get()
+            ->result_array();
+    }
+
+    public function get_stock_adjustment(int $id): ?array
+    {
+        if ($id <= 0 || !$this->db->table_exists('inv_stock_adjustment')) {
+            return null;
+        }
+
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $row = $this->db
+            ->select('h.*, ' . $divisionNameSelect, false)
+            ->from('inv_stock_adjustment h')
+            ->join('mst_operational_division d', 'd.id = h.division_id', 'left')
+            ->where('h.id', $id)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        return $row ?: null;
+    }
+
+    public function get_stock_adjustment_lines(int $adjustmentId): array
+    {
+        if ($adjustmentId <= 0 || !$this->db->table_exists('inv_stock_adjustment_line')) {
+            return [];
+        }
+
+        return $this->db
+            ->select('l.*, i.item_code, i.item_name, m.material_code, m.material_name')
+            ->from('inv_stock_adjustment_line l')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->join('mst_material m', 'm.id = l.material_id', 'left')
+            ->where('l.adjustment_id', $adjustmentId)
+            ->order_by('l.line_no', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
+    public function search_stock_adjustment_items(array $context, string $q, int $limit = 20): array
+    {
+        $scope = strtoupper(trim((string)($context['stock_scope'] ?? 'WAREHOUSE')));
+        if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
+            $scope = 'WAREHOUSE';
+        }
+
+        $divisionId = !empty($context['division_id']) ? (int)$context['division_id'] : null;
+        $destinationType = $scope === 'DIVISION'
+            ? $this->normalizeStockAdjustmentDestination((string)($context['destination_type'] ?? ''), true)
+            : 'GUDANG';
+
+        $limit = max(1, min(50, $limit));
+        $candidateLimit = min(50, max($limit, $limit * 3));
+
+        $rows = $this->search_opening_items($q, $candidateLimit);
+        foreach ($rows as $index => &$row) {
+            $profileContentPerBuy = round((float)($row['default_content_per_buy'] ?? 1), 6);
+            if ($profileContentPerBuy <= 0) {
+                $profileContentPerBuy = 1.0;
+            }
+
+            $identity = [
+                'stock_scope' => $scope,
+                'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+                'destination_type' => $scope === 'DIVISION' ? $destinationType : 'GUDANG',
+                'item_id' => !empty($row['id']) ? (int)$row['id'] : null,
+                'material_id' => !empty($row['material_id']) ? (int)$row['material_id'] : null,
+                'buy_uom_id' => !empty($row['default_buy_uom_id']) ? (int)$row['default_buy_uom_id'] : null,
+                'content_uom_id' => !empty($row['default_content_uom_id']) ? (int)$row['default_content_uom_id'] : null,
+                'profile_key' => $this->nullableString($row['profile_key'] ?? null),
+            ];
+            $balance = $this->fetchStockAdjustmentCurrentBalance($identity);
+            $row['stock_domain'] = !empty($row['material_id']) ? 'MATERIAL' : 'ITEM';
+            $row['available_qty_buy'] = round((float)($balance['qty_buy_balance'] ?? 0), 4);
+            $row['available_qty_content'] = round((float)($balance['qty_content_balance'] ?? 0), 4);
+            $row['avg_cost_per_content'] = round((float)($balance['avg_cost_per_content'] ?? 0), 6);
+            $row['default_content_per_buy'] = $profileContentPerBuy;
+            $row['_search_order'] = $index;
+            $row['_has_positive_stock'] = ($row['available_qty_content'] > 0 || $row['available_qty_buy'] > 0) ? 1 : 0;
+        }
+        unset($row);
+
+        usort($rows, static function (array $a, array $b): int {
+            $aHasStock = (int)($a['_has_positive_stock'] ?? 0);
+            $bHasStock = (int)($b['_has_positive_stock'] ?? 0);
+            if ($aHasStock !== $bHasStock) {
+                return $bHasStock <=> $aHasStock;
+            }
+
+            $aQtyContent = (float)($a['available_qty_content'] ?? 0);
+            $bQtyContent = (float)($b['available_qty_content'] ?? 0);
+            if ($aQtyContent !== $bQtyContent) {
+                return $bQtyContent <=> $aQtyContent;
+            }
+
+            $aQtyBuy = (float)($a['available_qty_buy'] ?? 0);
+            $bQtyBuy = (float)($b['available_qty_buy'] ?? 0);
+            if ($aQtyBuy !== $bQtyBuy) {
+                return $bQtyBuy <=> $aQtyBuy;
+            }
+
+            return (int)($a['_search_order'] ?? 0) <=> (int)($b['_search_order'] ?? 0);
+        });
+
+        $rows = array_slice($rows, 0, $limit);
+        foreach ($rows as &$row) {
+            unset($row['_search_order'], $row['_has_positive_stock']);
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    public function save_stock_adjustment(array $header, array $lines, int $userId): array
+    {
+        if (!$this->db->table_exists('inv_stock_adjustment') || !$this->db->table_exists('inv_stock_adjustment_line')) {
+            return ['ok' => false, 'message' => 'Tabel adjustment stok belum tersedia.'];
+        }
+
+        $scope = strtoupper(trim((string)($header['stock_scope'] ?? 'WAREHOUSE')));
+        if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
+            return ['ok' => false, 'message' => 'stock_scope adjustment tidak valid.'];
+        }
+
+        $adjustmentDate = $this->normalizeDate((string)($header['adjustment_date'] ?? date('Y-m-d')));
+        if ($adjustmentDate === null) {
+            return ['ok' => false, 'message' => 'Tanggal adjustment tidak valid.'];
+        }
+
+        $divisionId = !empty($header['division_id']) ? (int)$header['division_id'] : null;
+        $destinationType = $scope === 'DIVISION'
+            ? $this->normalizeStockAdjustmentDestination((string)($header['destination_type'] ?? ''), true)
+            : 'GUDANG';
+        if ($scope === 'DIVISION' && ($divisionId === null || $destinationType === null)) {
+            return ['ok' => false, 'message' => 'Adjustment divisi membutuhkan division_id dan tujuan yang valid.'];
+        }
+
+        $preparedLines = [];
+        foreach ($lines as $line) {
+            $prepared = $this->normalizeStockAdjustmentLine($scope, $divisionId, $destinationType, $line);
+            if ($prepared === null) {
+                continue;
+            }
+            $preparedLines[] = $prepared;
+        }
+        if (empty($preparedLines)) {
+            return ['ok' => false, 'message' => 'Baris adjustment belum diisi atau tidak valid.'];
+        }
+
+        $id = !empty($header['id']) ? (int)$header['id'] : 0;
+        $payload = [
+            'adjustment_no' => $id > 0 ? (string)($header['adjustment_no'] ?? '') : $this->generateStockAdjustmentNo($scope, $adjustmentDate),
+            'adjustment_date' => $adjustmentDate,
+            'stock_scope' => $scope,
+            'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+            'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
+            'notes' => $this->nullableString($header['notes'] ?? null),
+        ];
+
+        $this->db->trans_begin();
+
+        if ($id > 0) {
+            $existing = $this->get_stock_adjustment($id);
+            if (!$existing || strtoupper((string)($existing['status'] ?? '')) !== 'DRAFT') {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Hanya draft adjustment yang bisa diubah.'];
+            }
+            unset($payload['adjustment_no']);
+            $this->db->where('id', $id)->update('inv_stock_adjustment', $payload);
+            $this->db->where('adjustment_id', $id)->delete('inv_stock_adjustment_line');
+        } else {
+            $payload['status'] = 'DRAFT';
+            $payload['created_by'] = $userId > 0 ? $userId : null;
+            $this->db->insert('inv_stock_adjustment', $payload);
+            $id = (int)$this->db->insert_id();
+        }
+
+        $lineNo = 1;
+        foreach ($preparedLines as $preparedLine) {
+            $preparedLine['adjustment_id'] = $id;
+            $preparedLine['line_no'] = $lineNo++;
+            $this->db->insert('inv_stock_adjustment_line', $preparedLine);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal menyimpan draft adjustment.'];
+        }
+
+        $this->db->trans_commit();
+        return ['ok' => true, 'id' => $id, 'adjustment_no' => $payload['adjustment_no'] ?? ($header['adjustment_no'] ?? '')];
+    }
+
+    public function post_stock_adjustment(int $id, int $userId, string $sourceIp = ''): array
+    {
+        $header = $this->get_stock_adjustment($id);
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Dokumen adjustment tidak ditemukan.'];
+        }
+        if (strtoupper((string)($header['status'] ?? '')) !== 'DRAFT') {
+            return ['ok' => false, 'message' => 'Hanya draft adjustment yang bisa diposting.'];
+        }
+
+        $lines = $this->get_stock_adjustment_lines($id);
+        if (empty($lines)) {
+            return ['ok' => false, 'message' => 'Dokumen adjustment belum punya baris.'];
+        }
+
+        $this->load->library('MaterialFifoManager');
+        $fifoReady = $this->materialfifomanager->ensureReady();
+        if (!($fifoReady['ok'] ?? false)) {
+            return $fifoReady;
+        }
+
+        $this->db->trans_begin();
+        $postedLineIds = [];
+
+        foreach ($lines as $line) {
+            $posted = $this->postStockAdjustmentLine($header, $line, $userId);
+            if (!($posted['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return $posted;
+            }
+
+            $lineUpdates = $posted['data']['line_updates'] ?? [];
+            if (!empty($lineUpdates)) {
+                $this->db->where('id', (int)$line['id'])->update('inv_stock_adjustment_line', $lineUpdates);
+            }
+            $postedLineIds[] = (int)$line['id'];
+        }
+
+        $this->db->where('id', $id)->update('inv_stock_adjustment', [
+            'status' => 'POSTED',
+            'posted_at' => date('Y-m-d H:i:s'),
+            'posted_by' => $userId > 0 ? $userId : null,
+        ]);
+
+        if ($this->db->table_exists('aud_transaction_log')) {
+            $this->db->insert('aud_transaction_log', [
+                'module_code' => 'INVENTORY',
+                'action_code' => strtoupper((string)$header['stock_scope']) === 'DIVISION' ? 'DIVISION_ADJUSTMENT' : 'WAREHOUSE_ADJUSTMENT',
+                'entity_table' => 'inv_stock_adjustment',
+                'entity_id' => $id,
+                'transaction_no' => (string)($header['adjustment_no'] ?? ''),
+                'actor_user_id' => $userId > 0 ? $userId : null,
+                'source_ip' => $sourceIp !== '' ? $sourceIp : null,
+                'after_payload' => json_encode([
+                    'header' => [
+                        'id' => $id,
+                        'adjustment_no' => (string)($header['adjustment_no'] ?? ''),
+                        'adjustment_date' => (string)($header['adjustment_date'] ?? ''),
+                        'stock_scope' => (string)($header['stock_scope'] ?? ''),
+                        'division_id' => !empty($header['division_id']) ? (int)$header['division_id'] : null,
+                        'destination_type' => $header['destination_type'] ?? null,
+                    ],
+                    'line_ids' => $postedLineIds,
+                ]),
+                'notes' => 'Adjustment stok diposting ke live balance, daily rollup, dan lot FIFO',
+            ]);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal memposting adjustment stok.'];
+        }
+
+        $this->db->trans_commit();
+        return ['ok' => true, 'id' => $id];
+    }
+
+    public function delete_draft_stock_adjustment(int $id): array
+    {
+        $header = $this->get_stock_adjustment($id);
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Dokumen adjustment tidak ditemukan.'];
+        }
+        if (strtoupper((string)($header['status'] ?? '')) !== 'DRAFT') {
+            return ['ok' => false, 'message' => 'Hanya draft adjustment yang bisa dihapus.'];
+        }
+
+        $this->db->trans_begin();
+        $this->db->where('adjustment_id', $id)->delete('inv_stock_adjustment_line');
+        $this->db->where('id', $id)->delete('inv_stock_adjustment');
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal menghapus draft adjustment.'];
+        }
+
+        $this->db->trans_commit();
+        return ['ok' => true, 'id' => $id];
+    }
+
+    public function void_posted_stock_adjustment(int $id, int $userId, string $sourceIp = ''): array
+    {
+        $header = $this->get_stock_adjustment($id);
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Dokumen adjustment tidak ditemukan.'];
+        }
+        if (strtoupper((string)($header['status'] ?? 'DRAFT')) !== 'POSTED') {
+            return ['ok' => false, 'message' => 'Hanya adjustment POSTED yang bisa di-void.'];
+        }
+
+        $lines = $this->get_stock_adjustment_lines($id);
+        if (empty($lines)) {
+            return ['ok' => false, 'message' => 'Dokumen adjustment tidak memiliki line untuk di-void.'];
+        }
+
+        $this->load->library('MaterialFifoManager');
+        $fifoReady = $this->materialfifomanager->ensureReady();
+        if (!($fifoReady['ok'] ?? false)) {
+            return $fifoReady;
+        }
+
+        $scope = strtoupper((string)($header['stock_scope'] ?? 'WAREHOUSE'));
+        $divisionId = !empty($header['division_id']) ? (int)$header['division_id'] : null;
+        $destinationType = $scope === 'DIVISION'
+            ? $this->normalizeStockAdjustmentDestination((string)($header['destination_type'] ?? ''), true)
+            : null;
+        $voidNote = 'VOID adjustment membatalkan dokumen posted';
+        $rebuildTargets = [];
+        $adjustmentDate = $this->normalizeDate((string)($header['adjustment_date'] ?? date('Y-m-d')));
+        if ($adjustmentDate === null) {
+            $adjustmentDate = date('Y-m-d');
+        }
+
+        $this->db->trans_begin();
+
+        foreach ($lines as $line) {
+            $issueRollback = $this->materialfifomanager->rollbackTransferLotsBySource(
+                'inv_stock_adjustment',
+                $id,
+                (int)($line['id'] ?? 0),
+                $voidNote
+            );
+            if (!($issueRollback['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'VOID adjustment ditolak: ' . (string)($issueRollback['message'] ?? 'gagal rollback issue FIFO'),
+                ];
+            }
+
+            $lotRollback = $this->materialfifomanager->rollbackReceiptInboundLotsBySource(
+                'inv_stock_adjustment',
+                $id,
+                (int)($line['id'] ?? 0)
+            );
+            if (!($lotRollback['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'VOID adjustment ditolak: ' . (string)($lotRollback['message'] ?? 'gagal rollback lot inbound'),
+                ];
+            }
+
+            $this->registerVoidRollbackRebuildTarget($rebuildTargets, $scope, $adjustmentDate, [
+                'stock_domain' => strtoupper(trim((string)($line['stock_domain'] ?? (!empty($line['material_id']) ? 'MATERIAL' : 'ITEM')))),
+                'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+                'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
+                'item_id' => $this->nullableInt($line['item_id'] ?? null),
+                'material_id' => $this->nullableInt($line['material_id'] ?? null),
+                'buy_uom_id' => $this->nullableInt($line['buy_uom_id'] ?? null),
+                'content_uom_id' => $this->nullableInt($line['content_uom_id'] ?? null),
+                'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+                'profile_name' => $this->nullableString($line['profile_name'] ?? null),
+                'profile_brand' => $this->nullableString($line['profile_brand'] ?? null),
+                'profile_description' => $this->nullableString($line['profile_description'] ?? null),
+                'profile_expired_date' => $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
+                'profile_content_per_buy' => (float)($line['profile_content_per_buy'] ?? 0),
+                'profile_buy_uom_code' => $this->nullableString($line['profile_buy_uom_code'] ?? null),
+                'profile_content_uom_code' => $this->nullableString($line['profile_content_uom_code'] ?? null),
+            ]);
+        }
+
+        if ($this->db->table_exists('inv_stock_movement_log')) {
+            $this->db
+                ->where('ref_table', 'inv_stock_adjustment')
+                ->where('ref_id', $id)
+                ->delete('inv_stock_movement_log');
+            if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Gagal menghapus histori movement adjustment.'];
+            }
+        }
+
+        $update = [
+            'status' => 'VOID',
+        ];
+        if ($this->db->field_exists('voided_at', 'inv_stock_adjustment')) {
+            $update['voided_at'] = date('Y-m-d H:i:s');
+        }
+        if ($this->db->field_exists('voided_by', 'inv_stock_adjustment')) {
+            $update['voided_by'] = $userId > 0 ? $userId : null;
+        }
+        if ($this->db->field_exists('notes', 'inv_stock_adjustment')) {
+            $existingNotes = trim((string)($header['notes'] ?? ''));
+            $update['notes'] = $existingNotes !== '' ? ($existingNotes . ' | ' . $voidNote) : $voidNote;
+        }
+        $this->db->where('id', $id)->update('inv_stock_adjustment', $update);
+        if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal update status VOID adjustment.'];
+        }
+
+        foreach ($rebuildTargets as $target) {
+            $rebuild = $this->rebuild_inventory_history_for_identity(
+                (string)$target['scope'],
+                (string)$target['start_date'],
+                (array)$target['identity']
+            );
+            if (!($rebuild['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                $message = (string)($rebuild['message'] ?? 'Gagal rebuild histori stok setelah VOID adjustment.');
+                if (!empty($rebuild['data']['negative_samples']) && is_array($rebuild['data']['negative_samples'])) {
+                    $message .= ' Contoh: ' . implode('; ', array_slice($rebuild['data']['negative_samples'], 0, 3));
+                }
+                return ['ok' => false, 'message' => $message];
+            }
+        }
+
+        if ($this->db->table_exists('aud_transaction_log')) {
+            $this->db->insert('aud_transaction_log', [
+                'module_code' => 'INVENTORY',
+                'action_code' => $scope === 'DIVISION' ? 'DIVISION_ADJUSTMENT_VOID' : 'WAREHOUSE_ADJUSTMENT_VOID',
+                'entity_table' => 'inv_stock_adjustment',
+                'entity_id' => $id,
+                'transaction_no' => (string)($header['adjustment_no'] ?? ''),
+                'actor_user_id' => $userId > 0 ? $userId : null,
+                'source_ip' => $sourceIp !== '' ? $sourceIp : null,
+                'after_payload' => json_encode([
+                    'header_id' => $id,
+                    'adjustment_no' => (string)($header['adjustment_no'] ?? ''),
+                    'status' => 'VOID',
+                    'line_ids' => array_values(array_map(static function (array $line): int {
+                        return (int)($line['id'] ?? 0);
+                    }, $lines)),
+                    'rebuild_targets' => count($rebuildTargets),
+                ]),
+                'notes' => 'Adjustment stok di-VOID dan histori stok direbuild ulang',
+            ]);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal VOID adjustment stok.'];
+        }
+
+        $this->db->trans_commit();
+        return ['ok' => true, 'id' => $id, 'rebuild_targets' => count($rebuildTargets)];
+    }
+
+    private function postStockAdjustmentLine(array $header, array $line, int $userId): array
+    {
+        $scope = strtoupper((string)($header['stock_scope'] ?? 'WAREHOUSE'));
+        $movementDate = (string)($header['adjustment_date'] ?? date('Y-m-d'));
+        $divisionId = !empty($header['division_id']) ? (int)$header['division_id'] : null;
+        $destinationType = $scope === 'DIVISION'
+            ? $this->normalizeStockAdjustmentDestination((string)($header['destination_type'] ?? ''), true)
+            : 'GUDANG';
+        $contentPerBuy = round((float)($line['profile_content_per_buy'] ?? 1), 6);
+        if ($contentPerBuy <= 0) {
+            $contentPerBuy = 1.0;
+        }
+
+        $basePayload = [
+            'manage_transaction' => false,
+            'movement_scope' => $scope,
+            'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+            'destination_type' => $scope === 'DIVISION' ? $destinationType : 'GUDANG',
+            'movement_date' => $movementDate,
+            'stock_domain' => strtoupper(trim((string)($line['stock_domain'] ?? (!empty($line['material_id']) ? 'MATERIAL' : 'ITEM')))),
+            'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
+            'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
+            'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
+            'content_uom_id' => !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null,
+            'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+            'profile_name' => $this->nullableString($line['profile_name'] ?? null),
+            'profile_brand' => $this->nullableString($line['profile_brand'] ?? null),
+            'profile_description' => $this->nullableString($line['profile_description'] ?? null),
+            'profile_expired_date' => $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
+            'profile_content_per_buy' => $contentPerBuy,
+            'profile_buy_uom_code' => $this->nullableString($line['profile_buy_uom_code'] ?? null),
+            'profile_content_uom_code' => $this->nullableString($line['profile_content_uom_code'] ?? null),
+            'ref_table' => 'inv_stock_adjustment',
+            'ref_id' => (int)($header['id'] ?? 0),
+            'created_by' => $userId > 0 ? $userId : null,
+        ];
+
+        $lineUpdates = [];
+        $negativeMoves = [
+            'qty_waste_content' => ['movement_type' => 'WASTE_OUT', 'category' => 'WASTE', 'issue_field' => 'waste_issue_id', 'reason_field' => 'waste_reason_code'],
+            'qty_spoil_content' => ['movement_type' => 'SPOIL_OUT', 'category' => 'SPOILAGE', 'issue_field' => 'spoil_issue_id', 'reason_field' => 'spoil_reason_code'],
+            'qty_process_loss_content' => ['movement_type' => 'PROCESS_LOSS_OUT', 'category' => 'PROCESS_LOSS', 'issue_field' => 'process_loss_issue_id', 'reason_field' => 'process_loss_reason_code'],
+            'qty_variance_content' => ['movement_type' => 'VARIANCE_OUT', 'category' => 'VARIANCE', 'issue_field' => 'variance_issue_id', 'reason_field' => 'variance_reason_code'],
+        ];
+
+        foreach ($negativeMoves as $column => $meta) {
+            $qtyContent = round((float)($line[$column] ?? 0), 4);
+            if ($qtyContent <= 0) {
+                continue;
+            }
+
+            $qtyBuy = $this->convertStockAdjustmentQtyBuy($qtyContent, $contentPerBuy, !empty($line['buy_uom_id']));
+            $notes = $this->buildStockAdjustmentMovementNote((string)($header['adjustment_no'] ?? ''), $meta['category'], (string)($line['note'] ?? ''), (string)($header['notes'] ?? ''));
+            $reasonCode = $this->normalizeInventoryAdjustmentReasonCode((string)($line[$meta['reason_field']] ?? ''), $meta['category']) ?? 'other';
+            $fifoPayload = [
+                'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+                'destination_type' => $scope === 'DIVISION' ? $destinationType : 'GUDANG',
+                'issue_date' => $movementDate,
+                'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
+                'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
+                'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
+                'content_uom_id' => !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null,
+                'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+                'qty_content_out' => $qtyContent,
+                'source_module' => 'INVENTORY_ADJUSTMENT',
+                'source_table' => 'inv_stock_adjustment',
+                'source_id' => (int)($header['id'] ?? 0),
+                'source_line_id' => (int)($line['id'] ?? 0),
+                'notes' => $notes,
+            ];
+            $fifo = $scope === 'DIVISION'
+                ? $this->materialfifomanager->consumeDivisionUsage($fifoPayload)
+                : $this->materialfifomanager->consumeWarehouseUsage($fifoPayload);
+            if (!($fifo['ok'] ?? false)) {
+                return ['ok' => false, 'message' => (string)($fifo['message'] ?? 'Gagal alokasi FIFO adjustment.')];
+            }
+
+            $ledger = $this->postInventoryLedgerEntry($basePayload + [
+                'movement_type' => $meta['movement_type'],
+                'qty_buy_delta' => $qtyBuy * -1,
+                'qty_content_delta' => $qtyContent * -1,
+                'unit_cost' => round((float)($fifo['data']['avg_unit_cost'] ?? ($line['unit_cost'] ?? 0)), 6),
+                'adjustment_category' => $meta['category'],
+                'adjustment_reason_code' => $reasonCode,
+                'notes' => $notes,
+            ]);
+            if (!($ledger['ok'] ?? false)) {
+                return ['ok' => false, 'message' => (string)($ledger['message'] ?? 'Gagal posting ledger adjustment.')];
+            }
+
+            $lineUpdates[$meta['issue_field']] = (int)($fifo['data']['issue_id'] ?? 0) > 0 ? (int)$fifo['data']['issue_id'] : null;
+        }
+
+        $qtyPlus = round((float)($line['qty_adjustment_plus_content'] ?? 0), 4);
+        if ($qtyPlus > 0) {
+            $qtyBuyPlus = $this->convertStockAdjustmentQtyBuy($qtyPlus, $contentPerBuy, !empty($line['buy_uom_id']));
+            $unitCost = round((float)($line['unit_cost'] ?? 0), 6);
+            if ($unitCost <= 0) {
+                $balance = $this->fetchStockAdjustmentCurrentBalance([
+                    'stock_scope' => $scope,
+                    'division_id' => $divisionId,
+                    'destination_type' => $destinationType,
+                    'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
+                    'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
+                    'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
+                    'content_uom_id' => !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null,
+                    'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+                ]);
+                $unitCost = round((float)($balance['avg_cost_per_content'] ?? 0), 6);
+            }
+            if ($unitCost <= 0) {
+                return ['ok' => false, 'message' => 'Adjustment plus membutuhkan unit_cost yang valid.'];
+            }
+
+            $notes = $this->buildStockAdjustmentMovementNote((string)($header['adjustment_no'] ?? ''), 'ADJUSTMENT_PLUS', (string)($line['note'] ?? ''), (string)($header['notes'] ?? ''));
+            $lot = $this->materialfifomanager->registerReceiptInboundLot([
+                'location_scope' => $scope,
+                'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+                'destination_type' => $scope === 'DIVISION' ? $destinationType : 'GUDANG',
+                'receipt_date' => $movementDate,
+                'movement_date' => $movementDate,
+                'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
+                'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
+                'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
+                'content_uom_id' => !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null,
+                'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+                'lot_no' => $this->nullableString($line['inbound_lot_no'] ?? null),
+                'expiry_date' => $this->normalizeDate((string)($line['inbound_expiry_date'] ?? '')),
+                'qty_content_in' => $qtyPlus,
+                'unit_cost' => $unitCost,
+                'source_table' => 'inv_stock_adjustment',
+                'source_id' => (int)($header['id'] ?? 0),
+                'source_line_id' => (int)($line['id'] ?? 0),
+            ]);
+            if (!($lot['ok'] ?? false)) {
+                return ['ok' => false, 'message' => (string)($lot['message'] ?? 'Gagal membuat lot inbound adjustment.')];
+            }
+
+            $ledger = $this->postInventoryLedgerEntry($basePayload + [
+                'movement_type' => 'ADJUSTMENT_IN',
+                'qty_buy_delta' => $qtyBuyPlus,
+                'qty_content_delta' => $qtyPlus,
+                'unit_cost' => $unitCost,
+                'adjustment_category' => 'ADJUSTMENT_PLUS',
+                'adjustment_reason_code' => $this->normalizeInventoryAdjustmentReasonCode((string)($line['adjustment_plus_reason_code'] ?? ''), 'ADJUSTMENT_PLUS') ?? 'other',
+                'notes' => $notes,
+            ]);
+            if (!($ledger['ok'] ?? false)) {
+                return ['ok' => false, 'message' => (string)($ledger['message'] ?? 'Gagal posting ledger adjustment plus.')];
+            }
+
+            $lineUpdates['adjustment_plus_lot_id'] = (int)($lot['data']['lot_id'] ?? 0) > 0 ? (int)$lot['data']['lot_id'] : null;
+        }
+
+        return ['ok' => true, 'data' => ['line_updates' => $lineUpdates]];
+    }
+
+    private function normalizeStockAdjustmentLine(string $scope, ?int $divisionId, ?string $destinationType, array $line): ?array
+    {
+        $itemId = !empty($line['item_id']) ? (int)$line['item_id'] : null;
+        $materialId = !empty($line['material_id']) ? (int)$line['material_id'] : null;
+        $buyUomId = !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null;
+        $contentUomId = !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null;
+        $profileKey = $this->nullableString($line['profile_key'] ?? null);
+        $stockDomain = strtoupper(trim((string)($line['stock_domain'] ?? ($materialId !== null ? 'MATERIAL' : 'ITEM'))));
+        if (!in_array($stockDomain, ['ITEM', 'MATERIAL'], true)) {
+            $stockDomain = $materialId !== null ? 'MATERIAL' : 'ITEM';
+        }
+        if ($itemId === null && $materialId === null) {
+            return null;
+        }
+        if ($scope === 'WAREHOUSE' && $itemId === null) {
+            return null;
+        }
+        if ($contentUomId === null) {
+            return null;
+        }
+
+        $qtyWaste = round((float)($line['qty_waste_content'] ?? 0), 4);
+        $qtySpoil = round((float)($line['qty_spoil_content'] ?? 0), 4);
+        $qtyProcessLoss = round((float)($line['qty_process_loss_content'] ?? 0), 4);
+        $qtyVariance = round((float)($line['qty_variance_content'] ?? 0), 4);
+        $qtyPlus = round((float)($line['qty_adjustment_plus_content'] ?? 0), 4);
+        if ($qtyWaste <= 0 && $qtySpoil <= 0 && $qtyProcessLoss <= 0 && $qtyVariance <= 0 && $qtyPlus <= 0) {
+            return null;
+        }
+
+        $balance = $this->fetchStockAdjustmentCurrentBalance([
+            'stock_scope' => $scope,
+            'division_id' => $divisionId,
+            'destination_type' => $destinationType,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'buy_uom_id' => $buyUomId,
+            'content_uom_id' => $contentUomId,
+            'profile_key' => $profileKey,
+        ]);
+
+        return [
+            'stock_domain' => $stockDomain,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'buy_uom_id' => $buyUomId,
+            'content_uom_id' => $contentUomId,
+            'profile_key' => $profileKey,
+            'profile_name' => $this->nullableString($line['profile_name'] ?? null),
+            'profile_brand' => $this->nullableString($line['profile_brand'] ?? null),
+            'profile_description' => $this->nullableString($line['profile_description'] ?? null),
+            'profile_expired_date' => $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
+            'profile_content_per_buy' => round(max(0.000001, (float)($line['profile_content_per_buy'] ?? 1)), 6),
+            'profile_buy_uom_code' => $this->nullableString($line['profile_buy_uom_code'] ?? null),
+            'profile_content_uom_code' => $this->nullableString($line['profile_content_uom_code'] ?? null),
+            'available_qty_buy' => round((float)($balance['qty_buy_balance'] ?? 0), 4),
+            'available_qty_content' => round((float)($balance['qty_content_balance'] ?? 0), 4),
+            'unit_cost' => round((float)($line['unit_cost'] ?? ($balance['avg_cost_per_content'] ?? 0)), 6),
+            'qty_waste_content' => $qtyWaste,
+            'waste_reason_code' => $qtyWaste > 0 ? ($this->normalizeInventoryAdjustmentReasonCode((string)($line['waste_reason_code'] ?? ''), 'WASTE') ?? 'other') : null,
+            'qty_spoil_content' => $qtySpoil,
+            'spoil_reason_code' => $qtySpoil > 0 ? ($this->normalizeInventoryAdjustmentReasonCode((string)($line['spoil_reason_code'] ?? ''), 'SPOILAGE') ?? 'other') : null,
+            'qty_process_loss_content' => $qtyProcessLoss,
+            'process_loss_reason_code' => $qtyProcessLoss > 0 ? ($this->normalizeInventoryAdjustmentReasonCode((string)($line['process_loss_reason_code'] ?? ''), 'PROCESS_LOSS') ?? 'other') : null,
+            'qty_variance_content' => $qtyVariance,
+            'variance_reason_code' => $qtyVariance > 0 ? ($this->normalizeInventoryAdjustmentReasonCode((string)($line['variance_reason_code'] ?? ''), 'VARIANCE') ?? 'other') : null,
+            'qty_adjustment_plus_content' => $qtyPlus,
+            'adjustment_plus_reason_code' => $qtyPlus > 0 ? ($this->normalizeInventoryAdjustmentReasonCode((string)($line['adjustment_plus_reason_code'] ?? ''), 'ADJUSTMENT_PLUS') ?? 'other') : null,
+            'inbound_lot_no' => $this->nullableString($line['inbound_lot_no'] ?? null),
+            'inbound_expiry_date' => $this->normalizeDate((string)($line['inbound_expiry_date'] ?? '')),
+            'note' => $this->nullableString($line['note'] ?? null),
+        ];
+    }
+
+    private function normalizeInventoryAdjustmentReasonCode(string $value, string $category): ?string
+    {
+        $category = strtoupper(trim($category));
+        $value = strtolower(trim($value));
+        if ($value === '') {
+            return null;
+        }
+
+        $reasonMap = [
+            'WASTE' => ['cancel_order', 'kitchen_error', 'overproduction', 'spillage', 'prep_trim_excess', 'expired_opened', 'other'],
+            'SPOILAGE' => ['expired', 'temperature_abuse', 'contamination', 'overstock', 'improper_storage', 'other'],
+            'PROCESS_LOSS' => ['defrost_loss', 'trimming_standard', 'cooking_loss', 'evaporation', 'brew_loss', 'absorption_loss', 'process_residue', 'variable_process_consumable', 'other'],
+            'VARIANCE' => ['over_usage', 'under_usage', 'unrecorded_usage', 'counting_error', 'system_mismatch', 'theft_suspected', 'unknown_shrinkage', 'other'],
+            'ADJUSTMENT_PLUS' => ['opening_correction', 'stock_found', 'manual_reclass', 'other'],
+        ];
+
+        if (!isset($reasonMap[$category])) {
+            return null;
+        }
+
+        return in_array($value, $reasonMap[$category], true) ? $value : 'other';
+    }
+
+    private function fetchStockAdjustmentCurrentBalance(array $identity): array
+    {
+        $scope = strtoupper(trim((string)($identity['stock_scope'] ?? 'WAREHOUSE')));
+        if ($scope === 'DIVISION') {
+            if (!$this->db->table_exists('inv_division_stock_balance')) {
+                return ['qty_buy_balance' => 0.0, 'qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0];
+            }
+            $hasDestinationType = $this->db->field_exists('destination_type', 'inv_division_stock_balance');
+            if ($hasDestinationType) {
+                $row = $this->db->query(
+                    'SELECT qty_buy_balance, qty_content_balance, avg_cost_per_content
+                     FROM inv_division_stock_balance
+                     WHERE division_id <=> ?
+                       AND destination_type <=> ?
+                       AND item_id <=> ?
+                       AND material_id <=> ?
+                       AND buy_uom_id <=> ?
+                       AND content_uom_id <=> ?
+                       AND profile_key <=> ?
+                     LIMIT 1',
+                    [
+                        $identity['division_id'] ?? null,
+                        $identity['destination_type'] ?? 'OTHER',
+                        $identity['item_id'] ?? null,
+                        $identity['material_id'] ?? null,
+                        $identity['buy_uom_id'] ?? null,
+                        $identity['content_uom_id'] ?? null,
+                        $identity['profile_key'] ?? null,
+                    ]
+                )->row_array();
+            } else {
+                $row = $this->db->query(
+                    'SELECT qty_buy_balance, qty_content_balance, avg_cost_per_content
+                     FROM inv_division_stock_balance
+                     WHERE division_id <=> ?
+                       AND item_id <=> ?
+                       AND material_id <=> ?
+                       AND buy_uom_id <=> ?
+                       AND content_uom_id <=> ?
+                       AND profile_key <=> ?
+                     LIMIT 1',
+                    [
+                        $identity['division_id'] ?? null,
+                        $identity['item_id'] ?? null,
+                        $identity['material_id'] ?? null,
+                        $identity['buy_uom_id'] ?? null,
+                        $identity['content_uom_id'] ?? null,
+                        $identity['profile_key'] ?? null,
+                    ]
+                )->row_array();
+            }
+        } else {
+            if (!$this->db->table_exists('inv_warehouse_stock_balance')) {
+                return ['qty_buy_balance' => 0.0, 'qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0];
+            }
+            $row = $this->db->query(
+                'SELECT qty_buy_balance, qty_content_balance, avg_cost_per_content
+                 FROM inv_warehouse_stock_balance
+                 WHERE item_id <=> ?
+                   AND buy_uom_id <=> ?
+                   AND content_uom_id <=> ?
+                   AND profile_key <=> ?
+                 LIMIT 1',
+                [
+                    $identity['item_id'] ?? null,
+                    $identity['buy_uom_id'] ?? null,
+                    $identity['content_uom_id'] ?? null,
+                    $identity['profile_key'] ?? null,
+                ]
+            )->row_array();
+        }
+
+        return [
+            'qty_buy_balance' => (float)($row['qty_buy_balance'] ?? 0),
+            'qty_content_balance' => (float)($row['qty_content_balance'] ?? 0),
+            'avg_cost_per_content' => (float)($row['avg_cost_per_content'] ?? 0),
+        ];
+    }
+
+    private function normalizeStockAdjustmentDestination(?string $value, bool $strict): ?string
+    {
+        $value = strtoupper(trim((string)$value));
+        if ($value === '') {
+            return $strict ? null : 'ALL';
+        }
+        $allowed = ['GUDANG', 'BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER', 'ALL'];
+        if (!in_array($value, $allowed, true)) {
+            return $strict ? null : 'ALL';
+        }
+        if ($strict && in_array($value, ['ALL', 'GUDANG'], true)) {
+            return null;
+        }
+        return $value;
+    }
+
+    private function convertStockAdjustmentQtyBuy(float $qtyContent, float $contentPerBuy, bool $hasBuyUom): float
+    {
+        if (!$hasBuyUom) {
+            return 0.0;
+        }
+        if ($contentPerBuy <= 0) {
+            $contentPerBuy = 1.0;
+        }
+        return round($qtyContent / $contentPerBuy, 4);
+    }
+
+    private function buildStockAdjustmentMovementNote(string $adjustmentNo, string $category, string $lineNote, string $headerNote): string
+    {
+        $parts = [];
+        if ($adjustmentNo !== '') {
+            $parts[] = $adjustmentNo;
+        }
+        $parts[] = strtoupper($category);
+        if (trim($lineNote) !== '') {
+            $parts[] = trim($lineNote);
+        } elseif (trim($headerNote) !== '') {
+            $parts[] = trim($headerNote);
+        }
+        return implode(' | ', $parts);
+    }
+
+    private function generateStockAdjustmentNo(string $scope, string $date): string
+    {
+        $prefix = strtoupper($scope) === 'DIVISION' ? 'IAD' : 'IAW';
+        $dayKey = date('Ymd', strtotime($date));
+        do {
+            $candidate = $prefix . $dayKey . '-' . str_pad((string)random_int(1, 9999), 4, '0', STR_PAD_LEFT);
+            $exists = (int)$this->db->where('adjustment_no', $candidate)->count_all_results('inv_stock_adjustment');
+        } while ($exists > 0);
+
+        return $candidate;
+    }
+
     private function findOpeningSnapshotRowForUpdate(string $table, array $criteria): ?array
     {
         $hasDestinationType = $this->db->field_exists('destination_type', $table);
@@ -2203,7 +3673,6 @@ class Purchase_model extends CI_Model
         }
 
         $hasDestinationType = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
-        $hasProfileExpiredDate = $this->db->field_exists('profile_expired_date', 'inv_stock_movement_log');
 
         $this->db
             ->where('movement_scope', $stockScope)
@@ -2246,12 +3715,6 @@ class Purchase_model extends CI_Model
         $profileDescription = strtoupper(trim((string)($identity['profile_description'] ?? '')));
         if ($profileDescription !== '') {
             $this->db->where("UPPER(TRIM(COALESCE(profile_description,''))) = " . $this->db->escape($profileDescription), null, false);
-        }
-        if ($hasProfileExpiredDate) {
-            $expiredDate = $identity['profile_expired_date'] ?? null;
-            if ($expiredDate !== null) {
-                $this->db->where('profile_expired_date', $expiredDate);
-            }
         }
 
         $this->db->delete('inv_stock_movement_log');
@@ -2319,9 +3782,10 @@ class Purchase_model extends CI_Model
             ->result_array();
 
         if (empty($snapshotRows) && empty($movementRows)) {
+            $this->purgeInventoryHistoryArtifactsForIdentity($rollupTable, $balanceTable, $stockScope, $identity);
             return [
                 'ok' => true,
-                'message' => 'Tidak ada snapshot/movement untuk direbuild.',
+                'message' => 'Tidak ada snapshot/movement untuk direbuild. Artifak histori lama dibersihkan.',
                 'data' => ['days_rebuilt' => 0],
             ];
         }
@@ -3425,38 +4889,92 @@ class Purchase_model extends CI_Model
             ];
         }
 
+        $catalogHasVendorId = $this->db->field_exists('vendor_id', 'mst_purchase_catalog');
+        $vendorLinkReady = $this->purchaseCatalogVendorTableExists();
+
+        $insertColumns = [
+            'profile_key',
+            'line_kind',
+            'item_id',
+            'material_id',
+        ];
+        $selectColumns = [
+            'LEFT(c.profile_key, 64) AS profile_key',
+            "CASE
+                WHEN COALESCE(NULLIF(COALESCE(i_code.material_id, i_name.material_id), 0), m_code.id, m_name.id) IS NOT NULL THEN 'MATERIAL'
+                WHEN UPPER(TRIM(COALESCE(c.line_type, 'ITEM'))) = 'ASSET' THEN 'ASSET'
+                WHEN UPPER(TRIM(COALESCE(c.line_type, 'ITEM'))) IN ('SERVICE', 'PAYROLL_COMPONENT') THEN 'SERVICE'
+                ELSE 'ITEM'
+            END AS line_kind",
+            'COALESCE(i_code.id, i_name.id) AS item_id',
+            'COALESCE(NULLIF(COALESCE(i_code.material_id, i_name.material_id), 0), m_code.id, m_name.id) AS material_id',
+        ];
+        $updateColumns = [
+            'line_kind = VALUES(line_kind)',
+            'item_id = VALUES(item_id)',
+            'material_id = VALUES(material_id)',
+        ];
+
+        if ($catalogHasVendorId) {
+            $insertColumns[] = 'vendor_id';
+            $selectColumns[] = 'COALESCE(v_code.id, v_name.id, ' . $defaultVendorId . ') AS vendor_id';
+            $updateColumns[] = 'vendor_id = VALUES(vendor_id)';
+        }
+
+        $insertColumns = array_merge($insertColumns, [
+            'catalog_name',
+            'brand_name',
+            'line_description',
+            'buy_uom_id',
+            'content_uom_id',
+            'content_per_buy',
+            'conversion_factor_to_content',
+            'standard_price',
+            'last_unit_price',
+            'last_purchase_date',
+            'last_purchase_order_id',
+            'last_purchase_line_id',
+            'notes',
+            'is_active',
+        ]);
+        $selectColumns = array_merge($selectColumns, [
+            "LEFT(COALESCE(NULLIF(TRIM(c.display_name), ''), NULLIF(TRIM(ci.item_name), ''), NULLIF(TRIM(cm.material_name), ''), 'UNNAMED CORE CATALOG'), 150) AS catalog_name",
+            "NULLIF(LEFT(TRIM(c.brand_name), 120), '') AS brand_name",
+            "NULLIF(LEFT(TRIM(c.last_description), 255), '') AS line_description",
+            'COALESCE(bu_code.id, ' . $defaultUomId . ') AS buy_uom_id',
+            'COALESCE(cu_code.id, bu_code.id, ' . $defaultUomId . ') AS content_uom_id',
+            'COALESCE(NULLIF(c.qty_gramasi, 0), 1) AS content_per_buy',
+            'COALESCE(NULLIF(c.qty_gramasi, 0), 1) AS conversion_factor_to_content',
+            'COALESCE(c.last_unit_price, 0) AS standard_price',
+            'COALESCE(c.last_unit_price, 0) AS last_unit_price',
+            'c.last_purchase_date',
+            'NULL',
+            'NULL',
+            "CONCAT('Sync core pur_purchase_catalog id=', c.id)",
+            'c.is_active',
+        ]);
+        $updateColumns = array_merge($updateColumns, [
+            'catalog_name = VALUES(catalog_name)',
+            'brand_name = VALUES(brand_name)',
+            'line_description = VALUES(line_description)',
+            'buy_uom_id = VALUES(buy_uom_id)',
+            'content_uom_id = VALUES(content_uom_id)',
+            'content_per_buy = VALUES(content_per_buy)',
+            'conversion_factor_to_content = VALUES(conversion_factor_to_content)',
+            'standard_price = VALUES(standard_price)',
+            'last_unit_price = VALUES(last_unit_price)',
+            'last_purchase_date = VALUES(last_purchase_date)',
+            'notes = VALUES(notes)',
+            'is_active = VALUES(is_active)',
+            'updated_at = CURRENT_TIMESTAMP',
+        ]);
+
         $sql = "
             INSERT INTO mst_purchase_catalog (
-                profile_key, line_kind, item_id, material_id, vendor_id, catalog_name, brand_name, line_description,
-                buy_uom_id, content_uom_id, content_per_buy, conversion_factor_to_content,
-                standard_price, last_unit_price, last_purchase_date, last_purchase_order_id, last_purchase_line_id,
-                notes, is_active
+                " . implode(",\n                ", $insertColumns) . "
             )
             SELECT
-                LEFT(c.profile_key, 64) AS profile_key,
-                CASE
-                    WHEN COALESCE(NULLIF(COALESCE(i_code.material_id, i_name.material_id), 0), m_code.id, m_name.id) IS NOT NULL THEN 'MATERIAL'
-                    WHEN UPPER(TRIM(COALESCE(c.line_type, 'ITEM'))) = 'ASSET' THEN 'ASSET'
-                    WHEN UPPER(TRIM(COALESCE(c.line_type, 'ITEM'))) IN ('SERVICE', 'PAYROLL_COMPONENT') THEN 'SERVICE'
-                    ELSE 'ITEM'
-                END AS line_kind,
-                COALESCE(i_code.id, i_name.id) AS item_id,
-                COALESCE(NULLIF(COALESCE(i_code.material_id, i_name.material_id), 0), m_code.id, m_name.id) AS material_id,
-                COALESCE(v_code.id, v_name.id, {$defaultVendorId}) AS vendor_id,
-                LEFT(COALESCE(NULLIF(TRIM(c.display_name), ''), NULLIF(TRIM(ci.item_name), ''), NULLIF(TRIM(cm.material_name), ''), 'UNNAMED CORE CATALOG'), 150) AS catalog_name,
-                NULLIF(LEFT(TRIM(c.brand_name), 120), '') AS brand_name,
-                NULLIF(LEFT(TRIM(c.last_description), 255), '') AS line_description,
-                COALESCE(bu_code.id, {$defaultUomId}) AS buy_uom_id,
-                COALESCE(cu_code.id, bu_code.id, {$defaultUomId}) AS content_uom_id,
-                COALESCE(NULLIF(c.qty_gramasi, 0), 1) AS content_per_buy,
-                COALESCE(NULLIF(c.qty_gramasi, 0), 1) AS conversion_factor_to_content,
-                COALESCE(c.last_unit_price, 0) AS standard_price,
-                COALESCE(c.last_unit_price, 0) AS last_unit_price,
-                c.last_purchase_date,
-                NULL,
-                NULL,
-                CONCAT('Sync core pur_purchase_catalog id=', c.id),
-                c.is_active
+                " . implode(",\n                ", $selectColumns) . "
             FROM core.pur_purchase_catalog c
             LEFT JOIN core.m_item ci ON ci.id = c.item_id
             LEFT JOIN core.m_material cm ON cm.id = c.material_id
@@ -3519,26 +5037,11 @@ class Purchase_model extends CI_Model
             ORDER BY c.id DESC
             LIMIT {$limit}
             ON DUPLICATE KEY UPDATE
-                line_kind = VALUES(line_kind),
-                item_id = VALUES(item_id),
-                material_id = VALUES(material_id),
-                vendor_id = VALUES(vendor_id),
-                catalog_name = VALUES(catalog_name),
-                brand_name = VALUES(brand_name),
-                line_description = VALUES(line_description),
-                buy_uom_id = VALUES(buy_uom_id),
-                content_uom_id = VALUES(content_uom_id),
-                content_per_buy = VALUES(content_per_buy),
-                conversion_factor_to_content = VALUES(conversion_factor_to_content),
-                standard_price = VALUES(standard_price),
-                last_unit_price = VALUES(last_unit_price),
-                last_purchase_date = VALUES(last_purchase_date),
-                notes = VALUES(notes),
-                is_active = VALUES(is_active),
-                updated_at = CURRENT_TIMESTAMP
+                " . implode(",\n                ", $updateColumns) . "
         ";
 
         $this->db->query($sql);
+        $masterAffectedRows = (int)$this->db->affected_rows();
 
         if ($this->db->error()['code']) {
             return [
@@ -3547,14 +5050,70 @@ class Purchase_model extends CI_Model
             ];
         }
 
+        $vendorLinkAffectedRows = 0;
+        if ($vendorLinkReady) {
+            $vendorSql = "
+                INSERT INTO mst_purchase_catalog_vendor (
+                    catalog_id, vendor_id, standard_price, last_unit_price, last_purchase_date,
+                    last_purchase_order_id, last_purchase_line_id, notes, is_active
+                )
+                SELECT
+                    mc.id AS catalog_id,
+                    COALESCE(v_code.id, v_name.id, {$defaultVendorId}) AS vendor_id,
+                    COALESCE(c.last_unit_price, 0) AS standard_price,
+                    COALESCE(c.last_unit_price, 0) AS last_unit_price,
+                    c.last_purchase_date,
+                    NULL,
+                    NULL,
+                    CONCAT('Sync core pur_purchase_catalog id=', c.id),
+                    c.is_active
+                FROM core.pur_purchase_catalog c
+                JOIN mst_purchase_catalog mc ON mc.profile_key = LEFT(c.profile_key, 64)
+                LEFT JOIN core.m_vendor cv ON cv.id = c.last_vendor_id
+                LEFT JOIN (
+                    SELECT vendor_code, MIN(id) AS id
+                    FROM mst_vendor
+                    WHERE vendor_code IS NOT NULL AND vendor_code <> ''
+                    GROUP BY vendor_code
+                ) v_code ON v_code.vendor_code = cv.vendor_code
+                LEFT JOIN (
+                    SELECT UPPER(TRIM(vendor_name)) AS vendor_name_key, MIN(id) AS id
+                    FROM mst_vendor
+                    WHERE vendor_name IS NOT NULL AND vendor_name <> ''
+                    GROUP BY UPPER(TRIM(vendor_name))
+                ) v_name ON v_name.vendor_name_key = UPPER(TRIM(cv.vendor_name))
+                WHERE c.profile_key IS NOT NULL AND c.profile_key <> ''
+                ORDER BY c.id DESC
+                LIMIT {$limit}
+                ON DUPLICATE KEY UPDATE
+                    standard_price = VALUES(standard_price),
+                    last_unit_price = VALUES(last_unit_price),
+                    last_purchase_date = VALUES(last_purchase_date),
+                    notes = VALUES(notes),
+                    is_active = VALUES(is_active),
+                    updated_at = CURRENT_TIMESTAMP
+            ";
+
+            $this->db->query($vendorSql);
+            $vendorLinkAffectedRows = (int)$this->db->affected_rows();
+
+            if ($this->db->error()['code']) {
+                return [
+                    'ok' => false,
+                    'message' => 'Gagal sinkron vendor catalog: ' . (string)$this->db->error()['message'],
+                ];
+            }
+        }
+
         $total = (int)$this->db->count_all('mst_purchase_catalog');
         return [
             'ok' => true,
             'message' => 'Sinkron katalog core berhasil dijalankan.',
             'data' => [
                 'limit' => $limit,
-                'affected_rows' => (int)$this->db->affected_rows(),
+                'affected_rows' => $masterAffectedRows + $vendorLinkAffectedRows,
                 'catalog_total' => $total,
+                'vendor_link_affected_rows' => $vendorLinkAffectedRows,
             ],
         ];
     }
@@ -3837,7 +5396,7 @@ class Purchase_model extends CI_Model
             ->select('l.id, l.purchase_order_id, l.line_no, l.line_kind, l.qty_buy, l.content_per_buy, l.qty_content, l.unit_price, l.line_subtotal')
             ->select('l.snapshot_item_name, l.snapshot_material_name, l.snapshot_brand_name, l.snapshot_line_description')
             ->select('l.snapshot_buy_uom_code, l.snapshot_content_uom_code, l.profile_key')
-            ->select('po.po_no, po.request_date, po.status, po.destination_type')
+            ->select('po.po_no, po.request_date, po.status, po.destination_type, po.purchase_type_id')
             ->select('pt.type_name AS purchase_type_name, v.vendor_name')
             ->from('pur_purchase_order_line l')
             ->join('pur_purchase_order po', 'po.id = l.purchase_order_id', 'inner')
@@ -3868,6 +5427,7 @@ class Purchase_model extends CI_Model
         }
 
         return $this->db
+            ->order_by('COALESCE(po.purchase_type_id, 999999)', 'ASC', false)
             ->order_by('po.request_date', 'DESC')
             ->order_by('po.id', 'DESC')
             ->order_by('l.line_no', 'ASC')
@@ -4979,9 +6539,16 @@ class Purchase_model extends CI_Model
             $receipts['last_receipt_at'] = $rc['last_receipt_at'] ?? null;
 
             if ($this->db->table_exists('pur_purchase_receipt_line')) {
+                $receiptDivisionNameSelect = 'NULL AS destination_division_name';
+                if ($this->db->field_exists('division_name', 'mst_operational_division')) {
+                    $receiptDivisionNameSelect = 'd.division_name AS destination_division_name';
+                } elseif ($this->db->field_exists('name', 'mst_operational_division')) {
+                    $receiptDivisionNameSelect = 'd.name AS destination_division_name';
+                }
+
                 $receiptRows = $this->db
                     ->select('r.id, r.receipt_no, r.receipt_date, r.destination_type, r.destination_division_id, r.status, r.notes, r.posted_at, r.created_at')
-                    ->select('COALESCE(d.division_name, d.name) AS destination_division_name', false)
+                    ->select($receiptDivisionNameSelect, false)
                     ->select('COUNT(rl.id) AS line_count', false)
                     ->select('COALESCE(SUM(rl.qty_buy_received), 0) AS qty_buy_total', false)
                     ->select('COALESCE(SUM(rl.qty_content_received), 0) AS qty_content_total', false)
@@ -6021,6 +7588,809 @@ class Purchase_model extends CI_Model
         ];
     }
 
+    public function normalizePurchaseCatalogConversion(array $filters = [], bool $manageTransaction = true): array
+    {
+        if (
+            !$this->db->table_exists('mst_purchase_catalog') ||
+            !$this->db->field_exists('content_per_buy', 'mst_purchase_catalog') ||
+            !$this->db->field_exists('conversion_factor_to_content', 'mst_purchase_catalog')
+        ) {
+            return [
+                'ok' => true,
+                'message' => 'Tabel/kolom konversi purchase catalog belum tersedia.',
+                'data' => ['rows_updated' => 0],
+            ];
+        }
+
+        $qb = $this->db
+            ->select('id, profile_key, catalog_name, line_kind, content_per_buy, conversion_factor_to_content')
+            ->from('mst_purchase_catalog');
+
+        $catalogIds = array_values(array_filter(array_map('intval', (array)($filters['catalog_ids'] ?? [])), static function ($id) {
+            return $id > 0;
+        }));
+        if (!empty($catalogIds)) {
+            $qb->where_in('id', $catalogIds);
+        }
+
+        $profileKeys = array_values(array_filter(array_map('trim', (array)($filters['profile_keys'] ?? [])), static function ($value) {
+            return $value !== '';
+        }));
+        if (!empty($profileKeys)) {
+            $qb->where_in('profile_key', $profileKeys);
+        }
+
+        $rows = $qb->order_by('id', 'ASC')->get()->result_array();
+        if (empty($rows)) {
+            return [
+                'ok' => true,
+                'message' => 'Tidak ada row purchase catalog yang cocok untuk dinormalisasi.',
+                'data' => ['rows_updated' => 0],
+            ];
+        }
+
+        if ($manageTransaction) {
+            $this->db->trans_begin();
+        }
+
+        $rowsUpdated = 0;
+        $samples = [];
+
+        foreach ($rows as $row) {
+            $canonicalFactor = $this->canonicalConversionFactor(
+                $row['content_per_buy'] ?? 0,
+                $row['conversion_factor_to_content'] ?? 0
+            );
+            $targetContentPerBuy = round($canonicalFactor, 6);
+            $targetFactor = round($canonicalFactor, 8);
+            $currentContentPerBuy = round((float)($row['content_per_buy'] ?? 0), 6);
+            $currentFactor = round((float)($row['conversion_factor_to_content'] ?? 0), 8);
+
+            if (abs($currentContentPerBuy - $targetContentPerBuy) < 0.000001 && abs($currentFactor - $targetFactor) < 0.00000001) {
+                continue;
+            }
+
+            $this->db
+                ->where('id', (int)$row['id'])
+                ->update('mst_purchase_catalog', [
+                    'content_per_buy' => $targetContentPerBuy,
+                    'conversion_factor_to_content' => $targetFactor,
+                ]);
+
+            if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                if ($manageTransaction) {
+                    $this->db->trans_rollback();
+                }
+                return [
+                    'ok' => false,
+                    'message' => 'Gagal menormalisasi purchase catalog #' . (int)$row['id'] . '.',
+                ];
+            }
+
+            $rowsUpdated++;
+            if (count($samples) < 5) {
+                $samples[] = [
+                    'id' => (int)$row['id'],
+                    'catalog_name' => (string)($row['catalog_name'] ?? ''),
+                    'before_content_per_buy' => $currentContentPerBuy,
+                    'before_factor' => $currentFactor,
+                    'after_factor' => $targetFactor,
+                ];
+            }
+        }
+
+        if ($manageTransaction) {
+            if ($this->db->trans_status() === false) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Gagal commit normalisasi purchase catalog.',
+                ];
+            }
+            $this->db->trans_commit();
+        }
+
+        return [
+            'ok' => true,
+            'message' => $rowsUpdated > 0
+                ? ('Normalisasi purchase catalog selesai. Row diubah: ' . $rowsUpdated . '.')
+                : 'Semua row purchase catalog sudah sinkron.',
+            'data' => [
+                'rows_updated' => $rowsUpdated,
+                'samples' => $samples,
+            ],
+        ];
+    }
+
+    public function normalizePurchaseCatalogProfileKeys(array $filters = [], bool $manageTransaction = true): array
+    {
+        if (
+            !$this->db->table_exists('mst_purchase_catalog') ||
+            !$this->db->field_exists('profile_key', 'mst_purchase_catalog') ||
+            !$this->db->field_exists('catalog_name', 'mst_purchase_catalog')
+        ) {
+            return [
+                'ok' => true,
+                'message' => 'Tabel/kolom purchase catalog untuk normalisasi profile_key belum tersedia.',
+                'data' => [
+                    'dry_run' => !empty($filters['dry_run']),
+                    'groups_found' => 0,
+                    'rows_to_deactivate' => 0,
+                    'rows_updated' => 0,
+                    'samples' => [],
+                ],
+            ];
+        }
+
+        $dryRun = !empty($filters['dry_run']);
+        $limit = (int)($filters['limit'] ?? 10000);
+        if ($limit <= 0 || $limit > 50000) {
+            $limit = 10000;
+        }
+
+        $qb = $this->db
+            ->select('id, profile_key, line_kind, item_id, material_id, catalog_name, brand_name, line_description')
+            ->select('expired_date, buy_uom_id, content_uom_id, content_per_buy, conversion_factor_to_content')
+            ->select('standard_price, last_unit_price, last_purchase_date, last_purchase_order_id, last_purchase_line_id, notes, is_active')
+            ->from('mst_purchase_catalog')
+            ->where('profile_key IS NOT NULL', null, false)
+            ->where("TRIM(profile_key) <> ''", null, false)
+            ->order_by('id', 'ASC')
+            ->limit($limit);
+        if ($this->db->field_exists('is_active', 'mst_purchase_catalog')) {
+            $qb->where('COALESCE(is_active,1) = 1', null, false);
+        }
+
+        $catalogIds = array_values(array_filter(array_map('intval', (array)($filters['catalog_ids'] ?? [])), static function ($id) {
+            return $id > 0;
+        }));
+        if (!empty($catalogIds)) {
+            $qb->where_in('id', $catalogIds);
+        }
+
+        $profileKeys = array_values(array_filter(array_map('trim', (array)($filters['profile_keys'] ?? [])), static function ($value) {
+            return $value !== '';
+        }));
+        if (!empty($profileKeys)) {
+            $qb->where_in('profile_key', $profileKeys);
+        }
+
+        $rows = $qb->get()->result_array();
+        if (empty($rows)) {
+            return [
+                'ok' => true,
+                'message' => 'Tidak ada row purchase catalog yang cocok untuk dicek.',
+                'data' => [
+                    'dry_run' => $dryRun,
+                    'groups_found' => 0,
+                    'rows_to_deactivate' => 0,
+                    'rows_updated' => 0,
+                    'samples' => [],
+                ],
+            ];
+        }
+
+        $groups = [];
+        foreach ($rows as $row) {
+            $groupKey = implode('|', [
+                strtoupper(trim((string)($row['line_kind'] ?? 'ITEM'))),
+                (string)($row['item_id'] ?? ''),
+                (string)($row['material_id'] ?? ''),
+                (string)($row['buy_uom_id'] ?? ''),
+                (string)($row['content_uom_id'] ?? ''),
+                strtoupper(trim((string)($row['catalog_name'] ?? ''))),
+                strtoupper(trim((string)($row['brand_name'] ?? ''))),
+                strtoupper(trim((string)($row['line_description'] ?? ''))),
+                number_format(round((float)($row['content_per_buy'] ?? 0), 6), 6, '.', ''),
+            ]);
+            if (!isset($groups[$groupKey])) {
+                $groups[$groupKey] = [];
+            }
+            $groups[$groupKey][] = $row;
+        }
+
+        $duplicateGroups = [];
+        foreach ($groups as $groupRows) {
+            $distinctKeys = [];
+            foreach ($groupRows as $row) {
+                $profileKey = trim((string)($row['profile_key'] ?? ''));
+                if ($profileKey !== '') {
+                    $distinctKeys[$profileKey] = true;
+                }
+            }
+            if (count($distinctKeys) <= 1) {
+                continue;
+            }
+
+            $usageScores = $this->catalogProfileKeyUsageScores(array_values(array_map(static function (array $row): string {
+                return trim((string)($row['profile_key'] ?? ''));
+            }, $groupRows)));
+            usort($groupRows, static function (array $a, array $b) use ($usageScores): int {
+                $aKey = trim((string)($a['profile_key'] ?? ''));
+                $bKey = trim((string)($b['profile_key'] ?? ''));
+                $aScore = (int)($usageScores[$aKey] ?? 0);
+                $bScore = (int)($usageScores[$bKey] ?? 0);
+                if ($aScore !== $bScore) {
+                    return $bScore <=> $aScore;
+                }
+
+                $aActive = (int)($a['is_active'] ?? 1);
+                $bActive = (int)($b['is_active'] ?? 1);
+                if ($aActive !== $bActive) {
+                    return $bActive <=> $aActive;
+                }
+
+                return (int)($a['id'] ?? 0) <=> (int)($b['id'] ?? 0);
+            });
+
+            $canonical = $groupRows[0];
+            $duplicates = array_slice($groupRows, 1);
+            if (empty($duplicates)) {
+                continue;
+            }
+
+            $canonicalUpdate = [];
+            foreach ($duplicates as $duplicate) {
+                $canonicalDate = $this->normalizeDate((string)($canonical['last_purchase_date'] ?? ''));
+                $duplicateDate = $this->normalizeDate((string)($duplicate['last_purchase_date'] ?? ''));
+                $duplicateIsNewer = $duplicateDate !== null && ($canonicalDate === null || $duplicateDate > $canonicalDate);
+
+                if ($duplicateIsNewer) {
+                    foreach (['last_purchase_date', 'last_purchase_order_id', 'last_purchase_line_id', 'last_unit_price', 'standard_price'] as $column) {
+                        if (array_key_exists($column, $duplicate)) {
+                            $canonicalUpdate[$column] = $duplicate[$column];
+                        }
+                    }
+                }
+
+                foreach (['brand_name', 'line_description', 'notes'] as $column) {
+                    $canonicalValue = trim((string)($canonicalUpdate[$column] ?? $canonical[$column] ?? ''));
+                    $duplicateValue = trim((string)($duplicate[$column] ?? ''));
+                    if ($canonicalValue === '' && $duplicateValue !== '') {
+                        $canonicalUpdate[$column] = $duplicate[$column];
+                    }
+                }
+            }
+
+            $canonicalUpdate = $this->sanitizeCatalogPurchaseReferenceData($canonicalUpdate);
+
+            $duplicateGroups[] = [
+                'canonical' => $canonical,
+                'canonical_update' => $canonicalUpdate,
+                'duplicates' => $duplicates,
+            ];
+        }
+
+        if (empty($duplicateGroups)) {
+            return [
+                'ok' => true,
+                'message' => 'Tidak ada duplicate identity purchase catalog dengan profile_key berbeda.',
+                'data' => [
+                    'dry_run' => $dryRun,
+                    'groups_found' => 0,
+                    'rows_to_deactivate' => 0,
+                    'rows_updated' => 0,
+                    'samples' => [],
+                ],
+            ];
+        }
+
+        $rowsToDeactivate = 0;
+        $samples = [];
+        foreach ($duplicateGroups as $group) {
+            $rowsToDeactivate += count($group['duplicates']);
+            if (count($samples) < 10) {
+                $samples[] = [
+                    'canonical_id' => (int)($group['canonical']['id'] ?? 0),
+                    'canonical_profile_key' => (string)($group['canonical']['profile_key'] ?? ''),
+                    'catalog_name' => (string)($group['canonical']['catalog_name'] ?? ''),
+                    'duplicate_ids' => array_map(static function (array $row): int {
+                        return (int)($row['id'] ?? 0);
+                    }, $group['duplicates']),
+                    'duplicate_profile_keys' => array_values(array_map(static function (array $row): string {
+                        return (string)($row['profile_key'] ?? '');
+                    }, $group['duplicates'])),
+                ];
+            }
+        }
+
+        if ($dryRun) {
+            return [
+                'ok' => true,
+                'message' => 'Dry-run duplicate profile_key purchase catalog selesai.',
+                'data' => [
+                    'dry_run' => true,
+                    'groups_found' => count($duplicateGroups),
+                    'rows_to_deactivate' => $rowsToDeactivate,
+                    'rows_updated' => 0,
+                    'samples' => $samples,
+                ],
+            ];
+        }
+
+        if ($manageTransaction) {
+            $this->db->trans_begin();
+        }
+
+        $rowsUpdated = 0;
+        foreach ($duplicateGroups as $group) {
+            $canonical = $group['canonical'];
+            $canonicalUpdate = $group['canonical_update'];
+
+            if (!empty($canonicalUpdate)) {
+                $canonicalUpdate['is_active'] = 1;
+                $this->db->where('id', (int)$canonical['id'])->update('mst_purchase_catalog', $canonicalUpdate);
+                if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                    if ($manageTransaction) {
+                        $this->db->trans_rollback();
+                    }
+                    return [
+                        'ok' => false,
+                        'message' => 'Gagal mengupdate row catalog kanonik #' . (int)$canonical['id'] . '.',
+                    ];
+                }
+                $rowsUpdated++;
+            }
+
+            foreach ($group['duplicates'] as $duplicate) {
+                $existingNotes = trim((string)($duplicate['notes'] ?? ''));
+                $mergeNote = 'Duplicate identity merged into canonical profile_key ' . (string)($canonical['profile_key'] ?? '');
+                if (stripos($existingNotes, $mergeNote) !== false) {
+                    $newNotes = $existingNotes;
+                } else {
+                    $newNotes = $existingNotes !== '' ? ($existingNotes . ' | ' . $mergeNote) : $mergeNote;
+                }
+
+                $updateData = [
+                    'is_active' => 0,
+                    'notes' => $newNotes,
+                ];
+                if ($this->db->field_exists('last_purchase_order_id', 'mst_purchase_catalog')) {
+                    $updateData['last_purchase_order_id'] = null;
+                }
+                if ($this->db->field_exists('last_purchase_line_id', 'mst_purchase_catalog')) {
+                    $updateData['last_purchase_line_id'] = null;
+                }
+
+                $this->db->where('id', (int)$duplicate['id'])->update('mst_purchase_catalog', $updateData);
+                if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                    if ($manageTransaction) {
+                        $this->db->trans_rollback();
+                    }
+                    return [
+                        'ok' => false,
+                        'message' => 'Gagal menonaktifkan duplicate catalog #' . (int)$duplicate['id'] . '.',
+                    ];
+                }
+                $rowsUpdated++;
+            }
+        }
+
+        if ($manageTransaction) {
+            if ($this->db->trans_status() === false) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Gagal commit normalisasi profile_key purchase catalog.',
+                ];
+            }
+            $this->db->trans_commit();
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Normalisasi duplicate profile_key purchase catalog selesai.',
+            'data' => [
+                'dry_run' => false,
+                'groups_found' => count($duplicateGroups),
+                'rows_to_deactivate' => $rowsToDeactivate,
+                'rows_updated' => $rowsUpdated,
+                'samples' => $samples,
+            ],
+        ];
+    }
+
+    public function repairPostedReceiptConversion(int $purchaseOrderId, int $userId = 0, bool $normalizeCatalog = false): array
+    {
+        if (
+            $purchaseOrderId <= 0 ||
+            !$this->db->table_exists('pur_purchase_order') ||
+            !$this->db->table_exists('pur_purchase_order_line') ||
+            !$this->db->table_exists('pur_purchase_receipt') ||
+            !$this->db->table_exists('pur_purchase_receipt_line') ||
+            !$this->db->table_exists('inv_stock_movement_log')
+        ) {
+            return [
+                'ok' => false,
+                'message' => 'Schema purchase/receipt/movement belum lengkap untuk repair konversi receipt.',
+            ];
+        }
+
+        $order = $this->db
+            ->select('id, po_no, status')
+            ->from('pur_purchase_order')
+            ->where('id', $purchaseOrderId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$order) {
+            return [
+                'ok' => false,
+                'message' => 'Purchase order tidak ditemukan.',
+            ];
+        }
+
+        $receipts = $this->db
+            ->select('id, receipt_no, receipt_date, destination_type, destination_division_id, status, notes')
+            ->from('pur_purchase_receipt')
+            ->where('purchase_order_id', $purchaseOrderId)
+            ->where('status', 'POSTED')
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
+        if (empty($receipts)) {
+            return [
+                'ok' => false,
+                'message' => 'Tidak ada receipt POSTED untuk PO ini.',
+            ];
+        }
+
+        $this->db->trans_begin();
+
+        $poLinesUpdated = 0;
+        $receiptLinesUpdated = 0;
+        $lotRowsUpdated = 0;
+        $movementRowsUpdated = 0;
+        $receiptsTouched = 0;
+        $rebuildTargets = [];
+        $catalogProfileKeys = [];
+        $hasMovementProfileContentPerBuy = $this->db->field_exists('profile_content_per_buy', 'inv_stock_movement_log');
+
+        foreach ($receipts as $receipt) {
+            $receiptId = (int)($receipt['id'] ?? 0);
+            if ($receiptId <= 0) {
+                continue;
+            }
+
+            $scope = strtoupper((string)($receipt['destination_type'] ?? '')) === 'GUDANG' ? 'WAREHOUSE' : 'DIVISION';
+            $divisionId = $scope === 'DIVISION' ? $this->nullableInt($receipt['destination_division_id'] ?? null) : null;
+            $destinationType = $scope === 'DIVISION' ? $this->normalizeDestination((string)($receipt['destination_type'] ?? '')) : null;
+            if ($scope === 'DIVISION' && $divisionId === null) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Repair receipt gagal: division tujuan tidak valid untuk receipt #' . (string)($receipt['receipt_no'] ?? $receiptId) . '.',
+                ];
+            }
+
+            $receiptDate = $this->normalizeDate((string)($receipt['receipt_date'] ?? ''));
+            if ($receiptDate === null) {
+                $receiptDate = date('Y-m-d');
+            }
+            $rebuildStartDate = date('Y-m-01', strtotime($receiptDate));
+
+            $lineQb = $this->db
+                ->select('rl.id AS receipt_line_id, rl.purchase_order_line_id, rl.line_kind, rl.item_id, rl.material_id')
+                ->select('rl.qty_buy_received, rl.qty_content_received, rl.conversion_factor_to_content AS receipt_conversion_factor_to_content')
+                ->select('rl.buy_uom_id, rl.content_uom_id, rl.brand_name, rl.line_description, rl.profile_key')
+                ->select('pol.line_no, pol.qty_buy AS po_qty_buy, pol.qty_content AS po_qty_content, pol.unit_price, pol.content_per_buy')
+                ->select('pol.conversion_factor_to_content AS po_conversion_factor_to_content')
+                ->select('pol.snapshot_item_name, pol.snapshot_material_name, pol.snapshot_brand_name, pol.snapshot_line_description')
+                ->select('pol.snapshot_buy_uom_code, pol.snapshot_content_uom_code')
+                ->from('pur_purchase_receipt_line rl')
+                ->join('pur_purchase_order_line pol', 'pol.id = rl.purchase_order_line_id', 'inner')
+                ->where('rl.purchase_receipt_id', $receiptId)
+                ->order_by('rl.id', 'ASC');
+
+            if ($this->db->field_exists('expired_date', 'pur_purchase_receipt_line')) {
+                $lineQb->select('rl.expired_date AS receipt_expired_date');
+            }
+            if ($this->db->field_exists('expired_date', 'pur_purchase_order_line')) {
+                $lineQb->select('pol.expired_date AS po_expired_date');
+            }
+            if ($this->db->field_exists('snapshot_expired_date', 'pur_purchase_order_line')) {
+                $lineQb->select('pol.snapshot_expired_date');
+            }
+
+            $lines = $lineQb->get()->result_array();
+            $receiptTouched = false;
+
+            foreach ($lines as $line) {
+                $receiptLineId = (int)($line['receipt_line_id'] ?? 0);
+                $poLineId = (int)($line['purchase_order_line_id'] ?? 0);
+                if ($receiptLineId <= 0 || $poLineId <= 0) {
+                    continue;
+                }
+
+                $qtyBuyReceived = round((float)($line['qty_buy_received'] ?? 0), 4);
+                $canonicalFactor = $this->canonicalConversionFactor(
+                    $line['content_per_buy'] ?? 0,
+                    $line['po_conversion_factor_to_content'] ?? $line['receipt_conversion_factor_to_content'] ?? 0
+                );
+                $expectedQtyContent = round($qtyBuyReceived * $canonicalFactor, 4);
+                $expectedUnitCost = $canonicalFactor > 0 ? round((float)($line['unit_price'] ?? 0) / $canonicalFactor, 6) : 0;
+                $expectedPoQtyContent = round((float)($line['po_qty_buy'] ?? 0) * $canonicalFactor, 4);
+                $catalogProfileKey = trim((string)($line['profile_key'] ?? ''));
+                if ($catalogProfileKey !== '') {
+                    $catalogProfileKeys[$catalogProfileKey] = $catalogProfileKey;
+                }
+
+                $lotRows = [];
+                if ($this->db->table_exists('inv_material_fifo_lot')) {
+                    $lotRows = $this->db
+                        ->select('id, qty_in, qty_out, qty_balance, unit_cost, status')
+                        ->from('inv_material_fifo_lot')
+                        ->where('receipt_line_id', $receiptLineId)
+                        ->order_by('id', 'ASC')
+                        ->get()
+                        ->result_array();
+
+                    if (count($lotRows) > 1) {
+                        $this->db->trans_rollback();
+                        return [
+                            'ok' => false,
+                            'message' => 'Repair receipt gagal: receipt line #' . $receiptLineId . ' memiliki lebih dari satu lot inbound.',
+                        ];
+                    }
+
+                    if (!empty($lotRows)) {
+                        $lot = $lotRows[0];
+                        $qtyOut = round((float)($lot['qty_out'] ?? 0), 4);
+                        $qtyIn = round((float)($lot['qty_in'] ?? 0), 4);
+                        $qtyBalance = round((float)($lot['qty_balance'] ?? 0), 4);
+                        if ($qtyOut > 0.0001 || abs($qtyBalance - $qtyIn) > 0.0001) {
+                            $this->db->trans_rollback();
+                            return [
+                                'ok' => false,
+                                'message' => 'Repair receipt ditolak karena lot inbound untuk receipt line #' . $receiptLineId . ' sudah terpakai / berubah.',
+                            ];
+                        }
+                    }
+                }
+
+                $movementRows = $this->db
+                    ->select('id, qty_content_delta, unit_cost' . ($hasMovementProfileContentPerBuy ? ', profile_content_per_buy' : ''), false)
+                    ->from('inv_stock_movement_log')
+                    ->where('ref_table', 'pur_purchase_receipt')
+                    ->where('ref_id', $receiptId)
+                    ->where('receipt_line_id', $receiptLineId)
+                    ->order_by('id', 'ASC')
+                    ->get()
+                    ->result_array();
+                if (empty($movementRows)) {
+                    $this->db->trans_rollback();
+                    return [
+                        'ok' => false,
+                        'message' => 'Repair receipt gagal: movement row tidak ditemukan untuk receipt line #' . $receiptLineId . '.',
+                    ];
+                }
+
+                $poLineChanged = (
+                    abs(round((float)($line['content_per_buy'] ?? 0), 6) - round($canonicalFactor, 6)) > 0.000001 ||
+                    abs(round((float)($line['po_conversion_factor_to_content'] ?? 0), 8) - round($canonicalFactor, 8)) > 0.00000001 ||
+                    abs(round((float)($line['po_qty_content'] ?? 0), 4) - $expectedPoQtyContent) > 0.0001
+                );
+                if ($poLineChanged) {
+                    $this->db
+                        ->where('id', $poLineId)
+                        ->update('pur_purchase_order_line', [
+                            'content_per_buy' => round($canonicalFactor, 6),
+                            'conversion_factor_to_content' => round($canonicalFactor, 8),
+                            'qty_content' => $expectedPoQtyContent,
+                        ]);
+                    if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                        $this->db->trans_rollback();
+                        return [
+                            'ok' => false,
+                            'message' => 'Gagal memperbaiki line PO #' . (int)($line['line_no'] ?? 0) . '.',
+                        ];
+                    }
+                    $poLinesUpdated++;
+                }
+
+                $receiptLineChanged = (
+                    abs(round((float)($line['qty_content_received'] ?? 0), 4) - $expectedQtyContent) > 0.0001 ||
+                    abs(round((float)($line['receipt_conversion_factor_to_content'] ?? 0), 8) - round($canonicalFactor, 8)) > 0.00000001
+                );
+                if ($receiptLineChanged) {
+                    $this->db
+                        ->where('id', $receiptLineId)
+                        ->update('pur_purchase_receipt_line', [
+                            'qty_content_received' => $expectedQtyContent,
+                            'conversion_factor_to_content' => round($canonicalFactor, 8),
+                        ]);
+                    if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                        $this->db->trans_rollback();
+                        return [
+                            'ok' => false,
+                            'message' => 'Gagal memperbaiki receipt line #' . $receiptLineId . '.',
+                        ];
+                    }
+                    $receiptLinesUpdated++;
+                    $receiptTouched = true;
+                }
+
+                if (!empty($lotRows)) {
+                    $lot = $lotRows[0];
+                    $lotChanged = (
+                        abs(round((float)($lot['qty_in'] ?? 0), 4) - $expectedQtyContent) > 0.0001 ||
+                        abs(round((float)($lot['qty_balance'] ?? 0), 4) - $expectedQtyContent) > 0.0001 ||
+                        abs(round((float)($lot['unit_cost'] ?? 0), 6) - $expectedUnitCost) > 0.000001
+                    );
+                    if ($lotChanged) {
+                        $lotUpdate = [
+                            'qty_in' => $expectedQtyContent,
+                            'qty_balance' => $expectedQtyContent,
+                            'unit_cost' => $expectedUnitCost,
+                        ];
+                        if ($this->db->field_exists('status', 'inv_material_fifo_lot')) {
+                            $lotUpdate['status'] = $expectedQtyContent > 0 ? 'OPEN' : 'CLOSED';
+                        }
+                        $this->db->where('id', (int)$lot['id'])->update('inv_material_fifo_lot', $lotUpdate);
+                        if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                            $this->db->trans_rollback();
+                            return [
+                                'ok' => false,
+                                'message' => 'Gagal memperbaiki lot receipt #' . (int)$lot['id'] . '.',
+                            ];
+                        }
+                        $lotRowsUpdated++;
+                        $receiptTouched = true;
+                    }
+                }
+
+                foreach ($movementRows as $movementRow) {
+                    $movementChanged = (
+                        abs(round((float)($movementRow['qty_content_delta'] ?? 0), 4) - $expectedQtyContent) > 0.0001 ||
+                        abs(round((float)($movementRow['unit_cost'] ?? 0), 6) - $expectedUnitCost) > 0.000001 ||
+                        ($hasMovementProfileContentPerBuy && abs(round((float)($movementRow['profile_content_per_buy'] ?? 0), 6) - round($canonicalFactor, 6)) > 0.000001)
+                    );
+                    if (!$movementChanged) {
+                        continue;
+                    }
+
+                    $movementUpdate = [
+                        'qty_content_delta' => $expectedQtyContent,
+                        'unit_cost' => $expectedUnitCost,
+                    ];
+                    if ($hasMovementProfileContentPerBuy) {
+                        $movementUpdate['profile_content_per_buy'] = round($canonicalFactor, 6);
+                    }
+                    $this->db->where('id', (int)$movementRow['id'])->update('inv_stock_movement_log', $movementUpdate);
+                    if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                        $this->db->trans_rollback();
+                        return [
+                            'ok' => false,
+                            'message' => 'Gagal memperbaiki movement receipt line #' . $receiptLineId . '.',
+                        ];
+                    }
+                    $movementRowsUpdated++;
+                    $receiptTouched = true;
+                }
+
+                if ($poLineChanged || $receiptLineChanged || !empty($lotRows) || !empty($movementRows)) {
+                    $profileName = trim((string)($line['snapshot_item_name'] ?? ''));
+                    if ($profileName === '') {
+                        $profileName = trim((string)($line['snapshot_material_name'] ?? ''));
+                    }
+                    $profileExpiredDate = $this->normalizeDate((string)(
+                        $line['receipt_expired_date']
+                        ?? ($line['po_expired_date'] ?? ($line['snapshot_expired_date'] ?? ''))
+                    ));
+                    $this->registerVoidRollbackRebuildTarget($rebuildTargets, $scope, $rebuildStartDate, [
+                        'stock_domain' => strtoupper((string)($line['line_kind'] ?? 'ITEM')) === 'MATERIAL' ? 'MATERIAL' : 'ITEM',
+                        'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+                        'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
+                        'item_id' => $this->nullableInt($line['item_id'] ?? null),
+                        'material_id' => $this->nullableInt($line['material_id'] ?? null),
+                        'buy_uom_id' => $this->nullableInt($line['buy_uom_id'] ?? null),
+                        'content_uom_id' => $this->nullableInt($line['content_uom_id'] ?? null),
+                        'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+                        'profile_name' => $this->nullableString($profileName !== '' ? $profileName : null),
+                        'profile_brand' => $this->nullableString(($line['brand_name'] ?? null) ?: ($line['snapshot_brand_name'] ?? null)),
+                        'profile_description' => $this->nullableString(($line['line_description'] ?? null) ?: ($line['snapshot_line_description'] ?? null)),
+                        'profile_expired_date' => $profileExpiredDate,
+                        'profile_content_per_buy' => round($canonicalFactor, 6),
+                        'profile_buy_uom_code' => $this->nullableString($line['snapshot_buy_uom_code'] ?? null),
+                        'profile_content_uom_code' => $this->nullableString($line['snapshot_content_uom_code'] ?? null),
+                        'unit_cost' => $expectedUnitCost,
+                    ]);
+                }
+            }
+
+            if ($receiptTouched) {
+                $existingNotes = trim((string)($receipt['notes'] ?? ''));
+                $repairNote = 'Repair konversi isi receipt diselaraskan dari content_per_buy PO';
+                if (stripos($existingNotes, $repairNote) === false) {
+                    $newNotes = $existingNotes !== '' ? ($existingNotes . ' | ' . $repairNote) : $repairNote;
+                    $this->db->where('id', $receiptId)->update('pur_purchase_receipt', ['notes' => $newNotes]);
+                    if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                        $this->db->trans_rollback();
+                        return [
+                            'ok' => false,
+                            'message' => 'Gagal menyimpan catatan repair di receipt #' . (string)($receipt['receipt_no'] ?? $receiptId) . '.',
+                        ];
+                    }
+                }
+                $receiptsTouched++;
+            }
+        }
+
+        $catalogNormalization = ['ok' => true, 'data' => ['rows_updated' => 0]];
+        if ($normalizeCatalog && !empty($catalogProfileKeys)) {
+            $catalogNormalization = $this->normalizePurchaseCatalogConversion([
+                'profile_keys' => array_values($catalogProfileKeys),
+            ], false);
+            if (!($catalogNormalization['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return $catalogNormalization;
+            }
+        }
+
+        foreach ($rebuildTargets as $target) {
+            $rebuild = $this->rebuild_inventory_history_for_identity(
+                (string)$target['scope'],
+                (string)$target['start_date'],
+                (array)$target['identity']
+            );
+            if (!($rebuild['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => (string)($rebuild['message'] ?? 'Gagal rebuild histori stok setelah repair receipt.'),
+                ];
+            }
+        }
+
+        if ($this->db->table_exists('aud_transaction_log') && $receiptsTouched > 0) {
+            $this->db->insert('aud_transaction_log', [
+                'module_code' => 'PURCHASE',
+                'action_code' => 'RECEIPT_CONVERSION_REPAIR',
+                'entity_table' => 'pur_purchase_order',
+                'entity_id' => $purchaseOrderId,
+                'transaction_no' => (string)($order['po_no'] ?? null),
+                'ref_table' => 'pur_purchase_order',
+                'ref_id' => $purchaseOrderId,
+                'actor_user_id' => $userId > 0 ? $userId : null,
+                'after_payload' => json_encode([
+                    'po_lines_updated' => $poLinesUpdated,
+                    'receipt_lines_updated' => $receiptLinesUpdated,
+                    'lot_rows_updated' => $lotRowsUpdated,
+                    'movement_rows_updated' => $movementRowsUpdated,
+                    'catalog_rows_normalized' => (int)($catalogNormalization['data']['rows_updated'] ?? 0),
+                ]),
+                'notes' => 'Repair konversi isi receipt dari content_per_buy PO',
+            ]);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return [
+                'ok' => false,
+                'message' => 'Gagal commit repair konversi receipt PO.',
+            ];
+        }
+
+        $this->db->trans_commit();
+
+        return [
+            'ok' => true,
+            'message' => $receiptsTouched > 0
+                ? ('Repair receipt PO selesai. Receipt diperbaiki: ' . $receiptsTouched . '.')
+                : 'Tidak ada mismatch receipt yang perlu direpair.',
+            'data' => [
+                'purchase_order_id' => $purchaseOrderId,
+                'po_lines_updated' => $poLinesUpdated,
+                'receipt_lines_updated' => $receiptLinesUpdated,
+                'lot_rows_updated' => $lotRowsUpdated,
+                'movement_rows_updated' => $movementRowsUpdated,
+                'receipts_touched' => $receiptsTouched,
+                'rebuild_targets' => count($rebuildTargets),
+                'catalog_rows_normalized' => (int)($catalogNormalization['data']['rows_updated'] ?? 0),
+            ],
+        ];
+    }
+
     private function rollbackPurchaseOnVoid(int $purchaseOrderId, array $order, int $userId, string $sourceIp = ''): array
     {
         $receiptRollback = $this->rollbackPostedReceiptsOnVoid($purchaseOrderId, $userId, $sourceIp);
@@ -6058,7 +8428,7 @@ class Purchase_model extends CI_Model
         }
 
         $receipts = $this->db
-            ->select('id, receipt_no, destination_type, destination_division_id, notes')
+            ->select('id, receipt_no, receipt_date, destination_type, destination_division_id, notes')
             ->from('pur_purchase_receipt')
             ->where('purchase_order_id', $purchaseOrderId)
             ->where('status', 'POSTED')
@@ -6070,13 +8440,11 @@ class Purchase_model extends CI_Model
             return ['ok' => true, 'data' => ['receipts_voided' => 0, 'lines_reversed' => 0]];
         }
 
-        $this->load->library('InventoryLedger');
-
         $receiptsVoided = 0;
         $linesReversed = 0;
-        $rollbackDate = date('Y-m-d');
         $receiptLinesById = [];
         $requirements = [];
+        $rebuildTargets = [];
 
         $this->load->library('MaterialFifoManager');
 
@@ -6149,14 +8517,25 @@ class Purchase_model extends CI_Model
                         'destination_type' => $req['destination_type'],
                         'profile_key' => $req['profile_key'],
                         'profile_name' => $profileName,
+                        'profile_content_per_buy' => (float)($line['content_per_buy'] ?? ($line['conversion_factor_to_content'] ?? 0)),
                         'qty_buy_needed' => 0.0,
                         'qty_content_needed' => 0.0,
                         'refs' => [],
+                        'receipt_ids' => [],
+                        'receipt_line_ids' => [],
                     ];
                 }
 
                 $requirements[$reqKey]['qty_buy_needed'] = round((float)$requirements[$reqKey]['qty_buy_needed'] + $qtyBuy, 4);
                 $requirements[$reqKey]['qty_content_needed'] = round((float)$requirements[$reqKey]['qty_content_needed'] + $qtyContent, 4);
+                if ((float)($requirements[$reqKey]['profile_content_per_buy'] ?? 0) <= 0) {
+                    $requirements[$reqKey]['profile_content_per_buy'] = (float)($line['content_per_buy'] ?? ($line['conversion_factor_to_content'] ?? 0));
+                }
+                $requirements[$reqKey]['receipt_ids'][$receiptId] = $receiptId;
+                $receiptLineId = (int)($line['id'] ?? 0);
+                if ($receiptLineId > 0) {
+                    $requirements[$reqKey]['receipt_line_ids'][$receiptLineId] = $receiptLineId;
+                }
 
                 $lineNo = (int)($line['line_no'] ?? 0);
                 $requirements[$reqKey]['refs'][] = (string)($receipt['receipt_no'] ?? ('RCV#' . $receiptId)) . ($lineNo > 0 ? (' L' . $lineNo) : '');
@@ -6218,6 +8597,11 @@ class Purchase_model extends CI_Model
             }
 
             $lines = (array)($receiptLinesById[$receiptId] ?? []);
+            $receiptDate = $this->normalizeDate((string)($receipt['receipt_date'] ?? ''));
+            if ($receiptDate === null) {
+                $receiptDate = date('Y-m-d');
+            }
+            $rebuildStartDate = date('Y-m-01', strtotime($receiptDate));
 
             foreach ($lines as $line) {
                 $qtyBuy = abs(round((float)($line['qty_buy_received'] ?? 0), 4));
@@ -6258,24 +8642,14 @@ class Purchase_model extends CI_Model
                     ];
                 }
 
-                $post = $this->postInventoryLedgerEntry([
-                    'manage_transaction' => false,
-                    'movement_date' => $rollbackDate,
-                    'movement_scope' => $scope,
-                    'division_id' => $divisionId,
-                    'destination_type' => $destinationType,
-                    'movement_type' => 'ADJUSTMENT',
+                $this->registerVoidRollbackRebuildTarget($rebuildTargets, $scope, $rebuildStartDate, [
                     'stock_domain' => strtoupper((string)($line['line_kind'] ?? 'ITEM')) === 'MATERIAL' ? 'MATERIAL' : 'ITEM',
-                    'ref_table' => 'pur_purchase_order',
-                    'ref_id' => $purchaseOrderId,
-                    'receipt_id' => $receiptId,
-                    'receipt_line_id' => (int)($line['id'] ?? 0),
+                    'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+                    'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
                     'item_id' => $this->nullableInt($line['item_id'] ?? null),
                     'material_id' => $this->nullableInt($line['material_id'] ?? null),
                     'buy_uom_id' => $this->nullableInt($line['buy_uom_id'] ?? null),
                     'content_uom_id' => $this->nullableInt($line['content_uom_id'] ?? null),
-                    'qty_buy_delta' => $qtyBuy > 0 ? (-1 * $qtyBuy) : 0,
-                    'qty_content_delta' => $qtyContent > 0 ? (-1 * $qtyContent) : 0,
                     'profile_key' => $this->nullableString($line['profile_key'] ?? null),
                     'profile_name' => $this->nullableString($profileName !== '' ? $profileName : null),
                     'profile_brand' => $this->nullableString(($line['brand_name'] ?? null) ?: ($line['snapshot_brand_name'] ?? null)),
@@ -6285,18 +8659,45 @@ class Purchase_model extends CI_Model
                     'profile_buy_uom_code' => $this->nullableString($line['snapshot_buy_uom_code'] ?? null),
                     'profile_content_uom_code' => $this->nullableString($line['snapshot_content_uom_code'] ?? null),
                     'unit_cost' => $unitCost,
-                    'notes' => 'Rollback otomatis stok karena status PO diubah ke VOID',
-                    'created_by' => $userId > 0 ? $userId : null,
                 ]);
-
-                if (!($post['ok'] ?? false)) {
-                    return [
-                        'ok' => false,
-                        'message' => 'Rollback stok gagal untuk receipt #' . (string)($receipt['receipt_no'] ?? $receiptId) . ': ' . (string)($post['message'] ?? 'gagal posting inventory ledger'),
-                    ];
-                }
+                $this->registerVoidRollbackRelatedBalanceTargets(
+                    $rebuildTargets,
+                    $scope,
+                    $rebuildStartDate,
+                    [
+                        'stock_domain' => strtoupper((string)($line['line_kind'] ?? 'ITEM')) === 'MATERIAL' ? 'MATERIAL' : 'ITEM',
+                        'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+                        'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
+                        'item_id' => $this->nullableInt($line['item_id'] ?? null),
+                        'material_id' => $this->nullableInt($line['material_id'] ?? null),
+                        'buy_uom_id' => $this->nullableInt($line['buy_uom_id'] ?? null),
+                        'content_uom_id' => $this->nullableInt($line['content_uom_id'] ?? null),
+                        'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+                        'profile_name' => $this->nullableString($profileName !== '' ? $profileName : null),
+                        'profile_brand' => $this->nullableString(($line['brand_name'] ?? null) ?: ($line['snapshot_brand_name'] ?? null)),
+                        'profile_description' => $this->nullableString(($line['line_description'] ?? null) ?: ($line['snapshot_line_description'] ?? null)),
+                        'profile_expired_date' => $profileExpiredDate,
+                        'profile_content_per_buy' => (float)($line['content_per_buy'] ?? $factor),
+                        'profile_buy_uom_code' => $this->nullableString($line['snapshot_buy_uom_code'] ?? null),
+                        'profile_content_uom_code' => $this->nullableString($line['snapshot_content_uom_code'] ?? null),
+                    ],
+                    (int)($line['id'] ?? 0)
+                );
 
                 $linesReversed++;
+            }
+
+            if ($this->db->table_exists('inv_stock_movement_log')) {
+                $this->db
+                    ->where('ref_table', 'pur_purchase_receipt')
+                    ->where('ref_id', $receiptId)
+                    ->delete('inv_stock_movement_log');
+                if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Rollback receipt gagal saat menghapus histori movement receipt.',
+                    ];
+                }
             }
 
             $existingNotes = trim((string)($receipt['notes'] ?? ''));
@@ -6330,11 +8731,29 @@ class Purchase_model extends CI_Model
                         'receipt_id' => $receiptId,
                         'lines_reversed' => $linesReversed,
                     ]),
-                    'notes' => 'Rollback receipt otomatis saat VOID PO',
+                    'notes' => 'Histori receipt dihapus otomatis saat VOID PO',
                 ]);
             }
 
             $receiptsVoided++;
+        }
+
+        foreach ($rebuildTargets as $target) {
+            $rebuild = $this->rebuild_inventory_history_for_identity(
+                (string)$target['scope'],
+                (string)$target['start_date'],
+                (array)$target['identity']
+            );
+            if (!($rebuild['ok'] ?? false)) {
+                $message = (string)($rebuild['message'] ?? 'Gagal rebuild histori stok setelah VOID PO.');
+                if (!empty($rebuild['data']['negative_samples']) && is_array($rebuild['data']['negative_samples'])) {
+                    $message .= ' Contoh: ' . implode('; ', array_slice($rebuild['data']['negative_samples'], 0, 3));
+                }
+                return [
+                    'ok' => false,
+                    'message' => $message,
+                ];
+            }
         }
 
         return [
@@ -6342,8 +8761,145 @@ class Purchase_model extends CI_Model
             'data' => [
                 'receipts_voided' => $receiptsVoided,
                 'lines_reversed' => $linesReversed,
+                'rebuild_targets' => count($rebuildTargets),
             ],
         ];
+    }
+
+    private function registerVoidRollbackRebuildTarget(array &$targets, string $scope, string $startDate, array $identity): void
+    {
+        $scope = strtoupper(trim($scope));
+        $normalizedStartDate = $this->normalizeDate($startDate);
+        if ($normalizedStartDate === null) {
+            $normalizedStartDate = date('Y-m-01');
+        }
+
+        $key = implode('|', [
+            $scope,
+            strtoupper((string)($identity['stock_domain'] ?? 'ITEM')),
+            (string)($identity['division_id'] ?? 0),
+            strtoupper((string)($identity['destination_type'] ?? 'OTHER')),
+            (string)($identity['item_id'] ?? 0),
+            (string)($identity['material_id'] ?? 0),
+            (string)($identity['buy_uom_id'] ?? 0),
+            (string)($identity['content_uom_id'] ?? 0),
+            strtoupper((string)($identity['profile_key'] ?? '')),
+            strtoupper(trim((string)($identity['profile_name'] ?? ''))),
+            strtoupper(trim((string)($identity['profile_brand'] ?? ''))),
+            strtoupper(trim((string)($identity['profile_description'] ?? ''))),
+        ]);
+
+        if (!isset($targets[$key])) {
+            $targets[$key] = [
+                'scope' => $scope,
+                'start_date' => $normalizedStartDate,
+                'identity' => $identity,
+            ];
+            return;
+        }
+
+        if ($normalizedStartDate < (string)($targets[$key]['start_date'] ?? $normalizedStartDate)) {
+            $targets[$key]['start_date'] = $normalizedStartDate;
+        }
+    }
+
+    private function registerVoidRollbackRelatedBalanceTargets(array &$targets, string $scope, string $startDate, array $identity, int $receiptLineId): void
+    {
+        if ($receiptLineId <= 0) {
+            return;
+        }
+
+        $scope = strtoupper(trim($scope));
+        $balanceTable = $scope === 'DIVISION' ? 'inv_division_stock_balance' : 'inv_warehouse_stock_balance';
+        if (!$this->db->table_exists($balanceTable) || !$this->db->field_exists('last_receipt_line_id', $balanceTable)) {
+            return;
+        }
+
+        $qb = $this->db->from($balanceTable)->where('last_receipt_line_id', $receiptLineId);
+        if ($scope === 'DIVISION') {
+            $qb->where('division_id', $identity['division_id'] ?? 0);
+            if ($this->db->field_exists('destination_type', $balanceTable)) {
+                $qb->where('destination_type', $identity['destination_type'] ?? 'OTHER');
+            }
+        }
+
+        $rows = $qb->order_by('id', 'ASC')->get()->result_array();
+        foreach ($rows as $row) {
+            $this->registerVoidRollbackRebuildTarget($targets, $scope, $startDate, [
+                'stock_domain' => strtoupper((string)($identity['stock_domain'] ?? 'ITEM')),
+                'division_id' => $scope === 'DIVISION' ? $this->nullableInt($row['division_id'] ?? null) : null,
+                'destination_type' => $scope === 'DIVISION' ? $this->normalizeDestination((string)($row['destination_type'] ?? ($identity['destination_type'] ?? ''))) : null,
+                'item_id' => $this->nullableInt($row['item_id'] ?? ($identity['item_id'] ?? null)),
+                'material_id' => $this->nullableInt($row['material_id'] ?? ($identity['material_id'] ?? null)),
+                'buy_uom_id' => $this->nullableInt($row['buy_uom_id'] ?? ($identity['buy_uom_id'] ?? null)),
+                'content_uom_id' => $this->nullableInt($row['content_uom_id'] ?? ($identity['content_uom_id'] ?? null)),
+                'profile_key' => $this->nullableString($row['profile_key'] ?? ($identity['profile_key'] ?? null)),
+                'profile_name' => $this->nullableString($row['profile_name'] ?? ($identity['profile_name'] ?? null)),
+                'profile_brand' => $this->nullableString($row['profile_brand'] ?? ($identity['profile_brand'] ?? null)),
+                'profile_description' => $this->nullableString($row['profile_description'] ?? ($identity['profile_description'] ?? null)),
+                'profile_expired_date' => $this->normalizeDate((string)($row['profile_expired_date'] ?? ($identity['profile_expired_date'] ?? ''))),
+                'profile_content_per_buy' => round((float)($row['profile_content_per_buy'] ?? ($identity['profile_content_per_buy'] ?? 0)), 6),
+                'profile_buy_uom_code' => $this->nullableString($row['profile_buy_uom_code'] ?? ($identity['profile_buy_uom_code'] ?? null)),
+                'profile_content_uom_code' => $this->nullableString($row['profile_content_uom_code'] ?? ($identity['profile_content_uom_code'] ?? null)),
+            ]);
+        }
+    }
+
+    private function purgeInventoryHistoryArtifactsForIdentity(string $rollupTable, string $balanceTable, string $stockScope, array $identity): void
+    {
+        if ($this->db->table_exists($rollupTable)) {
+            $this->applyDailyRollupIdentityFilter($rollupTable, $stockScope, $identity);
+            $this->db->delete($rollupTable);
+        }
+
+        if (!$this->db->table_exists($balanceTable)) {
+            return;
+        }
+
+        if ($stockScope === 'WAREHOUSE') {
+            $this->db->where('item_id', $identity['item_id'] ?? null)
+                ->where('buy_uom_id', $identity['buy_uom_id'] ?? null)
+                ->where('content_uom_id', $identity['content_uom_id'] ?? null);
+            $profileKey = $identity['profile_key'] ?? null;
+            if ($profileKey !== null && $profileKey !== '') {
+                $this->db->where('profile_key', $profileKey);
+            } else {
+                $this->db->where('profile_key IS NULL', null, false);
+            }
+            $this->db->delete($balanceTable);
+            return;
+        }
+
+        $this->db->where('division_id', $identity['division_id'] ?? null)
+            ->where('item_id', $identity['item_id'] ?? null)
+            ->where('content_uom_id', $identity['content_uom_id'] ?? null);
+
+        $materialId = $identity['material_id'] ?? null;
+        if ($materialId !== null) {
+            $this->db->where('material_id', $materialId);
+        } else {
+            $this->db->where('material_id IS NULL', null, false);
+        }
+
+        $buyUomId = $identity['buy_uom_id'] ?? null;
+        if ($buyUomId !== null) {
+            $this->db->where('buy_uom_id', $buyUomId);
+        } else {
+            $this->db->where('buy_uom_id IS NULL', null, false);
+        }
+
+        if ($this->db->field_exists('destination_type', $balanceTable)) {
+            $this->db->where('destination_type', $identity['destination_type'] ?? 'OTHER');
+        }
+
+        $profileKey = $identity['profile_key'] ?? null;
+        if ($profileKey !== null && $profileKey !== '') {
+            $this->db->where('profile_key', $profileKey);
+        } else {
+            $this->db->where('profile_key IS NULL', null, false);
+        }
+
+        $this->db->delete($balanceTable);
     }
 
     private function buildVoidRollbackRequirementKey(array $requirement): string
@@ -6362,6 +8918,11 @@ class Purchase_model extends CI_Model
 
     private function fetchVoidRollbackCurrentBalance(array $requirement): array
     {
+        $lotBalance = $this->fetchVoidRollbackLotBalance($requirement);
+        if ($lotBalance !== null) {
+            return $lotBalance;
+        }
+
         $scope = strtoupper((string)($requirement['scope'] ?? ''));
         if ($scope === 'WAREHOUSE') {
             if (!$this->db->table_exists('inv_warehouse_stock_balance')) {
@@ -6440,6 +9001,55 @@ class Purchase_model extends CI_Model
         return [
             'qty_buy_balance' => (float)($row['qty_buy_balance'] ?? 0),
             'qty_content_balance' => (float)($row['qty_content_balance'] ?? 0),
+        ];
+    }
+
+    private function fetchVoidRollbackLotBalance(array $requirement): ?array
+    {
+        if (!$this->db->table_exists('inv_material_fifo_lot')) {
+            return null;
+        }
+
+        $receiptIds = array_values(array_filter(array_map('intval', (array)($requirement['receipt_ids'] ?? []))));
+        $receiptLineIds = array_values(array_filter(array_map('intval', (array)($requirement['receipt_line_ids'] ?? []))));
+        if (empty($receiptIds) && empty($receiptLineIds)) {
+            return null;
+        }
+
+        $qb = $this->db
+            ->select('COUNT(*) AS row_count, COALESCE(SUM(qty_balance), 0) AS qty_content_balance', false)
+            ->from('inv_material_fifo_lot')
+            ->where('source_table', 'pur_purchase_receipt');
+
+        if (!empty($receiptLineIds) && $this->db->field_exists('receipt_line_id', 'inv_material_fifo_lot')) {
+            $qb->where_in('receipt_line_id', $receiptLineIds);
+        } elseif (!empty($receiptLineIds) && $this->db->field_exists('source_line_id', 'inv_material_fifo_lot')) {
+            $qb->where_in('source_line_id', $receiptLineIds);
+        } elseif (!empty($receiptIds) && $this->db->field_exists('receipt_id', 'inv_material_fifo_lot')) {
+            $qb->where_in('receipt_id', $receiptIds);
+        } else {
+            $qb->where_in('source_id', $receiptIds);
+        }
+
+        $row = $qb->get()->row_array();
+        $rowCount = (int)($row['row_count'] ?? 0);
+        if ($rowCount <= 0) {
+            return null;
+        }
+
+        $qtyContentBalance = round((float)($row['qty_content_balance'] ?? 0), 4);
+        $contentPerBuy = round((float)($requirement['profile_content_per_buy'] ?? 0), 6);
+        if ($contentPerBuy <= 0) {
+            $needBuy = round((float)($requirement['qty_buy_needed'] ?? 0), 4);
+            $needContent = round((float)($requirement['qty_content_needed'] ?? 0), 4);
+            if ($needBuy > 0 && $needContent > 0) {
+                $contentPerBuy = round($needContent / $needBuy, 6);
+            }
+        }
+
+        return [
+            'qty_buy_balance' => $contentPerBuy > 0 ? round($qtyContentBalance / $contentPerBuy, 4) : 0.0,
+            'qty_content_balance' => $qtyContentBalance,
         ];
     }
 
@@ -6975,10 +9585,10 @@ class Purchase_model extends CI_Model
                 ];
             }
 
-            $factor = (float)($poLine['conversion_factor_to_content'] ?? 1);
-            if ($factor <= 0) {
-                $factor = 1;
-            }
+            $factor = $this->canonicalConversionFactor(
+                $poLine['content_per_buy'] ?? 0,
+                $poLine['conversion_factor_to_content'] ?? 0
+            );
             $qtyContentReceived = round($qtyBuyReceived * $factor, 4);
             $profileExpiredDate = $this->normalizeDate((string)($poLine['expired_date'] ?? ($poLine['snapshot_expired_date'] ?? '')));
 
@@ -7949,30 +10559,13 @@ class Purchase_model extends CI_Model
             }
         }
 
-        if (!empty($existingLineIds) && $this->db->table_exists('mst_purchase_catalog') && $this->db->field_exists('last_purchase_line_id', 'mst_purchase_catalog')) {
-            $clearRefData = ['last_purchase_line_id' => null];
-            if ($this->db->field_exists('last_purchase_order_id', 'mst_purchase_catalog')) {
-                $clearRefData['last_purchase_order_id'] = null;
-            }
-
-            $this->db
-                ->group_start()
-                    ->where_in('last_purchase_line_id', $existingLineIds);
-
-            if ($this->db->field_exists('last_purchase_order_id', 'mst_purchase_catalog')) {
-                $this->db->or_where('last_purchase_order_id', $purchaseOrderId);
-            }
-
-            $this->db
-                ->group_end()
-                ->update('mst_purchase_catalog', $clearRefData);
-
-            if ((int)($this->db->error()['code'] ?? 0) !== 0) {
-                $dbErr = $this->db->error();
+        if (!empty($existingLineIds)) {
+            $clearCatalogRefError = $this->clearPurchaseCatalogPurchaseRefs($purchaseOrderId, $existingLineIds);
+            if ($clearCatalogRefError !== null) {
                 $this->db->trans_rollback();
                 return [
                     'ok' => false,
-                    'message' => 'Gagal melepas referensi catalog ke line lama: ' . (string)($dbErr['message'] ?? '-'),
+                    'message' => $clearCatalogRefError,
                 ];
             }
         }
@@ -8277,15 +10870,45 @@ class Purchase_model extends CI_Model
         int $limit
     ): array {
         $rankExpr = $this->buildRankExpression($q, ['c.catalog_name', 'c.brand_name']);
+        $catalogFactorExpr = 'ROUND(COALESCE(NULLIF(c.content_per_buy, 0), NULLIF(c.conversion_factor_to_content, 0), 1), 6)';
+        $useVendorLinkTable = $this->purchaseCatalogVendorTableExists();
+        $catalogHasVendorId = $this->db->field_exists('vendor_id', 'mst_purchase_catalog');
+        $latestVendorPriceSql = $useVendorLinkTable ? $this->latestCatalogVendorPriceSubquerySql() : '';
+
+        $vendorSelectExpr = 'NULL';
+        if ($useVendorLinkTable && $vendorId > 0) {
+            $vendorSelectExpr = 'cv.vendor_id';
+        } elseif ($useVendorLinkTable) {
+            $vendorSelectExpr = 'cvl.vendor_id';
+        } elseif (!$useVendorLinkTable && $catalogHasVendorId) {
+            $vendorSelectExpr = 'c.vendor_id';
+        }
+
+        if ($useVendorLinkTable && $vendorId > 0) {
+            $standardPriceExpr = 'COALESCE(cv.standard_price, cv.last_unit_price, c.standard_price, c.last_unit_price)';
+            $lastUnitPriceExpr = 'COALESCE(cv.last_unit_price, cv.standard_price, c.last_unit_price, c.standard_price)';
+            $lastPurchaseDateExpr = 'COALESCE(cv.last_purchase_date, c.last_purchase_date)';
+        } elseif ($useVendorLinkTable) {
+            $standardPriceExpr = 'COALESCE(cvl.standard_price, cvl.last_unit_price, c.standard_price, c.last_unit_price)';
+            $lastUnitPriceExpr = 'COALESCE(cvl.last_unit_price, cvl.standard_price, c.last_unit_price, c.standard_price)';
+            $lastPurchaseDateExpr = 'COALESCE(cvl.last_purchase_date, c.last_purchase_date)';
+        } else {
+            $standardPriceExpr = 'COALESCE(c.standard_price, c.last_unit_price)';
+            $lastUnitPriceExpr = 'COALESCE(c.last_unit_price, c.standard_price)';
+            $lastPurchaseDateExpr = 'c.last_purchase_date';
+        }
 
         $this->db
             ->select("'CATALOG' AS source_type", false)
-            ->select('c.id AS catalog_id, c.profile_key, c.line_kind, c.item_id, c.material_id, c.vendor_id')
+            ->select('c.id AS catalog_id, c.profile_key, c.line_kind, c.item_id, c.material_id, ' . $vendorSelectExpr . ' AS vendor_id', false)
             ->select('c.catalog_name, c.brand_name, c.line_description, c.notes')
             ->select('c.buy_uom_id, bu.code AS buy_uom_code, bu.name AS buy_uom_name')
             ->select('c.content_uom_id, cu.code AS content_uom_code, cu.name AS content_uom_name')
-            ->select('c.content_per_buy, c.conversion_factor_to_content')
-            ->select('c.standard_price, c.last_unit_price, c.last_purchase_date')
+            ->select($catalogFactorExpr . ' AS content_per_buy', false)
+            ->select($catalogFactorExpr . ' AS conversion_factor_to_content', false)
+            ->select($standardPriceExpr . ' AS standard_price', false)
+            ->select($lastUnitPriceExpr . ' AS last_unit_price', false)
+            ->select($lastPurchaseDateExpr . ' AS last_purchase_date', false)
             ->select('i.item_code, i.item_name, m.material_code, m.material_name')
             ->select($rankExpr . ' AS rank_score', false)
             ->from('mst_purchase_catalog c')
@@ -8295,13 +10918,24 @@ class Purchase_model extends CI_Model
             ->join('mst_material m', 'm.id = c.material_id', 'left')
             ->where('c.is_active', 1);
 
+        if ($useVendorLinkTable && $vendorId > 0) {
+            $this->db->join(
+                'mst_purchase_catalog_vendor cv',
+                'cv.catalog_id = c.id AND cv.vendor_id = ' . (int)$vendorId . ' AND COALESCE(cv.is_active, 1) = 1',
+                'inner',
+                false
+            );
+        } elseif ($useVendorLinkTable) {
+            $this->db->join('(' . $latestVendorPriceSql . ') cvl', 'cvl.catalog_id = c.id', 'left', false);
+        }
+
         if ($this->db->field_exists('expired_date', 'mst_purchase_catalog')) {
             $this->db->select('c.expired_date');
         } else {
             $this->db->select('NULL AS expired_date', false);
         }
 
-        if ($vendorId > 0) {
+        if ($vendorId > 0 && !$useVendorLinkTable && $catalogHasVendorId) {
             $this->db->where('c.vendor_id', $vendorId);
         }
         if ($lineKind !== '') {
@@ -8324,11 +10958,63 @@ class Purchase_model extends CI_Model
 
         $this->db
             ->order_by('rank_score', 'DESC', false)
-            ->order_by('c.last_purchase_date', 'DESC')
+            ->order_by($lastPurchaseDateExpr, 'DESC', false)
             ->order_by('c.id', 'DESC')
             ->limit($limit);
 
         return $this->db->get()->result_array();
+    }
+
+    private function purchaseCatalogVendorTableExists(): bool
+    {
+        return $this->db->table_exists('mst_purchase_catalog_vendor')
+            && $this->db->field_exists('catalog_id', 'mst_purchase_catalog_vendor')
+            && $this->db->field_exists('vendor_id', 'mst_purchase_catalog_vendor');
+    }
+
+    private function latestCatalogVendorPriceSubquerySql(): string
+    {
+        return "
+            SELECT
+                src.catalog_id,
+                src.vendor_id,
+                src.standard_price,
+                src.last_unit_price,
+                src.last_purchase_date
+            FROM mst_purchase_catalog_vendor src
+            INNER JOIN (
+                SELECT
+                    catalog_id,
+                    MAX(CONCAT(
+                        COALESCE(DATE_FORMAT(last_purchase_date, '%Y%m%d'), '00000000'),
+                        LPAD(CAST(id AS CHAR), 20, '0')
+                    )) AS pick_key
+                FROM mst_purchase_catalog_vendor
+                WHERE COALESCE(is_active, 1) = 1
+                GROUP BY catalog_id
+            ) picked
+                ON picked.catalog_id = src.catalog_id
+               AND CONCAT(
+                    COALESCE(DATE_FORMAT(src.last_purchase_date, '%Y%m%d'), '00000000'),
+                    LPAD(CAST(src.id AS CHAR), 20, '0')
+               ) = picked.pick_key
+            WHERE COALESCE(src.is_active, 1) = 1
+        ";
+    }
+
+    private function canonicalConversionFactor($contentPerBuy, $conversionFactor = null): float
+    {
+        $contentPerBuy = (float)$contentPerBuy;
+        if ($contentPerBuy > 0) {
+            return round($contentPerBuy, 8);
+        }
+
+        $conversionFactor = (float)$conversionFactor;
+        if ($conversionFactor > 0) {
+            return round($conversionFactor, 8);
+        }
+
+        return 1.0;
     }
 
     public function search_master_fallback(
@@ -8541,7 +11227,10 @@ class Purchase_model extends CI_Model
         }
 
         $contentPerBuy = $this->positiveDecimal($line['content_per_buy'] ?? 1, 1);
-        $factor = $this->positiveDecimal($line['conversion_factor_to_content'] ?? $contentPerBuy, $contentPerBuy);
+        $factor = $contentPerBuy;
+        if ($factor <= 0) {
+            $factor = $this->positiveDecimal($line['conversion_factor_to_content'] ?? $contentPerBuy, $contentPerBuy);
+        }
         $qtyContent = round($qtyBuy * $factor, 4);
 
         if ($contentUomId === null) {
@@ -8569,7 +11258,8 @@ class Purchase_model extends CI_Model
 
         $brandName = $this->nullableString($line['brand_name'] ?? null);
         $lineDescription = $this->nullableString($line['line_description'] ?? null);
-        $expiredDate = $this->normalizeDate((string)($line['expired_date'] ?? ''));
+        $expiryRequirement = $this->extractOrderLineExpiryRequirement($line, 'expired_date');
+        $expiredDate = $expiryRequirement['required_expiry_date'];
 
         // Resolve profile_key: first try catalog lookup by identity (vendor/price excluded),
         // so the same product always lands under the same inventory key regardless of price changes.
@@ -8600,7 +11290,6 @@ class Purchase_model extends CI_Model
                 number_format($contentPerBuy, 6, '.', ''),
                 strtoupper((string)($brandName ?? '')),
                 strtoupper((string)($lineDescription ?? '')),
-                (string)($expiredDate ?? ''),
             ]));
         }
 
@@ -8635,6 +11324,7 @@ class Purchase_model extends CI_Model
         if ($this->db->field_exists('snapshot_expired_date', 'pur_purchase_order_line')) {
             $data['snapshot_expired_date'] = $expiredDate;
         }
+        $this->appendOrderLineExpiryRequirementColumns('pur_purchase_order_line', $data, $line, 'expired_date');
 
         return [
             'ok' => true,
@@ -8665,14 +11355,27 @@ class Purchase_model extends CI_Model
             $catalogName = 'PURCHASE PROFILE ' . $lineId;
         }
 
-        $expiredDate = $this->normalizeDate((string)($lineData['expired_date'] ?? ($lineData['snapshot_expired_date'] ?? '')));
+        $canonicalProfileKey = $this->resolveCatalogProfileKeyByIdentity(
+            (int)($itemId ?? 0),
+            $materialId,
+            (int)($lineData['buy_uom_id'] ?? 0),
+            (int)($lineData['content_uom_id'] ?? ($lineData['buy_uom_id'] ?? 0)),
+            $catalogName,
+            $this->nullableString($lineData['brand_name'] ?? null),
+            $this->nullableString($lineData['line_description'] ?? null),
+            null,
+            (float)($lineData['content_per_buy'] ?? 0)
+        );
+        $effectiveProfileKey = trim((string)($canonicalProfileKey ?? ($lineData['profile_key'] ?? '')));
+        if ($effectiveProfileKey === '') {
+            return;
+        }
 
         $upsertData = [
-            'profile_key' => (string)($lineData['profile_key'] ?? ''),
+            'profile_key' => $effectiveProfileKey,
             'line_kind' => (string)($lineData['line_kind'] ?? 'ITEM'),
             'item_id' => $itemId,
             'material_id' => $materialId,
-            'vendor_id' => $vendorId,
             'catalog_name' => $catalogName,
             'brand_name' => $this->nullableString($lineData['brand_name'] ?? null),
             'line_description' => $this->nullableString($lineData['line_description'] ?? null),
@@ -8687,12 +11390,14 @@ class Purchase_model extends CI_Model
             'notes' => $this->nullableString($lineData['notes'] ?? null),
             'is_active' => 1,
         ];
-        if ($this->db->field_exists('expired_date', 'mst_purchase_catalog')) {
-            $upsertData['expired_date'] = $expiredDate;
+        if ($this->db->field_exists('vendor_id', 'mst_purchase_catalog')) {
+            $upsertData['vendor_id'] = $vendorId;
         }
 
         $existing = $this->db->get_where('mst_purchase_catalog', ['profile_key' => $upsertData['profile_key']])->row_array();
+        $catalogId = 0;
         if ($existing) {
+            $catalogId = (int)($existing['id'] ?? 0);
             $updateExisting = [
                 'catalog_name' => $upsertData['catalog_name'],
                 'last_unit_price' => $upsertData['last_unit_price'],
@@ -8710,16 +11415,220 @@ class Purchase_model extends CI_Model
             if (empty($existing['line_description']) && !empty($upsertData['line_description'])) {
                 $updateExisting['line_description'] = $upsertData['line_description'];
             }
-            if ($this->db->field_exists('expired_date', 'mst_purchase_catalog') && array_key_exists('expired_date', $upsertData)) {
-                $updateExisting['expired_date'] = $upsertData['expired_date'];
-            }
-
             $this->db->where('id', (int)$existing['id'])->update('mst_purchase_catalog', $updateExisting);
+            $this->upsertCatalogVendorFromLine($catalogId, $vendorId, $purchaseDate, $orderId, $lineId, $lineData);
             return;
         }
 
         $upsertData['standard_price'] = (float)$lineData['unit_price'];
         $this->db->insert('mst_purchase_catalog', $upsertData);
+        $catalogId = (int)$this->db->insert_id();
+        $this->upsertCatalogVendorFromLine($catalogId, $vendorId, $purchaseDate, $orderId, $lineId, $lineData);
+    }
+
+    private function clearPurchaseCatalogPurchaseRefs(int $purchaseOrderId, array $existingLineIds): ?string
+    {
+        $lineIds = array_values(array_unique(array_filter(array_map('intval', $existingLineIds), static function ($id) {
+            return $id > 0;
+        })));
+        if ($purchaseOrderId <= 0 && empty($lineIds)) {
+            return null;
+        }
+
+        $targets = [];
+        if ($this->purchaseCatalogVendorTableExists() && $this->db->field_exists('last_purchase_line_id', 'mst_purchase_catalog_vendor')) {
+            $targets[] = [
+                'table' => 'mst_purchase_catalog_vendor',
+                'label' => 'referensi vendor catalog',
+            ];
+        }
+        if ($this->db->table_exists('mst_purchase_catalog') && $this->db->field_exists('last_purchase_line_id', 'mst_purchase_catalog')) {
+            $targets[] = [
+                'table' => 'mst_purchase_catalog',
+                'label' => 'referensi catalog',
+            ];
+        }
+
+        foreach ($targets as $target) {
+            $table = (string)($target['table'] ?? '');
+            if ($table === '') {
+                continue;
+            }
+
+            $clearRefData = ['last_purchase_line_id' => null];
+            if ($this->db->field_exists('last_purchase_order_id', $table)) {
+                $clearRefData['last_purchase_order_id'] = null;
+            }
+
+            $this->db->group_start();
+            if (!empty($lineIds)) {
+                $this->db->where_in('last_purchase_line_id', $lineIds);
+            }
+            if ($purchaseOrderId > 0 && $this->db->field_exists('last_purchase_order_id', $table)) {
+                if (!empty($lineIds)) {
+                    $this->db->or_where('last_purchase_order_id', $purchaseOrderId);
+                } else {
+                    $this->db->where('last_purchase_order_id', $purchaseOrderId);
+                }
+            }
+            $this->db->group_end()->update($table, $clearRefData);
+
+            if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                $dbErr = $this->db->error();
+                return 'Gagal melepas ' . (string)($target['label'] ?? 'referensi katalog') . ': ' . (string)($dbErr['message'] ?? '-');
+            }
+        }
+
+        return null;
+    }
+
+    private function upsertCatalogVendorFromLine(int $catalogId, int $vendorId, string $purchaseDate, int $orderId, int $lineId, array $lineData): void
+    {
+        if ($catalogId <= 0 || $vendorId <= 0 || !$this->purchaseCatalogVendorTableExists()) {
+            return;
+        }
+
+        $vendorData = [
+            'catalog_id' => $catalogId,
+            'vendor_id' => $vendorId,
+            'standard_price' => (float)($lineData['unit_price'] ?? 0),
+            'last_unit_price' => (float)($lineData['unit_price'] ?? 0),
+            'last_purchase_date' => $purchaseDate,
+            'last_purchase_order_id' => $orderId,
+            'last_purchase_line_id' => $lineId,
+            'notes' => $this->nullableString($lineData['notes'] ?? null),
+            'is_active' => 1,
+        ];
+        $vendorData = $this->sanitizeCatalogPurchaseReferenceData($vendorData);
+
+        $existing = $this->db
+            ->get_where('mst_purchase_catalog_vendor', [
+                'catalog_id' => $catalogId,
+                'vendor_id' => $vendorId,
+            ])
+            ->row_array();
+
+        if ($existing) {
+            $updateData = [
+                'standard_price' => $vendorData['standard_price'],
+                'last_unit_price' => $vendorData['last_unit_price'],
+                'last_purchase_date' => $vendorData['last_purchase_date'],
+                'last_purchase_order_id' => $vendorData['last_purchase_order_id'],
+                'last_purchase_line_id' => $vendorData['last_purchase_line_id'],
+                'notes' => $vendorData['notes'],
+                'is_active' => 1,
+            ];
+            $this->db->where('id', (int)$existing['id'])->update('mst_purchase_catalog_vendor', $updateData);
+            return;
+        }
+
+        $this->db->insert('mst_purchase_catalog_vendor', $vendorData);
+    }
+
+    private function catalogProfileKeyUsageScores(array $profileKeys): array
+    {
+        $keys = array_values(array_unique(array_filter(array_map('trim', $profileKeys), static function ($value) {
+            return $value !== '';
+        })));
+        if (empty($keys)) {
+            return [];
+        }
+
+        $scores = [];
+        foreach ($keys as $key) {
+            $scores[$key] = 0;
+        }
+
+        $sources = [
+            ['table' => 'inv_warehouse_stock_balance', 'weight' => 1000],
+            ['table' => 'inv_division_stock_balance', 'weight' => 1000],
+            ['table' => 'inv_warehouse_daily_rollup', 'weight' => 100],
+            ['table' => 'inv_division_daily_rollup', 'weight' => 100],
+            ['table' => 'inv_stock_movement_log', 'weight' => 20],
+            ['table' => 'pur_purchase_receipt_line', 'weight' => 10],
+            ['table' => 'pur_purchase_order_line', 'weight' => 5],
+        ];
+
+        foreach ($sources as $source) {
+            $table = (string)$source['table'];
+            if (!$this->db->table_exists($table) || !$this->db->field_exists('profile_key', $table)) {
+                continue;
+            }
+
+            $rows = $this->db
+                ->select('profile_key, COUNT(*) AS row_count', false)
+                ->from($table)
+                ->where_in('profile_key', $keys)
+                ->group_by('profile_key')
+                ->get()
+                ->result_array();
+            foreach ($rows as $row) {
+                $profileKey = trim((string)($row['profile_key'] ?? ''));
+                if ($profileKey === '' || !isset($scores[$profileKey])) {
+                    continue;
+                }
+                $scores[$profileKey] += ((int)($source['weight'] ?? 0)) * (int)($row['row_count'] ?? 0);
+            }
+        }
+
+        return $scores;
+    }
+
+    private function sanitizeCatalogPurchaseReferenceData(array $data): array
+    {
+        $hasOrderRef = array_key_exists('last_purchase_order_id', $data);
+        $hasLineRef = array_key_exists('last_purchase_line_id', $data);
+        if (!$hasOrderRef && !$hasLineRef) {
+            return $data;
+        }
+
+        $orderId = $hasOrderRef ? $this->nullableInt($data['last_purchase_order_id'] ?? null) : null;
+        if ($hasOrderRef && $orderId !== null) {
+            if (!$this->db->table_exists('pur_purchase_order')) {
+                $orderId = null;
+            } else {
+                $order = $this->db
+                    ->select('id')
+                    ->from('pur_purchase_order')
+                    ->where('id', $orderId)
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                if (empty($order['id'])) {
+                    $orderId = null;
+                }
+            }
+            $data['last_purchase_order_id'] = $orderId;
+        }
+
+        $lineId = $hasLineRef ? $this->nullableInt($data['last_purchase_line_id'] ?? null) : null;
+        if ($hasLineRef && $lineId !== null) {
+            if (!$this->db->table_exists('pur_purchase_order_line')) {
+                $lineId = null;
+            } else {
+                $line = $this->db
+                    ->select('id, purchase_order_id')
+                    ->from('pur_purchase_order_line')
+                    ->where('id', $lineId)
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                if (empty($line['id'])) {
+                    $lineId = null;
+                } elseif ($orderId !== null && (int)($line['purchase_order_id'] ?? 0) !== $orderId) {
+                    $lineId = null;
+                } elseif ($orderId === null) {
+                    $lineId = null;
+                }
+            }
+            $data['last_purchase_line_id'] = $lineId;
+        }
+
+        if ($hasLineRef && $hasOrderRef && ($data['last_purchase_line_id'] ?? null) === null) {
+            $data['last_purchase_order_id'] = null;
+        }
+
+        return $data;
     }
 
     private function ensureItemFromPurchaseLine(string $itemName, int $buyUomId, ?int $contentUomId, float $contentPerBuy, float $unitPrice): ?int
@@ -8966,12 +11875,22 @@ class Purchase_model extends CI_Model
                 continue;
             }
 
+            $openingQty = round((float)($row['opening_qty_content'] ?? 0), 4);
+            $inQty = round((float)($row['in_qty_content'] ?? 0), 4);
+            $outQty = round((float)($row['out_qty_content'] ?? 0), 4);
+            $adjustmentQty = round($this->resolveDailyMatrixAdjustmentQtyContent($row), 4);
+            $rollupClosingQty = round((float)($row['closing_qty_content'] ?? 0), 4);
+            $computedClosingQty = round($openingQty + $inQty - $outQty + $adjustmentQty, 4);
+            $closingQty = abs($rollupClosingQty - $computedClosingQty) > 0.0001
+                ? $computedClosingQty
+                : $rollupClosingQty;
+
             $entry = [
-                'opening' => round((float)($row['opening_qty_content'] ?? 0), 2),
-                'in' => round((float)($row['in_qty_content'] ?? 0), 2),
-                'out' => round((float)($row['out_qty_content'] ?? 0), 2),
-                'adjustment' => round((float)($row['adjustment_qty_content'] ?? 0), 2),
-                'closing' => round((float)($row['closing_qty_content'] ?? 0), 2),
+                'opening' => round($openingQty, 2),
+                'in' => round($inQty, 2),
+                'out' => round($outQty, 2),
+                'adjustment' => round($adjustmentQty, 2),
+                'closing' => round($closingQty, 2),
                 'mutations' => (int)($row['mutation_count'] ?? 0),
                 'total_value' => round((float)($row['total_value'] ?? 0), 2),
             ];
@@ -8987,13 +11906,50 @@ class Purchase_model extends CI_Model
         return array_values($pivot);
     }
 
+    private function resolveDailyMatrixAdjustmentQtyContent(array $row): float
+    {
+        $adjustmentQty = round((float)($row['adjustment_qty_content'] ?? 0), 4);
+        if (abs($adjustmentQty) > 0.0001) {
+            return $adjustmentQty;
+        }
+
+        $discardQty = round((float)($row['discarded_qty_content'] ?? 0), 4);
+        $wasteQty = round((float)($row['waste_qty_content'] ?? 0), 4);
+        $spoilQty = round((float)($row['spoil_qty_content'] ?? 0), 4);
+        $processLossQty = round((float)($row['process_loss_qty_content'] ?? 0), 4);
+        $varianceQty = round((float)($row['variance_qty_content'] ?? 0), 4);
+        $adjustmentPlusQty = round((float)($row['adjustment_plus_qty_content'] ?? 0), 4);
+
+        $negativeWasteQty = $discardQty > 0 ? $discardQty : $wasteQty;
+        return $adjustmentPlusQty - $negativeWasteQty - $spoilQty - $processLossQty - $varianceQty;
+    }
+
     private function filterZeroOpeningClosingDailyRows(array $rows): array
     {
         return array_values(array_filter($rows, static function (array $row): bool {
             $opening = round((float)($row['opening_qty_content'] ?? 0), 4);
             $closing = round((float)($row['closing_qty_content'] ?? 0), 4);
+            $inQty = round((float)($row['in_qty_content'] ?? 0), 4);
+            $outQty = round((float)($row['out_qty_content'] ?? 0), 4);
+            $adjustment = round((float)($row['adjustment_qty_content'] ?? 0), 4);
+            $discard = round((float)($row['discarded_qty_content'] ?? 0), 4);
+            $waste = round((float)($row['waste_qty_content'] ?? 0), 4);
+            $spoil = round((float)($row['spoil_qty_content'] ?? 0), 4);
+            $processLoss = round((float)($row['process_loss_qty_content'] ?? 0), 4);
+            $variance = round((float)($row['variance_qty_content'] ?? 0), 4);
+            $adjustmentPlus = round((float)($row['adjustment_plus_qty_content'] ?? 0), 4);
 
-            return abs($opening) > 0.0001 || abs($closing) > 0.0001;
+            $hasMovement = abs($inQty) > 0.0001
+                || abs($outQty) > 0.0001
+                || abs($adjustment) > 0.0001
+                || abs($discard) > 0.0001
+                || abs($waste) > 0.0001
+                || abs($spoil) > 0.0001
+                || abs($processLoss) > 0.0001
+                || abs($variance) > 0.0001
+                || abs($adjustmentPlus) > 0.0001;
+
+            return abs($opening) > 0.0001 || abs($closing) > 0.0001 || $hasMovement;
         }));
     }
 
@@ -9016,7 +11972,6 @@ class Purchase_model extends CI_Model
                 strtoupper(trim((string)($row['profile_name'] ?? ''))),
                 strtoupper(trim((string)($row['profile_brand'] ?? ''))),
                 strtoupper(trim((string)($row['profile_description'] ?? ''))),
-                (string)($row['profile_expired_date'] ?? ''),
             ]);
 
             if (!isset($accepted[$profileKey]) && count($accepted) >= $limitProfiles) {
@@ -9055,12 +12010,11 @@ class Purchase_model extends CI_Model
         $hasCatalogBuyUom = $this->db->field_exists('buy_uom_id', 'mst_purchase_catalog');
         $hasCatalogContentUom = $this->db->field_exists('content_uom_id', 'mst_purchase_catalog');
         $hasCatalogContentPerBuy = $this->db->field_exists('content_per_buy', 'mst_purchase_catalog');
-        $hasCatalogExpiredDate = $this->db->field_exists('expired_date', 'mst_purchase_catalog');
         $hasCatalogIsActive = $this->db->field_exists('is_active', 'mst_purchase_catalog');
         $hasCatalogLastPurchaseDate = $this->db->field_exists('last_purchase_date', 'mst_purchase_catalog');
 
-        $this->db
-            ->select('c.profile_key')
+        $candidateRows = $this->db
+            ->select('c.id, c.profile_key' . ($hasCatalogIsActive ? ', c.is_active' : ''), false)
             ->from('mst_purchase_catalog c')
             ->where('c.profile_key IS NOT NULL', null, false)
             ->where("TRIM(c.profile_key) <> ''", null, false)
@@ -9086,27 +12040,39 @@ class Purchase_model extends CI_Model
         if ($hasCatalogContentPerBuy) {
             $this->db->where('ROUND(COALESCE(c.content_per_buy, 0), 6) = ' . $this->db->escape($cpbNorm), null, false);
         }
-        if ($hasCatalogExpiredDate) {
-            if ($profileExpiredDate !== null) {
-                $this->db->where('c.expired_date', $profileExpiredDate);
-            } else {
-                $this->db->group_start()
-                    ->where('c.expired_date IS NULL', null, false)
-                    ->or_where("c.expired_date = ''", null, false)
-                    ->group_end();
-            }
-        }
 
-        if ($hasCatalogLastPurchaseDate) {
-            $this->db->order_by('c.last_purchase_date', 'DESC');
-        }
-        $row = $this->db
-            ->order_by('c.id', 'DESC')
-            ->limit(1)
+        $candidateRows = $candidateRows
+            ->order_by('c.id', 'ASC')
             ->get()
-            ->row_array();
+            ->result_array();
+        if (empty($candidateRows)) {
+            return null;
+        }
 
-        $profileKey = trim((string)($row['profile_key'] ?? ''));
+        $usageScores = $this->catalogProfileKeyUsageScores(array_values(array_map(static function (array $row): string {
+            return trim((string)($row['profile_key'] ?? ''));
+        }, $candidateRows)));
+        usort($candidateRows, static function (array $a, array $b) use ($usageScores, $hasCatalogIsActive): int {
+            $aKey = trim((string)($a['profile_key'] ?? ''));
+            $bKey = trim((string)($b['profile_key'] ?? ''));
+            $aScore = (int)($usageScores[$aKey] ?? 0);
+            $bScore = (int)($usageScores[$bKey] ?? 0);
+            if ($aScore !== $bScore) {
+                return $bScore <=> $aScore;
+            }
+
+            if ($hasCatalogIsActive) {
+                $aActive = (int)($a['is_active'] ?? 1);
+                $bActive = (int)($b['is_active'] ?? 1);
+                if ($aActive !== $bActive) {
+                    return $bActive <=> $aActive;
+                }
+            }
+
+            return (int)($a['id'] ?? 0) <=> (int)($b['id'] ?? 0);
+        });
+
+        $profileKey = trim((string)($candidateRows[0]['profile_key'] ?? ''));
         return $profileKey !== '' ? $profileKey : null;
     }
 
@@ -9146,8 +12112,9 @@ class Purchase_model extends CI_Model
             return null;
         }
 
-        $vendorId = $this->resolveCatalogFallbackVendorId();
-        if (isset($catalogColumns['vendor_id']) && ($vendorId === null || $vendorId <= 0)) {
+        $catalogHasVendorId = isset($catalogColumns['vendor_id']);
+        $vendorId = $catalogHasVendorId ? $this->resolveCatalogFallbackVendorId() : null;
+        if ($catalogHasVendorId && ($vendorId === null || $vendorId <= 0)) {
             return null;
         }
 
@@ -9182,7 +12149,6 @@ class Purchase_model extends CI_Model
             strtoupper(trim((string)$profileBrand)),
             strtoupper(trim((string)$profileDescription)),
             number_format($contentPerBuy, 6, '.', ''),
-            (string)($profileExpiredDate ?? ''),
         ]));
 
         $upsertData = [
@@ -9190,7 +12156,6 @@ class Purchase_model extends CI_Model
             'line_kind' => $lineKind,
             'item_id' => $itemId,
             'material_id' => $materialId,
-            'vendor_id' => $vendorId,
             'catalog_name' => $catalogName,
             'brand_name' => $this->nullableString($profileBrand),
             'line_description' => $this->nullableString($profileDescription),
@@ -9201,10 +12166,9 @@ class Purchase_model extends CI_Model
             'is_active' => 1,
             'notes' => 'Auto-created from opening identity',
         ];
-        if (isset($catalogColumns['expired_date'])) {
-            $upsertData['expired_date'] = $profileExpiredDate;
+        if ($catalogHasVendorId) {
+            $upsertData['vendor_id'] = $vendorId;
         }
-
         $filteredData = [];
         foreach ($upsertData as $column => $value) {
             if (isset($catalogColumns[$column])) {
@@ -9219,12 +12183,12 @@ class Purchase_model extends CI_Model
         $existing = $this->db->get_where('mst_purchase_catalog', ['profile_key' => $profileKey])->row_array();
         if ($existing) {
             $updateData = [];
-            foreach (['catalog_name', 'brand_name', 'line_description', 'buy_uom_id', 'content_uom_id', 'content_per_buy', 'conversion_factor_to_content', 'is_active', 'notes', 'expired_date'] as $col) {
+            foreach (['catalog_name', 'brand_name', 'line_description', 'buy_uom_id', 'content_uom_id', 'content_per_buy', 'conversion_factor_to_content', 'is_active', 'notes'] as $col) {
                 if (array_key_exists($col, $filteredData)) {
                     $updateData[$col] = $filteredData[$col];
                 }
             }
-            if (isset($catalogColumns['vendor_id']) && $vendorId !== null && $vendorId > 0) {
+            if ($catalogHasVendorId && $vendorId !== null && $vendorId > 0) {
                 $updateData['vendor_id'] = $vendorId;
             }
             if (!empty($updateData)) {
@@ -9300,7 +12264,6 @@ class Purchase_model extends CI_Model
         }
 
         $hasDestinationType = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
-        $hasProfileExpiredDate = $this->db->field_exists('profile_expired_date', 'inv_stock_movement_log');
 
         $nameNorm = strtoupper(trim((string)$profileName));
         $brandNorm = strtoupper(trim((string)$profileBrand));
@@ -9335,17 +12298,6 @@ class Purchase_model extends CI_Model
             $this->db->where('l.destination_type', strtoupper(trim((string)$destinationType)));
         }
 
-        if ($hasProfileExpiredDate) {
-            if ($profileExpiredDate !== null) {
-                $this->db->where('l.profile_expired_date', $profileExpiredDate);
-            } else {
-                $this->db->group_start()
-                    ->where('l.profile_expired_date IS NULL', null, false)
-                    ->or_where("l.profile_expired_date = ''", null, false)
-                    ->group_end();
-            }
-        }
-
         $row = $this->db
             ->order_by('l.movement_date', 'DESC')
             ->order_by('l.id', 'DESC')
@@ -9359,7 +12311,7 @@ class Purchase_model extends CI_Model
         }
 
         // Fallback guard: when text/UOM identity is same, reuse latest profile key
-        // even if historical content-per-buy or expired-date differ.
+        // even if historical content-per-buy differs.
         $this->db
             ->select('l.profile_key')
             ->from('inv_stock_movement_log l')
@@ -9405,7 +12357,6 @@ class Purchase_model extends CI_Model
             $hasCatalogBuyUom = $this->db->field_exists('buy_uom_id', 'mst_purchase_catalog');
             $hasCatalogContentUom = $this->db->field_exists('content_uom_id', 'mst_purchase_catalog');
             $hasCatalogContentPerBuy = $this->db->field_exists('content_per_buy', 'mst_purchase_catalog');
-            $hasCatalogExpiredDate = $this->db->field_exists('expired_date', 'mst_purchase_catalog');
             $hasCatalogIsActive = $this->db->field_exists('is_active', 'mst_purchase_catalog');
 
             $this->db
@@ -9434,16 +12385,6 @@ class Purchase_model extends CI_Model
             }
             if ($hasCatalogContentPerBuy) {
                 $this->db->where('ROUND(COALESCE(c.content_per_buy, 0), 6) = ' . $this->db->escape($cpbNorm), null, false);
-            }
-            if ($hasCatalogExpiredDate) {
-                if ($profileExpiredDate !== null) {
-                    $this->db->where('c.expired_date', $profileExpiredDate);
-                } else {
-                    $this->db->group_start()
-                        ->where('c.expired_date IS NULL', null, false)
-                        ->or_where("c.expired_date = ''", null, false)
-                        ->group_end();
-                }
             }
 
             $catalogRow = $this->db
@@ -9484,6 +12425,67 @@ class Purchase_model extends CI_Model
         }
 
         return date('Y-m-d', $ts);
+    }
+
+    private function normalizeExpiryPolicy($value): string
+    {
+        $policy = strtoupper(trim((string)$value));
+        if (in_array($policy, ['NONE', 'EXACT_DATE', 'MIN_REMAINING_DAYS'], true)) {
+            return $policy;
+        }
+        return 'NONE';
+    }
+
+    private function normalizeMinRemainingDays($value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        $days = (int)$value;
+        return $days > 0 ? $days : null;
+    }
+
+    private function extractOrderLineExpiryRequirement(array $source, string $legacyDateKey = 'expired_date'): array
+    {
+        $requiredDate = $this->normalizeDate((string)($source['required_expiry_date'] ?? ($source[$legacyDateKey] ?? '')));
+        $minRemainingDays = $this->normalizeMinRemainingDays($source['min_remaining_days'] ?? null);
+        $policy = $this->normalizeExpiryPolicy($source['expiry_policy'] ?? '');
+
+        if ($policy === 'NONE') {
+            if ($requiredDate !== null) {
+                $policy = 'EXACT_DATE';
+            } elseif ($minRemainingDays !== null) {
+                $policy = 'MIN_REMAINING_DAYS';
+            }
+        }
+
+        if ($policy !== 'MIN_REMAINING_DAYS') {
+            $minRemainingDays = null;
+        }
+
+        return [
+            'expiry_policy' => $policy,
+            'required_expiry_date' => $requiredDate,
+            'min_remaining_days' => $minRemainingDays,
+        ];
+    }
+
+    private function appendOrderLineExpiryRequirementColumns(string $table, array &$target, array $source, string $legacyDateKey = 'expired_date'): void
+    {
+        if (!$this->db->table_exists($table)) {
+            return;
+        }
+
+        $expiry = $this->extractOrderLineExpiryRequirement($source, $legacyDateKey);
+        if ($this->db->field_exists('expiry_policy', $table)) {
+            $target['expiry_policy'] = $expiry['expiry_policy'];
+        }
+        if ($this->db->field_exists('required_expiry_date', $table)) {
+            $target['required_expiry_date'] = $expiry['required_expiry_date'];
+        }
+        if ($this->db->field_exists('min_remaining_days', $table)) {
+            $target['min_remaining_days'] = $expiry['min_remaining_days'];
+        }
     }
 
     private function normalizeMonth(string $raw): ?string

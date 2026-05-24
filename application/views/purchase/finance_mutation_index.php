@@ -186,7 +186,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
       </div>
 
       <div class="table-responsive">
-        <table class="table table-striped table-hover mb-0 mutation-log-table">
+        <table class="table table-striped table-hover mb-0 mutation-log-table fin-audit-table">
           <thead>
             <tr>
               <th class="col-date">Tanggal</th>

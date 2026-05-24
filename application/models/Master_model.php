@@ -3,6 +3,58 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Master_model extends CI_Model
 {
+    public function count_purchase_catalog_vendor_filtered(string $q = '', ?int $isActive = null): int
+    {
+        $this->db->from('mst_purchase_catalog_vendor cv');
+        $this->db->join('mst_purchase_catalog c', 'c.id = cv.catalog_id', 'left');
+        $this->db->join('mst_vendor v', 'v.id = cv.vendor_id', 'left');
+        if ($isActive !== null) {
+            $this->db->where('cv.is_active', $isActive);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('c.catalog_name', $q)
+                ->or_like('c.brand_name', $q)
+                ->or_like('c.line_description', $q)
+                ->or_like('c.profile_key', $q)
+                ->or_like('v.vendor_code', $q)
+                ->or_like('v.vendor_name', $q)
+                ->or_like('cv.notes', $q)
+                ->group_end();
+        }
+        return (int)$this->db->count_all_results();
+    }
+
+    public function get_purchase_catalog_vendor_filtered(string $q, int $limit, int $offset, string $orderBy = 'catalog_id', string $orderDir = 'ASC', ?int $isActive = null): array
+    {
+        $orderCol = trim($orderBy) !== '' ? $orderBy : 'catalog_id';
+        if (strpos($orderCol, '.') === false) {
+            $orderCol = 'cv.' . $orderCol;
+        }
+
+        $this->db->select('cv.*');
+        $this->db->from('mst_purchase_catalog_vendor cv');
+        $this->db->join('mst_purchase_catalog c', 'c.id = cv.catalog_id', 'left');
+        $this->db->join('mst_vendor v', 'v.id = cv.vendor_id', 'left');
+        if ($isActive !== null) {
+            $this->db->where('cv.is_active', $isActive);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('c.catalog_name', $q)
+                ->or_like('c.brand_name', $q)
+                ->or_like('c.line_description', $q)
+                ->or_like('c.profile_key', $q)
+                ->or_like('v.vendor_code', $q)
+                ->or_like('v.vendor_name', $q)
+                ->or_like('cv.notes', $q)
+                ->group_end();
+        }
+        $this->db->order_by($orderCol, $orderDir);
+        $this->db->limit($limit, $offset);
+        return $this->db->get()->result_array();
+    }
+
     public function count_filtered(string $table, array $searchable, string $q = '', ?int $isActive = null): int
     {
         $this->db->from($table);

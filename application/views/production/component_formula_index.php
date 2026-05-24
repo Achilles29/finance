@@ -12,6 +12,8 @@ $divisions = is_array($divisions ?? null) ? $divisions : [];
     <a class="btn btn-outline-primary btn-sm" href="<?php echo site_url('production/component-cost-variables'); ?>">Pengaturan Variable Cost</a>
   </div>
 
+  <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'formula']); ?>
+
   <div class="card border-0 shadow-sm">
     <div class="card-body">
       <div class="d-flex gap-2 flex-wrap mb-2" id="status-tabs">

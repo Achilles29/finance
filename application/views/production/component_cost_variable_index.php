@@ -16,6 +16,8 @@ $product = $byScope['PRODUCT'] ?? ['scope_code' => 'PRODUCT', 'default_percent' 
     <a class="btn btn-outline-secondary btn-sm" href="<?php echo site_url('production/component-formulas'); ?>">Kembali ke Formula</a>
   </div>
 
+  <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'variable-cost']); ?>
+
   <div class="card border-0 shadow-sm">
     <div class="card-body">
       <div class="table-responsive">

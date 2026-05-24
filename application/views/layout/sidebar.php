@@ -289,8 +289,54 @@ if (!function_exists('_regroup_master_sidebar_tree')) {
 }
 
 if (!function_exists('_regroup_inventory_children')) {
+  function _append_inventory_lot_sidebar_child(array $children, string $scope): array
+  {
+    $scope = strtoupper(trim($scope));
+    if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
+      return $children;
+    }
+
+    $targetCode = $scope === 'WAREHOUSE' ? 'purchase.stock.warehouse.lot' : 'purchase.stock.division.lot';
+    foreach ($children as $child) {
+      if ((string)($child['menu_code'] ?? '') === $targetCode) {
+        return $children;
+      }
+    }
+
+    $children[] = [
+      'id' => $scope === 'WAREHOUSE' ? -2201 : -2202,
+      'parent_id' => null,
+      'menu_code' => $targetCode,
+      'menu_label' => $scope === 'WAREHOUSE' ? 'Lot Gudang' : 'Lot Divisi',
+      'icon' => 'ri-stack-line',
+      'url' => $scope === 'WAREHOUSE' ? 'inventory/stock/warehouse/lot' : 'inventory/stock/division/lot',
+      'page_id' => null,
+      'sort_order' => $scope === 'WAREHOUSE' ? 991 : 992,
+      'children' => [],
+    ];
+
+    return $children;
+  }
+
   function _regroup_inventory_children(array $children): array
   {
+    $hasStructuredGroups = false;
+    foreach ($children as &$child) {
+      $code = (string)($child['menu_code'] ?? '');
+      if ($code === 'purchase.stock.warehouse' || $code === 'inventory.group.warehouse' || $code === 'inventory.stock.group.warehouse') {
+        $child['children'] = _append_inventory_lot_sidebar_child((array)($child['children'] ?? []), 'WAREHOUSE');
+        $hasStructuredGroups = true;
+      } elseif ($code === 'purchase.stock.division' || $code === 'inventory.group.division' || $code === 'inventory.stock.group.division') {
+        $child['children'] = _append_inventory_lot_sidebar_child((array)($child['children'] ?? []), 'DIVISION');
+        $hasStructuredGroups = true;
+      }
+    }
+    unset($child);
+
+    if ($hasStructuredGroups) {
+      return $children;
+    }
+
     $buckets = [
       'warehouse' => [
         'label' => 'Stok Gudang',
@@ -333,6 +379,9 @@ if (!function_exists('_regroup_inventory_children')) {
         $grouped['other'][] = $child;
       }
     }
+
+    $grouped['warehouse'] = _append_inventory_lot_sidebar_child($grouped['warehouse'], 'WAREHOUSE');
+    $grouped['division'] = _append_inventory_lot_sidebar_child($grouped['division'], 'DIVISION');
 
     $result = [];
     $order = 1;

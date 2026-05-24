@@ -42,6 +42,29 @@ if (!function_exists('finance_dreq_detail_badge')) {
   }
 ?>
 
+<style>
+  .dreq-action-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .dreq-action-btn {
+    min-height: 34px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 12px !important;
+    font-weight: 600;
+  }
+  .dreq-action-btn.btn-outline-secondary { color: #6c757d; border-color: rgba(108,117,125,.55); }
+  .dreq-action-btn.btn-outline-success { color: #198754; border-color: rgba(25,135,84,.55); }
+  .dreq-action-btn.btn-outline-warning { color: #d39e00; border-color: rgba(211,158,0,.55); }
+  .dreq-action-btn.btn-outline-danger { color: #dc3545; border-color: rgba(220,53,69,.55); }
+</style>
+
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
   <div>
     <h4 class="mb-0"><i class="ri-file-search-line page-title-icon me-1"></i><?php echo html_escape($title ?? 'Detail Pengajuan Divisi'); ?></h4>
@@ -51,11 +74,12 @@ if (!function_exists('finance_dreq_detail_badge')) {
         : 'Detail pengajuan untuk divisi Anda. Edit atau void masih bisa dilakukan sebelum diverifikasi purchase.'; ?>
     </small>
   </div>
-  <div class="d-flex gap-2">
-    <a href="<?php echo site_url('procurement/division-po-sr'); ?>" class="btn btn-outline-secondary">Kembali</a>
+  <div class="dreq-action-wrap">
+    <a href="<?php echo site_url('procurement/division-po-sr'); ?>" class="btn btn-outline-secondary dreq-action-btn"><i class="ri ri-arrow-left-line"></i><span>Kembali</span></a>
     <?php if ($canEdit || $canVerify): ?>
-      <a href="<?php echo site_url('procurement/division-po-sr/edit/' . (int)($header['id'] ?? 0)); ?>" class="btn <?php echo $canVerify ? 'btn-primary' : 'btn-outline-warning'; ?>">
-        <?php echo $canVerify ? 'Verifikasi' : 'Edit'; ?>
+      <a href="<?php echo site_url('procurement/division-po-sr/edit/' . (int)($header['id'] ?? 0)); ?>" class="btn <?php echo $canVerify ? 'btn-outline-success' : 'btn-outline-warning'; ?> dreq-action-btn">
+        <i class="ri <?php echo $canVerify ? 'ri-check-line' : 'ri-pencil-line'; ?>"></i>
+        <span><?php echo $canVerify ? 'Verifikasi' : 'Edit'; ?></span>
       </a>
     <?php endif; ?>
   </div>
@@ -136,13 +160,13 @@ if (!function_exists('finance_dreq_detail_badge')) {
             <?php if ($canReject): ?>
               <form method="post" action="<?php echo site_url('procurement/division-po-sr/action/' . (int)($header['id'] ?? 0)); ?>" class="mb-2 dreq-confirm-form" data-confirm-message="Reject pengajuan ini?">
                 <input type="hidden" name="action" value="REJECT">
-                <button type="submit" class="btn btn-outline-danger w-100">Reject</button>
+                <button type="submit" class="btn btn-outline-danger w-100 dreq-action-btn"><i class="ri ri-close-line"></i><span>Reject</span></button>
               </form>
             <?php endif; ?>
             <?php if ($canVoid): ?>
               <form method="post" action="<?php echo site_url('procurement/division-po-sr/action/' . (int)($header['id'] ?? 0)); ?>" class="dreq-confirm-form" data-confirm-message="Void pengajuan ini?">
                 <input type="hidden" name="action" value="VOID">
-                <button type="submit" class="btn btn-outline-secondary w-100">Void</button>
+                <button type="submit" class="btn btn-outline-danger w-100 dreq-action-btn"><i class="ri ri-close-circle-line"></i><span>Void</span></button>
               </form>
             <?php endif; ?>
           </div>

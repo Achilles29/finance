@@ -23,6 +23,8 @@ $movementOptions = [
   <small class="text-muted">Read-only ledger keluar masuk base/prepare.</small>
 </div>
 
+<?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'movement']); ?>
+
 <div class="card mb-3">
   <div class="card-body">
     <form method="get" action="<?php echo site_url('production/component-movements'); ?>" class="row g-2 align-items-end">

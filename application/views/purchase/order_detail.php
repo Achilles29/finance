@@ -366,7 +366,8 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
                                                                             <div class="border rounded p-2 mb-2">
                                                                                 <div><strong><?php echo html_escape((string)($lotRow['lot_no'] ?? '-')); ?></strong></div>
                                                                                 <div class="small text-muted">Receipt date: <?php echo html_escape((string)($lotRow['receipt_date'] ?? '-')); ?></div>
-                                                                                <div class="small text-muted">Qty masuk <?php echo number_format((float)($lotRow['qty_in'] ?? 0), 2, ',', '.'); ?> | saldo <?php echo number_format((float)($lotRow['qty_balance'] ?? 0), 2, ',', '.'); ?></div>
+                                                                                <div class="small text-muted">Inbound audit | Before 0,00 | Delta +<?php echo number_format((float)($lotRow['qty_in'] ?? 0), 2, ',', '.'); ?> | After <?php echo number_format((float)($lotRow['qty_in'] ?? 0), 2, ',', '.'); ?></div>
+                                                                                <div class="small text-muted">Saldo live <?php echo number_format((float)($lotRow['qty_balance'] ?? 0), 2, ',', '.'); ?></div>
                                                                                 <div class="small text-muted">Unit cost Rp <?php echo number_format((float)($lotRow['unit_cost'] ?? 0), 2, ',', '.'); ?><?php echo !empty($lotRow['expiry_date']) ? ' | Exp ' . html_escape((string)$lotRow['expiry_date']) : ''; ?></div>
                                                                             </div>
                                                                         <?php endforeach; ?>
@@ -395,14 +396,15 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
         <h6 class="mb-2">Audit Ringkas</h6>
         <small class="text-muted d-block mb-2">Sumber utama: pur_purchase_txn_log. Jika data lama belum termigrasi, fallback dari aud_transaction_log.</small>
         <div class="table-responsive">
-            <table class="table table-sm align-middle">
+            <table class="table table-sm align-middle fin-audit-table">
                 <thead>
                     <tr>
-                        <th>Waktu</th>
-                        <th>Aksi</th>
-                        <th>Status</th>
-                        <th>Ref</th>
-                        <th class="text-end">Amount</th>
+                        <th class="col-date">Waktu</th>
+                        <th class="col-type">Aksi</th>
+                        <th class="col-balance">Status Before</th>
+                        <th class="col-balance">Status After</th>
+                        <th class="col-ref">Ref</th>
+                        <th class="text-end col-amount">Amount</th>
                         <th>Catatan</th>
                     </tr>
                 </thead>
@@ -412,28 +414,26 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
                             <?php
                                 $statusBefore = strtoupper(trim((string)($tx['status_before'] ?? '')));
                                 $statusAfter = strtoupper(trim((string)($tx['status_after'] ?? '')));
-                                $statusText = '-';
-                                if ($statusBefore !== '' || $statusAfter !== '') {
-                                    $statusText = ($statusBefore !== '' ? $statusBefore : '-') . ' -> ' . ($statusAfter !== '' ? $statusAfter : '-');
-                                }
                             ?>
                             <tr>
-                                <td><?php echo html_escape((string)($tx['created_at'] ?? '-')); ?></td>
-                                <td><?php echo html_escape((string)($tx['action_code'] ?? '-')); ?></td>
-                                <td><?php echo html_escape($statusText); ?></td>
-                                <td><?php echo html_escape((string)($tx['transaction_no'] ?? '-')); ?></td>
-                                <td class="text-end"><?php echo $tx['amount'] !== null ? number_format((float)$tx['amount'], 2, ',', '.') : '-'; ?></td>
+                                <td class="col-date"><?php echo html_escape((string)($tx['created_at'] ?? '-')); ?></td>
+                                <td class="col-type"><?php echo html_escape((string)($tx['action_code'] ?? '-')); ?></td>
+                                <td class="col-balance"><?php echo html_escape($statusBefore !== '' ? $statusBefore : '-'); ?></td>
+                                <td class="col-balance"><?php echo html_escape($statusAfter !== '' ? $statusAfter : '-'); ?></td>
+                                <td class="col-ref"><?php echo html_escape((string)($tx['transaction_no'] ?? '-')); ?></td>
+                                <td class="text-end col-amount"><?php echo $tx['amount'] !== null ? number_format((float)$tx['amount'], 2, ',', '.') : '-'; ?></td>
                                 <td><?php echo html_escape((string)($tx['notes'] ?? '-')); ?></td>
                             </tr>
                         <?php endforeach; ?>
                     <?php else: ?>
                         <?php foreach ($auditRows as $ar): ?>
                             <tr>
-                                <td><?php echo html_escape((string)($ar['created_at'] ?? '-')); ?></td>
-                                <td><?php echo html_escape((string)($ar['action_code'] ?? '-')); ?></td>
-                                <td>-</td>
-                                <td><?php echo html_escape((string)($ar['transaction_no'] ?? '-')); ?></td>
-                                <td class="text-end">-</td>
+                                <td class="col-date"><?php echo html_escape((string)($ar['created_at'] ?? '-')); ?></td>
+                                <td class="col-type"><?php echo html_escape((string)($ar['action_code'] ?? '-')); ?></td>
+                                <td class="col-balance">-</td>
+                                <td class="col-balance">-</td>
+                                <td class="col-ref"><?php echo html_escape((string)($ar['transaction_no'] ?? '-')); ?></td>
+                                <td class="text-end col-amount">-</td>
                                 <td><?php echo html_escape((string)($ar['notes'] ?? '-')); ?></td>
                             </tr>
                         <?php endforeach; ?>
@@ -447,6 +447,29 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
 
 <script>
 (function () {
+    function openReceiptHashTarget() {
+        var hash = String(window.location.hash || '').trim();
+        if (!hash || hash.indexOf('#po-receipt-') !== 0) {
+            return;
+        }
+
+        var target = document.querySelector(hash);
+        if (!target) {
+            return;
+        }
+
+        var toggleBtn = document.querySelector('[data-bs-target="' + hash + '"]');
+        if (toggleBtn && window.bootstrap && window.bootstrap.Collapse) {
+            window.bootstrap.Collapse.getOrCreateInstance(target, { toggle: false }).show();
+        } else {
+            target.classList.add('show');
+        }
+
+        window.setTimeout(function () {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 120);
+    }
+
     function parseJsonResponse(response) {
         return response.text().then(function (txt) {
             var parsed = null;
@@ -459,6 +482,8 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
             return { status: response.status, json: parsed };
         });
     }
+
+    openReceiptHashTarget();
 
     var updateBtn = document.getElementById('btn-po-detail-status-update');
     var statusEl = document.getElementById('po-detail-status-next');

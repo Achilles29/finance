@@ -1,6 +1,7 @@
 <?php
 $baseUrl = site_url('inventory/stock/warehouse');
 $generateUrl = site_url('inventory/stock/opname/generate');
+$lotAuditBaseUrl = site_url('inventory/stock/warehouse/lot');
 $genMonth = date('Y-m');
 if (!empty($date_from ?? '')) {
   $genMonth = date('Y-m', strtotime((string)$date_from));
@@ -30,14 +31,12 @@ foreach ($rowsData as $row) {
   $profileNameKey = strtoupper(trim((string)($row['profile_name'] ?? '')));
   $profileBrandKey = strtoupper(trim((string)($row['profile_brand'] ?? '')));
   $profileDescKey = strtoupper(trim((string)($row['profile_description'] ?? '')));
-  $profileExpiredKey = trim((string)($row['profile_expired_date'] ?? ''));
   $contentPerBuyKey = number_format((float)($row['profile_content_per_buy'] ?? 0), 6, '.', '');
   $childKey = implode('|', [
     (string)($row['profile_key'] ?? ''),
     $profileNameKey,
     $profileBrandKey,
     $profileDescKey,
-    $profileExpiredKey,
     $contentPerBuyKey,
     strtoupper(trim((string)($row['profile_buy_uom_code'] ?? ''))),
     strtoupper(trim((string)($row['profile_content_uom_code'] ?? ''))),
@@ -186,11 +185,7 @@ $summaryItemCount = count($parentRows);
     <input type="hidden" name="back_url" value="inventory/stock/warehouse?month=<?php echo rawurlencode($genMonth); ?>">
     <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal</button>
   </form>
-  <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-sm btn-outline-secondary">Daily Gudang Matrix</a>
-  <a href="<?php echo site_url('inventory/stock/warehouse'); ?>" class="btn btn-sm btn-dark">Stok Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/opening/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Opening Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/warehouse/movement'); ?>" class="btn btn-sm btn-outline-secondary">Keluar Masuk Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/warehouse/daily'); ?>" class="btn btn-sm btn-outline-secondary">Stok Bulanan/Daily</a>
+  <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'stock']); ?>
 </div>
 
 <div class="card mb-3">
@@ -265,11 +260,10 @@ $summaryItemCount = count($parentRows);
               $sizeCol = '-';
               if (is_array($singleChild)) {
                 $profileText = trim((string)($singleChild['profile_name'] ?? '-'));
-                $expiredText = trim((string)($singleChild['profile_expired_date'] ?? ''));
-                if ($expiredText !== '') {
-                  $profileText .= ' (Exp: ' . $expiredText . ')';
-                }
+                $lotUrl = $lotAuditBaseUrl
+                  . '?scope=WAREHOUSE&status=ALL&profile_key=' . rawurlencode((string)($singleChild['profile_key'] ?? ''));
                 $profileCol = html_escape($profileText);
+                $profileCol .= '<div class="small mt-1"><a href="' . html_escape($lotUrl) . '">Lihat Lot</a></div>';
                 $brandCol = html_escape((string)($singleChild['profile_brand'] ?? '-'));
                 $descCol = html_escape((string)($singleChild['profile_description'] ?? '-'));
                 $sizeCol = number_format((float)($singleChild['profile_content_per_buy'] ?? 0), 2, ',', '.')
@@ -302,10 +296,8 @@ $summaryItemCount = count($parentRows);
             <?php foreach (($parent['children'] ?? []) as $child): ?>
               <?php
                 $profileText = trim((string)($child['profile_name'] ?? '-'));
-                $expiredText = trim((string)($child['profile_expired_date'] ?? ''));
-                if ($expiredText !== '') {
-                  $profileText .= ' (Exp: ' . $expiredText . ')';
-                }
+                $lotUrl = $lotAuditBaseUrl
+                  . '?scope=WAREHOUSE&status=ALL&profile_key=' . rawurlencode((string)($child['profile_key'] ?? ''));
                 $childAvgCost = ((float)($child['qty_content_balance'] ?? 0) !== 0.0)
                   ? ((float)($child['total_value'] ?? 0) / (float)($child['qty_content_balance'] ?? 0))
                   : 0.0;
@@ -315,7 +307,10 @@ $summaryItemCount = count($parentRows);
               ?>
               <tr class="wh-child-row <?php echo html_escape($childClass); ?>">
                 <td class="ps-4 text-muted">Profil Item</td>
-                <td><?php echo html_escape($profileText); ?></td>
+                <td>
+                  <?php echo html_escape($profileText); ?>
+                  <div class="small mt-1"><a href="<?php echo html_escape($lotUrl); ?>">Lihat Lot</a></div>
+                </td>
                 <td><?php echo html_escape((string)($child['profile_brand'] ?? '-')); ?></td>
                 <td><?php echo html_escape((string)($child['profile_description'] ?? '-')); ?></td>
                 <td><?php echo number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($child['profile_content_uom_code'] ?? '')); ?> / <?php echo html_escape((string)($child['profile_buy_uom_code'] ?? '')); ?></td>

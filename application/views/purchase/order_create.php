@@ -21,6 +21,7 @@ $initialVendorId = (int)($detailOrder['vendor_id'] ?? 0);
 $initialPaymentAccountId = (int)($detailOrder['payment_account_id'] ?? 0);
 $initialStatus = strtoupper(trim((string)($detailOrder['status'] ?? 'DRAFT')));
 $initialNotes = (string)($detailOrder['notes'] ?? '');
+$initialExternalRefNo = (string)($detailOrder['external_ref_no'] ?? '');
 $purchaseTypeRows = array_values((array)($purchase_types ?? []));
 $initialPurchaseTypeExists = false;
 foreach ($purchaseTypeRows as $ptRow) {
@@ -64,12 +65,15 @@ foreach ($detailLines as $ln) {
     'material_content_uom_id' => $lineKind === 'MATERIAL' && $contentUomId > 0 ? $contentUomId : null,
     'material_content_uom_code' => $lineKind === 'MATERIAL' ? (string)($ln['snapshot_content_uom_code'] ?? '') : '',
     'content_per_buy' => (float)($ln['content_per_buy'] ?? 0),
-    'conversion_factor_to_content' => (float)($ln['conversion_factor_to_content'] ?? ($ln['content_per_buy'] ?? 0)),
+    'conversion_factor_to_content' => (float)($ln['content_per_buy'] ?? ($ln['conversion_factor_to_content'] ?? 0)),
     'unit_price' => (float)($ln['unit_price'] ?? 0),
     'qty_buy' => (float)($ln['qty_buy'] ?? 0),
     'discount_percent' => (float)($ln['discount_percent'] ?? 0),
     'tax_percent' => (float)($ln['tax_percent'] ?? 0),
     'expired_date' => (string)($ln['expired_date'] ?? ($ln['snapshot_expired_date'] ?? '')),
+    'expiry_policy' => (string)($ln['expiry_policy'] ?? (!empty($ln['required_expiry_date']) || !empty($ln['expired_date']) ? 'EXACT_DATE' : 'NONE')),
+    'required_expiry_date' => (string)($ln['required_expiry_date'] ?? ($ln['expired_date'] ?? ($ln['snapshot_expired_date'] ?? ''))),
+    'min_remaining_days' => !empty($ln['min_remaining_days']) ? (int)$ln['min_remaining_days'] : null,
     'notes' => (string)($ln['notes'] ?? ''),
   ];
 }
@@ -93,14 +97,14 @@ foreach ($detailLines as $ln) {
 <style>
   .catalog-preview-anchor {
     position: relative;
-    z-index: 2200;
+    z-index: 20;
   }
   .catalog-preview-dropdown {
     position: absolute;
     left: 0;
     top: 0;
     width: 280px;
-    z-index: 5000;
+    z-index: 1040;
     background: #fff;
     border: 1px solid #d7dce1;
     border-radius: 8px;
@@ -172,27 +176,112 @@ foreach ($detailLines as $ln) {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .po-catalog-draft-modal .modal-content {
+    border: 0;
+    border-radius: 20px;
+    overflow: hidden;
+    background: #fffdf9;
+    box-shadow: 0 20px 60px rgba(74, 28, 38, 0.18);
+  }
+  .po-catalog-draft-modal .modal-dialog {
+    max-width: 880px;
+  }
+  .po-catalog-draft-head {
+    background: linear-gradient(135deg, #6a1f2f, #9c3248);
+    color: #fff;
+    padding: 1.1rem 1.2rem 1rem;
+  }
+  .po-catalog-draft-title {
+    font-size: 1.08rem;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+  .po-catalog-draft-subtitle {
+    font-size: .82rem;
+    opacity: .82;
+  }
+  .po-catalog-draft-body {
+    background: linear-gradient(180deg, #fffdf9 0%, #fff8f1 100%);
+    padding: 1.15rem 1.2rem 1rem;
+  }
+  .po-catalog-draft-info {
+    border: 1px solid #eadfc8;
+    border-radius: 14px;
+    background: #fffaf2;
+    color: #6c5246;
+    padding: .8rem .95rem;
+    line-height: 1.45;
+  }
+  .po-catalog-draft-note {
+    font-size: .82rem;
+    color: #8b5e55;
+    background: #fff3e6;
+    border: 1px solid #efd6c1;
+    border-radius: 999px;
+    padding: .45rem .8rem;
+    white-space: nowrap;
+  }
+  .po-catalog-draft-fields {
+    border: 1px solid #efdfcf;
+    border-radius: 16px;
+    background: #ffffff;
+    padding: 1rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.7);
+  }
+  .po-catalog-draft-fields .form-label {
+    font-size: .76rem;
+    font-weight: 700;
+    color: #7b4d43;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .po-catalog-draft-modal .modal-footer {
+    background: #fff7ef;
+    border-top: 1px solid #efdfcf;
+    padding: .95rem 1.2rem 1.15rem;
+  }
   .po-review-modal .modal-content {
     border: 0;
     border-radius: 18px;
     overflow: hidden;
+    background: #ffffff;
+  }
+  .po-review-modal {
+    z-index: 1065;
+  }
+  .po-review-modal .modal-dialog {
+    max-width: 860px;
+  }
+  .po-review-modal .modal-body {
+    background: #ffffff;
+    padding: 1.1rem 1.2rem 1rem;
   }
   .po-review-head {
     background: linear-gradient(135deg, #6a1f2f, #9c3248);
     color: #fff;
     padding: 1rem 1.15rem;
   }
+  .po-review-head h5 {
+    line-height: 1.25;
+  }
   .po-review-summary {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: .75rem;
     margin-bottom: 1rem;
+    align-items: stretch;
   }
   .po-review-card {
     border: 1px solid #eadfc8;
     border-radius: 14px;
     background: #fffaf5;
     padding: .8rem .9rem;
+    min-width: 0;
+    min-height: 72px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
   .po-review-card-label {
     display: block;
@@ -202,12 +291,42 @@ foreach ($detailLines as $ln) {
     color: #8b5e55;
     margin-bottom: .2rem;
   }
+  .po-review-card > div {
+    min-width: 0;
+    line-height: 1.35;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
   .po-review-list {
     margin: 0;
     padding-left: 1.1rem;
+    max-height: 240px;
+    overflow: auto;
   }
   .po-review-list li + li {
     margin-top: .35rem;
+  }
+  .po-review-modal .modal-footer {
+    gap: .75rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    padding: .95rem 1.2rem 1.15rem;
+    background: #fffdfb;
+  }
+  .po-review-modal .modal-footer .btn {
+    min-width: 190px;
+  }
+  @media (max-width: 767.98px) {
+    .po-review-modal .modal-body,
+    .po-review-modal .modal-footer {
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
+    .po-review-modal .modal-footer .btn {
+      width: 100%;
+      min-width: 0;
+    }
   }
   #po-line-table {
     min-width: 1280px;
@@ -386,15 +505,80 @@ foreach ($detailLines as $ln) {
 
 <?php $this->load->view('purchase/_vendor_quick_create_modal'); ?>
 
+<div class="modal fade po-catalog-draft-modal" id="catalogDraftModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content shadow-lg">
+      <div class="po-catalog-draft-head">
+        <div class="small opacity-75">Detail catalog terpilih</div>
+        <div class="po-catalog-draft-title" id="catalog-draft-title">-</div>
+        <div class="po-catalog-draft-subtitle" id="catalog-draft-subtitle">Belum ada catalog dipilih.</div>
+      </div>
+      <div class="modal-body po-catalog-draft-body">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+          <div class="po-catalog-draft-info mb-0 flex-grow-1">
+            Klik hasil pencarian hanya membuka modal detail ini. Buyer bisa cek dan isi detail dulu sebelum baris benar-benar masuk ke tabel line PO.
+          </div>
+          <div class="po-catalog-draft-note" id="catalog-draft-target-note">Baris belum ditambahkan ke PO.</div>
+        </div>
+        <div class="po-catalog-draft-fields">
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label mb-1">Jenis Line</label>
+              <input type="text" class="form-control" id="catalog-draft-kind" readonly>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label mb-1">Merk</label>
+              <input type="text" class="form-control" id="catalog-draft-brand">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label mb-1">Keterangan</label>
+              <input type="text" class="form-control" id="catalog-draft-desc">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label mb-1">UOM Beli</label>
+              <select class="form-select" id="catalog-draft-buy-uom"></select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label mb-1">UOM Isi</label>
+              <select class="form-select" id="catalog-draft-content-uom"></select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label mb-1">Qty Beli</label>
+              <input type="number" class="form-control text-end" id="catalog-draft-qty" min="0" step="0.01">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label mb-1">Isi/Beli</label>
+              <input type="number" class="form-control text-end" id="catalog-draft-content" min="0" step="0.01">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label mb-1">Expired</label>
+              <input type="date" class="form-control" id="catalog-draft-expired">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label mb-1">Harga</label>
+              <input type="number" class="form-control text-end" id="catalog-draft-price" min="0" step="0.01">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" id="btn-catalog-draft-cancel" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-primary" id="btn-catalog-draft-apply">Tambahkan ke Line PO</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade po-review-modal" id="poReviewModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content shadow-lg">
       <div class="po-review-head">
         <h5 class="mb-1">Review Purchase Order Sebelum Simpan</h5>
-        <div class="small opacity-75">Buyer wajib cek status, vendor, merk, satuan, dan line yang masih butuh penegasan catalog.</div>
+        <div class="small opacity-75">Buyer wajib cek status, vendor, merk, satuan, dan harga sebelum ubah status PO.</div>
       </div>
       <div class="modal-body">
         <div id="po-review-body"></div>
+        <div id="po-review-alert" class="mt-3"></div>
         <div class="form-check mt-3">
           <input class="form-check-input" type="checkbox" value="1" id="po-review-confirm">
           <label class="form-check-label" for="po-review-confirm">
@@ -404,7 +588,7 @@ foreach ($detailLines as $ln) {
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-light" data-bs-dismiss="modal">Kembali Cek Lagi</button>
-        <button type="button" class="btn btn-primary" id="po-review-submit" disabled>Simpan Setelah Review</button>
+        <button type="button" class="btn btn-primary" id="po-review-submit">Simpan Setelah Review</button>
       </div>
     </div>
   </div>
@@ -413,8 +597,11 @@ foreach ($detailLines as $ln) {
 <script>
 (function () {
   var editMode = <?php echo $editMode ? 'true' : 'false'; ?>;
+  var suggestionEnabled = !editMode;
   var orderId = <?php echo (int)($detailOrder['id'] ?? 0); ?>;
   var initialStatus = <?php echo json_encode($initialStatus); ?>;
+  var initialExternalRefNo = <?php echo json_encode($initialExternalRefNo); ?>;
+  var skipEditReviewModal = editMode && /^DREQ/i.test(String(initialExternalRefNo || '').trim());
   var detailUrl = <?php echo json_encode(site_url('purchase-orders/detail/' . (int)($detailOrder['id'] ?? 0))); ?>;
   var initialLines = <?php echo json_encode(array_values($initialLines)); ?>;
   var divisions = <?php echo json_encode(array_values((array)($divisions ?? []))); ?>;
@@ -425,12 +612,30 @@ foreach ($detailLines as $ln) {
   var catalogPreviewWrap = document.getElementById('catalog-preview-wrap');
   var catalogPreviewList = document.getElementById('catalog-preview-list');
   var catalogKeywordEl = document.getElementById('catalog_keyword');
+  var catalogPreviewAnchorEl = document.querySelector('.catalog-preview-anchor');
+  var catalogDraftModalEl = document.getElementById('catalogDraftModal');
+  var catalogDraftTitleEl = document.getElementById('catalog-draft-title');
+  var catalogDraftSubtitleEl = document.getElementById('catalog-draft-subtitle');
+  var catalogDraftTargetNoteEl = document.getElementById('catalog-draft-target-note');
+  var catalogDraftKindEl = document.getElementById('catalog-draft-kind');
+  var catalogDraftBrandEl = document.getElementById('catalog-draft-brand');
+  var catalogDraftDescEl = document.getElementById('catalog-draft-desc');
+  var catalogDraftBuyUomEl = document.getElementById('catalog-draft-buy-uom');
+  var catalogDraftContentUomEl = document.getElementById('catalog-draft-content-uom');
+  var catalogDraftQtyEl = document.getElementById('catalog-draft-qty');
+  var catalogDraftContentEl = document.getElementById('catalog-draft-content');
+  var catalogDraftExpiredEl = document.getElementById('catalog-draft-expired');
+  var catalogDraftPriceEl = document.getElementById('catalog-draft-price');
+  var catalogDraftCancelBtn = document.getElementById('btn-catalog-draft-cancel');
+  var catalogDraftApplyBtn = document.getElementById('btn-catalog-draft-apply');
   var lineTbody = document.querySelector('#po-line-table tbody');
   var alertArea = document.getElementById('alert-area');
   var reviewModalEl = document.getElementById('poReviewModal');
   var reviewBodyEl = document.getElementById('po-review-body');
+  var reviewAlertEl = document.getElementById('po-review-alert');
   var reviewConfirmEl = document.getElementById('po-review-confirm');
   var reviewSubmitBtn = document.getElementById('po-review-submit');
+  var catalogDraftModal = (catalogDraftModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(catalogDraftModalEl) : null;
   var reviewModal = (reviewModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(reviewModalEl) : null;
   var lines = [];
   var isInventoryType = true;
@@ -440,11 +645,14 @@ foreach ($detailLines as $ln) {
   var previewAbortController = null;
   var activeLineIdx = 0;
   var pendingSubmitPayload = null;
+  var catalogDraftLine = null;
+  var catalogDraftMeta = null;
 
   function showReviewModal() {
     if (!reviewModalEl) {
       return;
     }
+    hideCatalogPreview();
     if (reviewModal) {
       reviewModal.show();
       return;
@@ -462,11 +670,13 @@ foreach ($detailLines as $ln) {
     }
   }
 
-  function hideReviewModal() {
+  function hideReviewModal(clearPending) {
     if (!reviewModalEl) {
       return;
     }
-    pendingSubmitPayload = null;
+    if (clearPending !== false) {
+      pendingSubmitPayload = null;
+    }
     if (reviewModal) {
       reviewModal.hide();
       return;
@@ -479,6 +689,87 @@ foreach ($detailLines as $ln) {
     var backdrop = document.querySelector('[data-po-review-backdrop="1"]');
     if (backdrop && backdrop.parentNode) {
       backdrop.parentNode.removeChild(backdrop);
+    }
+  }
+
+  function showReviewAlert(message) {
+    if (!reviewAlertEl) {
+      return;
+    }
+    if (!message) {
+      reviewAlertEl.innerHTML = '';
+      return;
+    }
+    reviewAlertEl.innerHTML = '<div class="alert alert-warning py-2 mb-0">' + esc(message) + '</div>';
+  }
+
+  function showCatalogDraftModal() {
+    if (!catalogDraftModalEl) {
+      return;
+    }
+    if (catalogPreviewAnchorEl) {
+      catalogPreviewAnchorEl.style.visibility = 'hidden';
+      catalogPreviewAnchorEl.style.pointerEvents = 'none';
+    }
+    if (catalogDraftModal) {
+      catalogDraftModal.show();
+      return;
+    }
+    catalogDraftModalEl.style.display = 'block';
+    catalogDraftModalEl.classList.add('show');
+    catalogDraftModalEl.removeAttribute('aria-hidden');
+    catalogDraftModalEl.setAttribute('aria-modal', 'true');
+    document.body.classList.add('modal-open');
+    if (!document.querySelector('[data-po-catalog-backdrop="1"]')) {
+      var backdrop = document.createElement('div');
+      backdrop.className = 'modal-backdrop fade show';
+      backdrop.setAttribute('data-po-catalog-backdrop', '1');
+      document.body.appendChild(backdrop);
+    }
+  }
+
+  function hideCatalogDraftModal() {
+    if (!catalogDraftModalEl) {
+      return;
+    }
+    if (catalogPreviewAnchorEl) {
+      catalogPreviewAnchorEl.style.visibility = '';
+      catalogPreviewAnchorEl.style.pointerEvents = '';
+    }
+    if (catalogDraftModal) {
+      catalogDraftModal.hide();
+      return;
+    }
+    catalogDraftModalEl.classList.remove('show');
+    catalogDraftModalEl.style.display = 'none';
+    catalogDraftModalEl.setAttribute('aria-hidden', 'true');
+    catalogDraftModalEl.removeAttribute('aria-modal');
+    document.body.classList.remove('modal-open');
+    var backdrop = document.querySelector('[data-po-catalog-backdrop="1"]');
+    if (backdrop && backdrop.parentNode) {
+      backdrop.parentNode.removeChild(backdrop);
+    }
+  }
+
+  function isCatalogDraftActive() {
+    return !!catalogDraftLine
+      || !!(catalogDraftModalEl && catalogDraftModalEl.classList.contains('show'));
+  }
+
+  function hideCatalogPreview() {
+    if (previewTimer) {
+      window.clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+    if (previewAbortController) {
+      previewAbortController.abort();
+      previewAbortController = null;
+    }
+    if (catalogPreviewWrap) {
+      catalogPreviewWrap.style.display = 'none';
+    }
+    if (catalogPreviewList) {
+      catalogPreviewList.innerHTML = '';
     }
   }
 
@@ -650,6 +941,52 @@ foreach ($detailLines as $ln) {
     line.expired_date = '';
   }
 
+  function buildCatalogLine(it, existing) {
+    var lineKind = String(it.line_kind || 'ITEM').toUpperCase();
+    var current = Object.assign(createEmptyLine(), existing || {});
+    var selectedName = it.catalog_name || it.item_name || it.material_name || '';
+    var next = {
+      line_kind: lineKind,
+      item_id: it.item_id || null,
+      material_id: it.material_id || null,
+      selected_display_name: selectedName,
+      item_name: it.item_name || '',
+      material_name: it.material_name || '',
+      catalog_name: selectedName,
+      brand_name: it.brand_name || '',
+      line_description: it.line_description || '',
+      buy_uom_id: it.buy_uom_id || null,
+      content_uom_id: it.content_uom_id || null,
+      buy_uom_code: it.buy_uom_code || '',
+      content_uom_code: it.content_uom_code || '',
+      material_content_uom_id: lineKind === 'MATERIAL' ? (it.content_uom_id || null) : null,
+      material_content_uom_code: lineKind === 'MATERIAL' ? (it.content_uom_code || '') : '',
+      content_per_buy: num(it.content_per_buy || 0),
+      conversion_factor_to_content: num(it.content_per_buy || it.conversion_factor_to_content || 0),
+      unit_price: num(it.last_unit_price || it.standard_price || 0),
+      qty_buy: num(current.qty_buy || 0),
+      discount_percent: num(current.discount_percent || 0),
+      tax_percent: num(current.tax_percent || 0),
+      expired_date: dateVal(it.expired_date || current.expired_date || ''),
+      expiry_policy: String(it.expiry_policy || current.expiry_policy || ((it.expired_date || current.expired_date) ? 'EXACT_DATE' : 'NONE')),
+      required_expiry_date: dateVal(it.required_expiry_date || it.expired_date || current.required_expiry_date || current.expired_date || ''),
+      min_remaining_days: num(it.min_remaining_days || current.min_remaining_days || 0) || null,
+      notes: current.notes || '',
+      catalog_suggestions: [],
+      suggestion_loading: false,
+      suggestion_query: ''
+    };
+    if (num(next.qty_buy) <= 0) {
+      next.qty_buy = 1;
+    }
+    if (num(next.content_per_buy) <= 0) {
+      next.content_per_buy = 1;
+      next.conversion_factor_to_content = 1;
+    }
+    applyLineTypeDefaults(next);
+    return next;
+  }
+
   function applyLineModeByPurchaseType() {
     var table = document.getElementById('po-line-table');
     if (!table) {
@@ -665,6 +1002,10 @@ foreach ($detailLines as $ln) {
     lines.forEach(function (line) {
       applyLineTypeDefaults(line);
     });
+    if (catalogDraftLine) {
+      applyLineTypeDefaults(catalogDraftLine);
+      renderCatalogDraft();
+    }
     refreshLines();
   }
 
@@ -692,6 +1033,9 @@ foreach ($detailLines as $ln) {
       discount_percent: 0,
       tax_percent: 0,
       expired_date: '',
+      expiry_policy: 'NONE',
+      required_expiry_date: '',
+      min_remaining_days: null,
       notes: '',
       catalog_suggestions: [],
       suggestion_loading: false,
@@ -734,45 +1078,146 @@ foreach ($detailLines as $ln) {
   }
 
   function applyCatalogToLine(idx, it) {
-    var lineKind = String(it.line_kind || 'ITEM').toUpperCase();
-    var existing = lines[idx] || createEmptyLine();
-    var selectedName = it.catalog_name || it.item_name || it.material_name || '';
-    lines[idx] = {
-      line_kind: lineKind,
-      item_id: it.item_id || null,
-      material_id: it.material_id || null,
-      selected_display_name: selectedName,
-      item_name: it.item_name || '',
-      material_name: it.material_name || '',
-      catalog_name: selectedName,
-      brand_name: it.brand_name || '',
-      line_description: it.line_description || '',
-      buy_uom_id: it.buy_uom_id || null,
-      content_uom_id: it.content_uom_id || null,
-      buy_uom_code: it.buy_uom_code || '',
-      content_uom_code: it.content_uom_code || '',
-      material_content_uom_id: lineKind === 'MATERIAL' ? (it.content_uom_id || null) : null,
-      material_content_uom_code: lineKind === 'MATERIAL' ? (it.content_uom_code || '') : '',
-      content_per_buy: num(it.content_per_buy || 0),
-      conversion_factor_to_content: num(it.conversion_factor_to_content || it.content_per_buy || 0),
-      unit_price: num(it.last_unit_price || it.standard_price || 0),
-      qty_buy: num(existing.qty_buy || 0),
-      discount_percent: 0,
-      tax_percent: 0,
-      expired_date: dateVal(it.expired_date || existing.expired_date || ''),
-      notes: existing.notes || '',
-      catalog_suggestions: [],
-      suggestion_loading: false,
-      suggestion_query: ''
+    lines[idx] = buildCatalogLine(it, lines[idx] || createEmptyLine());
+  }
+
+  function resolveCatalogTargetIndex() {
+    if (activeLineIdx >= 0 && lines[activeLineIdx] && isLineEffectivelyEmpty(lines[activeLineIdx])) {
+      return activeLineIdx;
+    }
+    return findFirstEmptyLineIndex();
+  }
+
+  function clearCatalogDraft(keepKeyword) {
+    catalogDraftLine = null;
+    catalogDraftMeta = null;
+    hideCatalogDraftModal();
+    if (!keepKeyword && catalogKeywordEl) {
+      catalogKeywordEl.value = '';
+    }
+  }
+
+  function renderCatalogDraft() {
+    if (!catalogDraftModalEl || !catalogDraftLine) {
+      if (catalogDraftModalEl) {
+        hideCatalogDraftModal();
+      }
+      return;
+    }
+
+    var kind = String(catalogDraftLine.line_kind || 'ITEM').toUpperCase();
+    var materialLocked = kind === 'MATERIAL';
+    var inventoryDisabled = !isInventoryType;
+    var masterText = [];
+    if (num(catalogDraftLine.item_id) > 0) {
+      masterText.push('Item ID #' + num(catalogDraftLine.item_id));
+    }
+    if (num(catalogDraftLine.material_id) > 0) {
+      masterText.push('Material ID #' + num(catalogDraftLine.material_id));
+    }
+    if (masterText.length === 0) {
+      masterText.push('Belum terhubung ke master');
+    }
+
+    var targetIdx = resolveCatalogTargetIndex();
+    var targetNote = targetIdx >= 0
+      ? 'Siap mengisi baris kosong #' + (targetIdx + 1) + ' setelah dikonfirmasi.'
+      : 'Semua baris terisi. Konfirmasi akan menambah baris baru di bawah.';
+
+    if (catalogDraftTitleEl) {
+      catalogDraftTitleEl.textContent = lineDisplayName(catalogDraftLine) || '-';
+    }
+    if (catalogDraftSubtitleEl) {
+      catalogDraftSubtitleEl.textContent = masterText.join(' | ');
+    }
+    if (catalogDraftTargetNoteEl) {
+      catalogDraftTargetNoteEl.textContent = targetNote;
+    }
+    if (catalogDraftKindEl) {
+      catalogDraftKindEl.value = kind;
+    }
+    if (catalogDraftBrandEl) {
+      catalogDraftBrandEl.value = String(catalogDraftLine.brand_name || '');
+    }
+    if (catalogDraftDescEl) {
+      catalogDraftDescEl.value = String(catalogDraftLine.line_description || '');
+    }
+    if (catalogDraftBuyUomEl) {
+      catalogDraftBuyUomEl.innerHTML = buildUomOptions(num(catalogDraftLine.buy_uom_id || 0));
+      catalogDraftBuyUomEl.disabled = inventoryDisabled;
+    }
+    if (catalogDraftContentUomEl) {
+      var contentId = materialLocked
+        ? num(catalogDraftLine.material_content_uom_id || catalogDraftLine.content_uom_id || 0)
+        : num(catalogDraftLine.content_uom_id || 0);
+      catalogDraftContentUomEl.innerHTML = buildUomOptions(contentId);
+      catalogDraftContentUomEl.disabled = inventoryDisabled || materialLocked;
+    }
+    if (catalogDraftQtyEl) {
+      catalogDraftQtyEl.value = num(catalogDraftLine.qty_buy || 0).toFixed(2);
+      catalogDraftQtyEl.disabled = inventoryDisabled;
+    }
+    if (catalogDraftContentEl) {
+      catalogDraftContentEl.value = num(catalogDraftLine.content_per_buy || 0).toFixed(2);
+      catalogDraftContentEl.disabled = inventoryDisabled;
+    }
+    if (catalogDraftExpiredEl) {
+      catalogDraftExpiredEl.value = dateVal(catalogDraftLine.expired_date || '');
+      catalogDraftExpiredEl.disabled = inventoryDisabled;
+    }
+    if (catalogDraftPriceEl) {
+      catalogDraftPriceEl.value = num(catalogDraftLine.unit_price || 0).toFixed(2);
+    }
+
+    showCatalogDraftModal();
+  }
+
+  function startCatalogDraft(it) {
+    hideCatalogPreview();
+    catalogDraftLine = buildCatalogLine(it, createEmptyLine());
+    catalogDraftMeta = {
+      selected_name: lineDisplayName(catalogDraftLine) || (it.catalog_name || it.item_name || it.material_name || '')
     };
-    if (num(lines[idx].qty_buy) <= 0) {
-      lines[idx].qty_buy = 1;
+    if (catalogKeywordEl) {
+      catalogKeywordEl.value = catalogDraftMeta.selected_name || '';
     }
-    if (num(lines[idx].content_per_buy) <= 0) {
-      lines[idx].content_per_buy = 1;
-      lines[idx].conversion_factor_to_content = 1;
+    renderCatalogDraft();
+    if (catalogDraftBrandEl) {
+      window.setTimeout(function () {
+        catalogDraftBrandEl.focus();
+        catalogDraftBrandEl.select();
+      }, 0);
     }
-    applyLineTypeDefaults(lines[idx]);
+  }
+
+  function applyCatalogDraftToLines() {
+    if (!catalogDraftLine) {
+      return;
+    }
+
+    var targetIdx = resolveCatalogTargetIndex();
+    var nextLine = Object.assign(createEmptyLine(), catalogDraftLine);
+    applyLineTypeDefaults(nextLine);
+    if (targetIdx >= 0) {
+      lines[targetIdx] = nextLine;
+    } else {
+      lines.push(nextLine);
+      targetIdx = lines.length - 1;
+    }
+
+    activeLineIdx = targetIdx;
+    refreshLines();
+    clearCatalogDraft(false);
+    hideCatalogPreview();
+
+    window.setTimeout(function () {
+      var tr = lineTbody.querySelector('tr[data-idx="' + targetIdx + '"]');
+      var qtyInput = tr ? tr.querySelector('.line-qty') : null;
+      if (qtyInput) {
+        qtyInput.focus();
+        qtyInput.select();
+      }
+    }, 0);
   }
 
   function renderSuggestionButtons(idx, suggestions) {
@@ -794,7 +1239,7 @@ foreach ($detailLines as $ln) {
   }
 
   function fetchLineSuggestionsWithUrl(idx, urlBase, retryOnFallback) {
-    if (!editMode || !lines[idx]) {
+    if (!suggestionEnabled || !lines[idx]) {
       return;
     }
 
@@ -866,7 +1311,7 @@ foreach ($detailLines as $ln) {
   }
 
   function refreshLineSuggestion(idx, force) {
-    if (!editMode || !lines[idx]) {
+    if (!suggestionEnabled || !lines[idx]) {
       return;
     }
 
@@ -882,7 +1327,7 @@ foreach ($detailLines as $ln) {
   }
 
   function refreshAllLineSuggestions(force) {
-    if (!editMode) {
+    if (!suggestionEnabled) {
       return;
     }
     lines.forEach(function (line, idx) {
@@ -909,10 +1354,6 @@ foreach ($detailLines as $ln) {
       if (!lineHasMasterLink(line)) {
         warnings.push('Baris #' + (idx + 1) + ' ' + lineName + ': belum terhubung ke item/bahan dari catalog.');
       }
-      if (Array.isArray(line.catalog_suggestions) && line.catalog_suggestions.length > 0 && String(line.brand_name || '').trim() === '') {
-        var firstSuggestion = line.catalog_suggestions[0] || {};
-        warnings.push('Baris #' + (idx + 1) + ' ' + lineName + ': ada saran catalog, contoh ' + (firstSuggestion.catalog_name || firstSuggestion.item_name || firstSuggestion.material_name || '-') + '.');
-      }
     });
 
     return {
@@ -928,7 +1369,7 @@ foreach ($detailLines as $ln) {
     }
 
     reviewConfirmEl.checked = false;
-    reviewSubmitBtn.disabled = true;
+    showReviewAlert('');
     pendingSubmitPayload = {
       header: Object.assign({}, reviewData.header || {}),
       lines: reviewData.lines || [],
@@ -1045,7 +1486,7 @@ foreach ($detailLines as $ln) {
       var materialNameInput = (l.material_name || '');
       var showMaterialForm = materialLocked || (Number(l.material_id || 0) > 0);
       var suggestionHtml = '';
-      if (editMode) {
+      if (suggestionEnabled) {
         if (l.suggestion_loading) {
           suggestionHtml = '<div class="po-suggestion-panel"><span class="small text-muted">Mencari saran catalog...</span></div>';
         } else if (Array.isArray(l.catalog_suggestions) && l.catalog_suggestions.length) {
@@ -1077,6 +1518,11 @@ foreach ($detailLines as $ln) {
   }
 
   function renderCatalogPreview(items) {
+    if (isCatalogDraftActive()) {
+      hideCatalogPreview();
+      return;
+    }
+
     window.requestAnimationFrame(positionCatalogPreview);
 
     if (!items.length) {
@@ -1104,20 +1550,7 @@ foreach ($detailLines as $ln) {
       btn.addEventListener('click', function () {
         var idx = Number(btn.getAttribute('data-idx') || -1);
         if (idx >= 0 && items[idx]) {
-          var targetIdx = (activeLineIdx >= 0 && lines[activeLineIdx]) ? activeLineIdx : -1;
-          if (targetIdx < 0 || !isLineEffectivelyEmpty(lines[targetIdx])) {
-            targetIdx = findFirstEmptyLineIndex();
-          }
-          if (targetIdx < 0) {
-            addEmptyLine(false);
-            targetIdx = lines.length - 1;
-          }
-          applyCatalogToLine(targetIdx, items[idx]);
-          activeLineIdx = targetIdx;
-          refreshLines();
-          catalogKeywordEl.value = '';
-          catalogPreviewWrap.style.display = 'none';
-          catalogPreviewList.innerHTML = '';
+          startCatalogDraft(items[idx]);
         }
       });
     });
@@ -1143,6 +1576,11 @@ foreach ($detailLines as $ln) {
   }
 
   function fetchCatalogPreviewWithUrl(urlBase, retryOnFallback) {
+    if (isCatalogDraftActive()) {
+      hideCatalogPreview();
+      return;
+    }
+
     var q = catalogKeywordEl.value || '';
     var vendorId = document.getElementById('vendor_id').value || '';
 
@@ -1164,6 +1602,10 @@ foreach ($detailLines as $ln) {
     fetch(url, { headers: { 'Accept': 'application/json' }, signal: previewAbortController.signal })
       .then(parseJsonResponse)
       .then(function (res) {
+        if (isCatalogDraftActive()) {
+          hideCatalogPreview();
+          return;
+        }
         if (res.status >= 400 || !res.json || !res.json.ok) {
           throw new Error((res.json && res.json.message) ? res.json.message : 'Gagal cari catalog');
         }
@@ -1213,6 +1655,10 @@ foreach ($detailLines as $ln) {
   }
 
   function fetchCatalogPreview() {
+    if (isCatalogDraftActive()) {
+      hideCatalogPreview();
+      return;
+    }
     fetchCatalogPreviewWithUrl(catalogUrl, true);
   }
 
@@ -1224,6 +1670,10 @@ foreach ($detailLines as $ln) {
   });
 
   catalogKeywordEl.addEventListener('focus', function () {
+    if (isCatalogDraftActive()) {
+      hideCatalogPreview();
+      return;
+    }
     if ((catalogPreviewList.innerHTML || '').trim() === '') {
       return;
     }
@@ -1237,6 +1687,88 @@ foreach ($detailLines as $ln) {
       positionCatalogPreview();
     }
   }, true);
+
+  if (catalogDraftModalEl) {
+    catalogDraftModalEl.addEventListener('input', function (e) {
+      if (!catalogDraftLine) {
+        return;
+      }
+
+      if (e.target === catalogDraftBrandEl) {
+        catalogDraftLine.brand_name = e.target.value || '';
+      }
+      if (e.target === catalogDraftDescEl) {
+        catalogDraftLine.line_description = e.target.value || '';
+      }
+      if (e.target === catalogDraftQtyEl) {
+        catalogDraftLine.qty_buy = num(e.target.value);
+      }
+      if (e.target === catalogDraftContentEl) {
+        catalogDraftLine.content_per_buy = num(e.target.value);
+        catalogDraftLine.conversion_factor_to_content = num(e.target.value);
+      }
+      if (e.target === catalogDraftExpiredEl) {
+        catalogDraftLine.expired_date = dateVal(e.target.value || '');
+      }
+      if (e.target === catalogDraftPriceEl) {
+        catalogDraftLine.unit_price = num(e.target.value);
+      }
+    });
+
+    catalogDraftModalEl.addEventListener('change', function (e) {
+      if (!catalogDraftLine) {
+        return;
+      }
+
+      if (e.target === catalogDraftBuyUomEl) {
+        var buyId = num(e.target.value);
+        catalogDraftLine.buy_uom_id = buyId > 0 ? buyId : null;
+        catalogDraftLine.buy_uom_code = (buyId > 0 && uomById[buyId]) ? (uomById[buyId].code || '') : '';
+      }
+
+      if (e.target === catalogDraftContentUomEl) {
+        if (String(catalogDraftLine.line_kind || '').toUpperCase() === 'MATERIAL') {
+          var lockId = num(catalogDraftLine.material_content_uom_id || catalogDraftLine.content_uom_id || 0);
+          if (lockId > 0) {
+            e.target.value = String(lockId);
+          }
+          alertMsg('warning', 'UOM isi untuk MATERIAL harus mengikuti master material.');
+          return;
+        }
+        var contentId = num(e.target.value);
+        catalogDraftLine.content_uom_id = contentId > 0 ? contentId : null;
+        catalogDraftLine.content_uom_code = (contentId > 0 && uomById[contentId]) ? (uomById[contentId].code || '') : '';
+      }
+    });
+  }
+
+  if (catalogDraftCancelBtn) {
+    catalogDraftCancelBtn.addEventListener('click', function () {
+      clearCatalogDraft(true);
+      if (catalogKeywordEl) {
+        catalogKeywordEl.focus();
+      }
+    });
+  }
+
+  if (catalogDraftApplyBtn) {
+    catalogDraftApplyBtn.addEventListener('click', function () {
+      applyCatalogDraftToLines();
+    });
+  }
+
+  if (catalogDraftModalEl) {
+    catalogDraftModalEl.addEventListener('click', function (event) {
+      if (event.target === catalogDraftModalEl) {
+        clearCatalogDraft(true);
+      }
+    });
+    catalogDraftModalEl.querySelectorAll('[data-bs-dismiss="modal"]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        clearCatalogDraft(true);
+      });
+    });
+  }
 
   lineTbody.addEventListener('click', function (e) {
     if (e.target.classList.contains('btn-apply-line-suggestion')) {
@@ -1484,8 +2016,14 @@ foreach ($detailLines as $ln) {
       var lineExpired = dateVal(submitLines[i].expired_date || '');
       if (!isInventoryType) {
         submitLines[i].expired_date = null;
+        submitLines[i].required_expiry_date = null;
+        submitLines[i].expiry_policy = 'NONE';
+        submitLines[i].min_remaining_days = null;
       } else {
         submitLines[i].expired_date = lineExpired !== '' ? lineExpired : null;
+        submitLines[i].required_expiry_date = lineExpired !== '' ? lineExpired : null;
+        submitLines[i].expiry_policy = lineExpired !== '' ? 'EXACT_DATE' : 'NONE';
+        submitLines[i].min_remaining_days = null;
       }
     }
 
@@ -1505,7 +2043,7 @@ foreach ($detailLines as $ln) {
       return;
     }
 
-    if (editMode) {
+    if (!skipEditReviewModal && editMode && normalizeStatus(header.status || initialStatus) !== normalizeStatus(initialStatus)) {
       var reviewOpened = openReviewModal(buildReviewPayload(header, submitLines), btnSave);
       if (reviewOpened) {
         return;
@@ -1527,11 +2065,14 @@ foreach ($detailLines as $ln) {
       mapped.selected_display_name = String(mapped.catalog_name || mapped.item_name || mapped.material_name || '');
       mapped.qty_buy = num(mapped.qty_buy);
       mapped.content_per_buy = num(mapped.content_per_buy);
-      mapped.conversion_factor_to_content = num(mapped.conversion_factor_to_content || mapped.content_per_buy);
+      mapped.conversion_factor_to_content = num(mapped.content_per_buy || mapped.conversion_factor_to_content);
       mapped.unit_price = num(mapped.unit_price);
       mapped.discount_percent = num(mapped.discount_percent);
       mapped.tax_percent = num(mapped.tax_percent);
       mapped.expired_date = dateVal(mapped.expired_date);
+      mapped.required_expiry_date = dateVal(mapped.required_expiry_date || mapped.expired_date);
+      mapped.expiry_policy = String(mapped.expiry_policy || (mapped.required_expiry_date ? 'EXACT_DATE' : 'NONE'));
+      mapped.min_remaining_days = num(mapped.min_remaining_days || 0) || null;
       mapped.catalog_suggestions = [];
       mapped.suggestion_loading = false;
       mapped.suggestion_query = '';
@@ -1547,8 +2088,8 @@ foreach ($detailLines as $ln) {
 
   if (reviewConfirmEl) {
     reviewConfirmEl.addEventListener('change', function () {
-      if (reviewSubmitBtn) {
-        reviewSubmitBtn.disabled = !reviewConfirmEl.checked;
+      if (reviewConfirmEl.checked) {
+        showReviewAlert('');
       }
     });
   }
@@ -1558,9 +2099,20 @@ foreach ($detailLines as $ln) {
       if (!pendingSubmitPayload) {
         return;
       }
-      pendingSubmitPayload.header.review_confirmed = 1;
-      hideReviewModal();
-      submitPurchase(pendingSubmitPayload.header, pendingSubmitPayload.lines, pendingSubmitPayload.button);
+      if (!reviewConfirmEl || !reviewConfirmEl.checked) {
+        showReviewAlert('Centang konfirmasi review buyer dulu sebelum menyimpan.');
+        if (reviewConfirmEl && typeof reviewConfirmEl.focus === 'function') {
+          reviewConfirmEl.focus();
+        }
+        return;
+      }
+      var submitPayload = {
+        header: Object.assign({}, pendingSubmitPayload.header || {}, { review_confirmed: 1 }),
+        lines: pendingSubmitPayload.lines || [],
+        button: pendingSubmitPayload.button
+      };
+      hideReviewModal(false);
+      submitPurchase(submitPayload.header, submitPayload.lines, submitPayload.button);
       pendingSubmitPayload = null;
     });
   }

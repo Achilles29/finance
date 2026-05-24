@@ -856,9 +856,9 @@ class InventoryLedger
         $reasonMap = [
             'WASTE' => ['cancel_order', 'kitchen_error', 'overproduction', 'spillage', 'prep_trim_excess', 'expired_opened', 'other'],
             'SPOILAGE' => ['expired', 'temperature_abuse', 'contamination', 'overstock', 'improper_storage', 'other'],
-            'PROCESS_LOSS' => ['defrost_loss', 'trimming_standard', 'cooking_loss', 'evaporation', 'brew_loss', 'absorption_loss', 'process_residue', 'other'],
+            'PROCESS_LOSS' => ['defrost_loss', 'trimming_standard', 'cooking_loss', 'evaporation', 'brew_loss', 'absorption_loss', 'process_residue', 'variable_process_consumable', 'other'],
             'VARIANCE' => ['over_usage', 'under_usage', 'unrecorded_usage', 'counting_error', 'system_mismatch', 'theft_suspected', 'unknown_shrinkage', 'other'],
-            'ADJUSTMENT_PLUS' => ['other'],
+            'ADJUSTMENT_PLUS' => ['opening_correction', 'stock_found', 'manual_reclass', 'other'],
         ];
 
         if (!isset($reasonMap[$category])) {

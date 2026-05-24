@@ -1,6 +1,7 @@
 <?php
 $baseUrl = site_url('inventory/stock/division');
 $generateUrl = site_url('inventory/stock/opname/generate');
+$lotAuditBaseUrl = site_url('inventory/stock/division/lot');
 $genMonth = !empty($date_from ?? '') ? date('Y-m', strtotime((string)$date_from)) : date('Y-m');
 $rowsData = is_array($rows ?? null) ? $rows : [];
 $destinationValue = strtoupper(trim((string)($destination ?? 'ALL')));
@@ -65,14 +66,12 @@ foreach ($rowsData as $row) {
   $profileNameKey = strtoupper(trim((string)($row['profile_name'] ?? '')));
   $profileBrandKey = strtoupper(trim((string)($row['profile_brand'] ?? '')));
   $profileDescKey = strtoupper(trim((string)($row['profile_description'] ?? '')));
-  $profileExpiredKey = trim((string)($row['profile_expired_date'] ?? ''));
   $contentPerBuyKey = number_format((float)($row['profile_content_per_buy'] ?? 0), 6, '.', '');
   $childKey = implode('|', [
     (string)($row['profile_key'] ?? ''),
     $profileNameKey,
     $profileBrandKey,
     $profileDescKey,
-    $profileExpiredKey,
     $contentPerBuyKey,
     strtoupper(trim((string)($row['profile_buy_uom_code'] ?? ''))),
     strtoupper(trim((string)($row['profile_content_uom_code'] ?? ''))),
@@ -231,7 +230,7 @@ $summaryDivisionCount = count($summaryDivisions);
     <h4 class="mb-1"><i class="ri ri-store-2-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
     <small class="text-muted">Posisi stok divisi operasional per profile purchase.</small>
   </div>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-1 flex-wrap align-items-center">
     <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname divisi bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
       <input type="hidden" name="stock_scope" value="DIVISION">
       <input type="hidden" name="month" value="<?php echo html_escape($genMonth); ?>">
@@ -240,11 +239,7 @@ $summaryDivisionCount = count($summaryDivisions);
       <input type="hidden" name="back_url" value="inventory/stock/division?date_from=<?php echo rawurlencode((string)($date_from ?? '')); ?>&date_to=<?php echo rawurlencode((string)($date_to ?? '')); ?>&division_id=<?php echo (int)($division_id ?? 0); ?>&destination=<?php echo rawurlencode($destinationValue); ?>">
       <button type="submit" class="btn btn-outline-primary">Generate Opname + Stok Awal</button>
     </form>
-    <a href="<?php echo site_url('inventory-material-daily'); ?>" class="btn btn-outline-secondary">Daily Material Matrix</a>
-    <a href="<?php echo site_url('inventory/stock/division'); ?>" class="btn btn-dark">Stok Divisi</a>
-    <a href="<?php echo site_url('inventory/stock/opening/division'); ?>" class="btn btn-outline-secondary">Opening Divisi</a>
-    <a href="<?php echo site_url('inventory/stock/division/movement'); ?>" class="btn btn-outline-secondary">Keluar Masuk Divisi</a>
-    <a href="<?php echo site_url('inventory/stock/division/daily'); ?>" class="btn btn-outline-secondary">Stok Bulanan/Daily Divisi</a>
+    <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'stock']); ?>
   </div>
 </div>
 
@@ -405,11 +400,12 @@ $summaryDivisionCount = count($summaryDivisions);
               $sizeCol = '-';
               if (is_array($singleChild)) {
                 $profileText = trim((string)($singleChild['profile_name'] ?? '-'));
-                $expiredText = trim((string)($singleChild['profile_expired_date'] ?? ''));
-                if ($expiredText !== '') {
-                  $profileText .= ' (Exp: ' . $expiredText . ')';
-                }
+                $lotUrl = $lotAuditBaseUrl
+                  . '?scope=DIVISION&status=ALL&division_id=' . (int)($parent['division_id'] ?? 0)
+                  . '&destination=' . rawurlencode((string)($parent['destination_group'] ?? 'REGULER'))
+                  . '&profile_key=' . rawurlencode((string)($singleChild['profile_key'] ?? ''));
                 $profileCol = html_escape($profileText);
+                $profileCol .= '<div class="small mt-1"><a href="' . html_escape($lotUrl) . '">Lihat Lot</a></div>';
                 $brandCol = html_escape((string)($singleChild['profile_brand'] ?? '-'));
                 $descCol = html_escape((string)($singleChild['profile_description'] ?? '-'));
                 $sizeCol = number_format((float)($singleChild['profile_content_per_buy'] ?? 0), 2, ',', '.')
@@ -443,10 +439,10 @@ $summaryDivisionCount = count($summaryDivisions);
             <?php foreach (($parent['children'] ?? []) as $child): ?>
               <?php
                 $profileText = trim((string)($child['profile_name'] ?? '-'));
-                $expiredText = trim((string)($child['profile_expired_date'] ?? ''));
-                if ($expiredText !== '') {
-                  $profileText .= ' (Exp: ' . $expiredText . ')';
-                }
+                $lotUrl = $lotAuditBaseUrl
+                  . '?scope=DIVISION&status=ALL&division_id=' . (int)($parent['division_id'] ?? 0)
+                  . '&destination=' . rawurlencode((string)($parent['destination_group'] ?? 'REGULER'))
+                  . '&profile_key=' . rawurlencode((string)($child['profile_key'] ?? ''));
                 $childAvgCost = ((float)($child['qty_content_balance'] ?? 0) !== 0.0)
                   ? ((float)($child['total_value'] ?? 0) / (float)($child['qty_content_balance'] ?? 0))
                   : 0.0;
@@ -456,7 +452,10 @@ $summaryDivisionCount = count($summaryDivisions);
                 <td></td>
                 <td></td>
                 <td class="ps-4 text-muted">Profil Item</td>
-                <td><?php echo html_escape($profileText); ?></td>
+                <td>
+                  <?php echo html_escape($profileText); ?>
+                  <div class="small mt-1"><a href="<?php echo html_escape($lotUrl); ?>">Lihat Lot</a></div>
+                </td>
                 <td><?php echo html_escape((string)($child['profile_brand'] ?? '-')); ?></td>
                 <td><?php echo html_escape((string)($child['profile_description'] ?? '-')); ?></td>
                 <td><?php echo number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($child['profile_content_uom_code'] ?? '')); ?> / <?php echo html_escape((string)($child['profile_buy_uom_code'] ?? '')); ?></td>

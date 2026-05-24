@@ -473,6 +473,19 @@ Saat opname atau koreksi stok, gunakan tipe adjustment yang sudah disepakati:
 - `VARIANCE` — selisih opname
 - `ADJUSTMENT_PLUS` — penambahan manual
 
+Reason code turunan yang dipakai untuk tracking analitis:
+- `WASTE`: `cancel_order`, `kitchen_error`, `overproduction`, `spillage`, `prep_trim_excess`, `expired_opened`, `other`
+- `SPOILAGE`: `expired`, `temperature_abuse`, `contamination`, `overstock`, `improper_storage`, `other`
+- `PROCESS_LOSS`: `defrost_loss`, `trimming_standard`, `cooking_loss`, `evaporation`, `brew_loss`, `absorption_loss`, `process_residue`, `variable_process_consumable`, `other`
+- `VARIANCE`: `over_usage`, `under_usage`, `unrecorded_usage`, `counting_error`, `system_mismatch`, `theft_suspected`, `unknown_shrinkage`, `other`
+- `ADJUSTMENT_PLUS`: `opening_correction`, `stock_found`, `manual_reclass`, `other`
+
+Catatan cost variable produksi:
+- Biaya variabel normal produksi seperti minyak goreng, gas, atau consumable proses tidak ideal dicatat sebagai adjustment rutin.
+- Jika consumable itu memang stok material yang ingin dihitung aktual per batch, masukkan sebagai material/formula atau usage produksi.
+- Jika consumable itu ingin diserap sebagai overhead variabel, gunakan `variable_cost_mode` / `variable_cost_percent` pada master component atau product.
+- Adjustment `PROCESS_LOSS` dengan reason `variable_process_consumable` hanya dipakai bila ada konsumsi stok proses yang nyata tetapi belum ditangkap oleh flow produksi normal.
+
 ### Catatan Penting
 - `InventoryLedger.php` adalah library untuk semua operasi tulis ke ledger — selalu pakai ini, jangan query langsung
 - Opname bulanan harus selesai sebelum tanggal 5 bulan berikutnya (opening bulan baru dibuat dari opname)

@@ -3,8 +3,10 @@ $hasSchema = !empty($has_schema);
 $filters = $filters ?? [];
 $rows = $rows ?? [];
 $summary = $summary ?? [];
+$filteredSummary = $filtered_summary ?? [];
 $timelineMap = $timeline_map ?? [];
 $lineRows = $line_rows ?? [];
+$lineSummary = $line_summary ?? [];
 $divisionOptions = $division_options ?? [];
 $statusOptions = $status_options ?? [];
 $destinationOptions = $destination_options ?? [];
@@ -27,22 +29,68 @@ $baseFilters = [
 $tabNotaUrl = site_url('store-requests') . '?' . http_build_query(array_merge($baseFilters, ['tab' => 'nota']));
 $tabRincianUrl = site_url('store-requests') . '?' . http_build_query(array_merge($baseFilters, ['tab' => 'rincian']));
 $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
+$activeStatus = strtoupper(trim((string)($filters['status'] ?? '')));
+if ($activeStatus === '') {
+  $activeStatus = 'ALL';
+}
+$statusTabOptions = array_merge(['ALL'], array_values(array_filter(array_map(static function ($value) {
+  return strtoupper(trim((string)$value));
+}, $statusOptions), static function ($value) {
+  return $value !== '';
+})));
+$statusTabOptions = array_values(array_unique($statusTabOptions));
+$statusLabel = static function (string $value): string {
+  $value = strtoupper(trim($value));
+  if ($value === '' || $value === 'ALL') {
+    return 'Semua';
+  }
+  return ucwords(strtolower(str_replace('_', ' ', $value)));
+};
+$buildStatusTabUrl = static function (string $statusValue) use ($baseFilters, $activeTab): string {
+  $filters = $baseFilters;
+  $filters['status'] = $statusValue === 'ALL' ? '' : $statusValue;
+  $filters['tab'] = $activeTab;
+  return site_url('store-requests') . '?' . http_build_query($filters);
+};
+$summaryStatusText = $statusLabel($activeStatus);
+$summaryRangeText = trim(((string)($filters['date_start'] ?? '') !== '' ? (string)($filters['date_start'] ?? '') : '-') . ' s/d ' . ((string)($filters['date_end'] ?? '') !== '' ? (string)($filters['date_end'] ?? '') : '-'));
+$srPageCount = count($rows);
+$srPageReqValue = 0.0;
+$srPageFulfilledValue = 0.0;
+foreach ($rows as $pageRow) {
+  $srPageReqValue += (float)($pageRow['req_total_value'] ?? 0);
+  $srPageFulfilledValue += (float)($pageRow['fulfilled_total_value'] ?? 0);
+}
+$srLinePageCount = count($lineRows);
+$srLinePageReqValue = 0.0;
+$srLinePageFulfilledValue = 0.0;
+foreach ($lineRows as $lineRow) {
+  $srLinePageReqValue += (float)($lineRow['req_total_value'] ?? 0);
+  $srLinePageFulfilledValue += (float)($lineRow['fulfilled_total_value'] ?? 0);
+}
 ?>
 
 <style>
   .sr-nota-table { table-layout: fixed; }
   .sr-nota-table th,
   .sr-nota-table td { vertical-align: top; }
-  .sr-nota-table th:nth-child(1), .sr-nota-table td:nth-child(1) { width: 18%; }
-  .sr-nota-table th:nth-child(2), .sr-nota-table td:nth-child(2) { width: 34%; }
+  .sr-nota-table th:nth-child(1), .sr-nota-table td:nth-child(1) { width: 16%; }
+  .sr-nota-table th:nth-child(2), .sr-nota-table td:nth-child(2) { width: 32%; }
   .sr-nota-table th:nth-child(3), .sr-nota-table td:nth-child(3) { width: 10%; }
-  .sr-nota-table th:nth-child(4), .sr-nota-table td:nth-child(4) { width: 18%; }
-  .sr-nota-table th:nth-child(5), .sr-nota-table td:nth-child(5) { width: 20%; }
-  .sr-action-cell { white-space: nowrap; text-align: center; }
-  .sr-action-wrap { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; min-width: 0; width: 100%; max-width: 100%; margin: 0 auto; }
-  .sr-action-btn { border-radius: 9px; padding: 4px 9px !important; display: inline-flex; align-items: center; justify-content: center; min-height: 30px; font-size: 11px; font-weight: 600; line-height: 1.1; flex: 0 0 auto; white-space: nowrap; }
-  .sr-mini-btn { width: 30px; height: 30px; padding: 0 !important; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; }
+  .sr-nota-table th:nth-child(4), .sr-nota-table td:nth-child(4) { width: 16%; }
+  .sr-nota-table th:nth-child(5), .sr-nota-table td:nth-child(5) { width: 26%; }
+  .sr-action-cell { white-space: normal; text-align: center; }
+  .sr-action-wrap { display: flex; flex-wrap: nowrap; gap: 4px; justify-content: center; align-items: center; min-width: 0; width: 100%; max-width: 100%; margin: 0 auto; overflow-x: auto; overflow-y: hidden; }
+  .sr-action-btn { width: 30px; height: 30px; min-width: 30px; padding: 0 !important; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1; flex: 0 0 30px; }
+  .sr-action-btn i { font-size: 0.92rem; }
+  .sr-action-btn.btn-outline-secondary { color: #6c757d; border-color: rgba(108,117,125,.55); }
+  .sr-action-btn.btn-outline-primary { color: #0d6efd; border-color: rgba(13,110,253,.55); }
+  .sr-action-btn.btn-outline-success { color: #198754; border-color: rgba(25,135,84,.55); }
+  .sr-action-btn.btn-outline-danger { color: #dc3545; border-color: rgba(220,53,69,.55); }
+  .sr-action-btn.btn-outline-info { color: #0dcaf0; border-color: rgba(13,202,240,.55); }
+  .sr-action-btn.btn-outline-warning { color: #d39e00; border-color: rgba(211,158,0,.55); }
   .sr-tab-link { font-weight: 600; }
+  .sr-status-tab-link { font-weight: 600; white-space: nowrap; }
   .sr-scroll { max-height: 260px; overflow: auto; }
   .sr-status-legend code { font-size: 11px; }
   .sr-note-meta { min-width: 0; }
@@ -54,21 +102,290 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
   .sr-request-meta { display: flex; flex-direction: column; gap: 3px; }
   .sr-request-meta strong { font-size: 13px; }
   .sr-qty-stack { display: flex; flex-direction: column; gap: 2px; }
+  .sr-detail-table { table-layout: fixed; }
+  .sr-detail-table th,
+  .sr-detail-table td { vertical-align: top; }
+  .sr-detail-table th:nth-child(1), .sr-detail-table td:nth-child(1) { width: 14%; }
+  .sr-detail-table th:nth-child(2), .sr-detail-table td:nth-child(2) { width: 14%; }
+  .sr-detail-table th:nth-child(3), .sr-detail-table td:nth-child(3) { width: 10%; }
+  .sr-detail-table th:nth-child(4), .sr-detail-table td:nth-child(4) { width: 22%; }
+  .sr-detail-table th:nth-child(5), .sr-detail-table td:nth-child(5) { width: 10%; }
+  .sr-detail-table th:nth-child(6), .sr-detail-table td:nth-child(6) { width: 10%; }
+  .sr-detail-table th:nth-child(7), .sr-detail-table td:nth-child(7) { width: 10%; }
+  .sr-detail-table th:nth-child(8), .sr-detail-table td:nth-child(8) { width: 10%; }
+  .sr-detail-title { display:block; font-weight:700; font-size:12px; line-height:1.25; color:#243445; }
+  .sr-detail-subtext { display:block; color:#6c757d; font-size:11px; line-height:1.2; margin-top:2px; }
+  .sr-detail-num { display:block; font-weight:700; font-size:12px; line-height:1.2; }
+  .sr-summary-card { border:0; box-shadow:0 6px 22px rgba(67,89,113,.08); }
+  .sr-summary-card .card-body { padding:0.9rem 1rem; }
+  .sr-summary-head { display:flex; align-items:flex-start; justify-content:space-between; gap:0.75rem; margin-bottom:0.45rem; }
+  .sr-summary-kicker { display:block; color:#7b8190; font-size:0.72rem; text-transform:uppercase; letter-spacing:.05em; margin-bottom:0.2rem; }
+  .sr-summary-count { font-size:1.05rem; font-weight:800; color:#243445; line-height:1.1; }
+  .sr-summary-icon { width:2rem; height:2rem; border-radius:.7rem; display:inline-flex; align-items:center; justify-content:center; background:rgba(168,16,39,.08); color:#a81027; flex:0 0 2rem; }
+  .sr-summary-value { display:block; font-weight:800; color:#243445; font-size:.92rem; line-height:1.15; margin-bottom:.18rem; }
+  .sr-summary-meta { display:flex; flex-wrap:wrap; gap:.35rem; }
+  .sr-summary-chip { display:inline-flex; align-items:center; padding:.18rem .5rem; border-radius:999px; background:rgba(67,89,113,.08); color:#566070; font-size:.68rem; line-height:1.15; }
+  .sr-table-footer { border-top:1px solid rgba(67,89,113,.12); background:rgba(67,89,113,.04); padding:10px 12px; font-size:12px; }
+  .sr-footer-block { padding:.45rem .55rem; border-radius:.7rem; background:rgba(255,255,255,.76); height:100%; }
+  .sr-table-footer strong { display:block; color:#243445; font-size:12px; }
+  .sr-table-footer span { color:#6c757d; font-size:11px; }
+  .sr-footer-value { display:block; font-size:13px; font-weight:800; color:#243445; line-height:1.2; margin-top:.12rem; }
+  @media (max-width: 767.98px) {
+    .sr-summary-card .card-body { padding:.8rem .85rem; }
+    .sr-summary-count { font-size:.96rem; }
+    .sr-summary-value { font-size:.86rem; }
+    .sr-table-footer { padding:.55rem .65rem; }
+  }
+  .sr-hero {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid #dfe6e2;
+    border-radius: 24px;
+    background: linear-gradient(135deg, #fbfffd 0%, #f3fbf7 100%);
+    box-shadow: 0 12px 30px rgba(67,89,113,.08);
+  }
+  .sr-hero::before,
+  .sr-hero::after {
+    content: '';
+    position: absolute;
+    border-radius: 999px;
+    pointer-events: none;
+  }
+  .sr-hero::before {
+    width: 280px;
+    height: 280px;
+    top: -130px;
+    right: -90px;
+    background: radial-gradient(circle, rgba(31, 93, 84, .08) 0%, rgba(31, 93, 84, 0) 72%);
+  }
+  .sr-hero::after {
+    width: 220px;
+    height: 220px;
+    left: -70px;
+    bottom: -130px;
+    background: radial-gradient(circle, rgba(199, 119, 50, .08) 0%, rgba(199, 119, 50, 0) 72%);
+  }
+  .sr-hero-body {
+    position: relative;
+    z-index: 1;
+    padding: 1.2rem 1.3rem;
+  }
+  .sr-hero-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .28rem .62rem;
+    border-radius: 999px;
+    background: rgba(255,255,255,.14);
+    color: #1f5d54;
+    font-size: .72rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    border: 1px solid rgba(31, 93, 84, .14);
+  }
+  .sr-hero-title {
+    margin: .8rem 0 .35rem;
+    color: #21302c;
+    font-size: 1.9rem;
+    font-weight: 800;
+    line-height: 1.05;
+  }
+  .sr-hero-subtitle {
+    max-width: 760px;
+    color: #586964;
+    line-height: 1.5;
+  }
+  .sr-hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem;
+    margin-top: .95rem;
+  }
+  .sr-hero-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: .34rem .68rem;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid #dfe6e2;
+    color: #4d5f59;
+    font-size: .75rem;
+    font-weight: 600;
+  }
+  .sr-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .6rem;
+    align-items: center;
+  }
+  .sr-hero-btn {
+    border-radius: 16px;
+    padding: .78rem 1rem;
+    font-weight: 800;
+    box-shadow: 0 12px 24px rgba(24, 16, 17, .12);
+  }
+  .sr-board-card,
+  .sr-filter-card,
+  .sr-legend-card {
+    border: 0;
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 14px 30px rgba(67,89,113,.09);
+  }
+  .sr-summary-card {
+    --sr-accent: #1f5d54;
+    --sr-soft: rgba(31, 93, 84, .14);
+    --sr-surface: #effbf7;
+    position: relative;
+    overflow: hidden;
+    border-radius: 24px;
+    background: linear-gradient(145deg, var(--sr-surface) 0%, #fff 68%);
+    box-shadow: 0 16px 32px rgba(67,89,113,.1);
+    border: 1px solid rgba(214, 223, 218, .9);
+  }
+  .sr-summary-card::before {
+    content: '';
+    position: absolute;
+    inset: auto -24px -34px auto;
+    width: 130px;
+    height: 130px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--sr-soft) 0%, rgba(255,255,255,0) 72%);
+    pointer-events: none;
+  }
+  .sr-summary-card .card-body {
+    position: relative;
+    z-index: 1;
+    padding: 1rem 1.05rem;
+  }
+  .sr-summary-card--primary {
+    --sr-accent: #1f5d54;
+    --sr-soft: rgba(31, 93, 84, .16);
+    --sr-surface: #effaf7;
+  }
+  .sr-summary-card--flow {
+    --sr-accent: #1d4ed8;
+    --sr-soft: rgba(29, 78, 216, .15);
+    --sr-surface: #eef4ff;
+  }
+  .sr-summary-card--done {
+    --sr-accent: #15803d;
+    --sr-soft: rgba(21, 128, 61, .15);
+    --sr-surface: #eefbf0;
+  }
+  .sr-summary-card--pending {
+    --sr-accent: #b45309;
+    --sr-soft: rgba(180, 83, 9, .16);
+    --sr-surface: #fff7eb;
+  }
+  .sr-summary-kicker {
+    color: var(--sr-accent);
+    font-weight: 800;
+    letter-spacing: .08em;
+  }
+  .sr-summary-count,
+  .sr-summary-value {
+    color: #1f2a39;
+  }
+  .sr-summary-icon {
+    background: var(--sr-soft);
+    color: var(--sr-accent);
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 18px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.72);
+  }
+  .sr-summary-chip {
+    background: rgba(255,255,255,.94);
+    border: 1px solid rgba(31, 42, 57, .12);
+    color: #46515f;
+    font-weight: 600;
+  }
+  .sr-tab-strip {
+    gap: .55rem;
+    border: 0;
+  }
+  .sr-tab-strip .nav-item {
+    margin: 0;
+  }
+  .sr-tab-strip .nav-link {
+    border: 0;
+    border-radius: 15px;
+    padding: .55rem .85rem;
+    background: #eef5f2;
+    color: #405651;
+    font-weight: 700;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.72);
+    border: 1px solid #dfe6e2;
+  }
+  .sr-tab-strip .nav-link:hover {
+    color: #2e433f;
+    background: #e2efea;
+  }
+  .sr-tab-strip .nav-link.active {
+    background: #1f5d54;
+    color: #f6fffc;
+    box-shadow: 0 14px 24px rgba(20, 52, 47, .18);
+    border-color: #1f5d54;
+  }
+  .sr-filter-card .card-body,
+  .sr-board-card .card-body {
+    padding: 1rem 1rem 0;
+  }
+  .sr-filter-card .form-control,
+  .sr-filter-card .form-select {
+    border-radius: 12px;
+    border-color: rgba(73, 97, 91, .2);
+    background: #fffdfb;
+  }
+  .sr-filter-card .btn,
+  .sr-board-card .btn {
+    border-radius: 12px;
+    font-weight: 700;
+  }
+  .sr-legend-card .card-body {
+    background: linear-gradient(180deg, #fffaf3 0%, #ffffff 100%);
+  }
+  @media (max-width: 767.98px) {
+    .sr-hero-title {
+      font-size: 1.45rem;
+    }
+    .sr-hero-body {
+      padding: 1rem;
+    }
+    .sr-hero-actions {
+      width: 100%;
+    }
+    .sr-hero-actions .btn {
+      width: 100%;
+      justify-content: center;
+    }
+  }
 </style>
 
-<div class="mb-2">
-  <h4 class="mb-0"><i class="ri-inbox-archive-line page-title-icon me-1"></i><?php echo html_escape($title ?? 'Store Request'); ?></h4>
-  <small class="text-muted">Verifikasi, fulfillment gudang, dan generate PO shortage. PO final tetap diproses di menu <strong>Purchase Order</strong>.</small>
+<div class="card sr-hero mb-3">
+  <div class="sr-hero-body d-flex justify-content-between align-items-start flex-wrap gap-3">
+    <div>
+      <span class="sr-hero-kicker"><i class="ri ri-stack-line"></i> Store Request Overview</span>
+      <h4 class="sr-hero-title"><?php echo html_escape($title ?? 'Store Request'); ?></h4>
+      <div class="sr-hero-subtitle">Verifikasi, fulfillment gudang, dan generate PO shortage dengan pembacaan status yang lebih tajam. PO final tetap diproses di menu <strong>Purchase Order</strong>.</div>
+      <div class="sr-hero-meta">
+        <span class="sr-hero-chip">Status: <?php echo html_escape($summaryStatusText); ?></span>
+        <span class="sr-hero-chip"><?php echo html_escape($summaryRangeText); ?></span>
+        <span class="sr-hero-chip">View: <?php echo $activeTab === 'rincian' ? 'Per Rincian' : 'Per Nota'; ?></span>
+      </div>
+    </div>
+    <div class="sr-hero-actions">
+      <?php if ($canCreate): ?>
+        <a href="<?php echo site_url('store-requests/create'); ?>" class="btn btn-outline-secondary d-inline-flex align-items-center gap-2 sr-hero-btn"><i class="ri ri-file-list-3-line"></i>Form Full SR</a>
+        <button type="button" class="btn btn-warning d-inline-flex align-items-center gap-2 sr-hero-btn" data-bs-toggle="modal" data-bs-target="#srCreateModal"><i class="ri ri-add-line"></i>+ Tambah SR</button>
+      <?php endif; ?>
+    </div>
+  </div>
 </div>
 
 <?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'store-request']); ?>
-
-<div class="d-flex gap-2 mb-3 flex-wrap">
-  <?php if ($canCreate): ?>
-    <a href="<?php echo site_url('store-requests/create'); ?>" class="btn btn-outline-primary">Form Full SR</a>
-    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#srCreateModal">+ Tambah SR</button>
-  <?php endif; ?>
-</div>
 
 <?php if (!$hasSchema): ?>
 <div class="alert alert-warning">Schema Store Request belum tersedia. Jalankan SQL terbaru procurement.</div>
@@ -77,17 +394,13 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
 <div id="srAlert"></div>
 
 <div class="row g-3 mb-3">
-  <div class="col-md-2"><div class="card"><div class="card-body"><small class="text-muted d-block">Total</small><h5 class="mb-0"><?php echo (int)($summary['total'] ?? 0); ?></h5></div></div></div>
-  <div class="col-md-2"><div class="card"><div class="card-body"><small class="text-muted d-block">Submitted</small><h5 class="mb-0"><?php echo (int)($summary['submitted'] ?? 0); ?></h5></div></div></div>
-  <div class="col-md-2"><div class="card"><div class="card-body"><small class="text-muted d-block">Approved</small><h5 class="mb-0"><?php echo (int)($summary['approved'] ?? 0); ?></h5></div></div></div>
-  <div class="col-md-2"><div class="card"><div class="card-body"><small class="text-muted d-block">Fulfilled</small><h5 class="mb-0"><?php echo (int)($summary['fulfilled'] ?? 0); ?></h5></div></div></div>
-  <div class="col-md-2"><div class="card"><div class="card-body"><small class="text-muted d-block">Rejected</small><h5 class="mb-0"><?php echo (int)($summary['rejected'] ?? 0); ?></h5></div></div></div>
-  <div class="col-md-2"><div class="card"><div class="card-body"><small class="text-muted d-block">Void</small><h5 class="mb-0"><?php echo (int)($summary['void'] ?? 0); ?></h5></div></div></div>
-  <div class="col-md-3"><div class="card"><div class="card-body"><small class="text-muted d-block">Nilai Request (Estimasi)</small><h6 class="mb-0">Rp <?php echo number_format((float)($summary['req_value_total'] ?? 0), 2, ',', '.'); ?></h6></div></div></div>
-  <div class="col-md-3"><div class="card"><div class="card-body"><small class="text-muted d-block">Nilai Fulfilled</small><h6 class="mb-0">Rp <?php echo number_format((float)($summary['fulfilled_value_total'] ?? 0), 2, ',', '.'); ?></h6></div></div></div>
+  <div class="col-md-3"><div class="card h-100 sr-summary-card sr-summary-card--primary"><div class="card-body"><div class="sr-summary-head"><div><span class="sr-summary-kicker">Total SR</span><div class="sr-summary-count"><?php echo (int)($summary['total'] ?? 0); ?> nota</div></div><span class="sr-summary-icon"><i class="ri ri-inbox-archive-line"></i></span></div><span class="sr-summary-value">Rp <?php echo number_format((float)($summary['req_value_total'] ?? 0), 2, ',', '.'); ?></span><div class="sr-summary-meta"><span class="sr-summary-chip">Status: <?php echo html_escape($summaryStatusText); ?></span><span class="sr-summary-chip"><?php echo html_escape($summaryRangeText); ?></span></div></div></div></div>
+  <div class="col-md-3"><div class="card h-100 sr-summary-card sr-summary-card--flow"><div class="card-body"><div class="sr-summary-head"><div><span class="sr-summary-kicker">Submitted / Approval</span><div class="sr-summary-count"><?php echo (int)($summary['submitted'] ?? 0); ?> nota</div></div><span class="sr-summary-icon"><i class="ri ri-file-check-line"></i></span></div><span class="sr-summary-value"><?php echo (int)($summary['approved'] ?? 0); ?> nota approved/partial</span><div class="sr-summary-meta"><span class="sr-summary-chip">Menunggu fulfill</span></div></div></div></div>
+  <div class="col-md-3"><div class="card h-100 sr-summary-card sr-summary-card--done"><div class="card-body"><div class="sr-summary-head"><div><span class="sr-summary-kicker">SR Fulfilled</span><div class="sr-summary-count"><?php echo (int)($summary['fulfilled'] ?? 0); ?> nota</div></div><span class="sr-summary-icon"><i class="ri ri-check-double-line"></i></span></div><span class="sr-summary-value">Rp <?php echo number_format((float)($summary['fulfilled_value_total'] ?? 0), 2, ',', '.'); ?></span><div class="sr-summary-meta"><span class="sr-summary-chip">Sudah fulfilled</span></div></div></div></div>
+  <div class="col-md-3"><div class="card h-100 sr-summary-card sr-summary-card--pending"><div class="card-body"><div class="sr-summary-head"><div><span class="sr-summary-kicker">Belum Fulfilled</span><div class="sr-summary-count"><?php echo (int)($summary['pending_fulfillment_count'] ?? 0); ?> nota</div></div><span class="sr-summary-icon"><i class="ri ri-timer-line"></i></span></div><span class="sr-summary-value">Rp <?php echo number_format((float)($summary['pending_fulfillment_value_total'] ?? 0), 2, ',', '.'); ?></span><div class="sr-summary-meta"><span class="sr-summary-chip">Belum selesai penuh</span></div></div></div></div>
 </div>
 
-<div class="card mb-3">
+<div class="card mb-3 sr-filter-card">
   <div class="card-body">
     <form class="row g-2 align-items-end" method="get" action="<?php echo site_url('store-requests'); ?>">
       <input type="hidden" name="tab" value="<?php echo html_escape($activeTab); ?>">
@@ -103,7 +416,7 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
   </div>
 </div>
 
-<div class="card mb-3">
+<div class="card mb-3 sr-legend-card">
   <div class="card-body py-2 sr-status-legend">
     <div class="small">
       <strong>Fungsi Status:</strong>
@@ -123,9 +436,17 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
   </div>
 </div>
 
-<div class="card">
+<div class="card sr-board-card">
   <div class="card-body pb-0">
-    <ul class="nav nav-tabs mb-3" role="tablist">
+    <ul class="nav nav-pills sr-tab-strip mb-3" role="tablist">
+      <?php foreach ($statusTabOptions as $statusOption): ?>
+        <li class="nav-item" role="presentation">
+          <a class="nav-link sr-status-tab-link <?php echo $activeStatus === $statusOption ? 'active' : ''; ?>" href="<?php echo html_escape($buildStatusTabUrl($statusOption)); ?>"><?php echo html_escape($statusLabel($statusOption)); ?></a>
+        </li>
+      <?php endforeach; ?>
+    </ul>
+
+    <ul class="nav nav-pills sr-tab-strip mb-3" role="tablist">
       <li class="nav-item" role="presentation">
         <a class="nav-link sr-tab-link <?php echo $activeTab === 'nota' ? 'active' : ''; ?>" href="<?php echo $tabNotaUrl; ?>">Per Nota</a>
       </li>
@@ -160,81 +481,101 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
           <td><span class="badge bg-<?php echo $statusClass; ?> sr-status-badge"><?php echo html_escape($st); ?></span></td>
           <td class="text-end sr-note-qty"><div class="sr-qty-stack"><strong><?php echo ui_num((float)($r['req_buy_total'] ?? 0)); ?> pack</strong><small>Fulfilled <?php echo ui_num((float)($r['fulfilled_buy_total'] ?? 0)); ?> pack</small><small>Sisa <?php echo ui_num($remainBuy); ?> pack</small></div></td>
           <td class="sr-action-cell">
-            <div class="sr-action-wrap mb-1">
-              <a href="<?php echo site_url('store-requests/detail/' . $rid); ?>" class="btn btn-sm btn-outline-secondary sr-action-btn" title="Detail SR">Detail</a>
-            </div>
-            <?php if ($canEdit || ($canRepairHistory && $st === 'VOID')): ?>
             <div class="sr-action-wrap">
-              <?php if ($st === 'DRAFT'): ?><button type="button" class="btn btn-sm btn-primary sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="SUBMIT" title="Submit">Submit</button><?php endif; ?>
-              <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-success sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="APPROVE" title="Approve">Setuju</button><?php endif; ?>
-              <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-danger sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="REJECT" title="Reject">Tolak</button><?php endif; ?>
-              <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-info text-white sr-action-btn sr-split" data-id="<?php echo $rid; ?>" title="Cek Split">Split</button><?php endif; ?>
-              <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-warning text-dark sr-action-btn sr-fulfill" data-id="<?php echo $rid; ?>" title="Fulfill">Fulfill</button><?php endif; ?>
-              <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-secondary sr-action-btn sr-gpo" data-id="<?php echo $rid; ?>" title="Generate PO Shortage">PO</button><?php endif; ?>
-              <?php if ($st === 'DRAFT'): ?><a href="<?php echo site_url('store-requests/edit/' . $rid); ?>" class="btn btn-sm btn-outline-primary sr-action-btn" title="Edit DRAFT">Edit</a><?php endif; ?>
-              <?php if (in_array($st, ['DRAFT','SUBMITTED','APPROVED','REJECTED','PARTIAL_FULFILLED','FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-dark sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="VOID" title="Void">Void</button><?php endif; ?>
-              <?php if ($st === 'VOID' && $canRepairHistory): ?><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-repair-history" data-id="<?php echo $rid; ?>" title="Repair histori stok SR VOID">Repair</button><?php endif; ?>
+              <a href="<?php echo site_url('store-requests/detail/' . $rid); ?>" class="btn btn-sm btn-outline-secondary sr-action-btn" title="Detail SR" aria-label="Detail SR"><i class="ri ri-eye-line"></i></a>
+              <?php if ($canEdit || ($canRepairHistory && $st === 'VOID')): ?>
+                <?php if ($st === 'DRAFT'): ?><button type="button" class="btn btn-sm btn-outline-primary sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="SUBMIT" title="Submit" aria-label="Submit"><i class="ri ri-send-plane-line"></i></button><?php endif; ?>
+                <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-outline-success sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="APPROVE" title="Approve" aria-label="Approve"><i class="ri ri-check-line"></i></button><?php endif; ?>
+                <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="REJECT" title="Reject" aria-label="Reject"><i class="ri ri-close-line"></i></button><?php endif; ?>
+                <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-info sr-action-btn sr-split" data-id="<?php echo $rid; ?>" title="Cek Split" aria-label="Cek Split"><i class="ri ri-git-branch-line"></i></button><?php endif; ?>
+                <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-warning sr-action-btn sr-fulfill" data-id="<?php echo $rid; ?>" title="Fulfilled dari gudang" aria-label="Fulfilled dari gudang"><i class="ri ri-checkbox-circle-line"></i></button><?php endif; ?>
+                <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-primary sr-action-btn sr-gpo" data-id="<?php echo $rid; ?>" title="Generate PO Shortage" aria-label="Generate PO Shortage"><i class="ri ri-shopping-bag-3-line"></i></button><?php endif; ?>
+                <?php if ($st === 'DRAFT'): ?><a href="<?php echo site_url('store-requests/edit/' . $rid); ?>" class="btn btn-sm btn-outline-warning sr-action-btn" title="Edit Draft" aria-label="Edit Draft"><i class="ri ri-pencil-line"></i></a><?php endif; ?>
+                <?php if (in_array($st, ['DRAFT','SUBMITTED','APPROVED','REJECTED','PARTIAL_FULFILLED','FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="VOID" title="Void" aria-label="Void"><i class="ri ri-close-circle-line"></i></button><?php endif; ?>
+                <?php if ($st === 'VOID' && $canRepairHistory): ?><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-repair-history" data-id="<?php echo $rid; ?>" title="Repair histori stok SR VOID" aria-label="Repair histori stok SR VOID"><i class="ri ri-tools-line"></i></button><?php endif; ?>
+              <?php else: ?>
+                <span class="text-muted small">-</span>
+              <?php endif; ?>
             </div>
-            <?php else: ?><span class="text-muted">Aksi edit tidak tersedia.</span><?php endif; ?>
           </td>
         </tr>
       <?php endforeach; endif; ?>
       </tbody>
       </table>
       </div>
+      <div class="sr-table-footer">
+        <div class="row g-2">
+          <div class="col-md-6"><div class="sr-footer-block"><strong>Pagination Saat Ini</strong><span class="sr-footer-value"><?php echo number_format($srPageCount); ?> nota</span><span>Nilai Req Rp <?php echo number_format($srPageReqValue, 2, ',', '.'); ?> | Nilai Fulfilled Rp <?php echo number_format($srPageFulfilledValue, 2, ',', '.'); ?></span></div></div>
+          <div class="col-md-6"><div class="sr-footer-block"><strong>Total Range Filter</strong><span class="sr-footer-value"><?php echo number_format((int)($filteredSummary['total'] ?? 0)); ?> nota</span><span>Nilai Req Rp <?php echo number_format((float)($filteredSummary['req_value_total'] ?? 0), 2, ',', '.'); ?> | Nilai Fulfilled Rp <?php echo number_format((float)($filteredSummary['fulfilled_value_total'] ?? 0), 2, ',', '.'); ?></span></div></div>
+        </div>
+      </div>
     </div>
     <div class="tab-pane fade <?php echo $activeTab === 'rincian' ? 'show active' : ''; ?>">
       <div class="table-responsive">
-        <table class="table table-striped mb-0">
+        <table class="table table-striped mb-0 sr-detail-table">
           <thead>
             <tr>
-              <th>No SR</th>
-              <th>Tanggal</th>
-              <th>Divisi</th>
-              <th>Tujuan</th>
+              <th>SR</th>
+              <th>Divisi / Tujuan</th>
               <th>Status</th>
-              <th>Line</th>
-              <th>Profile</th>
-              <th>Jenis</th>
-              <th class="text-end">Qty Req (Pack)</th>
-              <th class="text-end">Qty Req (Isi)</th>
-              <th class="text-end">Qty Fulfilled (Pack)</th>
-              <th class="text-end">Qty Fulfilled (Isi)</th>
-              <th class="text-end">Sisa (Pack)</th>
-              <th class="text-end">Sisa (Isi)</th>
-              <th class="text-end">Harga Satuan</th>
-              <th class="text-end">Total Req</th>
-              <th class="text-end">Total Fulfilled</th>
+              <th>Rincian</th>
+              <th class="text-end">Request</th>
+              <th class="text-end">Fulfilled</th>
+              <th class="text-end">Sisa</th>
+              <th class="text-end">Nilai</th>
             </tr>
           </thead>
           <tbody>
           <?php if (empty($lineRows)): ?>
-            <tr><td colspan="17" class="text-center text-muted py-3">Belum ada data rincian Store Request.</td></tr>
+            <tr><td colspan="8" class="text-center text-muted py-3">Belum ada data rincian Store Request.</td></tr>
           <?php else: foreach($lineRows as $ln): ?>
             <?php $remainBuy = (float)($ln['qty_buy_requested'] ?? 0) - (float)($ln['qty_buy_fulfilled'] ?? 0); ?>
             <?php $remain = (float)($ln['qty_content_requested'] ?? 0) - (float)($ln['qty_content_fulfilled'] ?? 0); ?>
             <tr>
-              <td><a href="<?php echo site_url('store-requests/detail/' . (int)($ln['store_request_id'] ?? 0)); ?>"><strong><?php echo html_escape((string)($ln['sr_no'] ?? '-')); ?></strong></a></td>
-              <td><?php echo html_escape((string)($ln['request_date'] ?? '-')); ?><div class="small text-muted">Need: <?php echo html_escape((string)($ln['needed_date'] ?? '-')); ?></div></td>
-              <td><?php echo html_escape((string)($ln['division_name'] ?? '-')); ?></td>
-              <td><?php echo html_escape((string)($ln['destination_type'] ?? '-')); ?></td>
-              <td><?php echo html_escape((string)($ln['status'] ?? '-')); ?></td>
-              <td>#<?php echo (int)($ln['line_no'] ?? 0); ?></td>
-              <td><strong><?php echo html_escape((string)($ln['profile_name'] ?? '-')); ?></strong></td>
-              <td><?php echo html_escape((string)($ln['effective_line_kind'] ?? $ln['line_kind'] ?? '-')); ?></td>
-              <td class="text-end"><?php echo ui_num((float)($ln['qty_buy_requested'] ?? 0)); ?></td>
-              <td class="text-end"><?php echo ui_num((float)($ln['qty_content_requested'] ?? 0)); ?></td>
-              <td class="text-end"><?php echo ui_num((float)($ln['qty_buy_fulfilled'] ?? 0)); ?></td>
-              <td class="text-end"><?php echo ui_num((float)($ln['qty_content_fulfilled'] ?? 0)); ?></td>
-              <td class="text-end"><?php echo ui_num($remainBuy); ?></td>
-              <td class="text-end"><?php echo ui_num($remain); ?></td>
-              <td class="text-end">Rp <?php echo number_format((float)($ln['unit_cost_ref'] ?? 0), 2, ',', '.'); ?></td>
-              <td class="text-end">Rp <?php echo number_format((float)($ln['req_total_value'] ?? 0), 2, ',', '.'); ?></td>
-              <td class="text-end">Rp <?php echo number_format((float)($ln['fulfilled_total_value'] ?? 0), 2, ',', '.'); ?></td>
+              <td>
+                <a href="<?php echo site_url('store-requests/detail/' . (int)($ln['store_request_id'] ?? 0)); ?>"><span class="sr-detail-title"><?php echo html_escape((string)($ln['sr_no'] ?? '-')); ?></span></a>
+                <span class="sr-detail-subtext"><?php echo html_escape((string)($ln['request_date'] ?? '-')); ?></span>
+                <span class="sr-detail-subtext">Need <?php echo html_escape((string)($ln['needed_date'] ?? '-')); ?></span>
+              </td>
+              <td>
+                <span class="sr-detail-title"><?php echo html_escape((string)($ln['division_name'] ?? '-')); ?></span>
+                <span class="sr-detail-subtext"><?php echo html_escape((string)($ln['destination_type'] ?? '-')); ?></span>
+              </td>
+              <td>
+                <span class="badge bg-light text-dark border"><?php echo html_escape((string)($ln['status'] ?? '-')); ?></span>
+              </td>
+              <td>
+                <span class="sr-detail-title">#<?php echo (int)($ln['line_no'] ?? 0); ?> - <?php echo html_escape((string)($ln['profile_name'] ?? '-')); ?></span>
+                <span class="sr-detail-subtext">Jenis: <?php echo html_escape((string)($ln['effective_line_kind'] ?? $ln['line_kind'] ?? '-')); ?></span>
+                <span class="sr-detail-subtext"><?php echo html_escape((string)($ln['profile_brand'] ?? '')); ?> <?php echo html_escape((string)($ln['profile_description'] ?? '')); ?></span>
+              </td>
+              <td class="text-end">
+                <span class="sr-detail-num"><?php echo ui_num((float)($ln['qty_buy_requested'] ?? 0)); ?> <?php echo html_escape((string)($ln['profile_buy_uom_code'] ?? '')); ?></span>
+                <span class="sr-detail-subtext"><?php echo ui_num((float)($ln['qty_content_requested'] ?? 0)); ?> <?php echo html_escape((string)($ln['profile_content_uom_code'] ?? '')); ?></span>
+              </td>
+              <td class="text-end">
+                <span class="sr-detail-num"><?php echo ui_num((float)($ln['qty_buy_fulfilled'] ?? 0)); ?> <?php echo html_escape((string)($ln['profile_buy_uom_code'] ?? '')); ?></span>
+                <span class="sr-detail-subtext"><?php echo ui_num((float)($ln['qty_content_fulfilled'] ?? 0)); ?> <?php echo html_escape((string)($ln['profile_content_uom_code'] ?? '')); ?></span>
+              </td>
+              <td class="text-end">
+                <span class="sr-detail-num"><?php echo ui_num($remainBuy); ?> <?php echo html_escape((string)($ln['profile_buy_uom_code'] ?? '')); ?></span>
+                <span class="sr-detail-subtext"><?php echo ui_num($remain); ?> <?php echo html_escape((string)($ln['profile_content_uom_code'] ?? '')); ?></span>
+              </td>
+              <td class="text-end">
+                <span class="sr-detail-num">Req Rp <?php echo number_format((float)($ln['req_total_value'] ?? 0), 2, ',', '.'); ?></span>
+                <span class="sr-detail-subtext">Fulfilled Rp <?php echo number_format((float)($ln['fulfilled_total_value'] ?? 0), 2, ',', '.'); ?></span>
+                <span class="sr-detail-subtext">Harga Rp <?php echo number_format((float)($ln['unit_cost_ref'] ?? 0), 2, ',', '.'); ?></span>
+              </td>
             </tr>
           <?php endforeach; endif; ?>
           </tbody>
         </table>
+      </div>
+      <div class="sr-table-footer">
+        <div class="row g-2">
+          <div class="col-md-6"><div class="sr-footer-block"><strong>Pagination Saat Ini</strong><span class="sr-footer-value"><?php echo number_format($srLinePageCount); ?> baris</span><span>Nilai Req Rp <?php echo number_format($srLinePageReqValue, 2, ',', '.'); ?> | Nilai Fulfilled Rp <?php echo number_format($srLinePageFulfilledValue, 2, ',', '.'); ?></span></div></div>
+          <div class="col-md-6"><div class="sr-footer-block"><strong>Total Range Filter</strong><span class="sr-footer-value"><?php echo number_format((int)($lineSummary['total_lines'] ?? 0)); ?> baris</span><span>Nilai Req Rp <?php echo number_format((float)($lineSummary['req_value_total'] ?? 0), 2, ',', '.'); ?> | Nilai Fulfilled Rp <?php echo number_format((float)($lineSummary['fulfilled_value_total'] ?? 0), 2, ',', '.'); ?></span></div></div>
+        </div>
       </div>
     </div>
   </div>
@@ -267,16 +608,16 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
             </div>
             <div class="sr-scroll mt-2">
               <table class="table table-sm mb-0">
-                <thead><tr><th>Profile</th><th>UOM</th><th class="text-end">Stok Gudang</th><th>Tgl Beli Terakhir</th><th style="width:80px">Aksi</th></tr></thead>
-                <tbody id="srProfileResults"><tr><td colspan="5" class="text-muted text-center py-2">Belum ada pencarian.</td></tr></tbody>
+                <thead><tr><th>Profile</th><th>Keterangan</th><th>UOM</th><th class="text-end">Stok Gudang</th><th class="text-end">Harga Satuan</th><th>Exp Date</th><th>Tgl Beli Terakhir</th><th style="width:80px">Aksi</th></tr></thead>
+                <tbody id="srProfileResults"><tr><td colspan="8" class="text-muted text-center py-2">Belum ada pencarian.</td></tr></tbody>
               </table>
             </div>
           </div>
 
           <div class="table-responsive">
             <table class="table table-sm table-striped mb-0">
-              <thead><tr><th>Profile</th><th>Jenis</th><th>UOM</th><th class="text-end">Stok Gudang</th><th>Qty Beli Req</th><th>Qty Isi Req</th><th>Aksi</th></tr></thead>
-              <tbody id="srLineTableBody"><tr><td colspan="7" class="text-muted text-center py-2">Belum ada line.</td></tr></tbody>
+              <thead><tr><th>Profile</th><th>Keterangan</th><th>Jenis</th><th>UOM</th><th class="text-end">Stok Gudang</th><th class="text-end">Harga Satuan</th><th>Exp Date</th><th>Qty Beli Req</th><th>Qty Isi Req</th><th>Aksi</th></tr></thead>
+              <tbody id="srLineTableBody"><tr><td colspan="10" class="text-muted text-center py-2">Belum ada line.</td></tr></tbody>
             </table>
           </div>
         </form>
@@ -338,6 +679,8 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
   function flashCreate(type, msg){ if(!createAlertBox) return; createAlertBox.innerHTML='<div class="alert alert-'+type+' py-2 mb-2">'+msg+'</div>'; }
   function num(v){ var n=Number(v||0); return Number.isFinite(n)?n:0; }
   function esc(s){ return String(s||'').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function fmtMoney(v){ return 'Rp ' + num(v).toLocaleString('id-ID', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+  function fmtDate(v){ return v ? esc(v) : '-'; }
   function fetchJson(url, opts){ return fetch(url, opts).then(function(res){ return res.text().then(function(t){ var d={}; try{d=t?JSON.parse(t):{};}catch(e){d={};} if(!res.ok && !d.ok){ d.ok=false; d.message=d.message||('Request gagal ('+res.status+')'); } return d;}); }); }
   function uiConfirm(message, options){
     if(window.FinanceUI && typeof window.FinanceUI.confirm === 'function'){
@@ -425,18 +768,24 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
 
   function renderCreateSearch(rows){
     var tb = document.getElementById('srProfileResults'); if(!tb) return;
-    if(!rows || !rows.length){ tb.innerHTML='<tr><td colspan="5" class="text-muted text-center py-2">Tidak ada data.</td></tr>'; return; }
+    if(!rows || !rows.length){ tb.innerHTML='<tr><td colspan="8" class="text-muted text-center py-2">Tidak ada data.</td></tr>'; return; }
     var html='';
     rows.forEach(function(row){
       var buyCode = esc(row.profile_buy_uom_code || '-');
       var contentCode = esc(row.profile_content_uom_code || '-');
       var stockBuy = num(row.qty_buy_balance).toFixed(2);
       var stockContent = num(row.qty_content_balance).toFixed(2);
+      var brandText = row.profile_brand ? '<div class="small text-muted">Brand: '+esc(row.profile_brand)+'</div>' : '';
+      var descriptionText = row.profile_description ? esc(row.profile_description) : '<span class="text-muted">-</span>';
+      var expDateText = fmtDate(row.profile_expired_date || '');
       var lastPurchaseDate = row.last_purchase_date ? esc(row.last_purchase_date) : '-';
       html += '<tr>'
-        + '<td><strong>'+esc(row.profile_name||'-')+'</strong></td>'
+        + '<td><strong>'+esc(row.profile_name||'-')+'</strong>'+brandText+'</td>'
+        + '<td class="small">'+descriptionText+'</td>'
         + '<td>'+buyCode+' -> '+contentCode+'</td>'
         + '<td class="text-end"><div class="fw-semibold">'+stockBuy+' '+buyCode+'</div><div class="small text-muted">'+stockContent+' '+contentCode+'</div></td>'
+        + '<td class="text-end"><div class="fw-semibold">'+fmtMoney(row.last_unit_price)+'</div><div class="small text-muted">/ '+buyCode+'</div></td>'
+        + '<td>'+expDateText+'</td>'
         + '<td>'+lastPurchaseDate+'</td>'
         + '<td><button type="button" class="btn btn-sm btn-outline-primary sr-pick-profile" data-row="'+esc(JSON.stringify(row))+'">Pilih</button></td>'
         + '</tr>';
@@ -446,14 +795,19 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
 
   function renderCreateLines(){
     var tb=document.getElementById('srLineTableBody'); if(!tb) return;
-    if(!createLines.length){ tb.innerHTML='<tr><td colspan="7" class="text-muted text-center py-2">Belum ada line.</td></tr>'; return; }
+    if(!createLines.length){ tb.innerHTML='<tr><td colspan="10" class="text-muted text-center py-2">Belum ada line.</td></tr>'; return; }
     var html='';
     createLines.forEach(function(line, idx){
+      var lineBrand = line.profile_brand ? '<div class="small text-muted">Brand: '+esc(line.profile_brand)+'</div>' : '';
+      var lineDescription = line.profile_description ? esc(line.profile_description) : '<span class="text-muted">-</span>';
       html += '<tr>'
-        + '<td><strong>'+esc(line.profile_name||'-')+'</strong></td>'
+        + '<td><strong>'+esc(line.profile_name||'-')+'</strong>'+lineBrand+'</td>'
+        + '<td class="small">'+lineDescription+'</td>'
         + '<td>'+esc(line.line_kind||'-')+'</td>'
         + '<td>'+esc(line.profile_buy_uom_code||'-')+' -> '+esc(line.profile_content_uom_code||'-')+'</td>'
         + '<td class="text-end"><div class="fw-semibold">'+num(line.qty_buy_balance).toFixed(2)+' '+esc(line.profile_buy_uom_code||'-')+'</div><div class="small text-muted">'+num(line.qty_content_balance).toFixed(2)+' '+esc(line.profile_content_uom_code||'-')+'</div></td>'
+        + '<td class="text-end"><div class="fw-semibold">'+fmtMoney(line.last_unit_price)+'</div><div class="small text-muted">/ '+esc(line.profile_buy_uom_code||'-')+'</div></td>'
+        + '<td>'+fmtDate(line.profile_expired_date || '')+'</td>'
         + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm sr-qty-buy" data-idx="'+idx+'" value="'+num(line.qty_buy_requested).toFixed(2)+'"></td>'
         + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm sr-qty-content" data-idx="'+idx+'" value="'+num(line.qty_content_requested).toFixed(2)+'"></td>'
         + '<td><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-remove-line" data-idx="'+idx+'">Hapus</button></td>'
@@ -479,11 +833,15 @@ $resetUrl = site_url('store-requests') . '?tab=' . urlencode($activeTab);
       profile_brand: row.profile_brand || '',
       profile_description: row.profile_description || '',
       profile_expired_date: row.profile_expired_date || '',
+      expiry_policy: row.expiry_policy || ((row.required_expiry_date || row.profile_expired_date) ? 'EXACT_DATE' : 'NONE'),
+      required_expiry_date: row.required_expiry_date || row.profile_expired_date || '',
+      min_remaining_days: num(row.min_remaining_days || 0) || null,
       buy_uom_id: num(row.buy_uom_id),
       content_uom_id: num(row.content_uom_id),
       profile_content_per_buy: cpb,
       profile_buy_uom_code: row.profile_buy_uom_code || '',
       profile_content_uom_code: row.profile_content_uom_code || '',
+      last_unit_price: num(row.last_unit_price || row.standard_price),
       qty_buy_balance: num(row.qty_buy_balance),
       qty_content_balance: num(row.qty_content_balance),
       qty_buy_requested: 1,
