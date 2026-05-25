@@ -34,7 +34,7 @@ $product = $byScope['PRODUCT'] ?? ['scope_code' => 'PRODUCT', 'default_percent' 
           <tbody>
             <tr data-scope="COMPONENT">
               <td><strong>COMPONENT</strong><div class="small text-muted">Dipakai di HPP total formula component saat mode = DEFAULT.</div></td>
-              <td><input class="form-control" type="number" step="0.0001" min="0" value="<?php echo html_escape((string)$component['default_percent']); ?>" data-field="default_percent"></td>
+              <td><input class="form-control" type="number" step="0.01" min="0" value="<?php echo html_escape((string)$component['default_percent']); ?>" data-field="default_percent"></td>
               <td><input class="form-control" value="<?php echo html_escape((string)$component['notes']); ?>" data-field="notes"></td>
               <td>
                 <select class="form-select" data-field="is_active">
@@ -46,7 +46,7 @@ $product = $byScope['PRODUCT'] ?? ['scope_code' => 'PRODUCT', 'default_percent' 
             </tr>
             <tr data-scope="PRODUCT">
               <td><strong>PRODUCT</strong><div class="small text-muted">Dipakai modul produk saat mode = DEFAULT.</div></td>
-              <td><input class="form-control" type="number" step="0.0001" min="0" value="<?php echo html_escape((string)$product['default_percent']); ?>" data-field="default_percent"></td>
+              <td><input class="form-control" type="number" step="0.01" min="0" value="<?php echo html_escape((string)$product['default_percent']); ?>" data-field="default_percent"></td>
               <td><input class="form-control" value="<?php echo html_escape((string)$product['notes']); ?>" data-field="notes"></td>
               <td>
                 <select class="form-select" data-field="is_active">

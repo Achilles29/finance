@@ -1028,6 +1028,7 @@ $cls = $status_class[$row['status']] ?? 'secondary';
 - Icon wajib ada untuk semua tombol (tidak boleh teks saja di tabel)
 - Untuk tabel yang memang butuh banyak tombol inline, pertahankan kolom aksi tetap satu baris dengan `nowrap + overflow-x auto`; rapatkan kolom lain dulu sebelum tombol dibiarkan turun baris
 - Di modul yang memakai tombol ikon inline, pakai kamus ikon yang konsisten: `Detail/Lihat = ri-eye-line`, `Edit/Ubah = ri-edit-line`, `Toggle Status = ri-refresh-line`, `Hapus = ri-delete-bin-line`, `Post = ri-upload-2-line`
+- Khusus halaman `production/component-*`, pakai helper `production/_component_ops_tabs.php` dan ukuran tombol ikon besar: `38×38px` dengan ikon sekitar `1.12rem`; jangan kembali ke ukuran default `28×28`
 - Jangan tukar ikon detail ke `book-open`, `external-link`, atau ikon lain dalam modul yang sama kecuali maknanya benar-benar berbeda
 
 ---

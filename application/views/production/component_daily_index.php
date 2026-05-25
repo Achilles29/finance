@@ -1,7 +1,17 @@
 <?php
 $filters = is_array($filters ?? null) ? $filters : [];
 $rows = is_array($rows ?? null) ? $rows : [];
-$locationOptions = is_array($location_options ?? null) ? $location_options : [];
+$locationFilterOptions = ['' => 'Semua Lokasi', 'REGULER' => 'Reguler', 'EVENT' => 'Event'];
+$locationGroupLabel = static function ($locationType): string {
+  $value = strtoupper(trim((string)$locationType));
+  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') {
+    return 'Event';
+  }
+  if ($value === 'BAR' || $value === 'KITCHEN') {
+    return 'Reguler';
+  }
+  return $value !== '' ? $value : '-';
+};
 ?>
 
 <div class="mb-3">
@@ -25,7 +35,7 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
       <div class="col-md-3">
         <label class="form-label mb-1">Lokasi</label>
         <select name="location_type" class="form-select">
-          <?php foreach ($locationOptions as $key => $label): ?>
+          <?php foreach ($locationFilterOptions as $key => $label): ?>
             <option value="<?php echo html_escape((string)$key); ?>" <?php echo ((string)($filters['location_type'] ?? '') === (string)$key) ? 'selected' : ''; ?>>
               <?php echo html_escape((string)$label); ?>
             </option>
@@ -66,19 +76,19 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
           <?php foreach ($rows as $row): ?>
             <tr>
               <td><?php echo html_escape((string)($row['movement_date'] ?? '-')); ?></td>
-              <td><?php echo html_escape((string)($row['location_type'] ?? '-')); ?></td>
+              <td><?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? '-'))); ?></td>
               <td><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>
               <td>
                 <div><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></div>
                 <small class="text-muted"><?php echo html_escape((string)($row['component_code'] ?? '-')); ?></small>
               </td>
-              <td class="text-end"><?php echo number_format((float)($row['opening_qty'] ?? 0), 4, ',', '.'); ?></td>
-              <td class="text-end"><?php echo number_format((float)($row['in_qty'] ?? 0), 4, ',', '.'); ?></td>
-              <td class="text-end"><?php echo number_format((float)($row['out_qty'] ?? 0), 4, ',', '.'); ?></td>
-              <td class="text-end"><?php echo number_format((float)($row['adjustment_qty'] ?? 0), 4, ',', '.'); ?></td>
-              <td class="text-end"><?php echo number_format((float)($row['waste_qty'] ?? 0), 4, ',', '.'); ?></td>
-              <td class="text-end"><?php echo number_format((float)($row['spoil_qty'] ?? 0), 4, ',', '.'); ?></td>
-              <td class="text-end fw-semibold"><?php echo number_format((float)($row['closing_qty'] ?? 0), 4, ',', '.'); ?></td>
+              <td class="text-end"><?php echo number_format((float)($row['opening_qty'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end"><?php echo number_format((float)($row['in_qty'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end"><?php echo number_format((float)($row['out_qty'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end"><?php echo number_format((float)($row['adjustment_qty'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end"><?php echo number_format((float)($row['waste_qty'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end"><?php echo number_format((float)($row['spoil_qty'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end fw-semibold"><?php echo number_format((float)($row['closing_qty'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end"><?php echo number_format((float)($row['total_value'] ?? 0), 2, ',', '.'); ?></td>
             </tr>
           <?php endforeach; ?>

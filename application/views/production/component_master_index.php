@@ -73,6 +73,7 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
               <th>Kode</th>
               <th>Nama</th>
               <th>Tipe</th>
+              <th class="text-end">Hasil 1x Produksi</th>
               <th>Divisi</th>
               <th>Kategori</th>
               <th>UOM</th>
@@ -151,7 +152,11 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
           </div>
           <div class="col-md-3"><label class="form-label mb-1 small text-muted">HPP Standar</label><input class="form-control" name="hpp_standard" value="0" placeholder="0.000000"></div>
           <div class="col-md-3"><label class="form-label mb-1 small text-muted">Yield %</label><input class="form-control" name="yield_percent" value="100" placeholder="100"></div>
-          <div class="col-md-3"><label class="form-label mb-1 small text-muted">Std Batch Qty</label><input class="form-control" name="std_batch_qty" value="1" placeholder="1"></div>
+          <div class="col-md-3">
+            <label class="form-label mb-1 small text-muted">Hasil 1x Produksi</label>
+            <input class="form-control" name="std_batch_qty" value="1" placeholder="1">
+            <div class="form-text">Ini output resep dasar per 1 kali produksi, mis. 12 porsi / 500 gr / 2.000 ml.</div>
+          </div>
           <div class="col-md-3"><label class="form-label mb-1 small text-muted">Process Loss %</label><input class="form-control" name="process_loss_percent" value="0" placeholder="0"></div>
           <div class="col-md-3"><label class="form-label mb-1 small text-muted">Shelf Life (hari)</label><input class="form-control" name="shelf_life_days" value="0" placeholder="0"></div>
         </form>
@@ -264,11 +269,12 @@ function renderRows(rows) {
       <td>${escapeHtml(r.component_code)}</td>
       <td>${escapeHtml(r.component_name)}</td>
       <td>${escapeHtml(r.component_type)}</td>
+      <td class="text-end fw-semibold">${Number((r.std_batch_qty ?? r.yield_qty ?? 1) || 1).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${escapeHtml(r.uom_code || '-')}</td>
       <td>${escapeHtml(r.division_name || '-')}</td>
       <td>${escapeHtml(r.category_name || '-')}</td>
       <td>${escapeHtml(r.uom_code || '-')}</td>
-      <td class="text-end">${Number(r.hpp_standard || 0).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 6})}</td>
-      <td class="text-end">${Number(r.hpp_live || 0).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 6})}</td>
+      <td class="text-end">${Number(r.hpp_standard || 0).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+      <td class="text-end">${Number(r.hpp_live || 0).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
       <td>
         ${parseInt(r.usage_count || 0, 10) > 0
           ? `<a href="<?php echo site_url('production/component-masters/usage'); ?>/${r.id}" class="badge bg-warning-subtle text-warning-emphasis text-decoration-none">Ya (${parseInt(r.usage_count || 0, 10)})</a><div class="small text-muted mt-1">${parseInt(r.component_usage_count || 0, 10)} base/prepare • ${parseInt(r.product_usage_count || 0, 10)} produk</div>`

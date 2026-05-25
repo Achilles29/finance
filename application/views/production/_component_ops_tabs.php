@@ -55,9 +55,20 @@ $buttonClass = static function (string $key) use ($activeTab): string {
   }
   .component-action-btn {
     flex-shrink: 0;
+    width: 38px !important;
+    min-width: 38px !important;
+    height: 38px !important;
+    padding: 0 !important;
+    border-radius: 10px !important;
   }
-  .component-action-btn i {
+  .component-action-btn i,
+  .component-action-btn [class^="ri-"],
+  .component-action-btn [class*=" ri-"] {
+    font-size: 1.12rem !important;
     line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 </style>
 

@@ -84,7 +84,7 @@ class Production extends MY_Controller
         if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
             $month = date('Y-m');
         }
-        $locationType = $this->normalize_location_type($this->input->get('location_type', true));
+        $locationType = $this->normalize_location_filter($this->input->get('location_type', true));
         $divisionId = (int)$this->input->get('division_id', true);
         $filters = [
             'q' => $q,
@@ -187,7 +187,7 @@ class Production extends MY_Controller
         $result = $this->Production_model->generate_component_monthly_opname_and_opening(
             [
                 'month' => (string)($payload['month'] ?? date('Y-m')),
-                'location_type' => $this->normalize_location_type($payload['location_type'] ?? ''),
+                'location_type' => $this->normalize_location_filter($payload['location_type'] ?? ''),
                 'division_id' => !empty($payload['division_id']) ? (int)$payload['division_id'] : null,
             ],
             (int)($this->current_user['employee_id'] ?? 0)
@@ -305,6 +305,10 @@ class Production extends MY_Controller
             'component_id' => (int)($payload['component_id'] ?? 0),
             'output_qty' => (float)($payload['output_qty'] ?? 0),
             'output_uom_id' => (int)($payload['output_uom_id'] ?? 0),
+            'scaling_mode' => (string)($payload['scaling_mode'] ?? 'BATCH'),
+            'batch_count' => (float)($payload['batch_count'] ?? 0),
+            'reference_line_no' => (int)($payload['reference_line_no'] ?? 0),
+            'reference_actual_qty' => (float)($payload['reference_actual_qty'] ?? 0),
             'notes' => (string)($payload['notes'] ?? ''),
         ];
         $lines = $this->normalize_lines((array)($payload['lines'] ?? []), 'batch');
@@ -314,6 +318,32 @@ class Production extends MY_Controller
             return;
         }
         $this->json_ok(['id' => (int)$save['id']]);
+    }
+
+    public function component_batch_preview()
+    {
+        $this->require_permission('production.component.batch.index', 'view');
+        $payload = $this->request_payload();
+        if (empty($payload)) {
+            $payload = [
+                'component_id' => (int)$this->input->get('component_id', true),
+                'output_qty' => (float)$this->input->get('output_qty', true),
+                'location_type' => (string)$this->input->get('location_type', true),
+            ];
+        }
+        $preview = $this->Production_model->component_batch_preview([
+            'component_id' => (int)($payload['component_id'] ?? 0),
+            'location_type' => (string)($payload['location_type'] ?? ''),
+            'scaling_mode' => (string)($payload['scaling_mode'] ?? 'BATCH'),
+            'batch_count' => (float)($payload['batch_count'] ?? 0),
+            'reference_line_no' => (int)($payload['reference_line_no'] ?? 0),
+            'reference_actual_qty' => (float)($payload['reference_actual_qty'] ?? 0),
+        ]);
+        if (!($preview['ok'] ?? false)) {
+            $this->json_error((string)($preview['message'] ?? 'Preview batch gagal.'), 422);
+            return;
+        }
+        $this->json_ok($preview);
     }
 
     public function component_batch_post($id)
@@ -378,10 +408,12 @@ class Production extends MY_Controller
         }
         $excludeId = (int)$this->input->get('exclude_id', true);
         $componentType = strtoupper(trim((string)$this->input->get('component_type', true)));
+        $divisionId = (int)$this->input->get('division_id', true);
 
         $rows = $this->Production_model->search_picker_options($entity, $q, $limit, [
             'exclude_id' => $excludeId,
             'component_type' => $componentType,
+            'division_id' => $divisionId > 0 ? $divisionId : null,
         ]);
         $this->json_ok(['rows' => $rows]);
     }
@@ -705,7 +737,7 @@ class Production extends MY_Controller
     {
         return [
             'q' => trim((string)$this->input->get('q', true)),
-            'location_type' => $this->normalize_location_type($this->input->get('location_type', true)),
+            'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
         ];
     }
 
@@ -722,7 +754,7 @@ class Production extends MY_Controller
 
         return [
             'q' => trim((string)$this->input->get('q', true)),
-            'location_type' => $this->normalize_location_type($this->input->get('location_type', true)),
+            'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
             'movement_type' => strtoupper(trim((string)$this->input->get('movement_type', true))),
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
@@ -739,10 +771,23 @@ class Production extends MY_Controller
         return [
             'q' => trim((string)$this->input->get('q', true)),
             'month' => $month,
-            'location_type' => $this->normalize_location_type($this->input->get('location_type', true)),
+            'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
         ];
     }
-
+    private function normalize_location_filter($value)
+    {
+        $value = strtoupper(trim((string)$value));
+        if (in_array($value, ['REGULER', 'EVENT'], true)) {
+            return $value;
+        }
+        if (in_array($value, ['BAR', 'KITCHEN'], true)) {
+            return 'REGULER';
+        }
+        if (in_array($value, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
+            return 'EVENT';
+        }
+        return '';
+    }
     private function location_options()
     {
         return ['' => 'Semua Lokasi', 'BAR' => 'BAR', 'KITCHEN' => 'KITCHEN', 'BAR_EVENT' => 'BAR_EVENT', 'KITCHEN_EVENT' => 'KITCHEN_EVENT'];

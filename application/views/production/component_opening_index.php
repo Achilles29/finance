@@ -9,6 +9,18 @@ $q = (string)($q ?? '');
 $month = preg_match('/^\d{4}-\d{2}$/', (string)($month ?? '')) ? (string)$month : date('Y-m');
 $selectedLocationType = (string)($selected_location_type ?? '');
 $selectedDivisionId = (int)($selected_division_id ?? 0);
+$locationFilterOptions = ['' => 'Semua Lokasi', 'REGULER' => 'Reguler', 'EVENT' => 'Event'];
+
+$locationGroupLabel = static function ($locationType): string {
+  $value = strtoupper(trim((string)$locationType));
+  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') {
+    return 'Event';
+  }
+  if ($value === 'BAR' || $value === 'KITCHEN') {
+    return 'Reguler';
+  }
+  return $value !== '' ? $value : '-';
+};
 
 $componentSummary = count($monthlyRows);
 $monthlyQty = 0.0;
@@ -71,22 +83,20 @@ foreach ($monthlyRows as $monthlyRow) {
               <input type="date" class="form-control" name="opening_date" value="<?php echo date('Y-m-d'); ?>" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Lokasi</label>
-              <select class="form-select" name="location_type" required>
-                <option value="">Pilih lokasi...</option>
-                <?php foreach ($locationOptions as $key => $label): if ($key === '') continue; ?>
-                  <option value="<?php echo html_escape($key); ?>"><?php echo html_escape($label); ?></option>
-                <?php endforeach; ?>
-              </select>
+              <label class="form-label">Divisi</label>
+              <input type="hidden" name="division_id" id="opening-division-id" value="">
+              <input type="text" class="form-control" id="opening-division-name" value="Ikuti component" readonly>
+              <div class="form-text" id="opening-division-help">Divisi otomatis mengikuti component yang dipilih di baris opening.</div>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Divisi</label>
-              <select class="form-select" name="division_id">
-                <option value="">Semua / Tidak spesifik</option>
-                <?php foreach ($divisions as $division): ?>
-                  <option value="<?php echo (int)$division['id']; ?>"><?php echo html_escape((string)($division['code'] ?? '')); ?><?php echo !empty($division['code']) ? ' - ' : ''; ?><?php echo html_escape((string)($division['name'] ?? '')); ?></option>
-                <?php endforeach; ?>
+              <label class="form-label">Lokasi</label>
+              <input type="hidden" name="location_type" id="opening-location-type" value="">
+              <select class="form-select" id="opening-location-group" required>
+                <option value="">Pilih lokasi...</option>
+                <option value="REGULER">Reguler</option>
+                <option value="EVENT">Event</option>
               </select>
+              <div class="form-text" id="opening-location-help">Pilih component dulu agar lokasi bisa diturunkan otomatis.</div>
             </div>
             <div class="col-md-3">
               <label class="form-label">Catatan Header</label>
@@ -119,7 +129,7 @@ foreach ($monthlyRows as $monthlyRow) {
               </div>
               <div>
                 <div class="small text-muted">Total Qty</div>
-                <div class="component-doc-summary-value" id="opening-total-qty">0.0000</div>
+                <div class="component-doc-summary-value" id="opening-total-qty">0,00</div>
               </div>
               <div>
                 <div class="small text-muted">Total Nilai</div>
@@ -147,8 +157,7 @@ foreach ($monthlyRows as $monthlyRow) {
           <div class="col-12">
             <label class="form-label">Lokasi</label>
             <select class="form-select" id="monthly-location-type">
-              <option value="">Semua lokasi</option>
-              <?php foreach ($locationOptions as $key => $label): if ($key === '') continue; ?>
+              <?php foreach ($locationFilterOptions as $key => $label): ?>
                 <option value="<?php echo html_escape($key); ?>" <?php echo $selectedLocationType === $key ? 'selected' : ''; ?>><?php echo html_escape($label); ?></option>
               <?php endforeach; ?>
             </select>
@@ -171,7 +180,7 @@ foreach ($monthlyRows as $monthlyRow) {
           </div>
           <div>
             <div class="small text-muted">Qty Opening</div>
-            <div class="component-doc-summary-value"><?php echo number_format($monthlyQty, 4, ',', '.'); ?></div>
+            <div class="component-doc-summary-value"><?php echo number_format($monthlyQty, 2, ',', '.'); ?></div>
           </div>
           <div>
             <div class="small text-muted">Nilai</div>
@@ -200,8 +209,7 @@ foreach ($monthlyRows as $monthlyRow) {
         <div class="col-auto">
           <label class="form-label mb-1">Lokasi</label>
           <select class="form-select" name="location_type">
-            <option value="">Semua lokasi</option>
-            <?php foreach ($locationOptions as $key => $label): if ($key === '') continue; ?>
+            <?php foreach ($locationFilterOptions as $key => $label): ?>
               <option value="<?php echo html_escape($key); ?>" <?php echo $selectedLocationType === $key ? 'selected' : ''; ?>><?php echo html_escape($label); ?></option>
             <?php endforeach; ?>
           </select>
@@ -244,15 +252,15 @@ foreach ($monthlyRows as $monthlyRow) {
               <tr>
                 <td><?php echo html_escape((string)($row['opening_no'] ?? '')); ?></td>
                 <td><?php echo html_escape((string)($row['opening_date'] ?? '')); ?></td>
-                <td><?php echo html_escape((string)($row['location_type'] ?? '')); ?></td>
+                <td><?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? ''))); ?></td>
                 <td><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>
                 <td><?php echo html_escape((string)($row['notes'] ?? '-')); ?></td>
                 <td><?php echo ui_status_badge((string)($row['status'] ?? 'DRAFT')); ?></td>
                 <td class="component-action-cell">
                   <?php if (strtoupper((string)($row['status'] ?? '')) === 'DRAFT'): ?>
                     <div class="component-action-stack">
-                      <button type="button" class="btn btn-success btn-sm action-icon-btn component-action-btn btn-post" data-id="<?php echo (int)$row['id']; ?>" title="Post" aria-label="Post"><i class="ri ri-upload-2-line"></i></button>
-                      <button type="button" class="btn btn-outline-danger btn-sm action-icon-btn component-action-btn btn-del" data-id="<?php echo (int)$row['id']; ?>" title="Delete" aria-label="Delete"><i class="ri ri-delete-bin-line"></i></button>
+                      <button type="button" class="btn btn-outline-success action-icon-btn component-action-btn btn-post" data-id="<?php echo (int)$row['id']; ?>" title="Post" aria-label="Post"><i class="ri ri-upload-2-line"></i></button>
+                      <button type="button" class="btn btn-outline-danger action-icon-btn component-action-btn btn-del" data-id="<?php echo (int)$row['id']; ?>" title="Delete" aria-label="Delete"><i class="ri ri-delete-bin-line"></i></button>
                     </div>
                   <?php endif; ?>
                 </td>
@@ -296,12 +304,12 @@ foreach ($monthlyRows as $monthlyRow) {
             <?php foreach ($monthlyRows as $monthlyRow): ?>
               <tr>
                 <td><?php echo html_escape((string)($monthlyRow['month_key'] ?? '')); ?></td>
-                <td><?php echo html_escape((string)($monthlyRow['location_type'] ?? '')); ?></td>
+                <td><?php echo html_escape($locationGroupLabel((string)($monthlyRow['location_type'] ?? ''))); ?></td>
                 <td><?php echo html_escape((string)($monthlyRow['division_name'] ?? '-')); ?></td>
                 <td><?php echo html_escape((string)($monthlyRow['component_name'] ?? '')); ?></td>
                 <td><?php echo html_escape((string)($monthlyRow['uom_name'] ?? $monthlyRow['uom_code'] ?? '')); ?></td>
-                <td class="text-end"><?php echo number_format((float)($monthlyRow['opening_qty'] ?? 0), 4, ',', '.'); ?></td>
-                <td class="text-end"><?php echo number_format((float)($monthlyRow['hpp_live'] ?? 0), 6, ',', '.'); ?></td>
+                <td class="text-end"><?php echo number_format((float)($monthlyRow['opening_qty'] ?? 0), 2, ',', '.'); ?></td>
+                <td class="text-end"><?php echo number_format((float)($monthlyRow['hpp_live'] ?? 0), 2, ',', '.'); ?></td>
                 <td class="text-end"><?php echo number_format((float)($monthlyRow['total_value'] ?? 0), 2, ',', '.'); ?></td>
                 <td><?php echo html_escape((string)($monthlyRow['source_month'] ?? '-')); ?></td>
               </tr>
@@ -331,6 +339,12 @@ foreach ($monthlyRows as $monthlyRow) {
   const alertHost = document.getElementById('component-opening-alert');
   const lineBody = document.getElementById('opening-line-body');
   const form = document.getElementById('frmOpening');
+  const divisionIdInput = document.getElementById('opening-division-id');
+  const divisionNameInput = document.getElementById('opening-division-name');
+  const divisionHelp = document.getElementById('opening-division-help');
+  const locationGroupInput = document.getElementById('opening-location-group');
+  const locationTypeInput = document.getElementById('opening-location-type');
+  const locationHelp = document.getElementById('opening-location-help');
   let lines = [];
 
   function escapeHtml(value) {
@@ -371,10 +385,20 @@ foreach ($monthlyRows as $monthlyRow) {
     return json;
   }
 
+  function uiConfirm(message, options) {
+    if (window.FinanceUI && typeof window.FinanceUI.confirm === 'function') {
+      return window.FinanceUI.confirm(message, options || {});
+    }
+    return Promise.resolve(window.confirm(String(message || 'Lanjutkan aksi?')));
+  }
+
   function blankLine() {
     return {
       component_id: '',
       component_label: '',
+      component_division_id: '',
+      component_division_code: '',
+      component_division_name: '',
       uom_id: '',
       opening_qty: '',
       unit_cost: '',
@@ -391,7 +415,7 @@ foreach ($monthlyRows as $monthlyRow) {
     const totalQty = validLines.reduce((sum, line) => sum + (parseFloat(line.opening_qty) || 0), 0);
     const totalValue = validLines.reduce((sum, line) => sum + ((parseFloat(line.opening_qty) || 0) * (parseFloat(line.unit_cost) || 0)), 0);
     document.getElementById('opening-total-lines').textContent = String(validLines.length);
-    document.getElementById('opening-total-qty').textContent = totalQty.toLocaleString('id-ID', {minimumFractionDigits: 4, maximumFractionDigits: 4});
+    document.getElementById('opening-total-qty').textContent = totalQty.toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2});
     document.getElementById('opening-total-value').textContent = formatCurrency(totalValue);
   }
 
@@ -404,17 +428,52 @@ foreach ($monthlyRows as $monthlyRow) {
   }
 
   function componentPickerLabel(row) {
-    return String(row.name || '');
+    return String(row.name || row.code || '');
   }
 
   function componentPickerSubLabel(row) {
-    return [row.entity_type || '', row.uom_name || row.uom_code || '', row.category_name || ''].filter(Boolean).join(' | ');
+    return [row.entity_type || '', row.division_name || row.division_code || '', row.uom_name || row.uom_code || ''].filter(Boolean).join(' | ');
+  }
+
+  function resolveLocationType(divisionCode, locationGroup) {
+    const normalizedDivision = String(divisionCode || '').trim().toUpperCase();
+    const normalizedGroup = String(locationGroup || '').trim().toUpperCase();
+    if (!normalizedDivision || !normalizedGroup) {
+      return '';
+    }
+    if (normalizedDivision === 'BAR') {
+      return normalizedGroup === 'EVENT' ? 'BAR_EVENT' : 'BAR';
+    }
+    if (normalizedDivision === 'KITCHEN') {
+      return normalizedGroup === 'EVENT' ? 'KITCHEN_EVENT' : 'KITCHEN';
+    }
+    return '';
+  }
+
+  function syncHeaderDivisionState() {
+    const activeLine = lines.find((line) => Number(line.component_id) > 0 && Number(line.component_division_id) > 0);
+    const divisionId = String(activeLine?.component_division_id || '');
+    const divisionCode = String(activeLine?.component_division_code || '').trim();
+    const divisionName = String(activeLine?.component_division_name || '').trim();
+    divisionIdInput.value = divisionId;
+    divisionNameInput.value = divisionId ? [divisionCode, divisionName].filter(Boolean).join(' - ') : 'Ikuti component';
+    divisionHelp.textContent = divisionId
+      ? 'Semua component di dokumen ini dibatasi ke divisi yang sama.'
+      : 'Divisi otomatis mengikuti component yang dipilih di baris opening.';
+    locationTypeInput.value = resolveLocationType(divisionCode, locationGroupInput?.value || '');
+    locationHelp.textContent = divisionId
+      ? (locationTypeInput.value ? 'Lokasi akan disimpan sebagai ' + locationTypeInput.value + '.' : 'Pilih Reguler atau Event untuk menentukan lokasi ledger.')
+      : 'Pilih component dulu agar lokasi bisa diturunkan otomatis.';
   }
 
   function bindComponentPickers() {
     lineBody.querySelectorAll('.component-picker-input').forEach((input) => {
       window.ProductionAjaxPicker.bind(input, {
         entity: 'COMPONENT',
+        params: () => {
+          const currentDivisionId = String(divisionIdInput?.value || '');
+          return currentDivisionId ? {division_id: currentDivisionId} : {};
+        },
         renderLabel: componentPickerLabel,
         renderSubLabel: componentPickerSubLabel,
         onType: (value, currentInput) => {
@@ -425,11 +484,15 @@ foreach ($monthlyRows as $monthlyRow) {
           }
           lines[index].component_label = value;
           lines[index].component_id = '';
+          lines[index].component_division_id = '';
+          lines[index].component_division_code = '';
+          lines[index].component_division_name = '';
           lines[index].uom_id = '';
           const uomSelect = row.querySelector('[data-field="uom_id"]');
           if (uomSelect) {
             uomSelect.value = '';
           }
+          syncHeaderDivisionState();
           renderSummary();
         },
         onSelect: (result, currentInput) => {
@@ -440,7 +503,11 @@ foreach ($monthlyRows as $monthlyRow) {
           }
           lines[index].component_id = String(result.id || '');
           lines[index].component_label = componentPickerLabel(result);
+          lines[index].component_division_id = String(result.operational_division_id || '');
+          lines[index].component_division_code = String(result.division_code || '');
+          lines[index].component_division_name = String(result.division_name || '');
           lines[index].uom_id = String(result.uom_id || '');
+          syncHeaderDivisionState();
           renderLines();
         }
       });
@@ -459,8 +526,8 @@ foreach ($monthlyRows as $monthlyRow) {
         '<td class="text-muted">' + (index + 1) + '</td>' +
         '<td><input type="text" class="form-control form-control-sm component-picker-input" value="' + escapeHtml(line.component_label || '') + '" placeholder="Ketik nama component..."' + (Number(line.component_id) > 0 ? ' data-selected-label="' + escapeHtml(line.component_label || '') + '"' : '') + '></td>' +
         '<td><select class="form-select form-select-sm component-uom-select" data-field="uom_id">' + uomSelectOptions(line.uom_id) + '</select></td>' +
-        '<td><input type="number" min="0" step="0.0001" class="form-control form-control-sm text-end" data-field="opening_qty" value="' + escapeHtml(line.opening_qty) + '"></td>' +
-        '<td><input type="number" min="0" step="0.000001" class="form-control form-control-sm text-end" data-field="unit_cost" value="' + escapeHtml(line.unit_cost) + '"></td>' +
+        '<td><input type="number" min="0" step="0.01" class="form-control form-control-sm text-end" data-field="opening_qty" value="' + escapeHtml(line.opening_qty) + '"></td>' +
+        '<td><input type="number" min="0" step="0.01" class="form-control form-control-sm text-end" data-field="unit_cost" value="' + escapeHtml(line.unit_cost) + '"></td>' +
         '<td><input type="text" class="form-control form-control-sm" data-field="note" value="' + escapeHtml(line.note) + '" placeholder="Opsional"></td>' +
         '<td><button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">×</button></td>' +
       '</tr>';
@@ -536,6 +603,14 @@ foreach ($monthlyRows as $monthlyRow) {
       renderAlert('warning', 'Tambahkan minimal satu baris opening yang valid.');
       return;
     }
+    if (!payload.division_id) {
+      renderAlert('warning', 'Pilih minimal satu component agar divisi opening bisa ditentukan otomatis.');
+      return;
+    }
+    if (!payload.location_type) {
+      renderAlert('warning', 'Pilih lokasi Reguler atau Event terlebih dahulu.');
+      return;
+    }
     try {
       await postJson(saveUrl, payload);
       window.location.reload();
@@ -553,7 +628,11 @@ foreach ($monthlyRows as $monthlyRow) {
       renderAlert('warning', 'Pilih bulan snapshot terlebih dahulu.');
       return;
     }
-    if (!window.confirm('Generate opname penutup bulan ' + monthValue + ' dan opening bulan berikutnya?')) {
+    if (!(await uiConfirm('Generate opname penutup bulan ' + monthValue + ' dan opening bulan berikutnya?', {
+      title: 'Generate Carry-Forward Opening',
+      okText: 'Generate Opening',
+      cancelText: 'Batal'
+    }))) {
       return;
     }
     try {
@@ -575,7 +654,12 @@ foreach ($monthlyRows as $monthlyRow) {
 
   document.querySelectorAll('.btn-post').forEach((button) => {
     button.addEventListener('click', async () => {
-      if (!window.confirm('Post dokumen opening ini?')) {
+      button.blur();
+      if (!(await uiConfirm('Posting opening akan menulis ledger dan saldo component untuk dokumen ini.', {
+        title: 'Post Dokumen Opening',
+        okText: 'Post Opening',
+        cancelText: 'Batal'
+      }))) {
         return;
       }
       try {
@@ -589,7 +673,12 @@ foreach ($monthlyRows as $monthlyRow) {
 
   document.querySelectorAll('.btn-del').forEach((button) => {
     button.addEventListener('click', async () => {
-      if (!window.confirm('Hapus draft opening ini?')) {
+      button.blur();
+      if (!(await uiConfirm('Draft opening ini akan dihapus permanen.', {
+        title: 'Hapus Draft Opening',
+        okText: 'Hapus Draft',
+        cancelText: 'Batal'
+      }))) {
         return;
       }
       try {
@@ -601,7 +690,12 @@ foreach ($monthlyRows as $monthlyRow) {
     });
   });
 
+  locationGroupInput?.addEventListener('change', () => {
+    syncHeaderDivisionState();
+  });
+
   lines = [blankLine()];
+  syncHeaderDivisionState();
   renderLines();
 })();
 </script>

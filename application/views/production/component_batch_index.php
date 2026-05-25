@@ -3,6 +3,17 @@ $rows = is_array($rows ?? null) ? $rows : [];
 $uoms = is_array($uoms ?? null) ? $uoms : [];
 $divisions = is_array($divisions ?? null) ? $divisions : [];
 $locationOptions = is_array($location_options ?? null) ? $location_options : [];
+
+$locationGroupLabel = static function ($locationType): string {
+  $value = strtoupper(trim((string)$locationType));
+  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') {
+    return 'EVENT';
+  }
+  if ($value === 'BAR' || $value === 'KITCHEN') {
+    return 'REGULER';
+  }
+  return $value !== '' ? $value : '-';
+};
 ?>
 
 <style>
@@ -16,11 +27,18 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
     font-size: 1.12rem;
     color: #4c3827;
   }
+  .component-batch-stage {
+    min-width: 138px;
+  }
+  .component-batch-status {
+    font-size: 0.74rem;
+    letter-spacing: 0.02em;
+  }
 </style>
 
 <div class="mb-3">
   <h4 class="mb-1">Batch Produksi Base/Prepare</h4>
-  <small class="text-muted">Pilih output component, tentukan qty jadi, lalu susun input material atau component per baris.</small>
+  <small class="text-muted">Patokan produksi mengikuti hasil 1x resep di master component. Pilih mode sesuai resep atau sesuai bahan acuan, lalu sistem menghitung hasil jadi dan kebutuhan input otomatis.</small>
 </div>
 
 <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'batch']); ?>
@@ -29,12 +47,9 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
 
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body">
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-      <div>
-        <h5 class="mb-1">Form Batch</h5>
-        <small class="text-muted">Editor input mendukung sumber dari MATERIAL maupun COMPONENT tanpa JSON manual.</small>
-      </div>
-      <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-add-batch-line">Tambah Input</button>
+    <div class="mb-3">
+      <h5 class="mb-1">Form Batch</h5>
+      <small class="text-muted">Pilih output component, tentukan lokasi, lalu pilih mode produksi. Sistem akan menghitung hasil jadi berdasarkan resep, bukan dari qty output manual.</small>
     </div>
 
     <form id="frmBatch" autocomplete="off">
@@ -43,77 +58,145 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
           <label class="form-label">Tanggal Batch</label>
           <input type="date" class="form-control" name="batch_date" value="<?php echo date('Y-m-d'); ?>" required>
         </div>
-        <div class="col-md-2">
-          <label class="form-label">Lokasi</label>
-          <select class="form-select" name="location_type" required>
-            <option value="">Pilih lokasi...</option>
-            <?php foreach ($locationOptions as $key => $label): if ($key === '') continue; ?>
-              <option value="<?php echo html_escape($key); ?>"><?php echo html_escape($label); ?></option>
-            <?php endforeach; ?>
-          </select>
+        <div class="col-md-4">
+          <label class="form-label">Output Component</label>
+          <input type="hidden" name="component_id" id="batch-output-component-id" value="">
+          <input type="text" class="form-control" id="batch-output-component-search" placeholder="Ketik nama component..." autocomplete="off" required>
         </div>
         <div class="col-md-3">
           <label class="form-label">Divisi</label>
-          <select class="form-select" name="division_id">
-            <option value="">Semua / Tidak spesifik</option>
-            <?php foreach ($divisions as $division): ?>
-              <option value="<?php echo (int)$division['id']; ?>"><?php echo html_escape((string)($division['code'] ?? '')); ?><?php echo !empty($division['code']) ? ' - ' : ''; ?><?php echo html_escape((string)($division['name'] ?? '')); ?></option>
-            <?php endforeach; ?>
-          </select>
+          <input type="hidden" name="division_id" id="batch-division-id" value="">
+          <input type="text" class="form-control" id="batch-division-name" value="Ikuti output component" readonly>
+          <div class="form-text" id="batch-division-help">Divisi otomatis mengikuti output component.</div>
         </div>
         <div class="col-md-3">
-          <label class="form-label">Output Component</label>
-          <input type="hidden" name="component_id" id="batch-output-component-id" value="">
-          <input type="text" class="form-control" id="batch-output-component-search" placeholder="Ketik kode/nama component..." autocomplete="off" required>
-        </div>
-        <div class="col-md-2">
-          <label class="form-label">Output Qty</label>
-          <input type="number" min="0" step="0.0001" class="form-control text-end" name="output_qty" id="batch-output-qty" placeholder="0.0000" required>
+          <label class="form-label">Lokasi</label>
+          <input type="hidden" name="location_type" id="batch-location-type" value="">
+          <select class="form-select" id="batch-location-group" required>
+            <option value="">Pilih lokasi...</option>
+            <option value="REGULER">Reguler</option>
+            <option value="EVENT">Event</option>
+          </select>
+          <div class="form-text" id="batch-location-help">Pilih output component dulu agar lokasi bisa diturunkan otomatis.</div>
         </div>
       </div>
 
       <div class="row g-2 mb-3">
-        <div class="col-md-3">
-          <label class="form-label">UOM Output</label>
-          <select class="form-select" name="output_uom_id" id="batch-output-uom" required>
-            <option value="">Pilih UOM output...</option>
-            <?php foreach ($uoms as $uom): ?>
-              <option value="<?php echo (int)$uom['id']; ?>"><?php echo html_escape((string)($uom['code'] ?? '')); ?> - <?php echo html_escape((string)($uom['name'] ?? '')); ?></option>
-            <?php endforeach; ?>
+        <div class="col-md-2">
+          <label class="form-label">Mode Produksi</label>
+          <select class="form-select" name="scaling_mode" id="batch-scaling-mode">
+            <option value="BATCH">Sesuai Resep</option>
+            <option value="REFERENCE">Sesuai Bahan Acuan</option>
           </select>
         </div>
-        <div class="col-md-9">
+        <div class="col-md-2" id="batch-count-wrap">
+          <label class="form-label">Jumlah Batch</label>
+          <input type="number" min="0.01" step="0.01" class="form-control text-end" name="batch_count" id="batch-batch-count" value="1.00">
+          <div class="form-text">1 = 1 kali produksi sesuai resep dasar.</div>
+        </div>
+        <div class="col-md-3 d-none" id="batch-reference-line-wrap">
+          <label class="form-label">Bahan Acuan</label>
+          <select class="form-select" name="reference_line_no" id="batch-reference-line-no">
+            <option value="">Pilih bahan acuan...</option>
+          </select>
+        </div>
+        <div class="col-md-2 d-none" id="batch-reference-qty-wrap">
+          <label class="form-label">Qty Aktual Acuan</label>
+          <input type="number" min="0.01" step="0.01" class="form-control text-end" name="reference_actual_qty" id="batch-reference-actual-qty" placeholder="0.00">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">UOM Output</label>
+          <input type="hidden" name="output_uom_id" id="batch-output-uom" value="">
+          <input type="text" class="form-control" id="batch-output-uom-label" value="Ikuti output component" readonly>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Hasil Produksi</label>
+          <input type="hidden" name="output_qty" id="batch-output-qty" value="">
+          <input type="text" class="form-control text-end" id="batch-output-qty-label" value="0,00" readonly>
+          <div class="form-text" id="batch-output-help">Hasil jadi dihitung otomatis dari mode produksi yang dipilih.</div>
+        </div>
+        <div class="col-md-12">
           <label class="form-label">Catatan Header</label>
           <input type="text" class="form-control" name="notes" placeholder="Contoh: batch prep sore hari">
         </div>
       </div>
 
-      <div class="table-responsive">
-        <table class="table table-sm align-middle mb-2">
-          <thead>
-            <tr>
-              <th style="width:34px;">#</th>
-              <th style="width:120px;">Tipe</th>
-              <th style="width:320px;">Sumber</th>
-              <th style="width:140px;">UOM</th>
-              <th style="width:120px;" class="text-end">Qty</th>
-              <th style="width:140px;" class="text-end">Unit Cost</th>
-              <th style="width:140px;" class="text-end">Total</th>
-              <th>Catatan</th>
-              <th style="width:52px;"></th>
-            </tr>
-          </thead>
-          <tbody id="batch-line-body"></tbody>
-        </table>
+      <div class="card border-0 bg-light mb-3">
+        <div class="card-body">
+          <div class="row g-3 mb-3">
+            <div class="col-md-3">
+              <div class="component-batch-summary h-100">
+                <div class="small text-muted">Output Resep Dasar</div>
+                <strong id="batch-base-output">-</strong>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="component-batch-summary h-100">
+                <div class="small text-muted">Mode / Skala</div>
+                <strong id="batch-scaling-summary">-</strong>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="component-batch-summary h-100">
+                <div class="small text-muted">Total Input Cost</div>
+                <strong id="batch-total-input-cost">Rp 0</strong>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="component-batch-summary h-100">
+                <div class="small text-muted">Estimasi Cost / Output</div>
+                <strong id="batch-estimated-unit-cost">Rp 0</strong>
+              </div>
+            </div>
+          </div>
+
+          <div id="batch-preview-issues" class="d-none mb-3"></div>
+          <div id="batch-preview-empty" class="text-muted">Pilih output component, lokasi, dan mode produksi untuk melihat preview produksi.</div>
+
+          <div class="row g-3 mb-3 d-none" id="batch-live-preview">
+            <div class="col-md-4">
+              <div class="component-batch-summary h-100">
+                <div class="small text-muted">Preview Output</div>
+                <strong id="batch-live-output">-</strong>
+                <div class="small text-muted mt-2" id="batch-live-output-note">Hasil jadi akan tampil otomatis setelah parameter produksi diisi.</div>
+              </div>
+            </div>
+            <div class="col-md-8">
+              <div class="component-batch-summary h-100">
+                <div class="small text-muted">Preview Pemakaian Bahan</div>
+                <div id="batch-live-usage" class="small text-body-secondary">Belum ada pemakaian bahan yang bisa dihitung.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="table-responsive d-none" id="batch-preview-wrap">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th style="width:150px;">Tahap</th>
+                  <th style="width:140px;">Role</th>
+                  <th>Sumber</th>
+                  <th style="width:120px;" class="text-end">Qty</th>
+                  <th style="width:120px;" class="text-end">Tersedia</th>
+                  <th style="width:140px;" class="text-end">Unit Cost</th>
+                  <th style="width:140px;" class="text-end">Total</th>
+                  <th style="width:120px;" class="text-center">Status</th>
+                  <th>Catatan</th>
+                </tr>
+              </thead>
+              <tbody id="batch-preview-body"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mt-3">
         <div class="component-batch-summary d-flex flex-wrap gap-4">
-          <div><div class="small text-muted">Input Baris</div><strong id="batch-line-count">0</strong></div>
-          <div><div class="small text-muted">Total Input Cost</div><strong id="batch-total-input-cost">Rp 0</strong></div>
-          <div><div class="small text-muted">Estimasi Cost / Output</div><strong id="batch-estimated-unit-cost">Rp 0</strong></div>
+          <div><div class="small text-muted">Component Langsung</div><strong id="batch-direct-component-count">0</strong></div>
+          <div><div class="small text-muted">Bahan Langsung</div><strong id="batch-direct-material-count">0</strong></div>
+          <div><div class="small text-muted">Variable Cost</div><strong id="batch-variable-cost">Rp 0</strong></div>
         </div>
-        <button type="submit" class="btn btn-primary">Simpan DRAFT</button>
+        <button type="submit" class="btn btn-primary" id="batch-save-btn" disabled>Simpan DRAFT</button>
       </div>
     </form>
   </div>
@@ -143,15 +226,15 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
               <tr id="component-batch-<?php echo (int)$row['id']; ?>">
                 <td><?php echo html_escape((string)($row['batch_no'] ?? '')); ?></td>
                 <td><?php echo html_escape((string)($row['batch_date'] ?? '')); ?></td>
-                <td><?php echo html_escape((string)($row['location_type'] ?? '')); ?></td>
+                <td><?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? ''))); ?></td>
                 <td><?php echo html_escape((string)($row['component_code'] ?? '')); ?> - <?php echo html_escape((string)($row['component_name'] ?? '')); ?></td>
-                <td><?php echo number_format((float)($row['output_qty'] ?? 0), 4, ',', '.'); ?> <?php echo html_escape((string)($row['uom_code'] ?? '')); ?></td>
+                <td><?php echo number_format((float)($row['output_qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($row['uom_code'] ?? '')); ?></td>
                 <td><?php echo ui_status_badge((string)($row['status'] ?? 'DRAFT')); ?></td>
                 <td class="component-action-cell">
                   <?php if (strtoupper((string)($row['status'] ?? '')) === 'DRAFT'): ?>
                     <div class="component-action-stack">
-                      <button type="button" class="btn btn-success btn-sm action-icon-btn component-action-btn btn-post" data-id="<?php echo (int)$row['id']; ?>" title="Post" aria-label="Post"><i class="ri ri-upload-2-line"></i></button>
-                      <button type="button" class="btn btn-outline-danger btn-sm action-icon-btn component-action-btn btn-del" data-id="<?php echo (int)$row['id']; ?>" title="Delete" aria-label="Delete"><i class="ri ri-delete-bin-line"></i></button>
+                      <button type="button" class="btn btn-outline-success action-icon-btn component-action-btn btn-post" data-id="<?php echo (int)$row['id']; ?>" title="Post" aria-label="Post"><i class="ri ri-upload-2-line"></i></button>
+                      <button type="button" class="btn btn-outline-danger action-icon-btn component-action-btn btn-del" data-id="<?php echo (int)$row['id']; ?>" title="Delete" aria-label="Delete"><i class="ri ri-delete-bin-line"></i></button>
                     </div>
                   <?php endif; ?>
                 </td>
@@ -168,24 +251,46 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
 
 <script>
 (() => {
-  const uomOptions = <?php echo json_encode(array_values(array_map(static function ($uom) {
-      return [
-          'id' => (int)($uom['id'] ?? 0),
-          'label' => trim((string)($uom['code'] ?? '') . ' - ' . (string)($uom['name'] ?? '')),
-      ];
-  }, $uoms)), JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+  const previewUrl = '<?php echo site_url('production/component-batches/preview'); ?>';
   const saveUrl = '<?php echo site_url('production/component-batches/save'); ?>';
   const postBaseUrl = '<?php echo site_url('production/component-batches/post'); ?>';
   const deleteBaseUrl = '<?php echo site_url('production/component-batches/delete'); ?>';
 
   const alertHost = document.getElementById('component-batch-alert');
-  const lineBody = document.getElementById('batch-line-body');
+  const previewWrap = document.getElementById('batch-preview-wrap');
+  const previewBody = document.getElementById('batch-preview-body');
+  const previewEmpty = document.getElementById('batch-preview-empty');
+  const previewIssues = document.getElementById('batch-preview-issues');
+  const livePreviewWrap = document.getElementById('batch-live-preview');
+  const liveOutput = document.getElementById('batch-live-output');
+  const liveOutputNote = document.getElementById('batch-live-output-note');
+  const liveUsage = document.getElementById('batch-live-usage');
   const form = document.getElementById('frmBatch');
   const outputComponentId = document.getElementById('batch-output-component-id');
   const outputComponentSearch = document.getElementById('batch-output-component-search');
   const outputQty = document.getElementById('batch-output-qty');
+  const outputQtyLabel = document.getElementById('batch-output-qty-label');
   const outputUom = document.getElementById('batch-output-uom');
-  let lines = [];
+  const outputUomLabel = document.getElementById('batch-output-uom-label');
+  const scalingMode = document.getElementById('batch-scaling-mode');
+  const batchCount = document.getElementById('batch-batch-count');
+  const referenceLineNo = document.getElementById('batch-reference-line-no');
+  const referenceActualQty = document.getElementById('batch-reference-actual-qty');
+  const batchCountWrap = document.getElementById('batch-count-wrap');
+  const referenceLineWrap = document.getElementById('batch-reference-line-wrap');
+  const referenceQtyWrap = document.getElementById('batch-reference-qty-wrap');
+  const divisionIdInput = document.getElementById('batch-division-id');
+  const divisionNameInput = document.getElementById('batch-division-name');
+  const divisionHelp = document.getElementById('batch-division-help');
+  const locationGroupInput = document.getElementById('batch-location-group');
+  const locationTypeInput = document.getElementById('batch-location-type');
+  const locationHelp = document.getElementById('batch-location-help');
+  const outputHelp = document.getElementById('batch-output-help');
+  const saveButton = document.getElementById('batch-save-btn');
+  let outputDivisionCode = '';
+  let outputDivisionName = '';
+  let currentPreview = null;
+  let previewTimer = null;
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -199,6 +304,12 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
   function renderAlert(type, message) {
     if (alertHost) {
       alertHost.innerHTML = '<div class="alert alert-' + type + ' mb-0">' + escapeHtml(message) + '</div>';
+    }
+  }
+
+  function clearAlert() {
+    if (alertHost) {
+      alertHost.innerHTML = '';
     }
   }
 
@@ -224,45 +335,261 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
     return json;
   }
 
-  function blankLine() {
-    return {
-      source_kind: 'MATERIAL',
-      source_id: '',
-      source_label: '',
-      uom_id: '',
-      qty: '',
-      unit_cost: '',
-      notes: ''
-    };
+  function uiConfirm(message, options) {
+    if (window.FinanceUI && typeof window.FinanceUI.confirm === 'function') {
+      return window.FinanceUI.confirm(message, options || {});
+    }
+    return Promise.resolve(window.confirm(String(message || 'Lanjutkan aksi?')));
   }
 
   function pickerLabel(row) {
-    return [row.code || '', row.name || ''].filter(Boolean).join(' - ');
+    return String(row.name || row.code || '');
   }
 
   function pickerSubLabel(row) {
-    return [row.entity_type || '', row.uom_code || '', row.category_name || ''].filter(Boolean).join(' | ');
+    return [row.entity_type || '', row.division_name || row.division_code || '', row.uom_name || row.uom_code || ''].filter(Boolean).join(' | ');
   }
 
-  function uomSelectOptions(selectedValue) {
-    const options = ['<option value="">Pilih UOM...</option>'];
-    uomOptions.forEach((uom) => {
-      options.push('<option value="' + uom.id + '"' + (String(selectedValue) === String(uom.id) ? ' selected' : '') + '>' + escapeHtml(uom.label) + '</option>');
-    });
-    return options.join('');
+  function resolveLocationType(divisionCode, locationGroup) {
+    const normalizedDivision = String(divisionCode || '').trim().toUpperCase();
+    const normalizedGroup = String(locationGroup || '').trim().toUpperCase();
+    if (!normalizedDivision || !normalizedGroup) {
+      return '';
+    }
+    if (normalizedDivision === 'BAR') {
+      return normalizedGroup === 'EVENT' ? 'BAR_EVENT' : 'BAR';
+    }
+    if (normalizedDivision === 'KITCHEN') {
+      return normalizedGroup === 'EVENT' ? 'KITCHEN_EVENT' : 'KITCHEN';
+    }
+    return '';
+  }
+
+  function syncBatchDivisionState() {
+    const divisionId = String(divisionIdInput?.value || '');
+    divisionNameInput.value = divisionId ? [outputDivisionCode, outputDivisionName].filter(Boolean).join(' - ') : 'Ikuti output component';
+    divisionHelp.textContent = divisionId
+      ? 'Input component akan dibatasi ke divisi yang sama dengan output.'
+      : 'Divisi otomatis mengikuti output component.';
+    locationTypeInput.value = resolveLocationType(outputDivisionCode, locationGroupInput?.value || '');
+    locationHelp.textContent = divisionId
+      ? (locationTypeInput.value ? 'Lokasi akan disimpan sebagai ' + locationTypeInput.value + '.' : 'Pilih Reguler atau Event untuk menentukan lokasi ledger.')
+      : 'Pilih output component dulu agar lokasi bisa diturunkan otomatis.';
   }
 
   function formatCurrency(value) {
     return new Intl.NumberFormat('id-ID', {style: 'currency', currency: 'IDR', maximumFractionDigits: 2}).format(value || 0);
   }
 
-  function renderSummary() {
-    const validLines = lines.filter((line) => Number(line.source_id) > 0 && Number(line.uom_id) > 0 && (parseFloat(line.qty) || 0) > 0);
-    const totalInputCost = validLines.reduce((sum, line) => sum + ((parseFloat(line.qty) || 0) * (parseFloat(line.unit_cost) || 0)), 0);
-    const outputQtyValue = parseFloat(outputQty?.value || '0') || 0;
-    document.getElementById('batch-line-count').textContent = String(validLines.length);
-    document.getElementById('batch-total-input-cost').textContent = formatCurrency(totalInputCost);
-    document.getElementById('batch-estimated-unit-cost').textContent = formatCurrency(outputQtyValue > 0 ? (totalInputCost / outputQtyValue) : 0);
+  function formatQty(value) {
+    return new Intl.NumberFormat('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(Number(value || 0));
+  }
+
+  function syncScalingMode() {
+    const mode = String(scalingMode.value || 'BATCH').toUpperCase();
+    batchCountWrap.classList.toggle('d-none', mode !== 'BATCH');
+    referenceLineWrap.classList.toggle('d-none', mode !== 'REFERENCE');
+    referenceQtyWrap.classList.toggle('d-none', mode !== 'REFERENCE');
+    batchCount.disabled = mode !== 'BATCH';
+    referenceLineNo.disabled = mode !== 'REFERENCE';
+    referenceActualQty.disabled = mode !== 'REFERENCE';
+    outputHelp.textContent = mode === 'REFERENCE'
+      ? 'Hasil jadi dihitung otomatis dari bahan acuan yang dipilih.'
+      : 'Hasil jadi dihitung otomatis dari jumlah batch resep dasar.';
+  }
+
+  function renderReferenceOptions(options, selectedLineNo) {
+    const rows = Array.isArray(options) ? options : [];
+    referenceLineNo.innerHTML = '<option value="">Pilih bahan acuan...</option>' + rows.map((row) =>
+      '<option value="' + escapeHtml(row.line_no) + '"' + (String(selectedLineNo || '') === String(row.line_no) ? ' selected' : '') + '>' +
+        escapeHtml((row.label || '-') + ' • ' + formatQty(row.base_qty || 0) + ' ' + (row.uom_code || '')) +
+      '</option>'
+    ).join('');
+  }
+
+  function renderLivePreviewShell(outputText, outputNoteText, usageHtml) {
+    livePreviewWrap.classList.remove('d-none');
+    liveOutput.textContent = outputText || '-';
+    liveOutputNote.textContent = outputNoteText || 'Hasil jadi akan tampil otomatis setelah parameter produksi diisi.';
+    liveUsage.innerHTML = usageHtml || 'Belum ada pemakaian bahan yang bisa dihitung.';
+  }
+
+  function renderLiveUsage(lines) {
+    const usages = (Array.isArray(lines) ? lines : []).filter((line) => {
+      const role = String(line.plan_role || '').toUpperCase();
+      return role === 'MATERIAL_USAGE' || role === 'COMPONENT_USAGE';
+    });
+    if (!usages.length) {
+      return 'Belum ada pemakaian bahan yang bisa dihitung.';
+    }
+    return usages.map((line) => {
+      return '<span class="badge text-bg-light border me-1 mb-1">' +
+        escapeHtml(line.source_label || '-') + ': ' +
+        escapeHtml(formatQty(line.required_qty || 0)) + ' ' +
+        escapeHtml(line.uom_code || '') +
+      '</span>';
+    }).join('');
+  }
+
+  function resetPreview(message) {
+    currentPreview = null;
+    previewBody.innerHTML = '';
+    previewWrap.classList.add('d-none');
+    previewEmpty.classList.remove('d-none');
+    previewEmpty.textContent = message;
+    previewIssues.classList.add('d-none');
+    previewIssues.innerHTML = '';
+    document.getElementById('batch-base-output').textContent = '-';
+    document.getElementById('batch-scaling-summary').textContent = '-';
+    document.getElementById('batch-total-input-cost').textContent = formatCurrency(0);
+    document.getElementById('batch-estimated-unit-cost').textContent = formatCurrency(0);
+    document.getElementById('batch-direct-component-count').textContent = '0';
+    document.getElementById('batch-direct-material-count').textContent = '0';
+    document.getElementById('batch-variable-cost').textContent = formatCurrency(0);
+    outputQty.value = '';
+    outputQtyLabel.value = '0,00';
+    renderLivePreviewShell('-', message || 'Hasil jadi akan tampil otomatis setelah parameter produksi diisi.', 'Belum ada pemakaian bahan yang bisa dihitung.');
+    saveButton.disabled = true;
+  }
+
+  function roleBadge(role) {
+    const label = String(role || '').toUpperCase();
+    if (label === 'INLINE_OUTPUT') {
+      return '<span class="badge text-bg-warning component-batch-status">INLINE OUTPUT</span>';
+    }
+    if (label === 'INLINE_COMPONENT_USAGE') {
+      return '<span class="badge text-bg-info component-batch-status">INLINE USE</span>';
+    }
+    if (label === 'COMPONENT_USAGE') {
+      return '<span class="badge text-bg-primary component-batch-status">COMPONENT</span>';
+    }
+    return '<span class="badge text-bg-secondary component-batch-status">MATERIAL</span>';
+  }
+
+  function statusBadge(isShort, label) {
+    return '<span class="badge ' + (isShort ? 'text-bg-danger' : 'text-bg-success') + ' component-batch-status">' + escapeHtml(label || (isShort ? 'KURANG' : 'READY')) + '</span>';
+  }
+
+  function renderPreview(preview) {
+    currentPreview = preview;
+    const summary = preview.summary || {};
+    const component = preview.component || {};
+    const lines = Array.isArray(preview.lines) ? preview.lines : [];
+    document.getElementById('batch-base-output').textContent = formatQty(preview.base_output_qty || 0) + ' ' + escapeHtml(component.uom_code || '-');
+    document.getElementById('batch-scaling-summary').textContent = String(preview.scaling_mode || 'BATCH').toUpperCase() === 'REFERENCE'
+      ? ('Acuan ' + formatQty((preview.reference || {}).actual_qty || 0) + ' ' + escapeHtml((preview.reference || {}).uom_code || ''))
+      : (formatQty(preview.batch_count || 0) + ' batch');
+    document.getElementById('batch-total-input-cost').textContent = formatCurrency(summary.total_input_cost || 0);
+    document.getElementById('batch-estimated-unit-cost').textContent = formatCurrency(summary.unit_cost || 0);
+    document.getElementById('batch-direct-component-count').textContent = String(summary.direct_component_count || 0);
+    document.getElementById('batch-direct-material-count').textContent = String(summary.direct_material_count || 0);
+    document.getElementById('batch-variable-cost').textContent = formatCurrency(summary.variable_cost_total || 0);
+    outputUom.value = String(component.uom_id || '');
+    outputUomLabel.value = [component.uom_code || '', component.uom_name || ''].filter(Boolean).join(' - ') || 'Ikuti output component';
+    outputQty.value = String(preview.output_qty || '');
+    outputQtyLabel.value = formatQty(preview.output_qty || 0) + ' ' + (component.uom_code || '');
+    renderLivePreviewShell(
+      formatQty(preview.output_qty || 0) + ' ' + (component.uom_code || ''),
+      String(preview.scaling_mode || 'BATCH').toUpperCase() === 'REFERENCE'
+        ? 'Output dihitung dari qty bahan acuan aktual.'
+        : 'Output dihitung dari kelipatan batch resep dasar.',
+      renderLiveUsage(lines)
+    );
+    renderReferenceOptions(preview.reference_options || [], (preview.reference || {}).line_no || '');
+
+    if (Array.isArray(preview.issues) && preview.issues.length) {
+      previewIssues.classList.remove('d-none');
+      previewIssues.innerHTML = '<div class="alert alert-danger mb-0"><strong>Batch tertolak jika diposting.</strong><ul class="mb-0 mt-2">' + preview.issues.map((issue) => '<li>' + escapeHtml(issue) + '</li>').join('') + '</ul></div>';
+    } else {
+      previewIssues.classList.add('d-none');
+      previewIssues.innerHTML = '';
+    }
+
+    previewBody.innerHTML = lines.map((line) => {
+      const stageName = String(line.stage_component_name || component.component_name || '-');
+      const stagePrefix = Number(line.depth || 0) > 0 ? 'Inline' : 'Output';
+      return '<tr>' +
+        '<td><span class="badge text-bg-light border component-batch-stage">' + escapeHtml(stagePrefix + ' ' + stageName) + '</span></td>' +
+        '<td>' + roleBadge(line.plan_role) + '</td>' +
+        '<td>' + escapeHtml(line.source_label || '-') + '</td>' +
+        '<td class="text-end">' + escapeHtml(formatQty(line.required_qty || 0)) + ' ' + escapeHtml(line.uom_code || '') + '</td>' +
+        '<td class="text-end">' + escapeHtml(formatQty(line.available_qty || 0)) + ' ' + escapeHtml(line.uom_code || '') + '</td>' +
+        '<td class="text-end">' + escapeHtml(formatCurrency(line.unit_cost || 0)) + '</td>' +
+        '<td class="text-end fw-semibold">' + escapeHtml(formatCurrency(line.total_cost || 0)) + '</td>' +
+        '<td class="text-center">' + statusBadge(Boolean(line.is_short), line.status_label) + '</td>' +
+        '<td class="small text-muted">' + escapeHtml(line.notes || '') + '</td>' +
+      '</tr>';
+    }).join('');
+
+    previewWrap.classList.toggle('d-none', !lines.length);
+    previewEmpty.classList.toggle('d-none', !!lines.length);
+    previewEmpty.textContent = lines.length ? '' : 'Belum ada plan produksi yang bisa ditampilkan.';
+    saveButton.disabled = !lines.length || Boolean(summary.has_shortage);
+  }
+
+  async function loadPreview() {
+    const componentId = String(outputComponentId.value || '');
+    const locationType = String(locationTypeInput.value || '');
+    const mode = String(scalingMode.value || 'BATCH').toUpperCase();
+    const batchCountValue = parseFloat(batchCount.value || '0') || 0;
+    const referenceActualQtyValue = parseFloat(referenceActualQty.value || '0') || 0;
+    if (!componentId) {
+      resetPreview('Pilih output component terlebih dahulu.');
+      return;
+    }
+    if (!locationType) {
+      resetPreview('Pilih lokasi Reguler atau Event agar plan produksi bisa dihitung.');
+      return;
+    }
+    if (mode === 'REFERENCE') {
+      if (!String(referenceLineNo.value || '')) {
+        resetPreview('Pilih bahan acuan untuk melihat preview output dan pemakaian bahan.');
+        return;
+      }
+      if (!(referenceActualQtyValue > 0)) {
+        resetPreview('Isi qty aktual bahan acuan untuk melihat preview output dan pemakaian bahan.');
+        return;
+      }
+    } else if (!(batchCountValue > 0)) {
+      resetPreview('Isi jumlah batch untuk melihat preview output dan pemakaian bahan.');
+      return;
+    }
+
+    try {
+      const query = new URLSearchParams({
+        component_id: componentId,
+        location_type: locationType,
+        scaling_mode: mode,
+        batch_count: batchCountValue > 0 ? String(batchCountValue) : '',
+        reference_line_no: String(referenceLineNo.value || ''),
+        reference_actual_qty: referenceActualQtyValue > 0 ? String(referenceActualQtyValue) : ''
+      });
+      const response = await fetch(previewUrl + '?' + query.toString(), {
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+      });
+      const text = await response.text();
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch (error) {
+        throw new Error('Respons preview batch bukan JSON valid.');
+      }
+      if (!response.ok || !json.ok) {
+        throw new Error(json.message || 'Preview batch gagal dimuat.');
+      }
+      renderPreview(json);
+      clearAlert();
+    } catch (error) {
+      resetPreview(error.message || 'Gagal memuat preview batch.');
+      renderAlert('danger', error.message || 'Gagal memuat preview batch.');
+    }
+  }
+
+  function schedulePreview() {
+    window.clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(() => {
+      loadPreview();
+    }, 180);
   }
 
   function bindOutputPicker() {
@@ -273,152 +600,37 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
       onType: () => {
         outputComponentId.value = '';
         outputUom.value = '';
-        renderSummary();
+        outputUomLabel.value = 'Ikuti output component';
+        outputQty.value = '';
+        outputQtyLabel.value = '0,00';
+        divisionIdInput.value = '';
+        outputDivisionCode = '';
+        outputDivisionName = '';
+        renderReferenceOptions([], '');
+        syncBatchDivisionState();
+        resetPreview('Pilih output component terlebih dahulu.');
       },
       onSelect: (result) => {
         outputComponentId.value = String(result.id || '');
         outputComponentSearch.value = pickerLabel(result);
         outputUom.value = String(result.uom_id || '');
-        renderSummary();
+        outputUomLabel.value = [result.uom_code || '', result.uom_name || ''].filter(Boolean).join(' - ') || 'Ikuti output component';
+        divisionIdInput.value = String(result.operational_division_id || '');
+        outputDivisionCode = String(result.division_code || '');
+        outputDivisionName = String(result.division_name || '');
+        syncBatchDivisionState();
+        schedulePreview();
       }
     });
   }
 
-  function bindSourcePickers() {
-    lineBody.querySelectorAll('.batch-source-picker').forEach((input) => {
-      window.ProductionAjaxPicker.bind(input, {
-        entity: String(lines[Number(input.closest('tr')?.dataset.index || -1)]?.source_kind || 'MATERIAL') === 'COMPONENT' ? 'COMPONENT' : 'MATERIAL',
-        params: () => {
-          const row = input.closest('tr');
-          const index = Number(row?.dataset.index || -1);
-          const line = lines[index] || {};
-          if (String(line.source_kind || 'MATERIAL') === 'COMPONENT') {
-            return {exclude_id: String(outputComponentId?.value || '')};
-          }
-          return {};
-        },
-        renderLabel: pickerLabel,
-        renderSubLabel: pickerSubLabel,
-        onType: (value, currentInput) => {
-          const row = currentInput.closest('tr');
-          const index = Number(row?.dataset.index || -1);
-          if (index < 0) {
-            return;
-          }
-          lines[index].source_label = value;
-          lines[index].source_id = '';
-          lines[index].uom_id = '';
-          const uomSelect = row.querySelector('[data-field="uom_id"]');
-          if (uomSelect) {
-            uomSelect.value = '';
-          }
-          renderSummary();
-        },
-        onSelect: (result, currentInput) => {
-          const row = currentInput.closest('tr');
-          const index = Number(row?.dataset.index || -1);
-          if (index < 0) {
-            return;
-          }
-          lines[index].source_id = String(result.id || '');
-          lines[index].source_label = pickerLabel(result);
-          lines[index].uom_id = String(result.uom_id || '');
-          renderLines();
-        }
-      });
-    });
-  }
-
-  function renderLines() {
-    if (!lines.length) {
-      lines = [blankLine()];
-    }
-    lineBody.innerHTML = lines.map((line, index) => {
-      const rowTotal = (parseFloat(line.qty) || 0) * (parseFloat(line.unit_cost) || 0);
-      return '<tr data-index="' + index + '">' +
-        '<td class="text-muted">' + (index + 1) + '</td>' +
-        '<td><select class="form-select form-select-sm" data-field="source_kind"><option value="MATERIAL"' + (line.source_kind === 'MATERIAL' ? ' selected' : '') + '>MATERIAL</option><option value="COMPONENT"' + (line.source_kind === 'COMPONENT' ? ' selected' : '') + '>COMPONENT</option></select></td>' +
-        '<td><input type="text" class="form-control form-control-sm batch-source-picker" value="' + escapeHtml(line.source_label || '') + '" placeholder="Ketik kode/nama sumber..."' + (Number(line.source_id) > 0 ? ' data-selected-label="' + escapeHtml(line.source_label || '') + '"' : '') + '></td>' +
-        '<td><select class="form-select form-select-sm" data-field="uom_id">' + uomSelectOptions(line.uom_id) + '</select></td>' +
-        '<td><input type="number" min="0" step="0.0001" class="form-control form-control-sm text-end" data-field="qty" value="' + escapeHtml(line.qty) + '"></td>' +
-        '<td><input type="number" min="0" step="0.000001" class="form-control form-control-sm text-end" data-field="unit_cost" value="' + escapeHtml(line.unit_cost) + '"></td>' +
-        '<td class="text-end fw-semibold">' + escapeHtml(formatCurrency(rowTotal)) + '</td>' +
-        '<td><input type="text" class="form-control form-control-sm" data-field="notes" value="' + escapeHtml(line.notes) + '"></td>' +
-        '<td><button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">×</button></td>' +
-      '</tr>';
-    }).join('');
-    bindSourcePickers();
-    renderSummary();
-  }
-
-  function serializeLines() {
-    return lines
-      .filter((line) => Number(line.source_id) > 0 && Number(line.uom_id) > 0 && (parseFloat(line.qty) || 0) > 0)
-      .map((line) => {
-        const payload = {
-          source_kind: String(line.source_kind || 'MATERIAL'),
-          uom_id: Number(line.uom_id),
-          qty: parseFloat(line.qty) || 0,
-          unit_cost: parseFloat(line.unit_cost) || 0,
-          notes: String(line.notes || '')
-        };
-        if (payload.source_kind === 'COMPONENT') {
-          payload.component_id = Number(line.source_id);
-        } else {
-          payload.material_id = Number(line.source_id);
-        }
-        return payload;
-      });
-  }
-
-  document.getElementById('btn-add-batch-line')?.addEventListener('click', () => {
-    lines.push(blankLine());
-    renderLines();
+  scalingMode?.addEventListener('change', () => {
+    syncScalingMode();
+    schedulePreview();
   });
-
-  lineBody?.addEventListener('click', (event) => {
-    const button = event.target.closest('button[data-action="remove"]');
-    if (!button) {
-      return;
-    }
-    const row = button.closest('tr');
-    const index = Number(row?.dataset.index || -1);
-    if (index >= 0) {
-      lines.splice(index, 1);
-      renderLines();
-    }
-  });
-
-  lineBody?.addEventListener('change', (event) => {
-    const field = event.target.getAttribute('data-field');
-    const row = event.target.closest('tr');
-    const index = Number(row?.dataset.index || -1);
-    if (index < 0 || !field) {
-      return;
-    }
-    lines[index][field] = event.target.value;
-    if (field === 'source_kind') {
-      lines[index].source_id = '';
-      lines[index].source_label = '';
-      lines[index].uom_id = '';
-      renderLines();
-      return;
-    }
-    renderSummary();
-  });
-
-  lineBody?.addEventListener('input', (event) => {
-    const field = event.target.getAttribute('data-field');
-    const row = event.target.closest('tr');
-    const index = Number(row?.dataset.index || -1);
-    if (index < 0 || !field) {
-      return;
-    }
-    lines[index][field] = event.target.value;
-    renderSummary();
-  });
-
-  outputQty?.addEventListener('input', renderSummary);
+  batchCount?.addEventListener('input', schedulePreview);
+  referenceLineNo?.addEventListener('change', schedulePreview);
+  referenceActualQty?.addEventListener('input', schedulePreview);
 
   form?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -430,15 +642,43 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
       component_id: String(formData.get('component_id') || ''),
       output_qty: String(formData.get('output_qty') || ''),
       output_uom_id: String(formData.get('output_uom_id') || ''),
-      notes: String(formData.get('notes') || ''),
-      lines: serializeLines()
+      scaling_mode: String(formData.get('scaling_mode') || 'BATCH'),
+      batch_count: String(formData.get('batch_count') || ''),
+      reference_line_no: String(formData.get('reference_line_no') || ''),
+      reference_actual_qty: String(formData.get('reference_actual_qty') || ''),
+      notes: String(formData.get('notes') || '')
     };
     if (!payload.component_id) {
       renderAlert('warning', 'Pilih output component melalui pencarian terlebih dahulu.');
       return;
     }
-    if (!payload.lines.length) {
-      renderAlert('warning', 'Tambahkan minimal satu input batch yang valid.');
+    if (!payload.division_id) {
+      renderAlert('warning', 'Divisi batch belum terbentuk. Pilih output component yang valid.');
+      return;
+    }
+    if (!payload.location_type) {
+      renderAlert('warning', 'Pilih lokasi Reguler atau Event terlebih dahulu.');
+      return;
+    }
+    if (String(payload.scaling_mode || 'BATCH').toUpperCase() === 'REFERENCE') {
+      if (!payload.reference_line_no) {
+        renderAlert('warning', 'Pilih bahan acuan terlebih dahulu.');
+        return;
+      }
+      if (!(parseFloat(payload.reference_actual_qty || '0') > 0)) {
+        renderAlert('warning', 'Qty aktual bahan acuan harus lebih dari 0.');
+        return;
+      }
+    } else if (!(parseFloat(payload.batch_count || '0') > 0)) {
+      renderAlert('warning', 'Jumlah batch harus lebih dari 0.');
+      return;
+    }
+    if (!currentPreview) {
+      renderAlert('warning', 'Preview batch belum siap. Lengkapi output component, lokasi, dan mode produksi terlebih dahulu.');
+      return;
+    }
+    if (currentPreview.summary && currentPreview.summary.has_shortage) {
+      renderAlert('warning', 'Batch masih memiliki shortage. Perbaiki ketersediaan bahan atau component terlebih dahulu.');
       return;
     }
     try {
@@ -451,7 +691,12 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
 
   document.querySelectorAll('.btn-post').forEach((button) => {
     button.addEventListener('click', async () => {
-      if (!window.confirm('Post batch ini?')) {
+      button.blur();
+      if (!(await uiConfirm('Posting batch akan mengurangi input dan menambah stok output component.', {
+        title: 'Post Batch Produksi',
+        okText: 'Post Batch',
+        cancelText: 'Batal'
+      }))) {
         return;
       }
       try {
@@ -465,7 +710,12 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
 
   document.querySelectorAll('.btn-del').forEach((button) => {
     button.addEventListener('click', async () => {
-      if (!window.confirm('Hapus draft batch ini?')) {
+      button.blur();
+      if (!(await uiConfirm('Draft batch ini akan dihapus permanen.', {
+        title: 'Hapus Draft Batch',
+        okText: 'Hapus Draft',
+        cancelText: 'Batal'
+      }))) {
         return;
       }
       try {
@@ -486,8 +736,14 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
     }
   }
 
+  locationGroupInput?.addEventListener('change', () => {
+    syncBatchDivisionState();
+    schedulePreview();
+  });
+
   bindOutputPicker();
-  lines = [blankLine()];
-  renderLines();
+  syncBatchDivisionState();
+  syncScalingMode();
+  resetPreview('Pilih output component, lokasi, dan mode produksi untuk melihat preview produksi.');
 })();
 </script>

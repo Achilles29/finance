@@ -1,207 +1,282 @@
+<?php
+$logoPrimaryFs = FCPATH . 'assets/uploads/logo/logo.png';
+$logoFallbackFs = FCPATH . 'assets/img/logo.png';
+$logoUrl = file_exists($logoPrimaryFs)
+    ? base_url('assets/uploads/logo/logo.png')
+    : (file_exists($logoFallbackFs) ? base_url('assets/img/logo.png') : base_url('assets/img/favicon-32x32.png'));
+?>
 <!doctype html>
 <html lang="id">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Login - Finance</title>
+<title>Login - Finance App</title>
 <link rel="icon" type="image/x-icon" href="<?= base_url('assets/img/favicon.ico') ?>">
 <style>
-:root {
-  --bg-a: #f6efe8;
-  --bg-b: #efe3d5;
-  --ink: #2f2325;
-  --muted: #6e5a5f;
-  --line: #e2d2c3;
-  --brand: #a9232f;
-  --brand-2: #7f1923;
-  --ok: #fef2f2;
-  --ok-line: #f9caca;
+:root{
+  --bg:#efe7dd;
+  --bg2:#f8f4ee;
+  --card:#fffdfa;
+  --line:#e5d6c8;
+  --ink:#2f2326;
+  --muted:#7f6b70;
+  --brand:#9c1729;
+  --brand2:#6f1120;
 }
-* { box-sizing: border-box; }
-body {
-  margin: 0;
-  min-height: 100vh;
-  color: var(--ink);
-  font-family: "Segoe UI", "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:"Plus Jakarta Sans","Segoe UI",Arial,sans-serif;
+  color:var(--ink);
   background:
-    radial-gradient(1200px 500px at -10% -20%, #ffffff 0%, rgba(255,255,255,0) 62%),
-    radial-gradient(1000px 500px at 120% 120%, #f9d7ca 0%, rgba(249,215,202,0) 58%),
-    linear-gradient(145deg, var(--bg-a), var(--bg-b));
+    radial-gradient(680px 340px at -8% -10%, rgba(224,164,171,.30) 0%, rgba(224,164,171,0) 68%),
+    radial-gradient(640px 340px at 106% 108%, rgba(236,183,141,.30) 0%, rgba(236,183,141,0) 68%),
+    linear-gradient(145deg,var(--bg2),var(--bg));
 }
-.layout {
-  min-height: 100vh;
-  display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
+.auth{
+  min-height:100dvh;
+  display:grid;
+  place-items:center;
+  padding:20px;
 }
-.hero {
-  padding: clamp(24px, 4vw, 52px);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+.shell{
+  width:min(1080px,100%);
+  display:grid;
+  grid-template-columns:44% 56%;
+  border-radius:24px;
+  overflow:hidden;
+  box-shadow:0 20px 54px rgba(38,20,20,.16);
+  background:var(--card);
 }
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  font-weight: 800;
-  letter-spacing: .2px;
+.showcase{
+  padding:26px;
+  color:#fff;
+  background:
+    radial-gradient(260px 200px at 84% 18%, rgba(255,255,255,.24), rgba(255,255,255,0) 70%),
+    linear-gradient(160deg,var(--brand2),var(--brand));
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
 }
-.brand img { height: 42px; width: auto; object-fit: contain; }
-.brand-name {
-  font-size: clamp(24px, 3vw, 34px);
-  font-family: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+.brand{
+  display:flex;
+  align-items:center;
+  gap:10px;
 }
-.headline {
-  max-width: 640px;
+.brand .mark{
+  width:58px;
+  height:58px;
+  border-radius:14px;
+  background:#fff;
+  display:grid;
+  place-items:center;
+  box-shadow:0 10px 24px rgba(0,0,0,.2);
 }
-.headline h1 {
-  margin: 0 0 16px;
-  line-height: 1.08;
-  font-size: clamp(32px, 5vw, 68px);
-  font-family: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+.brand .mark img{
+  width:42px;height:42px;object-fit:contain;
 }
-.headline p {
-  margin: 0;
-  color: var(--muted);
-  font-size: clamp(14px, 1.5vw, 19px);
-  line-height: 1.7;
-  max-width: 560px;
+.brand strong{font-size:21px; font-weight:800}
+.chip{
+  display:inline-block;
+  margin-top:14px;
+  border:1px solid rgba(255,255,255,.24);
+  background:rgba(255,255,255,.12);
+  padding:6px 11px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.25px;
 }
-.hero-foot {
-  color: #7d6469;
-  font-size: 13px;
+.showcase h1{
+  margin:14px 0 8px;
+  font-size:44px;
+  line-height:1.06;
+  letter-spacing:.2px;
+  font-family:"DM Serif Display",Georgia,"Times New Roman",serif;
 }
-.panel-wrap {
-  display: grid;
-  place-items: center;
-  padding: clamp(18px, 3.6vw, 40px);
+.showcase p{
+  margin:0;
+  opacity:.95;
+  max-width:330px;
+  line-height:1.65;
+  font-size:16px;
 }
-.panel {
-  width: min(470px, 100%);
-  background: rgba(255,255,255,.86);
-  border: 1px solid rgba(255,255,255,.72);
-  border-radius: 22px;
-  box-shadow: 0 18px 50px rgba(40, 22, 20, 0.16);
-  backdrop-filter: blur(6px);
-  padding: clamp(20px, 2.3vw, 30px);
+.showcase small{
+  font-size:12px;
+  opacity:.86;
 }
-.panel h2 {
-  margin: 0 0 6px;
-  font-size: 31px;
-  font-family: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+.panel{
+  padding:26px 28px 22px;
+  background:var(--card);
 }
-.panel-sub {
-  margin: 0 0 20px;
-  color: var(--muted);
-  font-size: 14px;
+.mobile-brand{
+  display:none;
+  align-items:center;
+  gap:9px;
+  margin-bottom:12px;
 }
-.alert {
-  border: 1px solid var(--ok-line);
-  background: var(--ok);
-  color: #8f1f2a;
-  border-radius: 14px;
-  padding: 10px 12px;
-  margin-bottom: 14px;
-  font-size: 13px;
-  line-height: 1.5;
+.mobile-brand .mark{
+  width:40px;height:40px;border-radius:10px;background:#fff;border:1px solid #ecded1;
+  display:grid;place-items:center;
 }
-.field { margin-bottom: 14px; }
-label {
-  display: inline-block;
-  margin-bottom: 7px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #4a393d;
+.mobile-brand .mark img{width:28px;height:28px;object-fit:contain}
+.mobile-brand strong{font-size:18px}
+.kicker{
+  display:inline-block;
+  font-size:11px;
+  font-weight:700;
+  color:#972233;
+  border:1px solid #f1d0c6;
+  background:#fff5f1;
+  padding:6px 10px;
+  border-radius:999px;
 }
-.control {
-  width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 13px;
-  padding: 12px 13px;
-  font-size: 15px;
-  background: #fff;
-  color: #342529;
-  outline: none;
+.panel h2{
+  margin:12px 0 4px;
+  font-size:42px;
+  line-height:1;
+  font-family:"DM Serif Display",Georgia,"Times New Roman",serif;
 }
-.control:focus {
-  border-color: #d7a7a2;
-  box-shadow: 0 0 0 4px rgba(186, 42, 56, 0.09);
+.panel .sub{
+  margin:0 0 18px;
+  color:var(--muted);
+  font-size:15px;
 }
-.pw {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 9px;
+.alert{
+  border:1px solid #f4c8cb;
+  background:#fff2f3;
+  color:#8e2230;
+  border-radius:12px;
+  padding:10px 12px;
+  margin-bottom:12px;
+  font-size:13px;
 }
-.toggle {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
-  min-width: 46px;
-  cursor: pointer;
-  color: #6f5b5f;
+.field{margin-bottom:12px}
+label{
+  display:block;
+  margin-bottom:6px;
+  font-size:14px;
+  font-weight:700;
+  color:#513e42;
 }
-.toggle:hover { border-color: #d4b7aa; }
-.btn {
-  width: 100%;
-  border: 0;
-  border-radius: 13px;
-  padding: 12px 14px;
-  font-size: 15px;
-  font-weight: 800;
-  color: #fff;
-  cursor: pointer;
-  background: linear-gradient(135deg, var(--brand), var(--brand-2));
-  box-shadow: 0 10px 22px rgba(164, 30, 43, 0.26);
+.input{
+  width:100%;
+  border:1px solid var(--line);
+  border-radius:13px;
+  min-height:44px;
+  padding:10px 12px;
+  font-size:16px;
+  color:#302326;
+  background:#fff;
+  outline:none;
+  transition:all .16s ease;
 }
-.btn:hover { filter: brightness(1.02); }
-@media (max-width: 960px) {
-  .layout { grid-template-columns: 1fr; }
-  .hero { padding-bottom: 8px; }
-  .hero-foot { margin-top: 10px; }
+.input:focus{
+  border-color:#c89ca0;
+  box-shadow:0 0 0 4px rgba(156,23,41,.1);
+}
+.pw{
+  display:grid;
+  grid-template-columns:1fr 46px;
+  gap:8px;
+}
+.toggle{
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#fff;
+  cursor:pointer;
+}
+.btn{
+  width:100%;
+  border:0;
+  border-radius:13px;
+  min-height:46px;
+  margin-top:2px;
+  background:linear-gradient(135deg,var(--brand),var(--brand2));
+  color:#fff;
+  font-size:18px;
+  font-weight:800;
+  box-shadow:0 10px 22px rgba(127,17,32,.24);
+  cursor:pointer;
+}
+.btn:hover{filter:brightness(1.03)}
+.foot{
+  margin-top:12px;
+  text-align:center;
+  color:#8b757a;
+  font-size:12px;
+}
+@media (max-width:960px){
+  .shell{
+    grid-template-columns:1fr;
+    max-width:470px;
+  }
+  .showcase{display:none}
+  .panel{
+    padding:18px 16px 16px;
+  }
+  .mobile-brand{display:flex}
+  .panel h2{font-size:36px}
+  .panel .sub{font-size:14px;margin-bottom:14px}
+}
+@media (max-width:480px){
+  .auth{padding:10px}
+  .shell{
+    border-radius:18px;
+    box-shadow:0 14px 34px rgba(38,20,20,.13);
+  }
+  .panel h2{font-size:32px}
+  .input{min-height:42px;font-size:15px}
+  .btn{min-height:44px;font-size:16px}
 }
 </style>
 </head>
 <body>
-<main class="layout">
-  <section class="hero">
-    <div class="brand">
-      <img src="<?= base_url('assets/img/logo.png') ?>" onerror="this.src='<?= base_url('assets/img/logo.jpeg') ?>'" alt="Finance">
-      <span class="brand-name">Finance</span>
-    </div>
-    <div class="headline">
-      <h1>Satu Ruang Kerja Keuangan dan Operasional.</h1>
-      <p>Kelola data pegawai, absensi, kontrak, penggajian, pembelian, dan inventori dalam alur kerja yang rapi, konsisten, dan terukur.</p>
-    </div>
-    <div class="hero-foot">Finance Dashboard</div>
-  </section>
+<main class="auth">
+  <section class="shell">
+    <aside class="showcase">
+      <div>
+        <div class="brand">
+          <span class="mark"><img src="<?= html_escape($logoUrl) ?>" alt="Finance Logo"></span>
+          <strong>Finance App</strong>
+        </div>
+        <span class="chip">CORE BUSINESS SUITE</span>
+        <h1>Control Tower<br>Bisnis Harian.</h1>
+        <p>Absensi, purchase, keuangan, kasir, dan inventory dalam satu sistem yang konsisten dan siap audit.</p>
+      </div>
+      <small>NAMUA COFFEE & EATERY</small>
+    </aside>
 
-  <section class="panel-wrap">
-    <div class="panel">
+    <aside class="panel">
+      <div class="mobile-brand">
+        <span class="mark"><img src="<?= html_escape($logoUrl) ?>" alt="Finance Logo"></span>
+        <strong>Finance App</strong>
+      </div>
+      <span class="kicker">Secure Access</span>
       <h2>Masuk</h2>
-      <p class="panel-sub">Gunakan akun Anda untuk melanjutkan.</p>
+      <p class="sub">Gunakan akun yang sudah terdaftar untuk melanjutkan.</p>
 
       <?php if (!empty($error_msg)): ?>
-      <div class="alert"><?= $error_msg ?></div>
+        <div class="alert"><?= $error_msg ?></div>
       <?php endif; ?>
 
       <?= form_open('auth/do_login', ['autocomplete' => 'off']) ?>
         <div class="field">
           <label for="identifier">Username atau Email</label>
-          <input class="control" id="identifier" type="text" name="identifier" maxlength="150"
-                 value="<?= set_value('identifier') ?>" placeholder="contoh: superadmin" required autofocus>
+          <input class="input" id="identifier" type="text" name="identifier" maxlength="150" value="<?= set_value('identifier') ?>" placeholder="contoh: superadmin" required autofocus>
         </div>
-
         <div class="field">
           <label for="password">Password</label>
           <div class="pw">
-            <input class="control" id="password" type="password" name="password" maxlength="72" placeholder="••••••••" required>
-            <button class="toggle" type="button" id="togglePass" aria-label="Tampilkan/Sembunyikan password">👁</button>
+            <input class="input" id="password" type="password" name="password" maxlength="72" placeholder="••••••••" required>
+            <button class="toggle" type="button" id="togglePass" aria-label="Tampilkan/Sembunyikan password">◉</button>
           </div>
         </div>
-
         <button class="btn" type="submit">Masuk ke Dashboard</button>
       <?= form_close() ?>
-    </div>
+      <div class="foot">© <?= date('Y') ?> Finance App</div>
+    </aside>
   </section>
 </main>
 
@@ -211,7 +286,7 @@ label {
   var input = document.getElementById('password');
   if (!btn || !input) return;
   btn.addEventListener('click', function () {
-    input.type = (input.type === 'password') ? 'text' : 'password';
+    input.type = input.type === 'password' ? 'text' : 'password';
   });
 })();
 </script>

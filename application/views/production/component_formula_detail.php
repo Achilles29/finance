@@ -16,13 +16,13 @@ $totalLive = (float)($summary['total_cogs_live'] ?? 0);
     <div>
       <h4 class="fin-page-title mb-1"><?php echo html_escape((string)($component['component_name'] ?? '-')); ?></h4>
       <p class="fin-page-subtitle mb-0">
-        Output <?php echo number_format((float)($summary['output_qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($summary['output_uom_code'] ?? '-')); ?> |
-        Baris <?php echo (int)($summary['line_count'] ?? 0); ?> | Formula default | Status induk: Aktif
+        Hasil 1x produksi: <?php echo number_format((float)($summary['output_qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($summary['output_uom_code'] ?? '-')); ?> |
+        Baris <?php echo (int)($summary['line_count'] ?? 0); ?> | Formula default | Ini menjadi patokan 1 batch resep produksi
       </p>
     </div>
     <div class="d-flex gap-2">
       <a class="btn btn-outline-secondary btn-sm" href="<?php echo site_url('production/component-formulas'); ?>">Kembali</a>
-      <a class="btn btn-outline-primary btn-sm action-icon-btn component-action-btn" href="<?php echo site_url('production/component-formulas/edit/' . (int)($component['id'] ?? 0)); ?>" title="Edit Formula" aria-label="Edit Formula"><i class="ri ri-edit-line"></i></a>
+      <a class="btn btn-outline-primary action-icon-btn component-action-btn" href="<?php echo site_url('production/component-formulas/edit/' . (int)($component['id'] ?? 0)); ?>" title="Edit Formula" aria-label="Edit Formula"><i class="ri ri-edit-line"></i></a>
     </div>
   </div>
 
@@ -46,7 +46,9 @@ $totalLive = (float)($summary['total_cogs_live'] ?? 0);
         <div class="small text-muted">Std Rp <?php echo number_format($variableStd, 2, ',', '.'); ?> | Live Rp <?php echo number_format($variableLive, 2, ',', '.'); ?></div>
       </div>
       <div class="col-md-3">
-        <div class="small text-muted">COGS per <?php echo html_escape((string)($summary['output_uom_code'] ?? '-')); ?></div>
+        <div class="small text-muted">Hasil 1x Produksi</div>
+        <div class="fw-semibold"><?php echo number_format((float)($summary['output_qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($summary['output_uom_code'] ?? '-')); ?></div>
+        <div class="small text-muted mt-1">COGS per <?php echo html_escape((string)($summary['output_uom_code'] ?? '-')); ?></div>
         <div class="fw-semibold">Std Rp <?php echo number_format($totalStd / max((float)($summary['output_qty'] ?? 1), 0.0001), 2, ',', '.'); ?></div>
         <div class="fw-semibold">Live Rp <?php echo number_format($totalLive / max((float)($summary['output_qty'] ?? 1), 0.0001), 2, ',', '.'); ?></div>
         <div class="small text-muted">Potensi produksi <?php echo number_format((float)($summary['potential_output_total'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($summary['output_uom_code'] ?? '-')); ?></div>
@@ -117,7 +119,7 @@ $totalLive = (float)($summary['total_cogs_live'] ?? 0);
         </table>
       </div>
       <div class="d-flex justify-content-center gap-2 py-3 border-top">
-        <a class="btn btn-outline-primary btn-sm action-icon-btn component-action-btn" href="<?php echo site_url('production/component-formulas/edit/' . (int)($component['id'] ?? 0)); ?>" title="Edit Formula" aria-label="Edit Formula"><i class="ri ri-edit-line"></i></a>
+        <a class="btn btn-outline-primary action-icon-btn component-action-btn" href="<?php echo site_url('production/component-formulas/edit/' . (int)($component['id'] ?? 0)); ?>" title="Edit Formula" aria-label="Edit Formula"><i class="ri ri-edit-line"></i></a>
         <a class="btn btn-outline-secondary btn-sm" href="<?php echo site_url('production/component-formulas'); ?>">Kembali</a>
       </div>
     </div>

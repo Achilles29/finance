@@ -7,7 +7,7 @@ $divisions = is_array($divisions ?? null) ? $divisions : [];
   <div class="fin-page-header">
     <div>
       <h4 class="fin-page-title mb-1">Resep / Formula Base-Prepare</h4>
-      <p class="fin-page-subtitle mb-0">Daftar semua resep base-prepare dengan ringkasan HPP dan akses edit per component.</p>
+      <p class="fin-page-subtitle mb-0">Daftar semua resep base-prepare dengan patokan hasil 1x produksi, ringkasan HPP, dan akses edit per component.</p>
     </div>
     <a class="btn btn-outline-primary btn-sm" href="<?php echo site_url('production/component-cost-variables'); ?>">Pengaturan Variable Cost</a>
   </div>
@@ -68,6 +68,7 @@ $divisions = is_array($divisions ?? null) ? $divisions : [];
               <th>Kode</th>
               <th>Nama</th>
               <th>Tipe</th>
+              <th class="text-end">Hasil 1x Produksi</th>
               <th>Divisi</th>
               <th>Kategori</th>
               <th class="text-end">Line</th>
@@ -159,6 +160,7 @@ document.addEventListener('DOMContentLoaded', function () {
         <td>${esc(r.component_code || '-')}</td>
         <td>${esc(r.component_name || '-')}</td>
         <td>${esc(r.component_type || '-')}</td>
+        <td class="text-end fw-semibold">${fmt(r.output_batch_qty || 1, 2)} ${esc(r.uom_code || '-')}</td>
         <td>${esc(r.division_name || '-')}</td>
         <td>${esc(r.category_name || '-')}</td>
         <td class="text-end">${Number(r.formula_line_count || 0)}</td>

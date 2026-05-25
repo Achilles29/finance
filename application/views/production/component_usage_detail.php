@@ -110,7 +110,7 @@ $componentUom = (string)($component['uom_name'] ?? '-');
                     <td><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>
                     <td class="text-end"><?php echo number_format((int)($row['usage_line_count'] ?? 0), 0, ',', '.'); ?></td>
                     <td class="component-action-cell">
-                      <a class="btn btn-sm btn-outline-info action-icon-btn component-action-btn" href="<?php echo $targetUrl; ?>" title="Lihat detail" aria-label="Lihat detail"><i class="ri ri-eye-line"></i></a>
+                      <a class="btn btn-outline-info action-icon-btn component-action-btn" href="<?php echo $targetUrl; ?>" title="Lihat detail" aria-label="Lihat detail"><i class="ri ri-eye-line"></i></a>
                     </td>
                   </tr>
                 <?php endforeach; ?>

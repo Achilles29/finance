@@ -1,7 +1,17 @@
 <?php
 $filters = is_array($filters ?? null) ? $filters : [];
 $rows = is_array($rows ?? null) ? $rows : [];
-$locationOptions = is_array($location_options ?? null) ? $location_options : [];
+$locationFilterOptions = ['' => 'Semua Lokasi', 'REGULER' => 'Reguler', 'EVENT' => 'Event'];
+$locationGroupLabel = static function ($locationType): string {
+  $value = strtoupper(trim((string)$locationType));
+  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') {
+    return 'Event';
+  }
+  if ($value === 'BAR' || $value === 'KITCHEN') {
+    return 'Reguler';
+  }
+  return $value !== '' ? $value : '-';
+};
 $movementOptions = [
   '' => 'Semua Jenis',
   'OPENING' => 'OPENING',
@@ -35,7 +45,7 @@ $movementOptions = [
       <div class="col-md-2">
         <label class="form-label mb-1">Lokasi</label>
         <select name="location_type" class="form-select">
-          <?php foreach ($locationOptions as $key => $label): ?>
+          <?php foreach ($locationFilterOptions as $key => $label): ?>
             <option value="<?php echo html_escape((string)$key); ?>" <?php echo ((string)($filters['location_type'] ?? '') === (string)$key) ? 'selected' : ''; ?>>
               <?php echo html_escape((string)$label); ?>
             </option>
@@ -92,15 +102,15 @@ $movementOptions = [
             <tr>
               <td><?php echo html_escape((string)($row['movement_date'] ?? '-')); ?></td>
               <td><?php echo html_escape((string)($row['movement_no'] ?? '-')); ?></td>
-              <td><?php echo html_escape((string)($row['location_type'] ?? '-')); ?></td>
+              <td><?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? '-'))); ?></td>
               <td>
                 <div><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></div>
                 <small class="text-muted"><?php echo html_escape((string)($row['component_code'] ?? '-')); ?></small>
               </td>
               <td><?php echo html_escape((string)($row['movement_type'] ?? '-')); ?></td>
-              <td class="text-end"><?php echo number_format((float)($row['qty_in'] ?? 0), 4, ',', '.'); ?></td>
-              <td class="text-end"><?php echo number_format((float)($row['qty_out'] ?? 0), 4, ',', '.'); ?></td>
-              <td class="text-end"><?php echo number_format((float)($row['unit_cost'] ?? 0), 6, ',', '.'); ?></td>
+              <td class="text-end"><?php echo number_format((float)($row['qty_in'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end"><?php echo number_format((float)($row['qty_out'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end"><?php echo number_format((float)($row['unit_cost'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end"><?php echo number_format((float)($row['total_cost'] ?? 0), 2, ',', '.'); ?></td>
               <td><?php echo html_escape((string)($row['source_module'] ?? '-')); ?></td>
             </tr>

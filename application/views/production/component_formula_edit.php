@@ -10,7 +10,7 @@ $components = is_array($components ?? null) ? $components : [];
   <div class="fin-page-header mb-3">
     <div>
       <h4 class="fin-page-title mb-1">Edit Formula: <?php echo html_escape((string)($component['component_name'] ?? '-')); ?></h4>
-      <p class="fin-page-subtitle mb-0"><?php echo html_escape((string)($component['component_code'] ?? '-')); ?> • <?php echo html_escape((string)($component['component_type'] ?? '-')); ?></p>
+      <p class="fin-page-subtitle mb-0"><?php echo html_escape((string)($component['component_code'] ?? '-')); ?> • <?php echo html_escape((string)($component['component_type'] ?? '-')); ?> • Hasil 1x produksi <?php echo number_format((float)($summary['output_qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($summary['output_uom_code'] ?? '-')); ?></p>
     </div>
     <div class="d-flex gap-2">
       <a class="btn btn-outline-info btn-sm" href="<?php echo site_url('production/component-formulas/detail/' . (int)($component['id'] ?? 0)); ?>">Detail</a>
@@ -25,6 +25,7 @@ $components = is_array($components ?? null) ? $components : [];
       <div class="col-md-2"><small class="text-muted d-block">Total Baris</small><strong id="sum-line"><?php echo (int)($summary['line_count'] ?? 0); ?></strong></div>
       <div class="col-md-2"><small class="text-muted d-block">Line Material</small><strong id="sum-material"><?php echo (int)($summary['material_count'] ?? 0); ?></strong></div>
       <div class="col-md-2"><small class="text-muted d-block">Line Component</small><strong id="sum-component"><?php echo (int)($summary['component_count'] ?? 0); ?></strong></div>
+      <div class="col-md-2"><small class="text-muted d-block">Hasil 1x Produksi</small><strong><?php echo number_format((float)($summary['output_qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($summary['output_uom_code'] ?? '-')); ?></strong></div>
       <div class="col-md-2"><small class="text-muted d-block">Direct Std</small><strong><?php echo number_format((float)($summary['direct_cost_standard'] ?? 0), 2, ',', '.'); ?></strong></div>
       <div class="col-md-2"><small class="text-muted d-block">Direct Live</small><strong><?php echo number_format((float)($summary['direct_cost_live'] ?? 0), 2, ',', '.'); ?></strong></div>
       <div class="col-md-2"><small class="text-muted d-block">Total COGS Live</small><strong><?php echo number_format((float)($summary['total_cogs_live'] ?? 0), 2, ',', '.'); ?></strong></div>
@@ -36,7 +37,7 @@ $components = is_array($components ?? null) ? $components : [];
       <div class="row g-2 mb-3">
         <div class="col-12">
           <div class="alert alert-light border py-2 mb-1">
-            <strong>Catatan:</strong> UOM otomatis mengikuti sumber (material/content UOM atau component UOM). Kolom line manual dihapus agar tidak membingungkan.
+            <strong>Catatan:</strong> UOM otomatis mengikuti sumber (material/content UOM atau component UOM). Hasil 1x produksi diambil dari master component dan akan menjadi patokan saat batch produksi.
           </div>
         </div>
         <div class="col-md-4">
@@ -117,7 +118,7 @@ document.addEventListener('DOMContentLoaded', function () {
         <td><input class="form-control form-control-sm line-qty" type="number" min="0" step="0.01" value="${Number(line.qty||0).toFixed(2)}"></td>
         <td><span class="badge bg-secondary-subtle text-secondary-emphasis line-uom-view">${uomLabel}</span></td>
         <td><input class="form-control form-control-sm line-notes" value="${esc(line.notes||'')}"></td>
-        <td class="component-action-cell"><button type="button" class="btn btn-sm btn-outline-danger action-icon-btn component-action-btn js-del" title="Hapus baris" aria-label="Hapus baris"><i class="ri ri-delete-bin-line"></i></button></td>
+        <td class="component-action-cell"><button type="button" class="btn btn-outline-danger action-icon-btn component-action-btn js-del" title="Hapus baris" aria-label="Hapus baris"><i class="ri ri-delete-bin-line"></i></button></td>
       </tr>`;
   }
 

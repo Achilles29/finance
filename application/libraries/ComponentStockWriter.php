@@ -97,8 +97,36 @@ class ComponentStockWriter
         $db->trans_start();
         try {
             $totalInputCost = 0.0;
+            $headerRecordedTotalInputCost = round((float)($header['total_input_cost'] ?? 0), 2);
             foreach ($inputs as $line) {
+                $planRole = strtoupper(trim((string)($line['plan_role'] ?? 'INPUT')));
                 $sourceKind = strtoupper(trim((string)($line['source_kind'] ?? '')));
+                if ($planRole === 'INLINE_OUTPUT') {
+                    $componentId = (int)($line['component_id'] ?? 0);
+                    $uomId = (int)($line['uom_id'] ?? 0);
+                    $qty = round((float)($line['qty'] ?? 0), 4);
+                    if ($componentId <= 0 || $uomId <= 0 || $qty <= 0) {
+                        continue;
+                    }
+
+                    $this->post_single_movement([
+                        'movement_date' => $movementDate,
+                        'location_type' => $locationType,
+                        'division_id' => $divisionId,
+                        'component_id' => $componentId,
+                        'uom_id' => $uomId,
+                        'movement_type' => 'PRODUCTION_IN',
+                        'qty' => $qty,
+                        'unit_cost' => round((float)($line['unit_cost'] ?? 0), 6),
+                        'source_module' => 'PRODUCTION_BATCH',
+                        'source_table' => 'inv_component_batch',
+                        'source_id' => $sourceId > 0 ? $sourceId : null,
+                        'source_line_id' => isset($line['id']) ? (int)$line['id'] : null,
+                        'notes' => (string)($line['notes'] ?? 'Inline production output'),
+                        'actor_employee_id' => $actorEmployeeId,
+                    ]);
+                    continue;
+                }
                 if ($sourceKind === 'MATERIAL') {
                     $materialUsage = $this->post_material_input_usage($header, $line, $movementDate, $locationType, (int)$divisionId, (string)$destinationType, $actorEmployeeId);
                     if (!($materialUsage['ok'] ?? false)) {
@@ -119,7 +147,9 @@ class ComponentStockWriter
 
                 $unitCost = isset($line['unit_cost']) ? round((float)$line['unit_cost'], 6) : $this->current_avg_cost($locationType, $divisionId, $componentId, $uomId);
                 $lineCost = round($qty * $unitCost, 2);
-                $totalInputCost += $lineCost;
+                if ($planRole !== 'INLINE_COMPONENT_USAGE') {
+                    $totalInputCost += $lineCost;
+                }
 
                 $this->post_single_movement([
                     'movement_date' => $movementDate,
@@ -139,7 +169,9 @@ class ComponentStockWriter
                 ]);
             }
 
-            $unitCostOutput = $outputQty > 0 ? round($totalInputCost / $outputQty, 6) : 0.0;
+            $extraCost = max(0, round($headerRecordedTotalInputCost - $totalInputCost, 2));
+            $finalTotalInputCost = round($totalInputCost + $extraCost, 2);
+            $unitCostOutput = $outputQty > 0 ? round($finalTotalInputCost / $outputQty, 6) : 0.0;
             $this->post_single_movement([
                 'movement_date' => $movementDate,
                 'location_type' => $locationType,
@@ -161,8 +193,8 @@ class ComponentStockWriter
 
             if ($sourceId > 0) {
                 $this->ci->db->where('id', $sourceId)->update('inv_component_batch', [
-                    'total_input_cost' => round($totalInputCost, 2),
-                    'unit_cost' => $outputQty > 0 ? round($totalInputCost / $outputQty, 6) : 0.0,
+                    'total_input_cost' => $finalTotalInputCost,
+                    'unit_cost' => $unitCostOutput,
                 ]);
             }
         } catch (RuntimeException $e) {

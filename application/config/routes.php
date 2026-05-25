@@ -235,6 +235,7 @@ $route['production/component-adjustments/post/(:num)'] = 'production/component_a
 $route['production/component-adjustments/delete/(:num)'] = 'production/component_adjustment_delete/$1';
 $route['production/component-batches'] = 'production/component_batches';
 $route['production/component-batches/save'] = 'production/component_batch_save';
+$route['production/component-batches/preview'] = 'production/component_batch_preview';
 $route['production/component-batches/post/(:num)'] = 'production/component_batch_post/$1';
 $route['production/component-batches/delete/(:num)'] = 'production/component_batch_delete/$1';
 $route['production/component-picker-search'] = 'production/component_picker_search';

@@ -180,7 +180,7 @@ foreach ($rows as $r) {
                     <div class="component-action-stack">
                       <button
                         type="button"
-                        class="btn btn-sm btn-outline-primary action-icon-btn component-action-btn js-edit"
+                        class="btn btn-outline-primary action-icon-btn component-action-btn js-edit"
                         data-row="<?php echo html_escape(json_encode($r, JSON_INVALID_UTF8_SUBSTITUTE)); ?>"
                         data-bs-toggle="modal"
                         data-bs-target="#categoryModal"
@@ -189,7 +189,7 @@ foreach ($rows as $r) {
                       >
                         <i class="ri ri-edit-line"></i>
                       </button>
-                      <button type="button" class="btn btn-sm btn-outline-warning action-icon-btn component-action-btn js-toggle" data-id="<?php echo (int)$r['id']; ?>" title="Toggle Status" aria-label="Toggle Status"><i class="ri ri-refresh-line"></i></button>
+                      <button type="button" class="btn btn-outline-warning action-icon-btn component-action-btn js-toggle" data-id="<?php echo (int)$r['id']; ?>" title="Toggle Status" aria-label="Toggle Status"><i class="ri ri-refresh-line"></i></button>
                     </div>
                   </td>
                 </tr>

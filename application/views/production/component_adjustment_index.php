@@ -4,6 +4,16 @@ $components = is_array($components ?? null) ? $components : [];
 $uoms = is_array($uoms ?? null) ? $uoms : [];
 $divisions = is_array($divisions ?? null) ? $divisions : [];
 $locationOptions = is_array($location_options ?? null) ? $location_options : [];
+$locationGroupLabel = static function ($locationType): string {
+  $value = strtoupper(trim((string)$locationType));
+  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') {
+    return 'Event';
+  }
+  if ($value === 'BAR' || $value === 'KITCHEN') {
+    return 'Reguler';
+  }
+  return $value !== '' ? $value : '-';
+};
 ?>
 
 <style>
@@ -91,10 +101,10 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mt-3">
         <div class="component-adjustment-summary d-flex flex-wrap gap-4">
           <div><div class="small text-muted">Baris</div><strong id="adj-line-count">0</strong></div>
-          <div><div class="small text-muted">Total Spoil</div><strong id="adj-total-spoil">0.0000</strong></div>
-          <div><div class="small text-muted">Total Waste</div><strong id="adj-total-waste">0.0000</strong></div>
-          <div><div class="small text-muted">Total Plus</div><strong id="adj-total-plus">0.0000</strong></div>
-          <div><div class="small text-muted">Total Minus</div><strong id="adj-total-minus">0.0000</strong></div>
+          <div><div class="small text-muted">Total Spoil</div><strong id="adj-total-spoil">0,00</strong></div>
+          <div><div class="small text-muted">Total Waste</div><strong id="adj-total-waste">0,00</strong></div>
+          <div><div class="small text-muted">Total Plus</div><strong id="adj-total-plus">0,00</strong></div>
+          <div><div class="small text-muted">Total Minus</div><strong id="adj-total-minus">0,00</strong></div>
         </div>
         <button type="submit" class="btn btn-primary">Simpan DRAFT</button>
       </div>
@@ -126,15 +136,15 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
               <tr>
                 <td><?php echo html_escape((string)($row['adjustment_no'] ?? '')); ?></td>
                 <td><?php echo html_escape((string)($row['adjustment_date'] ?? '')); ?></td>
-                <td><?php echo html_escape((string)($row['location_type'] ?? '')); ?></td>
+                <td><?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? ''))); ?></td>
                 <td><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>
                 <td><?php echo html_escape((string)($row['notes'] ?? '-')); ?></td>
                 <td><?php echo ui_status_badge((string)($row['status'] ?? 'DRAFT')); ?></td>
                 <td class="component-action-cell">
                   <?php if (strtoupper((string)($row['status'] ?? '')) === 'DRAFT'): ?>
                     <div class="component-action-stack">
-                      <button type="button" class="btn btn-success btn-sm action-icon-btn component-action-btn btn-post" data-id="<?php echo (int)$row['id']; ?>" title="Post" aria-label="Post"><i class="ri ri-upload-2-line"></i></button>
-                      <button type="button" class="btn btn-outline-danger btn-sm action-icon-btn component-action-btn btn-del" data-id="<?php echo (int)$row['id']; ?>" title="Delete" aria-label="Delete"><i class="ri ri-delete-bin-line"></i></button>
+                      <button type="button" class="btn btn-outline-success action-icon-btn component-action-btn btn-post" data-id="<?php echo (int)$row['id']; ?>" title="Post" aria-label="Post"><i class="ri ri-upload-2-line"></i></button>
+                      <button type="button" class="btn btn-outline-danger action-icon-btn component-action-btn btn-del" data-id="<?php echo (int)$row['id']; ?>" title="Delete" aria-label="Delete"><i class="ri ri-delete-bin-line"></i></button>
                     </div>
                   <?php endif; ?>
                 </td>
@@ -203,6 +213,13 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
     return json;
   }
 
+  function uiConfirm(message, options) {
+    if (window.FinanceUI && typeof window.FinanceUI.confirm === 'function') {
+      return window.FinanceUI.confirm(message, options || {});
+    }
+    return Promise.resolve(window.confirm(String(message || 'Lanjutkan aksi?')));
+  }
+
   function blankLine() {
     return {
       component_id: '',
@@ -236,7 +253,7 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
   function renderSummary() {
     const validLines = lines.filter((line) => Number(line.component_id) > 0 && Number(line.uom_id) > 0);
     const totalOf = (field) => validLines.reduce((sum, line) => sum + (parseFloat(line[field]) || 0), 0);
-    const formatter = (value) => value.toLocaleString('id-ID', {minimumFractionDigits: 4, maximumFractionDigits: 4});
+    const formatter = (value) => value.toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2});
     document.getElementById('adj-line-count').textContent = String(validLines.length);
     document.getElementById('adj-total-spoil').textContent = formatter(totalOf('qty_spoil'));
     document.getElementById('adj-total-waste').textContent = formatter(totalOf('qty_waste'));
@@ -289,11 +306,11 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
         '<td class="text-muted">' + (index + 1) + '</td>' +
         '<td><input type="text" class="form-control form-control-sm component-picker-input" value="' + escapeHtml(line.component_label || '') + '" placeholder="Ketik kode/nama component..."' + (Number(line.component_id) > 0 ? ' data-selected-label="' + escapeHtml(line.component_label || '') + '"' : '') + '></td>' +
         '<td><select class="form-select form-select-sm" data-field="uom_id">' + uomSelectOptions(line.uom_id) + '</select></td>' +
-        '<td><input type="number" min="0" step="0.0001" class="form-control form-control-sm text-end" data-field="available_qty" value="' + escapeHtml(line.available_qty) + '"></td>' +
-        '<td><input type="number" min="0" step="0.0001" class="form-control form-control-sm text-end" data-field="qty_spoil" value="' + escapeHtml(line.qty_spoil) + '"></td>' +
-        '<td><input type="number" min="0" step="0.0001" class="form-control form-control-sm text-end" data-field="qty_waste" value="' + escapeHtml(line.qty_waste) + '"></td>' +
-        '<td><input type="number" min="0" step="0.0001" class="form-control form-control-sm text-end" data-field="qty_adjust_pos" value="' + escapeHtml(line.qty_adjust_pos) + '"></td>' +
-        '<td><input type="number" min="0" step="0.0001" class="form-control form-control-sm text-end" data-field="qty_adjust_neg" value="' + escapeHtml(line.qty_adjust_neg) + '"></td>' +
+        '<td><input type="number" min="0" step="0.01" class="form-control form-control-sm text-end" data-field="available_qty" value="' + escapeHtml(line.available_qty) + '"></td>' +
+        '<td><input type="number" min="0" step="0.01" class="form-control form-control-sm text-end" data-field="qty_spoil" value="' + escapeHtml(line.qty_spoil) + '"></td>' +
+        '<td><input type="number" min="0" step="0.01" class="form-control form-control-sm text-end" data-field="qty_waste" value="' + escapeHtml(line.qty_waste) + '"></td>' +
+        '<td><input type="number" min="0" step="0.01" class="form-control form-control-sm text-end" data-field="qty_adjust_pos" value="' + escapeHtml(line.qty_adjust_pos) + '"></td>' +
+        '<td><input type="number" min="0" step="0.01" class="form-control form-control-sm text-end" data-field="qty_adjust_neg" value="' + escapeHtml(line.qty_adjust_neg) + '"></td>' +
         '<td><input type="text" class="form-control form-control-sm" data-field="note" value="' + escapeHtml(line.note) + '"></td>' +
         '<td><button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">×</button></td>' +
       '</tr>';
@@ -382,7 +399,12 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
 
   document.querySelectorAll('.btn-post').forEach((button) => {
     button.addEventListener('click', async () => {
-      if (!window.confirm('Post dokumen adjustment ini?')) {
+      button.blur();
+      if (!(await uiConfirm('Posting adjustment akan menulis mutasi spoil, waste, plus, dan minus ke ledger component.', {
+        title: 'Post Dokumen Adjustment',
+        okText: 'Post Adjustment',
+        cancelText: 'Batal'
+      }))) {
         return;
       }
       try {
@@ -396,7 +418,12 @@ $locationOptions = is_array($location_options ?? null) ? $location_options : [];
 
   document.querySelectorAll('.btn-del').forEach((button) => {
     button.addEventListener('click', async () => {
-      if (!window.confirm('Hapus draft adjustment ini?')) {
+      button.blur();
+      if (!(await uiConfirm('Draft adjustment ini akan dihapus permanen.', {
+        title: 'Hapus Draft Adjustment',
+        okText: 'Hapus Draft',
+        cancelText: 'Batal'
+      }))) {
         return;
       }
       try {
