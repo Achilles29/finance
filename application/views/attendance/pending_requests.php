@@ -301,7 +301,11 @@ $statusClass = static function (string $status): string {
     if (window.FinanceUI && typeof window.FinanceUI.confirm === 'function') {
       return window.FinanceUI.confirm(message, options || {});
     }
-    return Promise.resolve(window.confirm(String(message || 'Lanjutkan aksi?')));
+    if (window.FinanceUI && typeof window.FinanceUI.alert === 'function') {
+      return window.FinanceUI.alert('Modal konfirmasi tidak tersedia. Muat ulang halaman lalu coba lagi.', { title: 'UI Belum Siap' })
+        .then(function () { return false; });
+    }
+    return Promise.resolve(false);
   }
 
   function setSubmitLoading(form, label) {
@@ -384,14 +388,6 @@ $statusClass = static function (string $status): string {
         okText: 'Ya, Proses'
       }).then(function (ok) {
         if (!ok) return;
-        form.dataset.confirmed = '1';
-        var submitBtn = form.querySelector('button[type="submit"],input[type="submit"]');
-        var loadingLabel = submitBtn ? (submitBtn.getAttribute('data-loading-label') || 'Memproses...') : 'Memproses...';
-        setSubmitLoading(form, loadingLabel);
-        form.submit();
-      }).catch(function () {
-        var fallbackOk = window.confirm('Yakin proses aksi ' + label + ' untuk pengajuan ini?');
-        if (!fallbackOk) return;
         form.dataset.confirmed = '1';
         var submitBtn = form.querySelector('button[type="submit"],input[type="submit"]');
         var loadingLabel = submitBtn ? (submitBtn.getAttribute('data-loading-label') || 'Memproses...') : 'Memproses...';

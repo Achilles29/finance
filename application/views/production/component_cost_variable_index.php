@@ -78,6 +78,24 @@ document.addEventListener('DOMContentLoaded', function () {
     return j;
   }
 
+  function setButtonBusy(button, label) {
+    if (!button) return;
+    if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') {
+      window.FinanceUI.setButtonLoading(button, label);
+      return;
+    }
+    button.disabled = true;
+  }
+
+  function clearButtonBusy(button) {
+    if (!button) return;
+    if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+      window.FinanceUI.clearButtonLoading(button);
+      return;
+    }
+    button.disabled = false;
+  }
+
   document.querySelectorAll('.js-save').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const tr = btn.closest('tr');
@@ -87,11 +105,14 @@ document.addEventListener('DOMContentLoaded', function () {
         notes: tr.querySelector('[data-field="notes"]').value || '',
         is_active: Number(tr.querySelector('[data-field="is_active"]').value || 0)
       };
+      setButtonBusy(btn, 'Menyimpan...');
       try {
         await postJson('<?php echo site_url('production/component-cost-variables/save'); ?>', payload);
         alert('Pengaturan tersimpan.');
       } catch (err) {
         alert(err.message || 'Gagal menyimpan pengaturan.');
+      } finally {
+        clearButtonBusy(btn);
       }
     });
   });

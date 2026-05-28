@@ -1,7 +1,6 @@
 <?php
 $rows = is_array($rows ?? null) ? $rows : [];
 $q = (string)($q ?? '');
-$parentOptions = is_array($parent_options ?? null) ? $parent_options : [];
 $componentsForMapping = is_array($components_for_mapping ?? null) ? $components_for_mapping : [];
 $unmappedComponents = is_array($unmapped_components ?? null) ? $unmapped_components : [];
 
@@ -75,7 +74,7 @@ foreach ($rows as $r) {
         <div class="col-md-6">
           <label class="form-label mb-1">Component</label>
           <input type="hidden" name="component_id" id="quick-map-component-id" value="">
-          <input type="text" class="form-control" id="quick-map-component-search" placeholder="Ketik kode/nama component..." autocomplete="off" required>
+          <input type="text" class="form-control" id="quick-map-component-search" placeholder="Ketik nama component..." autocomplete="off" required>
         </div>
         <div class="col-md-4">
           <label class="form-label mb-1">Target Kategori</label>
@@ -106,7 +105,6 @@ foreach ($rows as $r) {
         <table class="table table-sm align-middle mb-0">
           <thead>
             <tr>
-              <th>Kode</th>
               <th>Nama</th>
               <th>Tipe</th>
               <th>Kategori Saat Ini</th>
@@ -115,10 +113,9 @@ foreach ($rows as $r) {
           </thead>
           <tbody>
             <?php if (empty($unmappedComponents)): ?>
-              <tr><td colspan="5" class="text-center text-muted py-3">Tidak ada warning. Semua komponen sudah sesuai.</td></tr>
+              <tr><td colspan="4" class="text-center text-muted py-3">Tidak ada warning. Semua komponen sudah sesuai.</td></tr>
             <?php else: foreach ($unmappedComponents as $u): ?>
               <tr>
-                <td><code><?php echo html_escape((string)$u['component_code']); ?></code></td>
                 <td><?php echo html_escape((string)$u['component_name']); ?></td>
                 <td><?php echo html_escape((string)$u['component_type']); ?></td>
                 <td><?php echo html_escape((string)($u['category_name'] ?? '-')); ?></td>
@@ -153,7 +150,7 @@ foreach ($rows as $r) {
               <th style="width:180px;">Kode</th>
               <th>Nama</th>
               <th style="width:140px;">Scope</th>
-              <th>Parent</th>
+              <th class="text-end" style="width:110px;">Urutan</th>
               <th class="text-end" style="width:160px;">Jumlah Component</th>
               <th style="width:140px;">Status</th>
               <th style="width:210px;">Aksi</th>
@@ -173,7 +170,7 @@ foreach ($rows as $r) {
                   <td>
                     <span class="badge text-bg-light border"><?php echo html_escape((string)($r['scope_type'] ?? 'ALL')); ?></span>
                   </td>
-                  <td><?php echo html_escape((string)($r['parent_name'] ?? '-')); ?></td>
+                  <td class="text-end"><?php echo number_format((int)($r['sort_order'] ?? 0), 0, ',', '.'); ?></td>
                   <td class="text-end"><?php echo number_format((int)($r['component_count'] ?? 0), 0, ',', '.'); ?></td>
                   <td><?php echo ui_status_badge((int)($r['is_active'] ?? 0) === 1 ? 'ACTIVE' : 'INACTIVE', 'active'); ?></td>
                   <td class="component-action-cell">
@@ -234,14 +231,10 @@ foreach ($rows as $r) {
             <small class="text-muted">Kode dibuat otomatis dari nama. Saat edit, kode existing dipertahankan.</small>
           </div>
           <div class="col-md-4">
-            <label class="form-label mb-1">Parent (opsional)</label>
-            <select class="form-select" name="parent_id" id="parent_id">
-              <option value="">Tanpa Parent</option>
-              <?php foreach ($parentOptions as $p): ?>
-                <option value="<?php echo (int)$p['id']; ?>">
-                  <?php echo html_escape((string)$p['name']); ?> (<?php echo html_escape((string)($p['scope_type'] ?? 'ALL')); ?>)
-                </option>
-              <?php endforeach; ?>
+            <label class="form-label mb-1">Status</label>
+            <select class="form-select" name="is_active">
+              <option value="1">Aktif</option>
+              <option value="0">Nonaktif</option>
             </select>
           </div>
         </form>
@@ -263,7 +256,6 @@ foreach ($rows as $r) {
   const btnAdd = document.getElementById('btn-add');
   const nameEl = form.querySelector('[name="name"]');
   const codeEl = form.querySelector('[name="code"]');
-  const parentEl = form.querySelector('[name="parent_id"]');
   const quickMapComponentId = document.getElementById('quick-map-component-id');
   const quickMapComponentSearch = document.getElementById('quick-map-component-search');
 
@@ -307,6 +299,7 @@ foreach ($rows as $r) {
     form.querySelector('[name="id"]').value = '';
     form.querySelector('[name="scope_type"]').value = 'ALL';
     form.querySelector('[name="sort_order"]').value = '0';
+    form.querySelector('[name="is_active"]').value = '1';
     codeEl.value = '';
     modalTitle.textContent = 'Kategori Baru';
   };
@@ -326,54 +319,79 @@ foreach ($rows as $r) {
       form.querySelector('[name="name"]').value = row.name || '';
       form.querySelector('[name="scope_type"]').value = row.scope_type || 'ALL';
       form.querySelector('[name="sort_order"]').value = row.sort_order || 0;
-      form.querySelector('[name="parent_id"]').value = row.parent_id || '';
+      form.querySelector('[name="is_active"]').value = String((row.is_active || 0) == 1 ? 1 : 0);
       codeEl.value = row.code || '';
       modalTitle.textContent = `Edit Kategori: ${row.name || row.code || row.id}`;
-
-      // prevent self-parent
-      Array.from(parentEl.options).forEach((opt) => {
-        opt.hidden = row.id && String(opt.value) === String(row.id);
-      });
     });
   });
 
-  document.getElementById('btn-save').addEventListener('click', async () => {
+  function setButtonBusy(button, label) {
+    if (!button) {
+      return;
+    }
+    if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') {
+      window.FinanceUI.setButtonLoading(button, label);
+      return;
+    }
+    button.disabled = true;
+  }
+
+  function clearButtonBusy(button) {
+    if (!button) {
+      return;
+    }
+    if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+      window.FinanceUI.clearButtonLoading(button);
+      return;
+    }
+    button.disabled = false;
+  }
+
+  document.getElementById('btn-save').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
     const payload = Object.fromEntries(new FormData(form).entries());
     if (!payload.id) {
       payload.code = slugifyCode(payload.name);
     }
+    setButtonBusy(button, 'Menyimpan...');
     try {
       await postJson('<?php echo site_url('production/component-categories/save'); ?>', payload);
       location.reload();
     } catch (err) {
       alert(err.message);
+      clearButtonBusy(button);
     }
   });
 
   document.querySelectorAll('.js-toggle').forEach((btn) => {
     btn.addEventListener('click', async () => {
+      setButtonBusy(btn, 'Memproses...');
       try {
         await postJson('<?php echo site_url('production/component-categories/toggle'); ?>/' + btn.dataset.id, {});
         location.reload();
       } catch (err) {
         alert(err.message);
+        clearButtonBusy(btn);
       }
     });
   });
 
   document.getElementById('quick-map-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const submitButton = e.submitter || e.currentTarget.querySelector('button[type="submit"]');
     const payload = Object.fromEntries(new FormData(e.currentTarget).entries());
     if (!payload.component_id) {
       alert('Pilih component dari hasil pencarian terlebih dahulu.');
       quickMapComponentSearch?.focus();
       return;
     }
+    setButtonBusy(submitButton, 'Menyimpan...');
     try {
       await postJson('<?php echo site_url('production/component-categories/quick-map'); ?>', payload);
       location.reload();
     } catch (err) {
       alert(err.message);
+      clearButtonBusy(submitButton);
     }
   });
 })();

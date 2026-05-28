@@ -476,13 +476,88 @@ $(function () {
         });
     }
 
+    function isIconOnlyButton(button) {
+        if (!button) return false;
+        if (button.classList.contains('action-icon-btn') || button.classList.contains('component-action-btn')) {
+            return true;
+        }
+
+        var hasIcon = !!button.querySelector('i, [class^="ri-"], [class*=" ri-"]');
+        var text = String(button.textContent || '').replace(/\s+/g, ' ').trim();
+        return hasIcon && text === '';
+    }
+
     function setButtonLoading(button, label) {
         if (!button || button.dataset.loadingActive === '1') return;
+
+        var loadingLabel = String(label || button.getAttribute('data-loading-label') || button.getAttribute('aria-label') || button.getAttribute('title') || 'Memproses...');
+        var isInput = button.tagName === 'INPUT';
+        var iconOnly = !isInput && isIconOnlyButton(button);
+
         button.dataset.loadingActive = '1';
-        button.dataset.originalHtml = button.innerHTML;
+        button.dataset.originalTitle = button.getAttribute('title') || '';
+        button.dataset.originalAriaLabel = button.getAttribute('aria-label') || '';
         button.disabled = true;
         button.classList.add('is-loading');
-        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>' + (label || 'Memproses...');
+        button.setAttribute('aria-busy', 'true');
+
+        if (isInput) {
+            button.dataset.originalValue = button.value || '';
+            button.value = loadingLabel;
+            return;
+        }
+
+        button.dataset.originalHtml = button.innerHTML;
+        button.classList.toggle('is-loading-icon', iconOnly);
+        button.replaceChildren();
+
+        var spinner = document.createElement('span');
+        spinner.className = 'spinner-border spinner-border-sm';
+        spinner.setAttribute('role', 'status');
+        spinner.setAttribute('aria-hidden', 'true');
+        if (!iconOnly) {
+            spinner.classList.add('me-1');
+        }
+        button.appendChild(spinner);
+
+        if (!iconOnly) {
+            button.appendChild(document.createTextNode(loadingLabel));
+        }
+
+        button.setAttribute('title', loadingLabel);
+        button.setAttribute('aria-label', loadingLabel);
+    }
+
+    function clearButtonLoading(button) {
+        if (!button || button.dataset.loadingActive !== '1') return;
+        button.disabled = false;
+        button.classList.remove('is-loading');
+        button.classList.remove('is-loading-icon');
+        button.removeAttribute('aria-busy');
+        if (button.tagName === 'INPUT' && Object.prototype.hasOwnProperty.call(button.dataset, 'originalValue')) {
+            button.value = button.dataset.originalValue;
+            delete button.dataset.originalValue;
+        } else if (Object.prototype.hasOwnProperty.call(button.dataset, 'originalHtml')) {
+            button.innerHTML = button.dataset.originalHtml;
+            delete button.dataset.originalHtml;
+        }
+        if (Object.prototype.hasOwnProperty.call(button.dataset, 'originalTitle')) {
+            if (button.dataset.originalTitle !== '') {
+                button.setAttribute('title', button.dataset.originalTitle);
+            } else {
+                button.removeAttribute('title');
+            }
+            delete button.dataset.originalTitle;
+        }
+        if (Object.prototype.hasOwnProperty.call(button.dataset, 'originalAriaLabel')) {
+            if (button.dataset.originalAriaLabel !== '') {
+                button.setAttribute('aria-label', button.dataset.originalAriaLabel);
+            } else {
+                button.removeAttribute('aria-label');
+            }
+            delete button.dataset.originalAriaLabel;
+        }
+        delete button.dataset.loadingActive;
     }
 
     function bindUiConfirmAndLoading() {
@@ -495,6 +570,7 @@ $(function () {
             window.FinanceUI.confirm(message).then(function (ok) {
                 if (!ok) return;
                 target.dataset.confirmed = '1';
+                setButtonLoading(target, target.getAttribute('data-loading-label') || 'Memproses...');
                 if (target.tagName === 'A') {
                     window.location.href = target.getAttribute('href');
                 } else if (target.tagName === 'BUTTON') {
@@ -541,6 +617,10 @@ $(function () {
             });
         });
     }
+
+    window.FinanceUI = window.FinanceUI || {};
+    window.FinanceUI.setButtonLoading = setButtonLoading;
+    window.FinanceUI.clearButtonLoading = clearButtonLoading;
 
     // ---------------------------------------------------------------
     // Toggle favorit sidebar via AJAX (persist per user)

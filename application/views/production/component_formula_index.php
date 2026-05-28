@@ -45,7 +45,7 @@ $divisions = is_array($divisions ?? null) ? $divisions : [];
           </select>
         </div>
         <div class="col-md-3">
-          <input id="q" class="form-control" placeholder="Cari kode/nama component...">
+          <input id="q" class="form-control" placeholder="Cari nama component...">
         </div>
         <div class="col-md-2">
           <select class="form-select" id="limit">
@@ -65,7 +65,6 @@ $divisions = is_array($divisions ?? null) ? $divisions : [];
         <table class="table table-sm table-hover align-middle">
           <thead>
             <tr>
-              <th>Kode</th>
               <th>Nama</th>
               <th>Tipe</th>
               <th class="text-end">Hasil 1x Produksi</th>
@@ -157,7 +156,6 @@ document.addEventListener('DOMContentLoaded', function () {
     emptyState.classList.add('d-none');
     tableBody.innerHTML = rows.map((r) => `
       <tr>
-        <td>${esc(r.component_code || '-')}</td>
         <td>${esc(r.component_name || '-')}</td>
         <td>${esc(r.component_type || '-')}</td>
         <td class="text-end fw-semibold">${fmt(r.output_batch_qty || 1, 2)} ${esc(r.uom_code || '-')}</td>

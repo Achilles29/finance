@@ -1156,6 +1156,7 @@ foreach ($rows as $row) {
   });
 
   document.getElementById('btn-save-draft')?.addEventListener('click', async () => {
+    const saveDraftBtn = document.getElementById('btn-save-draft');
     if (!lines.length) {
       showAlert('warning', 'Belum ada line draft untuk disimpan.');
       return;
@@ -1170,22 +1171,35 @@ foreach ($rows as $row) {
       payload.division_id = Number(document.getElementById('division_id')?.value || 0) || null;
       payload.destination_type = String(document.getElementById('destination_type')?.value || '').trim();
     }
-    const res = await fetchJson('<?php echo $storeUrl; ?>', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      body: JSON.stringify(payload)
-    });
-    if (!res.ok) {
-      showAlert('danger', res.message || 'Gagal menyimpan draft adjustment.');
-      return;
+    if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') {
+      window.FinanceUI.setButtonLoading(saveDraftBtn, 'Menyimpan draft...');
     }
-    lines.splice(0, lines.length);
-    renderDraftLines();
-    showAlert('success', 'Draft berhasil disimpan. Halaman akan dimuat ulang.');
-    window.location.reload();
+    try {
+      const res = await fetchJson('<?php echo $storeUrl; ?>', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+          window.FinanceUI.clearButtonLoading(saveDraftBtn);
+        }
+        showAlert('danger', res.message || 'Gagal menyimpan draft adjustment.');
+        return;
+      }
+      lines.splice(0, lines.length);
+      renderDraftLines();
+      showAlert('success', 'Draft berhasil disimpan. Halaman akan dimuat ulang.');
+      window.location.reload();
+    } catch (error) {
+      if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+        window.FinanceUI.clearButtonLoading(saveDraftBtn);
+      }
+      showAlert('danger', error.message || 'Gagal menyimpan draft adjustment.');
+    }
   });
 
   document.querySelectorAll('.btn-post-doc').forEach((button) => {
@@ -1201,19 +1215,32 @@ foreach ($rows as $row) {
       if (!confirmed) {
         return;
       }
-      const res = await fetchJson('<?php echo $postBaseUrl; ?>/' + button.dataset.id, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: '{}'
-      });
-      if (!res.ok) {
-        showAlert('danger', res.message || 'Gagal post adjustment.');
-        return;
+      if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') {
+        window.FinanceUI.setButtonLoading(button, 'Posting...');
       }
-      window.location.reload();
+      try {
+        const res = await fetchJson('<?php echo $postBaseUrl; ?>/' + button.dataset.id, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: '{}'
+        });
+        if (!res.ok) {
+          if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+            window.FinanceUI.clearButtonLoading(button);
+          }
+          showAlert('danger', res.message || 'Gagal post adjustment.');
+          return;
+        }
+        window.location.reload();
+      } catch (error) {
+        if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+          window.FinanceUI.clearButtonLoading(button);
+        }
+        showAlert('danger', error.message || 'Gagal post adjustment.');
+      }
     });
   });
 
@@ -1230,19 +1257,32 @@ foreach ($rows as $row) {
       if (!confirmed) {
         return;
       }
-      const res = await fetchJson('<?php echo $deleteBaseUrl; ?>/' + button.dataset.id, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: '{}'
-      });
-      if (!res.ok) {
-        showAlert('danger', res.message || 'Gagal menghapus draft adjustment.');
-        return;
+      if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') {
+        window.FinanceUI.setButtonLoading(button, 'Menghapus...');
       }
-      window.location.reload();
+      try {
+        const res = await fetchJson('<?php echo $deleteBaseUrl; ?>/' + button.dataset.id, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: '{}'
+        });
+        if (!res.ok) {
+          if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+            window.FinanceUI.clearButtonLoading(button);
+          }
+          showAlert('danger', res.message || 'Gagal menghapus draft adjustment.');
+          return;
+        }
+        window.location.reload();
+      } catch (error) {
+        if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+          window.FinanceUI.clearButtonLoading(button);
+        }
+        showAlert('danger', error.message || 'Gagal menghapus draft adjustment.');
+      }
     });
   });
 
@@ -1259,19 +1299,32 @@ foreach ($rows as $row) {
       if (!confirmed) {
         return;
       }
-      const res = await fetchJson('<?php echo $voidBaseUrl; ?>/' + button.dataset.id, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: '{}'
-      });
-      if (!res.ok) {
-        showAlert('danger', res.message || 'Gagal VOID adjustment.');
-        return;
+      if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') {
+        window.FinanceUI.setButtonLoading(button, 'Void...');
       }
-      window.location.reload();
+      try {
+        const res = await fetchJson('<?php echo $voidBaseUrl; ?>/' + button.dataset.id, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: '{}'
+        });
+        if (!res.ok) {
+          if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+            window.FinanceUI.clearButtonLoading(button);
+          }
+          showAlert('danger', res.message || 'Gagal VOID adjustment.');
+          return;
+        }
+        window.location.reload();
+      } catch (error) {
+        if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+          window.FinanceUI.clearButtonLoading(button);
+        }
+        showAlert('danger', error.message || 'Gagal VOID adjustment.');
+      }
     });
   });
 

@@ -22,6 +22,16 @@ foreach (($cfg['fields'] ?? []) as $fieldCfg) {
     break;
   }
 }
+
+$renderReadonlyValue = static function ($value, string $type): string {
+    if ($value === null || $value === '') {
+        return '';
+    }
+    if ($type === 'checkbox') {
+        return (int)$value === 1 ? '1' : '0';
+    }
+    return (string)$value;
+};
 ?>
 
 <?php if ($isPayrollMaster): ?>
@@ -78,7 +88,12 @@ foreach (($cfg['fields'] ?? []) as $fieldCfg) {
 <div class="master-form <?php echo $isPayrollMaster ? 'master-form--payroll' : ''; ?>">
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="mb-0 master-form-title"><?php echo html_escape($title); ?></h4>
-  <a href="<?php echo site_url('master/' . $entity); ?>" class="btn btn-outline-secondary">Kembali</a>
+  <div class="d-flex gap-2 flex-wrap justify-content-end">
+    <?php if ($entity === 'product' && !empty($is_edit) && !empty($row['id'])): ?>
+      <a href="<?php echo site_url('master/product/detail/' . (int)$row['id']); ?>" class="btn btn-outline-info">Detail Product</a>
+    <?php endif; ?>
+    <a href="<?php echo site_url('master/' . $entity); ?>" class="btn btn-outline-secondary">Kembali</a>
+  </div>
 </div>
 
 <div class="card master-form-card">
@@ -86,12 +101,12 @@ foreach (($cfg['fields'] ?? []) as $fieldCfg) {
     <form method="post" action="<?php echo site_url($form_action); ?>" <?php echo $hasFileField ? 'enctype="multipart/form-data"' : ''; ?>>
       <div class="row">
         <?php foreach ($cfg['fields'] as $f): ?>
-          <?php if (!empty($f['readonly'])) continue; ?>
           <?php
             $name = $f['name'];
             $label = $f['label'];
             $type = $f['type'] ?? 'text';
             $val = $current($name, $type === 'checkbox' ? 1 : '');
+            $isReadonly = !empty($f['readonly']);
             if ($name === 'variable_cost_mode' && in_array($entity, ['product', 'component'], true) && (string)$val === '') {
                 $val = 'DEFAULT';
             }
@@ -107,10 +122,10 @@ foreach (($cfg['fields'] ?? []) as $fieldCfg) {
             <?php endif; ?>
 
             <?php if ($type === 'textarea'): ?>
-              <textarea name="<?php echo html_escape($name); ?>" id="id_<?php echo html_escape($name); ?>" class="form-control" rows="3"><?php echo html_escape((string)$val); ?></textarea>
+              <textarea name="<?php echo html_escape($name); ?>" id="id_<?php echo html_escape($name); ?>" class="form-control" rows="3" <?php echo $isReadonly ? 'readonly' : ''; ?>><?php echo html_escape((string)$val); ?></textarea>
             <?php elseif ($type === 'select'): ?>
               <?php $selectOptions = $options[$name] ?? ($f['options'] ?? []); ?>
-              <select name="<?php echo html_escape($name); ?>" id="id_<?php echo html_escape($name); ?>" class="form-control">
+              <select name="<?php echo html_escape($name); ?>" id="id_<?php echo html_escape($name); ?>" class="form-control" <?php echo $isReadonly ? 'disabled' : ''; ?>>
                 <option value="">- pilih -</option>
                 <?php foreach ($selectOptions as $opt): ?>
                   <option value="<?php echo html_escape((string)$opt['value']); ?>" <?php echo (string)$val === (string)$opt['value'] ? 'selected' : ''; ?>>
@@ -127,9 +142,12 @@ foreach (($cfg['fields'] ?? []) as $fieldCfg) {
                 value="<?php echo html_escape((string)$val); ?>"
                 <?php echo !empty($f['step']) ? 'step="' . html_escape($f['step']) . '"' : ''; ?>
                 <?php echo ($isAttLocationMaster && in_array($name, ['latitude', 'longitude'], true)) ? 'data-map-coordinate="1"' : ''; ?>
+                <?php echo $isReadonly ? 'readonly' : ''; ?>
               >
             <?php elseif ($type === 'file'): ?>
+              <?php if (!$isReadonly): ?>
               <input type="file" name="<?php echo html_escape($name); ?>" id="id_<?php echo html_escape($name); ?>" class="form-control" accept="image/*">
+              <?php endif; ?>
               <?php if ($name === 'photo_file'): ?>
                 <?php
                   $currentPhotoPath = trim((string)($row['photo_path'] ?? ''));
@@ -149,15 +167,23 @@ foreach (($cfg['fields'] ?? []) as $fieldCfg) {
               <?php endif; ?>
             <?php elseif ($type === 'checkbox'): ?>
               <div class="form-check mt-3">
-                <input type="checkbox" name="<?php echo html_escape($name); ?>" class="form-check-input" id="id_<?php echo html_escape($name); ?>" value="1" <?php echo (int)$val === 1 ? 'checked' : ''; ?>>
+                <input type="checkbox" name="<?php echo html_escape($name); ?>" class="form-check-input" id="id_<?php echo html_escape($name); ?>" value="1" <?php echo (int)$val === 1 ? 'checked' : ''; ?> <?php echo $isReadonly ? 'disabled' : ''; ?>>
                 <label class="form-check-label" for="id_<?php echo html_escape($name); ?>"><?php echo html_escape($label); ?></label>
               </div>
             <?php else: ?>
-              <input type="text" name="<?php echo html_escape($name); ?>" id="id_<?php echo html_escape($name); ?>" class="form-control" value="<?php echo html_escape((string)$val); ?>">
+              <input type="text" name="<?php echo html_escape($name); ?>" id="id_<?php echo html_escape($name); ?>" class="form-control" value="<?php echo html_escape((string)$val); ?>" <?php echo $isReadonly ? 'readonly' : ''; ?>>
+            <?php endif; ?>
+
+            <?php if ($isReadonly && $type === 'select'): ?>
+              <input type="hidden" value="<?php echo html_escape($renderReadonlyValue($val, $type)); ?>">
             <?php endif; ?>
 
             <?php if ($name === $autoCodeInput && $autoCodeSource !== ''): ?>
               <small class="text-muted">Otomatis diisi dari inisial nama, tetap bisa diedit manual.</small>
+            <?php endif; ?>
+
+            <?php if ($isReadonly): ?>
+              <small class="text-muted d-block mt-1">Field ini hanya tampil sebagai informasi dari database.</small>
             <?php endif; ?>
 
             <?php if ($entity === 'org-employee' && $name === 'employee_code'): ?>

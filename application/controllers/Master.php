@@ -3,6 +3,10 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Master extends MY_Controller
 {
+    private $productListLiveHppCache = [];
+    private $productRecipeMaterialCostCache = [];
+    private $productRecipeComponentCostCache = [];
+
     public function __construct()
     {
         parent::__construct();
@@ -57,24 +61,34 @@ class Master extends MY_Controller
 
         $q = trim((string)$this->input->get('q', true));
         $status = strtolower(trim((string)$this->input->get('status', true)));
-        $perPage = (int)$this->input->get('per_page', true);
+        $perPageRaw = $this->input->get('per_page', true);
+        $perPage = (int)$perPageRaw;
         $page = max(1, (int)$this->input->get('page', true));
         $hasActiveFlag = !empty($cfg['toggle']);
+        $defaultStatus = strtolower((string)($cfg['default_status'] ?? ($hasActiveFlag ? 'active' : 'all')));
         if (!in_array($status, ['active', 'inactive', 'all'], true)) {
-            $status = $hasActiveFlag ? 'active' : 'all';
+            $status = in_array($defaultStatus, ['active', 'inactive', 'all'], true) ? $defaultStatus : ($hasActiveFlag ? 'active' : 'all');
         }
         $isActiveFilter = null;
         if ($hasActiveFlag && $status !== 'all') {
             $isActiveFilter = $status === 'active' ? 1 : 0;
         }
-        if (!in_array($perPage, [10, 25, 50, 100, 500], true)) {
-            $perPage = 25;
+        $defaultPerPage = (int)($cfg['default_per_page'] ?? 25);
+        if (!in_array($defaultPerPage, [10, 25, 50, 100, 500], true)) {
+            $defaultPerPage = 25;
         }
+        if ($perPageRaw === null || $perPageRaw === '') {
+            $perPage = $defaultPerPage;
+        } elseif (!in_array($perPage, [10, 25, 50, 100, 500], true)) {
+            $perPage = $defaultPerPage;
+        }
+
+        $listFilters = $this->collectListFilters($cfg);
 
         if (($cfg['table'] ?? '') === 'mst_purchase_catalog_vendor') {
             $total = $this->Master_model->count_purchase_catalog_vendor_filtered($q, $isActiveFilter);
         } else {
-            $total = $this->Master_model->count_filtered($cfg['table'], $cfg['searchable'], $q, $isActiveFilter);
+            $total = $this->Master_model->count_filtered($cfg['table'], $cfg['searchable'], $q, $isActiveFilter, $listFilters['values']);
         }
         $offset = ($page - 1) * $perPage;
         if ($offset >= $total && $total > 0) {
@@ -100,12 +114,13 @@ class Master extends MY_Controller
                 $offset,
                 $cfg['order_by'],
                 $cfg['order_dir'],
-                $isActiveFilter
+                $isActiveFilter,
+                $listFilters['values']
             );
         }
 
         $lookupMaps = $this->buildLookupMaps($cfg);
-        $rows = $this->decorateRows($rows, $cfg, $lookupMaps);
+        $rows = $this->decorateRows($rows, $cfg, $lookupMaps, $entity);
 
         $activeMenu = (string)($cfg['active_menu'] ?? 'grp.master');
         $data = [
@@ -122,6 +137,9 @@ class Master extends MY_Controller
             'page' => $page,
             'total' => $total,
             'total_pages' => max(1, (int)ceil($total / $perPage)),
+            'list_filter_definitions' => $listFilters['definitions'],
+            'list_filter_options' => $listFilters['options'],
+            'list_filter_values' => $listFilters['values'],
         ];
 
         $this->render('master/index', $data);
@@ -231,6 +249,50 @@ class Master extends MY_Controller
         }
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
+
+        if ($entity === 'product') {
+            $row = $this->db->select('p.*, pd.name AS product_division_name, pc.name AS classification_name, cat.name AS category_name, u.name AS uom_name, od.name AS operational_division_name', false)
+                ->from('mst_product p')
+                ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
+                ->join('mst_product_classification pc', 'pc.id = p.classification_id', 'left')
+                ->join('mst_product_category cat', 'cat.id = p.product_category_id', 'left')
+                ->join('mst_uom u', 'u.id = p.uom_id', 'left')
+                ->join('mst_operational_division od', 'od.id = p.default_operational_division_id', 'left')
+                ->where('p.id', $id)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            if (!$row) {
+                show_404();
+            }
+
+            $recipeCount = 0;
+            if ($this->db->table_exists('mst_product_recipe')) {
+                $recipeCount = (int)$this->db->from('mst_product_recipe')->where('product_id', $id)->count_all_results();
+            }
+
+            $extraGroupCount = 0;
+            if ($this->db->table_exists('mst_product_extra_map')) {
+                $extraGroupCount = (int)$this->db->select('COUNT(DISTINCT extra_group_id) AS aggregate_total', false)
+                    ->from('mst_product_extra_map')
+                    ->where('product_id', $id)
+                    ->get()
+                    ->row('aggregate_total');
+            }
+
+            $activeMenu = (string)($cfg['active_menu'] ?? 'grp.master');
+            $this->render('master/detail_product', [
+                'title' => 'Detail Product',
+                'active_menu' => $activeMenu,
+                'entity' => $entity,
+                'cfg' => $cfg,
+                'row' => $row,
+                'recipe_count' => $recipeCount,
+                'extra_group_count' => $extraGroupCount,
+                'variable_cost_defaults' => $this->variableCostDefaultsForEntity('product'),
+            ]);
+            return;
+        }
 
         if ($entity !== 'org-employee') {
             redirect('master/' . $entity . '/edit/' . $id);
@@ -347,7 +409,63 @@ class Master extends MY_Controller
         if (!$row) show_404();
 
         $this->Master_model->toggle_active($cfg['table'], $id);
+        if ($this->input->is_ajax_request()) {
+            $updated = $this->Master_model->get_by_id($cfg['table'], $id);
+            $this->output
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'ok' => true,
+                    'is_active' => (int)($updated['is_active'] ?? 0),
+                    'label' => (int)($updated['is_active'] ?? 0) === 1 ? 'Aktif' : 'Nonaktif',
+                ]));
+            return;
+        }
         $this->session->set_flashdata('success', 'Status berhasil diubah.');
+        redirect('master/' . $entity);
+    }
+
+    public function stock_mode(string $entity, int $id)
+    {
+        $cfg = $this->entityConfig($entity);
+        if (!$cfg || $entity !== 'product' || ($cfg['table'] ?? '') !== 'mst_product' || !$this->db->field_exists('stock_mode', 'mst_product')) {
+            show_404();
+            return;
+        }
+
+        $row = $this->Master_model->get_by_id('mst_product', $id);
+        if (!$row) {
+            show_404();
+            return;
+        }
+
+        $cycle = ['MANUAL_AVAILABLE', 'MANUAL_OUT', 'AUTO'];
+        $current = strtoupper(trim((string)($row['stock_mode'] ?? 'AUTO')));
+        $index = array_search($current, $cycle, true);
+        if ($index === false) {
+            $index = 2;
+        }
+        $next = $cycle[($index + 1) % count($cycle)];
+
+        $payload = ['stock_mode' => $next];
+        if ($this->db->field_exists('updated_at', 'mst_product')) {
+            $payload['updated_at'] = date('Y-m-d H:i:s');
+        }
+        $this->Master_model->update('mst_product', $id, $payload);
+
+        $meta = $this->productStockModeMeta($next);
+        if ($this->input->is_ajax_request()) {
+            $this->output
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'ok' => true,
+                    'stock_mode' => $next,
+                    'label' => (string)$meta['label'],
+                    'button_class' => (string)$meta['button_class'],
+                ]));
+            return;
+        }
+
+        $this->session->set_flashdata('success', 'Mode stok berhasil diubah ke ' . (string)$meta['label'] . '.');
         redirect('master/' . $entity);
     }
 
@@ -457,8 +575,17 @@ class Master extends MY_Controller
             $data[$name] = $val;
         }
 
+        if (!empty($cfg['code_input']) && !array_key_exists((string)$cfg['code_input'], $data)) {
+            $codeInput = (string)$cfg['code_input'];
+            $codeVal = $this->input->post($codeInput, true);
+            if ($codeVal === '') {
+                $codeVal = null;
+            }
+            $data[$codeInput] = $codeVal;
+        }
+
         if (!empty($cfg['code_column']) && !empty($cfg['code_input'])) {
-            $code = trim((string)$data[$cfg['code_input']]);
+            $code = trim((string)($data[$cfg['code_input']] ?? ''));
             if ($code !== '') {
                 $exists = $this->Master_model->exists_by_code($cfg['table'], $cfg['code_column'], $code, $id);
                 if ($exists) {
@@ -924,14 +1051,270 @@ class Master extends MY_Controller
         return $maps;
     }
 
-    private function decorateRows(array $rows, array $cfg, array $lookupMaps): array
+    private function decorateRows(array $rows, array $cfg, array $lookupMaps, string $entity = ''): array
     {
         foreach ($rows as &$row) {
             foreach ($lookupMaps as $field => $map) {
                 $row[$field . '_label'] = isset($row[$field]) && isset($map[$row[$field]]) ? $map[$row[$field]] : ($row[$field] ?? '-');
             }
+            if ($entity === 'product') {
+                $row = array_merge($row, $this->decorateProductListRow($row));
+            }
         }
         return $rows;
+    }
+
+    private function collectListFilters(array $cfg): array
+    {
+        $definitions = (array)($cfg['list_filters'] ?? []);
+        $values = [];
+        $options = [];
+
+        foreach ($definitions as $definition) {
+            $name = trim((string)($definition['name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+
+            $rawValue = $this->input->get($name, true);
+            $value = is_scalar($rawValue) ? trim((string)$rawValue) : '';
+            $values[$name] = $value !== '' ? (int)$value : null;
+
+            if (!empty($definition['lookup'])) {
+                $lookup = $definition['lookup'];
+                $options[$name] = $this->Master_model->get_options($lookup['table'], $lookup['value'], $lookup['label'], $lookup['active_only'] ?? false);
+            } else {
+                $options[$name] = (array)($definition['options'] ?? []);
+            }
+        }
+
+        return [
+            'definitions' => $definitions,
+            'values' => $values,
+            'options' => $options,
+        ];
+    }
+
+    private function decorateProductListRow(array $row): array
+    {
+        $baseLiveHpp = $this->resolveProductListLiveHpp($row);
+        $sellingPrice = (float)($row['selling_price'] ?? 0);
+        if ($baseLiveHpp <= 0) {
+            $baseLiveHpp = (float)($row['hpp_live_cache'] ?? 0);
+        }
+        if ($baseLiveHpp <= 0) {
+            $baseLiveHpp = (float)($row['hpp_standard'] ?? 0);
+        }
+
+        $mode = strtoupper(trim((string)($row['variable_cost_mode'] ?? 'DEFAULT')));
+        $storedPercent = (float)($row['variable_cost_percent'] ?? 0);
+        if ($mode === 'NONE') {
+            $effectivePercent = 0.0;
+        } elseif ($mode === 'CUSTOM') {
+            $effectivePercent = max(0.0, $storedPercent);
+        } else {
+            $effectivePercent = $this->Master_model->get_variable_cost_default_percent('PRODUCT', 20.0);
+        }
+
+        $variableCost = round($baseLiveHpp * ($effectivePercent / 100), 6);
+        $totalLiveHpp = round($baseLiveHpp + $variableCost, 6);
+        $hppPercent = $sellingPrice > 0 ? round(($totalLiveHpp / $sellingPrice) * 100, 4) : 0.0;
+        $estimatedProfit = round($sellingPrice - $totalLiveHpp, 2);
+        $stockModeMeta = $this->productStockModeMeta((string)($row['stock_mode'] ?? 'AUTO'));
+
+        return [
+            'hpp_live_total' => $totalLiveHpp,
+            'hpp_live_percent_total' => $hppPercent,
+            'estimated_profit' => $estimatedProfit,
+            'stock_mode_label' => (string)$stockModeMeta['label'],
+            'stock_mode_button_class' => (string)$stockModeMeta['button_class'],
+        ];
+    }
+
+    private function resolveProductListLiveHpp(array $row): float
+    {
+        $productId = (int)($row['id'] ?? 0);
+        if ($productId <= 0) {
+            return 0.0;
+        }
+        if (array_key_exists($productId, $this->productListLiveHppCache)) {
+            return (float)$this->productListLiveHppCache[$productId];
+        }
+        if (!$this->db->table_exists('mst_product_recipe')) {
+            $this->productListLiveHppCache[$productId] = 0.0;
+            return 0.0;
+        }
+
+        $recipeRows = $this->db
+            ->select('r.line_type, r.qty, r.source_division_id, i.material_id, r.component_id, c.operational_division_id AS component_operational_division_id')
+            ->from('mst_product_recipe r')
+            ->join('mst_item i', 'i.id = r.material_item_id', 'left')
+            ->join('mst_component c', 'c.id = r.component_id', 'left')
+            ->where('r.product_id', $productId)
+            ->order_by('r.sort_order ASC, r.id ASC')
+            ->get()
+            ->result_array();
+
+        if (empty($recipeRows)) {
+            $this->productListLiveHppCache[$productId] = 0.0;
+            return 0.0;
+        }
+
+        $defaultDivisionId = $this->resolveProductListDefaultDivisionId($row);
+        $directCost = 0.0;
+        foreach ($recipeRows as $recipeRow) {
+            $qty = (float)($recipeRow['qty'] ?? 0);
+            if ($qty <= 0) {
+                continue;
+            }
+
+            $lineType = strtoupper(trim((string)($recipeRow['line_type'] ?? 'MATERIAL')));
+            if ($lineType === 'COMPONENT') {
+                $divisionId = (int)($recipeRow['component_operational_division_id'] ?? 0);
+                if ($divisionId <= 0) {
+                    $divisionId = (int)($recipeRow['source_division_id'] ?? 0);
+                }
+                if ((int)($recipeRow['source_division_id'] ?? 0) > 0) {
+                    $divisionId = (int)$recipeRow['source_division_id'];
+                }
+                $unitCost = $this->resolveProductListComponentLiveCost((int)($recipeRow['component_id'] ?? 0), $divisionId);
+            } else {
+                $divisionId = (int)($recipeRow['source_division_id'] ?? 0);
+                if ($divisionId <= 0) {
+                    $divisionId = $defaultDivisionId;
+                }
+                $unitCost = $this->resolveProductListMaterialLiveCost((int)($recipeRow['material_id'] ?? 0), $divisionId);
+            }
+
+            $directCost += $qty * $unitCost;
+        }
+
+        $this->productListLiveHppCache[$productId] = round($directCost, 6);
+        return (float)$this->productListLiveHppCache[$productId];
+    }
+
+    private function resolveProductListDefaultDivisionId(array $row): int
+    {
+        $fallbackId = (int)($row['default_operational_division_id'] ?? 0);
+        if ($fallbackId > 0) {
+            return $fallbackId;
+        }
+
+        $divisionKey = strtoupper(trim((string)($row['product_division_code'] ?? '')));
+        if ($divisionKey === '') {
+            $divisionKey = strtoupper(trim((string)($row['product_division_id_label'] ?? $row['product_division_name'] ?? '')));
+        }
+
+        $preferredDivisionName = '';
+        if ($divisionKey === 'BEVERAGE') {
+            $preferredDivisionName = 'BAR';
+        } elseif ($divisionKey === 'FOOD') {
+            $preferredDivisionName = 'KITCHEN';
+        }
+
+        if ($preferredDivisionName === '') {
+            return 0;
+        }
+
+        $division = $this->lookupOperationalDivisionByName($preferredDivisionName);
+        return (int)($division['id'] ?? 0);
+    }
+
+    private function lookupOperationalDivisionByName(string $name): ?array
+    {
+        static $cache = [];
+
+        $key = strtoupper(trim($name));
+        if ($key === '') {
+            return null;
+        }
+        if (array_key_exists($key, $cache)) {
+            return $cache[$key];
+        }
+
+        $row = $this->db
+            ->select('id, name')
+            ->from('mst_operational_division')
+            ->where('UPPER(name)', $key)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $cache[$key] = $row ? [
+            'id' => (int)$row['id'],
+            'name' => (string)$row['name'],
+        ] : null;
+
+        return $cache[$key];
+    }
+
+    private function resolveProductListMaterialLiveCost(int $materialId, int $divisionId): float
+    {
+        $cacheKey = $divisionId . '|' . $materialId;
+        if (isset($this->productRecipeMaterialCostCache[$cacheKey])) {
+            return (float)$this->productRecipeMaterialCostCache[$cacheKey];
+        }
+
+        $material = $this->db->select('id, hpp_standard')->from('mst_material')->where('id', $materialId)->limit(1)->get()->row_array();
+        $standard = (float)($material['hpp_standard'] ?? 0);
+        $live = 0.0;
+        if ($divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {
+            $liveRow = $this->db->select('avg_cost_per_content')
+                ->from('inv_division_stock_balance')
+                ->where('division_id', $divisionId)
+                ->where('material_id', $materialId)
+                ->order_by('updated_at', 'DESC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $live = (float)($liveRow['avg_cost_per_content'] ?? 0);
+        }
+        if ($live <= 0) {
+            $live = $standard;
+        }
+
+        $this->productRecipeMaterialCostCache[$cacheKey] = round($live, 6);
+        return (float)$this->productRecipeMaterialCostCache[$cacheKey];
+    }
+
+    private function resolveProductListComponentLiveCost(int $componentId, int $divisionId): float
+    {
+        $cacheKey = $divisionId . '|' . $componentId;
+        if (isset($this->productRecipeComponentCostCache[$cacheKey])) {
+            return (float)$this->productRecipeComponentCostCache[$cacheKey];
+        }
+
+        $component = $this->db->select('id, hpp_standard')->from('mst_component')->where('id', $componentId)->limit(1)->get()->row_array();
+        $standard = (float)($component['hpp_standard'] ?? 0);
+        $live = 0.0;
+        if ($this->db->table_exists('inv_component_stock_balance')) {
+            $this->db->select('avg_cost')->from('inv_component_stock_balance')->where('component_id', $componentId);
+            if ($divisionId > 0) {
+                $this->db->where('division_id', $divisionId);
+            }
+            $liveRow = $this->db->order_by('updated_at', 'DESC')->limit(1)->get()->row_array();
+            $live = (float)($liveRow['avg_cost'] ?? 0);
+        }
+        if ($live <= 0) {
+            $live = $standard;
+        }
+
+        $this->productRecipeComponentCostCache[$cacheKey] = round($live, 6);
+        return (float)$this->productRecipeComponentCostCache[$cacheKey];
+    }
+
+    private function productStockModeMeta(string $mode): array
+    {
+        $mode = strtoupper(trim($mode));
+
+        if ($mode === 'MANUAL_AVAILABLE') {
+            return ['label' => 'Tersedia', 'button_class' => 'btn-success'];
+        }
+        if ($mode === 'MANUAL_OUT') {
+            return ['label' => 'Habis', 'button_class' => 'btn-outline-danger'];
+        }
+
+        return ['label' => 'Auto', 'button_class' => 'btn-outline-primary'];
     }
 
     private function entityConfig(string $entity): ?array
@@ -1019,7 +1402,6 @@ class Master extends MY_Controller
                 'order_by' => 'sort_order',
                 'order_dir' => 'ASC',
                 'searchable' => ['code', 'name'],
-                'toggle' => true,
                 'code_column' => 'code',
                 'code_input' => 'code',
                 'rules' => [
@@ -1039,6 +1421,7 @@ class Master extends MY_Controller
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
                 ],
             ],
+
             'org-division' => [
                 'table' => 'org_division',
                 'title' => 'Master Divisi Organisasi',
@@ -1604,6 +1987,9 @@ class Master extends MY_Controller
                 'order_by' => 'sort_order',
                 'order_dir' => 'ASC',
                 'searchable' => ['code', 'name'],
+                'reorderable' => true,
+                'default_status' => 'all',
+                'default_per_page' => 500,
                 'toggle' => true,
                 'code_column' => 'code',
                 'code_input' => 'code',
@@ -1620,12 +2006,17 @@ class Master extends MY_Controller
                         ['value' => 'ALL', 'label' => 'ALL'],
                     ]],
                     ['name' => 'sort_order', 'label' => 'Urutan', 'type' => 'number'],
+                    ['name' => 'default_operational_division_id', 'label' => 'Divisi Operasional Default', 'type' => 'select', 'lookup' => ['table' => 'mst_operational_division', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
                     ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
                 ],
                 'columns' => [
-                    ['key' => 'code', 'label' => 'Kode'],
                     ['key' => 'name', 'label' => 'Nama'],
                     ['key' => 'pos_scope', 'label' => 'Scope'],
+                    ['key' => 'default_operational_division_id_label', 'label' => 'Divisi Operasional Default'],
+                    ['key' => 'total_classification', 'label' => 'Klasifikasi', 'type' => 'count'],
+                    ['key' => 'total_category', 'label' => 'Kategori', 'type' => 'count'],
+                    ['key' => 'total_product', 'label' => 'Produk', 'type' => 'count'],
+                    ['key' => 'sort_order', 'label' => 'Urutan'],
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
                 ],
             ],
@@ -1635,6 +2026,9 @@ class Master extends MY_Controller
                 'order_by' => 'sort_order',
                 'order_dir' => 'ASC',
                 'searchable' => ['code', 'name'],
+                'reorderable' => true,
+                'default_status' => 'all',
+                'default_per_page' => 500,
                 'toggle' => true,
                 'code_column' => 'code',
                 'code_input' => 'code',
@@ -1652,8 +2046,10 @@ class Master extends MY_Controller
                 ],
                 'columns' => [
                     ['key' => 'product_division_id_label', 'label' => 'Divisi'],
-                    ['key' => 'code', 'label' => 'Kode'],
                     ['key' => 'name', 'label' => 'Nama'],
+                    ['key' => 'total_category', 'label' => 'Kategori', 'type' => 'count'],
+                    ['key' => 'total_product', 'label' => 'Produk', 'type' => 'count'],
+                    ['key' => 'sort_order', 'label' => 'Urutan'],
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
                 ],
             ],
@@ -1663,6 +2059,9 @@ class Master extends MY_Controller
                 'order_by' => 'sort_order',
                 'order_dir' => 'ASC',
                 'searchable' => ['code', 'name'],
+                'reorderable' => true,
+                'default_status' => 'all',
+                'default_per_page' => 500,
                 'toggle' => true,
                 'code_column' => 'code',
                 'code_input' => 'code',
@@ -1675,7 +2074,6 @@ class Master extends MY_Controller
                 'fields' => [
                     ['name' => 'product_division_id', 'label' => 'Divisi Produk', 'type' => 'select', 'lookup' => ['table' => 'mst_product_division', 'value' => 'id', 'label' => 'name']],
                     ['name' => 'classification_id', 'label' => 'Klasifikasi', 'type' => 'select', 'lookup' => ['table' => 'mst_product_classification', 'value' => 'id', 'label' => 'name']],
-                    ['name' => 'parent_id', 'label' => 'Parent', 'type' => 'select', 'lookup' => ['table' => 'mst_product_category', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
                     ['name' => 'code', 'label' => 'Kode', 'type' => 'text'],
                     ['name' => 'name', 'label' => 'Nama', 'type' => 'text'],
                     ['name' => 'sort_order', 'label' => 'Urutan', 'type' => 'number'],
@@ -1684,8 +2082,9 @@ class Master extends MY_Controller
                 'columns' => [
                     ['key' => 'product_division_id_label', 'label' => 'Divisi'],
                     ['key' => 'classification_id_label', 'label' => 'Klasifikasi'],
-                    ['key' => 'code', 'label' => 'Kode'],
                     ['key' => 'name', 'label' => 'Nama'],
+                    ['key' => 'total_product', 'label' => 'Produk', 'type' => 'count'],
+                    ['key' => 'sort_order', 'label' => 'Urutan'],
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
                 ],
             ],
@@ -1730,7 +2129,6 @@ class Master extends MY_Controller
                     ['name', 'Nama', 'required|trim|max_length[120]'],
                 ],
                 'fields' => [
-                    ['name' => 'parent_id', 'label' => 'Parent', 'type' => 'select', 'lookup' => ['table' => 'mst_component_category', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
                     ['name' => 'code', 'label' => 'Kode', 'type' => 'text'],
                     ['name' => 'name', 'label' => 'Nama', 'type' => 'text'],
                     ['name' => 'sort_order', 'label' => 'Urutan', 'type' => 'number'],
@@ -1739,7 +2137,7 @@ class Master extends MY_Controller
                 'columns' => [
                     ['key' => 'code', 'label' => 'Kode'],
                     ['key' => 'name', 'label' => 'Nama'],
-                    ['key' => 'parent_id_label', 'label' => 'Parent'],
+                    ['key' => 'sort_order', 'label' => 'Urutan'],
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
                 ],
             ],
@@ -1878,6 +2276,11 @@ class Master extends MY_Controller
                 'order_by' => 'product_name',
                 'order_dir' => 'ASC',
                 'searchable' => ['product_code', 'product_name'],
+                'list_filters' => [
+                    ['name' => 'product_division_id', 'label' => 'Divisi', 'lookup' => ['table' => 'mst_product_division', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
+                    ['name' => 'classification_id', 'label' => 'Klasifikasi', 'lookup' => ['table' => 'mst_product_classification', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
+                    ['name' => 'product_category_id', 'label' => 'Kategori', 'lookup' => ['table' => 'mst_product_category', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
+                ],
                 'toggle' => true,
                 'code_column' => 'product_code',
                 'code_input' => 'product_code',
@@ -1891,16 +2294,19 @@ class Master extends MY_Controller
                     ['uom_id', 'Satuan', 'required|integer'],
                 ],
                 'fields' => [
-                    ['name' => 'product_code', 'label' => 'Kode', 'type' => 'text'],
+                    ['name' => 'product_code', 'label' => 'Kode', 'type' => 'text', 'readonly' => true],
                     ['name' => 'product_name', 'label' => 'Nama', 'type' => 'text'],
-                    ['name' => 'product_division_id', 'label' => 'Divisi Produk', 'type' => 'select', 'lookup' => ['table' => 'mst_product_division', 'value' => 'id', 'label' => 'name']],
-                    ['name' => 'default_operational_division_id', 'label' => 'Divisi Operasional Default', 'type' => 'select', 'lookup' => ['table' => 'mst_operational_division', 'value' => 'id', 'label' => 'name'], 'readonly' => true],
-                    ['name' => 'classification_id', 'label' => 'Klasifikasi', 'type' => 'select', 'lookup' => ['table' => 'mst_product_classification', 'value' => 'id', 'label' => 'name']],
-                    ['name' => 'product_category_id', 'label' => 'Kategori', 'type' => 'select', 'lookup' => ['table' => 'mst_product_category', 'value' => 'id', 'label' => 'name']],
-                    ['name' => 'uom_id', 'label' => 'Satuan', 'type' => 'select', 'lookup' => ['table' => 'mst_uom', 'value' => 'id', 'label' => 'name']],
+                    ['name' => 'product_division_id', 'label' => 'Divisi Produk', 'type' => 'select', 'lookup' => ['table' => 'mst_product_division', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
+                    ['name' => 'default_operational_division_id', 'label' => 'Divisi Operasional Default', 'type' => 'select', 'lookup' => ['table' => 'mst_operational_division', 'value' => 'id', 'label' => 'name', 'active_only' => false], 'readonly' => true],
+                    ['name' => 'classification_id', 'label' => 'Klasifikasi', 'type' => 'select', 'lookup' => ['table' => 'mst_product_classification', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
+                    ['name' => 'product_category_id', 'label' => 'Kategori', 'type' => 'select', 'lookup' => ['table' => 'mst_product_category', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
+                    ['name' => 'uom_id', 'label' => 'Satuan', 'type' => 'select', 'lookup' => ['table' => 'mst_uom', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
                     ['name' => 'selling_price', 'label' => 'Harga Jual', 'type' => 'number', 'step' => '0.01'],
                     ['name' => 'description', 'label' => 'Deskripsi', 'type' => 'textarea'],
                     ['name' => 'hpp_standard', 'label' => 'HPP Standar', 'type' => 'number', 'step' => '0.0001'],
+                    ['name' => 'hpp_live_cache', 'label' => 'HPP Live Cache', 'type' => 'number', 'step' => '0.000001', 'readonly' => true],
+                    ['name' => 'hpp_live_at', 'label' => 'HPP Live At', 'type' => 'text', 'readonly' => true],
+                    ['name' => 'hpp_dirty', 'label' => 'HPP Dirty', 'type' => 'checkbox', 'readonly' => true],
                     ['name' => 'variable_cost_mode', 'label' => 'Mode Variable Cost', 'type' => 'select', 'options' => [
                         ['value' => 'DEFAULT', 'label' => 'DEFAULT'],
                         ['value' => 'CUSTOM', 'label' => 'CUSTOM'],
@@ -1908,22 +2314,30 @@ class Master extends MY_Controller
                     ]],
                     ['name' => 'variable_cost_percent', 'label' => 'Variable Cost %', 'type' => 'number', 'step' => '0.0001'],
                     ['name' => 'stock_mode', 'label' => 'Mode Stok', 'type' => 'select', 'options' => [
-                        ['value' => 'MANUAL_AVAILABLE', 'label' => 'MANUAL_AVAILABLE'],
-                        ['value' => 'MANUAL_OUT', 'label' => 'MANUAL_OUT'],
-                        ['value' => 'AUTO', 'label' => 'AUTO'],
+                        ['value' => 'MANUAL_AVAILABLE', 'label' => 'Tersedia'],
+                        ['value' => 'MANUAL_OUT', 'label' => 'Habis'],
+                        ['value' => 'AUTO', 'label' => 'Auto'],
                     ]],
+                    ['name' => 'photo_path', 'label' => 'Path Foto', 'type' => 'text', 'readonly' => true],
+                    ['name' => 'photo_mime', 'label' => 'Mime Foto', 'type' => 'text', 'readonly' => true],
                     ['name' => 'show_pos', 'label' => 'Tampil di POS', 'type' => 'checkbox'],
                     ['name' => 'show_member', 'label' => 'Tampil di Member', 'type' => 'checkbox'],
                     ['name' => 'show_landing', 'label' => 'Tampil di Landing', 'type' => 'checkbox'],
                     ['name' => 'photo_file', 'label' => 'Foto Produk', 'type' => 'file'],
                     ['name' => 'is_active', 'label' => 'Aktif', 'type' => 'checkbox'],
+                    ['name' => 'created_at', 'label' => 'Dibuat Pada', 'type' => 'text', 'readonly' => true],
+                    ['name' => 'updated_at', 'label' => 'Diubah Pada', 'type' => 'text', 'readonly' => true],
                 ],
                 'columns' => [
-                    ['key' => 'product_code', 'label' => 'Kode'],
                     ['key' => 'photo_path', 'label' => 'Foto', 'type' => 'image'],
                     ['key' => 'product_name', 'label' => 'Nama'],
                     ['key' => 'product_division_id_label', 'label' => 'Divisi Produk'],
-                    ['key' => 'selling_price', 'label' => 'Harga'],
+                    ['key' => 'classification_id_label', 'label' => 'Klasifikasi'],
+                    ['key' => 'product_category_id_label', 'label' => 'Kategori'],
+                    ['key' => 'selling_price', 'label' => 'Harga', 'type' => 'money'],
+                    ['key' => 'hpp_live_total', 'label' => 'HPP Live', 'type' => 'money'],
+                    ['key' => 'hpp_live_percent_total', 'label' => '% HPP Live', 'type' => 'percent'],
+                    ['key' => 'estimated_profit', 'label' => 'Estimasi Profit', 'type' => 'money'],
                     ['key' => 'stock_mode', 'label' => 'Mode Stok'],
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
                 ],
@@ -2340,6 +2754,79 @@ class Master extends MY_Controller
 
         $name = trim((string)($row['bank_name'] ?? ''));
         return $name !== '' ? $name : null;
+    }
+
+    public function reorder(string $entity)
+    {
+        if (!$this->input->is_ajax_request()) {
+            show_404();
+            return;
+        }
+
+        $cfg = $this->entityConfig($entity);
+        if (!$cfg || empty($cfg['reorderable']) || empty($cfg['table']) || !$this->db->field_exists('sort_order', (string)$cfg['table'])) {
+            $this->output->set_status_header(400)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'Entity tidak mendukung drag & drop urutan.']));
+            return;
+        }
+
+        $ids = $this->input->post('ids');
+        if (!is_array($ids)) {
+            $decoded = json_decode((string)$this->input->raw_input_stream, true);
+            $ids = is_array($decoded['ids'] ?? null) ? $decoded['ids'] : [];
+        }
+
+        $normalized = [];
+        foreach ($ids as $id) {
+            $id = (int)$id;
+            if ($id > 0) {
+                $normalized[$id] = $id;
+            }
+        }
+        $normalized = array_values($normalized);
+        if (count($normalized) <= 1) {
+            $this->output->set_status_header(400)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'Minimal dua baris diperlukan untuk ubah urutan.']));
+            return;
+        }
+
+        $existingIds = $this->db->select('id')
+            ->from((string)$cfg['table'])
+            ->where_in('id', $normalized)
+            ->get()
+            ->result_array();
+        $existingMap = [];
+        foreach ($existingIds as $row) {
+            $existingMap[(int)$row['id']] = true;
+        }
+        foreach ($normalized as $id) {
+            if (empty($existingMap[$id])) {
+                $this->output->set_status_header(400)
+                    ->set_content_type('application/json')
+                    ->set_output(json_encode(['ok' => false, 'message' => 'Data urutan mengandung ID yang tidak valid.']));
+                return;
+            }
+        }
+
+        $this->db->trans_start();
+        $sortOrder = 10;
+        foreach ($normalized as $id) {
+            $this->db->where('id', $id)->update((string)$cfg['table'], ['sort_order' => $sortOrder]);
+            $sortOrder += 10;
+        }
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            $this->output->set_status_header(500)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'Gagal menyimpan urutan baru.']));
+            return;
+        }
+
+        $this->output->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => true]));
     }
 
     private function defaultOperationalDivisionId(): ?int

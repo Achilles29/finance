@@ -58,13 +58,26 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.daily.index', 'view');
         $filters = $this->daily_filters();
-        $rows = $this->Production_model->component_daily_rows($filters, 500);
+        $this->Production_model->ensure_component_daily_rollup_seeded();
+        $matrix = $this->Production_model->component_daily_matrix($filters, 500);
+        if (empty($matrix['rows'])) {
+            $latestMonth = $this->Production_model->latest_component_daily_month([
+                'location_type' => (string)($filters['location_type'] ?? ''),
+                'division_id' => (int)($filters['division_id'] ?? 0),
+                'type' => (string)($filters['type'] ?? ''),
+            ]);
+            if ($latestMonth !== null && $latestMonth !== (string)$filters['month']) {
+                $filters['month'] = $latestMonth;
+                $matrix = $this->Production_model->component_daily_matrix($filters, 500);
+            }
+        }
 
         $this->render('production/component_daily_index', [
             'page_title' => 'Daily Matrix Base/Prepare',
-            'rows' => $rows,
             'filters' => $filters,
+            'matrix' => $matrix,
             'location_options' => $this->location_options(),
+            'divisions' => $this->active_divisions(),
         ]);
     }
 
@@ -72,8 +85,67 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.daily.index', 'view');
         $filters = $this->daily_filters();
-        $rows = $this->Production_model->component_daily_rows($filters, 1500);
-        $this->json_ok(['rows' => $rows]);
+        $this->Production_model->ensure_component_daily_rollup_seeded();
+        $matrix = $this->Production_model->component_daily_matrix($filters, 1500);
+        if (empty($matrix['rows'])) {
+            $latestMonth = $this->Production_model->latest_component_daily_month([
+                'location_type' => (string)($filters['location_type'] ?? ''),
+                'division_id' => (int)($filters['division_id'] ?? 0),
+                'type' => (string)($filters['type'] ?? ''),
+            ]);
+            if ($latestMonth !== null && $latestMonth !== (string)$filters['month']) {
+                $filters['month'] = $latestMonth;
+                $matrix = $this->Production_model->component_daily_matrix($filters, 1500);
+            }
+        }
+        $this->json_ok($matrix);
+    }
+
+    public function component_monthly()
+    {
+        $this->require_permission('production.component.daily.index', 'view');
+        $filters = $this->daily_filters();
+        $this->Production_model->ensure_component_daily_rollup_seeded();
+        $rows = $this->Production_model->component_monthly_rows($filters, 500);
+        if (empty($rows)) {
+            $latestMonth = $this->Production_model->latest_component_daily_month([
+                'location_type' => (string)($filters['location_type'] ?? ''),
+                'division_id' => (int)($filters['division_id'] ?? 0),
+                'type' => (string)($filters['type'] ?? ''),
+            ]);
+            if ($latestMonth !== null && $latestMonth !== (string)$filters['month']) {
+                $filters['month'] = $latestMonth;
+                $rows = $this->Production_model->component_monthly_rows($filters, 500);
+            }
+        }
+
+        $this->render('production/component_monthly_index', [
+            'page_title' => 'Stok Bulanan Base/Prepare',
+            'rows' => $rows,
+            'filters' => $filters,
+            'divisions' => $this->active_divisions(),
+        ]);
+    }
+
+    public function component_lots()
+    {
+        $this->require_permission('production.component.batch.index', 'view');
+        $filters = $this->lot_filters();
+
+        $this->load->library('ComponentLotManager');
+        $lotReady = $this->componentlotmanager->ensureReady();
+        if (!($lotReady['ok'] ?? false)) {
+            show_error((string)($lotReady['message'] ?? 'Schema lot component gagal disiapkan.'));
+            return;
+        }
+
+        $rows = $this->componentlotmanager->listLots($filters, 400);
+        $this->render('production/component_lot_index', [
+            'page_title' => 'Lot FIFO Base/Prepare',
+            'rows' => $rows,
+            'filters' => $filters,
+            'divisions' => $this->active_divisions(),
+        ]);
     }
 
     public function component_openings()
@@ -92,10 +164,36 @@ class Production extends MY_Controller
             'location_type' => $locationType,
             'division_id' => $divisionId > 0 ? $divisionId : null,
         ];
+        $editOpening = null;
+        $editId = (int)$this->input->get('edit', true);
+        if ($editId > 0) {
+            $detail = $this->Production_model->component_opening_detail($editId);
+            if (($detail['ok'] ?? false) && strtoupper((string)($detail['header']['status'] ?? '')) === 'DRAFT') {
+                $editOpening = $detail;
+            }
+        }
+        $detailOpening = null;
+        $detailId = (int)$this->input->get('detail', true);
+        if ($detailId <= 0 && $editId > 0) {
+            $detailId = $editId;
+        }
+        if ($detailId > 0) {
+            $detail = $this->Production_model->component_opening_detail($detailId);
+            if (($detail['ok'] ?? false)) {
+                $detailOpening = $detail;
+            }
+        }
+        $openingTab = strtolower(trim((string)$this->input->get('tab', true)));
+        if (!in_array($openingTab, ['documents', 'detail', 'snapshot'], true)) {
+            $openingTab = $detailOpening !== null ? 'detail' : 'documents';
+        }
         $rows = $this->Production_model->list_component_openings($filters, 300);
         $this->render('production/component_opening_index', [
             'page_title' => 'Opening Base/Prepare',
             'rows' => $rows,
+            'edit_opening' => $editOpening,
+            'detail_opening' => $detailOpening,
+            'opening_tab' => $openingTab,
             'q' => $q,
             'month' => $month,
             'selected_location_type' => $locationType,
@@ -115,7 +213,7 @@ class Production extends MY_Controller
         $header = [
             'id' => (int)($payload['id'] ?? 0),
             'opening_no' => (string)($payload['opening_no'] ?? ''),
-            'opening_date' => (string)($payload['opening_date'] ?? date('Y-m-d')),
+            'opening_month' => (string)($payload['opening_month'] ?? substr((string)($payload['opening_date'] ?? date('Y-m-d')), 0, 7)),
             'location_type' => $this->normalize_location_type($payload['location_type'] ?? ''),
             'division_id' => !empty($payload['division_id']) ? (int)$payload['division_id'] : null,
             'notes' => (string)($payload['notes'] ?? ''),
@@ -123,7 +221,44 @@ class Production extends MY_Controller
         $lines = $this->normalize_lines((array)($payload['lines'] ?? []), 'opening');
         $save = $this->Production_model->save_component_opening($header, $lines, (int)($this->current_user['employee_id'] ?? 0));
         if (!($save['ok'] ?? false)) {
-            $this->json_error((string)($save['message'] ?? 'Gagal menyimpan opening.'), 422);
+            $extra = [];
+            if (!empty($save['conflict']) && is_array($save['conflict'])) {
+                $conflict = (array)$save['conflict'];
+                $conflictId = (int)($conflict['id'] ?? 0);
+                $conflictStatus = strtoupper((string)($conflict['status'] ?? ''));
+                if ($conflictId > 0) {
+                    $detailUrl = site_url('production/component-openings') . '?' . http_build_query([
+                        'detail' => $conflictId,
+                        'tab' => 'detail',
+                    ]) . '#component-opening-detail-tabs';
+                    $editUrl = site_url('production/component-openings') . '?' . http_build_query([
+                        'edit' => $conflictId,
+                        'detail' => $conflictId,
+                        'tab' => 'detail',
+                    ]) . '#component-opening-form-card';
+                    $extra['conflict'] = [
+                        'id' => $conflictId,
+                        'opening_no' => (string)($conflict['opening_no'] ?? ''),
+                        'status' => $conflictStatus,
+                        'detail_url' => $detailUrl,
+                        'edit_url' => $editUrl,
+                    ];
+                    if ($conflictStatus === 'DRAFT') {
+                        $extra['conflict']['action'] = 'EDIT_DRAFT';
+                    } elseif ($conflictStatus === 'POSTED') {
+                        $extra['conflict']['action'] = 'REOPEN_OR_ADJUST';
+                        $extra['conflict']['reopen_url'] = site_url('production/component-openings/reopen/' . $conflictId);
+                        $extra['conflict']['adjustment_url'] = site_url('production/component-adjustments') . '?' . http_build_query([
+                            'adjustment_date' => (string)($conflict['opening_date'] ?? date('Y-m-d')),
+                            'location_type' => (string)($conflict['location_type'] ?? ''),
+                            'division_id' => (int)($conflict['division_id'] ?? 0),
+                            'notes' => 'Koreksi kekurangan opening ' . (string)($conflict['opening_no'] ?? ''),
+                            'source_opening_no' => (string)($conflict['opening_no'] ?? ''),
+                        ]);
+                    }
+                }
+            }
+            $this->json_error((string)($save['message'] ?? 'Gagal menyimpan opening.'), 422, $extra);
             return;
         }
         $this->json_ok(['id' => (int)$save['id']]);
@@ -142,6 +277,16 @@ class Production extends MY_Controller
             $this->json_error('Hanya opening DRAFT yang bisa diposting.', 422);
             return;
         }
+        $conflict = $this->Production_model->find_component_opening_month_conflict(
+            $id,
+            (string)($header['opening_date'] ?? date('Y-m-d')),
+            strtoupper(trim((string)($header['location_type'] ?? ''))),
+            !empty($header['division_id']) ? (int)$header['division_id'] : null
+        );
+        if ($conflict) {
+            $this->json_error('Opening bulan yang sama sudah ada di dokumen ' . (string)($conflict['opening_no'] ?? ('#' . (int)($conflict['id'] ?? 0))) . '.', 422);
+            return;
+        }
         $linesRaw = $this->Production_model->get_component_opening_lines($id);
         $lines = [];
         foreach ($linesRaw as $line) {
@@ -156,6 +301,7 @@ class Production extends MY_Controller
                 'note' => (string)($line['note'] ?? ''),
             ];
         }
+        $header['opening_date'] = substr((string)($header['opening_date'] ?? date('Y-m-d')), 0, 7) . '-01';
         $post = $this->componentstockwriter->post_opening($header, $lines, (int)($this->current_user['employee_id'] ?? 0));
         if (!($post['ok'] ?? false)) {
             $this->json_error((string)($post['message'] ?? 'Posting opening gagal.'), 422);
@@ -166,7 +312,29 @@ class Production extends MY_Controller
             'posted_at' => date('Y-m-d H:i:s'),
             'posted_by' => !empty($this->current_user['employee_id']) ? (int)$this->current_user['employee_id'] : null,
         ]);
+        $this->Production_model->rebuild_component_daily_rollup_from_logs();
         $this->json_ok(['id' => $id]);
+    }
+
+    public function component_opening_detail($id)
+    {
+        $this->require_permission('production.component.opening.index', 'view');
+        $detail = $this->Production_model->component_opening_detail((int)$id);
+        if (!($detail['ok'] ?? false)) {
+            show_404();
+            return;
+        }
+
+        $header = (array)($detail['header'] ?? []);
+        $title = 'Detail Opening Component';
+        if (!empty($header['opening_no'])) {
+            $title .= ' ' . (string)$header['opening_no'];
+        }
+
+        $this->render('production/component_opening_detail', [
+            'page_title' => $title,
+            'detail' => $detail,
+        ]);
     }
 
     public function component_opening_delete($id)
@@ -178,6 +346,38 @@ class Production extends MY_Controller
             return;
         }
         $this->json_ok(['id' => (int)$id]);
+    }
+
+    public function component_opening_void($id)
+    {
+        $this->require_permission('production.component.opening.index', 'edit');
+        $result = $this->Production_model->void_component_opening((int)$id, (int)($this->current_user['employee_id'] ?? 0));
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal void opening.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$id]);
+    }
+
+    public function component_opening_reopen($id)
+    {
+        $this->require_permission('production.component.opening.index', 'edit');
+        $id = (int)$id;
+        $result = $this->Production_model->reopen_component_opening_draft($id, (int)($this->current_user['employee_id'] ?? 0));
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal membuka kembali opening ke draft.'), 422);
+            return;
+        }
+
+        $editUrl = site_url('production/component-openings') . '?' . http_build_query([
+            'edit' => $id,
+            'detail' => $id,
+            'tab' => 'detail',
+        ]) . '#component-opening-form-card';
+        $this->json_ok([
+            'id' => $id,
+            'edit_url' => $editUrl,
+        ]);
     }
 
     public function component_opening_generate_monthly()
@@ -204,10 +404,30 @@ class Production extends MY_Controller
         $this->require_permission('production.component.adjustment.index', 'view');
         $q = trim((string)$this->input->get('q', true));
         $rows = $this->Production_model->list_component_adjustments(['q' => $q], 300);
+        $lineRows = $this->Production_model->list_component_adjustment_detail_rows(['q' => $q], 1200);
+        $activeListTab = strtolower(trim((string)$this->input->get('tab', true)));
+        if (!in_array($activeListTab, ['nota', 'rincian'], true)) {
+            $activeListTab = 'nota';
+        }
+        $prefillDate = trim((string)$this->input->get('adjustment_date', true));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $prefillDate)) {
+            $prefillDate = date('Y-m-d');
+        }
+        $prefillDivisionId = (int)$this->input->get('division_id', true);
+        $prefill = [
+            'adjustment_date' => $prefillDate,
+            'location_type' => $this->normalize_location_type($this->input->get('location_type', true)),
+            'division_id' => $prefillDivisionId > 0 ? $prefillDivisionId : 0,
+            'notes' => trim((string)$this->input->get('notes', true)),
+            'source_opening_no' => trim((string)$this->input->get('source_opening_no', true)),
+        ];
         $this->render('production/component_adjustment_index', [
             'page_title' => 'Adjustment Base/Prepare',
             'rows' => $rows,
+            'line_rows' => $lineRows,
+            'active_list_tab' => $activeListTab,
             'q' => $q,
+            'prefill' => $prefill,
             'location_options' => $this->location_options(),
             'components' => $this->active_components(),
             'uoms' => $this->active_uoms(),
@@ -218,6 +438,8 @@ class Production extends MY_Controller
     public function component_adjustment_save()
     {
         $this->require_permission('production.component.adjustment.index', 'create');
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
         $payload = $this->request_payload();
         $header = [
             'id' => (int)($payload['id'] ?? 0),
@@ -229,6 +451,7 @@ class Production extends MY_Controller
         ];
         $lines = $this->normalize_lines((array)($payload['lines'] ?? []), 'adjustment');
         $save = $this->Production_model->save_component_adjustment($header, $lines, (int)($this->current_user['employee_id'] ?? 0));
+        $this->db->db_debug = $dbDebugBefore;
         if (!($save['ok'] ?? false)) {
             $this->json_error((string)($save['message'] ?? 'Gagal menyimpan adjustment.'), 422);
             return;
@@ -236,22 +459,70 @@ class Production extends MY_Controller
         $this->json_ok(['id' => (int)$save['id']]);
     }
 
+    public function component_stock_snapshot()
+    {
+        $canAccess = $this->can('production.component.adjustment.index', 'view')
+            || $this->can('production.component.daily.index', 'view')
+            || $this->can('production.component.stock.index', 'view')
+            || $this->can('production.component.batch.index', 'view');
+        if (!$canAccess) {
+            $this->json_error('Anda tidak memiliki izin untuk melihat snapshot stok component.', 403);
+            return;
+        }
+
+        $componentId = (int)$this->input->get('component_id', true);
+        if ($componentId <= 0) {
+            $this->json_error('Component wajib dipilih.', 422);
+            return;
+        }
+
+        $uomId = (int)$this->input->get('uom_id', true);
+        $divisionId = (int)$this->input->get('division_id', true);
+        $lotId = (int)$this->input->get('lot_id', true);
+        $snapshot = $this->Production_model->component_stock_snapshot(
+            $componentId,
+            $uomId,
+            $divisionId > 0 ? $divisionId : null,
+            $this->normalize_location_type($this->input->get('location_type', true)),
+            $lotId > 0 ? $lotId : null
+        );
+
+        $this->json_ok(['snapshot' => $snapshot]);
+    }
+
     public function component_adjustment_post($id)
     {
         $this->require_permission('production.component.adjustment.index', 'edit');
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
         $id = (int)$id;
         $header = $this->Production_model->get_component_adjustment($id);
         if (!$header) {
+            $this->db->db_debug = $dbDebugBefore;
             $this->json_error('Adjustment tidak ditemukan.', 404);
             return;
         }
         if (strtoupper((string)$header['status']) !== 'DRAFT') {
+            $this->db->db_debug = $dbDebugBefore;
             $this->json_error('Hanya adjustment DRAFT yang bisa diposting.', 422);
             return;
         }
 
         $lines = $this->Production_model->get_component_adjustment_lines($id);
+        if (empty($header['division_id'])) {
+            $resolvedDivision = $this->Production_model->resolve_component_adjustment_division($lines);
+            if (!($resolvedDivision['ok'] ?? false)) {
+                $this->db->db_debug = $dbDebugBefore;
+                $this->json_error((string)($resolvedDivision['message'] ?? 'Divisi adjustment tidak bisa ditentukan untuk posting.'), 422);
+                return;
+            }
+            $header['division_id'] = (int)($resolvedDivision['division_id'] ?? 0);
+            $this->db->where('id', $id)->update('inv_component_adjustment', [
+                'division_id' => $header['division_id'],
+            ]);
+        }
         $post = $this->componentstockwriter->post_adjustment($header, $lines, (int)($this->current_user['employee_id'] ?? 0));
+        $this->db->db_debug = $dbDebugBefore;
         if (!($post['ok'] ?? false)) {
             $this->json_error((string)($post['message'] ?? 'Posting adjustment gagal.'), 422);
             return;
@@ -261,13 +532,34 @@ class Production extends MY_Controller
             'posted_at' => date('Y-m-d H:i:s'),
             'posted_by' => !empty($this->current_user['employee_id']) ? (int)$this->current_user['employee_id'] : null,
         ]);
+        $this->Production_model->rebuild_component_daily_rollup_from_logs();
         $this->json_ok(['id' => $id]);
+    }
+
+    public function component_adjustment_void($id)
+    {
+        $this->require_permission('production.component.adjustment.index', 'delete');
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Production_model->void_component_adjustment((int)$id, (int)($this->current_user['employee_id'] ?? 0));
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal VOID adjustment.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$id]);
     }
 
     public function component_adjustment_delete($id)
     {
         $this->require_permission('production.component.adjustment.index', 'delete');
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
         $result = $this->Production_model->delete_draft_doc('inv_component_adjustment', 'inv_component_adjustment_line', 'adjustment_id', (int)$id);
+        $this->db->db_debug = $dbDebugBefore;
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menghapus adjustment.'), 422);
             return;
@@ -327,8 +619,11 @@ class Production extends MY_Controller
         if (empty($payload)) {
             $payload = [
                 'component_id' => (int)$this->input->get('component_id', true),
-                'output_qty' => (float)$this->input->get('output_qty', true),
                 'location_type' => (string)$this->input->get('location_type', true),
+                'scaling_mode' => (string)$this->input->get('scaling_mode', true),
+                'batch_count' => (float)$this->input->get('batch_count', true),
+                'reference_line_no' => (int)$this->input->get('reference_line_no', true),
+                'reference_actual_qty' => (float)$this->input->get('reference_actual_qty', true),
             ];
         }
         $preview = $this->Production_model->component_batch_preview([
@@ -384,6 +679,55 @@ class Production extends MY_Controller
         $this->json_ok(['id' => (int)$id]);
     }
 
+    public function component_batch_void($id)
+    {
+        $this->require_permission('production.component.batch.index', 'delete');
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Production_model->void_component_batch((int)$id, (int)($this->current_user['employee_id'] ?? 0));
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal VOID batch.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$id]);
+    }
+
+    public function component_batch_usage($id)
+    {
+        $this->require_permission('production.component.batch.index', 'view');
+        $detail = $this->Production_model->component_batch_usage_detail((int)$id);
+        if (!($detail['ok'] ?? false)) {
+            $this->json_error((string)($detail['message'] ?? 'Detail pemakaian batch tidak ditemukan.'), 404);
+            return;
+        }
+        $this->json_ok($detail);
+    }
+
+    public function component_batch_usage_page($id)
+    {
+        $this->require_permission('production.component.batch.index', 'view');
+        $detail = $this->Production_model->component_batch_usage_detail((int)$id);
+        if (!($detail['ok'] ?? false)) {
+            show_404();
+            return;
+        }
+
+        $header = (array)($detail['header'] ?? []);
+        $title = 'Detail Usage Batch';
+        if (!empty($header['batch_no'])) {
+            $title .= ' ' . (string)$header['batch_no'];
+        }
+
+        $this->render('production/component_batch_usage_detail', [
+            'page_title' => $title,
+            'detail' => $detail,
+        ]);
+    }
+
     public function component_picker_search()
     {
         $canAccess = $this->can('production.component.opening.index', 'view')
@@ -409,11 +753,13 @@ class Production extends MY_Controller
         $excludeId = (int)$this->input->get('exclude_id', true);
         $componentType = strtoupper(trim((string)$this->input->get('component_type', true)));
         $divisionId = (int)$this->input->get('division_id', true);
+        $locationType = $this->normalize_location_type($this->input->get('location_type', true));
 
         $rows = $this->Production_model->search_picker_options($entity, $q, $limit, [
             'exclude_id' => $excludeId,
             'component_type' => $componentType,
             'division_id' => $divisionId > 0 ? $divisionId : null,
+            'location_type' => $locationType,
         ]);
         $this->json_ok(['rows' => $rows]);
     }
@@ -427,7 +773,6 @@ class Production extends MY_Controller
             'page_title' => 'Kategori Base/Prepare',
             'rows' => $rows,
             'q' => $q,
-            'parent_options' => $this->Production_model->list_component_categories([], 1000),
             'components_for_mapping' => $this->Production_model->list_components_for_mapping(1500),
             'unmapped_components' => $this->Production_model->list_unmapped_components(300),
         ]);
@@ -738,6 +1083,7 @@ class Production extends MY_Controller
         return [
             'q' => trim((string)$this->input->get('q', true)),
             'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
+            'type' => $this->normalize_component_type_filter($this->input->get('type', true)),
         ];
     }
 
@@ -758,6 +1104,7 @@ class Production extends MY_Controller
             'movement_type' => strtoupper(trim((string)$this->input->get('movement_type', true))),
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
+            'type' => $this->normalize_component_type_filter($this->input->get('type', true)),
         ];
     }
 
@@ -772,7 +1119,31 @@ class Production extends MY_Controller
             'q' => trim((string)$this->input->get('q', true)),
             'month' => $month,
             'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
+            'division_id' => (int)$this->input->get('division_id', true),
+            'type' => $this->normalize_component_type_filter($this->input->get('type', true)),
         ];
+    }
+
+    private function lot_filters(): array
+    {
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['OPEN', 'CLOSED', 'VOID', 'ALL'], true)) {
+            $status = 'OPEN';
+        }
+
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'status' => $status,
+            'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
+            'division_id' => (int)$this->input->get('division_id', true),
+            'type' => $this->normalize_component_type_filter($this->input->get('type', true)),
+        ];
+    }
+
+    private function normalize_component_type_filter($value): string
+    {
+        $value = strtoupper(trim((string)$value));
+        return in_array($value, ['BASE', 'PREPARE'], true) ? $value : '';
     }
     private function normalize_location_filter($value)
     {
@@ -872,7 +1243,7 @@ class Production extends MY_Controller
 
     private function active_components(): array
     {
-        return $this->db->select('c.id, c.component_code, c.component_name, c.uom_id, c.component_type, u.code AS uom_code')
+        return $this->db->select('c.id, c.component_code, c.component_name, c.uom_id, c.component_type, c.operational_division_id, u.code AS uom_code, d.code AS division_code, d.name AS division_name')
             ->from('mst_component c')
             ->join('mst_uom u', 'u.id = c.uom_id', 'left')
             ->join('mst_operational_division d', 'd.id = c.operational_division_id', 'left')
@@ -944,11 +1315,17 @@ class Production extends MY_Controller
                 $result[] = [
                     'component_id' => (int)($line['component_id'] ?? 0),
                     'uom_id' => (int)($line['uom_id'] ?? 0),
+                    'selected_lot_id' => !empty($line['selected_lot_id']) ? (int)$line['selected_lot_id'] : null,
                     'available_qty' => round((float)($line['available_qty'] ?? 0), 4),
                     'qty_spoil' => round((float)($line['qty_spoil'] ?? 0), 4),
+                    'spoil_reason_code' => (string)($line['spoil_reason_code'] ?? ''),
                     'qty_waste' => round((float)($line['qty_waste'] ?? 0), 4),
+                    'waste_reason_code' => (string)($line['waste_reason_code'] ?? ''),
                     'qty_adjust_pos' => round((float)($line['qty_adjust_pos'] ?? 0), 4),
+                    'adjustment_plus_reason_code' => (string)($line['adjustment_plus_reason_code'] ?? ''),
                     'qty_adjust_neg' => round((float)($line['qty_adjust_neg'] ?? 0), 4),
+                    'adjustment_minus_reason_code' => (string)($line['adjustment_minus_reason_code'] ?? ''),
+                    'unit_cost' => round((float)($line['unit_cost'] ?? 0), 6),
                     'note' => (string)($line['note'] ?? ''),
                 ];
                 continue;
@@ -977,7 +1354,7 @@ class Production extends MY_Controller
             ->set_output(json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE));
     }
 
-    private function json_error(string $message, int $statusCode = 400): void
+    private function json_error(string $message, int $statusCode = 400, array $data = []): void
     {
         $this->output
             ->set_status_header($statusCode)
@@ -985,6 +1362,6 @@ class Production extends MY_Controller
             ->set_output(json_encode([
                 'ok' => false,
                 'message' => $message,
-            ], JSON_INVALID_UTF8_SUBSTITUTE));
+            ] + $data, JSON_INVALID_UTF8_SUBSTITUTE));
     }
 }

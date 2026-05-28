@@ -15,20 +15,20 @@ START TRANSACTION;
 -- ------------------------------------------------------------
 -- A. Seed kategori curated
 -- ------------------------------------------------------------
-INSERT INTO mst_component_category (code, name, scope_type, parent_id, sort_order, is_active)
+INSERT INTO mst_component_category (code, name, scope_type, sort_order, is_active)
 VALUES
-  ('CAT_BEV_BASE', 'Beverage Base & Infusion', 'PREPARE', NULL, 10, 1),
-  ('CAT_SAUCE_COND', 'Sauce, Sambal & Condiment', 'PREPARE', NULL, 20, 1),
-  ('CAT_PASTE_SEASON', 'Paste, Marinasi & Bumbu', 'PREPARE', NULL, 30, 1),
-  ('CAT_BROTH_SOUP', 'Broth, Kuah & Soup Base', 'PREPARE', NULL, 40, 1),
-  ('CAT_DRESSING', 'Dressing & Salad Prep', 'PREPARE', NULL, 50, 1),
-  ('CAT_DOUGH_COAT', 'Dough, Batter & Coating', 'PREPARE', NULL, 60, 1),
-  ('CAT_STAPLE_BASE', 'Staple Base (Rice/Noodle)', 'BASE', NULL, 70, 1),
-  ('CAT_DESSERT_BASE', 'Dessert & Sweet Base', 'PREPARE', NULL, 80, 1),
-  ('CAT_PROTEIN_PREP', 'Protein Prep & Filling', 'PREPARE', NULL, 90, 1),
-  ('CAT_PICKLE_ACID', 'Pickle, Acar & Acid Prep', 'PREPARE', NULL, 100, 1),
-  ('CAT_POWDER_DRY', 'Dry Mix, Powder & Crumble', 'PREPARE', NULL, 110, 1),
-  ('CAT_MISC_PREP', 'Misc Prep', 'ALL', NULL, 120, 1)
+  ('CAT_BEV_BASE', 'Beverage Base & Infusion', 'PREPARE', 10, 1),
+  ('CAT_SAUCE_COND', 'Sauce, Sambal & Condiment', 'PREPARE', 20, 1),
+  ('CAT_PASTE_SEASON', 'Paste, Marinasi & Bumbu', 'PREPARE', 30, 1),
+  ('CAT_BROTH_SOUP', 'Broth, Kuah & Soup Base', 'PREPARE', 40, 1),
+  ('CAT_DRESSING', 'Dressing & Salad Prep', 'PREPARE', 50, 1),
+  ('CAT_DOUGH_COAT', 'Dough, Batter & Coating', 'PREPARE', 60, 1),
+  ('CAT_STAPLE_BASE', 'Staple Base (Rice/Noodle)', 'BASE', 70, 1),
+  ('CAT_DESSERT_BASE', 'Dessert & Sweet Base', 'PREPARE', 80, 1),
+  ('CAT_PROTEIN_PREP', 'Protein Prep & Filling', 'PREPARE', 90, 1),
+  ('CAT_PICKLE_ACID', 'Pickle, Acar & Acid Prep', 'PREPARE', 100, 1),
+  ('CAT_POWDER_DRY', 'Dry Mix, Powder & Crumble', 'PREPARE', 110, 1),
+  ('CAT_MISC_PREP', 'Misc Prep', 'ALL', 120, 1)
 ON DUPLICATE KEY UPDATE
   name = VALUES(name),
   scope_type = VALUES(scope_type),

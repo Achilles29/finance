@@ -1,6 +1,7 @@
 <?php
 $baseUrl = site_url((string)($base_url_opening ?? 'inventory/stock/opening'));
 $storeUrl = site_url('inventory/stock/opening/store');
+$voidUrlBase = site_url('inventory/stock/opening/void');
 $itemSearchUrl = site_url('inventory/stock/opening/item-search');
 $generateUrl = site_url('inventory/stock/opname/generate');
 $stockScope = strtoupper(trim((string)($stock_scope ?? 'WAREHOUSE')));
@@ -13,7 +14,7 @@ $selectedDestination = strtoupper(trim((string)($destination ?? 'ALL')));
 if ($selectedDestination === '') {
   $selectedDestination = $isDivisionScope ? 'OTHER' : 'ALL';
 }
-$tableColspan = $isDivisionScope ? 9 : 8;
+$tableColspan = $isDivisionScope ? 10 : 8;
 $rowsData = is_array($rows ?? null) ? $rows : [];
 $summaryRows = count($rowsData);
 $summaryQtyContent = 0.0;
@@ -255,6 +256,7 @@ foreach ($rowsData as $row) {
               <th class="text-end">Avg Cost</th>
               <th class="text-end">Total Value</th>
               <th>Sumber</th>
+              <?php if ($isDivisionScope): ?><th style="width:84px;">Aksi</th><?php endif; ?>
             </tr>
           </thead>
           <tbody>
@@ -299,6 +301,11 @@ foreach ($rowsData as $row) {
                   <td class="text-end"><?php echo ui_num((float)$r['opening_avg_cost_per_content']); ?></td>
                   <td class="text-end"><?php echo number_format((float)$r['opening_total_value'], 2, ',', '.'); ?></td>
                   <td><?php echo html_escape((string)($r['source_type'] ?? '-')); ?></td>
+                  <?php if ($isDivisionScope): ?>
+                  <td>
+                    <button type="button" class="btn btn-sm btn-outline-warning btn-void-opening" data-id="<?php echo (int)($r['id'] ?? 0); ?>">Void</button>
+                  </td>
+                  <?php endif; ?>
                 </tr>
               <?php endforeach; ?>
             <?php endif; ?>
@@ -312,6 +319,7 @@ foreach ($rowsData as $row) {
 <script>
 (function () {
   var storeUrl = <?php echo json_encode($storeUrl); ?>;
+  var voidUrlBase = <?php echo json_encode($voidUrlBase); ?>;
   var itemSearchUrl = <?php echo json_encode($itemSearchUrl); ?>;
   var alertArea = document.getElementById('alert-area');
   var stockScope = <?php echo json_encode($stockScope); ?>;
@@ -650,6 +658,17 @@ foreach ($rowsData as $row) {
       + msg + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
   }
 
+  function uiConfirm(message, options) {
+    if (window.FinanceUI && typeof window.FinanceUI.confirm === 'function') {
+      return window.FinanceUI.confirm(message, options || {});
+    }
+    if (window.FinanceUI && typeof window.FinanceUI.alert === 'function') {
+      return window.FinanceUI.alert('Modal konfirmasi tidak tersedia. Muat ulang halaman lalu coba lagi.', { title: 'UI Belum Siap' })
+        .then(function () { return false; });
+    }
+    return Promise.resolve(false);
+  }
+
   saveBtnEl.addEventListener('click', function () {
     if (saveBtnEl.disabled) {
       return;
@@ -729,6 +748,72 @@ foreach ($rowsData as $row) {
     .catch(function (err) {
       showAlert('danger', err.message || 'Gagal simpan opening.');
       setSavingState(false);
+    });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.btn-void-opening'), function (button) {
+    button.addEventListener('click', function () {
+      if (button.disabled) {
+        return;
+      }
+      button.blur();
+      uiConfirm('VOID opening ini akan menghapus snapshot opening, rollback lot awal, dan rebuild histori stok. Lanjutkan?', {
+        title: 'Void Opening',
+        okText: 'Void',
+        cancelText: 'Batal'
+      })
+      .then(function (ok) {
+        if (!ok) {
+          return null;
+        }
+
+        if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') {
+          window.FinanceUI.setButtonLoading(button, 'Void...');
+        } else {
+          button.disabled = true;
+        }
+
+        return fetch(voidUrlBase + '/' + encodeURIComponent(button.getAttribute('data-id') || ''), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ stock_scope: stockScope })
+        });
+      })
+      .then(function (r) {
+        if (!r) {
+          return null;
+        }
+        return r.text().then(function (text) {
+          var parsed = null;
+          try {
+            parsed = text ? JSON.parse(text) : null;
+          } catch (e) {
+            parsed = null;
+          }
+          return { status: r.status, json: parsed, text: text };
+        });
+      })
+      .then(function (res) {
+        if (!res) {
+          return;
+        }
+        if (res.status >= 400 || !res.json || !res.json.ok) {
+          var fallbackMessage = (res.text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          throw new Error((res.json && res.json.message) ? res.json.message : (fallbackMessage || 'Gagal void opening.'));
+        }
+        showAlert('success', 'Opening berhasil di-void. Halaman akan dimuat ulang.');
+        window.setTimeout(function () { window.location.reload(); }, 700);
+      })
+      .catch(function (err) {
+        showAlert('danger', err.message || 'Gagal void opening.');
+      })
+      .finally(function () {
+        if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+          window.FinanceUI.clearButtonLoading(button);
+        } else {
+          button.disabled = false;
+        }
+      });
     });
   });
 })();

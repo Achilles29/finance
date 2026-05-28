@@ -46,7 +46,7 @@ class InventoryLedger
         }
 
         $movementType = strtoupper(trim((string)($payload['movement_type'] ?? '')));
-        $allowedTypes = ['PURCHASE_IN', 'TRANSFER_IN', 'TRANSFER_OUT', 'USAGE_OUT', 'DISCARDED_OUT', 'SPOIL_OUT', 'WASTE_OUT', 'PROCESS_LOSS_OUT', 'VARIANCE_OUT', 'ADJUSTMENT', 'ADJUSTMENT_IN'];
+        $allowedTypes = ['PURCHASE_IN', 'TRANSFER_IN', 'TRANSFER_OUT', 'USAGE_OUT', 'DISCARDED_OUT', 'SPOIL_OUT', 'WASTE_OUT', 'PROCESS_LOSS_OUT', 'VARIANCE_OUT', 'ADJUSTMENT', 'ADJUSTMENT_IN', 'VOID_REVERSE'];
         if (!in_array($movementType, $allowedTypes, true)) {
             return [
                 'ok' => false,
@@ -500,7 +500,7 @@ class InventoryLedger
             'adjustment_plus_total_value' => 0.0,
         ];
 
-        if (in_array($movementType, ['PURCHASE_IN', 'TRANSFER_IN'], true)) {
+        if (in_array($movementType, ['PURCHASE_IN', 'TRANSFER_IN', 'VOID_REVERSE'], true)) {
             $deltaMap['in_qty_buy'] = max(0, $qtyBuyDelta);
             $deltaMap['in_qty_content'] = max(0, $qtyContentDelta);
         } elseif (in_array($movementType, ['TRANSFER_OUT', 'USAGE_OUT'], true)) {
@@ -821,6 +821,10 @@ class InventoryLedger
         }
         if ($movementType === 'ADJUSTMENT_IN') {
             return 'ADJUSTMENT_PLUS';
+        }
+
+        if ($movementType === 'VOID_REVERSE') {
+            return null;
         }
 
         if ($movementType === 'ADJUSTMENT') {

@@ -496,6 +496,28 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
     var poId = <?php echo (int)($order['id'] ?? 0); ?>;
     var reconcileBtn = document.getElementById('btn-po-detail-impact-reconcile');
 
+    function setButtonBusy(button, label) {
+        if (!button) {
+            return;
+        }
+        if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') {
+            window.FinanceUI.setButtonLoading(button, label);
+            return;
+        }
+        button.disabled = true;
+    }
+
+    function clearButtonBusy(button) {
+        if (!button) {
+            return;
+        }
+        if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+            window.FinanceUI.clearButtonLoading(button);
+            return;
+        }
+        button.disabled = false;
+    }
+
     updateBtn.addEventListener('click', function () {
         if (!canEditPo) {
             window.alert('Akses edit status tidak tersedia untuk akun ini.');
@@ -506,6 +528,8 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
         if (!poId || !nextStatus) {
             return;
         }
+
+        setButtonBusy(updateBtn, 'Memproses...');
 
         fetch(endpoint, {
             method: 'POST',
@@ -520,6 +544,7 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
             window.location.reload();
         })
         .catch(function (err) {
+            clearButtonBusy(updateBtn);
             window.alert(err.message || 'Gagal update status');
         });
     });
@@ -534,6 +559,8 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
                 return;
             }
 
+            setButtonBusy(reconcileBtn, 'Sinkron...');
+
             fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -547,6 +574,7 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
                 window.location.reload();
             })
             .catch(function (err) {
+                clearButtonBusy(reconcileBtn);
                 window.alert(err.message || 'Gagal sinkronkan dampak transaksi');
             });
         });

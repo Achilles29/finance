@@ -10,7 +10,7 @@ $initials = mb_strtoupper(mb_substr($current_user['username'] ?? 'U', 0, 1));
 $avatar_colors = ['#c0392b','#8e44ad','#2980b9','#16a085','#d35400','#7f8c8d','#c0392b'];
 $avatar_bg     = $avatar_colors[ord($initials) % count($avatar_colors)];
 ?>
-<nav class="layout-navbar navbar navbar-expand-xl align-items-center bg-navbar-theme" id="layout-navbar">
+<nav class="layout-navbar navbar navbar-expand-xl align-items-center bg-navbar-theme fin-navbar-hardfix" id="layout-navbar">
 
   <!-- Mobile: hamburger toggle -->
   <div class="layout-menu-toggle navbar-nav align-items-xl-center me-3 me-xl-0 d-xl-none">

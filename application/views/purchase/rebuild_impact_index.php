@@ -311,42 +311,57 @@ $statusOptions = is_array($status_options ?? null) ? $status_options : [];
         return;
       }
 
+      var confirmation = Promise.resolve(true);
       if (!dryRun) {
-        var ok = window.confirm('Jalankan EXECUTE rebuild? Proses ini bisa membuat posting ulang dampak pada PO eligible.');
-        if (!ok) {
-          return;
+        if (window.FinanceUI && typeof window.FinanceUI.confirm === 'function') {
+          confirmation = Promise.resolve(window.FinanceUI.confirm('Jalankan EXECUTE rebuild? Proses ini bisa membuat posting ulang dampak pada PO eligible.', {
+            title: 'Konfirmasi Execute Rebuild',
+            okText: 'Ya, Execute',
+            cancelText: 'Batal'
+          }));
+        } else if (window.FinanceUI && typeof window.FinanceUI.alert === 'function') {
+          confirmation = window.FinanceUI.alert('Modal konfirmasi tidak tersedia. Muat ulang halaman lalu coba lagi.', { title: 'UI Belum Siap' })
+            .then(function () { return false; });
+        } else {
+          confirmation = Promise.resolve(false);
         }
       }
 
-      btn.disabled = true;
-      fetch(runUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      })
-      .then(function (r) {
-        return r.json().then(function (j) {
-          return { status: r.status, json: j };
-        });
-      })
-      .then(function (res) {
-        if (res.status >= 400 || !res.json || !res.json.ok) {
-          throw new Error((res.json && res.json.message) ? res.json.message : 'Gagal menjalankan rebuild impact.');
+      confirmation.then(function (ok) {
+        if (!ok) {
+          return;
         }
 
-        setAlert('success', esc(res.json.message || 'Proses rebuild selesai.'));
-        var data = res.json.data || {};
-        renderSummary(data.summary || {});
-        renderRows(data.rows || []);
-      })
-      .catch(function (error) {
-        setAlert('danger', esc(error.message || 'Gagal menjalankan rebuild impact.'));
-      })
-      .finally(function () {
-        btn.disabled = false;
+        btn.disabled = true;
+        return fetch(runUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            return { status: r.status, json: j };
+          });
+        })
+        .then(function (res) {
+          if (res.status >= 400 || !res.json || !res.json.ok) {
+            throw new Error((res.json && res.json.message) ? res.json.message : 'Gagal menjalankan rebuild impact.');
+          }
+
+          setAlert('success', esc(res.json.message || 'Proses rebuild selesai.'));
+          var data = res.json.data || {};
+          renderSummary(data.summary || {});
+          renderRows(data.rows || []);
+        })
+        .catch(function (error) {
+          setAlert('danger', esc(error.message || 'Gagal menjalankan rebuild impact.'));
+        })
+        .finally(function () {
+          btn.disabled = false;
+        });
       });
     });
   });

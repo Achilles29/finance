@@ -5,7 +5,20 @@ $queryBase = [
     'status' => $status,
     'per_page' => $per_page,
 ];
+$listFilterDefinitions = is_array($list_filter_definitions ?? null) ? $list_filter_definitions : [];
+$listFilterOptions = is_array($list_filter_options ?? null) ? $list_filter_options : [];
+$listFilterValues = is_array($list_filter_values ?? null) ? $list_filter_values : [];
+foreach ($listFilterValues as $filterName => $filterValue) {
+  if ($filterValue !== null && $filterValue !== '') {
+    $queryBase[$filterName] = $filterValue;
+  }
+}
 $isPayrollMaster = in_array($entity, ['pay-component', 'pay-profile', 'pay-profile-line', 'pay-assignment'], true);
+$useLargeActionIcons = in_array($entity, ['product', 'extra', 'extra-group', 'product-division', 'product-classification', 'product-category'], true);
+$isProductHierarchyMaster = in_array($entity, ['product-division', 'product-classification', 'product-category'], true);
+$isReorderableMaster = !empty($cfg['reorderable']);
+$canDragReorder = $isReorderableMaster && $q === '' && (int)$total > 1 && (int)$total <= (int)$per_page;
+$resetStatus = (string)($cfg['default_status'] ?? (!empty($has_active_flag) ? 'active' : 'all'));
 
 $buildPageItems = static function (int $page, int $totalPages): array {
     if ($totalPages <= 7) {
@@ -92,7 +105,121 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 </style>
 <?php endif; ?>
 
-<div data-master-root class="master-index <?php echo $isPayrollMaster ? 'master-index--payroll' : ''; ?>">
+<?php if ($useLargeActionIcons): ?>
+<style>
+  .master-index--action-upgrade .master-action-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: nowrap;
+  }
+  .master-index--action-upgrade .master-action-group .action-icon-btn {
+    width: 36px !important;
+    min-width: 36px !important;
+    height: 36px !important;
+    border-radius: 10px !important;
+  }
+  .master-index--action-upgrade .master-action-group .action-icon-btn i,
+  .master-index--action-upgrade .master-action-group .action-icon-btn [class^="ri-"],
+  .master-index--action-upgrade .master-action-group .action-icon-btn [class*=" ri-"] {
+    font-size: 1.05rem !important;
+  }
+  .master-index--action-upgrade .master-inline-pill {
+    min-width: 94px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+</style>
+<?php endif; ?>
+
+<?php if ($isProductHierarchyMaster): ?>
+<style>
+  .master-index--product-hierarchy .master-card {
+    border: 0;
+    box-shadow: 0 0.3rem 1rem rgba(103, 73, 61, 0.08);
+  }
+  .master-index--product-hierarchy .master-table thead th {
+    background: linear-gradient(90deg, #8d0f1d 0%, #b21829 100%) !important;
+    color: #ffffff !important;
+    border-color: rgba(255, 255, 255, 0.18) !important;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.73rem;
+  }
+  .master-index--product-hierarchy .master-table td {
+    padding-top: 0.78rem;
+    padding-bottom: 0.78rem;
+    vertical-align: middle;
+  }
+  .master-index--product-hierarchy .master-name-cell {
+    font-weight: 600;
+    color: #46342b;
+  }
+  .master-index--product-hierarchy .master-count-badge {
+    display: inline-flex;
+    min-width: 42px;
+    justify-content: center;
+    align-items: center;
+    padding: 0.35rem 0.65rem;
+    border-radius: 999px;
+    background: #fef3e8;
+    border: 1px solid #f1d3b5;
+    color: #9b4d16;
+    font-weight: 600;
+    font-size: 0.84rem;
+  }
+  .master-index--product-hierarchy .master-scope-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.55rem;
+    border-radius: 999px;
+    background: #eef6ff;
+    border: 1px solid #cfe2ff;
+    color: #2458a6;
+    font-weight: 600;
+    font-size: 0.8rem;
+  }
+  .master-index--product-hierarchy .master-action-group .action-icon-btn {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+</style>
+<?php endif; ?>
+
+<?php if ($isReorderableMaster): ?>
+<style>
+  .master-reorder-note {
+    border: 1px dashed #d7c7c2;
+    border-radius: 12px;
+    background: #fffaf7;
+    padding: 0.85rem 1rem;
+    margin-bottom: 1rem;
+  }
+  .master-reorder-handle {
+    width: 34px;
+    color: #8c7a73;
+    cursor: grab;
+    text-align: center;
+    user-select: none;
+  }
+  .master-reorder-handle i {
+    font-size: 1rem;
+  }
+  .master-sort-row.is-dragging {
+    opacity: 0.55;
+  }
+  .master-sort-row.drag-over-top {
+    box-shadow: inset 0 3px 0 #c0392b;
+  }
+  .master-sort-row.drag-over-bottom {
+    box-shadow: inset 0 -3px 0 #c0392b;
+  }
+</style>
+<?php endif; ?>
+
+<div data-master-root data-master-entity="<?php echo html_escape($entity); ?>" data-master-reorder-url="<?php echo html_escape(site_url('master/' . $entity . '/reorder')); ?>" class="master-index <?php echo $isPayrollMaster ? 'master-index--payroll' : ''; ?> <?php echo $useLargeActionIcons ? 'master-index--action-upgrade' : ''; ?> <?php echo $isProductHierarchyMaster ? 'master-index--product-hierarchy' : ''; ?>">
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
   <div>
     <h4 class="mb-1 master-title"><?php echo html_escape($cfg['title']); ?></h4>
@@ -100,7 +227,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
   </div>
   <div class="d-flex flex-wrap gap-2">
     <a class="btn btn-primary" href="<?php echo site_url('master/' . $entity . '/create'); ?>">
-      <i class="fas fa-plus mr-1"></i>Tambah
+      <i class="ri-add-line me-1"></i>Tambah
     </a>
     <?php if ($entity === 'product'): ?>
       <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/product-recipe'); ?>">Halaman Resep Produk</a>
@@ -139,6 +266,17 @@ $buildPageItems = static function (int $page, int $totalPages): array {
   </div>
 </div>
 
+<?php if ($isReorderableMaster): ?>
+<div class="master-reorder-note">
+  <strong>Urutan tampilan:</strong> field <strong>Urutan</strong> di database dipakai sebagai urutan tampilan di POS dan halaman produk terkait.
+  <?php if ($canDragReorder): ?>
+    Drag & drop baris pada halaman ini untuk menyimpan urutan baru.
+  <?php else: ?>
+    Drag & drop aktif jika semua data sedang tampil dalam satu halaman tanpa filter pencarian.
+  <?php endif; ?>
+</div>
+<?php endif; ?>
+
 <?php if (!empty($has_active_flag)): ?>
 <div class="card mb-3">
   <div class="card-body py-2">
@@ -168,21 +306,42 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 <div class="card mb-3 master-card">
   <div class="card-body py-3 master-filter">
     <form id="filterForm" method="get" action="<?php echo $baseUrl; ?>" class="row g-2 align-items-end">
-      <div class="col-md-6 mb-2">
+      <div class="col-md-4 mb-2">
         <label class="form-label mb-1">Pencarian</label>
         <input type="text" name="q" class="form-control" placeholder="Cari data..." value="<?php echo html_escape($q); ?>">
       </div>
+      <?php foreach ($listFilterDefinitions as $filterDefinition): ?>
+        <?php
+          $filterName = trim((string)($filterDefinition['name'] ?? ''));
+          if ($filterName === '') {
+              continue;
+          }
+          $filterOptions = (array)($listFilterOptions[$filterName] ?? []);
+          $filterValue = $listFilterValues[$filterName] ?? null;
+        ?>
+        <div class="col-md-2 mb-2">
+          <label class="form-label mb-1"><?php echo html_escape((string)($filterDefinition['label'] ?? ucfirst(str_replace('_', ' ', $filterName)))); ?></label>
+          <select class="form-select" name="<?php echo html_escape($filterName); ?>">
+            <option value="">Semua</option>
+            <?php foreach ($filterOptions as $option): ?>
+              <option value="<?php echo (int)($option['value'] ?? 0); ?>" <?php echo (int)$filterValue === (int)($option['value'] ?? 0) ? 'selected' : ''; ?>>
+                <?php echo html_escape((string)($option['label'] ?? '')); ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+      <?php endforeach; ?>
       <div class="col-md-2 mb-2">
         <label class="form-label mb-1">Per Halaman</label>
-        <select class="form-control" name="per_page" id="perPageSelect">
+        <select class="form-select" name="per_page" id="perPageSelect">
           <?php foreach ([10,25,50,100,500] as $pp): ?>
             <option value="<?php echo $pp; ?>" <?php echo $pp == $per_page ? 'selected' : ''; ?>><?php echo $pp; ?></option>
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-md-4 mb-2 d-flex gap-2">
+      <div class="col-md-2 mb-2 d-flex gap-2">
         <button type="submit" class="btn btn-outline-primary mr-2">Filter</button>
-        <a href="<?php echo $baseUrl . '?status=' . (!empty($has_active_flag) ? 'active' : 'all'); ?>" class="btn btn-outline-secondary" data-master-ajax="1">Reset</a>
+        <a href="<?php echo $baseUrl . '?status=' . rawurlencode($resetStatus); ?>" class="btn btn-outline-secondary" data-master-ajax="1">Reset</a>
       </div>
     </form>
   </div>
@@ -193,6 +352,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
     <table class="table table-striped table-hover mb-0 master-table">
       <thead>
         <tr>
+          <?php if ($isReorderableMaster): ?><th width="48"></th><?php endif; ?>
           <th width="60">No</th>
           <?php foreach ($cfg['columns'] as $col): ?>
             <th><?php echo html_escape($col['label']); ?></th>
@@ -203,12 +363,15 @@ $buildPageItems = static function (int $page, int $totalPages): array {
       <tbody>
         <?php if (empty($rows)): ?>
           <tr>
-            <td colspan="<?php echo count($cfg['columns']) + 2; ?>" class="text-center text-muted py-4">Belum ada data.</td>
+            <td colspan="<?php echo count($cfg['columns']) + 2 + ($isReorderableMaster ? 1 : 0); ?>" class="text-center text-muted py-4">Belum ada data.</td>
           </tr>
         <?php else: ?>
           <?php $no = ($page - 1) * $per_page + 1; ?>
           <?php foreach ($rows as $r): ?>
-            <tr>
+            <tr class="<?php echo $canDragReorder ? 'master-sort-row' : ''; ?>" <?php echo $canDragReorder ? 'data-master-sort-row="1" draggable="true" data-row-id="' . (int)$r['id'] . '"' : ''; ?>>
+              <?php if ($isReorderableMaster): ?>
+                <td class="master-reorder-handle"><?php if ($canDragReorder): ?><i class="ri ri-drag-move-2-line"></i><?php endif; ?></td>
+              <?php endif; ?>
               <td class="number-cell"><?php echo $no++; ?></td>
               <?php foreach ($cfg['columns'] as $col): ?>
                 <?php
@@ -227,14 +390,38 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                   }
                 ?>
                 <td class="<?php echo html_escape(implode(' ', $cellClasses)); ?>">
-                  <?php if ($type === 'status'): ?>
-                    <?php if ((int)$val === 1): ?>
+                  <?php if ($entity === 'product' && $key === 'stock_mode'): ?>
+                    <button
+                      type="button"
+                      class="btn btn-sm master-inline-pill <?php echo html_escape((string)($r['stock_mode_button_class'] ?? 'btn-outline-primary')); ?>"
+                      data-master-stock-mode-url="<?php echo site_url('master/' . $entity . '/stock-mode/' . (int)$r['id']); ?>"
+                      title="Klik untuk ubah mode stok"
+                    >
+                      <?php echo html_escape((string)($r['stock_mode_label'] ?? (string)$val)); ?>
+                    </button>
+                  <?php elseif ($type === 'status'): ?>
+                    <?php if ($entity === 'product'): ?>
+                      <button
+                        type="button"
+                        class="btn btn-sm master-inline-pill <?php echo (int)$val === 1 ? 'btn-success' : 'btn-outline-secondary'; ?>"
+                        data-master-status-toggle-url="<?php echo site_url('master/' . $entity . '/toggle/' . (int)$r['id']); ?>"
+                        title="Klik untuk ubah status"
+                      >
+                        <?php echo (int)$val === 1 ? 'Aktif' : 'Nonaktif'; ?>
+                      </button>
+                    <?php elseif ((int)$val === 1): ?>
                       <span class="badge badge-success">Aktif</span>
                     <?php else: ?>
                       <span class="badge badge-secondary">Nonaktif</span>
                     <?php endif; ?>
+                  <?php elseif ($type === 'count'): ?>
+                    <span class="master-count-badge"><?php echo number_format((int)$val, 0, ',', '.'); ?></span>
                   <?php elseif ($type === 'bool'): ?>
                     <?php echo (int)$val === 1 ? 'Ya' : 'Tidak'; ?>
+                  <?php elseif ($type === 'money'): ?>
+                    <?php echo 'Rp ' . number_format((float)$val, 2, ',', '.'); ?>
+                  <?php elseif ($type === 'percent'): ?>
+                    <?php echo number_format((float)$val, 2, ',', '.') . '%'; ?>
                   <?php elseif ($type === 'image'): ?>
                     <?php
                       $imgPath = trim((string)$val);
@@ -253,7 +440,11 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                       <span class="text-muted">-</span>
                     <?php endif; ?>
                   <?php else: ?>
-                    <?php if ($isDecimal): ?>
+                    <?php if ($isProductHierarchyMaster && ($col['key'] ?? '') === 'name'): ?>
+                      <span class="master-name-cell"><?php echo html_escape((string)$val); ?></span>
+                    <?php elseif ($isProductHierarchyMaster && ($col['key'] ?? '') === 'pos_scope'): ?>
+                      <span class="master-scope-badge"><?php echo html_escape((string)$val); ?></span>
+                    <?php elseif ($isDecimal): ?>
                       <span data-decimal="1" data-value="<?php echo html_escape((string)$val); ?>"><?php echo html_escape((string)$val); ?></span>
                     <?php else: ?>
                       <?php echo html_escape((string)$val); ?>
@@ -262,13 +453,13 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                 </td>
               <?php endforeach; ?>
               <td class="action-cell">
-                <div class="<?php echo $isPayrollMaster ? 'payroll-actions' : ''; ?>">
-                  <?php if ($entity === 'org-employee'): ?>
+                <div class="<?php echo $isPayrollMaster ? 'payroll-actions' : 'master-action-group'; ?>">
+                  <?php if (in_array($entity, ['org-employee', 'product'], true)): ?>
                     <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Detail" aria-label="Detail" href="<?php echo site_url('master/' . $entity . '/detail/' . (int)$r['id']); ?>"><i class="ri ri-eye-line"></i></a>
                   <?php endif; ?>
                   <a class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit" href="<?php echo site_url('master/' . $entity . '/edit/' . (int)$r['id']); ?>"><i class="ri ri-edit-line"></i></a>
                   <?php if ($entity === 'product'): ?>
-                    <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Recipe" aria-label="Recipe" href="<?php echo site_url('master/relation/product-recipe/' . (int)$r['id']); ?>"><i class="ri ri-book-open-line"></i></a>
+                    <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Recipe" aria-label="Recipe" href="<?php echo site_url('master/relation/product-recipe/' . (int)$r['id']); ?>"><i class="ri ri-file-list-3-line"></i></a>
                     <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Extra" aria-label="Extra" href="<?php echo site_url('master/relation/product-extra/' . (int)$r['id']); ?>"><i class="ri ri-links-line"></i></a>
                   <?php endif; ?>
                   <?php if ($entity === 'component'): ?>
@@ -277,7 +468,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                   <?php if ($entity === 'extra-group'): ?>
                     <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Checklist Produk" aria-label="Checklist Produk" href="<?php echo site_url('master/relation/extra-group/' . (int)$r['id']); ?>"><i class="ri ri-checkbox-multiple-line"></i></a>
                   <?php endif; ?>
-                  <?php if (!empty($cfg['toggle'])): ?>
+                  <?php if (!empty($cfg['toggle']) && $entity !== 'product'): ?>
                     <a class="btn btn-sm btn-outline-warning action-icon-btn" data-bs-toggle="tooltip" title="Toggle Status" aria-label="Toggle Status" href="<?php echo site_url('master/' . $entity . '/toggle/' . (int)$r['id']); ?>" onclick="return confirm('Ubah status data ini?')"><i class="ri ri-refresh-line"></i></a>
                   <?php endif; ?>
                 </div>
@@ -367,6 +558,159 @@ $buildPageItems = static function (int $page, int $totalPages): array {
         applyUiEnhancements(nextRoot);
       });
     }
+
+    function postRowAction(url, button) {
+      if (!url || !button) return;
+      var wasDisabled = !!button.disabled;
+      button.disabled = true;
+      fetch(url, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      })
+      .then(function (res) { return res.json(); })
+      .then(function (payload) {
+        if (!payload || payload.ok !== true) {
+          throw new Error((payload && payload.message) || 'Gagal memperbarui data.');
+        }
+        fetchAndSwap(window.location.href);
+      })
+      .catch(function (err) {
+        button.disabled = wasDisabled;
+        window.alert(err && err.message ? err.message : 'Gagal memperbarui data.');
+      });
+    }
+
+    function initMasterReorder() {
+      var reorderUrl = root.getAttribute('data-master-reorder-url') || '';
+      var rows = Array.prototype.slice.call(root.querySelectorAll('[data-master-sort-row]'));
+      if (!reorderUrl || rows.length <= 1) {
+        return;
+      }
+
+      var tbody = root.querySelector('.master-table tbody');
+      if (!tbody) {
+        return;
+      }
+
+      var draggedRow = null;
+      var startOrder = [];
+      var saving = false;
+
+      function currentOrder() {
+        return Array.prototype.slice.call(tbody.querySelectorAll('[data-master-sort-row]')).map(function (row) {
+          return row.getAttribute('data-row-id');
+        }).filter(Boolean);
+      }
+
+      function clearDragMarkers() {
+        tbody.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(function (row) {
+          row.classList.remove('drag-over-top', 'drag-over-bottom');
+        });
+      }
+
+      function saveOrder(ids) {
+        if (saving) {
+          return;
+        }
+        saving = true;
+        fetch(reorderUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify({ ids: ids })
+        })
+        .then(function (res) { return res.json(); })
+        .then(function (payload) {
+          if (!payload || payload.ok !== true) {
+            throw new Error((payload && payload.message) || 'Gagal menyimpan urutan.');
+          }
+          fetchAndSwap(window.location.href);
+        })
+        .catch(function (err) {
+          window.alert(err && err.message ? err.message : 'Gagal menyimpan urutan.');
+          fetchAndSwap(window.location.href);
+        })
+        .finally(function () {
+          saving = false;
+        });
+      }
+
+      rows.forEach(function (row) {
+        row.addEventListener('dragstart', function (e) {
+          if (saving) {
+            e.preventDefault();
+            return;
+          }
+          draggedRow = row;
+          startOrder = currentOrder();
+          row.classList.add('is-dragging');
+          if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', row.getAttribute('data-row-id') || '');
+          }
+        });
+
+        row.addEventListener('dragover', function (e) {
+          if (!draggedRow || draggedRow === row || saving) {
+            return;
+          }
+          e.preventDefault();
+          clearDragMarkers();
+          var rect = row.getBoundingClientRect();
+          var insertAfter = (e.clientY - rect.top) > (rect.height / 2);
+          row.classList.add(insertAfter ? 'drag-over-bottom' : 'drag-over-top');
+        });
+
+        row.addEventListener('dragleave', function () {
+          row.classList.remove('drag-over-top', 'drag-over-bottom');
+        });
+
+        row.addEventListener('drop', function (e) {
+          if (!draggedRow || draggedRow === row || saving) {
+            return;
+          }
+          e.preventDefault();
+          var rect = row.getBoundingClientRect();
+          var insertAfter = (e.clientY - rect.top) > (rect.height / 2);
+          if (insertAfter) {
+            tbody.insertBefore(draggedRow, row.nextSibling);
+          } else {
+            tbody.insertBefore(draggedRow, row);
+          }
+          clearDragMarkers();
+        });
+
+        row.addEventListener('dragend', function () {
+          row.classList.remove('is-dragging');
+          clearDragMarkers();
+          var newOrder = currentOrder();
+          draggedRow = null;
+          if (newOrder.join(',') !== startOrder.join(',')) {
+            saveOrder(newOrder);
+          }
+        });
+      });
+    }
+
+    initMasterReorder();
+
+    root.querySelectorAll('[data-master-status-toggle-url]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        postRowAction(button.getAttribute('data-master-status-toggle-url') || '', button);
+      });
+    });
+
+    root.querySelectorAll('[data-master-stock-mode-url]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        postRowAction(button.getAttribute('data-master-stock-mode-url') || '', button);
+      });
+    });
 
     root.querySelectorAll('a[data-master-ajax="1"]').forEach(function (a) {
       a.addEventListener('click', function (e) {

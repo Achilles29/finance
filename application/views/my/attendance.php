@@ -105,16 +105,16 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <span class="badge bg-label-secondary" id="gps-status">GPS: belum dibaca</span>
         </div>
 
-        <div class="d-flex gap-2">
+        <div class="my-attendance-check-actions">
           <?php if (empty($locationOptions)): ?>
             <div class="alert alert-warning mb-0 py-2">Lokasi absensi belum tersedia. Hubungi admin untuk setup `Master Lokasi Absensi`.</div>
           <?php else: ?>
-          <form method="post" action="<?php echo site_url('my/attendance/mark' . ($selectedEmployeeId ? ('?employee_id=' . $selectedEmployeeId) : '')); ?>">
+          <form class="my-attendance-check-form" method="post" action="<?php echo site_url('my/attendance/mark' . ($selectedEmployeeId ? ('?employee_id=' . $selectedEmployeeId) : '')); ?>">
             <input type="hidden" name="event_type" value="CHECKIN">
             <input type="hidden" name="latitude" class="gps-lat" value="">
             <input type="hidden" name="longitude" class="gps-lon" value="">
             <div class="mb-2">
-              <select name="location_id" class="form-select form-select-sm" style="min-width:240px;" required>
+              <select name="location_id" class="form-select form-select-sm my-attendance-location" required>
                 <?php foreach ($locationOptions as $loc): ?>
                   <option value="<?php echo (int)$loc['value']; ?>" <?php echo ((int)$loc['value'] === $defaultLocationId) ? 'selected' : ''; ?>>
                     <?php echo html_escape((string)$loc['label']); ?><?php echo ((int)($loc['is_default'] ?? 0) === 1) ? ' (Default)' : ''; ?>
@@ -124,12 +124,12 @@ $buildPageItems = static function (int $page, int $totalPages): array {
             </div>
             <button class="btn btn-success btn-sm" type="submit">Check-in</button>
           </form>
-          <form method="post" action="<?php echo site_url('my/attendance/mark' . ($selectedEmployeeId ? ('?employee_id=' . $selectedEmployeeId) : '')); ?>">
+          <form class="my-attendance-check-form" method="post" action="<?php echo site_url('my/attendance/mark' . ($selectedEmployeeId ? ('?employee_id=' . $selectedEmployeeId) : '')); ?>">
             <input type="hidden" name="event_type" value="CHECKOUT">
             <input type="hidden" name="latitude" class="gps-lat" value="">
             <input type="hidden" name="longitude" class="gps-lon" value="">
             <div class="mb-2">
-              <select name="location_id" class="form-select form-select-sm" style="min-width:240px;" required>
+              <select name="location_id" class="form-select form-select-sm my-attendance-location" required>
                 <?php foreach ($locationOptions as $loc): ?>
                   <option value="<?php echo (int)$loc['value']; ?>" <?php echo ((int)$loc['value'] === $defaultLocationId) ? 'selected' : ''; ?>>
                     <?php echo html_escape((string)$loc['label']); ?><?php echo ((int)($loc['is_default'] ?? 0) === 1) ? ' (Default)' : ''; ?>

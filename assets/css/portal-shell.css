@@ -832,8 +832,15 @@ table.table thead th {
 }
 
 @media (max-width: 767.98px) {
+  .layout-page {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+
   .layout-navbar {
-    padding-inline: 0.85rem;
+    padding-inline: 0.72rem;
+    min-height: 56px;
+    height: 56px;
   }
 
   .portal-navbar-title strong {
@@ -841,16 +848,16 @@ table.table thead th {
   }
 
   .container-fluid.px-4.mt-4 {
-    padding-inline: 0.85rem !important;
+    padding-inline: 0.72rem !important;
     margin-top: 1rem !important;
   }
 
   .layout-page > .container-fluid.mt-3 {
-    padding-inline: 0.85rem;
+    padding-inline: 0.72rem;
   }
 
   .card {
-    border-radius: 20px;
+    border-radius: 14px;
   }
 
   .portal-page-intro {
@@ -873,11 +880,23 @@ table.table thead th {
 
   .card-body,
   .card-header {
-    padding-inline: 1rem;
+    padding-inline: 0.82rem;
   }
 
   .layout-page .btn.w-100,
   .layout-page .btn[class*="col-"] {
     min-height: 44px;
+  }
+
+  .portal-dashboard-grid {
+    gap: 0.7rem;
+  }
+
+  .portal-stat-card .card-body {
+    padding: 0.8rem !important;
+  }
+
+  .portal-kpi-value {
+    font-size: clamp(1.05rem, 4.8vw, 1.35rem);
   }
 }

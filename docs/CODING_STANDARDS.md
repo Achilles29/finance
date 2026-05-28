@@ -31,6 +31,7 @@
 20. [Pola Permission](#20-pola-permission)
 21. [Summary Card](#21-summary-card)
 22. [Pola Audit Log](#22-pola-audit-log)
+23. [Standar Tab Bertingkat (Penghubung/Jenis/Halaman)](#23-standar-tab-bertingkat-penghubungjenishalaman)
 
 ---
 
@@ -1027,7 +1028,7 @@ $cls = $status_class[$row['status']] ?? 'secondary';
 - Jika ada >2 aksi, pakai dropdown — jangan buat kolom terlalu lebar
 - Icon wajib ada untuk semua tombol (tidak boleh teks saja di tabel)
 - Untuk tabel yang memang butuh banyak tombol inline, pertahankan kolom aksi tetap satu baris dengan `nowrap + overflow-x auto`; rapatkan kolom lain dulu sebelum tombol dibiarkan turun baris
-- Di modul yang memakai tombol ikon inline, pakai kamus ikon yang konsisten: `Detail/Lihat = ri-eye-line`, `Edit/Ubah = ri-edit-line`, `Toggle Status = ri-refresh-line`, `Hapus = ri-delete-bin-line`, `Post = ri-upload-2-line`
+- Di modul yang memakai tombol ikon inline, pakai kamus ikon yang konsisten: `Detail/Lihat = ri-eye-line`, `Edit/Ubah = ri-edit-line`, `Toggle Status = ri-refresh-line`, `Hapus = ri-delete-bin-line`, `Post = ri-checkbox-circle-line`
 - Khusus halaman `production/component-*`, pakai helper `production/_component_ops_tabs.php` dan ukuran tombol ikon besar: `38×38px` dengan ikon sekitar `1.12rem`; jangan kembali ke ukuran default `28×28`
 - Jangan tukar ikon detail ke `book-open`, `external-link`, atau ikon lain dalam modul yang sama kecuali maknanya benar-benar berbeda
 
@@ -1386,3 +1387,27 @@ Untuk semua kolom/status di list dan detail:
    - `POSTED/APPROVED/DONE` -> biru
    - `VOID/CANCEL/REJECTED` -> merah
 5. Untuk status baru di luar mapping, gunakan badge netral lalu update helper global.
+
+---
+
+## 23. Standar Tab Bertingkat (Penghubung/Jenis/Halaman)
+
+Untuk halaman indeks modul operasional yang punya banyak konteks (contoh Purchase), gunakan **3 lapis tab** berikut:
+
+1. `Tab Penghubung Halaman`:
+- Fungsi: pindah lintas halaman dalam satu grup modul.
+- Wajib mengikuti urutan menu sidebar (berdasarkan `sys_menu.sort_order`), bukan urutan hardcode acak.
+- Gaya: tab/button utama (paling menonjol).
+
+2. `Tab Pembagi Jenis`:
+- Fungsi: filter status/jenis data (contoh `Semua`, `Draft`, `Approved`, dst).
+- Gaya: pill status standar.
+
+3. `Tab Pembagi Halaman`:
+- Fungsi: mengganti cara baca data dalam halaman yang sama (contoh `Per Nota` vs `Per Rincian`).
+- Gaya: **harus beda visual** dari tab pembagi jenis agar user tidak bingung konteks.
+
+Aturan tambahan:
+- Jangan gunakan 1 gaya tab yang sama persis untuk ketiga fungsi di atas.
+- Jika ada `dropdown status` di kolom tabel, posisikan sejajar dengan badge status (inline) untuk menjaga tinggi baris tetap ringkas.
+- Untuk teks hero/subtitle halaman, hindari kalimat panjang yang tidak menambah aksi; prioritaskan ruang untuk tab dan filter.

@@ -243,10 +243,9 @@ if (!function_exists('finance_dreq_detail_badge')) {
     }
 
     if (window.FinanceUI && typeof window.FinanceUI.confirm === 'function') {
-      Promise.resolve(window.FinanceUI.confirm({
+      Promise.resolve(window.FinanceUI.confirm(message, {
         title: 'Konfirmasi',
-        message: message,
-        confirmText: 'Ya',
+        okText: 'Ya',
         cancelText: 'Batal'
       })).then(function (confirmed) {
         if (confirmed) {
@@ -256,8 +255,8 @@ if (!function_exists('finance_dreq_detail_badge')) {
       return;
     }
 
-    if (window.confirm(message)) {
-      doSubmit();
+    if (window.FinanceUI && typeof window.FinanceUI.alert === 'function') {
+      window.FinanceUI.alert('Modal konfirmasi tidak tersedia. Muat ulang halaman lalu coba lagi.', { title: 'UI Belum Siap' });
     }
   });
 })();

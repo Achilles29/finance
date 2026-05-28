@@ -5,11 +5,12 @@
  */
 $activeMenuCode = (string)($active_menu ?? '');
 $isPurchaseScope = strpos($activeMenuCode, 'purchase.') === 0;
+$isMyScope = strpos($activeMenuCode, 'my.') === 0;
 $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
 ?>
 <!-- Layout wrapper -->
 <div
-  class="layout-wrapper layout-content-navbar<?php echo $isPurchaseScope ? ' purchase-soft-ui' : ''; ?>"
+  class="layout-wrapper layout-content-navbar<?php echo $isPurchaseScope ? ' purchase-soft-ui' : ''; ?><?php echo $isMyScope ? ' my-portal-scope' : ''; ?>"
   data-active-menu="<?= htmlspecialchars($active_menu ?? '', ENT_QUOTES, 'UTF-8') ?>"
   data-current-url="<?= htmlspecialchars(uri_string(), ENT_QUOTES, 'UTF-8') ?>"
 >
@@ -98,6 +99,29 @@ $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
       </div><!-- /content-wrapper -->
     </div><!-- /layout-page -->
   </div><!-- /layout-container -->
+
+  <?php if ($isMyScope): ?>
+  <nav class="my-bottom-nav d-md-none" aria-label="Navigasi Portal Pegawai">
+    <?php
+      $myNavItems = [
+        ['code' => 'my.home', 'url' => site_url('my'), 'icon' => 'ri-home-5-line', 'label' => 'Beranda'],
+        ['code' => 'my.attendance', 'url' => site_url('my/attendance'), 'icon' => 'ri-fingerprint-line', 'label' => 'Absensi'],
+        ['code' => 'my.leave', 'url' => site_url('my/leave-requests'), 'icon' => 'ri-hotel-bed-line', 'label' => 'Izin'],
+        ['code' => 'my.payroll', 'url' => site_url('my/payroll'), 'icon' => 'ri-file-list-3-line', 'label' => 'Payroll'],
+        ['code' => 'my.profile', 'url' => site_url('my/profile'), 'icon' => 'ri-user-3-line', 'label' => 'Profil'],
+      ];
+      $activeCode = (string)($active_menu ?? '');
+      $currentUri = trim((string)uri_string(), '/');
+      foreach ($myNavItems as $item):
+        $isActive = ($activeCode === $item['code']) || (trim(parse_url($item['url'], PHP_URL_PATH), '/') === $currentUri);
+    ?>
+      <a href="<?= $item['url'] ?>" class="my-bottom-nav-link<?= $isActive ? ' is-active' : '' ?>">
+        <i class="ri <?= $item['icon'] ?>"></i>
+        <span><?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8') ?></span>
+      </a>
+    <?php endforeach; ?>
+  </nav>
+  <?php endif; ?>
 
   <!-- Overlay (mobile) -->
   <div class="layout-overlay layout-menu-toggle"></div>

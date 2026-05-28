@@ -10,7 +10,7 @@ $components = is_array($components ?? null) ? $components : [];
   <div class="fin-page-header mb-3">
     <div>
       <h4 class="fin-page-title mb-1">Edit Formula: <?php echo html_escape((string)($component['component_name'] ?? '-')); ?></h4>
-      <p class="fin-page-subtitle mb-0"><?php echo html_escape((string)($component['component_code'] ?? '-')); ?> • <?php echo html_escape((string)($component['component_type'] ?? '-')); ?> • Hasil 1x produksi <?php echo number_format((float)($summary['output_qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($summary['output_uom_code'] ?? '-')); ?></p>
+      <p class="fin-page-subtitle mb-0"><?php echo html_escape((string)($component['component_type'] ?? '-')); ?> • Hasil 1x produksi <?php echo number_format((float)($summary['output_qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($summary['output_uom_code'] ?? '-')); ?></p>
     </div>
     <div class="d-flex gap-2">
       <a class="btn btn-outline-info btn-sm" href="<?php echo site_url('production/component-formulas/detail/' . (int)($component['id'] ?? 0)); ?>">Detail</a>
@@ -100,6 +100,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const t = String(line.line_type || 'MATERIAL').toUpperCase();
     const sourceName = t === 'MATERIAL' ? (line.material_name || '') : (line.sub_component_name || '');
     const sourceId = t === 'MATERIAL' ? Number(line.material_id || 0) : Number(line.sub_component_id || 0);
+    const materialItemId = t === 'MATERIAL' ? Number(line.material_item_id || 0) : 0;
     const uomLabel = esc(line.uom_code || '-');
     return `
       <tr>
@@ -111,8 +112,9 @@ document.addEventListener('DOMContentLoaded', function () {
         </td>
         <td>
           <div class="position-relative">
-            <input class="form-control form-control-sm line-source-name" placeholder="Ketik nama/kode sumber..." value="${esc(sourceName)}" autocomplete="off">
+            <input class="form-control form-control-sm line-source-name" placeholder="Ketik nama sumber..." value="${esc(sourceName)}" autocomplete="off">
             <input class="line-source-id" type="hidden" value="${sourceId}">
+            <input class="line-material-item-id" type="hidden" value="${materialItemId}">
           </div>
         </td>
         <td><input class="form-control form-control-sm line-qty" type="number" min="0" step="0.01" value="${Number(line.qty||0).toFixed(2)}"></td>
@@ -160,6 +162,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (resetSource) {
       tr.querySelector('.line-source-name').value = '';
       tr.querySelector('.line-source-id').value = '0';
+      tr.querySelector('.line-material-item-id').value = '0';
       tr.setAttribute('data-source-uom', '-');
     }
     refreshUomTag(tr);
@@ -199,6 +202,7 @@ document.addEventListener('DOMContentLoaded', function () {
       };
       if (lineType === 'MATERIAL') {
         row.material_id = Number(tr.querySelector('.line-source-id').value || 0);
+        row.material_item_id = Number(tr.querySelector('.line-material-item-id').value || 0);
         materialCount += 1;
       } else {
         row.sub_component_id = Number(tr.querySelector('.line-source-id').value || 0);
@@ -220,6 +224,24 @@ document.addEventListener('DOMContentLoaded', function () {
     return j;
   }
 
+  function setButtonBusy(button, label) {
+    if (!button) return;
+    if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') {
+      window.FinanceUI.setButtonLoading(button, label);
+      return;
+    }
+    button.disabled = true;
+  }
+
+  function clearButtonBusy(button) {
+    if (!button) return;
+    if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+      window.FinanceUI.clearButtonLoading(button);
+      return;
+    }
+    button.disabled = false;
+  }
+
   body.addEventListener('change', (e) => {
     const tr = e.target.closest('tr');
     if (!tr) return;
@@ -232,6 +254,7 @@ document.addEventListener('DOMContentLoaded', function () {
     activeSourceRow = tr;
     const keyword = (e.target.value || '').trim();
     tr.querySelector('.line-source-id').value = '0';
+    tr.querySelector('.line-material-item-id').value = '0';
     tr.setAttribute('data-source-uom', '-');
     refreshUomTag(tr);
     if (keyword.length < 2) {
@@ -288,14 +311,17 @@ document.addEventListener('DOMContentLoaded', function () {
   searchEl.addEventListener('input', applyFilter);
   filterTypeEl.addEventListener('change', applyFilter);
 
-  document.getElementById('btn-save').addEventListener('click', async () => {
+  document.getElementById('btn-save').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
     const lines = collectLines();
+    setButtonBusy(button, 'Menyimpan...');
     try {
       await postJson('<?php echo site_url('production/component-formulas/save-bulk'); ?>', {component_id: componentId, lines});
       alert('Formula berhasil disimpan.');
       window.location.reload();
     } catch (err) {
       alert(err.message || 'Gagal simpan formula.');
+      clearButtonBusy(button);
     }
   });
 

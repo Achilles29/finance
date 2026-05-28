@@ -91,6 +91,7 @@ foreach ($lineRows as $lineRow) {
   .sr-action-btn.btn-outline-warning { color: #d39e00; border-color: rgba(211,158,0,.55); }
   .sr-tab-link { font-weight: 600; }
   .sr-status-tab-link { font-weight: 600; white-space: nowrap; }
+  .sr-view-tab-link { font-weight: 700; }
   .sr-scroll { max-height: 260px; overflow: auto; }
   .sr-status-legend code { font-size: 11px; }
   .sr-note-meta { min-width: 0; }
@@ -344,6 +345,30 @@ foreach ($lineRows as $lineRow) {
     border-radius: 12px;
     font-weight: 700;
   }
+  .sr-filter-actions {
+    display: flex;
+    gap: .5rem;
+    justify-content: flex-end;
+    align-items: center;
+  }
+  .sr-filter-actions .btn {
+    min-width: 120px;
+  }
+  .sr-table-main thead th {
+    white-space: nowrap;
+  }
+  .sr-cell-left { text-align: left; }
+  .sr-cell-center { text-align: center; }
+  .sr-cell-right { text-align: right; }
+  .sr-detail-table td,
+  .sr-detail-table th {
+    vertical-align: middle;
+  }
+  .sr-plain-text {
+    font-weight: 500;
+    color: #334155;
+    line-height: 1.35;
+  }
   .sr-legend-card .card-body {
     background: linear-gradient(180deg, #fffaf3 0%, #ffffff 100%);
   }
@@ -410,8 +435,11 @@ foreach ($lineRows as $lineRow) {
       <div class="col-md-2"><label class="form-label mb-1">Tujuan</label><select name="destination_type" class="form-select"><option value="">Semua</option><?php foreach($destinationOptions as $op): ?><option value="<?php echo html_escape((string)$op['value']); ?>" <?php echo ((string)($filters['destination_type'] ?? '') === (string)$op['value']) ? 'selected' : ''; ?>><?php echo html_escape((string)$op['label']); ?></option><?php endforeach; ?></select></div>
       <div class="col-md-1"><label class="form-label mb-1">Dari</label><input type="date" name="date_start" class="form-control" value="<?php echo html_escape((string)($filters['date_start'] ?? '')); ?>"></div>
       <div class="col-md-1"><label class="form-label mb-1">Sampai</label><input type="date" name="date_end" class="form-control" value="<?php echo html_escape((string)($filters['date_end'] ?? '')); ?>"></div>
-      <div class="col-md-1"><label class="form-label mb-1">Limit</label><select name="limit" class="form-select"><?php foreach([25,50,100,200] as $lm): ?><option value="<?php echo $lm; ?>" <?php echo $limit === $lm ? 'selected' : ''; ?>><?php echo $lm; ?></option><?php endforeach; ?></select></div>
-      <div class="col-12 d-flex gap-2"><button type="submit" class="btn btn-primary">Filter</button><a href="<?php echo $resetUrl; ?>" class="btn btn-outline-secondary">Reset</a></div>
+      <div class="col-md-1"><label class="form-label mb-1">Baris</label><select name="limit" class="form-select"><?php foreach([25,50,100,200] as $lm): ?><option value="<?php echo $lm; ?>" <?php echo $limit === $lm ? 'selected' : ''; ?>><?php echo $lm; ?></option><?php endforeach; ?></select></div>
+      <div class="col-12 sr-filter-actions">
+        <a href="<?php echo $resetUrl; ?>" class="btn btn-outline-secondary">Clear Filter</a>
+        <button type="submit" class="btn btn-primary">Terapkan</button>
+      </div>
     </form>
   </div>
 </div>
@@ -458,7 +486,7 @@ foreach ($lineRows as $lineRow) {
   <div class="tab-content p-0 border-0">
     <div class="tab-pane fade <?php echo $activeTab === 'nota' ? 'show active' : ''; ?>">
       <div class="table-responsive">
-        <table class="table table-striped mb-0 sr-nota-table">
+        <table class="table table-striped mb-0 sr-nota-table sr-table-main">
       <thead>
         <tr>
           <th>SR</th><th>Ringkasan</th><th>Status</th><th>Qty</th><th>Aksi</th>
@@ -512,17 +540,17 @@ foreach ($lineRows as $lineRow) {
     </div>
     <div class="tab-pane fade <?php echo $activeTab === 'rincian' ? 'show active' : ''; ?>">
       <div class="table-responsive">
-        <table class="table table-striped mb-0 sr-detail-table">
+        <table class="table table-striped mb-0 sr-detail-table sr-table-main">
           <thead>
             <tr>
-              <th>SR</th>
-              <th>Divisi / Tujuan</th>
-              <th>Status</th>
-              <th>Rincian</th>
-              <th class="text-end">Request</th>
-              <th class="text-end">Fulfilled</th>
-              <th class="text-end">Sisa</th>
-              <th class="text-end">Nilai</th>
+              <th class="sr-cell-left">SR</th>
+              <th class="sr-cell-left">Divisi / Tujuan</th>
+              <th class="sr-cell-center">Status</th>
+              <th class="sr-cell-left">Rincian</th>
+              <th class="sr-cell-right">Request</th>
+              <th class="sr-cell-right">Fulfilled</th>
+              <th class="sr-cell-right">Sisa</th>
+              <th class="sr-cell-right">Nilai</th>
             </tr>
           </thead>
           <tbody>
@@ -532,36 +560,36 @@ foreach ($lineRows as $lineRow) {
             <?php $remainBuy = (float)($ln['qty_buy_requested'] ?? 0) - (float)($ln['qty_buy_fulfilled'] ?? 0); ?>
             <?php $remain = (float)($ln['qty_content_requested'] ?? 0) - (float)($ln['qty_content_fulfilled'] ?? 0); ?>
             <tr>
-              <td>
+              <td class="sr-cell-left">
                 <a href="<?php echo site_url('store-requests/detail/' . (int)($ln['store_request_id'] ?? 0)); ?>"><span class="sr-detail-title"><?php echo html_escape((string)($ln['sr_no'] ?? '-')); ?></span></a>
                 <span class="sr-detail-subtext"><?php echo html_escape((string)($ln['request_date'] ?? '-')); ?></span>
                 <span class="sr-detail-subtext">Need <?php echo html_escape((string)($ln['needed_date'] ?? '-')); ?></span>
               </td>
-              <td>
+              <td class="sr-cell-left">
                 <span class="sr-detail-title"><?php echo html_escape((string)($ln['division_name'] ?? '-')); ?></span>
                 <span class="sr-detail-subtext"><?php echo html_escape((string)($ln['destination_type'] ?? '-')); ?></span>
               </td>
-              <td>
+              <td class="sr-cell-center">
                 <span class="badge bg-light text-dark border"><?php echo html_escape((string)($ln['status'] ?? '-')); ?></span>
               </td>
-              <td>
-                <span class="sr-detail-title">#<?php echo (int)($ln['line_no'] ?? 0); ?> - <?php echo html_escape((string)($ln['profile_name'] ?? '-')); ?></span>
+              <td class="sr-cell-left">
+                <span class="sr-detail-title"><?php echo html_escape((string)($ln['profile_name'] ?? '-')); ?></span>
                 <span class="sr-detail-subtext">Jenis: <?php echo html_escape((string)($ln['effective_line_kind'] ?? $ln['line_kind'] ?? '-')); ?></span>
                 <span class="sr-detail-subtext"><?php echo html_escape((string)($ln['profile_brand'] ?? '')); ?> <?php echo html_escape((string)($ln['profile_description'] ?? '')); ?></span>
               </td>
-              <td class="text-end">
+              <td class="sr-cell-right">
                 <span class="sr-detail-num"><?php echo ui_num((float)($ln['qty_buy_requested'] ?? 0)); ?> <?php echo html_escape((string)($ln['profile_buy_uom_code'] ?? '')); ?></span>
                 <span class="sr-detail-subtext"><?php echo ui_num((float)($ln['qty_content_requested'] ?? 0)); ?> <?php echo html_escape((string)($ln['profile_content_uom_code'] ?? '')); ?></span>
               </td>
-              <td class="text-end">
+              <td class="sr-cell-right">
                 <span class="sr-detail-num"><?php echo ui_num((float)($ln['qty_buy_fulfilled'] ?? 0)); ?> <?php echo html_escape((string)($ln['profile_buy_uom_code'] ?? '')); ?></span>
                 <span class="sr-detail-subtext"><?php echo ui_num((float)($ln['qty_content_fulfilled'] ?? 0)); ?> <?php echo html_escape((string)($ln['profile_content_uom_code'] ?? '')); ?></span>
               </td>
-              <td class="text-end">
+              <td class="sr-cell-right">
                 <span class="sr-detail-num"><?php echo ui_num($remainBuy); ?> <?php echo html_escape((string)($ln['profile_buy_uom_code'] ?? '')); ?></span>
                 <span class="sr-detail-subtext"><?php echo ui_num($remain); ?> <?php echo html_escape((string)($ln['profile_content_uom_code'] ?? '')); ?></span>
               </td>
-              <td class="text-end">
+              <td class="sr-cell-right">
                 <span class="sr-detail-num">Req Rp <?php echo number_format((float)($ln['req_total_value'] ?? 0), 2, ',', '.'); ?></span>
                 <span class="sr-detail-subtext">Fulfilled Rp <?php echo number_format((float)($ln['fulfilled_total_value'] ?? 0), 2, ',', '.'); ?></span>
                 <span class="sr-detail-subtext">Harga Rp <?php echo number_format((float)($ln['unit_cost_ref'] ?? 0), 2, ',', '.'); ?></span>
@@ -686,7 +714,11 @@ foreach ($lineRows as $lineRow) {
     if(window.FinanceUI && typeof window.FinanceUI.confirm === 'function'){
       return window.FinanceUI.confirm(message, options || {});
     }
-    return Promise.resolve(window.confirm(String(message || 'Lanjutkan aksi?')));
+    if(window.FinanceUI && typeof window.FinanceUI.alert === 'function'){
+      return window.FinanceUI.alert('Modal konfirmasi tidak tersedia. Muat ulang halaman lalu coba lagi.', { title: 'UI Belum Siap' })
+        .then(function(){ return false; });
+    }
+    return Promise.resolve(false);
   }
   function localDateInputValue(){ var now=new Date(); var y=now.getFullYear(); var m=String(now.getMonth()+1).padStart(2,'0'); var d=String(now.getDate()).padStart(2,'0'); return y+'-'+m+'-'+d; }
   function setBusy(btn, busy){ if(!btn) return ''; if(busy){ var old=btn.innerHTML; btn.disabled=true; btn.setAttribute('data-old-html', old); btn.innerHTML='<span class="spinner-border spinner-border-sm"></span>'; return old; } btn.disabled=false; btn.innerHTML=btn.getAttribute('data-old-html') || btn.innerHTML; return btn.innerHTML; }

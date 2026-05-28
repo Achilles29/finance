@@ -34,6 +34,46 @@ class Production_model extends CI_Model
         return null;
     }
 
+    private function component_type_sort_sql(string $column): string
+    {
+        return "CASE UPPER({$column}) WHEN 'BASE' THEN 0 WHEN 'PREPARE' THEN 1 ELSE 9 END";
+    }
+
+    private function apply_component_display_order(?string $divisionExpr, string $typeExpr, string $nameExpr): void
+    {
+        if ($divisionExpr !== null && $divisionExpr !== '') {
+            $this->db->order_by($divisionExpr, 'ASC');
+        }
+        $this->db->order_by($this->component_type_sort_sql($typeExpr), '', false);
+        $this->db->order_by($nameExpr, 'ASC');
+    }
+
+    private function compare_component_display_rows(array $left, array $right, string $divisionKey = 'division_name', string $typeKey = 'component_type', string $nameKey = 'component_name'): int
+    {
+        $divisionCompare = strcasecmp((string)($left[$divisionKey] ?? ''), (string)($right[$divisionKey] ?? ''));
+        if ($divisionCompare !== 0) {
+            return $divisionCompare;
+        }
+
+        $typeWeight = static function ($value): int {
+            $normalized = strtoupper(trim((string)$value));
+            if ($normalized === 'BASE') {
+                return 0;
+            }
+            if ($normalized === 'PREPARE') {
+                return 1;
+            }
+            return 9;
+        };
+
+        $typeCompare = $typeWeight($left[$typeKey] ?? '') <=> $typeWeight($right[$typeKey] ?? '');
+        if ($typeCompare !== 0) {
+            return $typeCompare;
+        }
+
+        return strcasecmp((string)($left[$nameKey] ?? ''), (string)($right[$nameKey] ?? ''));
+    }
+
     private function component_operational_context(int $componentId): ?array
     {
         if ($componentId <= 0) {
@@ -181,6 +221,57 @@ class Production_model extends CI_Model
         ];
     }
 
+    private function resolve_adjustment_component_context(array $lines): array
+    {
+        $resolvedDivisionId = null;
+        $context = null;
+
+        foreach ($lines as $line) {
+            $componentId = (int)($line['component_id'] ?? 0);
+            $uomId = (int)($line['uom_id'] ?? 0);
+            $totalQty = round(
+                (float)($line['qty_spoil'] ?? 0)
+                + (float)($line['qty_waste'] ?? 0)
+                + (float)($line['qty_adjust_pos'] ?? 0)
+                + (float)($line['qty_adjust_neg'] ?? 0),
+                4
+            );
+            if ($componentId <= 0 || $uomId <= 0 || $totalQty <= 0) {
+                continue;
+            }
+
+            $row = $this->component_operational_context($componentId);
+            if (!$row || (int)($row['operational_division_id'] ?? 0) <= 0) {
+                return ['ok' => false, 'message' => 'Semua component adjustment wajib memiliki divisi operasional.'];
+            }
+
+            $divisionId = (int)$row['operational_division_id'];
+            if ($resolvedDivisionId === null) {
+                $resolvedDivisionId = $divisionId;
+                $context = $row;
+                continue;
+            }
+            if ($resolvedDivisionId !== $divisionId) {
+                return ['ok' => false, 'message' => 'Adjustment hanya boleh memuat component dari satu divisi operasional yang sama.'];
+            }
+        }
+
+        if ($resolvedDivisionId === null || !$context) {
+            return ['ok' => false, 'message' => 'Tambahkan minimal satu baris adjustment yang valid.'];
+        }
+
+        return [
+            'ok' => true,
+            'division_id' => $resolvedDivisionId,
+            'component_context' => $context,
+        ];
+    }
+
+    public function resolve_component_adjustment_division(array $lines): array
+    {
+        return $this->resolve_adjustment_component_context($lines);
+    }
+
     private function normalize_month_key(string $value): ?string
     {
         $value = trim($value);
@@ -223,6 +314,7 @@ class Production_model extends CI_Model
     {
         $q = trim((string)($filters['q'] ?? ''));
         $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
         $divisionNameColumn = $this->division_name_column();
         $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
@@ -250,6 +342,9 @@ class Production_model extends CI_Model
         $this->db->join('mst_component_category cat', 'cat.id = c.component_category_id', 'left');
 
         $this->apply_component_location_filter('s.location_type', $locationType);
+        if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+            $this->db->where('c.component_type', $componentType);
+        }
         if ($q !== '') {
             $this->db->group_start();
             $this->db
@@ -261,20 +356,22 @@ class Production_model extends CI_Model
             $this->db->group_end();
         }
 
-        $this->db->order_by('c.component_type', 'ASC');
-        if ($divisionNameColumn !== null) {
-            $this->db->order_by('d.' . $divisionNameColumn, 'ASC');
-        }
-        $this->db->order_by('cat.name', 'ASC');
-        $this->db->order_by('c.component_name', 'ASC');
+        $this->apply_component_display_order(
+            $divisionNameColumn !== null ? ('d.' . $divisionNameColumn) : 's.division_id',
+            'c.component_type',
+            'c.component_name'
+        );
+        $this->db->order_by('s.location_type', 'ASC');
         $this->db->limit(max(1, (int)$limit));
-        return $this->db->get()->result_array();
+        $rows = $this->db->get()->result_array();
+        return $this->attach_component_lot_summaries($rows);
     }
 
     public function component_movement_rows(array $filters, $limit = 300)
     {
         $q = trim((string)($filters['q'] ?? ''));
         $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
         $movementType = strtoupper(trim((string)($filters['movement_type'] ?? '')));
         $dateFrom = trim((string)($filters['date_from'] ?? ''));
         $dateTo = trim((string)($filters['date_to'] ?? ''));
@@ -311,6 +408,9 @@ class Production_model extends CI_Model
         $this->db->join('mst_component_category cat', 'cat.id = c.component_category_id', 'left');
 
         $this->apply_component_location_filter('m.location_type', $locationType);
+        if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+            $this->db->where('c.component_type', $componentType);
+        }
         if ($movementType !== '') {
             $this->db->where('m.movement_type', $movementType);
         }
@@ -328,14 +428,84 @@ class Production_model extends CI_Model
                 ->group_end();
         }
 
-        $this->db->order_by('c.component_type', 'ASC');
-        if ($divisionNameColumn !== null) {
-            $this->db->order_by('d.' . $divisionNameColumn, 'ASC');
-        }
-        $this->db->order_by('cat.name', 'ASC');
+        $this->apply_component_display_order(
+            $divisionNameColumn !== null ? ('d.' . $divisionNameColumn) : 'm.division_id',
+            'c.component_type',
+            'c.component_name'
+        );
         $this->db->order_by('m.movement_datetime', 'DESC');
         $this->db->limit(max(1, (int)$limit));
-        return $this->db->get()->result_array();
+        $rows = $this->db->get()->result_array();
+        foreach ($rows as &$row) {
+            $row['movement_type_label'] = $this->component_movement_type_label((string)($row['movement_type'] ?? ''));
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function component_movement_type_label(string $movementType): string
+    {
+        $movementType = strtoupper(trim($movementType));
+        $map = [
+            'OPENING' => 'Opening',
+            'PRODUCTION_IN' => 'Hasil Produksi',
+            'PRODUCTION_OUT' => 'Pemakaian Produksi',
+            'TRANSFER_IN' => 'Transfer Masuk',
+            'TRANSFER_OUT' => 'Transfer Keluar',
+            'USAGE' => 'Pemakaian',
+            'USAGE_OUT' => 'Pemakaian',
+            'WASTE' => 'Waste',
+            'WASTE_OUT' => 'Waste',
+            'SPOIL' => 'Spoilage',
+            'SPOIL_OUT' => 'Spoilage',
+            'ADJUSTMENT_PLUS' => 'Adjustment Plus',
+            'ADJUSTMENT_IN' => 'Adjustment Plus',
+            'ADJUSTMENT_MINUS' => 'Adjustment Minus',
+            'ADJUSTMENT' => 'Adjustment',
+            'VOID_REVERSE' => 'Pembatalan Void',
+        ];
+
+        return $map[$movementType] ?? ($movementType !== '' ? $movementType : '-');
+    }
+
+    private function apply_component_movement_after_anchor(string $movementDate, int $movementId): void
+    {
+        $movementDate = substr(trim($movementDate), 0, 10);
+        if ($movementDate === '') {
+            $this->db->where('id >', max(0, $movementId));
+            return;
+        }
+
+        $this->db->group_start()
+            ->where('movement_date >', $movementDate)
+            ->or_group_start()
+                ->where('movement_date', $movementDate)
+                ->where('id >', max(0, $movementId))
+            ->group_end()
+        ->group_end();
+    }
+
+    private function component_batch_trace_label(array $row, int $outputComponentId): string
+    {
+        $planRole = strtoupper(trim((string)($row['plan_role'] ?? '')));
+        if ($planRole === 'INLINE_OUTPUT') {
+            return 'Produksi Inline';
+        }
+        if ($planRole === 'INLINE_COMPONENT_USAGE') {
+            return 'Pakai Hasil Inline';
+        }
+
+        $movementType = strtoupper(trim((string)($row['movement_type'] ?? '')));
+        $componentId = (int)($row['component_id'] ?? 0);
+        if ($movementType === 'PRODUCTION_IN' && $componentId === $outputComponentId) {
+            return 'Output Batch Utama';
+        }
+        if ($movementType === 'PRODUCTION_OUT') {
+            return 'Pemakaian Component';
+        }
+
+        return 'Trace Batch';
     }
 
     public function component_daily_rows(array $filters, $limit = 500)
@@ -343,6 +513,8 @@ class Production_model extends CI_Model
         $q = trim((string)($filters['q'] ?? ''));
         $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
         $month = trim((string)($filters['month'] ?? date('Y-m')));
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
+        $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
         $startDate = $month . '-01';
         $endDate = date('Y-m-t', strtotime($startDate));
         $divisionNameColumn = $this->division_name_column();
@@ -380,6 +552,12 @@ class Production_model extends CI_Model
         $this->db->where('r.movement_date <=', $endDate);
 
         $this->apply_component_location_filter('r.location_type', $locationType);
+        if ($divisionId > 0) {
+            $this->db->where('r.division_id', $divisionId);
+        }
+        if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+            $this->db->where('c.component_type', $componentType);
+        }
         if ($q !== '') {
             $this->db->group_start();
             $this->db
@@ -391,15 +569,879 @@ class Production_model extends CI_Model
             $this->db->group_end();
         }
 
-        $this->db->order_by('c.component_type', 'ASC');
-        if ($divisionNameColumn !== null) {
-            $this->db->order_by('d.' . $divisionNameColumn, 'ASC');
-        }
-        $this->db->order_by('cat.name', 'ASC');
+        $this->apply_component_display_order(
+            $divisionNameColumn !== null ? ('d.' . $divisionNameColumn) : 'r.division_id',
+            'c.component_type',
+            'c.component_name'
+        );
         $this->db->order_by('r.movement_date', 'DESC');
-        $this->db->order_by('c.component_name', 'ASC');
         $this->db->limit(max(1, (int)$limit));
         return $this->db->get()->result_array();
+    }
+
+    public function latest_component_daily_month(array $filters = []): ?string
+    {
+        if (!$this->db->table_exists('inv_component_daily_rollup')) {
+            return null;
+        }
+
+        $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
+        $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
+
+        $this->db->select('MAX(r.movement_date) AS max_date', false)
+            ->from('inv_component_daily_rollup r')
+            ->join('mst_component c', 'c.id = r.component_id', 'inner');
+        $this->apply_component_location_filter('r.location_type', $locationType);
+        if ($divisionId > 0) {
+            $this->db->where('r.division_id', $divisionId);
+        }
+        if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+            $this->db->where('c.component_type', $componentType);
+        }
+
+        $row = $this->db->get()->row_array();
+        $maxDate = trim((string)($row['max_date'] ?? ''));
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $maxDate)) {
+            return null;
+        }
+
+        return substr($maxDate, 0, 7);
+    }
+
+    public function component_daily_matrix(array $filters, int $limit = 500): array
+    {
+        $month = trim((string)($filters['month'] ?? date('Y-m')));
+        if (!preg_match('/^\d{4}\-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+
+        $windowStart = $month . '-01';
+        $windowEnd = date('Y-m-t', strtotime($windowStart));
+        $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
+        $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
+        $q = trim((string)($filters['q'] ?? ''));
+
+        if (!$this->db->table_exists('inv_component_daily_rollup')) {
+            return [
+                'window' => ['month' => $month, 'date_from' => $windowStart, 'date_to' => $windowEnd],
+                'dates' => $this->month_date_series($windowStart, $windowEnd),
+                'rows' => [],
+            ];
+        }
+
+        $divisionNameColumn = $this->division_name_column();
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $this->db->select('r.movement_date, r.location_type, r.division_id, ' . $divisionNameSelect . ', r.component_id, c.component_code, c.component_name, c.component_type, r.uom_id, u.code AS uom_code, r.opening_qty, r.in_qty, r.out_qty, r.waste_qty, r.spoil_qty, r.adjustment_qty, r.closing_qty, r.avg_cost, r.total_value', false)
+            ->from('inv_component_daily_rollup r')
+            ->join('mst_component c', 'c.id = r.component_id', 'inner')
+            ->join('mst_operational_division d', 'd.id = r.division_id', 'left')
+            ->join('mst_uom u', 'u.id = r.uom_id', 'left')
+            ->where('r.movement_date >=', $windowStart)
+            ->where('r.movement_date <=', $windowEnd);
+
+        $this->apply_component_location_filter('r.location_type', $locationType);
+        if ($divisionId > 0) {
+            $this->db->where('r.division_id', $divisionId);
+        }
+        if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+            $this->db->where('c.component_type', $componentType);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('c.component_code', $q)
+                ->or_like('c.component_name', $q);
+            if ($divisionNameColumn !== null) {
+                $this->db->or_like('d.' . $divisionNameColumn, $q);
+            }
+            $this->db->group_end();
+        }
+
+        $this->apply_component_display_order(
+            $divisionNameColumn !== null ? ('d.' . $divisionNameColumn) : 'r.division_id',
+            'c.component_type',
+            'c.component_name'
+        );
+        $rows = $this->db
+            ->order_by('r.movement_date', 'ASC')
+            ->get()
+            ->result_array();
+
+        $dates = $this->month_date_series($windowStart, $windowEnd);
+        $dateMap = [];
+        foreach ($dates as $d) {
+            $dateMap[(string)$d['date']] = [
+                'opening' => 0.0,
+                'in' => 0.0,
+                'out' => 0.0,
+                'adj' => 0.0,
+                'closing' => 0.0,
+                'usage_out' => 0.0,
+                'waste' => 0.0,
+                'spoil' => 0.0,
+            ];
+        }
+
+        $grouped = [];
+        foreach ($rows as $row) {
+            $movementDate = (string)($row['movement_date'] ?? '');
+            if (!isset($dateMap[$movementDate])) {
+                continue;
+            }
+
+            $key = implode('|', [
+                (string)($row['location_type'] ?? ''),
+                (int)($row['division_id'] ?? 0),
+                (int)($row['component_id'] ?? 0),
+                (int)($row['uom_id'] ?? 0),
+            ]);
+
+            if (!isset($grouped[$key])) {
+                $grouped[$key] = [
+                    'location_type' => (string)($row['location_type'] ?? ''),
+                    'division_id' => (int)($row['division_id'] ?? 0),
+                    'division_name' => (string)($row['division_name'] ?? '-'),
+                    'component_id' => (int)($row['component_id'] ?? 0),
+                    'component_code' => (string)($row['component_code'] ?? ''),
+                    'component_name' => (string)($row['component_name'] ?? ''),
+                    'component_type' => (string)($row['component_type'] ?? ''),
+                    'uom_id' => (int)($row['uom_id'] ?? 0),
+                    'uom_code' => (string)($row['uom_code'] ?? ''),
+                    'days' => $dateMap,
+                    'total_opening' => 0.0,
+                    'total_in' => 0.0,
+                    'total_out' => 0.0,
+                    'total_adj' => 0.0,
+                    'total_closing' => 0.0,
+                    'avg_cost' => 0.0,
+                    'total_value' => 0.0,
+                ];
+            }
+
+            $opening = round((float)($row['opening_qty'] ?? 0), 4);
+            $in = round((float)($row['in_qty'] ?? 0), 4);
+            $usageOut = round((float)($row['out_qty'] ?? 0), 4);
+            $waste = round((float)($row['waste_qty'] ?? 0), 4);
+            $spoil = round((float)($row['spoil_qty'] ?? 0), 4);
+            $out = round($usageOut + $waste + $spoil, 4);
+            $adj = round((float)($row['adjustment_qty'] ?? 0), 4);
+            $closing = round((float)($row['closing_qty'] ?? 0), 4);
+
+            $grouped[$key]['days'][$movementDate] = [
+                'opening' => $opening,
+                'in' => $in,
+                'out' => $out,
+                'adj' => $adj,
+                'closing' => $closing,
+                'usage_out' => $usageOut,
+                'waste' => $waste,
+                'spoil' => $spoil,
+            ];
+            $grouped[$key]['total_opening'] += $opening;
+            $grouped[$key]['total_in'] += $in;
+            $grouped[$key]['total_out'] += $out;
+            $grouped[$key]['total_adj'] += $adj;
+            $grouped[$key]['total_closing'] = $closing;
+            $grouped[$key]['avg_cost'] = round((float)($row['avg_cost'] ?? 0), 6);
+            $grouped[$key]['total_value'] = round((float)($row['total_value'] ?? 0), 2);
+        }
+
+        $dateKeys = array_keys($dateMap);
+        foreach ($grouped as &$group) {
+            $firstOpening = null;
+            $lastClosing = 0.0;
+            foreach ($dateKeys as $index => $dateKey) {
+                $day = (array)($group['days'][$dateKey] ?? []);
+                $in = round((float)($day['in'] ?? 0), 4);
+                $out = round((float)($day['out'] ?? 0), 4);
+                $adj = round((float)($day['adj'] ?? 0), 4);
+
+                if ($index === 0) {
+                    $opening = round((float)($day['opening'] ?? 0), 4);
+                } else {
+                    $opening = round($lastClosing, 4);
+                }
+
+                $closing = round($opening + $in - $out + $adj, 4);
+                if (abs($closing) < 0.0001) {
+                    $closing = 0.0;
+                }
+
+                $group['days'][$dateKey] = [
+                    'opening' => $opening,
+                    'in' => $in,
+                    'out' => $out,
+                    'adj' => $adj,
+                    'closing' => $closing,
+                    'usage_out' => round((float)($day['usage_out'] ?? 0), 4),
+                    'waste' => round((float)($day['waste'] ?? 0), 4),
+                    'spoil' => round((float)($day['spoil'] ?? 0), 4),
+                ];
+
+                if ($firstOpening === null) {
+                    $firstOpening = $opening;
+                }
+                $lastClosing = $closing;
+            }
+
+            $group['total_opening'] = round((float)($firstOpening ?? 0), 4);
+            $group['total_closing'] = round($lastClosing, 4);
+        }
+        unset($group);
+
+        $matrixRows = array_values($grouped);
+        $matrixRows = $this->attach_component_lot_summaries($matrixRows);
+        $matrixRows = $this->attach_component_daily_lot_rows($matrixRows, $dates, $windowStart, $windowEnd);
+        $isCurrentMonth = $month === date('Y-m');
+        foreach ($matrixRows as &$matrixRow) {
+            $lotSummary = is_array($matrixRow['lot_summary'] ?? null) ? $matrixRow['lot_summary'] : [];
+            $lotBalance = round((float)($lotSummary['balance_qty'] ?? 0), 4);
+            if (!$isCurrentMonth || $lotBalance <= 0) {
+                continue;
+            }
+
+            $lotValue = round((float)($lotSummary['total_value'] ?? 0), 2);
+            $matrixRow['total_closing'] = $lotBalance;
+            $matrixRow['avg_cost'] = $lotBalance > 0 ? round($lotValue / $lotBalance, 6) : 0.0;
+            $matrixRow['total_value'] = $lotValue;
+        }
+        unset($matrixRow);
+        if ($limit > 0 && count($matrixRows) > $limit) {
+            $matrixRows = array_slice($matrixRows, 0, $limit);
+        }
+
+        return [
+            'window' => [
+                'month' => $month,
+                'date_from' => $windowStart,
+                'date_to' => $windowEnd,
+            ],
+            'dates' => $dates,
+            'rows' => $matrixRows,
+        ];
+    }
+
+    public function component_monthly_rows(array $filters, int $limit = 500): array
+    {
+        $daily = $this->component_daily_rows(array_merge($filters, ['type' => (string)($filters['type'] ?? '')]), max(1, $limit * 31));
+        if (empty($daily)) {
+            return [];
+        }
+
+        $grouped = [];
+        foreach ($daily as $row) {
+            $key = implode('|', [
+                (string)($row['location_type'] ?? ''),
+                (int)($row['division_id'] ?? 0),
+                (int)($row['component_id'] ?? 0),
+                (int)($row['uom_id'] ?? 0),
+            ]);
+            $movementDate = (string)($row['movement_date'] ?? '');
+            if (!isset($grouped[$key])) {
+                $grouped[$key] = [
+                    'location_type' => (string)($row['location_type'] ?? ''),
+                    'division_id' => (int)($row['division_id'] ?? 0),
+                    'division_name' => (string)($row['division_name'] ?? '-'),
+                    'component_id' => (int)($row['component_id'] ?? 0),
+                    'component_code' => (string)($row['component_code'] ?? ''),
+                    'component_name' => (string)($row['component_name'] ?? ''),
+                    'component_type' => (string)($row['component_type'] ?? ''),
+                    'uom_id' => (int)($row['uom_id'] ?? 0),
+                    'uom_code' => (string)($row['uom_code'] ?? ''),
+                    'opening_qty' => round((float)($row['opening_qty'] ?? 0), 4),
+                    'in_qty' => 0.0,
+                    'out_qty' => 0.0,
+                    'adjustment_qty' => 0.0,
+                    'waste_qty' => 0.0,
+                    'spoil_qty' => 0.0,
+                    'closing_qty' => round((float)($row['closing_qty'] ?? 0), 4),
+                    'avg_cost' => round((float)($row['avg_cost'] ?? 0), 6),
+                    'total_value' => round((float)($row['total_value'] ?? 0), 2),
+                    '_min_date' => $movementDate,
+                    '_max_date' => $movementDate,
+                ];
+            }
+
+            $grouped[$key]['in_qty'] += round((float)($row['in_qty'] ?? 0), 4);
+            $grouped[$key]['out_qty'] += round((float)($row['out_qty'] ?? 0), 4);
+            $grouped[$key]['adjustment_qty'] += round((float)($row['adjustment_qty'] ?? 0), 4);
+            $grouped[$key]['waste_qty'] += round((float)($row['waste_qty'] ?? 0), 4);
+            $grouped[$key]['spoil_qty'] += round((float)($row['spoil_qty'] ?? 0), 4);
+
+            if ($movementDate !== '' && $movementDate < $grouped[$key]['_min_date']) {
+                $grouped[$key]['_min_date'] = $movementDate;
+                $grouped[$key]['opening_qty'] = round((float)($row['opening_qty'] ?? 0), 4);
+            }
+            if ($movementDate !== '' && $movementDate >= $grouped[$key]['_max_date']) {
+                $grouped[$key]['_max_date'] = $movementDate;
+                $grouped[$key]['closing_qty'] = round((float)($row['closing_qty'] ?? 0), 4);
+                $grouped[$key]['avg_cost'] = round((float)($row['avg_cost'] ?? 0), 6);
+                $grouped[$key]['total_value'] = round((float)($row['total_value'] ?? 0), 2);
+            }
+        }
+
+        $rows = array_values($grouped);
+        usort($rows, function (array $left, array $right): int {
+            return $this->compare_component_display_rows($left, $right);
+        });
+
+        $rows = $this->attach_component_lot_summaries($rows);
+
+        return $limit > 0 ? array_slice($rows, 0, $limit) : $rows;
+    }
+
+    private function attach_component_lot_summaries(array $rows): array
+    {
+        if (empty($rows) || !$this->db->table_exists('inv_component_lot')) {
+            return $this->fill_default_component_lot_summaries($rows);
+        }
+
+        $componentIds = [];
+        $uomIds = [];
+        $locationTypes = [];
+        $divisionIds = [];
+        $hasNullDivision = false;
+        foreach ($rows as $row) {
+            $componentId = (int)($row['component_id'] ?? 0);
+            $uomId = (int)($row['uom_id'] ?? 0);
+            $locationType = strtoupper(trim((string)($row['location_type'] ?? '')));
+            $divisionId = array_key_exists('division_id', $row) && $row['division_id'] !== null ? (int)$row['division_id'] : null;
+            if ($componentId <= 0 || $uomId <= 0 || $locationType === '') {
+                continue;
+            }
+            $componentIds[$componentId] = $componentId;
+            $uomIds[$uomId] = $uomId;
+            $locationTypes[$locationType] = $locationType;
+            if ($divisionId === null) {
+              $hasNullDivision = true;
+            } else {
+              $divisionIds[$divisionId] = $divisionId;
+            }
+        }
+
+        if (empty($componentIds) || empty($uomIds) || empty($locationTypes)) {
+            return $this->fill_default_component_lot_summaries($rows);
+        }
+
+        $query = $this->db->select('l.id, l.location_type, l.division_id, l.component_id, l.uom_id, l.lot_no, l.receipt_date, l.expiry_date, l.unit_cost, l.qty_in_total, l.qty_balance, l.status')
+            ->from('inv_component_lot l')
+            ->where('l.qty_balance >', 0)
+            ->where_in('l.status', ['OPEN'])
+            ->where_in('l.component_id', array_values($componentIds))
+            ->where_in('l.uom_id', array_values($uomIds))
+            ->where_in('l.location_type', array_values($locationTypes));
+
+        if (!empty($divisionIds) || $hasNullDivision) {
+            $query->group_start();
+            if (!empty($divisionIds)) {
+                $query->where_in('l.division_id', array_values($divisionIds));
+            }
+            if ($hasNullDivision) {
+                if (!empty($divisionIds)) {
+                    $query->or_where('l.division_id IS NULL', null, false);
+                } else {
+                    $query->where('l.division_id IS NULL', null, false);
+                }
+            }
+            $query->group_end();
+        }
+
+        $lotRows = $query
+            ->order_by('l.receipt_date', 'ASC')
+            ->order_by('l.id', 'ASC')
+            ->get()
+            ->result_array();
+
+        $summaryMap = [];
+        foreach ($lotRows as $lotRow) {
+            $key = $this->component_identity_key(
+                (string)($lotRow['location_type'] ?? ''),
+                array_key_exists('division_id', $lotRow) ? $lotRow['division_id'] : null,
+                (int)($lotRow['component_id'] ?? 0),
+                (int)($lotRow['uom_id'] ?? 0)
+            );
+            if (!isset($summaryMap[$key])) {
+                $summaryMap[$key] = [
+                    'lot_count' => 0,
+                    'balance_qty' => 0.0,
+                    'min_unit_cost' => null,
+                    'max_unit_cost' => null,
+                    'total_value' => 0.0,
+                    'rows' => [],
+                ];
+            }
+            $unitCost = round((float)($lotRow['unit_cost'] ?? 0), 6);
+            $qtyBalance = round((float)($lotRow['qty_balance'] ?? 0), 4);
+            $summaryMap[$key]['lot_count']++;
+            $summaryMap[$key]['balance_qty'] += $qtyBalance;
+            $summaryMap[$key]['total_value'] += round($qtyBalance * $unitCost, 2);
+            $summaryMap[$key]['min_unit_cost'] = $summaryMap[$key]['min_unit_cost'] === null ? $unitCost : min($summaryMap[$key]['min_unit_cost'], $unitCost);
+            $summaryMap[$key]['max_unit_cost'] = $summaryMap[$key]['max_unit_cost'] === null ? $unitCost : max($summaryMap[$key]['max_unit_cost'], $unitCost);
+            $summaryMap[$key]['rows'][] = [
+                'id' => (int)($lotRow['id'] ?? 0),
+                'lot_no' => (string)($lotRow['lot_no'] ?? ''),
+                'receipt_date' => (string)($lotRow['receipt_date'] ?? ''),
+                'expiry_date' => (string)($lotRow['expiry_date'] ?? ''),
+                'qty_in_total' => round((float)($lotRow['qty_in_total'] ?? 0), 4),
+                'qty_balance' => $qtyBalance,
+                'unit_cost' => $unitCost,
+                'total_value' => round($qtyBalance * $unitCost, 2),
+                'status' => (string)($lotRow['status'] ?? ''),
+            ];
+        }
+
+        foreach ($rows as &$row) {
+            $key = $this->component_identity_key(
+                (string)($row['location_type'] ?? ''),
+                array_key_exists('division_id', $row) ? $row['division_id'] : null,
+                (int)($row['component_id'] ?? 0),
+                (int)($row['uom_id'] ?? 0)
+            );
+            $summary = $summaryMap[$key] ?? null;
+            if ($summary === null) {
+                $row['lot_summary'] = $this->empty_component_lot_summary();
+                continue;
+            }
+            $summary['balance_qty'] = round((float)$summary['balance_qty'], 4);
+            $summary['total_value'] = round((float)$summary['total_value'], 2);
+            $summary['min_unit_cost'] = $summary['min_unit_cost'] === null ? 0.0 : round((float)$summary['min_unit_cost'], 6);
+            $summary['max_unit_cost'] = $summary['max_unit_cost'] === null ? 0.0 : round((float)$summary['max_unit_cost'], 6);
+            $summary['has_mixed_cost'] = $summary['lot_count'] > 1 && abs((float)$summary['max_unit_cost'] - (float)$summary['min_unit_cost']) > 0.0001;
+            $row['lot_summary'] = $summary;
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function attach_component_daily_lot_rows(array $rows, array $dates, string $windowStart, string $windowEnd): array
+    {
+        if (empty($rows) || empty($dates)) {
+            return $rows;
+        }
+
+        $dateKeys = [];
+        $dateTemplate = [];
+        foreach ($dates as $date) {
+            $dateKey = (string)($date['date'] ?? '');
+            if ($dateKey === '') {
+                continue;
+            }
+            $dateKeys[] = $dateKey;
+            $dateTemplate[$dateKey] = [
+                'opening' => 0.0,
+                'in' => 0.0,
+                'out' => 0.0,
+                'adj' => 0.0,
+                'closing' => 0.0,
+            ];
+        }
+        if (empty($dateKeys)) {
+            return $rows;
+        }
+
+        $lotIds = [];
+        foreach ($rows as $row) {
+            $lotSummaryRows = array_values((array)((array)($row['lot_summary'] ?? []))['rows'] ?? []);
+            foreach ($lotSummaryRows as $lotRow) {
+                $lotId = (int)($lotRow['id'] ?? 0);
+                if ($lotId > 0) {
+                    $lotIds[$lotId] = $lotId;
+                }
+            }
+        }
+        if (empty($lotIds)) {
+            return $rows;
+        }
+
+        $issuedBeforeWindow = [];
+        $issuedInWindow = [];
+        if ($this->db->table_exists('inv_component_lot_issue_log') && $this->db->table_exists('inv_component_lot_issue_line')) {
+            $issueBeforeRows = $this->db->select('li.lot_id, SUM(li.qty_out) AS qty_out_total', false)
+                ->from('inv_component_lot_issue_line li')
+                ->join('inv_component_lot_issue_log il', 'il.id = li.issue_id', 'inner')
+                ->where_in('li.lot_id', array_values($lotIds))
+                ->where('il.issue_date <', $windowStart)
+                ->where('il.status', 'POSTED')
+                ->group_by('li.lot_id')
+                ->get()
+                ->result_array();
+            foreach ($issueBeforeRows as $issueRow) {
+                $issuedBeforeWindow[(int)($issueRow['lot_id'] ?? 0)] = round((float)($issueRow['qty_out_total'] ?? 0), 4);
+            }
+
+            $issueWindowRows = $this->db->select('li.lot_id, il.issue_date, SUM(li.qty_out) AS qty_out_total', false)
+                ->from('inv_component_lot_issue_line li')
+                ->join('inv_component_lot_issue_log il', 'il.id = li.issue_id', 'inner')
+                ->where_in('li.lot_id', array_values($lotIds))
+                ->where('il.issue_date >=', $windowStart)
+                ->where('il.issue_date <=', $windowEnd)
+                ->where('il.status', 'POSTED')
+                ->group_by(['li.lot_id', 'il.issue_date'])
+                ->get()
+                ->result_array();
+            foreach ($issueWindowRows as $issueRow) {
+                $lotId = (int)($issueRow['lot_id'] ?? 0);
+                $issueDate = (string)($issueRow['issue_date'] ?? '');
+                if ($lotId <= 0 || $issueDate === '') {
+                    continue;
+                }
+                if (!isset($issuedInWindow[$lotId])) {
+                    $issuedInWindow[$lotId] = [];
+                }
+                $issuedInWindow[$lotId][$issueDate] = round((float)($issueRow['qty_out_total'] ?? 0), 4);
+            }
+        }
+
+        foreach ($rows as &$row) {
+            $lotSummary = is_array($row['lot_summary'] ?? null) ? $row['lot_summary'] : [];
+            $lotSummaryRows = array_values((array)($lotSummary['rows'] ?? []));
+            $lotDailyRows = [];
+            foreach ($lotSummaryRows as $lotRow) {
+                $lotId = (int)($lotRow['id'] ?? 0);
+                $receiptDate = trim((string)($lotRow['receipt_date'] ?? ''));
+                $qtyInTotal = round((float)($lotRow['qty_in_total'] ?? 0), 4);
+                $unitCost = round((float)($lotRow['unit_cost'] ?? 0), 6);
+                $days = $dateTemplate;
+                $openingCarry = 0.0;
+                if ($receiptDate !== '' && $receiptDate < $windowStart) {
+                    $openingCarry = round($qtyInTotal - (float)($issuedBeforeWindow[$lotId] ?? 0), 4);
+                    if ($openingCarry < 0) {
+                        $openingCarry = 0.0;
+                    }
+                }
+
+                $firstOpening = 0.0;
+                $lastClosing = $openingCarry;
+                $totalIn = 0.0;
+                $totalOut = 0.0;
+                foreach ($dateKeys as $index => $dateKey) {
+                    $opening = $index === 0 ? $openingCarry : $lastClosing;
+                    $inQty = $receiptDate === $dateKey ? $qtyInTotal : 0.0;
+                    $outQty = round((float)($issuedInWindow[$lotId][$dateKey] ?? 0), 4);
+                    $closing = round($opening + $inQty - $outQty, 4);
+                    if ($closing < 0 && abs($closing) < 0.0001) {
+                        $closing = 0.0;
+                    }
+
+                    $days[$dateKey] = [
+                        'opening' => $opening,
+                        'in' => $inQty,
+                        'out' => $outQty,
+                        'adj' => 0.0,
+                        'closing' => $closing,
+                    ];
+                    if ($index === 0) {
+                        $firstOpening = $opening;
+                    }
+                    $lastClosing = $closing;
+                    $totalIn += $inQty;
+                    $totalOut += $outQty;
+                }
+
+                $lotDailyRows[] = [
+                    'id' => $lotId,
+                    'lot_no' => (string)($lotRow['lot_no'] ?? ''),
+                    'receipt_date' => $receiptDate,
+                    'expiry_date' => (string)($lotRow['expiry_date'] ?? ''),
+                    'qty_in_total' => $qtyInTotal,
+                    'qty_balance' => round((float)($lotRow['qty_balance'] ?? 0), 4),
+                    'unit_cost' => $unitCost,
+                    'total_value' => round($lastClosing * $unitCost, 2),
+                    'days' => $days,
+                    'total_opening' => $firstOpening,
+                    'total_in' => $totalIn,
+                    'total_out' => $totalOut,
+                    'total_adj' => 0.0,
+                    'total_closing' => $lastClosing,
+                ];
+            }
+            $row['lot_daily_rows'] = $lotDailyRows;
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function fill_default_component_lot_summaries(array $rows): array
+    {
+        foreach ($rows as &$row) {
+            if (!isset($row['lot_summary']) || !is_array($row['lot_summary'])) {
+                $row['lot_summary'] = $this->empty_component_lot_summary();
+            }
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function empty_component_lot_summary(): array
+    {
+        return [
+            'lot_count' => 0,
+            'location_scope' => '',
+            'location_count' => 0,
+            'balance_qty' => 0.0,
+            'min_unit_cost' => 0.0,
+            'max_unit_cost' => 0.0,
+            'total_value' => 0.0,
+            'has_mixed_cost' => false,
+            'rows' => [],
+        ];
+    }
+
+    private function component_identity_key(string $locationType, $divisionId, int $componentId, int $uomId): string
+    {
+        $normalizedDivisionId = $divisionId === null || $divisionId === '' ? 'NULL' : (string)(int)$divisionId;
+        return strtoupper(trim($locationType)) . '|' . $normalizedDivisionId . '|' . $componentId . '|' . $uomId;
+    }
+
+    public function ensure_component_daily_rollup_seeded(): array
+    {
+        if (!$this->db->table_exists('inv_component_daily_rollup') || !$this->db->table_exists('inv_component_movement_log')) {
+            return ['ok' => false, 'message' => 'Tabel rollup atau movement component belum tersedia.'];
+        }
+
+        $countRow = $this->db->select('COUNT(*) AS total_rows', false)->from('inv_component_daily_rollup')->get()->row_array();
+        $totalRows = (int)($countRow['total_rows'] ?? 0);
+        if ($totalRows > 0) {
+            if ($this->component_daily_rollup_needs_rebuild_for_void_openings()) {
+                return $this->rebuild_component_daily_rollup_from_logs();
+            }
+            return ['ok' => true, 'seeded' => false];
+        }
+
+        $movementRow = $this->db->select('COUNT(*) AS total_rows', false)->from('inv_component_movement_log')->get()->row_array();
+        if ((int)($movementRow['total_rows'] ?? 0) <= 0) {
+            return ['ok' => true, 'seeded' => false];
+        }
+
+        return $this->rebuild_component_daily_rollup_from_logs();
+    }
+
+    private function component_daily_rollup_needs_rebuild_for_void_openings(): bool
+    {
+        $row = $this->db->query(
+            "SELECT 1
+            FROM inv_component_daily_rollup r
+            INNER JOIN inv_component_movement_log m
+                ON m.source_table = 'inv_component_opening'
+                AND m.qty_out > 0
+                AND m.movement_date = r.movement_date
+                AND m.location_type = r.location_type
+                AND m.division_id <=> r.division_id
+                AND m.component_id = r.component_id
+                AND m.uom_id = r.uom_id
+            WHERE r.opening_qty > 0
+            LIMIT 1"
+        )->row_array();
+
+        return !empty($row);
+    }
+
+    public function rebuild_component_daily_rollup_from_logs(): array
+    {
+        if (!$this->db->table_exists('inv_component_daily_rollup') || !$this->db->table_exists('inv_component_movement_log')) {
+            return ['ok' => false, 'message' => 'Tabel rollup atau movement component belum tersedia.'];
+        }
+
+        $logs = $this->db->from('inv_component_movement_log')
+            ->order_by('movement_date', 'ASC')
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
+        if (empty($logs)) {
+            return ['ok' => true, 'seeded' => false, 'rows' => 0];
+        }
+
+        $balances = [];
+        $daily = [];
+        foreach ($logs as $log) {
+            $identityKey = implode('|', [
+                strtoupper(trim((string)($log['location_type'] ?? ''))),
+                isset($log['division_id']) && $log['division_id'] !== null ? (string)(int)$log['division_id'] : 'NULL',
+                (int)($log['component_id'] ?? 0),
+                (int)($log['uom_id'] ?? 0),
+            ]);
+            if ((int)($log['component_id'] ?? 0) <= 0 || (int)($log['uom_id'] ?? 0) <= 0) {
+                continue;
+            }
+
+            $balance = $balances[$identityKey] ?? ['qty' => 0.0, 'avg' => 0.0, 'value' => 0.0];
+            $qtyIn = round((float)($log['qty_in'] ?? 0), 4);
+            $qtyOut = round((float)($log['qty_out'] ?? 0), 4);
+            $unitCost = round((float)($log['unit_cost'] ?? 0), 6);
+            $movementType = strtoupper(trim((string)($log['movement_type'] ?? '')));
+
+            $qtyBefore = round((float)$balance['qty'], 4);
+            $avgBefore = round((float)$balance['avg'], 6);
+            $valueBefore = round((float)$balance['value'], 2);
+            $qtyAfter = round($qtyBefore + $qtyIn - $qtyOut, 4);
+            if (abs($qtyAfter) < 0.0001) {
+                $qtyAfter = 0.0;
+            }
+            if ($qtyAfter < 0) {
+                $qtyAfter = 0.0;
+            }
+
+            if ($qtyIn > 0) {
+                $valueAfter = round($valueBefore + round($qtyIn * $unitCost, 2), 2);
+                $avgAfter = $qtyAfter > 0 ? round($valueAfter / $qtyAfter, 6) : 0.0;
+            } else {
+                $valueOut = round($qtyOut * $avgBefore, 2);
+                $valueAfter = round(max(0, $valueBefore - $valueOut), 2);
+                $avgAfter = $qtyAfter > 0 ? round($valueAfter / $qtyAfter, 6) : 0.0;
+            }
+
+            $dayKey = implode('|', [
+                (string)($log['movement_date'] ?? ''),
+                strtoupper(trim((string)($log['location_type'] ?? ''))),
+                isset($log['division_id']) && $log['division_id'] !== null ? (string)(int)$log['division_id'] : 'NULL',
+                (int)($log['component_id'] ?? 0),
+                (int)($log['uom_id'] ?? 0),
+            ]);
+            if (!isset($daily[$dayKey])) {
+                $daily[$dayKey] = [
+                    'month_key' => date('Y-m-01', strtotime((string)$log['movement_date'])),
+                    'movement_date' => (string)($log['movement_date'] ?? ''),
+                    'location_type' => strtoupper(trim((string)($log['location_type'] ?? ''))),
+                    'division_id' => isset($log['division_id']) && $log['division_id'] !== null ? (int)$log['division_id'] : null,
+                    'component_id' => (int)($log['component_id'] ?? 0),
+                    'uom_id' => (int)($log['uom_id'] ?? 0),
+                    'opening_qty' => $movementType === 'OPENING' ? $qtyAfter : $qtyBefore,
+                    'in_qty' => 0.0,
+                    'out_qty' => 0.0,
+                    'waste_qty' => 0.0,
+                    'spoil_qty' => 0.0,
+                    'adjustment_qty' => 0.0,
+                    'closing_qty' => $qtyAfter,
+                    'avg_cost' => $avgAfter,
+                    'total_value' => $valueAfter,
+                    'mutation_count' => 0,
+                    'last_movement_at' => (string)($log['movement_datetime'] ?? ''),
+                    'rebuild_batch_no' => 'AUTO-' . date('YmdHis'),
+                    '_opening_snapshot_delta' => $movementType === 'OPENING' && (string)($log['source_table'] ?? '') === 'inv_component_opening' ? $qtyIn : 0.0,
+                    '_has_non_snapshot_activity' => false,
+                ];
+            } elseif ($movementType === 'OPENING') {
+                $daily[$dayKey]['opening_qty'] = round((float)($daily[$dayKey]['opening_qty'] ?? 0) + $qtyIn, 4);
+                if ((string)($log['source_table'] ?? '') === 'inv_component_opening') {
+                    $daily[$dayKey]['_opening_snapshot_delta'] = round((float)($daily[$dayKey]['_opening_snapshot_delta'] ?? 0) + $qtyIn, 4);
+                }
+            }
+
+            $isOpeningSnapshotReverse = (string)($log['source_table'] ?? '') === 'inv_component_opening'
+                && $qtyOut > 0;
+            $handledAsOpeningSnapshotReverse = false;
+            if ($isOpeningSnapshotReverse) {
+                $daily[$dayKey]['opening_qty'] = round((float)($daily[$dayKey]['opening_qty'] ?? 0) - $qtyOut, 4);
+                if (abs((float)$daily[$dayKey]['opening_qty']) < 0.0001) {
+                    $daily[$dayKey]['opening_qty'] = 0.0;
+                }
+                $daily[$dayKey]['_opening_snapshot_delta'] = round((float)($daily[$dayKey]['_opening_snapshot_delta'] ?? 0) - $qtyOut, 4);
+                $handledAsOpeningSnapshotReverse = true;
+            }
+
+            switch ($movementType) {
+                case 'PRODUCTION_IN':
+                case 'TRANSFER_IN':
+                    $daily[$dayKey]['in_qty'] += $qtyIn;
+                    $daily[$dayKey]['_has_non_snapshot_activity'] = true;
+                    break;
+                case 'PRODUCTION_OUT':
+                case 'TRANSFER_OUT':
+                    $daily[$dayKey]['out_qty'] += $qtyOut;
+                    $daily[$dayKey]['_has_non_snapshot_activity'] = true;
+                    break;
+                case 'WASTE':
+                    $daily[$dayKey]['waste_qty'] += $qtyOut;
+                    $daily[$dayKey]['_has_non_snapshot_activity'] = true;
+                    break;
+                case 'SPOIL':
+                    $daily[$dayKey]['spoil_qty'] += $qtyOut;
+                    $daily[$dayKey]['_has_non_snapshot_activity'] = true;
+                    break;
+                case 'ADJUSTMENT_PLUS':
+                case 'VOID_REVERSE':
+                    $daily[$dayKey]['adjustment_qty'] += $qtyIn;
+                    $daily[$dayKey]['_has_non_snapshot_activity'] = true;
+                    break;
+                case 'ADJUSTMENT_MINUS':
+                case 'VOID_OUT':
+                    if (!$handledAsOpeningSnapshotReverse) {
+                        $daily[$dayKey]['adjustment_qty'] -= $qtyOut;
+                        $daily[$dayKey]['_has_non_snapshot_activity'] = true;
+                    }
+                    break;
+            }
+
+            $daily[$dayKey]['closing_qty'] = $qtyAfter;
+            $daily[$dayKey]['avg_cost'] = $avgAfter;
+            $daily[$dayKey]['total_value'] = $valueAfter;
+            $daily[$dayKey]['mutation_count'] = (int)$daily[$dayKey]['mutation_count'] + 1;
+            $daily[$dayKey]['last_movement_at'] = (string)($log['movement_datetime'] ?? '');
+
+            $balances[$identityKey] = [
+                'qty' => $qtyAfter,
+                'avg' => $avgAfter,
+                'value' => $valueAfter,
+            ];
+        }
+
+        foreach ($daily as $dayKey => $row) {
+            $openingSnapshotDelta = round((float)($row['_opening_snapshot_delta'] ?? 0), 4);
+            $hasNonSnapshotActivity = !empty($row['_has_non_snapshot_activity']);
+            unset($row['_opening_snapshot_delta'], $row['_has_non_snapshot_activity']);
+
+            if (
+                !$hasNonSnapshotActivity
+                && abs($openingSnapshotDelta) < 0.0001
+                && abs((float)($row['opening_qty'] ?? 0)) < 0.0001
+                && abs((float)($row['in_qty'] ?? 0)) < 0.0001
+                && abs((float)($row['out_qty'] ?? 0)) < 0.0001
+                && abs((float)($row['adjustment_qty'] ?? 0)) < 0.0001
+                && abs((float)($row['waste_qty'] ?? 0)) < 0.0001
+                && abs((float)($row['spoil_qty'] ?? 0)) < 0.0001
+                && abs((float)($row['closing_qty'] ?? 0)) < 0.0001
+            ) {
+                unset($daily[$dayKey]);
+                continue;
+            }
+
+            $daily[$dayKey] = $row;
+        }
+
+        $this->db->trans_begin();
+        $this->db->empty_table('inv_component_daily_rollup');
+        foreach (array_values($daily) as $row) {
+            $this->db->insert('inv_component_daily_rollup', $row);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal rebuild daily rollup component.'];
+        }
+
+        $this->db->trans_commit();
+        return ['ok' => true, 'seeded' => true, 'rows' => count($daily)];
+    }
+
+    private function month_date_series(string $startDate, string $endDate): array
+    {
+        $dates = [];
+        $cursor = strtotime($startDate);
+        $until = strtotime($endDate);
+        while ($cursor !== false && $until !== false && $cursor <= $until) {
+            $dates[] = [
+                'date' => date('Y-m-d', $cursor),
+                'day' => date('d', $cursor),
+                'weekday' => date('D', $cursor),
+            ];
+            $cursor = strtotime('+1 day', $cursor);
+        }
+        return $dates;
     }
 
     public function list_component_openings(array $filters = [], int $limit = 200): array
@@ -442,6 +1484,28 @@ class Production_model extends CI_Model
         return $row ?: null;
     }
 
+    public function find_component_opening_month_conflict(int $excludeId, string $openingDate, string $locationType, ?int $divisionId): ?array
+    {
+        $monthKey = $this->normalize_month_key($openingDate);
+        if ($monthKey === null || $locationType === '' || $divisionId === null || $divisionId <= 0) {
+            return null;
+        }
+
+        $query = $this->db->select('id, status, opening_no, opening_date, location_type, division_id')
+            ->from('inv_component_opening')
+            ->where('location_type', $locationType)
+            ->where('division_id', $divisionId)
+            ->where('status <>', 'VOID')
+            ->where('opening_date >=', $monthKey . '-01')
+            ->where('opening_date <=', date('Y-m-t', strtotime($monthKey . '-01')));
+        if ($excludeId > 0) {
+            $query->where('id <>', $excludeId);
+        }
+
+        $row = $query->order_by('id', 'DESC')->limit(1)->get()->row_array();
+        return $row ?: null;
+    }
+
     public function get_component_opening_lines(int $openingId): array
     {
         return $this->db->select('l.*, c.component_name, c.component_code, u.code AS uom_code')
@@ -451,6 +1515,320 @@ class Production_model extends CI_Model
             ->where('l.opening_id', $openingId)
             ->order_by('l.line_no', 'ASC')
             ->get()->result_array();
+    }
+
+    public function component_opening_detail(int $id): array
+    {
+        $divisionNameColumn = $this->division_name_column();
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+        $header = $this->db->select('h.*, ' . $divisionNameSelect, false)
+            ->from('inv_component_opening h')
+            ->join('mst_operational_division d', 'd.id = h.division_id', 'left')
+            ->where('h.id', $id)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Opening tidak ditemukan.'];
+        }
+
+        $lines = $this->get_component_opening_lines($id);
+        $summary = [
+            'line_count' => count($lines),
+            'total_qty' => 0.0,
+            'total_value' => 0.0,
+            'movement_count' => 0,
+            'lot_count' => 0,
+        ];
+        foreach ($lines as $line) {
+            $qty = round((float)($line['opening_qty'] ?? 0), 4);
+            $unitCost = round((float)($line['unit_cost'] ?? 0), 6);
+            $summary['total_qty'] += $qty;
+            $summary['total_value'] += round($qty * $unitCost, 2);
+        }
+
+        $movementRows = [];
+        $effectiveMovementRows = [];
+        $lotRows = [];
+        $activeLotRows = [];
+        $canVoid = strtoupper((string)($header['status'] ?? '')) === 'POSTED';
+        $blockReason = '';
+
+        if ($this->db->table_exists('inv_component_movement_log')) {
+            $movementRows = $this->db->select('m.*, c.component_name, c.component_code, u.code AS uom_code')
+                ->from('inv_component_movement_log m')
+                ->join('mst_component c', 'c.id = m.component_id', 'left')
+                ->join('mst_uom u', 'u.id = m.uom_id', 'left')
+                ->where('m.source_table', 'inv_component_opening')
+                ->where('m.source_id', $id)
+                ->order_by('m.id', 'ASC')
+                ->get()
+                ->result_array();
+            foreach ($movementRows as &$movementRow) {
+                $movementRow['movement_type_label'] = $this->component_movement_type_label((string)($movementRow['movement_type'] ?? ''));
+            }
+            unset($movementRow);
+            $summary['movement_count'] = count($movementRows);
+
+            $effectiveMap = [];
+            foreach ($movementRows as $movementRow) {
+                $componentId = (int)($movementRow['component_id'] ?? 0);
+                $uomId = (int)($movementRow['uom_id'] ?? 0);
+                if ($componentId <= 0 || $uomId <= 0) {
+                    continue;
+                }
+                $key = $componentId . '|' . $uomId;
+                if (!isset($effectiveMap[$key])) {
+                    $effectiveMap[$key] = [
+                        'component_id' => $componentId,
+                        'uom_id' => $uomId,
+                        'component_name' => (string)($movementRow['component_name'] ?? ''),
+                        'component_code' => (string)($movementRow['component_code'] ?? ''),
+                        'uom_code' => (string)($movementRow['uom_code'] ?? ''),
+                        'effective_qty' => 0.0,
+                        'latest_unit_cost' => 0.0,
+                        'latest_movement_date' => (string)($movementRow['movement_date'] ?? ''),
+                        'movement_count' => 0,
+                    ];
+                }
+                $effectiveMap[$key]['effective_qty'] += round((float)($movementRow['qty_in'] ?? 0), 4);
+                $effectiveMap[$key]['effective_qty'] -= round((float)($movementRow['qty_out'] ?? 0), 4);
+                $effectiveMap[$key]['latest_unit_cost'] = round((float)($movementRow['unit_cost'] ?? 0), 6);
+                $effectiveMap[$key]['latest_movement_date'] = (string)($movementRow['movement_date'] ?? '');
+                $effectiveMap[$key]['movement_count']++;
+            }
+            foreach ($effectiveMap as $effectiveRow) {
+                if (round((float)($effectiveRow['effective_qty'] ?? 0), 4) <= 0) {
+                    continue;
+                }
+                $effectiveRow['effective_qty'] = round((float)$effectiveRow['effective_qty'], 4);
+                $effectiveMovementRows[] = $effectiveRow;
+            }
+        }
+
+        if ($this->db->table_exists('inv_component_lot')) {
+            $lotRows = $this->db->select('l.*, c.component_name, c.component_code, u.code AS uom_code')
+                ->from('inv_component_lot l')
+                ->join('mst_component c', 'c.id = l.component_id', 'left')
+                ->join('mst_uom u', 'u.id = l.uom_id', 'left')
+                ->where('l.source_table', 'inv_component_opening')
+                ->where('l.source_id', $id)
+                ->order_by('l.receipt_date', 'ASC')
+                ->order_by('l.id', 'ASC')
+                ->get()
+                ->result_array();
+            $summary['lot_count'] = count($lotRows);
+
+            foreach ($lotRows as $lotRow) {
+                if (strtoupper((string)($lotRow['status'] ?? '')) === 'VOID') {
+                    continue;
+                }
+                $activeLotRows[] = $lotRow;
+            }
+        }
+
+        $summary['effective_movement_count'] = count($effectiveMovementRows);
+        $summary['active_lot_count'] = count($activeLotRows);
+
+        if ($canVoid) {
+            if (empty($movementRows)) {
+                $canVoid = false;
+                $blockReason = 'Movement opening belum ditemukan, sehingga dokumen ini tidak bisa di-void dari halaman detail.';
+            } else {
+                $guard = $this->guard_component_opening_void_usage($header, $movementRows);
+                if (!($guard['ok'] ?? false)) {
+                    $canVoid = false;
+                    $blockReason = (string)($guard['message'] ?? 'Opening sudah dipakai transaksi lain.');
+                }
+            }
+        }
+
+        return [
+            'ok' => true,
+            'header' => $header,
+            'lines' => $lines,
+            'movement_rows' => $movementRows,
+            'effective_movement_rows' => $effectiveMovementRows,
+            'lot_rows' => $lotRows,
+            'active_lot_rows' => $activeLotRows,
+            'summary' => $summary,
+            'can_void' => $canVoid,
+            'block_reason' => $blockReason,
+        ];
+    }
+
+    public function void_component_opening(int $id, int $actorEmployeeId): array
+    {
+        return $this->rollback_component_opening_posting(
+            $id,
+            $actorEmployeeId,
+            'VOID',
+            'PRODUCTION_OPENING_VOID',
+            'VOID opening component membatalkan lot awal',
+            'VOID opening component',
+            false
+        );
+    }
+
+    public function reopen_component_opening_draft(int $id, int $actorEmployeeId): array
+    {
+        return $this->rollback_component_opening_posting(
+            $id,
+            $actorEmployeeId,
+            'DRAFT',
+            'PRODUCTION_OPENING_REOPEN',
+            'Reopen opening component ke draft membatalkan lot posted sebelumnya',
+            'REOPEN ke draft untuk koreksi opening component',
+            true
+        );
+    }
+
+    private function rollback_component_opening_posting(
+        int $id,
+        int $actorEmployeeId,
+        string $targetStatus,
+        string $sourceModule,
+        string $lotNote,
+        string $headerNote,
+        bool $clearPostedFields
+    ): array
+    {
+        $header = $this->get_component_opening($id);
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Opening tidak ditemukan.'];
+        }
+        if (strtoupper((string)($header['status'] ?? 'DRAFT')) !== 'POSTED') {
+            return ['ok' => false, 'message' => 'Hanya opening POSTED yang bisa dibuka ulang atau di-void.'];
+        }
+        if (!$this->db->table_exists('inv_component_movement_log')) {
+            return ['ok' => false, 'message' => 'Histori movement component belum tersedia.'];
+        }
+
+        $openingMovements = $this->db->from('inv_component_movement_log')
+            ->where('source_table', 'inv_component_opening')
+            ->where('source_id', $id)
+            ->order_by('id', 'DESC')
+            ->get()
+            ->result_array();
+        if (empty($openingMovements)) {
+            return ['ok' => false, 'message' => 'Histori movement opening tidak ditemukan.'];
+        }
+
+        $guard = $this->guard_component_opening_void_usage($header, $openingMovements);
+        if (!($guard['ok'] ?? false)) {
+            return $guard;
+        }
+
+        $this->db->trans_begin();
+
+        if ($this->db->table_exists('inv_component_lot')) {
+            $this->load->library('ComponentLotManager');
+            $lotReady = $this->componentlotmanager->ensureReady();
+            if (!($lotReady['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return $lotReady;
+            }
+            $voidLot = $this->componentlotmanager->voidInboundLotsBySource(
+                'inv_component_opening',
+                $id,
+                null,
+                $lotNote
+            );
+            if (!($voidLot['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Rollback opening ditolak: ' . (string)($voidLot['message'] ?? 'void lot component gagal.')];
+            }
+        }
+
+        foreach ($openingMovements as $movement) {
+            $reverse = $this->reverse_component_document_movement_row(
+                $movement,
+                (string)($header['opening_date'] ?? date('Y-m-d')),
+                'inv_component_opening',
+                $id,
+                $sourceModule,
+                $actorEmployeeId
+            );
+            if (!($reverse['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return $reverse;
+            }
+        }
+
+        $update = ['status' => $targetStatus];
+        if ($this->db->field_exists('voided_at', 'inv_component_opening')) {
+            $update['voided_at'] = date('Y-m-d H:i:s');
+        }
+        if ($this->db->field_exists('voided_by', 'inv_component_opening')) {
+            $update['voided_by'] = $actorEmployeeId > 0 ? $actorEmployeeId : null;
+        }
+        if ($clearPostedFields) {
+            if ($this->db->field_exists('posted_at', 'inv_component_opening')) {
+                $update['posted_at'] = null;
+            }
+            if ($this->db->field_exists('posted_by', 'inv_component_opening')) {
+                $update['posted_by'] = null;
+            }
+        }
+        if ($this->db->field_exists('notes', 'inv_component_opening')) {
+            $existingNotes = trim((string)($header['notes'] ?? ''));
+            $update['notes'] = $existingNotes !== '' ? ($existingNotes . ' | ' . $headerNote) : $headerNote;
+        }
+        $this->db->where('id', $id)->update('inv_component_opening', $update);
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $targetStatus === 'DRAFT' ? 'Gagal membuka kembali opening ke draft.' : 'Gagal VOID opening component.'];
+        }
+
+        $this->db->trans_commit();
+        $this->rebuild_component_daily_rollup_from_logs();
+        return ['ok' => true, 'id' => $id];
+    }
+
+    private function guard_component_opening_void_usage(array $header, array $openingMovements): array
+    {
+        $openingId = (int)($header['id'] ?? 0);
+        $locationType = strtoupper(trim((string)($header['location_type'] ?? '')));
+        $divisionId = !empty($header['division_id']) ? (int)$header['division_id'] : null;
+        $divisionNullSafe = $divisionId === null ? 'NULL' : (string)$divisionId;
+
+        foreach ($openingMovements as $movement) {
+            $componentId = (int)($movement['component_id'] ?? 0);
+            $uomId = (int)($movement['uom_id'] ?? 0);
+            $movementId = (int)($movement['id'] ?? 0);
+            if ($componentId <= 0 || $uomId <= 0 || $movementId <= 0) {
+                continue;
+            }
+
+            $nextUsage = $this->db->select('movement_no, movement_date, movement_type')
+                ->from('inv_component_movement_log')
+                ->where('location_type', $locationType)
+                ->where('division_id <=> ' . $divisionNullSafe, null, false)
+                ->where('component_id', $componentId)
+                ->where('uom_id', $uomId)
+                ->where('qty_out >', 0)
+                ->group_start()
+                    ->where('source_table <>', 'inv_component_opening')
+                    ->or_group_start()
+                        ->where('source_table', 'inv_component_opening')
+                        ->where('source_id <>', $openingId)
+                    ->group_end()
+                ->group_end()
+                ->order_by('movement_date', 'ASC')
+                ->order_by('id', 'ASC')
+                ->limit(1);
+            $this->apply_component_movement_after_anchor((string)($movement['movement_date'] ?? ''), $movementId);
+            $nextUsage = $this->db->get()->row_array();
+            if ($nextUsage) {
+                return [
+                    'ok' => false,
+                    'message' => 'Opening tidak bisa di-void karena stok sudah dipakai pada ' . $this->component_movement_type_label((string)($nextUsage['movement_type'] ?? '')) . ' ' . (string)($nextUsage['movement_no'] ?? '-') . ' tanggal ' . (string)($nextUsage['movement_date'] ?? '-') . '.',
+                ];
+            }
+        }
+
+        return ['ok' => true];
     }
 
     public function list_component_monthly_openings(array $filters = [], int $limit = 200): array
@@ -492,11 +1870,12 @@ class Production_model extends CI_Model
         }
 
         $this->db->order_by('m.month_key', 'DESC');
+        $this->apply_component_display_order(
+            $divisionNameColumn !== null ? ('d.' . $divisionNameColumn) : 'm.division_id',
+            'c.component_type',
+            'c.component_name'
+        );
         $this->db->order_by('m.location_type', 'ASC');
-        if ($divisionNameColumn !== null) {
-            $this->db->order_by('d.' . $divisionNameColumn, 'ASC');
-        }
-        $this->db->order_by('c.component_name', 'ASC');
         $this->db->limit(max(1, $limit));
         return $this->db->get()->result_array();
     }
@@ -741,6 +2120,12 @@ class Production_model extends CI_Model
             return ['ok' => false, 'message' => (string)($resolved['message'] ?? 'Data opening tidak valid.')];
         }
 
+        $openingMonth = $this->normalize_month_key((string)($header['opening_month'] ?? $header['opening_date'] ?? ''));
+        if ($openingMonth === null) {
+            return ['ok' => false, 'message' => 'Bulan opening tidak valid.'];
+        }
+        $openingDate = $openingMonth . '-01';
+
         $resolvedDivisionId = (int)($resolved['division_id'] ?? 0);
         $locationType = $this->location_group_to_component_location($resolved['component_context'] ?? null, (string)($header['location_type'] ?? ''));
         if ($locationType === null) {
@@ -748,9 +2133,32 @@ class Production_model extends CI_Model
         }
 
         $id = (int)($header['id'] ?? 0);
+        $existingOpening = $this->find_component_opening_month_conflict($id, $openingDate, $locationType, $resolvedDivisionId);
+        if ($existingOpening) {
+            $message = 'Opening bulan ' . $openingMonth . ' untuk lokasi/divisi ini sudah ada di dokumen ' . (string)($existingOpening['opening_no'] ?? ('#' . (int)($existingOpening['id'] ?? 0))) . '.';
+            if ($id <= 0 && strtoupper((string)($existingOpening['status'] ?? '')) === 'DRAFT') {
+                $message .= ' Lengkapi dokumen draft existing lewat tombol Edit.';
+            } elseif ($id <= 0 && strtoupper((string)($existingOpening['status'] ?? '')) === 'POSTED') {
+                $message .= ' Dokumen tersebut sudah POSTED. Draftkan lagi untuk edit, atau gunakan adjustment bila hanya perlu menambah selisih stok.';
+            }
+            return [
+                'ok' => false,
+                'message' => $message,
+                'conflict' => [
+                    'id' => (int)($existingOpening['id'] ?? 0),
+                    'opening_no' => (string)($existingOpening['opening_no'] ?? ''),
+                    'status' => strtoupper((string)($existingOpening['status'] ?? '')),
+                    'opening_month' => $openingMonth,
+                    'opening_date' => $openingDate,
+                    'location_type' => $locationType,
+                    'division_id' => $resolvedDivisionId,
+                ],
+            ];
+        }
+
         $payload = [
-            'opening_no' => $id > 0 ? (string)$header['opening_no'] : $this->generate_doc_no('inv_component_opening', 'opening_no', 'ICO', (string)$header['opening_date']),
-            'opening_date' => (string)$header['opening_date'],
+            'opening_no' => $id > 0 ? (string)$header['opening_no'] : $this->generate_doc_no('inv_component_opening', 'opening_no', 'ICO', $openingDate),
+            'opening_date' => $openingDate,
             'location_type' => $locationType,
             'division_id' => $resolvedDivisionId,
             'notes' => $this->nullable_string($header['notes'] ?? null),
@@ -829,6 +2237,11 @@ class Production_model extends CI_Model
 
     public function get_component_adjustment_lines(int $adjustmentId): array
     {
+        $schemaReady = $this->ensure_component_adjustment_pricing_schema();
+        if (!($schemaReady['ok'] ?? false)) {
+            return [];
+        }
+
         return $this->db->select('l.*, c.component_name, c.component_code, u.code AS uom_code')
             ->from('inv_component_adjustment_line l')
             ->join('mst_component c', 'c.id = l.component_id', 'left')
@@ -838,14 +2251,81 @@ class Production_model extends CI_Model
             ->get()->result_array();
     }
 
+    public function list_component_adjustment_detail_rows(array $filters = [], int $limit = 300): array
+    {
+        $schemaReady = $this->ensure_component_adjustment_pricing_schema();
+        if (!($schemaReady['ok'] ?? false)) {
+            return [];
+        }
+        if (!$this->db->table_exists('inv_component_adjustment') || !$this->db->table_exists('inv_component_adjustment_line')) {
+            return [];
+        }
+
+        $q = trim((string)($filters['q'] ?? ''));
+        $limit = max(1, min(1500, $limit));
+        $divisionNameColumn = $this->division_name_column();
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $this->db->select('h.id AS adjustment_id, h.adjustment_no, h.adjustment_date, h.location_type, h.division_id, h.notes AS header_notes, h.status', false)
+            ->select($divisionNameSelect, false)
+            ->select('l.*, c.component_name, c.component_code, c.component_type, u.code AS uom_code')
+            ->from('inv_component_adjustment_line l')
+            ->join('inv_component_adjustment h', 'h.id = l.adjustment_id', 'inner')
+            ->join('mst_component c', 'c.id = l.component_id', 'left')
+            ->join('mst_uom u', 'u.id = l.uom_id', 'left')
+            ->join('mst_operational_division d', 'd.id = h.division_id', 'left');
+
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('h.adjustment_no', $q)
+                ->or_like('h.notes', $q)
+                ->or_like('l.note', $q)
+                ->or_like('c.component_name', $q)
+                ->or_like('c.component_code', $q)
+                ->or_like('u.code', $q);
+            if ($divisionNameColumn !== null) {
+                $this->db->or_like('d.' . $divisionNameColumn, $q);
+            }
+            $this->db->group_end();
+        }
+
+        $rows = $this->db
+            ->order_by('h.adjustment_date', 'DESC')
+            ->order_by('h.id', 'DESC')
+            ->order_by('l.line_no', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+
+        return $this->attach_component_adjustment_posting_meta($rows);
+    }
+
     public function save_component_adjustment(array $header, array $lines, int $actorEmployeeId): array
     {
+        $schemaReady = $this->ensure_component_adjustment_pricing_schema();
+        if (!($schemaReady['ok'] ?? false)) {
+            return $schemaReady;
+        }
+
+        $resolvedContext = $this->resolve_adjustment_component_context($lines);
+        if (!($resolvedContext['ok'] ?? false)) {
+            return $resolvedContext;
+        }
+
+        $resolvedDivisionId = !empty($header['division_id']) ? (int)$header['division_id'] : (int)($resolvedContext['division_id'] ?? 0);
+        if ($resolvedDivisionId <= 0) {
+            return ['ok' => false, 'message' => 'Divisi adjustment tidak berhasil ditentukan dari component yang dipilih.'];
+        }
+        if ($resolvedDivisionId !== (int)($resolvedContext['division_id'] ?? 0)) {
+            return ['ok' => false, 'message' => 'Divisi adjustment harus sama dengan divisi operasional component yang dipilih.'];
+        }
+
         $id = (int)($header['id'] ?? 0);
         $payload = [
             'adjustment_no' => $id > 0 ? (string)$header['adjustment_no'] : $this->generate_doc_no('inv_component_adjustment', 'adjustment_no', 'ICA', (string)$header['adjustment_date']),
             'adjustment_date' => (string)$header['adjustment_date'],
             'location_type' => strtoupper(trim((string)$header['location_type'])),
-            'division_id' => !empty($header['division_id']) ? (int)$header['division_id'] : null,
+            'division_id' => $resolvedDivisionId,
             'notes' => $this->nullable_string($header['notes'] ?? null),
             'created_by' => $id > 0 ? null : ($actorEmployeeId > 0 ? $actorEmployeeId : null),
         ];
@@ -877,11 +2357,17 @@ class Production_model extends CI_Model
                 'line_no' => $lineNo++,
                 'component_id' => $componentId,
                 'uom_id' => $uomId,
+                'selected_lot_id' => !empty($line['selected_lot_id']) ? (int)$line['selected_lot_id'] : null,
                 'available_qty' => round((float)($line['available_qty'] ?? 0), 4),
                 'qty_spoil' => round((float)($line['qty_spoil'] ?? 0), 4),
+                'spoil_reason_code' => $this->nullable_string($line['spoil_reason_code'] ?? null),
                 'qty_waste' => round((float)($line['qty_waste'] ?? 0), 4),
+                'waste_reason_code' => $this->nullable_string($line['waste_reason_code'] ?? null),
                 'qty_adjust_pos' => round((float)($line['qty_adjust_pos'] ?? 0), 4),
+                'adjustment_plus_reason_code' => $this->nullable_string($line['adjustment_plus_reason_code'] ?? null),
                 'qty_adjust_neg' => round((float)($line['qty_adjust_neg'] ?? 0), 4),
+                'adjustment_minus_reason_code' => $this->nullable_string($line['adjustment_minus_reason_code'] ?? null),
+                'unit_cost' => round((float)($line['unit_cost'] ?? 0), 6),
                 'note' => $this->nullable_string($line['note'] ?? null),
             ]);
         }
@@ -890,6 +2376,34 @@ class Production_model extends CI_Model
             return ['ok' => false, 'message' => 'Gagal menyimpan adjustment.'];
         }
         return ['ok' => true, 'id' => $id];
+    }
+
+    private function ensure_component_adjustment_pricing_schema(): array
+    {
+        if (!$this->db->table_exists('inv_component_adjustment_line')) {
+            return ['ok' => false, 'message' => 'Tabel detail adjustment component tidak ditemukan.'];
+        }
+
+        $requiredColumns = [
+            'selected_lot_id' => "ALTER TABLE inv_component_adjustment_line ADD COLUMN selected_lot_id BIGINT UNSIGNED NULL AFTER uom_id",
+            'unit_cost' => "ALTER TABLE inv_component_adjustment_line ADD COLUMN unit_cost DECIMAL(18,6) NOT NULL DEFAULT 0.000000 AFTER qty_adjust_neg",
+            'waste_reason_code' => "ALTER TABLE inv_component_adjustment_line ADD COLUMN waste_reason_code VARCHAR(50) NULL AFTER qty_waste",
+            'spoil_reason_code' => "ALTER TABLE inv_component_adjustment_line ADD COLUMN spoil_reason_code VARCHAR(50) NULL AFTER qty_spoil",
+            'adjustment_plus_reason_code' => "ALTER TABLE inv_component_adjustment_line ADD COLUMN adjustment_plus_reason_code VARCHAR(50) NULL AFTER qty_adjust_pos",
+            'adjustment_minus_reason_code' => "ALTER TABLE inv_component_adjustment_line ADD COLUMN adjustment_minus_reason_code VARCHAR(50) NULL AFTER unit_cost",
+        ];
+
+        foreach ($requiredColumns as $column => $ddl) {
+            if ($this->db->field_exists($column, 'inv_component_adjustment_line')) {
+                continue;
+            }
+            $this->db->query($ddl);
+            if (!$this->db->field_exists($column, 'inv_component_adjustment_line')) {
+                return ['ok' => false, 'message' => 'Gagal menyiapkan field `' . $column . '` untuk adjustment component.'];
+            }
+        }
+
+        return ['ok' => true];
     }
 
     public function list_component_batches(array $filters = [], int $limit = 200): array
@@ -906,7 +2420,257 @@ class Production_model extends CI_Model
                 ->group_end();
         }
         $this->db->order_by('b.batch_date', 'DESC')->order_by('b.id', 'DESC')->limit(max(1, $limit));
-        return $this->db->get()->result_array();
+        $rows = $this->db->get()->result_array();
+        foreach ($rows as &$row) {
+            $row['can_void'] = strtoupper((string)($row['status'] ?? '')) !== 'POSTED';
+            $row['void_block_reason'] = '';
+            $row['inline_summary'] = $this->component_batch_inline_summary((int)($row['id'] ?? 0));
+            if (strtoupper((string)($row['status'] ?? '')) === 'POSTED') {
+                $usage = $this->component_batch_usage_detail((int)($row['id'] ?? 0), true);
+                $row['can_void'] = !empty($usage['can_void']);
+                $row['void_block_reason'] = (string)($usage['block_reason'] ?? '');
+                $row['usage_count'] = (int)($usage['summary']['usage_count'] ?? 0);
+            }
+        }
+        unset($row);
+        return $rows;
+    }
+
+    private function component_batch_inline_summary(int $batchId): array
+    {
+        if ($batchId <= 0 || !$this->db->table_exists('inv_component_batch_input')) {
+            return [
+                'has_inline' => false,
+                'outputs' => [],
+                'usages' => [],
+            ];
+        }
+
+        $inputs = $this->get_component_batch_inputs($batchId);
+        $outputs = [];
+        $usages = [];
+        foreach ($inputs as $input) {
+            $planRole = strtoupper(trim((string)($input['plan_role'] ?? '')));
+            if ($planRole !== 'INLINE_OUTPUT' && $planRole !== 'INLINE_COMPONENT_USAGE') {
+                continue;
+            }
+
+            $componentId = (int)($input['component_id'] ?? 0);
+            $uomCode = trim((string)($input['uom_code'] ?? ''));
+            $qty = round((float)($input['qty'] ?? 0), 2);
+            $entry = [
+                'component_id' => $componentId,
+                'component_name' => (string)($input['component_name'] ?? '-'),
+                'qty' => $qty,
+                'uom_code' => $uomCode,
+            ];
+
+            if ($planRole === 'INLINE_OUTPUT') {
+                $outputs[$componentId > 0 ? (string)$componentId : md5(json_encode($entry))] = $entry;
+                continue;
+            }
+
+            $usages[$componentId > 0 ? (string)$componentId : md5(json_encode($entry))] = $entry;
+        }
+
+        return [
+            'has_inline' => !empty($outputs) || !empty($usages),
+            'outputs' => array_values($outputs),
+            'usages' => array_values($usages),
+        ];
+    }
+
+    public function component_batch_usage_detail(int $batchId, bool $summaryOnly = false): array
+    {
+        $header = $this->db->select('b.*, c.component_code, c.component_name, c.component_type, u.code AS uom_code, d.name AS division_name')
+            ->from('inv_component_batch b')
+            ->join('mst_component c', 'c.id = b.component_id', 'left')
+            ->join('mst_uom u', 'u.id = b.output_uom_id', 'left')
+            ->join('mst_operational_division d', 'd.id = b.division_id', 'left')
+            ->where('b.id', $batchId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Batch tidak ditemukan.'];
+        }
+
+        $movementUsages = [];
+        $batchUsages = [];
+        $lotIssueUsages = [];
+        $traceRows = [];
+        $materialInputs = [];
+        $blockReason = '';
+        $canVoid = strtoupper((string)($header['status'] ?? '')) === 'POSTED';
+
+        if ($canVoid && $this->db->table_exists('inv_component_movement_log')) {
+            $outputMovement = $this->db->from('inv_component_movement_log')
+                ->where('source_table', 'inv_component_batch')
+                ->where('source_id', $batchId)
+                ->where('component_id', (int)($header['component_id'] ?? 0))
+                ->where('movement_type', 'PRODUCTION_IN')
+                ->order_by('id', 'DESC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+
+            if ($outputMovement) {
+                $divisionNullSafe = !empty($header['division_id']) ? (string)(int)$header['division_id'] : 'NULL';
+                $movementUsages = $this->db->select('id, movement_no, movement_date, movement_type, source_module, source_table, source_id, notes, qty_out')
+                    ->from('inv_component_movement_log')
+                    ->where('location_type', (string)($header['location_type'] ?? ''))
+                    ->where('division_id <=> ' . $divisionNullSafe, null, false)
+                    ->where('component_id', (int)($header['component_id'] ?? 0))
+                    ->where('uom_id', (int)($header['output_uom_id'] ?? 0))
+                    ->where('qty_out >', 0)
+                    ->order_by('movement_date', 'ASC')
+                    ->order_by('id', 'ASC');
+                $this->apply_component_movement_after_anchor((string)($outputMovement['movement_date'] ?? ($header['batch_date'] ?? '')), (int)($outputMovement['id'] ?? 0));
+                $movementUsages = $this->db->get()
+                    ->result_array();
+                foreach ($movementUsages as &$movementUsage) {
+                    $movementUsage['movement_type_label'] = $this->component_movement_type_label((string)($movementUsage['movement_type'] ?? ''));
+                }
+                unset($movementUsage);
+                if (!empty($movementUsages)) {
+                    $canVoid = false;
+                    $first = $movementUsages[0];
+                    $blockReason = 'Output batch sudah terpakai di movement ' . (string)($first['movement_no'] ?? '-') . ' (' . (string)($first['movement_date'] ?? '-') . ').';
+                }
+            }
+        }
+
+        if (!$summaryOnly && $this->db->table_exists('inv_component_movement_log')) {
+            $traceSelect = 'm.id, m.movement_no, m.movement_date, m.movement_type, m.component_id, c.component_name, c.component_type, u.code AS uom_code, m.qty_in, m.qty_out, m.unit_cost, m.total_cost, m.notes';
+            if ($this->db->table_exists('inv_component_batch_input')) {
+                $traceSelect .= ', bi.plan_role, bi.line_no AS batch_line_no';
+                $this->db->join('inv_component_batch_input bi', 'bi.id = m.source_line_id', 'left');
+            } else {
+                $traceSelect .= ', NULL AS plan_role, NULL AS batch_line_no';
+            }
+
+            $traceRows = $this->db->select($traceSelect, false)
+                ->from('inv_component_movement_log m')
+                ->join('mst_component c', 'c.id = m.component_id', 'left')
+                ->join('mst_uom u', 'u.id = m.uom_id', 'left')
+                ->where('m.source_table', 'inv_component_batch')
+                ->where('m.source_id', $batchId)
+                ->where_in('m.movement_type', ['PRODUCTION_IN', 'PRODUCTION_OUT'])
+                ->order_by('m.id', 'ASC')
+                ->get()
+                ->result_array();
+            foreach ($traceRows as &$traceRow) {
+                $traceRow['movement_type_label'] = $this->component_movement_type_label((string)($traceRow['movement_type'] ?? ''));
+                $traceRow['trace_label'] = $this->component_batch_trace_label($traceRow, (int)($header['component_id'] ?? 0));
+            }
+            unset($traceRow);
+        }
+
+        if ($this->db->table_exists('inv_component_batch_input')) {
+            if (!$summaryOnly) {
+                $inputRows = $this->get_component_batch_inputs($batchId);
+                foreach ($inputRows as $inputRow) {
+                    if (strtoupper(trim((string)($inputRow['source_kind'] ?? ''))) !== 'MATERIAL') {
+                        continue;
+                    }
+                    $label = trim((string)($inputRow['item_name'] ?? ''));
+                    if ($label === '') {
+                        $label = trim((string)($inputRow['material_name'] ?? ''));
+                    }
+                    $materialInputs[] = [
+                        'line_no' => (int)($inputRow['line_no'] ?? 0),
+                        'plan_role' => (string)($inputRow['plan_role'] ?? ''),
+                        'item_id' => !empty($inputRow['item_id']) ? (int)$inputRow['item_id'] : null,
+                        'material_id' => !empty($inputRow['material_id']) ? (int)$inputRow['material_id'] : null,
+                        'material_label' => $label !== '' ? $label : '-',
+                        'qty' => round((float)($inputRow['qty'] ?? 0), 4),
+                        'uom_code' => (string)($inputRow['uom_code'] ?? ''),
+                        'unit_cost' => round((float)($inputRow['unit_cost'] ?? 0), 6),
+                        'total_cost' => round((float)($inputRow['total_cost'] ?? 0), 2),
+                        'fifo_issue_no' => (string)($inputRow['fifo_issue_no'] ?? ''),
+                        'notes' => (string)($inputRow['notes'] ?? ''),
+                    ];
+                }
+            }
+
+            $divisionNullSafe = !empty($header['division_id']) ? (string)(int)$header['division_id'] : 'NULL';
+            $this->db->select('b.id, b.batch_no, b.batch_date, b.status, mc.component_code AS output_component_code, mc.component_name AS output_component_name, i.qty, u.code AS uom_code')
+                ->from('inv_component_batch_input i')
+                ->join('inv_component_batch b', 'b.id = i.batch_id', 'inner')
+                ->join('mst_component mc', 'mc.id = b.component_id', 'left')
+                ->join('mst_uom u', 'u.id = i.uom_id', 'left')
+                ->where('b.id <>', $batchId)
+                ->where('b.status', 'POSTED')
+                ->where('i.source_kind', 'COMPONENT')
+                ->where('i.component_id', (int)($header['component_id'] ?? 0))
+                ->where('b.location_type', (string)($header['location_type'] ?? ''))
+                ->where('b.division_id <=> ' . $divisionNullSafe, null, false)
+                ->order_by('b.batch_date', 'ASC')
+                ->order_by('b.id', 'ASC');
+            $batchUsages = $this->db->get()->result_array();
+            if ($canVoid && !empty($batchUsages)) {
+                $canVoid = false;
+                $first = $batchUsages[0];
+                $blockReason = 'Output batch sudah dipakai di batch ' . (string)($first['batch_no'] ?? '-') . ' tanggal ' . (string)($first['batch_date'] ?? '-') . '.';
+            }
+        }
+
+        if ($this->db->table_exists('inv_component_lot') && $this->db->table_exists('inv_component_lot_issue_log') && $this->db->table_exists('inv_component_lot_issue_line')) {
+            $lotIssueUsages = $this->db->select('il.id, il.issue_no, il.issue_date, il.source_module, il.source_table, il.source_id, il.notes, SUM(li.qty_out) AS qty_out', false)
+                ->from('inv_component_lot l')
+                ->join('inv_component_lot_issue_line li', 'li.lot_id = l.id', 'inner')
+                ->join('inv_component_lot_issue_log il', 'il.id = li.issue_id', 'inner')
+                ->where('l.source_table', 'inv_component_batch')
+                ->where('l.source_id', $batchId)
+                ->where('il.status', 'POSTED')
+                ->group_by(['il.id', 'il.issue_no', 'il.issue_date', 'il.source_module', 'il.source_table', 'il.source_id', 'il.notes'])
+                ->order_by('il.issue_date', 'ASC')
+                ->order_by('il.id', 'ASC')
+                ->get()
+                ->result_array();
+            if ($canVoid && !empty($lotIssueUsages)) {
+                $canVoid = false;
+                $first = $lotIssueUsages[0];
+                $blockReason = 'Output batch sudah dipakai pada issue FIFO ' . (string)($first['issue_no'] ?? '-') . ' tanggal ' . (string)($first['issue_date'] ?? '-') . '.';
+            }
+        }
+
+        $inlineOutputCount = 0;
+        $inlineUsageCount = 0;
+        foreach ($traceRows as $traceRow) {
+            $traceRole = strtoupper(trim((string)($traceRow['plan_role'] ?? '')));
+            if ($traceRole === 'INLINE_OUTPUT') {
+                $inlineOutputCount++;
+            } elseif ($traceRole === 'INLINE_COMPONENT_USAGE') {
+                $inlineUsageCount++;
+            }
+        }
+
+        $result = [
+            'ok' => true,
+            'header' => $header,
+            'can_void' => $canVoid,
+            'block_reason' => $blockReason,
+            'summary' => [
+                'movement_usage_count' => count($movementUsages),
+                'batch_usage_count' => count($batchUsages),
+                'lot_issue_usage_count' => count($lotIssueUsages),
+                'trace_count' => count($traceRows),
+                'material_input_count' => count($materialInputs),
+                'inline_output_count' => $inlineOutputCount,
+                'inline_usage_count' => $inlineUsageCount,
+                'usage_count' => count($movementUsages) + count($batchUsages) + count($lotIssueUsages),
+            ],
+        ];
+        if (!$summaryOnly) {
+            $result['movement_usages'] = $movementUsages;
+            $result['batch_usages'] = $batchUsages;
+            $result['lot_issue_usages'] = $lotIssueUsages;
+            $result['trace_rows'] = $traceRows;
+            $result['material_inputs'] = $materialInputs;
+        }
+
+        return $result;
     }
 
     public function get_component_batch(int $id): ?array
@@ -1715,16 +3479,23 @@ class Production_model extends CI_Model
         ];
     }
 
-    private function component_batch_component_stock_state(int $componentId, int $uomId, int $divisionId, string $locationType): array
+    public function component_stock_snapshot(int $componentId, int $uomId = 0, ?int $divisionId = null, string $locationType = '', ?int $selectedLotId = null): array
     {
+        $componentId = (int)$componentId;
+        $uomId = (int)$uomId;
+        $divisionId = $divisionId !== null && (int)$divisionId > 0 ? (int)$divisionId : null;
+        $locationType = strtoupper(trim($locationType));
+
         $availableQty = 0.0;
         $unitCost = 0.0;
         if ($componentId > 0 && $this->db->table_exists('inv_component_stock_balance')) {
             $this->db->select('SUM(COALESCE(qty_on_hand,0)) AS qty_balance, AVG(COALESCE(avg_cost,0)) AS avg_cost', false)
                 ->from('inv_component_stock_balance')
-                ->where('component_id', $componentId)
-                ->where('location_type', $locationType);
-            if ($divisionId > 0) {
+                ->where('component_id', $componentId);
+            if ($locationType !== '') {
+                $this->db->where('location_type', $locationType);
+            }
+            if ($divisionId !== null) {
                 $this->db->where('division_id', $divisionId);
             }
             if ($uomId > 0) {
@@ -1738,10 +3509,24 @@ class Production_model extends CI_Model
             $fallback = $this->db->select('hpp_standard')->from('mst_component')->where('id', $componentId)->limit(1)->get()->row_array();
             $unitCost = (float)($fallback['hpp_standard'] ?? 0);
         }
+        $lotSummary = $this->component_lot_summary($locationType, $divisionId, $componentId, $uomId);
+        $selectedLot = $this->resolve_component_selected_lot($lotSummary, $selectedLotId);
+        if ($selectedLot !== null) {
+            $availableQty = (float)($selectedLot['qty_balance'] ?? 0);
+            $unitCost = (float)($selectedLot['unit_cost'] ?? 0);
+        }
         return [
             'available_qty' => round($availableQty, 4),
             'unit_cost' => round($unitCost, 6),
+            'lot_summary' => $lotSummary,
+            'lot_preview' => $this->component_lot_preview_text($lotSummary),
+            'selected_lot' => $selectedLot,
         ];
+    }
+
+    private function component_batch_component_stock_state(int $componentId, int $uomId, int $divisionId, string $locationType): array
+    {
+        return $this->component_stock_snapshot($componentId, $uomId, $divisionId > 0 ? $divisionId : null, $locationType, null);
     }
 
     private function component_batch_preview_row(array $payload): array
@@ -1816,6 +3601,456 @@ class Production_model extends CI_Model
         return ['ok' => true];
     }
 
+    public function void_component_adjustment(int $id, int $actorEmployeeId): array
+    {
+        $header = $this->get_component_adjustment($id);
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Adjustment tidak ditemukan.'];
+        }
+        if (strtoupper((string)($header['status'] ?? 'DRAFT')) !== 'POSTED') {
+            return ['ok' => false, 'message' => 'Hanya adjustment POSTED yang bisa di-void.'];
+        }
+        if (!$this->db->table_exists('inv_component_movement_log')) {
+            return ['ok' => false, 'message' => 'Histori movement component belum tersedia.'];
+        }
+
+        $adjustmentMovements = $this->db->from('inv_component_movement_log')
+            ->where('source_table', 'inv_component_adjustment')
+            ->where('source_id', $id)
+            ->order_by('id', 'DESC')
+            ->get()
+            ->result_array();
+        if (empty($adjustmentMovements)) {
+            return ['ok' => false, 'message' => 'Histori movement adjustment tidak ditemukan.'];
+        }
+
+        $this->db->trans_begin();
+
+        $this->load->library('ComponentLotManager');
+        $lotReady = $this->componentlotmanager->ensureReady();
+        if (!($lotReady['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return $lotReady;
+        }
+
+        $rollbackIssue = $this->componentlotmanager->rollbackIssueLotsBySource(
+            'inv_component_adjustment',
+            $id,
+            null,
+            'VOID adjustment component membatalkan issue lot'
+        );
+        if (!($rollbackIssue['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'VOID adjustment ditolak: ' . (string)($rollbackIssue['message'] ?? 'rollback issue lot component gagal.')];
+        }
+
+        $voidLot = $this->componentlotmanager->voidInboundLotsBySource(
+            'inv_component_adjustment',
+            $id,
+            null,
+            'VOID adjustment component membatalkan lot inbound plus'
+        );
+        if (!($voidLot['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'VOID adjustment ditolak: ' . (string)($voidLot['message'] ?? 'void lot adjustment plus gagal.')];
+        }
+
+        foreach ($adjustmentMovements as $movement) {
+            $reverse = $this->reverse_component_document_movement_row(
+                $movement,
+                (string)($header['adjustment_date'] ?? date('Y-m-d')),
+                'inv_component_adjustment',
+                $id,
+                'PRODUCTION_ADJUSTMENT_VOID',
+                $actorEmployeeId
+            );
+            if (!($reverse['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return $reverse;
+            }
+        }
+
+        $update = ['status' => 'VOID'];
+        if ($this->db->field_exists('voided_at', 'inv_component_adjustment')) {
+            $update['voided_at'] = date('Y-m-d H:i:s');
+        }
+        if ($this->db->field_exists('voided_by', 'inv_component_adjustment')) {
+            $update['voided_by'] = $actorEmployeeId > 0 ? $actorEmployeeId : null;
+        }
+        if ($this->db->field_exists('notes', 'inv_component_adjustment')) {
+            $existingNotes = trim((string)($header['notes'] ?? ''));
+            $note = 'VOID adjustment component';
+            $update['notes'] = $existingNotes !== '' ? ($existingNotes . ' | ' . $note) : $note;
+        }
+        $this->db->where('id', $id)->update('inv_component_adjustment', $update);
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal VOID adjustment component.'];
+        }
+
+        $this->db->trans_commit();
+        $this->rebuild_component_daily_rollup_from_logs();
+        return ['ok' => true, 'id' => $id];
+    }
+
+    public function void_component_batch(int $id, int $actorEmployeeId): array
+    {
+        $header = $this->get_component_batch($id);
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Batch tidak ditemukan.'];
+        }
+        if (strtoupper((string)($header['status'] ?? 'DRAFT')) !== 'POSTED') {
+            return ['ok' => false, 'message' => 'Hanya batch POSTED yang bisa di-void.'];
+        }
+        if (!$this->db->table_exists('inv_component_movement_log')) {
+            return ['ok' => false, 'message' => 'Histori movement component belum tersedia.'];
+        }
+
+        $batchMovements = $this->db->from('inv_component_movement_log')
+            ->where('source_table', 'inv_component_batch')
+            ->where('source_id', $id)
+            ->order_by('id', 'DESC')
+            ->get()
+            ->result_array();
+        if (empty($batchMovements)) {
+            return ['ok' => false, 'message' => 'Histori movement batch tidak ditemukan.'];
+        }
+
+        $guard = $this->guard_component_batch_void_usage($header, $batchMovements);
+        if (!($guard['ok'] ?? false)) {
+            return $guard;
+        }
+
+        $this->db->trans_begin();
+
+        $this->load->library('MaterialFifoManager');
+        $fifoReady = $this->materialfifomanager->ensureReady();
+        if (!($fifoReady['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return $fifoReady;
+        }
+
+        $this->load->library('ComponentLotManager');
+        $componentLotReady = $this->componentlotmanager->ensureReady();
+        if (!($componentLotReady['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return $componentLotReady;
+        }
+
+        $rollbackIssue = $this->materialfifomanager->rollbackTransferLotsBySource(
+            'inv_component_batch',
+            $id,
+            null,
+            'VOID batch component membatalkan konsumsi material'
+        );
+        if (!($rollbackIssue['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'VOID batch ditolak: ' . (string)($rollbackIssue['message'] ?? 'rollback issue FIFO gagal.')];
+        }
+
+        $voidLot = $this->componentlotmanager->voidInboundLotsBySource(
+            'inv_component_batch',
+            $id,
+            null,
+            'VOID batch component membatalkan lot output'
+        );
+        if (!($voidLot['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'VOID batch ditolak: ' . (string)($voidLot['message'] ?? 'void lot component gagal.')];
+        }
+
+        $this->load->library('InventoryLedger');
+        if ($this->db->table_exists('inv_stock_movement_log')) {
+            $inventoryLogs = $this->db->from('inv_stock_movement_log')
+                ->where('ref_table', 'inv_component_batch')
+                ->where('ref_id', $id)
+                ->order_by('id', 'DESC')
+                ->get()
+                ->result_array();
+
+            foreach ($inventoryLogs as $log) {
+                $qtyBuyDelta = round((float)($log['qty_buy_delta'] ?? 0), 4);
+                $qtyContentDelta = round((float)($log['qty_content_delta'] ?? 0), 4);
+                if (abs($qtyBuyDelta) < 0.0001 && abs($qtyContentDelta) < 0.0001) {
+                    continue;
+                }
+
+                $payload = [
+                    'movement_scope' => (string)($log['movement_scope'] ?? 'DIVISION'),
+                    'movement_date' => (string)($header['batch_date'] ?? date('Y-m-d')),
+                    'movement_type' => 'VOID_REVERSE',
+                    'division_id' => !empty($log['division_id']) ? (int)$log['division_id'] : null,
+                    'destination_type' => (string)($log['destination_type'] ?? ''),
+                    'item_id' => !empty($log['item_id']) ? (int)$log['item_id'] : null,
+                    'material_id' => !empty($log['material_id']) ? (int)$log['material_id'] : null,
+                    'buy_uom_id' => !empty($log['buy_uom_id']) ? (int)$log['buy_uom_id'] : null,
+                    'content_uom_id' => !empty($log['content_uom_id']) ? (int)$log['content_uom_id'] : null,
+                    'qty_buy_delta' => -1 * $qtyBuyDelta,
+                    'qty_content_delta' => -1 * $qtyContentDelta,
+                    'profile_key' => $log['profile_key'] ?? null,
+                    'profile_name' => $log['profile_name'] ?? null,
+                    'profile_brand' => $log['profile_brand'] ?? null,
+                    'profile_description' => $log['profile_description'] ?? null,
+                    'profile_expired_date' => $log['profile_expired_date'] ?? null,
+                    'profile_content_per_buy' => $log['profile_content_per_buy'] ?? null,
+                    'profile_buy_uom_code' => $log['profile_buy_uom_code'] ?? null,
+                    'profile_content_uom_code' => $log['profile_content_uom_code'] ?? null,
+                    'stock_domain' => $log['stock_domain'] ?? 'MATERIAL',
+                    'unit_cost' => (float)($log['unit_cost'] ?? 0),
+                    'ref_table' => 'inv_component_batch',
+                    'ref_id' => $id,
+                    'notes' => 'VOID batch component reverse inventory movement #' . (int)($log['id'] ?? 0),
+                    'created_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+                    'manage_transaction' => false,
+                ];
+                $reverseInventory = $this->inventoryledger->post($payload);
+                if (!($reverseInventory['ok'] ?? false)) {
+                    $this->db->trans_rollback();
+                    return ['ok' => false, 'message' => 'Gagal reverse movement inventory: ' . (string)($reverseInventory['message'] ?? '-')];
+                }
+            }
+        }
+
+        foreach ($batchMovements as $movement) {
+            $reverse = $this->reverse_component_movement_row($movement, (string)($header['batch_date'] ?? date('Y-m-d')), $id, $actorEmployeeId);
+            if (!($reverse['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return $reverse;
+            }
+        }
+
+        $update = ['status' => 'VOID'];
+        if ($this->db->field_exists('voided_at', 'inv_component_batch')) {
+            $update['voided_at'] = date('Y-m-d H:i:s');
+        }
+        if ($this->db->field_exists('voided_by', 'inv_component_batch')) {
+            $update['voided_by'] = $actorEmployeeId > 0 ? $actorEmployeeId : null;
+        }
+        if ($this->db->field_exists('notes', 'inv_component_batch')) {
+            $existingNotes = trim((string)($header['notes'] ?? ''));
+            $note = 'VOID batch component';
+            $update['notes'] = $existingNotes !== '' ? ($existingNotes . ' | ' . $note) : $note;
+        }
+        $this->db->where('id', $id)->update('inv_component_batch', $update);
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal VOID batch component.'];
+        }
+
+        $this->db->trans_commit();
+        $this->rebuild_component_daily_rollup_from_logs();
+        return ['ok' => true, 'id' => $id];
+    }
+
+    private function guard_component_batch_void_usage(array $header, array $batchMovements): array
+    {
+        $headerId = (int)($header['id'] ?? 0);
+        $componentId = (int)($header['component_id'] ?? 0);
+        $divisionId = !empty($header['division_id']) ? (int)$header['division_id'] : null;
+        $locationType = strtoupper(trim((string)($header['location_type'] ?? '')));
+        $postedAt = trim((string)($header['posted_at'] ?? ''));
+
+        $mainOutputMovement = null;
+        foreach ($batchMovements as $movement) {
+            if ((int)($movement['component_id'] ?? 0) === $componentId
+                && strtoupper((string)($movement['movement_type'] ?? '')) === 'PRODUCTION_IN') {
+                $mainOutputMovement = $movement;
+                break;
+            }
+        }
+
+        if ($mainOutputMovement) {
+            $divisionNullSafe = $divisionId === null ? 'NULL' : (string)$divisionId;
+            $this->db->select('movement_no, movement_date, movement_type')
+                ->from('inv_component_movement_log')
+                ->where('location_type', $locationType)
+                ->where('division_id <=> ' . $divisionNullSafe, null, false)
+                ->where('component_id', (int)$mainOutputMovement['component_id'])
+                ->where('uom_id', (int)$mainOutputMovement['uom_id'])
+                ->where('qty_out >', 0)
+                ->order_by('movement_date', 'ASC')
+                ->order_by('id', 'ASC')
+                ->limit(1);
+            $this->apply_component_movement_after_anchor((string)($mainOutputMovement['movement_date'] ?? ($header['batch_date'] ?? '')), (int)($mainOutputMovement['id'] ?? 0));
+            $nextOut = $this->db->get()->row_array();
+            if ($nextOut) {
+                return [
+                    'ok' => false,
+                    'message' => 'Batch tidak bisa di-void karena output component sudah terpakai pada movement ' . (string)($nextOut['movement_no'] ?? '-') . ' (' . (string)($nextOut['movement_date'] ?? '-') . ').',
+                ];
+            }
+        }
+
+        if ($this->db->table_exists('inv_component_batch_input')) {
+            $divisionNullSafe = $divisionId === null ? 'NULL' : (string)$divisionId;
+            $this->db->select('b.batch_no, b.batch_date')
+                ->from('inv_component_batch_input i')
+                ->join('inv_component_batch b', 'b.id = i.batch_id', 'inner')
+                ->where('b.id <>', $headerId)
+                ->where('b.status', 'POSTED')
+                ->where('i.source_kind', 'COMPONENT')
+                ->where('i.component_id', $componentId)
+                ->where('b.location_type', $locationType)
+                ->where('b.division_id <=> ' . $divisionNullSafe, null, false);
+            if ($postedAt !== '') {
+                $this->db->where('b.posted_at >=', $postedAt);
+            } else {
+                $this->db->where('b.batch_date >=', (string)($header['batch_date'] ?? date('Y-m-d')));
+            }
+            $used = $this->db->order_by('b.id', 'ASC')->limit(1)->get()->row_array();
+            if ($used) {
+                return [
+                    'ok' => false,
+                    'message' => 'Batch tidak bisa di-void karena component output sudah dipakai di batch ' . (string)($used['batch_no'] ?? '-') . ' tanggal ' . (string)($used['batch_date'] ?? '-') . '.',
+                ];
+            }
+        }
+
+        if ($this->db->table_exists('inv_component_lot') && $this->db->table_exists('inv_component_lot_issue_log') && $this->db->table_exists('inv_component_lot_issue_line')) {
+            $lotIssue = $this->db->select('il.issue_no, il.issue_date')
+                ->from('inv_component_lot l')
+                ->join('inv_component_lot_issue_line li', 'li.lot_id = l.id', 'inner')
+                ->join('inv_component_lot_issue_log il', 'il.id = li.issue_id', 'inner')
+                ->where('l.source_table', 'inv_component_batch')
+                ->where('l.source_id', $headerId)
+                ->where('il.status', 'POSTED')
+                ->order_by('il.id', 'ASC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+            if ($lotIssue) {
+                return [
+                    'ok' => false,
+                    'message' => 'Batch tidak bisa di-void karena output component sudah dipakai pada issue FIFO ' . (string)($lotIssue['issue_no'] ?? '-') . ' tanggal ' . (string)($lotIssue['issue_date'] ?? '-') . '.',
+                ];
+            }
+        }
+
+        return ['ok' => true];
+    }
+
+    private function reverse_component_movement_row(array $movement, string $movementDate, int $batchId, int $actorEmployeeId): array
+    {
+        return $this->reverse_component_document_movement_row(
+            $movement,
+            $movementDate,
+            'inv_component_batch',
+            $batchId,
+            'PRODUCTION_BATCH_VOID',
+            $actorEmployeeId
+        );
+    }
+
+    private function reverse_component_document_movement_row(
+        array $movement,
+        string $movementDate,
+        string $sourceTable,
+        int $sourceId,
+        string $sourceModule,
+        int $actorEmployeeId
+    ): array {
+        $locationType = strtoupper(trim((string)($movement['location_type'] ?? '')));
+        $divisionId = !empty($movement['division_id']) ? (int)$movement['division_id'] : null;
+        $componentId = (int)($movement['component_id'] ?? 0);
+        $uomId = (int)($movement['uom_id'] ?? 0);
+        $qtyIn = round((float)($movement['qty_in'] ?? 0), 4);
+        $qtyOut = round((float)($movement['qty_out'] ?? 0), 4);
+        $unitCost = round((float)($movement['unit_cost'] ?? 0), 6);
+
+        if ($componentId <= 0 || $uomId <= 0) {
+            return ['ok' => true];
+        }
+
+        $reverseType = '';
+        $reverseQty = 0.0;
+        if ($qtyIn > 0) {
+            $reverseType = 'ADJUSTMENT_MINUS';
+            $reverseQty = $qtyIn;
+        } elseif ($qtyOut > 0) {
+            $reverseType = 'VOID_REVERSE';
+            $reverseQty = $qtyOut;
+        }
+        if ($reverseQty <= 0 || $reverseType === '') {
+            return ['ok' => true];
+        }
+
+        $balance = $this->db->query(
+            'SELECT * FROM inv_component_stock_balance WHERE location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? LIMIT 1 FOR UPDATE',
+            [$locationType, $divisionId, $componentId, $uomId]
+        )->row_array();
+
+        $qtyBefore = (float)($balance['qty_on_hand'] ?? 0);
+        $avgBefore = (float)($balance['avg_cost'] ?? 0);
+        $valueBefore = round($qtyBefore * $avgBefore, 2);
+        $isIn = $reverseType === 'VOID_REVERSE';
+        $qtyAfter = $isIn ? round($qtyBefore + $reverseQty, 4) : round($qtyBefore - $reverseQty, 4);
+        if ($qtyAfter < -0.0001) {
+            return ['ok' => false, 'message' => 'VOID ditolak karena stok tidak cukup untuk rollback movement component.'];
+        }
+        if (abs($qtyAfter) < 0.0001) {
+            $qtyAfter = 0.0;
+        }
+
+        if ($isIn) {
+            $valueAfter = round($valueBefore + round($reverseQty * $unitCost, 2), 2);
+            $avgAfter = $qtyAfter > 0 ? round($valueAfter / $qtyAfter, 6) : 0.0;
+        } else {
+            $valueOut = round($reverseQty * $avgBefore, 2);
+            $valueAfter = round(max(0, $valueBefore - $valueOut), 2);
+            $avgAfter = $qtyAfter > 0 ? round($valueAfter / $qtyAfter, 6) : 0.0;
+        }
+
+        $now = date('Y-m-d H:i:s');
+        if ($balance && !empty($balance['id'])) {
+            $this->db->where('id', (int)$balance['id'])->update('inv_component_stock_balance', [
+                'qty_on_hand' => $qtyAfter,
+                'avg_cost' => $avgAfter,
+                'total_value' => $valueAfter,
+                'last_txn_at' => $movementDate . ' ' . date('H:i:s'),
+                'updated_at' => $now,
+            ]);
+        } else {
+            $this->db->insert('inv_component_stock_balance', [
+                'location_type' => $locationType,
+                'division_id' => $divisionId,
+                'component_id' => $componentId,
+                'uom_id' => $uomId,
+                'qty_on_hand' => $qtyAfter,
+                'avg_cost' => $avgAfter,
+                'total_value' => $valueAfter,
+                'last_txn_at' => $movementDate . ' ' . date('H:i:s'),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
+        $this->db->insert('inv_component_movement_log', [
+            'movement_no' => $this->generate_doc_no('inv_component_movement_log', 'movement_no', 'ICM', $movementDate),
+            'movement_date' => $movementDate,
+            'movement_datetime' => $movementDate . ' ' . date('H:i:s'),
+            'location_type' => $locationType,
+            'division_id' => $divisionId,
+            'component_id' => $componentId,
+            'uom_id' => $uomId,
+            'movement_type' => $reverseType,
+            'qty_in' => $isIn ? $reverseQty : 0,
+            'qty_out' => $isIn ? 0 : $reverseQty,
+            'unit_cost' => $unitCost,
+            'total_cost' => round($reverseQty * $unitCost, 2),
+            'source_module' => $sourceModule,
+            'source_table' => $sourceTable,
+            'source_id' => $sourceId,
+            'source_line_id' => !empty($movement['source_line_id']) ? (int)$movement['source_line_id'] : null,
+            'notes' => 'VOID reverse movement dari log #' . (int)($movement['id'] ?? 0),
+            'created_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+            'created_at' => $now,
+        ]);
+
+        return ['ok' => true];
+    }
+
     public function list_component_categories(array $filters = [], int $limit = 300): array
     {
         $q = trim((string)($filters['q'] ?? ''));
@@ -1827,8 +4062,6 @@ class Production_model extends CI_Model
             c.code,
             c.name,
             {$scopeExpr} AS scope_type,
-            c.parent_id,
-            p.name AS parent_name,
             c.sort_order,
             c.is_active,
             (
@@ -1838,7 +4071,6 @@ class Production_model extends CI_Model
             ) AS component_count
         ", false);
         $this->db->from('mst_component_category c');
-        $this->db->join('mst_component_category p', 'p.id = c.parent_id', 'left');
         if ($q !== '') {
             $this->db->group_start()
                 ->like('c.code', $q)
@@ -1856,11 +4088,9 @@ class Production_model extends CI_Model
         if (!in_array($scopeType, ['BASE', 'PREPARE', 'ALL'], true)) {
             $scopeType = 'ALL';
         }
-        $parentId = !empty($data['parent_id']) ? (int)$data['parent_id'] : null;
         $payload = [
             'code' => strtoupper(trim((string)($data['code'] ?? ''))),
             'name' => trim((string)($data['name'] ?? '')),
-            'parent_id' => $parentId,
             'sort_order' => (int)($data['sort_order'] ?? 0),
             'is_active' => isset($data['is_active']) ? (int)((bool)$data['is_active']) : 1,
         ];
@@ -1869,15 +4099,6 @@ class Production_model extends CI_Model
         }
         if ($payload['name'] === '') {
             return ['ok' => false, 'message' => 'Nama kategori wajib diisi.'];
-        }
-        if ($id > 0 && $parentId !== null && $id === $parentId) {
-            return ['ok' => false, 'message' => 'Parent kategori tidak boleh dirinya sendiri.'];
-        }
-        if ($parentId !== null) {
-            $parent = $this->db->select('id, is_active')->from('mst_component_category')->where('id', $parentId)->limit(1)->get()->row_array();
-            if (!$parent) {
-                return ['ok' => false, 'message' => 'Parent kategori tidak ditemukan.'];
-            }
         }
         if ($payload['code'] === '') {
             $payload['code'] = strtoupper(preg_replace('/[^A-Z0-9]+/', '_', $payload['name']));
@@ -1990,14 +4211,16 @@ class Production_model extends CI_Model
             {$componentUsageExpr} AS component_usage_count,
             {$productUsageExpr} AS product_usage_count
         ", false);
-        $this->db->order_by('c.component_type', 'ASC');
-        $this->db->order_by('d.name', 'ASC');
-        $this->db->order_by('cat.name', 'ASC');
-        $this->db->order_by('c.component_name', 'ASC');
+        $this->apply_component_display_order('d.name', 'c.component_type', 'c.component_name');
         $this->db->limit($limit, $offset);
         $rows = $this->db->get()->result_array();
 
         foreach ($rows as &$row) {
+            if (((!isset($row['std_batch_qty'])) || (float)$row['std_batch_qty'] <= 0)
+                && isset($row['yield_qty'])
+                && (float)$row['yield_qty'] > 0) {
+                $row['std_batch_qty'] = round((float)$row['yield_qty'], 4);
+            }
             $stockHppLive = (float)($row['stock_hpp_live'] ?? 0);
             if ($stockHppLive > 0) {
                 $row['hpp_live'] = round($stockHppLive, 6);
@@ -2045,6 +4268,9 @@ class Production_model extends CI_Model
         }
         if (!$this->db->field_exists('std_batch_qty', 'mst_component')) {
             unset($payload['std_batch_qty']);
+        }
+        if ($this->db->field_exists('yield_qty', 'mst_component')) {
+            $payload['yield_qty'] = (float)($payload['std_batch_qty'] ?? ($data['yield_qty'] ?? 1));
         }
         if (!$this->db->field_exists('process_loss_percent', 'mst_component')) {
             unset($payload['process_loss_percent']);
@@ -2129,17 +4355,13 @@ class Production_model extends CI_Model
     public function list_components_for_mapping(int $limit = 1000): array
     {
         $limit = max(1, min(5000, $limit));
-        return $this->db->select('c.id, c.component_code, c.component_name, c.component_type, c.component_category_id, cat.name AS category_name')
+        $this->db->select('c.id, c.component_code, c.component_name, c.component_type, c.component_category_id, cat.name AS category_name')
             ->from('mst_component c')
             ->join('mst_component_category cat', 'cat.id = c.component_category_id', 'left')
             ->join('mst_operational_division d', 'd.id = c.operational_division_id', 'left')
-            ->order_by('c.component_type', 'ASC')
-            ->order_by('d.name', 'ASC')
-            ->order_by('cat.name', 'ASC')
-            ->order_by('c.component_name', 'ASC')
-            ->limit($limit)
-            ->get()
-            ->result_array();
+            ->limit($limit);
+        $this->apply_component_display_order('d.name', 'c.component_type', 'c.component_name');
+        return $this->db->get()->result_array();
     }
 
     public function search_picker_options(string $entity, string $q = '', int $limit = 20, array $options = []): array
@@ -2214,12 +4436,325 @@ class Production_model extends CI_Model
                 ->or_like('c.component_name', $q)
                 ->group_end();
         }
-        return $this->db
-            ->order_by('c.component_type', 'ASC')
-            ->order_by('c.component_name', 'ASC')
+        $this->apply_component_display_order(
+            $divisionNameColumn !== null ? ('d.' . $divisionNameColumn) : 'c.operational_division_id',
+            'c.component_type',
+            'c.component_name'
+        );
+        $rows = $this->db
             ->limit($limit)
             ->get()
             ->result_array();
+
+        $locationType = strtoupper(trim((string)($options['location_type'] ?? '')));
+        return $this->attach_component_picker_lot_meta($rows, $locationType, $divisionId > 0 ? $divisionId : null);
+    }
+
+    private function attach_component_picker_lot_meta(array $rows, string $locationType = '', ?int $divisionId = null): array
+    {
+        if (empty($rows)) {
+            return $rows;
+        }
+
+        foreach ($rows as &$row) {
+            $componentId = (int)($row['id'] ?? 0);
+            $uomId = (int)($row['uom_id'] ?? 0);
+            $summary = $this->component_lot_summary($locationType, $divisionId, $componentId, $uomId);
+            $row['lot_count'] = (int)($summary['lot_count'] ?? 0);
+            $row['lot_preview'] = $this->component_lot_preview_text($summary);
+            $row['lot_strategy'] = (int)($summary['lot_count'] ?? 0) > 1 ? 'FIFO lot aktif' : 'Lot tunggal';
+            $row['available_qty'] = round((float)($summary['balance_qty'] ?? 0), 4);
+            $row['avg_cost'] = round($this->component_lot_average_cost($summary), 6);
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function component_lot_summary(string $locationType, ?int $divisionId, int $componentId, int $uomId): array
+    {
+        $summary = $this->empty_component_lot_summary();
+        $summary['location_scope'] = $locationType;
+        if ($componentId <= 0 || $uomId <= 0 || !$this->db->table_exists('inv_component_lot')) {
+            return $summary;
+        }
+
+        $query = $this->db->select('l.id, l.lot_no, l.receipt_date, l.expiry_date, l.unit_cost, l.qty_balance, l.status')
+            ->from('inv_component_lot l')
+            ->select('l.location_type')
+            ->where('l.component_id', $componentId)
+            ->where('l.uom_id', $uomId)
+            ->where('l.qty_balance >', 0)
+            ->where_in('l.status', ['OPEN']);
+        if ($locationType !== '') {
+            $query->where('l.location_type', $locationType);
+        }
+        if ($divisionId !== null && $divisionId > 0) {
+            $query->where('l.division_id', $divisionId);
+        }
+
+        $lotRows = $query
+            ->order_by('l.receipt_date', 'ASC')
+            ->order_by('l.id', 'ASC')
+            ->get()
+            ->result_array();
+
+        $locationMap = [];
+        foreach ($lotRows as $lotRow) {
+            $unitCost = round((float)($lotRow['unit_cost'] ?? 0), 6);
+            $qtyBalance = round((float)($lotRow['qty_balance'] ?? 0), 4);
+            $lotLocationType = strtoupper(trim((string)($lotRow['location_type'] ?? '')));
+            $summary['lot_count']++;
+            $summary['balance_qty'] += $qtyBalance;
+            $summary['total_value'] += round($qtyBalance * $unitCost, 2);
+            $summary['min_unit_cost'] = $summary['min_unit_cost'] === 0.0 && empty($summary['rows']) ? $unitCost : min((float)$summary['min_unit_cost'], $unitCost);
+            $summary['max_unit_cost'] = max((float)$summary['max_unit_cost'], $unitCost);
+            if ($lotLocationType !== '') {
+                $locationMap[$lotLocationType] = true;
+            }
+            $summary['rows'][] = [
+                'id' => (int)($lotRow['id'] ?? 0),
+                'lot_no' => (string)($lotRow['lot_no'] ?? ''),
+                'location_type' => $lotLocationType,
+                'receipt_date' => (string)($lotRow['receipt_date'] ?? ''),
+                'expiry_date' => (string)($lotRow['expiry_date'] ?? ''),
+                'qty_balance' => $qtyBalance,
+                'unit_cost' => $unitCost,
+                'total_value' => round($qtyBalance * $unitCost, 2),
+                'status' => (string)($lotRow['status'] ?? ''),
+            ];
+        }
+
+        $summary['balance_qty'] = round((float)$summary['balance_qty'], 4);
+        $summary['location_count'] = count($locationMap);
+        $summary['total_value'] = round((float)$summary['total_value'], 2);
+        $summary['has_mixed_cost'] = $summary['lot_count'] > 1 && abs((float)$summary['max_unit_cost'] - (float)$summary['min_unit_cost']) > 0.0001;
+        return $summary;
+    }
+
+    private function resolve_component_selected_lot(array $lotSummary, ?int $selectedLotId = null): ?array
+    {
+        $lotRows = array_values((array)($lotSummary['rows'] ?? []));
+        if (empty($lotRows)) {
+            return null;
+        }
+
+        $selectedRow = null;
+        $targetLotId = $selectedLotId !== null && $selectedLotId > 0 ? (int)$selectedLotId : 0;
+        if ($targetLotId > 0) {
+            foreach ($lotRows as $lotRow) {
+                if ((int)($lotRow['id'] ?? 0) === $targetLotId) {
+                    $selectedRow = $lotRow;
+                    break;
+                }
+            }
+        }
+        if ($selectedRow === null && count($lotRows) === 1) {
+            $selectedRow = $lotRows[0];
+        }
+        if ($selectedRow === null) {
+            return null;
+        }
+
+        return [
+            'id' => (int)($selectedRow['id'] ?? 0),
+            'location_type' => (string)($selectedRow['location_type'] ?? ''),
+            'receipt_date' => (string)($selectedRow['receipt_date'] ?? ''),
+            'expiry_date' => (string)($selectedRow['expiry_date'] ?? ''),
+            'qty_balance' => round((float)($selectedRow['qty_balance'] ?? 0), 4),
+            'unit_cost' => round((float)($selectedRow['unit_cost'] ?? 0), 6),
+            'total_value' => round((float)($selectedRow['total_value'] ?? 0), 2),
+            'profile_label' => $this->component_lot_profile_text($selectedRow),
+        ];
+    }
+
+    private function component_lot_profile_text(array $lotRow): string
+    {
+        $parts = [];
+        $receiptDate = trim((string)($lotRow['receipt_date'] ?? ''));
+        if ($receiptDate !== '') {
+            $parts[] = 'Terima ' . $receiptDate;
+        }
+        $parts[] = 'Qty ' . number_format((float)($lotRow['qty_balance'] ?? 0), 2, ',', '.');
+        $parts[] = 'Cost ' . number_format((float)($lotRow['unit_cost'] ?? 0), 2, ',', '.');
+        $expiryDate = trim((string)($lotRow['expiry_date'] ?? ''));
+        if ($expiryDate !== '') {
+            $parts[] = 'Exp ' . $expiryDate;
+        }
+        $locationType = strtoupper(trim((string)($lotRow['location_type'] ?? '')));
+        if ($locationType === 'BAR' || $locationType === 'KITCHEN') {
+            $parts[] = 'Reguler';
+        } elseif ($locationType === 'BAR_EVENT' || $locationType === 'KITCHEN_EVENT') {
+            $parts[] = 'Event';
+        } elseif ($locationType !== '') {
+            $parts[] = $locationType;
+        }
+        return implode(' | ', $parts);
+    }
+
+    private function component_lot_average_cost(array $summary): float
+    {
+        $balanceQty = (float)($summary['balance_qty'] ?? 0);
+        if ($balanceQty <= 0) {
+            return 0.0;
+        }
+        return round((float)($summary['total_value'] ?? 0) / $balanceQty, 6);
+    }
+
+    private function component_lot_preview_text(array $summary): string
+    {
+        $rows = array_slice(array_values((array)($summary['rows'] ?? [])), 0, 3);
+        if (empty($rows)) {
+            return 'Belum ada lot aktif';
+        }
+
+        $parts = [];
+        $showLocation = trim((string)($summary['location_scope'] ?? '')) === '' && (int)($summary['location_count'] ?? 0) > 1;
+        foreach ($rows as $row) {
+            $locationSuffix = '';
+            if ($showLocation) {
+                $locationType = strtoupper(trim((string)($row['location_type'] ?? '')));
+                if ($locationType === 'BAR' || $locationType === 'KITCHEN') {
+                    $locationSuffix = ' / Reguler';
+                } elseif ($locationType === 'BAR_EVENT' || $locationType === 'KITCHEN_EVENT') {
+                    $locationSuffix = ' / Event';
+                } elseif ($locationType !== '') {
+                    $locationSuffix = ' / ' . $locationType;
+                }
+            }
+            $parts[] = trim((string)($row['lot_no'] ?? '-')) . ' ('
+                . number_format((float)($row['qty_balance'] ?? 0), 2, ',', '.')
+                . ' @ ' . number_format((float)($row['unit_cost'] ?? 0), 2, ',', '.') . ')' . $locationSuffix;
+        }
+        $suffix = ((int)($summary['lot_count'] ?? 0) > count($rows)) ? ' +' . (((int)$summary['lot_count']) - count($rows)) . ' lot' : '';
+        return implode(' | ', $parts) . $suffix;
+    }
+
+    private function attach_component_adjustment_posting_meta(array $rows): array
+    {
+        if (empty($rows) || !$this->db->table_exists('inv_component_movement_log')) {
+            return $rows;
+        }
+
+        $adjustmentIds = [];
+        $lineIds = [];
+        foreach ($rows as $row) {
+            $adjustmentId = (int)($row['adjustment_id'] ?? 0);
+            $lineId = (int)($row['id'] ?? 0);
+            if ($adjustmentId > 0) {
+                $adjustmentIds[$adjustmentId] = $adjustmentId;
+            }
+            if ($lineId > 0) {
+                $lineIds[$lineId] = $lineId;
+            }
+        }
+        if (empty($adjustmentIds) || empty($lineIds)) {
+            return $rows;
+        }
+
+        $movementRows = $this->db->select('source_id, source_line_id, movement_type, SUM(total_cost) AS total_cost', false)
+            ->from('inv_component_movement_log')
+            ->where('source_table', 'inv_component_adjustment')
+            ->where_in('source_id', array_values($adjustmentIds))
+            ->where_in('source_line_id', array_values($lineIds))
+            ->group_by(['source_id', 'source_line_id', 'movement_type'])
+            ->get()
+            ->result_array();
+
+        $movementMap = [];
+        foreach ($movementRows as $movementRow) {
+            $key = (int)($movementRow['source_id'] ?? 0) . '|' . (int)($movementRow['source_line_id'] ?? 0);
+            if (!isset($movementMap[$key])) {
+                $movementMap[$key] = [
+                    'value_spoil' => 0.0,
+                    'value_waste' => 0.0,
+                    'value_plus' => 0.0,
+                    'value_minus' => 0.0,
+                ];
+            }
+            $movementType = strtoupper(trim((string)($movementRow['movement_type'] ?? '')));
+            $target = null;
+            if ($movementType === 'SPOIL') {
+                $target = 'value_spoil';
+            } elseif ($movementType === 'WASTE') {
+                $target = 'value_waste';
+            } elseif ($movementType === 'ADJUSTMENT_PLUS') {
+                $target = 'value_plus';
+            } elseif ($movementType === 'ADJUSTMENT_MINUS') {
+                $target = 'value_minus';
+            }
+            if ($target !== null) {
+                $movementMap[$key][$target] = round((float)($movementRow['total_cost'] ?? 0), 2);
+            }
+        }
+
+        $lotIssueMap = [];
+        if ($this->db->table_exists('inv_component_lot_issue_log') && $this->db->table_exists('inv_component_lot_issue_line') && $this->db->table_exists('inv_component_lot')) {
+            $issueRows = $this->db->select('il.source_id, il.source_line_id, l.lot_no, li.qty_out, li.unit_cost', false)
+                ->from('inv_component_lot_issue_log il')
+                ->join('inv_component_lot_issue_line li', 'li.issue_id = il.id', 'inner')
+                ->join('inv_component_lot l', 'l.id = li.lot_id', 'left')
+                ->where('il.source_table', 'inv_component_adjustment')
+                ->where_in('il.source_id', array_values($adjustmentIds))
+                ->where_in('il.source_line_id', array_values($lineIds))
+                ->where('il.status', 'POSTED')
+                ->order_by('il.id', 'ASC')
+                ->order_by('li.id', 'ASC')
+                ->get()
+                ->result_array();
+            foreach ($issueRows as $issueRow) {
+                $key = (int)($issueRow['source_id'] ?? 0) . '|' . (int)($issueRow['source_line_id'] ?? 0);
+                if (!isset($lotIssueMap[$key])) {
+                    $lotIssueMap[$key] = [];
+                }
+                $lotIssueMap[$key][] = trim((string)($issueRow['lot_no'] ?? '-'))
+                    . ' (' . number_format((float)($issueRow['qty_out'] ?? 0), 2, ',', '.')
+                    . ' @ ' . number_format((float)($issueRow['unit_cost'] ?? 0), 2, ',', '.') . ')';
+            }
+        }
+
+        $snapshotCache = [];
+        foreach ($rows as &$row) {
+            $key = (int)($row['adjustment_id'] ?? 0) . '|' . (int)($row['id'] ?? 0);
+            $movementMeta = $movementMap[$key] ?? null;
+            if ($movementMeta === null) {
+                $snapshotKey = implode('|', [
+                    strtoupper(trim((string)($row['location_type'] ?? ''))),
+                    $this->nullable_int($row['division_id'] ?? null) ?? 0,
+                    (int)($row['component_id'] ?? 0),
+                    (int)($row['uom_id'] ?? 0),
+                    $this->nullable_int($row['selected_lot_id'] ?? null) ?? 0,
+                ]);
+                if (!array_key_exists($snapshotKey, $snapshotCache)) {
+                    $snapshotCache[$snapshotKey] = $this->component_stock_snapshot(
+                        (int)($row['component_id'] ?? 0),
+                        (int)($row['uom_id'] ?? 0),
+                        $this->nullable_int($row['division_id'] ?? null),
+                        (string)($row['location_type'] ?? ''),
+                        $this->nullable_int($row['selected_lot_id'] ?? null)
+                    );
+                }
+                $snapshotUnitCost = (float)($snapshotCache[$snapshotKey]['unit_cost'] ?? 0);
+                $movementMeta = [
+                    'value_spoil' => round((float)($row['qty_spoil'] ?? 0) * $snapshotUnitCost, 2),
+                    'value_waste' => round((float)($row['qty_waste'] ?? 0) * $snapshotUnitCost, 2),
+                    'value_plus' => round((float)($row['qty_adjust_pos'] ?? 0) * (float)($row['unit_cost'] ?? 0), 2),
+                    'value_minus' => round((float)($row['qty_adjust_neg'] ?? 0) * $snapshotUnitCost, 2),
+                ];
+            }
+            $row = array_merge($row, $movementMeta);
+            $row['total_adjustment_value'] = round(
+                (float)($row['value_spoil'] ?? 0)
+                + (float)($row['value_waste'] ?? 0)
+                + (float)($row['value_plus'] ?? 0)
+                + (float)($row['value_minus'] ?? 0),
+                2
+            );
+            $row['lot_issue_preview'] = !empty($lotIssueMap[$key]) ? implode(' | ', $lotIssueMap[$key]) : '-';
+        }
+        unset($row);
+
+        return $rows;
     }
 
     public function list_unmapped_components(int $limit = 300): array
@@ -2400,10 +4935,7 @@ class Production_model extends CI_Model
             {$componentUsageExpr} AS component_usage_count,
             {$productUsageExpr} AS product_usage_count
         ", false);
-        $this->db->order_by('c.component_type', 'ASC');
-        $this->db->order_by('d.name', 'ASC');
-        $this->db->order_by('cat.name', 'ASC');
-        $this->db->order_by('c.component_name', 'ASC');
+        $this->apply_component_display_order('d.name', 'c.component_type', 'c.component_name');
         if ($limit > 0) {
             $this->db->limit($limit, $offset);
         }
@@ -2558,6 +5090,8 @@ class Production_model extends CI_Model
                 ->join('mst_operational_division d', 'd.id = parent.operational_division_id', 'left')
                 ->where('f.sub_component_id', $componentId)
                 ->group_by(['parent.id', 'parent.component_code', 'parent.component_name', 'parent.component_type', 'd.name'])
+                ->order_by('d.name', 'ASC')
+                ->order_by($this->component_type_sort_sql('parent.component_type'), '', false)
                 ->order_by('parent.component_name', 'ASC')
                 ->get()
                 ->result_array();
@@ -2571,6 +5105,7 @@ class Production_model extends CI_Model
                 ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
                 ->where('r.component_id', $componentId)
                 ->group_by(['p.id', 'p.product_code', 'p.product_name', 'pd.name'])
+                ->order_by('pd.name', 'ASC')
                 ->order_by('p.product_name', 'ASC')
                 ->get()
                 ->result_array();
@@ -2603,6 +5138,7 @@ class Production_model extends CI_Model
         $componentId = (int)($data['component_id'] ?? 0);
         $lineType = strtoupper(trim((string)($data['line_type'] ?? '')));
         $materialId = !empty($data['material_id']) ? (int)$data['material_id'] : null;
+        $materialItemId = !empty($data['material_item_id']) ? (int)$data['material_item_id'] : null;
         $subComponentId = !empty($data['sub_component_id']) ? (int)$data['sub_component_id'] : null;
         $qty = round((float)($data['qty'] ?? 0), 4);
         if ($componentId <= 0 || $qty <= 0) {
@@ -2622,6 +5158,16 @@ class Production_model extends CI_Model
         }
         if ($lineType === 'MATERIAL' && empty($materialId)) {
             return ['ok' => false, 'message' => 'Material wajib dipilih untuk line MATERIAL.'];
+        }
+        if ($lineType === 'MATERIAL' && !empty($materialItemId)) {
+            $item = $this->db->select('id, material_id')->from('mst_item')->where('id', $materialItemId)->limit(1)->get()->row_array();
+            if (!$item) {
+                $materialItemId = null;
+            } elseif ((int)($item['material_id'] ?? 0) > 0 && (int)($item['material_id'] ?? 0) !== (int)$materialId) {
+                $materialItemId = null;
+            }
+        } else {
+            $materialItemId = null;
         }
         if ($lineType === 'COMPONENT' && empty($subComponentId)) {
             return ['ok' => false, 'message' => 'Sub component wajib dipilih untuk line COMPONENT.'];
@@ -2663,6 +5209,9 @@ class Production_model extends CI_Model
         if ($this->db->field_exists('uom_id', 'mst_component_formula')) {
             $payload['uom_id'] = $this->resolve_formula_uom_id($lineType, $materialId, $subComponentId);
         }
+        if ($this->db->field_exists('material_item_id', 'mst_component_formula')) {
+            $payload['material_item_id'] = $lineType === 'MATERIAL' ? ($materialItemId ?: null) : null;
+        }
         if ($payload['line_no'] <= 0) {
             $last = $this->db->select_max('line_no')->get_where('mst_component_formula', ['component_id' => $componentId])->row_array();
             $payload['line_no'] = (int)($last['line_no'] ?? 0) + 1;
@@ -2699,9 +5248,18 @@ class Production_model extends CI_Model
                 continue;
             }
             $materialId = !empty($line['material_id']) ? (int)$line['material_id'] : null;
+            $materialItemId = !empty($line['material_item_id']) ? (int)$line['material_item_id'] : null;
             $subComponentId = !empty($line['sub_component_id']) ? (int)$line['sub_component_id'] : null;
             if ($lineType === 'MATERIAL' && empty($materialId)) {
                 continue;
+            }
+            if ($lineType === 'MATERIAL' && !empty($materialItemId)) {
+                $item = $this->db->select('id, material_id')->from('mst_item')->where('id', $materialItemId)->limit(1)->get()->row_array();
+                if (!$item || (int)($item['material_id'] ?? 0) !== (int)$materialId) {
+                    $materialItemId = null;
+                }
+            } else {
+                $materialItemId = null;
             }
             if ($lineType === 'COMPONENT') {
                 if (empty($subComponentId) || $subComponentId === $componentId) {
@@ -2738,6 +5296,9 @@ class Production_model extends CI_Model
             ];
             if ($this->db->field_exists('uom_id', 'mst_component_formula')) {
                 $row['uom_id'] = $resolvedUomId;
+            }
+            if ($this->db->field_exists('material_item_id', 'mst_component_formula')) {
+                $row['material_item_id'] = $lineType === 'MATERIAL' ? ($materialItemId ?: null) : null;
             }
             $normalized[] = $row;
         }
@@ -2888,6 +5449,15 @@ class Production_model extends CI_Model
     {
         $v = trim((string)$value);
         return $v === '' ? null : $v;
+    }
+
+    private function nullable_int($value): ?int
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return null;
+        }
+        $intValue = (int)$value;
+        return $intValue > 0 ? $intValue : null;
     }
 
     private function variable_cost_default_percent(string $scopeCode): float

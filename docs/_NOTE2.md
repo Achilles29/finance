@@ -5,32 +5,14 @@ ini adalah pengembangan dan penyempurnaan dari repo core (C:\xampp\htdocs\core).
 ======================
 ======================
 
+
+- memisahkan costumer dan member sepertinya terlalu tidak efisien. bagaimana kalau cukup walkin customer dan member customer. untuk walkin customer tidak perlu dibuatkan database sendiri, cukup database untuk member
+- ada pos_void_line_extra lalu perlu pos_refund_line_extra nggak?
+- pos_product_availability_cache itu untuk apa? berat nggak jika pos langsung menghitung ketersediaan berdasarkan resep dan bahan. saya takutnya kalau pakai cache jadi nggak realtime
+
 =======================
 
-kita lanjut ke Produksi Base dan Prepare
-pertama siapkan database nya. kamu bisa adopsi dengan penyesuaian yang diperlukan dari aplikasi core. database di core yang digunakan adalah tabel prd_component dan semua turunannya.
-halaman yang dibutuhkan antara lain:
-- halaman kategori base / prepare
-- halaman master base / prepare
-- halaman resep base / pepare
-- halaman stok, keluar masuk, matrix , daily untuk stok base / prepare seperti yang digunakan pada stok material atau bahan baku
-- halaman lain yang berkaitan yang ada di core (coba cek) 
+- terkait member, perlu saya tegaskan lagi. justru yang perlu dihidupkan adalah database member. jadi nanti di POS ketik ketik nama, pertama cari dari database member, kalau ada pilih preview nama dan no hp yang sesuai, lalu masukkan member_id pada transaksi. kalau tidak ada di transaksi berarti null member_id nya. karena nanti jika kita akan buat aplikasi member yang terhubung dengan poin, stamp, voucher dan mungkin promo lain yang lebih kompleks.
 
-setelah kamu siapkan, konsepkan dulu tabel databasenya, dan skema operasional UI nya. setelah saya verifikasi lalu kita bisa lanjut
+- terkait penjelasanmu pos_product_availability_cache lebih masuk akal, dengan catatan cache di update langsung setiap ada transaksi yang mempengaruhi
 
-=================
-
-- semua halaman terkait base prepare urutkan sesuai tipe, divisi lalu kategori
--/production/component-masters seharusnya ada kolom hpp live setelah hpp std
-- production/component-cost-variables tambahkan ke sidebar
-- /production/component-formulas edit saja atau pakai icon, biar rapi, tidak perlu EDIT TOTAL FORMULA. lalu untuk edit jangan pakai modal. tapi halaman tersendiri.
-- filter baris semua kenapa belum muncul?
-
-
-====
-
-- /production/component-formulas tambahkan button detail formula, lalu di detail formula itu ada button editnya untuk masuk edit juga
-- production/component-formulas/edit/ fungsi kolom line itu apa?
-- di halaman edit dan detail formula kurang informatif. coba lihat gambar contoh di core
-
-- kenapa masih ada desimal dengan banyak angka???

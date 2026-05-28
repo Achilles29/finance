@@ -14,17 +14,17 @@ $locationGroupLabel = static function ($locationType): string {
 };
 $movementOptions = [
   '' => 'Semua Jenis',
-  'OPENING' => 'OPENING',
-  'PRODUCTION_IN' => 'PRODUCTION_IN',
-  'PRODUCTION_OUT' => 'PRODUCTION_OUT',
-  'TRANSFER_IN' => 'TRANSFER_IN',
-  'TRANSFER_OUT' => 'TRANSFER_OUT',
-  'USAGE' => 'USAGE',
-  'WASTE' => 'WASTE',
-  'SPOIL' => 'SPOIL',
-  'ADJUSTMENT_PLUS' => 'ADJUSTMENT_PLUS',
-  'ADJUSTMENT_MINUS' => 'ADJUSTMENT_MINUS',
-  'VOID_REVERSE' => 'VOID_REVERSE',
+  'OPENING' => 'Opening',
+  'PRODUCTION_IN' => 'Hasil Produksi',
+  'PRODUCTION_OUT' => 'Pemakaian Produksi',
+  'TRANSFER_IN' => 'Transfer Masuk',
+  'TRANSFER_OUT' => 'Transfer Keluar',
+  'USAGE' => 'Pemakaian',
+  'WASTE' => 'Waste',
+  'SPOIL' => 'Spoilage',
+  'ADJUSTMENT_PLUS' => 'Adjustment Plus',
+  'ADJUSTMENT_MINUS' => 'Adjustment Minus',
+  'VOID_REVERSE' => 'Pembatalan Void',
 ];
 ?>
 
@@ -34,13 +34,18 @@ $movementOptions = [
 </div>
 
 <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'movement']); ?>
+<?php $this->load->view('production/_component_type_tabs', [
+  'component_type_base_url' => site_url('production/component-movements'),
+  'component_type_filters' => $filters,
+  'component_type_active' => (string)($filters['type'] ?? ''),
+]); ?>
 
 <div class="card mb-3">
   <div class="card-body">
     <form method="get" action="<?php echo site_url('production/component-movements'); ?>" class="row g-2 align-items-end">
       <div class="col-md-3">
         <label class="form-label mb-1">Cari</label>
-        <input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="No Mutasi / Kode / Nama">
+        <input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="No mutasi / nama component">
       </div>
       <div class="col-md-2">
         <label class="form-label mb-1">Lokasi</label>
@@ -105,9 +110,9 @@ $movementOptions = [
               <td><?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? '-'))); ?></td>
               <td>
                 <div><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></div>
-                <small class="text-muted"><?php echo html_escape((string)($row['component_code'] ?? '-')); ?></small>
+                <small class="text-muted"><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></small>
               </td>
-              <td><?php echo html_escape((string)($row['movement_type'] ?? '-')); ?></td>
+              <td><?php echo html_escape((string)($row['movement_type_label'] ?? $row['movement_type'] ?? '-')); ?></td>
               <td class="text-end"><?php echo number_format((float)($row['qty_in'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end"><?php echo number_format((float)($row['qty_out'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end"><?php echo number_format((float)($row['unit_cost'] ?? 0), 2, ',', '.'); ?></td>

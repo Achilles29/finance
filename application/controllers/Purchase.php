@@ -16,6 +16,7 @@ class Purchase extends MY_Controller
     const PAGE_RECEIPT = 'purchase.receipt.index';
     const PAGE_ORDER_LOG = 'purchase.order.log.index';
     const PAGE_REBUILD_IMPACT = 'purchase.rebuild.impact.index';
+    const PAGE_REPORT = 'purchase.report.index';
     const PAGE_RECLASSIFY_PROFILE_DOMAIN = 'purchase.reclassify.profile.domain.index';
 
     public function __construct()
@@ -125,6 +126,147 @@ class Purchase extends MY_Controller
         ];
 
         $this->render('purchase/order_log_index', $data);
+    }
+
+    public function report_index()
+    {
+        if (!$this->can(self::PAGE_REPORT, 'view')) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $today = date('Y-m-d');
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo = trim((string)$this->input->get('date_to', true));
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        $purchaseTypeId = (int)$this->input->get('purchase_type_id', true);
+        $detailDate = trim((string)$this->input->get('detail_date', true));
+        $detailPurchaseTypeId = (int)$this->input->get('detail_purchase_type_id', true);
+        $reportTab = strtolower(trim((string)$this->input->get('report_tab', true)));
+        if (!in_array($reportTab, ['ringkasan', 'matrix'], true)) {
+            $reportTab = 'ringkasan';
+        }
+
+        if ($dateFrom === '') {
+            $dateFrom = date('Y-m-01');
+        }
+        if ($dateTo === '') {
+            $dateTo = date('Y-m-t');
+        }
+        if ($status === '') {
+            $status = 'PAID';
+        }
+
+        $dailyRows = $this->Purchase_model->list_purchase_report_daily($dateFrom, $dateTo, $status, $purchaseTypeId);
+        $matrixDates = [];
+        $matrixRowsMap = [];
+        try {
+            $start = new DateTime($dateFrom);
+            $end = new DateTime($dateTo);
+            if ($start <= $end) {
+                $itEnd = clone $end;
+                $itEnd->modify('+1 day');
+                $period = new DatePeriod($start, new DateInterval('P1D'), $itEnd);
+                foreach ($period as $d) {
+                    $matrixDates[] = $d->format('Y-m-d');
+                }
+            }
+        } catch (Exception $e) {
+            $matrixDates = [];
+        }
+        if (count($matrixDates) > 62) {
+            $matrixDates = array_slice($matrixDates, -62);
+        }
+        foreach ((array)$this->Purchase_model->list_active_purchase_types() as $pt) {
+            $ptId = (int)($pt['id'] ?? 0);
+            if ($ptId <= 0) {
+                continue;
+            }
+            if ($purchaseTypeId > 0 && $ptId !== $purchaseTypeId) {
+                continue;
+            }
+            $matrixRowsMap[$ptId] = [
+                'purchase_type_id' => $ptId,
+                'purchase_type_name' => (string)($pt['type_name'] ?? ('TYPE #' . $ptId)),
+                'cells' => [],
+                'total_po' => 0,
+                'total_qty_buy' => 0.0,
+                'total_value' => 0.0,
+            ];
+        }
+        foreach ($dailyRows as $dr) {
+            $ptId = (int)($dr['purchase_type_id'] ?? 0);
+            if ($ptId <= 0) {
+                continue;
+            }
+            if (!isset($matrixRowsMap[$ptId])) {
+                $matrixRowsMap[$ptId] = [
+                    'purchase_type_id' => $ptId,
+                    'purchase_type_name' => (string)($dr['purchase_type_name'] ?? ('TYPE #' . $ptId)),
+                    'cells' => [],
+                    'total_po' => 0,
+                    'total_qty_buy' => 0.0,
+                    'total_value' => 0.0,
+                ];
+            }
+            $dayKey = (string)($dr['request_date'] ?? '');
+            $poCount = (int)($dr['total_po'] ?? 0);
+            $qtyBuy = (float)($dr['total_qty_buy'] ?? 0);
+            $value = (float)($dr['total_value'] ?? 0);
+            $matrixRowsMap[$ptId]['cells'][$dayKey] = [
+                'total_po' => $poCount,
+                'total_qty_buy' => $qtyBuy,
+                'total_value' => $value,
+            ];
+            $matrixRowsMap[$ptId]['total_po'] += $poCount;
+            $matrixRowsMap[$ptId]['total_qty_buy'] += $qtyBuy;
+            $matrixRowsMap[$ptId]['total_value'] += $value;
+        }
+        $detailMatrixLines = $this->Purchase_model->list_purchase_report_matrix_product_details($dateFrom, $dateTo, $status, $purchaseTypeId);
+        $matrixDetailMap = [];
+        foreach ($detailMatrixLines as $ln) {
+            $dt = (string)($ln['request_date'] ?? '');
+            $ptId = (int)($ln['purchase_type_id'] ?? 0);
+            if ($dt === '' || $ptId <= 0) {
+                continue;
+            }
+            $nm = trim((string)($ln['snapshot_item_name'] ?? ''));
+            if ($nm === '') {
+                $nm = trim((string)($ln['snapshot_material_name'] ?? ''));
+            }
+            if ($nm === '') {
+                $nm = trim((string)($ln['snapshot_line_description'] ?? '-'));
+            }
+            $matrixDetailMap[$ptId][$dt][] = [
+                'name' => $nm === '' ? '-' : $nm,
+                'qty_buy' => (float)($ln['qty_buy'] ?? 0),
+                'buy_uom_code' => (string)($ln['snapshot_buy_uom_code'] ?? '-'),
+                'line_subtotal' => (float)($ln['line_subtotal'] ?? 0),
+            ];
+        }
+        $matrixRows = array_values($matrixRowsMap);
+
+        $data = [
+            'title' => 'Laporan Purchase',
+            'active_menu' => 'purchase.report',
+            'report_tab' => $reportTab,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'status' => $status,
+            'purchase_type_id' => $purchaseTypeId,
+            'detail_date' => $detailDate,
+            'detail_purchase_type_id' => $detailPurchaseTypeId,
+            'status_options' => ['ALL', 'DRAFT', 'APPROVED', 'ORDERED', 'REJECTED', 'PARTIAL_RECEIVED', 'RECEIVED', 'PAID', 'VOID'],
+            'purchase_types' => $this->Purchase_model->list_active_purchase_types(),
+            'overview' => $this->Purchase_model->get_purchase_report_overview($dateFrom, $dateTo, $status, $purchaseTypeId),
+            'monthly_rows' => $this->Purchase_model->list_purchase_report_monthly($dateFrom, $dateTo, $status, $purchaseTypeId),
+            'daily_rows' => $dailyRows,
+            'matrix_dates' => $matrixDates,
+            'matrix_rows' => $matrixRows,
+            'matrix_detail_map' => $matrixDetailMap,
+            'detail_rows' => $this->Purchase_model->list_purchase_report_detail_by_day_type($detailDate, $detailPurchaseTypeId, $status),
+        ];
+
+        $this->render('purchase/report_index', $data);
     }
 
     public function rebuild_impact_index()
@@ -568,6 +710,39 @@ class Purchase extends MY_Controller
 
         if (!($result['ok'] ?? false)) {
             $this->jsonError((string)($result['message'] ?? 'Gagal menyimpan opening gudang.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    public function stock_opening_void($id)
+    {
+        $payload = $this->requestPayload();
+        $scope = strtoupper(trim((string)($payload['stock_scope'] ?? 'DIVISION')));
+        if ($scope === 'DIVISION') {
+            $this->require_permission(self::PAGE_STOCK_DIVISION, 'delete');
+        } else {
+            $this->require_permission(self::PAGE_STOCK_WAREHOUSE, 'delete');
+        }
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->void_stock_opening_snapshot(
+                $scope,
+                (int)$id,
+                (int)($this->current_user['id'] ?? 0),
+                (string)$this->input->ip_address()
+            );
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal VOID opening snapshot.'), 422);
             return;
         }
 

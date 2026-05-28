@@ -61,14 +61,11 @@ CREATE TABLE IF NOT EXISTS mst_component_category (
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   code VARCHAR(40) NOT NULL,
   name VARCHAR(120) NOT NULL,
-  parent_id BIGINT UNSIGNED NULL,
   sort_order INT NOT NULL DEFAULT 0,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uk_mst_component_category_code (code),
-  KEY idx_mst_component_category_parent (parent_id),
-  CONSTRAINT fk_mst_component_category_parent FOREIGN KEY (parent_id) REFERENCES mst_component_category(id)
+  UNIQUE KEY uk_mst_component_category_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS mst_product_division (
@@ -103,7 +100,6 @@ CREATE TABLE IF NOT EXISTS mst_product_category (
   classification_id BIGINT UNSIGNED NOT NULL,
   code VARCHAR(40) NOT NULL,
   name VARCHAR(120) NOT NULL,
-  parent_id BIGINT UNSIGNED NULL,
   sort_order INT NOT NULL DEFAULT 0,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -111,10 +107,8 @@ CREATE TABLE IF NOT EXISTS mst_product_category (
   UNIQUE KEY uk_mst_product_category_code (code),
   KEY idx_mst_product_category_division (product_division_id),
   KEY idx_mst_product_category_classification (classification_id),
-  KEY idx_mst_product_category_parent (parent_id),
   CONSTRAINT fk_mst_product_category_division FOREIGN KEY (product_division_id) REFERENCES mst_product_division(id),
-  CONSTRAINT fk_mst_product_category_classification FOREIGN KEY (classification_id) REFERENCES mst_product_classification(id),
-  CONSTRAINT fk_mst_product_category_parent FOREIGN KEY (parent_id) REFERENCES mst_product_category(id)
+  CONSTRAINT fk_mst_product_category_classification FOREIGN KEY (classification_id) REFERENCES mst_product_classification(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS mst_operational_division (
@@ -518,8 +512,8 @@ SET @sql = CONCAT(
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @sql = CONCAT(
-"INSERT INTO mst_product_category (product_division_id, classification_id, code, name, parent_id, sort_order, is_active, created_at, updated_at)",
-" SELECT d_new.id, c_new.id, cat.category_code, cat.category_name, NULL, IFNULL(cat.display_order,0), IFNULL(cat.is_active,1), NOW(), NOW()",
+"INSERT INTO mst_product_category (product_division_id, classification_id, code, name, sort_order, is_active, created_at, updated_at)",
+" SELECT d_new.id, c_new.id, cat.category_code, cat.category_name, IFNULL(cat.display_order,0), IFNULL(cat.is_active,1), NOW(), NOW()",
 " FROM ", @src_db, ".prd_product_category cat",
 " JOIN ", @src_db, ".prd_product_classification c_old ON c_old.id = cat.classification_id",
 " JOIN ", @src_db, ".prd_product_division d_old ON d_old.id = c_old.division_id",
@@ -531,8 +525,8 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 5) Component category from core
 SET @sql = CONCAT(
-"INSERT INTO mst_component_category (code, name, parent_id, sort_order, is_active, created_at, updated_at)",
-" SELECT category_code, category_name, NULL, IFNULL(display_order,0), IFNULL(is_active,1), NOW(), NOW()",
+"INSERT INTO mst_component_category (code, name, sort_order, is_active, created_at, updated_at)",
+" SELECT category_code, category_name, IFNULL(display_order,0), IFNULL(is_active,1), NOW(), NOW()",
 " FROM ", @src_db, ".prd_component_category",
 " ON DUPLICATE KEY UPDATE name=VALUES(name), sort_order=VALUES(sort_order), is_active=VALUES(is_active), updated_at=NOW()"
 );

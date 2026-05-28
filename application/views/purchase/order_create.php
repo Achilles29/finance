@@ -82,8 +82,8 @@ foreach ($detailLines as $ln) {
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
     <h4 class="mb-1"><i class="ri ri-shopping-cart-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-    <small class="text-muted"><?php echo $editMode ? 'Edit data Purchase Order (header dan line).' : 'Adopsi pola CORE: halaman create untuk membuat Purchase Order.'; ?></small>
     <?php if ($editMode): ?>
+      <small class="text-muted d-block">Edit data Purchase Order (header dan line).</small>
       <div class="small mt-1">PO: <strong><?php echo html_escape((string)($detailOrder['po_no'] ?? '-')); ?></strong> | Status saat ini: <strong><?php echo html_escape($initialStatus); ?></strong></div>
     <?php endif; ?>
   </div>
@@ -148,6 +148,19 @@ foreach ($detailLines as $ln) {
   .po-vendor-inline { display: flex; gap: .5rem; align-items: stretch; }
   .po-vendor-select { flex: 1 1 auto; min-width: 0; }
   .po-vendor-add { flex: 0 0 auto; white-space: nowrap; }
+  #po-form .form-select {
+    background-image: none !important;
+    padding-right: .85rem;
+    appearance: auto;
+  }
+  .po-status-select {
+    background-image: none !important;
+    min-height: calc(1.5em + .75rem + 2px);
+  }
+  .po-status-note {
+    display: block;
+    margin-top: .35rem;
+  }
   .po-suggestion-panel {
     margin-top: .45rem;
     padding: .45rem .55rem;
@@ -354,11 +367,11 @@ foreach ($detailLines as $ln) {
   <div class="card-body">
     <h6 class="mb-3">Header Purchase Order</h6>
     <form id="po-form" class="row g-3" autocomplete="off">
-      <div class="col-md-3">
+      <div class="col-lg-2 col-md-4">
         <label class="form-label">Tanggal PO</label>
         <input type="date" class="form-control" id="request_date" value="<?php echo html_escape($initialRequestDate); ?>" required>
       </div>
-      <div class="col-md-3">
+      <div class="col-lg-3 col-md-4">
         <label class="form-label">Purchase Type</label>
         <select id="purchase_type_id" class="form-select" required>
           <option value="">Pilih Purchase Type...</option>
@@ -380,25 +393,7 @@ foreach ($detailLines as $ln) {
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-md-3">
-        <label class="form-label">Tujuan</label>
-        <select id="destination_type" class="form-select" disabled>
-          <option value="">(opsional)</option>
-          <option value="GUDANG" <?php echo $initialDestinationType === 'GUDANG' ? 'selected' : ''; ?>>GUDANG</option>
-          <option value="BAR" <?php echo $initialDestinationType === 'BAR' ? 'selected' : ''; ?>>BAR</option>
-          <option value="KITCHEN" <?php echo $initialDestinationType === 'KITCHEN' ? 'selected' : ''; ?>>KITCHEN</option>
-          <option value="BAR_EVENT" <?php echo $initialDestinationType === 'BAR_EVENT' ? 'selected' : ''; ?>>BAR_EVENT</option>
-          <option value="KITCHEN_EVENT" <?php echo $initialDestinationType === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>KITCHEN_EVENT</option>
-          <option value="OFFICE" <?php echo $initialDestinationType === 'OFFICE' ? 'selected' : ''; ?>>OFFICE</option>
-          <option value="OTHER" <?php echo $initialDestinationType === 'OTHER' ? 'selected' : ''; ?>>OTHER</option>
-        </select>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Divisi Tujuan</label>
-        <input type="text" id="destination_division_label" class="form-control" value="-" readonly>
-        <input type="hidden" id="destination_division_id" value="<?php echo $initialDestinationDivisionId > 0 ? (int)$initialDestinationDivisionId : ''; ?>">
-      </div>
-      <div class="col-md-3">
+      <div class="col-lg-3 col-md-6">
         <label class="form-label">Vendor</label>
         <div class="po-vendor-inline">
           <select id="vendor_id" class="form-select po-vendor-select">
@@ -411,7 +406,7 @@ foreach ($detailLines as $ln) {
         </div>
         <small class="text-muted d-block mt-1">Jika vendor belum ada, tambah cepat dari form ini.</small>
       </div>
-      <div class="col-md-3">
+      <div class="col-lg-3 col-md-6">
         <label class="form-label">Metode Pembayaran (Rekening)</label>
         <select id="payment_account_id" class="form-select">
           <option value="">(opsional)</option>
@@ -431,19 +426,37 @@ foreach ($detailLines as $ln) {
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-md-3">
+      <div class="col-lg-2 col-md-4">
         <label class="form-label">Status</label>
-        <select id="status" class="form-select" <?php echo !$editMode ? 'disabled' : ''; ?>>
+        <select id="status" class="form-select po-status-select" <?php echo !$editMode ? 'disabled' : ''; ?>>
           <?php foreach (($status_options ?? ['DRAFT']) as $st): ?>
             <?php $stValue = strtoupper((string)$st); ?>
             <option value="<?php echo html_escape($stValue); ?>" <?php echo $stValue === $initialStatus ? 'selected' : ''; ?>><?php echo html_escape($stValue); ?></option>
           <?php endforeach; ?>
         </select>
         <?php if ($editMode): ?>
-          <small class="text-muted">Status bisa diubah di form edit ini, tetapi wajib lewat modal review buyer sebelum simpan.</small>
+          <small class="text-muted po-status-note">Perubahan status tetap wajib review buyer sebelum simpan.</small>
         <?php else: ?>
-          <small class="text-muted">PO baru disimpan dulu sebagai DRAFT. Lanjutkan review dan ubah status dari halaman edit.</small>
+          <small class="text-muted po-status-note">Create awal disimpan sebagai DRAFT.</small>
         <?php endif; ?>
+      </div>
+      <div class="col-lg-3 col-md-4">
+        <label class="form-label">Tujuan</label>
+        <select id="destination_type" class="form-select" disabled>
+          <option value="">(opsional)</option>
+          <option value="GUDANG" <?php echo $initialDestinationType === 'GUDANG' ? 'selected' : ''; ?>>GUDANG</option>
+          <option value="BAR" <?php echo $initialDestinationType === 'BAR' ? 'selected' : ''; ?>>BAR</option>
+          <option value="KITCHEN" <?php echo $initialDestinationType === 'KITCHEN' ? 'selected' : ''; ?>>KITCHEN</option>
+          <option value="BAR_EVENT" <?php echo $initialDestinationType === 'BAR_EVENT' ? 'selected' : ''; ?>>BAR_EVENT</option>
+          <option value="KITCHEN_EVENT" <?php echo $initialDestinationType === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>KITCHEN_EVENT</option>
+          <option value="OFFICE" <?php echo $initialDestinationType === 'OFFICE' ? 'selected' : ''; ?>>OFFICE</option>
+          <option value="OTHER" <?php echo $initialDestinationType === 'OTHER' ? 'selected' : ''; ?>>OTHER</option>
+        </select>
+      </div>
+      <div class="col-lg-3 col-md-4">
+        <label class="form-label">Divisi Tujuan</label>
+        <input type="text" id="destination_division_label" class="form-control" value="-" readonly>
+        <input type="hidden" id="destination_division_id" value="<?php echo $initialDestinationDivisionId > 0 ? (int)$initialDestinationDivisionId : ''; ?>">
       </div>
       <div class="col-12">
         <label class="form-label">Notes</label>
@@ -945,6 +958,8 @@ foreach ($detailLines as $ln) {
     var lineKind = String(it.line_kind || 'ITEM').toUpperCase();
     var current = Object.assign(createEmptyLine(), existing || {});
     var selectedName = it.catalog_name || it.item_name || it.material_name || '';
+    var brandName = String(it.brand_name || it.profile_brand || it.snapshot_brand_name || '').trim();
+    var lineDescription = String(it.line_description || it.profile_description || it.snapshot_line_description || it.notes || '').trim();
     var next = {
       line_kind: lineKind,
       item_id: it.item_id || null,
@@ -953,8 +968,8 @@ foreach ($detailLines as $ln) {
       item_name: it.item_name || '',
       material_name: it.material_name || '',
       catalog_name: selectedName,
-      brand_name: it.brand_name || '',
-      line_description: it.line_description || '',
+      brand_name: brandName,
+      line_description: lineDescription,
       buy_uom_id: it.buy_uom_id || null,
       content_uom_id: it.content_uom_id || null,
       buy_uom_code: it.buy_uom_code || '',
@@ -1472,9 +1487,8 @@ foreach ($detailLines as $ln) {
     lines.forEach(function (l, idx) {
       var name = l.catalog_name || l.item_name || l.material_name || '-';
       var kind = String(l.line_kind || '-').toUpperCase();
-      var showItemMaterialDetail = (kind === 'ITEM' || kind === 'MATERIAL');
-      var brand = showItemMaterialDetail ? (l.brand_name || '-') : '-';
-      var desc = showItemMaterialDetail ? (l.line_description || '-') : '-';
+      var brand = (l.brand_name || '-');
+      var desc = (l.line_description || '-');
       var buyUom = l.buy_uom_code || '-';
       var contentUom = l.content_uom_code || '-';
       var nameInput = (l.catalog_name || l.item_name || l.material_name || '');
@@ -1534,7 +1548,9 @@ foreach ($detailLines as $ln) {
     var rows = [];
     items.forEach(function (it, idx) {
       var name = it.catalog_name || it.item_name || it.material_name || '-';
-      var profile = 'Merk: ' + (it.brand_name || '-') + ' | Ket: ' + (it.line_description || '-');
+      var brandName = String(it.brand_name || it.profile_brand || it.snapshot_brand_name || '').trim();
+      var lineDescription = String(it.line_description || it.profile_description || it.snapshot_line_description || it.notes || '').trim();
+      var profile = 'Merk: ' + (brandName || '-') + ' | Ket: ' + (lineDescription || '-');
       var buyUom = String(it.buy_uom_code || '-');
       var contentUom = String(it.content_uom_code || '-');
       var uom = buyUom === contentUom ? buyUom : (buyUom + ' -> ' + contentUom);
@@ -1877,11 +1893,24 @@ foreach ($detailLines as $ln) {
       var prevBuyId = num(lines[idx].buy_uom_id || 0);
       var buyId = num(e.target.value);
       if (prevBuyId > 0 && buyId > 0 && prevBuyId !== buyId) {
-        var yes = window.confirm('Yakin merubah UOM beli? Perubahan ini dapat membuat profile baru.');
-        if (!yes) {
-          e.target.value = String(prevBuyId);
-          return;
+        e.target.value = String(prevBuyId);
+        if (window.FinanceUI && typeof window.FinanceUI.confirm === 'function') {
+          Promise.resolve(window.FinanceUI.confirm('Yakin merubah UOM beli? Perubahan ini dapat membuat profile baru.', {
+            title: 'Konfirmasi Perubahan UOM',
+            okText: 'Ya, Ubah',
+            cancelText: 'Batal'
+          })).then(function (yes) {
+            if (!yes) {
+              return;
+            }
+            lines[idx].buy_uom_id = buyId > 0 ? buyId : null;
+            lines[idx].buy_uom_code = (buyId > 0 && uomById[buyId]) ? (uomById[buyId].code || '') : '';
+            refreshLines();
+          });
+        } else if (window.FinanceUI && typeof window.FinanceUI.alert === 'function') {
+          window.FinanceUI.alert('Modal konfirmasi tidak tersedia. Muat ulang halaman lalu coba lagi.', { title: 'UI Belum Siap' });
         }
+        return;
       }
       lines[idx].buy_uom_id = buyId > 0 ? buyId : null;
       lines[idx].buy_uom_code = (buyId > 0 && uomById[buyId]) ? (uomById[buyId].code || '') : '';

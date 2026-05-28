@@ -338,6 +338,13 @@ html.layout-navbar-fixed .layout-content-navbar .content-wrapper {
     min-height: calc(100vh - 60px);
 }
 
+.content-wrapper::before {
+    content: '';
+    display: block;
+    height: 18px;
+    flex: 0 0 18px;
+}
+
 .container-xxl.flex-grow-1.container-p-y {
     flex: 1;
     padding-top: 1.5rem !important;
@@ -563,6 +570,22 @@ a:hover {
 .btn.is-loading {
     pointer-events: none;
     opacity: 0.9;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+}
+
+.btn.is-loading .spinner-border,
+.btn.is-loading .spinner-grow {
+    flex-shrink: 0;
+}
+
+.action-icon-btn.is-loading,
+.component-action-btn.is-loading,
+.btn.is-loading.is-loading-icon {
+    gap: 0;
 }
 
 .page-title-icon {
@@ -676,6 +699,7 @@ h6,
         opacity: 0;
         transform: translateY(8px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -739,16 +763,16 @@ h6,
     background-color: rgba(255, 255, 255, 0.92);
 }
 
-.table > thead > tr > th {
+.table>thead>tr>th {
     background: linear-gradient(90deg, #8d0f1d 0%, #b21829 100%) !important;
     border-color: rgba(255, 255, 255, 0.2) !important;
 }
 
-.table-striped > tbody > tr:nth-of-type(odd) > * {
+.table-striped>tbody>tr:nth-of-type(odd)>* {
     background-color: rgba(243, 232, 225, 0.45);
 }
 
-.table-hover > tbody > tr:hover > * {
+.table-hover>tbody>tr:hover>* {
     background-color: rgba(250, 227, 220, 0.72);
 }
 
@@ -769,6 +793,8 @@ h6,
 
     .container-xxl.flex-grow-1.container-p-y {
         padding-top: 1rem !important;
+        padding-left: 0.85rem !important;
+        padding-right: 0.85rem !important;
     }
 
     .btn {
@@ -776,11 +802,406 @@ h6,
     }
 }
 
+/* ================================================================ */
+/* MOBILE LAYOUT HARD FIX (Finance + Portal Pegawai)                */
+/* ================================================================ */
+@media (max-width: 1199.98px) {
+    html,
+    body {
+        overflow-x: hidden;
+    }
+
+    .layout-menu {
+        left: 0 !important;
+        top: 0 !important;
+        height: 100dvh !important;
+        transform: translateX(-102%) !important;
+        transition: transform 0.24s ease !important;
+        z-index: 1105 !important;
+    }
+
+    .layout-page {
+        margin-left: 0 !important;
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    .layout-navbar {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        height: 56px !important;
+        min-height: 56px !important;
+        max-height: 56px !important;
+    }
+
+    .content-wrapper {
+        min-height: calc(100dvh - 56px);
+    }
+
+    .content-wrapper::before {
+        height: 14px;
+        flex: 0 0 14px;
+    }
+
+    .container-xxl.flex-grow-1.container-p-y {
+        padding-top: 0.9rem !important;
+        padding-bottom: 0.9rem !important;
+    }
+
+    .content-footer .container-xxl {
+        padding-left: 0.8rem !important;
+        padding-right: 0.8rem !important;
+    }
+
+    .layout-overlay {
+        z-index: 1100 !important;
+    }
+
+    html.layout-menu-expanded .layout-menu,
+    body.layout-menu-expanded .layout-menu,
+    .layout-wrapper.layout-menu-expanded .layout-menu {
+        transform: translateX(0) !important;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .container-xxl.flex-grow-1.container-p-y {
+        padding-left: 0.7rem !important;
+        padding-right: 0.7rem !important;
+    }
+
+    .layout-navbar .navbar-nav .nav-link {
+        padding-left: 0.35rem !important;
+        padding-right: 0.35rem !important;
+    }
+
+    .card {
+        border-radius: 12px !important;
+    }
+
+    .table-responsive {
+        border-radius: 12px;
+    }
+
+    .btn {
+        min-height: 40px !important;
+    }
+}
+
+/* ================================================================ */
+/* MY PORTAL MOBILE MODE                                             */
+/* ================================================================ */
+@media (max-width: 991.98px) {
+    .my-portal-scope .layout-menu,
+    .layout-wrapper[data-active-menu^="my."] .layout-menu,
+    .layout-wrapper[data-current-url^="my"] .layout-menu {
+        display: none !important;
+    }
+
+    .my-portal-scope .layout-page,
+    .layout-wrapper[data-active-menu^="my."] .layout-page,
+    .layout-wrapper[data-current-url^="my"] .layout-page {
+        margin-left: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .my-portal-scope .layout-navbar .layout-menu-toggle,
+    .layout-wrapper[data-active-menu^="my."] .layout-navbar .layout-menu-toggle,
+    .layout-wrapper[data-current-url^="my"] .layout-navbar .layout-menu-toggle {
+        display: none !important;
+        width: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+    }
+
+    .my-portal-scope .layout-navbar,
+    .layout-wrapper[data-active-menu^="my."] .layout-navbar,
+    .layout-wrapper[data-current-url^="my"] .layout-navbar {
+        background: rgba(255, 255, 255, 0.9) !important;
+        border-bottom: 1px solid rgba(228, 217, 208, 0.7) !important;
+    }
+
+    .my-portal-scope .container-xxl.flex-grow-1.container-p-y,
+    .layout-wrapper[data-active-menu^="my."] .container-xxl.flex-grow-1.container-p-y,
+    .layout-wrapper[data-current-url^="my"] .container-xxl.flex-grow-1.container-p-y {
+        padding-top: 0.75rem !important;
+        padding-left: 0.7rem !important;
+        padding-right: 0.7rem !important;
+    }
+
+    .my-mobile-shell {
+        display: block;
+        border-radius: 14px;
+        padding: 0.8rem;
+        background: rgba(255, 255, 255, 0.68);
+        border: 1px solid rgba(214, 194, 180, 0.5);
+        box-shadow: 0 8px 24px rgba(60, 30, 28, 0.08);
+        margin-bottom: 0.85rem;
+    }
+
+    .my-mobile-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.7rem;
+        margin-bottom: 0.7rem;
+    }
+
+    .my-mobile-title {
+        font-size: 1.22rem;
+        font-weight: 800;
+        color: #2f2326;
+        line-height: 1.1;
+        margin: 0;
+    }
+
+    .my-mobile-sub {
+        font-size: 0.84rem;
+        color: #7d686d;
+        margin: 0.2rem 0 0;
+        line-height: 1.45;
+    }
+
+    .my-mobile-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.6rem;
+    }
+
+    .my-mobile-tile {
+        border-radius: 12px;
+        border: 1px solid rgba(220, 205, 194, 0.8);
+        background: #fff;
+        padding: 0.72rem;
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        min-height: 66px;
+        text-decoration: none;
+        color: #37292d;
+    }
+
+    .my-mobile-tile:hover {
+        color: #37292d;
+        background: #fff8f5;
+        transform: translateY(-1px);
+    }
+
+    .my-mobile-tile-icon {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 10px;
+        background: rgba(192, 57, 43, 0.14);
+        color: #9d1b1b;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+        flex-shrink: 0;
+    }
+
+    .my-mobile-tile-text {
+        font-size: 0.82rem;
+        font-weight: 700;
+        line-height: 1.25;
+    }
+
+    .my-bottom-nav {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1110;
+        height: 64px;
+        background: rgba(255, 255, 255, 0.96);
+        border-top: 1px solid rgba(218, 201, 189, 0.95);
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        box-shadow: 0 -10px 26px rgba(57, 29, 28, 0.12);
+        backdrop-filter: blur(10px);
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .my-bottom-nav-link {
+        min-height: 64px;
+        text-decoration: none;
+        color: #7e686d;
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.12rem;
+        font-size: 0.66rem;
+        font-weight: 700;
+    }
+
+    .my-bottom-nav-link i {
+        font-size: 1.1rem;
+        line-height: 1;
+    }
+
+    .my-bottom-nav-link.is-active {
+        color: #9d1b1b;
+    }
+
+    .my-bottom-nav-link.is-active i {
+        transform: translateY(-1px);
+    }
+
+    .my-portal-scope .content-wrapper,
+    .layout-wrapper[data-active-menu^="my."] .content-wrapper,
+    .layout-wrapper[data-current-url^="my"] .content-wrapper {
+        padding-bottom: calc(70px + env(safe-area-inset-bottom));
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
+
     .container-xxl.flex-grow-1.container-p-y,
     .card,
     .btn {
         animation: none !important;
         transition: none !important;
+    }
+}
+
+/* ================================================================ */
+/* HEADER TOP GAP FIX                                                */
+/* ================================================================ */
+html.layout-navbar-fixed body .layout-wrapper.layout-content-navbar>.layout-container>.layout-page,
+html.layout-navbar-fixed body .layout-wrapper.layout-content-navbar .content-wrapper,
+body .layout-wrapper.layout-content-navbar>.layout-container>.layout-page,
+body .layout-wrapper.layout-content-navbar .content-wrapper {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
+
+html body .layout-wrapper .layout-page #layout-navbar {
+    top: 0 !important;
+    margin-top: 0 !important;
+}
+
+/* Matikan spacer bawaan Materio yang bikin jarak putih di atas navbar */
+html.layout-navbar-fixed .layout-wrapper:not(.layout-horizontal) .layout-page::before,
+html.layout-navbar-fixed .layout-content-navbar .layout-page::before,
+body .layout-wrapper .layout-page::before {
+    display: none !important;
+    content: none !important;
+    height: 0 !important;
+    min-height: 0 !important;
+}
+
+html.layout-navbar-fixed .layout-navbar,
+body .layout-navbar {
+    top: 0 !important;
+}
+
+/* Hard lock desktop/tablet navbar layout to eliminate top gaps */
+html.layout-navbar-fixed .layout-wrapper.layout-content-navbar .layout-page {
+    padding-top: 60px !important;
+}
+
+html.layout-navbar-fixed .layout-wrapper.layout-content-navbar .layout-page .content-wrapper {
+    min-height: calc(100vh - 60px) !important;
+}
+
+html.layout-navbar-fixed .layout-wrapper.layout-content-navbar .layout-navbar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 280px !important;
+    right: 0 !important;
+    width: auto !important;
+    inset-inline: auto 0 !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    z-index: 1200 !important;
+}
+
+html.layout-navbar-fixed .container-p-y:not([class^=pt-]):not([class*=" pt-"]) {
+    padding-top: 1rem !important;
+    padding-block-start: 1rem !important;
+}
+
+@media (max-width: 1199.98px) {
+    html.layout-navbar-fixed .layout-wrapper.layout-content-navbar .layout-page {
+        padding-top: 56px !important;
+    }
+
+    html.layout-navbar-fixed .layout-wrapper.layout-content-navbar .layout-page .content-wrapper {
+        min-height: calc(100vh - 56px) !important;
+    }
+
+    html.layout-navbar-fixed .layout-wrapper.layout-content-navbar .layout-navbar {
+        left: 0 !important;
+    }
+}
+
+/* Absolute hard-fix (wins over sticky/inset/margin conflicts) */
+.layout-wrapper .layout-page .fin-navbar-hardfix {
+    position: fixed !important;
+    top: 0 !important;
+    margin-top: 0 !important;
+    inset-block-start: 0 !important;
+    transform: none !important;
+    width: auto !important;
+    right: 0 !important;
+    left: 280px !important;
+    z-index: 1300 !important;
+}
+
+.layout-wrapper .layout-page {
+    padding-top: 68px !important;
+}
+
+.layout-wrapper .layout-page .content-wrapper > .container-xxl.container-p-y {
+    padding-top: 1.5rem !important;
+}
+
+@media (max-width: 1199.98px) {
+    .layout-wrapper .layout-page .fin-navbar-hardfix {
+        left: 0 !important;
+    }
+
+    .layout-wrapper .layout-page {
+        padding-top: 60px !important;
+    }
+
+    .layout-wrapper .layout-page .content-wrapper > .container-xxl.container-p-y {
+        padding-top: 1.15rem !important;
+    }
+}
+
+/* ================================================================ */
+/* MY ATTENDANCE MOBILE FIX                                          */
+/* ================================================================ */
+.my-portal-scope .my-attendance-check-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+    align-items: end;
+}
+
+.my-portal-scope .my-attendance-check-form {
+    min-width: 0;
+}
+
+.my-portal-scope .my-attendance-location {
+    min-width: 0 !important;
+    width: 100%;
+}
+
+@media (max-width: 767.98px) {
+    .my-portal-scope .my-attendance-check-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .my-portal-scope .my-attendance-check-form .btn {
+        width: 100%;
+    }
+
+    .my-portal-scope .card .card-body {
+        overflow-x: hidden;
     }
 }

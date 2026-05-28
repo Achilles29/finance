@@ -48,7 +48,6 @@ $sections = [
 
 $usageCount = (int)($summary['usage_count'] ?? 0);
 $componentName = (string)($component['component_name'] ?? '-');
-$componentCode = (string)($component['component_code'] ?? '-');
 $componentType = strtoupper((string)($component['component_type'] ?? '-'));
 $componentUom = (string)($component['uom_name'] ?? '-');
 ?>
@@ -59,7 +58,6 @@ $componentUom = (string)($component['uom_name'] ?? '-');
       <h4 class="fin-page-title mb-1"><?php echo html_escape($componentName); ?></h4>
       <p class="fin-page-subtitle mb-0">Pemakaian component ini dipisah ringkas ke BASE, PREPARE, dan PRODUK agar lebih cepat dibaca.</p>
       <div class="d-flex gap-2 flex-wrap mt-2">
-        <span class="badge bg-light text-dark border"><?php echo html_escape($componentCode); ?></span>
         <span class="badge bg-light text-dark border"><?php echo html_escape($componentType); ?></span>
         <span class="badge bg-light text-dark border"><?php echo html_escape($componentUom); ?></span>
         <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle"><?php echo number_format($usageCount, 0, ',', '.'); ?> pemakai unik</span>
@@ -92,7 +90,6 @@ $componentUom = (string)($component['uom_name'] ?? '-');
             <table class="table table-sm table-hover align-middle mb-0">
               <thead>
                 <tr>
-                  <th style="width:180px;">Kode</th>
                   <th>Nama</th>
                   <th style="width:180px;">Divisi</th>
                   <th class="text-end" style="width:110px;">Line</th>
@@ -105,7 +102,6 @@ $componentUom = (string)($component['uom_name'] ?? '-');
                       ? site_url('master/relation/product-recipe/' . (int)($row['target_id'] ?? 0))
                       : site_url('production/component-formulas/detail/' . (int)($row['target_id'] ?? 0)); ?>
                   <tr>
-                    <td><?php echo html_escape((string)($row['target_code'] ?? '-')); ?></td>
                     <td class="fw-semibold"><?php echo html_escape((string)($row['target_name'] ?? '-')); ?></td>
                     <td><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>
                     <td class="text-end"><?php echo number_format((int)($row['usage_line_count'] ?? 0), 0, ',', '.'); ?></td>

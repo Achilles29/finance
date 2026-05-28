@@ -55,11 +55,17 @@ class Master_model extends CI_Model
         return $this->db->get()->result_array();
     }
 
-    public function count_filtered(string $table, array $searchable, string $q = '', ?int $isActive = null): int
+    public function count_filtered(string $table, array $searchable, string $q = '', ?int $isActive = null, array $filters = []): int
     {
         $this->db->from($table);
         if ($isActive !== null && $this->db->field_exists('is_active', $table)) {
             $this->db->where('is_active', $isActive);
+        }
+        foreach ($filters as $field => $value) {
+            if ($value === null || $value === '' || !$this->db->field_exists($field, $table)) {
+                continue;
+            }
+            $this->db->where($field, $value);
         }
         if ($q !== '' && !empty($searchable)) {
             $this->db->group_start();
@@ -75,11 +81,21 @@ class Master_model extends CI_Model
         return (int)$this->db->count_all_results();
     }
 
-    public function get_filtered(string $table, array $searchable, string $q, int $limit, int $offset, string $orderBy = 'id', string $orderDir = 'DESC', ?int $isActive = null): array
+    public function get_filtered(string $table, array $searchable, string $q, int $limit, int $offset, string $orderBy = 'id', string $orderDir = 'DESC', ?int $isActive = null, array $filters = []): array
     {
+        if (in_array($table, ['mst_product_division', 'mst_product_classification', 'mst_product_category', 'mst_product'], true)) {
+            return $this->get_grouped_product_master_filtered($table, $searchable, $q, $limit, $offset, $isActive, $filters);
+        }
+
         $this->db->from($table);
         if ($isActive !== null && $this->db->field_exists('is_active', $table)) {
             $this->db->where('is_active', $isActive);
+        }
+        foreach ($filters as $field => $value) {
+            if ($value === null || $value === '' || !$this->db->field_exists($field, $table)) {
+                continue;
+            }
+            $this->db->where($field, $value);
         }
         if ($q !== '' && !empty($searchable)) {
             $this->db->group_start();
@@ -122,9 +138,16 @@ class Master_model extends CI_Model
 
     public function get_options(string $table, string $valueCol = 'id', string $labelCol = 'name', bool $activeOnly = true): array
     {
+        if (in_array($table, ['mst_product_classification', 'mst_product_category', 'mst_product'], true)) {
+            return $this->get_grouped_product_master_options($table, $valueCol, $labelCol, $activeOnly);
+        }
+
         $this->db->select($valueCol . ' AS value, ' . $labelCol . ' AS label', false);
         if ($activeOnly && $this->db->field_exists('is_active', $table)) {
             $this->db->where('is_active', 1);
+        }
+        if ($this->db->field_exists('sort_order', $table)) {
+            $this->db->order_by('sort_order', 'ASC');
         }
         $this->db->order_by($labelCol, 'ASC');
         return $this->db->get($table)->result_array();
@@ -207,5 +230,126 @@ class Master_model extends CI_Model
         }
 
         return $initials !== '' ? $initials : 'CODE';
+    }
+
+    private function get_grouped_product_master_filtered(string $table, array $searchable, string $q, int $limit, int $offset, ?int $isActive = null, array $filters = []): array
+    {
+        $alias = 't';
+
+        $select = [$alias . '.*'];
+        if ($table === 'mst_product_division') {
+            $select[] = '(SELECT COUNT(1) FROM mst_product_classification pc WHERE pc.product_division_id = t.id) AS total_classification';
+            $select[] = '(SELECT COUNT(1) FROM mst_product_category cat WHERE cat.product_division_id = t.id) AS total_category';
+            $select[] = '(SELECT COUNT(1) FROM mst_product p WHERE p.product_division_id = t.id) AS total_product';
+        } elseif ($table === 'mst_product_classification') {
+            $select[] = '(SELECT COUNT(1) FROM mst_product_category cat WHERE cat.classification_id = t.id) AS total_category';
+            $select[] = '(SELECT COUNT(1) FROM mst_product p WHERE p.classification_id = t.id) AS total_product';
+        } elseif ($table === 'mst_product_category') {
+            $select[] = '(SELECT COUNT(1) FROM mst_product p WHERE p.product_category_id = t.id) AS total_product';
+        }
+
+        $this->db->select(implode(', ', $select), false);
+        $this->db->from($table . ' ' . $alias);
+
+        if ($table === 'mst_product_classification') {
+            $this->db->join('mst_product_division pd', 'pd.id = t.product_division_id', 'left');
+        } elseif ($table === 'mst_product_category') {
+            $this->db->join('mst_product_division pd', 'pd.id = t.product_division_id', 'left');
+            $this->db->join('mst_product_classification pc', 'pc.id = t.classification_id', 'left');
+        } elseif ($table === 'mst_product') {
+            $this->db->join('mst_product_division pd', 'pd.id = t.product_division_id', 'left');
+            $this->db->join('mst_product_classification pc', 'pc.id = t.classification_id', 'left');
+            $this->db->join('mst_product_category cat', 'cat.id = t.product_category_id', 'left');
+        }
+
+        if ($isActive !== null && $this->db->field_exists('is_active', $table)) {
+            $this->db->where($alias . '.is_active', $isActive);
+        }
+        foreach ($filters as $field => $value) {
+            if ($value === null || $value === '' || !$this->db->field_exists($field, $table)) {
+                continue;
+            }
+            $this->db->where($alias . '.' . $field, $value);
+        }
+        if ($q !== '' && !empty($searchable)) {
+            $this->db->group_start();
+            foreach ($searchable as $i => $col) {
+                $field = $alias . '.' . $col;
+                if ($i === 0) {
+                    $this->db->like($field, $q);
+                } else {
+                    $this->db->or_like($field, $q);
+                }
+            }
+            $this->db->group_end();
+        }
+
+        $this->apply_grouped_product_master_order($table, $alias);
+        $this->db->limit($limit, $offset);
+
+        return $this->db->get()->result_array();
+    }
+
+    private function get_grouped_product_master_options(string $table, string $valueCol, string $labelCol, bool $activeOnly): array
+    {
+        $alias = 't';
+
+        $this->db->select($alias . '.' . $valueCol . ' AS value, ' . $alias . '.' . $labelCol . ' AS label', false);
+        $this->db->from($table . ' ' . $alias);
+
+        if ($table === 'mst_product_classification') {
+            $this->db->join('mst_product_division pd', 'pd.id = t.product_division_id', 'left');
+        } elseif ($table === 'mst_product_category') {
+            $this->db->join('mst_product_division pd', 'pd.id = t.product_division_id', 'left');
+            $this->db->join('mst_product_classification pc', 'pc.id = t.classification_id', 'left');
+        } elseif ($table === 'mst_product') {
+            $this->db->join('mst_product_division pd', 'pd.id = t.product_division_id', 'left');
+            $this->db->join('mst_product_classification pc', 'pc.id = t.classification_id', 'left');
+            $this->db->join('mst_product_category cat', 'cat.id = t.product_category_id', 'left');
+        }
+
+        if ($activeOnly && $this->db->field_exists('is_active', $table)) {
+            $this->db->where($alias . '.is_active', 1);
+        }
+
+        $this->apply_grouped_product_master_order($table, $alias);
+        $this->db->order_by($alias . '.' . $labelCol, 'ASC');
+
+        return $this->db->get()->result_array();
+    }
+
+    private function apply_grouped_product_master_order(string $table, string $alias = 't'): void
+    {
+        if ($table === 'mst_product_division') {
+            $this->db->order_by($alias . '.sort_order', 'ASC');
+            $this->db->order_by($alias . '.id', 'ASC');
+            return;
+        }
+
+        $this->db->order_by('pd.sort_order', 'ASC');
+        $this->db->order_by('pd.id', 'ASC');
+
+        if ($table === 'mst_product_classification') {
+            $this->db->order_by($alias . '.sort_order', 'ASC');
+            $this->db->order_by($alias . '.id', 'ASC');
+            return;
+        }
+
+        if ($table === 'mst_product_category') {
+            $this->db->order_by('pc.sort_order', 'ASC');
+            $this->db->order_by('pc.id', 'ASC');
+            $this->db->order_by($alias . '.sort_order', 'ASC');
+            $this->db->order_by($alias . '.id', 'ASC');
+            return;
+        }
+
+        if ($table === 'mst_product') {
+            $this->db->order_by('pc.sort_order', 'ASC');
+            $this->db->order_by('pc.id', 'ASC');
+            $this->db->order_by('cat.sort_order', 'ASC');
+            $this->db->order_by('cat.id', 'ASC');
+            $this->db->order_by($alias . '.product_name', 'ASC');
+            $this->db->order_by($alias . '.id', 'ASC');
+        }
     }
 }

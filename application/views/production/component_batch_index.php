@@ -34,6 +34,28 @@ $locationGroupLabel = static function ($locationType): string {
     font-size: 0.74rem;
     letter-spacing: 0.02em;
   }
+  .component-batch-inline-meta {
+    margin-top: 0.35rem;
+  }
+  .component-batch-inline-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #8a6a52;
+  }
+  .component-batch-inline-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin: 0.15rem 0.3rem 0 0;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid #e6d8c8;
+    background: #f8f4ee;
+    font-size: 0.76rem;
+    color: #5d4636;
+  }
 </style>
 
 <div class="mb-3">
@@ -227,14 +249,60 @@ $locationGroupLabel = static function ($locationType): string {
                 <td><?php echo html_escape((string)($row['batch_no'] ?? '')); ?></td>
                 <td><?php echo html_escape((string)($row['batch_date'] ?? '')); ?></td>
                 <td><?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? ''))); ?></td>
-                <td><?php echo html_escape((string)($row['component_code'] ?? '')); ?> - <?php echo html_escape((string)($row['component_name'] ?? '')); ?></td>
+                <td>
+                  <div><?php echo html_escape((string)($row['component_name'] ?? '')); ?></div>
+                  <?php $inlineSummary = is_array($row['inline_summary'] ?? null) ? $row['inline_summary'] : []; ?>
+                  <?php $inlineOutputs = is_array($inlineSummary['outputs'] ?? null) ? $inlineSummary['outputs'] : []; ?>
+                  <?php $inlineUsages = is_array($inlineSummary['usages'] ?? null) ? $inlineSummary['usages'] : []; ?>
+                  <?php if (!empty($inlineSummary['has_inline'])): ?>
+                    <div class="component-batch-inline-meta small text-muted">
+                      <?php if (!empty($inlineOutputs)): ?>
+                        <div class="mt-1">
+                          <span class="component-batch-inline-label">Inline Output</span>
+                          <?php foreach ($inlineOutputs as $inlineRow): ?>
+                            <span class="component-batch-inline-chip">
+                              <?php echo html_escape((string)($inlineRow['component_name'] ?? '-')); ?>
+                              <span class="text-muted"><?php echo number_format((float)($inlineRow['qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($inlineRow['uom_code'] ?? '')); ?></span>
+                            </span>
+                          <?php endforeach; ?>
+                        </div>
+                      <?php endif; ?>
+                      <?php if (!empty($inlineUsages)): ?>
+                        <div class="mt-1">
+                          <span class="component-batch-inline-label">Inline Pakai</span>
+                          <?php foreach ($inlineUsages as $inlineRow): ?>
+                            <span class="component-batch-inline-chip">
+                              <?php echo html_escape((string)($inlineRow['component_name'] ?? '-')); ?>
+                              <span class="text-muted"><?php echo number_format((float)($inlineRow['qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($inlineRow['uom_code'] ?? '')); ?></span>
+                            </span>
+                          <?php endforeach; ?>
+                        </div>
+                      <?php endif; ?>
+                    </div>
+                  <?php endif; ?>
+                </td>
                 <td><?php echo number_format((float)($row['output_qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($row['uom_code'] ?? '')); ?></td>
-                <td><?php echo ui_status_badge((string)($row['status'] ?? 'DRAFT')); ?></td>
+                <td>
+                  <div><?php echo ui_status_badge((string)($row['status'] ?? 'DRAFT')); ?></div>
+                  <?php if (strtoupper((string)($row['status'] ?? '')) === 'POSTED'): ?>
+                    <?php if (!empty($row['can_void'])): ?>
+                      <div class="mt-1"><span class="badge text-bg-success" title="Batch ini belum terdeteksi dipakai dokumen lain.">Siap Void</span></div>
+                    <?php else: ?>
+                      <div class="mt-1"><span class="badge text-bg-warning" title="<?php echo html_escape((string)($row['void_block_reason'] ?? 'Batch ini sudah dipakai dokumen lain.')); ?>">Tidak Bisa Void</span></div>
+                    <?php endif; ?>
+                  <?php endif; ?>
+                </td>
                 <td class="component-action-cell">
                   <?php if (strtoupper((string)($row['status'] ?? '')) === 'DRAFT'): ?>
                     <div class="component-action-stack">
-                      <button type="button" class="btn btn-outline-success action-icon-btn component-action-btn btn-post" data-id="<?php echo (int)$row['id']; ?>" title="Post" aria-label="Post"><i class="ri ri-upload-2-line"></i></button>
+                      <button type="button" class="btn btn-outline-success action-icon-btn component-action-btn btn-post" data-id="<?php echo (int)$row['id']; ?>" title="Post" aria-label="Post"><i class="ri ri-checkbox-circle-line"></i></button>
                       <button type="button" class="btn btn-outline-danger action-icon-btn component-action-btn btn-del" data-id="<?php echo (int)$row['id']; ?>" title="Delete" aria-label="Delete"><i class="ri ri-delete-bin-line"></i></button>
+                    </div>
+                  <?php elseif (strtoupper((string)($row['status'] ?? '')) === 'POSTED'): ?>
+                    <div class="component-action-stack">
+                      <a href="<?php echo site_url('production/component-batches/detail/' . (int)$row['id']); ?>" class="btn btn-outline-info action-icon-btn component-action-btn" title="Buka Detail Batch" aria-label="Buka Detail Batch"><i class="ri ri-eye-line"></i></a>
+                      <button type="button" class="btn btn-outline-secondary action-icon-btn component-action-btn btn-usage" data-id="<?php echo (int)$row['id']; ?>" title="Ringkasan Pemakaian dan Trace Inline" aria-label="Ringkasan Pemakaian dan Trace Inline"><i class="ri ri-information-line"></i></button>
+                      <button type="button" class="btn btn-outline-warning action-icon-btn component-action-btn btn-void" data-id="<?php echo (int)$row['id']; ?>" title="<?php echo html_escape(!empty($row['can_void']) ? 'Void' : ((string)($row['void_block_reason'] ?? 'Tidak bisa di-void'))); ?>" aria-label="Void" <?php echo !empty($row['can_void']) ? '' : 'disabled'; ?>><i class="ri ri-close-circle-line"></i></button>
                     </div>
                   <?php endif; ?>
                 </td>
@@ -247,6 +315,20 @@ $locationGroupLabel = static function ($locationType): string {
   </div>
 </div>
 
+<div class="modal fade" id="componentBatchUsageModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Pemakaian Output Batch</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="componentBatchUsageBody">
+        <div class="text-muted">Memuat detail pemakaian batch...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <?php $this->load->view('production/_ajax_picker_helper'); ?>
 
 <script>
@@ -254,6 +336,9 @@ $locationGroupLabel = static function ($locationType): string {
   const previewUrl = '<?php echo site_url('production/component-batches/preview'); ?>';
   const saveUrl = '<?php echo site_url('production/component-batches/save'); ?>';
   const postBaseUrl = '<?php echo site_url('production/component-batches/post'); ?>';
+  const usageBaseUrl = '<?php echo site_url('production/component-batches/usage'); ?>';
+  const usageDetailBaseUrl = '<?php echo site_url('production/component-batches/detail'); ?>';
+  const voidBaseUrl = '<?php echo site_url('production/component-batches/void'); ?>';
   const deleteBaseUrl = '<?php echo site_url('production/component-batches/delete'); ?>';
 
   const alertHost = document.getElementById('component-batch-alert');
@@ -287,6 +372,9 @@ $locationGroupLabel = static function ($locationType): string {
   const locationHelp = document.getElementById('batch-location-help');
   const outputHelp = document.getElementById('batch-output-help');
   const saveButton = document.getElementById('batch-save-btn');
+  const usageModalEl = document.getElementById('componentBatchUsageModal');
+  const usageModalBody = document.getElementById('componentBatchUsageBody');
+  const usageModal = usageModalEl && window.bootstrap ? new window.bootstrap.Modal(usageModalEl) : null;
   let outputDivisionCode = '';
   let outputDivisionName = '';
   let currentPreview = null;
@@ -339,7 +427,11 @@ $locationGroupLabel = static function ($locationType): string {
     if (window.FinanceUI && typeof window.FinanceUI.confirm === 'function') {
       return window.FinanceUI.confirm(message, options || {});
     }
-    return Promise.resolve(window.confirm(String(message || 'Lanjutkan aksi?')));
+    if (window.FinanceUI && typeof window.FinanceUI.alert === 'function') {
+      return window.FinanceUI.alert('Modal konfirmasi tidak tersedia. Muat ulang halaman lalu coba lagi.', { title: 'UI Belum Siap' })
+        .then(function () { return false; });
+    }
+    return Promise.resolve(false);
   }
 
   function pickerLabel(row) {
@@ -629,11 +721,36 @@ $locationGroupLabel = static function ($locationType): string {
     schedulePreview();
   });
   batchCount?.addEventListener('input', schedulePreview);
+  batchCount?.addEventListener('change', schedulePreview);
   referenceLineNo?.addEventListener('change', schedulePreview);
   referenceActualQty?.addEventListener('input', schedulePreview);
+  referenceActualQty?.addEventListener('change', schedulePreview);
+
+  function setButtonBusy(button, label) {
+    if (!button) {
+      return;
+    }
+    if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') {
+      window.FinanceUI.setButtonLoading(button, label);
+      return;
+    }
+    button.disabled = true;
+  }
+
+  function clearButtonBusy(button) {
+    if (!button) {
+      return;
+    }
+    if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+      window.FinanceUI.clearButtonLoading(button);
+      return;
+    }
+    button.disabled = false;
+  }
 
   form?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const submitButton = event.submitter || form.querySelector('button[type="submit"]');
     const formData = new FormData(form);
     const payload = {
       batch_date: String(formData.get('batch_date') || ''),
@@ -681,11 +798,13 @@ $locationGroupLabel = static function ($locationType): string {
       renderAlert('warning', 'Batch masih memiliki shortage. Perbaiki ketersediaan bahan atau component terlebih dahulu.');
       return;
     }
+    setButtonBusy(submitButton, 'Menyimpan batch...');
     try {
       await postJson(saveUrl, payload);
       window.location.reload();
     } catch (error) {
       renderAlert('danger', error.message || 'Gagal menyimpan batch.');
+      clearButtonBusy(submitButton);
     }
   });
 
@@ -699,11 +818,13 @@ $locationGroupLabel = static function ($locationType): string {
       }))) {
         return;
       }
+      setButtonBusy(button, 'Posting...');
       try {
         await postJson(postBaseUrl + '/' + button.dataset.id, {});
         window.location.reload();
       } catch (error) {
         renderAlert('danger', error.message || 'Gagal post batch.');
+        clearButtonBusy(button);
       }
     });
   });
@@ -718,11 +839,130 @@ $locationGroupLabel = static function ($locationType): string {
       }))) {
         return;
       }
+      setButtonBusy(button, 'Menghapus...');
       try {
         await postJson(deleteBaseUrl + '/' + button.dataset.id, {});
         window.location.reload();
       } catch (error) {
         renderAlert('danger', error.message || 'Gagal menghapus batch.');
+        clearButtonBusy(button);
+      }
+    });
+  });
+
+  document.querySelectorAll('.btn-void').forEach((button) => {
+    button.addEventListener('click', async () => {
+      button.blur();
+      if (!(await uiConfirm('VOID hanya bisa dilakukan jika output batch belum dipakai. Lanjutkan?', {
+        title: 'Void Batch Produksi',
+        okText: 'Void Batch',
+        cancelText: 'Batal'
+      }))) {
+        return;
+      }
+      setButtonBusy(button, 'Void...');
+      try {
+        await postJson(voidBaseUrl + '/' + button.dataset.id, {});
+        window.location.reload();
+      } catch (error) {
+        renderAlert('danger', error.message || 'Gagal void batch.');
+        clearButtonBusy(button);
+      }
+    });
+  });
+
+  function renderUsageDetail(detail) {
+    const traceRows = Array.isArray(detail.trace_rows) ? detail.trace_rows : [];
+    const materialInputs = Array.isArray(detail.material_inputs) ? detail.material_inputs : [];
+    const movementUsages = Array.isArray(detail.movement_usages) ? detail.movement_usages : [];
+    const batchUsages = Array.isArray(detail.batch_usages) ? detail.batch_usages : [];
+    const lotIssueUsages = Array.isArray(detail.lot_issue_usages) ? detail.lot_issue_usages : [];
+    const header = detail.header || {};
+    const blockReason = String(detail.block_reason || '');
+    const detailUrl = usageDetailBaseUrl + '/' + String(header.id || '0');
+    const summaryBadge = detail.can_void
+      ? '<span class="badge text-bg-success">Batch masih bisa di-void</span>'
+      : '<span class="badge text-bg-warning" title="' + escapeHtml(blockReason) + '">Tidak bisa di-void</span>';
+
+    usageModalBody.innerHTML = '' +
+      '<div class="mb-3">' +
+        '<div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">' +
+          '<div>' +
+        '<div class="fw-semibold">' + escapeHtml(header.batch_no || '-') + ' • ' + escapeHtml(header.component_name || '-') + '</div>' +
+        '<div class="small text-muted">Tanggal ' + escapeHtml(header.batch_date || '-') + ' • Qty ' + escapeHtml(formatQty(header.output_qty || 0)) + ' ' + escapeHtml(header.uom_code || '') + '</div>' +
+        '<div class="mt-2">' + summaryBadge + '</div>' +
+          '</div>' +
+          '<div><a href="' + escapeHtml(detailUrl) + '" class="btn btn-sm btn-outline-info"><i class="ri ri-eye-line me-1"></i>Buka Detail</a></div>' +
+        '</div>' +
+        (blockReason ? '<div class="alert alert-warning mt-2 mb-0">' + escapeHtml(blockReason) + '</div>' : '') +
+      '</div>' +
+      '<div class="mb-3">' +
+        '<h6 class="mb-2">Input Bahan Baku Batch Ini</h6>' +
+        (materialInputs.length ?
+          '<div class="table-responsive"><table class="table table-sm table-striped"><thead><tr><th>Line</th><th>Bahan</th><th class="text-end">Qty</th><th class="text-end">Total Cost</th><th>No FIFO</th></tr></thead><tbody>' +
+          materialInputs.map((row) => '<tr><td>' + escapeHtml(String(row.line_no || 0)) + '</td><td>' + escapeHtml(row.material_label || '-') + '</td><td class="text-end">' + escapeHtml(formatQty(row.qty || 0)) + ' ' + escapeHtml(row.uom_code || '') + '</td><td class="text-end">' + escapeHtml(formatCurrency(row.total_cost || 0)) + '</td><td>' + escapeHtml(row.fifo_issue_no || '-') + '</td></tr>').join('') +
+          '</tbody></table></div>' :
+          '<div class="text-muted small">Batch ini tidak memakai bahan baku langsung atau trace input bahan belum tersedia.</div>') +
+      '</div>' +
+      '<div class="mb-3">' +
+        '<h6 class="mb-2">Trace Produksi Batch Ini</h6>' +
+        (traceRows.length ?
+          '<div class="table-responsive"><table class="table table-sm table-striped"><thead><tr><th>Tahap</th><th>Komponen</th><th>Jenis</th><th class="text-end">Qty In</th><th class="text-end">Qty Out</th></tr></thead><tbody>' +
+          traceRows.map((row) => '<tr><td>' + escapeHtml(row.trace_label || '-') + '</td><td>' + escapeHtml(row.component_name || '-') + '</td><td>' + escapeHtml(row.movement_type_label || row.movement_type || '-') + '</td><td class="text-end">' + escapeHtml(formatQty(row.qty_in || 0)) + ' ' + escapeHtml(row.uom_code || '') + '</td><td class="text-end">' + escapeHtml(formatQty(row.qty_out || 0)) + ' ' + escapeHtml(row.uom_code || '') + '</td></tr>').join('') +
+          '</tbody></table></div>' :
+          '<div class="text-muted small">Belum ada trace posting batch yang tersimpan.</div>') +
+      '</div>' +
+      '<div class="mb-3">' +
+        '<h6 class="mb-2">Dokumen yang memakai output batch</h6>' +
+        (batchUsages.length ?
+          '<div class="table-responsive"><table class="table table-sm table-striped"><thead><tr><th>Batch</th><th>Tanggal</th><th>Output</th><th class="text-end">Qty Pakai</th></tr></thead><tbody>' +
+          batchUsages.map((row) => '<tr><td>' + escapeHtml(row.batch_no || '-') + '</td><td>' + escapeHtml(row.batch_date || '-') + '</td><td>' + escapeHtml(row.output_component_name || '-') + '</td><td class="text-end">' + escapeHtml(formatQty(row.qty || 0)) + ' ' + escapeHtml(row.uom_code || '') + '</td></tr>').join('') +
+          '</tbody></table></div>' :
+          '<div class="text-muted small">Belum ada batch lain yang memakai output component ini sebagai input.</div>') +
+      '</div>' +
+      '<div>' +
+        '<h6 class="mb-2">Movement keluar setelah batch ini</h6>' +
+        (movementUsages.length ?
+          '<div class="table-responsive"><table class="table table-sm table-striped"><thead><tr><th>No Movement</th><th>Tanggal</th><th>Jenis</th><th>Sumber</th><th class="text-end">Qty Out</th></tr></thead><tbody>' +
+          movementUsages.map((row) => '<tr><td>' + escapeHtml(row.movement_no || '-') + '</td><td>' + escapeHtml(row.movement_date || '-') + '</td><td>' + escapeHtml(row.movement_type_label || row.movement_type || '-') + '</td><td>' + escapeHtml((row.source_module || '-') + (row.source_id ? (' #' + row.source_id) : '')) + '</td><td class="text-end">' + escapeHtml(formatQty(row.qty_out || 0)) + '</td></tr>').join('') +
+          '</tbody></table></div>' :
+          '<div class="text-muted small">Belum ada movement keluar yang memakai output batch ini.</div>') +
+      '</div>' +
+      '<div class="mt-3">' +
+        '<h6 class="mb-2">Issue FIFO dari lot output batch ini</h6>' +
+        (lotIssueUsages.length ?
+          '<div class="table-responsive"><table class="table table-sm table-striped"><thead><tr><th>No Issue</th><th>Tanggal</th><th>Sumber</th><th>Catatan</th><th class="text-end">Qty Out</th></tr></thead><tbody>' +
+          lotIssueUsages.map((row) => '<tr><td>' + escapeHtml(row.issue_no || '-') + '</td><td>' + escapeHtml(row.issue_date || '-') + '</td><td>' + escapeHtml((row.source_module || '-') + (row.source_id ? (' #' + row.source_id) : '')) + '</td><td>' + escapeHtml(row.notes || '-') + '</td><td class="text-end">' + escapeHtml(formatQty(row.qty_out || 0)) + '</td></tr>').join('') +
+          '</tbody></table></div>' :
+          '<div class="text-muted small">Belum ada issue FIFO yang mengambil lot output batch ini.</div>') +
+      '</div>';
+  }
+
+  document.querySelectorAll('.btn-usage').forEach((button) => {
+    button.addEventListener('click', async () => {
+      button.blur();
+      if (!usageModal || !usageModalBody) {
+        return;
+      }
+      usageModalBody.innerHTML = '<div class="text-muted">Memuat detail pemakaian batch...</div>';
+      usageModal.show();
+      try {
+        const response = await fetch(usageBaseUrl + '/' + button.dataset.id, {
+          headers: {'X-Requested-With': 'XMLHttpRequest'}
+        });
+        const text = await response.text();
+        let json;
+        try {
+          json = JSON.parse(text);
+        } catch (error) {
+          throw new Error('Respons detail usage bukan JSON valid.');
+        }
+        if (!response.ok || !json.ok) {
+          throw new Error(json.message || 'Gagal memuat detail usage batch.');
+        }
+        renderUsageDetail(json);
+      } catch (error) {
+        usageModalBody.innerHTML = '<div class="alert alert-danger mb-0">' + escapeHtml(error.message || 'Gagal memuat detail usage batch.') + '</div>';
       }
     });
   });

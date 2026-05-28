@@ -51,7 +51,7 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
           </select>
         </div>
         <div class="col-md-4">
-          <input id="q" class="form-control" placeholder="Cari kode/nama (ajax search)">
+          <input id="q" class="form-control" placeholder="Cari nama component (ajax search)">
         </div>
         <div class="col-md-1">
           <select class="form-select" id="limit">
@@ -70,7 +70,6 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
         <table class="table table-sm table-hover align-middle">
           <thead>
             <tr>
-              <th>Kode</th>
               <th>Nama</th>
               <th>Tipe</th>
               <th class="text-end">Hasil 1x Produksi</th>
@@ -108,8 +107,7 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
       <div class="modal-body">
         <form id="form-save" class="row g-2">
           <input type="hidden" name="id" value="">
-          <div class="col-md-3"><input class="form-control" name="component_code" placeholder="Kode"></div>
-          <div class="col-md-5"><input class="form-control" name="component_name" placeholder="Nama" required></div>
+          <div class="col-md-8"><input class="form-control" name="component_name" placeholder="Nama" required></div>
           <div class="col-md-4">
             <select class="form-select" name="component_type" id="component_type">
               <option value="BASE">BASE</option>
@@ -266,7 +264,6 @@ function renderRows(rows) {
   emptyState.classList.add('d-none');
   tableBody.innerHTML = rows.map((r) => `
     <tr>
-      <td>${escapeHtml(r.component_code)}</td>
       <td>${escapeHtml(r.component_name)}</td>
       <td>${escapeHtml(r.component_type)}</td>
       <td class="text-end fw-semibold">${Number((r.std_batch_qty ?? r.yield_qty ?? 1) || 1).toLocaleString('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${escapeHtml(r.uom_code || '-')}</td>
@@ -328,6 +325,24 @@ async function loadData(pushHistory = true) {
   renderPagination(json.meta || {total: 0, page: 1, limit: state.limit, total_pages: 1});
 }
 
+function setButtonBusy(button, label) {
+  if (!button) return;
+  if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') {
+    window.FinanceUI.setButtonLoading(button, label);
+    return;
+  }
+  button.disabled = true;
+}
+
+function clearButtonBusy(button) {
+  if (!button) return;
+  if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+    window.FinanceUI.clearButtonLoading(button);
+    return;
+  }
+  button.disabled = false;
+}
+
 function openForCreate() {
   form.reset();
   form.querySelector('[name="id"]').value = '';
@@ -346,7 +361,6 @@ async function openForEdit(id) {
   const row = (json.rows || []).find((x) => parseInt(x.id, 10) === parseInt(id, 10));
   if (!row) throw new Error('Data tidak ditemukan di halaman saat ini.');
   form.querySelector('[name="id"]').value = row.id || '';
-  form.querySelector('[name="component_code"]').value = row.component_code || '';
   form.querySelector('[name="component_name"]').value = row.component_name || '';
   form.querySelector('[name="component_type"]').value = row.component_type || 'BASE';
   applyCategoryTypeFilter(true);
@@ -355,24 +369,28 @@ async function openForEdit(id) {
   form.querySelector('[name="operational_division_id"]').value = row.operational_division_id || '';
   form.querySelector('[name="product_division_id"]').value = row.product_division_id || '';
   form.querySelector('[name="yield_percent"]').value = row.yield_percent || '100';
-  form.querySelector('[name="std_batch_qty"]').value = row.std_batch_qty || '1';
+  form.querySelector('[name="std_batch_qty"]').value = row.std_batch_qty || row.yield_qty || '1';
   form.querySelector('[name="process_loss_percent"]').value = row.process_loss_percent || '0';
   form.querySelector('[name="hpp_standard"]').value = row.hpp_standard || '0';
   form.querySelector('[name="shelf_life_days"]').value = row.shelf_life_days || '0';
-  modalTitle.textContent = `Edit Component: ${row.component_name || row.component_code || row.id}`;
+  modalTitle.textContent = `Edit Component: ${row.component_name || row.id}`;
   if (modal) modal.show();
 }
 
 document.getElementById('btn-new').addEventListener('click', openForCreate);
 form.querySelector('[name="component_type"]').addEventListener('change', applyCategoryTypeFilter);
-document.getElementById('btn-save').addEventListener('click', async () => {
+document.getElementById('btn-save').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
   const payload = Object.fromEntries(new FormData(form).entries());
+  setButtonBusy(button, 'Menyimpan...');
   try {
     await postJson('<?php echo site_url('production/component-masters/save'); ?>', payload);
     if (modal) modal.hide();
     await loadData(false);
   } catch (e) {
     alert(e.message);
+  } finally {
+    clearButtonBusy(button);
   }
 });
 
@@ -447,11 +465,14 @@ tableBody.addEventListener('click', async (e) => {
   }
   const toggleBtn = e.target.closest('.js-toggle');
   if (toggleBtn) {
+    setButtonBusy(toggleBtn, 'Memproses...');
     try {
       await postJson(`<?php echo site_url('production/component-masters/toggle'); ?>/${toggleBtn.dataset.id}`, {});
       await loadData(false);
     } catch (err) {
       alert(err.message);
+    } finally {
+      clearButtonBusy(toggleBtn);
     }
   }
 });

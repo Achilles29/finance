@@ -1153,6 +1153,22 @@ class Purchase_model extends CI_Model
         return $this->limitRowsByProfile($rows, $limit);
     }
 
+    public function get_stock_opening_snapshot(string $scope, int $id): ?array
+    {
+        $scope = strtoupper(trim($scope));
+        if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true) || $id <= 0) {
+            return null;
+        }
+
+        $openingTable = $this->openingSnapshotTableForScope($scope);
+        if (!$this->db->table_exists($openingTable)) {
+            return null;
+        }
+
+        $row = $this->db->get_where($openingTable, ['id' => $id])->row_array();
+        return $row ?: null;
+    }
+
     public function list_warehouse_daily_matrix(string $month, string $q, string $dateFrom, string $dateTo, int $limit): array
     {
         if (!$this->db->table_exists('inv_warehouse_daily_rollup')) {
@@ -2473,6 +2489,15 @@ class Purchase_model extends CI_Model
             'INSERT INTO ' . $openingTable . ' (' . implode(', ', $insertColumns) . ') VALUES (' . $placeholders . ') ON DUPLICATE KEY UPDATE ' . implode(', ', $updateParts),
             $insertValues
         );
+        $snapshotRow = $this->findOpeningSnapshotRowForUpdate($openingTable, $openingCriteria);
+        $snapshotId = (int)($snapshotRow['id'] ?? 0);
+        if ($snapshotId <= 0) {
+            $this->db->trans_rollback();
+            return [
+                'ok' => false,
+                'message' => 'Gagal membaca ulang snapshot opening yang baru disimpan.',
+            ];
+        }
 
         $deltaQtyBuy = round($snapshotQtyBuy - $previousOpeningQtyBuy, 4);
         $deltaQtyContent = round($snapshotQtyContent - $previousOpeningQtyContent, 4);
@@ -2539,7 +2564,7 @@ class Purchase_model extends CI_Model
                 'profile_content_uom_code' => $contentUomCode,
                 'unit_cost' => $avgCost,
                 'ref_table' => $openingTable,
-                'ref_id' => null,
+                'ref_id' => $snapshotId,
                 'adjustment_category' => $adjustmentCategory,
                 'adjustment_reason_code' => $adjustmentReasonCode,
                 'notes' => $ledgerNotes,
@@ -2587,6 +2612,19 @@ class Purchase_model extends CI_Model
                 'message' => (string)($rebuild['message'] ?? 'Gagal rebuild histori opening.'),
             ];
         }
+        $needsLotSync = $stockScope === 'DIVISION'
+            && (
+                empty($existingSnapshot['id'])
+                || abs($snapshotQtyContent - $previousOpeningQtyContent) > 0.0001
+                || abs($snapshotAvgCost - $previousOpeningAvgCost) > 0.000001
+            );
+        if ($needsLotSync) {
+            $lotSync = $this->syncOpeningSnapshotLots($stockScope, $openingTable, $snapshotRow, true);
+            if (!($lotSync['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return $lotSync;
+            }
+        }
 
         if ($this->db->table_exists('aud_transaction_log')) {
             $this->db->insert('aud_transaction_log', [
@@ -2598,6 +2636,7 @@ class Purchase_model extends CI_Model
                 'actor_user_id' => $userId > 0 ? $userId : null,
                 'source_ip' => $sourceIp !== '' ? $sourceIp : null,
                 'after_payload' => json_encode([
+                    'snapshot_id' => $snapshotId,
                     'stock_scope' => $stockScope,
                     'stock_domain' => $stockDomain,
                     'division_id' => $divisionId,
@@ -2634,6 +2673,8 @@ class Purchase_model extends CI_Model
             'message' => 'Opening ' . $scopeLabel . ' berhasil disimpan dan diposting.',
             'data' => [
                 'stock_scope' => $stockScope,
+                'snapshot_id' => $snapshotId,
+                'snapshot_id' => $snapshotId,
                 'division_id' => $divisionId,
                 'destination_type' => $destinationType,
                 'snapshot_month' => $snapshotMonth,
@@ -3249,6 +3290,90 @@ class Purchase_model extends CI_Model
         return ['ok' => true, 'id' => $id, 'rebuild_targets' => count($rebuildTargets)];
     }
 
+    public function void_stock_opening_snapshot(string $scope, int $id, int $userId, string $sourceIp = ''): array
+    {
+        $scope = strtoupper(trim($scope));
+        if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
+            return ['ok' => false, 'message' => 'Scope opening tidak valid.'];
+        }
+
+        $openingTable = $this->openingSnapshotTableForScope($scope);
+        if (!$this->db->table_exists($openingTable)) {
+            return ['ok' => false, 'message' => 'Tabel opening snapshot tidak ditemukan: ' . $openingTable];
+        }
+
+        $snapshot = $this->get_stock_opening_snapshot($scope, $id);
+        if (!$snapshot) {
+            return ['ok' => false, 'message' => 'Opening snapshot tidak ditemukan.'];
+        }
+
+        $identity = $this->buildOpeningSnapshotHistoryIdentity($scope, $snapshot);
+        $startDate = (string)($snapshot['snapshot_month'] ?? '');
+        if ($startDate === '') {
+            return ['ok' => false, 'message' => 'snapshot_month opening tidak valid.'];
+        }
+
+        $this->db->trans_begin();
+
+        $lotSync = $this->syncOpeningSnapshotLots($scope, $openingTable, $snapshot, false);
+        if (!($lotSync['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return $lotSync;
+        }
+
+        $this->db->where('id', $id)->delete($openingTable);
+        $this->purgeOpeningMovementEntries($scope, $openingTable, $startDate, $identity);
+
+        $rebuild = $this->rebuild_inventory_history_from_opening($scope, $startDate, $identity);
+        if (!($rebuild['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return [
+                'ok' => false,
+                'message' => (string)($rebuild['message'] ?? 'Gagal rebuild histori setelah void opening.'),
+            ];
+        }
+
+        if ($this->db->table_exists('aud_transaction_log')) {
+            $this->db->insert('aud_transaction_log', [
+                'module_code' => 'INVENTORY',
+                'action_code' => $scope === 'DIVISION' ? 'DIVISION_OPENING_VOID' : 'WAREHOUSE_OPENING_VOID',
+                'entity_table' => $openingTable,
+                'entity_id' => $id,
+                'transaction_no' => null,
+                'actor_user_id' => $userId > 0 ? $userId : null,
+                'source_ip' => $sourceIp !== '' ? $sourceIp : null,
+                'after_payload' => json_encode([
+                    'stock_scope' => $scope,
+                    'snapshot_id' => $id,
+                    'snapshot_month' => $startDate,
+                    'division_id' => $identity['division_id'] ?? null,
+                    'destination_type' => $identity['destination_type'] ?? null,
+                    'item_id' => $identity['item_id'] ?? null,
+                    'material_id' => $identity['material_id'] ?? null,
+                    'profile_key' => $identity['profile_key'] ?? null,
+                ]),
+                'notes' => 'Opening snapshot di-void dan histori direbuild ulang',
+            ]);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal void opening snapshot.'];
+        }
+
+        $this->db->trans_commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Opening snapshot berhasil di-void.',
+            'data' => [
+                'stock_scope' => $scope,
+                'snapshot_id' => $id,
+                'snapshot_month' => $startDate,
+            ],
+        ];
+    }
+
     private function postStockAdjustmentLine(array $header, array $line, int $userId): array
     {
         $scope = strtoupper((string)($header['stock_scope'] ?? 'WAREHOUSE'));
@@ -3664,6 +3789,90 @@ class Purchase_model extends CI_Model
         $row = $this->db->query($sql, $params)->row_array();
 
         return !empty($row) ? $row : null;
+    }
+
+    private function buildOpeningSnapshotHistoryIdentity(string $stockScope, array $snapshot): array
+    {
+        return [
+            'division_id' => $stockScope === 'DIVISION' && !empty($snapshot['division_id']) ? (int)$snapshot['division_id'] : null,
+            'destination_type' => $stockScope === 'DIVISION' ? strtoupper(trim((string)($snapshot['destination_type'] ?? 'OTHER'))) : null,
+            'stock_domain' => strtoupper(trim((string)($snapshot['stock_domain'] ?? 'ITEM'))),
+            'item_id' => !empty($snapshot['item_id']) ? (int)$snapshot['item_id'] : null,
+            'material_id' => !empty($snapshot['material_id']) ? (int)$snapshot['material_id'] : null,
+            'buy_uom_id' => !empty($snapshot['buy_uom_id']) ? (int)$snapshot['buy_uom_id'] : null,
+            'content_uom_id' => !empty($snapshot['content_uom_id']) ? (int)$snapshot['content_uom_id'] : null,
+            'profile_key' => $this->nullableString($snapshot['profile_key'] ?? null),
+            'profile_name' => $this->nullableString($snapshot['profile_name'] ?? null),
+            'profile_brand' => $this->nullableString($snapshot['profile_brand'] ?? null),
+            'profile_description' => $this->nullableString($snapshot['profile_description'] ?? null),
+            'profile_expired_date' => $this->normalizeDate((string)($snapshot['profile_expired_date'] ?? '')),
+            'profile_content_per_buy' => round((float)($snapshot['profile_content_per_buy'] ?? 0), 6),
+            'profile_buy_uom_code' => $this->nullableString($snapshot['profile_buy_uom_code'] ?? null),
+            'profile_content_uom_code' => $this->nullableString($snapshot['profile_content_uom_code'] ?? null),
+            'avg_cost_per_content' => round((float)($snapshot['opening_avg_cost_per_content'] ?? 0), 6),
+        ];
+    }
+
+    private function syncOpeningSnapshotLots(string $stockScope, string $openingTable, array $snapshot, bool $registerAfterRollback): array
+    {
+        if ($stockScope !== 'DIVISION') {
+            return ['ok' => true];
+        }
+
+        $snapshotId = (int)($snapshot['id'] ?? 0);
+        if ($snapshotId <= 0) {
+            return ['ok' => false, 'message' => 'Snapshot opening belum memiliki ID untuk sinkron lot.'];
+        }
+
+        $this->load->library('MaterialFifoManager');
+        $fifoReady = $this->materialfifomanager->ensureReady();
+        if (!($fifoReady['ok'] ?? false)) {
+            return $fifoReady;
+        }
+
+        $rollback = $this->materialfifomanager->rollbackReceiptInboundLotsBySource($openingTable, $snapshotId, null);
+        if (!($rollback['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'message' => 'Opening snapshot tidak bisa diproses karena lot awal sudah terpakai: ' . (string)($rollback['message'] ?? 'rollback lot gagal.'),
+            ];
+        }
+
+        $qtyContent = round((float)($snapshot['opening_qty_content'] ?? 0), 4);
+        if (!$registerAfterRollback || $qtyContent <= 0) {
+            return ['ok' => true, 'data' => ['lot_count' => 0]];
+        }
+
+        $destinationType = strtoupper(trim((string)($snapshot['destination_type'] ?? 'OTHER')));
+        if ($destinationType === '' || $destinationType === 'ALL') {
+            $destinationType = 'OTHER';
+        }
+
+        $register = $this->materialfifomanager->registerReceiptInboundLot([
+            'location_scope' => 'DIVISION',
+            'division_id' => !empty($snapshot['division_id']) ? (int)$snapshot['division_id'] : null,
+            'destination_type' => $destinationType,
+            'item_id' => !empty($snapshot['item_id']) ? (int)$snapshot['item_id'] : null,
+            'material_id' => !empty($snapshot['material_id']) ? (int)$snapshot['material_id'] : null,
+            'buy_uom_id' => !empty($snapshot['buy_uom_id']) ? (int)$snapshot['buy_uom_id'] : null,
+            'content_uom_id' => !empty($snapshot['content_uom_id']) ? (int)$snapshot['content_uom_id'] : null,
+            'profile_key' => $this->nullableString($snapshot['profile_key'] ?? null),
+            'profile_expired_date' => $this->normalizeDate((string)($snapshot['profile_expired_date'] ?? '')),
+            'qty_content_in' => $qtyContent,
+            'unit_cost' => round((float)($snapshot['opening_avg_cost_per_content'] ?? 0), 6),
+            'receipt_date' => (string)($snapshot['snapshot_month'] ?? date('Y-m-01')),
+            'source_table' => $openingTable,
+            'source_id' => $snapshotId,
+            'source_line_id' => null,
+        ]);
+        if (!($register['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'message' => 'Gagal membentuk lot opening snapshot: ' . (string)($register['message'] ?? 'registrasi lot gagal.'),
+            ];
+        }
+
+        return $register;
     }
 
     private function purgeOpeningMovementEntries(string $stockScope, string $openingTable, string $movementDate, array $identity): void
@@ -4709,6 +4918,33 @@ class Purchase_model extends CI_Model
         $openingHasDestinationType = $this->db->field_exists('destination_type', $openingTable);
         $openingHasProfileExpiredDate = $this->db->field_exists('profile_expired_date', $openingTable);
 
+        $existingAutoOpeningRows = [];
+        if ($stockScope === 'DIVISION') {
+            $this->db->from($openingTable)
+                ->where('snapshot_month', $nextMonth)
+                ->where('source_type', 'AUTO_REBUILD');
+            if ($divisionId !== null) {
+                $this->db->where('division_id', $divisionId);
+            }
+            if ($destinationFilter !== null && $openingHasDestinationType) {
+                if ($destinationFilter === 'REGULER') {
+                    $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                } elseif ($destinationFilter === 'EVENT') {
+                    $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                } else {
+                    $this->db->where('destination_type', $destinationFilter);
+                }
+            }
+            $existingAutoOpeningRows = $this->db->get()->result_array();
+            foreach ($existingAutoOpeningRows as $existingAutoOpeningRow) {
+                $lotSync = $this->syncOpeningSnapshotLots($stockScope, $openingTable, $existingAutoOpeningRow, false);
+                if (!($lotSync['ok'] ?? false)) {
+                    $this->db->trans_rollback();
+                    return $lotSync;
+                }
+            }
+        }
+
         $this->db
             ->where('snapshot_month', $nextMonth)
             ->where('source_type', 'AUTO_REBUILD');
@@ -4771,6 +5007,24 @@ class Purchase_model extends CI_Model
             }
 
             $upsertRow($openingTable, $openingRow, $openingUniqueColumns);
+            if ($stockScope === 'DIVISION') {
+                $syncedOpeningRow = $this->findOpeningSnapshotRowForUpdate($openingTable, [
+                    'snapshot_month' => $nextMonth,
+                    'division_id' => (int)($row['division_id'] ?? 0),
+                    'destination_type' => (string)($row['destination_type'] ?? 'OTHER'),
+                    'stock_domain' => (string)($row['stock_domain'] ?? 'ITEM'),
+                    'item_id' => isset($row['item_id']) ? (int)$row['item_id'] : null,
+                    'material_id' => isset($row['material_id']) ? (int)$row['material_id'] : null,
+                    'buy_uom_id' => isset($row['buy_uom_id']) ? (int)$row['buy_uom_id'] : null,
+                    'content_uom_id' => (int)($row['content_uom_id'] ?? 0),
+                    'profile_key' => (string)($row['profile_key'] ?? ''),
+                ]);
+                $lotSync = $this->syncOpeningSnapshotLots($stockScope, $openingTable, (array)$syncedOpeningRow, true);
+                if (!($lotSync['ok'] ?? false)) {
+                    $this->db->trans_rollback();
+                    return $lotSync;
+                }
+            }
             $carriedRows++;
         }
 
@@ -5432,6 +5686,217 @@ class Purchase_model extends CI_Model
             ->order_by('po.id', 'DESC')
             ->order_by('l.line_no', 'ASC')
             ->limit($limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function get_purchase_report_overview(string $dateFrom, string $dateTo, string $status, int $purchaseTypeId = 0): array
+    {
+        $summary = [
+            'total_po' => 0,
+            'total_line' => 0,
+            'total_qty_buy' => 0.0,
+            'total_value' => 0.0,
+        ];
+
+        if (!$this->db->table_exists('pur_purchase_order') || !$this->db->table_exists('pur_purchase_order_line')) {
+            return $summary;
+        }
+
+        $from = $this->normalizeDate($dateFrom);
+        $to = $this->normalizeDate($dateTo);
+        $status = strtoupper(trim($status));
+
+        $this->db
+            ->select('COUNT(DISTINCT po.id) AS total_po', false)
+            ->select('COUNT(l.id) AS total_line', false)
+            ->select('COALESCE(SUM(l.qty_buy), 0) AS total_qty_buy', false)
+            ->select('COALESCE(SUM(l.line_subtotal), 0) AS total_value', false)
+            ->from('pur_purchase_order po')
+            ->join('pur_purchase_order_line l', 'l.purchase_order_id = po.id', 'inner');
+
+        if ($from !== null) {
+            $this->db->where('po.request_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('po.request_date <=', $to);
+        }
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('po.status', $status);
+        }
+        if ($purchaseTypeId > 0) {
+            $this->db->where('po.purchase_type_id', $purchaseTypeId);
+        }
+
+        $row = $this->db->get()->row_array();
+        if (!$row) {
+            return $summary;
+        }
+
+        $summary['total_po'] = (int)($row['total_po'] ?? 0);
+        $summary['total_line'] = (int)($row['total_line'] ?? 0);
+        $summary['total_qty_buy'] = round((float)($row['total_qty_buy'] ?? 0), 2);
+        $summary['total_value'] = round((float)($row['total_value'] ?? 0), 2);
+        return $summary;
+    }
+
+    public function list_purchase_report_monthly(string $dateFrom, string $dateTo, string $status, int $purchaseTypeId = 0): array
+    {
+        if (!$this->db->table_exists('pur_purchase_order') || !$this->db->table_exists('pur_purchase_order_line')) {
+            return [];
+        }
+
+        $from = $this->normalizeDate($dateFrom);
+        $to = $this->normalizeDate($dateTo);
+        $status = strtoupper(trim($status));
+
+        $this->db
+            ->select("DATE_FORMAT(po.request_date, '%Y-%m') AS month_key", false)
+            ->select('po.purchase_type_id, pt.type_name AS purchase_type_name')
+            ->select('COUNT(DISTINCT po.id) AS total_po', false)
+            ->select('COUNT(l.id) AS total_line', false)
+            ->select('COALESCE(SUM(l.qty_buy), 0) AS total_qty_buy', false)
+            ->select('COALESCE(SUM(l.line_subtotal), 0) AS total_value', false)
+            ->from('pur_purchase_order po')
+            ->join('pur_purchase_order_line l', 'l.purchase_order_id = po.id', 'inner')
+            ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left');
+
+        if ($from !== null) {
+            $this->db->where('po.request_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('po.request_date <=', $to);
+        }
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('po.status', $status);
+        }
+        if ($purchaseTypeId > 0) {
+            $this->db->where('po.purchase_type_id', $purchaseTypeId);
+        }
+
+        return $this->db
+            ->group_by(['month_key', 'po.purchase_type_id', 'pt.type_name'])
+            ->order_by('month_key', 'DESC')
+            ->order_by('COALESCE(po.purchase_type_id, 999999)', 'ASC', false)
+            ->get()
+            ->result_array();
+    }
+
+    public function list_purchase_report_daily(string $dateFrom, string $dateTo, string $status, int $purchaseTypeId = 0): array
+    {
+        if (!$this->db->table_exists('pur_purchase_order') || !$this->db->table_exists('pur_purchase_order_line')) {
+            return [];
+        }
+
+        $from = $this->normalizeDate($dateFrom);
+        $to = $this->normalizeDate($dateTo);
+        $status = strtoupper(trim($status));
+
+        $this->db
+            ->select('po.request_date')
+            ->select('po.purchase_type_id, pt.type_name AS purchase_type_name')
+            ->select('COUNT(DISTINCT po.id) AS total_po', false)
+            ->select('COUNT(l.id) AS total_line', false)
+            ->select('COALESCE(SUM(l.qty_buy), 0) AS total_qty_buy', false)
+            ->select('COALESCE(SUM(l.line_subtotal), 0) AS total_value', false)
+            ->from('pur_purchase_order po')
+            ->join('pur_purchase_order_line l', 'l.purchase_order_id = po.id', 'inner')
+            ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left');
+
+        if ($from !== null) {
+            $this->db->where('po.request_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('po.request_date <=', $to);
+        }
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('po.status', $status);
+        }
+        if ($purchaseTypeId > 0) {
+            $this->db->where('po.purchase_type_id', $purchaseTypeId);
+        }
+
+        return $this->db
+            ->group_by(['po.request_date', 'po.purchase_type_id', 'pt.type_name'])
+            ->order_by('po.request_date', 'DESC')
+            ->order_by('COALESCE(po.purchase_type_id, 999999)', 'ASC', false)
+            ->get()
+            ->result_array();
+    }
+
+    public function list_purchase_report_detail_by_day_type(string $requestDate, int $purchaseTypeId, string $status = 'ALL'): array
+    {
+        if (!$this->db->table_exists('pur_purchase_order') || !$this->db->table_exists('pur_purchase_order_line')) {
+            return [];
+        }
+
+        $date = $this->normalizeDate($requestDate);
+        if ($date === null || $purchaseTypeId <= 0) {
+            return [];
+        }
+
+        $status = strtoupper(trim($status));
+
+        $this->db
+            ->select('po.id AS purchase_order_id, po.po_no, po.request_date, po.status')
+            ->select('pt.type_name AS purchase_type_name, v.vendor_name')
+            ->select('l.line_no, l.line_kind, l.qty_buy, l.content_per_buy, l.line_subtotal')
+            ->select('l.snapshot_item_name, l.snapshot_material_name, l.snapshot_brand_name, l.snapshot_line_description')
+            ->select('l.snapshot_buy_uom_code, l.snapshot_content_uom_code')
+            ->from('pur_purchase_order po')
+            ->join('pur_purchase_order_line l', 'l.purchase_order_id = po.id', 'inner')
+            ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
+            ->join('mst_vendor v', 'v.id = po.vendor_id', 'left')
+            ->where('po.request_date', $date)
+            ->where('po.purchase_type_id', $purchaseTypeId);
+
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('po.status', $status);
+        }
+
+        return $this->db
+            ->order_by('po.po_no', 'ASC')
+            ->order_by('l.line_no', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
+    public function list_purchase_report_matrix_product_details(string $dateFrom, string $dateTo, string $status, int $purchaseTypeId = 0): array
+    {
+        if (!$this->db->table_exists('pur_purchase_order') || !$this->db->table_exists('pur_purchase_order_line')) {
+            return [];
+        }
+
+        $from = $this->normalizeDate($dateFrom);
+        $to = $this->normalizeDate($dateTo);
+        $status = strtoupper(trim($status));
+
+        $this->db
+            ->select('po.request_date, po.purchase_type_id')
+            ->select('l.line_no, l.qty_buy, l.line_subtotal')
+            ->select('l.snapshot_item_name, l.snapshot_material_name, l.snapshot_line_description')
+            ->select('l.snapshot_buy_uom_code')
+            ->from('pur_purchase_order po')
+            ->join('pur_purchase_order_line l', 'l.purchase_order_id = po.id', 'inner');
+
+        if ($from !== null) {
+            $this->db->where('po.request_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('po.request_date <=', $to);
+        }
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('po.status', $status);
+        }
+        if ($purchaseTypeId > 0) {
+            $this->db->where('po.purchase_type_id', $purchaseTypeId);
+        }
+
+        return $this->db
+            ->order_by('po.request_date', 'DESC')
+            ->order_by('po.purchase_type_id', 'ASC')
+            ->order_by('po.id', 'ASC')
+            ->order_by('l.line_no', 'ASC')
             ->get()
             ->result_array();
     }

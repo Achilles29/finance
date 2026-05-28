@@ -132,6 +132,7 @@ class Sidebar extends MY_Controller
         }
         $tree = $this->regroup_master_preview_tree($tree);
         $tree = $this->regroup_inventory_preview_tree($tree);
+        $tree = $this->regroup_product_preview_tree($tree);
         foreach ($tree as &$item) {
             if (($item['menu_code'] ?? '') === 'grp.purchase') {
                 $item['menu_label'] = 'PO & SR';
@@ -239,6 +240,81 @@ class Sidebar extends MY_Controller
         }
 
         return $result;
+    }
+
+    private function regroup_product_preview_tree(array $tree): array
+    {
+        foreach ($tree as &$item) {
+            if (($item['menu_code'] ?? '') === 'produk') {
+                $item['children'] = $this->append_product_monitoring_preview_children((array)($item['children'] ?? []));
+            }
+        }
+        unset($item);
+
+        return $tree;
+    }
+
+    private function append_product_monitoring_preview_children(array $children): array
+    {
+        if ($this->preview_tree_contains_menu_code($children, 'product.monitoring.availability')) {
+            return $children;
+        }
+
+        foreach ($children as &$child) {
+            if ((string)($child['menu_code'] ?? '') === 'product.monitoring.stock') {
+                $child['children'][] = [
+                    'id' => -2402,
+                    'parent_id' => (int)($child['id'] ?? 0),
+                    'menu_code' => 'product.monitoring.availability',
+                    'menu_label' => 'Ketersediaan Produk',
+                    'icon' => 'ri-bar-chart-grouped-line',
+                    'url' => 'product/availability',
+                    'is_virtual' => 1,
+                    'children' => [],
+                ];
+                unset($child);
+                return $children;
+            }
+        }
+        unset($child);
+
+        $children[] = [
+            'id' => -2401,
+            'parent_id' => null,
+            'menu_code' => 'product.monitoring.stock',
+            'menu_label' => 'Monitoring Stok',
+            'icon' => 'ri-line-chart-line',
+            'url' => null,
+            'is_virtual' => 1,
+            'children' => [
+                [
+                    'id' => -2402,
+                    'parent_id' => -2401,
+                    'menu_code' => 'product.monitoring.availability',
+                    'menu_label' => 'Ketersediaan Produk',
+                    'icon' => 'ri-bar-chart-grouped-line',
+                    'url' => 'product/availability',
+                    'is_virtual' => 1,
+                    'children' => [],
+                ],
+            ],
+        ];
+
+        return $children;
+    }
+
+    private function preview_tree_contains_menu_code(array $items, string $menuCode): bool
+    {
+        foreach ($items as $item) {
+            if ((string)($item['menu_code'] ?? '') === $menuCode) {
+                return true;
+            }
+            if (!empty($item['children']) && $this->preview_tree_contains_menu_code((array)($item['children'] ?? []), $menuCode)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function regroup_inventory_preview_tree(array $tree): array

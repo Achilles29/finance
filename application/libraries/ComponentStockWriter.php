@@ -13,47 +13,224 @@ class ComponentStockWriter
 
     public function post_opening(array $header, array $lines, int $actorEmployeeId = 0): array
     {
-        return $this->post_document_movements('OPENING', $header, $lines, $actorEmployeeId, [
-            'source_module' => 'PRODUCTION_OPENING',
-            'source_table' => 'inv_component_opening',
-        ]);
+        $this->ci->load->library('ComponentLotManager');
+        $lotReady = $this->ci->componentlotmanager->ensureReady();
+        if (!($lotReady['ok'] ?? false)) {
+            return $lotReady;
+        }
+
+        $db = $this->ci->db;
+        $locationType = strtoupper(trim((string)($header['location_type'] ?? '')));
+        $divisionId = isset($header['division_id']) ? (int)$header['division_id'] : null;
+        $movementDate = (string)($header['opening_date'] ?? $header['movement_date'] ?? date('Y-m-d'));
+        $sourceId = (int)($header['id'] ?? 0);
+        if (!$this->valid_location($locationType)) {
+            return ['ok' => false, 'message' => 'Lokasi tidak valid.'];
+        }
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $movementDate)) {
+            return ['ok' => false, 'message' => 'Tanggal dokumen tidak valid.'];
+        }
+        if (empty($lines)) {
+            return ['ok' => false, 'message' => 'Tidak ada baris untuk diposting.'];
+        }
+
+        $db->trans_start();
+        try {
+            foreach ($lines as $line) {
+                $componentId = (int)($line['component_id'] ?? 0);
+                $uomId = (int)($line['uom_id'] ?? 0);
+                $qty = round((float)($line['qty'] ?? $line['opening_qty'] ?? 0), 4);
+                if ($componentId <= 0 || $uomId <= 0 || $qty <= 0) {
+                    continue;
+                }
+
+                $unitCost = isset($line['unit_cost']) && $line['unit_cost'] !== null
+                    ? round((float)$line['unit_cost'], 6)
+                    : $this->current_avg_cost($locationType, $divisionId, $componentId, $uomId);
+                $sourceLineId = isset($line['source_line_id']) ? (int)$line['source_line_id'] : (isset($line['id']) ? (int)$line['id'] : null);
+
+                $this->post_single_movement([
+                    'movement_date' => $movementDate,
+                    'location_type' => $locationType,
+                    'division_id' => $divisionId,
+                    'component_id' => $componentId,
+                    'uom_id' => $uomId,
+                    'movement_type' => 'OPENING',
+                    'qty' => $qty,
+                    'unit_cost' => $unitCost,
+                    'source_module' => 'PRODUCTION_OPENING',
+                    'source_table' => 'inv_component_opening',
+                    'source_id' => $sourceId > 0 ? $sourceId : null,
+                    'source_line_id' => $sourceLineId,
+                    'notes' => (string)($line['note'] ?? $line['notes'] ?? ''),
+                    'actor_employee_id' => $actorEmployeeId,
+                ]);
+
+                $lotRegister = $this->ci->componentlotmanager->registerProductionInboundLot([
+                    'location_type' => $locationType,
+                    'division_id' => $divisionId,
+                    'component_id' => $componentId,
+                    'uom_id' => $uomId,
+                    'qty_in' => $qty,
+                    'unit_cost' => $unitCost,
+                    'lot_no' => $this->generate_component_opening_lot_no($movementDate, $componentId, $sourceId, (int)$sourceLineId),
+                    'receipt_date' => $movementDate,
+                    'source_module' => 'PRODUCTION_OPENING',
+                    'source_table' => 'inv_component_opening',
+                    'source_id' => $sourceId > 0 ? $sourceId : null,
+                    'source_line_id' => $sourceLineId,
+                ]);
+                if (!($lotRegister['ok'] ?? false)) {
+                    throw new RuntimeException((string)($lotRegister['message'] ?? 'Registrasi lot opening component gagal.'));
+                }
+            }
+        } catch (RuntimeException $e) {
+            $db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+
+        $db->trans_complete();
+        if ($db->trans_status() === false) {
+            return ['ok' => false, 'message' => 'Posting opening gagal.'];
+        }
+        return ['ok' => true];
     }
 
     public function post_adjustment(array $header, array $lines, int $actorEmployeeId = 0): array
     {
-        $prepared = [];
-        foreach ($lines as $line) {
-            $componentId = (int)($line['component_id'] ?? 0);
-            $uomId = (int)($line['uom_id'] ?? 0);
-            if ($componentId <= 0 || $uomId <= 0) {
-                continue;
-            }
-            $map = [
-                'SPOIL' => round((float)($line['qty_spoil'] ?? 0), 4),
-                'WASTE' => round((float)($line['qty_waste'] ?? 0), 4),
-                'ADJUSTMENT_PLUS' => round((float)($line['qty_adjust_pos'] ?? 0), 4),
-                'ADJUSTMENT_MINUS' => round((float)($line['qty_adjust_neg'] ?? 0), 4),
-            ];
-            foreach ($map as $movementType => $qty) {
-                if ($qty <= 0) {
-                    continue;
-                }
-                $prepared[] = [
-                    'component_id' => $componentId,
-                    'uom_id' => $uomId,
-                    'movement_type' => $movementType,
-                    'qty' => $qty,
-                    'unit_cost' => isset($line['unit_cost']) ? round((float)$line['unit_cost'], 6) : null,
-                    'note' => (string)($line['note'] ?? ''),
-                    'source_line_id' => isset($line['id']) ? (int)$line['id'] : null,
-                ];
-            }
+        $this->ci->load->library('ComponentLotManager');
+        $lotReady = $this->ci->componentlotmanager->ensureReady();
+        if (!($lotReady['ok'] ?? false)) {
+            return $lotReady;
         }
 
-        return $this->post_document_movements('ADJUSTMENT', $header, $prepared, $actorEmployeeId, [
-            'source_module' => 'PRODUCTION_ADJUSTMENT',
-            'source_table' => 'inv_component_adjustment',
-        ]);
+        $db = $this->ci->db;
+        $locationType = strtoupper(trim((string)($header['location_type'] ?? '')));
+        $divisionId = isset($header['division_id']) ? (int)($header['division_id']) : null;
+        $movementDate = (string)($header['adjustment_date'] ?? $header['movement_date'] ?? date('Y-m-d'));
+        $sourceId = (int)($header['id'] ?? 0);
+        if (!$this->valid_location($locationType)) {
+            return ['ok' => false, 'message' => 'Lokasi adjustment tidak valid.'];
+        }
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $movementDate)) {
+            return ['ok' => false, 'message' => 'Tanggal adjustment tidak valid.'];
+        }
+        if (empty($lines)) {
+            return ['ok' => false, 'message' => 'Tidak ada baris adjustment untuk diposting.'];
+        }
+
+        $db->trans_start();
+        try {
+            foreach ($lines as $line) {
+                $componentId = (int)($line['component_id'] ?? 0);
+                $uomId = (int)($line['uom_id'] ?? 0);
+                $sourceLineId = isset($line['id']) ? (int)$line['id'] : null;
+                $note = (string)($line['note'] ?? '');
+                if ($componentId <= 0 || $uomId <= 0) {
+                    continue;
+                }
+
+                $outMovements = [
+                    'SPOIL' => round((float)($line['qty_spoil'] ?? 0), 4),
+                    'WASTE' => round((float)($line['qty_waste'] ?? 0), 4),
+                    'ADJUSTMENT_MINUS' => round((float)($line['qty_adjust_neg'] ?? 0), 4),
+                ];
+                foreach ($outMovements as $movementType => $qty) {
+                    if ($qty <= 0) {
+                        continue;
+                    }
+                    $lotIssue = $this->ci->componentlotmanager->consumeUsage([
+                        'issue_date' => $movementDate,
+                        'location_type' => $locationType,
+                        'division_id' => $divisionId,
+                        'component_id' => $componentId,
+                        'uom_id' => $uomId,
+                        'lot_id' => !empty($line['selected_lot_id']) ? (int)$line['selected_lot_id'] : null,
+                        'qty_out' => $qty,
+                        'source_module' => 'PRODUCTION_ADJUSTMENT',
+                        'source_table' => 'inv_component_adjustment',
+                        'source_id' => $sourceId > 0 ? $sourceId : null,
+                        'source_line_id' => $sourceLineId,
+                        'notes' => $note !== '' ? $note : ('Adjustment ' . $movementType),
+                    ]);
+                    if (!($lotIssue['ok'] ?? false)) {
+                        throw new RuntimeException((string)($lotIssue['message'] ?? 'Posting issue lot adjustment gagal.'));
+                    }
+
+                    $avgUnitCost = round((float)($lotIssue['data']['avg_unit_cost'] ?? 0), 6);
+                    $allocations = (array)($lotIssue['data']['allocations'] ?? []);
+                    $lotSnapshot = !empty($allocations[0]['lot_no']) ? (string)$allocations[0]['lot_no'] : null;
+                    $this->post_single_movement([
+                        'movement_date' => $movementDate,
+                        'location_type' => $locationType,
+                        'division_id' => $divisionId,
+                        'component_id' => $componentId,
+                        'uom_id' => $uomId,
+                        'movement_type' => $movementType,
+                        'qty' => $qty,
+                        'unit_cost' => $avgUnitCost,
+                        'source_module' => 'PRODUCTION_ADJUSTMENT',
+                        'source_table' => 'inv_component_adjustment',
+                        'source_id' => $sourceId > 0 ? $sourceId : null,
+                        'source_line_id' => $sourceLineId,
+                        'lot_no_snapshot' => $lotSnapshot,
+                        'notes' => $note,
+                        'actor_employee_id' => $actorEmployeeId,
+                    ]);
+                }
+
+                $qtyPlus = round((float)($line['qty_adjust_pos'] ?? 0), 4);
+                if ($qtyPlus > 0) {
+                    $unitCost = isset($line['unit_cost']) ? round((float)$line['unit_cost'], 6) : 0.0;
+                    $lotNo = $this->generate_component_adjustment_lot_no($movementDate, $componentId, $sourceId, (int)$sourceLineId, 'P');
+                    $this->post_single_movement([
+                        'movement_date' => $movementDate,
+                        'location_type' => $locationType,
+                        'division_id' => $divisionId,
+                        'component_id' => $componentId,
+                        'uom_id' => $uomId,
+                        'movement_type' => 'ADJUSTMENT_PLUS',
+                        'qty' => $qtyPlus,
+                        'unit_cost' => $unitCost,
+                        'source_module' => 'PRODUCTION_ADJUSTMENT',
+                        'source_table' => 'inv_component_adjustment',
+                        'source_id' => $sourceId > 0 ? $sourceId : null,
+                        'source_line_id' => $sourceLineId,
+                        'lot_no_snapshot' => $lotNo,
+                        'received_date_snapshot' => $movementDate,
+                        'notes' => $note,
+                        'actor_employee_id' => $actorEmployeeId,
+                    ]);
+
+                    $lotRegister = $this->ci->componentlotmanager->registerProductionInboundLot([
+                        'location_type' => $locationType,
+                        'division_id' => $divisionId,
+                        'component_id' => $componentId,
+                        'uom_id' => $uomId,
+                        'qty_in' => $qtyPlus,
+                        'unit_cost' => $unitCost,
+                        'lot_no' => $lotNo,
+                        'receipt_date' => $movementDate,
+                        'source_module' => 'PRODUCTION_ADJUSTMENT',
+                        'source_table' => 'inv_component_adjustment',
+                        'source_id' => $sourceId > 0 ? $sourceId : null,
+                        'source_line_id' => $sourceLineId,
+                    ]);
+                    if (!($lotRegister['ok'] ?? false)) {
+                        throw new RuntimeException((string)($lotRegister['message'] ?? 'Registrasi lot adjustment plus gagal.'));
+                    }
+                }
+            }
+        } catch (RuntimeException $e) {
+            $db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+
+        $db->trans_complete();
+        if ($db->trans_status() === false) {
+            return ['ok' => false, 'message' => 'Posting adjustment gagal.'];
+        }
+        return ['ok' => true];
     }
 
     public function post_batch(array $header, array $inputs, int $actorEmployeeId = 0): array
@@ -72,6 +249,12 @@ class ComponentStockWriter
         }
         if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $movementDate)) {
             return ['ok' => false, 'message' => 'Tanggal batch tidak valid.'];
+        }
+
+        $this->ci->load->library('ComponentLotManager');
+        $lotReady = $this->ci->componentlotmanager->ensureReady();
+        if (!($lotReady['ok'] ?? false)) {
+            return $lotReady;
         }
 
         $destinationType = $this->resolve_inventory_destination_type($locationType);
@@ -172,6 +355,7 @@ class ComponentStockWriter
             $extraCost = max(0, round($headerRecordedTotalInputCost - $totalInputCost, 2));
             $finalTotalInputCost = round($totalInputCost + $extraCost, 2);
             $unitCostOutput = $outputQty > 0 ? round($finalTotalInputCost / $outputQty, 6) : 0.0;
+            $outputLotNo = $this->generate_component_output_lot_no($movementDate, $componentIdOutput, $sourceId);
             $this->post_single_movement([
                 'movement_date' => $movementDate,
                 'location_type' => $locationType,
@@ -185,11 +369,29 @@ class ComponentStockWriter
                 'source_table' => 'inv_component_batch',
                 'source_id' => $sourceId > 0 ? $sourceId : null,
                 'source_line_id' => null,
-                'lot_no_snapshot' => $this->generate_component_output_lot_no($movementDate, $componentIdOutput, $sourceId),
+                'lot_no_snapshot' => $outputLotNo,
                 'received_date_snapshot' => $movementDate,
                 'notes' => (string)($header['notes'] ?? ''),
                 'actor_employee_id' => $actorEmployeeId,
             ]);
+
+            $lotRegister = $this->ci->componentlotmanager->registerProductionInboundLot([
+                'location_type' => $locationType,
+                'division_id' => $divisionId,
+                'component_id' => $componentIdOutput,
+                'uom_id' => $uomIdOutput,
+                'qty_in' => $outputQty,
+                'unit_cost' => $unitCostOutput,
+                'lot_no' => $outputLotNo,
+                'receipt_date' => $movementDate,
+                'source_module' => 'PRODUCTION_BATCH',
+                'source_table' => 'inv_component_batch',
+                'source_id' => $sourceId > 0 ? $sourceId : null,
+                'source_line_id' => null,
+            ]);
+            if (!($lotRegister['ok'] ?? false)) {
+                throw new RuntimeException((string)($lotRegister['message'] ?? 'Registrasi lot component gagal.'));
+            }
 
             if ($sourceId > 0) {
                 $this->ci->db->where('id', $sourceId)->update('inv_component_batch', [
@@ -352,6 +554,98 @@ class ComponentStockWriter
             'created_by' => $p['actor_employee_id'] > 0 ? (int)$p['actor_employee_id'] : null,
             'created_at' => $now,
         ]);
+
+        $this->sync_daily_rollup([
+            'movement_date' => (string)$p['movement_date'],
+            'movement_datetime' => $p['movement_date'] . ' ' . date('H:i:s'),
+            'location_type' => (string)$p['location_type'],
+            'division_id' => $p['division_id'],
+            'component_id' => (int)$p['component_id'],
+            'uom_id' => (int)$p['uom_id'],
+            'movement_type' => $movementType,
+            'qty_in' => $qtyIn,
+            'qty_out' => $qtyOut,
+        ], $qtyBefore, $qtyAfter, $avgAfter, $valueAfter);
+    }
+
+    private function sync_daily_rollup(array $movement, float $qtyBefore, float $qtyAfter, float $avgAfter, float $valueAfter): void
+    {
+        if (!$this->ci->db->table_exists('inv_component_daily_rollup')) {
+            return;
+        }
+
+        $movementDate = (string)($movement['movement_date'] ?? '');
+        $locationType = strtoupper(trim((string)($movement['location_type'] ?? '')));
+        $divisionId = isset($movement['division_id']) && $movement['division_id'] !== null ? (int)$movement['division_id'] : null;
+        $componentId = (int)($movement['component_id'] ?? 0);
+        $uomId = (int)($movement['uom_id'] ?? 0);
+        $movementType = strtoupper(trim((string)($movement['movement_type'] ?? '')));
+        $qtyIn = round((float)($movement['qty_in'] ?? 0), 4);
+        $qtyOut = round((float)($movement['qty_out'] ?? 0), 4);
+        $isOpeningSnapshot = $movementType === 'OPENING';
+
+        if ($movementDate === '' || $componentId <= 0 || $uomId <= 0 || $locationType === '') {
+            return;
+        }
+
+        $row = $this->ci->db->query(
+            'SELECT * FROM inv_component_daily_rollup WHERE movement_date = ? AND location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? LIMIT 1 FOR UPDATE',
+            [$movementDate, $locationType, $divisionId, $componentId, $uomId]
+        )->row_array();
+
+        $data = [
+            'month_key' => date('Y-m-01', strtotime($movementDate)),
+            'movement_date' => $movementDate,
+            'location_type' => $locationType,
+            'division_id' => $divisionId,
+            'component_id' => $componentId,
+            'uom_id' => $uomId,
+            'opening_qty' => $isOpeningSnapshot
+                ? ($row ? round((float)($row['opening_qty'] ?? 0) + $qtyIn, 4) : round($qtyAfter, 4))
+                : ($row ? round((float)($row['opening_qty'] ?? 0), 4) : round($qtyBefore, 4)),
+            'in_qty' => $row ? round((float)($row['in_qty'] ?? 0), 4) : 0.0,
+            'out_qty' => $row ? round((float)($row['out_qty'] ?? 0), 4) : 0.0,
+            'waste_qty' => $row ? round((float)($row['waste_qty'] ?? 0), 4) : 0.0,
+            'spoil_qty' => $row ? round((float)($row['spoil_qty'] ?? 0), 4) : 0.0,
+            'adjustment_qty' => $row ? round((float)($row['adjustment_qty'] ?? 0), 4) : 0.0,
+            'closing_qty' => round($qtyAfter, 4),
+            'avg_cost' => round($avgAfter, 6),
+            'total_value' => round($valueAfter, 2),
+            'mutation_count' => $row ? ((int)($row['mutation_count'] ?? 0) + 1) : 1,
+            'last_movement_at' => (string)($movement['movement_datetime'] ?? ($movementDate . ' ' . date('H:i:s'))),
+        ];
+
+        switch ($movementType) {
+            case 'PRODUCTION_IN':
+            case 'TRANSFER_IN':
+                $data['in_qty'] += $qtyIn;
+                break;
+            case 'PRODUCTION_OUT':
+            case 'TRANSFER_OUT':
+                $data['out_qty'] += $qtyOut;
+                break;
+            case 'WASTE':
+                $data['waste_qty'] += $qtyOut;
+                break;
+            case 'SPOIL':
+                $data['spoil_qty'] += $qtyOut;
+                break;
+            case 'ADJUSTMENT_PLUS':
+            case 'VOID_REVERSE':
+                $data['adjustment_qty'] += $qtyIn;
+                break;
+            case 'ADJUSTMENT_MINUS':
+            case 'VOID_OUT':
+                $data['adjustment_qty'] -= $qtyOut;
+                break;
+        }
+
+        if ($row && !empty($row['id'])) {
+            $this->ci->db->where('id', (int)$row['id'])->update('inv_component_daily_rollup', $data);
+            return;
+        }
+
+        $this->ci->db->insert('inv_component_daily_rollup', $data);
     }
 
     private function post_material_input_usage(array $header, array $line, string $movementDate, string $locationType, int $divisionId, string $destinationType, int $actorEmployeeId): array
@@ -514,6 +808,18 @@ class ComponentStockWriter
     {
         $datePart = date('Ymd', strtotime($movementDate));
         return 'ICL' . $datePart . str_pad((string)$componentId, 5, '0', STR_PAD_LEFT) . str_pad((string)max(0, $sourceId), 5, '0', STR_PAD_LEFT);
+    }
+
+    private function generate_component_opening_lot_no(string $movementDate, int $componentId, int $sourceId, int $sourceLineId): string
+    {
+        $datePart = date('Ymd', strtotime($movementDate));
+        return 'ICO' . $datePart . str_pad((string)$componentId, 5, '0', STR_PAD_LEFT) . str_pad((string)max(0, $sourceId), 5, '0', STR_PAD_LEFT) . str_pad((string)max(0, $sourceLineId), 4, '0', STR_PAD_LEFT);
+    }
+
+    private function generate_component_adjustment_lot_no(string $movementDate, int $componentId, int $sourceId, int $sourceLineId, string $suffix = 'A'): string
+    {
+        $datePart = date('Ymd', strtotime($movementDate));
+        return 'ICA' . $datePart . str_pad((string)$componentId, 5, '0', STR_PAD_LEFT) . str_pad((string)max(0, $sourceId), 5, '0', STR_PAD_LEFT) . str_pad((string)max(0, $sourceLineId), 4, '0', STR_PAD_LEFT) . strtoupper(substr($suffix, 0, 1));
     }
 
     private function lock_balance_row(string $locationType, ?int $divisionId, int $componentId, int $uomId): array

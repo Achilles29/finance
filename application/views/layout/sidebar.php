@@ -56,6 +56,7 @@ if (!function_exists('_get_ri_icon')) {
             'grp.material'          => 'ri-flask-line',
             'grp.production'        => 'ri-tools-line',
             'production.component.cost.variable' => 'ri-percent-line',
+            'production.component.lot' => 'ri-stack-line',
             'grp.purchase'          => 'ri-shopping-cart-2-line',
             'grp.finance'           => 'ri-bank-line',
             'fin.transactions'      => 'ri-exchange-line',
@@ -426,6 +427,145 @@ if (!function_exists('_regroup_inventory_sidebar_tree')) {
   }
 }
 
+if (!function_exists('_sidebar_tree_contains_menu_code')) {
+  function _sidebar_tree_contains_menu_code(array $items, string $menuCode): bool
+  {
+    foreach ($items as $item) {
+      if ((string)($item['menu_code'] ?? '') === $menuCode) {
+        return true;
+      }
+      if (!empty($item['children']) && _sidebar_tree_contains_menu_code((array)($item['children'] ?? []), $menuCode)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+}
+
+if (!function_exists('_append_product_stock_monitoring_child')) {
+  function _append_product_stock_monitoring_child(array $children): array
+  {
+    if (_sidebar_tree_contains_menu_code($children, 'product.monitoring.availability')) {
+      return $children;
+    }
+
+    foreach ($children as &$child) {
+      if ((string)($child['menu_code'] ?? '') === 'product.monitoring.stock') {
+        $child['children'][] = [
+          'id' => -2402,
+          'parent_id' => (int)($child['id'] ?? 0),
+          'menu_code' => 'product.monitoring.availability',
+          'menu_label' => 'Ketersediaan Produk',
+          'icon' => 'ri-bar-chart-grouped-line',
+          'url' => 'product/availability',
+          'page_id' => null,
+          'sort_order' => 1,
+          'children' => [],
+        ];
+        unset($child);
+        return $children;
+      }
+    }
+    unset($child);
+
+    $children[] = [
+      'id' => -2401,
+      'parent_id' => null,
+      'menu_code' => 'product.monitoring.stock',
+      'menu_label' => 'Monitoring Stok',
+      'icon' => 'ri-line-chart-line',
+      'url' => null,
+      'page_id' => null,
+      'sort_order' => 999,
+      'children' => [
+        [
+          'id' => -2402,
+          'parent_id' => -2401,
+          'menu_code' => 'product.monitoring.availability',
+          'menu_label' => 'Ketersediaan Produk',
+          'icon' => 'ri-bar-chart-grouped-line',
+          'url' => 'product/availability',
+          'page_id' => null,
+          'sort_order' => 1,
+          'children' => [],
+        ],
+      ],
+    ];
+
+    return $children;
+  }
+}
+
+if (!function_exists('_regroup_product_sidebar_tree')) {
+  function _regroup_product_sidebar_tree(array $tree): array
+  {
+    foreach ($tree as &$item) {
+      if (($item['menu_code'] ?? '') === 'produk') {
+        $item['children'] = _append_product_stock_monitoring_child((array)($item['children'] ?? []));
+      }
+    }
+    unset($item);
+
+    return $tree;
+  }
+}
+
+if (!function_exists('_append_production_component_lot_child')) {
+  function _append_production_component_lot_child(array $children): array
+  {
+    if (_sidebar_tree_contains_menu_code($children, 'production.component.lot')) {
+      return $children;
+    }
+
+    foreach ($children as &$child) {
+      if ((string)($child['menu_code'] ?? '') === 'production.component.group.monitoring') {
+        $child['children'][] = [
+          'id' => -2301,
+          'parent_id' => (int)($child['id'] ?? 0),
+          'menu_code' => 'production.component.lot',
+          'menu_label' => 'Lot Component',
+          'icon' => 'ri-stack-line',
+          'url' => 'production/component-lots',
+          'page_id' => null,
+          'sort_order' => 993,
+          'children' => [],
+        ];
+        unset($child);
+        return $children;
+      }
+    }
+    unset($child);
+
+    $children[] = [
+      'id' => -2301,
+      'parent_id' => null,
+      'menu_code' => 'production.component.lot',
+      'menu_label' => 'Lot Component',
+      'icon' => 'ri-stack-line',
+      'url' => 'production/component-lots',
+      'page_id' => null,
+      'sort_order' => 993,
+      'children' => [],
+    ];
+
+    return $children;
+  }
+}
+
+if (!function_exists('_regroup_production_sidebar_tree')) {
+  function _regroup_production_sidebar_tree(array $tree): array
+  {
+    foreach ($tree as &$item) {
+      if (($item['menu_code'] ?? '') === 'grp.production') {
+        $item['children'] = _append_production_component_lot_child((array)($item['children'] ?? []));
+      }
+    }
+    unset($item);
+    return $tree;
+  }
+}
+
 // ---------------------------------------------------------------
 // Render rekursif tree menu (Materio style)
 // ---------------------------------------------------------------
@@ -513,6 +653,8 @@ if (!empty($sidebar_favorites) && is_array($sidebar_favorites)) {
 if (!$is_employee_portal && !empty($sidebar_main)) {
   $sidebar_main = _regroup_master_sidebar_tree((array)$sidebar_main);
   $sidebar_main = _regroup_inventory_sidebar_tree((array)$sidebar_main);
+  $sidebar_main = _regroup_product_sidebar_tree((array)$sidebar_main);
+  $sidebar_main = _regroup_production_sidebar_tree((array)$sidebar_main);
   foreach ($sidebar_main as &$sb_item) {
     if (($sb_item['menu_code'] ?? '') === 'grp.purchase') {
       $sb_item['menu_label'] = 'PO & SR';
