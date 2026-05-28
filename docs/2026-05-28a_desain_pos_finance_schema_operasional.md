@@ -147,6 +147,34 @@ Tabel utama:
 1. `pos_product_bundle`
 2. `pos_product_bundle_line`
 
+### 5.5.1 Standar harga bundle untuk laporan profit
+Keputusan yang disarankan:
+1. Harga jual riil bundle adalah `selling_price` pada header bundle / order line bundle.
+2. Harga normal item penyusun tetap dibaca dari harga jual produk masing-masing.
+3. Jika line bundle **tidak** diisi `unit_price_override`, sistem **tidak** memakai harga normal penuh untuk laporan profit line.
+4. Sebagai gantinya, sistem mengalokasikan harga jual riil bundle ke tiap line secara **proporsional** terhadap harga normal line.
+5. `unit_price_override` hanya dipakai bila bisnis memang ingin membebankan nilai bundle secara manual ke item tertentu.
+
+Contoh:
+1. Bebek = `43.000`
+2. Es Teh = `10.000`
+3. Total normal = `53.000`
+4. Harga bundle = `50.000`
+5. Maka jika tanpa override manual, sistem mengalokasikan:
+   - Bebek = `43/53 x 50.000`
+   - Es Teh = `10/53 x 50.000`
+
+Alasan:
+1. Jika laporan profit per produk memakai harga normal penuh `53.000`, maka revenue line akan lebih besar dari revenue transaksi riil.
+2. Jika semua bundle dipaksa override manual, operasional akan berat dan rawan salah input.
+3. Auto-proportional memberi keseimbangan antara akurasi margin dan efisiensi input.
+
+Rule operasional:
+1. Default mode bundle = `AUTO_PROPORTIONAL`.
+2. Jika ada `unit_price_override` per line, line tersebut memakai nilai override.
+3. Jika sebagian line di-override dan sebagian tidak, sisa nilai bundle dialokasikan proporsional ke line yang tidak di-override.
+4. Jumlah final seluruh line harus sama persis dengan harga jual riil bundle setelah pembulatan.
+
 ### 5.6 Domain Printer POS
 Tabel umum lintas desktop/mobile:
 1. `pos_printer_template_master`

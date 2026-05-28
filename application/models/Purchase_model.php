@@ -889,6 +889,7 @@ class Purchase_model extends CI_Model
                 }
                 $dedupeKey = implode('|', [
                     $itemId,
+                    trim((string)($row['profile_key'] ?? '')),
                     (int)($row['default_buy_uom_id'] ?? 0),
                     (int)($row['default_content_uom_id'] ?? 0),
                     number_format((float)($row['default_content_per_buy'] ?? 1), 6, '.', ''),
@@ -916,6 +917,7 @@ class Purchase_model extends CI_Model
             }
             $dedupeKey = implode('|', [
                 $itemId,
+                trim((string)($row['profile_key'] ?? '')),
                 (int)($row['default_buy_uom_id'] ?? 0),
                 (int)($row['default_content_uom_id'] ?? 0),
                 number_format((float)($row['default_content_per_buy'] ?? 1), 6, '.', ''),
@@ -1487,12 +1489,99 @@ class Purchase_model extends CI_Model
             ->result_array();
 
         $rows = $this->filterZeroOpeningClosingDailyRows($rows);
+        $rows = $this->attachMaterialDailyProfilePrices($rows);
 
         return [
             'window' => $window,
             'dates' => $dates,
             'rows' => $this->pivotDailyRows($rows, $limit),
         ];
+    }
+
+    private function attachMaterialDailyProfilePrices(array $rows): array
+    {
+        if (empty($rows) || !$this->db->table_exists('mst_purchase_catalog')) {
+            return $rows;
+        }
+
+        $profileKeys = [];
+        foreach ($rows as $row) {
+            $profileKey = trim((string)($row['profile_key'] ?? ''));
+            if ($profileKey !== '') {
+                $profileKeys[$profileKey] = true;
+            }
+        }
+        if (empty($profileKeys)) {
+            return $rows;
+        }
+
+        $useVendorLinkTable = $this->purchaseCatalogVendorTableExists();
+        $latestVendorPriceSql = $useVendorLinkTable ? $this->latestCatalogVendorPriceSubquerySql() : '';
+        $catalogFactorExpr = 'ROUND(COALESCE(NULLIF(c.content_per_buy, 0), NULLIF(c.conversion_factor_to_content, 0), 1), 6)';
+
+        if ($useVendorLinkTable) {
+            $standardPriceExpr = 'COALESCE(cvl.standard_price, cvl.last_unit_price, c.standard_price, c.last_unit_price)';
+            $lastUnitPriceExpr = 'COALESCE(cvl.last_unit_price, cvl.standard_price, c.last_unit_price, c.standard_price)';
+            $lastPurchaseDateExpr = 'COALESCE(cvl.last_purchase_date, c.last_purchase_date)';
+        } else {
+            $standardPriceExpr = 'COALESCE(c.standard_price, c.last_unit_price)';
+            $lastUnitPriceExpr = 'COALESCE(c.last_unit_price, c.standard_price)';
+            $lastPurchaseDateExpr = 'c.last_purchase_date';
+        }
+
+        $this->db
+            ->select('c.profile_key, c.item_id, c.material_id, c.buy_uom_id, c.content_uom_id', false)
+            ->select($catalogFactorExpr . ' AS profile_content_per_buy', false)
+            ->select($standardPriceExpr . ' AS standard_price', false)
+            ->select($lastUnitPriceExpr . ' AS last_unit_price', false)
+            ->from('mst_purchase_catalog c')
+            ->where('c.is_active', 1)
+            ->where_in('c.profile_key', array_keys($profileKeys));
+
+        if ($useVendorLinkTable) {
+            $this->db->join('(' . $latestVendorPriceSql . ') cvl', 'cvl.catalog_id = c.id', 'left', false);
+        }
+
+        $catalogRows = $this->db
+            ->order_by($lastPurchaseDateExpr, 'DESC', false)
+            ->order_by('c.id', 'DESC')
+            ->get()
+            ->result_array();
+
+        $priceMap = [];
+        foreach ($catalogRows as $catalogRow) {
+            $identity = implode('|', [
+                strtoupper(trim((string)($catalogRow['profile_key'] ?? ''))),
+                (int)($catalogRow['item_id'] ?? 0),
+                (int)($catalogRow['material_id'] ?? 0),
+                (int)($catalogRow['buy_uom_id'] ?? 0),
+                (int)($catalogRow['content_uom_id'] ?? 0),
+                round((float)($catalogRow['profile_content_per_buy'] ?? 0), 6),
+            ]);
+            if (!isset($priceMap[$identity])) {
+                $priceMap[$identity] = [
+                    'standard_price' => round((float)($catalogRow['standard_price'] ?? 0), 2),
+                    'last_unit_price' => round((float)($catalogRow['last_unit_price'] ?? 0), 2),
+                ];
+            }
+        }
+
+        foreach ($rows as &$row) {
+            $identity = implode('|', [
+                strtoupper(trim((string)($row['profile_key'] ?? ''))),
+                (int)($row['item_id'] ?? 0),
+                (int)($row['material_id'] ?? 0),
+                (int)($row['buy_uom_id'] ?? 0),
+                (int)($row['content_uom_id'] ?? 0),
+                round((float)($row['profile_content_per_buy'] ?? 0), 6),
+            ]);
+            $priceMeta = $priceMap[$identity] ?? null;
+            $row['profile_standard_price'] = (float)($priceMeta['standard_price'] ?? 0);
+            $row['profile_last_unit_price'] = (float)($priceMeta['last_unit_price'] ?? 0);
+        }
+        unset($row);
+
+        return $rows;
     }
 
     public function list_stock_movements(string $scope, string $q, string $dateFrom, string $dateTo, ?int $divisionId, int $limit, ?string $destinationFilter = null): array
@@ -2914,6 +3003,7 @@ class Purchase_model extends CI_Model
             $row['available_qty_buy'] = round((float)($balance['qty_buy_balance'] ?? 0), 4);
             $row['available_qty_content'] = round((float)($balance['qty_content_balance'] ?? 0), 4);
             $row['avg_cost_per_content'] = round((float)($balance['avg_cost_per_content'] ?? 0), 6);
+            $row['updated_at'] = !empty($balance['updated_at']) ? (string)$balance['updated_at'] : null;
             $row['default_content_per_buy'] = $profileContentPerBuy;
             $row['_search_order'] = $index;
             $row['_has_positive_stock'] = ($row['available_qty_content'] > 0 || $row['available_qty_buy'] > 0) ? 1 : 0;
@@ -3633,12 +3723,12 @@ class Purchase_model extends CI_Model
         $scope = strtoupper(trim((string)($identity['stock_scope'] ?? 'WAREHOUSE')));
         if ($scope === 'DIVISION') {
             if (!$this->db->table_exists('inv_division_stock_balance')) {
-                return ['qty_buy_balance' => 0.0, 'qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0];
+                return ['qty_buy_balance' => 0.0, 'qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0, 'updated_at' => null];
             }
             $hasDestinationType = $this->db->field_exists('destination_type', 'inv_division_stock_balance');
             if ($hasDestinationType) {
                 $row = $this->db->query(
-                    'SELECT qty_buy_balance, qty_content_balance, avg_cost_per_content
+                    'SELECT qty_buy_balance, qty_content_balance, avg_cost_per_content, updated_at
                      FROM inv_division_stock_balance
                      WHERE division_id <=> ?
                        AND destination_type <=> ?
@@ -3660,7 +3750,7 @@ class Purchase_model extends CI_Model
                 )->row_array();
             } else {
                 $row = $this->db->query(
-                    'SELECT qty_buy_balance, qty_content_balance, avg_cost_per_content
+                    'SELECT qty_buy_balance, qty_content_balance, avg_cost_per_content, updated_at
                      FROM inv_division_stock_balance
                      WHERE division_id <=> ?
                        AND item_id <=> ?
@@ -3681,10 +3771,10 @@ class Purchase_model extends CI_Model
             }
         } else {
             if (!$this->db->table_exists('inv_warehouse_stock_balance')) {
-                return ['qty_buy_balance' => 0.0, 'qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0];
+                return ['qty_buy_balance' => 0.0, 'qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0, 'updated_at' => null];
             }
             $row = $this->db->query(
-                'SELECT qty_buy_balance, qty_content_balance, avg_cost_per_content
+                'SELECT qty_buy_balance, qty_content_balance, avg_cost_per_content, updated_at
                  FROM inv_warehouse_stock_balance
                  WHERE item_id <=> ?
                    AND buy_uom_id <=> ?
@@ -3704,6 +3794,7 @@ class Purchase_model extends CI_Model
             'qty_buy_balance' => (float)($row['qty_buy_balance'] ?? 0),
             'qty_content_balance' => (float)($row['qty_content_balance'] ?? 0),
             'avg_cost_per_content' => (float)($row['avg_cost_per_content'] ?? 0),
+            'updated_at' => !empty($row['updated_at']) ? (string)$row['updated_at'] : null,
         ];
     }
 
@@ -8856,6 +8947,333 @@ class Purchase_model extends CI_Model
         ];
     }
 
+    public function repairPostedReceiptProfileKeys(int $purchaseOrderId, int $userId = 0): array
+    {
+        if (
+            $purchaseOrderId <= 0 ||
+            !$this->db->table_exists('pur_purchase_order') ||
+            !$this->db->table_exists('pur_purchase_order_line') ||
+            !$this->db->table_exists('pur_purchase_receipt') ||
+            !$this->db->table_exists('pur_purchase_receipt_line') ||
+            !$this->db->table_exists('inv_stock_movement_log')
+        ) {
+            return [
+                'ok' => false,
+                'message' => 'Schema purchase/receipt/movement belum lengkap untuk repair profile key receipt.',
+            ];
+        }
+
+        $order = $this->db
+            ->select('id, po_no, status')
+            ->from('pur_purchase_order')
+            ->where('id', $purchaseOrderId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$order) {
+            return [
+                'ok' => false,
+                'message' => 'Purchase order tidak ditemukan.',
+            ];
+        }
+
+        $receipts = $this->db
+            ->select('id, receipt_no, receipt_date, destination_type, destination_division_id, status, notes')
+            ->from('pur_purchase_receipt')
+            ->where('purchase_order_id', $purchaseOrderId)
+            ->where('status', 'POSTED')
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
+        if (empty($receipts)) {
+            return [
+                'ok' => false,
+                'message' => 'Tidak ada receipt POSTED untuk PO ini.',
+            ];
+        }
+
+        $this->db->trans_begin();
+
+        $receiptLinesUpdated = 0;
+        $lotRowsUpdated = 0;
+        $movementRowsUpdated = 0;
+        $receiptsTouched = 0;
+        $rebuildTargets = [];
+        $hasLotProfileKey = $this->db->table_exists('inv_material_fifo_lot') && $this->db->field_exists('profile_key', 'inv_material_fifo_lot');
+
+        foreach ($receipts as $receipt) {
+            $receiptId = (int)($receipt['id'] ?? 0);
+            if ($receiptId <= 0) {
+                continue;
+            }
+
+            $scope = strtoupper((string)($receipt['destination_type'] ?? '')) === 'GUDANG' ? 'WAREHOUSE' : 'DIVISION';
+            $divisionId = $scope === 'DIVISION' ? $this->nullableInt($receipt['destination_division_id'] ?? null) : null;
+            $destinationType = $scope === 'DIVISION' ? $this->normalizeDestination((string)($receipt['destination_type'] ?? '')) : null;
+            if ($scope === 'DIVISION' && $divisionId === null) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Repair profile key gagal: division tujuan tidak valid untuk receipt #' . (string)($receipt['receipt_no'] ?? $receiptId) . '.',
+                ];
+            }
+
+            $receiptDate = $this->normalizeDate((string)($receipt['receipt_date'] ?? ''));
+            if ($receiptDate === null) {
+                $receiptDate = date('Y-m-d');
+            }
+            $rebuildStartDate = date('Y-m-01', strtotime($receiptDate));
+
+            $lineQb = $this->db
+                ->select('rl.id AS receipt_line_id, rl.purchase_order_line_id, rl.line_kind, rl.item_id, rl.material_id, rl.profile_key AS receipt_profile_key')
+                ->select('rl.qty_buy_received, rl.qty_content_received, rl.buy_uom_id, rl.content_uom_id, rl.brand_name, rl.line_description')
+                ->select('pol.line_no, pol.profile_key AS po_profile_key, pol.unit_price, pol.content_per_buy')
+                ->select('pol.snapshot_item_name, pol.snapshot_material_name, pol.snapshot_brand_name, pol.snapshot_line_description')
+                ->select('pol.snapshot_buy_uom_code, pol.snapshot_content_uom_code')
+                ->from('pur_purchase_receipt_line rl')
+                ->join('pur_purchase_order_line pol', 'pol.id = rl.purchase_order_line_id', 'inner')
+                ->where('rl.purchase_receipt_id', $receiptId)
+                ->order_by('rl.id', 'ASC');
+
+            if ($this->db->field_exists('expired_date', 'pur_purchase_receipt_line')) {
+                $lineQb->select('rl.expired_date AS receipt_expired_date');
+            }
+            if ($this->db->field_exists('expired_date', 'pur_purchase_order_line')) {
+                $lineQb->select('pol.expired_date AS po_expired_date');
+            }
+            if ($this->db->field_exists('snapshot_expired_date', 'pur_purchase_order_line')) {
+                $lineQb->select('pol.snapshot_expired_date');
+            }
+
+            $lines = $lineQb->get()->result_array();
+            $receiptTouched = false;
+
+            foreach ($lines as $line) {
+                $receiptLineId = (int)($line['receipt_line_id'] ?? 0);
+                $poLineId = (int)($line['purchase_order_line_id'] ?? 0);
+                if ($receiptLineId <= 0 || $poLineId <= 0) {
+                    continue;
+                }
+
+                $profileName = trim((string)($line['snapshot_item_name'] ?? ''));
+                if ($profileName === '') {
+                    $profileName = trim((string)($line['snapshot_material_name'] ?? ''));
+                }
+                $profileExpiredDate = $this->normalizeDate((string)(
+                    $line['receipt_expired_date']
+                    ?? ($line['po_expired_date'] ?? ($line['snapshot_expired_date'] ?? ''))
+                ));
+
+                $expectedProfileKey = $this->resolveCatalogProfileKeyByIdentity(
+                    (int)($line['item_id'] ?? 0),
+                    $this->nullableInt($line['material_id'] ?? null),
+                    (int)($line['buy_uom_id'] ?? 0),
+                    $this->nullableInt($line['content_uom_id'] ?? null) ?? (int)($line['buy_uom_id'] ?? 0),
+                    $profileName !== '' ? $profileName : null,
+                    $this->nullableString($line['snapshot_brand_name'] ?? null),
+                    $this->nullableString($line['snapshot_line_description'] ?? null),
+                    $profileExpiredDate ?: null,
+                    (float)($line['content_per_buy'] ?? 1),
+                    (float)($line['unit_price'] ?? 0)
+                );
+                if ($expectedProfileKey === null) {
+                    $expectedProfileKey = $this->nullableString($line['po_profile_key'] ?? null);
+                }
+
+                $currentProfileKey = $this->nullableString($line['receipt_profile_key'] ?? null);
+                if ($expectedProfileKey === null || $expectedProfileKey === $currentProfileKey) {
+                    continue;
+                }
+
+                $lotRows = [];
+                if ($hasLotProfileKey) {
+                    $lotRows = $this->db
+                        ->select('id, qty_in, qty_out, qty_balance')
+                        ->from('inv_material_fifo_lot')
+                        ->where('receipt_line_id', $receiptLineId)
+                        ->order_by('id', 'ASC')
+                        ->get()
+                        ->result_array();
+                    foreach ($lotRows as $lot) {
+                        $qtyOut = round((float)($lot['qty_out'] ?? 0), 4);
+                        $qtyIn = round((float)($lot['qty_in'] ?? 0), 4);
+                        $qtyBalance = round((float)($lot['qty_balance'] ?? 0), 4);
+                        if ($qtyOut > 0.0001 || abs($qtyBalance - $qtyIn) > 0.0001) {
+                            $this->db->trans_rollback();
+                            return [
+                                'ok' => false,
+                                'message' => 'Repair profile key ditolak karena lot inbound receipt line #' . $receiptLineId . ' sudah terpakai / berubah.',
+                            ];
+                        }
+                    }
+                }
+
+                $movementRows = $this->db
+                    ->select('id')
+                    ->from('inv_stock_movement_log')
+                    ->where('ref_table', 'pur_purchase_receipt')
+                    ->where('receipt_id', $receiptId)
+                    ->where('receipt_line_id', $receiptLineId)
+                    ->order_by('id', 'ASC')
+                    ->get()
+                    ->result_array();
+                if (empty($movementRows)) {
+                    $this->db->trans_rollback();
+                    return [
+                        'ok' => false,
+                        'message' => 'Repair profile key gagal: movement row tidak ditemukan untuk receipt line #' . $receiptLineId . '.',
+                    ];
+                }
+
+                $this->db
+                    ->where('id', $receiptLineId)
+                    ->update('pur_purchase_receipt_line', ['profile_key' => $expectedProfileKey]);
+                if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                    $this->db->trans_rollback();
+                    return [
+                        'ok' => false,
+                        'message' => 'Gagal mengupdate profile_key receipt line #' . $receiptLineId . '.',
+                    ];
+                }
+                $receiptLinesUpdated++;
+                $receiptTouched = true;
+
+                if ($hasLotProfileKey && !empty($lotRows)) {
+                    $lotIds = array_values(array_filter(array_map(static function (array $lot): int {
+                        return (int)($lot['id'] ?? 0);
+                    }, $lotRows)));
+                    if (!empty($lotIds)) {
+                        $this->db->where_in('id', $lotIds)->update('inv_material_fifo_lot', ['profile_key' => $expectedProfileKey]);
+                        if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                            $this->db->trans_rollback();
+                            return [
+                                'ok' => false,
+                                'message' => 'Gagal mengupdate profile_key lot receipt line #' . $receiptLineId . '.',
+                            ];
+                        }
+                        $lotRowsUpdated += count($lotIds);
+                    }
+                }
+
+                $movementIds = array_values(array_filter(array_map(static function (array $row): int {
+                    return (int)($row['id'] ?? 0);
+                }, $movementRows)));
+                if (!empty($movementIds)) {
+                    $this->db->where_in('id', $movementIds)->update('inv_stock_movement_log', ['profile_key' => $expectedProfileKey]);
+                    if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                        $this->db->trans_rollback();
+                        return [
+                            'ok' => false,
+                            'message' => 'Gagal mengupdate profile_key movement receipt line #' . $receiptLineId . '.',
+                        ];
+                    }
+                    $movementRowsUpdated += count($movementIds);
+                }
+
+                $baseIdentity = [
+                    'stock_domain' => strtoupper((string)($line['line_kind'] ?? 'ITEM')) === 'MATERIAL' ? 'MATERIAL' : 'ITEM',
+                    'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+                    'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
+                    'item_id' => $this->nullableInt($line['item_id'] ?? null),
+                    'material_id' => $this->nullableInt($line['material_id'] ?? null),
+                    'buy_uom_id' => $this->nullableInt($line['buy_uom_id'] ?? null),
+                    'content_uom_id' => $this->nullableInt($line['content_uom_id'] ?? null),
+                    'profile_name' => $this->nullableString($profileName !== '' ? $profileName : null),
+                    'profile_brand' => $this->nullableString(($line['brand_name'] ?? null) ?: ($line['snapshot_brand_name'] ?? null)),
+                    'profile_description' => $this->nullableString(($line['line_description'] ?? null) ?: ($line['snapshot_line_description'] ?? null)),
+                    'profile_expired_date' => $profileExpiredDate,
+                    'profile_content_per_buy' => round((float)($line['content_per_buy'] ?? 1), 6),
+                    'profile_buy_uom_code' => $this->nullableString($line['snapshot_buy_uom_code'] ?? null),
+                    'profile_content_uom_code' => $this->nullableString($line['snapshot_content_uom_code'] ?? null),
+                ];
+
+                $this->registerVoidRollbackRebuildTarget($rebuildTargets, $scope, $rebuildStartDate, array_merge($baseIdentity, [
+                    'profile_key' => $currentProfileKey,
+                ]));
+                $this->registerVoidRollbackRebuildTarget($rebuildTargets, $scope, $rebuildStartDate, array_merge($baseIdentity, [
+                    'profile_key' => $expectedProfileKey,
+                ]));
+            }
+
+            if ($receiptTouched) {
+                $existingNotes = trim((string)($receipt['notes'] ?? ''));
+                $repairNote = 'Repair profile_key receipt diselaraskan dari identity PO';
+                if (stripos($existingNotes, $repairNote) === false) {
+                    $newNotes = $existingNotes !== '' ? ($existingNotes . ' | ' . $repairNote) : $repairNote;
+                    $this->db->where('id', $receiptId)->update('pur_purchase_receipt', ['notes' => $newNotes]);
+                    if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                        $this->db->trans_rollback();
+                        return [
+                            'ok' => false,
+                            'message' => 'Gagal menyimpan catatan repair profile_key di receipt #' . (string)($receipt['receipt_no'] ?? $receiptId) . '.',
+                        ];
+                    }
+                }
+                $receiptsTouched++;
+            }
+        }
+
+        foreach ($rebuildTargets as $target) {
+            $rebuild = $this->rebuild_inventory_history_for_identity(
+                (string)$target['scope'],
+                (string)$target['start_date'],
+                (array)$target['identity']
+            );
+            if (!($rebuild['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => (string)($rebuild['message'] ?? 'Gagal rebuild histori stok setelah repair profile key receipt.'),
+                ];
+            }
+        }
+
+        if ($this->db->table_exists('aud_transaction_log') && $receiptsTouched > 0) {
+            $this->db->insert('aud_transaction_log', [
+                'module_code' => 'PURCHASE',
+                'action_code' => 'RECEIPT_PROFILE_KEY_REPAIR',
+                'entity_table' => 'pur_purchase_order',
+                'entity_id' => $purchaseOrderId,
+                'transaction_no' => (string)($order['po_no'] ?? null),
+                'ref_table' => 'pur_purchase_order',
+                'ref_id' => $purchaseOrderId,
+                'actor_user_id' => $userId > 0 ? $userId : null,
+                'after_payload' => json_encode([
+                    'receipt_lines_updated' => $receiptLinesUpdated,
+                    'lot_rows_updated' => $lotRowsUpdated,
+                    'movement_rows_updated' => $movementRowsUpdated,
+                    'rebuild_targets' => count($rebuildTargets),
+                ]),
+                'notes' => 'Repair profile_key receipt dari identity purchase order',
+            ]);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return [
+                'ok' => false,
+                'message' => 'Gagal commit repair profile key receipt PO.',
+            ];
+        }
+
+        $this->db->trans_commit();
+
+        return [
+            'ok' => true,
+            'message' => $receiptsTouched > 0
+                ? ('Repair profile key receipt PO selesai. Receipt diperbaiki: ' . $receiptsTouched . '.')
+                : 'Tidak ada mismatch profile_key receipt yang perlu direpair.',
+            'data' => [
+                'purchase_order_id' => $purchaseOrderId,
+                'receipt_lines_updated' => $receiptLinesUpdated,
+                'lot_rows_updated' => $lotRowsUpdated,
+                'movement_rows_updated' => $movementRowsUpdated,
+                'receipts_touched' => $receiptsTouched,
+                'rebuild_targets' => count($rebuildTargets),
+            ],
+        ];
+    }
+
     private function rollbackPurchaseOnVoid(int $purchaseOrderId, array $order, int $userId, string $sourceIp = ''): array
     {
         $receiptRollback = $this->rollbackPostedReceiptsOnVoid($purchaseOrderId, $userId, $sourceIp);
@@ -10093,7 +10511,8 @@ class Purchase_model extends CI_Model
                 $this->nullableString($poLine['snapshot_brand_name'] ?? null),
                 $this->nullableString($poLine['snapshot_line_description'] ?? null),
                 $profileExpiredDate ?: null,
-                (float)($poLine['content_per_buy'] ?? 1)
+                (float)($poLine['content_per_buy'] ?? 1),
+                (float)($poLine['unit_price'] ?? 0)
             );
             $effectiveProfileKey = $canonicalKey ?? $this->nullableString($poLine['profile_key'] ?? null);
 
@@ -11726,9 +12145,8 @@ class Purchase_model extends CI_Model
         $expiryRequirement = $this->extractOrderLineExpiryRequirement($line, 'expired_date');
         $expiredDate = $expiryRequirement['required_expiry_date'];
 
-        // Resolve profile_key: first try catalog lookup by identity (vendor/price excluded),
-        // so the same product always lands under the same inventory key regardless of price changes.
-        $lineName = trim((string)($entity['item_name'] ?? ($entity['material_name'] ?? ($lineDescription ?? ''))));
+        // Resolve profile_key against catalog signature including buyer-edited price.
+        $lineName = trim((string)($line['catalog_name'] ?? ($entity['item_name'] ?? ($entity['material_name'] ?? ($lineDescription ?? '')))));
         $profileKey = ($itemId !== null || $materialId !== null)
             ? $this->resolveCatalogProfileKeyByIdentity(
                 (int)($itemId ?? 0),
@@ -11739,13 +12157,13 @@ class Purchase_model extends CI_Model
                 $brandName,
                 $lineDescription,
                 $expiredDate ?: null,
-                $contentPerBuy
+                $contentPerBuy,
+                $unitPrice
             )
             : null;
 
         if ($profileKey === null) {
-            // Fallback: compute identity hash WITHOUT vendor_id or unit_price.
-            // Vendor and price are purchasing terms, not product identity.
+            // Fallback: keep different price bands as distinct purchase profiles.
             $profileKey = hash('sha256', implode('|', [
                 $lineKind,
                 (string)($itemId ?? 0),
@@ -11753,6 +12171,8 @@ class Purchase_model extends CI_Model
                 (string)$buyUomId,
                 (string)$contentUomId,
                 number_format($contentPerBuy, 6, '.', ''),
+                number_format($unitPrice, 2, '.', ''),
+                strtoupper((string)($lineName ?: '')),
                 strtoupper((string)($brandName ?? '')),
                 strtoupper((string)($lineDescription ?? '')),
             ]));
@@ -11829,7 +12249,8 @@ class Purchase_model extends CI_Model
             $this->nullableString($lineData['brand_name'] ?? null),
             $this->nullableString($lineData['line_description'] ?? null),
             null,
-            (float)($lineData['content_per_buy'] ?? 0)
+            (float)($lineData['content_per_buy'] ?? 0),
+            (float)($lineData['unit_price'] ?? 0)
         );
         $effectiveProfileKey = trim((string)($canonicalProfileKey ?? ($lineData['profile_key'] ?? '')));
         if ($effectiveProfileKey === '') {
@@ -12324,6 +12745,8 @@ class Purchase_model extends CI_Model
                     'profile_content_per_buy' => (float)($row['profile_content_per_buy'] ?? 0),
                     'profile_buy_uom_code' => (string)($row['profile_buy_uom_code'] ?? ''),
                     'profile_content_uom_code' => (string)($row['profile_content_uom_code'] ?? ''),
+                    'profile_standard_price' => round((float)($row['profile_standard_price'] ?? 0), 2),
+                    'profile_last_unit_price' => round((float)($row['profile_last_unit_price'] ?? 0), 2),
                     'daily' => [],
                     'summary' => [
                         'in_total' => 0.0,
@@ -12459,7 +12882,8 @@ class Purchase_model extends CI_Model
         ?string $profileBrand,
         ?string $profileDescription,
         ?string $profileExpiredDate,
-        float $profileContentPerBuy
+        float $profileContentPerBuy,
+        ?float $profileUnitPrice = null
     ): ?string {
         if (!$this->db->table_exists('mst_purchase_catalog') || !$this->db->field_exists('profile_key', 'mst_purchase_catalog')) {
             return null;
@@ -12477,6 +12901,8 @@ class Purchase_model extends CI_Model
         $hasCatalogContentPerBuy = $this->db->field_exists('content_per_buy', 'mst_purchase_catalog');
         $hasCatalogIsActive = $this->db->field_exists('is_active', 'mst_purchase_catalog');
         $hasCatalogLastPurchaseDate = $this->db->field_exists('last_purchase_date', 'mst_purchase_catalog');
+        $hasCatalogLastUnitPrice = $this->db->field_exists('last_unit_price', 'mst_purchase_catalog');
+        $hasCatalogStandardPrice = $this->db->field_exists('standard_price', 'mst_purchase_catalog');
 
         $candidateRows = $this->db
             ->select('c.id, c.profile_key' . ($hasCatalogIsActive ? ', c.is_active' : ''), false)
@@ -12504,6 +12930,15 @@ class Purchase_model extends CI_Model
         }
         if ($hasCatalogContentPerBuy) {
             $this->db->where('ROUND(COALESCE(c.content_per_buy, 0), 6) = ' . $this->db->escape($cpbNorm), null, false);
+        }
+        if ($profileUnitPrice !== null && ($hasCatalogLastUnitPrice || $hasCatalogStandardPrice)) {
+            $priceNorm = number_format(max(0, (float)$profileUnitPrice), 2, '.', '');
+            $priceExpr = $hasCatalogLastUnitPrice && $hasCatalogStandardPrice
+                ? 'ROUND(COALESCE(c.last_unit_price, c.standard_price, 0), 2)'
+                : ($hasCatalogLastUnitPrice
+                    ? 'ROUND(COALESCE(c.last_unit_price, 0), 2)'
+                    : 'ROUND(COALESCE(c.standard_price, 0), 2)');
+            $this->db->where($priceExpr . ' = ' . $this->db->escape($priceNorm), null, false);
         }
 
         $candidateRows = $candidateRows

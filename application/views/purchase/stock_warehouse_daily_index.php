@@ -328,6 +328,130 @@ foreach ($monthlyRows as $row) {
 }
 ?>
 
+<style>
+  :root {
+    --swd-sticky-top: 0px;
+  }
+  .swd-sticky-head {
+    position: fixed;
+    top: var(--swd-sticky-top);
+    left: 0;
+    display: none;
+    overflow: hidden;
+    z-index: 1035;
+    pointer-events: none;
+    background: #fff8f4;
+    border: 1px solid #ead5ca;
+    border-bottom: 0;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 10px 24px rgba(95, 23, 39, 0.12);
+  }
+  .swd-sticky-head table {
+    margin-bottom: 0;
+    transform: translateX(0);
+    will-change: transform;
+  }
+  .swd-sticky-head th {
+    background: #fff8f4 !important;
+    box-shadow: inset 0 -1px 0 #e8d1c5;
+    white-space: nowrap;
+  }
+  .swd-table-wrap {
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+  .swd-monthly-table thead th {
+    background: #fff8f4;
+    box-shadow: inset 0 -1px 0 #e8d1c5;
+  }
+  .swd-monthly-table th:nth-child(2),
+  .swd-monthly-table td:nth-child(2) {
+    min-width: 250px;
+  }
+  .swd-monthly-table th:nth-child(3),
+  .swd-monthly-table td:nth-child(3) {
+    min-width: 260px;
+  }
+  .swd-parent-row {
+    background: #fff6ef;
+    border-top: 2px solid #f0d8ca;
+  }
+  .swd-child-row {
+    background: #fffdfb;
+  }
+  .swd-name-cell {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    min-width: 0;
+  }
+  .swd-name-body {
+    min-width: 0;
+    display: grid;
+    gap: 0.22rem;
+  }
+  .swd-name-meta,
+  .swd-profile-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.32rem;
+  }
+  .swd-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.48rem;
+    font-size: 0.68rem;
+    font-weight: 800;
+    max-width: 100%;
+    color: #855346;
+    border: 1px solid #ead5ca;
+    background: #fff8f3;
+  }
+  .swd-chip.is-parent {
+    border-radius: 999px;
+  }
+  .swd-chip.is-child {
+    border-radius: 10px;
+    border-style: dashed;
+    background: #fffaf7;
+  }
+  .swd-object-name {
+    font-weight: 700;
+    color: #4e1f2e;
+    line-height: 1.25;
+  }
+  .swd-object-code {
+    color: #876a65;
+    font-size: 0.8rem;
+  }
+  .swd-profile-stack {
+    display: grid;
+    gap: 0.24rem;
+  }
+  .swd-profile-stack.is-child {
+    padding-left: 1.25rem;
+    position: relative;
+  }
+  .swd-profile-stack.is-child::before {
+    content: '';
+    position: absolute;
+    left: 0.45rem;
+    top: 0.2rem;
+    bottom: 0.2rem;
+    width: 3px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #ebd7cc 0%, #d9b6a4 100%);
+  }
+  .swd-profile-note,
+  .swd-child-label {
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #9a6f60;
+  }
+</style>
+
 <div class="mb-2">
   <h4 class="mb-1"><i class="ri ri-calendar-check-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
   <small class="text-muted">Rekap parent-child per barang dalam rentang 1 bulan (expand untuk detail profil).</small>
@@ -383,8 +507,9 @@ foreach ($monthlyRows as $row) {
 </div>
 
 <div class="card">
-  <div class="table-responsive">
-    <table class="table table-striped table-hover mb-0">
+  <div class="swd-sticky-head" id="swdStickyHead" aria-hidden="true"></div>
+  <div class="table-responsive swd-table-wrap">
+    <table class="table table-striped table-hover mb-0 swd-monthly-table" id="swdMonthlyTable">
       <thead>
         <tr>
           <th>No</th>
@@ -416,6 +541,11 @@ foreach ($monthlyRows as $row) {
               $itemText = trim((string)($parent['item_name'] ?? ''));
               $materialText = trim((string)($parent['material_name'] ?? ''));
               $nameText = $itemText !== '' ? $itemText : ($materialText !== '' ? $materialText : '-');
+              $codeText = trim((string)($parent['item_code'] ?? ''));
+              if ($codeText === '') {
+                $codeText = trim((string)($parent['material_code'] ?? ''));
+              }
+              $kindText = strtoupper((string)($parent['stock_domain'] ?? 'ITEM')) === 'MATERIAL' ? 'Material' : 'Item';
               $rowId = 'swd-parent-' . (int)$idx;
               $isExpandable = ((int)($parent['profile_count'] ?? 0) > 1);
               $singleChild = (!$isExpandable && !empty($parent['children'])) ? $parent['children'][0] : null;
@@ -427,7 +557,7 @@ foreach ($monthlyRows as $row) {
                 $uomContent = (string)($singleChild['profile_content_uom_code'] ?? $uomContent);
               }
             ?>
-            <tr class="table-warning">
+            <tr class="swd-parent-row">
               <td>
                 <?php if ($isExpandable): ?>
                   <button type="button" class="btn btn-sm btn-outline-secondary swd-toggle" data-target="<?php echo html_escape($rowId); ?>">+</button>
@@ -436,10 +566,30 @@ foreach ($monthlyRows as $row) {
                 <?php endif; ?>
                 <span class="ms-1"><?php echo (int)($idx + 1); ?></span>
               </td>
-              <td><?php echo html_escape($nameText); ?></td>
+              <td>
+                <div class="swd-name-cell">
+                  <div class="swd-name-body">
+                    <div class="swd-object-name"><?php echo html_escape($nameText); ?></div>
+                    <div class="swd-name-meta">
+                      <?php if ($codeText !== ''): ?>
+                        <span class="swd-chip is-parent"><?php echo html_escape($codeText); ?></span>
+                      <?php endif; ?>
+                      <span class="swd-chip is-parent"><?php echo html_escape($kindText); ?></span>
+                      <?php if ($isExpandable): ?>
+                        <span class="swd-chip is-parent"><?php echo (int)($parent['profile_count'] ?? 0); ?> profil</span>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+                </div>
+              </td>
               <td>
                 <?php if ($isExpandable): ?>
-                  <strong><?php echo (int)($parent['profile_count'] ?? 0); ?> profil</strong>
+                  <div class="swd-profile-stack">
+                    <div class="swd-profile-meta">
+                      <span class="swd-chip is-parent"><?php echo (int)($parent['profile_count'] ?? 0); ?> profil aktif</span>
+                    </div>
+                    <div class="swd-profile-note">Expand untuk lihat rincian profil.</div>
+                  </div>
                 <?php else: ?>
                   <?php
                     $singleProfile = is_array($singleChild) ? $singleChild : [];
@@ -453,12 +603,16 @@ foreach ($monthlyRows as $row) {
                       $profileLines[] = 'Ket: ' . html_escape($descText);
                     }
                   ?>
-                  <?php if (!empty($profileLines)): ?>
-                    <?php echo implode('<br>', $profileLines); ?>
-                  <?php endif; ?>
-                  <?php if (is_array($singleChild)): ?>
-                    <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($singleChild)); ?>">Lihat Lot</a></div>
-                  <?php endif; ?>
+                  <div class="swd-profile-stack">
+                    <div class="swd-profile-meta">
+                      <?php foreach ($profileLines as $profileLine): ?>
+                        <span class="swd-chip is-parent"><?php echo $profileLine; ?></span>
+                      <?php endforeach; ?>
+                    </div>
+                    <?php if (is_array($singleChild)): ?>
+                      <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($singleChild)); ?>">Lihat Lot</a></div>
+                    <?php endif; ?>
+                  </div>
                 <?php endif; ?>
               </td>
               <td><?php echo html_escape($uomPack); ?></td>
@@ -491,14 +645,31 @@ foreach ($monthlyRows as $row) {
                 $childUomContent = (string)($child['profile_content_uom_code'] ?? '');
                 $childAvgCostPack = (float)($child['avg_cost_per_content'] ?? 0) * (float)($child['profile_content_per_buy'] ?? 0);
               ?>
-              <tr class="table-light <?php echo html_escape($rowId); ?>" style="display:none;">
+              <tr class="swd-child-row <?php echo html_escape($rowId); ?>" style="display:none;">
                 <td></td>
-                <td><small class="text-muted">Detail Profil</small></td>
                 <td>
-                  <?php echo html_escape((string)($child['profile_name'] ?? '-')); ?><br>
-                  <small class="text-muted">Brand: <?php echo html_escape((string)($child['profile_brand'] ?? '-')); ?></small><br>
-                  <small class="text-muted"><?php echo number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape($childUomContent); ?> / <?php echo html_escape($childUomPack); ?></small>
-                  <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($child)); ?>">Lihat Lot</a></div>
+                  <div class="swd-name-cell">
+                    <div class="swd-name-body">
+                      <div class="swd-child-label">Profil Turunan</div>
+                      <div class="swd-object-name"><?php echo html_escape($nameText); ?></div>
+                      <div class="swd-name-meta">
+                        <?php if ($codeText !== ''): ?>
+                          <span class="swd-chip is-child"><?php echo html_escape($codeText); ?></span>
+                        <?php endif; ?>
+                        <span class="swd-chip is-child">Child</span>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="swd-profile-stack is-child">
+                    <div class="swd-object-name"><?php echo html_escape((string)($child['profile_name'] ?? '-')); ?></div>
+                    <div class="swd-profile-meta">
+                      <span class="swd-chip is-child">Brand: <?php echo html_escape((string)($child['profile_brand'] ?? '-')); ?></span>
+                      <span class="swd-chip is-child"><?php echo number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape($childUomContent); ?> / <?php echo html_escape($childUomPack); ?></span>
+                    </div>
+                    <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($child)); ?>">Lihat Lot</a></div>
+                  </div>
                 </td>
                 <td><?php echo html_escape($childUomPack); ?></td>
                 <td class="text-end"><?php echo number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape($childUomContent); ?></td>
@@ -540,5 +711,63 @@ foreach ($monthlyRows as $row) {
       btn.textContent = willShow ? '-' : '+';
     });
   });
+})();
+</script>
+
+<script>
+(function(){
+  function syncWarehouseDailyStickyTop(){
+    var navbar = document.getElementById('layout-navbar') || document.querySelector('.layout-navbar');
+    var topOffset = navbar ? Math.ceil(navbar.getBoundingClientRect().height) : 0;
+    document.documentElement.style.setProperty('--swd-sticky-top', topOffset + 'px');
+    return topOffset;
+  }
+
+  function initWarehouseDailyFloatingHeader(){
+    var wrapper = document.querySelector('.swd-table-wrap');
+    var table = document.getElementById('swdMonthlyTable');
+    var host = document.getElementById('swdStickyHead');
+    if (!wrapper || !table || !host) { return; }
+    var thead = table.querySelector('thead');
+    if (!thead) { return; }
+
+    host.innerHTML = '<table class="' + table.className + '"><thead>' + thead.innerHTML + '</thead></table>';
+    var cloneTable = host.querySelector('table');
+    var cloneHead = cloneTable ? cloneTable.querySelector('thead') : null;
+    if (!cloneTable || !cloneHead) { return; }
+
+    function syncFloatingHeader(){
+      var stickyTop = syncWarehouseDailyStickyTop();
+      var wrapperRect = wrapper.getBoundingClientRect();
+      var tableRect = table.getBoundingClientRect();
+      var originalThs = Array.prototype.slice.call(thead.querySelectorAll('th'));
+      var cloneThs = Array.prototype.slice.call(cloneHead.querySelectorAll('th'));
+      originalThs.forEach(function(th, index){
+        if (!cloneThs[index]) { return; }
+        var width = Math.ceil(th.getBoundingClientRect().width);
+        cloneThs[index].style.width = width + 'px';
+        cloneThs[index].style.minWidth = width + 'px';
+        cloneThs[index].style.maxWidth = width + 'px';
+      });
+      cloneTable.style.width = Math.ceil(table.getBoundingClientRect().width) + 'px';
+      cloneTable.style.transform = 'translateX(' + (-wrapper.scrollLeft) + 'px)';
+
+      var headerHeight = Math.ceil(thead.getBoundingClientRect().height || 0);
+      var shouldShow = wrapperRect.top <= stickyTop && tableRect.bottom > (stickyTop + headerHeight);
+      host.style.display = shouldShow ? 'block' : 'none';
+      host.style.top = stickyTop + 'px';
+      host.style.left = Math.ceil(wrapperRect.left) + 'px';
+      host.style.width = Math.ceil(wrapperRect.width) + 'px';
+    }
+
+    wrapper.addEventListener('scroll', syncFloatingHeader, { passive: true });
+    window.addEventListener('scroll', syncFloatingHeader, { passive: true });
+    window.addEventListener('resize', syncFloatingHeader);
+    requestAnimationFrame(syncFloatingHeader);
+  }
+
+  syncWarehouseDailyStickyTop();
+  window.addEventListener('resize', syncWarehouseDailyStickyTop);
+  initWarehouseDailyFloatingHeader();
 })();
 </script>

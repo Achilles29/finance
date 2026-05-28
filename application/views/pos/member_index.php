@@ -1,14 +1,14 @@
 <?php
 $filters = is_array($filters ?? null) ? $filters : [];
 $filterOptions = is_array($filter_options ?? null) ? $filter_options : [];
-$cities = is_array($filterOptions['cities'] ?? null) ? $filterOptions['cities'] : [];
 $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [];
 ?>
+
 <div class="container-xxl py-3">
   <div class="fin-page-header">
     <div>
       <h4 class="fin-page-title mb-1">Member POS</h4>
-      <p class="fin-page-subtitle mb-0">Kelola database member yang dipakai kasir untuk pencarian cepat, loyalty, voucher, dan aplikasi member.</p>
+      <p class="fin-page-subtitle mb-0">Kelola member yang dipakai kasir untuk pencarian cepat, loyalty, voucher, dan akun aplikasi customer.</p>
     </div>
   </div>
 
@@ -28,20 +28,13 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
       </div>
       <div class="d-flex gap-2 flex-wrap mb-3" id="member-status-tabs">
         <button class="btn btn-sm btn-outline-secondary pos-member-status-tab" data-member-status="ALL">Semua Status</button>
-        <button class="btn btn-sm btn-outline-secondary pos-member-status-tab" data-member-status="ACTIVE">Member Aktif</button>
+        <button class="btn btn-sm btn-outline-secondary pos-member-status-tab" data-member-status="ACTIVE">Active</button>
+        <button class="btn btn-sm btn-outline-secondary pos-member-status-tab" data-member-status="INACTIVE">Inactive</button>
         <button class="btn btn-sm btn-outline-secondary pos-member-status-tab" data-member-status="SUSPENDED">Suspended</button>
-        <button class="btn btn-sm btn-outline-secondary pos-member-status-tab" data-member-status="CLOSED">Closed</button>
+        <button class="btn btn-sm btn-outline-secondary pos-member-status-tab" data-member-status="EXPIRED">Expired</button>
       </div>
 
       <form id="filter-form" class="row g-2 mb-3">
-        <div class="col-md-3">
-          <select class="form-select" id="city">
-            <option value="">Semua Kota</option>
-            <?php foreach ($cities as $city): ?>
-              <option value="<?php echo html_escape((string)$city); ?>"><?php echo html_escape((string)$city); ?></option>
-            <?php endforeach; ?>
-          </select>
-        </div>
         <div class="col-md-3">
           <select class="form-select" id="tier">
             <option value="">Semua Tier</option>
@@ -50,8 +43,8 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
             <?php endforeach; ?>
           </select>
         </div>
-        <div class="col-md-4">
-          <input id="q" class="form-control" placeholder="Cari nomor member / nama / no HP / email">
+        <div class="col-md-7">
+          <input id="q" class="form-control" placeholder="Cari nomor member / kode customer / nama / no HP / email">
         </div>
         <div class="col-md-1">
           <select class="form-select" id="limit">
@@ -73,11 +66,9 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
               <th>No Member</th>
               <th>Nama</th>
               <th>Kontak</th>
-              <th>Kota</th>
               <th>Tier</th>
-              <th class="text-end">Point</th>
-              <th class="text-end">Stamp</th>
-              <th class="text-end">Total Spending</th>
+              <th>Joined</th>
+              <th>Expired</th>
               <th class="text-center">Status Member</th>
               <th class="text-center">Status</th>
               <th class="text-center" style="width:132px;">Aksi</th>
@@ -96,15 +87,18 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
   </div>
 </div>
 
-<div class="modal fade" id="memberModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade finance-ui-modal" id="memberModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="memberModalLabel">Tambah Member</h5>
+        <div>
+          <h5 class="modal-title" id="memberModalLabel">Tambah Member</h5>
+          <div class="small text-muted">Nomor member dibuat otomatis, lalu tetap bisa dipakai kasir untuk pencarian cepat.</div>
+        </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <form id="form-save" class="row g-2">
+        <form id="form-save" class="row g-3">
           <input type="hidden" name="id" value="">
           <div class="col-md-4">
             <label class="form-label mb-1 small text-muted">No Member</label>
@@ -123,8 +117,25 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
             <input class="form-control" name="email">
           </div>
           <div class="col-md-4">
+            <label class="form-label mb-1 small text-muted">Tier</label>
+            <input class="form-control" name="member_tier" placeholder="Mis. Silver / Gold / VIP">
+          </div>
+          <div class="col-md-4">
             <label class="form-label mb-1 small text-muted">Tanggal Bergabung</label>
             <input type="datetime-local" class="form-control" name="joined_at">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label mb-1 small text-muted">Expired At</label>
+            <input type="datetime-local" class="form-control" name="expired_at">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label mb-1 small text-muted">Status Member</label>
+            <select class="form-select" name="member_status">
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="INACTIVE">INACTIVE</option>
+              <option value="SUSPENDED">SUSPENDED</option>
+              <option value="EXPIRED">EXPIRED</option>
+            </select>
           </div>
           <div class="col-md-4">
             <label class="form-label mb-1 small text-muted">Tanggal Lahir</label>
@@ -134,45 +145,14 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
             <label class="form-label mb-1 small text-muted">Gender</label>
             <select class="form-select" name="gender">
               <option value="">-</option>
-              <option value="L">Laki-laki</option>
-              <option value="P">Perempuan</option>
+              <option value="MALE">Laki-laki</option>
+              <option value="FEMALE">Perempuan</option>
+              <option value="OTHER">Lainnya</option>
             </select>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label mb-1 small text-muted">Tier</label>
-            <input class="form-control" name="member_tier" placeholder="Mis. Silver / Gold / VIP">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label mb-1 small text-muted">Status Member</label>
-            <select class="form-select" name="member_status">
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="SUSPENDED">SUSPENDED</option>
-              <option value="CLOSED">CLOSED</option>
-            </select>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label mb-1 small text-muted">Kota</label>
-            <input class="form-control" name="city">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label mb-1 small text-muted">Kode Pos</label>
-            <input class="form-control" name="postal_code">
-          </div>
-          <div class="col-12">
-            <label class="form-label mb-1 small text-muted">Alamat</label>
-            <textarea class="form-control" rows="2" name="address"></textarea>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label mb-1 small text-muted">Nama Kontak Darurat</label>
-            <input class="form-control" name="emergency_contact_name">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label mb-1 small text-muted">HP Kontak Darurat</label>
-            <input class="form-control" name="emergency_contact_phone">
           </div>
           <div class="col-12">
             <label class="form-label mb-1 small text-muted">Catatan</label>
-            <textarea class="form-control" rows="2" name="notes"></textarea>
+            <textarea class="form-control" rows="3" name="notes" placeholder="Catatan internal member, preferensi, atau informasi loyalitas tambahan."></textarea>
           </div>
         </form>
       </div>
@@ -191,7 +171,6 @@ document.addEventListener('DOMContentLoaded', function () {
     q: initialFilters.q || '',
     status: initialFilters.status || 'ACTIVE',
     member_status: initialFilters.member_status || 'ALL',
-    city: initialFilters.city || '',
     tier: initialFilters.tier || '',
     page: parseInt(initialFilters.page || 1, 10),
     limit: parseInt(initialFilters.limit || 50, 10) || 50
@@ -207,28 +186,29 @@ document.addEventListener('DOMContentLoaded', function () {
   const modalTitle = document.getElementById('memberModalLabel');
 
   function escapeHtml(v) {
-    return String(v ?? '').replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+    return String(v ?? '').replace(/[&<>\"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[m]));
   }
 
-  function fmtMoney(v) {
-    return new Intl.NumberFormat('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(Number(v || 0));
-  }
-
-  function fmtQty(v) {
-    return new Intl.NumberFormat('id-ID', {minimumFractionDigits: 0, maximumFractionDigits: 4}).format(Number(v || 0));
+  function fmtDateTime(v) {
+    if (!v) return '-';
+    const safe = String(v).replace(' ', 'T');
+    const dt = new Date(safe);
+    if (Number.isNaN(dt.getTime())) return escapeHtml(String(v));
+    return new Intl.DateTimeFormat('id-ID', {dateStyle: 'medium', timeStyle: 'short'}).format(dt);
   }
 
   function statusBadge(status) {
     const v = String(status || '').toUpperCase();
-    if (v === 'SUSPENDED') return '<span class=\"badge bg-warning-subtle text-warning-emphasis\">SUSPENDED</span>';
-    if (v === 'CLOSED') return '<span class=\"badge bg-secondary-subtle text-secondary-emphasis\">CLOSED</span>';
-    return '<span class=\"badge bg-success-subtle text-success-emphasis\">ACTIVE</span>';
+    if (v === 'INACTIVE') return '<span class="badge bg-secondary-subtle text-secondary-emphasis">INACTIVE</span>';
+    if (v === 'SUSPENDED') return '<span class="badge bg-warning-subtle text-warning-emphasis">SUSPENDED</span>';
+    if (v === 'EXPIRED') return '<span class="badge bg-danger-subtle text-danger-emphasis">EXPIRED</span>';
+    return '<span class="badge bg-success-subtle text-success-emphasis">ACTIVE</span>';
   }
 
   function activeBadge(flag) {
     return Number(flag || 0) === 1
-      ? '<span class=\"badge bg-success-subtle text-success-emphasis\">Aktif</span>'
-      : '<span class=\"badge bg-danger-subtle text-danger-emphasis\">Nonaktif</span>';
+      ? '<span class="badge bg-success-subtle text-success-emphasis">Aktif</span>'
+      : '<span class="badge bg-danger-subtle text-danger-emphasis">Nonaktif</span>';
   }
 
   function qsFromState() {
@@ -236,7 +216,6 @@ document.addEventListener('DOMContentLoaded', function () {
     p.set('q', state.q);
     p.set('status', state.status);
     p.set('member_status', state.member_status);
-    p.set('city', state.city);
     p.set('tier', state.tier);
     p.set('page', String(state.page || 1));
     p.set('limit', String(state.limit || 50));
@@ -245,7 +224,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function syncControls() {
     document.getElementById('q').value = state.q;
-    document.getElementById('city').value = state.city;
     document.getElementById('tier').value = state.tier;
     document.getElementById('limit').value = String(state.limit || 50);
     document.querySelectorAll('.pos-status-tab').forEach((btn) => btn.classList.toggle('active', btn.dataset.status === state.status));
@@ -256,7 +234,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const r = await fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}});
     const t = await r.text();
     let j = null;
-    try { j = JSON.parse(t); } catch (e) { throw new Error('Response bukan JSON. Cek session/permission/error backend.'); }
+    try { j = JSON.parse(t); } catch (e) { throw new Error('Response bukan JSON. Cek session / permission / error backend.'); }
     if (!r.ok || !j.ok) throw new Error(j.message || 'Gagal memuat data');
     return j;
   }
@@ -269,7 +247,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
     const t = await r.text();
     let j = null;
-    try { j = JSON.parse(t); } catch (e) { throw new Error('Response save bukan JSON. Kemungkinan ada warning/error PHP di backend.'); }
+    try { j = JSON.parse(t); } catch (e) { throw new Error('Response save bukan JSON. Kemungkinan ada warning / error PHP di backend.'); }
     if (!r.ok || !j.ok) throw new Error(j.message || 'Gagal menyimpan data');
     return j;
   }
@@ -283,20 +261,18 @@ document.addEventListener('DOMContentLoaded', function () {
     emptyState.classList.add('d-none');
     tableBody.innerHTML = rows.map((r) => `
       <tr>
-        <td class="text-nowrap">${escapeHtml(r.member_no || '-')}</td>
-        <td>
-          <div>${escapeHtml(r.member_name || '-')}</div>
-          <div class="small text-muted mt-1">${r.joined_at ? escapeHtml(String(r.joined_at).slice(0, 10)) : '-'}</div>
+        <td class="text-nowrap">
+          <div>${escapeHtml(r.member_no || '-')}</div>
+          <div class="small text-muted mt-1">${escapeHtml(r.customer_code || '-')}</div>
         </td>
+        <td>${escapeHtml(r.member_name || '-')}</td>
         <td>
           <div>${escapeHtml(r.mobile_phone || '-')}</div>
           <div class="small text-muted mt-1">${escapeHtml(r.email || '-')}</div>
         </td>
-        <td>${escapeHtml(r.city || '-')}</td>
         <td>${escapeHtml(r.member_tier || '-')}</td>
-        <td class="text-end">${fmtQty(r.point_balance_cache)}</td>
-        <td class="text-end">${fmtQty(r.stamp_balance_cache)}</td>
-        <td class="text-end">${fmtMoney(r.total_spending)}</td>
+        <td class="text-nowrap">${fmtDateTime(r.joined_at)}</td>
+        <td class="text-nowrap">${fmtDateTime(r.expired_at)}</td>
         <td class="text-center">${statusBadge(r.member_status)}</td>
         <td class="text-center">${activeBadge(r.is_active)}</td>
         <td class="text-center">
@@ -349,7 +325,9 @@ document.addEventListener('DOMContentLoaded', function () {
     Object.keys(row || {}).forEach((key) => {
       if (!form.elements[key]) return;
       let value = row[key];
-      if (key === 'joined_at' && value) value = String(value).slice(0, 16).replace(' ', 'T');
+      if ((key === 'joined_at' || key === 'expired_at') && value) {
+        value = String(value).slice(0, 16).replace(' ', 'T');
+      }
       form.elements[key].value = value == null ? '' : value;
     });
     modalTitle.textContent = `Edit Member: ${row.member_name || ''}`;
@@ -365,7 +343,6 @@ document.addEventListener('DOMContentLoaded', function () {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => loadRows().catch((err) => alert(err.message)), 250);
   });
-  document.getElementById('city').addEventListener('change', (e) => { state.city = e.target.value || ''; state.page = 1; loadRows().catch((err) => alert(err.message)); });
   document.getElementById('tier').addEventListener('change', (e) => { state.tier = e.target.value || ''; state.page = 1; loadRows().catch((err) => alert(err.message)); });
   document.getElementById('limit').addEventListener('change', (e) => { state.limit = parseInt(e.target.value || '50', 10) || 50; state.page = 1; loadRows().catch((err) => alert(err.message)); });
   document.querySelectorAll('.pos-status-tab').forEach((btn) => btn.addEventListener('click', () => { state.status = btn.dataset.status; state.page = 1; loadRows().catch((err) => alert(err.message)); }));
@@ -375,7 +352,6 @@ document.addEventListener('DOMContentLoaded', function () {
     state.q = '';
     state.status = 'ACTIVE';
     state.member_status = 'ALL';
-    state.city = '';
     state.tier = '';
     state.page = 1;
     state.limit = 50;

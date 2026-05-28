@@ -264,9 +264,28 @@ UI cukup:
 9. Sistem rebuild availability produk terdampak.
 10. Payment diselesaikan kemudian, tanpa menjadi trigger utama pengurangan stok.
 
+## 12.1 Bundle pricing untuk revenue dan profit line
+Jika order line adalah bundle:
+1. sistem tetap menghitung HPP per item penyusun bundle dari resep/item aslinya
+2. revenue per item **tidak** boleh otomatis memakai harga jual normal penuh jika harga bundle lebih rendah/berbeda
+3. revenue item bundle dialokasikan dari harga jual riil bundle
+
+Standar yang dipakai:
+1. default = `AUTO_PROPORTIONAL`
+2. jika semua line bundle tanpa override, alokasi revenue line dilakukan proporsional terhadap harga normal item
+3. jika ada override manual pada line tertentu, line itu memakai nilai override
+4. sisa revenue bundle dibagikan proporsional ke line lain yang belum override
+5. hasil pembulatan akhir harus dijaga agar total revenue line = revenue bundle
+
+Tujuan:
+1. laporan profit per produk tetap realistis
+2. discount bundle tidak “hilang” di level line
+3. refund parsial dan analitik produk lebih presisi
+
 ## 13) Rekomendasi Implementasi Tahap Lanjut
 1. Tambahkan role bahan di recipe produk jika belum eksplisit.
 2. Siapkan service tunggal `PosStockCommitService`.
-3. Siapkan service `PosAvailabilityRebuildService`.
-4. Siapkan worker opsional untuk rebuild batch, tetapi request normal tetap update affected product secara langsung.
-5. Hardening audit commit snapshot pada phase 2.
+3. Siapkan service `PosBundlePricingService` untuk alokasi revenue bundle per line.
+4. Siapkan service `PosAvailabilityRebuildService`.
+5. Siapkan worker opsional untuk rebuild batch, tetapi request normal tetap update affected product secara langsung.
+6. Hardening audit commit snapshot pada phase 2.

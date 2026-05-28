@@ -125,12 +125,100 @@ $summaryItemCount = count($parentRows);
 ?>
 
 <style>
+  :root {
+    --wh-sticky-top: 0px;
+  }
+  .wh-sticky-head {
+    position: fixed;
+    top: var(--wh-sticky-top);
+    left: 0;
+    display: none;
+    overflow: hidden;
+    z-index: 1035;
+    pointer-events: none;
+    background: #fff8f4;
+    border: 1px solid #ead5ca;
+    border-bottom: 0;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 10px 24px rgba(95, 23, 39, 0.12);
+  }
+  .wh-sticky-head table {
+    margin-bottom: 0;
+    transform: translateX(0);
+    will-change: transform;
+  }
+  .wh-sticky-head th {
+    background: #fff8f4 !important;
+    box-shadow: inset 0 -1px 0 #e8d1c5;
+    white-space: nowrap;
+  }
+  .wh-table-wrap {
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+  .wh-stock-table thead th {
+    background: #fff8f4;
+    box-shadow: inset 0 -1px 0 #e8d1c5;
+  }
+  .wh-stock-table th:first-child,
+  .wh-stock-table td:first-child {
+    min-width: 280px;
+  }
   .wh-parent-row {
     background: #fff6ef;
     border-top: 2px solid #f0d8ca;
   }
   .wh-child-row td {
     background: #fff;
+  }
+  .wh-name-cell {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    min-width: 0;
+  }
+  .wh-name-cell-child {
+    padding-left: 1.4rem;
+    position: relative;
+  }
+  .wh-name-cell-child::before {
+    content: '';
+    position: absolute;
+    left: 0.55rem;
+    top: 0.2rem;
+    bottom: 0.2rem;
+    width: 3px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #ebd7cc 0%, #d9b6a4 100%);
+  }
+  .wh-name-body {
+    min-width: 0;
+    display: grid;
+    gap: 0.22rem;
+  }
+  .wh-name-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.32rem;
+  }
+  .wh-name-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.48rem;
+    font-size: 0.68rem;
+    font-weight: 800;
+    max-width: 100%;
+    color: #855346;
+    border: 1px solid #ead5ca;
+    background: #fff8f3;
+  }
+  .wh-name-chip.is-parent {
+    border-radius: 999px;
+  }
+  .wh-name-chip.is-child {
+    border-radius: 10px;
+    border-style: dashed;
+    background: #fffaf7;
   }
   .wh-toggle {
     border: 1px solid #d7b6a8;
@@ -167,10 +255,18 @@ $summaryItemCount = count($parentRows);
   .wh-item-name {
     font-weight: 700;
     color: #4e1f2e;
+    line-height: 1.25;
   }
   .wh-item-code {
     color: #876a65;
     font-size: 0.8rem;
+  }
+  .wh-child-label {
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #9a6f60;
   }
 </style>
 
@@ -223,8 +319,9 @@ $summaryItemCount = count($parentRows);
 </div>
 
 <div class="card">
-  <div class="table-responsive">
-    <table class="table table-striped table-hover mb-0">
+  <div class="wh-sticky-head" id="whStickyHead" aria-hidden="true"></div>
+  <div class="table-responsive wh-table-wrap">
+    <table class="table table-striped table-hover mb-0 wh-stock-table" id="whStockTable">
       <thead>
         <tr>
           <th>Nama Barang</th>
@@ -247,6 +344,7 @@ $summaryItemCount = count($parentRows);
           <?php foreach ($parentRows as $idx => $parent): ?>
             <?php
               $objectText = trim((string)($parent['item_name'] ?? ''));
+              $objectCode = trim((string)($parent['item_code'] ?? ''));
               $collapseClass = 'wh-parent-' . ($idx + 1);
               $isExpandable = ((int)($parent['profile_count'] ?? 0) > 1);
               $singleChild = (!$isExpandable && !empty($parent['children'])) ? $parent['children'][0] : null;
@@ -273,12 +371,25 @@ $summaryItemCount = count($parentRows);
             ?>
             <tr class="wh-parent-row">
               <td>
-                <?php if ($isExpandable): ?>
-                  <button type="button" class="wh-toggle" data-bs-toggle="collapse" data-bs-target=".<?php echo html_escape($collapseClass); ?>" aria-expanded="false">+</button>
-                <?php else: ?>
-                  <span class="wh-static">=</span>
-                <?php endif; ?>
-                <span class="wh-item-name"><?php echo html_escape($objectText !== '' ? $objectText : '-'); ?></span>
+                <div class="wh-name-cell">
+                  <?php if ($isExpandable): ?>
+                    <button type="button" class="wh-toggle" data-bs-toggle="collapse" data-bs-target=".<?php echo html_escape($collapseClass); ?>" aria-expanded="false">+</button>
+                  <?php else: ?>
+                    <span class="wh-static">=</span>
+                  <?php endif; ?>
+                  <div class="wh-name-body">
+                    <div class="wh-item-name"><?php echo html_escape($objectText !== '' ? $objectText : '-'); ?></div>
+                    <div class="wh-name-meta">
+                      <?php if ($objectCode !== ''): ?>
+                        <span class="wh-name-chip is-parent"><?php echo html_escape($objectCode); ?></span>
+                      <?php endif; ?>
+                      <span class="wh-name-chip is-parent">Item Gudang</span>
+                      <?php if ($isExpandable): ?>
+                        <span class="wh-name-chip is-parent"><?php echo (int)($parent['profile_count'] ?? 0); ?> profil</span>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+                </div>
               </td>
               <td><?php echo $profileCol; ?></td>
               <td><?php echo $brandCol; ?></td>
@@ -306,7 +417,20 @@ $summaryItemCount = count($parentRows);
                 $childClass = 'collapse ' . $collapseClass;
               ?>
               <tr class="wh-child-row <?php echo html_escape($childClass); ?>">
-                <td class="ps-4 text-muted">Profil Item</td>
+                <td>
+                  <div class="wh-name-cell wh-name-cell-child">
+                    <div class="wh-name-body">
+                      <div class="wh-child-label">Profil Turunan</div>
+                      <div class="wh-item-name"><?php echo html_escape($objectText !== '' ? $objectText : '-'); ?></div>
+                      <div class="wh-name-meta">
+                        <?php if ($objectCode !== ''): ?>
+                          <span class="wh-name-chip is-child"><?php echo html_escape($objectCode); ?></span>
+                        <?php endif; ?>
+                        <span class="wh-name-chip is-child">Child</span>
+                      </div>
+                    </div>
+                  </div>
+                </td>
                 <td>
                   <?php echo html_escape($profileText); ?>
                   <div class="small mt-1"><a href="<?php echo html_escape($lotUrl); ?>">Lihat Lot</a></div>
@@ -329,3 +453,61 @@ $summaryItemCount = count($parentRows);
     </table>
   </div>
 </div>
+
+<script>
+(function(){
+  function syncWarehouseStickyTop(){
+    var navbar = document.getElementById('layout-navbar') || document.querySelector('.layout-navbar');
+    var topOffset = navbar ? Math.ceil(navbar.getBoundingClientRect().height) : 0;
+    document.documentElement.style.setProperty('--wh-sticky-top', topOffset + 'px');
+    return topOffset;
+  }
+
+  function initWarehouseFloatingHeader(){
+    var wrapper = document.querySelector('.wh-table-wrap');
+    var table = document.getElementById('whStockTable');
+    var host = document.getElementById('whStickyHead');
+    if (!wrapper || !table || !host) { return; }
+    var thead = table.querySelector('thead');
+    if (!thead) { return; }
+
+    host.innerHTML = '<table class="' + table.className + '"><thead>' + thead.innerHTML + '</thead></table>';
+    var cloneTable = host.querySelector('table');
+    var cloneHead = cloneTable ? cloneTable.querySelector('thead') : null;
+    if (!cloneTable || !cloneHead) { return; }
+
+    function syncFloatingHeader(){
+      var stickyTop = syncWarehouseStickyTop();
+      var wrapperRect = wrapper.getBoundingClientRect();
+      var tableRect = table.getBoundingClientRect();
+      var originalThs = Array.prototype.slice.call(thead.querySelectorAll('th'));
+      var cloneThs = Array.prototype.slice.call(cloneHead.querySelectorAll('th'));
+      originalThs.forEach(function(th, index){
+        if (!cloneThs[index]) { return; }
+        var width = Math.ceil(th.getBoundingClientRect().width);
+        cloneThs[index].style.width = width + 'px';
+        cloneThs[index].style.minWidth = width + 'px';
+        cloneThs[index].style.maxWidth = width + 'px';
+      });
+      cloneTable.style.width = Math.ceil(table.getBoundingClientRect().width) + 'px';
+      cloneTable.style.transform = 'translateX(' + (-wrapper.scrollLeft) + 'px)';
+
+      var headerHeight = Math.ceil(thead.getBoundingClientRect().height || 0);
+      var shouldShow = wrapperRect.top <= stickyTop && tableRect.bottom > (stickyTop + headerHeight);
+      host.style.display = shouldShow ? 'block' : 'none';
+      host.style.top = stickyTop + 'px';
+      host.style.left = Math.ceil(wrapperRect.left) + 'px';
+      host.style.width = Math.ceil(wrapperRect.width) + 'px';
+    }
+
+    wrapper.addEventListener('scroll', syncFloatingHeader, { passive: true });
+    window.addEventListener('scroll', syncFloatingHeader, { passive: true });
+    window.addEventListener('resize', syncFloatingHeader);
+    requestAnimationFrame(syncFloatingHeader);
+  }
+
+  syncWarehouseStickyTop();
+  window.addEventListener('resize', syncWarehouseStickyTop);
+  initWarehouseFloatingHeader();
+})();
+</script>

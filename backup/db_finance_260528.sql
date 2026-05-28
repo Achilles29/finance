@@ -11,7 +11,7 @@
  Target Server Version : 100432
  File Encoding         : 65001
 
- Date: 28/05/2026 10:10:22
+ Date: 28/05/2026 16:00:28
 */
 
 SET NAMES utf8mb4;
@@ -1155,7 +1155,7 @@ CREATE TABLE `aud_transaction_log`  (
   INDEX `idx_aud_transaction_ref`(`ref_table`, `ref_id`) USING BTREE,
   INDEX `idx_aud_transaction_actor`(`actor_user_id`) USING BTREE,
   INDEX `idx_aud_transaction_created`(`created_at`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 25 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 34 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of aud_transaction_log
@@ -1182,6 +1182,15 @@ INSERT INTO `aud_transaction_log` VALUES (21, 'FINANCE', 'ACCOUNT_MUTATION', 'fi
 INSERT INTO `aud_transaction_log` VALUES (22, 'PURCHASE', 'RECEIPT_POST', 'pur_purchase_receipt', 7, 'RCV202605280002', 'pur_purchase_order', 6, 1, '127.0.0.1', NULL, '{\"receipt_no\":\"RCV202605280002\",\"destination_type\":\"GUDANG\",\"destination_division_id\":null,\"line_count\":4}', 'Auto log posting receipt purchase', '2026-05-28 10:07:02');
 INSERT INTO `aud_transaction_log` VALUES (23, 'PURCHASE', 'PAYMENT_AUTO_APPLY_STATUS', 'pur_purchase_payment_plan', 6, 'PAY202605280002', 'pur_purchase_order', 6, 1, '127.0.0.1', NULL, '{\"purchase_order_id\":6,\"paid_from_account_id\":1,\"auto_paid_amount\":4505000,\"payment_date\":\"2026-05-28\",\"total_paid_before\":0,\"total_paid_after\":4505000,\"outstanding_after\":0}', 'Auto posting pembayaran saat status PO diubah ke PAID', '2026-05-28 10:07:02');
 INSERT INTO `aud_transaction_log` VALUES (24, 'PURCHASE', 'PO_STATUS_UPDATE', 'pur_purchase_order', 6, 'PO202605280002', 'pur_purchase_order', 6, 1, '127.0.0.1', NULL, '{\"status_before\":\"DRAFT\",\"status_after\":\"PAID\",\"rollback\":[],\"receipt_auto_post\":{\"receipt_id\":7,\"receipt_no\":\"RCV202605280002\",\"posted_line_count\":4},\"payment_auto_apply\":{\"payment_plan_id\":6,\"transaction_no\":\"PAY202605280002\",\"paid_from_account_id\":1,\"auto_paid_amount\":4505000,\"payment_date\":\"2026-05-28\",\"total_paid_before\":0,\"total_paid_after\":4505000,\"outstanding_after\":0}}', 'Update status purchase order', '2026-05-28 10:07:02');
+INSERT INTO `aud_transaction_log` VALUES (25, 'PURCHASE', 'RECEIPT_POST', 'pur_purchase_receipt', 8, 'RCV202605280003', 'pur_purchase_order', 7, 1, '127.0.0.1', NULL, '{\"receipt_no\":\"RCV202605280003\",\"destination_type\":\"KITCHEN\",\"destination_division_id\":3,\"line_count\":5}', 'Auto log posting receipt purchase', '2026-05-28 12:35:19');
+INSERT INTO `aud_transaction_log` VALUES (26, 'PURCHASE', 'PAYMENT_AUTO_APPLY_STATUS', 'pur_purchase_payment_plan', 7, 'PAY202605280003', 'pur_purchase_order', 7, 1, '127.0.0.1', NULL, '{\"purchase_order_id\":7,\"paid_from_account_id\":1,\"auto_paid_amount\":553000,\"payment_date\":\"2026-05-28\",\"total_paid_before\":0,\"total_paid_after\":553000,\"outstanding_after\":0}', 'Auto posting pembayaran saat status PO diubah ke PAID', '2026-05-28 12:35:19');
+INSERT INTO `aud_transaction_log` VALUES (27, 'PURCHASE', 'PO_STATUS_UPDATE', 'pur_purchase_order', 7, 'PO202605280003', 'pur_purchase_order', 7, 1, '127.0.0.1', NULL, '{\"status_before\":\"DRAFT\",\"status_after\":\"PAID\",\"rollback\":[],\"receipt_auto_post\":{\"receipt_id\":8,\"receipt_no\":\"RCV202605280003\",\"posted_line_count\":5},\"payment_auto_apply\":{\"payment_plan_id\":7,\"transaction_no\":\"PAY202605280003\",\"paid_from_account_id\":1,\"auto_paid_amount\":553000,\"payment_date\":\"2026-05-28\",\"total_paid_before\":0,\"total_paid_after\":553000,\"outstanding_after\":0}}', 'Update status purchase order', '2026-05-28 12:35:19');
+INSERT INTO `aud_transaction_log` VALUES (28, 'PURCHASE', 'PO_REBUILD_IMPACT_BATCH', 'pur_purchase_order', NULL, NULL, NULL, NULL, NULL, 'CLI_REBUILD_IMPACT', NULL, '{\"scope\":\"TRANSACTION\",\"filter\":{\"purchase_order_id\":7,\"po_no\":\"\",\"item_id\":0,\"material_id\":0,\"statuses\":[],\"date_from\":null,\"date_to\":null,\"limit\":300},\"summary\":{\"total_candidates\":1,\"planned\":0,\"processed\":1,\"success\":1,\"changed\":0,\"unchanged\":1,\"failed\":0,\"skipped\":0}}', 'Batch rebuild impact purchase (TRANSACTION)', '2026-05-28 12:49:07');
+INSERT INTO `aud_transaction_log` VALUES (29, 'PURCHASE', 'RECEIPT_PROFILE_KEY_REPAIR', 'pur_purchase_order', 7, 'PO202605280003', 'pur_purchase_order', 7, NULL, NULL, NULL, '{\"receipt_lines_updated\":1,\"lot_rows_updated\":1,\"movement_rows_updated\":1,\"rebuild_targets\":2}', 'Repair profile_key receipt dari identity purchase order', '2026-05-28 12:51:49');
+INSERT INTO `aud_transaction_log` VALUES (30, 'PURCHASE', 'RECEIPT_POST', 'pur_purchase_receipt', 9, 'RCV202605280004', 'pur_purchase_order', 8, 1, '127.0.0.1', NULL, '{\"receipt_no\":\"RCV202605280004\",\"destination_type\":\"KITCHEN\",\"destination_division_id\":3,\"line_count\":1}', 'Auto log posting receipt purchase', '2026-05-28 12:54:35');
+INSERT INTO `aud_transaction_log` VALUES (31, 'PURCHASE', 'PAYMENT_AUTO_APPLY_STATUS', 'pur_purchase_payment_plan', 8, 'PAY202605280004', 'pur_purchase_order', 8, 1, '127.0.0.1', NULL, '{\"purchase_order_id\":8,\"paid_from_account_id\":1,\"auto_paid_amount\":160000,\"payment_date\":\"2026-05-28\",\"total_paid_before\":0,\"total_paid_after\":160000,\"outstanding_after\":0}', 'Auto posting pembayaran saat status PO diubah ke PAID', '2026-05-28 12:54:35');
+INSERT INTO `aud_transaction_log` VALUES (32, 'PURCHASE', 'PO_STATUS_UPDATE', 'pur_purchase_order', 8, 'PO202605280004', 'pur_purchase_order', 8, 1, '127.0.0.1', NULL, '{\"status_before\":\"DRAFT\",\"status_after\":\"PAID\",\"rollback\":[],\"receipt_auto_post\":{\"receipt_id\":9,\"receipt_no\":\"RCV202605280004\",\"posted_line_count\":1},\"payment_auto_apply\":{\"payment_plan_id\":8,\"transaction_no\":\"PAY202605280004\",\"paid_from_account_id\":1,\"auto_paid_amount\":160000,\"payment_date\":\"2026-05-28\",\"total_paid_before\":0,\"total_paid_after\":160000,\"outstanding_after\":0}}', 'Update status purchase order', '2026-05-28 12:54:35');
+INSERT INTO `aud_transaction_log` VALUES (33, 'INVENTORY', 'DIVISION_ADJUSTMENT', 'inv_stock_adjustment', 8, 'IAD20260528-0403', NULL, NULL, 1, '127.0.0.1', NULL, '{\"header\":{\"id\":8,\"adjustment_no\":\"IAD20260528-0403\",\"adjustment_date\":\"2026-05-28\",\"stock_scope\":\"DIVISION\",\"division_id\":3,\"destination_type\":\"KITCHEN\"},\"line_ids\":[10]}', 'Adjustment stok diposting ke live balance, daily rollup, dan lot FIFO', '2026-05-28 15:03:11');
 
 -- ----------------------------
 -- Table structure for auth_role
@@ -1238,7 +1247,7 @@ CREATE TABLE `auth_role_permission`  (
   INDEX `idx_auth_role_perm_page`(`page_id`) USING BTREE,
   CONSTRAINT `fk_auth_role_perm_page` FOREIGN KEY (`page_id`) REFERENCES `sys_page` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_auth_role_perm_role` FOREIGN KEY (`role_id`) REFERENCES `auth_role` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 924 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = 'Izin CRUD per role per halaman' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 945 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = 'Izin CRUD per role per halaman' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of auth_role_permission
@@ -1879,6 +1888,24 @@ INSERT INTO `auth_role_permission` VALUES (917, 3, 186, 1, 1, 1, 0, 1, '2026-05-
 INSERT INTO `auth_role_permission` VALUES (918, 3, 185, 1, 1, 1, 0, 1, '2026-05-28 10:09:15', NULL);
 INSERT INTO `auth_role_permission` VALUES (919, 1, 186, 1, 1, 1, 0, 1, '2026-05-28 10:09:15', NULL);
 INSERT INTO `auth_role_permission` VALUES (920, 1, 185, 1, 1, 1, 0, 1, '2026-05-28 10:09:15', NULL);
+INSERT INTO `auth_role_permission` VALUES (921, 4, 187, 1, 1, 1, 1, 1, '2026-05-28 11:03:41', '2026-05-28 11:19:07');
+INSERT INTO `auth_role_permission` VALUES (922, 10, 187, 1, 1, 1, 1, 1, '2026-05-28 11:03:41', '2026-05-28 11:19:07');
+INSERT INTO `auth_role_permission` VALUES (923, 8, 187, 1, 1, 1, 1, 1, '2026-05-28 11:03:41', '2026-05-28 11:19:07');
+INSERT INTO `auth_role_permission` VALUES (924, 2, 187, 1, 1, 1, 1, 1, '2026-05-28 11:03:41', '2026-05-28 11:19:07');
+INSERT INTO `auth_role_permission` VALUES (925, 3, 187, 1, 1, 1, 1, 1, '2026-05-28 11:03:41', '2026-05-28 11:19:07');
+INSERT INTO `auth_role_permission` VALUES (926, 1, 187, 1, 1, 1, 1, 1, '2026-05-28 11:03:41', '2026-05-28 11:19:07');
+INSERT INTO `auth_role_permission` VALUES (930, 4, 191, 1, 1, 1, 0, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `auth_role_permission` VALUES (931, 4, 190, 1, 1, 1, 0, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `auth_role_permission` VALUES (932, 6, 191, 1, 1, 1, 0, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `auth_role_permission` VALUES (933, 6, 190, 1, 1, 1, 0, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `auth_role_permission` VALUES (934, 2, 191, 1, 1, 1, 0, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `auth_role_permission` VALUES (935, 2, 190, 1, 1, 1, 0, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `auth_role_permission` VALUES (936, 5, 191, 1, 1, 1, 0, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `auth_role_permission` VALUES (937, 5, 190, 1, 1, 1, 0, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `auth_role_permission` VALUES (938, 3, 191, 1, 1, 1, 0, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `auth_role_permission` VALUES (939, 3, 190, 1, 1, 1, 0, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `auth_role_permission` VALUES (940, 1, 191, 1, 1, 1, 0, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `auth_role_permission` VALUES (941, 1, 190, 1, 1, 1, 0, 1, '2026-05-28 12:59:30', NULL);
 
 -- ----------------------------
 -- Table structure for auth_session_log
@@ -1896,7 +1923,7 @@ CREATE TABLE `auth_session_log`  (
   INDEX `idx_auth_session_user`(`user_id`) USING BTREE,
   INDEX `idx_auth_session_login`(`login_at`) USING BTREE,
   CONSTRAINT `fk_auth_session_user` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 84 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = 'Log sesi login dan logout' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 85 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = 'Log sesi login dan logout' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of auth_session_log
@@ -1982,7 +2009,8 @@ INSERT INTO `auth_session_log` VALUES (79, 70, '127.0.0.1', 'Mozilla/5.0 (Window
 INSERT INTO `auth_session_log` VALUES (80, 72, '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36', '2026-05-23 11:04:31', '2026-05-26 05:20:13', '2026-05-23 11:04:31');
 INSERT INTO `auth_session_log` VALUES (81, 1, '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Code/1.121.0 Chrome/142.0.7444.265 Electron/39.8.8 Safari/537.36', '2026-05-23 21:47:57', NULL, '2026-05-23 21:47:57');
 INSERT INTO `auth_session_log` VALUES (82, 1, '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Code/1.121.0 Chrome/142.0.7444.265 Electron/39.8.8 Safari/537.36', '2026-05-24 07:23:12', NULL, '2026-05-24 07:23:12');
-INSERT INTO `auth_session_log` VALUES (83, 73, '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36', '2026-05-26 22:58:21', NULL, '2026-05-26 22:58:21');
+INSERT INTO `auth_session_log` VALUES (83, 73, '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36', '2026-05-26 22:58:21', '2026-05-28 12:32:33', '2026-05-26 22:58:21');
+INSERT INTO `auth_session_log` VALUES (84, 1, '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36', '2026-05-28 12:32:39', NULL, '2026-05-28 12:32:39');
 
 -- ----------------------------
 -- Table structure for auth_user
@@ -2006,7 +2034,7 @@ CREATE TABLE `auth_user`  (
 -- ----------------------------
 -- Records of auth_user
 -- ----------------------------
-INSERT INTO `auth_user` VALUES (1, NULL, 'superadmin', 'admin@finance.local', '$2y$12$eSkvMrWgqdGWAHUZG6NN1usViIILMEAnUVNl18Qyzt0bTdFKXoK5C', 1, '2026-05-24 07:23:12', '2026-05-02 04:43:12', '2026-05-24 07:23:12');
+INSERT INTO `auth_user` VALUES (1, NULL, 'superadmin', 'admin@finance.local', '$2y$12$eSkvMrWgqdGWAHUZG6NN1usViIILMEAnUVNl18Qyzt0bTdFKXoK5C', 1, '2026-05-28 12:32:39', '2026-05-02 04:43:12', '2026-05-28 12:32:39');
 INSERT INTO `auth_user` VALUES (65, 1, 'andi', NULL, '$2y$12$CZX4uaAUv0fFCwjBL8dlMOQZ5Ukn390ITOLPGB7S3kEH/kIl3WFBG', 1, '2026-05-08 08:02:55', '2026-05-07 22:01:08', '2026-05-08 07:02:55');
 INSERT INTO `auth_user` VALUES (66, 2, 'anis', NULL, '$2y$10$McCfUhK2OvHR206VdBy.3enlr/byCDowmVoqBXBxd50B78u1UwrUq', 1, NULL, '2026-05-07 22:01:08', '2026-05-07 22:01:08');
 INSERT INTO `auth_user` VALUES (67, 3, 'rama', NULL, '$2y$12$rY//AuhBTmbu/pIG4btSbOpRJWQsut.yk8dqqcvtEcOCOT6G0sUe.', 1, '2026-05-11 19:44:47', '2026-05-07 22:01:08', '2026-05-11 19:44:47');
@@ -2502,7 +2530,7 @@ CREATE TABLE `fin_account_mutation_log`  (
   INDEX `idx_fin_account_mutation_account`(`account_id`) USING BTREE,
   INDEX `idx_fin_account_mutation_ref`(`ref_module`, `ref_table`, `ref_id`) USING BTREE,
   CONSTRAINT `fk_fin_account_mutation_account` FOREIGN KEY (`account_id`) REFERENCES `fin_company_account` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 8 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 10 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of fin_account_mutation_log
@@ -2514,6 +2542,8 @@ INSERT INTO `fin_account_mutation_log` VALUES (4, 'MUT202605270004', '2026-05-27
 INSERT INTO `fin_account_mutation_log` VALUES (5, 'MUT202605280001', '2026-05-28', 5, 'OUT', 124000.00, 104178420.00, 104054420.00, 'PURCHASE', 'pur_purchase_order', 5, 'PAY202605280001', 'Auto pembayaran outstanding saat status PO diubah ke PAID', 1, '2026-05-28 10:00:43');
 INSERT INTO `fin_account_mutation_log` VALUES (6, 'MUT202605280002', '2026-05-28', 1, 'IN', 100000000.00, 1901000.00, 101901000.00, 'FINANCE', NULL, NULL, NULL, NULL, 1, '2026-05-28 10:06:57');
 INSERT INTO `fin_account_mutation_log` VALUES (7, 'MUT202605280003', '2026-05-28', 1, 'OUT', 4505000.00, 101901000.00, 97396000.00, 'PURCHASE', 'pur_purchase_order', 6, 'PAY202605280002', 'Auto pembayaran outstanding saat status PO diubah ke PAID', 1, '2026-05-28 10:07:02');
+INSERT INTO `fin_account_mutation_log` VALUES (8, 'MUT202605280004', '2026-05-28', 1, 'OUT', 553000.00, 97396000.00, 96843000.00, 'PURCHASE', 'pur_purchase_order', 7, 'PAY202605280003', 'Auto pembayaran outstanding saat status PO diubah ke PAID', 1, '2026-05-28 12:35:19');
+INSERT INTO `fin_account_mutation_log` VALUES (9, 'MUT202605280005', '2026-05-28', 1, 'OUT', 160000.00, 96843000.00, 96683000.00, 'PURCHASE', 'pur_purchase_order', 8, 'PAY202605280004', 'Auto pembayaran outstanding saat status PO diubah ke PAID', 1, '2026-05-28 12:54:35');
 
 -- ----------------------------
 -- Table structure for fin_company_account
@@ -2547,7 +2577,7 @@ CREATE TABLE `fin_company_account`  (
 -- ----------------------------
 -- Records of fin_company_account
 -- ----------------------------
-INSERT INTO `fin_company_account` VALUES (1, '001', 'TUNAI', 'CASH', 15, 'BRANKAS', 'BRANKAS', 'TUNAI', 'IDR', 10000000.00, 97396000.00, 1, 'Imported from core.m_bank_account id=1', 1, '2026-05-03 13:38:32', '2026-05-28 10:07:02');
+INSERT INTO `fin_company_account` VALUES (1, '001', 'TUNAI', 'CASH', 15, 'BRANKAS', 'BRANKAS', 'TUNAI', 'IDR', 10000000.00, 96683000.00, 1, 'Imported from core.m_bank_account id=1', 1, '2026-05-03 13:38:32', '2026-05-28 12:54:35');
 INSERT INTO `fin_company_account` VALUES (2, '002', 'BCA', 'BANK', 2, 'BCA', 'BCA', 'BCA', 'IDR', 10000000.00, 2933500.00, 0, 'Imported from core.m_bank_account id=2', 1, '2026-05-03 13:38:32', '2026-05-24 12:34:10');
 INSERT INTO `fin_company_account` VALUES (3, '003', 'MANDIRI', 'BANK', 1, 'MANDIRI', 'MANDIRI', 'MANDIRI', 'IDR', 10000000.00, 9306000.00, 0, 'Imported from core.m_bank_account id=3', 1, '2026-05-03 13:38:32', '2026-05-27 10:40:28');
 INSERT INTO `fin_company_account` VALUES (4, '004', 'BRI', 'BANK', 3, 'BRI', 'BRI', 'BRI', 'IDR', 10000000.00, 5627500.00, 0, 'Imported from core.m_bank_account id=4', 1, '2026-05-03 13:38:32', '2026-05-27 19:44:00');
@@ -2858,13 +2888,14 @@ CREATE TABLE `inv_component_adjustment`  (
   CONSTRAINT `fk_inv_component_adjustment_created_by` FOREIGN KEY (`created_by`) REFERENCES `org_employee` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_component_adjustment_division` FOREIGN KEY (`division_id`) REFERENCES `mst_operational_division` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_component_adjustment_posted_by` FOREIGN KEY (`posted_by`) REFERENCES `org_employee` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 5 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 6 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_component_adjustment
 -- ----------------------------
 INSERT INTO `inv_component_adjustment` VALUES (3, 'ICA202605280001', '2026-05-28', 'KITCHEN', 3, 'POSTED', 'aa', '2026-05-28 09:01:17', NULL, NULL, '2026-05-28 09:01:05', '2026-05-28 09:01:17');
 INSERT INTO `inv_component_adjustment` VALUES (4, 'ICA202605280002', '2026-05-28', 'KITCHEN', 3, 'POSTED', NULL, '2026-05-28 10:02:04', NULL, NULL, '2026-05-28 10:02:03', '2026-05-28 10:02:04');
+INSERT INTO `inv_component_adjustment` VALUES (5, 'ICA202605280003', '2026-05-28', 'KITCHEN', 3, 'POSTED', NULL, '2026-05-28 12:35:54', NULL, NULL, '2026-05-28 12:35:48', '2026-05-28 12:35:54');
 
 -- ----------------------------
 -- Table structure for inv_component_adjustment_line
@@ -2896,7 +2927,7 @@ CREATE TABLE `inv_component_adjustment_line`  (
   CONSTRAINT `fk_inv_component_adjustment_line_adjustment` FOREIGN KEY (`adjustment_id`) REFERENCES `inv_component_adjustment` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_component_adjustment_line_component` FOREIGN KEY (`component_id`) REFERENCES `mst_component` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_component_adjustment_line_uom` FOREIGN KEY (`uom_id`) REFERENCES `mst_uom` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 8 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 9 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_component_adjustment_line
@@ -2904,6 +2935,7 @@ CREATE TABLE `inv_component_adjustment_line`  (
 INSERT INTO `inv_component_adjustment_line` VALUES (5, 3, 1, 86, 26, 12, 7.0000, 0.0000, 'other', 1.0000, 'kitchen_error', 0.0000, 'other', 0.0000, 'other', 0.000000, NULL, '2026-05-28 09:01:05');
 INSERT INTO `inv_component_adjustment_line` VALUES (6, 3, 2, 83, 26, NULL, 0.0000, 0.0000, 'other', 0.0000, 'other', 4.0000, 'stock_found', 0.0000, 'other', 15000.000000, 'aaa', '2026-05-28 09:01:05');
 INSERT INTO `inv_component_adjustment_line` VALUES (7, 4, 1, 87, 11, NULL, 0.0000, 10.0000, 'temperature_abuse', 0.0000, 'other', 0.0000, 'other', 0.0000, 'other', 0.000000, NULL, '2026-05-28 10:02:03');
+INSERT INTO `inv_component_adjustment_line` VALUES (8, 5, 1, 50, 11, NULL, 0.0000, 0.0000, 'other', 0.0000, 'other', 500.0000, 'stock_found', 0.0000, 'other', 30.000000, NULL, '2026-05-28 12:35:48');
 
 -- ----------------------------
 -- Table structure for inv_component_batch
@@ -3059,21 +3091,22 @@ CREATE TABLE `inv_component_daily_rollup`  (
   CONSTRAINT `fk_inv_component_daily_component` FOREIGN KEY (`component_id`) REFERENCES `mst_component` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_component_daily_division` FOREIGN KEY (`division_id`) REFERENCES `mst_operational_division` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_component_daily_uom` FOREIGN KEY (`uom_id`) REFERENCES `mst_uom` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 370 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 584 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_component_daily_rollup
 -- ----------------------------
-INSERT INTO `inv_component_daily_rollup` VALUES (360, '2026-05-01', '2026-05-01', 'KITCHEN', 3, 86, 26, 7.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 7.0000, 14000.000000, 98000.00, 7, '2026-05-01 21:25:05', 'AUTO-20260528100204', '2026-05-28 10:02:04', NULL);
-INSERT INTO `inv_component_daily_rollup` VALUES (361, '2026-05-01', '2026-05-01', 'KITCHEN', 3, 28, 11, 400.0000, 0.0000, 0.0000, 0.0000, 0.0000, 100.0000, 500.0000, 17.000000, 8500.00, 7, '2026-05-01 21:25:05', 'AUTO-20260528100204', '2026-05-28 10:02:04', NULL);
-INSERT INTO `inv_component_daily_rollup` VALUES (362, '2026-05-01', '2026-05-01', 'KITCHEN', 3, 87, 11, 1000.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1000.0000, 17.000000, 17000.00, 3, '2026-05-01 21:25:05', 'AUTO-20260528100204', '2026-05-28 10:02:04', NULL);
-INSERT INTO `inv_component_daily_rollup` VALUES (363, '2026-05-01', '2026-05-01', 'KITCHEN', 3, 51, 11, 500.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 500.0000, 20.000000, 10000.00, 3, '2026-05-01 21:25:05', 'AUTO-20260528100204', '2026-05-28 10:02:04', NULL);
-INSERT INTO `inv_component_daily_rollup` VALUES (364, '2026-05-01', '2026-05-27', 'KITCHEN', 3, 26, 26, 0.0000, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.000000, 0.00, 2, '2026-05-27 14:12:48', 'AUTO-20260528100204', '2026-05-28 10:02:04', NULL);
-INSERT INTO `inv_component_daily_rollup` VALUES (365, '2026-05-01', '2026-05-27', 'KITCHEN', 3, 86, 26, 7.0000, 12.0000, 0.0000, 0.0000, 0.0000, 0.0000, 19.0000, 12593.559474, 239277.63, 1, '2026-05-27 14:12:48', 'AUTO-20260528100204', '2026-05-28 10:02:04', NULL);
-INSERT INTO `inv_component_daily_rollup` VALUES (366, '2026-05-01', '2026-05-28', 'KITCHEN', 3, 86, 26, 19.0000, 16.0000, 0.0000, 1.0000, 0.0000, 0.0000, 34.0000, 12207.456471, 415053.52, 2, '2026-05-28 09:58:29', 'AUTO-20260528100204', '2026-05-28 10:02:04', NULL);
-INSERT INTO `inv_component_daily_rollup` VALUES (367, '2026-05-01', '2026-05-28', 'KITCHEN', 3, 83, 26, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.0000, 4.0000, 15000.000000, 60000.00, 1, '2026-05-28 09:01:17', 'AUTO-20260528100204', '2026-05-28 10:02:04', NULL);
-INSERT INTO `inv_component_daily_rollup` VALUES (368, '2026-05-01', '2026-05-28', 'KITCHEN', 3, 26, 26, 0.0000, 1.3333, 1.3333, 0.0000, 0.0000, 0.0000, 0.0000, 0.000000, 0.00, 2, '2026-05-28 09:58:29', 'AUTO-20260528100204', '2026-05-28 10:02:04', NULL);
-INSERT INTO `inv_component_daily_rollup` VALUES (369, '2026-05-01', '2026-05-28', 'KITCHEN', 3, 87, 11, 1000.0000, 0.0000, 0.0000, 0.0000, 10.0000, 0.0000, 990.0000, 17.000000, 16830.00, 1, '2026-05-28 10:02:04', 'AUTO-20260528100204', '2026-05-28 10:02:04', NULL);
+INSERT INTO `inv_component_daily_rollup` VALUES (573, '2026-05-01', '2026-05-01', 'KITCHEN', 3, 86, 26, 7.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 7.0000, 14000.000000, 98000.00, 7, '2026-05-01 21:25:05', 'AUTO-20260528144219', '2026-05-28 14:42:19', NULL);
+INSERT INTO `inv_component_daily_rollup` VALUES (574, '2026-05-01', '2026-05-01', 'KITCHEN', 3, 28, 11, 400.0000, 0.0000, 0.0000, 0.0000, 0.0000, 100.0000, 500.0000, 17.000000, 8500.00, 7, '2026-05-01 21:25:05', 'AUTO-20260528144219', '2026-05-28 14:42:19', NULL);
+INSERT INTO `inv_component_daily_rollup` VALUES (575, '2026-05-01', '2026-05-01', 'KITCHEN', 3, 87, 11, 1000.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1000.0000, 17.000000, 17000.00, 3, '2026-05-01 21:25:05', 'AUTO-20260528144219', '2026-05-28 14:42:19', NULL);
+INSERT INTO `inv_component_daily_rollup` VALUES (576, '2026-05-01', '2026-05-01', 'KITCHEN', 3, 51, 11, 500.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 500.0000, 20.000000, 10000.00, 3, '2026-05-01 21:25:05', 'AUTO-20260528144219', '2026-05-28 14:42:19', NULL);
+INSERT INTO `inv_component_daily_rollup` VALUES (577, '2026-05-01', '2026-05-27', 'KITCHEN', 3, 26, 26, 0.0000, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.000000, 0.00, 2, '2026-05-27 14:12:48', 'AUTO-20260528144219', '2026-05-28 14:42:19', NULL);
+INSERT INTO `inv_component_daily_rollup` VALUES (578, '2026-05-01', '2026-05-27', 'KITCHEN', 3, 86, 26, 7.0000, 12.0000, 0.0000, 0.0000, 0.0000, 0.0000, 19.0000, 12593.559474, 239277.63, 1, '2026-05-27 14:12:48', 'AUTO-20260528144219', '2026-05-28 14:42:19', NULL);
+INSERT INTO `inv_component_daily_rollup` VALUES (579, '2026-05-01', '2026-05-28', 'KITCHEN', 3, 86, 26, 19.0000, 16.0000, 0.0000, 1.0000, 0.0000, 0.0000, 34.0000, 12207.456471, 415053.52, 2, '2026-05-28 09:58:29', 'AUTO-20260528144219', '2026-05-28 14:42:19', NULL);
+INSERT INTO `inv_component_daily_rollup` VALUES (580, '2026-05-01', '2026-05-28', 'KITCHEN', 3, 83, 26, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.0000, 4.0000, 15000.000000, 60000.00, 1, '2026-05-28 09:01:17', 'AUTO-20260528144219', '2026-05-28 14:42:19', NULL);
+INSERT INTO `inv_component_daily_rollup` VALUES (581, '2026-05-01', '2026-05-28', 'KITCHEN', 3, 26, 26, 0.0000, 1.3333, 1.3333, 0.0000, 0.0000, 0.0000, 0.0000, 0.000000, 0.00, 2, '2026-05-28 09:58:29', 'AUTO-20260528144219', '2026-05-28 14:42:19', NULL);
+INSERT INTO `inv_component_daily_rollup` VALUES (582, '2026-05-01', '2026-05-28', 'KITCHEN', 3, 87, 11, 1000.0000, 0.0000, 0.0000, 0.0000, 10.0000, 0.0000, 990.0000, 17.000000, 16830.00, 1, '2026-05-28 10:02:04', 'AUTO-20260528144219', '2026-05-28 14:42:19', NULL);
+INSERT INTO `inv_component_daily_rollup` VALUES (583, '2026-05-01', '2026-05-28', 'KITCHEN', 3, 50, 11, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 500.0000, 500.0000, 30.000000, 15000.00, 1, '2026-05-28 12:35:54', 'AUTO-20260528144219', '2026-05-28 14:42:19', NULL);
 
 -- ----------------------------
 -- Table structure for inv_component_lot
@@ -3106,7 +3139,7 @@ CREATE TABLE `inv_component_lot`  (
   INDEX `idx_inv_component_lot_source`(`source_table`, `source_id`, `source_line_id`) USING BTREE,
   INDEX `idx_inv_component_lot_open`(`location_type`, `division_id`, `component_id`, `uom_id`, `status`, `receipt_date`) USING BTREE,
   INDEX `idx_inv_component_lot_component`(`component_id`, `receipt_date`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 15 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 16 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_component_lot
@@ -3125,6 +3158,7 @@ INSERT INTO `inv_component_lot` VALUES (11, 'KITCHEN', 3, 28, 11, 'ICO2026050100
 INSERT INTO `inv_component_lot` VALUES (12, 'KITCHEN', 3, 86, 26, 'ICO2026050100086000040013', '2026-05-01', NULL, 14000.000000, 7.0000, 1.0000, 6.0000, 'PRODUCTION_OPENING', 'inv_component_opening', 4, 13, NULL, '2026-05-28 09:01:17', 'OPEN', '2026-05-27 21:25:05', '2026-05-28 09:01:17');
 INSERT INTO `inv_component_lot` VALUES (13, 'KITCHEN', 3, 83, 26, 'ICA2026052800083000030006P', '2026-05-28', NULL, 15000.000000, 4.0000, 0.0000, 4.0000, 'PRODUCTION_ADJUSTMENT', 'inv_component_adjustment', 3, 6, NULL, NULL, 'OPEN', '2026-05-28 09:01:17', '2026-05-28 09:01:17');
 INSERT INTO `inv_component_lot` VALUES (14, 'KITCHEN', 3, 86, 26, 'ICL202605280008600002', '2026-05-28', NULL, 11773.090625, 16.0000, 0.0000, 16.0000, 'PRODUCTION_BATCH', 'inv_component_batch', 2, NULL, NULL, NULL, 'OPEN', '2026-05-28 09:58:29', '2026-05-28 09:58:29');
+INSERT INTO `inv_component_lot` VALUES (15, 'KITCHEN', 3, 50, 11, 'ICA2026052800050000050008P', '2026-05-28', NULL, 30.000000, 500.0000, 0.0000, 500.0000, 'PRODUCTION_ADJUSTMENT', 'inv_component_adjustment', 5, 8, NULL, NULL, 'OPEN', '2026-05-28 12:35:54', '2026-05-28 12:35:54');
 
 -- ----------------------------
 -- Table structure for inv_component_lot_issue_line
@@ -3289,7 +3323,7 @@ CREATE TABLE `inv_component_movement_log`  (
   CONSTRAINT `fk_inv_component_movement_component` FOREIGN KEY (`component_id`) REFERENCES `mst_component` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_component_movement_division` FOREIGN KEY (`division_id`) REFERENCES `mst_operational_division` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_component_movement_uom` FOREIGN KEY (`uom_id`) REFERENCES `mst_uom` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 30 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 31 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_component_movement_log
@@ -3323,6 +3357,7 @@ INSERT INTO `inv_component_movement_log` VALUES (26, 'ICM202605280003', '2026-05
 INSERT INTO `inv_component_movement_log` VALUES (27, 'ICM202605280004', '2026-05-28', '2026-05-28 09:58:29', 'KITCHEN', 3, 26, 26, 'PRODUCTION_OUT', 0.0000, 1.3333, 18731.373284, 24974.54, 'PRODUCTION_BATCH', 'inv_component_batch', 2, 38, NULL, NULL, 'Pakai hasil inline produksi untuk QUARTER CHICKEN FRIED', NULL, '2026-05-28 09:58:29');
 INSERT INTO `inv_component_movement_log` VALUES (28, 'ICM202605280005', '2026-05-28', '2026-05-28 09:58:29', 'KITCHEN', 3, 86, 26, 'PRODUCTION_IN', 16.0000, 0.0000, 11773.090625, 188369.45, 'PRODUCTION_BATCH', 'inv_component_batch', 2, NULL, 'ICL202605280008600002', '2026-05-28', 'aa', NULL, '2026-05-28 09:58:29');
 INSERT INTO `inv_component_movement_log` VALUES (29, 'ICM202605280006', '2026-05-28', '2026-05-28 10:02:04', 'KITCHEN', 3, 87, 11, 'SPOIL', 0.0000, 10.0000, 17.000000, 170.00, 'PRODUCTION_ADJUSTMENT', 'inv_component_adjustment', 4, 7, 'ICO2026050100087000040010', NULL, NULL, NULL, '2026-05-28 10:02:04');
+INSERT INTO `inv_component_movement_log` VALUES (30, 'ICM202605280007', '2026-05-28', '2026-05-28 12:35:54', 'KITCHEN', 3, 50, 11, 'ADJUSTMENT_PLUS', 500.0000, 0.0000, 30.000000, 15000.00, 'PRODUCTION_ADJUSTMENT', 'inv_component_adjustment', 5, 8, 'ICA2026052800050000050008P', '2026-05-28', NULL, NULL, '2026-05-28 12:35:54');
 
 -- ----------------------------
 -- Table structure for inv_component_opening
@@ -3421,7 +3456,7 @@ CREATE TABLE `inv_component_stock_balance`  (
   CONSTRAINT `fk_inv_component_stock_component` FOREIGN KEY (`component_id`) REFERENCES `mst_component` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_component_stock_division` FOREIGN KEY (`division_id`) REFERENCES `mst_operational_division` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_component_stock_uom` FOREIGN KEY (`uom_id`) REFERENCES `mst_uom` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 7 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 8 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_component_stock_balance
@@ -3432,6 +3467,7 @@ INSERT INTO `inv_component_stock_balance` VALUES (3, 'KITCHEN', 3, 28, 11, 500.0
 INSERT INTO `inv_component_stock_balance` VALUES (4, 'KITCHEN', 3, 87, 11, 990.0000, 17.000000, 16830.00, '2026-05-28 10:02:04', '2026-05-27 20:22:35', '2026-05-28 10:02:04');
 INSERT INTO `inv_component_stock_balance` VALUES (5, 'KITCHEN', 3, 51, 11, 500.0000, 20.000000, 10000.00, '2026-05-01 21:25:05', '2026-05-27 20:22:35', '2026-05-27 21:25:05');
 INSERT INTO `inv_component_stock_balance` VALUES (6, 'KITCHEN', 3, 83, 26, 4.0000, 15000.000000, 60000.00, '2026-05-28 09:01:17', '2026-05-28 09:01:17', '2026-05-28 09:01:17');
+INSERT INTO `inv_component_stock_balance` VALUES (7, 'KITCHEN', 3, 50, 11, 500.0000, 30.000000, 15000.00, '2026-05-28 12:35:54', '2026-05-28 12:35:54', '2026-05-28 12:35:54');
 
 -- ----------------------------
 -- Table structure for inv_division_daily_rollup
@@ -3504,12 +3540,11 @@ CREATE TABLE `inv_division_daily_rollup`  (
   CONSTRAINT `fk_inv_div_daily_division` FOREIGN KEY (`division_id`) REFERENCES `mst_operational_division` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_div_daily_item` FOREIGN KEY (`item_id`) REFERENCES `mst_item` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_div_daily_material` FOREIGN KEY (`material_id`) REFERENCES `mst_material` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 43 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 52 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_division_daily_rollup
 -- ----------------------------
-INSERT INTO `inv_division_daily_rollup` VALUES (1, '2026-05-01', '2026-05-27', 3, 'KITCHEN', 'MATERIAL', 25, 14, 3, 11, '36029981ac4f414520a30bec3a7609de1dc81b54', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 0.0000, 0.0000, 5.0000, 5000.0000, 0.0750, 75.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.9250, 4925.0000, 30.000000, 147750.00, 0.00, 0.00, 0.00, 0.00, 0.00, 2, '2026-05-27 14:12:45', NULL, '2026-05-27 10:36:11', '2026-05-27 14:12:45');
 INSERT INTO `inv_division_daily_rollup` VALUES (2, '2026-05-01', '2026-05-27', 3, 'KITCHEN', 'MATERIAL', 23, 12, 3, 11, 'fd0ffcdb8e4d9f56955632b2e4df3692f0da2668', 'BAWANG MERAH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 0.0000, 0.0000, 5.0000, 5000.0000, 0.1500, 150.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.8500, 4850.0000, 40.000000, 194000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 2, '2026-05-27 14:12:45', NULL, '2026-05-27 10:36:11', '2026-05-27 14:12:45');
 INSERT INTO `inv_division_daily_rollup` VALUES (3, '2026-05-01', '2026-05-27', 3, 'KITCHEN', 'MATERIAL', 100, 114, 3, 11, 'c8316e4874c60434185af3a798592be0c8abc7fc', 'KEMIRI', 'NO MERK', NULL, NULL, 250.000000, 'PACK', 'GR', 0.0000, 0.0000, 5.0000, 1250.0000, 0.1200, 30.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.8800, 1220.0000, 48.000000, 58560.00, 0.00, 0.00, 0.00, 0.00, 0.00, 2, '2026-05-27 14:12:45', NULL, '2026-05-27 10:36:12', '2026-05-27 14:12:46');
 INSERT INTO `inv_division_daily_rollup` VALUES (4, '2026-05-01', '2026-05-27', 3, 'KITCHEN', 'MATERIAL', 134, 172, 3, 11, 'f981d240d01b0cf2f989a7c290ca1851b61d5992', 'SEREH', 'NO MERK', NULL, NULL, 450.000000, 'PACK', 'GR', 0.0000, 0.0000, 5.0000, 2250.0000, 0.0333, 15.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.9667, 2235.0000, 13.333333, 29800.00, 0.00, 0.00, 0.00, 0.00, 0.00, 2, '2026-05-27 14:12:46', NULL, '2026-05-27 10:36:12', '2026-05-27 14:12:46');
@@ -3530,7 +3565,6 @@ INSERT INTO `inv_division_daily_rollup` VALUES (23, '2026-05-01', '2026-05-27', 
 INSERT INTO `inv_division_daily_rollup` VALUES (24, '2026-05-01', '2026-05-27', 2, 'BAR', 'MATERIAL', 135, 173, 3, 11, '49433b59332a8829d64ec38b7cf694946bbcc7e7046ace93b5ec43923b4e7966', 'SINGLE ORIGIN', 'HAYATI', 'PUNTANG', NULL, 1000.000000, 'PACK', 'GR', 0.0000, 0.0000, 1.0000, 1000.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1000.0000, 300.000000, 300000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-27 19:43:54', NULL, '2026-05-27 19:43:54', NULL);
 INSERT INTO `inv_division_daily_rollup` VALUES (25, '2026-05-01', '2026-05-27', 2, 'BAR', 'MATERIAL', 165, 229, 3, 11, '5ee175d929ce8aa5f97fbdee6aecab9e0456baa6', 'ESPRESSO ARABIKA', 'HAYATI', NULL, NULL, 1000.000000, 'PACK', 'GR', 0.0000, 0.0000, 1.0000, 1000.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1000.0000, 270.000000, 270000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-27 19:43:55', NULL, '2026-05-27 19:43:55', NULL);
 INSERT INTO `inv_division_daily_rollup` VALUES (26, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 12, 9, 18, 18, 'b1c48675bc4e7b56c0604e0d7cc9851afee34fe9', 'AYAM UTUH', 'CIOMAS', NULL, NULL, 1.000000, 'EKOR', 'EKOR', 11.0000, 11.0000, 0.0000, 0.0000, 4.0000, 4.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 7.0000, 7.0000, 33000.000000, 231000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 2, '2026-05-28 09:58:26', NULL, '2026-05-28 09:58:26', '2026-05-28 09:58:26');
-INSERT INTO `inv_division_daily_rollup` VALUES (27, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 25, 14, 3, 11, '36029981ac4f414520a30bec3a7609de1dc81b54', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 4.9250, 4925.0000, 4.0000, 4000.0000, 0.1000, 99.9975, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 8.8250, 8825.0025, 30.453258, 268750.08, 0.00, 0.00, 0.00, 0.00, 0.00, 2, '2026-05-28 10:00:42', NULL, '2026-05-28 09:58:26', '2026-05-28 10:00:43');
 INSERT INTO `inv_division_daily_rollup` VALUES (28, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 23, 12, 3, 11, 'fd0ffcdb8e4d9f56955632b2e4df3692f0da2668', 'BAWANG MERAH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 4.8500, 4850.0000, 0.0000, 0.0000, 0.2000, 199.9950, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.6500, 4650.0050, 40.000000, 186000.20, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 09:58:26', NULL, '2026-05-28 09:58:26', NULL);
 INSERT INTO `inv_division_daily_rollup` VALUES (29, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 100, 114, 3, 11, 'c8316e4874c60434185af3a798592be0c8abc7fc', 'KEMIRI', 'NO MERK', NULL, NULL, 250.000000, 'PACK', 'GR', 4.8800, 1220.0000, 0.0000, 0.0000, 0.1600, 39.9990, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.7200, 1180.0010, 48.000000, 56640.05, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 09:58:26', NULL, '2026-05-28 09:58:26', NULL);
 INSERT INTO `inv_division_daily_rollup` VALUES (30, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 134, 172, 3, 11, 'f981d240d01b0cf2f989a7c290ca1851b61d5992', 'SEREH', 'NO MERK', NULL, NULL, 450.000000, 'PACK', 'GR', 4.9667, 2235.0000, 0.0000, 0.0000, 0.0444, 19.9995, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.9223, 2215.0005, 13.333333, 29533.34, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 09:58:26', NULL, '2026-05-28 09:58:26', NULL);
@@ -3546,6 +3580,15 @@ INSERT INTO `inv_division_daily_rollup` VALUES (39, '2026-05-01', '2026-05-28', 
 INSERT INTO `inv_division_daily_rollup` VALUES (40, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 88, 100, 3, 11, '2eb32c8fdf28c16a370dfdb77503bae5ec516feb', 'KALDU AYAM', 'ROYCO', NULL, NULL, 220.000000, 'PACK', 'GR', 9.8864, 2175.0000, 0.0000, 0.0000, 0.1515, 33.3325, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 9.7349, 2141.6675, 45.454545, 97348.52, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 09:58:28', NULL, '2026-05-28 09:58:29', NULL);
 INSERT INTO `inv_division_daily_rollup` VALUES (41, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 121, 146, 1, 11, '3f213903b6b3e7f5a88bf787b77cf7567d102e4b', 'MSG', 'SASA', NULL, NULL, 250.000000, 'PCS', 'GR', 4.9680, 1242.0000, 0.0000, 0.0000, 0.0427, 10.6664, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.9253, 1231.3336, 56.000000, 68954.68, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 09:58:29', NULL, '2026-05-28 09:58:29', NULL);
 INSERT INTO `inv_division_daily_rollup` VALUES (42, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 70, 76, 11, 11, 'dec2805a140dbb2a8e1b39ab8dee0444c5fd6e6c980239aa43580486868888d3', 'GULA PASIR KITCHEN', NULL, NULL, NULL, 1000.000000, 'GR', 'GR', 4.9900, 4990.0000, 0.0000, 0.0000, 0.0133, 13.3330, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.9767, 4976.6670, 15.000000, 74650.01, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 09:58:29', NULL, '2026-05-28 09:58:29', NULL);
+INSERT INTO `inv_division_daily_rollup` VALUES (43, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 148, 206, 3, 11, 'cf3f44f265561311ecc30bf951dd36f41a30c68f386da55a75f4dcf400cf4274', 'TIMUN', 'NO MERK', 'Dari pengajuan divisi DREQ202605245352', NULL, 500.000000, 'PACK', 'GR', 0.0000, 0.0000, 5.0000, 2500.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 5.0000, 2500.0000, 10.000000, 25000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 12:35:17', NULL, '2026-05-28 12:35:18', NULL);
+INSERT INTO `inv_division_daily_rollup` VALUES (44, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 151, 209, 3, 11, '94d342e9658c856cb8184eac48e2a73e92a2ca24', 'TOMAT', 'NO MERK', NULL, NULL, 500.000000, 'PACK', 'GR', 0.0000, 0.0000, 5.0000, 2500.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 5.0000, 2500.0000, 18.000000, 45000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 12:35:18', NULL, '2026-05-28 12:35:18', NULL);
+INSERT INTO `inv_division_daily_rollup` VALUES (45, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 133, 170, 3, 11, 'ac4fa170464d1c7bcc0b41e58cb4aaf6ae9b111c', 'SELADA', 'NO MERK', NULL, NULL, 500.000000, 'PACK', 'GR', 0.0000, 0.0000, 6.0000, 3000.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 6.0000, 3000.0000, 46.000000, 138000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 12:35:18', NULL, '2026-05-28 12:35:18', NULL);
+INSERT INTO `inv_division_daily_rollup` VALUES (46, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 24, 13, 3, 11, 'a7ceed33788dbf5865202390b1ab3d0ccfa219e8', 'BAWANG MERAH GORENG', 'NO MERK', NULL, NULL, 500.000000, 'PACK', 'GR', 0.0000, 0.0000, 5.0000, 2500.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 5.0000, 2500.0000, 68.000000, 170000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 12:35:19', NULL, '2026-05-28 12:35:19', NULL);
+INSERT INTO `inv_division_daily_rollup` VALUES (47, '2026-05-01', '2026-05-27', 3, 'KITCHEN', 'MATERIAL', 25, 14, 3, 11, '36029981ac4f414520a30bec3a7609de1dc81b54', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 0.0000, 0.0000, 5.0000, 5000.0000, 0.0750, 75.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.9250, 4925.0000, 30.000000, 147750.00, 0.00, 0.00, 0.00, 0.00, 0.00, 2, '2026-05-27 14:12:45', 'OPENING-REPAIR-20260528125149', '2026-05-28 12:51:49', NULL);
+INSERT INTO `inv_division_daily_rollup` VALUES (48, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 25, 14, 3, 11, '36029981ac4f414520a30bec3a7609de1dc81b54', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 4.9250, 4925.0000, 4.0000, 4000.0000, 0.1000, 99.9975, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 8.8250, 8825.0025, 30.453258, 268750.08, 0.00, 0.00, 0.00, 0.00, 0.00, 2, '2026-05-28 10:00:42', 'OPENING-REPAIR-20260528125149', '2026-05-28 12:51:49', NULL);
+INSERT INTO `inv_division_daily_rollup` VALUES (49, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 25, 14, 3, 11, 'd73b35787962d65114bec3dcaaa6446f4ae36a417c558b9fe93bcd172474e7f5', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 0.0000, 0.0000, 5.0000, 5000.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0100, 10.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.9900, 4990.0000, 35.000000, 174650.00, 350.00, 0.00, 0.00, 0.00, 0.00, 2, '2026-05-28 15:03:11', 'OPENING-REPAIR-20260528125149', '2026-05-28 12:51:49', '2026-05-28 15:03:11');
+INSERT INTO `inv_division_daily_rollup` VALUES (50, '2026-05-01', '2026-05-28', 3, 'KITCHEN', 'MATERIAL', 25, 14, 3, 11, '05ddc48dc4d9658b68b4febc91a39ec63e3feb35f1f40cc275046576ffbc29ba', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 8.8250, 8825.0025, 5.0000, 5000.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 13.8250, 13825.0025, 31.012658, 428750.07, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 12:54:35', NULL, '2026-05-28 12:54:35', NULL);
+INSERT INTO `inv_division_daily_rollup` VALUES (51, '2026-05-01', '2026-05-28', 2, 'BAR', 'MATERIAL', 165, 229, 3, 11, '860a71b56f3587a00595ca4fffbb8070269e8de6', 'ESPRESSO ARABIKA', 'COFFEE DOLOE', NULL, NULL, 1000.000000, 'PACK', 'GR', 0.0000, 0.0000, 1.0000, 1000.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1000.0000, 215.000000, 215000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 13:06:03', NULL, '2026-05-28 13:06:03', NULL);
 
 -- ----------------------------
 -- Table structure for inv_division_monthly_opname
@@ -3653,12 +3696,12 @@ CREATE TABLE `inv_division_stock_balance`  (
   CONSTRAINT `fk_inv_div_stock_item` FOREIGN KEY (`item_id`) REFERENCES `mst_item` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_div_stock_material` FOREIGN KEY (`material_id`) REFERENCES `mst_material` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_div_stock_receipt_line` FOREIGN KEY (`last_receipt_line_id`) REFERENCES `pur_purchase_receipt_line` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 20 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 26 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_division_stock_balance
 -- ----------------------------
-INSERT INTO `inv_division_stock_balance` VALUES (1, 3, 'KITCHEN', 25, 14, 3, 11, 8.8250, 8825.0025, '36029981ac4f414520a30bec3a7609de1dc81b54', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 30.453258, 20, 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 10:00:42');
+INSERT INTO `inv_division_stock_balance` VALUES (1, 3, 'KITCHEN', 25, 14, 3, 11, 13.8250, 13825.0025, '05ddc48dc4d9658b68b4febc91a39ec63e3feb35f1f40cc275046576ffbc29ba', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 31.012658, 38, 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 12:54:35');
 INSERT INTO `inv_division_stock_balance` VALUES (2, 3, 'KITCHEN', 23, 12, 3, 11, 4.6500, 4650.0050, 'fd0ffcdb8e4d9f56955632b2e4df3692f0da2668', 'BAWANG MERAH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 40.000000, 2, 'Batch ICB202605280001 pakai lot LOT20260527-2E3DA75CE8E4', '2026-05-28 09:58:26');
 INSERT INTO `inv_division_stock_balance` VALUES (3, 3, 'KITCHEN', 100, 114, 3, 11, 4.7200, 1180.0010, 'c8316e4874c60434185af3a798592be0c8abc7fc', 'KEMIRI', 'NO MERK', NULL, NULL, 250.000000, 'PACK', 'GR', 48.000000, 3, 'Batch ICB202605280001 pakai lot LOT20260527-5F5F598CA092', '2026-05-28 09:58:26');
 INSERT INTO `inv_division_stock_balance` VALUES (4, 3, 'KITCHEN', 134, 172, 3, 11, 4.9223, 2215.0005, 'f981d240d01b0cf2f989a7c290ca1851b61d5992', 'SEREH', 'NO MERK', NULL, NULL, 450.000000, 'PACK', 'GR', 13.333333, 4, 'Batch ICB202605280001 pakai lot LOT20260527-C55CDB770104', '2026-05-28 09:58:26');
@@ -3677,6 +3720,12 @@ INSERT INTO `inv_division_stock_balance` VALUES (16, 3, 'KITCHEN', 70, 76, 11, 1
 INSERT INTO `inv_division_stock_balance` VALUES (17, 3, 'KITCHEN', 12, 9, 18, 18, 7.0000, 7.0000, 'b1c48675bc4e7b56c0604e0d7cc9851afee34fe9', 'AYAM UTUH', 'CIOMAS', NULL, NULL, 1.000000, 'EKOR', 'EKOR', 33000.000000, 17, 'Batch ICB202605280001 pakai lot LOT20260527-226DE8235F83', '2026-05-28 09:58:26');
 INSERT INTO `inv_division_stock_balance` VALUES (18, 2, 'BAR', 135, 173, 3, 11, 1.0000, 1000.0000, '49433b59332a8829d64ec38b7cf694946bbcc7e7046ace93b5ec43923b4e7966', 'SINGLE ORIGIN', 'HAYATI', 'PUNTANG', NULL, 1000.000000, 'PACK', 'GR', 300.000000, 18, 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-27 19:43:54');
 INSERT INTO `inv_division_stock_balance` VALUES (19, 2, 'BAR', 165, 229, 3, 11, 1.0000, 1000.0000, '5ee175d929ce8aa5f97fbdee6aecab9e0456baa6', 'ESPRESSO ARABIKA', 'HAYATI', NULL, NULL, 1000.000000, 'PACK', 'GR', 270.000000, 19, 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-27 19:43:55');
+INSERT INTO `inv_division_stock_balance` VALUES (20, 3, 'KITCHEN', 148, 206, 3, 11, 5.0000, 2500.0000, 'cf3f44f265561311ecc30bf951dd36f41a30c68f386da55a75f4dcf400cf4274', 'TIMUN', 'NO MERK', 'Dari pengajuan divisi DREQ202605245352', NULL, 500.000000, 'PACK', 'GR', 10.000000, 34, 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 12:35:17');
+INSERT INTO `inv_division_stock_balance` VALUES (21, 3, 'KITCHEN', 151, 209, 3, 11, 5.0000, 2500.0000, '94d342e9658c856cb8184eac48e2a73e92a2ca24', 'TOMAT', 'NO MERK', NULL, NULL, 500.000000, 'PACK', 'GR', 18.000000, 35, 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 12:35:18');
+INSERT INTO `inv_division_stock_balance` VALUES (22, 3, 'KITCHEN', 133, 170, 3, 11, 6.0000, 3000.0000, 'ac4fa170464d1c7bcc0b41e58cb4aaf6ae9b111c', 'SELADA', 'NO MERK', NULL, NULL, 500.000000, 'PACK', 'GR', 46.000000, 36, 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 12:35:18');
+INSERT INTO `inv_division_stock_balance` VALUES (23, 3, 'KITCHEN', 24, 13, 3, 11, 5.0000, 2500.0000, 'a7ceed33788dbf5865202390b1ab3d0ccfa219e8', 'BAWANG MERAH GORENG', 'NO MERK', NULL, NULL, 500.000000, 'PACK', 'GR', 68.000000, 37, 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 12:35:19');
+INSERT INTO `inv_division_stock_balance` VALUES (24, 3, 'KITCHEN', 25, 14, 3, 11, 4.9900, 4990.0000, 'd73b35787962d65114bec3dcaaa6446f4ae36a417c558b9fe93bcd172474e7f5', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 35.000000, NULL, 'IAD20260528-0403 | WASTE | aa', '2026-05-28 15:03:11');
+INSERT INTO `inv_division_stock_balance` VALUES (25, 2, 'BAR', 165, 229, 3, 11, 1.0000, 1000.0000, '860a71b56f3587a00595ca4fffbb8070269e8de6', 'ESPRESSO ARABIKA', 'COFFEE DOLOE', NULL, NULL, 1000.000000, 'PACK', 'GR', 215.000000, NULL, 'SR SR202605283932 diterima divisi', '2026-05-28 13:06:03');
 
 -- ----------------------------
 -- Table structure for inv_division_stock_opening_snapshot
@@ -3817,7 +3866,7 @@ CREATE TABLE `inv_material_fifo_issue_line`  (
   INDEX `idx_inv_material_fifo_issue_line_target`(`target_lot_id`) USING BTREE,
   CONSTRAINT `fk_inv_material_fifo_issue_line_issue` FOREIGN KEY (`issue_id`) REFERENCES `inv_material_fifo_issue_log` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_material_fifo_issue_line_lot` FOREIGN KEY (`lot_id`) REFERENCES `inv_material_fifo_lot` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 36 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 38 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_material_fifo_issue_line
@@ -3857,6 +3906,8 @@ INSERT INTO `inv_material_fifo_issue_line` VALUES (32, 31, 13, NULL, 33.3325, 16
 INSERT INTO `inv_material_fifo_issue_line` VALUES (33, 32, 14, NULL, 33.3325, 45.454545, 1515.11, 2175.0000, 2141.6675, NULL, NULL, '2026-05-28 09:58:28');
 INSERT INTO `inv_material_fifo_issue_line` VALUES (34, 33, 15, NULL, 10.6664, 56.000000, 597.32, 1242.0000, 1231.3336, NULL, NULL, '2026-05-28 09:58:29');
 INSERT INTO `inv_material_fifo_issue_line` VALUES (35, 34, 16, NULL, 13.3330, 15.000000, 200.00, 4990.0000, 4976.6670, NULL, NULL, '2026-05-28 09:58:29');
+INSERT INTO `inv_material_fifo_issue_line` VALUES (36, 35, 32, 40, 1000.0000, 215.000000, 215000.00, 5000.0000, 4000.0000, 0.0000, 1000.0000, '2026-05-28 13:06:03');
+INSERT INTO `inv_material_fifo_issue_line` VALUES (37, 36, 34, NULL, 10.0000, 35.000000, 350.00, 5000.0000, 4990.0000, NULL, NULL, '2026-05-28 15:03:11');
 
 -- ----------------------------
 -- Table structure for inv_material_fifo_issue_log
@@ -3899,7 +3950,7 @@ CREATE TABLE `inv_material_fifo_issue_log`  (
   CONSTRAINT `fk_inv_material_fifo_issue_item` FOREIGN KEY (`item_id`) REFERENCES `mst_item` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_material_fifo_issue_material` FOREIGN KEY (`material_id`) REFERENCES `mst_material` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_material_fifo_issue_uom` FOREIGN KEY (`content_uom_id`) REFERENCES `mst_uom` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 35 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 37 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_material_fifo_issue_log
@@ -3938,6 +3989,8 @@ INSERT INTO `inv_material_fifo_issue_log` VALUES (31, 'FIF202605287794', '2026-0
 INSERT INTO `inv_material_fifo_issue_log` VALUES (32, 'FIF202605288862', '2026-05-28', '2026-05-28 09:58:28', 'DIVISION', 3, 'KITCHEN', NULL, NULL, NULL, 88, 100, NULL, 11, NULL, 33.3325, 1515.11, 'PRODUCTION_BATCH', 'inv_component_batch', 2, 34, 'Batch component memakai stok divisi KITCHEN', 'POSTED', NULL, '2026-05-28 09:58:28');
 INSERT INTO `inv_material_fifo_issue_log` VALUES (33, 'FIF202605280968', '2026-05-28', '2026-05-28 09:58:29', 'DIVISION', 3, 'KITCHEN', NULL, NULL, NULL, 121, 146, NULL, 11, NULL, 10.6664, 597.32, 'PRODUCTION_BATCH', 'inv_component_batch', 2, 35, 'Batch component memakai stok divisi KITCHEN', 'POSTED', NULL, '2026-05-28 09:58:29');
 INSERT INTO `inv_material_fifo_issue_log` VALUES (34, 'FIF202605289972', '2026-05-28', '2026-05-28 09:58:29', 'DIVISION', 3, 'KITCHEN', NULL, NULL, NULL, 70, 76, NULL, 11, NULL, 13.3330, 200.00, 'PRODUCTION_BATCH', 'inv_component_batch', 2, 36, 'Batch component memakai stok divisi KITCHEN', 'POSTED', NULL, '2026-05-28 09:58:29');
+INSERT INTO `inv_material_fifo_issue_log` VALUES (35, 'FIF202605287540', '2026-05-28', '2026-05-28 13:06:03', 'WAREHOUSE', NULL, 'GUDANG', 'DIVISION', 2, 'BAR', 165, 229, 3, 11, '860a71b56f3587a00595ca4fffbb8070269e8de6', 1000.0000, 215000.00, 'PROCUREMENT_SR', 'pur_store_request_fulfillment', 1, 1, 'SR SR202605283932 fulfill ke divisi', 'POSTED', NULL, '2026-05-28 13:06:03');
+INSERT INTO `inv_material_fifo_issue_log` VALUES (36, 'FIF202605282422', '2026-05-28', '2026-05-28 15:03:11', 'DIVISION', 3, 'KITCHEN', NULL, NULL, NULL, 25, 14, 3, 11, 'd73b35787962d65114bec3dcaaa6446f4ae36a417c558b9fe93bcd172474e7f5', 10.0000, 350.00, 'INVENTORY_ADJUSTMENT', 'inv_stock_adjustment', 8, 10, 'IAD20260528-0403 | WASTE | aa', 'POSTED', NULL, '2026-05-28 15:03:11');
 
 -- ----------------------------
 -- Table structure for inv_material_fifo_lot
@@ -3983,7 +4036,7 @@ CREATE TABLE `inv_material_fifo_lot`  (
   CONSTRAINT `fk_inv_material_fifo_item` FOREIGN KEY (`item_id`) REFERENCES `mst_item` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_material_fifo_material` FOREIGN KEY (`material_id`) REFERENCES `mst_material` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_material_fifo_uom` FOREIGN KEY (`content_uom_id`) REFERENCES `mst_uom` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 34 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 41 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_material_fifo_lot
@@ -4011,8 +4064,15 @@ INSERT INTO `inv_material_fifo_lot` VALUES (20, 'LOT20260527-6D5140124466', 'DIV
 INSERT INTO `inv_material_fifo_lot` VALUES (21, 'LOT20260528-C725BB712CCF', 'DIVISION', '2026-05-28', NULL, 3, 'KITCHEN', 25, 14, 3, 11, '36029981ac4f414520a30bec3a7609de1dc81b54', 4000.0000, 0.0000, 4000.0000, 31.000000, 'pur_purchase_receipt', 4, 20, 4, 20, NULL, 'OPEN', '2026-05-28 10:00:42', NULL);
 INSERT INTO `inv_material_fifo_lot` VALUES (30, 'LOT20260528-09243900C327', 'WAREHOUSE', '2026-05-28', NULL, NULL, 'GUDANG', 160, 223, 3, 11, '3ff863f33659d13178ab2f6ac32d8fdcd3302e4d', 10000.0000, 0.0000, 10000.0000, 185.000000, 'pur_purchase_receipt', 7, 29, 7, 29, NULL, 'OPEN', '2026-05-28 10:07:00', NULL);
 INSERT INTO `inv_material_fifo_lot` VALUES (31, 'LOT20260528-C49A7994CAF3', 'WAREHOUSE', '2026-05-28', NULL, NULL, 'GUDANG', 165, 229, 3, 11, '5ee175d929ce8aa5f97fbdee6aecab9e0456baa6', 4000.0000, 0.0000, 4000.0000, 270.000000, 'pur_purchase_receipt', 7, 30, 7, 30, NULL, 'OPEN', '2026-05-28 10:07:01', NULL);
-INSERT INTO `inv_material_fifo_lot` VALUES (32, 'LOT20260528-168230717AAA', 'WAREHOUSE', '2026-05-28', NULL, NULL, 'GUDANG', 165, 229, 3, 11, '860a71b56f3587a00595ca4fffbb8070269e8de6', 5000.0000, 0.0000, 5000.0000, 215.000000, 'pur_purchase_receipt', 7, 31, 7, 31, NULL, 'OPEN', '2026-05-28 10:07:01', NULL);
+INSERT INTO `inv_material_fifo_lot` VALUES (32, 'LOT20260528-168230717AAA', 'WAREHOUSE', '2026-05-28', NULL, NULL, 'GUDANG', 165, 229, 3, 11, '860a71b56f3587a00595ca4fffbb8070269e8de6', 5000.0000, 1000.0000, 4000.0000, 215.000000, 'pur_purchase_receipt', 7, 31, 7, 31, NULL, 'OPEN', '2026-05-28 10:07:01', '2026-05-28 13:06:03');
 INSERT INTO `inv_material_fifo_lot` VALUES (33, 'LOT20260528-02F2F2D3D8C9', 'WAREHOUSE', '2026-05-28', NULL, NULL, 'GUDANG', 205, 175, 6, 9, '388ec1ac6306b86d04cd5c412509b842b19eba96236177721a6b4994ba774b8e', 5000.0000, 0.0000, 5000.0000, 100.000000, 'pur_purchase_receipt', 7, 32, 7, 32, NULL, 'OPEN', '2026-05-28 10:07:02', NULL);
+INSERT INTO `inv_material_fifo_lot` VALUES (34, 'LOT20260528-088FCCFE65DE', 'DIVISION', '2026-05-28', NULL, 3, 'KITCHEN', 25, 14, 3, 11, 'd73b35787962d65114bec3dcaaa6446f4ae36a417c558b9fe93bcd172474e7f5', 5000.0000, 10.0000, 4990.0000, 35.000000, 'pur_purchase_receipt', 8, 33, 8, 33, NULL, 'OPEN', '2026-05-28 12:35:17', '2026-05-28 15:03:11');
+INSERT INTO `inv_material_fifo_lot` VALUES (35, 'LOT20260528-F527AC3480DD', 'DIVISION', '2026-05-28', NULL, 3, 'KITCHEN', 148, 206, 3, 11, 'cf3f44f265561311ecc30bf951dd36f41a30c68f386da55a75f4dcf400cf4274', 2500.0000, 0.0000, 2500.0000, 10.000000, 'pur_purchase_receipt', 8, 34, 8, 34, NULL, 'OPEN', '2026-05-28 12:35:17', NULL);
+INSERT INTO `inv_material_fifo_lot` VALUES (36, 'LOT20260528-A997EA3F3F3A', 'DIVISION', '2026-05-28', NULL, 3, 'KITCHEN', 151, 209, 3, 11, '94d342e9658c856cb8184eac48e2a73e92a2ca24', 2500.0000, 0.0000, 2500.0000, 18.000000, 'pur_purchase_receipt', 8, 35, 8, 35, NULL, 'OPEN', '2026-05-28 12:35:18', NULL);
+INSERT INTO `inv_material_fifo_lot` VALUES (37, 'LOT20260528-01101B7F25B4', 'DIVISION', '2026-05-28', NULL, 3, 'KITCHEN', 133, 170, 3, 11, 'ac4fa170464d1c7bcc0b41e58cb4aaf6ae9b111c', 3000.0000, 0.0000, 3000.0000, 46.000000, 'pur_purchase_receipt', 8, 36, 8, 36, NULL, 'OPEN', '2026-05-28 12:35:18', NULL);
+INSERT INTO `inv_material_fifo_lot` VALUES (38, 'LOT20260528-8724B9D54403', 'DIVISION', '2026-05-28', NULL, 3, 'KITCHEN', 24, 13, 3, 11, 'a7ceed33788dbf5865202390b1ab3d0ccfa219e8', 2500.0000, 0.0000, 2500.0000, 68.000000, 'pur_purchase_receipt', 8, 37, 8, 37, NULL, 'OPEN', '2026-05-28 12:35:19', NULL);
+INSERT INTO `inv_material_fifo_lot` VALUES (39, 'LOT20260528-290CBE1335B5', 'DIVISION', '2026-05-28', NULL, 3, 'KITCHEN', 25, 14, 3, 11, '05ddc48dc4d9658b68b4febc91a39ec63e3feb35f1f40cc275046576ffbc29ba', 5000.0000, 0.0000, 5000.0000, 32.000000, 'pur_purchase_receipt', 9, 38, 9, 38, NULL, 'OPEN', '2026-05-28 12:54:35', NULL);
+INSERT INTO `inv_material_fifo_lot` VALUES (40, 'LOT20260528-168230717AAA', 'DIVISION', '2026-05-28', NULL, 2, 'BAR', 165, 229, 3, 11, '860a71b56f3587a00595ca4fffbb8070269e8de6', 1000.0000, 0.0000, 1000.0000, 215.000000, 'pur_store_request_fulfillment', 1, 1, NULL, NULL, 32, 'OPEN', '2026-05-28 13:06:03', NULL);
 
 -- ----------------------------
 -- Table structure for inv_material_source_balance
@@ -4055,7 +4115,7 @@ CREATE TABLE `inv_stock_adjustment`  (
   INDEX `idx_inv_stock_adjustment_division`(`division_id`, `destination_type`) USING BTREE,
   INDEX `idx_inv_stock_adjustment_status`(`status`) USING BTREE,
   CONSTRAINT `fk_inv_stock_adjustment_division` FOREIGN KEY (`division_id`) REFERENCES `mst_operational_division` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 8 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 9 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_stock_adjustment
@@ -4066,6 +4126,7 @@ INSERT INTO `inv_stock_adjustment` VALUES (4, 'IAD20260524-3237', '2026-05-24', 
 INSERT INTO `inv_stock_adjustment` VALUES (5, 'IAW20260524-2407', '2026-05-24', 'WAREHOUSE', NULL, NULL, 'POSTED', 'asasa', 1, 1, '2026-05-24 08:12:35', '2026-05-24 08:12:29', '2026-05-24 08:12:35');
 INSERT INTO `inv_stock_adjustment` VALUES (6, 'IAW20260524-0484', '2026-05-24', 'WAREHOUSE', NULL, NULL, 'POSTED', NULL, 1, 1, '2026-05-24 08:58:20', '2026-05-24 08:58:20', '2026-05-24 08:58:20');
 INSERT INTO `inv_stock_adjustment` VALUES (7, 'IAD20260523-7975', '2026-05-23', 'DIVISION', 2, 'BAR', 'POSTED', NULL, 1, 1, '2026-05-24 09:02:00', '2026-05-24 09:02:00', '2026-05-24 09:02:00');
+INSERT INTO `inv_stock_adjustment` VALUES (8, 'IAD20260528-0403', '2026-05-28', 'DIVISION', 3, 'KITCHEN', 'POSTED', 'aa', 1, 1, '2026-05-28 15:03:11', '2026-05-28 15:02:58', '2026-05-28 15:03:11');
 
 -- ----------------------------
 -- Table structure for inv_stock_adjustment_line
@@ -4128,7 +4189,7 @@ CREATE TABLE `inv_stock_adjustment_line`  (
   CONSTRAINT `fk_inv_stock_adjustment_line_content_uom` FOREIGN KEY (`content_uom_id`) REFERENCES `mst_uom` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_stock_adjustment_line_item` FOREIGN KEY (`item_id`) REFERENCES `mst_item` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_stock_adjustment_line_material` FOREIGN KEY (`material_id`) REFERENCES `mst_material` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 10 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 11 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_stock_adjustment_line
@@ -4141,6 +4202,7 @@ INSERT INTO `inv_stock_adjustment_line` VALUES (6, 5, 1, 'MATERIAL', 194, 69, 30
 INSERT INTO `inv_stock_adjustment_line` VALUES (7, 5, 2, 'MATERIAL', 177, 76, 3, 11, 'cd39ba0849426e22c6b0116588640f19f36e0a31414f2e7b7fcac3d366fc455c', 'GULA KITCHEN', NULL, NULL, NULL, 1000.000000, 'PACK', 'GR', 0.0000, 0.0000, 17.000000, 0.0000, NULL, 0.0000, NULL, 0.0000, NULL, 0.0000, NULL, 2000.0000, 'other', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 19, '2026-05-24 08:12:29', '2026-05-24 08:12:35');
 INSERT INTO `inv_stock_adjustment_line` VALUES (8, 6, 1, 'MATERIAL', 194, 69, 30, 9, '3045f3da48523306d2cf7172ba546f40bb96f6b84268da1a0638d86ce1612819', 'FRESH MILK', 'MILK LIFE', 'UHT', NULL, 1000.000000, 'DUS', 'ML', 1.0000, 1000.0000, 17.000000, 0.0000, NULL, 0.0000, NULL, 1000.0000, 'other', 0.0000, NULL, 0.0000, NULL, NULL, NULL, NULL, NULL, NULL, 11, NULL, NULL, '2026-05-24 08:58:20', '2026-05-24 08:58:20');
 INSERT INTO `inv_stock_adjustment_line` VALUES (9, 7, 1, 'MATERIAL', 194, 69, 30, 9, '3045f3da48523306d2cf7172ba546f40bb96f6b84268da1a0638d86ce1612819', 'FRESH MILK', 'MILK LIFE', 'UHT', NULL, 1000.000000, 'DUS', 'ML', 3.0000, 3000.0000, 17.000000, 0.0000, NULL, 3000.0000, 'temperature_abuse', 0.0000, NULL, 0.0000, NULL, 0.0000, NULL, NULL, NULL, NULL, NULL, 12, NULL, NULL, NULL, '2026-05-24 09:02:00', '2026-05-24 09:02:00');
+INSERT INTO `inv_stock_adjustment_line` VALUES (10, 8, 1, 'MATERIAL', 25, 14, 3, 11, 'd73b35787962d65114bec3dcaaa6446f4ae36a417c558b9fe93bcd172474e7f5', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 5.0000, 5000.0000, 35.000000, 10.0000, 'kitchen_error', 0.0000, NULL, 0.0000, NULL, 0.0000, NULL, 0.0000, NULL, NULL, NULL, NULL, 36, NULL, NULL, NULL, NULL, '2026-05-28 15:02:58', '2026-05-28 15:03:11');
 
 -- ----------------------------
 -- Table structure for inv_stock_movement_log
@@ -4202,7 +4264,7 @@ CREATE TABLE `inv_stock_movement_log`  (
   CONSTRAINT `fk_inv_stock_movement_material` FOREIGN KEY (`material_id`) REFERENCES `mst_material` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_stock_movement_receipt` FOREIGN KEY (`receipt_id`) REFERENCES `pur_purchase_receipt` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_inv_stock_movement_receipt_line` FOREIGN KEY (`receipt_line_id`) REFERENCES `pur_purchase_receipt_line` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 70 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 79 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of inv_stock_movement_log
@@ -4267,6 +4329,15 @@ INSERT INTO `inv_stock_movement_log` VALUES (66, 'MV202605280020', '2026-05-28',
 INSERT INTO `inv_stock_movement_log` VALUES (67, 'MV202605280021', '2026-05-28', 'WAREHOUSE', NULL, NULL, 'PURCHASE_IN', NULL, NULL, 'pur_purchase_receipt', 7, 7, 30, 165, 229, 3, 11, 4.0000, 4000.0000, 4.0000, 4000.0000, '5ee175d929ce8aa5f97fbdee6aecab9e0456baa6', 'ESPRESSO ARABIKA', 'HAYATI', NULL, NULL, 1000.000000, 'PACK', 'GR', 270.000000, 'Auto receipt saat status PO mencapai RECEIVED/PAID', 1, '2026-05-28 10:07:01');
 INSERT INTO `inv_stock_movement_log` VALUES (68, 'MV202605280022', '2026-05-28', 'WAREHOUSE', NULL, NULL, 'PURCHASE_IN', NULL, NULL, 'pur_purchase_receipt', 7, 7, 31, 165, 229, 3, 11, 5.0000, 5000.0000, 5.0000, 5000.0000, '860a71b56f3587a00595ca4fffbb8070269e8de6', 'ESPRESSO ARABIKA', 'COFFEE DOLOE', NULL, NULL, 1000.000000, 'PACK', 'GR', 215.000000, 'Auto receipt saat status PO mencapai RECEIVED/PAID', 1, '2026-05-28 10:07:01');
 INSERT INTO `inv_stock_movement_log` VALUES (69, 'MV202605280023', '2026-05-28', 'WAREHOUSE', NULL, NULL, 'PURCHASE_IN', NULL, NULL, 'pur_purchase_receipt', 7, 7, 32, 205, 175, 6, 9, 5.0000, 5000.0000, 5.0000, 5000.0000, '388ec1ac6306b86d04cd5c412509b842b19eba96236177721a6b4994ba774b8e', 'SIRUP AREN', 'TOFICO', 'Dari pengajuan divisi DREQ202605240261', NULL, 1000.000000, 'BTL', 'ML', 100.000000, 'Auto receipt saat status PO mencapai RECEIVED/PAID', 1, '2026-05-28 10:07:02');
+INSERT INTO `inv_stock_movement_log` VALUES (70, 'MV202605280024', '2026-05-28', 'DIVISION', 3, 'KITCHEN', 'PURCHASE_IN', NULL, NULL, 'pur_purchase_receipt', 8, 8, 33, 25, 14, 3, 11, 5.0000, 5000.0000, 13.8250, 13825.0025, 'd73b35787962d65114bec3dcaaa6446f4ae36a417c558b9fe93bcd172474e7f5', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 35.000000, 'Auto receipt saat status PO mencapai RECEIVED/PAID', 1, '2026-05-28 12:35:17');
+INSERT INTO `inv_stock_movement_log` VALUES (71, 'MV202605280025', '2026-05-28', 'DIVISION', 3, 'KITCHEN', 'PURCHASE_IN', NULL, NULL, 'pur_purchase_receipt', 8, 8, 34, 148, 206, 3, 11, 5.0000, 2500.0000, 5.0000, 2500.0000, 'cf3f44f265561311ecc30bf951dd36f41a30c68f386da55a75f4dcf400cf4274', 'TIMUN', 'NO MERK', 'Dari pengajuan divisi DREQ202605245352', NULL, 500.000000, 'PACK', 'GR', 10.000000, 'Auto receipt saat status PO mencapai RECEIVED/PAID', 1, '2026-05-28 12:35:17');
+INSERT INTO `inv_stock_movement_log` VALUES (72, 'MV202605280026', '2026-05-28', 'DIVISION', 3, 'KITCHEN', 'PURCHASE_IN', NULL, NULL, 'pur_purchase_receipt', 8, 8, 35, 151, 209, 3, 11, 5.0000, 2500.0000, 5.0000, 2500.0000, '94d342e9658c856cb8184eac48e2a73e92a2ca24', 'TOMAT', 'NO MERK', NULL, NULL, 500.000000, 'PACK', 'GR', 18.000000, 'Auto receipt saat status PO mencapai RECEIVED/PAID', 1, '2026-05-28 12:35:18');
+INSERT INTO `inv_stock_movement_log` VALUES (73, 'MV202605280027', '2026-05-28', 'DIVISION', 3, 'KITCHEN', 'PURCHASE_IN', NULL, NULL, 'pur_purchase_receipt', 8, 8, 36, 133, 170, 3, 11, 6.0000, 3000.0000, 6.0000, 3000.0000, 'ac4fa170464d1c7bcc0b41e58cb4aaf6ae9b111c', 'SELADA', 'NO MERK', NULL, NULL, 500.000000, 'PACK', 'GR', 46.000000, 'Auto receipt saat status PO mencapai RECEIVED/PAID', 1, '2026-05-28 12:35:18');
+INSERT INTO `inv_stock_movement_log` VALUES (74, 'MV202605280028', '2026-05-28', 'DIVISION', 3, 'KITCHEN', 'PURCHASE_IN', NULL, NULL, 'pur_purchase_receipt', 8, 8, 37, 24, 13, 3, 11, 5.0000, 2500.0000, 5.0000, 2500.0000, 'a7ceed33788dbf5865202390b1ab3d0ccfa219e8', 'BAWANG MERAH GORENG', 'NO MERK', NULL, NULL, 500.000000, 'PACK', 'GR', 68.000000, 'Auto receipt saat status PO mencapai RECEIVED/PAID', 1, '2026-05-28 12:35:19');
+INSERT INTO `inv_stock_movement_log` VALUES (75, 'MV202605280029', '2026-05-28', 'DIVISION', 3, 'KITCHEN', 'PURCHASE_IN', NULL, NULL, 'pur_purchase_receipt', 9, 9, 38, 25, 14, 3, 11, 5.0000, 5000.0000, 13.8250, 13825.0025, '05ddc48dc4d9658b68b4febc91a39ec63e3feb35f1f40cc275046576ffbc29ba', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 32.000000, 'Auto receipt saat status PO mencapai RECEIVED/PAID', 1, '2026-05-28 12:54:35');
+INSERT INTO `inv_stock_movement_log` VALUES (76, 'MV202605280030', '2026-05-28', 'WAREHOUSE', NULL, NULL, 'TRANSFER_OUT', NULL, NULL, 'pur_store_request_fulfillment', 1, NULL, NULL, 165, 229, 3, 11, -1.0000, -1000.0000, 4.0000, 4000.0000, '860a71b56f3587a00595ca4fffbb8070269e8de6', 'ESPRESSO ARABIKA', 'COFFEE DOLOE', NULL, NULL, 1000.000000, 'PACK', 'GR', 215.000000, 'SR SR202605283932 fulfill ke divisi', 1, '2026-05-28 13:06:03');
+INSERT INTO `inv_stock_movement_log` VALUES (77, 'MV202605280031', '2026-05-28', 'DIVISION', 2, 'BAR', 'TRANSFER_IN', NULL, NULL, 'pur_store_request_fulfillment', 1, NULL, NULL, 165, 229, 3, 11, 1.0000, 1000.0000, 1.0000, 1000.0000, '860a71b56f3587a00595ca4fffbb8070269e8de6', 'ESPRESSO ARABIKA', 'COFFEE DOLOE', NULL, NULL, 1000.000000, 'PACK', 'GR', 215.000000, 'SR SR202605283932 diterima divisi', 1, '2026-05-28 13:06:03');
+INSERT INTO `inv_stock_movement_log` VALUES (78, 'MV202605280032', '2026-05-28', 'DIVISION', 3, 'KITCHEN', 'WASTE_OUT', 'WASTE', 'kitchen_error', 'inv_stock_adjustment', 8, NULL, NULL, 25, 14, 3, 11, -0.0100, -10.0000, 4.9900, 4990.0000, 'd73b35787962d65114bec3dcaaa6446f4ae36a417c558b9fe93bcd172474e7f5', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 1000.000000, 'PACK', 'GR', 35.000000, 'IAD20260528-0403 | WASTE | aa', 1, '2026-05-28 15:03:11');
 
 -- ----------------------------
 -- Table structure for inv_stock_opening_snapshot
@@ -4391,7 +4462,7 @@ CREATE TABLE `inv_warehouse_daily_rollup`  (
 -- ----------------------------
 INSERT INTO `inv_warehouse_daily_rollup` VALUES (9, '2026-05-01', '2026-05-28', 'MATERIAL', 160, 223, 3, 11, '3ff863f33659d13178ab2f6ac32d8fdcd3302e4d', 'HOUSE BLEND 70', 'TANAH DIENG', NULL, NULL, 1000.000000, 'PACK', 'GR', 0.0000, 0.0000, 10.0000, 10000.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 10.0000, 10000.0000, 185.000000, 1850000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 10:07:00', NULL, '2026-05-28 10:07:01', NULL);
 INSERT INTO `inv_warehouse_daily_rollup` VALUES (10, '2026-05-01', '2026-05-28', 'MATERIAL', 165, 229, 3, 11, '5ee175d929ce8aa5f97fbdee6aecab9e0456baa6', 'ESPRESSO ARABIKA', 'HAYATI', NULL, NULL, 1000.000000, 'PACK', 'GR', 0.0000, 0.0000, 4.0000, 4000.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.0000, 4000.0000, 270.000000, 1080000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 10:07:01', NULL, '2026-05-28 10:07:01', NULL);
-INSERT INTO `inv_warehouse_daily_rollup` VALUES (11, '2026-05-01', '2026-05-28', 'MATERIAL', 165, 229, 3, 11, '860a71b56f3587a00595ca4fffbb8070269e8de6', 'ESPRESSO ARABIKA', 'COFFEE DOLOE', NULL, NULL, 1000.000000, 'PACK', 'GR', 0.0000, 0.0000, 5.0000, 5000.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 5.0000, 5000.0000, 215.000000, 1075000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 10:07:01', NULL, '2026-05-28 10:07:01', NULL);
+INSERT INTO `inv_warehouse_daily_rollup` VALUES (11, '2026-05-01', '2026-05-28', 'MATERIAL', 165, 229, 3, 11, '860a71b56f3587a00595ca4fffbb8070269e8de6', 'ESPRESSO ARABIKA', 'COFFEE DOLOE', NULL, NULL, 1000.000000, 'PACK', 'GR', 0.0000, 0.0000, 5.0000, 5000.0000, 1.0000, 1000.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 4.0000, 4000.0000, 215.000000, 860000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 2, '2026-05-28 13:06:03', NULL, '2026-05-28 10:07:01', '2026-05-28 13:06:03');
 INSERT INTO `inv_warehouse_daily_rollup` VALUES (12, '2026-05-01', '2026-05-28', 'MATERIAL', 205, 175, 6, 9, '388ec1ac6306b86d04cd5c412509b842b19eba96236177721a6b4994ba774b8e', 'SIRUP AREN', 'TOFICO', 'Dari pengajuan divisi DREQ202605240261', NULL, 1000.000000, 'BTL', 'ML', 0.0000, 0.0000, 5.0000, 5000.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 5.0000, 5000.0000, 100.000000, 500000.00, 0.00, 0.00, 0.00, 0.00, 0.00, 1, '2026-05-28 10:07:02', NULL, '2026-05-28 10:07:02', NULL);
 
 -- ----------------------------
@@ -4495,7 +4566,7 @@ CREATE TABLE `inv_warehouse_stock_balance`  (
 -- ----------------------------
 INSERT INTO `inv_warehouse_stock_balance` VALUES (9, 160, 3, 11, 10.0000, 10000.0000, '3ff863f33659d13178ab2f6ac32d8fdcd3302e4d', 'HOUSE BLEND 70', 'TANAH DIENG', NULL, NULL, 1000.000000, 'PACK', 'GR', 185.000000, 29, 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 10:07:00');
 INSERT INTO `inv_warehouse_stock_balance` VALUES (10, 165, 3, 11, 4.0000, 4000.0000, '5ee175d929ce8aa5f97fbdee6aecab9e0456baa6', 'ESPRESSO ARABIKA', 'HAYATI', NULL, NULL, 1000.000000, 'PACK', 'GR', 270.000000, 30, 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 10:07:01');
-INSERT INTO `inv_warehouse_stock_balance` VALUES (11, 165, 3, 11, 5.0000, 5000.0000, '860a71b56f3587a00595ca4fffbb8070269e8de6', 'ESPRESSO ARABIKA', 'COFFEE DOLOE', NULL, NULL, 1000.000000, 'PACK', 'GR', 215.000000, 31, 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 10:07:01');
+INSERT INTO `inv_warehouse_stock_balance` VALUES (11, 165, 3, 11, 4.0000, 4000.0000, '860a71b56f3587a00595ca4fffbb8070269e8de6', 'ESPRESSO ARABIKA', 'COFFEE DOLOE', NULL, NULL, 1000.000000, 'PACK', 'GR', 215.000000, 31, 'SR SR202605283932 fulfill ke divisi', '2026-05-28 13:06:03');
 INSERT INTO `inv_warehouse_stock_balance` VALUES (12, 205, 6, 9, 5.0000, 5000.0000, '388ec1ac6306b86d04cd5c412509b842b19eba96236177721a6b4994ba774b8e', 'SIRUP AREN', 'TOFICO', 'Dari pengajuan divisi DREQ202605240261', NULL, 1000.000000, 'BTL', 'ML', 100.000000, 32, 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 10:07:02');
 
 -- ----------------------------
@@ -5809,7 +5880,7 @@ CREATE TABLE `mst_item`  (
   CONSTRAINT `fk_mst_item_category` FOREIGN KEY (`item_category_id`) REFERENCES `mst_item_category` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_mst_item_content_uom` FOREIGN KEY (`content_uom_id`) REFERENCES `mst_uom` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_mst_item_material` FOREIGN KEY (`material_id`) REFERENCES `mst_material` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 561 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 551 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of mst_item
@@ -6222,7 +6293,7 @@ CREATE TABLE `mst_material`  (
   INDEX `idx_mst_material_uom`(`content_uom_id`) USING BTREE,
   CONSTRAINT `fk_mst_material_category` FOREIGN KEY (`item_category_id`) REFERENCES `mst_item_category` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_mst_material_uom` FOREIGN KEY (`content_uom_id`) REFERENCES `mst_uom` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 265 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 264 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of mst_material
@@ -6577,7 +6648,7 @@ CREATE TABLE `mst_product`  (
   CONSTRAINT `fk_mst_product_default_operational_division` FOREIGN KEY (`default_operational_division_id`) REFERENCES `mst_operational_division` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_mst_product_division` FOREIGN KEY (`product_division_id`) REFERENCES `mst_product_division` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_mst_product_uom` FOREIGN KEY (`uom_id`) REFERENCES `mst_uom` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 519 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 518 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of mst_product
@@ -6925,7 +6996,7 @@ CREATE TABLE `mst_product_category`  (
   INDEX `idx_mst_product_category_classification`(`classification_id`) USING BTREE,
   CONSTRAINT `fk_mst_product_category_classification` FOREIGN KEY (`classification_id`) REFERENCES `mst_product_classification` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_mst_product_category_division` FOREIGN KEY (`product_division_id`) REFERENCES `mst_product_division` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 67 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 66 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of mst_product_category
@@ -7339,7 +7410,7 @@ CREATE TABLE `mst_product_recipe`  (
   CONSTRAINT `fk_mst_product_recipe_product` FOREIGN KEY (`product_id`) REFERENCES `mst_product` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_mst_product_recipe_source_division` FOREIGN KEY (`source_division_id`) REFERENCES `mst_operational_division` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_mst_product_recipe_uom` FOREIGN KEY (`uom_id`) REFERENCES `mst_uom` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 4095 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 3334 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of mst_product_recipe
@@ -8672,7 +8743,7 @@ CREATE TABLE `mst_purchase_catalog`  (
   CONSTRAINT `fk_mst_purchase_catalog_last_line` FOREIGN KEY (`last_purchase_line_id`) REFERENCES `pur_purchase_order_line` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_mst_purchase_catalog_last_po` FOREIGN KEY (`last_purchase_order_id`) REFERENCES `pur_purchase_order` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_mst_purchase_catalog_material` FOREIGN KEY (`material_id`) REFERENCES `mst_material` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 1105 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 1108 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of mst_purchase_catalog
@@ -8755,7 +8826,7 @@ INSERT INTO `mst_purchase_catalog` VALUES (75, '9f44c40ac8d639119ab22900736a4246
 INSERT INTO `mst_purchase_catalog` VALUES (76, 'afe6f26768a605757c4483f1aada63e782238a1a', 'MATERIAL', 119, 140, 'MAYONAISE', 'MAESTRO', NULL, 3, 11, 1000.000000, 1000.00000000, 30000.00, 30000.00, '2026-04-18', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 12:21:29');
 INSERT INTO `mst_purchase_catalog` VALUES (77, '3e2aa437958fbb681987f9f5104a0a4f19373951', 'SERVICE', NULL, NULL, 'WRAPPING', 'ALTA', 'WRAPPING', 3, 3, 1.000000, 1.00000000, 18000.00, 18000.00, '2026-04-25', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 12:21:29');
 INSERT INTO `mst_purchase_catalog` VALUES (78, '5edba1833098dda376fb6d9f30850d2f66bf9627', 'MATERIAL', 97, 111, 'KEJU SPREADY', 'PROCHIZ', NULL, 1, 11, 160.000000, 160.00000000, 15000.00, 15000.00, '2026-04-18', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 12:21:29');
-INSERT INTO `mst_purchase_catalog` VALUES (79, 'ac4fa170464d1c7bcc0b41e58cb4aaf6ae9b111c', 'MATERIAL', 133, 170, 'SELADA', 'NO MERK', NULL, 3, 11, 500.000000, 500.00000000, 23000.00, 23000.00, '2026-04-27', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 12:21:29');
+INSERT INTO `mst_purchase_catalog` VALUES (79, 'ac4fa170464d1c7bcc0b41e58cb4aaf6ae9b111c', 'MATERIAL', 133, 170, 'SELADA', 'NO MERK', NULL, 3, 11, 500.000000, 500.00000000, 23000.00, 23000.00, '2026-05-28', 7, 34, NULL, 1, '2026-05-03 18:58:17', '2026-05-28 12:35:08');
 INSERT INTO `mst_purchase_catalog` VALUES (80, 'b6d0e67824c3b281c5df612d9bde6ef9c51f36e7', 'MATERIAL', 22, 11, 'BAWANG BOMBAY', 'NO MERK', NULL, 3, 11, 500.000000, 500.00000000, 17500.00, 17500.00, '2026-04-18', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 12:21:29');
 INSERT INTO `mst_purchase_catalog` VALUES (81, '46efb41286566caf3cc57bba4142c198938b7e77', 'ITEM', 314, NULL, 'KEJU PARUT', 'spready', 'keju parut', 1, 1, 1.000000, 1.00000000, 0.00, 0.00, '2026-04-18', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 12:21:29');
 INSERT INTO `mst_purchase_catalog` VALUES (82, 'c37233b095cfce74697c8186cc6dc32105306cb6', 'SERVICE', NULL, NULL, 'PAJAK KENDARAAN', 'NO MERK', 'PAJAK KENDARAAN', 3, 3, 1.000000, 1.00000000, 395000.00, 395000.00, '2026-04-17', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 12:21:29');
@@ -8890,7 +8961,7 @@ INSERT INTO `mst_purchase_catalog` VALUES (210, '0217dd0c2a6fe53c6c9586b182ef657
 INSERT INTO `mst_purchase_catalog` VALUES (211, 'a4eb9d67ff9f9b614549c222be38f3073c31eec9', 'MATERIAL', 133, 170, 'SELADA', 'NO MERK', NULL, 3, 11, 500.000000, 500.00000000, 16000.00, 16000.00, '2026-04-02', NULL, NULL, 'Duplicate identity merged into canonical profile_key ac4fa170464d1c7bcc0b41e58cb4aaf6ae9b111c', 0, '2026-05-03 18:58:17', '2026-05-23 21:05:47');
 INSERT INTO `mst_purchase_catalog` VALUES (212, 'd134cda22d1fd0d0d2ea3ef07caee5e235a49d59', 'MATERIAL', 102, 116, 'KENTANG', 'NO MERK', NULL, 3, 11, 3000.000000, 3000.00000000, 57000.00, 57000.00, '2026-04-01', NULL, NULL, 'Duplicate identity merged into canonical profile_key 942f8714674bbbc837e1707b60baf31d006e045d', 0, '2026-05-03 18:58:17', '2026-05-23 21:05:46');
 INSERT INTO `mst_purchase_catalog` VALUES (213, '48d2e8baf8225ed05014821580e3f8f7b3048398', 'MATERIAL', 134, 172, 'SEREH', 'NO MERK', NULL, 3, 11, 500.000000, 500.00000000, 7000.00, 7000.00, '2026-04-01', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 12:21:30');
-INSERT INTO `mst_purchase_catalog` VALUES (214, 'a7ceed33788dbf5865202390b1ab3d0ccfa219e8', 'MATERIAL', 24, 13, 'BAWANG MERAH GORENG', 'NO MERK', NULL, 3, 11, 500.000000, 500.00000000, 34000.00, 34000.00, '2026-04-22', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 21:05:48');
+INSERT INTO `mst_purchase_catalog` VALUES (214, 'a7ceed33788dbf5865202390b1ab3d0ccfa219e8', 'MATERIAL', 24, 13, 'BAWANG MERAH GORENG', 'NO MERK', NULL, 3, 11, 500.000000, 500.00000000, 34000.00, 34000.00, '2026-05-28', 7, 35, NULL, 1, '2026-05-03 18:58:17', '2026-05-28 12:35:08');
 INSERT INTO `mst_purchase_catalog` VALUES (215, '22f65c1b815fff719055ae4c810150af7d169bf7', 'MATERIAL', 41, 34, 'CABAI MERAH KERITING', 'NO MERK', NULL, 3, 11, 500.000000, 500.00000000, 15000.00, 15000.00, '2026-04-01', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 12:21:30');
 INSERT INTO `mst_purchase_catalog` VALUES (216, '52fc8918ebab2a8c9c31aa6f2d57a1b27e679a01', 'MATERIAL', 34, 26, 'BUNCIS', 'NO MERK', NULL, 3, 11, 500.000000, 500.00000000, 9000.00, 9000.00, '2026-04-01', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 12:21:30');
 INSERT INTO `mst_purchase_catalog` VALUES (217, 'f627cd93359ec9c751ee464c1c47f81d776f62bf', 'MATERIAL', 94, 106, 'KECAMBAH', 'NO MERK', NULL, 3, 11, 1000.000000, 1000.00000000, 18000.00, 18000.00, '2026-04-01', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 12:21:30');
@@ -8943,7 +9014,7 @@ INSERT INTO `mst_purchase_catalog` VALUES (263, 'ce67682a5e669532c80a97932eeb0a1
 INSERT INTO `mst_purchase_catalog` VALUES (264, 'f8253943d902832acaed11ba71ab0a7ea1466548', 'MATERIAL', 151, 209, 'TOMAT', 'NO MERK', NULL, 3, 11, 250.000000, 250.00000000, 4000.00, 4000.00, '2026-02-09', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 21:05:48');
 INSERT INTO `mst_purchase_catalog` VALUES (265, '4c43efcadc47364ff392c5673fce28a6629b38ea', 'MATERIAL', 151, 209, 'TOMAT', 'NO MERK', NULL, 3, 11, 250.000000, 250.00000000, 2500.00, 2500.00, '2026-01-22', NULL, NULL, 'Duplicate identity merged into canonical profile_key f8253943d902832acaed11ba71ab0a7ea1466548', 0, '2026-05-03 18:58:17', '2026-05-23 21:05:48');
 INSERT INTO `mst_purchase_catalog` VALUES (266, '5f65bdd1e2be3d2bbc8189e82935e8690b2cc90c', 'MATERIAL', 151, 209, 'TOMAT', 'NO MERK', NULL, 3, 11, 250.000000, 250.00000000, 5000.00, 5000.00, '2026-04-30', NULL, NULL, 'Duplicate identity merged into canonical profile_key f8253943d902832acaed11ba71ab0a7ea1466548', 0, '2026-05-03 18:58:17', '2026-05-23 21:05:48');
-INSERT INTO `mst_purchase_catalog` VALUES (267, '94d342e9658c856cb8184eac48e2a73e92a2ca24', 'MATERIAL', 151, 209, 'TOMAT', 'NO MERK', NULL, 3, 11, 500.000000, 500.00000000, 9000.00, 9000.00, '2026-04-25', NULL, NULL, NULL, 1, '2026-05-03 18:58:17', '2026-05-23 21:05:48');
+INSERT INTO `mst_purchase_catalog` VALUES (267, '94d342e9658c856cb8184eac48e2a73e92a2ca24', 'MATERIAL', 151, 209, 'TOMAT', 'NO MERK', NULL, 3, 11, 500.000000, 500.00000000, 9000.00, 9000.00, '2026-05-28', 7, 33, NULL, 1, '2026-05-03 18:58:17', '2026-05-28 12:35:07');
 INSERT INTO `mst_purchase_catalog` VALUES (268, 'f216d5d125ee12ddbbb5758024e5bea6419c5829', 'MATERIAL', 151, 209, 'TOMAT', 'NO MERK', NULL, 3, 11, 500.000000, 500.00000000, 8000.00, 8000.00, '2026-02-06', NULL, NULL, 'Duplicate identity merged into canonical profile_key 94d342e9658c856cb8184eac48e2a73e92a2ca24', 0, '2026-05-03 18:58:17', '2026-05-23 21:05:48');
 INSERT INTO `mst_purchase_catalog` VALUES (269, 'b390ff4ee0c3eb067688daee739b759158b115fb', 'MATERIAL', 151, 209, 'TOMAT', 'NO MERK', NULL, 3, 11, 500.000000, 500.00000000, 6000.00, 6000.00, '2026-02-04', NULL, NULL, 'Duplicate identity merged into canonical profile_key 94d342e9658c856cb8184eac48e2a73e92a2ca24', 0, '2026-05-03 18:58:17', '2026-05-23 21:05:48');
 INSERT INTO `mst_purchase_catalog` VALUES (270, 'f8665b4bb313a528d82b3fc889ee73d782bcafb9', 'MATERIAL', 151, 209, 'TOMAT', 'NO MERK', NULL, 3, 11, 250.000000, 250.00000000, 4000.00, 4000.00, '2026-02-09', NULL, NULL, 'Duplicate identity merged into canonical profile_key f8253943d902832acaed11ba71ab0a7ea1466548', 0, '2026-05-03 18:58:17', '2026-05-23 21:05:48');
@@ -9637,6 +9708,9 @@ INSERT INTO `mst_purchase_catalog` VALUES (1097, 'b1b357e24679dc4d5d2d1c22017ded
 INSERT INTO `mst_purchase_catalog` VALUES (1102, '3dee90b60f44bc446841ef12337397fa8bdf01f9768c6af460c301cf02f5c422', 'MATERIAL', 163, 227, 'SO GAYO SAMATOBA', 'SAMATOBA', 'GAYO', 11, 11, 1.000000, 1.00000000, 300000.00, 300000.00, '2026-05-24', 1, 3, NULL, 1, '2026-05-24 12:07:21', NULL);
 INSERT INTO `mst_purchase_catalog` VALUES (1103, 'dec2805a140dbb2a8e1b39ab8dee0444c5fd6e6c980239aa43580486868888d3', 'MATERIAL', 70, 76, 'GULA PASIR KITCHEN', NULL, NULL, 11, 11, 1000.000000, 1000.00000000, 15000.00, 15000.00, '2026-05-27', 1, 16, NULL, 1, '2026-05-26 20:07:48', '2026-05-27 09:18:35');
 INSERT INTO `mst_purchase_catalog` VALUES (1104, '388ec1ac6306b86d04cd5c412509b842b19eba96236177721a6b4994ba774b8e', 'MATERIAL', 205, 175, 'SIRUP AREN', 'TOFICO', 'Dari pengajuan divisi DREQ202605240261', 6, 9, 1000.000000, 1000.00000000, 100000.00, 100000.00, '2026-05-28', 6, 30, NULL, 1, '2026-05-28 10:05:56', '2026-05-28 10:06:23');
+INSERT INTO `mst_purchase_catalog` VALUES (1105, 'd73b35787962d65114bec3dcaaa6446f4ae36a417c558b9fe93bcd172474e7f5', 'MATERIAL', 25, 14, 'BAWANG PUTIH', 'NO MERK', NULL, 3, 11, 1000.000000, 1000.00000000, 35000.00, 35000.00, '2026-05-28', 7, 31, NULL, 1, '2026-05-28 12:35:07', NULL);
+INSERT INTO `mst_purchase_catalog` VALUES (1106, 'cf3f44f265561311ecc30bf951dd36f41a30c68f386da55a75f4dcf400cf4274', 'MATERIAL', 148, 206, 'TIMUN', 'NO MERK', 'Dari pengajuan divisi DREQ202605245352', 3, 11, 500.000000, 500.00000000, 5000.00, 5000.00, '2026-05-28', 7, 32, NULL, 1, '2026-05-28 12:35:07', NULL);
+INSERT INTO `mst_purchase_catalog` VALUES (1107, '05ddc48dc4d9658b68b4febc91a39ec63e3feb35f1f40cc275046576ffbc29ba', 'MATERIAL', 25, 14, 'BAWANG PUTIH', 'NO MERK', NULL, 3, 11, 1000.000000, 1000.00000000, 32000.00, 32000.00, '2026-05-28', 8, 36, NULL, 1, '2026-05-28 12:54:28', NULL);
 
 -- ----------------------------
 -- Table structure for mst_purchase_catalog_vendor
@@ -9665,7 +9739,7 @@ CREATE TABLE `mst_purchase_catalog_vendor`  (
   CONSTRAINT `fk_mst_purchase_catalog_vendor_last_line` FOREIGN KEY (`last_purchase_line_id`) REFERENCES `pur_purchase_order_line` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_mst_purchase_catalog_vendor_last_po` FOREIGN KEY (`last_purchase_order_id`) REFERENCES `pur_purchase_order` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_mst_purchase_catalog_vendor_vendor` FOREIGN KEY (`vendor_id`) REFERENCES `mst_vendor` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 1049 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 1052 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of mst_purchase_catalog_vendor
@@ -9746,7 +9820,7 @@ INSERT INTO `mst_purchase_catalog_vendor` VALUES (73, 75, 1, 46300.00, 46300.00,
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (74, 76, 1, 30000.00, 30000.00, '2026-04-18', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (75, 77, 1, 18000.00, 18000.00, '2026-04-25', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (76, 78, 1, 15000.00, 15000.00, '2026-04-18', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
-INSERT INTO `mst_purchase_catalog_vendor` VALUES (77, 79, 1, 23000.00, 23000.00, '2026-04-27', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
+INSERT INTO `mst_purchase_catalog_vendor` VALUES (77, 79, 1, 23000.00, 23000.00, '2026-05-28', 7, 34, NULL, 1, '2026-05-23 21:41:22', '2026-05-28 12:35:08');
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (78, 80, 1, 17500.00, 17500.00, '2026-04-18', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (79, 81, 1, 0.00, 0.00, '2026-04-18', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (80, 82, 1, 395000.00, 395000.00, '2026-04-17', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
@@ -9855,7 +9929,7 @@ INSERT INTO `mst_purchase_catalog_vendor` VALUES (182, 206, 1, 18000.00, 18000.0
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (183, 209, 1, 2000.00, 2000.00, '2026-04-30', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (184, 210, 1, 10500.00, 10500.00, '2026-04-01', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (185, 213, 1, 7000.00, 7000.00, '2026-04-01', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
-INSERT INTO `mst_purchase_catalog_vendor` VALUES (186, 214, 1, 34000.00, 34000.00, '2026-04-22', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
+INSERT INTO `mst_purchase_catalog_vendor` VALUES (186, 214, 1, 34000.00, 34000.00, '2026-05-28', 7, 35, NULL, 1, '2026-05-23 21:41:22', '2026-05-28 12:35:08');
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (187, 215, 1, 15000.00, 15000.00, '2026-04-01', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (188, 216, 1, 9000.00, 9000.00, '2026-04-01', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (189, 217, 1, 18000.00, 18000.00, '2026-04-01', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
@@ -9883,7 +9957,7 @@ INSERT INTO `mst_purchase_catalog_vendor` VALUES (210, 253, 1, 25000.00, 25000.0
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (211, 257, 1, 4500.00, 4500.00, '2026-02-19', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (212, 259, 1, 14000.00, 14000.00, '2026-04-29', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (213, 264, 1, 4000.00, 4000.00, '2026-02-09', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
-INSERT INTO `mst_purchase_catalog_vendor` VALUES (214, 267, 1, 9000.00, 9000.00, '2026-04-25', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
+INSERT INTO `mst_purchase_catalog_vendor` VALUES (214, 267, 1, 9000.00, 9000.00, '2026-05-28', 7, 33, NULL, 1, '2026-05-23 21:41:22', '2026-05-28 12:35:08');
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (215, 275, 1, 8500.00, 8500.00, '2026-03-07', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (216, 277, 1, 250000.00, 250000.00, '2026-02-06', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (217, 279, 1, 4500.00, 4500.00, '2026-01-26', NULL, NULL, NULL, 1, '2026-05-23 21:41:22', NULL);
@@ -10267,6 +10341,9 @@ INSERT INTO `mst_purchase_catalog_vendor` VALUES (1045, 747, 5, 270000.00, 27000
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (1046, 129, 5, 185000.00, 185000.00, '2026-05-28', 6, 27, NULL, 1, '2026-05-28 10:05:55', '2026-05-28 10:06:21');
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (1047, 714, 5, 215000.00, 215000.00, '2026-05-28', 6, 29, NULL, 1, '2026-05-28 10:05:56', '2026-05-28 10:06:22');
 INSERT INTO `mst_purchase_catalog_vendor` VALUES (1048, 1104, 5, 100000.00, 100000.00, '2026-05-28', 6, 30, NULL, 1, '2026-05-28 10:05:56', '2026-05-28 10:06:23');
+INSERT INTO `mst_purchase_catalog_vendor` VALUES (1049, 1105, 1, 35000.00, 35000.00, '2026-05-28', 7, 31, NULL, 1, '2026-05-28 12:35:07', NULL);
+INSERT INTO `mst_purchase_catalog_vendor` VALUES (1050, 1106, 1, 5000.00, 5000.00, '2026-05-28', 7, 32, NULL, 1, '2026-05-28 12:35:07', NULL);
+INSERT INTO `mst_purchase_catalog_vendor` VALUES (1051, 1107, 1, 32000.00, 32000.00, '2026-05-28', 8, 36, NULL, 1, '2026-05-28 12:54:28', NULL);
 
 -- ----------------------------
 -- Table structure for mst_purchase_type
@@ -11481,11 +11558,14 @@ CREATE TABLE `pos_printer_desktop_device`  (
   `device_name` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   `outlet_id` bigint(20) UNSIGNED NULL DEFAULT NULL,
   `terminal_id` bigint(20) UNSIGNED NULL DEFAULT NULL,
+  `agent_host` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL,
+  `mac_address` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL,
   `driver_type` enum('ESC_POS','WINDOWS','SYSTEM','NETWORK') CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'SYSTEM',
-  `connection_type` enum('USB','LAN','SHARED','OTHER') CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'USB',
+  `connection_type` enum('USB','LAN','SHARED','BLUETOOTH','OTHER') CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'USB',
   `share_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL,
   `host` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL,
   `port` int(10) UNSIGNED NULL DEFAULT NULL,
+  `python_port` int(10) UNSIGNED NULL DEFAULT NULL,
   `paper_width_mm` int(10) UNSIGNED NOT NULL DEFAULT 80,
   `is_default` tinyint(1) NOT NULL DEFAULT 0,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
@@ -11495,6 +11575,8 @@ CREATE TABLE `pos_printer_desktop_device`  (
   UNIQUE INDEX `uk_pos_printer_desktop_device_code`(`device_code`) USING BTREE,
   INDEX `idx_pos_printer_desktop_device_outlet`(`outlet_id`) USING BTREE,
   INDEX `fk_pos_printer_desktop_device_terminal`(`terminal_id`) USING BTREE,
+  INDEX `idx_pos_printer_device_agent_host`(`agent_host`) USING BTREE,
+  INDEX `idx_pos_printer_device_python_port`(`python_port`) USING BTREE,
   CONSTRAINT `fk_pos_printer_desktop_device_outlet` FOREIGN KEY (`outlet_id`) REFERENCES `pos_outlet` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pos_printer_desktop_device_terminal` FOREIGN KEY (`terminal_id`) REFERENCES `pos_terminal` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
@@ -11516,7 +11598,17 @@ CREATE TABLE `pos_printer_event_setting`  (
   `updated_at` datetime(0) NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP(0),
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_pos_printer_event_setting_code`(`event_code`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 7 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Records of pos_printer_event_setting
+-- ----------------------------
+INSERT INTO `pos_printer_event_setting` VALUES (1, 'ORDER_PAID_RECEIPT', 'Receipt setelah order dibayar', 'RECEIPT', 1, 1, 2, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `pos_printer_event_setting` VALUES (2, 'ORDER_CONFIRM_KOT', 'KOT saat order dikonfirmasi', 'KOT', 1, 1, 3, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `pos_printer_event_setting` VALUES (3, 'ORDER_PRE_BILL', 'Bill sementara sebelum bayar', 'BILL', 0, 1, 2, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `pos_printer_event_setting` VALUES (4, 'SHIFT_CLOSE_SUMMARY', 'Ringkasan tutup shift', 'SHIFT_CLOSE', 1, 1, 2, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `pos_printer_event_setting` VALUES (5, 'REFUND_SLIP', 'Slip refund POS', 'REFUND', 1, 1, 2, 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `pos_printer_event_setting` VALUES (6, 'VOID_SLIP', 'Slip void POS', 'VOID', 1, 1, 2, 1, '2026-05-28 12:59:30', NULL);
 
 -- ----------------------------
 -- Table structure for pos_printer_job
@@ -11668,7 +11760,18 @@ CREATE TABLE `pos_printer_template_master`  (
   `updated_at` datetime(0) NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP(0),
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_pos_printer_template_master_code`(`master_code`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 8 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Records of pos_printer_template_master
+-- ----------------------------
+INSERT INTO `pos_printer_template_master` VALUES (1, 'TPLM-RECEIPT', 'Receipt POS', 'RECEIPT', 'Template dasar receipt pembayaran POS', 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `pos_printer_template_master` VALUES (2, 'TPLM-KOT', 'Kitchen Order Ticket', 'KOT', 'Template dasar cetak KOT / bar ticket', 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `pos_printer_template_master` VALUES (3, 'TPLM-BILL', 'Bill Sementara', 'BILL', 'Template dasar bill sebelum payment final', 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `pos_printer_template_master` VALUES (4, 'TPLM-SHIFT', 'Shift Close', 'SHIFT_CLOSE', 'Template dasar ringkasan tutup shift kasir', 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `pos_printer_template_master` VALUES (5, 'TPLM-REFUND', 'Refund Slip', 'REFUND', 'Template dasar refund POS', 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `pos_printer_template_master` VALUES (6, 'TPLM-VOID', 'Void Slip', 'VOID', 'Template dasar void POS', 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `pos_printer_template_master` VALUES (7, 'TPLM-STICKER', 'Label / Sticker', 'STICKER', 'Template dasar sticker/label order', 1, '2026-05-28 12:59:30', NULL);
 
 -- ----------------------------
 -- Table structure for pos_product_availability_cache
@@ -11759,7 +11862,12 @@ CREATE TABLE `pos_product_bundle`  (
   UNIQUE INDEX `uk_pos_product_bundle_code`(`bundle_code`) USING BTREE,
   INDEX `idx_pos_product_bundle_division`(`product_division_id`) USING BTREE,
   CONSTRAINT `fk_pos_product_bundle_division` FOREIGN KEY (`product_division_id`) REFERENCES `mst_product_division` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Records of pos_product_bundle
+-- ----------------------------
+INSERT INTO `pos_product_bundle` VALUES (1, 'BND-PAKET-1', 'PAKET 1', NULL, 'REGULAR', 50000.00, NULL, 10, 1, '2026-05-28 12:21:53', NULL);
 
 -- ----------------------------
 -- Table structure for pos_product_bundle_line
@@ -11779,7 +11887,13 @@ CREATE TABLE `pos_product_bundle_line`  (
   INDEX `idx_pos_product_bundle_line_product`(`product_id`) USING BTREE,
   CONSTRAINT `fk_pos_product_bundle_line_bundle` FOREIGN KEY (`bundle_id`) REFERENCES `pos_product_bundle` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pos_product_bundle_line_product` FOREIGN KEY (`product_id`) REFERENCES `mst_product` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Records of pos_product_bundle_line
+-- ----------------------------
+INSERT INTO `pos_product_bundle_line` VALUES (1, 1, 134, 1.0000, NULL, 10, '2026-05-28 12:21:53', NULL);
+INSERT INTO `pos_product_bundle_line` VALUES (2, 1, 80, 1.0000, NULL, 20, '2026-05-28 12:21:53', NULL);
 
 -- ----------------------------
 -- Table structure for pos_refund
@@ -12424,7 +12538,7 @@ CREATE TABLE `pur_purchase_order`  (
   CONSTRAINT `fk_pur_purchase_order_payment_account` FOREIGN KEY (`payment_account_id`) REFERENCES `fin_company_account` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_purchase_order_type` FOREIGN KEY (`purchase_type_id`) REFERENCES `mst_purchase_type` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_purchase_order_vendor` FOREIGN KEY (`vendor_id`) REFERENCES `mst_vendor` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 7 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 9 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of pur_purchase_order
@@ -12435,6 +12549,8 @@ INSERT INTO `pur_purchase_order` VALUES (3, 'PO202605270003', '2026-05-27', NULL
 INSERT INTO `pur_purchase_order` VALUES (4, 'PO202605270004', '2026-05-27', NULL, 9, 'BAR', 2, 5, 4, 'PAID', 'IDR', 1.000000, 570000.00, 0.00, 0.00, 570000.00, NULL, 'assa', 1, NULL, NULL, '2026-05-27 19:43:45', '2026-05-27 19:43:55');
 INSERT INTO `pur_purchase_order` VALUES (5, 'PO202605280001', '2026-05-28', NULL, 10, 'KITCHEN', 3, 1, 5, 'PAID', 'IDR', 1.000000, 124000.00, 0.00, 0.00, 124000.00, NULL, 'aabawa', 1, NULL, NULL, '2026-05-28 10:00:34', '2026-05-28 10:00:43');
 INSERT INTO `pur_purchase_order` VALUES (6, 'PO202605280002', '2026-05-28', NULL, 8, 'GUDANG', NULL, 5, 1, 'PAID', 'IDR', 1.000000, 4505000.00, 0.00, 0.00, 4505000.00, NULL, 'llaalla', 1, NULL, NULL, '2026-05-28 10:05:54', '2026-05-28 10:07:02');
+INSERT INTO `pur_purchase_order` VALUES (7, 'PO202605280003', '2026-05-28', NULL, 10, 'KITCHEN', 3, 1, 1, 'PAID', 'IDR', 1.000000, 553000.00, 0.00, 0.00, 553000.00, NULL, NULL, 1, NULL, NULL, '2026-05-28 12:35:07', '2026-05-28 12:35:19');
+INSERT INTO `pur_purchase_order` VALUES (8, 'PO202605280004', '2026-05-28', NULL, 10, 'KITCHEN', 3, 1, 1, 'PAID', 'IDR', 1.000000, 160000.00, 0.00, 0.00, 160000.00, NULL, NULL, 1, NULL, NULL, '2026-05-28 12:54:28', '2026-05-28 12:54:35');
 
 -- ----------------------------
 -- Table structure for pur_purchase_order_line
@@ -12487,7 +12603,7 @@ CREATE TABLE `pur_purchase_order_line`  (
   CONSTRAINT `fk_pur_purchase_order_line_item` FOREIGN KEY (`item_id`) REFERENCES `mst_item` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_purchase_order_line_material` FOREIGN KEY (`material_id`) REFERENCES `mst_material` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_purchase_order_line_po` FOREIGN KEY (`purchase_order_id`) REFERENCES `pur_purchase_order` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 31 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 37 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of pur_purchase_order_line
@@ -12518,6 +12634,12 @@ INSERT INTO `pur_purchase_order_line` VALUES (27, 6, 1, 'MATERIAL', 160, 223, NU
 INSERT INTO `pur_purchase_order_line` VALUES (28, 6, 2, 'MATERIAL', 165, 229, NULL, NULL, 'NONE', NULL, NULL, 'HAYATI', 4.0000, 3, 1000.000000, 4000.0000, 11, 1000.00000000, 270000.00, 0.0000, 0.0000, 1080000.00, 'ESPRESSO ARABIKA', 'ESPRESSO ARABIKA', 'HAYATI', NULL, NULL, 'PACK', 'GR', '5ee175d929ce8aa5f97fbdee6aecab9e0456baa6', NULL, '2026-05-28 10:06:22', NULL);
 INSERT INTO `pur_purchase_order_line` VALUES (29, 6, 3, 'MATERIAL', 165, 229, NULL, NULL, 'NONE', NULL, NULL, 'COFFEE DOLOE', 5.0000, 3, 1000.000000, 5000.0000, 11, 1000.00000000, 215000.00, 0.0000, 0.0000, 1075000.00, 'ESPRESSO ARABIKA', 'ESPRESSO ARABIKA', 'COFFEE DOLOE', NULL, NULL, 'PACK', 'GR', '860a71b56f3587a00595ca4fffbb8070269e8de6', NULL, '2026-05-28 10:06:22', NULL);
 INSERT INTO `pur_purchase_order_line` VALUES (30, 6, 4, 'MATERIAL', 205, 175, 'Dari pengajuan divisi DREQ202605240261', NULL, 'NONE', NULL, NULL, 'TOFICO', 5.0000, 6, 1000.000000, 5000.0000, 9, 1000.00000000, 100000.00, 0.0000, 0.0000, 500000.00, 'SIRUP AREN', 'SIRUP AREN', 'TOFICO', 'Dari pengajuan divisi DREQ202605240261', NULL, 'BTL', 'ML', '388ec1ac6306b86d04cd5c412509b842b19eba96236177721a6b4994ba774b8e', NULL, '2026-05-28 10:06:22', NULL);
+INSERT INTO `pur_purchase_order_line` VALUES (31, 7, 1, 'MATERIAL', 25, 14, NULL, NULL, 'NONE', NULL, NULL, 'NO MERK', 5.0000, 3, 1000.000000, 5000.0000, 11, 1000.00000000, 35000.00, 0.0000, 0.0000, 175000.00, 'BAWANG PUTIH', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 'PACK', 'GR', 'd73b35787962d65114bec3dcaaa6446f4ae36a417c558b9fe93bcd172474e7f5', NULL, '2026-05-28 12:35:07', NULL);
+INSERT INTO `pur_purchase_order_line` VALUES (32, 7, 2, 'MATERIAL', 148, 206, 'Dari pengajuan divisi DREQ202605245352', NULL, 'NONE', NULL, NULL, 'NO MERK', 5.0000, 3, 500.000000, 2500.0000, 11, 500.00000000, 5000.00, 0.0000, 0.0000, 25000.00, 'TIMUN', 'TIMUN', 'NO MERK', 'Dari pengajuan divisi DREQ202605245352', NULL, 'PACK', 'GR', 'cf3f44f265561311ecc30bf951dd36f41a30c68f386da55a75f4dcf400cf4274', NULL, '2026-05-28 12:35:07', NULL);
+INSERT INTO `pur_purchase_order_line` VALUES (33, 7, 3, 'MATERIAL', 151, 209, NULL, NULL, 'NONE', NULL, NULL, 'NO MERK', 5.0000, 3, 500.000000, 2500.0000, 11, 500.00000000, 9000.00, 0.0000, 0.0000, 45000.00, 'TOMAT', 'TOMAT', 'NO MERK', NULL, NULL, 'PACK', 'GR', '94d342e9658c856cb8184eac48e2a73e92a2ca24', NULL, '2026-05-28 12:35:07', NULL);
+INSERT INTO `pur_purchase_order_line` VALUES (34, 7, 4, 'MATERIAL', 133, 170, NULL, NULL, 'NONE', NULL, NULL, 'NO MERK', 6.0000, 3, 500.000000, 3000.0000, 11, 500.00000000, 23000.00, 0.0000, 0.0000, 138000.00, 'SELADA', 'SELADA', 'NO MERK', NULL, NULL, 'PACK', 'GR', 'ac4fa170464d1c7bcc0b41e58cb4aaf6ae9b111c', NULL, '2026-05-28 12:35:08', NULL);
+INSERT INTO `pur_purchase_order_line` VALUES (35, 7, 5, 'MATERIAL', 24, 13, NULL, NULL, 'NONE', NULL, NULL, 'NO MERK', 5.0000, 3, 500.000000, 2500.0000, 11, 500.00000000, 34000.00, 0.0000, 0.0000, 170000.00, 'BAWANG MERAH GORENG', 'BAWANG MERAH GORENG', 'NO MERK', NULL, NULL, 'PACK', 'GR', 'a7ceed33788dbf5865202390b1ab3d0ccfa219e8', NULL, '2026-05-28 12:35:08', NULL);
+INSERT INTO `pur_purchase_order_line` VALUES (36, 8, 1, 'MATERIAL', 25, 14, NULL, NULL, 'NONE', NULL, NULL, 'NO MERK', 5.0000, 3, 1000.000000, 5000.0000, 11, 1000.00000000, 32000.00, 0.0000, 0.0000, 160000.00, 'BAWANG PUTIH', 'BAWANG PUTIH', 'NO MERK', NULL, NULL, 'PACK', 'GR', '05ddc48dc4d9658b68b4febc91a39ec63e3feb35f1f40cc275046576ffbc29ba', NULL, '2026-05-28 12:54:28', NULL);
 
 -- ----------------------------
 -- Table structure for pur_purchase_payment_plan
@@ -12550,7 +12672,7 @@ CREATE TABLE `pur_purchase_payment_plan`  (
   INDEX `idx_pur_payment_plan_status`(`status`) USING BTREE,
   CONSTRAINT `fk_pur_payment_plan_paid_account` FOREIGN KEY (`paid_from_account_id`) REFERENCES `fin_company_account` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_payment_plan_po` FOREIGN KEY (`purchase_order_id`) REFERENCES `pur_purchase_order` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 7 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 9 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of pur_purchase_payment_plan
@@ -12561,6 +12683,8 @@ INSERT INTO `pur_purchase_payment_plan` VALUES (3, 4, NULL, 4, 'FULL', 0, NULL, 
 INSERT INTO `pur_purchase_payment_plan` VALUES (4, 3, NULL, 4, 'FULL', 0, NULL, '2026-05-27', 2003500.00, 2003500.00, 'PAID', NULL, 'PAY202605270004', 'Auto pembayaran outstanding saat status PO diubah ke PAID', 1, '2026-05-27 19:44:00', NULL);
 INSERT INTO `pur_purchase_payment_plan` VALUES (5, 5, NULL, 5, 'FULL', 0, NULL, '2026-05-28', 124000.00, 124000.00, 'PAID', NULL, 'PAY202605280001', 'Auto pembayaran outstanding saat status PO diubah ke PAID', 1, '2026-05-28 10:00:43', NULL);
 INSERT INTO `pur_purchase_payment_plan` VALUES (6, 6, NULL, 1, 'FULL', 0, NULL, '2026-05-28', 4505000.00, 4505000.00, 'PAID', NULL, 'PAY202605280002', 'Auto pembayaran outstanding saat status PO diubah ke PAID', 1, '2026-05-28 10:07:02', NULL);
+INSERT INTO `pur_purchase_payment_plan` VALUES (7, 7, NULL, 1, 'FULL', 0, NULL, '2026-05-28', 553000.00, 553000.00, 'PAID', NULL, 'PAY202605280003', 'Auto pembayaran outstanding saat status PO diubah ke PAID', 1, '2026-05-28 12:35:19', NULL);
+INSERT INTO `pur_purchase_payment_plan` VALUES (8, 8, NULL, 1, 'FULL', 0, NULL, '2026-05-28', 160000.00, 160000.00, 'PAID', NULL, 'PAY202605280004', 'Auto pembayaran outstanding saat status PO diubah ke PAID', 1, '2026-05-28 12:54:35', NULL);
 
 -- ----------------------------
 -- Table structure for pur_purchase_receipt
@@ -12588,7 +12712,7 @@ CREATE TABLE `pur_purchase_receipt`  (
   INDEX `idx_pur_purchase_receipt_status`(`status`) USING BTREE,
   CONSTRAINT `fk_pur_purchase_receipt_destination_div` FOREIGN KEY (`destination_division_id`) REFERENCES `mst_operational_division` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_purchase_receipt_po` FOREIGN KEY (`purchase_order_id`) REFERENCES `pur_purchase_order` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 8 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 10 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of pur_purchase_receipt
@@ -12598,6 +12722,8 @@ INSERT INTO `pur_purchase_receipt` VALUES (2, 'RCV202605270002', 2, '2026-05-27'
 INSERT INTO `pur_purchase_receipt` VALUES (3, 'RCV202605270003', 4, '2026-05-27', 'BAR', 2, 'POSTED', 'Auto receipt saat status PO mencapai RECEIVED/PAID', 1, 1, '2026-05-27 19:43:55', '2026-05-27 19:43:54', '2026-05-27 19:43:55');
 INSERT INTO `pur_purchase_receipt` VALUES (4, 'RCV202605280001', 5, '2026-05-28', 'KITCHEN', 3, 'POSTED', 'Auto receipt saat status PO mencapai RECEIVED/PAID', 1, 1, '2026-05-28 10:00:43', '2026-05-28 10:00:42', '2026-05-28 10:00:43');
 INSERT INTO `pur_purchase_receipt` VALUES (7, 'RCV202605280002', 6, '2026-05-28', 'GUDANG', NULL, 'POSTED', 'Auto receipt saat status PO mencapai RECEIVED/PAID', 1, 1, '2026-05-28 10:07:02', '2026-05-28 10:07:00', '2026-05-28 10:07:02');
+INSERT INTO `pur_purchase_receipt` VALUES (8, 'RCV202605280003', 7, '2026-05-28', 'KITCHEN', 3, 'POSTED', 'Auto receipt saat status PO mencapai RECEIVED/PAID | Repair profile_key receipt diselaraskan dari identity PO', 1, 1, '2026-05-28 12:35:19', '2026-05-28 12:35:17', '2026-05-28 12:51:48');
+INSERT INTO `pur_purchase_receipt` VALUES (9, 'RCV202605280004', 8, '2026-05-28', 'KITCHEN', 3, 'POSTED', 'Auto receipt saat status PO mencapai RECEIVED/PAID', 1, 1, '2026-05-28 12:54:35', '2026-05-28 12:54:35', '2026-05-28 12:54:35');
 
 -- ----------------------------
 -- Table structure for pur_purchase_receipt_line
@@ -12639,7 +12765,7 @@ CREATE TABLE `pur_purchase_receipt_line`  (
   CONSTRAINT `fk_pur_purchase_receipt_line_material` FOREIGN KEY (`material_id`) REFERENCES `mst_material` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_purchase_receipt_line_po_line` FOREIGN KEY (`purchase_order_line_id`) REFERENCES `pur_purchase_order_line` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_purchase_receipt_line_receipt` FOREIGN KEY (`purchase_receipt_id`) REFERENCES `pur_purchase_receipt` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 33 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 39 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of pur_purchase_receipt_line
@@ -12668,6 +12794,12 @@ INSERT INTO `pur_purchase_receipt_line` VALUES (29, 7, 27, 'MATERIAL', 160, 223,
 INSERT INTO `pur_purchase_receipt_line` VALUES (30, 7, 28, 'MATERIAL', 165, 229, 4.0000, 3, 4000.0000, 11, 1000.00000000, 'HAYATI', NULL, NULL, '5ee175d929ce8aa5f97fbdee6aecab9e0456baa6', 31, 'LOT20260528-C49A7994CAF3', 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 10:07:01', '2026-05-28 10:07:01');
 INSERT INTO `pur_purchase_receipt_line` VALUES (31, 7, 29, 'MATERIAL', 165, 229, 5.0000, 3, 5000.0000, 11, 1000.00000000, 'COFFEE DOLOE', NULL, NULL, '860a71b56f3587a00595ca4fffbb8070269e8de6', 32, 'LOT20260528-168230717AAA', 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 10:07:01', '2026-05-28 10:07:01');
 INSERT INTO `pur_purchase_receipt_line` VALUES (32, 7, 30, 'MATERIAL', 205, 175, 5.0000, 6, 5000.0000, 9, 1000.00000000, 'TOFICO', 'Dari pengajuan divisi DREQ202605240261', NULL, '388ec1ac6306b86d04cd5c412509b842b19eba96236177721a6b4994ba774b8e', 33, 'LOT20260528-02F2F2D3D8C9', 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 10:07:02', '2026-05-28 10:07:02');
+INSERT INTO `pur_purchase_receipt_line` VALUES (33, 8, 31, 'MATERIAL', 25, 14, 5.0000, 3, 5000.0000, 11, 1000.00000000, 'NO MERK', NULL, NULL, 'd73b35787962d65114bec3dcaaa6446f4ae36a417c558b9fe93bcd172474e7f5', 34, 'LOT20260528-088FCCFE65DE', 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 12:35:17', '2026-05-28 12:51:47');
+INSERT INTO `pur_purchase_receipt_line` VALUES (34, 8, 32, 'MATERIAL', 148, 206, 5.0000, 3, 2500.0000, 11, 500.00000000, 'NO MERK', 'Dari pengajuan divisi DREQ202605245352', NULL, 'cf3f44f265561311ecc30bf951dd36f41a30c68f386da55a75f4dcf400cf4274', 35, 'LOT20260528-F527AC3480DD', 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 12:35:17', '2026-05-28 12:35:17');
+INSERT INTO `pur_purchase_receipt_line` VALUES (35, 8, 33, 'MATERIAL', 151, 209, 5.0000, 3, 2500.0000, 11, 500.00000000, 'NO MERK', NULL, NULL, '94d342e9658c856cb8184eac48e2a73e92a2ca24', 36, 'LOT20260528-A997EA3F3F3A', 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 12:35:18', '2026-05-28 12:35:18');
+INSERT INTO `pur_purchase_receipt_line` VALUES (36, 8, 34, 'MATERIAL', 133, 170, 6.0000, 3, 3000.0000, 11, 500.00000000, 'NO MERK', NULL, NULL, 'ac4fa170464d1c7bcc0b41e58cb4aaf6ae9b111c', 37, 'LOT20260528-01101B7F25B4', 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 12:35:18', '2026-05-28 12:35:18');
+INSERT INTO `pur_purchase_receipt_line` VALUES (37, 8, 35, 'MATERIAL', 24, 13, 5.0000, 3, 2500.0000, 11, 500.00000000, 'NO MERK', NULL, NULL, 'a7ceed33788dbf5865202390b1ab3d0ccfa219e8', 38, 'LOT20260528-8724B9D54403', 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 12:35:19', '2026-05-28 12:35:19');
+INSERT INTO `pur_purchase_receipt_line` VALUES (38, 9, 36, 'MATERIAL', 25, 14, 5.0000, 3, 5000.0000, 11, 1000.00000000, 'NO MERK', NULL, NULL, '05ddc48dc4d9658b68b4febc91a39ec63e3feb35f1f40cc275046576ffbc29ba', 39, 'LOT20260528-290CBE1335B5', 'Auto receipt saat status PO mencapai RECEIVED/PAID', '2026-05-28 12:54:35', '2026-05-28 12:54:35');
 
 -- ----------------------------
 -- Table structure for pur_purchase_txn_log
@@ -12699,7 +12831,7 @@ CREATE TABLE `pur_purchase_txn_log`  (
   CONSTRAINT `fk_purchase_txn_payment` FOREIGN KEY (`payment_plan_id`) REFERENCES `pur_purchase_payment_plan` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_purchase_txn_po` FOREIGN KEY (`purchase_order_id`) REFERENCES `pur_purchase_order` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_purchase_txn_receipt` FOREIGN KEY (`purchase_receipt_id`) REFERENCES `pur_purchase_receipt` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 27 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 35 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of pur_purchase_txn_log
@@ -12728,6 +12860,14 @@ INSERT INTO `pur_purchase_txn_log` VALUES (22, 6, NULL, NULL, 'PO_UPDATE', 'DRAF
 INSERT INTO `pur_purchase_txn_log` VALUES (24, 6, 7, NULL, 'RECEIPT_POST', 'DRAFT', 'DRAFT', 'RCV202605280002', 'pur_purchase_receipt', 7, NULL, '{\"destination_type\":\"GUDANG\",\"destination_division_id\":null,\"line_count\":4}', 'Posting receipt purchase', 1, '2026-05-28 10:07:02');
 INSERT INTO `pur_purchase_txn_log` VALUES (25, 6, NULL, 6, 'PAYMENT_AUTO_APPLY_STATUS', 'DRAFT', 'PAID', 'PAY202605280002', 'pur_purchase_payment_plan', 6, 4505000.00, '{\"purchase_order_id\":6,\"paid_from_account_id\":1,\"payment_date\":\"2026-05-28\",\"total_paid_before\":0,\"total_paid_after\":4505000,\"outstanding_after\":0}', 'Auto pembayaran outstanding saat status PO menjadi PAID', 1, '2026-05-28 10:07:02');
 INSERT INTO `pur_purchase_txn_log` VALUES (26, 6, NULL, NULL, 'PO_STATUS_UPDATE', 'DRAFT', 'PAID', 'PO202605280002', 'pur_purchase_order', 6, NULL, '{\"rollback\":[],\"receipt_auto_post\":{\"receipt_id\":7,\"receipt_no\":\"RCV202605280002\",\"posted_line_count\":4},\"payment_auto_apply\":{\"payment_plan_id\":6,\"transaction_no\":\"PAY202605280002\",\"paid_from_account_id\":1,\"auto_paid_amount\":4505000,\"payment_date\":\"2026-05-28\",\"total_paid_before\":0,\"total_paid_after\":4505000,\"outstanding_after\":0}}', 'Update status purchase order', 1, '2026-05-28 10:07:02');
+INSERT INTO `pur_purchase_txn_log` VALUES (27, 7, NULL, NULL, 'PO_CREATE', NULL, 'DRAFT', 'PO202605280003', 'pur_purchase_order', 7, 553000.00, '{\"request_date\":\"2026-05-28\",\"purchase_type_id\":10,\"destination_type\":\"KITCHEN\",\"destination_division_id\":3,\"vendor_id\":1,\"subtotal\":553000,\"tax_amount\":0,\"discount_amount\":0,\"grand_total\":553000,\"line_count\":5}', 'Create purchase order', 1, '2026-05-28 12:35:08');
+INSERT INTO `pur_purchase_txn_log` VALUES (28, 7, 8, NULL, 'RECEIPT_POST', 'DRAFT', 'DRAFT', 'RCV202605280003', 'pur_purchase_receipt', 8, NULL, '{\"destination_type\":\"KITCHEN\",\"destination_division_id\":3,\"line_count\":5}', 'Posting receipt purchase', 1, '2026-05-28 12:35:19');
+INSERT INTO `pur_purchase_txn_log` VALUES (29, 7, NULL, 7, 'PAYMENT_AUTO_APPLY_STATUS', 'DRAFT', 'PAID', 'PAY202605280003', 'pur_purchase_payment_plan', 7, 553000.00, '{\"purchase_order_id\":7,\"paid_from_account_id\":1,\"payment_date\":\"2026-05-28\",\"total_paid_before\":0,\"total_paid_after\":553000,\"outstanding_after\":0}', 'Auto pembayaran outstanding saat status PO menjadi PAID', 1, '2026-05-28 12:35:19');
+INSERT INTO `pur_purchase_txn_log` VALUES (30, 7, NULL, NULL, 'PO_STATUS_UPDATE', 'DRAFT', 'PAID', 'PO202605280003', 'pur_purchase_order', 7, NULL, '{\"rollback\":[],\"receipt_auto_post\":{\"receipt_id\":8,\"receipt_no\":\"RCV202605280003\",\"posted_line_count\":5},\"payment_auto_apply\":{\"payment_plan_id\":7,\"transaction_no\":\"PAY202605280003\",\"paid_from_account_id\":1,\"auto_paid_amount\":553000,\"payment_date\":\"2026-05-28\",\"total_paid_before\":0,\"total_paid_after\":553000,\"outstanding_after\":0}}', 'Update status purchase order', 1, '2026-05-28 12:35:19');
+INSERT INTO `pur_purchase_txn_log` VALUES (31, 8, NULL, NULL, 'PO_CREATE', NULL, 'DRAFT', 'PO202605280004', 'pur_purchase_order', 8, 160000.00, '{\"request_date\":\"2026-05-28\",\"purchase_type_id\":10,\"destination_type\":\"KITCHEN\",\"destination_division_id\":3,\"vendor_id\":1,\"subtotal\":160000,\"tax_amount\":0,\"discount_amount\":0,\"grand_total\":160000,\"line_count\":1}', 'Create purchase order', 1, '2026-05-28 12:54:28');
+INSERT INTO `pur_purchase_txn_log` VALUES (32, 8, 9, NULL, 'RECEIPT_POST', 'DRAFT', 'DRAFT', 'RCV202605280004', 'pur_purchase_receipt', 9, NULL, '{\"destination_type\":\"KITCHEN\",\"destination_division_id\":3,\"line_count\":1}', 'Posting receipt purchase', 1, '2026-05-28 12:54:35');
+INSERT INTO `pur_purchase_txn_log` VALUES (33, 8, NULL, 8, 'PAYMENT_AUTO_APPLY_STATUS', 'DRAFT', 'PAID', 'PAY202605280004', 'pur_purchase_payment_plan', 8, 160000.00, '{\"purchase_order_id\":8,\"paid_from_account_id\":1,\"payment_date\":\"2026-05-28\",\"total_paid_before\":0,\"total_paid_after\":160000,\"outstanding_after\":0}', 'Auto pembayaran outstanding saat status PO menjadi PAID', 1, '2026-05-28 12:54:35');
+INSERT INTO `pur_purchase_txn_log` VALUES (34, 8, NULL, NULL, 'PO_STATUS_UPDATE', 'DRAFT', 'PAID', 'PO202605280004', 'pur_purchase_order', 8, NULL, '{\"rollback\":[],\"receipt_auto_post\":{\"receipt_id\":9,\"receipt_no\":\"RCV202605280004\",\"posted_line_count\":1},\"payment_auto_apply\":{\"payment_plan_id\":8,\"transaction_no\":\"PAY202605280004\",\"paid_from_account_id\":1,\"auto_paid_amount\":160000,\"payment_date\":\"2026-05-28\",\"total_paid_before\":0,\"total_paid_after\":160000,\"outstanding_after\":0}}', 'Update status purchase order', 1, '2026-05-28 12:54:35');
 
 -- ----------------------------
 -- Table structure for pur_store_request
@@ -12762,7 +12902,12 @@ CREATE TABLE `pur_store_request`  (
   CONSTRAINT `fk_pur_store_request_created_by` FOREIGN KEY (`created_by`) REFERENCES `auth_user` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_store_request_division` FOREIGN KEY (`request_division_id`) REFERENCES `mst_operational_division` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_store_request_voided_by` FOREIGN KEY (`voided_by`) REFERENCES `auth_user` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Records of pur_store_request
+-- ----------------------------
+INSERT INTO `pur_store_request` VALUES (1, 'SR202605283932', '2026-05-28', '2026-05-28', 2, 'BAR', 'FULFILLED', NULL, 1, 1, NULL, '2026-05-28 13:05:44', NULL, NULL, '2026-05-28 13:05:40', '2026-05-28 13:06:03');
 
 -- ----------------------------
 -- Table structure for pur_store_request_approval
@@ -12781,7 +12926,14 @@ CREATE TABLE `pur_store_request_approval`  (
   INDEX `fk_pur_store_request_approval_actor`(`actor_user_id`) USING BTREE,
   CONSTRAINT `fk_pur_store_request_approval_actor` FOREIGN KEY (`actor_user_id`) REFERENCES `auth_user` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_store_request_approval_header` FOREIGN KEY (`store_request_id`) REFERENCES `pur_store_request` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Records of pur_store_request_approval
+-- ----------------------------
+INSERT INTO `pur_store_request_approval` VALUES (1, 1, 'SUBMIT', 1, NULL, 'Store Request disubmit saat pembuatan', '2026-05-28 13:05:40');
+INSERT INTO `pur_store_request_approval` VALUES (2, 1, 'APPROVE', 1, NULL, NULL, '2026-05-28 13:05:44');
+INSERT INTO `pur_store_request_approval` VALUES (3, 1, 'APPROVE', 1, NULL, 'Fulfillment posted: SRF202605284565', '2026-05-28 13:06:03');
 
 -- ----------------------------
 -- Table structure for pur_store_request_fulfillment
@@ -12809,7 +12961,12 @@ CREATE TABLE `pur_store_request_fulfillment`  (
   CONSTRAINT `fk_pur_store_request_fulfillment_header` FOREIGN KEY (`store_request_id`) REFERENCES `pur_store_request` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_store_request_fulfillment_posted_by` FOREIGN KEY (`posted_by`) REFERENCES `auth_user` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_store_request_fulfillment_voided_by` FOREIGN KEY (`voided_by`) REFERENCES `auth_user` (`id`) ON DELETE SET NULL ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Records of pur_store_request_fulfillment
+-- ----------------------------
+INSERT INTO `pur_store_request_fulfillment` VALUES (1, 1, 'SRF202605284565', '2026-05-28', 'POSTED', NULL, 1, NULL, '2026-05-28 13:06:03', NULL, NULL, '2026-05-28 13:06:03', NULL);
 
 -- ----------------------------
 -- Table structure for pur_store_request_fulfillment_line
@@ -12856,7 +13013,12 @@ CREATE TABLE `pur_store_request_fulfillment_line`  (
   CONSTRAINT `fk_pur_sr_fulfillment_line_item` FOREIGN KEY (`item_id`) REFERENCES `mst_item` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_sr_fulfillment_line_material` FOREIGN KEY (`material_id`) REFERENCES `mst_material` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_sr_fulfillment_line_sr_line` FOREIGN KEY (`store_request_line_id`) REFERENCES `pur_store_request_line` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Records of pur_store_request_fulfillment_line
+-- ----------------------------
+INSERT INTO `pur_store_request_fulfillment_line` VALUES (1, 1, 1, 165, 229, '860a71b56f3587a00595ca4fffbb8070269e8de6', 'ESPRESSO ARABIKA', 'COFFEE DOLOE', NULL, NULL, 'NONE', NULL, NULL, 3, 11, 1000.000000, 'PACK', 'GR', 1.0000, 1000.0000, 215.000000, 35, 'FIF202605287540', NULL, '2026-05-28 13:06:03', '2026-05-28 13:06:03');
 
 -- ----------------------------
 -- Table structure for pur_store_request_line
@@ -12904,7 +13066,12 @@ CREATE TABLE `pur_store_request_line`  (
   CONSTRAINT `fk_pur_store_request_line_header` FOREIGN KEY (`store_request_id`) REFERENCES `pur_store_request` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_store_request_line_item` FOREIGN KEY (`item_id`) REFERENCES `mst_item` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pur_store_request_line_material` FOREIGN KEY (`material_id`) REFERENCES `mst_material` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Records of pur_store_request_line
+-- ----------------------------
+INSERT INTO `pur_store_request_line` VALUES (1, 1, 1, 'MATERIAL', 165, 229, '860a71b56f3587a00595ca4fffbb8070269e8de6', 'ESPRESSO ARABIKA', 'COFFEE DOLOE', NULL, NULL, 'NONE', NULL, NULL, 3, 11, 1000.000000, 'PACK', 'GR', 1.0000, 1000.0000, 0.0000, 0.0000, 1.0000, 1000.0000, 'DONE', NULL, '2026-05-28 13:05:40', '2026-05-28 13:06:03');
 
 -- ----------------------------
 -- Table structure for pur_store_request_po_link
@@ -12951,7 +13118,7 @@ CREATE TABLE `sys_menu`  (
   INDEX `fk_sys_menu_page`(`page_id`) USING BTREE,
   CONSTRAINT `fk_sys_menu_page` FOREIGN KEY (`page_id`) REFERENCES `sys_page` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_sys_menu_parent` FOREIGN KEY (`parent_id`) REFERENCES `sys_menu` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB AUTO_INCREMENT = 261 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = 'Struktur item sidebar menu (MAIN=operasional, MY=pribadi)' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 266 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = 'Struktur item sidebar menu (MAIN=operasional, MY=pribadi)' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of sys_menu
@@ -13094,6 +13261,9 @@ INSERT INTO `sys_menu` VALUES (257, 6, 'purchase.report', 'Laporan Purchase', 'r
 INSERT INTO `sys_menu` VALUES (258, 2, 'pos.member', 'Member POS', 'ri-user-star-line', '/pos/members', 184, 1, 1, 'MAIN', '2026-05-28 09:43:18', NULL);
 INSERT INTO `sys_menu` VALUES (259, 2, 'pos.payment-method', 'Payment Method POS', 'ri-bank-card-line', '/pos/payment-methods', 185, 2, 1, 'MAIN', '2026-05-28 10:09:15', NULL);
 INSERT INTO `sys_menu` VALUES (260, 2, 'pos.outlet-terminal', 'Outlet + Terminal POS', 'ri-store-3-line', '/pos/outlets-terminals', 186, 3, 1, 'MAIN', '2026-05-28 10:09:15', NULL);
+INSERT INTO `sys_menu` VALUES (261, 251, 'master.product.bundle', 'Bundle Produk', 'ri-gift-2-line', '/master/relation/product-bundle', 187, 6, 1, 'MAIN', '2026-05-28 11:03:41', '2026-05-28 11:19:07');
+INSERT INTO `sys_menu` VALUES (264, 2, 'pos.printer', 'Printer POS', 'ri-printer-line', '/pos/printers', 190, 4, 1, 'MAIN', '2026-05-28 12:59:30', NULL);
+INSERT INTO `sys_menu` VALUES (265, 2, 'pos.order.draft', 'Draft Order POS', 'ri-shopping-bag-3-line', '/pos/orders/draft', 191, 5, 1, 'MAIN', '2026-05-28 12:59:30', NULL);
 
 -- ----------------------------
 -- Table structure for sys_page
@@ -13111,7 +13281,7 @@ CREATE TABLE `sys_page`  (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_sys_page_code`(`page_code`) USING BTREE,
   INDEX `idx_sys_page_module`(`module`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 187 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = 'Daftar halaman/fitur yang bisa dikontrol aksesnya' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 192 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = 'Daftar halaman/fitur yang bisa dikontrol aksesnya' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of sys_page
@@ -13221,6 +13391,9 @@ INSERT INTO `sys_page` VALUES (183, 'purchase.report.index', 'Laporan Purchase',
 INSERT INTO `sys_page` VALUES (184, 'pos.member.index', 'Member POS', 'POS', 'Master member untuk pencarian kasir, loyalty, voucher, dan aplikasi member', 1, '2026-05-28 09:43:18', NULL);
 INSERT INTO `sys_page` VALUES (185, 'pos.payment_method.index', 'Payment Method POS', 'POS', 'Master metode pembayaran POS dan mapping rekening kasir', 1, '2026-05-28 10:09:15', NULL);
 INSERT INTO `sys_page` VALUES (186, 'pos.outlet_terminal.index', 'Outlet + Terminal POS', 'POS', 'Master outlet penjualan dan terminal/perangkat kasir POS', 1, '2026-05-28 10:09:15', NULL);
+INSERT INTO `sys_page` VALUES (187, 'master.product_bundle.index', 'Bundle Produk', 'MASTER', 'Kelola bundle produk untuk kebutuhan penjualan POS', 1, '2026-05-28 11:03:41', '2026-05-28 11:19:07');
+INSERT INTO `sys_page` VALUES (190, 'pos.printer.index', 'Printer POS', 'POS', 'Master template, profile, dan device printer POS desktop', 1, '2026-05-28 12:59:30', NULL);
+INSERT INTO `sys_page` VALUES (191, 'pos.order.draft.index', 'Draft Order POS', 'POS', 'Workbench draft order POS dan stock commit snapshot awal', 1, '2026-05-28 12:59:30', NULL);
 
 -- ----------------------------
 -- Table structure for sys_sidebar_favorite

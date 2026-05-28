@@ -398,6 +398,44 @@ $formatDestination = static function (string $group): string {
 };
 ?>
 
+<style>
+  :root {
+    --sdd-sticky-top: 0px;
+  }
+  .sdd-sticky-head {
+    position: fixed;
+    top: var(--sdd-sticky-top);
+    left: 0;
+    display: none;
+    overflow: hidden;
+    z-index: 1035;
+    pointer-events: none;
+    background: #fff8f4;
+    border: 1px solid #ead5ca;
+    border-bottom: 0;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 10px 24px rgba(95, 23, 39, 0.12);
+  }
+  .sdd-sticky-head table {
+    margin-bottom: 0;
+    transform: translateX(0);
+    will-change: transform;
+  }
+  .sdd-sticky-head th {
+    background: #fff8f4 !important;
+    box-shadow: inset 0 -1px 0 #e8d1c5;
+    white-space: nowrap;
+  }
+  .sdd-table-wrap {
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+  .sdd-monthly-table thead th {
+    background: #fff8f4;
+    box-shadow: inset 0 -1px 0 #e8d1c5;
+  }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
     <h4 class="mb-1"><i class="ri ri-calendar-check-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
@@ -489,8 +527,9 @@ $formatDestination = static function (string $group): string {
 </div>
 
 <div class="card">
-  <div class="table-responsive">
-    <table class="table table-striped table-hover mb-0">
+  <div class="sdd-sticky-head" id="sddStickyHead" aria-hidden="true"></div>
+  <div class="table-responsive sdd-table-wrap">
+    <table class="table table-striped table-hover mb-0 sdd-monthly-table" id="sddMonthlyTable">
       <thead>
         <tr>
           <th>No</th>
@@ -694,5 +733,63 @@ $formatDestination = static function (string $group): string {
       btn.textContent = willShow ? '-' : '+';
     });
   });
+})();
+</script>
+
+<script>
+(function(){
+  function syncDivisionDailyStickyTop(){
+    var navbar = document.getElementById('layout-navbar') || document.querySelector('.layout-navbar');
+    var topOffset = navbar ? Math.ceil(navbar.getBoundingClientRect().height) : 0;
+    document.documentElement.style.setProperty('--sdd-sticky-top', topOffset + 'px');
+    return topOffset;
+  }
+
+  function initDivisionDailyFloatingHeader(){
+    var wrapper = document.querySelector('.sdd-table-wrap');
+    var table = document.getElementById('sddMonthlyTable');
+    var host = document.getElementById('sddStickyHead');
+    if (!wrapper || !table || !host) { return; }
+    var thead = table.querySelector('thead');
+    if (!thead) { return; }
+
+    host.innerHTML = '<table class="' + table.className + '"><thead>' + thead.innerHTML + '</thead></table>';
+    var cloneTable = host.querySelector('table');
+    var cloneHead = cloneTable ? cloneTable.querySelector('thead') : null;
+    if (!cloneTable || !cloneHead) { return; }
+
+    function syncFloatingHeader(){
+      var stickyTop = syncDivisionDailyStickyTop();
+      var wrapperRect = wrapper.getBoundingClientRect();
+      var tableRect = table.getBoundingClientRect();
+      var originalThs = Array.prototype.slice.call(thead.querySelectorAll('th'));
+      var cloneThs = Array.prototype.slice.call(cloneHead.querySelectorAll('th'));
+      originalThs.forEach(function(th, index){
+        if (!cloneThs[index]) { return; }
+        var width = Math.ceil(th.getBoundingClientRect().width);
+        cloneThs[index].style.width = width + 'px';
+        cloneThs[index].style.minWidth = width + 'px';
+        cloneThs[index].style.maxWidth = width + 'px';
+      });
+      cloneTable.style.width = Math.ceil(table.getBoundingClientRect().width) + 'px';
+      cloneTable.style.transform = 'translateX(' + (-wrapper.scrollLeft) + 'px)';
+
+      var headerHeight = Math.ceil(thead.getBoundingClientRect().height || 0);
+      var shouldShow = wrapperRect.top <= stickyTop && tableRect.bottom > (stickyTop + headerHeight);
+      host.style.display = shouldShow ? 'block' : 'none';
+      host.style.top = stickyTop + 'px';
+      host.style.left = Math.ceil(wrapperRect.left) + 'px';
+      host.style.width = Math.ceil(wrapperRect.width) + 'px';
+    }
+
+    wrapper.addEventListener('scroll', syncFloatingHeader, { passive: true });
+    window.addEventListener('scroll', syncFloatingHeader, { passive: true });
+    window.addEventListener('resize', syncFloatingHeader);
+    requestAnimationFrame(syncFloatingHeader);
+  }
+
+  syncDivisionDailyStickyTop();
+  window.addEventListener('resize', syncDivisionDailyStickyTop);
+  initDivisionDailyFloatingHeader();
 })();
 </script>

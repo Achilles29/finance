@@ -28,14 +28,28 @@ class MY_Controller extends CI_Controller
     // AUTH CHECK
     // ---------------------------------------------------------------
 
-    private function _check_auth()
-    {
-        $user = $this->session->userdata('auth_user');
-
-        if (empty($user)) {
-            $this->session->set_flashdata('redirect_after_login', uri_string());
-            redirect('login');
-        }
+    private function _check_auth() 
+    { 
+        $user = $this->session->userdata('auth_user'); 
+ 
+        if (empty($user)) { 
+            if ($this->input->is_ajax_request()) {
+                while (ob_get_level() > 0) {
+                    @ob_end_clean();
+                }
+                $this->output
+                    ->set_status_header(401)
+                    ->set_content_type('application/json')
+                    ->set_output(json_encode([
+                        'ok' => false,
+                        'message' => 'Sesi login sudah habis. Silakan login ulang.',
+                    ], JSON_INVALID_UTF8_SUBSTITUTE));
+                $this->output->_display();
+                exit;
+            }
+            $this->session->set_flashdata('redirect_after_login', uri_string()); 
+            redirect('login'); 
+        } 
 
         $this->current_user = $user;
 
@@ -74,12 +88,28 @@ class MY_Controller extends CI_Controller
     /**
      * Paksa cek izin — redirect ke 403 jika tidak punya akses.
      */
-    protected function require_permission(string $page_code, string $action = 'view'): void
-    {
-        if (!$this->can($page_code, $action)) {
-            show_error('Anda tidak memiliki izin untuk mengakses halaman ini.', 403, 'Akses Ditolak');
-        }
-    }
+    protected function require_permission(string $page_code, string $action = 'view'): void 
+    { 
+        if (!$this->can($page_code, $action)) { 
+            if ($this->input->is_ajax_request()) {
+                while (ob_get_level() > 0) {
+                    @ob_end_clean();
+                }
+                $this->output
+                    ->set_status_header(403)
+                    ->set_content_type('application/json')
+                    ->set_output(json_encode([
+                        'ok' => false,
+                        'message' => 'Anda tidak memiliki izin untuk aksi ini.',
+                        'page_code' => $page_code,
+                        'action' => $action,
+                    ], JSON_INVALID_UTF8_SUBSTITUTE));
+                $this->output->_display();
+                exit;
+            }
+            show_error('Anda tidak memiliki izin untuk mengakses halaman ini.', 403, 'Akses Ditolak'); 
+        } 
+    } 
 
     // ---------------------------------------------------------------
     // VIEW LOADER HELPER

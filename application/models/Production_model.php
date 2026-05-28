@@ -5547,6 +5547,7 @@ class Production_model extends CI_Model
             $material = $this->materialLookupCache[$materialId];
             $standard = (float)($material['hpp_standard'] ?? 0);
             $live = 0.0;
+            $hasStockLiveCost = false;
             if ($divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {
                 $balanceKey = $divisionId . '|' . $materialId;
                 if (!array_key_exists($balanceKey, $this->materialBalanceCache)) {
@@ -5570,6 +5571,7 @@ class Production_model extends CI_Model
                     ];
                 }
                 $live = (float)($this->materialBalanceCache[$balanceKey]['avg_cost_per_content'] ?? 0);
+                $hasStockLiveCost = $live > 0;
             }
             if ($live <= 0) {
                 $live = $standard;
@@ -5583,8 +5585,8 @@ class Production_model extends CI_Model
                 'live_unit_cost' => round($live, 6),
                 'source_label' => 'MATERIAL',
                 'available_qty' => round($availableQty, 4),
-                'live_cost_source' => $live > 0 && $live !== $standard ? 'STOCK_DIVISION' : 'FALLBACK_STANDARD',
-                'live_cost_source_label' => $live > 0 && $live !== $standard ? 'Stok Divisi' : 'Fallback Std',
+                'live_cost_source' => $hasStockLiveCost ? 'STOCK_DIVISION' : 'FALLBACK_STANDARD',
+                'live_cost_source_label' => $hasStockLiveCost ? 'Stok Divisi' : 'Fallback Std',
             ];
             $this->formulaLineCostCache[$cacheKey] = $result;
             return $result;
@@ -5606,6 +5608,7 @@ class Production_model extends CI_Model
         $sub = $this->componentLookupCache[$subComponentId];
         $standard = (float)($sub['hpp_standard'] ?? 0);
         $live = 0.0;
+        $hasStockLiveCost = false;
         if ($this->db->table_exists('inv_component_stock_balance')) {
             $balanceKey = $divisionId . '|' . $subComponentId;
             if (!array_key_exists($balanceKey, $this->componentBalanceCache)) {
@@ -5627,6 +5630,7 @@ class Production_model extends CI_Model
                 ];
             }
             $live = (float)($this->componentBalanceCache[$balanceKey]['avg_cost'] ?? 0);
+            $hasStockLiveCost = $live > 0;
         }
         if ($live <= 0) {
             $live = $standard;
@@ -5635,7 +5639,7 @@ class Production_model extends CI_Model
         if ($this->db->table_exists('inv_component_stock_balance')) {
             $availableQty = (float)($this->componentBalanceCache[$divisionId . '|' . $subComponentId]['qty_balance'] ?? 0);
         }
-        $liveSource = ($live > 0 && $live !== $standard) ? 'STOCK_COMPONENT' : 'FALLBACK_STANDARD';
+        $liveSource = $hasStockLiveCost ? 'STOCK_COMPONENT' : 'FALLBACK_STANDARD';
         $result = [
             'standard_unit_cost' => round($standard, 6),
             'live_unit_cost' => round($live, 6),

@@ -35,15 +35,16 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
 
 <style>
   :root {
-    --pwd-col-kind: 74px;
-    --pwd-col-item: 178px;
-    --pwd-col-profile: 166px;
-    --pwd-col-summary: 176px;
+    --pwd-sticky-top: 0px;
+    --pwd-col-kind: 92px;
+    --pwd-col-item: 236px;
+    --pwd-col-profile: 260px;
+    --pwd-col-summary: 240px;
     --pwd-left-1: 0px;
     --pwd-left-2: var(--pwd-col-kind);
     --pwd-left-3: calc(var(--pwd-col-kind) + var(--pwd-col-item));
     --pwd-left-4: calc(var(--pwd-col-kind) + var(--pwd-col-item) + var(--pwd-col-profile));
-    --pwd-date-col: 98px;
+    --pwd-date-col: 172px;
     --pwd-header-row-1: 44px;
   }
   .pwd-filter-card,
@@ -111,10 +112,26 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   }
   .pwd-scroll-pane {
     min-width: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
     position: relative;
     background: linear-gradient(180deg, #fffdfa 0%, #fff6f1 100%);
+  }
+  .pwd-freeze-head-wrap,
+  .pwd-scroll-head-wrap {
+    position: sticky;
+    top: var(--pwd-sticky-top);
+    z-index: 52;
+  }
+  .pwd-freeze-head-wrap {
+    background: linear-gradient(180deg, #7a1d2c 0%, #954052 100%);
+  }
+  .pwd-scroll-head-wrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    background: linear-gradient(180deg, #7a1d2c 0%, #954052 100%);
+  }
+  .pwd-scroll-head-wrap::-webkit-scrollbar {
+    display: none;
   }
   .pwd-freeze-table {
     width: calc(var(--pwd-col-kind) + var(--pwd-col-item) + var(--pwd-col-profile) + var(--pwd-col-summary));
@@ -125,7 +142,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     table-layout: fixed;
   }
   .pwd-scroll-table {
-    min-width: 1120px;
+    min-width: 920px;
     margin-bottom: 0;
     border-collapse: separate;
     border-spacing: 0;
@@ -148,7 +165,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   .pwd-freeze-col-3 { width: var(--pwd-col-profile); min-width: var(--pwd-col-profile); max-width: var(--pwd-col-profile); }
   .pwd-freeze-col-4 { width: var(--pwd-col-summary); min-width: var(--pwd-col-summary); max-width: var(--pwd-col-summary); }
   .pwd-scroll-table {
-    min-width: 1660px;
+    min-width: 920px;
     margin-bottom: 0;
     border-collapse: separate;
     border-spacing: 0;
@@ -160,71 +177,74 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     vertical-align: middle;
   }
   .pwd-scroll-table thead tr:first-child th {
-    position: sticky;
-    top: 0;
-    z-index: 52;
-    background: #fff8f4;
-    border-bottom: 1px solid #ebd8cf;
-    color: #602739;
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    white-space: nowrap;
-  }
-  .pwd-freeze-table thead tr:first-child th {
-    position: sticky;
-    top: 0;
-    z-index: 52;
-    background: #fff8f4;
-    border-bottom: 1px solid #ebd8cf;
-    height: var(--pwd-header-row-1);
-    min-height: var(--pwd-header-row-1);
-  }
-  .pwd-freeze-table thead tr:nth-child(2) th {
-    position: sticky;
-    top: var(--pwd-header-row-1);
-    z-index: 51;
-    background: #fff2ec;
-    border-bottom: 1px solid #ebd8cf;
-    color: #7b4f49;
-    font-size: 0.73rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .pwd-freeze-spacer {
-    color: transparent;
-    line-height: 0;
-    font-size: 0;
-  }
-  .pwd-scroll-table thead tr:nth-child(2) th {
-    position: sticky;
-    top: var(--pwd-header-row-1);
-    z-index: 51;
-    background: #fff2ec;
-    border-bottom: 1px solid #ebd8cf;
-    color: #7b4f49;
-    font-size: 0.73rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    background: linear-gradient(180deg, #7a1d2c 0%, #954052 100%);
+    border-bottom: 1px solid #772938;
+    color: #fff8f5;
+    white-space: normal;
     width: var(--pwd-date-col);
     min-width: var(--pwd-date-col);
     max-width: var(--pwd-date-col);
   }
+  .pwd-freeze-table thead tr:first-child th {
+    background: linear-gradient(180deg, #7a1d2c 0%, #954052 100%);
+    border-bottom: 1px solid #772938;
+    color: #fff8f5;
+    font-size: 0.76rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    height: var(--pwd-header-row-1);
+    min-height: var(--pwd-header-row-1);
+    white-space: nowrap;
+  }
+  .pwd-freeze-body-table,
+  .pwd-scroll-body-table {
+    margin-top: 0;
+  }
   .pwd-day-head {
-    width: calc(var(--pwd-date-col) * 5);
-    min-width: calc(var(--pwd-date-col) * 5);
-    max-width: calc(var(--pwd-date-col) * 5);
+    width: var(--pwd-date-col);
+    min-width: var(--pwd-date-col);
+    max-width: var(--pwd-date-col);
+    padding: 0.45rem 0.38rem 0.5rem !important;
   }
   .pwd-day-head.is-today {
-    background: linear-gradient(180deg, #ffcfbe, #ffa37f) !important;
-    box-shadow: inset 0 -4px 0 #c75a39;
-    color: #4e1d12 !important;
+    background: linear-gradient(180deg, #ffb79e, #ff9370) !important;
+    box-shadow: inset 0 -4px 0 #cf5f3e;
+    color: #56190e !important;
   }
-  .pwd-day-weekday {
-    display: block;
-    font-size: 0.72rem;
-    letter-spacing: 0.11em;
-    opacity: 0.86;
+  .pwd-headcard {
+    display: grid;
+    gap: 0.16rem;
+    justify-items: center;
+    text-align: center;
+    line-height: 1.05;
+  }
+  .pwd-headcard .day {
+    font-size: 1.24rem;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+  }
+  .pwd-headcard .weekday {
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.92;
+  }
+  .pwd-headcard .full-date {
+    font-size: 0.7rem;
+    opacity: 0.88;
+  }
+  .pwd-headcard .today-tag {
+    margin-top: 0.08rem;
+    padding: 0.14rem 0.42rem;
+    border-radius: 999px;
+    font-size: 0.61rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background: rgba(93, 22, 13, 0.12);
+    color: inherit;
   }
   .pwd-kind-pill {
     display: inline-flex;
@@ -238,6 +258,56 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   }
   .pwd-name { font-weight: 800; color: #4e1f2e; line-height: 1.28; }
   .pwd-code { color: #876a65; font-size: 0.79rem; margin-top: 0.14rem; }
+  .pwd-name-stack {
+    display: grid;
+    gap: 0.18rem;
+  }
+  .pwd-profile-stack {
+    display: grid;
+    gap: 0.22rem;
+    position: relative;
+    width: 100%;
+  }
+  .pwd-profile-stack.is-parent {
+    padding-inline: 0.1rem;
+  }
+  .pwd-profile-stack.is-child {
+    width: calc(100% - 18px);
+    margin-left: 18px;
+    padding-left: 0.38rem;
+  }
+  .pwd-profile-stack.is-child::before {
+    content: '';
+    position: absolute;
+    left: -10px;
+    top: 0.22rem;
+    bottom: 0.22rem;
+    width: 3px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #efd8cc 0%, #e1bca7 100%);
+  }
+  .pwd-profile-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.16rem 0.52rem;
+    background: #fff4eb;
+    color: #8b4f42;
+    font-size: 0.68rem;
+    font-weight: 800;
+    width: fit-content;
+    max-width: 100%;
+  }
+  .pwd-profile-meta.is-parent {
+    border-radius: 999px;
+    border: 1px solid #ead6c9;
+  }
+  .pwd-profile-meta.is-child {
+    border-radius: 10px;
+    border: 1px dashed #ead6c9;
+    background: #fffaf7;
+    color: #7c5348;
+  }
   .pwd-profile-line {
     color: #6e5652;
     font-size: 0.82rem;
@@ -262,7 +332,48 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     background: linear-gradient(90deg, #f8fff5, #fafff8);
   }
   .pwd-child-row {
-    background: #fff;
+    background: #fffdfb;
+  }
+  .pwd-freeze-table tbody tr.pwd-group-row td {
+    background: linear-gradient(180deg, #fff4eb 0%, #fffaf6 100%);
+  }
+  .pwd-freeze-table tbody tr.pwd-group-row.pwd-group-single td {
+    background: linear-gradient(180deg, #f8fff5 0%, #fafff8 100%);
+  }
+  .pwd-freeze-table tbody tr.pwd-child-row td {
+    background: linear-gradient(180deg, #fffdfb 0%, #fff8f4 100%);
+    box-shadow: inset -2px 0 0 #edd6ca;
+  }
+  .pwd-freeze-table tbody tr.pwd-child-row td.pwd-freeze-col-3,
+  .pwd-freeze-table tbody tr.pwd-child-row td.pwd-freeze-col-4 {
+    border-left: 3px solid #efd8cc;
+  }
+  .pwd-scroll-table tbody tr.pwd-group-row td.pwd-metric-cell {
+    background: #fff6f0;
+  }
+  .pwd-scroll-table tbody tr.pwd-group-row.pwd-group-single td.pwd-metric-cell {
+    background: #fbfef8;
+  }
+  .pwd-scroll-table tbody tr.pwd-child-row td.pwd-metric-cell {
+    background: #fffdfb;
+  }
+  .pwd-scroll-table tbody tr.pwd-group-row .pwd-date-card {
+    border-color: #ebcdbd;
+    background: linear-gradient(180deg, rgba(255, 247, 240, 0.98) 0%, rgba(255, 238, 228, 0.98) 100%);
+    box-shadow: 0 14px 24px -24px rgba(122, 61, 0, 0.28);
+  }
+  .pwd-scroll-table tbody tr.pwd-group-row.pwd-group-single .pwd-date-card {
+    border-color: #d9e6cf;
+    background: linear-gradient(180deg, rgba(250, 255, 246, 0.98) 0%, rgba(242, 251, 237, 0.98) 100%);
+  }
+  .pwd-scroll-table tbody tr.pwd-child-row .pwd-date-card {
+    border-color: #f0dfd5;
+    background: linear-gradient(180deg, rgba(255, 253, 251, 0.98) 0%, rgba(255, 248, 243, 0.98) 100%);
+    box-shadow: inset 0 0 0 1px rgba(239, 216, 204, 0.42);
+  }
+  .pwd-group-row td,
+  .pwd-child-row td {
+    vertical-align: top !important;
   }
   .pwd-toggle-arrow {
     border: 1px solid #d7b6a8;
@@ -311,57 +422,135 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     background: #ffe8dd;
     border-color: #d7b3a5;
   }
-  .pwd-summary-line {
-    font-size: 0.78rem;
-    line-height: 1.25;
-    color: #6f4d47;
-    white-space: normal;
+  .pwd-summary-card {
+    display: grid;
+    gap: 0.42rem;
+    min-width: 0;
   }
-  .pwd-summary-line strong {
-    color: #4e2430;
+  .pwd-summary-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .pwd-summary-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #8a5b4d;
     font-weight: 800;
+  }
+  .pwd-summary-amount {
+    font-size: 0.96rem;
+    font-weight: 900;
+    color: #523126;
+    text-align: right;
+  }
+  .pwd-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.38rem;
+  }
+  .pwd-summary-metric {
+    border: 1px solid #eadccf;
+    border-radius: 12px;
+    background: #fffaf6;
+    padding: 0.42rem 0.48rem;
+    min-width: 0;
+  }
+  .pwd-summary-metric .label {
+    display: block;
+    font-size: 0.67rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #8a5b4d;
+  }
+  .pwd-summary-metric strong {
+    display: block;
+    font-size: 0.88rem;
+    color: #503125;
+    line-height: 1.18;
+    white-space: normal;
   }
   .pwd-metric-cell {
     width: var(--pwd-date-col);
     min-width: var(--pwd-date-col);
     max-width: var(--pwd-date-col);
-    text-align: right;
+    text-align: left;
     font-size: 0.79rem;
     font-variant-numeric: tabular-nums;
-    white-space: nowrap;
+    white-space: normal;
     background: #fff;
+    vertical-align: top !important;
+    padding: 0.4rem !important;
   }
   .pwd-metric-cell.is-today {
     background: #fff4ed;
   }
-  .pwd-metric-cell .pwd-cell-btn {
-    border: 1px solid #f0e1db;
-    border-radius: 8px;
-    display: block;
-    padding: 0.18rem 0.26rem;
-    width: 100%;
-    text-align: right;
-    white-space: nowrap;
-    line-height: 1.2;
-    background: #fff;
-    font-size: 0.77rem;
-    color: #5f4b46;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .pwd-date-card {
+    display: grid;
+    gap: 0.34rem;
+    min-height: 148px;
+    padding: 0.56rem 0.58rem;
+    border-radius: 16px;
+    border: 1px solid #efd9ca;
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255,249,244,0.98) 100%);
+    box-shadow: 0 14px 22px -24px rgba(95, 53, 39, 0.55);
   }
-  .pwd-metric-cell .pwd-cell-btn:hover {
-    border-color: #d6b2a5;
-    background: #fff8f3;
+  .pwd-date-band-b .pwd-date-card {
+    background: linear-gradient(180deg, rgba(255,251,248,0.98) 0%, rgba(255,244,237,0.98) 100%);
+  }
+  .pwd-metric-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.45rem;
+    align-items: center;
+    font-size: 0.72rem;
+    line-height: 1.15;
+  }
+  .pwd-metric-row + .pwd-metric-row {
+    padding-top: 0.32rem;
+    border-top: 1px dashed #edd7c8;
+  }
+  .pwd-metric-main {
+    min-width: 0;
+  }
+  .pwd-metric-label {
+    display: block;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #8a5b4d;
+  }
+  .pwd-metric-value-wrap {
+    min-width: 0;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .pwd-cell-btn {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    min-width: 0;
+    text-align: right;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.04rem;
+    line-height: 1.08;
+  }
+  button.pwd-cell-btn:hover {
+    opacity: 0.82;
+  }
+  .pwd-cell-btn.is-static {
+    opacity: 0.94;
   }
   .pwd-cell-action-wrap {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 30px;
-    align-items: stretch;
-    gap: 4px;
-    width: 100%;
-  }
-  .pwd-cell-action-wrap .pwd-cell-btn {
-    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.28rem;
     min-width: 0;
   }
   .pwd-cell-adjust-trigger {
@@ -369,9 +558,9 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     background: #fff8f4;
     color: #7a4858;
     border-radius: 8px;
-    width: 30px;
-    min-width: 30px;
-    min-height: 30px;
+    width: 28px;
+    min-width: 28px;
+    min-height: 28px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -396,17 +585,21 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   .pwd-metric-out { color: #cd6b35; }
   .pwd-metric-adj { color: #6a52cf; }
   .pwd-metric-close { color: #4f647d; font-weight: 800; }
+  .pwd-cell-pack { display: block; font-size: 0.76rem; font-weight: 800; line-height: 1.05; }
+  .pwd-cell-content { display: block; font-size: 0.66rem; opacity: 0.84; line-height: 1.05; margin-top: 2px; }
+  .pwd-cell-pack,
+  .pwd-cell-content {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .pwd-date-band-a {
     background-color: #fffefc;
   }
   .pwd-date-band-b {
     background-color: #fff6f1;
   }
-  .pwd-date-band-b .pwd-cell-btn {
-    background: rgba(255, 255, 255, 0.56);
-  }
-  .pwd-day-start { border-left: 2px solid #d8b8a9 !important; }
-  .pwd-day-end { border-right: 2px solid #d8b8a9 !important; }
+  .pwd-day-start { border-left: 1px solid #d8b8a9 !important; }
+  .pwd-day-end { border-right: 1px solid #d8b8a9 !important; }
   .pwd-empty,
   .pwd-loading {
     text-align: center;
@@ -442,10 +635,15 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     color: #6f4d47;
   }
   @media (max-width: 991.98px) {
-    .pwd-scroll-table { min-width: 1320px; }
-    .pwd-day-head { min-width: 300px; }
-    .pwd-matrix-shell { grid-template-columns: 560px minmax(0, 1fr); }
-    .pwd-scroll-table { min-width: 1320px; }
+    :root {
+      --pwd-col-kind: 84px;
+      --pwd-col-item: 210px;
+      --pwd-col-profile: 228px;
+      --pwd-col-summary: 216px;
+      --pwd-date-col: 162px;
+    }
+    .pwd-matrix-shell { grid-template-columns: calc(var(--pwd-col-kind) + var(--pwd-col-item) + var(--pwd-col-profile) + var(--pwd-col-summary)) minmax(0, 1fr); }
+    .pwd-date-card { min-height: 142px; }
   }
 </style>
 
@@ -506,16 +704,26 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   </div>
   <div class="pwd-matrix-shell" id="pwdMatrixShell">
     <div class="pwd-freeze-pane">
-      <table class="table pwd-freeze-table align-middle mb-0">
-        <thead id="pwdFreezeHead"></thead>
+      <div class="pwd-freeze-head-wrap">
+        <table class="table pwd-freeze-table align-middle mb-0 pwd-freeze-head-table">
+          <thead id="pwdFreezeHead"></thead>
+        </table>
+      </div>
+      <table class="table pwd-freeze-table align-middle mb-0 pwd-freeze-body-table">
         <tbody id="pwdFreezeBody"><tr><td colspan="4" class="pwd-loading">Memuat data...</td></tr></tbody>
       </table>
     </div>
-    <div class="pwd-scroll-pane pwd-table-wrap" id="pwdTableWrap">
-      <table class="table pwd-scroll-table align-middle mb-0">
-        <thead id="pwdScrollHead"></thead>
-        <tbody id="pwdScrollBody"><tr><td colspan="999" class="pwd-loading">Memuat data...</td></tr></tbody>
-      </table>
+    <div class="pwd-scroll-pane">
+      <div class="pwd-scroll-head-wrap" id="pwdScrollHeadWrap">
+        <table class="table pwd-scroll-table align-middle mb-0 pwd-scroll-head-table">
+          <thead id="pwdScrollHead"></thead>
+        </table>
+      </div>
+      <div class="pwd-table-wrap" id="pwdTableWrap">
+        <table class="table pwd-scroll-table align-middle mb-0 pwd-scroll-body-table">
+          <tbody id="pwdScrollBody"><tr><td colspan="999" class="pwd-loading">Memuat data...</td></tr></tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -721,6 +929,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   var freezeBody = document.getElementById('pwdFreezeBody');
   var tableHead = document.getElementById('pwdScrollHead');
   var tableBody = document.getElementById('pwdScrollBody');
+  var tableHeadWrap = document.getElementById('pwdScrollHeadWrap');
   var tableWrap = document.getElementById('pwdTableWrap');
   var matrixShell = document.getElementById('pwdMatrixShell');
   var modalEl = document.getElementById('pwdDetailModal');
@@ -766,7 +975,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   var stickySyncFrame = 0;
 
   function applyStickyLayout(){
-    var freezeHeaderRow = freezeHead.querySelector('tr:nth-child(2)');
+    var freezeHeaderRow = freezeHead.querySelector('tr:first-child');
     if (!freezeHeaderRow || freezeHeaderRow.children.length < 4) { return; }
 
     var c1 = freezeHeaderRow.children[0];
@@ -789,7 +998,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     if (firstHeaderHeight > 0) {
       rootStyle.setProperty('--pwd-header-row-1', firstHeaderHeight + 'px');
     }
-    var metricHead = tableHead.querySelector('tr:nth-child(2) th.pwd-metric-cell');
+    var metricHead = tableHead.querySelector('th.pwd-metric-cell');
     if (metricHead) {
       var metricWidth = Math.max(96, Math.ceil(metricHead.getBoundingClientRect().width));
       rootStyle.setProperty('--pwd-date-col', metricWidth + 'px');
@@ -800,12 +1009,19 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     rootStyle.setProperty('--pwd-left-4', (w1 + w2 + w3) + 'px');
   }
 
+  function syncStickyTopOffset(){
+    var navbar = document.getElementById('layout-navbar') || document.querySelector('.layout-navbar');
+    var topOffset = navbar ? Math.ceil(navbar.getBoundingClientRect().height) : 0;
+    document.documentElement.style.setProperty('--pwd-sticky-top', topOffset + 'px');
+  }
+
   function syncStickyLayout(){
     if (stickySyncFrame) {
       cancelAnimationFrame(stickySyncFrame);
     }
     stickySyncFrame = requestAnimationFrame(function(){
       stickySyncFrame = 0;
+      syncStickyTopOffset();
       applyStickyLayout();
     });
   }
@@ -825,6 +1041,9 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     var todayCell = tableHead.querySelector('.pwd-day-head.is-today');
     if (!todayCell) { return; }
     tableWrap.scrollLeft = Math.max(0, todayCell.offsetLeft - getStickyOffset() - 16);
+    if (tableHeadWrap) {
+      tableHeadWrap.scrollLeft = tableWrap.scrollLeft;
+    }
   }
 
   function readFilters(){
@@ -1371,30 +1590,32 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     document.getElementById('pwdStatValue').textContent = money(totalValue);
   }
 
-  function summaryParentHtml(metrics){
+  function summaryCardHtml(metrics){
     return '' +
-      '<div class="pwd-summary-line"><strong>HPP Rata2:</strong> ' + esc(money(metrics.hpp || 0)) + '</div>' +
-      '<div class="pwd-summary-line"><strong>Awal Pack:</strong> ' + esc(num(metrics.opening_pack || 0)) + '</div>' +
-      '<div class="pwd-summary-line"><strong>Akhir Pack:</strong> ' + esc(num(metrics.closing_pack || 0)) + '</div>' +
-      '<div class="pwd-summary-line"><strong>Awal Isi:</strong> ' + esc(num(metrics.opening_content || 0)) + '</div>' +
-      '<div class="pwd-summary-line"><strong>Akhir Isi:</strong> ' + esc(num(metrics.closing_content || 0)) + '</div>' +
-      '<div class="pwd-summary-line"><strong>Nilai Sisa:</strong> ' + esc(money(metrics.total_value || 0)) + '</div>';
+      '<div class="pwd-summary-card">' +
+        '<div class="pwd-summary-head">' +
+          '<span class="pwd-summary-title">Nilai Sisa</span>' +
+          '<div class="pwd-summary-amount">' + esc(money(metrics.total_value || 0)) + '</div>' +
+        '</div>' +
+        '<div class="pwd-summary-grid">' +
+          '<div class="pwd-summary-metric"><span class="label">Awal Pack</span><strong>' + esc(num(metrics.opening_pack || 0)) + '</strong></div>' +
+          '<div class="pwd-summary-metric"><span class="label">Akhir Pack</span><strong>' + esc(num(metrics.closing_pack || 0)) + '</strong></div>' +
+          '<div class="pwd-summary-metric"><span class="label">Awal Isi</span><strong>' + esc(num(metrics.opening_content || 0)) + '</strong></div>' +
+          '<div class="pwd-summary-metric"><span class="label">Akhir Isi</span><strong>' + esc(num(metrics.closing_content || 0)) + '</strong></div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function summaryParentHtml(metrics){
+    return summaryCardHtml(metrics);
   }
 
   function summaryChildHtml(metrics){
-    return '' +
-      '<div class="pwd-summary-line"><strong>Awal Pack:</strong> ' + esc(num(metrics.opening_pack || 0)) + '</div>' +
-      '<div class="pwd-summary-line"><strong>Akhir Pack:</strong> ' + esc(num(metrics.closing_pack || 0)) + '</div>' +
-      '<div class="pwd-summary-line"><strong>Awal Isi:</strong> ' + esc(num(metrics.opening_content || 0)) + '</div>' +
-      '<div class="pwd-summary-line"><strong>Akhir Isi:</strong> ' + esc(num(metrics.closing_content || 0)) + '</div>' +
-      '<div class="pwd-summary-line"><strong>Nilai Sisa:</strong> ' + esc(money(metrics.total_value || 0)) + '</div>';
+    return summaryCardHtml(metrics);
   }
 
   function freezeHeaderHtml(){
     return '' +
-      '<tr>' +
-        '<th class="pwd-freeze-spacer" colspan="4"></th>' +
-      '</tr>' +
       '<tr>' +
         '<th class="pwd-freeze-col-1">Jenis</th>' +
         '<th class="pwd-freeze-col-2">Item / Bahan Baku</th>' +
@@ -1405,61 +1626,60 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   }
 
   function headerHtml(){
-    var dayTop = state.dates.map(function(dateText, dateIndex){
+    return '<tr>' + state.dates.map(function(dateText, dateIndex){
       var cls = 'pwd-day-head' + (isToday(dateText) ? ' is-today' : '');
       var bandClass = dateIndex % 2 === 0 ? 'pwd-date-band-a' : 'pwd-date-band-b';
-      return '<th class="' + cls + ' ' + bandClass + '" colspan="5"><div>' + esc(String(dateText).slice(-2)) + '</div><span class="pwd-day-weekday">' + esc(weekdayName(dateText)) + '</span></th>';
-    }).join('');
-
-    var daySub = state.dates.map(function(dateText, dateIndex){
-      var todayCls = isToday(dateText) ? ' is-today' : '';
-      var bandClass = dateIndex % 2 === 0 ? ' pwd-date-band-a' : ' pwd-date-band-b';
-      return '' +
-        '<th class="pwd-metric-cell' + todayCls + bandClass + '">Awal</th>' +
-        '<th class="pwd-metric-cell' + todayCls + bandClass + '">In</th>' +
-        '<th class="pwd-metric-cell' + todayCls + bandClass + '">Out</th>' +
-        '<th class="pwd-metric-cell' + todayCls + bandClass + '">Adj</th>' +
-        '<th class="pwd-metric-cell' + todayCls + bandClass + '">Akhir</th>';
-    }).join('');
-
-    return '<tr>' + dayTop + '</tr><tr>' + daySub + '</tr>';
+      return '<th class="' + cls + ' ' + bandClass + ' pwd-metric-cell">'
+        + '<div class="pwd-headcard">'
+        +   '<div class="day">' + esc(String(dateText).slice(-2)) + '</div>'
+        +   '<div class="weekday">' + esc(weekdayName(dateText)) + '</div>'
+        +   '<div class="full-date">' + esc(dateText) + '</div>'
+        +   (isToday(dateText) ? '<span class="today-tag">Hari ini</span>' : '')
+        + '</div>'
+        + '</th>';
+    }).join('') + '</tr>';
   }
 
-  function dayCells(dailyMap, groupIndex, profileIndex){
+  function dayCells(dailyContentMap, dailyPackMap, groupIndex, profileIndex){
     var html = '';
     state.dates.forEach(function(dateText, dateIndex){
-      var day = dailyMap[dateText] || { opening: 0, in: 0, out: 0, adjustment: 0, closing: 0 };
+      var dayContent = dailyContentMap[dateText] || { opening: 0, in: 0, out: 0, adjustment: 0, closing: 0 };
+      var dayPack = dailyPackMap[dateText] || { opening: 0, in: 0, out: 0, adjustment: 0, closing: 0 };
       var todayCls = isToday(dateText) ? ' is-today' : '';
       var bandClass = dateIndex % 2 === 0 ? ' pwd-date-band-a' : ' pwd-date-band-b';
       var items = [
-        { key: 'opening', cls: 'pwd-metric-open' },
-        { key: 'in', cls: 'pwd-metric-in' },
-        { key: 'out', cls: 'pwd-metric-out' },
-        { key: 'adjustment', cls: 'pwd-metric-adj' },
-        { key: 'closing', cls: 'pwd-metric-close' }
+        { key: 'opening', cls: 'pwd-metric-open', label: 'Awal' },
+        { key: 'in', cls: 'pwd-metric-in', label: 'In' },
+        { key: 'out', cls: 'pwd-metric-out', label: 'Out' },
+        { key: 'adjustment', cls: 'pwd-metric-adj', label: 'Adj' },
+        { key: 'closing', cls: 'pwd-metric-close', label: 'Akhir' }
       ];
-      items.forEach(function(item){
-        var value = Number(day[item.key] || 0);
-        var valueText = esc(num(value));
-        var edgeClass = item.key === 'opening' ? ' pwd-day-start' : (item.key === 'closing' ? ' pwd-day-end' : '');
+      var rowsHtml = items.map(function(item){
+        var valueContent = Number(dayContent[item.key] || 0);
+        var valuePack = Number(dayPack[item.key] || 0);
+        var valueText = '<span class="pwd-cell-pack">' + esc(num(valuePack)) + '</span><span class="pwd-cell-content">' + esc(num(valueContent)) + '</span>';
+        var contentHtml = '';
         if (item.key === 'adjustment') {
-          var detailHtml = Math.abs(value) > 0.000001
+          var detailHtml = Math.abs(valueContent) > 0.000001
             ? '<button type="button" class="pwd-cell-btn ' + item.cls + '" data-action="detail" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '">' + valueText + '</button>'
-            : '<span class="pwd-cell-btn ' + item.cls + '">' + valueText + '</span>';
-          html += '<td class="pwd-metric-cell' + todayCls + bandClass + edgeClass + '">' +
-            '<div class="pwd-cell-action-wrap">' +
-              detailHtml +
-              '<button type="button" class="pwd-cell-adjust-trigger" data-action="adjust" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '" title="Adjustment langsung" aria-label="Adjustment langsung"><span class="pwd-cell-adjust-glyph" aria-hidden="true">&#9998;</span></button>' +
-            '</div>' +
-          '</td>';
-        } else if (Math.abs(value) > 0.000001) {
-          html += '<td class="pwd-metric-cell' + todayCls + bandClass + edgeClass + '">' +
-            '<button type="button" class="pwd-cell-btn ' + item.cls + '" data-action="detail" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '">' + valueText + '</button>' +
-          '</td>';
+            : '<span class="pwd-cell-btn is-static ' + item.cls + '">' + valueText + '</span>';
+          contentHtml = '<div class="pwd-cell-action-wrap">'
+            + detailHtml
+            + '<button type="button" class="pwd-cell-adjust-trigger" data-action="adjust" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '" title="Adjustment langsung" aria-label="Adjustment langsung"><span class="pwd-cell-adjust-glyph" aria-hidden="true">&#9998;</span></button>'
+            + '</div>';
+        } else if (Math.abs(valueContent) > 0.000001) {
+          contentHtml = '<button type="button" class="pwd-cell-btn ' + item.cls + '" data-action="detail" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '">' + valueText + '</button>';
         } else {
-          html += '<td class="pwd-metric-cell' + todayCls + bandClass + edgeClass + '"><span class="pwd-cell-btn ' + item.cls + '">' + valueText + '</span></td>';
+          contentHtml = '<span class="pwd-cell-btn is-static ' + item.cls + '">' + valueText + '</span>';
         }
-      });
+        return '<div class="pwd-metric-row ' + item.cls + '">'
+          + '<div class="pwd-metric-main"><span class="pwd-metric-label">' + item.label + '</span></div>'
+          + '<div class="pwd-metric-value-wrap">' + contentHtml + '</div>'
+          + '</div>';
+      }).join('');
+      html += '<td class="pwd-metric-cell' + todayCls + bandClass + ' pwd-day-start pwd-day-end">'
+        + '<div class="pwd-date-card">' + rowsHtml + '</div>'
+        + '</td>';
     });
     return html;
   }
@@ -1499,25 +1719,30 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     var toggleHtml = expandable
       ? '<button type="button" class="pwd-toggle-arrow" title="Expand/Collapse" data-action="toggle-group" data-group-key="' + esc(group.key) + '">' + (expanded ? '&#9662;' : '&#9656;') + '</button>'
       : '<span class="pwd-toggle-static" title="Baris tunggal">1</span>';
-    var profileHtml = '<div class="pwd-code">' + (expandable ? ('Memiliki ' + esc(String((group.children || []).length)) + ' rincian profil') : 'Baris profil tunggal') + '</div>';
+    var profileHtml = ''
+      + '<div class="pwd-profile-stack is-parent">'
+      +   '<div class="pwd-profile-meta is-parent">' + (expandable ? (esc(String((group.children || []).length)) + ' profil aktif') : 'Profil tunggal') + '</div>'
+      +   '<div class="pwd-code">' + (expandable ? 'Expand untuk lihat rincian profil.' : 'Detail profil langsung ditampilkan.') + '</div>'
+      + '</div>';
     if (singleProfile) {
       var singleProfileText = singleProfile.profile_name || '-';
       var singleDetail = [singleProfile.profile_brand || '-', singleProfile.profile_description || '-'].join(' | ');
       var singleUnitInfo = num(singleProfile.profile_content_per_buy || 0) + ' ' + (singleProfile.profile_content_uom_code || '') + ' / ' + (singleProfile.profile_buy_uom_code || '-');
-      var singlePriceInfo = 'Harga Satuan: ' + money((singleProfile.metrics && singleProfile.metrics.unit_price) || 0) + ' / ' + (singleProfile.profile_content_uom_code || '-')
-        + ' | Harga/Pack: ' + money((singleProfile.metrics && singleProfile.metrics.unit_price_pack) || 0);
       profileHtml = ''
-        + '<div class="pwd-profile-line">' + esc(singleProfileText) + '</div>'
-        + '<div class="pwd-profile-line">' + esc(singleDetail) + '</div>'
-        + '<div class="pwd-profile-unit">' + esc(singleUnitInfo) + '</div>'
-        + '<div class="pwd-profile-unit">' + esc(singlePriceInfo) + '</div>'
-        + '<div class="pwd-profile-unit"><a href="' + esc(buildWarehouseLotUrl(singleProfile)) + '">Lihat Lot</a></div>';
+        + '<div class="pwd-profile-stack is-parent">'
+        +   '<div class="pwd-profile-line">' + esc(singleProfileText) + '</div>'
+        +   '<div class="pwd-profile-line">' + esc(singleDetail) + '</div>'
+        +   '<div class="pwd-profile-meta is-parent">' + esc(singleUnitInfo) + '</div>'
+        +   '<div class="pwd-profile-meta is-parent">Harga satuan ' + esc(money((singleProfile.metrics && singleProfile.metrics.unit_price) || 0)) + '</div>'
+        +   '<div class="pwd-profile-meta is-parent">Harga / pack ' + esc(money((singleProfile.metrics && singleProfile.metrics.unit_price_pack) || 0)) + '</div>'
+        +   '<div class="pwd-profile-unit"><a href="' + esc(buildWarehouseLotUrl(singleProfile)) + '">Lihat Lot</a></div>'
+        + '</div>';
     }
     var rowClass = expandable ? 'pwd-group-row pwd-group-expandable' : 'pwd-group-row pwd-group-single';
     return '' +
       '<tr class="' + rowClass + '">' +
         '<td class="pwd-freeze-col-1">' + toggleHtml + '<span class="pwd-kind-pill">' + esc(kind) + '</span></td>' +
-        '<td class="pwd-freeze-col-2"><div class="pwd-name">' + esc(group.object_name || '-') + '</div><div class="pwd-code">' + esc(group.object_code || '-') + '</div></td>' +
+        '<td class="pwd-freeze-col-2"><div class="pwd-name-stack"><div class="pwd-name">' + esc(group.object_name || '-') + '</div><div class="pwd-code">' + esc(group.object_code || '-') + '</div></div></td>' +
         '<td class="pwd-freeze-col-3">' + profileHtml + '</td>' +
         '<td class="pwd-freeze-col-4">' + summaryParentHtml(group.metrics || {}) + '</td>' +
       '</tr>';
@@ -1527,33 +1752,34 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     var singleProfile = (!isExpandable(group) && Array.isArray(group.children) && group.children.length === 1) ? group.children[0] : null;
     var parentProfileIndex = singleProfile ? 0 : -1;
     var rowClass = isExpandable(group) ? 'pwd-group-row pwd-group-expandable' : 'pwd-group-row pwd-group-single';
-    return '<tr class="' + rowClass + '">' + dayCells(group.daily_pack || group.daily || {}, groupIndex, parentProfileIndex) + '</tr>';
+    return '<tr class="' + rowClass + '">' + dayCells(group.daily || {}, group.daily_pack || {}, groupIndex, parentProfileIndex) + '</tr>';
   }
 
   function freezeProfileRowHtml(profile){
     var profileText = profile.profile_name || '-';
     var detail = [profile.profile_brand || '-', profile.profile_description || '-'].join(' | ');
     var unitInfo = num(profile.profile_content_per_buy || 0) + ' ' + (profile.profile_content_uom_code || '') + ' / ' + (profile.profile_buy_uom_code || '-');
-    var priceInfo = 'Harga Satuan: ' + money((profile.metrics && profile.metrics.unit_price) || 0) + ' / ' + (profile.profile_content_uom_code || '-')
-      + ' | Harga/Pack: ' + money((profile.metrics && profile.metrics.unit_price_pack) || 0);
 
     return '' +
       '<tr class="pwd-child-row">' +
         '<td class="pwd-freeze-col-1"></td>' +
         '<td class="pwd-freeze-col-2"><div class="pwd-code">Profil Item</div></td>' +
         '<td class="pwd-freeze-col-3">'
-          + '<div class="pwd-profile-line">' + esc(profileText) + '</div>'
-          + '<div class="pwd-profile-line">' + esc(detail) + '</div>'
-          + '<div class="pwd-profile-unit">' + esc(unitInfo) + '</div>'
-          '<div class="pwd-profile-unit">' + esc(priceInfo) + '</div>' +
-          '<div class="pwd-profile-unit"><a href="' + esc(buildWarehouseLotUrl(profile)) + '">Lihat Lot</a></div>' +
+          + '<div class="pwd-profile-stack is-child">'
+          +   '<div class="pwd-profile-line">' + esc(profileText) + '</div>'
+          +   '<div class="pwd-profile-line">' + esc(detail) + '</div>'
+          +   '<div class="pwd-profile-meta is-child">' + esc(unitInfo) + '</div>'
+          +   '<div class="pwd-profile-meta is-child">Harga satuan ' + esc(money((profile.metrics && profile.metrics.unit_price) || 0)) + '</div>'
+          +   '<div class="pwd-profile-meta is-child">Harga / pack ' + esc(money((profile.metrics && profile.metrics.unit_price_pack) || 0)) + '</div>'
+          +   '<div class="pwd-profile-unit"><a href="' + esc(buildWarehouseLotUrl(profile)) + '">Lihat Lot</a></div>'
+          + '</div>' +
         '</td>' +
         '<td class="pwd-freeze-col-4">' + summaryChildHtml(profile.metrics || {}) + '</td>' +
       '</tr>';
   }
 
   function profileRowHtml(group, groupIndex, profile, profileIndex){
-    return '<tr class="pwd-child-row">' + dayCells(profile.daily_pack || profile.daily || {}, groupIndex, profileIndex) + '</tr>';
+    return '<tr class="pwd-child-row">' + dayCells(profile.daily || {}, profile.daily_pack || {}, groupIndex, profileIndex) + '</tr>';
   }
 
   function syncPaneRowHeights(){
@@ -1581,7 +1807,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
 
     if (!state.groups.length) {
       freezeBody.innerHTML = '<tr><td colspan="4" class="pwd-empty">Belum ada data untuk filter ini.</td></tr>';
-      tableBody.innerHTML = '<tr><td colspan="' + Math.max(1, state.dates.length * 5) + '" class="pwd-empty"></td></tr>';
+      tableBody.innerHTML = '<tr><td colspan="' + Math.max(1, state.dates.length) + '" class="pwd-empty"></td></tr>';
       requestAnimationFrame(function(){
         syncStickyLayout();
         syncPaneRowHeights();
@@ -1608,10 +1834,16 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
       syncStickyLayout();
       syncPaneRowHeights();
       if (!tableWrap) { return; }
+      if (tableHeadWrap) {
+        tableHeadWrap.scrollLeft = keepScroll ? previousScrollLeft : tableWrap.scrollLeft;
+      }
       if (focusToday) {
         scrollToTodayColumn();
       } else if (keepScroll) {
         tableWrap.scrollLeft = previousScrollLeft;
+        if (tableHeadWrap) {
+          tableHeadWrap.scrollLeft = previousScrollLeft;
+        }
       }
     });
   }
@@ -1835,6 +2067,12 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   fillReasonSelect('pwdVarianceReason', 'VARIANCE');
   fillReasonSelect('pwdPlusReason', 'ADJUSTMENT_PLUS');
   document.getElementById('pwdAdjustSubmit').addEventListener('click', submitAdjust);
+
+  if (tableWrap && tableHeadWrap) {
+    tableWrap.addEventListener('scroll', function(){
+      tableHeadWrap.scrollLeft = tableWrap.scrollLeft;
+    }, { passive: true });
+  }
 
   window.addEventListener('resize', function(){
     syncStickyLayout();

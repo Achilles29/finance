@@ -210,6 +210,86 @@ foreach ($rows as $row) {
     font-size: 1.35rem;
     flex: 0 0 auto;
   }
+  .adjustment-profile-choice-list {
+    display: grid;
+    gap: .8rem;
+  }
+  .adjustment-profile-choice-card {
+    width: 100%;
+    border: 1px solid rgba(15, 23, 42, .08);
+    border-radius: 1rem;
+    background: linear-gradient(180deg, #ffffff 0%, #faf8f4 100%);
+    padding: .9rem 1rem;
+    text-align: left;
+    box-shadow: 0 .75rem 1.6rem rgba(15, 23, 42, .05);
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+  }
+  .adjustment-profile-choice-card:hover {
+    transform: translateY(-1px);
+    border-color: rgba(147, 51, 234, .18);
+    box-shadow: 0 1rem 2rem rgba(15, 23, 42, .08);
+  }
+  .adjustment-profile-choice-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: .75rem;
+    margin-bottom: .45rem;
+  }
+  .adjustment-profile-choice-title {
+    font-weight: 700;
+    color: #111827;
+  }
+  .adjustment-profile-choice-key {
+    display: inline-flex;
+    align-items: center;
+    padding: .18rem .55rem;
+    border-radius: 999px;
+    background: #f8fafc;
+    border: 1px solid rgba(15, 23, 42, .08);
+    color: #475569;
+    font-size: .72rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .adjustment-profile-choice-desc {
+    color: #6b7280;
+    font-size: .84rem;
+    margin-bottom: .55rem;
+  }
+  .adjustment-profile-choice-meta {
+    color: #6b7280;
+    font-size: .78rem;
+    margin-bottom: .55rem;
+  }
+  .adjustment-profile-choice-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .55rem;
+  }
+  .adjustment-profile-choice-metric {
+    border: 1px solid rgba(15, 23, 42, .07);
+    border-radius: .85rem;
+    background: rgba(255,255,255,.82);
+    padding: .55rem .65rem;
+  }
+  .adjustment-profile-choice-metric .label {
+    display: block;
+    font-size: .72rem;
+    color: #6b7280;
+    margin-bottom: .15rem;
+  }
+  .adjustment-profile-choice-metric strong {
+    display: block;
+    font-size: .92rem;
+    color: #111827;
+    line-height: 1.2;
+  }
+  @media (max-width: 767.98px) {
+    .adjustment-profile-choice-grid {
+      grid-template-columns: 1fr;
+    }
+  }
 </style>
 
 <div class="mb-2">
@@ -686,6 +766,27 @@ foreach ($rows as $row) {
   </div>
 </div>
 
+<div class="modal fade" id="adjustmentProfilePickerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="small text-uppercase text-muted fw-semibold">Pilih Profil Adjustment</div>
+          <h5 class="modal-title mb-0" id="adjustment-profile-picker-title">Pilih profil item</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="text-muted small mb-3" id="adjustment-profile-picker-meta">Pilih profil yang benar sebelum line adjustment ditambahkan.</div>
+        <div class="adjustment-profile-choice-list" id="adjustment-profile-picker-options"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade adjustment-confirm-modal" id="adjustmentConfirmModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -722,6 +823,10 @@ foreach ($rows as $row) {
   const isDivisionScope = stockScope === 'DIVISION';
   const isWarehouseScope = stockScope === 'WAREHOUSE';
   const alertArea = document.getElementById('adjustment-alert');
+  const profileModalEl = document.getElementById('adjustmentProfilePickerModal');
+  const profileModalTitleEl = document.getElementById('adjustment-profile-picker-title');
+  const profileModalMetaEl = document.getElementById('adjustment-profile-picker-meta');
+  const profileModalOptionsEl = document.getElementById('adjustment-profile-picker-options');
   const confirmModalEl = document.getElementById('adjustmentConfirmModal');
   const confirmKickerEl = document.getElementById('adjustment-confirm-kicker');
   const confirmTitleEl = document.getElementById('adjustment-confirm-title');
@@ -735,6 +840,11 @@ foreach ($rows as $row) {
   const draftTableBody = document.querySelector('#draft-lines-table tbody');
   const lines = [];
   let selectedItem = null;
+  let selectedProfileOptions = [];
+  let currentSearchItems = [];
+  let profilePickerBaseItem = null;
+  let profilePickerOptions = [];
+  let profileLookupToken = 0;
   let searchTimer = null;
   let confirmResolver = null;
   let confirmBackdropEl = null;
@@ -778,11 +888,192 @@ foreach ($rows as $row) {
   const qtyUnitByScope = (row) => isWarehouseScope ? (row?.profile_buy_uom_code || row?.default_buy_uom_code || '') : (row?.profile_content_uom_code || row?.default_content_uom_code || '');
   const costByScope = (row, costPerContent) => isWarehouseScope ? (Number(costPerContent || 0) * contentPerBuyValue(row)) : Number(costPerContent || 0);
   const costLabelByScope = () => isWarehouseScope ? 'Harga Satuan / Beli' : 'Avg Cost/Isi';
+  const formatUpdatedAt = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) {
+      return 'Belum ada update saldo';
+    }
+    const normalized = raw.replace(' ', 'T');
+    const date = new Date(normalized);
+    if (Number.isNaN(date.getTime())) {
+      return raw;
+    }
+    return new Intl.DateTimeFormat('id-ID', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date);
+  };
   const escHtml = (value) => String(value == null ? '' : value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+  const objectIdentityKey = (row) => [
+    Number(row?.id || 0),
+    Number(row?.material_id || 0),
+    String(row?.stock_domain || (Number(row?.material_id || 0) > 0 ? 'MATERIAL' : 'ITEM')).toUpperCase()
+  ].join('|');
+  const profileOptionKey = (row) => [
+    String(row?.profile_key || ''),
+    Number(row?.default_buy_uom_id || 0),
+    Number(row?.default_content_uom_id || 0),
+    Number(contentPerBuyValue(row) || 1).toFixed(6),
+    String(row?.profile_name || '').trim().toUpperCase(),
+    String(row?.profile_brand || '').trim().toUpperCase(),
+    String(row?.profile_description || '').trim().toUpperCase()
+  ].join('|');
+  const sameAdjustmentObject = (left, right) => objectIdentityKey(left) === objectIdentityKey(right);
+  const hasPositiveProfileStock = (row) => Number(row?.available_qty_content || 0) > 0 || Number(row?.available_qty_buy || 0) > 0;
+  const buildProfileOptions = (rows, baseItem) => {
+    const filtered = Array.isArray(rows) ? rows.filter((row) => sameAdjustmentObject(row, baseItem)) : [];
+    const seen = new Set();
+    const options = [];
+    filtered.forEach((row) => {
+      const key = profileOptionKey(row);
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      options.push(row);
+    });
+    const stockedOptions = options.filter((row) => hasPositiveProfileStock(row));
+    if (stockedOptions.length > 0) {
+      return stockedOptions;
+    }
+    if (!options.length && baseItem) {
+      options.push(baseItem);
+    }
+    return options;
+  };
+  const objectLabel = (row) => {
+    const objectCode = row?.material_id ? (row?.material_code || row?.item_code || '-') : (row?.item_code || row?.material_code || '-');
+    const objectName = row?.material_id ? (row?.material_name || row?.item_name || '-') : (row?.item_name || row?.material_name || '-');
+    return (objectCode + ' - ' + objectName).trim();
+  };
+  const profileLabel = (row) => [row?.profile_name || 'Tanpa profile', row?.profile_brand || ''].filter(Boolean).join(' | ');
+  const syncSelectedProfile = (preferredKey = '') => {
+    if (!selectedProfileOptions.length) {
+      selectedProfileOptions = selectedItem ? [selectedItem] : [];
+    }
+    if (!selectedProfileOptions.length) {
+      selectedItem = null;
+      return;
+    }
+    const targetKey = preferredKey || profileOptionKey(selectedItem || selectedProfileOptions[0]);
+    selectedItem = selectedProfileOptions.find((option) => profileOptionKey(option) === targetKey) || selectedProfileOptions[0];
+  };
+
+  const resolveProfileOptions = async (baseItem) => {
+    const baseOptions = buildProfileOptions(currentSearchItems, baseItem);
+    if (!isDivisionScope || !baseItem) {
+      return baseOptions;
+    }
+    const searchToken = String(baseItem.item_code || baseItem.material_code || baseItem.item_name || baseItem.material_name || '').trim();
+    if (searchToken.length < 1) {
+      return baseOptions;
+    }
+    const params = new URLSearchParams({ q: searchToken, limit: '50', stock_scope: stockScope });
+    params.set('division_id', String(document.getElementById('division_id')?.value || ''));
+    params.set('destination', String(document.getElementById('destination_type')?.value || ''));
+    try {
+      const res = await fetchJson('<?php echo $searchUrl; ?>?' + params.toString());
+      if (!res.ok) {
+        return baseOptions;
+      }
+      return buildProfileOptions([].concat(baseOptions, Array.isArray(res.items) ? res.items : []), baseItem);
+    } catch (error) {
+      return baseOptions;
+    }
+  };
+
+  const getProfileModalInstance = () => {
+    if (!profileModalEl || !(window.bootstrap && window.bootstrap.Modal)) {
+      return null;
+    }
+    return window.bootstrap.Modal.getOrCreateInstance(profileModalEl);
+  };
+
+  const closeProfilePicker = () => {
+    const modal = getProfileModalInstance();
+    if (modal) {
+      modal.hide();
+    }
+  };
+
+  const applySelectedProfileOption = (index) => {
+    if (index < 0 || index >= profilePickerOptions.length) {
+      return;
+    }
+    selectedProfileOptions = profilePickerOptions.slice();
+    selectedItem = selectedProfileOptions[index];
+    syncSelectedProfile(profileOptionKey(selectedItem));
+    renderSelectedItem();
+    clearLineInputs();
+    closeProfilePicker();
+  };
+
+  const renderProfilePicker = () => {
+    if (!profileModalOptionsEl) {
+      return;
+    }
+    if (!profilePickerBaseItem || !profilePickerOptions.length) {
+      profileModalOptionsEl.innerHTML = '<div class="text-muted small">Belum ada profil yang bisa dipilih untuk item ini.</div>';
+      return;
+    }
+    profileModalTitleEl.textContent = objectLabel(profilePickerBaseItem);
+    profileModalMetaEl.textContent = 'Pilih profil stok divisi yang benar untuk item ini sebelum line adjustment dibuat.';
+    profileModalOptionsEl.innerHTML = profilePickerOptions.map((option, index) => {
+      const availPrimary = fmt(isWarehouseScope ? option.available_qty_buy : option.available_qty_content) + ' ' + (qtyUnitByScope(option) || '');
+      const secondaryQty = isWarehouseScope
+        ? (fmt(option.available_qty_content) + ' ' + (option.default_content_uom_code || ''))
+        : (fmt(option.available_qty_buy) + ' ' + (option.default_buy_uom_code || ''));
+      const hasActiveStock = hasPositiveProfileStock(option);
+      const description = [
+        option.profile_description || '',
+        option.profile_expired_date ? ('Exp ' + option.profile_expired_date) : '',
+        !hasActiveStock ? 'Belum ada saldo aktif pada divisi/tujuan ini.' : ''
+      ].filter(Boolean).join(' | ');
+      const updatedLabel = formatUpdatedAt(option.updated_at || '');
+      return ''
+        + '<button type="button" class="adjustment-profile-choice-card" data-profile-choice-index="' + index + '">'
+          + '<div class="adjustment-profile-choice-head">'
+            + '<div class="adjustment-profile-choice-title">' + escHtml(profileLabel(option)) + '</div>'
+            + '<span class="adjustment-profile-choice-key">' + escHtml(option.profile_key || 'Tanpa profile_key') + '</span>'
+          + '</div>'
+          + '<div class="adjustment-profile-choice-desc">' + escHtml(description || 'Tidak ada deskripsi tambahan.') + '</div>'
+          + '<div class="adjustment-profile-choice-meta">Update terakhir: ' + escHtml(updatedLabel) + '</div>'
+          + '<div class="adjustment-profile-choice-grid">'
+            + '<div class="adjustment-profile-choice-metric"><span class="label">Avail</span><strong>' + escHtml(availPrimary) + '</strong></div>'
+            + '<div class="adjustment-profile-choice-metric"><span class="label">Setara</span><strong>' + escHtml(secondaryQty) + '</strong></div>'
+            + '<div class="adjustment-profile-choice-metric"><span class="label">' + escHtml(costLabelByScope()) + '</span><strong>' + escHtml(fmt6(costByScope(option, Number(option.avg_cost_per_content || 0)))) + '</strong></div>'
+          + '</div>'
+        + '</button>';
+    }).join('');
+    profileModalOptionsEl.querySelectorAll('[data-profile-choice-index]').forEach((button) => {
+      button.addEventListener('click', () => {
+        applySelectedProfileOption(Number(button.getAttribute('data-profile-choice-index') || -1));
+      });
+    });
+  };
+
+  const openProfilePicker = (baseItem, options) => {
+    profilePickerBaseItem = baseItem || null;
+    profilePickerOptions = Array.isArray(options) ? options.slice() : [];
+    if (!profilePickerBaseItem || !profilePickerOptions.length) {
+      showAlert('warning', 'Profil item tidak ditemukan untuk adjustment ini.');
+      return;
+    }
+    const modal = getProfileModalInstance();
+    if (!modal) {
+      applySelectedProfileOption(0);
+      return;
+    }
+    renderProfilePicker();
+    modal.show();
+  };
 
   const syncDivisionDestinationOptions = (divisionEl, destinationEl, options, preserveGroups) => {
     if (!divisionEl || !destinationEl) {
@@ -908,6 +1199,8 @@ foreach ($rows as $row) {
     formDivisionEl?.addEventListener('change', () => {
       syncDivisionDestinationOptions(formDivisionEl, formDestinationEl, formDestinationOptions, false);
       selectedItem = null;
+      selectedProfileOptions = [];
+      currentSearchItems = [];
       renderSelectedItem();
       searchResults.innerHTML = '';
       if (searchInput) {
@@ -957,14 +1250,22 @@ foreach ($rows as $row) {
       selectedCard.innerHTML = '<div class="fw-semibold mb-1">Belum ada profile dipilih.</div><div class="text-muted small">Pilih item/profile dari hasil pencarian untuk menambahkan line adjustment.</div>';
       return;
     }
-    const objectCode = selectedItem.material_id ? (selectedItem.material_code || selectedItem.item_code || '-') : (selectedItem.item_code || selectedItem.material_code || '-');
-    const objectName = selectedItem.material_id ? (selectedItem.material_name || selectedItem.item_name || '-') : (selectedItem.item_name || selectedItem.material_name || '-');
+    syncSelectedProfile();
     selectedCard.innerHTML = ''
-      + '<div class="fw-semibold">' + objectCode + ' - ' + objectName + '</div>'
+      + '<div class="fw-semibold">' + escHtml(objectLabel(selectedItem)) + '</div>'
       + '<div class="small text-muted mb-2">'
-      + (selectedItem.profile_name || 'Tanpa profile')
-      + (selectedItem.profile_brand ? ' | ' + selectedItem.profile_brand : '')
+      + escHtml(profileLabel(selectedItem))
       + '</div>'
+      + (isDivisionScope
+          ? ('<div class="mb-3">'
+              + '<label class="form-label mb-1">Profile Yang Di-adjust</label>'
+              + '<div class="small text-muted">' + escHtml(selectedItem.profile_key || 'Tanpa profile_key') + '</div>'
+              + (selectedProfileOptions.length > 1
+                  ? ('<div class="mt-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-action="change-profile">Pilih Ulang Profil</button></div>'
+                    + '<div class="form-text">Gunakan modal picker untuk mengganti profil item ini.</div>')
+                  : '')
+            + '</div>')
+          : '')
       + '<div class="row g-2 small">'
         + '<div class="col-md-4"><div class="text-muted">Avail ' + (isWarehouseScope ? 'Pack' : 'Isi') + '</div><div class="fw-semibold">' + fmt(isWarehouseScope ? selectedItem.available_qty_buy : selectedItem.available_qty_content) + ' ' + qtyUnitByScope(selectedItem) + '</div></div>'
         + '<div class="col-md-4"><div class="text-muted">' + (isWarehouseScope ? 'Setara Isi' : 'Setara Pack') + '</div><div class="fw-semibold">' + fmt(isWarehouseScope ? selectedItem.available_qty_content : selectedItem.available_qty_buy) + ' ' + (isWarehouseScope ? (selectedItem.default_content_uom_code || '') : (selectedItem.default_buy_uom_code || '')) + '</div></div>'
@@ -1021,6 +1322,7 @@ foreach ($rows as $row) {
   const performSearch = async () => {
     const q = String(searchInput?.value || '').trim();
     if (q.length < 2) {
+      currentSearchItems = [];
       searchResults.innerHTML = '';
       return;
     }
@@ -1031,10 +1333,12 @@ foreach ($rows as $row) {
     }
     const res = await fetchJson('<?php echo $searchUrl; ?>?' + params.toString());
     if (!res.ok) {
+      currentSearchItems = [];
       searchResults.innerHTML = '<div class="list-group-item text-danger">Pencarian gagal.</div>';
       return;
     }
     const items = Array.isArray(res.items) ? res.items : [];
+    currentSearchItems = items;
     if (!items.length) {
       searchResults.innerHTML = '<div class="list-group-item text-muted">Tidak ada hasil.</div>';
       return;
@@ -1051,15 +1355,37 @@ foreach ($rows as $row) {
         + '</button>';
     }).join('');
     searchResults.querySelectorAll('.adjustment-search-result').forEach((button) => {
-      button.addEventListener('click', () => {
+      button.addEventListener('click', async () => {
         const idx = Number(button.dataset.index || -1);
-        selectedItem = items[idx] || null;
-        renderSelectedItem();
-        clearLineInputs();
+        const clickedItem = items[idx] || null;
         searchResults.innerHTML = '';
+        if (!clickedItem) {
+          return;
+        }
+        if (!isDivisionScope) {
+          selectedItem = clickedItem;
+          selectedProfileOptions = [clickedItem];
+          renderSelectedItem();
+          clearLineInputs();
+          return;
+        }
+        const lookupId = ++profileLookupToken;
+        const options = await resolveProfileOptions(clickedItem);
+        if (lookupId !== profileLookupToken) {
+          return;
+        }
+        openProfilePicker(clickedItem, options);
       });
     });
   };
+
+  selectedCard?.addEventListener('click', (event) => {
+    const trigger = event.target.closest('[data-action="change-profile"]');
+    if (!trigger || !selectedItem || !selectedProfileOptions.length) {
+      return;
+    }
+    openProfilePicker(selectedItem, selectedProfileOptions);
+  });
 
   searchInput?.addEventListener('input', () => {
     clearTimeout(searchTimer);
@@ -1069,6 +1395,10 @@ foreach ($rows as $row) {
   document.getElementById('btn-add-line')?.addEventListener('click', () => {
     if (!selectedItem) {
       showAlert('warning', 'Pilih item/profile lebih dulu.');
+      return;
+    }
+    if (isDivisionScope && selectedProfileOptions.length > 1 && !String(selectedItem.profile_key || '').trim()) {
+      showAlert('warning', 'Pilih profil item yang akan di-adjust lebih dulu.');
       return;
     }
     if (isDivisionScope) {

@@ -17,6 +17,20 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   $initialLimit = 120;
 }
 $divisionOptions = is_array($divisions ?? null) ? $divisions : [];
+$divisionOptions = array_values(array_filter($divisionOptions, static function ($row) {
+  $code = strtoupper(trim((string)($row['code'] ?? '')));
+  $name = strtoupper(trim((string)($row['name'] ?? '')));
+  return strpos($code, 'MANAJEMEN') === false
+    && strpos($name, 'MANAJEMEN') === false
+    && strpos($code, 'MANAGEMENT') === false
+    && strpos($name, 'MANAGEMENT') === false;
+}));
+$divisionIds = array_map(static function ($row) {
+  return (int)($row['id'] ?? 0);
+}, $divisionOptions);
+if ($initialDivisionId > 0 && !in_array($initialDivisionId, $divisionIds, true)) {
+  $initialDivisionId = 0;
+}
 $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_guard_map : [];
 ?>
 
@@ -46,15 +60,14 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
 
 <style>
   :root {
-    --pmd-col-division: 146px;
-    --pmd-col-material: 176px;
-    --pmd-col-profile: 166px;
-    --pmd-col-summary: 176px;
+    --pmd-sticky-top: 0px;
+    --pmd-col-division: 148px;
+    --pmd-col-material: 278px;
+    --pmd-col-detail: 298px;
     --pmd-left-1: 0px;
     --pmd-left-2: var(--pmd-col-division);
     --pmd-left-3: calc(var(--pmd-col-division) + var(--pmd-col-material));
-    --pmd-left-4: calc(var(--pmd-col-division) + var(--pmd-col-material) + var(--pmd-col-profile));
-    --pmd-date-col: 98px;
+    --pmd-date-col: 172px;
     --pmd-header-row-1: 44px;
   }
   .pmd-filter-card,
@@ -67,6 +80,45 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     border: 1px solid #ead9cf;
     border-radius: 16px;
     box-shadow: 0 12px 24px rgba(104, 43, 40, 0.06);
+  }
+  .pmd-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 0.8rem;
+    align-items: end;
+  }
+  .pmd-filter-field {
+    min-width: 0;
+  }
+  .pmd-filter-field label {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #7a554a;
+  }
+  .pmd-filter-main {
+    grid-column: span 2;
+  }
+  .pmd-filter-division,
+  .pmd-filter-search {
+    grid-column: span 3;
+  }
+  .pmd-filter-destination,
+  .pmd-filter-date,
+  .pmd-filter-date-to {
+    grid-column: span 2;
+  }
+  .pmd-filter-limit {
+    grid-column: span 1;
+  }
+  .pmd-filter-actions {
+    grid-column: span 2;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
   }
   .pmd-board-card {
     border: 1px solid #ead9cf;
@@ -110,7 +162,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
   .pmd-matrix-shell {
     display: grid;
-    grid-template-columns: calc(var(--pmd-col-division) + var(--pmd-col-material) + var(--pmd-col-profile) + var(--pmd-col-summary)) minmax(0, 1fr);
+    grid-template-columns: calc(var(--pmd-col-division) + var(--pmd-col-material) + var(--pmd-col-detail)) minmax(0, 1fr);
     align-items: start;
   }
   .pmd-freeze-pane {
@@ -122,21 +174,37 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
   .pmd-scroll-pane {
     min-width: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
     position: relative;
     background: linear-gradient(180deg, #fffdfa 0%, #fff6f1 100%);
   }
+  .pmd-freeze-head-wrap,
+  .pmd-scroll-head-wrap {
+    position: sticky;
+    top: var(--pmd-sticky-top);
+    z-index: 52;
+  }
+  .pmd-freeze-head-wrap {
+    background: linear-gradient(180deg, #7a1d2c 0%, #954052 100%);
+  }
+  .pmd-scroll-head-wrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    background: linear-gradient(180deg, #7a1d2c 0%, #954052 100%);
+  }
+  .pmd-scroll-head-wrap::-webkit-scrollbar {
+    display: none;
+  }
   .pmd-freeze-table {
-    width: calc(var(--pmd-col-division) + var(--pmd-col-material) + var(--pmd-col-profile) + var(--pmd-col-summary));
-    min-width: calc(var(--pmd-col-division) + var(--pmd-col-material) + var(--pmd-col-profile) + var(--pmd-col-summary));
+    width: calc(var(--pmd-col-division) + var(--pmd-col-material) + var(--pmd-col-detail));
+    min-width: calc(var(--pmd-col-division) + var(--pmd-col-material) + var(--pmd-col-detail));
     margin-bottom: 0;
     border-collapse: separate;
     border-spacing: 0;
     table-layout: fixed;
   }
   .pmd-scroll-table {
-    min-width: 1120px;
+    min-width: 920px;
     margin-bottom: 0;
     border-collapse: separate;
     border-spacing: 0;
@@ -156,10 +224,9 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
   .pmd-freeze-col-1 { width: var(--pmd-col-division); min-width: var(--pmd-col-division); max-width: var(--pmd-col-division); }
   .pmd-freeze-col-2 { width: var(--pmd-col-material); min-width: var(--pmd-col-material); max-width: var(--pmd-col-material); }
-  .pmd-freeze-col-3 { width: var(--pmd-col-profile); min-width: var(--pmd-col-profile); max-width: var(--pmd-col-profile); }
-  .pmd-freeze-col-4 { width: var(--pmd-col-summary); min-width: var(--pmd-col-summary); max-width: var(--pmd-col-summary); }
+  .pmd-freeze-col-3 { width: var(--pmd-col-detail); min-width: var(--pmd-col-detail); max-width: var(--pmd-col-detail); }
   .pmd-scroll-table {
-    min-width: 1720px;
+    min-width: 920px;
     margin-bottom: 0;
     border-collapse: separate;
     border-spacing: 0;
@@ -171,71 +238,73 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     vertical-align: middle;
   }
   .pmd-scroll-table thead tr:first-child th {
-    position: sticky;
-    top: 0;
-    z-index: 52;
-    background: #fff8f4;
-    border-bottom: 1px solid #ebd8cf;
-    color: #602739;
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    background: linear-gradient(180deg, #7a1d2c 0%, #954052 100%);
+    border-bottom: 1px solid #772938;
+    color: #fff8f5;
     white-space: nowrap;
-  }
-  .pmd-freeze-table thead tr:first-child th {
-    position: sticky;
-    top: 0;
-    z-index: 52;
-    background: #fff8f4;
-    border-bottom: 1px solid #ebd8cf;
-    height: var(--pmd-header-row-1);
-    min-height: var(--pmd-header-row-1);
-  }
-  .pmd-freeze-table thead tr:nth-child(2) th {
-    position: sticky;
-    top: var(--pmd-header-row-1);
-    z-index: 51;
-    background: #fff2ec;
-    border-bottom: 1px solid #ebd8cf;
-    color: #7b4f49;
-    font-size: 0.73rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .pmd-freeze-spacer {
-    color: transparent;
-    line-height: 0;
-    font-size: 0;
-  }
-  .pmd-scroll-table thead tr:nth-child(2) th {
-    position: sticky;
-    top: var(--pmd-header-row-1);
-    z-index: 51;
-    background: #fff2ec;
-    border-bottom: 1px solid #ebd8cf;
-    color: #7b4f49;
-    font-size: 0.73rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
     width: var(--pmd-date-col);
     min-width: var(--pmd-date-col);
     max-width: var(--pmd-date-col);
+    height: var(--pmd-header-row-1);
+    min-height: var(--pmd-header-row-1);
+  }
+  .pmd-freeze-table thead tr:first-child th {
+    background: linear-gradient(180deg, #7a1d2c 0%, #954052 100%);
+    border-bottom: 1px solid #772938;
+    color: #fff8f5;
+    font-size: 0.76rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    height: var(--pmd-header-row-1);
+    min-height: var(--pmd-header-row-1);
+    white-space: nowrap;
   }
   .pmd-day-head {
-    width: calc(var(--pmd-date-col) * 5);
-    min-width: calc(var(--pmd-date-col) * 5);
-    max-width: calc(var(--pmd-date-col) * 5);
+    width: var(--pmd-date-col);
+    min-width: var(--pmd-date-col);
+    max-width: var(--pmd-date-col);
+    padding: 0.32rem 0.32rem 0.34rem !important;
   }
   .pmd-day-head.is-today {
-    background: linear-gradient(180deg, #ffcfbe, #ffa37f) !important;
-    box-shadow: inset 0 -4px 0 #c75a39;
-    color: #4e1d12 !important;
+    background: linear-gradient(180deg, #ffb79e, #ff9370) !important;
+    box-shadow: inset 0 -4px 0 #cf5f3e;
+    color: #56190e !important;
   }
-  .pmd-day-weekday {
-    display: block;
-    font-size: 0.72rem;
-    letter-spacing: 0.11em;
-    opacity: 0.86;
+  .pmd-freeze-body-table,
+  .pmd-scroll-body-table {
+    margin-top: 0;
+  }
+  .pmd-headcard {
+    display: grid;
+    gap: 0.12rem;
+    justify-items: center;
+    text-align: center;
+    line-height: 1;
+  }
+  .pmd-headcard .day {
+    font-size: 1.08rem;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+  }
+  .pmd-headcard .meta {
+    font-size: 0.66rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.92;
+    white-space: nowrap;
+  }
+  .pmd-headcard .today-tag {
+    margin-top: 0.04rem;
+    padding: 0.1rem 0.34rem;
+    border-radius: 999px;
+    font-size: 0.56rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background: rgba(93, 22, 13, 0.12);
+    color: inherit;
   }
   .pmd-division-pill {
     display: inline-flex;
@@ -244,15 +313,180 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     border: 1px solid #ebd4ca;
     background: #fff2ec;
     color: #8b3c47;
-    font-size: 0.69rem;
+    font-size: 0.66rem;
+    font-weight: 800;
+    max-width: 100%;
+  }
+  .pmd-name { font-weight: 800; color: #4e1f2e; line-height: 1.24; }
+  .pmd-code { color: #876a65; font-size: 0.79rem; margin-top: 0.14rem; }
+  .pmd-division-stack {
+    display: grid;
+    gap: 0.18rem;
+  }
+  .pmd-division-cell {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.34rem;
+  }
+  .pmd-destination-chip {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    max-width: 100%;
+    padding: 0.16rem 0.48rem;
+    border-radius: 999px;
+    background: #fff6ef;
+    color: #8d5a4c;
+    font-size: 0.64rem;
     font-weight: 800;
   }
-  .pmd-name { font-weight: 800; color: #4e1f2e; line-height: 1.28; }
-  .pmd-code { color: #876a65; font-size: 0.79rem; margin-top: 0.14rem; }
+  .pmd-material-stack {
+    display: grid;
+    gap: 0.22rem;
+    justify-items: center;
+    text-align: center;
+    position: relative;
+    width: 100%;
+  }
+  .pmd-material-stack.is-parent {
+    padding-inline: 0.1rem;
+  }
+  .pmd-material-stack.is-child {
+    width: calc(100% - 18px);
+    margin-left: 18px;
+    padding-left: 0.35rem;
+  }
+  .pmd-material-stack.is-child::before {
+    content: '';
+    position: absolute;
+    left: -10px;
+    top: 0.22rem;
+    bottom: 0.22rem;
+    width: 3px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #efd8cc 0%, #e1bca7 100%);
+  }
+  .pmd-material-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.28rem;
+    justify-content: center;
+  }
+  .pmd-material-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.45rem;
+    border: 1px solid #eed6c9;
+    background: #fff8f3;
+    color: #8a5547;
+    font-size: 0.66rem;
+    font-weight: 800;
+    max-width: 100%;
+  }
+  .pmd-material-chip.is-parent {
+    border-radius: 999px;
+    box-shadow: inset 0 -1px 0 rgba(138, 85, 71, 0.08);
+  }
+  .pmd-material-chip.is-child {
+    border-radius: 10px;
+    border-style: dashed;
+    background: #fffaf7;
+    color: #7c5348;
+  }
+  .pmd-material-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.18rem 0.56rem;
+    border-radius: 999px;
+    border: 1px solid #d08a2d;
+    background: linear-gradient(180deg, #fff1c7 0%, #ffd982 100%);
+    color: #7a3d00;
+    font-size: 0.67rem;
+    font-weight: 900;
+    text-decoration: none;
+    box-shadow: inset 0 -1px 0 rgba(122, 61, 0, 0.12);
+  }
+  .pmd-material-link:hover {
+    color: #5f2d00;
+    background: linear-gradient(180deg, #ffe9b0 0%, #ffcf64 100%);
+    border-color: #bb7318;
+    text-decoration: none;
+  }
+  .pmd-material-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+    justify-content: center;
+  }
+  .pmd-material-expand {
+    border: 1px solid #d7b6a8;
+    background: #fff2ea;
+    color: #6a2d3c;
+    border-radius: 999px;
+    padding: 0.18rem 0.58rem;
+    font-size: 0.67rem;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .pmd-material-expand:hover {
+    background: #ffe8dd;
+    border-color: #c99f8f;
+  }
+  .pmd-detail-card {
+    display: grid;
+    gap: 0.36rem;
+    align-content: start;
+  }
+  .pmd-detail-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.55rem;
+  }
+  .pmd-summary-only {
+    display: grid;
+    gap: 0.3rem;
+  }
+  .pmd-detail-title {
+    min-width: 0;
+    display: grid;
+    gap: 0.18rem;
+  }
+  .pmd-detail-metas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.32rem;
+  }
+  .pmd-detail-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.16rem 0.48rem;
+    border-radius: 999px;
+    background: #fff3ea;
+    border: 1px solid #ead6c9;
+    color: #8b4f42;
+    font-size: 0.65rem;
+    font-weight: 800;
+    max-width: 100%;
+  }
+  .pmd-profile-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.16rem 0.52rem;
+    border-radius: 999px;
+    background: #fff4eb;
+    color: #8b4f42;
+    font-size: 0.68rem;
+    font-weight: 800;
+    width: fit-content;
+    max-width: 100%;
+  }
   .pmd-profile-line {
     color: #6e5652;
-    font-size: 0.82rem;
-    line-height: 1.25;
+    font-size: 0.78rem;
+    line-height: 1.2;
     white-space: normal;
     word-break: break-word;
   }
@@ -273,7 +507,48 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     background: linear-gradient(90deg, #f8fff5, #fafff8);
   }
   .pmd-child-row {
-    background: #fff;
+    background: #fffdfb;
+  }
+  .pmd-freeze-table tbody tr.pmd-group-row td {
+    background: linear-gradient(180deg, #fff4eb 0%, #fffaf6 100%);
+  }
+  .pmd-freeze-table tbody tr.pmd-group-row.pmd-group-single td {
+    background: linear-gradient(180deg, #f8fff5 0%, #fafff8 100%);
+  }
+  .pmd-freeze-table tbody tr.pmd-child-row td {
+    background: linear-gradient(180deg, #fffdfb 0%, #fff8f4 100%);
+    box-shadow: inset -2px 0 0 #edd6ca;
+  }
+  .pmd-freeze-table tbody tr.pmd-child-row td.pmd-freeze-col-2,
+  .pmd-freeze-table tbody tr.pmd-child-row td.pmd-freeze-col-3 {
+    border-left: 3px solid #efd8cc;
+  }
+  .pmd-scroll-table tbody tr.pmd-group-row td.pmd-metric-cell {
+    background: #fff6f0;
+  }
+  .pmd-scroll-table tbody tr.pmd-group-row.pmd-group-single td.pmd-metric-cell {
+    background: #fbfef8;
+  }
+  .pmd-scroll-table tbody tr.pmd-child-row td.pmd-metric-cell {
+    background: #fffdfb;
+  }
+  .pmd-scroll-table tbody tr.pmd-group-row .pmd-date-card {
+    border-color: #ebcdbd;
+    background: linear-gradient(180deg, rgba(255, 247, 240, 0.98) 0%, rgba(255, 238, 228, 0.98) 100%);
+    box-shadow: 0 14px 24px -24px rgba(122, 61, 0, 0.28);
+  }
+  .pmd-scroll-table tbody tr.pmd-group-row.pmd-group-single .pmd-date-card {
+    border-color: #d9e6cf;
+    background: linear-gradient(180deg, rgba(250, 255, 246, 0.98) 0%, rgba(242, 251, 237, 0.98) 100%);
+  }
+  .pmd-scroll-table tbody tr.pmd-child-row .pmd-date-card {
+    border-color: #f0dfd5;
+    background: linear-gradient(180deg, rgba(255, 253, 251, 0.98) 0%, rgba(255, 248, 243, 0.98) 100%);
+    box-shadow: inset 0 0 0 1px rgba(239, 216, 204, 0.42);
+  }
+  .pmd-group-row td,
+  .pmd-child-row td {
+    vertical-align: top !important;
   }
   .pmd-toggle-arrow {
     border: 1px solid #d7b6a8;
@@ -302,8 +577,8 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     justify-content: center;
     margin-right: 0.3rem;
     border-radius: 8px;
-    background: #e9f8df;
-    color: #3e7f32;
+    background: #f8ece4;
+    color: #9a6f60;
     font-size: 0.8rem;
     font-weight: 800;
   }
@@ -322,59 +597,138 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     background: #ffe8dd;
     border-color: #d7b3a5;
   }
-  .pmd-summary-line {
-    font-size: 0.78rem;
-    line-height: 1.25;
-    color: #6f4d47;
+  .pmd-summary-card {
+    display: grid;
+    gap: 0.28rem;
+    min-width: 0;
+  }
+  .pmd-summary-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .pmd-summary-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #8a5b4d;
+    font-weight: 800;
+  }
+  .pmd-summary-amount {
+    font-size: 0.96rem;
+    font-weight: 900;
+    color: #523126;
+    text-align: right;
+  }
+  .pmd-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.28rem;
+  }
+  .pmd-summary-metric {
+    border: 1px solid #eadccf;
+    border-radius: 12px;
+    background: #fffaf6;
+    padding: 0.32rem 0.4rem;
+    min-width: 0;
+  }
+  .pmd-summary-metric .label {
+    display: block;
+    font-size: 0.67rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #8a5b4d;
+  }
+  .pmd-summary-metric strong {
+    display: block;
+    font-size: 0.82rem;
+    color: #503125;
+    line-height: 1.18;
     white-space: normal;
   }
-  .pmd-summary-line strong {
-    color: #4e2430;
-    font-weight: 800;
+  .pmd-detail-card .pmd-summary-card {
+    gap: 0.35rem;
   }
   .pmd-metric-cell {
     width: var(--pmd-date-col);
     min-width: var(--pmd-date-col);
     max-width: var(--pmd-date-col);
-    text-align: right;
+    text-align: left;
     font-size: 0.79rem;
     font-variant-numeric: tabular-nums;
-    white-space: nowrap;
+    white-space: normal;
     background: #fff;
+    vertical-align: top !important;
+    padding: 0.4rem !important;
   }
   .pmd-metric-cell.is-today {
     background: #fff4ed;
   }
-  .pmd-metric-cell .pmd-cell-btn {
-    border: 1px solid #f0e1db;
-    border-radius: 8px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding: 0.18rem 0.26rem;
-    width: 100%;
-    text-align: right;
-    white-space: nowrap;
-    line-height: 1.2;
-    background: #fff;
-    font-size: 0.77rem;
-    color: #5f4b46;
-    min-height: 2.35rem;
-    overflow: hidden;
+  .pmd-date-card {
+    display: grid;
+    gap: 0.24rem;
+    min-height: 126px;
+    padding: 0.42rem 0.48rem;
+    border-radius: 16px;
+    border: 1px solid #efd9ca;
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255,249,244,0.98) 100%);
+    box-shadow: 0 14px 22px -24px rgba(95, 53, 39, 0.55);
   }
-  .pmd-metric-cell .pmd-cell-btn:hover {
-    border-color: #d6b2a5;
-    background: #fff8f3;
+  .pmd-date-band-b .pmd-date-card {
+    background: linear-gradient(180deg, rgba(255,251,248,0.98) 0%, rgba(255,244,237,0.98) 100%);
+  }
+  .pmd-metric-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.34rem;
+    align-items: center;
+    font-size: 0.68rem;
+    line-height: 1.08;
+  }
+  .pmd-metric-row + .pmd-metric-row {
+    padding-top: 0.22rem;
+    border-top: 1px dashed #edd7c8;
+  }
+  .pmd-metric-main {
+    min-width: 0;
+  }
+  .pmd-metric-label {
+    display: block;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #8a5b4d;
+  }
+  .pmd-metric-value-wrap {
+    min-width: 0;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .pmd-cell-btn {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    min-width: 0;
+    text-align: right;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.04rem;
+    line-height: 1.08;
+  }
+  button.pmd-cell-btn:hover {
+    opacity: 0.82;
+  }
+  .pmd-cell-btn.is-static {
+    opacity: 0.94;
   }
   .pmd-cell-action-wrap {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 32px;
-    align-items: stretch;
-    gap: 4px;
-    width: 100%;
-  }
-  .pmd-cell-action-wrap .pmd-cell-btn {
-    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.28rem;
     min-width: 0;
   }
   .pmd-cell-adjust-trigger {
@@ -382,9 +736,9 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     background: #fff8f4;
     color: #7a4858;
     border-radius: 8px;
-    width: 32px;
-    min-width: 32px;
-    min-height: 38px;
+    width: 28px;
+    min-width: 28px;
+    min-height: 28px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -409,23 +763,20 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   .pmd-metric-out { color: #cd6b35; }
   .pmd-metric-adj { color: #6a52cf; }
   .pmd-metric-close { color: #4f647d; font-weight: 800; }
-  .pmd-cell-pack { display: block; font-size: 0.72rem; font-weight: 800; line-height: 1.05; }
-  .pmd-cell-content { display: block; font-size: 0.68rem; opacity: 0.86; line-height: 1.05; margin-top: 2px; }
+  .pmd-cell-pack { display: block; font-size: 0.76rem; font-weight: 800; line-height: 1.05; }
+  .pmd-cell-content { display: block; font-size: 0.61rem; opacity: 0.84; line-height: 1.02; margin-top: 1px; }
   .pmd-cell-pack,
   .pmd-cell-content {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .pmd-day-start { border-left: 2px solid #d8b8a9 !important; }
-  .pmd-day-end { border-right: 2px solid #d8b8a9 !important; }
+  .pmd-day-start { border-left: 1px solid #d8b8a9 !important; }
+  .pmd-day-end { border-right: 1px solid #d8b8a9 !important; }
   .pmd-date-band-a {
     background-color: #fffefc;
   }
   .pmd-date-band-b {
     background-color: #fff6f1;
-  }
-  .pmd-date-band-b .pmd-cell-btn {
-    background: rgba(255, 255, 255, 0.56);
   }
   .pmd-empty,
   .pmd-loading {
@@ -462,10 +813,44 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     color: #6f4d47;
   }
   @media (max-width: 991.98px) {
-    .pmd-scroll-table { min-width: 1420px; }
-    .pmd-day-head { min-width: 300px; }
-    .pmd-matrix-shell { grid-template-columns: 664px minmax(0, 1fr); }
-    .pmd-scroll-table { min-width: 1420px; }
+    :root {
+      --pmd-col-division: 136px;
+      --pmd-col-material: 248px;
+      --pmd-col-detail: 276px;
+      --pmd-date-col: 162px;
+    }
+    .pmd-filter-grid {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+    .pmd-filter-main,
+    .pmd-filter-division,
+    .pmd-filter-search,
+    .pmd-filter-destination,
+    .pmd-filter-date,
+    .pmd-filter-date-to,
+    .pmd-filter-actions {
+      grid-column: span 3;
+    }
+    .pmd-filter-limit {
+      grid-column: span 2;
+    }
+    .pmd-matrix-shell { grid-template-columns: calc(var(--pmd-col-division) + var(--pmd-col-material) + var(--pmd-col-detail)) minmax(0, 1fr); }
+    .pmd-date-card { min-height: 120px; }
+  }
+  @media (max-width: 767.98px) {
+    .pmd-filter-grid {
+      grid-template-columns: 1fr;
+    }
+    .pmd-filter-main,
+    .pmd-filter-division,
+    .pmd-filter-search,
+    .pmd-filter-destination,
+    .pmd-filter-date,
+    .pmd-filter-date-to,
+    .pmd-filter-limit,
+    .pmd-filter-actions {
+      grid-column: span 1;
+    }
   }
 </style>
 
@@ -473,13 +858,13 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
 
 <div class="card pmd-filter-card mb-2">
   <div class="card-body py-3">
-    <div class="row g-2 align-items-end">
-      <div class="col-12 col-md-2">
-        <label class="form-label mb-1">Bulan</label>
+    <div class="pmd-filter-grid">
+      <div class="pmd-filter-field pmd-filter-main">
+        <label>Bulan</label>
         <input type="month" id="pmdMonth" class="form-control" value="<?php echo html_escape(substr($initialMonth, 0, 7)); ?>">
       </div>
-      <div class="col-12 col-md-2">
-        <label class="form-label mb-1">Divisi</label>
+      <div class="pmd-filter-field pmd-filter-division">
+        <label>Divisi</label>
         <select id="pmdDivision" class="form-select">
           <option value="0">Semua Divisi</option>
           <?php foreach ($divisionOptions as $d): ?>
@@ -493,40 +878,32 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-12 col-md-2">
-        <label class="form-label mb-1">Tujuan</label>
+      <div class="pmd-filter-field pmd-filter-destination">
+        <label>Tujuan</label>
         <select id="pmdDestination" class="form-select">
           <option value="ALL" <?php echo $initialDestination === 'ALL' ? 'selected' : ''; ?>>Semua</option>
           <option value="REGULER" <?php echo $initialDestination === 'REGULER' ? 'selected' : ''; ?>>Reguler</option>
           <option value="EVENT" <?php echo $initialDestination === 'EVENT' ? 'selected' : ''; ?>>Event</option>
-          <option value="BAR" <?php echo $initialDestination === 'BAR' ? 'selected' : ''; ?>>Bar Reguler</option>
-          <option value="KITCHEN" <?php echo $initialDestination === 'KITCHEN' ? 'selected' : ''; ?>>Kitchen Reguler</option>
-          <option value="BAR_EVENT" <?php echo $initialDestination === 'BAR_EVENT' ? 'selected' : ''; ?>>Bar Event</option>
-          <option value="KITCHEN_EVENT" <?php echo $initialDestination === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>Kitchen Event</option>
-          <option value="OFFICE" <?php echo $initialDestination === 'OFFICE' ? 'selected' : ''; ?>>Office Reguler</option>
-          <option value="OTHER" <?php echo $initialDestination === 'OTHER' ? 'selected' : ''; ?>>Lainnya</option>
         </select>
       </div>
-      <div class="col-12 col-md-3">
-        <label class="form-label mb-1">Cari</label>
+      <div class="pmd-filter-field pmd-filter-search">
+        <label>Cari</label>
         <input type="text" id="pmdQ" class="form-control" value="<?php echo html_escape($initialQ); ?>" placeholder="Material, profile, merk, divisi">
       </div>
-      <div class="col-6 col-md-2">
-        <label class="form-label mb-1">Dari Tanggal</label>
+      <div class="pmd-filter-field pmd-filter-date">
+        <label>Dari Tanggal</label>
         <input type="date" id="pmdDateFrom" class="form-control" value="<?php echo html_escape($initialDateFrom); ?>">
       </div>
-      <div class="col-6 col-md-2">
-        <label class="form-label mb-1">Sampai Tanggal</label>
+      <div class="pmd-filter-field pmd-filter-date-to">
+        <label>Sampai Tanggal</label>
         <input type="date" id="pmdDateTo" class="form-control" value="<?php echo html_escape($initialDateTo); ?>">
       </div>
-      <div class="col-6 col-md-1">
-        <label class="form-label mb-1">Limit</label>
+      <div class="pmd-filter-field pmd-filter-limit">
+        <label>Limit</label>
         <input type="number" id="pmdLimit" class="form-control" min="1" max="1000" value="<?php echo (int)$initialLimit; ?>">
       </div>
-      <div class="col-6 col-md-1 d-grid">
+      <div class="pmd-filter-actions">
         <button type="button" id="pmdApply" class="btn btn-primary">Terapkan</button>
-      </div>
-      <div class="col-6 col-md-1 d-grid">
         <button type="button" id="pmdClear" class="btn btn-outline-danger">Clear</button>
       </div>
     </div>
@@ -555,16 +932,26 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   </div>
   <div class="pmd-matrix-shell" id="pmdMatrixShell">
     <div class="pmd-freeze-pane">
-      <table class="table pmd-freeze-table align-middle mb-0">
-        <thead id="pmdFreezeHead"></thead>
-        <tbody id="pmdFreezeBody"><tr><td colspan="4" class="pmd-loading">Memuat data...</td></tr></tbody>
+      <div class="pmd-freeze-head-wrap">
+        <table class="table pmd-freeze-table align-middle mb-0 pmd-freeze-head-table">
+          <thead id="pmdFreezeHead"></thead>
+        </table>
+      </div>
+      <table class="table pmd-freeze-table align-middle mb-0 pmd-freeze-body-table">
+        <tbody id="pmdFreezeBody"><tr><td colspan="3" class="pmd-loading">Memuat data...</td></tr></tbody>
       </table>
     </div>
-    <div class="pmd-scroll-pane pmd-table-wrap" id="pmdTableWrap">
-      <table class="table pmd-scroll-table align-middle mb-0">
-        <thead id="pmdScrollHead"></thead>
-        <tbody id="pmdScrollBody"><tr><td colspan="999" class="pmd-loading">Memuat data...</td></tr></tbody>
-      </table>
+    <div class="pmd-scroll-pane">
+      <div class="pmd-scroll-head-wrap" id="pmdScrollHeadWrap">
+        <table class="table pmd-scroll-table align-middle mb-0 pmd-scroll-head-table">
+          <thead id="pmdScrollHead"></thead>
+        </table>
+      </div>
+      <div class="pmd-table-wrap" id="pmdTableWrap">
+        <table class="table pmd-scroll-table align-middle mb-0 pmd-scroll-body-table">
+          <tbody id="pmdScrollBody"><tr><td colspan="999" class="pmd-loading">Memuat data...</td></tr></tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -760,11 +1147,6 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     { value: 'ALL', label: 'Semua' },
     { value: 'REGULER', label: 'Reguler' },
     { value: 'EVENT', label: 'Event' },
-    { value: 'BAR', label: 'Bar Reguler' },
-    { value: 'KITCHEN', label: 'Kitchen Reguler' },
-    { value: 'BAR_EVENT', label: 'Bar Event' },
-    { value: 'KITCHEN_EVENT', label: 'Kitchen Event' },
-    { value: 'OFFICE', label: 'Office Reguler' },
     { value: 'OTHER', label: 'Lainnya' }
   ];
 
@@ -785,6 +1167,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   var freezeBody = document.getElementById('pmdFreezeBody');
   var tableHead = document.getElementById('pmdScrollHead');
   var tableBody = document.getElementById('pmdScrollBody');
+  var tableHeadWrap = document.getElementById('pmdScrollHeadWrap');
   var tableWrap = document.getElementById('pmdTableWrap');
   var matrixShell = document.getElementById('pmdMatrixShell');
   var modalEl = document.getElementById('pmdDetailModal');
@@ -830,30 +1213,27 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   var stickySyncFrame = 0;
 
   function applyStickyLayout(){
-    var freezeHeaderRow = freezeHead.querySelector('tr:nth-child(2)');
-    if (!freezeHeaderRow || freezeHeaderRow.children.length < 4) { return; }
+    var freezeHeaderRow = freezeHead.querySelector('tr:first-child');
+    if (!freezeHeaderRow || freezeHeaderRow.children.length < 3) { return; }
 
     var c1 = freezeHeaderRow.children[0];
     var c2 = freezeHeaderRow.children[1];
     var c3 = freezeHeaderRow.children[2];
-    var c4 = freezeHeaderRow.children[3];
 
-    var w1 = Math.max(120, Math.ceil(c1.getBoundingClientRect().width));
-    var w2 = Math.max(140, Math.ceil(c2.getBoundingClientRect().width));
-    var w3 = Math.max(140, Math.ceil(c3.getBoundingClientRect().width));
-    var w4 = Math.max(150, Math.ceil(c4.getBoundingClientRect().width));
+    var w1 = Math.max(132, Math.ceil(c1.getBoundingClientRect().width));
+    var w2 = Math.max(188, Math.ceil(c2.getBoundingClientRect().width));
+    var w3 = Math.max(320, Math.ceil(c3.getBoundingClientRect().width));
 
     var rootStyle = document.documentElement.style;
     rootStyle.setProperty('--pmd-col-division', w1 + 'px');
     rootStyle.setProperty('--pmd-col-material', w2 + 'px');
-    rootStyle.setProperty('--pmd-col-profile', w3 + 'px');
-    rootStyle.setProperty('--pmd-col-summary', w4 + 'px');
+    rootStyle.setProperty('--pmd-col-detail', w3 + 'px');
     var firstHeaderRow = tableHead.querySelector('tr');
     var firstHeaderHeight = firstHeaderRow ? Math.max(0, Math.ceil(firstHeaderRow.getBoundingClientRect().height)) : 0;
     if (firstHeaderHeight > 0) {
       rootStyle.setProperty('--pmd-header-row-1', firstHeaderHeight + 'px');
     }
-    var metricHead = tableHead.querySelector('tr:nth-child(2) th.pmd-metric-cell');
+    var metricHead = tableHead.querySelector('th.pmd-metric-cell');
     if (metricHead) {
       var metricWidth = Math.max(112, Math.ceil(metricHead.getBoundingClientRect().width));
       rootStyle.setProperty('--pmd-date-col', metricWidth + 'px');
@@ -861,7 +1241,12 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     rootStyle.setProperty('--pmd-left-1', '0px');
     rootStyle.setProperty('--pmd-left-2', w1 + 'px');
     rootStyle.setProperty('--pmd-left-3', (w1 + w2) + 'px');
-    rootStyle.setProperty('--pmd-left-4', (w1 + w2 + w3) + 'px');
+  }
+
+  function syncStickyTopOffset(){
+    var navbar = document.getElementById('layout-navbar') || document.querySelector('.layout-navbar');
+    var topOffset = navbar ? Math.ceil(navbar.getBoundingClientRect().height) : 0;
+    document.documentElement.style.setProperty('--pmd-sticky-top', topOffset + 'px');
   }
 
   function syncStickyLayout(){
@@ -870,6 +1255,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     }
     stickySyncFrame = requestAnimationFrame(function(){
       stickySyncFrame = 0;
+      syncStickyTopOffset();
       applyStickyLayout();
     });
   }
@@ -879,8 +1265,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     return (
       Number.parseFloat(rootStyle.getPropertyValue('--pmd-col-division')) +
       Number.parseFloat(rootStyle.getPropertyValue('--pmd-col-material')) +
-      Number.parseFloat(rootStyle.getPropertyValue('--pmd-col-profile')) +
-      Number.parseFloat(rootStyle.getPropertyValue('--pmd-col-summary'))
+      Number.parseFloat(rootStyle.getPropertyValue('--pmd-col-detail'))
     ) || 0;
   }
 
@@ -888,7 +1273,11 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     if (!tableWrap) { return; }
     var todayCell = tableHead.querySelector('.pmd-day-head.is-today');
     if (!todayCell) { return; }
-    tableWrap.scrollLeft = Math.max(0, todayCell.offsetLeft - getStickyOffset() - 16);
+    var targetLeft = todayCell.offsetLeft - 12;
+    tableWrap.scrollLeft = Math.max(0, targetLeft);
+    if (tableHeadWrap) {
+      tableHeadWrap.scrollLeft = tableWrap.scrollLeft;
+    }
   }
 
   function readFilters(){
@@ -923,14 +1312,26 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     var divisionId = parseInt(divisionEl.value || '0', 10);
     var current = String(state.destination || destinationEl.value || 'ALL').toUpperCase();
     if (!Number.isFinite(divisionId) || divisionId <= 0 || !destinationGuardMap[String(divisionId)]) {
-      destinationEl.innerHTML = destinationOptionMeta.map(function(opt){
+      destinationEl.innerHTML = destinationOptionMeta.filter(function(opt){
+        return opt.value === 'ALL' || opt.value === 'REGULER' || opt.value === 'EVENT';
+      }).map(function(opt){
         return '<option value="' + esc(opt.value) + '">' + esc(opt.label) + '</option>';
       }).join('');
     } else {
       var allowed = (destinationGuardMap[String(divisionId)] || []).map(function(x){ return String(x || '').toUpperCase(); });
+      var groupOptions = [];
+      var hasRegular = allowed.some(function(opt){ return opt.indexOf('_EVENT') === -1; });
+      var hasEvent = allowed.some(function(opt){ return opt.indexOf('_EVENT') !== -1; });
+      if (hasRegular) {
+        groupOptions.push('REGULER');
+      }
+      if (hasEvent) {
+        groupOptions.push('EVENT');
+      }
       var options = destinationOptionMeta.filter(function(opt){
-        if (opt.value === 'ALL' || opt.value === 'REGULER' || opt.value === 'EVENT') { return true; }
-        return allowed.indexOf(String(opt.value || '').toUpperCase()) !== -1;
+        var value = String(opt.value || '').toUpperCase();
+        if (value === 'ALL') { return true; }
+        return groupOptions.indexOf(value) !== -1;
       });
       destinationEl.innerHTML = options.map(function(opt){
         return '<option value="' + esc(opt.value) + '">' + esc(opt.label) + '</option>';
@@ -1060,7 +1461,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       group: group,
       row: row,
       day: day || { adjustment: 0, closing: 0 },
-      defaultUnitCostInput: Number((row.metrics && row.metrics.unit_price) || 0)
+      defaultUnitCostInput: Number(resolveReferenceUnitPrice(row) || ((row.metrics && row.metrics.unit_price) || 0))
     };
 
     resetAdjustForm();
@@ -1364,6 +1765,8 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         profile_content_per_buy: Number(row.profile_content_per_buy || 0),
         profile_buy_uom_code: String(row.profile_buy_uom_code || ''),
         profile_content_uom_code: String(row.profile_content_uom_code || ''),
+        profile_standard_price: Number(row.profile_standard_price || 0),
+        profile_last_unit_price: Number(row.profile_last_unit_price || 0),
         daily: profileDaily,
         metrics: profileMetrics
       });
@@ -1399,8 +1802,14 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         closing_pack: 0,
         total_value: 0,
         mutation_total: 0,
-        hpp: 0
+        hpp: 0,
+        last_unit_price: 0,
+        standard_price: 0
       };
+      var refPriceTotal = 0;
+      var refPriceCount = 0;
+      var standardPriceTotal = 0;
+      var standardPriceCount = 0;
 
       group.children.forEach(function(child){
         dates.forEach(function(dateKey){
@@ -1441,6 +1850,14 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         agg.closing_pack += Number(child.metrics.closing_pack || 0);
         agg.total_value += Number(child.metrics.total_value || 0);
         agg.mutation_total += Number(child.metrics.mutation_total || 0);
+        if (Number(child.profile_last_unit_price || 0) > 0) {
+          refPriceTotal += Number(child.profile_last_unit_price || 0);
+          refPriceCount += 1;
+        }
+        if (Number(child.profile_standard_price || 0) > 0) {
+          standardPriceTotal += Number(child.profile_standard_price || 0);
+          standardPriceCount += 1;
+        }
       });
 
       if (agg.closing_content !== 0) {
@@ -1450,6 +1867,9 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         group.children.forEach(function(child){ sumHpp += Number(child.metrics.hpp || 0); });
         agg.hpp = sumHpp / group.children.length;
       }
+
+      agg.last_unit_price = refPriceCount > 0 ? (refPriceTotal / refPriceCount) : 0;
+      agg.standard_price = standardPriceCount > 0 ? (standardPriceTotal / standardPriceCount) : 0;
 
       group.daily = summaryDaily;
       group.metrics = agg;
@@ -1477,58 +1897,52 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     document.getElementById('pmdStatValue').textContent = money(totalValue);
   }
 
-  function summaryParentHtml(metrics){
+  function summaryCardHtml(metrics){
     return '' +
-      '<div class="pmd-summary-line"><strong>HPP Rata2:</strong> ' + esc(money(metrics.hpp || 0)) + '</div>' +
-      '<div class="pmd-summary-line"><strong>Awal Pack:</strong> ' + esc(num(metrics.opening_pack || 0)) + '</div>' +
-      '<div class="pmd-summary-line"><strong>Akhir Pack:</strong> ' + esc(num(metrics.closing_pack || 0)) + '</div>' +
-      '<div class="pmd-summary-line"><strong>Awal Isi:</strong> ' + esc(num(metrics.opening_content || 0)) + '</div>' +
-      '<div class="pmd-summary-line"><strong>Akhir Isi:</strong> ' + esc(num(metrics.closing_content || 0)) + '</div>' +
-      '<div class="pmd-summary-line"><strong>Nilai Sisa:</strong> ' + esc(money(metrics.total_value || 0)) + '</div>';
+      '<div class="pmd-summary-card">' +
+        '<div class="pmd-summary-head">' +
+          '<span class="pmd-summary-title">Nilai Sisa</span>' +
+          '<div class="pmd-summary-amount">' + esc(money(metrics.total_value || 0)) + '</div>' +
+        '</div>' +
+        '<div class="pmd-summary-grid">' +
+          '<div class="pmd-summary-metric"><span class="label">Awal Pack</span><strong>' + esc(num(metrics.opening_pack || 0)) + '</strong></div>' +
+          '<div class="pmd-summary-metric"><span class="label">Akhir Pack</span><strong>' + esc(num(metrics.closing_pack || 0)) + '</strong></div>' +
+          '<div class="pmd-summary-metric"><span class="label">Awal Isi</span><strong>' + esc(num(metrics.opening_content || 0)) + '</strong></div>' +
+          '<div class="pmd-summary-metric"><span class="label">Akhir Isi</span><strong>' + esc(num(metrics.closing_content || 0)) + '</strong></div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function summaryParentHtml(metrics){
+    return summaryCardHtml(metrics);
   }
 
   function summaryChildHtml(metrics){
-    return '' +
-      '<div class="pmd-summary-line"><strong>Awal Pack:</strong> ' + esc(num(metrics.opening_pack || 0)) + '</div>' +
-      '<div class="pmd-summary-line"><strong>Akhir Pack:</strong> ' + esc(num(metrics.closing_pack || 0)) + '</div>' +
-      '<div class="pmd-summary-line"><strong>Awal Isi:</strong> ' + esc(num(metrics.opening_content || 0)) + '</div>' +
-      '<div class="pmd-summary-line"><strong>Akhir Isi:</strong> ' + esc(num(metrics.closing_content || 0)) + '</div>' +
-      '<div class="pmd-summary-line"><strong>Nilai Sisa:</strong> ' + esc(money(metrics.total_value || 0)) + '</div>';
+    return summaryCardHtml(metrics);
   }
 
   function freezeHeaderHtml(){
     return '' +
       '<tr>' +
-        '<th class="pmd-freeze-spacer" colspan="4"></th>' +
-      '</tr>' +
-      '<tr>' +
         '<th class="pmd-freeze-col-1">Divisi / Tujuan</th>' +
         '<th class="pmd-freeze-col-2">Material</th>' +
-        '<th class="pmd-freeze-col-3">Profil</th>' +
-        '<th class="pmd-freeze-col-4">Ringkasan</th>' +
+        '<th class="pmd-freeze-col-3">Ringkasan</th>' +
       '</tr>' +
       '';
   }
 
   function headerHtml(){
-    var dayTop = state.dates.map(function(dateText, dateIndex){
+    return '<tr>' + state.dates.map(function(dateText, dateIndex){
       var cls = 'pmd-day-head' + (isToday(dateText) ? ' is-today' : '');
       var bandClass = dateIndex % 2 === 0 ? 'pmd-date-band-a' : 'pmd-date-band-b';
-      return '<th class="' + cls + ' ' + bandClass + '" colspan="5"><div>' + esc(String(dateText).slice(-2)) + '</div><span class="pmd-day-weekday">' + esc(weekdayName(dateText)) + '</span></th>';
-    }).join('');
-
-    var daySub = state.dates.map(function(dateText, dateIndex){
-      var todayCls = isToday(dateText) ? ' is-today' : '';
-      var bandClass = dateIndex % 2 === 0 ? ' pmd-date-band-a' : ' pmd-date-band-b';
-      return '' +
-        '<th class="pmd-metric-cell' + todayCls + bandClass + '">Awal</th>' +
-        '<th class="pmd-metric-cell' + todayCls + bandClass + '">In</th>' +
-        '<th class="pmd-metric-cell' + todayCls + bandClass + '">Out</th>' +
-        '<th class="pmd-metric-cell' + todayCls + bandClass + '">Adj</th>' +
-        '<th class="pmd-metric-cell' + todayCls + bandClass + '">Akhir</th>';
-    }).join('');
-
-    return '<tr>' + dayTop + '</tr><tr>' + daySub + '</tr>';
+      return '<th class="' + cls + ' ' + bandClass + ' pmd-metric-cell">'
+        + '<div class="pmd-headcard">'
+        +   '<div class="day">' + esc(String(dateText).slice(-2)) + '</div>'
+        +   '<div class="meta">' + esc(weekdayName(dateText)) + ' ' + esc(dateText.slice(5)) + '</div>'
+        +   (isToday(dateText) ? '<span class="today-tag">Hari ini</span>' : '')
+        + '</div>'
+        + '</th>';
+    }).join('') + '</tr>';
   }
 
   function dayCells(dailyMap, groupIndex, profileIndex, contentPerBuy){
@@ -1539,38 +1953,41 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       var todayCls = isToday(dateText) ? ' is-today' : '';
       var bandClass = dateIndex % 2 === 0 ? ' pmd-date-band-a' : ' pmd-date-band-b';
       var items = [
-        { key: 'opening', cls: 'pmd-metric-open' },
-        { key: 'in', cls: 'pmd-metric-in' },
-        { key: 'out', cls: 'pmd-metric-out' },
-        { key: 'adjustment', cls: 'pmd-metric-adj' },
-        { key: 'closing', cls: 'pmd-metric-close' }
+        { key: 'opening', cls: 'pmd-metric-open', label: 'Awal' },
+        { key: 'in', cls: 'pmd-metric-in', label: 'In' },
+        { key: 'out', cls: 'pmd-metric-out', label: 'Out' },
+        { key: 'adjustment', cls: 'pmd-metric-adj', label: 'Adj' },
+        { key: 'closing', cls: 'pmd-metric-close', label: 'Akhir' }
       ];
-      items.forEach(function(item){
+      var rowsHtml = items.map(function(item){
         var valueContent = Number(day[item.key] || 0);
         var packField = item.key + '_pack';
         var valuePack = Object.prototype.hasOwnProperty.call(day, packField)
           ? Number(day[packField] || 0)
           : (packSize > 0 ? (valueContent / packSize) : 0);
         var valueText = '<span class="pmd-cell-pack">' + esc(num(valuePack)) + '</span><span class="pmd-cell-content">' + esc(num(valueContent)) + '</span>';
-        var edgeClass = item.key === 'opening' ? ' pmd-day-start' : (item.key === 'closing' ? ' pmd-day-end' : '');
+        var contentHtml = '';
         if (item.key === 'adjustment') {
           var detailHtml = Math.abs(valueContent) > 0.000001
             ? '<button type="button" class="pmd-cell-btn ' + item.cls + '" data-action="detail" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '">' + valueText + '</button>'
-            : '<span class="pmd-cell-btn ' + item.cls + '">' + valueText + '</span>';
-          html += '<td class="pmd-metric-cell' + todayCls + bandClass + edgeClass + '">' +
-            '<div class="pmd-cell-action-wrap">' +
-              detailHtml +
-              '<button type="button" class="pmd-cell-adjust-trigger" data-action="adjust" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '" title="Adjustment langsung" aria-label="Adjustment langsung"><span class="pmd-cell-adjust-glyph" aria-hidden="true">&#9998;</span></button>' +
-            '</div>' +
-          '</td>';
+            : '<span class="pmd-cell-btn is-static ' + item.cls + '">' + valueText + '</span>';
+          contentHtml = '<div class="pmd-cell-action-wrap">'
+            + detailHtml
+            + '<button type="button" class="pmd-cell-adjust-trigger" data-action="adjust" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '" title="Adjustment langsung" aria-label="Adjustment langsung"><span class="pmd-cell-adjust-glyph" aria-hidden="true">&#9998;</span></button>'
+            + '</div>';
         } else if (Math.abs(valueContent) > 0.000001) {
-          html += '<td class="pmd-metric-cell' + todayCls + bandClass + edgeClass + '">' +
-            '<button type="button" class="pmd-cell-btn ' + item.cls + '" data-action="detail" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '">' + valueText + '</button>' +
-          '</td>';
+          contentHtml = '<button type="button" class="pmd-cell-btn ' + item.cls + '" data-action="detail" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '">' + valueText + '</button>';
         } else {
-          html += '<td class="pmd-metric-cell' + todayCls + bandClass + edgeClass + '"><span class="pmd-cell-btn ' + item.cls + '">' + valueText + '</span></td>';
+          contentHtml = '<span class="pmd-cell-btn is-static ' + item.cls + '">' + valueText + '</span>';
         }
-      });
+        return '<div class="pmd-metric-row ' + item.cls + '">'
+          + '<div class="pmd-metric-main"><span class="pmd-metric-label">' + item.label + '</span></div>'
+          + '<div class="pmd-metric-value-wrap">' + contentHtml + '</div>'
+          + '</div>';
+      }).join('');
+      html += '<td class="pmd-metric-cell' + todayCls + bandClass + ' pmd-day-start pmd-day-end">'
+        + '<div class="pmd-date-card">' + rowsHtml + '</div>'
+        + '</td>';
     });
     return html;
   }
@@ -1608,39 +2025,118 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     return <?php echo json_encode($lotAuditBaseUrl); ?> + (query ? ('?' + query) : '');
   }
 
+  function averageProfileContent(group){
+    var rows = (group && Array.isArray(group.children)) ? group.children : [];
+    var values = rows.map(function(child){
+      return Number(child.profile_content_per_buy || 0);
+    }).filter(function(value){
+      return value > 0;
+    });
+    if (!values.length) { return 0; }
+    var total = values.reduce(function(sum, value){ return sum + value; }, 0);
+    return total / values.length;
+  }
+
+  function resolveReferenceUnitPrice(row){
+    if (Number(row.profile_last_unit_price || 0) > 0) {
+      return Number(row.profile_last_unit_price || 0);
+    }
+    if (Number(row.profile_standard_price || 0) > 0) {
+      return Number(row.profile_standard_price || 0);
+    }
+    if (Number((row.metrics && row.metrics.last_unit_price) || 0) > 0) {
+      return Number((row.metrics && row.metrics.last_unit_price) || 0);
+    }
+    if (Number((row.metrics && row.metrics.standard_price) || 0) > 0) {
+      return Number((row.metrics && row.metrics.standard_price) || 0);
+    }
+    return 0;
+  }
+
+  function materialCellHtml(group, profile, expandable, expanded, variant){
+    var source = profile || group || {};
+    var firstChild = (group && Array.isArray(group.children) && group.children.length) ? group.children[0] : null;
+    var materialName = group.material_name || group.item_name || '-';
+    var materialCode = group.material_code || group.item_code || '-';
+    var chips = [];
+    var priceChips = [];
+    var actions = [];
+    var packContent = Number(source.profile_content_per_buy || averageProfileContent(group) || 0);
+    var contentUom = source.profile_content_uom_code || (firstChild && firstChild.profile_content_uom_code) || '';
+    var buyUom = source.profile_buy_uom_code || (firstChild && firstChild.profile_buy_uom_code) || '-';
+    var refUnitPrice = resolveReferenceUnitPrice(source);
+    var hppValue = Number((source.metrics && source.metrics.hpp) || 0);
+    var isParent = !profile;
+    var isChildRow = variant === 'child';
+    var stackClass = 'pmd-material-stack' + (isChildRow ? ' is-child' : ' is-parent');
+    var chipClass = 'pmd-material-chip' + (isChildRow ? ' is-child' : ' is-parent');
+
+    if (profile && source.profile_brand) {
+      chips.push('<span class="' + chipClass + '">' + esc(source.profile_brand) + '</span>');
+    }
+    if (profile && source.profile_name) {
+      chips.push('<span class="' + chipClass + '">' + esc(source.profile_name) + '</span>');
+    }
+    if (!profile && expandable) {
+      chips.push('<span class="' + chipClass + '">' + esc(String((group.children || []).length)) + ' profil</span>');
+    }
+    if (packContent > 0) {
+      chips.push('<span class="' + chipClass + '">' + esc(num(packContent)) + ' ' + esc(contentUom) + ' / ' + esc(buyUom) + '</span>');
+    }
+    if (refUnitPrice > 0) {
+      priceChips.push('<span class="' + chipClass + '">' + esc(isParent && expandable ? 'Harga satuan rata-rata ' : 'Harga satuan ') + esc(money(refUnitPrice)) + '</span>');
+    }
+    if (hppValue > 0) {
+      priceChips.push('<span class="' + chipClass + '">' + esc(isParent && expandable ? 'HPP rata-rata ' : 'HPP ') + esc(money(hppValue)) + '</span>');
+    }
+
+    actions.push('<a class="pmd-material-link" href="' + esc(buildDivisionLotUrl(source)) + '">Lihat Lot</a>');
+    if (!profile && expandable) {
+      actions.push('<button type="button" class="pmd-material-expand" data-action="toggle-group" data-group-key="' + esc(group.key) + '">' + (expanded ? 'Sembunyikan Profil' : 'Expand Profil') + '</button>');
+    }
+
+    return ''
+      + '<div class="' + stackClass + '">'
+      +   '<div class="pmd-name">' + esc(materialName) + '</div>'
+      +   '<div class="pmd-code">' + esc(materialCode) + '</div>'
+      +   (chips.length ? '<div class="pmd-material-meta">' + chips.join('') + '</div>' : '')
+      +   (priceChips.length ? '<div class="pmd-material-meta">' + priceChips.join('') + '</div>' : '')
+      +   '<div class="pmd-material-actions">' + actions.join('') + '</div>'
+      + '</div>';
+  }
+
+  function detailCellHtml(group, profile, summaryHtml){
+    var isParent = !profile;
+    var detailParts = [];
+    if (isParent && isExpandable(group)) {
+      if (Number((group.metrics && group.metrics.last_unit_price) || 0) > 0) {
+        detailParts.push('<span class="pmd-detail-chip">Harga satuan rata-rata ' + esc(money((group.metrics && group.metrics.last_unit_price) || 0)) + '</span>');
+      }
+    }
+
+    return ''
+      + '<div class="pmd-detail-card pmd-summary-only">'
+      +   (detailParts.length ? '<div class="pmd-detail-metas">' + detailParts.join('') + '</div>' : '')
+      +   summaryHtml
+      + '</div>';
+  }
+
   function freezeGroupRowHtml(group){
     var expandable = isExpandable(group);
     var expanded = isExpanded(group);
     var singleProfile = (!expandable && Array.isArray(group.children) && group.children.length === 1) ? group.children[0] : null;
     var divisionText = divisionLabel(group);
     var destinationText = destinationLabel(group);
-    var materialName = group.material_name || group.item_name || '-';
-    var materialCode = group.material_code || group.item_code || '-';
     var toggleHtml = expandable
       ? '<button type="button" class="pmd-toggle-arrow" title="Expand/Collapse" data-action="toggle-group" data-group-key="' + esc(group.key) + '">' + (expanded ? '&#9662;' : '&#9656;') + '</button>'
-      : '<span class="pmd-toggle-static" title="Baris tunggal">1</span>';
-    var profileHtml = '<div class="pmd-code">' + (expandable ? ('Memiliki ' + esc(String((group.children || []).length)) + ' rincian profil') : 'Baris profil tunggal') + '</div>';
-    if (singleProfile) {
-      var singleProfileText = singleProfile.profile_name || '-';
-      var singleDetail = [singleProfile.profile_brand || '-', singleProfile.profile_description || '-'].join(' | ');
-      var singleUnitInfo = num(singleProfile.profile_content_per_buy || 0) + ' ' + (singleProfile.profile_content_uom_code || '') + ' / ' + (singleProfile.profile_buy_uom_code || '-');
-      var singlePriceInfo = 'Harga Satuan: ' + money((singleProfile.metrics && singleProfile.metrics.unit_price) || 0) + ' / ' + (singleProfile.profile_content_uom_code || '-')
-        + ' | Harga/Pack: ' + money((singleProfile.metrics && singleProfile.metrics.unit_price_pack) || 0);
-      profileHtml = ''
-        + '<div class="pmd-profile-line">' + esc(singleProfileText) + '</div>'
-        + '<div class="pmd-profile-line">' + esc(singleDetail) + '</div>'
-        + '<div class="pmd-profile-unit">' + esc(singleUnitInfo) + '</div>'
-        + '<div class="pmd-profile-unit">' + esc(singlePriceInfo) + '</div>'
-        + '<div class="pmd-profile-unit"><a href="' + esc(buildDivisionLotUrl(singleProfile)) + '">Lihat Lot</a></div>';
-    }
+      : '<span class="pmd-toggle-static" title="Baris tunggal">&bull;</span>';
     var rowClass = expandable ? 'pmd-group-row pmd-group-expandable' : 'pmd-group-row pmd-group-single';
 
     return '' +
       '<tr class="' + rowClass + '">' +
-        '<td class="pmd-freeze-col-1">' + toggleHtml + '<span class="pmd-division-pill">' + esc(divisionText) + '</span><div class="pmd-code">' + esc(destinationText) + '</div></td>' +
-        '<td class="pmd-freeze-col-2"><div class="pmd-name">' + esc(materialName) + '</div><div class="pmd-code">' + esc(materialCode) + '</div></td>' +
-        '<td class="pmd-freeze-col-3">' + profileHtml + '</td>' +
-        '<td class="pmd-freeze-col-4">' + summaryParentHtml(group.metrics || {}) + '</td>' +
+        '<td class="pmd-freeze-col-1"><div class="pmd-division-cell">' + toggleHtml + '<div class="pmd-division-stack"><span class="pmd-division-pill">' + esc(divisionText) + '</span><span class="pmd-destination-chip">' + esc(destinationText) + '</span></div></div></td>' +
+        '<td class="pmd-freeze-col-2">' + materialCellHtml(group, singleProfile, expandable, expanded, 'parent') + '</td>' +
+        '<td class="pmd-freeze-col-3">' + detailCellHtml(group, singleProfile, summaryParentHtml(group.metrics || {})) + '</td>' +
       '</tr>';
   }
 
@@ -1661,25 +2157,12 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     return '<tr class="' + rowClass + '">' + dayCells(group.daily || {}, groupIndex, parentProfileIndex, packSize) + '</tr>';
   }
 
-  function freezeProfileRowHtml(profile){
-    var profileText = profile.profile_name || '-';
-    var detail = [profile.profile_brand || '-', profile.profile_description || '-'].join(' | ');
-    var unitInfo = num(profile.profile_content_per_buy || 0) + ' ' + (profile.profile_content_uom_code || '') + ' / ' + (profile.profile_buy_uom_code || '-');
-    var priceInfo = 'Harga Satuan: ' + money((profile.metrics && profile.metrics.unit_price) || 0) + ' / ' + (profile.profile_content_uom_code || '-')
-      + ' | Harga/Pack: ' + money((profile.metrics && profile.metrics.unit_price_pack) || 0);
-
+  function freezeProfileRowHtml(group, profile){
     return '' +
       '<tr class="pmd-child-row">' +
         '<td class="pmd-freeze-col-1"></td>' +
-        '<td class="pmd-freeze-col-2"><div class="pmd-code">Profil Material</div></td>' +
-        '<td class="pmd-freeze-col-3">'
-          + '<div class="pmd-profile-line">' + esc(profileText) + '</div>'
-          + '<div class="pmd-profile-line">' + esc(detail) + '</div>'
-          + '<div class="pmd-profile-unit">' + esc(unitInfo) + '</div>'
-          '<div class="pmd-profile-unit">' + esc(priceInfo) + '</div>' +
-          '<div class="pmd-profile-unit"><a href="' + esc(buildDivisionLotUrl(profile)) + '">Lihat Lot</a></div>' +
-        '</td>' +
-        '<td class="pmd-freeze-col-4">' + summaryChildHtml(profile.metrics || {}) + '</td>' +
+        '<td class="pmd-freeze-col-2">' + materialCellHtml(group, profile, false, false, 'child') + '</td>' +
+        '<td class="pmd-freeze-col-3">' + detailCellHtml(null, profile, summaryChildHtml(profile.metrics || {})) + '</td>' +
       '</tr>';
   }
 
@@ -1711,8 +2194,8 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     syncStickyLayout();
 
     if (!state.groups.length) {
-      freezeBody.innerHTML = '<tr><td colspan="4" class="pmd-empty">Belum ada data untuk filter ini.</td></tr>';
-      tableBody.innerHTML = '<tr><td colspan="' + Math.max(1, state.dates.length * 5) + '" class="pmd-empty"></td></tr>';
+      freezeBody.innerHTML = '<tr><td colspan="3" class="pmd-empty">Belum ada data untuk filter ini.</td></tr>';
+      tableBody.innerHTML = '<tr><td colspan="' + Math.max(1, state.dates.length) + '" class="pmd-empty"></td></tr>';
       requestAnimationFrame(function(){
         syncStickyLayout();
         syncPaneRowHeights();
@@ -1727,7 +2210,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       html += groupRowHtml(group, groupIndex);
       if (isExpandable(group) && isExpanded(group)) {
         (group.children || []).forEach(function(profile, profileIndex){
-          freezeHtml += freezeProfileRowHtml(profile);
+          freezeHtml += freezeProfileRowHtml(group, profile);
           html += profileRowHtml(group, groupIndex, profile, profileIndex);
         });
       }
@@ -1739,10 +2222,16 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       syncStickyLayout();
       syncPaneRowHeights();
       if (!tableWrap) { return; }
+      if (tableHeadWrap) {
+        tableHeadWrap.scrollLeft = keepScroll ? previousScrollLeft : tableWrap.scrollLeft;
+      }
       if (focusToday) {
-        scrollToTodayColumn();
+        requestAnimationFrame(scrollToTodayColumn);
       } else if (keepScroll) {
         tableWrap.scrollLeft = previousScrollLeft;
+        if (tableHeadWrap) {
+          tableHeadWrap.scrollLeft = previousScrollLeft;
+        }
       }
     });
   }
@@ -1877,7 +2366,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       .catch(function(err){
         freezeHead.innerHTML = '';
         tableHead.innerHTML = '';
-        freezeBody.innerHTML = '<tr><td colspan="4" class="pmd-empty">Gagal memuat matrix harian.</td></tr>';
+        freezeBody.innerHTML = '<tr><td colspan="3" class="pmd-empty">Gagal memuat matrix harian.</td></tr>';
         tableBody.innerHTML = '<tr><td colspan="1" class="pmd-empty"></td></tr>';
         showMessage(false, err && err.message ? err.message : 'Terjadi kesalahan saat memuat data.');
       });
@@ -1907,6 +2396,12 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       loadData();
     }
   });
+
+  if (tableWrap && tableHeadWrap) {
+    tableWrap.addEventListener('scroll', function(){
+      tableHeadWrap.scrollLeft = tableWrap.scrollLeft;
+    });
+  }
 
   matrixShell.addEventListener('click', function(ev){
     var toggle = ev.target && ev.target.closest ? ev.target.closest('[data-action="toggle-group"]') : null;

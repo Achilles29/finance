@@ -709,6 +709,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
               <?php $lotSummary = is_array($row['lot_summary'] ?? null) ? $row['lot_summary'] : []; ?>
               <?php $lotRows = array_values((array)($lotSummary['rows'] ?? [])); ?>
               <?php $hasLotChildren = count($lotRows) > 1; ?>
+              <?php $singleLot = (!$hasLotChildren && !empty($lotRows)) ? (array)$lotRows[0] : null; ?>
               <?php $lotToggleId = 'componentDailyLot_' . (int)$rowIndex; ?>
               <?php $avgLotCost = $lotAverageCost($lotSummary); ?>
               <?php $summaryClosingQty = (float)($row['total_closing'] ?? 0); ?>
@@ -807,23 +808,27 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
                         <span class="value">
                           <span class="component-daily-metric-actions">
                             <span><?php echo number_format((float)($cell['adj'] ?? 0), 2, ',', '.'); ?></span>
-                            <button
-                              type="button"
-                              class="btn btn-sm component-daily-adjust-btn btn-pencil"
-                              data-action="quick-adjust"
-                              data-adjustment-date="<?php echo html_escape((string)($date['date'] ?? '')); ?>"
-                              data-location-type="<?php echo html_escape((string)($row['location_type'] ?? '')); ?>"
-                              data-location-label="<?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? ''))); ?>"
-                              data-division-id="<?php echo (int)($row['division_id'] ?? 0); ?>"
-                              data-division-name="<?php echo html_escape((string)($row['division_name'] ?? '-')); ?>"
-                              data-component-id="<?php echo (int)($row['component_id'] ?? 0); ?>"
-                              data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
-                              data-uom-id="<?php echo (int)($row['uom_id'] ?? 0); ?>"
-                              data-uom-code="<?php echo html_escape((string)($row['uom_code'] ?? '')); ?>"
-                              data-available-qty="<?php echo html_escape(number_format((float)($cell['closing'] ?? 0), 4, '.', '')); ?>"
-                              title="Input adjustment cepat"
-                              aria-label="Input adjustment cepat"
-                            ><i class="ri ri-edit-line"></i></button>
+                            <?php if (!$hasLotChildren): ?>
+                              <button
+                                type="button"
+                                class="btn btn-sm component-daily-adjust-btn btn-pencil"
+                                data-action="quick-adjust"
+                                data-adjustment-date="<?php echo html_escape((string)($date['date'] ?? '')); ?>"
+                                data-location-type="<?php echo html_escape((string)($row['location_type'] ?? '')); ?>"
+                                data-location-label="<?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? ''))); ?>"
+                                data-division-id="<?php echo (int)($row['division_id'] ?? 0); ?>"
+                                data-division-name="<?php echo html_escape((string)($row['division_name'] ?? '-')); ?>"
+                                data-component-id="<?php echo (int)($row['component_id'] ?? 0); ?>"
+                                data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
+                                data-uom-id="<?php echo (int)($row['uom_id'] ?? 0); ?>"
+                                data-uom-code="<?php echo html_escape((string)($row['uom_code'] ?? '')); ?>"
+                                data-available-qty="<?php echo html_escape(number_format((float)($cell['closing'] ?? 0), 4, '.', '')); ?>"
+                                data-selected-lot-id="<?php echo (int)($singleLot['id'] ?? 0); ?>"
+                                data-lot-label="<?php echo html_escape((string)($singleLot['lot_no'] ?? '')); ?>"
+                                title="Input adjustment cepat"
+                                aria-label="Input adjustment cepat"
+                              ><i class="ri ri-edit-line"></i></button>
+                            <?php endif; ?>
                           </span>
                         </span>
                       </div>
@@ -936,7 +941,30 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
                           </div>
                           <div class="component-daily-metric-row metric-adj">
                             <span class="label">Adj</span>
-                            <span class="value"><span class="component-daily-lot-empty">-</span></span>
+                            <span class="value">
+                              <span class="component-daily-metric-actions">
+                                <span><?php echo number_format((float)($cell['adj'] ?? 0), 2, ',', '.'); ?></span>
+                                <button
+                                  type="button"
+                                  class="btn btn-sm component-daily-adjust-btn btn-pencil"
+                                  data-action="quick-adjust"
+                                  data-adjustment-date="<?php echo html_escape((string)($date['date'] ?? '')); ?>"
+                                  data-location-type="<?php echo html_escape((string)($row['location_type'] ?? '')); ?>"
+                                  data-location-label="<?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? ''))); ?>"
+                                  data-division-id="<?php echo (int)($row['division_id'] ?? 0); ?>"
+                                  data-division-name="<?php echo html_escape((string)($row['division_name'] ?? '-')); ?>"
+                                  data-component-id="<?php echo (int)($row['component_id'] ?? 0); ?>"
+                                  data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
+                                  data-uom-id="<?php echo (int)($row['uom_id'] ?? 0); ?>"
+                                  data-uom-code="<?php echo html_escape((string)($row['uom_code'] ?? '')); ?>"
+                                  data-available-qty="<?php echo html_escape(number_format((float)($cell['closing'] ?? 0), 4, '.', '')); ?>"
+                                  data-selected-lot-id="<?php echo (int)($lotRow['id'] ?? 0); ?>"
+                                  data-lot-label="<?php echo html_escape((string)($lotRow['lot_no'] ?? '')); ?>"
+                                  title="Input adjustment cepat lot"
+                                  aria-label="Input adjustment cepat lot"
+                                ><i class="ri ri-edit-line"></i></button>
+                              </span>
+                            </span>
                           </div>
                           <div class="component-daily-metric-row metric-close <?php echo $isToday ? 'component-daily-today-close' : ''; ?>">
                             <span class="label">Akhir</span>
@@ -964,7 +992,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
                         </div>
                         <div class="component-daily-metric-row metric-adj">
                           <span class="label">Adj</span>
-                          <span class="value"><span class="component-daily-lot-empty">-</span></span>
+                          <span class="value"><?php echo number_format((float)($lotRow['total_adj'] ?? 0), 2, ',', '.'); ?></span>
                         </div>
                         <div class="component-daily-metric-row metric-close">
                           <span class="label">Akhir</span>
@@ -1201,6 +1229,8 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
     componentName: '',
     locationType: '',
     divisionId: 0,
+    selectedLotId: 0,
+    lotLabel: '',
     uomId: 0,
     uomCode: ''
   };
@@ -1290,10 +1320,12 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
     state.componentName = String(button.dataset.componentName || '');
     state.locationType = String(button.dataset.locationType || '');
     state.divisionId = Number(button.dataset.divisionId || 0);
+    state.selectedLotId = Number(button.dataset.selectedLotId || 0);
+    state.lotLabel = String(button.dataset.lotLabel || '');
     state.uomId = Number(button.dataset.uomId || 0);
     state.uomCode = String(button.dataset.uomCode || '');
     fields.componentLabel.textContent = state.componentName || '-';
-    fields.contextLabel.textContent = [button.dataset.locationLabel || '-', button.dataset.divisionName || '-', state.uomCode || '-', button.dataset.adjustmentDate || '-'].join(' • ');
+    fields.contextLabel.textContent = [button.dataset.locationLabel || '-', button.dataset.divisionName || '-', state.lotLabel ? ('Lot ' + state.lotLabel) : '', state.uomCode || '-', button.dataset.adjustmentDate || '-'].filter(Boolean).join(' • ');
     fields.date.value = String(button.dataset.adjustmentDate || '');
     fields.available.value = String(button.dataset.availableQty || '0') + ' ' + state.uomCode;
     const modal = getModalInstance();
@@ -1318,6 +1350,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
       lines: [{
         component_id: state.componentId,
         uom_id: state.uomId,
+        selected_lot_id: state.selectedLotId > 0 ? state.selectedLotId : '',
         qty_spoil: parseFloat(fields.spoil.value || '0') || 0,
         spoil_reason_code: String(fields.spoilReason.value || 'other'),
         qty_waste: parseFloat(fields.waste.value || '0') || 0,

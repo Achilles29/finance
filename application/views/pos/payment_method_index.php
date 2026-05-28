@@ -3,11 +3,12 @@ $filters = is_array($filters ?? null) ? $filters : [];
 $filterOptions = is_array($filter_options ?? null) ? $filter_options : [];
 $accounts = is_array($filterOptions['accounts'] ?? null) ? $filterOptions['accounts'] : [];
 ?>
+
 <div class="container-xxl py-3">
   <div class="fin-page-header">
     <div>
       <h4 class="fin-page-title mb-1">Payment Method POS</h4>
-      <p class="fin-page-subtitle mb-0">Atur metode pembayaran kasir, mapping rekening perusahaan, dan visibilitas tombol kasir.</p>
+      <p class="fin-page-subtitle mb-0">Atur metode pembayaran kasir dan mapping rekening bank yang dipakai untuk settlement transaksi POS.</p>
     </div>
   </div>
 
@@ -37,7 +38,7 @@ $accounts = is_array($filterOptions['accounts'] ?? null) ? $filterOptions['accou
 
       <form class="row g-2 mb-3">
         <div class="col-md-10">
-          <input id="q" class="form-control" placeholder="Cari kode / nama metode / rekening">
+          <input id="q" class="form-control" placeholder="Cari kode / nama metode / nama bank / rekening">
         </div>
         <div class="col-md-1">
           <select class="form-select" id="limit">
@@ -59,11 +60,7 @@ $accounts = is_array($filterOptions['accounts'] ?? null) ? $filterOptions['accou
               <th>Kode</th>
               <th>Nama</th>
               <th>Tipe</th>
-              <th>Rekening</th>
-              <th class="text-center">Kembalian</th>
-              <th class="text-center">Ref No</th>
-              <th class="text-center">Kasir</th>
-              <th class="text-end">Urutan</th>
+              <th>Rekening Bank</th>
               <th class="text-center">Status</th>
               <th class="text-center" style="width:132px;">Aksi</th>
             </tr>
@@ -80,15 +77,18 @@ $accounts = is_array($filterOptions['accounts'] ?? null) ? $filterOptions['accou
   </div>
 </div>
 
-<div class="modal fade" id="paymentMethodModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade finance-ui-modal" id="paymentMethodModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="paymentMethodModalLabel">Tambah Payment Method</h5>
+        <div>
+          <h5 class="modal-title" id="paymentMethodModalLabel">Tambah Payment Method</h5>
+          <div class="small text-muted">Kode metode otomatis, dan rekening bank opsional bila pembayaran ini perlu settlement ke rekening tertentu.</div>
+        </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <form id="form-save" class="row g-2">
+        <form id="form-save" class="row g-3">
           <input type="hidden" name="id" value="">
           <div class="col-md-4">
             <label class="form-label mb-1 small text-muted">Kode</label>
@@ -111,41 +111,15 @@ $accounts = is_array($filterOptions['accounts'] ?? null) ? $filterOptions['accou
             </select>
           </div>
           <div class="col-md-8">
-            <label class="form-label mb-1 small text-muted">Company Account</label>
-            <select class="form-select" name="company_account_id">
+            <label class="form-label mb-1 small text-muted">Rekening Bank</label>
+            <select class="form-select" name="bank_account_id">
               <option value="">Tanpa Rekening</option>
               <?php foreach ($accounts as $account): ?>
                 <option value="<?php echo (int)$account['id']; ?>">
-                  <?php echo html_escape((string)($account['account_name'] ?? '-')); ?><?php echo !empty($account['account_code']) ? ' | ' . html_escape((string)$account['account_code']) : ''; ?>
+                  <?php echo html_escape((string)($account['bank_name'] ?? '-')); ?> | <?php echo html_escape((string)($account['account_name'] ?? '-')); ?><?php echo !empty($account['account_no']) ? ' | ' . html_escape((string)$account['account_no']) : ''; ?>
                 </option>
               <?php endforeach; ?>
             </select>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label mb-1 small text-muted">Urutan</label>
-            <input type="number" class="form-control" name="sort_order" value="0">
-          </div>
-          <div class="col-md-3 d-flex align-items-end">
-            <div class="form-check form-switch">
-              <input class="form-check-input" type="checkbox" id="allows_change" name="allows_change" value="1">
-              <label class="form-check-label" for="allows_change">Boleh kembalian</label>
-            </div>
-          </div>
-          <div class="col-md-3 d-flex align-items-end">
-            <div class="form-check form-switch">
-              <input class="form-check-input" type="checkbox" id="requires_reference_no" name="requires_reference_no" value="1">
-              <label class="form-check-label" for="requires_reference_no">Butuh ref no</label>
-            </div>
-          </div>
-          <div class="col-md-3 d-flex align-items-end">
-            <div class="form-check form-switch">
-              <input class="form-check-input" type="checkbox" id="show_in_cashier" name="show_in_cashier" value="1" checked>
-              <label class="form-check-label" for="show_in_cashier">Tampil di kasir</label>
-            </div>
-          </div>
-          <div class="col-12">
-            <label class="form-label mb-1 small text-muted">Catatan</label>
-            <textarea class="form-control" rows="2" name="notes"></textarea>
           </div>
         </form>
       </div>
@@ -178,18 +152,23 @@ document.addEventListener('DOMContentLoaded', function () {
   const modalTitle = document.getElementById('paymentMethodModalLabel');
 
   function escapeHtml(v) {
-    return String(v ?? '').replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+    return String(v ?? '').replace(/[&<>\"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[m]));
   }
-  function badge(flag, okLabel, noLabel) {
-    return Number(flag || 0) === 1
-      ? `<span class="badge bg-success-subtle text-success-emphasis">${okLabel}</span>`
-      : `<span class="badge bg-secondary-subtle text-secondary-emphasis">${noLabel}</span>`;
-  }
+
   function statusBadge(flag) {
     return Number(flag || 0) === 1
       ? '<span class="badge bg-success-subtle text-success-emphasis">Aktif</span>'
       : '<span class="badge bg-danger-subtle text-danger-emphasis">Nonaktif</span>';
   }
+
+  function bankLabel(row) {
+    const parts = [];
+    if (row.bank_name) parts.push(row.bank_name);
+    if (row.account_name) parts.push(row.account_name);
+    if (row.account_no) parts.push(row.account_no);
+    return parts.length ? escapeHtml(parts.join(' | ')) : '-';
+  }
+
   function qsFromState() {
     const p = new URLSearchParams();
     p.set('q', state.q);
@@ -199,26 +178,36 @@ document.addEventListener('DOMContentLoaded', function () {
     p.set('limit', String(state.limit || 50));
     return p.toString();
   }
+
   function syncControls() {
     document.getElementById('q').value = state.q;
     document.getElementById('limit').value = String(state.limit || 50);
     document.querySelectorAll('.pos-status-tab').forEach((btn) => btn.classList.toggle('active', btn.dataset.status === state.status));
     document.querySelectorAll('.pos-type-tab').forEach((btn) => btn.classList.toggle('active', btn.dataset.type === state.method_type));
   }
+
   async function getJson(url) {
     const r = await fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}});
     const t = await r.text();
-    const j = JSON.parse(t);
+    let j = null;
+    try { j = JSON.parse(t); } catch (e) { throw new Error('Response bukan JSON. Cek session / permission / error backend.'); }
     if (!r.ok || !j.ok) throw new Error(j.message || 'Gagal memuat data');
     return j;
   }
+
   async function postJson(url, payload) {
-    const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'}, body: JSON.stringify(payload)});
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+      body: JSON.stringify(payload)
+    });
     const t = await r.text();
-    const j = JSON.parse(t);
+    let j = null;
+    try { j = JSON.parse(t); } catch (e) { throw new Error('Response save bukan JSON. Kemungkinan ada warning / error PHP di backend.'); }
     if (!r.ok || !j.ok) throw new Error(j.message || 'Gagal menyimpan data');
     return j;
   }
+
   function renderRows(rows) {
     if (!rows.length) {
       tableBody.innerHTML = '';
@@ -231,11 +220,7 @@ document.addEventListener('DOMContentLoaded', function () {
         <td class="text-nowrap">${escapeHtml(r.method_code || '-')}</td>
         <td>${escapeHtml(r.method_name || '-')}</td>
         <td>${escapeHtml(r.method_type || '-')}</td>
-        <td>${escapeHtml(r.account_name || '-')}</td>
-        <td class="text-center">${badge(r.allows_change, 'Ya', 'Tidak')}</td>
-        <td class="text-center">${badge(r.requires_reference_no, 'Ya', 'Tidak')}</td>
-        <td class="text-center">${badge(r.show_in_cashier, 'Tampil', 'Sembunyi')}</td>
-        <td class="text-end">${Number(r.sort_order || 0)}</td>
+        <td>${bankLabel(r)}</td>
         <td class="text-center">${statusBadge(r.is_active)}</td>
         <td class="text-center">
           <div class="d-inline-flex gap-1">
@@ -246,6 +231,7 @@ document.addEventListener('DOMContentLoaded', function () {
       </tr>
     `).join('');
   }
+
   function renderPagination(meta) {
     const total = Number(meta.total || 0);
     const page = Number(meta.page || 1);
@@ -259,6 +245,7 @@ document.addEventListener('DOMContentLoaded', function () {
       return `<button type="button" class="btn btn-sm ${p === page ? 'btn-dark' : 'btn-outline-secondary'} btn-page" data-page="${p}">${p}</button>`;
     }).join('');
   }
+
   async function loadRows() {
     syncControls();
     const json = await getJson('<?php echo site_url('pos/payment-methods/data'); ?>?' + qsFromState());
@@ -266,27 +253,25 @@ document.addEventListener('DOMContentLoaded', function () {
     renderPagination(json.meta || {});
     history.replaceState(null, '', '<?php echo site_url('pos/payment-methods'); ?>?' + qsFromState());
   }
+
   function openNew() {
     form.reset();
     form.elements.id.value = '';
     form.elements.method_code.value = '';
-    form.elements.show_in_cashier.checked = true;
     modalTitle.textContent = 'Tambah Payment Method';
     modal && modal.show();
   }
+
   function openEdit(row) {
     form.reset();
     Object.keys(row || {}).forEach((key) => {
       if (!form.elements[key]) return;
-      if (form.elements[key].type === 'checkbox') {
-        form.elements[key].checked = Number(row[key] || 0) === 1;
-      } else {
-        form.elements[key].value = row[key] == null ? '' : row[key];
-      }
+      form.elements[key].value = row[key] == null ? '' : row[key];
     });
     modalTitle.textContent = `Edit Payment Method: ${row.method_name || ''}`;
     modal && modal.show();
   }
+
   let timer = null;
   document.getElementById('q').addEventListener('input', (e) => {
     state.q = e.target.value || '';
@@ -299,23 +284,39 @@ document.addEventListener('DOMContentLoaded', function () {
   document.querySelectorAll('.pos-type-tab').forEach((btn) => btn.addEventListener('click', () => { state.method_type = btn.dataset.type; state.page = 1; loadRows().catch((err) => alert(err.message)); }));
   document.getElementById('btn-clear-filter').addEventListener('click', () => { state.q=''; state.status='ACTIVE'; state.method_type='ALL'; state.page=1; state.limit=50; loadRows().catch((err)=>alert(err.message)); });
   document.getElementById('btn-new').addEventListener('click', openNew);
-  pagination.addEventListener('click', (e) => { const btn = e.target.closest('.btn-page'); if (!btn) return; state.page = parseInt(btn.dataset.page || '1', 10) || 1; loadRows().catch((err)=>alert(err.message)); });
+  pagination.addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn-page');
+    if (!btn) return;
+    state.page = parseInt(btn.dataset.page || '1', 10) || 1;
+    loadRows().catch((err) => alert(err.message));
+  });
   tableBody.addEventListener('click', async (e) => {
     const editBtn = e.target.closest('.btn-edit');
-    if (editBtn) { openEdit(JSON.parse(editBtn.dataset.row)); return; }
+    if (editBtn) {
+      openEdit(JSON.parse(editBtn.dataset.row));
+      return;
+    }
     const toggleBtn = e.target.closest('.btn-toggle');
     if (!toggleBtn) return;
     if (!confirm('Ubah status payment method ini?')) return;
-    try { await postJson(`<?php echo site_url('pos/payment-methods/toggle'); ?>/${toggleBtn.dataset.id}`, {}); await loadRows(); } catch (err) { alert(err.message); }
+    try {
+      await postJson(`<?php echo site_url('pos/payment-methods/toggle'); ?>/${toggleBtn.dataset.id}`, {});
+      await loadRows();
+    } catch (err) {
+      alert(err.message);
+    }
   });
   document.getElementById('btn-save').addEventListener('click', async () => {
-    const fd = new FormData(form);
-    const payload = Object.fromEntries(fd.entries());
-    payload.allows_change = form.elements.allows_change.checked ? 1 : 0;
-    payload.requires_reference_no = form.elements.requires_reference_no.checked ? 1 : 0;
-    payload.show_in_cashier = form.elements.show_in_cashier.checked ? 1 : 0;
-    try { await postJson('<?php echo site_url('pos/payment-methods/save'); ?>', payload); modal && modal.hide(); await loadRows(); } catch (err) { alert(err.message); }
+    const payload = Object.fromEntries(new FormData(form).entries());
+    try {
+      await postJson('<?php echo site_url('pos/payment-methods/save'); ?>', payload);
+      modal && modal.hide();
+      await loadRows();
+    } catch (err) {
+      alert(err.message);
+    }
   });
+
   loadRows().catch((err) => alert(err.message));
 });
 </script>

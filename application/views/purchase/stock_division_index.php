@@ -176,12 +176,100 @@ $summaryDivisionCount = count($summaryDivisions);
 ?>
 
 <style>
+  :root {
+    --dv-sticky-top: 0px;
+  }
+  .dv-sticky-head {
+    position: fixed;
+    top: var(--dv-sticky-top);
+    left: 0;
+    display: none;
+    overflow: hidden;
+    z-index: 1035;
+    pointer-events: none;
+    background: #fff8f4;
+    border: 1px solid #ead5ca;
+    border-bottom: 0;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 10px 24px rgba(95, 23, 39, 0.12);
+  }
+  .dv-sticky-head table {
+    margin-bottom: 0;
+    transform: translateX(0);
+    will-change: transform;
+  }
+  .dv-sticky-head th {
+    background: #fff8f4 !important;
+    box-shadow: inset 0 -1px 0 #e8d1c5;
+    white-space: nowrap;
+  }
+  .dv-table-wrap {
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+  .dv-stock-table thead th {
+    background: #fff8f4;
+    box-shadow: inset 0 -1px 0 #e8d1c5;
+  }
+  .dv-stock-table th:nth-child(3),
+  .dv-stock-table td:nth-child(3) {
+    min-width: 280px;
+  }
   .dv-parent-row {
     background: #fff6ef;
     border-top: 2px solid #f0d8ca;
   }
   .dv-child-row td {
     background: #fff;
+  }
+  .dv-name-cell {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    min-width: 0;
+  }
+  .dv-name-cell-child {
+    padding-left: 1.4rem;
+    position: relative;
+  }
+  .dv-name-cell-child::before {
+    content: '';
+    position: absolute;
+    left: 0.55rem;
+    top: 0.2rem;
+    bottom: 0.2rem;
+    width: 3px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #ebd7cc 0%, #d9b6a4 100%);
+  }
+  .dv-name-body {
+    min-width: 0;
+    display: grid;
+    gap: 0.22rem;
+  }
+  .dv-name-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.32rem;
+  }
+  .dv-name-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.48rem;
+    font-size: 0.68rem;
+    font-weight: 800;
+    max-width: 100%;
+    color: #855346;
+    border: 1px solid #ead5ca;
+    background: #fff8f3;
+  }
+  .dv-name-chip.is-parent {
+    border-radius: 999px;
+  }
+  .dv-name-chip.is-child {
+    border-radius: 10px;
+    border-style: dashed;
+    background: #fffaf7;
   }
   .dv-toggle {
     border: 1px solid #d7b6a8;
@@ -218,10 +306,18 @@ $summaryDivisionCount = count($summaryDivisions);
   .dv-object-name {
     font-weight: 700;
     color: #4e1f2e;
+    line-height: 1.25;
   }
   .dv-object-code {
     color: #876a65;
     font-size: 0.8rem;
+  }
+  .dv-child-label {
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #9a6f60;
   }
 </style>
 
@@ -350,8 +446,9 @@ $summaryDivisionCount = count($summaryDivisions);
 </div>
 
 <div class="card">
-  <div class="table-responsive">
-    <table class="table table-striped table-hover mb-0">
+  <div class="dv-sticky-head" id="dvStickyHead" aria-hidden="true"></div>
+  <div class="table-responsive dv-table-wrap">
+    <table class="table table-striped table-hover mb-0 dv-stock-table" id="dvStockTable">
       <thead>
         <tr>
           <th>Divisi</th>
@@ -389,6 +486,8 @@ $summaryDivisionCount = count($summaryDivisions);
               $itemText = trim($itemName);
               $materialText = trim($materialName);
               $objectText = $itemText !== '' ? $itemText : ($materialText !== '' ? $materialText : '-');
+              $objectCode = $materialCode !== '' ? $materialCode : $itemCode;
+              $objectKind = $materialText !== '' ? 'Material' : 'Item';
 
               $collapseClass = 'dv-parent-' . ($idx + 1);
               $isExpandable = ((int)($parent['profile_count'] ?? 0) > 1);
@@ -417,12 +516,25 @@ $summaryDivisionCount = count($summaryDivisions);
               <td><?php echo html_escape($divisionText); ?></td>
               <td><?php echo html_escape($destinationText); ?></td>
               <td>
-                <?php if ($isExpandable): ?>
-                  <button type="button" class="dv-toggle" data-bs-toggle="collapse" data-bs-target=".<?php echo html_escape($collapseClass); ?>" aria-expanded="false">+</button>
-                <?php else: ?>
-                  <span class="dv-static">=</span>
-                <?php endif; ?>
-                <span class="dv-object-name"><?php echo html_escape($objectText); ?></span>
+                <div class="dv-name-cell">
+                  <?php if ($isExpandable): ?>
+                    <button type="button" class="dv-toggle" data-bs-toggle="collapse" data-bs-target=".<?php echo html_escape($collapseClass); ?>" aria-expanded="false">+</button>
+                  <?php else: ?>
+                    <span class="dv-static">=</span>
+                  <?php endif; ?>
+                  <div class="dv-name-body">
+                    <div class="dv-object-name"><?php echo html_escape($objectText); ?></div>
+                    <div class="dv-name-meta">
+                      <?php if ($objectCode !== ''): ?>
+                        <span class="dv-name-chip is-parent"><?php echo html_escape($objectCode); ?></span>
+                      <?php endif; ?>
+                      <span class="dv-name-chip is-parent"><?php echo html_escape($objectKind); ?></span>
+                      <?php if ($isExpandable): ?>
+                        <span class="dv-name-chip is-parent"><?php echo (int)($parent['profile_count'] ?? 0); ?> profil</span>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+                </div>
               </td>
               <td><?php echo $profileCol; ?></td>
               <td><?php echo $brandCol; ?></td>
@@ -451,7 +563,20 @@ $summaryDivisionCount = count($summaryDivisions);
               <tr class="dv-child-row <?php echo html_escape($childClass); ?>">
                 <td></td>
                 <td></td>
-                <td class="ps-4 text-muted">Profil Item</td>
+                <td>
+                  <div class="dv-name-cell dv-name-cell-child">
+                    <div class="dv-name-body">
+                      <div class="dv-child-label">Profil Turunan</div>
+                      <div class="dv-object-name"><?php echo html_escape($objectText); ?></div>
+                      <div class="dv-name-meta">
+                        <?php if ($objectCode !== ''): ?>
+                          <span class="dv-name-chip is-child"><?php echo html_escape($objectCode); ?></span>
+                        <?php endif; ?>
+                        <span class="dv-name-chip is-child">Child</span>
+                      </div>
+                    </div>
+                  </div>
+                </td>
                 <td>
                   <?php echo html_escape($profileText); ?>
                   <div class="small mt-1"><a href="<?php echo html_escape($lotUrl); ?>">Lihat Lot</a></div>
@@ -473,3 +598,61 @@ $summaryDivisionCount = count($summaryDivisions);
     </table>
   </div>
 </div>
+
+<script>
+(function(){
+  function syncDivisionStickyTop(){
+    var navbar = document.getElementById('layout-navbar') || document.querySelector('.layout-navbar');
+    var topOffset = navbar ? Math.ceil(navbar.getBoundingClientRect().height) : 0;
+    document.documentElement.style.setProperty('--dv-sticky-top', topOffset + 'px');
+    return topOffset;
+  }
+
+  function initDivisionFloatingHeader(){
+    var wrapper = document.querySelector('.dv-table-wrap');
+    var table = document.getElementById('dvStockTable');
+    var host = document.getElementById('dvStickyHead');
+    if (!wrapper || !table || !host) { return; }
+    var thead = table.querySelector('thead');
+    if (!thead) { return; }
+
+    host.innerHTML = '<table class="' + table.className + '"><thead>' + thead.innerHTML + '</thead></table>';
+    var cloneTable = host.querySelector('table');
+    var cloneHead = cloneTable ? cloneTable.querySelector('thead') : null;
+    if (!cloneTable || !cloneHead) { return; }
+
+    function syncFloatingHeader(){
+      var stickyTop = syncDivisionStickyTop();
+      var wrapperRect = wrapper.getBoundingClientRect();
+      var tableRect = table.getBoundingClientRect();
+      var originalThs = Array.prototype.slice.call(thead.querySelectorAll('th'));
+      var cloneThs = Array.prototype.slice.call(cloneHead.querySelectorAll('th'));
+      originalThs.forEach(function(th, index){
+        if (!cloneThs[index]) { return; }
+        var width = Math.ceil(th.getBoundingClientRect().width);
+        cloneThs[index].style.width = width + 'px';
+        cloneThs[index].style.minWidth = width + 'px';
+        cloneThs[index].style.maxWidth = width + 'px';
+      });
+      cloneTable.style.width = Math.ceil(table.getBoundingClientRect().width) + 'px';
+      cloneTable.style.transform = 'translateX(' + (-wrapper.scrollLeft) + 'px)';
+
+      var headerHeight = Math.ceil(thead.getBoundingClientRect().height || 0);
+      var shouldShow = wrapperRect.top <= stickyTop && tableRect.bottom > (stickyTop + headerHeight);
+      host.style.display = shouldShow ? 'block' : 'none';
+      host.style.top = stickyTop + 'px';
+      host.style.left = Math.ceil(wrapperRect.left) + 'px';
+      host.style.width = Math.ceil(wrapperRect.width) + 'px';
+    }
+
+    wrapper.addEventListener('scroll', syncFloatingHeader, { passive: true });
+    window.addEventListener('scroll', syncFloatingHeader, { passive: true });
+    window.addEventListener('resize', syncFloatingHeader);
+    requestAnimationFrame(syncFloatingHeader);
+  }
+
+  syncDivisionStickyTop();
+  window.addEventListener('resize', syncDivisionStickyTop);
+  initDivisionFloatingHeader();
+})();
+</script>

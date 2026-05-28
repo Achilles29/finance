@@ -1045,6 +1045,77 @@ class Inventory_tools extends CI_Controller
         $this->run_purchase_catalog_profile_key_normalize_cli(false);
     }
 
+    public function rebuild_purchase_impact()
+    {
+        $cliArgs = $this->parseCliArgs();
+        $userId = (int)($cliArgs['user_id'] ?? 0);
+        $dryRun = !isset($cliArgs['dry_run']) || !in_array(strtolower(trim((string)($cliArgs['dry_run'] ?? '1'))), ['0', 'false', 'no'], true);
+        $payload = [
+            'scope' => strtoupper(trim((string)($cliArgs['scope'] ?? 'TRANSACTION'))),
+            'purchase_order_id' => (int)($cliArgs['purchase_order_id'] ?? 0),
+            'po_no' => trim((string)($cliArgs['po_no'] ?? '')),
+            'item_id' => (int)($cliArgs['item_id'] ?? 0),
+            'material_id' => (int)($cliArgs['material_id'] ?? 0),
+            'date_from' => trim((string)($cliArgs['date_from'] ?? '')),
+            'date_to' => trim((string)($cliArgs['date_to'] ?? '')),
+            'limit' => (int)($cliArgs['limit'] ?? 300),
+            'dry_run' => $dryRun,
+        ];
+
+        $statusesRaw = trim((string)($cliArgs['statuses'] ?? ''));
+        if ($statusesRaw !== '') {
+            $payload['statuses'] = array_values(array_filter(array_map(static function ($value) {
+                return strtoupper(trim((string)$value));
+            }, explode(',', $statusesRaw))));
+        }
+
+        $result = $this->Purchase_model->rebuild_purchase_impacts($payload, $userId, 'CLI_REBUILD_IMPACT');
+        if (!($result['ok'] ?? false)) {
+            fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+            exit(1);
+        }
+
+        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+        exit(0);
+    }
+
+    public function repair_posted_receipt_profile_keys()
+    {
+        $cliArgs = $this->parseCliArgs();
+        $userId = (int)($cliArgs['user_id'] ?? 0);
+        $purchaseOrderId = (int)($cliArgs['purchase_order_id'] ?? 0);
+        $poNo = trim((string)($cliArgs['po_no'] ?? ''));
+
+        if ($purchaseOrderId <= 0 && $poNo !== '') {
+            $order = $this->db
+                ->select('id')
+                ->from('pur_purchase_order')
+                ->where('po_no', $poNo)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $purchaseOrderId = (int)($order['id'] ?? 0);
+        }
+
+        if ($purchaseOrderId <= 0) {
+            $result = [
+                'ok' => false,
+                'message' => 'Parameter purchase_order_id atau po_no wajib diisi.',
+            ];
+            fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+            exit(1);
+        }
+
+        $result = $this->Purchase_model->repairPostedReceiptProfileKeys($purchaseOrderId, $userId);
+        if (!($result['ok'] ?? false)) {
+            fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+            exit(1);
+        }
+
+        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+        exit(0);
+    }
+
     private function run_purchase_catalog_profile_key_normalize_cli(bool $forceDryRun = false): void
     {
         $cliArgs = $this->parseCliArgs();

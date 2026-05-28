@@ -11,6 +11,7 @@ class Master_relation extends MY_Controller
         parent::__construct();
         $this->load->model('Master_model');
         $this->load->library('form_validation');
+        $this->load->library('PosBundlePricingService');
     }
 
     public function product_recipe_hub()
@@ -776,6 +777,288 @@ class Master_relation extends MY_Controller
         redirect('master/relation/product-extra/' . (int)$row['product_id']);
     }
 
+    public function product_bundle_hub()
+    {
+        if (!$this->db->table_exists('pos_product_bundle')) {
+            show_error('Tabel pos_product_bundle belum tersedia. Jalankan fondasi POS bundle terlebih dulu.', 500, 'Bundle Produk Belum Siap');
+        }
+
+        $filters = [
+            'q' => trim((string)$this->input->get('q', true)),
+            'status' => strtoupper(trim((string)$this->input->get('status', true) ?: 'ACTIVE')),
+            'product_division_id' => (int)$this->input->get('product_division_id', true),
+            'pos_scope' => strtoupper(trim((string)$this->input->get('pos_scope', true) ?: 'ALL')),
+        ];
+        if (!in_array($filters['status'], ['ACTIVE', 'INACTIVE', 'ALL'], true)) {
+            $filters['status'] = 'ACTIVE';
+        }
+        if (!in_array($filters['pos_scope'], ['ALL', 'REGULAR', 'EVENT'], true)) {
+            $filters['pos_scope'] = 'ALL';
+        }
+
+        $this->db->select("
+            b.*,
+            pd.name AS product_division_name,
+            COUNT(bl.id) AS total_line,
+            COALESCE(SUM(bl.qty * COALESCE(bl.unit_price_override, p.selling_price, 0)), 0) AS line_value_total
+        ", false);
+        $this->db->from('pos_product_bundle b');
+        $this->db->join('mst_product_division pd', 'pd.id = b.product_division_id', 'left');
+        $this->db->join('pos_product_bundle_line bl', 'bl.bundle_id = b.id', 'left');
+        $this->db->join('mst_product p', 'p.id = bl.product_id', 'left');
+        if ($filters['q'] !== '') {
+            $this->db->group_start();
+            $this->db->like('b.bundle_code', $filters['q']);
+            $this->db->or_like('b.bundle_name', $filters['q']);
+            $this->db->or_like('b.description', $filters['q']);
+            $this->db->group_end();
+        }
+        if ($filters['status'] !== 'ALL') {
+            $this->db->where('b.is_active', $filters['status'] === 'ACTIVE' ? 1 : 0);
+        }
+        if ($filters['product_division_id'] > 0) {
+            $this->db->where('b.product_division_id', $filters['product_division_id']);
+        }
+        if ($filters['pos_scope'] !== 'ALL') {
+            $this->db->where_in('b.pos_scope', [$filters['pos_scope'], 'ALL']);
+        }
+        $this->db->group_by('b.id');
+        if ($this->db->field_exists('sort_order', 'mst_product_division')) {
+            $this->db->order_by('COALESCE(pd.sort_order, 999999)', 'ASC', false);
+        }
+        $this->db->order_by('pd.name', 'ASC');
+        $this->db->order_by('b.bundle_name', 'ASC');
+        $rows = $this->db->get()->result_array();
+
+        $summary = [
+            'total_bundle' => count($rows),
+            'active_bundle' => 0,
+            'inactive_bundle' => 0,
+            'regular_scope' => 0,
+            'event_scope' => 0,
+            'line_total' => 0,
+        ];
+        foreach ($rows as $row) {
+            if ((int)($row['is_active'] ?? 0) === 1) {
+                $summary['active_bundle']++;
+            } else {
+                $summary['inactive_bundle']++;
+            }
+            if (($row['pos_scope'] ?? '') === 'EVENT') {
+                $summary['event_scope']++;
+            } else {
+                $summary['regular_scope']++;
+            }
+            $summary['line_total'] += (int)($row['total_line'] ?? 0);
+        }
+
+        $this->render('master/product_bundle_hub', [
+            'title' => 'Bundle Produk',
+            'active_menu' => 'master.product.bundle',
+            'rows' => $rows,
+            'filters' => $filters,
+            'summary' => $summary,
+            'product_division_options' => $this->Master_model->get_options('mst_product_division', 'id', 'name', true),
+        ]);
+    }
+
+    public function product_bundle(int $bundleId)
+    {
+        $bundle = $this->loadProductBundle($bundleId);
+        if (!$bundle) {
+            show_404();
+        }
+
+        $rows = $this->loadProductBundleLines($bundleId);
+        $summary = $this->buildProductBundleSummary($bundle, $rows);
+        $pricingPreview = $this->buildProductBundlePricingPreview($bundle, $rows);
+
+        $this->render('master/product_bundle_show', [
+            'title' => 'Detail Bundle Produk',
+            'active_menu' => 'master.product.bundle',
+            'bundle' => $bundle,
+            'rows' => $rows,
+            'summary' => $summary,
+            'pricing_preview' => $pricingPreview,
+        ]);
+    }
+
+    public function product_bundle_create()
+    {
+        if (!$this->db->table_exists('pos_product_bundle')) {
+            show_error('Tabel pos_product_bundle belum tersedia. Jalankan fondasi POS bundle terlebih dulu.', 500, 'Bundle Produk Belum Siap');
+        }
+
+        $this->render('master/product_bundle_edit', [
+            'title' => 'Tambah Bundle Produk',
+            'active_menu' => 'master.product.bundle',
+            'bundle' => null,
+            'rows' => [],
+            'summary' => [
+                'line_count' => 0,
+                'line_value_total' => 0,
+                'bundle_price' => 0,
+                'bundle_gap' => 0,
+                'line_qty_total' => 0,
+            ],
+            'product_division_options' => $this->Master_model->get_options('mst_product_division', 'id', 'name', true),
+            'save_url' => site_url('master/relation/product-bundle/create/save'),
+            'back_url' => site_url('master/relation/product-bundle'),
+        ]);
+    }
+
+    public function product_bundle_store()
+    {
+        $payload = $this->normalizeProductBundlePayload(0);
+        if (empty($payload['ok'])) {
+            $this->session->set_flashdata('error', (string)($payload['message'] ?? 'Payload bundle produk tidak valid.'));
+            redirect('master/relation/product-bundle/create');
+            return;
+        }
+
+        $this->db->trans_start();
+        $this->db->insert('pos_product_bundle', $payload['bundle']);
+        $bundleId = (int)$this->db->insert_id();
+        foreach ($payload['lines'] as $line) {
+            $line['bundle_id'] = $bundleId;
+            $this->db->insert('pos_product_bundle_line', $line);
+        }
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            $this->session->set_flashdata('error', 'Gagal menyimpan bundle produk.');
+            redirect('master/relation/product-bundle/create');
+            return;
+        }
+
+        $this->session->set_flashdata('success', 'Bundle produk berhasil ditambahkan.');
+        redirect('master/relation/product-bundle/' . $bundleId);
+    }
+
+    public function product_bundle_edit(int $bundleId)
+    {
+        $bundle = $this->loadProductBundle($bundleId);
+        if (!$bundle) {
+            show_404();
+        }
+
+        $rows = $this->loadProductBundleLines($bundleId);
+        $summary = $this->buildProductBundleSummary($bundle, $rows);
+
+        $this->render('master/product_bundle_edit', [
+            'title' => 'Edit Bundle Produk',
+            'active_menu' => 'master.product.bundle',
+            'bundle' => $bundle,
+            'rows' => $rows,
+            'summary' => $summary,
+            'product_division_options' => $this->Master_model->get_options('mst_product_division', 'id', 'name', true),
+            'save_url' => site_url('master/relation/product-bundle/edit/' . $bundleId . '/save'),
+            'back_url' => site_url('master/relation/product-bundle/' . $bundleId),
+        ]);
+    }
+
+    public function product_bundle_update(int $bundleId)
+    {
+        $bundle = $this->loadProductBundle($bundleId);
+        if (!$bundle) {
+            show_404();
+        }
+
+        $payload = $this->normalizeProductBundlePayload($bundleId);
+        if (empty($payload['ok'])) {
+            $this->session->set_flashdata('error', (string)($payload['message'] ?? 'Payload bundle produk tidak valid.'));
+            redirect('master/relation/product-bundle/edit/' . $bundleId);
+            return;
+        }
+
+        $this->db->trans_start();
+        $this->db->where('id', $bundleId)->update('pos_product_bundle', $payload['bundle']);
+        $this->db->where('bundle_id', $bundleId)->delete('pos_product_bundle_line');
+        foreach ($payload['lines'] as $line) {
+            $line['bundle_id'] = $bundleId;
+            $this->db->insert('pos_product_bundle_line', $line);
+        }
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            $this->session->set_flashdata('error', 'Gagal memperbarui bundle produk.');
+            redirect('master/relation/product-bundle/edit/' . $bundleId);
+            return;
+        }
+
+        $this->session->set_flashdata('success', 'Bundle produk berhasil diperbarui.');
+        redirect('master/relation/product-bundle/' . $bundleId);
+    }
+
+    public function product_bundle_toggle(int $bundleId)
+    {
+        $bundle = $this->loadProductBundle($bundleId);
+        if (!$bundle) {
+            show_404();
+        }
+
+        $this->db->where('id', $bundleId)->update('pos_product_bundle', [
+            'is_active' => (int)($bundle['is_active'] ?? 0) === 1 ? 0 : 1,
+        ]);
+        $this->session->set_flashdata('success', 'Status bundle produk berhasil diperbarui.');
+        redirect('master/relation/product-bundle');
+    }
+
+    public function product_bundle_product_search()
+    {
+        if (!$this->input->is_ajax_request()) {
+            show_404();
+        }
+
+        $q = trim((string)$this->input->get('q', true));
+        $selectedIds = $this->input->get('selected_ids');
+        if (!is_array($selectedIds)) {
+            $selectedIds = [];
+        }
+        $selectedIds = array_values(array_unique(array_filter(array_map('intval', $selectedIds))));
+
+        $this->db->select('p.id, p.product_code, p.product_name, p.selling_price, p.product_division_id, pd.name AS product_division_name, u.code AS uom_code');
+        $this->db->from('mst_product p');
+        $this->db->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left');
+        $this->db->join('mst_uom u', 'u.id = p.uom_id', 'left');
+        $this->db->where('p.is_active', 1);
+        if ($this->db->field_exists('show_pos', 'mst_product')) {
+            $this->db->where('p.show_pos', 1);
+        }
+        if ($q !== '') {
+            $this->db->group_start();
+            $this->db->like('p.product_name', $q);
+            $this->db->or_like('p.product_code', $q);
+            $this->db->group_end();
+        }
+        if (!empty($selectedIds)) {
+            $this->db->where_not_in('p.id', $selectedIds);
+        }
+        $this->db->order_by('p.product_name', 'ASC');
+        $rows = $this->db->limit(12)->get()->result_array();
+
+        $results = [];
+        foreach ($rows as $row) {
+            $results[] = [
+                'id' => (int)$row['id'],
+                'product_code' => (string)($row['product_code'] ?? ''),
+                'product_name' => (string)($row['product_name'] ?? ''),
+                'label' => trim((string)($row['product_name'] ?? '-')),
+                'division_id' => (int)($row['product_division_id'] ?? 0),
+                'division_name' => (string)($row['product_division_name'] ?? '-'),
+                'selling_price' => round((float)($row['selling_price'] ?? 0), 2),
+                'uom_code' => (string)($row['uom_code'] ?? ''),
+            ];
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => true,
+                'results' => $results,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
     private function productRecipeOptions(array $product, ?array $row = null): array
     {
         $defaultDivision = $this->resolveProductRecipeDefaultDivision($product);
@@ -1439,6 +1722,7 @@ class Master_relation extends MY_Controller
         $standard = (float)($material['hpp_standard'] ?? 0);
         $live = 0.0;
         $availableQty = 0.0;
+        $hasStockLiveCost = false;
         if ($divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {
             $liveRow = $this->db->select('avg_cost_per_content')
                 ->from('inv_division_stock_balance')
@@ -1455,6 +1739,7 @@ class Master_relation extends MY_Controller
                 ->get()
                 ->row_array();
             $live = (float)($liveRow['avg_cost_per_content'] ?? 0);
+            $hasStockLiveCost = $live > 0;
             $availableQty = (float)($qtyRow['qty_balance'] ?? 0);
         }
         if ($live <= 0) {
@@ -1465,8 +1750,8 @@ class Master_relation extends MY_Controller
             'standard_unit_cost' => round($standard, 6),
             'live_unit_cost' => round($live, 6),
             'available_qty' => round($availableQty, 4),
-            'live_cost_source' => ($live > 0 && abs($live - $standard) > 0.0000001) ? 'STOCK_DIVISION' : 'FALLBACK_STANDARD',
-            'live_cost_source_label' => ($live > 0 && abs($live - $standard) > 0.0000001) ? 'Stok Divisi' : 'Fallback Std',
+            'live_cost_source' => $hasStockLiveCost ? 'STOCK_DIVISION' : 'FALLBACK_STANDARD',
+            'live_cost_source_label' => $hasStockLiveCost ? 'Stok Divisi' : 'Fallback Std',
             'cost_reference_label' => 'Bahan baku',
         ];
         $this->productRecipeMaterialCostCache[$cacheKey] = $result;
@@ -1491,6 +1776,7 @@ class Master_relation extends MY_Controller
         $standard = (float)($component['hpp_standard'] ?? 0);
         $live = 0.0;
         $availableQty = 0.0;
+        $hasStockLiveCost = false;
         if ($this->db->table_exists('inv_component_stock_balance')) {
             $this->db->select('avg_cost')->from('inv_component_stock_balance')->where('component_id', $componentId);
             if ($divisionId > 0) {
@@ -1507,6 +1793,7 @@ class Master_relation extends MY_Controller
             $qtyRow = $this->db->get()->row_array();
 
             $live = (float)($liveRow['avg_cost'] ?? 0);
+            $hasStockLiveCost = $live > 0;
             $availableQty = (float)($qtyRow['qty_balance'] ?? 0);
         }
         if ($live <= 0) {
@@ -1517,8 +1804,8 @@ class Master_relation extends MY_Controller
             'standard_unit_cost' => round($standard, 6),
             'live_unit_cost' => round($live, 6),
             'available_qty' => round($availableQty, 4),
-            'live_cost_source' => ($live > 0 && abs($live - $standard) > 0.0000001) ? 'STOCK_COMPONENT' : 'FALLBACK_STANDARD',
-            'live_cost_source_label' => ($live > 0 && abs($live - $standard) > 0.0000001) ? 'Stok Component' : 'Fallback Std',
+            'live_cost_source' => $hasStockLiveCost ? 'STOCK_COMPONENT' : 'FALLBACK_STANDARD',
+            'live_cost_source_label' => $hasStockLiveCost ? 'Stok Component' : 'Fallback Std',
             'cost_reference_label' => 'Component',
         ];
         $this->productRecipeComponentCostCache[$cacheKey] = $result;
@@ -1598,6 +1885,241 @@ class Master_relation extends MY_Controller
             : 0.0;
 
         return $summary;
+    }
+
+    private function loadProductBundle(int $bundleId): ?array
+    {
+        return $this->db
+            ->select('b.*, pd.name AS product_division_name')
+            ->from('pos_product_bundle b')
+            ->join('mst_product_division pd', 'pd.id = b.product_division_id', 'left')
+            ->where('b.id', $bundleId)
+            ->get()
+            ->row_array() ?: null;
+    }
+
+    private function loadProductBundleLines(int $bundleId): array
+    {
+        $select = [
+            'bl.*',
+            'p.product_code',
+            'p.product_name',
+            'p.selling_price AS product_selling_price',
+            'p.hpp_standard',
+            'p.hpp_live_cache',
+            'p.variable_cost_mode',
+            'p.variable_cost_percent',
+            'pd.name AS product_division_name',
+            'u.code AS uom_code',
+            'u.name AS uom_name',
+        ];
+        if ($this->db->field_exists('show_pos', 'mst_product')) {
+            $select[] = 'p.show_pos';
+        }
+        if ($this->db->field_exists('show_in_cashier', 'mst_product')) {
+            $select[] = 'p.show_in_cashier';
+        }
+
+        return $this->db
+            ->select(implode(",\n                ", $select))
+            ->from('pos_product_bundle_line bl')
+            ->join('mst_product p', 'p.id = bl.product_id', 'inner')
+            ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
+            ->join('mst_uom u', 'u.id = p.uom_id', 'left')
+            ->where('bl.bundle_id', $bundleId)
+            ->order_by('bl.sort_order', 'ASC')
+            ->order_by('bl.id', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
+    private function buildProductBundleSummary(array $bundle, array $rows): array
+    {
+        $summary = [
+            'line_count' => count($rows),
+            'line_qty_total' => 0.0,
+            'line_value_total' => 0.0,
+            'bundle_price' => round((float)($bundle['selling_price'] ?? 0), 2),
+            'bundle_gap' => 0.0,
+        ];
+
+        foreach ($rows as $row) {
+            $qty = (float)($row['qty'] ?? 0);
+            $unitPrice = $row['unit_price_override'] !== null
+                ? (float)$row['unit_price_override']
+                : (float)($row['product_selling_price'] ?? 0);
+            $summary['line_qty_total'] += $qty;
+            $summary['line_value_total'] += ($qty * $unitPrice);
+        }
+
+        $summary['line_qty_total'] = round($summary['line_qty_total'], 4);
+        $summary['line_value_total'] = round($summary['line_value_total'], 2);
+        $summary['bundle_gap'] = round($summary['bundle_price'] - $summary['line_value_total'], 2);
+
+        return $summary;
+    }
+
+    private function buildProductBundlePricingPreview(array $bundle, array $rows): array
+    {
+        $lines = [];
+        foreach ($rows as $row) {
+            $costPreview = $this->resolveBundleProductCostPreview($row);
+            $lines[] = [
+                'product_id' => (int)($row['product_id'] ?? 0),
+                'product_name' => (string)($row['product_name'] ?? ''),
+                'qty' => (float)($row['qty'] ?? 0),
+                'base_unit_price' => (float)($row['product_selling_price'] ?? 0),
+                'override_unit_price' => $row['unit_price_override'] !== null ? (float)$row['unit_price_override'] : null,
+                'uom_code' => (string)($row['uom_code'] ?? $row['uom_name'] ?? ''),
+                'division_name' => (string)($row['product_division_name'] ?? ''),
+                'hpp_live_unit' => (float)$costPreview['hpp_live_unit'],
+                'hpp_standard_unit' => (float)$costPreview['hpp_standard_unit'],
+                'cost_source_label' => (string)$costPreview['cost_source_label'],
+            ];
+        }
+
+        return $this->posbundlepricingservice->allocate((float)($bundle['selling_price'] ?? 0), $lines);
+    }
+
+    private function resolveBundleProductCostPreview(array $row): array
+    {
+        $standard = round((float)($row['hpp_standard'] ?? 0), 6);
+        $live = round((float)($row['hpp_live_cache'] ?? 0), 6);
+        $sourceLabel = 'HPP Live Cache';
+
+        if ($live <= 0) {
+            $live = $standard;
+            $sourceLabel = 'Fallback HPP Standard';
+        }
+
+        return [
+            'hpp_standard_unit' => $standard,
+            'hpp_live_unit' => $live,
+            'cost_source_label' => $sourceLabel,
+        ];
+    }
+
+    private function normalizeProductBundlePayload(int $bundleId = 0): array
+    {
+        $bundleName = trim((string)$this->input->post('bundle_name', true));
+        if ($bundleName === '') {
+            return ['ok' => false, 'message' => 'Nama bundle wajib diisi.'];
+        }
+
+        $raw = (string)$this->input->post('lines_json', false);
+        $lines = json_decode($raw, true);
+        if (!is_array($lines) || empty($lines)) {
+            return ['ok' => false, 'message' => 'Minimal harus ada 1 produk di dalam bundle.'];
+        }
+
+        $normalizedLines = [];
+        $seenProductIds = [];
+        $lineProducts = [];
+        foreach ($lines as $index => $line) {
+            $productId = (int)($line['product_id'] ?? 0);
+            $qty = round((float)($line['qty'] ?? 0), 4);
+            $rawSortOrder = trim((string)($line['sort_order'] ?? ''));
+            $sortOrder = $rawSortOrder === '' ? (($index + 1) * 10) : (int)$rawSortOrder;
+            $unitPriceOverride = isset($line['unit_price_override']) && $line['unit_price_override'] !== '' && $line['unit_price_override'] !== null
+                ? round((float)$line['unit_price_override'], 2)
+                : null;
+
+            if ($productId <= 0 || $qty <= 0) {
+                continue;
+            }
+            if (isset($seenProductIds[$productId])) {
+                return ['ok' => false, 'message' => 'Produk di dalam bundle tidak boleh duplikat.'];
+            }
+            $seenProductIds[$productId] = true;
+            $lineProducts[] = $productId;
+            $normalizedLines[] = [
+                'product_id' => $productId,
+                'qty' => $qty,
+                'unit_price_override' => $unitPriceOverride,
+                'sort_order' => $sortOrder,
+            ];
+        }
+
+        if (empty($normalizedLines)) {
+            return ['ok' => false, 'message' => 'Minimal harus ada 1 produk valid di dalam bundle.'];
+        }
+
+        $productRows = $this->db
+            ->select('id, product_division_id')
+            ->from('mst_product')
+            ->where_in('id', $lineProducts)
+            ->get()
+            ->result_array();
+        $productDivisionMap = [];
+        foreach ($productRows as $row) {
+            $productDivisionMap[(int)$row['id']] = (int)($row['product_division_id'] ?? 0);
+        }
+
+        $divisionIds = [];
+        foreach ($normalizedLines as $line) {
+            $divisionIds[] = (int)($productDivisionMap[(int)$line['product_id']] ?? 0);
+        }
+        $divisionIds = array_values(array_unique(array_filter($divisionIds)));
+        $productDivisionId = count($divisionIds) === 1 ? (int)$divisionIds[0] : 0;
+        $bundleCode = strtoupper(trim((string)$this->input->post('bundle_code', true)));
+        if ($bundleCode === '') {
+            $bundleCode = $this->generateNamedCode('pos_product_bundle', 'bundle_code', $bundleName, 'BND-', $bundleId, 40);
+        } elseif ($this->codeExists('pos_product_bundle', 'bundle_code', $bundleCode, $bundleId)) {
+            return ['ok' => false, 'message' => 'Kode bundle sudah dipakai.'];
+        }
+
+        $posScope = strtoupper(trim((string)$this->input->post('pos_scope', true) ?: 'REGULAR'));
+        if (!in_array($posScope, ['REGULAR', 'EVENT', 'ALL'], true)) {
+            $posScope = 'REGULAR';
+        }
+
+        $sellingPrice = round((float)$this->input->post('selling_price', true), 2);
+        $description = trim((string)$this->input->post('description', true));
+        $sortOrderInput = trim((string)$this->input->post('sort_order', true));
+        $sortOrder = $sortOrderInput === '' ? 10 : (int)$sortOrderInput;
+        $isActive = (int)$this->input->post('is_active', true) === 1 ? 1 : 0;
+
+        return [
+            'ok' => true,
+            'bundle' => [
+                'bundle_code' => $bundleCode,
+                'bundle_name' => $bundleName,
+                'product_division_id' => $productDivisionId > 0 ? $productDivisionId : null,
+                'pos_scope' => $posScope,
+                'selling_price' => $sellingPrice,
+                'description' => $description !== '' ? $description : null,
+                'sort_order' => $sortOrder,
+                'is_active' => $isActive,
+            ],
+            'lines' => $normalizedLines,
+        ];
+    }
+
+    private function generateNamedCode(string $table, string $column, string $name, string $prefix, int $excludeId = 0, int $maxLen = 40): string
+    {
+        $slug = strtoupper(trim(preg_replace('/[^A-Z0-9]+/', '-', strtoupper($name)), '-'));
+        if ($slug === '') {
+            $slug = 'ITEM';
+        }
+        $slug = substr($slug, 0, max(6, $maxLen - strlen($prefix) - 6));
+        $base = $prefix . $slug;
+        $candidate = $base;
+        $counter = 2;
+        while ($this->codeExists($table, $column, $candidate, $excludeId)) {
+            $suffix = '-' . $counter;
+            $candidate = substr($base, 0, $maxLen - strlen($suffix)) . $suffix;
+            $counter++;
+        }
+        return $candidate;
+    }
+
+    private function codeExists(string $table, string $column, string $value, int $excludeId = 0): bool
+    {
+        $this->db->from($table)->where($column, $value);
+        if ($excludeId > 0) {
+            $this->db->where('id !=', $excludeId);
+        }
+        return $this->db->count_all_results() > 0;
     }
 
     private function componentFormulaOptions(int $componentId): array

@@ -195,9 +195,16 @@ foreach ($detailLines as $ln) {
     overflow: hidden;
     background: #fffdf9;
     box-shadow: 0 20px 60px rgba(74, 28, 38, 0.18);
+    position: relative;
+    pointer-events: auto;
+  }
+  .po-catalog-draft-modal {
+    z-index: 1065;
   }
   .po-catalog-draft-modal .modal-dialog {
     max-width: 880px;
+    position: relative;
+    z-index: 1;
   }
   .po-catalog-draft-head {
     background: linear-gradient(135deg, #6a1f2f, #9c3248);
@@ -252,6 +259,14 @@ foreach ($detailLines as $ln) {
     background: #fff7ef;
     border-top: 1px solid #efdfcf;
     padding: .95rem 1.2rem 1.15rem;
+    position: relative;
+    z-index: 3;
+    pointer-events: auto;
+  }
+  .po-catalog-draft-modal .modal-footer .btn {
+    position: relative;
+    z-index: 4;
+    pointer-events: auto;
   }
   .po-review-modal .modal-content {
     border: 0;
@@ -648,6 +663,18 @@ foreach ($detailLines as $ln) {
   var reviewAlertEl = document.getElementById('po-review-alert');
   var reviewConfirmEl = document.getElementById('po-review-confirm');
   var reviewSubmitBtn = document.getElementById('po-review-submit');
+
+  function moveModalToBody(modalEl) {
+    if (!modalEl || !document.body || modalEl.parentNode === document.body) {
+      return modalEl;
+    }
+    document.body.appendChild(modalEl);
+    return modalEl;
+  }
+
+  catalogDraftModalEl = moveModalToBody(catalogDraftModalEl);
+  reviewModalEl = moveModalToBody(reviewModalEl);
+
   var catalogDraftModal = (catalogDraftModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(catalogDraftModalEl) : null;
   var reviewModal = (reviewModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(reviewModalEl) : null;
   var lines = [];
@@ -961,6 +988,9 @@ foreach ($detailLines as $ln) {
     var brandName = String(it.brand_name || it.profile_brand || it.snapshot_brand_name || '').trim();
     var lineDescription = String(it.line_description || it.profile_description || it.snapshot_line_description || it.notes || '').trim();
     var next = {
+      source_catalog_id: it.catalog_id || null,
+      source_profile_key: it.profile_key || '',
+      source_unit_price: num(it.last_unit_price || it.standard_price || 0),
       line_kind: lineKind,
       item_id: it.item_id || null,
       material_id: it.material_id || null,
@@ -1026,6 +1056,9 @@ foreach ($detailLines as $ln) {
 
   function createEmptyLine() {
     return {
+      source_catalog_id: null,
+      source_profile_key: '',
+      source_unit_price: 0,
       line_kind: 'ITEM',
       item_id: null,
       material_id: null,
@@ -1207,32 +1240,49 @@ foreach ($detailLines as $ln) {
 
   function applyCatalogDraftToLines() {
     if (!catalogDraftLine) {
+      alertMsg('warning', 'Detail catalog belum siap ditambahkan. Pilih ulang catalog terlebih dahulu.');
+      return;
+    }
+    if (!lineTbody) {
+      alertMsg('danger', 'Tabel line PO tidak ditemukan. Refresh halaman lalu coba lagi.');
+      return;
+    }
+    if (!lineHasMasterLink(catalogDraftLine)) {
+      alertMsg('warning', 'Catalog ini belum terhubung ke item/bahan master yang valid. Pilih ulang dari hasil pencarian catalog.');
       return;
     }
 
-    var targetIdx = resolveCatalogTargetIndex();
-    var nextLine = Object.assign(createEmptyLine(), catalogDraftLine);
-    applyLineTypeDefaults(nextLine);
-    if (targetIdx >= 0) {
-      lines[targetIdx] = nextLine;
-    } else {
-      lines.push(nextLine);
-      targetIdx = lines.length - 1;
-    }
-
-    activeLineIdx = targetIdx;
-    refreshLines();
-    clearCatalogDraft(false);
-    hideCatalogPreview();
-
-    window.setTimeout(function () {
-      var tr = lineTbody.querySelector('tr[data-idx="' + targetIdx + '"]');
-      var qtyInput = tr ? tr.querySelector('.line-qty') : null;
-      if (qtyInput) {
-        qtyInput.focus();
-        qtyInput.select();
+    try {
+      var targetIdx = resolveCatalogTargetIndex();
+      var nextLine = Object.assign(createEmptyLine(), catalogDraftLine);
+      applyLineTypeDefaults(nextLine);
+      if (targetIdx >= 0) {
+        lines[targetIdx] = nextLine;
+      } else {
+        lines.push(nextLine);
+        targetIdx = lines.length - 1;
       }
-    }, 0);
+
+      activeLineIdx = targetIdx;
+      refreshLines();
+      clearCatalogDraft(false);
+      hideCatalogPreview();
+      alertMsg('success', 'Catalog berhasil dimasukkan ke baris #' + (targetIdx + 1) + '.');
+
+      window.setTimeout(function () {
+        var tr = lineTbody.querySelector('tr[data-idx="' + targetIdx + '"]');
+        if (tr && typeof tr.scrollIntoView === 'function') {
+          tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        var qtyInput = tr ? tr.querySelector('.line-qty') : null;
+        if (qtyInput) {
+          qtyInput.focus();
+          qtyInput.select();
+        }
+      }, 0);
+    } catch (error) {
+      alertMsg('danger', 'Gagal menambahkan catalog ke line PO: ' + (error && error.message ? error.message : 'error tidak dikenal'));
+    }
   }
 
   function renderSuggestionButtons(idx, suggestions) {
@@ -1768,7 +1818,9 @@ foreach ($detailLines as $ln) {
   }
 
   if (catalogDraftApplyBtn) {
-    catalogDraftApplyBtn.addEventListener('click', function () {
+    catalogDraftApplyBtn.addEventListener('click', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
       applyCatalogDraftToLines();
     });
   }
@@ -1850,6 +1902,9 @@ foreach ($detailLines as $ln) {
         typedName.toUpperCase() !== linkedName.toUpperCase()
       ) {
         lines[idx].catalog_name = typedName;
+        lines[idx].source_catalog_id = null;
+        lines[idx].source_profile_key = '';
+        lines[idx].source_unit_price = 0;
         lines[idx].line_kind = 'ITEM';
         lines[idx].item_id = null;
         lines[idx].material_id = null;
