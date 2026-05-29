@@ -171,6 +171,48 @@ class Master extends MY_Controller
         $this->render('master/form', $data);
     }
 
+    public function lookup_search(string $entity, string $fieldName)
+    {
+        $cfg = $this->entityConfig($entity);
+        if (!$cfg) {
+            show_404();
+            return;
+        }
+
+        $fieldConfig = null;
+        foreach ((array)($cfg['fields'] ?? []) as $field) {
+            if ((string)($field['name'] ?? '') === $fieldName) {
+                $fieldConfig = $field;
+                break;
+            }
+        }
+
+        if (!$fieldConfig || empty($fieldConfig['lookup'])) {
+            show_404();
+            return;
+        }
+
+        $lookup = (array)$fieldConfig['lookup'];
+        $q = trim((string)$this->input->get('q', true));
+        $id = (int)$this->input->get('id', true);
+        $rows = $this->Master_model->search_options(
+            (string)($lookup['table'] ?? ''),
+            (string)($lookup['value'] ?? 'id'),
+            (string)($lookup['label'] ?? 'name'),
+            $q,
+            $id,
+            (bool)($lookup['active_only'] ?? true),
+            20
+        );
+
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => true, 'rows' => $rows], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
     public function store(string $entity)
     {
         if ($this->redirect_contract_operational_if_needed($entity, 'store')) {
@@ -2641,6 +2683,8 @@ class Master extends MY_Controller
                 'rules' => [
                     ['extra_code', 'Kode', 'trim|max_length[40]'],
                     ['extra_name', 'Nama', 'required|trim|max_length[120]'],
+                    ['source_kind', 'Sumber stok', 'trim|in_list[NONE,PRODUCT,COMPONENT,MATERIAL]'],
+                    ['replacement_kind', 'Pengganti stok', 'trim|in_list[NONE,PRODUCT,COMPONENT,MATERIAL]'],
                 ],
                 'fields' => [
                     ['name' => 'extra_code', 'label' => 'Kode', 'type' => 'text'],
@@ -2654,6 +2698,26 @@ class Master extends MY_Controller
                     ]],
                     ['name' => 'selling_price', 'label' => 'Harga Jual', 'type' => 'number', 'step' => '0.01'],
                     ['name' => 'cost_amount', 'label' => 'Biaya', 'type' => 'number', 'step' => '0.01'],
+                    ['name' => 'source_kind', 'label' => 'Sumber stok extra', 'type' => 'select', 'options' => [
+                        ['value' => 'NONE', 'label' => 'Tidak potong stok'],
+                        ['value' => 'MATERIAL', 'label' => 'Bahan baku'],
+                        ['value' => 'COMPONENT', 'label' => 'Component'],
+                        ['value' => 'PRODUCT', 'label' => 'Produk lain'],
+                    ]],
+                    ['name' => 'source_product_id', 'label' => 'Produk sumber', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_product', 'value' => 'id', 'label' => 'product_name', 'active_only' => false], 'placeholder' => 'Cari nama produk sumber...'],
+                    ['name' => 'source_component_id', 'label' => 'Component sumber', 'type' => 'select', 'lookup' => ['table' => 'mst_component', 'value' => 'id', 'label' => 'component_name', 'active_only' => false]],
+                    ['name' => 'source_material_id', 'label' => 'Bahan baku sumber', 'type' => 'select', 'lookup' => ['table' => 'mst_material', 'value' => 'id', 'label' => 'material_name', 'active_only' => false]],
+                    ['name' => 'source_qty', 'label' => 'Qty sumber', 'type' => 'number', 'step' => '0.0001'],
+                    ['name' => 'replacement_kind', 'label' => 'Mode pengganti', 'type' => 'select', 'options' => [
+                        ['value' => 'NONE', 'label' => 'Tidak mengganti recipe lama'],
+                        ['value' => 'MATERIAL', 'label' => 'Ganti dengan bahan baku'],
+                        ['value' => 'COMPONENT', 'label' => 'Ganti dengan component'],
+                        ['value' => 'PRODUCT', 'label' => 'Ganti dengan produk lain'],
+                    ]],
+                    ['name' => 'replacement_product_id', 'label' => 'Produk pengganti', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_product', 'value' => 'id', 'label' => 'product_name', 'active_only' => false], 'placeholder' => 'Cari nama produk pengganti...'],
+                    ['name' => 'replacement_component_id', 'label' => 'Component pengganti', 'type' => 'select', 'lookup' => ['table' => 'mst_component', 'value' => 'id', 'label' => 'component_name', 'active_only' => false]],
+                    ['name' => 'replacement_material_id', 'label' => 'Bahan baku pengganti', 'type' => 'select', 'lookup' => ['table' => 'mst_material', 'value' => 'id', 'label' => 'material_name', 'active_only' => false]],
+                    ['name' => 'replacement_qty', 'label' => 'Qty pengganti', 'type' => 'number', 'step' => '0.0001'],
                     ['name' => 'show_in_cashier', 'label' => 'Tampil Kasir', 'type' => 'checkbox'],
                     ['name' => 'show_in_self_order', 'label' => 'Tampil Self Order', 'type' => 'checkbox'],
                     ['name' => 'show_in_landing', 'label' => 'Tampil Landing', 'type' => 'checkbox'],
@@ -2663,6 +2727,7 @@ class Master extends MY_Controller
                     ['key' => 'extra_code', 'label' => 'Kode'],
                     ['key' => 'extra_name', 'label' => 'Nama'],
                     ['key' => 'extra_type', 'label' => 'Tipe'],
+                    ['key' => 'source_kind', 'label' => 'Sumber Stok'],
                     ['key' => 'selling_price', 'label' => 'Harga'],
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
                 ],

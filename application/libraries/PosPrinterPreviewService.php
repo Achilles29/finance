@@ -12,6 +12,25 @@ class PosPrinterPreviewService
         'show_customer_point_info','show_customer_stamp_info','show_customer_voucher'
     ];
 
+    public function defaultGeneralSettings(): array
+    {
+        return [
+            'title' => 'NAMUA COFFEE N EATERY',
+            'subtitle' => 'Jl. Magnolia, Desa Kabongan Kidul, Rembang',
+            'logo_url' => base_url('assets/img/logo.png'),
+            'wifi_name' => '',
+            'wifi_password' => '',
+            'show_customer_point_info' => false,
+            'show_customer_stamp_info' => false,
+            'show_customer_voucher' => false,
+            'customer_voucher_limit' => 1,
+            'customer_voucher_message_template' => 'Selamat, Anda mendapat voucher {voucher_benefit}. Gunakan sebelum {voucher_expiry}.',
+            'customer_voucher_align' => 'CENTER',
+            'header_lines' => ['ORDER CEPAT, SAJI HANGAT.'],
+            'footer_lines' => ['TERIMA KASIH SUDAH BERKUNJUNG'],
+        ];
+    }
+
     public function documentTypeLabel(string $documentType): string
     {
         $map = [
@@ -25,13 +44,15 @@ class PosPrinterPreviewService
         return $map[$documentType] ?? $documentType;
     }
 
-    public function defaultPayload(string $documentType = 'RECEIPT'): array
+    public function defaultPayload(string $documentType = 'RECEIPT', array $generalSettings = []): array
     {
         $documentType = strtoupper(trim($documentType));
+        $general = array_merge($this->defaultGeneralSettings(), $generalSettings);
+        $logoUrl = $this->normalizeLogoUrl((string)($general['logo_url'] ?? ''));
         return [
-            'title' => 'NAMUA COFFEE N EATERY',
-            'subtitle' => 'Jl. Magnolia, Desa Kabongan Kidul, Rembang',
-            'logo_url' => base_url('assets/img/logo.png'),
+            'title' => (string)($general['title'] ?? 'NAMUA COFFEE N EATERY'),
+            'subtitle' => (string)($general['subtitle'] ?? 'Jl. Magnolia, Desa Kabongan Kidul, Rembang'),
+            'logo_url' => $logoUrl,
             'show_logo' => true,
             'show_header' => true,
             'show_invoice_no' => true,
@@ -59,26 +80,26 @@ class PosPrinterPreviewService
             'show_footer' => true,
             'show_price' => $documentType !== 'KITCHEN_TICKET',
             'division_filter' => $documentType === 'KITCHEN_TICKET' ? 'KITCHEN' : 'ALL',
-            'header_lines' => ['ORDER CEPAT, SAJI HANGAT.'],
-            'footer_lines' => ['TERIMA KASIH SUDAH BERKUNJUNG'],
+            'header_lines' => $this->normalizeLines($general['header_lines'] ?? ['ORDER CEPAT, SAJI HANGAT.']),
+            'footer_lines' => $this->normalizeLines($general['footer_lines'] ?? ['TERIMA KASIH SUDAH BERKUNJUNG']),
             'header_align' => 'CENTER',
             'footer_align' => 'CENTER',
             'show_footer_barcode' => true,
             'footer_barcode_source' => 'ORDER_NO',
             'footer_barcode_custom' => '',
             'show_wifi_info' => false,
-            'wifi_name' => '',
-            'wifi_password' => '',
-            'show_customer_point_info' => false,
-            'show_customer_stamp_info' => false,
-            'show_customer_voucher' => false,
-            'customer_voucher_limit' => 1,
-            'customer_voucher_message_template' => 'Selamat, Anda mendapat voucher {voucher_benefit}. Gunakan sebelum {voucher_expiry}.',
-            'customer_voucher_align' => 'CENTER',
+            'wifi_name' => (string)($general['wifi_name'] ?? ''),
+            'wifi_password' => (string)($general['wifi_password'] ?? ''),
+            'show_customer_point_info' => !empty($general['show_customer_point_info']),
+            'show_customer_stamp_info' => !empty($general['show_customer_stamp_info']),
+            'show_customer_voucher' => !empty($general['show_customer_voucher']),
+            'customer_voucher_limit' => max(1, min(5, (int)($general['customer_voucher_limit'] ?? 1))),
+            'customer_voucher_message_template' => (string)($general['customer_voucher_message_template'] ?? 'Selamat, Anda mendapat voucher {voucher_benefit}. Gunakan sebelum {voucher_expiry}.'),
+            'customer_voucher_align' => strtoupper((string)($general['customer_voucher_align'] ?? 'CENTER')),
         ];
     }
 
-    public function decodePayload($rawPayload, string $documentType = 'RECEIPT'): array
+    public function decodePayload($rawPayload, string $documentType = 'RECEIPT', array $generalSettings = []): array
     {
         $payload = [];
         if (is_string($rawPayload) && trim($rawPayload) !== '') {
@@ -90,7 +111,8 @@ class PosPrinterPreviewService
             $payload = $rawPayload;
         }
 
-        $result = array_merge($this->defaultPayload($documentType), $payload);
+        $result = array_merge($this->defaultPayload($documentType, $generalSettings), $payload);
+        $result['logo_url'] = $this->normalizeLogoUrl((string)($result['logo_url'] ?? ''));
         $result['header_lines'] = $this->normalizeLines($result['header_lines'] ?? []);
         $result['footer_lines'] = $this->normalizeLines($result['footer_lines'] ?? []);
         foreach ($this->booleanKeys as $key) {
@@ -105,12 +127,12 @@ class PosPrinterPreviewService
         return $result;
     }
 
-    public function payloadFromInput(array $input, string $documentType = 'RECEIPT'): array
+    public function payloadFromInput(array $input, string $documentType = 'RECEIPT', array $generalSettings = []): array
     {
-        $payload = $this->defaultPayload($documentType);
+        $payload = $this->defaultPayload($documentType, $generalSettings);
         $payload['title'] = trim((string)($input['payload_title'] ?? $input['title'] ?? $payload['title']));
         $payload['subtitle'] = trim((string)($input['payload_subtitle'] ?? $input['subtitle'] ?? ''));
-        $payload['logo_url'] = trim((string)($input['logo_url'] ?? $payload['logo_url']));
+        $payload['logo_url'] = $this->normalizeLogoUrl((string)($input['logo_url'] ?? $payload['logo_url']));
         $payload['division_filter'] = $this->enumValue((string)($input['division_filter'] ?? 'ALL'), ['ALL','BAR','KITCHEN'], 'ALL');
         $payload['header_align'] = $this->enumValue((string)($input['header_align'] ?? 'CENTER'), ['LEFT','CENTER','RIGHT','JUSTIFY'], 'CENTER');
         $payload['footer_align'] = $this->enumValue((string)($input['footer_align'] ?? 'CENTER'), ['LEFT','CENTER','RIGHT','JUSTIFY'], 'CENTER');
@@ -128,7 +150,7 @@ class PosPrinterPreviewService
             $payload[$key] = $this->boolValue($input[$key] ?? false);
         }
 
-        return $this->decodePayload($payload, $documentType);
+        return $this->decodePayload($payload, $documentType, $generalSettings);
     }
 
     public function buildPreviewPackage(array $payload, array $printer = [], string $documentType = 'RECEIPT'): array
@@ -376,6 +398,21 @@ class PosPrinterPreviewService
         }, preg_split('/\r?\n/', $value)), static function ($line) {
             return $line !== '';
         }));
+    }
+
+    private function normalizeLogoUrl(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return base_url('assets/img/logo.png');
+        }
+
+        $normalized = strtolower($url);
+        if (strpos($normalized, 'core.namuacoffee.com/assets/img/logo') !== false) {
+            return base_url('assets/img/logo.png');
+        }
+
+        return $url;
     }
 
     private function boolValue($value): bool

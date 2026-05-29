@@ -115,6 +115,7 @@ $downloadFiles = is_array($download_files ?? null) ? $download_files : [];
   </div>
 
   <?php $this->load->view('pos/_master_tabs', ['pos_master_tab_active' => 'printer']); ?>
+  <?php $this->load->view('pos/_printer_tabs', ['printer_tab_active' => 'guide']); ?>
 
   <div class="card printer-guide-hero mb-4">
     <div class="card-body p-4 p-lg-5">

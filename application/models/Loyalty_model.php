@@ -1,0 +1,858 @@
+<?php
+defined('BASEPATH') OR exit('No direct script access allowed');
+
+class Loyalty_model extends CI_Model
+{
+    public function member_filter_options(): array
+    {
+        return [
+            'tiers' => $this->distinct_non_empty_values('crm_member', 'member_tier'),
+        ];
+    }
+
+    public function product_options(): array
+    {
+        if (!$this->db->table_exists('mst_product')) {
+            return [];
+        }
+
+        return $this->db->select('p.id, p.product_code, p.product_name, pd.name AS product_division_name')
+            ->from('mst_product p')
+            ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
+            ->where('p.is_active', 1)
+            ->order_by('pd.sort_order', 'ASC')
+            ->order_by('p.product_name', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
+    public function product_search(string $q, int $limit = 20): array
+    {
+        if (!$this->db->table_exists('mst_product')) {
+            return [];
+        }
+
+        $limit = max(1, min(50, $limit));
+        $db = $this->db
+            ->select('p.id, p.product_name')
+            ->from('mst_product p')
+            ->where('p.is_active', 1);
+
+        if ($q !== '') {
+            $db->group_start()
+                ->like('p.product_name', $q)
+                ->or_like('p.product_code', $q)
+                ->group_end();
+        }
+
+        return $db->order_by('p.product_name', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function member_search(string $q, int $limit = 20): array
+    {
+        if (!$this->db->table_exists('crm_member')) {
+            return [];
+        }
+
+        $limit = max(1, min(50, $limit));
+        $db = $this->db
+            ->select('m.id, m.member_name, m.mobile_phone')
+            ->from('crm_member m')
+            ->where('m.is_active', 1)
+            ->where('m.member_status', 'ACTIVE');
+
+        if ($q !== '') {
+            $db->group_start()
+                ->like('m.member_name', $q)
+                ->or_like('m.mobile_phone', $q)
+                ->or_like('m.member_no', $q)
+                ->group_end();
+        }
+
+        return $db->order_by('m.member_name', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function voucher_campaign_options(array $allowedIssueModes = []): array
+    {
+        if (!$this->db->table_exists('pos_voucher_campaign')) {
+            return [];
+        }
+
+        $db = $this->db
+            ->select('id, campaign_name, issue_mode')
+            ->from('pos_voucher_campaign')
+            ->where('is_active', 1);
+
+        if (!empty($allowedIssueModes)) {
+            $db->where_in('issue_mode', $allowedIssueModes);
+        }
+
+        $rows = $db->order_by('campaign_name', 'ASC')->get()->result_array();
+        return array_map(static function (array $row): array {
+            return [
+                'value' => (int)($row['id'] ?? 0),
+                'label' => (string)($row['campaign_name'] ?? ''),
+            ];
+        }, $rows);
+    }
+
+    public function member_rows(array $filters): array
+    {
+        $q = trim((string)($filters['q'] ?? ''));
+        $status = strtoupper(trim((string)($filters['status'] ?? 'ACTIVE')));
+        $memberStatus = strtoupper(trim((string)($filters['member_status'] ?? 'ALL')));
+        $tier = trim((string)($filters['tier'] ?? ''));
+        $page = max(1, (int)($filters['page'] ?? 1));
+        $limit = max(1, min(200, (int)($filters['limit'] ?? 50)));
+
+        $db = $this->db;
+        $db->from('crm_member m');
+
+        if ($q !== '') {
+            $db->group_start()
+                ->like('m.member_no', $q)
+                ->or_like('m.member_name', $q)
+                ->or_like('m.mobile_phone', $q)
+                ->or_like('m.email', $q)
+                ->group_end();
+        }
+        if ($status === 'ACTIVE') {
+            $db->where('m.is_active', 1);
+        } elseif ($status === 'INACTIVE') {
+            $db->where('m.is_active', 0);
+        }
+        if (in_array($memberStatus, ['ACTIVE', 'SUSPENDED', 'CLOSED'], true)) {
+            $db->where('m.member_status', $memberStatus);
+        }
+        if ($tier !== '') {
+            $db->where('m.member_tier', $tier);
+        }
+
+        $total = (int)$db->count_all_results('', false);
+        [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
+
+        $rows = $db->select('m.*')
+            ->order_by('m.member_name', 'ASC')
+            ->order_by('m.member_no', 'ASC')
+            ->limit($limit, $offset)
+            ->get()
+            ->result_array();
+
+        return [
+            'rows' => $rows,
+            'meta' => [
+                'total' => $total,
+                'page' => $page,
+                'limit' => $limit,
+                'total_pages' => $totalPages,
+            ],
+        ];
+    }
+
+    public function find_member(int $id): ?array
+    {
+        return $this->db->from('crm_member')->where('id', $id)->limit(1)->get()->row_array() ?: null;
+    }
+
+    public function save_member(array $data): array
+    {
+        $id = (int)($data['id'] ?? 0);
+        $name = trim((string)($data['member_name'] ?? ''));
+        if ($name === '') {
+            return ['ok' => false, 'message' => 'Nama member wajib diisi.'];
+        }
+
+        $memberStatus = strtoupper(trim((string)($data['member_status'] ?? 'ACTIVE')));
+        if (!in_array($memberStatus, ['ACTIVE', 'SUSPENDED', 'CLOSED'], true)) {
+            $memberStatus = 'ACTIVE';
+        }
+        $gender = strtoupper(trim((string)($data['gender'] ?? '')));
+        if (!in_array($gender, ['L', 'P'], true)) {
+            $gender = null;
+        }
+
+        $this->db->trans_begin();
+        try {
+            $memberNo = strtoupper(trim((string)($data['member_no'] ?? '')));
+            $joinedAt = $this->nullable_datetime($data['joined_at'] ?? '') ?: date('Y-m-d H:i:s');
+            $payload = [
+                'member_name' => $name,
+                'mobile_phone' => $this->nullable_text($data['mobile_phone'] ?? ''),
+                'email' => $this->nullable_text($data['email'] ?? ''),
+                'birth_date' => $this->nullable_date($data['birth_date'] ?? ''),
+                'gender' => $gender,
+                'address' => $this->nullable_text($data['address'] ?? ''),
+                'city' => $this->nullable_text($data['city'] ?? ''),
+                'postal_code' => $this->nullable_text($data['postal_code'] ?? ''),
+                'member_tier' => $this->nullable_text($data['member_tier'] ?? ''),
+                'joined_at' => $joinedAt,
+                'expired_at' => $this->nullable_datetime($data['expired_at'] ?? ''),
+                'member_status' => $memberStatus,
+                'notes' => $this->nullable_text($data['notes'] ?? ''),
+                'is_active' => !empty($data['is_active']) ? 1 : 0,
+            ];
+
+            if ($id > 0) {
+                $existing = $this->find_member($id);
+                if (!$existing) {
+                    throw new RuntimeException('Member tidak ditemukan.');
+                }
+                if ($memberNo === '') {
+                    $memberNo = (string)$existing['member_no'];
+                }
+                if ($this->code_exists('crm_member', 'member_no', $memberNo, $id)) {
+                    throw new RuntimeException('Nomor member sudah dipakai.');
+                }
+                $payload['member_no'] = $memberNo;
+                $this->db->where('id', $id)->update('crm_member', $payload);
+            } else {
+                if ($memberNo === '') {
+                    $memberNo = $this->generate_member_no($joinedAt);
+                } elseif ($this->code_exists('crm_member', 'member_no', $memberNo)) {
+                    throw new RuntimeException('Nomor member sudah dipakai.');
+                }
+                $payload['member_no'] = $memberNo;
+                $this->db->insert('crm_member', $payload);
+                $id = (int)$this->db->insert_id();
+            }
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan member.');
+            }
+            $this->db->trans_commit();
+            return ['ok' => true, 'id' => $id];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function toggle_member(int $id): array
+    {
+        return $this->toggle_active_record('crm_member', $id, function (array $row, int $newValue): array {
+            $memberStatus = strtoupper((string)($row['member_status'] ?? 'ACTIVE'));
+            if ($newValue === 0 && $memberStatus === 'ACTIVE') {
+                $memberStatus = 'CLOSED';
+            } elseif ($newValue === 1 && $memberStatus === 'CLOSED') {
+                $memberStatus = 'ACTIVE';
+            }
+            return ['member_status' => $memberStatus];
+        }, 'Member tidak ditemukan.', 'Gagal mengubah status member.');
+    }
+
+    public function point_rule_rows(array $filters): array
+    {
+        $db = $this->db->from('pos_point_rule r')->join('mst_product p', 'p.id = r.required_product_id', 'left');
+        $this->apply_search_filter($db, trim((string)($filters['q'] ?? '')), ['r.rule_code', 'r.rule_name', 'p.product_name']);
+        $this->apply_active_filter($db, strtoupper(trim((string)($filters['status'] ?? 'ACTIVE'))), 'r.is_active');
+        $earnMode = strtoupper(trim((string)($filters['earn_mode'] ?? 'ALL')));
+        if (in_array($earnMode, ['AMOUNT', 'PRODUCT', 'FLAT'], true)) {
+            $db->where('r.earn_mode', $earnMode);
+        }
+        return $this->paginate_rows($db, [
+            'r.*',
+            'p.product_name AS required_product_name',
+            "CASE r.earn_mode
+                WHEN 'AMOUNT' THEN 'Dari nominal belanja'
+                WHEN 'PRODUCT' THEN 'Dari produk tertentu'
+                WHEN 'FLAT' THEN 'Poin tetap per transaksi'
+                ELSE r.earn_mode
+             END AS earn_mode_label",
+        ], ['r.rule_name' => 'ASC'], max(1, (int)($filters['page'] ?? 1)), max(1, min(200, (int)($filters['limit'] ?? 25))));
+    }
+
+    public function save_point_rule(array $data): array
+    {
+        return $this->save_point_like_record('point', $data);
+    }
+
+    public function toggle_point_rule(int $id): array
+    {
+        return $this->toggle_active_record('pos_point_rule', $id, null, 'Rule poin tidak ditemukan.', 'Gagal mengubah status rule poin.');
+    }
+
+    public function stamp_campaign_rows(array $filters): array
+    {
+        $db = $this->db->from('pos_stamp_campaign c')->join('mst_product p', 'p.id = c.required_product_id', 'left');
+        $this->apply_search_filter($db, trim((string)($filters['q'] ?? '')), ['c.campaign_code', 'c.campaign_name', 'p.product_name']);
+        $this->apply_active_filter($db, strtoupper(trim((string)($filters['status'] ?? 'ACTIVE'))), 'c.is_active');
+        $earnMode = strtoupper(trim((string)($filters['earn_mode'] ?? 'ALL')));
+        if (in_array($earnMode, ['TXN', 'AMOUNT', 'PRODUCT'], true)) {
+            $db->where('c.earn_mode', $earnMode);
+        }
+        return $this->paginate_rows($db, [
+            'c.*',
+            'p.product_name AS required_product_name',
+            "CASE c.earn_mode
+                WHEN 'TXN' THEN 'Setiap transaksi'
+                WHEN 'AMOUNT' THEN 'Dari nominal belanja'
+                WHEN 'PRODUCT' THEN 'Dari produk tertentu'
+                ELSE c.earn_mode
+             END AS earn_mode_label",
+        ], ['c.campaign_name' => 'ASC'], max(1, (int)($filters['page'] ?? 1)), max(1, min(200, (int)($filters['limit'] ?? 25))));
+    }
+
+    public function save_stamp_campaign(array $data): array
+    {
+        return $this->save_point_like_record('stamp', $data);
+    }
+
+    public function toggle_stamp_campaign(int $id): array
+    {
+        return $this->toggle_active_record('pos_stamp_campaign', $id, null, 'Campaign stamp tidak ditemukan.', 'Gagal mengubah status campaign stamp.');
+    }
+
+    public function voucher_campaign_rows(array $filters): array
+    {
+        $db = $this->db->from('pos_voucher_campaign c')
+            ->join('mst_product p1', 'p1.id = c.trigger_product_id', 'left')
+            ->join('mst_product p2', 'p2.id = c.free_product_id', 'left');
+        $this->apply_search_filter($db, trim((string)($filters['q'] ?? '')), ['c.campaign_code', 'c.campaign_name', 'p1.product_name', 'p2.product_name']);
+        $this->apply_active_filter($db, strtoupper(trim((string)($filters['status'] ?? 'ACTIVE'))), 'c.is_active');
+        $issueMode = strtoupper(trim((string)($filters['issue_mode'] ?? 'ALL')));
+        if (in_array($issueMode, ['PUBLIC', 'AUTO_FROM_TXN', 'MEMBER_TARGETED', 'MANUAL'], true)) {
+            $db->where('c.issue_mode', $issueMode);
+        }
+        return $this->paginate_rows($db, [
+            'c.*',
+            'p1.product_name AS trigger_product_name',
+            'p2.product_name AS free_product_name',
+            "CASE c.issue_mode
+                WHEN 'PUBLIC' THEN 'Voucher umum'
+                WHEN 'AUTO_FROM_TXN' THEN 'Otomatis dari transaksi'
+                WHEN 'MEMBER_TARGETED' THEN 'Khusus member tertentu'
+                WHEN 'MANUAL' THEN 'Diterbitkan manual'
+                ELSE c.issue_mode
+             END AS issue_mode_label",
+            "CASE c.voucher_type
+                WHEN 'AMOUNT' THEN 'Potongan nominal'
+                WHEN 'PERCENT' THEN 'Potongan persen'
+                WHEN 'FREE_PRODUCT' THEN 'Gratis produk'
+                ELSE c.voucher_type
+             END AS voucher_type_label",
+        ], ['c.campaign_name' => 'ASC'], max(1, (int)($filters['page'] ?? 1)), max(1, min(200, (int)($filters['limit'] ?? 25))));
+    }
+
+    public function voucher_issue_rows(array $filters): array
+    {
+        $db = $this->db->from('pos_voucher_issue v')
+            ->join('pos_voucher_campaign c', 'c.id = v.campaign_id', 'inner')
+            ->join('crm_member m', 'm.id = v.member_id', 'left');
+        $this->apply_search_filter($db, trim((string)($filters['q'] ?? '')), ['v.voucher_issue_no', 'v.voucher_code', 'c.campaign_name', 'm.member_name', 'm.mobile_phone']);
+
+        $status = strtoupper(trim((string)($filters['voucher_status'] ?? 'ALL')));
+        if (in_array($status, ['OPEN', 'REDEEMED', 'EXPIRED', 'VOID'], true)) {
+            $db->where('v.voucher_status', $status);
+        }
+
+        return $this->paginate_rows($db, [
+            'v.*',
+            'c.campaign_name',
+            'c.voucher_type',
+            'm.member_name',
+            'm.mobile_phone',
+            "CASE v.voucher_status
+                WHEN 'OPEN' THEN 'Siap dipakai'
+                WHEN 'REDEEMED' THEN 'Sudah dipakai'
+                WHEN 'EXPIRED' THEN 'Kadaluarsa'
+                WHEN 'VOID' THEN 'Dibatalkan'
+                ELSE v.voucher_status
+             END AS voucher_status_label",
+        ], ['v.issued_at' => 'DESC', 'v.id' => 'DESC'], max(1, (int)($filters['page'] ?? 1)), max(1, min(200, (int)($filters['limit'] ?? 25))));
+    }
+
+    public function save_voucher_campaign(array $data): array
+    {
+        $id = (int)($data['id'] ?? 0);
+        $name = trim((string)($data['campaign_name'] ?? ''));
+        if ($name === '') {
+            return ['ok' => false, 'message' => 'Nama campaign voucher wajib diisi.'];
+        }
+
+        $issueMode = strtoupper(trim((string)($data['issue_mode'] ?? 'PUBLIC')));
+        if (!in_array($issueMode, ['PUBLIC', 'AUTO_FROM_TXN', 'MEMBER_TARGETED', 'MANUAL'], true)) {
+            $issueMode = 'PUBLIC';
+        }
+        $voucherType = strtoupper(trim((string)($data['voucher_type'] ?? 'AMOUNT')));
+        if (!in_array($voucherType, ['AMOUNT', 'PERCENT', 'FREE_PRODUCT'], true)) {
+            $voucherType = 'AMOUNT';
+        }
+
+        $campaignCode = strtoupper(trim((string)($data['campaign_code'] ?? '')));
+        $this->db->trans_begin();
+        try {
+            if ($campaignCode === '') {
+                $campaignCode = $this->generate_named_code('pos_voucher_campaign', 'campaign_code', $name, 'VCH-');
+            } elseif ($this->code_exists('pos_voucher_campaign', 'campaign_code', $campaignCode, $id)) {
+                throw new RuntimeException('Kode campaign voucher sudah dipakai.');
+            }
+
+            $payload = [
+                'campaign_code' => $campaignCode,
+                'campaign_name' => $name,
+                'issue_mode' => $issueMode,
+                'voucher_type' => $voucherType,
+                'discount_value' => max(0, (float)($data['discount_value'] ?? 0)),
+                'max_discount_amount' => max(0, (float)($data['max_discount_amount'] ?? 0)),
+                'min_spend_amount' => max(0, (float)($data['min_spend_amount'] ?? 0)),
+                'trigger_product_id' => $this->nullable_int($data['trigger_product_id'] ?? null),
+                'free_product_id' => $this->nullable_int($data['free_product_id'] ?? null),
+                'free_qty' => max(0, (float)($data['free_qty'] ?? 0)),
+                'valid_day_count' => max(0, (int)($data['valid_day_count'] ?? 0)),
+                'point_cost' => max(0, (float)($data['point_cost'] ?? 0)),
+                'stamp_cost' => max(0, (float)($data['stamp_cost'] ?? 0)),
+                'start_date' => $this->nullable_date($data['start_date'] ?? ''),
+                'end_date' => $this->nullable_date($data['end_date'] ?? ''),
+                'is_active' => !empty($data['is_active']) ? 1 : 0,
+            ];
+
+            if ($id > 0) {
+                if (!$this->record_exists('pos_voucher_campaign', $id)) {
+                    throw new RuntimeException('Campaign voucher tidak ditemukan.');
+                }
+                $this->db->where('id', $id)->update('pos_voucher_campaign', $payload);
+            } else {
+                $this->db->insert('pos_voucher_campaign', $payload);
+                $id = (int)$this->db->insert_id();
+            }
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan campaign voucher.');
+            }
+            $this->db->trans_commit();
+            return ['ok' => true, 'id' => $id];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function toggle_voucher_campaign(int $id): array
+    {
+        return $this->toggle_active_record('pos_voucher_campaign', $id, null, 'Campaign voucher tidak ditemukan.', 'Gagal mengubah status campaign voucher.');
+    }
+
+    public function save_voucher_issue(array $data): array
+    {
+        if (!$this->db->table_exists('pos_voucher_issue')) {
+            return ['ok' => false, 'message' => 'Tabel voucher aktual belum tersedia.'];
+        }
+
+        $id = (int)($data['id'] ?? 0);
+        $campaignId = (int)($data['campaign_id'] ?? 0);
+        if ($campaignId <= 0) {
+            return ['ok' => false, 'message' => 'Aturan voucher wajib dipilih.'];
+        }
+
+        $campaign = $this->db->from('pos_voucher_campaign')->where('id', $campaignId)->limit(1)->get()->row_array();
+        if (!$campaign) {
+            return ['ok' => false, 'message' => 'Aturan voucher tidak ditemukan.'];
+        }
+
+        $memberId = $this->nullable_int($data['member_id'] ?? null);
+        $voucherCode = strtoupper(trim((string)($data['voucher_code'] ?? '')));
+        $voucherIssueNo = strtoupper(trim((string)($data['voucher_issue_no'] ?? '')));
+        $issuedAt = $this->nullable_datetime($data['issued_at'] ?? '') ?: date('Y-m-d H:i:s');
+        $expiredAt = $this->nullable_datetime($data['expired_at'] ?? '');
+
+        if ($memberId !== null && !$this->record_exists('crm_member', $memberId)) {
+            return ['ok' => false, 'message' => 'Member voucher tidak ditemukan.'];
+        }
+
+        if ($expiredAt === null) {
+            $validDayCount = (int)($campaign['valid_day_count'] ?? 0);
+            if ($validDayCount > 0) {
+                $expiredAt = date('Y-m-d H:i:s', strtotime($issuedAt . ' +' . $validDayCount . ' days'));
+            }
+        }
+
+        $voucherType = strtoupper(trim((string)($campaign['voucher_type'] ?? 'AMOUNT')));
+        $amountSnapshot = 0.0;
+        $percentSnapshot = 0.0;
+        if ($voucherType === 'PERCENT') {
+            $percentSnapshot = round((float)($campaign['discount_value'] ?? 0), 4);
+        } else {
+            $amountSnapshot = round((float)($campaign['discount_value'] ?? 0), 2);
+        }
+
+        $this->db->trans_begin();
+        try {
+            if ($voucherIssueNo === '') {
+                $voucherIssueNo = $this->generate_voucher_issue_no($issuedAt);
+            } elseif ($this->code_exists('pos_voucher_issue', 'voucher_issue_no', $voucherIssueNo, $id)) {
+                throw new RuntimeException('Nomor voucher sudah dipakai.');
+            }
+
+            if ($voucherCode === '') {
+                $voucherCode = $this->generate_random_code('VCR-', 12, 'pos_voucher_issue', 'voucher_code', $id);
+            } elseif ($this->code_exists('pos_voucher_issue', 'voucher_code', $voucherCode, $id)) {
+                throw new RuntimeException('Kode voucher sudah dipakai.');
+            }
+
+            $payload = [
+                'voucher_issue_no' => $voucherIssueNo,
+                'campaign_id' => $campaignId,
+                'member_id' => $memberId,
+                'voucher_code' => $voucherCode,
+                'voucher_status' => 'OPEN',
+                'amount_snapshot' => $amountSnapshot,
+                'percent_snapshot' => $percentSnapshot,
+                'issued_at' => $issuedAt,
+                'expired_at' => $expiredAt,
+                'notes' => $this->nullable_text($data['notes'] ?? ''),
+            ];
+
+            if ($id > 0) {
+                $existing = $this->db->from('pos_voucher_issue')->where('id', $id)->limit(1)->get()->row_array();
+                if (!$existing) {
+                    throw new RuntimeException('Voucher tidak ditemukan.');
+                }
+                if (strtoupper((string)($existing['voucher_status'] ?? 'OPEN')) === 'REDEEMED') {
+                    throw new RuntimeException('Voucher yang sudah dipakai tidak bisa diubah manual.');
+                }
+                $payload['voucher_status'] = (string)($existing['voucher_status'] ?? 'OPEN');
+                $this->db->where('id', $id)->update('pos_voucher_issue', $payload);
+            } else {
+                $this->db->insert('pos_voucher_issue', $payload);
+                $id = (int)$this->db->insert_id();
+            }
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan voucher.');
+            }
+            $this->db->trans_commit();
+            return ['ok' => true, 'id' => $id];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function toggle_voucher_issue(int $id): array
+    {
+        if (!$this->db->table_exists('pos_voucher_issue')) {
+            return ['ok' => false, 'message' => 'Tabel voucher aktual belum tersedia.'];
+        }
+
+        $row = $this->db->from('pos_voucher_issue')->where('id', $id)->limit(1)->get()->row_array();
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Voucher tidak ditemukan.'];
+        }
+
+        $status = strtoupper(trim((string)($row['voucher_status'] ?? 'OPEN')));
+        if ($status === 'REDEEMED') {
+            return ['ok' => false, 'message' => 'Voucher yang sudah dipakai tidak bisa dibatalkan.'];
+        }
+
+        $newStatus = $status === 'VOID' ? 'OPEN' : 'VOID';
+        $this->db->trans_begin();
+        try {
+            $this->db->where('id', $id)->update('pos_voucher_issue', ['voucher_status' => $newStatus]);
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal mengubah status voucher.');
+            }
+            $this->db->trans_commit();
+            return ['ok' => true, 'id' => $id, 'voucher_status' => $newStatus];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    private function save_point_like_record(string $type, array $data): array
+    {
+        $isPoint = $type === 'point';
+        $table = $isPoint ? 'pos_point_rule' : 'pos_stamp_campaign';
+        $codeColumn = $isPoint ? 'rule_code' : 'campaign_code';
+        $nameColumn = $isPoint ? 'rule_name' : 'campaign_name';
+        $prefix = $isPoint ? 'PNT-' : 'STP-';
+        $id = (int)($data['id'] ?? 0);
+        $name = trim((string)($data[$nameColumn] ?? ''));
+        if ($name === '') {
+            return ['ok' => false, 'message' => $isPoint ? 'Nama rule poin wajib diisi.' : 'Nama campaign stamp wajib diisi.'];
+        }
+
+        $earnMode = strtoupper(trim((string)($data['earn_mode'] ?? ($isPoint ? 'AMOUNT' : 'TXN'))));
+        $allowed = $isPoint ? ['AMOUNT', 'PRODUCT', 'FLAT'] : ['TXN', 'AMOUNT', 'PRODUCT'];
+        if (!in_array($earnMode, $allowed, true)) {
+            $earnMode = $allowed[0];
+        }
+
+        $code = strtoupper(trim((string)($data[$codeColumn] ?? '')));
+        $this->db->trans_begin();
+        try {
+            if ($code === '') {
+                $code = $this->generate_named_code($table, $codeColumn, $name, $prefix);
+            } elseif ($this->code_exists($table, $codeColumn, $code, $id)) {
+                throw new RuntimeException($isPoint ? 'Kode rule poin sudah dipakai.' : 'Kode campaign stamp sudah dipakai.');
+            }
+
+            if ($isPoint) {
+                $spendBasis = strtoupper(trim((string)($data['spend_basis'] ?? 'NET')));
+                if (!in_array($spendBasis, ['NET', 'GROSS'], true)) {
+                    $spendBasis = 'NET';
+                }
+                $payload = [
+                    'rule_code' => $code,
+                    'rule_name' => $name,
+                    'earn_mode' => $earnMode,
+                    'spend_basis' => $spendBasis,
+                    'amount_per_point' => max(0, (float)($data['amount_per_point'] ?? 0)),
+                    'flat_point' => max(0, (float)($data['flat_point'] ?? 0)),
+                    'required_product_id' => $this->nullable_int($data['required_product_id'] ?? null),
+                    'min_spend_amount' => max(0, (float)($data['min_spend_amount'] ?? 0)),
+                    'point_expiry_days' => max(0, (int)($data['point_expiry_days'] ?? 0)),
+                    'is_active' => !empty($data['is_active']) ? 1 : 0,
+                ];
+            } else {
+                $payload = [
+                    'campaign_code' => $code,
+                    'campaign_name' => $name,
+                    'earn_mode' => $earnMode,
+                    'amount_step' => max(0, (float)($data['amount_step'] ?? 0)),
+                    'stamp_per_earn' => max(0, (float)($data['stamp_per_earn'] ?? 0)),
+                    'required_product_id' => $this->nullable_int($data['required_product_id'] ?? null),
+                    'redeem_required_stamp' => max(0, (float)($data['redeem_required_stamp'] ?? 0)),
+                    'start_date' => $this->nullable_date($data['start_date'] ?? ''),
+                    'end_date' => $this->nullable_date($data['end_date'] ?? ''),
+                    'stamp_expiry_days' => max(0, (int)($data['stamp_expiry_days'] ?? 0)),
+                    'is_active' => !empty($data['is_active']) ? 1 : 0,
+                ];
+            }
+
+            if ($id > 0) {
+                if (!$this->record_exists($table, $id)) {
+                    throw new RuntimeException($isPoint ? 'Rule poin tidak ditemukan.' : 'Campaign stamp tidak ditemukan.');
+                }
+                $this->db->where('id', $id)->update($table, $payload);
+            } else {
+                $this->db->insert($table, $payload);
+                $id = (int)$this->db->insert_id();
+            }
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException($isPoint ? 'Gagal menyimpan rule poin.' : 'Gagal menyimpan campaign stamp.');
+            }
+            $this->db->trans_commit();
+            return ['ok' => true, 'id' => $id];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    private function paginate_rows(CI_DB_query_builder $db, array $select, array $orderBy, int $page, int $limit): array
+    {
+        $total = (int)$db->count_all_results('', false);
+        [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
+        $db->select(implode(', ', $select));
+        foreach ($orderBy as $column => $direction) {
+            $db->order_by($column, $direction);
+        }
+        $rows = $db->limit($limit, $offset)->get()->result_array();
+        return [
+            'rows' => $rows,
+            'meta' => [
+                'total' => $total,
+                'page' => $page,
+                'limit' => $limit,
+                'total_pages' => $totalPages,
+            ],
+        ];
+    }
+
+    private function apply_search_filter(CI_DB_query_builder $db, string $q, array $columns): void
+    {
+        if ($q === '') {
+            return;
+        }
+        $db->group_start();
+        foreach ($columns as $index => $column) {
+            if ($index === 0) {
+                $db->like($column, $q);
+            } else {
+                $db->or_like($column, $q);
+            }
+        }
+        $db->group_end();
+    }
+
+    private function apply_active_filter(CI_DB_query_builder $db, string $status, string $column = 'is_active'): void
+    {
+        if ($status === 'ACTIVE') {
+            $db->where($column, 1);
+        } elseif ($status === 'INACTIVE') {
+            $db->where($column, 0);
+        }
+    }
+
+    private function toggle_active_record(string $table, int $id, ?callable $extraPayload, string $notFoundMessage, string $defaultErrorMessage): array
+    {
+        $row = $this->db->from($table)->where('id', $id)->limit(1)->get()->row_array();
+        if (!$row) {
+            return ['ok' => false, 'message' => $notFoundMessage];
+        }
+        $newValue = ((int)($row['is_active'] ?? 0) === 1) ? 0 : 1;
+        $payload = ['is_active' => $newValue];
+        if ($extraPayload !== null) {
+            $payload = array_merge($payload, (array)$extraPayload($row, $newValue));
+        }
+
+        $this->db->trans_begin();
+        try {
+            $this->db->where('id', $id)->update($table, $payload);
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException($defaultErrorMessage);
+            }
+            $this->db->trans_commit();
+            return ['ok' => true, 'id' => $id, 'is_active' => $newValue];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    private function record_exists(string $table, int $id): bool
+    {
+        return (int)$this->db->from($table)->where('id', $id)->count_all_results() > 0;
+    }
+
+    private function distinct_non_empty_values(string $table, string $column): array
+    {
+        if (!$this->db->table_exists($table) || !$this->db->field_exists($column, $table)) {
+            return [];
+        }
+
+        $rows = $this->db->select($column)
+            ->from($table)
+            ->where($column . ' IS NOT NULL', null, false)
+            ->where("TRIM({$column}) != ''", null, false)
+            ->group_by($column)
+            ->order_by($column, 'ASC')
+            ->get()
+            ->result_array();
+
+        return array_values(array_map(static function ($row) use ($column) {
+            return trim((string)($row[$column] ?? ''));
+        }, $rows));
+    }
+
+    private function code_exists(string $table, string $column, string $code, int $excludeId = 0): bool
+    {
+        $db = $this->db->from($table)->where($column, $code);
+        if ($excludeId > 0) {
+            $db->where('id !=', $excludeId);
+        }
+        return (int)$db->count_all_results() > 0;
+    }
+
+    private function generate_member_no(?string $joinedAt = null): string
+    {
+        $joinedAt = $joinedAt ?: date('Y-m-d H:i:s');
+        $prefix = 'MEM-' . date('Ymd', strtotime($joinedAt));
+        $row = $this->db->query(
+            'SELECT member_no FROM crm_member WHERE member_no LIKE ? ORDER BY member_no DESC LIMIT 1',
+            [$prefix . '-%']
+        )->row_array();
+        $next = 1;
+        if (!empty($row['member_no'])) {
+            $parts = explode('-', (string)$row['member_no']);
+            $next = ((int)end($parts)) + 1;
+        }
+        return sprintf('%s-%04d', $prefix, $next);
+    }
+
+    private function generate_named_code(string $table, string $column, string $name, string $prefix = '', int $excludeId = 0, int $maxLen = 40): string
+    {
+        $slug = preg_replace('/[^A-Z0-9]+/', '-', strtoupper(trim($name)));
+        $slug = trim((string)$slug, '-');
+        if ($slug === '') {
+            $slug = 'ITEM';
+        }
+        $base = trim($prefix . $slug, '-');
+        $code = substr($base, 0, $maxLen);
+        $seq = 1;
+        while ($this->code_exists($table, $column, $code, $excludeId)) {
+            $suffix = '-' . str_pad((string)$seq, 2, '0', STR_PAD_LEFT);
+            $code = substr($base, 0, max(1, $maxLen - strlen($suffix))) . $suffix;
+            $seq++;
+        }
+        return $code;
+    }
+
+    private function generate_voucher_issue_no(?string $issuedAt = null): string
+    {
+        $issuedAt = $issuedAt ?: date('Y-m-d H:i:s');
+        $prefix = 'VCH-' . date('Ymd', strtotime($issuedAt));
+        $row = $this->db->query(
+            'SELECT voucher_issue_no FROM pos_voucher_issue WHERE voucher_issue_no LIKE ? ORDER BY voucher_issue_no DESC LIMIT 1',
+            [$prefix . '-%']
+        )->row_array();
+        $next = 1;
+        if (!empty($row['voucher_issue_no'])) {
+            $parts = explode('-', (string)$row['voucher_issue_no']);
+            $next = ((int)end($parts)) + 1;
+        }
+        return sprintf('%s-%04d', $prefix, $next);
+    }
+
+    private function generate_random_code(string $prefix, int $length, string $table, string $column, int $excludeId = 0): string
+    {
+        $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        $bodyLength = max(4, $length - strlen($prefix));
+        do {
+            $body = '';
+            for ($i = 0; $i < $bodyLength; $i++) {
+                $body .= $alphabet[random_int(0, strlen($alphabet) - 1)];
+            }
+            $code = $prefix . $body;
+        } while ($this->code_exists($table, $column, $code, $excludeId));
+        return $code;
+    }
+
+    private function paginate(int $total, int $page, int $limit): array
+    {
+        $totalPages = max(1, (int)ceil($total / max(1, $limit)));
+        $page = min(max(1, $page), $totalPages);
+        $offset = ($page - 1) * $limit;
+        return [$page, $offset, $totalPages];
+    }
+
+    private function nullable_text($value): ?string
+    {
+        $value = trim((string)$value);
+        return $value === '' ? null : $value;
+    }
+
+    private function nullable_date($value): ?string
+    {
+        $value = trim((string)$value);
+        if ($value === '') {
+            return null;
+        }
+        $ts = strtotime($value);
+        return $ts ? date('Y-m-d', $ts) : null;
+    }
+
+    private function nullable_datetime($value): ?string
+    {
+        $value = trim((string)$value);
+        if ($value === '') {
+            return null;
+        }
+        $ts = strtotime($value);
+        return $ts ? date('Y-m-d H:i:s', $ts) : null;
+    }
+
+    private function nullable_int($value): ?int
+    {
+        $intValue = (int)$value;
+        return $intValue > 0 ? $intValue : null;
+    }
+}

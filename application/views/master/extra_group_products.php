@@ -2,7 +2,10 @@
 $mapped = array_fill_keys(array_map('intval', $mapped_product_ids ?? []), true);
 $saveUrl = site_url('master/relation/extra-group/' . (int)$group['id'] . '/save');
 $baseUrl = site_url('master/relation/extra-group/' . (int)$group['id']);
+$extraTabActive = 'group-checklist';
 ?>
+
+<?php $this->load->view('master/_extra_tabs', compact('extraTabActive')); ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>

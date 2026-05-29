@@ -19,6 +19,18 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
   .pos-order-search-item:hover { background:#fff7f2; }
   .pos-order-search-name { font-weight:800; color:#382a2b; }
   .pos-order-search-meta { font-size:.78rem; color:#8a776d; }
+  .pos-order-member-card {
+    border:1px solid rgba(224, 209, 198, .7); border-radius:16px; padding:.85rem 1rem;
+    background:linear-gradient(135deg,#fffaf7 0%,#fff 100%);
+  }
+  .pos-order-member-empty { color:#8b7a70; font-size:.86rem; }
+  .pos-order-member-title { font-weight:800; color:#3a2b2b; }
+  .pos-order-member-meta { font-size:.8rem; color:#7b6b63; }
+  .pos-order-search-mode .btn.active { background:#8f3d33; color:#fff; border-color:#8f3d33; }
+  .pos-order-bundle-chip {
+    display:inline-flex; align-items:center; gap:.35rem; padding:.18rem .5rem; border-radius:999px;
+    background:#fff0de; color:#9a4e0f; font-size:.72rem; font-weight:800;
+  }
   .pos-order-line-table th { white-space:nowrap; }
   .pos-order-line-table td { vertical-align:middle; }
   .pos-order-availability { display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .55rem; border-radius:999px; font-size:.72rem; font-weight:700; }
@@ -34,6 +46,17 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
   .pos-order-draft-row { cursor:pointer; }
   .pos-order-draft-row:hover { background:#fff7f2; }
   .pos-order-mini-note { font-size:.78rem; color:#89756c; }
+  .pos-reversal-line {
+    border:1px solid rgba(224, 209, 198, .75); border-radius:14px; padding:.85rem 1rem;
+    background:linear-gradient(135deg,#fffaf6 0%,#fff 100%);
+  }
+  .pos-reversal-line + .pos-reversal-line { margin-top:.7rem; }
+  .pos-reversal-flag {
+    display:inline-flex; align-items:center; gap:.35rem; padding:.18rem .55rem; border-radius:999px;
+    font-size:.72rem; font-weight:800;
+  }
+  .pos-reversal-flag.return { background:#e8f8ec; color:#1d7f45; }
+  .pos-reversal-flag.adjust { background:#fff4dd; color:#8d5a00; }
   @media (max-width: 991.98px) {
     .pos-order-main .btn { width:100%; }
   }
@@ -64,6 +87,7 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
           </div>
           <div class="d-flex flex-wrap gap-2">
             <button type="button" class="btn btn-outline-secondary" id="btn-reset-order">Reset Draft</button>
+            <button type="button" class="btn btn-outline-dark" id="btn-reversal-preview" disabled>Preview Void / Refund</button>
             <button type="button" class="btn btn-outline-primary" id="btn-save-order" <?php echo empty($outlets) ? 'disabled' : ''; ?>>Simpan Draft</button>
             <button type="button" class="btn btn-primary" id="btn-confirm-order" <?php echo empty($outlets) ? 'disabled' : ''; ?>>Confirm + Stock Commit</button>
           </div>
@@ -106,6 +130,19 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
             <label class="form-label mb-1 small text-muted">Order No</label>
             <input type="text" class="form-control" id="order_no_preview" value="Otomatis saat simpan" readonly>
           </div>
+          <div class="col-lg-7">
+            <label class="form-label mb-1 small text-muted">Member</label>
+            <div class="pos-order-search-wrap">
+              <input type="text" class="form-control" id="member_search" placeholder="Ketik nama / no HP / nomor member untuk transaksi member...">
+              <div class="pos-order-search-result d-none" id="member_search_result"></div>
+            </div>
+          </div>
+          <div class="col-lg-5">
+            <label class="form-label mb-1 small text-muted">Member Terpilih</label>
+            <div class="pos-order-member-card" id="member_selected_state">
+              <div class="pos-order-member-empty">Walk in customer. Transaksi ini belum memakai member.</div>
+            </div>
+          </div>
           <div class="col-12">
             <label class="form-label mb-1 small text-muted">Catatan Order</label>
             <input type="text" class="form-control" name="notes" id="notes" placeholder="Catatan meja, request kasir, catatan layanan, atau marker internal.">
@@ -115,7 +152,13 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
         <div class="row g-3 align-items-start mb-4">
           <div class="col-lg-8">
             <div class="pos-order-search-wrap">
-              <label class="form-label mb-1 small text-muted">Cari Produk</label>
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
+                <label class="form-label mb-0 small text-muted">Cari Item POS</label>
+                <div class="btn-group btn-group-sm pos-order-search-mode" role="group">
+                  <button type="button" class="btn btn-outline-secondary active" data-search-mode="PRODUCT">Produk</button>
+                  <button type="button" class="btn btn-outline-secondary" data-search-mode="BUNDLE">Bundle</button>
+                </div>
+              </div>
               <input type="text" class="form-control" id="product_search" placeholder="Ketik kode / nama produk kasir lalu pilih dari hasil AJAX...">
               <div class="pos-order-search-result d-none" id="product_search_result"></div>
             </div>
@@ -213,6 +256,57 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
   </div>
 </div>
 
+<div class="modal fade" id="reversalModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content border-0 shadow-lg" style="border-radius:24px;">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Preview Void / Refund POS</h5>
+          <div class="small text-muted" id="reversal_modal_meta">Order belum dipilih.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning border-0 d-none" id="reversal_empty_hint">
+          Snapshot reversal belum tersedia untuk order ini.
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label small text-muted mb-1">Kebijakan Stok</label>
+            <div class="form-check form-switch border rounded-4 px-3 py-2">
+              <input class="form-check-input" type="checkbox" id="reversal_return_to_stock" checked>
+              <label class="form-check-label ms-2" for="reversal_return_to_stock">
+                Kembalikan ke stok untuk line yang belum diproses
+              </label>
+            </div>
+            <div class="small text-muted mt-1">Line yang sudah diproses tetap diarahkan ke adjustment-only sesuai skema yang kita sepakati.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small text-muted mb-1">Adjustment Mode</label>
+            <select class="form-select" id="reversal_adjustment_mode">
+              <option value="NONE">NONE</option>
+              <option value="AUTO_WASTE">AUTO_WASTE</option>
+              <option value="AUTO_SPOIL">AUTO_SPOIL</option>
+              <option value="AUTO_ADJUSTMENT">AUTO_ADJUSTMENT</option>
+            </select>
+            <div class="small text-muted mt-1">Dipakai untuk line yang sudah diproses atau sengaja tidak dikembalikan ke stok.</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label small text-muted mb-1">Alasan</label>
+            <textarea class="form-control" id="reversal_reason" rows="2" placeholder="Alasan void/refund untuk audit POS"></textarea>
+          </div>
+        </div>
+        <div id="reversal_line_list"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
+        <button type="button" class="btn btn-outline-danger" id="btn-save-void">Simpan Void</button>
+        <button type="button" class="btn btn-danger" id="btn-save-refund">Simpan Refund</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const initialFilters = <?php echo json_encode($filters, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
@@ -224,18 +318,26 @@ document.addEventListener('DOMContentLoaded', function () {
     limit: parseInt(initialFilters.limit || 20, 10) || 20
   };
 
-  const order = { id: null, order_no: '', outlet_id: '', terminal_id: '', service_type: 'DINE_IN', guest_count: 1, notes: '', lines: [] };
+  const order = { id: null, order_no: '', outlet_id: '', terminal_id: '', service_type: 'DINE_IN', guest_count: 1, member_id: null, member_no: '', member_name: '', member_mobile_phone: '', notes: '', lines: [] };
+  let reversalPreview = null;
+  const reversalModalEl = document.getElementById('reversalModal');
+  const reversalModal = reversalModalEl && window.bootstrap ? new bootstrap.Modal(reversalModalEl) : null;
   const outletSelect = document.getElementById('outlet_id');
   const terminalSelect = document.getElementById('terminal_id');
   const serviceType = document.getElementById('service_type');
   const guestCount = document.getElementById('guest_count');
   const notesInput = document.getElementById('notes');
+  const memberSearchInput = document.getElementById('member_search');
+  const memberSearchWrap = document.getElementById('member_search_result');
+  const memberSelectedState = document.getElementById('member_selected_state');
   const orderIdInput = document.querySelector('#order-header-form input[name="id"]');
   const orderNoPreview = document.getElementById('order_no_preview');
   const searchInput = document.getElementById('product_search');
   const searchWrap = document.getElementById('product_search_result');
   const lineBody = document.getElementById('order_line_body');
   const emptyState = document.getElementById('order_empty_state');
+  const reversalButton = document.getElementById('btn-reversal-preview');
+  let searchMode = 'PRODUCT';
 
   function escapeHtml(v) { return String(v ?? '').replace(/[&<>\"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[m])); }
   function money(v) { return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Number(v || 0)); }
@@ -282,6 +384,53 @@ document.addEventListener('DOMContentLoaded', function () {
     serviceType.value = order.service_type || 'DINE_IN';
     guestCount.value = order.guest_count || 1;
     notesInput.value = order.notes || '';
+    renderMemberSelection();
+    updateReversalButtonState();
+  }
+
+  function updateReversalButtonState() {
+    if (!reversalButton) return;
+    reversalButton.disabled = !order.id;
+  }
+
+  function renderMemberSelection() {
+    if (!order.member_id) {
+      memberSelectedState.innerHTML = '<div class="pos-order-member-empty">Walk in customer. Transaksi ini belum memakai member.</div>';
+      return;
+    }
+    memberSelectedState.innerHTML = `
+      <div class="d-flex justify-content-between align-items-start gap-2">
+        <div>
+          <div class="pos-order-member-title">${escapeHtml(order.member_name || '-')}</div>
+          <div class="pos-order-member-meta">${escapeHtml(order.member_no || '-')} | ${escapeHtml(order.member_mobile_phone || '-')}</div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-danger" id="btn-clear-member">Lepas</button>
+      </div>
+    `;
+    const clearBtn = document.getElementById('btn-clear-member');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', clearMemberSelection);
+    }
+  }
+
+  function clearMemberSelection() {
+    order.member_id = null;
+    order.member_no = '';
+    order.member_name = '';
+    order.member_mobile_phone = '';
+    memberSearchInput.value = '';
+    memberSearchWrap.classList.add('d-none');
+    renderMemberSelection();
+  }
+
+  function pickMember(row) {
+    order.member_id = Number(row.id || 0) || null;
+    order.member_no = row.member_no || '';
+    order.member_name = row.member_name || '';
+    order.member_mobile_phone = row.mobile_phone || '';
+    memberSearchInput.value = '';
+    memberSearchWrap.classList.add('d-none');
+    renderMemberSelection();
   }
 
   function filterTerminalOptions() {
@@ -300,7 +449,7 @@ document.addEventListener('DOMContentLoaded', function () {
   function recalcSummary() {
     const total = order.lines.reduce((sum, line) => sum + (Number(line.qty || 0) * Number(line.unit_price || 0)), 0);
     document.getElementById('summary_grand_total').textContent = money(total);
-    document.getElementById('summary_line_info').textContent = order.lines.length ? `${order.lines.length} baris produk • Guest ${order.guest_count || 1}` : 'Belum ada baris produk';
+    document.getElementById('summary_line_info').textContent = order.lines.length ? `${order.lines.length} baris item | Guest ${order.guest_count || 1}` : 'Belum ada baris produk';
   }
 
   function renderLines() {
@@ -314,11 +463,13 @@ document.addEventListener('DOMContentLoaded', function () {
     lineBody.innerHTML = order.lines.map((line, idx) => {
       const avail = String(line.availability_status || '').toUpperCase();
       const note = line.bottleneck_name_snapshot ? `<div class="pos-order-mini-note mt-1">Bottleneck: ${escapeHtml(line.bottleneck_name_snapshot)}</div>` : '';
+      const bundleChip = line.bundle_id ? `<div class="pos-order-bundle-chip mt-1"><i class="ri-gift-2-line"></i> ${escapeHtml(line.bundle_name || 'Bundle')}</div>` : '';
       return `
         <tr>
           <td>
             <div class="fw-semibold">${escapeHtml(line.product_name || '-')}</div>
-            <div class="pos-order-mini-note">${escapeHtml(line.product_code || '-')} • ${escapeHtml(line.product_division_name || '-')} • ${escapeHtml(line.uom_code || '-')}</div>
+            <div class="pos-order-mini-note">${escapeHtml(line.product_code || '-')} | ${escapeHtml(line.product_division_name || '-')} | ${escapeHtml(line.uom_code || '-')}</div>
+            ${bundleChip}
             ${note}
           </td>
           <td class="text-center">
@@ -348,19 +499,26 @@ document.addEventListener('DOMContentLoaded', function () {
     }));
     lineBody.querySelectorAll('.order-line-remove').forEach((el) => el.addEventListener('click', () => {
       const idx = Number(el.dataset.index || 0);
-      order.lines.splice(idx, 1);
+      const line = order.lines[idx];
+      if (line && line.bundle_id) {
+        order.lines = order.lines.filter((row) => Number(row.bundle_id || 0) !== Number(line.bundle_id || 0));
+      } else {
+        order.lines.splice(idx, 1);
+      }
       renderLines();
     }));
     recalcSummary();
   }
 
   function addProductRow(row) {
-    const existing = order.lines.find((line) => Number(line.product_id) === Number(row.id));
+    const existing = order.lines.find((line) => Number(line.product_id) === Number(row.id) && !line.bundle_id);
     if (existing) {
       existing.qty = Number(existing.qty || 0) + 1;
     } else {
       order.lines.push({
         product_id: Number(row.id),
+        bundle_id: null,
+        bundle_name: '',
         product_code: row.product_code || '',
         product_name: row.product_name || '',
         product_division_name: row.product_division_name || '-',
@@ -380,7 +538,91 @@ document.addEventListener('DOMContentLoaded', function () {
     renderLines();
   }
 
+  function addBundleRows(bundle) {
+    const existingBundleLines = order.lines.filter((line) => Number(line.bundle_id || 0) === Number(bundle.id || 0));
+    if (existingBundleLines.length) {
+      existingBundleLines.forEach((line) => {
+        const source = (bundle.items || []).find((item) => Number(item.product_id || 0) === Number(line.product_id || 0));
+        if (source) {
+          line.qty = Number(line.qty || 0) + Number(source.qty || 0);
+        }
+      });
+    } else {
+      (bundle.items || []).forEach((item) => {
+        order.lines.push({
+          product_id: Number(item.product_id || 0),
+          bundle_id: Number(bundle.id || 0),
+          bundle_name: bundle.bundle_name || '',
+          product_code: item.product_code || '',
+          product_name: item.product_name || '',
+          product_division_name: item.product_division_name || '-',
+          uom_code: item.uom_code || '-',
+          availability_status: item.availability_status || bundle.availability_status || 'CHECK',
+          estimated_available_qty: Number(item.estimated_available_qty || 0),
+          bottleneck_name_snapshot: item.bottleneck_name_snapshot || bundle.bottleneck_name_snapshot || '',
+          qty: Number(item.qty || 0),
+          unit_price: Number(item.unit_price || 0),
+          hpp_standard: Number(item.hpp_standard || 0),
+          hpp_live_snapshot: Number(item.hpp_live_snapshot || item.hpp_standard || 0),
+          notes: bundle.bundle_name ? `[Bundle] ${bundle.bundle_name}` : ''
+        });
+      });
+    }
+    searchInput.value = '';
+    searchWrap.classList.add('d-none');
+    renderLines();
+  }
+
   let searchTimer = null;
+  let memberSearchTimer = null;
+
+  document.querySelectorAll('[data-search-mode]').forEach((btn) => btn.addEventListener('click', () => {
+    searchMode = btn.dataset.searchMode || 'PRODUCT';
+    document.querySelectorAll('[data-search-mode]').forEach((rowBtn) => rowBtn.classList.toggle('active', rowBtn === btn));
+    searchInput.placeholder = searchMode === 'BUNDLE'
+      ? 'Ketik kode / nama bundle lalu pilih paket yang ingin dimasukkan...'
+      : 'Ketik kode / nama produk kasir lalu pilih dari hasil AJAX...';
+    searchInput.value = '';
+    searchWrap.classList.add('d-none');
+  }));
+
+  memberSearchInput.addEventListener('input', () => {
+    const q = memberSearchInput.value.trim();
+    clearTimeout(memberSearchTimer);
+    if (q.length < 2) {
+      memberSearchWrap.classList.add('d-none');
+      return;
+    }
+    memberSearchTimer = setTimeout(async () => {
+      try {
+        const json = await getJson('<?php echo site_url('pos/orders/draft/member-search'); ?>?q=' + encodeURIComponent(q));
+        const rows = json.rows || [];
+        if (!rows.length) {
+          memberSearchWrap.innerHTML = '<div class="p-3 text-muted">Member tidak ditemukan.</div>';
+          memberSearchWrap.classList.remove('d-none');
+          return;
+        }
+        memberSearchWrap.innerHTML = rows.map((row) => `
+          <div class="pos-order-search-item" data-row="${encodeURIComponent(JSON.stringify(row))}">
+            <div>
+              <div class="pos-order-search-name">${escapeHtml(row.member_name || '-')}</div>
+              <div class="pos-order-search-meta">${escapeHtml(row.member_no || '-')} | ${escapeHtml(row.mobile_phone || '-')}</div>
+            </div>
+            <div class="text-end">
+              <div class="fw-semibold">${escapeHtml(row.member_tier || '-')}</div>
+              <div class="pos-order-search-meta">${escapeHtml(row.member_status || '-')}</div>
+            </div>
+          </div>
+        `).join('');
+        memberSearchWrap.classList.remove('d-none');
+        memberSearchWrap.querySelectorAll('.pos-order-search-item').forEach((item) => item.addEventListener('click', () => pickMember(JSON.parse(decodeURIComponent(item.dataset.row)))));
+      } catch (e) {
+        memberSearchWrap.innerHTML = `<div class="p-3 text-danger">${escapeHtml(e.message)}</div>`;
+        memberSearchWrap.classList.remove('d-none');
+      }
+    }, 250);
+  });
+
   searchInput.addEventListener('input', () => {
     const q = searchInput.value.trim();
     syncHeaderToOrder();
@@ -395,27 +637,53 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     searchTimer = setTimeout(async () => {
       try {
-        const json = await getJson('<?php echo site_url('pos/orders/draft/product-search'); ?>?q=' + encodeURIComponent(q) + '&outlet_id=' + encodeURIComponent(order.outlet_id));
+        const endpoint = searchMode === 'BUNDLE'
+          ? '<?php echo site_url('pos/orders/draft/bundle-search'); ?>'
+          : '<?php echo site_url('pos/orders/draft/product-search'); ?>';
+        const json = await getJson(endpoint + '?q=' + encodeURIComponent(q) + '&outlet_id=' + encodeURIComponent(order.outlet_id));
         const rows = json.rows || [];
         if (!rows.length) {
-          searchWrap.innerHTML = '<div class="p-3 text-muted">Produk tidak ditemukan.</div>';
+          searchWrap.innerHTML = `<div class="p-3 text-muted">${searchMode === 'BUNDLE' ? 'Bundle tidak ditemukan.' : 'Produk tidak ditemukan.'}</div>`;
           searchWrap.classList.remove('d-none');
           return;
         }
-        searchWrap.innerHTML = rows.map((row) => `
-          <div class="pos-order-search-item" data-row='${JSON.stringify(row).replace(/'/g, '&#039;')}'>
-            <div>
-              <div class="pos-order-search-name">${escapeHtml(row.product_name || '-')}</div>
-              <div class="pos-order-search-meta">${escapeHtml(row.product_code || '-')} • ${escapeHtml(row.product_division_name || '-')} • ${escapeHtml(row.uom_code || '-')}</div>
+        searchWrap.innerHTML = rows.map((row) => {
+          if (searchMode === 'BUNDLE') {
+            return `
+              <div class="pos-order-search-item" data-row="${encodeURIComponent(JSON.stringify(row))}" data-kind="bundle">
+                <div>
+                  <div class="pos-order-search-name">${escapeHtml(row.bundle_name || '-')}</div>
+                  <div class="pos-order-search-meta">${escapeHtml(row.bundle_code || '-')} | ${escapeHtml(row.product_division_name || 'Campuran Divisi')} | ${Number(row.line_count || 0)} item</div>
+                </div>
+                <div class="text-end">
+                  <div class="fw-semibold">${money(row.selling_price || 0)}</div>
+                  <div class="pos-order-search-meta">${statusBadge(String(row.availability_status || '').toUpperCase())}</div>
+                </div>
+              </div>
+            `;
+          }
+          return `
+            <div class="pos-order-search-item" data-row="${encodeURIComponent(JSON.stringify(row))}" data-kind="product">
+              <div>
+                <div class="pos-order-search-name">${escapeHtml(row.product_name || '-')}</div>
+                <div class="pos-order-search-meta">${escapeHtml(row.product_code || '-')} | ${escapeHtml(row.product_division_name || '-')} | ${escapeHtml(row.uom_code || '-')}</div>
+              </div>
+              <div class="text-end">
+                <div class="fw-semibold">${money(row.selling_price || 0)}</div>
+                <div class="pos-order-search-meta">${statusBadge(String(row.availability_status || '').toUpperCase())}</div>
+              </div>
             </div>
-            <div class="text-end">
-              <div class="fw-semibold">${money(row.selling_price || 0)}</div>
-              <div class="pos-order-search-meta">${statusBadge(String(row.availability_status || '').toUpperCase())}</div>
-            </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
         searchWrap.classList.remove('d-none');
-        searchWrap.querySelectorAll('.pos-order-search-item').forEach((item) => item.addEventListener('click', () => addProductRow(JSON.parse(item.dataset.row))));
+        searchWrap.querySelectorAll('.pos-order-search-item').forEach((item) => item.addEventListener('click', () => {
+          const row = JSON.parse(decodeURIComponent(item.dataset.row));
+          if (item.dataset.kind === 'bundle') {
+            addBundleRows(row);
+          } else {
+            addProductRow(row);
+          }
+        }));
       } catch (e) {
         searchWrap.innerHTML = `<div class="p-3 text-danger">${escapeHtml(e.message)}</div>`;
         searchWrap.classList.remove('d-none');
@@ -426,6 +694,9 @@ document.addEventListener('DOMContentLoaded', function () {
   document.addEventListener('click', (e) => {
     if (!searchWrap.contains(e.target) && e.target !== searchInput) {
       searchWrap.classList.add('d-none');
+    }
+    if (!memberSearchWrap.contains(e.target) && e.target !== memberSearchInput) {
+      memberSearchWrap.classList.add('d-none');
     }
   });
 
@@ -469,9 +740,9 @@ document.addEventListener('DOMContentLoaded', function () {
       empty.classList.add('d-none');
       body.innerHTML = rows.map((row) => `
         <tr class="pos-order-draft-row" data-id="${Number(row.id || 0)}">
-          <td><div class="fw-semibold">${escapeHtml(row.order_no || '-')}</div><div class="pos-order-mini-note">${escapeHtml(row.service_type || '-')} • ${escapeHtml(row.ordered_at || '-')}</div></td>
+          <td><div class="fw-semibold">${escapeHtml(row.order_no || '-')}</div><div class="pos-order-mini-note">${escapeHtml(row.service_type || '-')} | ${escapeHtml(row.ordered_at || '-')}</div></td>
           <td><div>${escapeHtml(row.outlet_name || '-')}</div><div class="pos-order-mini-note">${escapeHtml(row.terminal_name || 'Tanpa Terminal')}</div></td>
-          <td>${escapeHtml(row.employee_name || '-')}</td>
+          <td><div>${escapeHtml(row.employee_name || '-')}</div><div class="pos-order-mini-note">${escapeHtml(row.member_name || 'Walk in')}</div></td>
           <td class="text-center"><span class="badge ${String(row.status || '').toUpperCase()==='CONFIRMED' ? 'bg-success-subtle text-success-emphasis' : 'bg-warning-subtle text-warning-emphasis'}">${escapeHtml(row.status || '-')}</span></td>
           <td class="text-end fw-semibold">${money(row.grand_total || 0)}</td>
         </tr>
@@ -492,9 +763,15 @@ document.addEventListener('DOMContentLoaded', function () {
     order.terminal_id = String(header.terminal_id || '');
     order.service_type = header.service_type || 'DINE_IN';
     order.guest_count = Number(header.guest_count || 1);
+    order.member_id = Number(header.member_id || 0) || null;
+    order.member_no = header.member_no || '';
+    order.member_name = header.member_name || '';
+    order.member_mobile_phone = header.member_mobile_phone || '';
     order.notes = header.notes || '';
     order.lines = lines.map((line) => ({
       product_id: Number(line.product_id || 0),
+      bundle_id: Number(line.bundle_id || 0) || null,
+      bundle_name: line.bundle_name || '',
       product_code: line.product_code || '',
       product_name: line.product_name || '',
       product_division_name: line.product_division_name || '-',
@@ -520,10 +797,14 @@ document.addEventListener('DOMContentLoaded', function () {
       terminal_id: order.terminal_id,
       service_type: order.service_type,
       guest_count: order.guest_count,
+      member_id: order.member_id,
       notes: order.notes,
       lines: order.lines.map((line) => ({
         product_id: line.product_id,
+        bundle_id: line.bundle_id,
         qty: line.qty,
+        unit_price: line.unit_price,
+        hpp_live_snapshot: line.hpp_live_snapshot,
         notes: line.notes || ''
       }))
     };
@@ -542,15 +823,106 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     await saveDraft(true);
     const json = await postJson('<?php echo site_url('pos/orders/draft/confirm'); ?>/' + order.id, {});
-    alert(`Order berhasil dikonfirmasi.\nCommit No: ${json.commit_no || '-'}\nResolved Line: ${Number(json.resolved_line_count || 0)}`);
+    alert(`Order berhasil dikonfirmasi.
+Commit No: ${json.commit_no || '-'}
+Resolved Line: ${Number(json.resolved_line_count || 0)}
+Print Job: ${Number(json.print_job_count || 0)}`);
     await loadDraft(order.id);
     await loadRecents();
   }
 
   function resetDraft() {
-    order.id = null; order.order_no = ''; order.outlet_id = ''; order.terminal_id = ''; order.service_type = 'DINE_IN'; order.guest_count = 1; order.notes = ''; order.lines = [];
+    order.id = null; order.order_no = ''; order.outlet_id = ''; order.terminal_id = ''; order.service_type = 'DINE_IN'; order.guest_count = 1; order.member_id = null; order.member_no = ''; order.member_name = ''; order.member_mobile_phone = ''; order.notes = ''; order.lines = [];
+    reversalPreview = null;
     syncOrderToHeader();
     renderLines();
+  }
+
+  function buildReversalPayload(kind) {
+    if (!reversalPreview || !reversalPreview.order || !reversalPreview.order.header) {
+      throw new Error('Preview reversal belum dimuat.');
+    }
+    const returnToStock = document.getElementById('reversal_return_to_stock').checked;
+    const adjustmentMode = document.getElementById('reversal_adjustment_mode').value || 'NONE';
+    const reason = document.getElementById('reversal_reason').value || '';
+    const lines = (reversalPreview.order.lines || []).map((line) => ({
+      order_line_id: Number(line.id || 0),
+      qty: Number(line.qty || 0),
+      processed_state: String(line.process_status || 'NOT_PROCESSED').toUpperCase(),
+      return_to_stock: returnToStock && String(line.process_status || '').toUpperCase() === 'NOT_PROCESSED',
+      notes: reason
+    })).filter((line) => line.order_line_id > 0 && line.qty > 0);
+
+    return {
+      kind,
+      order_id: Number(reversalPreview.order.header.id || 0),
+      return_to_stock: returnToStock ? 1 : 0,
+      adjustment_mode: adjustmentMode,
+      reason,
+      lines
+    };
+  }
+
+  function renderReversalPreview(json) {
+    reversalPreview = json;
+    document.getElementById('reversal_modal_meta').textContent = `${json.order?.header?.order_no || '-'} • ${json.order?.header?.status || '-'} • ${json.order?.header?.member_name || 'Walk in'}`;
+    const list = document.getElementById('reversal_line_list');
+    const emptyHint = document.getElementById('reversal_empty_hint');
+    const orderLines = Array.isArray(json.order?.lines) ? json.order.lines : [];
+    if (!orderLines.length) {
+      emptyHint.classList.remove('d-none');
+      list.innerHTML = '';
+      return;
+    }
+    emptyHint.classList.add('d-none');
+    list.innerHTML = orderLines.map((line) => {
+      const processed = String(line.process_status || 'NOT_PROCESSED').toUpperCase();
+      const isProcessed = processed !== 'NOT_PROCESSED';
+      const flagClass = isProcessed ? 'adjust' : 'return';
+      const flagLabel = isProcessed ? 'Masuk Adjustment' : 'Bisa Kembali ke Stok';
+      return `
+        <div class="pos-reversal-line">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+            <div>
+              <div class="fw-semibold">${escapeHtml(line.product_name || '-')}</div>
+              <div class="pos-order-mini-note">${escapeHtml(line.product_code || '-')} | Qty ${number(line.qty || 0, 2)} | Status Line ${escapeHtml(line.line_status || '-')}</div>
+            </div>
+            <span class="pos-reversal-flag ${flagClass}">${escapeHtml(flagLabel)}</span>
+          </div>
+          <div class="small text-muted mt-2">
+            Process Status: <strong>${escapeHtml(processed)}</strong>
+            ${isProcessed ? ' • Sudah diproses, jadi stok tidak dikembalikan normal.' : ' • Belum diproses, stok boleh dikembalikan.'}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function openReversalPreview() {
+    if (!order.id) {
+      alert('Simpan atau pilih order dulu sebelum preview void/refund.');
+      return;
+    }
+    const json = await getJson('<?php echo site_url('pos/orders/reversal-preview'); ?>/' + order.id);
+    renderReversalPreview(json);
+    if (reversalModal) reversalModal.show();
+  }
+
+  async function submitReversal(kind) {
+    const payload = buildReversalPayload(kind);
+    if (!payload.lines.length) {
+      throw new Error('Tidak ada line yang bisa diproses untuk ' + kind.toLowerCase() + '.');
+    }
+    const endpoint = kind === 'VOID'
+      ? '<?php echo site_url('pos/orders/void/save'); ?>'
+      : '<?php echo site_url('pos/orders/refund/save'); ?>';
+    const json = await postJson(endpoint, payload);
+    if (reversalModal) reversalModal.hide();
+    alert(kind === 'VOID'
+      ? `Void berhasil disimpan.\nNo Void: ${json.void_no || '-'}`
+      : `Refund berhasil disimpan.\nNo Refund: ${json.refund_no || '-'}`);
+    await loadDraft(order.id);
+    await loadRecents();
   }
 
   document.querySelectorAll('.order-status-tab').forEach((btn) => btn.addEventListener('click', () => { recentState.status = btn.dataset.status; recentState.page = 1; loadRecents(); }));
@@ -572,6 +944,17 @@ document.addEventListener('DOMContentLoaded', function () {
     try { await confirmDraft(); } catch (e) { alert(e.message); }
   });
   document.getElementById('btn-reset-order').addEventListener('click', resetDraft);
+  if (reversalButton) {
+    reversalButton.addEventListener('click', async () => {
+      try { await openReversalPreview(); } catch (e) { alert(e.message); }
+    });
+  }
+  document.getElementById('btn-save-void').addEventListener('click', async () => {
+    try { await submitReversal('VOID'); } catch (e) { alert(e.message); }
+  });
+  document.getElementById('btn-save-refund').addEventListener('click', async () => {
+    try { await submitReversal('REFUND'); } catch (e) { alert(e.message); }
+  });
 
   syncOrderToHeader();
   renderLines();

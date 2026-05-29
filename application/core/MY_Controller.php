@@ -152,6 +152,24 @@ class MY_Controller extends CI_Controller
         return $this->load->view('layout/main', $data, $return);
     }
 
+    protected function render_cashier(string $view, array $data = [], bool $return = false)
+    {
+        if (
+            (!isset($data['title']) || trim((string)$data['title']) === '')
+            && isset($data['page_title'])
+            && trim((string)$data['page_title']) !== ''
+        ) {
+            $data['title'] = (string)$data['page_title'];
+        }
+
+        $data['current_user'] = $this->current_user;
+        $data['user_perms'] = $this->user_perms;
+        $data['content_view'] = $view;
+        $data['content_data'] = $data;
+
+        return $this->load->view('layout/cashier', $data, $return);
+    }
+
     private function load_sidebar_cached(): array
     {
         $userId = (int)($this->current_user['id'] ?? 0);

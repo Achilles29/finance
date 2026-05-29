@@ -8,7 +8,7 @@ $accounts = is_array($filterOptions['accounts'] ?? null) ? $filterOptions['accou
   <div class="fin-page-header">
     <div>
       <h4 class="fin-page-title mb-1">Payment Method POS</h4>
-      <p class="fin-page-subtitle mb-0">Atur metode pembayaran kasir dan mapping rekening bank yang dipakai untuk settlement transaksi POS.</p>
+      <p class="fin-page-subtitle mb-0">Atur metode pembayaran kasir dan mapping rekening perusahaan yang dipakai untuk settlement transaksi POS.</p>
     </div>
   </div>
 
@@ -38,7 +38,7 @@ $accounts = is_array($filterOptions['accounts'] ?? null) ? $filterOptions['accou
 
       <form class="row g-2 mb-3">
         <div class="col-md-10">
-          <input id="q" class="form-control" placeholder="Cari kode / nama metode / nama bank / rekening">
+          <input id="q" class="form-control" placeholder="Cari kode / nama metode / nama rekening / nomor rekening">
         </div>
         <div class="col-md-1">
           <select class="form-select" id="limit">
@@ -60,7 +60,7 @@ $accounts = is_array($filterOptions['accounts'] ?? null) ? $filterOptions['accou
               <th>Kode</th>
               <th>Nama</th>
               <th>Tipe</th>
-              <th>Rekening Bank</th>
+              <th>Rekening Perusahaan</th>
               <th class="text-center">Status</th>
               <th class="text-center" style="width:132px;">Aksi</th>
             </tr>
@@ -83,7 +83,7 @@ $accounts = is_array($filterOptions['accounts'] ?? null) ? $filterOptions['accou
       <div class="modal-header">
         <div>
           <h5 class="modal-title" id="paymentMethodModalLabel">Tambah Payment Method</h5>
-          <div class="small text-muted">Kode metode otomatis, dan rekening bank opsional bila pembayaran ini perlu settlement ke rekening tertentu.</div>
+          <div class="small text-muted">Kode metode otomatis, dan rekening perusahaan opsional bila pembayaran ini perlu settlement ke akun kas/bank tertentu.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
@@ -111,12 +111,12 @@ $accounts = is_array($filterOptions['accounts'] ?? null) ? $filterOptions['accou
             </select>
           </div>
           <div class="col-md-8">
-            <label class="form-label mb-1 small text-muted">Rekening Bank</label>
-            <select class="form-select" name="bank_account_id">
+            <label class="form-label mb-1 small text-muted">Rekening Perusahaan</label>
+            <select class="form-select" name="company_account_id">
               <option value="">Tanpa Rekening</option>
               <?php foreach ($accounts as $account): ?>
                 <option value="<?php echo (int)$account['id']; ?>">
-                  <?php echo html_escape((string)($account['bank_name'] ?? '-')); ?> | <?php echo html_escape((string)($account['account_name'] ?? '-')); ?><?php echo !empty($account['account_no']) ? ' | ' . html_escape((string)$account['account_no']) : ''; ?>
+                  <?php echo html_escape((string)($account['account_name'] ?? '-')); ?><?php echo !empty($account['bank_name']) ? ' | ' . html_escape((string)$account['bank_name']) : ''; ?><?php echo !empty($account['account_no']) ? ' | ' . html_escape((string)$account['account_no']) : ''; ?>
                 </option>
               <?php endforeach; ?>
             </select>
@@ -163,8 +163,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function bankLabel(row) {
     const parts = [];
-    if (row.bank_name) parts.push(row.bank_name);
     if (row.account_name) parts.push(row.account_name);
+    if (row.bank_name) parts.push(row.bank_name);
     if (row.account_no) parts.push(row.account_no);
     return parts.length ? escapeHtml(parts.join(' | ')) : '-';
   }

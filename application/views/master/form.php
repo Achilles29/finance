@@ -59,6 +59,42 @@ $renderReadonlyValue = static function ($value, string $type): string {
   crossorigin=""
 >
 <style>
+  .master-ajax-box {
+    position: relative;
+  }
+  .master-ajax-result {
+    position: absolute;
+    z-index: 25;
+    inset: calc(100% + 6px) 0 auto 0;
+    background: #fff;
+    border: 1px solid #e5d2c6;
+    border-radius: 14px;
+    box-shadow: 0 18px 34px rgba(63, 35, 24, 0.12);
+    max-height: 240px;
+    overflow: auto;
+    display: none;
+  }
+  .master-ajax-result.is-open {
+    display: block;
+  }
+  .master-ajax-item {
+    padding: .75rem .9rem;
+    border-bottom: 1px solid #f1e4db;
+    cursor: pointer;
+  }
+  .master-ajax-item:last-child {
+    border-bottom: 0;
+  }
+  .master-ajax-item:hover {
+    background: #fff7f1;
+  }
+  .master-ajax-item-title {
+    font-weight: 600;
+    color: #4d352c;
+  }
+</style>
+
+<style>
   .att-location-map-wrap {
     border: 1px solid #dec7c7;
     border-radius: 14px;
@@ -133,6 +169,12 @@ $renderReadonlyValue = static function ($value, string $type): string {
                   </option>
                 <?php endforeach; ?>
               </select>
+            <?php elseif ($type === 'ajax_lookup'): ?>
+              <div class="master-ajax-box" data-master-ajax-field="<?php echo html_escape($name); ?>" data-search-url="<?php echo html_escape(site_url('master/lookup-search/' . $entity . '/' . $name)); ?>">
+                <input type="hidden" name="<?php echo html_escape($name); ?>" id="id_<?php echo html_escape($name); ?>" value="<?php echo html_escape((string)$val); ?>">
+                <input type="text" class="form-control master-ajax-input" data-display-input="<?php echo html_escape($name); ?>" placeholder="<?php echo html_escape((string)($f['placeholder'] ?? 'Cari data...')); ?>" <?php echo $isReadonly ? 'readonly' : ''; ?>>
+                <div class="master-ajax-result" data-result="<?php echo html_escape($name); ?>"></div>
+              </div>
             <?php elseif ($type === 'number'): ?>
               <input
                 type="number"
@@ -262,6 +304,110 @@ $renderReadonlyValue = static function ($value, string $type): string {
 })();
 </script>
 <?php endif; ?>
+
+<script>
+(function () {
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('[data-master-ajax-field]'));
+  if (!boxes.length) return;
+
+  function escapeHtml(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, function (m) {
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'})[m];
+    });
+  }
+
+  function closeAll() {
+    boxes.forEach(function (box) {
+      var result = box.querySelector('.master-ajax-result');
+      if (result) {
+        result.classList.remove('is-open');
+        result.innerHTML = '';
+      }
+    });
+  }
+
+  function setSelected(box, row) {
+    var hidden = box.querySelector('input[type="hidden"]');
+    var display = box.querySelector('.master-ajax-input');
+    if (hidden) hidden.value = String(row.value || '');
+    if (display) display.value = String(row.label || '');
+    closeAll();
+  }
+
+  function bindBox(box) {
+    var hidden = box.querySelector('input[type="hidden"]');
+    var display = box.querySelector('.master-ajax-input');
+    var result = box.querySelector('.master-ajax-result');
+    var searchUrl = box.getAttribute('data-search-url') || '';
+    var timer = null;
+    if (!hidden || !display || !result || !searchUrl) return;
+
+    if (hidden.value) {
+      fetch(searchUrl + '?id=' + encodeURIComponent(hidden.value), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.text(); })
+        .then(function (t) {
+          var json = JSON.parse(t);
+          var rows = Array.isArray(json.rows) ? json.rows : [];
+          if (rows.length) {
+            display.value = String(rows[0].label || '');
+          }
+        })
+        .catch(function () {});
+    }
+
+    display.addEventListener('input', function () {
+      hidden.value = '';
+      var q = display.value.trim();
+      if (timer) window.clearTimeout(timer);
+      if (q.length < 2) {
+        result.classList.remove('is-open');
+        result.innerHTML = '';
+        return;
+      }
+      timer = window.setTimeout(function () {
+        fetch(searchUrl + '?q=' + encodeURIComponent(q), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+          .then(function (r) { return r.text(); })
+          .then(function (t) {
+            var json = JSON.parse(t);
+            var rows = Array.isArray(json.rows) ? json.rows : [];
+            if (!rows.length) {
+              result.innerHTML = '<div class="master-ajax-item"><div class="master-ajax-item-title">Tidak ada hasil.</div></div>';
+              result.classList.add('is-open');
+              return;
+            }
+            result.innerHTML = rows.map(function (row) {
+              return '<div class="master-ajax-item" data-value="' + escapeHtml(row.value) + '" data-label="' + escapeHtml(row.label) + '"><div class="master-ajax-item-title">' + escapeHtml(row.label) + '</div></div>';
+            }).join('');
+            result.classList.add('is-open');
+            Array.prototype.forEach.call(result.querySelectorAll('.master-ajax-item[data-value]'), function (item) {
+              item.addEventListener('click', function () {
+                setSelected(box, { value: item.getAttribute('data-value'), label: item.getAttribute('data-label') });
+              });
+            });
+          })
+          .catch(function () {
+            result.innerHTML = '<div class="master-ajax-item"><div class="master-ajax-item-title">Gagal memuat hasil pencarian.</div></div>';
+            result.classList.add('is-open');
+          });
+      }, 280);
+    });
+
+    display.addEventListener('focus', function () {
+      if (result.innerHTML.trim() !== '') {
+        result.classList.add('is-open');
+      }
+    });
+  }
+
+  document.addEventListener('click', function (event) {
+    if (!event.target.closest('[data-master-ajax-field]')) {
+      closeAll();
+    }
+  });
+
+  boxes.forEach(bindBox);
+})();
+</script>
 
 <?php if ($autoCodeSource !== '' && $autoCodeInput !== ''): ?>
 <script>

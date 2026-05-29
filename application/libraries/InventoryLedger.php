@@ -176,8 +176,9 @@ class InventoryLedger
         }
 
         $this->ci->db->insert('inv_stock_movement_log', $movementData);
+        $movementId = (int)$this->ci->db->insert_id();
 
-        if ($this->ci->db->affected_rows() <= 0) {
+        if ($movementId <= 0) {
             if ($manageTransaction) {
                 $this->ci->db->trans_rollback();
             }
@@ -238,6 +239,7 @@ class InventoryLedger
             'ok' => true,
             'message' => 'Inventory ledger berhasil diposting.',
             'data' => [
+                'movement_id' => $movementId,
                 'movement_no' => $movementNo,
                 'qty_buy_after' => $balanceResult['qty_buy_after'],
                 'qty_content_after' => $balanceResult['qty_content_after'],
@@ -357,7 +359,8 @@ class InventoryLedger
 
         $qtyBuyAfter = round($oldQtyBuy + $qtyBuyDelta, 4);
         $qtyContentAfter = round($oldQtyContent + $qtyContentDelta, 4);
-        if ($qtyBuyAfter < 0 || $qtyContentAfter < 0) {
+        $allowNegativeBalance = !empty($payload['allow_negative_balance']);
+        if (!$allowNegativeBalance && ($qtyBuyAfter < 0 || $qtyContentAfter < 0)) {
             return [
                 'ok' => false,
                 'message' => 'Mutasi menyebabkan saldo negatif.',
@@ -379,6 +382,15 @@ class InventoryLedger
         }
         if ($qtyContentAfter > 0 && $forcedAvg !== null) {
             $avgAfter = $forcedAvg;
+        }
+        if ($allowNegativeBalance && $qtyContentAfter < 0) {
+            if ($forcedAvg !== null) {
+                $avgAfter = $forcedAvg;
+            } elseif ($oldAvg > 0) {
+                $avgAfter = $oldAvg;
+            } elseif ($unitCost > 0) {
+                $avgAfter = $unitCost;
+            }
         }
 
         $updateData = [

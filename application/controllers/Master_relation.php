@@ -605,6 +605,26 @@ class Master_relation extends MY_Controller
         ]);
     }
 
+    public function extra_workspace()
+    {
+        $this->require_permission('master.product_extra.workspace.index', 'view');
+        $summary = [
+            'total_extra' => $this->db->table_exists('mst_extra') ? (int)$this->db->from('mst_extra')->count_all_results() : 0,
+            'total_group' => $this->db->table_exists('mst_extra_group') ? (int)$this->db->from('mst_extra_group')->count_all_results() : 0,
+            'total_mapping' => $this->db->table_exists('mst_product_extra_map') ? (int)$this->db->from('mst_product_extra_map')->count_all_results() : 0,
+            'total_cashier_ready' => ($this->db->table_exists('mst_extra') && $this->db->field_exists('show_in_cashier', 'mst_extra'))
+                ? (int)$this->db->from('mst_extra')->where('show_in_cashier', 1)->count_all_results()
+                : 0,
+        ];
+
+        $this->render('master/extra_workspace', [
+            'title' => 'Workspace Extra Produk',
+            'page_title' => 'Workspace Extra Produk',
+            'active_menu' => 'master.product_extra.workspace.index',
+            'summary' => $summary,
+        ]);
+    }
+
     public function extra_group_hub()
     {
         $q = trim((string)$this->input->get('q', true));

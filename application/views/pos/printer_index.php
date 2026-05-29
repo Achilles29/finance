@@ -46,6 +46,7 @@ $printers = is_array($filterOptions['printers'] ?? null) ? $filterOptions['print
       <p class="fin-page-subtitle mb-0">Kelola template, pengaturan output, dan device printer desktop POS dalam satu workbench yang rapi dan cepat dibaca.</p>
     </div>
     <div class="d-flex gap-2 flex-wrap">
+      <a href="<?php echo site_url('pos/printers/settings'); ?>" class="btn btn-outline-secondary"><i class="ri-settings-4-line me-1"></i>Pengaturan Umum</a>
       <a href="<?php echo site_url('pos/printers/guide'); ?>" class="btn btn-outline-primary"><i class="ri-book-open-line me-1"></i>Panduan Printer</a>
     </div>
   </div> 

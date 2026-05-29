@@ -220,6 +220,10 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 <?php endif; ?>
 
 <div data-master-root data-master-entity="<?php echo html_escape($entity); ?>" data-master-reorder-url="<?php echo html_escape(site_url('master/' . $entity . '/reorder')); ?>" class="master-index <?php echo $isPayrollMaster ? 'master-index--payroll' : ''; ?> <?php echo $useLargeActionIcons ? 'master-index--action-upgrade' : ''; ?> <?php echo $isProductHierarchyMaster ? 'master-index--product-hierarchy' : ''; ?>">
+<?php if ($entity === 'extra' || $entity === 'extra-group'): ?>
+  <?php $extraTabActive = $entity === 'extra' ? 'master-extra' : 'extra-group'; ?>
+  <?php $this->load->view('master/_extra_tabs', compact('extraTabActive')); ?>
+<?php endif; ?>
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
   <div>
     <h4 class="mb-1 master-title"><?php echo html_escape($cfg['title']); ?></h4>
@@ -230,6 +234,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
       <i class="ri-add-line me-1"></i>Tambah
     </a>
     <?php if ($entity === 'product'): ?>
+      <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/product-extra-workspace'); ?>">Workspace Extra</a>
       <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/product-recipe'); ?>">Halaman Resep Produk</a>
       <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/product-extra'); ?>">Halaman Mapping Extra</a>
     <?php endif; ?>
@@ -240,7 +245,11 @@ $buildPageItems = static function (int $page, int $totalPages): array {
       <a class="btn btn-outline-secondary" href="<?php echo site_url('master/variable-cost-default'); ?>">Pengaturan Variable Cost</a>
     <?php endif; ?>
     <?php if ($entity === 'extra-group'): ?>
+      <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/product-extra-workspace'); ?>">Workspace Extra</a>
       <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/extra-group'); ?>">Checklist Produk per Group</a>
+    <?php endif; ?>
+    <?php if ($entity === 'extra'): ?>
+      <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/product-extra-workspace'); ?>">Workspace Extra</a>
     <?php endif; ?>
     <?php if ($entity === 'att-overtime-standard'): ?>
       <a class="btn btn-outline-secondary" href="<?php echo site_url('attendance/overtime-entries'); ?>">

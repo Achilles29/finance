@@ -19,6 +19,11 @@ if ($isProductRecipe) {
 }
 ?>
 
+<?php if ($isProductExtra): ?>
+  <?php $extraTabActive = 'product-extra'; ?>
+  <?php $this->load->view('master/_extra_tabs', compact('extraTabActive')); ?>
+<?php endif; ?>
+
 <?php if ($isProductRecipe): ?>
 <style>
   .relation-hub-actions {

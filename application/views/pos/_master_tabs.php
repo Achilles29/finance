@@ -1,8 +1,7 @@
 <?php
-$activeTab = strtolower(trim((string)($pos_master_tab_active ?? 'member')));
+$activeTab = strtolower(trim((string)($pos_master_tab_active ?? 'payment-method')));
 $links = [
-    ['key' => 'member', 'label' => 'Member', 'url' => site_url('pos/members'), 'enabled' => true],
-    ['key' => 'payment-method', 'label' => 'Payment Method', 'url' => site_url('pos/payment-methods'), 'enabled' => true],
+        ['key' => 'payment-method', 'label' => 'Payment Method', 'url' => site_url('pos/payment-methods'), 'enabled' => true],
     ['key' => 'outlet-terminal', 'label' => 'Outlet + Terminal', 'url' => site_url('pos/outlets-terminals'), 'enabled' => true],
     ['key' => 'printer', 'label' => 'Printer', 'url' => site_url('pos/printers'), 'enabled' => true],
 ];
@@ -57,3 +56,4 @@ $links = [
     <?php endforeach; ?>
   </div>
 </div>
+

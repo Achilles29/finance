@@ -1,11 +1,14 @@
 <?php
 $baseUrl = site_url('master/relation/extra-group');
+$extraTabActive = 'group-checklist';
 ?>
+
+<?php $this->load->view('master/_extra_tabs', compact('extraTabActive')); ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
     <h4 class="mb-1"><i class="ri ri-links-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-    <small class="text-muted">Pilih group extra, lalu checklist produk yang terhubung.</small>
+    <small class="text-muted">Pilih group extra, lalu checklist produk yang memang boleh memakai group tersebut.</small>
   </div>
   <a href="<?php echo site_url('master/extra-group'); ?>" class="btn btn-outline-secondary">Kembali ke Master Group Extra</a>
 </div>

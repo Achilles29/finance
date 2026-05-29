@@ -12,12 +12,7 @@ class Pos extends MY_Controller
 
     public function members()
     {
-        $this->require_permission('pos.member.index', 'view');
-        $this->render('pos/member_index', [
-            'page_title' => 'Member POS',
-            'filters' => $this->member_filters(),
-            'filter_options' => $this->Pos_model->member_filter_options(),
-        ]);
+        redirect('loyalty/members');
     }
 
     public function members_data()
@@ -164,6 +159,44 @@ class Pos extends MY_Controller
     public function printers()
     {
         $this->require_permission('pos.printer.index', 'view');
+        redirect('pos/printers/templates');
+    }
+
+    public function printer_templates()
+    {
+        $this->require_permission('pos.printer.index', 'view');
+        $this->render('pos/printer_templates_index', [
+            'page_title' => 'Template Printer POS',
+            'active_menu' => 'pos.printer.index',
+            'template_filters' => $this->printer_template_filters(),
+        ]);
+    }
+
+    public function printer_profiles()
+    {
+        $this->require_permission('pos.printer.index', 'view');
+        $this->render('pos/printer_profiles_index', [
+            'page_title' => 'Pengaturan Output Printer POS',
+            'active_menu' => 'pos.printer.index',
+            'profile_filters' => $this->printer_profile_filters(),
+            'filter_options' => $this->Pos_model->printer_filter_options(),
+        ]);
+    }
+
+    public function printer_devices()
+    {
+        $this->require_permission('pos.printer.index', 'view');
+        $this->render('pos/printer_devices_index', [
+            'page_title' => 'Device Printer POS',
+            'active_menu' => 'pos.printer.index',
+            'device_filters' => $this->printer_device_filters(),
+            'filter_options' => $this->Pos_model->printer_filter_options(),
+        ]);
+    }
+
+    public function printer_workspace_legacy()
+    {
+        $this->require_permission('pos.printer.index', 'view');
         $this->render('pos/printer_index', [
             'page_title' => 'Printer POS',
             'active_menu' => 'pos.printer.index',
@@ -171,6 +204,58 @@ class Pos extends MY_Controller
             'profile_filters' => $this->printer_profile_filters(),
             'device_filters' => $this->printer_device_filters(),
             'filter_options' => $this->Pos_model->printer_filter_options(),
+        ]);
+    }
+
+    public function printer_settings()
+    {
+        $this->require_permission('pos.printer.index', 'edit');
+        $general = $this->Pos_model->printer_general_settings();
+        $payload = is_array($general['payload'] ?? null) ? $general['payload'] : [];
+
+        if ($this->input->method() === 'post') {
+            $result = $this->Pos_model->save_printer_general_settings([
+                'title' => $this->input->post('title', false),
+                'subtitle' => $this->input->post('subtitle', false),
+                'logo_url' => $this->input->post('logo_url', false),
+                'wifi_name' => $this->input->post('wifi_name', false),
+                'wifi_password' => $this->input->post('wifi_password', false),
+                'show_customer_point_info' => $this->input->post('show_customer_point_info') ? 1 : 0,
+                'show_customer_stamp_info' => $this->input->post('show_customer_stamp_info') ? 1 : 0,
+                'show_customer_voucher' => $this->input->post('show_customer_voucher') ? 1 : 0,
+                'customer_voucher_limit' => $this->input->post('customer_voucher_limit', false),
+                'customer_voucher_message_template' => $this->input->post('customer_voucher_message_template', false),
+                'customer_voucher_align' => $this->input->post('customer_voucher_align', false),
+                'header_lines' => preg_split('/\r?\n/', trim((string)$this->input->post('header_lines', false))),
+                'footer_lines' => preg_split('/\r?\n/', trim((string)$this->input->post('footer_lines', false))),
+            ]);
+            if ($result['ok'] ?? false) {
+                $this->session->set_flashdata('success', 'Pengaturan umum printer berhasil disimpan.');
+                redirect('pos/printers/settings');
+                return;
+            }
+            $this->session->set_flashdata('error', (string)($result['message'] ?? 'Gagal menyimpan pengaturan umum printer.'));
+            $payload = array_merge($payload, [
+                'title' => (string)$this->input->post('title', false),
+                'subtitle' => (string)$this->input->post('subtitle', false),
+                'logo_url' => (string)$this->input->post('logo_url', false),
+                'wifi_name' => (string)$this->input->post('wifi_name', false),
+                'wifi_password' => (string)$this->input->post('wifi_password', false),
+                'show_customer_point_info' => $this->input->post('show_customer_point_info') ? 1 : 0,
+                'show_customer_stamp_info' => $this->input->post('show_customer_stamp_info') ? 1 : 0,
+                'show_customer_voucher' => $this->input->post('show_customer_voucher') ? 1 : 0,
+                'customer_voucher_limit' => max(1, (int)$this->input->post('customer_voucher_limit', false)),
+                'customer_voucher_message_template' => (string)$this->input->post('customer_voucher_message_template', false),
+                'customer_voucher_align' => strtoupper((string)$this->input->post('customer_voucher_align', false)),
+                'header_lines' => preg_split('/\r?\n/', trim((string)$this->input->post('header_lines', false))),
+                'footer_lines' => preg_split('/\r?\n/', trim((string)$this->input->post('footer_lines', false))),
+            ]);
+        }
+
+        $this->render('pos/printer_settings', [
+            'page_title' => 'Pengaturan Umum Printer POS',
+            'active_menu' => 'pos.printer.index',
+            'payload' => $payload,
         ]);
     }
 
@@ -188,7 +273,8 @@ class Pos extends MY_Controller
             $documentType = 'RECEIPT';
         }
 
-        $payload = $this->posprinterpreviewservice->defaultPayload($documentType);
+        $generalSettings = $this->Pos_model->printer_general_settings();
+        $payload = $this->posprinterpreviewservice->defaultPayload($documentType, (array)($generalSettings['payload'] ?? []));
         if ($this->input->method() === 'post') {
             $saved = $this->save_printer_template_from_form(0);
             if ($saved['ok']) {
@@ -196,7 +282,7 @@ class Pos extends MY_Controller
                 return;
             }
             $this->session->set_flashdata('error', (string)$saved['message']);
-            $payload = $this->posprinterpreviewservice->payloadFromInput($this->input->post(null, false), $documentType);
+            $payload = $this->posprinterpreviewservice->payloadFromInput($this->input->post(null, false), $documentType, (array)($generalSettings['payload'] ?? []));
         }
 
         $this->render('pos/printer_template_editor', [
@@ -218,7 +304,8 @@ class Pos extends MY_Controller
             return;
         }
 
-        $payload = $this->posprinterpreviewservice->decodePayload((string)($row['template_payload'] ?? '{}'), (string)($row['document_type'] ?? 'RECEIPT'));
+        $generalSettings = $this->Pos_model->printer_general_settings();
+        $payload = $this->posprinterpreviewservice->decodePayload((string)($row['template_payload'] ?? '{}'), (string)($row['document_type'] ?? 'RECEIPT'), (array)($generalSettings['payload'] ?? []));
         if ($this->input->method() === 'post') {
             $saved = $this->save_printer_template_from_form((int)$id);
             if ($saved['ok']) {
@@ -226,7 +313,7 @@ class Pos extends MY_Controller
                 return;
             }
             $this->session->set_flashdata('error', (string)$saved['message']);
-            $payload = $this->posprinterpreviewservice->payloadFromInput($this->input->post(null, false), (string)($row['document_type'] ?? 'RECEIPT'));
+            $payload = $this->posprinterpreviewservice->payloadFromInput($this->input->post(null, false), (string)($row['document_type'] ?? 'RECEIPT'), (array)($generalSettings['payload'] ?? []));
             $row = array_merge($row, $this->input->post(null, false) ?: []);
         }
 
@@ -263,7 +350,8 @@ class Pos extends MY_Controller
             $selectedPrinterId = (int)$selectedPrinter['id'];
         }
 
-        $payload = $this->posprinterpreviewservice->decodePayload((string)($row['template_payload'] ?? '{}'), (string)($row['document_type'] ?? 'RECEIPT'));
+        $generalSettings = $this->Pos_model->printer_general_settings();
+        $payload = $this->posprinterpreviewservice->decodePayload((string)($row['template_payload'] ?? '{}'), (string)($row['document_type'] ?? 'RECEIPT'), (array)($generalSettings['payload'] ?? []));
         $preview = $this->posprinterpreviewservice->buildPreviewPackage($payload, $selectedPrinter, (string)($row['document_type'] ?? 'RECEIPT'));
 
         $this->render('pos/printer_template_preview', [
@@ -287,7 +375,8 @@ class Pos extends MY_Controller
         }
         $printerId = (int)($payload['printer_id'] ?? 0);
         $printer = $printerId > 0 ? ($this->Pos_model->find_printer_device($printerId) ?: []) : [];
-        $templatePayload = $this->posprinterpreviewservice->payloadFromInput($payload, $documentType);
+        $generalSettings = $this->Pos_model->printer_general_settings();
+        $templatePayload = $this->posprinterpreviewservice->payloadFromInput($payload, $documentType, (array)($generalSettings['payload'] ?? []));
         $preview = $this->posprinterpreviewservice->buildPreviewPackage($templatePayload, $printer, $documentType);
         $this->json_ok($preview);
     }
@@ -580,15 +669,73 @@ class Pos extends MY_Controller
         ]);
     }
 
+    public function cashier()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        $bootstrap = $this->Pos_model->cashier_bootstrap_options($this->current_actor_employee_id());
+        $this->render_cashier('pos/cashier_index', [
+            'page_title' => 'Kasir POS',
+            'active_menu' => 'pos.cashier.index',
+            'filters' => $this->order_draft_filters(),
+            'filter_options' => $this->Pos_model->order_draft_filter_options(),
+            'catalog_filters' => $this->Pos_model->cashier_catalog_filter_options(),
+            'cashier_bootstrap' => $bootstrap,
+            'active_cashier_session' => $bootstrap['active_session'] ?? null,
+        ]);
+    }
+
+    public function cashier_open()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'edit');
+        $payload = $this->request_payload();
+        $result = $this->Pos_model->open_cashier_session($payload, $this->current_actor_employee_id());
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal membuka kasir POS.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'session' => (array)($result['session'] ?? []),
+            'already_open' => !empty($result['already_open']),
+        ]);
+    }
+
+    public function cashier_close()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'edit');
+        $payload = $this->request_payload();
+        $result = $this->Pos_model->close_cashier_session($payload, $this->current_actor_employee_id());
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menutup kasir POS.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'summary' => (array)($result['summary'] ?? []),
+        ]);
+    }
+
+    public function cashier_session_status()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        $this->json_ok([
+            'session' => $this->Pos_model->find_active_cashier_session($this->current_actor_employee_id()),
+        ]);
+    }
+
     public function order_draft_data()
     {
-        $this->require_permission('pos.order.draft.index', 'view');
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
         $this->json_ok($this->Pos_model->order_draft_rows($this->order_draft_filters()));
     }
 
     public function order_draft_load($id)
     {
-        $this->require_permission('pos.order.draft.index', 'view');
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
         $result = $this->Pos_model->find_order_draft((int)$id);
         if (!$result) {
             $this->json_error('Draft order tidak ditemukan.', 404);
@@ -597,9 +744,21 @@ class Pos extends MY_Controller
         $this->json_ok($result);
     }
 
+    public function order_draft_member_search()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        $q = trim((string)$this->input->get('q', true));
+        $limit = max(1, min(20, (int)$this->input->get('limit', true) ?: 8));
+        $this->json_ok([
+            'rows' => $this->Pos_model->order_member_search($q, $limit),
+        ]);
+    }
+
     public function order_draft_product_search()
     {
-        $this->require_permission('pos.order.draft.index', 'view');
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
         $q = trim((string)$this->input->get('q', true));
         $outletId = max(0, (int)$this->input->get('outlet_id', true));
         $limit = max(1, min(30, (int)$this->input->get('limit', true) ?: 12));
@@ -608,11 +767,65 @@ class Pos extends MY_Controller
         ]);
     }
 
+    public function cashier_catalog()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        $filters = [
+            'q' => trim((string)$this->input->get('q', true)),
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'division_id' => max(0, (int)$this->input->get('division_id', true)),
+            'category_id' => max(0, (int)$this->input->get('category_id', true)),
+            'limit' => max(1, min(120, (int)$this->input->get('limit', true) ?: 32)),
+        ];
+        $this->json_ok([
+            'rows' => $this->Pos_model->order_product_catalog($filters),
+        ]);
+    }
+
+    public function cashier_bundle_catalog()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        $filters = [
+            'q' => trim((string)$this->input->get('q', true)),
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'division_id' => max(0, (int)$this->input->get('division_id', true)),
+            'limit' => max(1, min(60, (int)$this->input->get('limit', true) ?: 24)),
+        ];
+        $this->json_ok([
+            'rows' => $this->Pos_model->order_bundle_catalog($filters),
+        ]);
+    }
+
+    public function order_draft_bundle_search()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        $q = trim((string)$this->input->get('q', true));
+        $outletId = max(0, (int)$this->input->get('outlet_id', true));
+        $limit = max(1, min(20, (int)$this->input->get('limit', true) ?: 8));
+        $this->json_ok([
+            'rows' => $this->Pos_model->order_bundle_search($q, $outletId, $limit),
+        ]);
+    }
+
+    public function order_draft_extra_options()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        $productId = max(0, (int)$this->input->get('product_id', true));
+        $this->json_ok([
+            'groups' => $this->Pos_model->order_extra_options($productId),
+        ]);
+    }
+
     public function order_draft_save()
     {
         $payload = $this->request_payload();
         $id = (int)($payload['id'] ?? 0);
-        $this->require_permission('pos.order.draft.index', $id > 0 ? 'edit' : 'create');
+        $pageCode = $this->can('pos.cashier.index', $id > 0 ? 'edit' : 'create') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, $id > 0 ? 'edit' : 'create');
         $result = $this->Pos_model->save_order_draft($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menyimpan draft order POS.'), 422);
@@ -626,8 +839,10 @@ class Pos extends MY_Controller
 
     public function order_draft_confirm($id)
     {
-        $this->require_permission('pos.order.draft.index', 'edit');
+        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'edit');
         $this->load->library('PosStockCommitService');
+        $this->load->library('PosOrderStockService');
 
         $actorEmployeeId = $this->current_actor_employee_id();
         $orderId = (int)$id;
@@ -640,6 +855,17 @@ class Pos extends MY_Controller
         $snapshot = $this->posstockcommitservice->create_snapshot($orderId, (array)($resolved['header'] ?? []), (array)($resolved['lines'] ?? []));
         if (!($snapshot['ok'] ?? false)) {
             $this->json_error((string)($snapshot['message'] ?? 'Gagal membuat snapshot stock commit.'), 422);
+            return;
+        }
+
+        $stockPost = $this->posorderstockservice->post_commit_snapshot((int)$snapshot['id'], [
+            'actor_employee_id' => $actorEmployeeId,
+        ]);
+        if (!($stockPost['ok'] ?? false)) {
+            $this->json_error((string)($stockPost['message'] ?? 'Snapshot berhasil, tetapi posting stok order POS gagal.'), 422, [
+                'snapshot_id' => (int)$snapshot['id'],
+                'commit_no' => (string)($snapshot['commit_no'] ?? ''),
+            ]);
             return;
         }
 
@@ -658,11 +884,58 @@ class Pos extends MY_Controller
             return;
         }
 
+        $printJobs = $this->Pos_model->queue_order_confirm_print_jobs($orderId);
         $this->json_ok([
             'id' => $orderId,
             'snapshot_id' => (int)$snapshot['id'],
             'commit_no' => (string)($snapshot['commit_no'] ?? ''),
             'resolved_line_count' => (int)($resolved['resolved_line_count'] ?? 0),
+            'posted_stock_line_count' => (int)($stockPost['posted_lines'] ?? 0),
+            'print_job_count' => (int)($printJobs['job_count'] ?? 0),
+        ]);
+    }
+
+    public function order_reversal_preview($id)
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        $result = $this->Pos_model->order_reversal_preview((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyiapkan preview void/refund POS.'), 422);
+            return;
+        }
+        $this->json_ok($result);
+    }
+
+    public function order_void_save()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'edit');
+        $payload = $this->request_payload();
+        $result = $this->Pos_model->save_order_void($payload, $this->current_actor_employee_id());
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan void POS.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)($result['id'] ?? 0),
+            'void_no' => (string)($result['void_no'] ?? ''),
+        ]);
+    }
+
+    public function order_refund_save()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'edit');
+        $payload = $this->request_payload();
+        $result = $this->Pos_model->save_order_refund($payload, $this->current_actor_employee_id());
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan refund POS.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)($result['id'] ?? 0),
+            'refund_no' => (string)($result['refund_no'] ?? ''),
         ]);
     }
 
@@ -820,7 +1093,8 @@ class Pos extends MY_Controller
         if (!in_array($documentType, ['RECEIPT', 'KITCHEN_TICKET', 'VOID_SLIP', 'REFUND_SLIP', 'DEPOSIT_RECEIPT'], true)) {
             $documentType = 'RECEIPT';
         }
-        $templatePayload = $this->posprinterpreviewservice->payloadFromInput($this->input->post(null, false), $documentType);
+        $generalSettings = $this->Pos_model->printer_general_settings();
+        $templatePayload = $this->posprinterpreviewservice->payloadFromInput($this->input->post(null, false), $documentType, (array)($generalSettings['payload'] ?? []));
         return $this->Pos_model->save_printer_template([
             'id' => $id,
             'template_code' => trim((string)$this->input->post('template_code', true)),

@@ -1,4 +1,4 @@
-<?php
+ï»¿<?php
 $row = is_array($row ?? null) ? $row : null;
 $payload = is_array($payload ?? null) ? $payload : [];
 $previewPrinters = is_array($preview_printers ?? null) ? $preview_printers : [];
@@ -33,6 +33,7 @@ $selectedPrinterId = !empty($previewPrinters) ? (int)$previewPrinters[0]['id'] :
       <p class="fin-page-subtitle mb-0">Atur template printer secara visual, lalu lihat hasil cetak berubah secara live sebelum disimpan.</p>
     </div>
     <div class="d-flex gap-2 flex-wrap">
+      <a href="<?= site_url('pos/printers/settings') ?>" class="btn btn-outline-secondary">Pengaturan Umum</a>
       <?php if ($row && !empty($row['id'])): ?>
         <a href="<?= site_url('pos/printers/templates/preview/' . (int)$row['id']) ?>" class="btn btn-outline-primary">Preview Halaman</a>
       <?php endif; ?>
@@ -73,7 +74,7 @@ $selectedPrinterId = !empty($previewPrinters) ? (int)$previewPrinters[0]['id'] :
                 <label class="form-label">Preview Printer</label>
                 <select class="form-select" id="preview_printer_id" name="printer_id">
                   <?php foreach ($previewPrinters as $printer): ?>
-                    <option value="<?= (int)$printer['id'] ?>" <?= $selectedPrinterId === (int)$printer['id'] ? 'selected' : '' ?>><?= html_escape(($printer['printer_role'] ?? 'CUSTOM') . ' • ' . ($printer['printer_name'] ?? '-') . ' • ' . ($printer['paper_width_mm'] ?? 80) . 'mm') ?></option>
+                    <option value="<?= (int)$printer['id'] ?>" <?= $selectedPrinterId === (int)$printer['id'] ? 'selected' : '' ?>><?= html_escape(($printer['printer_role'] ?? 'CUSTOM') . ' â€¢ ' . ($printer['printer_name'] ?? '-') . ' â€¢ ' . ($printer['paper_width_mm'] ?? 80) . 'mm') ?></option>
                   <?php endforeach; ?>
                 </select>
               </div>
@@ -291,18 +292,18 @@ $selectedPrinterId = !empty($previewPrinters) ? (int)$previewPrinters[0]['id'] :
 
   function renderSummary(summary, payload, paperWidth, charsPerLine){
     const items = [
-      ['Printer', `${summary.printer_role || 'CUSTOM'} • ${summary.printer_name || '-'}`],
-      ['Output', `${paperWidth}mm • ${charsPerLine} cpl`],
+      ['Printer', `${summary.printer_role || 'CUSTOM'} â€¢ ${summary.printer_name || '-'}`],
+      ['Output', `${paperWidth}mm â€¢ ${charsPerLine} cpl`],
       ['Outlet', summary.outlet_name || 'GLOBAL'],
       ['Connection', summary.connection_type || 'LOCAL_AGENT'],
       ['Agent', summary.agent_host || '-'],
       ['Device', summary.device_name || '-'],
-      ['Order / Payment', `${payload.show_invoice_no ? 'Order' : '-'} • ${payload.show_payment_no ? 'Payment' : '-'}`],
-      ['Customer / Meja', `${payload.show_customer ? 'Customer' : '-'} • ${payload.show_table_no ? 'Meja' : '-'}`],
-      ['Produk / Harga', `${payload.show_product_name ? 'Produk' : '-'} • ${payload.show_price ? 'Harga' : '-'}`],
-      ['Qty / Extra', `${payload.show_qty ? 'Qty' : '-'} • ${payload.show_extra ? 'Extra' : '-'}`],
-      ['Footer / Barcode', `${payload.show_footer ? 'Footer' : '-'} • ${payload.show_footer_barcode ? 'Barcode' : '-'}`],
-      ['Poin / Stamp / Voucher', `${payload.show_customer_point_info ? 'Poin' : '-'} • ${payload.show_customer_stamp_info ? 'Stamp' : '-'} • ${payload.show_customer_voucher ? 'Voucher' : '-'}`],
+      ['Order / Payment', `${payload.show_invoice_no ? 'Order' : '-'} â€¢ ${payload.show_payment_no ? 'Payment' : '-'}`],
+      ['Customer / Meja', `${payload.show_customer ? 'Customer' : '-'} â€¢ ${payload.show_table_no ? 'Meja' : '-'}`],
+      ['Produk / Harga', `${payload.show_product_name ? 'Produk' : '-'} â€¢ ${payload.show_price ? 'Harga' : '-'}`],
+      ['Qty / Extra', `${payload.show_qty ? 'Qty' : '-'} â€¢ ${payload.show_extra ? 'Extra' : '-'}`],
+      ['Footer / Barcode', `${payload.show_footer ? 'Footer' : '-'} â€¢ ${payload.show_footer_barcode ? 'Barcode' : '-'}`],
+      ['Poin / Stamp / Voucher', `${payload.show_customer_point_info ? 'Poin' : '-'} â€¢ ${payload.show_customer_stamp_info ? 'Stamp' : '-'} â€¢ ${payload.show_customer_voucher ? 'Voucher' : '-'}`],
     ];
     summaryEl.innerHTML = items.map(([label, value]) => `<div class="printer-summary-item"><small>${label}</small><div>${value}</div></div>`).join('');
   }
@@ -321,7 +322,7 @@ $selectedPrinterId = !empty($previewPrinters) ? (int)$previewPrinters[0]['id'] :
       const payload = data.payload || {};
       textEl.textContent = preview.join("\n");
       docLabelEl.textContent = data.document_type_label || data.document_type || '-';
-      printerLabelEl.textContent = `${data.summary.printer_role || 'CUSTOM'} • ${data.summary.printer_name || '-'} • ${data.paper_width_mm || 80}mm / ${data.chars_per_line || 48}cpl`;
+      printerLabelEl.textContent = `${data.summary.printer_role || 'CUSTOM'} â€¢ ${data.summary.printer_name || '-'} â€¢ ${data.paper_width_mm || 80}mm / ${data.chars_per_line || 48}cpl`;
       paperEl.style.width = (Number(data.paper_width_mm || 80) === 58 ? 286 : 392) + 'px';
       if (data.logo_url) {
         logoWrap.style.display = '';
@@ -346,3 +347,5 @@ $selectedPrinterId = !empty($previewPrinters) ? (int)$previewPrinters[0]['id'] :
   refreshPreview();
 })();
 </script>
+
+

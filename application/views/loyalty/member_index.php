@@ -7,12 +7,12 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
 <div class="container-xxl py-3">
   <div class="fin-page-header">
     <div>
-      <h4 class="fin-page-title mb-1">Member POS</h4>
-      <p class="fin-page-subtitle mb-0">Kelola member yang dipakai kasir untuk pencarian cepat, loyalty, voucher, dan kanal aplikasi member.</p>
+      <h4 class="fin-page-title mb-1">Member & Loyalitas</h4>
+      <p class="fin-page-subtitle mb-0">Kelola member, saldo loyalitas, dan identitas pelanggan yang akan dipakai di POS, voucher, dan program retensi pelanggan.</p>
     </div>
   </div>
 
-  <?php $this->load->view('pos/_master_tabs', ['pos_master_tab_active' => 'member']); ?>
+  <?php $this->load->view('loyalty/_tabs', ['promo_tab_active' => 'member']); ?>
 
   <div class="card border-0 shadow-sm">
     <div class="card-body">
@@ -299,10 +299,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
   async function loadRows() {
     syncControls();
-    const json = await getJson('<?php echo site_url('pos/members/data'); ?>?' + qsFromState());
+    const json = await getJson('<?php echo site_url('loyalty/members/data'); ?>?' + qsFromState());
     renderRows(json.rows || []);
     renderPagination(json.meta || {});
-    history.replaceState(null, '', '<?php echo site_url('pos/members'); ?>?' + qsFromState());
+    history.replaceState(null, '', '<?php echo site_url('loyalty/members'); ?>?' + qsFromState());
   }
 
   function openNew() {
@@ -370,7 +370,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!toggleBtn) return;
     if (!confirm('Ubah status aktif member ini?')) return;
     try {
-      await postJson(`<?php echo site_url('pos/members/toggle'); ?>/${toggleBtn.dataset.id}`, {});
+      await postJson(`<?php echo site_url('loyalty/members/toggle'); ?>/${toggleBtn.dataset.id}`, {});
       await loadRows();
     } catch (err) {
       alert(err.message);
@@ -380,7 +380,7 @@ document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('btn-save').addEventListener('click', async () => {
     const payload = Object.fromEntries(new FormData(form).entries());
     try {
-      await postJson('<?php echo site_url('pos/members/save'); ?>', payload);
+      await postJson('<?php echo site_url('loyalty/members/save'); ?>', payload);
       modal && modal.hide();
       await loadRows();
     } catch (err) {
@@ -391,3 +391,5 @@ document.addEventListener('DOMContentLoaded', function () {
   loadRows().catch((err) => alert(err.message));
 });
 </script>
+
+

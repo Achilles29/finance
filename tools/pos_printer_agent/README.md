@@ -61,7 +61,7 @@ Download dari halaman panduan printer di `core`:
   "api": {
     "enabled": true,
     "base_url": "https://core.namuacoffee.com",
-    "endpoint": "/pos-printers/bootstrap",
+    "endpoint": "/pos/printers/bootstrap",
     "key": "",
     "key_query_param": "key",
     "agent_name_param": "agent_name",

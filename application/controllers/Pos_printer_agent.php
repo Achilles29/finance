@@ -17,6 +17,9 @@ class Pos_printer_agent extends CI_Controller
 
         $agentName = trim((string)$this->input->get('agent_name', true));
         $rows = $this->Pos_model->active_printer_devices_for_agent_config($agentName);
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode([

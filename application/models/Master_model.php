@@ -153,6 +153,37 @@ class Master_model extends CI_Model
         return $this->db->get($table)->result_array();
     }
 
+    public function search_options(string $table, string $valueCol = 'id', string $labelCol = 'name', string $q = '', int $id = 0, bool $activeOnly = true, int $limit = 20): array
+    {
+        if (!$this->db->table_exists($table)) {
+            return [];
+        }
+
+        $limit = max(1, min(50, $limit));
+        $this->db->select($valueCol . ' AS value, ' . $labelCol . ' AS label', false);
+        $this->db->from($table);
+
+        if ($activeOnly && $this->db->field_exists('is_active', $table)) {
+            $this->db->where('is_active', 1);
+        }
+
+        if ($id > 0) {
+            $this->db->where($valueCol, $id);
+            return $this->db->limit(1)->get()->result_array();
+        }
+
+        if ($q !== '') {
+            $this->db->like($labelCol, $q);
+        }
+
+        if ($this->db->field_exists('sort_order', $table)) {
+            $this->db->order_by('sort_order', 'ASC');
+        }
+        $this->db->order_by($labelCol, 'ASC');
+        $this->db->limit($limit);
+        return $this->db->get()->result_array();
+    }
+
     public function exists_by_code(string $table, string $codeColumn, string $codeValue, int $excludeId = 0): bool
     {
         $this->db->where($codeColumn, $codeValue);

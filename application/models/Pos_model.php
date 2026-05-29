@@ -9,13 +9,22 @@ class Pos_model extends CI_Model
     public function __construct()
     {
         parent::__construct();
-        $this->coredb = $this->load->database('core', true);
+        $this->coredb = $this->resolveCoreDatabase();
+    }
+
+    private function resolveCoreDatabase()
+    {
+        if (isset($this->db) && $this->db instanceof CI_DB_query_builder) {
+            return $this->db;
+        }
+
+        return $this->load->database('default', true);
     }
 
     public function member_filter_options(): array
     {
         return [
-            'tiers' => $this->distinct_non_empty_values($this->coredb, 'crm_member_account', 'tier_code'),
+            'tiers' => $this->distinct_non_empty_values($this->coredb, 'crm_member', 'member_tier'),
         ];
     }
 
@@ -29,51 +38,50 @@ class Pos_model extends CI_Model
         $limit = max(1, min(200, (int)($filters['limit'] ?? 50)));
 
         $db = $this->coredb;
-        $db->from('crm_customer c')
-            ->join('crm_member_account m', 'm.customer_id = c.id', 'inner');
+        $db->from('crm_member m');
 
         if ($q !== '') {
             $db->group_start()
                 ->like('m.member_no', $q)
-                ->or_like('c.customer_code', $q)
-                ->or_like('c.customer_name', $q)
-                ->or_like('c.phone', $q)
-                ->or_like('c.email', $q)
+                ->or_like('m.member_name', $q)
+                ->or_like('m.mobile_phone', $q)
+                ->or_like('m.email', $q)
                 ->group_end();
         }
         if ($status === 'ACTIVE') {
-            $db->where('c.is_active', 1);
+            $db->where('m.is_active', 1);
         } elseif ($status === 'INACTIVE') {
-            $db->where('c.is_active', 0);
+            $db->where('m.is_active', 0);
         }
-        if (in_array($memberStatus, ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'EXPIRED'], true)) {
-            $db->where('m.status', $memberStatus);
+        if (in_array($memberStatus, ['ACTIVE', 'SUSPENDED', 'CLOSED'], true)) {
+            $db->where('m.member_status', $memberStatus);
         }
         if ($tier !== '') {
-            $db->where('m.tier_code', $tier);
+            $db->where('m.member_tier', $tier);
         }
 
         $total = (int)$db->count_all_results('', false);
         [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
 
         $rows = $db->select('
-            c.id,
-            c.customer_code,
-            c.customer_name AS member_name,
-            c.phone AS mobile_phone,
-            c.email,
-            c.birth_date,
-            c.gender,
-            c.notes,
-            c.is_active,
-            m.id AS member_account_id,
             m.member_no,
-            m.tier_code AS member_tier,
+            m.id,
+            m.member_name,
+            m.mobile_phone,
+            m.email,
+            m.birth_date,
+            m.gender,
+            m.address,
+            m.city,
+            m.postal_code,
+            m.notes,
+            m.is_active,
+            m.member_tier,
             m.joined_at,
             m.expired_at,
-            m.status AS member_status
+            m.member_status
         ')
-            ->order_by('c.customer_name', 'ASC')
+            ->order_by('m.member_name', 'ASC')
             ->order_by('m.member_no', 'ASC')
             ->limit($limit, $offset)
             ->get()
@@ -92,26 +100,26 @@ class Pos_model extends CI_Model
 
     public function find_member(int $id): ?array
     {
-        return $this->coredb->from('crm_customer c')
-            ->join('crm_member_account m', 'm.customer_id = c.id', 'inner')
+        return $this->coredb->from('crm_member m')
             ->select('
-                c.id,
-                c.customer_code,
-                c.customer_name AS member_name,
-                c.phone AS mobile_phone,
-                c.email,
-                c.birth_date,
-                c.gender,
-                c.notes,
-                c.is_active,
-                m.id AS member_account_id,
                 m.member_no,
-                m.tier_code AS member_tier,
+                m.id,
+                m.member_name,
+                m.mobile_phone,
+                m.email,
+                m.birth_date,
+                m.gender,
+                m.address,
+                m.city,
+                m.postal_code,
+                m.notes,
+                m.is_active,
+                m.member_tier,
                 m.joined_at,
                 m.expired_at,
-                m.status AS member_status
+                m.member_status
             ')
-            ->where('c.id', $id)
+            ->where('m.id', $id)
             ->limit(1)
             ->get()
             ->row_array() ?: null;
@@ -127,81 +135,61 @@ class Pos_model extends CI_Model
         }
 
         $memberStatus = strtoupper(trim((string)($data['member_status'] ?? 'ACTIVE')));
-        if (!in_array($memberStatus, ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'EXPIRED'], true)) {
+        if (!in_array($memberStatus, ['ACTIVE', 'SUSPENDED', 'CLOSED'], true)) {
             $memberStatus = 'ACTIVE';
         }
         $gender = strtoupper(trim((string)($data['gender'] ?? '')));
-        if (!in_array($gender, ['MALE', 'FEMALE', 'OTHER'], true)) {
+        if (!in_array($gender, ['L', 'P'], true)) {
             $gender = null;
         }
 
         $db->trans_begin();
         try {
+            $memberNo = strtoupper(trim((string)($data['member_no'] ?? '')));
+            $joinedAt = $this->nullable_datetime($data['joined_at'] ?? '') ?: date('Y-m-d H:i:s');
+            $payload = [
+                'member_name' => $name,
+                'mobile_phone' => $this->nullable_text($data['mobile_phone'] ?? ''),
+                'email' => $this->nullable_text($data['email'] ?? ''),
+                'birth_date' => $this->nullable_date($data['birth_date'] ?? ''),
+                'gender' => $gender,
+                'address' => $this->nullable_text($data['address'] ?? ''),
+                'city' => $this->nullable_text($data['city'] ?? ''),
+                'postal_code' => $this->nullable_text($data['postal_code'] ?? ''),
+                'member_tier' => $this->nullable_text($data['member_tier'] ?? ''),
+                'joined_at' => $joinedAt,
+                'expired_at' => $this->nullable_datetime($data['expired_at'] ?? ''),
+                'member_status' => $memberStatus,
+                'notes' => $this->nullable_text($data['notes'] ?? ''),
+                'is_active' => 1,
+            ];
+
             if ($id > 0) {
                 $existing = $this->find_member($id);
                 if (!$existing) {
-                    throw new RuntimeException('Member tidak ditemukan di database core.');
+                    throw new RuntimeException('Member tidak ditemukan.');
                 }
-
-                $customerPayload = [
-                    'customer_name' => $name,
-                    'phone' => $this->nullable_text($data['mobile_phone'] ?? ''),
-                    'email' => $this->nullable_text($data['email'] ?? ''),
-                    'birth_date' => $this->nullable_date($data['birth_date'] ?? ''),
-                    'gender' => $gender,
-                    'notes' => $this->nullable_text($data['notes'] ?? ''),
-                ];
-                $db->where('id', $id)->update('crm_customer', $customerPayload);
-
-                $memberNo = strtoupper(trim((string)($data['member_no'] ?? '')));
                 if ($memberNo === '') {
                     $memberNo = (string)$existing['member_no'];
                 }
-                if ($this->code_exists($db, 'crm_member_account', 'member_no', $memberNo, (int)($existing['member_account_id'] ?? 0))) {
-                    throw new RuntimeException('Nomor member sudah dipakai di database core.');
+                if ($this->code_exists($db, 'crm_member', 'member_no', $memberNo, $id)) {
+                    throw new RuntimeException('Nomor member sudah dipakai.');
                 }
-
-                $memberPayload = [
-                    'member_no' => $memberNo,
-                    'tier_code' => $this->nullable_text($data['member_tier'] ?? ''),
-                    'joined_at' => $this->nullable_datetime($data['joined_at'] ?? '') ?: (string)$existing['joined_at'],
-                    'expired_at' => $this->nullable_datetime($data['expired_at'] ?? ''),
-                    'status' => $memberStatus,
-                ];
-                if (!empty($existing['member_account_id'])) {
-                    $db->where('id', (int)$existing['member_account_id'])->update('crm_member_account', $memberPayload);
-                } else {
-                    $memberPayload['customer_id'] = $id;
-                    $db->insert('crm_member_account', $memberPayload);
-                }
+                $payload['member_no'] = $memberNo;
+                $db->where('id', $id)->update('crm_member', $payload);
             } else {
-                $joinedAt = $this->nullable_datetime($data['joined_at'] ?? '') ?: date('Y-m-d H:i:s');
-                $customerPayload = [
-                    'customer_code' => $this->generate_customer_code_core($joinedAt),
-                    'customer_name' => $name,
-                    'phone' => $this->nullable_text($data['mobile_phone'] ?? ''),
-                    'email' => $this->nullable_text($data['email'] ?? ''),
-                    'birth_date' => $this->nullable_date($data['birth_date'] ?? ''),
-                    'gender' => $gender,
-                    'notes' => $this->nullable_text($data['notes'] ?? ''),
-                    'is_active' => 1,
-                ];
-                $db->insert('crm_customer', $customerPayload);
+                if ($memberNo === '') {
+                    $memberNo = $this->generate_member_no_core($joinedAt);
+                } elseif ($this->code_exists($db, 'crm_member', 'member_no', $memberNo, 0)) {
+                    throw new RuntimeException('Nomor member sudah dipakai.');
+                }
+                $payload['member_no'] = $memberNo;
+                $db->insert('crm_member', $payload);
                 $id = (int)$db->insert_id();
-
-                $memberPayload = [
-                    'member_no' => $this->generate_member_no_core($joinedAt),
-                    'customer_id' => $id,
-                    'tier_code' => $this->nullable_text($data['member_tier'] ?? ''),
-                    'joined_at' => $joinedAt,
-                    'expired_at' => $this->nullable_datetime($data['expired_at'] ?? ''),
-                    'status' => $memberStatus,
-                ];
-                $db->insert('crm_member_account', $memberPayload);
             }
 
             if ($db->trans_status() === false) {
-                throw new RuntimeException('Gagal menyimpan member ke database core.');
+                throw new RuntimeException('Gagal menyimpan member.');
             }
             $db->trans_commit();
             return ['ok' => true, 'id' => $id];
@@ -216,24 +204,21 @@ class Pos_model extends CI_Model
         $db = $this->coredb;
         $row = $this->find_member($id);
         if (!$row) {
-            return ['ok' => false, 'message' => 'Member tidak ditemukan di database core.'];
+            return ['ok' => false, 'message' => 'Member tidak ditemukan.'];
         }
 
         $newValue = ((int)($row['is_active'] ?? 0) === 1) ? 0 : 1;
         $db->trans_begin();
         try {
-            $db->where('id', $id)->update('crm_customer', ['is_active' => $newValue]);
-            if (!empty($row['member_account_id'])) {
-                $memberStatus = strtoupper((string)($row['member_status'] ?? 'ACTIVE'));
-                if ($newValue === 0 && $memberStatus === 'ACTIVE') {
-                    $memberStatus = 'INACTIVE';
-                } elseif ($newValue === 1 && $memberStatus === 'INACTIVE') {
-                    $memberStatus = 'ACTIVE';
-                }
-                $db->where('id', (int)$row['member_account_id'])->update('crm_member_account', ['status' => $memberStatus]);
+            $memberStatus = strtoupper((string)($row['member_status'] ?? 'ACTIVE'));
+            if ($newValue === 0 && $memberStatus === 'ACTIVE') {
+                $memberStatus = 'CLOSED';
+            } elseif ($newValue === 1 && $memberStatus === 'CLOSED') {
+                $memberStatus = 'ACTIVE';
             }
+            $db->where('id', $id)->update('crm_member', ['is_active' => $newValue, 'member_status' => $memberStatus]);
             if ($db->trans_status() === false) {
-                throw new RuntimeException('Gagal mengubah status member di database core.');
+                throw new RuntimeException('Gagal mengubah status member.');
             }
             $db->trans_commit();
             return ['ok' => true, 'id' => $id, 'is_active' => $newValue];
@@ -246,7 +231,7 @@ class Pos_model extends CI_Model
     public function payment_method_filter_options(): array
     {
         return [
-            'accounts' => $this->active_bank_accounts(),
+            'accounts' => $this->active_company_accounts(),
         ];
     }
 
@@ -260,14 +245,15 @@ class Pos_model extends CI_Model
 
         $db = $this->coredb;
         $db->from('pos_payment_method pm')
-            ->join('m_bank_account b', 'b.id = pm.bank_account_id', 'left');
+            ->join('fin_company_account acc', 'acc.id = pm.company_account_id', 'left');
         if ($q !== '') {
             $db->group_start()
                 ->like('pm.method_code', $q)
                 ->or_like('pm.method_name', $q)
                 ->or_like('pm.method_type', $q)
-                ->or_like('b.bank_name', $q)
-                ->or_like('b.account_name', $q)
+                ->or_like('acc.bank_name', $q)
+                ->or_like('acc.account_name', $q)
+                ->or_like('acc.account_no', $q)
                 ->group_end();
         }
         if ($status === 'ACTIVE') {
@@ -282,7 +268,7 @@ class Pos_model extends CI_Model
         $total = (int)$db->count_all_results('', false);
         [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
 
-        $rows = $db->select('pm.*, b.bank_name, b.account_name, b.account_no')
+        $rows = $db->select('pm.*, acc.bank_name, acc.account_name, acc.account_no, acc.account_type')
             ->order_by('pm.method_name', 'ASC')
             ->limit($limit, $offset)
             ->get()
@@ -326,24 +312,24 @@ class Pos_model extends CI_Model
         if ($methodCode === '') {
             $methodCode = $this->generate_named_code($db, 'pos_payment_method', 'method_code', $name, 'PM-', $id, 30);
         } elseif ($this->code_exists($db, 'pos_payment_method', 'method_code', $methodCode, $id)) {
-            return ['ok' => false, 'message' => 'Kode metode pembayaran sudah dipakai di core.'];
+            return ['ok' => false, 'message' => 'Kode metode pembayaran sudah dipakai.'];
         }
 
-        $bankAccountId = !empty($data['bank_account_id']) ? (int)$data['bank_account_id'] : null;
-        if ($bankAccountId !== null && !$this->bank_account_exists($bankAccountId)) {
-            return ['ok' => false, 'message' => 'Rekening bank tidak ditemukan di database core.'];
+        $companyAccountId = !empty($data['company_account_id']) ? (int)$data['company_account_id'] : null;
+        if ($companyAccountId !== null && !$this->company_account_exists($companyAccountId)) {
+            return ['ok' => false, 'message' => 'Rekening perusahaan tidak ditemukan.'];
         }
 
         $payload = [
             'method_code' => $methodCode,
             'method_name' => $name,
             'method_type' => $type,
-            'bank_account_id' => $bankAccountId,
+            'company_account_id' => $companyAccountId,
         ];
 
         if ($id > 0) {
             if (!$this->find_payment_method($id)) {
-                return ['ok' => false, 'message' => 'Metode pembayaran tidak ditemukan di core.'];
+                return ['ok' => false, 'message' => 'Metode pembayaran tidak ditemukan.'];
             }
             $db->where('id', $id)->update('pos_payment_method', $payload);
         } else {
@@ -359,7 +345,7 @@ class Pos_model extends CI_Model
         $db = $this->coredb;
         $row = $this->find_payment_method($id);
         if (!$row) {
-            return ['ok' => false, 'message' => 'Metode pembayaran tidak ditemukan di core.'];
+            return ['ok' => false, 'message' => 'Metode pembayaran tidak ditemukan.'];
         }
         $newValue = ((int)($row['is_active'] ?? 0) === 1) ? 0 : 1;
         $db->where('id', $id)->update('pos_payment_method', ['is_active' => $newValue]);
@@ -600,12 +586,11 @@ class Pos_model extends CI_Model
         return ['ok' => true, 'id' => $id, 'is_active' => $newValue];
     }
 
-    public function active_bank_accounts(): array
+    public function active_company_accounts(): array
     {
-        return $this->coredb->select('id, bank_name, account_name, account_no')
-            ->from('m_bank_account')
+        return $this->coredb->select('id, account_name, account_type, bank_name, account_no, account_holder')
+            ->from('fin_company_account')
             ->where('is_active', 1)
-            ->order_by('bank_name', 'ASC')
             ->order_by('account_name', 'ASC')
             ->get()
             ->result_array();
@@ -630,6 +615,115 @@ class Pos_model extends CI_Model
             'terminals' => $this->active_terminal_options(),
             'printers' => $this->core_printer_options(),
         ];
+    }
+
+    public function printer_general_settings(): array
+    {
+        $defaults = [
+            'title' => 'NAMUA COFFEE N EATERY',
+            'subtitle' => 'Jl. Magnolia, Desa Kabongan Kidul, Rembang',
+            'logo_url' => base_url('assets/img/logo.png'),
+            'wifi_name' => '',
+            'wifi_password' => '',
+            'show_customer_point_info' => 0,
+            'show_customer_stamp_info' => 0,
+            'show_customer_voucher' => 0,
+            'customer_voucher_limit' => 1,
+            'customer_voucher_message_template' => 'Selamat, Anda mendapat voucher {voucher_benefit}. Gunakan sebelum {voucher_expiry}.',
+            'customer_voucher_align' => 'CENTER',
+            'header_lines' => ['ORDER CEPAT, SAJI HANGAT.'],
+            'footer_lines' => ['TERIMA KASIH SUDAH BERKUNJUNG'],
+        ];
+
+        if (!$this->coredb->table_exists('pos_printer_template_master')) {
+            return ['row' => null, 'payload' => $defaults];
+        }
+
+        $row = $this->coredb
+            ->from('pos_printer_template_master')
+            ->where('master_code', 'POS-GLOBAL')
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $payload = [];
+        if ($row && !empty($row['master_payload'])) {
+            $decoded = json_decode((string)$row['master_payload'], true);
+            if (is_array($decoded)) {
+                $payload = $decoded;
+            }
+        }
+
+        $merged = array_merge($defaults, $payload);
+        if (!empty($merged['logo_url']) && stripos((string)$merged['logo_url'], 'core.namuacoffee.com/assets/img/logo') !== false) {
+            $merged['logo_url'] = base_url('assets/img/logo.png');
+        }
+
+        return ['row' => $row ?: null, 'payload' => $merged];
+    }
+
+    public function save_printer_general_settings(array $data): array
+    {
+        $payload = [
+            'title' => trim((string)($data['title'] ?? 'NAMUA COFFEE N EATERY')),
+            'subtitle' => trim((string)($data['subtitle'] ?? '')),
+            'logo_url' => trim((string)($data['logo_url'] ?? base_url('assets/img/logo.png'))),
+            'wifi_name' => trim((string)($data['wifi_name'] ?? '')),
+            'wifi_password' => trim((string)($data['wifi_password'] ?? '')),
+            'show_customer_point_info' => !empty($data['show_customer_point_info']) ? 1 : 0,
+            'show_customer_stamp_info' => !empty($data['show_customer_stamp_info']) ? 1 : 0,
+            'show_customer_voucher' => !empty($data['show_customer_voucher']) ? 1 : 0,
+            'customer_voucher_limit' => max(1, min(5, (int)($data['customer_voucher_limit'] ?? 1))),
+            'customer_voucher_message_template' => trim((string)($data['customer_voucher_message_template'] ?? '')),
+            'customer_voucher_align' => strtoupper(trim((string)($data['customer_voucher_align'] ?? 'CENTER'))),
+            'header_lines' => $data['header_lines'] ?? [],
+            'footer_lines' => $data['footer_lines'] ?? [],
+        ];
+
+        if ($payload['logo_url'] === '' || stripos($payload['logo_url'], 'core.namuacoffee.com/assets/img/logo') !== false) {
+            $payload['logo_url'] = base_url('assets/img/logo.png');
+        }
+
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            return ['ok' => false, 'message' => 'Payload pengaturan umum printer tidak valid.'];
+        }
+
+        $row = $this->coredb
+            ->from('pos_printer_template_master')
+            ->where('master_code', 'POS-GLOBAL')
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $record = [
+            'master_code' => 'POS-GLOBAL',
+            'master_name' => 'Pengaturan Umum POS',
+            'master_payload' => $json,
+            'document_type' => 'OTHER',
+            'description' => 'Pengaturan global printer POS: branding, Wi-Fi, dan info loyalty.',
+            'is_default' => 0,
+            'is_active' => 1,
+        ];
+
+        $this->coredb->trans_begin();
+        try {
+            if ($row) {
+                $this->coredb->where('id', (int)$row['id'])->update('pos_printer_template_master', $record);
+                $id = (int)$row['id'];
+            } else {
+                $this->coredb->insert('pos_printer_template_master', $record);
+                $id = (int)$this->coredb->insert_id();
+            }
+            if ($this->coredb->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan pengaturan umum printer.');
+            }
+            $this->coredb->trans_commit();
+            return ['ok' => true, 'id' => $id];
+        } catch (Throwable $e) {
+            $this->coredb->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
     }
 
     public function printer_template_rows(array $filters): array
@@ -1232,13 +1326,14 @@ class Pos_model extends CI_Model
             ->where('p.is_active', 1)
             ->where('p.connection_type', 'LOCAL_AGENT')
             ->where('p.mac_address IS NOT NULL', null, false)
-            ->where("TRIM(COALESCE(p.mac_address, '')) !=", '', false)
+            ->where("TRIM(COALESCE(p.mac_address, '')) <> ''", null, false)
             ->where('p.python_port IS NOT NULL', null, false);
 
         if ($agentHost !== '') {
+            $agentHostEscaped = $this->coredb->escape($agentHost);
             $db->group_start()
-                ->where("UPPER(COALESCE(p.agent_host, '')) =", $agentHost)
-                ->or_where("TRIM(COALESCE(p.agent_host, '')) =", '', false)
+                ->where("UPPER(COALESCE(p.agent_host, '')) = {$agentHostEscaped}", null, false)
+                ->or_where("TRIM(COALESCE(p.agent_host, '')) = ''", null, false)
                 ->group_end();
         }
 
@@ -1274,6 +1369,258 @@ class Pos_model extends CI_Model
         ];
     }
 
+    public function cashier_bootstrap_options(int $employeeId = 0): array
+    {
+        $outlets = $this->local_outlet_options();
+        $terminals = $this->local_terminal_options();
+        $activeSession = $employeeId > 0 ? $this->find_active_cashier_session($employeeId) : null;
+
+        return [
+            'outlets' => $outlets,
+            'terminals' => $terminals,
+            'active_session' => $activeSession,
+        ];
+    }
+
+    public function cashier_catalog_filter_options(): array
+    {
+        $divisions = $this->db
+            ->select('pd.id, pd.code, pd.name, COUNT(p.id) AS product_count', false)
+            ->from('mst_product_division pd')
+            ->join('mst_product p', 'p.product_division_id = pd.id', 'inner')
+            ->where('pd.is_active', 1)
+            ->where('p.is_active', 1);
+        if ($this->db->field_exists('show_pos', 'mst_product')) {
+            $divisions->where('p.show_pos', 1);
+        }
+        if ($this->db->field_exists('show_in_cashier', 'mst_product')) {
+            $divisions->where('p.show_in_cashier', 1);
+        }
+        $divisionRows = $divisions
+            ->group_by(['pd.id', 'pd.code', 'pd.name'])
+            ->order_by('pd.sort_order', 'ASC')
+            ->order_by('pd.name', 'ASC')
+            ->get()
+            ->result_array();
+
+        $categories = $this->db
+            ->select('pc.id, pc.code, pc.name, pc.product_division_id, COUNT(p.id) AS product_count', false)
+            ->from('mst_product_category pc')
+            ->join('mst_product p', 'p.product_category_id = pc.id', 'inner')
+            ->where('pc.is_active', 1)
+            ->where('p.is_active', 1);
+        if ($this->db->field_exists('show_pos', 'mst_product')) {
+            $categories->where('p.show_pos', 1);
+        }
+        if ($this->db->field_exists('show_in_cashier', 'mst_product')) {
+            $categories->where('p.show_in_cashier', 1);
+        }
+        $categoryRows = $categories
+            ->group_by(['pc.id', 'pc.code', 'pc.name', 'pc.product_division_id'])
+            ->order_by('pc.sort_order', 'ASC')
+            ->order_by('pc.name', 'ASC')
+            ->get()
+            ->result_array();
+
+        return [
+            'divisions' => $divisionRows,
+            'categories' => $categoryRows,
+        ];
+    }
+
+    public function find_active_cashier_session(int $employeeId): ?array
+    {
+        if ($employeeId <= 0 || !$this->db->table_exists('pos_cashier_session')) {
+            return null;
+        }
+
+        return $this->db->select('
+                s.*,
+                o.outlet_name,
+                t.terminal_name,
+                sh.shift_no,
+                sh.opening_cash,
+                sh.opened_at
+            ')
+            ->from('pos_cashier_session s')
+            ->join('pos_outlet o', 'o.id = s.outlet_id', 'left')
+            ->join('pos_terminal t', 't.id = s.terminal_id', 'left')
+            ->join('pos_shift sh', 'sh.id = s.shift_id', 'left')
+            ->where('s.employee_id', $employeeId)
+            ->where('s.session_status', 'OPEN')
+            ->order_by('s.id', 'DESC')
+            ->limit(1)
+            ->get()
+            ->row_array() ?: null;
+    }
+
+    public function open_cashier_session(array $payload, int $actorEmployeeId): array
+    {
+        if ($actorEmployeeId <= 0) {
+            return ['ok' => false, 'message' => 'User login belum terhubung ke employee. Kasir belum bisa dibuka.'];
+        }
+        if (!$this->db->table_exists('pos_shift') || !$this->db->table_exists('pos_cashier_session')) {
+            return ['ok' => false, 'message' => 'Schema shift/session POS belum siap.'];
+        }
+
+        $existing = $this->find_active_cashier_session($actorEmployeeId);
+        if ($existing) {
+            return ['ok' => true, 'session' => $existing, 'already_open' => true];
+        }
+
+        $outletId = (int)($payload['outlet_id'] ?? 0);
+        $terminalId = (int)($payload['terminal_id'] ?? 0);
+        $openingCash = round((float)($payload['opening_cash'] ?? 0), 2);
+        if ($outletId <= 0 || !$this->local_record_exists('pos_outlet', $outletId)) {
+            return ['ok' => false, 'message' => 'Outlet kasir wajib dipilih.'];
+        }
+        if ($terminalId <= 0 || !$this->local_record_exists('pos_terminal', $terminalId)) {
+            return ['ok' => false, 'message' => 'Device/terminal kasir wajib dipilih.'];
+        }
+        if ($openingCash < 0) {
+            return ['ok' => false, 'message' => 'Modal awal tidak boleh minus.'];
+        }
+
+        $terminalBusy = $this->db->from('pos_cashier_session')
+            ->where('terminal_id', $terminalId)
+            ->where('session_status', 'OPEN')
+            ->count_all_results();
+        if ($terminalBusy > 0) {
+            return ['ok' => false, 'message' => 'Terminal ini masih dipakai sesi kasir lain. Tutup dulu sesi yang aktif atau pilih device lain.'];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $this->db->trans_begin();
+        try {
+            $shiftNo = $this->generate_pos_shift_no($outletId, $now);
+            $this->db->insert('pos_shift', [
+                'shift_no' => $shiftNo,
+                'outlet_id' => $outletId,
+                'terminal_id' => $terminalId,
+                'cashier_open_employee_id' => $actorEmployeeId,
+                'status' => 'OPEN',
+                'opened_at' => $now,
+                'opening_cash' => $openingCash,
+                'expected_cash' => $openingCash,
+                'actual_cash' => 0,
+                'variance_cash' => 0,
+                'notes' => $this->nullable_text($payload['notes'] ?? ''),
+            ]);
+            $shiftId = (int)$this->db->insert_id();
+            if ($shiftId <= 0) {
+                throw new RuntimeException('Gagal membuat shift kasir POS.');
+            }
+
+            $this->db->insert('pos_shift_summary', $this->filter_table_payload('pos_shift_summary', [
+                'shift_id' => $shiftId,
+                'total_order_count' => 0,
+                'total_gross_sales' => 0,
+                'total_discount' => 0,
+                'total_promo' => 0,
+                'total_net_sales' => 0,
+                'total_cash_sales' => 0,
+                'total_non_cash_sales' => 0,
+                'total_refund' => 0,
+                'total_void' => 0,
+                'total_deposit_receipts' => 0,
+                'total_cash_deposit_receipts' => 0,
+            ]));
+
+            $sessionKey = $this->generate_pos_session_key($outletId, $terminalId, $actorEmployeeId, $now);
+            $this->db->insert('pos_cashier_session', [
+                'session_key' => $sessionKey,
+                'outlet_id' => $outletId,
+                'terminal_id' => $terminalId,
+                'shift_id' => $shiftId,
+                'employee_id' => $actorEmployeeId,
+                'session_status' => 'OPEN',
+                'login_at' => $now,
+                'last_ping_at' => $now,
+                'notes' => $this->nullable_text($payload['notes'] ?? ''),
+            ]);
+            $sessionId = (int)$this->db->insert_id();
+            if ($sessionId <= 0) {
+                throw new RuntimeException('Gagal membuat cashier session POS.');
+            }
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal membuka kasir POS.');
+            }
+            $this->db->trans_commit();
+
+            $session = $this->find_active_cashier_session($actorEmployeeId);
+            return ['ok' => true, 'session' => $session, 'session_id' => $sessionId, 'shift_id' => $shiftId];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function close_cashier_session(array $payload, int $actorEmployeeId): array
+    {
+        if ($actorEmployeeId <= 0) {
+            return ['ok' => false, 'message' => 'User login belum terhubung ke employee.'];
+        }
+        $session = $this->find_active_cashier_session($actorEmployeeId);
+        if (!$session) {
+            return ['ok' => false, 'message' => 'Tidak ada sesi kasir aktif yang bisa ditutup.'];
+        }
+
+        $actualCash = round((float)($payload['actual_cash'] ?? 0), 2);
+        if ($actualCash < 0) {
+            return ['ok' => false, 'message' => 'Kas aktual tidak boleh minus.'];
+        }
+
+        $shiftId = (int)($session['shift_id'] ?? 0);
+        $summary = $this->calculate_shift_summary($shiftId);
+        $expectedCash = round(
+            (float)($session['opening_cash'] ?? 0)
+            + (float)($summary['total_cash_sales'] ?? 0)
+            + (float)($summary['total_cash_deposit_receipts'] ?? 0)
+            - (float)($summary['total_refund'] ?? 0),
+            2
+        );
+        $varianceCash = round($actualCash - $expectedCash, 2);
+        $now = date('Y-m-d H:i:s');
+
+        $this->db->trans_begin();
+        try {
+            $this->db->where('shift_id', $shiftId)->update('pos_shift_summary', $this->filter_table_payload('pos_shift_summary', $summary));
+            $this->db->where('id', $shiftId)->update('pos_shift', [
+                'cashier_close_employee_id' => $actorEmployeeId,
+                'status' => 'CLOSED',
+                'closed_at' => $now,
+                'expected_cash' => $expectedCash,
+                'actual_cash' => $actualCash,
+                'variance_cash' => $varianceCash,
+                'notes' => $this->nullable_text($payload['notes'] ?? ''),
+            ]);
+            $this->db->where('id', (int)$session['id'])->update('pos_cashier_session', [
+                'session_status' => 'CLOSED',
+                'logout_at' => $now,
+                'last_ping_at' => $now,
+                'notes' => $this->nullable_text($payload['notes'] ?? ''),
+            ]);
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menutup sesi kasir.');
+            }
+            $this->db->trans_commit();
+
+            return [
+                'ok' => true,
+                'summary' => $summary + [
+                    'expected_cash' => $expectedCash,
+                    'actual_cash' => $actualCash,
+                    'variance_cash' => $varianceCash,
+                ],
+            ];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
     public function order_draft_rows(array $filters): array
     {
         $q = trim((string)($filters['q'] ?? ''));
@@ -1286,13 +1633,16 @@ class Pos_model extends CI_Model
         $db->from('pos_order o')
             ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
             ->join('pos_terminal pt', 'pt.id = o.terminal_id', 'left')
-            ->join('org_employee e', 'e.id = o.cashier_employee_id', 'left');
+            ->join('org_employee e', 'e.id = o.cashier_employee_id', 'left')
+            ->join('crm_member m', 'm.id = o.member_id', 'left');
         if ($q !== '') {
             $db->group_start()
                 ->like('o.order_no', $q)
                 ->or_like('po.outlet_name', $q)
                 ->or_like('pt.terminal_name', $q)
                 ->or_like('e.employee_name', $q)
+                ->or_like('m.member_name', $q)
+                ->or_like('m.member_no', $q)
                 ->group_end();
         }
         if ($status === 'DRAFT') {
@@ -1309,7 +1659,8 @@ class Pos_model extends CI_Model
         $rows = $db->select('
             o.id, o.order_no, o.service_type, o.status, o.stock_commit_status, o.ordered_at, o.confirmed_at,
             o.guest_count, o.grand_total, o.notes,
-            po.outlet_name, pt.terminal_name, e.employee_name
+            po.outlet_name, pt.terminal_name, e.employee_name,
+            m.member_no, m.member_name
         ')
             ->order_by('o.ordered_at', 'DESC')
             ->limit($limit, $offset)
@@ -1321,8 +1672,14 @@ class Pos_model extends CI_Model
 
     public function find_order_draft(int $id): ?array
     {
-        $header = $this->db->select('o.*')
+        $header = $this->db->select('
+                o.*,
+                m.member_no,
+                m.member_name,
+                m.mobile_phone AS member_mobile_phone
+            ')
             ->from('pos_order o')
+            ->join('crm_member m', 'm.id = o.member_id', 'left')
             ->where('o.id', $id)
             ->limit(1)
             ->get()
@@ -1335,17 +1692,46 @@ class Pos_model extends CI_Model
                 l.*,
                 p.product_code,
                 p.product_name,
+                b.bundle_code,
+                b.bundle_name,
                 pd.name AS product_division_name,
                 u.code AS uom_code
             ')
             ->from('pos_order_line l')
             ->join('mst_product p', 'p.id = l.product_id', 'left')
+            ->join('pos_product_bundle b', 'b.id = l.bundle_id', 'left')
             ->join('mst_product_division pd', 'pd.id = l.product_division_id_snapshot', 'left')
             ->join('mst_uom u', 'u.id = l.uom_id', 'left')
             ->where('l.order_id', $id)
             ->order_by('l.line_no', 'ASC')
             ->get()
             ->result_array();
+
+        $extras = $this->db->select('
+                x.*,
+                e.extra_code,
+                e.extra_name,
+                e.extra_type
+            ')
+            ->from('pos_order_line_extra x')
+            ->join('mst_extra e', 'e.id = x.extra_id', 'left')
+            ->where('x.order_id', $id)
+            ->order_by('x.order_line_id', 'ASC')
+            ->order_by('x.line_no', 'ASC')
+            ->get()
+            ->result_array();
+        $extraMap = [];
+        foreach ($extras as $extra) {
+            $lineId = (int)($extra['order_line_id'] ?? 0);
+            if (!isset($extraMap[$lineId])) {
+                $extraMap[$lineId] = [];
+            }
+            $extraMap[$lineId][] = $extra;
+        }
+        foreach ($lines as &$line) {
+            $line['extras'] = $extraMap[(int)($line['id'] ?? 0)] ?? [];
+        }
+        unset($line);
 
         return ['header' => $header, 'lines' => $lines];
     }
@@ -1404,6 +1790,400 @@ class Pos_model extends CI_Model
             ->result_array();
     }
 
+    public function order_product_catalog(array $filters): array
+    {
+        $q = trim((string)($filters['q'] ?? ''));
+        $outletId = max(0, (int)($filters['outlet_id'] ?? 0));
+        $divisionId = max(0, (int)($filters['division_id'] ?? 0));
+        $categoryId = max(0, (int)($filters['category_id'] ?? 0));
+        $limit = max(1, min(120, (int)($filters['limit'] ?? 32)));
+
+        $select = [
+            'p.id',
+            'p.product_code',
+            'p.product_name',
+            'p.selling_price',
+            'p.hpp_standard',
+            'p.hpp_live_cache',
+            'p.photo_path',
+            'pd.id AS product_division_id',
+            'pd.code AS product_division_code',
+            'pd.name AS product_division_name',
+            'pc.id AS product_category_id',
+            'pc.code AS product_category_code',
+            'pc.name AS product_category_name',
+            'u.code AS uom_code',
+        ];
+        if ($this->db->table_exists('pos_product_availability_cache')) {
+            $select[] = 'pac.availability_status';
+            $select[] = 'pac.source_mode';
+            $select[] = 'pac.estimated_available_qty';
+            $select[] = 'pac.bottleneck_name_snapshot';
+            $select[] = 'pac.override_allowed';
+            $select[] = 'pac.hpp_live_snapshot AS availability_hpp_live_snapshot';
+        }
+
+        $db = $this->db;
+        $db->from('mst_product p')
+            ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
+            ->join('mst_product_category pc', 'pc.id = p.product_category_id', 'left')
+            ->join('mst_uom u', 'u.id = p.uom_id', 'left');
+        if ($this->db->table_exists('pos_product_availability_cache')) {
+            $joinOutletId = $outletId > 0 ? $outletId : -1;
+            $db->join('pos_product_availability_cache pac', 'pac.product_id = p.id AND pac.outlet_id = ' . $this->db->escape($joinOutletId), 'left', false);
+        }
+        $db->where('p.is_active', 1);
+        if ($this->db->field_exists('show_pos', 'mst_product')) {
+            $db->where('p.show_pos', 1);
+        }
+        if ($this->db->field_exists('show_in_cashier', 'mst_product')) {
+            $db->where('p.show_in_cashier', 1);
+        }
+        if ($divisionId > 0) {
+            $db->where('p.product_division_id', $divisionId);
+        }
+        if ($categoryId > 0) {
+            $db->where('p.product_category_id', $categoryId);
+        }
+        if ($q !== '') {
+            $db->group_start()
+                ->like('p.product_code', $q)
+                ->or_like('p.product_name', $q)
+                ->group_end();
+        }
+
+        return $db->select(implode(",\n", $select))
+            ->order_by('pd.sort_order', 'ASC')
+            ->order_by('pc.sort_order', 'ASC')
+            ->order_by('p.product_name', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function order_member_search(string $q, int $limit = 8): array
+    {
+        $q = trim($q);
+        if ($q === '') {
+            return [];
+        }
+
+        return $this->db
+            ->select('id, member_no, member_name, mobile_phone, member_tier, member_status, point_balance_cache, stamp_balance_cache, total_spending')
+            ->from('crm_member')
+            ->where('is_active', 1)
+            ->where('member_status !=', 'CLOSED')
+            ->group_start()
+                ->like('member_no', $q)
+                ->or_like('member_name', $q)
+                ->or_like('mobile_phone', $q)
+            ->group_end()
+            ->order_by('member_name', 'ASC')
+            ->order_by('member_no', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function order_bundle_search(string $q, int $outletId = 0, int $limit = 8): array
+    {
+        $q = trim($q);
+        if ($q === '' || !$this->db->table_exists('pos_product_bundle') || !$this->db->table_exists('pos_product_bundle_line')) {
+            return [];
+        }
+
+        $bundleRows = $this->db
+            ->select('b.id, b.bundle_code, b.bundle_name, b.selling_price, pd.name AS product_division_name')
+            ->from('pos_product_bundle b')
+            ->join('mst_product_division pd', 'pd.id = b.product_division_id', 'left')
+            ->where('b.is_active', 1)
+            ->group_start()
+                ->like('b.bundle_code', $q)
+                ->or_like('b.bundle_name', $q)
+            ->group_end()
+            ->order_by('b.bundle_name', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+        if (empty($bundleRows)) {
+            return [];
+        }
+
+        $this->load->library('PosBundlePricingService');
+        $results = [];
+        foreach ($bundleRows as $bundle) {
+            $bundleId = (int)($bundle['id'] ?? 0);
+            $bundleLines = $this->db
+                ->select('
+                    bl.product_id,
+                    bl.qty,
+                    bl.unit_price_override,
+                    p.product_code,
+                    p.product_name,
+                    p.selling_price,
+                    p.hpp_standard,
+                    p.hpp_live_cache,
+                    pd.name AS product_division_name,
+                    u.code AS uom_code
+                ')
+                ->from('pos_product_bundle_line bl')
+                ->join('mst_product p', 'p.id = bl.product_id', 'inner')
+                ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
+                ->join('mst_uom u', 'u.id = p.uom_id', 'left')
+                ->where('bl.bundle_id', $bundleId)
+                ->order_by('bl.sort_order', 'ASC')
+                ->order_by('bl.id', 'ASC')
+                ->get()
+                ->result_array();
+            if (empty($bundleLines)) {
+                continue;
+            }
+
+            $availabilityMap = $this->load_product_availability_map(array_column($bundleLines, 'product_id'), $outletId);
+            $pricingLines = [];
+            $availabilityStatus = 'AVAILABLE';
+            $bottlenecks = [];
+
+            foreach ($bundleLines as $line) {
+                $productId = (int)($line['product_id'] ?? 0);
+                $availability = $availabilityMap[$productId] ?? [];
+                $lineStatus = strtoupper((string)($availability['availability_status'] ?? 'CHECK'));
+                if (in_array($lineStatus, ['OUT', 'EMPTY'], true)) {
+                    $availabilityStatus = 'OUT';
+                } elseif ($availabilityStatus !== 'OUT' && !in_array($lineStatus, ['AVAILABLE', 'OK'], true)) {
+                    $availabilityStatus = 'CHECK';
+                }
+
+                $bottleneck = trim((string)($availability['bottleneck_name_snapshot'] ?? ''));
+                if ($bottleneck !== '') {
+                    $bottlenecks[$bottleneck] = $bottleneck;
+                }
+
+                $pricingLines[] = [
+                    'product_id' => $productId,
+                    'product_name' => (string)($line['product_name'] ?? ''),
+                    'qty' => (float)($line['qty'] ?? 0),
+                    'base_unit_price' => (float)($line['selling_price'] ?? 0),
+                    'override_unit_price' => $line['unit_price_override'] !== null ? (float)$line['unit_price_override'] : null,
+                    'uom_code' => (string)($line['uom_code'] ?? ''),
+                    'division_name' => (string)($line['product_division_name'] ?? ''),
+                    'hpp_live_unit' => (float)($availability['hpp_live_snapshot'] ?? $line['hpp_live_cache'] ?? $line['hpp_standard'] ?? 0),
+                    'hpp_standard_unit' => (float)($line['hpp_standard'] ?? 0),
+                    'cost_source_label' => 'Bundle POS',
+                ];
+            }
+
+            $pricing = $this->posbundlepricingservice->allocate((float)($bundle['selling_price'] ?? 0), $pricingLines);
+            $items = [];
+            foreach ((array)($pricing['lines'] ?? []) as $pricingLine) {
+                $productId = (int)($pricingLine['product_id'] ?? 0);
+                $sourceRow = null;
+                foreach ($bundleLines as $line) {
+                    if ((int)$line['product_id'] === $productId) {
+                        $sourceRow = $line;
+                        break;
+                    }
+                }
+                if ($sourceRow === null) {
+                    continue;
+                }
+                $availability = $availabilityMap[$productId] ?? [];
+                $items[] = [
+                    'product_id' => $productId,
+                    'product_code' => (string)($sourceRow['product_code'] ?? ''),
+                    'product_name' => (string)($sourceRow['product_name'] ?? ''),
+                    'product_division_name' => (string)($sourceRow['product_division_name'] ?? ''),
+                    'uom_code' => (string)($sourceRow['uom_code'] ?? ''),
+                    'qty' => (float)($pricingLine['qty'] ?? 0),
+                    'unit_price' => (float)($pricingLine['allocated_unit_price'] ?? 0),
+                    'allocated_total' => (float)($pricingLine['allocated_total'] ?? 0),
+                    'hpp_live_snapshot' => (float)($pricingLine['hpp_live_unit'] ?? 0),
+                    'hpp_standard' => (float)($pricingLine['hpp_standard_unit'] ?? 0),
+                    'availability_status' => (string)($availability['availability_status'] ?? 'CHECK'),
+                    'estimated_available_qty' => (float)($availability['estimated_available_qty'] ?? 0),
+                    'bottleneck_name_snapshot' => (string)($availability['bottleneck_name_snapshot'] ?? ''),
+                ];
+            }
+
+            $results[] = [
+                'id' => $bundleId,
+                'bundle_code' => (string)($bundle['bundle_code'] ?? ''),
+                'bundle_name' => (string)($bundle['bundle_name'] ?? ''),
+                'selling_price' => (float)($bundle['selling_price'] ?? 0),
+                'product_division_name' => (string)($bundle['product_division_name'] ?? 'Campuran Divisi'),
+                'availability_status' => $availabilityStatus,
+                'bottleneck_name_snapshot' => implode(', ', array_values($bottlenecks)),
+                'line_count' => count($items),
+                'items' => $items,
+                'pricing_summary' => (array)($pricing['summary'] ?? []),
+            ];
+        }
+
+        return $results;
+    }
+
+    public function order_bundle_catalog(array $filters): array
+    {
+        $q = trim((string)($filters['q'] ?? ''));
+        $outletId = max(0, (int)($filters['outlet_id'] ?? 0));
+        $divisionId = max(0, (int)($filters['division_id'] ?? 0));
+        $limit = max(1, min(60, (int)($filters['limit'] ?? 24)));
+
+        if (!$this->db->table_exists('pos_product_bundle') || !$this->db->table_exists('pos_product_bundle_line')) {
+            return [];
+        }
+
+        $db = $this->db
+            ->select("
+                b.id,
+                b.bundle_code,
+                b.bundle_name,
+                b.selling_price,
+                b.product_division_id,
+                pd.code AS product_division_code,
+                pd.name AS product_division_name,
+                (
+                    SELECT COUNT(*)
+                    FROM pos_product_bundle_line blc
+                    WHERE blc.bundle_id = b.id
+                ) AS line_count,
+                (
+                    SELECT p2.photo_path
+                    FROM pos_product_bundle_line bl2
+                    INNER JOIN mst_product p2 ON p2.id = bl2.product_id
+                    WHERE bl2.bundle_id = b.id
+                    ORDER BY bl2.sort_order ASC, bl2.id ASC
+                    LIMIT 1
+                ) AS photo_path
+            ", false)
+            ->from('pos_product_bundle b')
+            ->join('mst_product_division pd', 'pd.id = b.product_division_id', 'left')
+            ->where('b.is_active', 1);
+
+        if ($divisionId > 0) {
+            $db->where('b.product_division_id', $divisionId);
+        }
+        if ($q !== '') {
+            $db->group_start()
+                ->like('b.bundle_code', $q)
+                ->or_like('b.bundle_name', $q)
+                ->group_end();
+        }
+
+        $bundleRows = $db
+            ->order_by('pd.sort_order', 'ASC')
+            ->order_by('b.bundle_name', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+
+        if (empty($bundleRows)) {
+            return [];
+        }
+
+        $this->load->library('PosBundlePricingService');
+        $results = [];
+        foreach ($bundleRows as $bundle) {
+            $bundleId = (int)($bundle['id'] ?? 0);
+            $bundleLines = $this->db
+                ->select('
+                    bl.product_id,
+                    bl.qty,
+                    bl.unit_price_override,
+                    p.product_code,
+                    p.product_name,
+                    p.selling_price,
+                    p.hpp_standard,
+                    p.hpp_live_cache,
+                    pd.name AS product_division_name,
+                    u.code AS uom_code
+                ')
+                ->from('pos_product_bundle_line bl')
+                ->join('mst_product p', 'p.id = bl.product_id', 'inner')
+                ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
+                ->join('mst_uom u', 'u.id = p.uom_id', 'left')
+                ->where('bl.bundle_id', $bundleId)
+                ->order_by('bl.sort_order', 'ASC')
+                ->order_by('bl.id', 'ASC')
+                ->get()
+                ->result_array();
+            if (empty($bundleLines)) {
+                continue;
+            }
+
+            $availabilityMap = $this->load_product_availability_map(array_column($bundleLines, 'product_id'), $outletId);
+            $pricingLines = [];
+            $availabilityStatus = 'AVAILABLE';
+            $bottlenecks = [];
+
+            foreach ($bundleLines as $line) {
+                $productId = (int)($line['product_id'] ?? 0);
+                $availability = $availabilityMap[$productId] ?? [];
+                $lineStatus = strtoupper((string)($availability['availability_status'] ?? 'CHECK'));
+                if (in_array($lineStatus, ['OUT', 'EMPTY'], true)) {
+                    $availabilityStatus = 'OUT';
+                } elseif ($availabilityStatus !== 'OUT' && !in_array($lineStatus, ['AVAILABLE', 'OK'], true)) {
+                    $availabilityStatus = 'CHECK';
+                }
+
+                $bottleneck = trim((string)($availability['bottleneck_name_snapshot'] ?? ''));
+                if ($bottleneck !== '') {
+                    $bottlenecks[$bottleneck] = $bottleneck;
+                }
+
+                $pricingLines[] = [
+                    'product_id' => $productId,
+                    'product_name' => (string)($line['product_name'] ?? ''),
+                    'reference_unit_price' => (float)($line['selling_price'] ?? 0),
+                    'override_unit_price' => isset($line['unit_price_override']) ? (float)$line['unit_price_override'] : null,
+                    'qty' => (float)($line['qty'] ?? 0),
+                    'hpp_live_snapshot' => (float)($line['hpp_live_cache'] ?? $line['hpp_standard'] ?? 0),
+                ];
+            }
+
+            $allocation = $this->posbundlepricingservice->allocate((float)($bundle['selling_price'] ?? 0), $pricingLines);
+            $allocatedMap = [];
+            foreach ((array)($allocation['lines'] ?? []) as $allocatedLine) {
+                $allocatedMap[(int)($allocatedLine['product_id'] ?? 0)] = $allocatedLine;
+            }
+
+            $items = [];
+            foreach ($bundleLines as $line) {
+                $productId = (int)($line['product_id'] ?? 0);
+                $allocated = $allocatedMap[$productId] ?? [];
+                $availability = $availabilityMap[$productId] ?? [];
+                $items[] = [
+                    'product_id' => $productId,
+                    'product_code' => (string)($line['product_code'] ?? ''),
+                    'product_name' => (string)($line['product_name'] ?? ''),
+                    'product_division_name' => (string)($line['product_division_name'] ?? ''),
+                    'uom_code' => (string)($line['uom_code'] ?? ''),
+                    'qty' => round((float)($line['qty'] ?? 0), 4),
+                    'unit_price' => round((float)($allocated['allocated_unit_price'] ?? 0), 2),
+                    'line_total' => round((float)($allocated['allocated_line_total'] ?? 0), 2),
+                    'hpp_live_snapshot' => round((float)($line['hpp_live_cache'] ?? $line['hpp_standard'] ?? 0), 6),
+                    'availability_status' => (string)($availability['availability_status'] ?? 'CHECK'),
+                ];
+            }
+
+            $bundle['availability_status'] = $availabilityStatus;
+            $bundle['bottleneck_name_snapshot'] = implode(', ', array_values($bottlenecks));
+            $bundle['items'] = $items;
+            $results[] = $bundle;
+        }
+
+        return $results;
+    }
+
+    public function order_extra_options(int $productId): array
+    {
+        if ($productId <= 0) {
+            return [];
+        }
+        $map = $this->load_product_extra_group_map([$productId]);
+        return $map[$productId] ?? [];
+    }
+
     public function save_order_draft(array $payload, int $actorEmployeeId): array
     {
         if ($actorEmployeeId <= 0) {
@@ -1419,10 +2199,28 @@ class Pos_model extends CI_Model
         if ($terminalId !== null && !$this->local_record_exists('pos_terminal', $terminalId)) {
             return ['ok' => false, 'message' => 'Terminal POS tidak ditemukan di database lokal POS.'];
         }
+        $memberId = !empty($payload['member_id']) ? (int)$payload['member_id'] : null;
+        if ($memberId !== null && !$this->local_record_exists('crm_member', $memberId)) {
+            return ['ok' => false, 'message' => 'Member POS tidak ditemukan. Pilih member yang valid atau kosongkan transaksi untuk walk in.'];
+        }
 
         $serviceType = strtoupper(trim((string)($payload['service_type'] ?? 'DINE_IN')));
         if (!in_array($serviceType, ['DINE_IN', 'TAKE_AWAY', 'DELIVERY', 'PICKUP'], true)) {
             $serviceType = 'DINE_IN';
+        }
+        $requireActiveSession = !empty($payload['require_active_session']);
+        $activeSession = $actorEmployeeId > 0 ? $this->find_active_cashier_session($actorEmployeeId) : null;
+        if ($requireActiveSession && !$activeSession) {
+            return ['ok' => false, 'message' => 'Kasir belum dibuka. Pilih outlet, device, dan modal awal dulu sebelum input transaksi.'];
+        }
+        if ($activeSession) {
+            if ((int)($activeSession['outlet_id'] ?? 0) !== $outletId) {
+                return ['ok' => false, 'message' => 'Outlet transaksi harus sama dengan outlet sesi kasir yang sedang aktif.'];
+            }
+            if ($terminalId !== null && (int)($activeSession['terminal_id'] ?? 0) !== $terminalId) {
+                return ['ok' => false, 'message' => 'Device transaksi harus sama dengan device sesi kasir yang sedang aktif.'];
+            }
+            $terminalId = (int)($activeSession['terminal_id'] ?? $terminalId);
         }
 
         $lines = is_array($payload['lines'] ?? null) ? $payload['lines'] : [];
@@ -1451,7 +2249,10 @@ class Pos_model extends CI_Model
                 'service_type' => $serviceType,
                 'outlet_id' => $outletId,
                 'terminal_id' => $terminalId,
+                'shift_id' => !empty($activeSession['shift_id']) ? (int)$activeSession['shift_id'] : null,
+                'cashier_session_id' => !empty($activeSession['id']) ? (int)$activeSession['id'] : null,
                 'cashier_employee_id' => $actorEmployeeId,
+                'member_id' => $memberId,
                 'guest_count' => max(1, (int)($payload['guest_count'] ?? 1)),
                 'subtotal_amount' => $headerTotals['subtotal_amount'],
                 'grand_total' => $headerTotals['grand_total'],
@@ -1478,7 +2279,7 @@ class Pos_model extends CI_Model
                     'order_id' => $id,
                     'line_no' => $lineNo++,
                     'product_id' => (int)$row['product_id'],
-                    'bundle_id' => null,
+                    'bundle_id' => !empty($row['bundle_id']) ? (int)$row['bundle_id'] : null,
                     'line_type' => 'PRODUCT',
                     'product_division_id_snapshot' => $row['product_division_id_snapshot'],
                     'operational_division_id' => $row['operational_division_id'],
@@ -1496,6 +2297,21 @@ class Pos_model extends CI_Model
                     'notes' => $row['notes'],
                 ];
                 $this->db->insert('pos_order_line', $linePayload);
+                $orderLineId = (int)$this->db->insert_id();
+                $extraLineNo = 1;
+                foreach ((array)($row['extras'] ?? []) as $extra) {
+                    $this->db->insert('pos_order_line_extra', [
+                        'order_id' => $id,
+                        'order_line_id' => $orderLineId,
+                        'line_no' => $extraLineNo++,
+                        'extra_id' => (int)$extra['extra_id'],
+                        'qty' => $extra['qty'],
+                        'unit_price' => $extra['unit_price'],
+                        'net_amount' => $extra['net_amount'],
+                        'cost_amount_snapshot' => $extra['cost_amount_snapshot'],
+                        'notes' => $extra['notes'],
+                    ]);
+                }
             }
 
             if ($id > 0) {
@@ -1552,6 +2368,18 @@ class Pos_model extends CI_Model
                     'line_no' => $resolvedLineNo++,
                 ] + (array)($resolved['line'] ?? []);
             }
+
+            foreach ((array)($line['extras'] ?? []) as $extraLine) {
+                $resolvedExtra = $this->resolve_order_extra_consumption_line($header, $line, $extraLine);
+                if (!($resolvedExtra['ok'] ?? false)) {
+                    return $resolvedExtra;
+                }
+                foreach ((array)($resolvedExtra['lines'] ?? []) as $resolvedExtraLine) {
+                    $resolvedLines[] = [
+                        'line_no' => $resolvedLineNo++,
+                    ] + $resolvedExtraLine;
+                }
+            }
         }
 
         if (empty($resolvedLines)) {
@@ -1600,6 +2428,390 @@ class Pos_model extends CI_Model
         } catch (Throwable $e) {
             $this->db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function order_reversal_preview(int $orderId): array
+    {
+        if ($orderId <= 0) {
+            return ['ok' => false, 'message' => 'Order POS tidak valid.'];
+        }
+
+        $order = $this->find_order_draft($orderId);
+        if (!$order) {
+            return ['ok' => false, 'message' => 'Order POS tidak ditemukan.'];
+        }
+
+        $this->load->library('PosStockCommitService');
+        $snapshot = $this->posstockcommitservice->snapshot_for_order($orderId);
+        if (!($snapshot['ok'] ?? false)) {
+            return ['ok' => false, 'message' => (string)($snapshot['message'] ?? 'Snapshot stock commit belum tersedia.')];
+        }
+
+        $processByOrderLine = [];
+        foreach ((array)($order['lines'] ?? []) as $line) {
+            $processByOrderLine[(int)($line['id'] ?? 0)] = strtoupper((string)($line['process_status'] ?? 'NOT_PROCESSED'));
+        }
+
+        $processedMap = [];
+        foreach ((array)($snapshot['lines'] ?? []) as $line) {
+            $key = $this->snapshot_line_key($line);
+            $orderLineId = (int)($line['order_line_id'] ?? 0);
+            $state = $processByOrderLine[$orderLineId] ?? 'NOT_PROCESSED';
+            $processedMap[$key] = $state === 'NOT_PROCESSED' ? 'NONE' : 'FULL';
+        }
+
+        $plan = $this->posstockcommitservice->build_reversal_plan((int)($snapshot['header']['id'] ?? 0), $processedMap);
+        if (!($plan['ok'] ?? false)) {
+            return ['ok' => false, 'message' => (string)($plan['message'] ?? 'Gagal menyiapkan reversal plan.')];
+        }
+
+        return [
+            'ok' => true,
+            'order' => $order,
+            'snapshot' => $snapshot,
+            'plan' => $plan,
+        ];
+    }
+
+    public function save_order_void(array $payload, int $actorEmployeeId): array
+    {
+        if ($actorEmployeeId <= 0) {
+            return ['ok' => false, 'message' => 'User login belum terhubung ke data employee untuk void POS.'];
+        }
+
+        $orderId = (int)($payload['order_id'] ?? 0);
+        $preview = $this->order_reversal_preview($orderId);
+        if (!($preview['ok'] ?? false)) {
+            return $preview;
+        }
+
+        $order = (array)($preview['order'] ?? []);
+        $header = (array)($order['header'] ?? []);
+        if (in_array((string)($header['status'] ?? ''), ['VOID', 'REFUND_FULL'], true)) {
+            return ['ok' => false, 'message' => 'Order ini sudah tidak bisa di-void lagi.'];
+        }
+        if (in_array((string)($header['status'] ?? ''), ['PAID', 'PAID_PARTIAL', 'REFUND_PARTIAL', 'SERVED'], true)) {
+            return ['ok' => false, 'message' => 'Order yang sudah dibayar/disajikan tidak boleh di-void. Gunakan refund agar jejak pembayarannya tetap rapi.'];
+        }
+
+        $selection = $this->build_reversal_selection($order, (array)($preview['plan']['lines'] ?? []), (array)($payload['lines'] ?? []), [
+            'default_return_to_stock' => !empty($payload['return_to_stock']),
+            'default_processed_state' => strtoupper(trim((string)($payload['processed_state'] ?? 'NOT_PROCESSED'))),
+        ]);
+        if (empty($selection['decisions'])) {
+            return ['ok' => false, 'message' => 'Tidak ada line void yang valid.'];
+        }
+
+        $this->load->library('PosOrderStockService');
+
+        $this->db->trans_begin();
+        try {
+            $voidPayload = [
+                'void_no' => $this->generate_pos_void_no(),
+                'order_id' => $orderId,
+                'payment_id' => null,
+                'cashier_session_id' => !empty($header['cashier_session_id']) ? (int)$header['cashier_session_id'] : null,
+                'outlet_id' => !empty($header['outlet_id']) ? (int)$header['outlet_id'] : null,
+                'terminal_id' => !empty($header['terminal_id']) ? (int)$header['terminal_id'] : null,
+                'shift_id' => !empty($header['shift_id']) ? (int)$header['shift_id'] : null,
+                'member_id' => !empty($header['member_id']) ? (int)$header['member_id'] : null,
+                'actor_employee_id' => $actorEmployeeId,
+                'approved_by' => null,
+                'void_scope' => !empty($selection['is_full']) ? 'FULL' : 'PARTIAL',
+                'processed_state' => !empty($selection['has_processed']) ? 'PROCESSED' : 'NOT_PROCESSED',
+                'return_to_stock' => !empty($selection['return_to_stock']) ? 1 : 0,
+                'adjustment_mode' => $this->normalize_pos_adjustment_mode((string)($payload['adjustment_mode'] ?? 'NONE')),
+                'order_status_before' => (string)($header['status'] ?? 'CONFIRMED'),
+                'order_status_after' => !empty($selection['is_full']) ? 'VOID' : (string)($header['status'] ?? 'CONFIRMED'),
+                'order_no_snapshot' => (string)($header['order_no'] ?? ''),
+                'member_name_snapshot' => (string)($header['member_name'] ?? ''),
+                'service_type_snapshot' => (string)($header['service_type'] ?? ''),
+                'reason' => $this->nullable_text($payload['reason'] ?? ''),
+                'line_count' => count((array)($selection['product_lines'] ?? [])),
+                'extra_count' => count((array)($selection['extra_lines'] ?? [])),
+                'total_qty_void' => round((float)($selection['total_qty'] ?? 0), 4),
+                'amount_void' => round((float)($selection['total_amount'] ?? 0), 2),
+            ];
+            $this->db->insert('pos_void', $voidPayload);
+            $voidId = (int)$this->db->insert_id();
+            if ($voidId <= 0) {
+                throw new RuntimeException('Gagal membuat dokumen void POS.');
+            }
+
+            $voidLineMap = [];
+            foreach ((array)($selection['product_lines'] ?? []) as $idx => $line) {
+                $this->db->insert('pos_void_line', [
+                    'void_id' => $voidId,
+                    'order_id' => $orderId,
+                    'order_line_id' => (int)$line['order_line_id'],
+                    'product_id' => !empty($line['product_id']) ? (int)$line['product_id'] : null,
+                    'line_no_snapshot' => (int)($line['line_no_snapshot'] ?? ($idx + 1)),
+                    'item_name_snapshot' => (string)$line['item_name_snapshot'],
+                    'qty_before' => round((float)$line['qty_before'], 4),
+                    'qty_void' => round((float)$line['qty_void'], 4),
+                    'qty_after' => round((float)$line['qty_after'], 4),
+                    'unit_price' => round((float)$line['unit_price'], 2),
+                    'subtotal_void' => round((float)$line['subtotal_void'], 2),
+                    'hpp_live_snapshot' => round((float)$line['hpp_live_snapshot'], 6),
+                    'line_process_state' => (string)$line['line_process_state'],
+                    'line_status_after' => (string)$line['line_status_after'],
+                    'notes' => $this->nullable_text($line['notes'] ?? ''),
+                ]);
+                $voidLineMap[(int)$line['order_line_id']] = (int)$this->db->insert_id();
+            }
+
+            foreach ((array)($selection['extra_lines'] ?? []) as $extra) {
+                $this->db->insert('pos_void_line_extra', [
+                    'void_id' => $voidId,
+                    'void_line_id' => $voidLineMap[(int)$extra['order_line_id']] ?? null,
+                    'order_id' => $orderId,
+                    'order_line_id' => (int)$extra['order_line_id'],
+                    'order_line_extra_id' => (int)$extra['order_line_extra_id'],
+                    'extra_id' => !empty($extra['extra_id']) ? (int)$extra['extra_id'] : null,
+                    'extra_name_snapshot' => (string)$extra['extra_name_snapshot'],
+                    'qty_per_unit' => round((float)$extra['qty_per_unit'], 4),
+                    'line_qty_affected' => round((float)$extra['line_qty_affected'], 4),
+                    'unit_price' => round((float)$extra['unit_price'], 2),
+                    'subtotal_void' => round((float)$extra['subtotal_void'], 2),
+                    'status_after' => (string)$extra['status_after'],
+                ]);
+            }
+
+            $reverse = $this->posorderstockservice->reverse_commit_snapshot((int)($preview['snapshot']['header']['id'] ?? 0), (array)$selection['decisions'], [
+                'actor_employee_id' => $actorEmployeeId,
+                'notes' => 'Void POS #' . $voidId,
+            ]);
+            if (!($reverse['ok'] ?? false)) {
+                throw new RuntimeException((string)($reverse['message'] ?? 'Gagal reversal stok untuk void POS.'));
+            }
+
+            $this->apply_order_line_reversal_updates((array)($selection['product_lines'] ?? []), 'VOID');
+            $newOrderStatus = !empty($selection['is_full']) ? 'VOID' : (string)($header['status'] ?? 'CONFIRMED');
+            $orderUpdate = ['status' => $newOrderStatus];
+            if ($newOrderStatus === 'VOID') {
+                $orderUpdate['kitchen_status'] = 'VOID';
+            }
+            $this->db->where('id', $orderId)->update('pos_order', $orderUpdate);
+            $this->insert_order_state_log($orderId, (string)($header['status'] ?? 'CONFIRMED'), $newOrderStatus, 'ORDER_VOID', $actorEmployeeId, 'Void POS #' . $voidId);
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan void POS.');
+            }
+            $this->db->trans_commit();
+
+            return ['ok' => true, 'id' => $voidId, 'void_no' => (string)$voidPayload['void_no']];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function save_order_refund(array $payload, int $actorEmployeeId): array
+    {
+        if ($actorEmployeeId <= 0) {
+            return ['ok' => false, 'message' => 'User login belum terhubung ke data employee untuk refund POS.'];
+        }
+
+        $orderId = (int)($payload['order_id'] ?? 0);
+        $preview = $this->order_reversal_preview($orderId);
+        if (!($preview['ok'] ?? false)) {
+            return $preview;
+        }
+
+        $order = (array)($preview['order'] ?? []);
+        $header = (array)($order['header'] ?? []);
+        if (!in_array((string)($header['status'] ?? ''), ['PAID', 'PAID_PARTIAL', 'READY', 'SERVED', 'REFUND_PARTIAL'], true)) {
+            return ['ok' => false, 'message' => 'Refund hanya boleh dipakai untuk order yang sudah masuk tahap bayar / siap saji / served.'];
+        }
+        if ((float)($header['paid_total'] ?? 0) <= 0 && empty($header['paid_at'])) {
+            return ['ok' => false, 'message' => 'Order ini belum memiliki pembayaran tercatat, jadi refund belum bisa dibuat.'];
+        }
+
+        $selection = $this->build_reversal_selection($order, (array)($preview['plan']['lines'] ?? []), (array)($payload['lines'] ?? []), [
+            'default_return_to_stock' => !empty($payload['return_to_stock']),
+            'default_processed_state' => strtoupper(trim((string)($payload['processed_state'] ?? 'NOT_PROCESSED'))),
+        ]);
+        if (empty($selection['decisions'])) {
+            return ['ok' => false, 'message' => 'Tidak ada line refund yang valid.'];
+        }
+
+        $this->load->library('PosOrderStockService');
+
+        $this->db->trans_begin();
+        try {
+            $refundPayload = [
+                'refund_no' => $this->generate_pos_refund_no(),
+                'order_id' => $orderId,
+                'payment_id' => null,
+                'member_id' => !empty($header['member_id']) ? (int)$header['member_id'] : null,
+                'payment_method_id' => null,
+                'company_account_id' => null,
+                'reference_no' => $this->nullable_text($payload['reference_no'] ?? ''),
+                'refund_status' => 'POSTED',
+                'processed_state' => !empty($selection['has_processed']) ? 'PROCESSED' : 'NOT_PROCESSED',
+                'return_to_stock' => !empty($selection['return_to_stock']) ? 1 : 0,
+                'adjustment_mode' => $this->normalize_pos_adjustment_mode((string)($payload['adjustment_mode'] ?? 'NONE')),
+                'refund_amount' => round((float)($selection['total_amount'] ?? 0), 2),
+                'reason' => $this->nullable_text($payload['reason'] ?? ''),
+                'refunded_by' => $actorEmployeeId,
+                'refunded_at' => date('Y-m-d H:i:s'),
+            ];
+            $this->db->insert('pos_refund', $refundPayload);
+            $refundId = (int)$this->db->insert_id();
+            if ($refundId <= 0) {
+                throw new RuntimeException('Gagal membuat dokumen refund POS.');
+            }
+
+            $lineNo = 1;
+            foreach ((array)($selection['product_lines'] ?? []) as $line) {
+                $this->db->insert('pos_refund_line', [
+                    'refund_id' => $refundId,
+                    'line_no' => $lineNo++,
+                    'line_type' => 'PRODUCT',
+                    'order_line_id' => (int)$line['order_line_id'],
+                    'order_extra_line_id' => null,
+                    'product_id' => !empty($line['product_id']) ? (int)$line['product_id'] : null,
+                    'extra_id' => null,
+                    'qty_refunded' => round((float)$line['qty_void'], 4),
+                    'amount_refunded' => round((float)$line['subtotal_void'], 2),
+                    'cost_reversed' => round((float)$line['qty_void'] * (float)$line['hpp_live_snapshot'], 2),
+                    'line_process_state' => (string)$line['line_process_state'],
+                    'notes' => $this->nullable_text($line['notes'] ?? ''),
+                ]);
+            }
+            foreach ((array)($selection['extra_lines'] ?? []) as $extra) {
+                $this->db->insert('pos_refund_line', [
+                    'refund_id' => $refundId,
+                    'line_no' => $lineNo++,
+                    'line_type' => 'EXTRA',
+                    'order_line_id' => (int)$extra['order_line_id'],
+                    'order_extra_line_id' => (int)$extra['order_line_extra_id'],
+                    'product_id' => null,
+                    'extra_id' => !empty($extra['extra_id']) ? (int)$extra['extra_id'] : null,
+                    'qty_refunded' => round((float)$extra['line_qty_affected'], 4),
+                    'amount_refunded' => round((float)$extra['subtotal_void'], 2),
+                    'cost_reversed' => round((float)$extra['line_qty_affected'] * (float)($extra['cost_amount_snapshot'] ?? 0), 2),
+                    'line_process_state' => !empty($selection['has_processed']) ? 'PROCESSED' : 'NOT_PROCESSED',
+                    'notes' => null,
+                ]);
+            }
+
+            $reverse = $this->posorderstockservice->reverse_commit_snapshot((int)($preview['snapshot']['header']['id'] ?? 0), (array)$selection['decisions'], [
+                'actor_employee_id' => $actorEmployeeId,
+                'notes' => 'Refund POS #' . $refundId,
+            ]);
+            if (!($reverse['ok'] ?? false)) {
+                throw new RuntimeException((string)($reverse['message'] ?? 'Gagal reversal stok untuk refund POS.'));
+            }
+
+            $this->apply_order_line_reversal_updates((array)($selection['product_lines'] ?? []), 'REFUND');
+            $newOrderStatus = !empty($selection['is_full']) ? 'REFUND_FULL' : 'REFUND_PARTIAL';
+            $this->db->where('id', $orderId)->update('pos_order', ['status' => $newOrderStatus]);
+            $this->insert_order_state_log($orderId, (string)($header['status'] ?? 'PAID'), $newOrderStatus, 'ORDER_REFUND', $actorEmployeeId, 'Refund POS #' . $refundId);
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan refund POS.');
+            }
+            $this->db->trans_commit();
+
+            return ['ok' => true, 'id' => $refundId, 'refund_no' => (string)$refundPayload['refund_no']];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function queue_order_confirm_print_jobs(int $orderId): array
+    {
+        if ($orderId <= 0 || !$this->db->table_exists('pos_printer_job') || !$this->db->table_exists('pos_printer') || !$this->db->table_exists('pos_printer_profile')) {
+            return ['ok' => true, 'job_count' => 0];
+        }
+
+        $eventRow = $this->db->from('pos_printer_event_setting')
+            ->where('event_code', 'ORDER_CONFIRM_KOT')
+            ->where('is_active', 1)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$eventRow || (int)($eventRow['auto_print'] ?? 0) !== 1) {
+            return ['ok' => true, 'job_count' => 0];
+        }
+
+        $order = $this->find_order_draft($orderId);
+        if (!$order) {
+            return ['ok' => false, 'message' => 'Order POS tidak ditemukan untuk membuat job printer.'];
+        }
+
+        $printers = $this->db
+            ->select("
+                p.id AS printer_id,
+                p.printer_code,
+                p.printer_name,
+                COALESCE(p.printer_role, 'CUSTOM') AS printer_role,
+                pf.id AS profile_id,
+                COALESCE(pf.copies, pf.copy_count, 1) AS copies
+            ", false)
+            ->from('pos_printer p')
+            ->join('pos_printer_profile pf', 'pf.printer_id = p.id', 'inner')
+            ->where('p.is_active', 1)
+            ->get()
+            ->result_array();
+        if (empty($printers)) {
+            return ['ok' => true, 'job_count' => 0];
+        }
+
+        $payload = $this->build_order_kot_print_payload($order);
+        $jobCount = 0;
+
+        $this->db->trans_begin();
+        try {
+            foreach ($printers as $printer) {
+                $role = strtoupper(trim((string)($printer['printer_role'] ?? 'CUSTOM')));
+                if (!in_array($role, ['KITCHEN', 'BAR', 'CHECKER', 'CUSTOM'], true)) {
+                    continue;
+                }
+
+                $jobNo = $this->generate_job_no();
+                $this->db->insert('pos_printer_job', [
+                    'job_no' => $jobNo,
+                    'route_rule_id' => null,
+                    'profile_id' => (int)$printer['profile_id'],
+                    'desktop_device_id' => null,
+                    'order_id' => $orderId,
+                    'payment_id' => null,
+                    'refund_id' => null,
+                    'void_id' => null,
+                    'document_type' => 'KOT',
+                    'event_code' => 'ORDER_CONFIRM_KOT',
+                    'print_payload' => json_encode($payload + [
+                        'printer_id' => (int)$printer['printer_id'],
+                        'printer_code' => (string)($printer['printer_code'] ?? ''),
+                        'printer_name' => (string)($printer['printer_name'] ?? ''),
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    'copy_count' => max(1, (int)($printer['copies'] ?? 1)),
+                    'status' => 'PENDING',
+                    'requested_at' => date('Y-m-d H:i:s'),
+                ]);
+                $jobId = (int)$this->db->insert_id();
+                if ($this->db->table_exists('pos_printer_job_log')) {
+                    $this->db->insert('pos_printer_job_log', [
+                        'job_id' => $jobId,
+                        'log_level' => 'INFO',
+                        'message' => 'Job KOT dibuat otomatis dari confirm order POS.',
+                    ]);
+                }
+                $jobCount++;
+            }
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal membuat antrean print job order confirm.');
+            }
+            $this->db->trans_commit();
+            return ['ok' => true, 'job_count' => $jobCount];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage(), 'job_count' => 0];
         }
     }
 
@@ -1657,6 +2869,7 @@ class Pos_model extends CI_Model
     {
         $normalized = [];
         $productIds = [];
+        $extraIds = [];
         foreach ($lines as $line) {
             if (!is_array($line)) {
                 continue;
@@ -1665,6 +2878,12 @@ class Pos_model extends CI_Model
             $qty = round((float)($line['qty'] ?? 0), 4);
             if ($productId > 0 && $qty > 0) {
                 $productIds[$productId] = $productId;
+                foreach ((array)($line['extras'] ?? []) as $extraRow) {
+                    $extraId = (int)($extraRow['extra_id'] ?? 0);
+                    if ($extraId > 0) {
+                        $extraIds[$extraId] = $extraId;
+                    }
+                }
             }
         }
 
@@ -1681,6 +2900,8 @@ class Pos_model extends CI_Model
         foreach ($productRows as $row) {
             $productMap[(int)$row['id']] = $row;
         }
+        $extraOptionMap = $this->load_product_extra_group_map(array_values($productIds));
+        $extraMasterMap = $this->load_extra_master_map(array_values($extraIds));
 
         $normalized = [];
         foreach ($lines as $index => $line) {
@@ -1697,15 +2918,66 @@ class Pos_model extends CI_Model
             }
 
             $product = $productMap[$productId];
-            $unitPrice = round((float)($product['selling_price'] ?? 0), 2);
+            $unitPrice = round((float)($line['unit_price'] ?? $product['selling_price'] ?? 0), 2);
             $hppStandard = round((float)($product['hpp_standard'] ?? 0), 6);
-            $hppLive = round((float)($product['hpp_live_cache'] ?? 0), 6);
+            $hppLive = round((float)($line['hpp_live_snapshot'] ?? $product['hpp_live_cache'] ?? 0), 6);
             if ($hppLive <= 0) {
                 $hppLive = $hppStandard;
             }
+            $bundleId = !empty($line['bundle_id']) ? (int)$line['bundle_id'] : null;
+            $normalizedExtras = [];
+            $allowedExtraIds = [];
+            foreach ((array)($extraOptionMap[$productId] ?? []) as $group) {
+                foreach ((array)($group['items'] ?? []) as $item) {
+                    $allowedExtraIds[(int)$item['extra_id']] = true;
+                }
+            }
+            foreach ((array)($line['extras'] ?? []) as $extraIndex => $extraLine) {
+                if (!is_array($extraLine)) {
+                    continue;
+                }
+                $extraId = (int)($extraLine['extra_id'] ?? 0);
+                $extraQty = round((float)($extraLine['qty'] ?? 0), 4);
+                if ($extraId <= 0 || $extraQty <= 0) {
+                    continue;
+                }
+                if (!isset($allowedExtraIds[$extraId]) || empty($extraMasterMap[$extraId])) {
+                    return ['ok' => false, 'message' => 'Baris #' . ($index + 1) . ' memiliki extra yang tidak valid untuk produk ini.'];
+                }
+                $extraMaster = $extraMasterMap[$extraId];
+                $extraUnitPrice = round((float)($extraLine['unit_price'] ?? $extraMaster['selling_price'] ?? 0), 2);
+                $extraCost = round((float)($extraMaster['cost_amount'] ?? 0), 6);
+                $normalizedExtras[] = [
+                    'extra_id' => $extraId,
+                    'extra_code' => (string)($extraMaster['extra_code'] ?? ''),
+                    'extra_name' => (string)($extraMaster['extra_name'] ?? ''),
+                    'extra_type' => (string)($extraMaster['extra_type'] ?? ''),
+                    'qty' => $extraQty,
+                    'unit_price' => $extraUnitPrice,
+                    'net_amount' => round($extraQty * $extraUnitPrice, 2),
+                    'cost_amount_snapshot' => $extraCost,
+                    'source_kind' => (string)($extraMaster['source_kind'] ?? 'NONE'),
+                    'source_product_id' => !empty($extraMaster['source_product_id']) ? (int)$extraMaster['source_product_id'] : null,
+                    'source_component_id' => !empty($extraMaster['source_component_id']) ? (int)$extraMaster['source_component_id'] : null,
+                    'source_material_id' => !empty($extraMaster['source_material_id']) ? (int)$extraMaster['source_material_id'] : null,
+                    'source_qty' => round((float)($extraMaster['source_qty'] ?? 0), 4),
+                    'replacement_kind' => (string)($extraMaster['replacement_kind'] ?? 'NONE'),
+                    'replacement_product_id' => !empty($extraMaster['replacement_product_id']) ? (int)$extraMaster['replacement_product_id'] : null,
+                    'replacement_component_id' => !empty($extraMaster['replacement_component_id']) ? (int)$extraMaster['replacement_component_id'] : null,
+                    'replacement_material_id' => !empty($extraMaster['replacement_material_id']) ? (int)$extraMaster['replacement_material_id'] : null,
+                    'replacement_qty' => round((float)($extraMaster['replacement_qty'] ?? 0), 4),
+                    'notes' => $this->nullable_text($extraLine['notes'] ?? ''),
+                ];
+            }
+            $extraTotal = 0.0;
+            foreach ($normalizedExtras as $extraRow) {
+                $extraTotal += (float)($extraRow['net_amount'] ?? 0);
+            }
+            $extraTotal = round($extraTotal, 2);
 
             $normalized[] = [
                 'product_id' => $productId,
+                'bundle_id' => $bundleId,
                 'product_code' => (string)($product['product_code'] ?? ''),
                 'product_name' => (string)($product['product_name'] ?? ''),
                 'product_division_id_snapshot' => !empty($product['product_division_id']) ? (int)$product['product_division_id'] : null,
@@ -1714,10 +2986,12 @@ class Pos_model extends CI_Model
                 'qty' => $qty,
                 'unit_price' => $unitPrice,
                 'net_amount' => round($qty * $unitPrice, 2),
+                'extra_total' => $extraTotal,
                 'hpp_standard_snapshot' => $hppStandard,
                 'hpp_live_snapshot' => $hppLive,
                 'cogs_amount' => round($qty * $hppLive, 2),
                 'availability_mode_snapshot' => 'AUTO',
+                'extras' => $normalizedExtras,
                 'notes' => $this->nullable_text($line['notes'] ?? ''),
             ];
         }
@@ -1773,16 +3047,160 @@ class Pos_model extends CI_Model
         return $db->select(implode(",\n", $select))->get()->result_array();
     }
 
+    private function load_product_availability_map(array $productIds, int $outletId = 0): array
+    {
+        $productIds = array_values(array_filter(array_map('intval', $productIds)));
+        if ($outletId <= 0 || empty($productIds) || !$this->db->table_exists('pos_product_availability_cache')) {
+            return [];
+        }
+
+        $rows = $this->db
+            ->select('product_id, availability_status, estimated_available_qty, bottleneck_name_snapshot, hpp_live_snapshot')
+            ->from('pos_product_availability_cache')
+            ->where('outlet_id', $outletId)
+            ->where_in('product_id', $productIds)
+            ->get()
+            ->result_array();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int)$row['product_id']] = $row;
+        }
+        return $map;
+    }
+
+    private function load_extra_master_map(array $extraIds): array
+    {
+        $extraIds = array_values(array_filter(array_map('intval', $extraIds)));
+        if (empty($extraIds)) {
+            return [];
+        }
+
+        $rows = $this->db
+            ->select('id, extra_code, extra_name, extra_type, selling_price, cost_amount, source_kind, source_product_id, source_component_id, source_material_id, source_qty, replacement_kind, replacement_product_id, replacement_component_id, replacement_material_id, replacement_qty')
+            ->from('mst_extra')
+            ->where_in('id', $extraIds)
+            ->where('is_active', 1)
+            ->get()
+            ->result_array();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int)$row['id']] = $row;
+        }
+        return $map;
+    }
+
+    private function load_product_extra_group_map(array $productIds): array
+    {
+        $productIds = array_values(array_filter(array_map('intval', $productIds)));
+        if (empty($productIds) || !$this->db->table_exists('mst_product_extra_map')) {
+            return [];
+        }
+
+        $rows = $this->db
+            ->select('
+                m.product_id,
+                g.id AS extra_group_id,
+                g.group_code,
+                g.group_name,
+                g.is_required,
+                g.min_select,
+                g.max_select,
+                gi.sort_order AS item_sort_order,
+                e.id AS extra_id,
+                e.extra_code,
+                e.extra_name,
+                e.extra_type,
+                e.selling_price,
+                e.cost_amount
+            ')
+            ->from('mst_product_extra_map m')
+            ->join('mst_extra_group g', 'g.id = m.extra_group_id AND g.is_active = 1', 'inner')
+            ->join('mst_extra_group_item gi', 'gi.extra_group_id = g.id', 'inner')
+            ->join('mst_extra e', 'e.id = gi.extra_id AND e.is_active = 1', 'inner')
+            ->where_in('m.product_id', $productIds)
+            ->order_by('m.sort_order', 'ASC')
+            ->order_by('g.sort_order', 'ASC')
+            ->order_by('gi.sort_order', 'ASC')
+            ->get()
+            ->result_array();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $productId = (int)$row['product_id'];
+            $groupId = (int)$row['extra_group_id'];
+            if (!isset($map[$productId])) {
+                $map[$productId] = [];
+            }
+            if (!isset($map[$productId][$groupId])) {
+                $map[$productId][$groupId] = [
+                    'extra_group_id' => $groupId,
+                    'group_code' => (string)($row['group_code'] ?? ''),
+                    'group_name' => (string)($row['group_name'] ?? ''),
+                    'is_required' => (int)($row['is_required'] ?? 0),
+                    'min_select' => (int)($row['min_select'] ?? 0),
+                    'max_select' => (int)($row['max_select'] ?? 1),
+                    'items' => [],
+                ];
+            }
+            $map[$productId][$groupId]['items'][] = [
+                'extra_id' => (int)$row['extra_id'],
+                'extra_code' => (string)($row['extra_code'] ?? ''),
+                'extra_name' => (string)($row['extra_name'] ?? ''),
+                'extra_type' => (string)($row['extra_type'] ?? ''),
+                'selling_price' => (float)($row['selling_price'] ?? 0),
+                'cost_amount' => (float)($row['cost_amount'] ?? 0),
+            ];
+        }
+
+        $normalized = [];
+        foreach ($map as $productId => $groups) {
+            $normalized[$productId] = array_values($groups);
+        }
+        return $normalized;
+    }
+
     private function calculate_order_totals(array $rows): array
     {
         $subtotal = 0.0;
         foreach ($rows as $row) {
             $subtotal += (float)($row['net_amount'] ?? 0);
+            $subtotal += (float)($row['extra_total'] ?? 0);
         }
         $subtotal = round($subtotal, 2);
         return [
             'subtotal_amount' => $subtotal,
             'grand_total' => $subtotal,
+        ];
+    }
+
+    private function build_order_kot_print_payload(array $order): array
+    {
+        $header = (array)($order['header'] ?? []);
+        $lines = [];
+        foreach ((array)($order['lines'] ?? []) as $line) {
+            $lines[] = [
+                'product_name' => (string)($line['product_name'] ?? ''),
+                'qty' => (float)($line['qty'] ?? 0),
+                'uom_code' => (string)($line['uom_code'] ?? ''),
+                'bundle_name' => (string)($line['bundle_name'] ?? ''),
+                'notes' => (string)($line['notes'] ?? ''),
+            ];
+        }
+
+        return [
+            'document_type' => 'KOT',
+            'event_code' => 'ORDER_CONFIRM_KOT',
+            'order_id' => (int)($header['id'] ?? 0),
+            'order_no' => (string)($header['order_no'] ?? ''),
+            'service_type' => (string)($header['service_type'] ?? ''),
+            'guest_count' => (int)($header['guest_count'] ?? 1),
+            'ordered_at' => (string)($header['ordered_at'] ?? ''),
+            'outlet_id' => !empty($header['outlet_id']) ? (int)$header['outlet_id'] : null,
+            'terminal_id' => !empty($header['terminal_id']) ? (int)$header['terminal_id'] : null,
+            'member_name' => (string)($header['member_name'] ?? ''),
+            'lines' => $lines,
         ];
     }
 
@@ -1920,6 +3338,154 @@ class Pos_model extends CI_Model
         ];
     }
 
+    private function resolve_order_extra_consumption_line(array $header, array $orderLine, array $extraLine): array
+    {
+        $sourceKind = strtoupper(trim((string)($extraLine['source_kind'] ?? 'NONE')));
+        if ($sourceKind === 'NONE') {
+            return ['ok' => true, 'lines' => []];
+        }
+
+        $extraQty = (float)($extraLine['qty'] ?? 0);
+        $sourceQty = (float)($extraLine['source_qty'] ?? 0);
+        if ($extraQty <= 0 || $sourceQty <= 0) {
+            return ['ok' => false, 'message' => 'Extra ' . (string)($extraLine['extra_name'] ?? '-') . ' belum punya source qty yang valid untuk stock commit.'];
+        }
+
+        $requiredQty = round($extraQty * $sourceQty, 4);
+        $resolvedDivisionId = (int)($orderLine['operational_division_id'] ?? 0);
+        $line = [
+            'order_id' => (int)($header['id'] ?? ($orderLine['order_id'] ?? 0)),
+            'order_line_id' => !empty($orderLine['id']) ? (int)$orderLine['id'] : null,
+            'order_line_extra_id' => !empty($extraLine['id']) ? (int)$extraLine['id'] : null,
+            'line_type' => 'EXTRA',
+            'product_id' => (int)($orderLine['product_id'] ?? 0),
+            'extra_id' => (int)($extraLine['extra_id'] ?? 0),
+            'source_role' => 'OPTIONAL',
+            'movement_ref_type' => 'NONE',
+            'movement_ref_id' => null,
+            'return_policy' => 'RETURN_TO_STOCK',
+            'reversal_status' => 'NONE',
+            'notes' => 'Resolved dari extra order line #' . (int)($orderLine['line_no'] ?? 0),
+        ];
+
+        if ($sourceKind === 'COMPONENT') {
+            $componentId = (int)($extraLine['source_component_id'] ?? 0);
+            if ($componentId <= 0) {
+                return ['ok' => false, 'message' => 'Extra ' . (string)($extraLine['extra_name'] ?? '-') . ' belum punya source component yang valid.'];
+            }
+            $component = $this->db->select('component_name, uom_id, operational_division_id')
+                ->from('mst_component')
+                ->where('id', $componentId)
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+            if ($resolvedDivisionId <= 0) {
+                $resolvedDivisionId = (int)($component['operational_division_id'] ?? 0);
+            }
+            $cost = $this->resolve_order_component_live_cost($componentId, $resolvedDivisionId);
+            return [
+                'ok' => true,
+                'lines' => [[
+                    'source_kind' => 'COMPONENT',
+                    'material_id' => null,
+                    'component_id' => $componentId,
+                    'source_name_snapshot' => trim((string)($component['component_name'] ?? ($extraLine['extra_name'] ?? ''))) ?: null,
+                    'required_qty' => $requiredQty,
+                    'required_uom_id' => !empty($component['uom_id']) ? (int)$component['uom_id'] : null,
+                    'committed_qty' => $requiredQty,
+                    'reversed_qty' => 0,
+                    'unit_cost_live' => round((float)($cost['unit_cost'] ?? 0), 6),
+                    'total_cost_live' => round($requiredQty * (float)($cost['unit_cost'] ?? 0), 6),
+                    'cost_source' => (string)($cost['cost_source'] ?? 'STANDARD_FALLBACK'),
+                ] + $line],
+            ];
+        }
+
+        if ($sourceKind === 'MATERIAL') {
+            $materialId = (int)($extraLine['source_material_id'] ?? 0);
+            if ($materialId <= 0) {
+                return ['ok' => false, 'message' => 'Extra ' . (string)($extraLine['extra_name'] ?? '-') . ' belum punya source material yang valid.'];
+            }
+            $material = $this->db->select('material_name, content_uom_id')
+                ->from('mst_material')
+                ->where('id', $materialId)
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+            $requiredUomId = !empty($material['content_uom_id']) ? (int)$material['content_uom_id'] : null;
+            $cost = $this->resolve_order_material_live_cost($materialId, $resolvedDivisionId, (int)$requiredUomId);
+            return [
+                'ok' => true,
+                'lines' => [[
+                    'source_kind' => 'MATERIAL',
+                    'material_id' => $materialId,
+                    'component_id' => null,
+                    'source_name_snapshot' => trim((string)($material['material_name'] ?? ($extraLine['extra_name'] ?? ''))) ?: null,
+                    'required_qty' => $requiredQty,
+                    'required_uom_id' => $requiredUomId,
+                    'committed_qty' => $requiredQty,
+                    'reversed_qty' => 0,
+                    'unit_cost_live' => round((float)($cost['unit_cost'] ?? 0), 6),
+                    'total_cost_live' => round($requiredQty * (float)($cost['unit_cost'] ?? 0), 6),
+                    'cost_source' => (string)($cost['cost_source'] ?? 'STANDARD_FALLBACK'),
+                ] + $line],
+            ];
+        }
+
+        if ($sourceKind === 'PRODUCT') {
+            $sourceProductId = (int)($extraLine['source_product_id'] ?? 0);
+            if ($sourceProductId <= 0) {
+                return ['ok' => false, 'message' => 'Extra ' . (string)($extraLine['extra_name'] ?? '-') . ' belum punya source produk yang valid.'];
+            }
+
+            $sourceProduct = $this->db->select('id, product_name, product_division_id')
+                ->from('mst_product')
+                ->where('id', $sourceProductId)
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+            if (empty($sourceProduct['id'])) {
+                return ['ok' => false, 'message' => 'Produk sumber untuk extra ' . (string)($extraLine['extra_name'] ?? '-') . ' tidak ditemukan.'];
+            }
+
+            $sourceRecipeRows = $this->load_order_product_recipe_rows($sourceProductId);
+            if (empty($sourceRecipeRows)) {
+                return ['ok' => false, 'message' => 'Produk sumber untuk extra ' . (string)($extraLine['extra_name'] ?? '-') . ' belum punya recipe aktif.'];
+            }
+
+            $pseudoLine = [
+                'id' => (int)($orderLine['id'] ?? 0),
+                'order_id' => (int)($header['id'] ?? ($orderLine['order_id'] ?? 0)),
+                'line_no' => (int)($orderLine['line_no'] ?? 0),
+                'product_id' => $sourceProductId,
+                'product_name' => (string)($sourceProduct['product_name'] ?? ($extraLine['extra_name'] ?? '')),
+                'qty' => $requiredQty,
+                'operational_division_id' => $resolvedDivisionId > 0 ? $resolvedDivisionId : (int)($orderLine['operational_division_id'] ?? 0),
+            ];
+
+            $resolvedLines = [];
+            foreach ($sourceRecipeRows as $recipeRow) {
+                $recipeResult = $this->resolve_order_recipe_consumption_line($header, $pseudoLine, $recipeRow);
+                if (!($recipeResult['ok'] ?? false)) {
+                    return $recipeResult;
+                }
+                $recipeLine = (array)($recipeResult['line'] ?? []);
+                $recipeLine['order_line_id'] = !empty($orderLine['id']) ? (int)$orderLine['id'] : null;
+                $recipeLine['order_line_extra_id'] = !empty($extraLine['id']) ? (int)$extraLine['id'] : null;
+                $recipeLine['line_type'] = 'EXTRA';
+                $recipeLine['product_id'] = (int)($orderLine['product_id'] ?? 0);
+                $recipeLine['extra_id'] = (int)($extraLine['extra_id'] ?? 0);
+                $recipeLine['source_role'] = 'OPTIONAL';
+                $recipeLine['notes'] = 'Resolved dari extra produk "' . (string)($sourceProduct['product_name'] ?? '-') . '" pada order line #' . (int)($orderLine['line_no'] ?? 0);
+                $resolvedLines[] = $recipeLine;
+            }
+
+            return ['ok' => true, 'lines' => $resolvedLines];
+        }
+
+        return ['ok' => true, 'lines' => []];
+    }
+
     private function resolve_order_material_live_cost(int $materialId, int $divisionId, int $uomId = 0): array
     {
         if ($materialId <= 0) {
@@ -2038,6 +3604,318 @@ class Pos_model extends CI_Model
         ]);
     }
 
+    private function snapshot_line_key(array $line): string
+    {
+        return 'commit_line:' . (int)($line['id'] ?? 0);
+    }
+
+    private function build_reversal_selection(array $order, array $planLines, array $requestedLines, array $options = []): array
+    {
+        $orderLines = [];
+        foreach ((array)($order['lines'] ?? []) as $line) {
+            $orderLines[(int)($line['id'] ?? 0)] = $line;
+        }
+
+        $requestedMap = [];
+        foreach ($requestedLines as $requestedLine) {
+            if (!is_array($requestedLine)) {
+                continue;
+            }
+            $orderLineId = (int)($requestedLine['order_line_id'] ?? 0);
+            if ($orderLineId > 0) {
+                $requestedMap[$orderLineId] = $requestedLine;
+            }
+        }
+        if (empty($requestedMap)) {
+            foreach ($orderLines as $orderLineId => $line) {
+                $requestedMap[$orderLineId] = ['order_line_id' => $orderLineId, 'qty' => (float)($line['qty'] ?? 0)];
+            }
+        }
+        $planByOrderLine = [];
+        foreach ($planLines as $planLine) {
+            $orderLineId = (int)($planLine['order_line_id'] ?? 0);
+            if ($orderLineId <= 0) {
+                continue;
+            }
+            if (!isset($planByOrderLine[$orderLineId])) {
+                $planByOrderLine[$orderLineId] = [];
+            }
+            $planByOrderLine[$orderLineId][] = $planLine;
+        }
+
+        $productLines = [];
+        $extraLines = [];
+        $decisions = [];
+        $totalQty = 0.0;
+        $totalAmount = 0.0;
+        $returnToStock = false;
+        $hasProcessed = false;
+        $isFull = true;
+        if (count($requestedMap) < count($orderLines)) {
+            $isFull = false;
+        }
+
+        foreach ($requestedMap as $orderLineId => $requestedLine) {
+            if (empty($orderLines[$orderLineId])) {
+                continue;
+            }
+            $line = $orderLines[$orderLineId];
+            $qtyBefore = round((float)($line['qty'] ?? 0), 4);
+            $qtySelected = round((float)($requestedLine['qty'] ?? $qtyBefore), 4);
+            if ($qtyBefore <= 0 || $qtySelected <= 0) {
+                continue;
+            }
+            $qtySelected = min($qtyBefore, $qtySelected);
+            $ratio = $qtyBefore > 0 ? round($qtySelected / $qtyBefore, 8) : 0.0;
+            $processedState = strtoupper(trim((string)($requestedLine['processed_state'] ?? ($options['default_processed_state'] ?? ($line['process_status'] ?? 'NOT_PROCESSED')))));
+            $isProcessed = in_array($processedState, ['PROCESSED', 'SERVED'], true);
+            $lineReturnToStock = !$isProcessed && (!empty($requestedLine['return_to_stock']) || !empty($options['default_return_to_stock']));
+            $lineStatusAfter = $qtySelected >= $qtyBefore ? 'VOID' : 'OPEN';
+
+            $productLines[] = [
+                'order_line_id' => $orderLineId,
+                'product_id' => (int)($line['product_id'] ?? 0),
+                'line_no_snapshot' => (int)($line['line_no'] ?? 0),
+                'item_name_snapshot' => (string)($line['product_name'] ?? ''),
+                'qty_before' => $qtyBefore,
+                'qty_void' => $qtySelected,
+                'qty_after' => round($qtyBefore - $qtySelected, 4),
+                'unit_price' => round((float)($line['unit_price'] ?? 0), 2),
+                'subtotal_void' => round($qtySelected * (float)($line['unit_price'] ?? 0), 2),
+                'hpp_live_snapshot' => round((float)($line['hpp_live_snapshot'] ?? 0), 6),
+                'line_process_state' => $isProcessed ? 'PROCESSED' : 'NOT_PROCESSED',
+                'line_status_after' => $lineStatusAfter,
+                'notes' => $this->nullable_text($requestedLine['notes'] ?? ''),
+            ];
+            $totalQty += $qtySelected;
+            $totalAmount += round($qtySelected * (float)($line['unit_price'] ?? 0), 2);
+            $returnToStock = $returnToStock || $lineReturnToStock;
+            $hasProcessed = $hasProcessed || $isProcessed;
+            if ($qtySelected + 0.0001 < $qtyBefore) {
+                $isFull = false;
+            }
+
+            foreach ((array)($line['extras'] ?? []) as $extra) {
+                $extraQty = round((float)($extra['qty'] ?? 0), 4);
+                $extraAffected = round($extraQty * $ratio, 4);
+                if ($extraAffected <= 0) {
+                    continue;
+                }
+                $extraLines[] = [
+                    'order_line_id' => $orderLineId,
+                    'order_line_extra_id' => (int)($extra['id'] ?? 0),
+                    'extra_id' => (int)($extra['extra_id'] ?? 0),
+                    'extra_name_snapshot' => (string)($extra['extra_name'] ?? ''),
+                    'qty_per_unit' => $extraQty,
+                    'line_qty_affected' => $extraAffected,
+                    'unit_price' => round((float)($extra['unit_price'] ?? 0), 2),
+                    'subtotal_void' => round($extraAffected * (float)($extra['unit_price'] ?? 0), 2),
+                    'status_after' => $lineStatusAfter,
+                    'cost_amount_snapshot' => round((float)($extra['cost_amount_snapshot'] ?? 0), 6),
+                ];
+                $totalAmount += round($extraAffected * (float)($extra['unit_price'] ?? 0), 2);
+            }
+
+            foreach ((array)($planByOrderLine[$orderLineId] ?? []) as $planLine) {
+                $remainingQty = round((float)($planLine['remaining_qty'] ?? 0), 4);
+                if ($remainingQty <= 0) {
+                    continue;
+                }
+                $reverseQty = round($remainingQty * $ratio, 4);
+                if ($reverseQty <= 0) {
+                    continue;
+                }
+                $decisions[] = [
+                    'line_key' => $this->snapshot_line_key($planLine),
+                    'line_id' => (int)($planLine['id'] ?? 0),
+                    'return_policy' => $lineReturnToStock ? 'RETURN_TO_STOCK' : 'ADJUSTMENT_ONLY',
+                    'reverse_qty' => $reverseQty,
+                    'notes' => (string)($requestedLine['notes'] ?? ''),
+                ];
+            }
+        }
+
+        return [
+            'product_lines' => $productLines,
+            'extra_lines' => $extraLines,
+            'decisions' => $decisions,
+            'total_qty' => round($totalQty, 4),
+            'total_amount' => round($totalAmount, 2),
+            'return_to_stock' => $returnToStock,
+            'has_processed' => $hasProcessed,
+            'is_full' => $isFull,
+        ];
+    }
+
+    private function apply_order_line_reversal_updates(array $productLines, string $mode): void
+    {
+        foreach ($productLines as $line) {
+            $orderLineId = (int)($line['order_line_id'] ?? 0);
+            if ($orderLineId <= 0) {
+                continue;
+            }
+            $statusAfter = (string)($line['line_status_after'] ?? 'OPEN');
+            if ($mode === 'REFUND' && $statusAfter === 'VOID') {
+                $statusAfter = 'REFUNDED_FULL';
+            } elseif ($mode === 'REFUND' && $statusAfter === 'OPEN') {
+                $statusAfter = 'REFUNDED_PARTIAL';
+            }
+            $this->db->where('id', $orderLineId)->update('pos_order_line', [
+                'line_status' => $statusAfter,
+            ]);
+        }
+    }
+
+    private function normalize_pos_adjustment_mode(string $mode): string
+    {
+        $mode = strtoupper(trim($mode));
+        if (!in_array($mode, ['NONE', 'AUTO_WASTE', 'AUTO_SPOIL', 'AUTO_ADJUSTMENT'], true)) {
+            return 'NONE';
+        }
+        return $mode;
+    }
+
+    private function calculate_shift_summary(int $shiftId): array
+    {
+        $base = [
+            'total_order_count' => 0,
+            'total_gross_sales' => 0,
+            'total_discount' => 0,
+            'total_promo' => 0,
+            'total_net_sales' => 0,
+            'total_cash_sales' => 0,
+            'total_non_cash_sales' => 0,
+            'total_deposit_receipts' => 0,
+            'total_cash_deposit_receipts' => 0,
+            'total_refund' => 0,
+            'total_void' => 0,
+        ];
+        if ($shiftId <= 0) {
+            return $base;
+        }
+
+        $orderAgg = $this->db->select('
+                COUNT(*) AS total_order_count,
+                COALESCE(SUM(subtotal_amount),0) AS total_gross_sales,
+                COALESCE(SUM(discount_amount),0) AS total_discount,
+                COALESCE(SUM(promo_amount),0) AS total_promo,
+                COALESCE(SUM(grand_total),0) AS total_net_sales
+            ', false)
+            ->from('pos_order')
+            ->where('shift_id', $shiftId)
+            ->where_not_in('status', ['DRAFT', 'PENDING'])
+            ->get()
+            ->row_array() ?: [];
+
+        $cashAgg = $this->db->select("
+                COALESCE(SUM(CASE WHEN UPPER(COALESCE(pm.method_type, 'OTHER')) = 'CASH' THEN pl.amount ELSE 0 END),0) AS total_cash_sales,
+                COALESCE(SUM(CASE WHEN UPPER(COALESCE(pm.method_type, 'OTHER')) <> 'CASH' THEN pl.amount ELSE 0 END),0) AS total_non_cash_sales
+            ", false)
+            ->from('pos_payment p')
+            ->join('pos_payment_line pl', 'pl.payment_id = p.id', 'left')
+            ->join('pos_payment_method pm', 'pm.id = pl.payment_method_id', 'left')
+            ->where('p.shift_id', $shiftId)
+            ->where('p.payment_status', 'PAID')
+            ->where('p.payment_type', 'FINAL')
+            ->get()
+            ->row_array() ?: [];
+
+        $depositAgg = $this->db->select('COALESCE(SUM(net_amount),0) AS total_deposit_receipts', false)
+            ->from('pos_payment')
+            ->where('shift_id', $shiftId)
+            ->where('payment_status', 'PAID')
+            ->where('payment_type', 'DEPOSIT')
+            ->get()
+            ->row_array() ?: [];
+
+        $depositCashAgg = $this->db->select("
+                COALESCE(SUM(CASE WHEN UPPER(COALESCE(pm.method_type, 'OTHER')) = 'CASH' THEN pl.amount ELSE 0 END),0) AS total_cash_deposit_receipts
+            ", false)
+            ->from('pos_payment p')
+            ->join('pos_payment_line pl', 'pl.payment_id = p.id', 'left')
+            ->join('pos_payment_method pm', 'pm.id = pl.payment_method_id', 'left')
+            ->where('p.shift_id', $shiftId)
+            ->where('p.payment_status', 'PAID')
+            ->where('p.payment_type', 'DEPOSIT')
+            ->get()
+            ->row_array() ?: [];
+
+        $refundAgg = $this->db->query(
+            "SELECT COALESCE(SUM(r.refund_amount),0) AS total_refund
+             FROM pos_refund r
+             INNER JOIN pos_order o ON o.id = r.order_id
+             WHERE o.shift_id = ? AND r.refund_status = 'POSTED'",
+            [$shiftId]
+        )->row_array() ?: [];
+
+        $voidAgg = $this->db->query(
+            "SELECT COALESCE(SUM(v.amount_void),0) AS total_void
+             FROM pos_void v
+             INNER JOIN pos_order o ON o.id = v.order_id
+             WHERE o.shift_id = ?",
+            [$shiftId]
+        )->row_array() ?: [];
+
+        return [
+            'total_order_count' => (int)($orderAgg['total_order_count'] ?? 0),
+            'total_gross_sales' => round((float)($orderAgg['total_gross_sales'] ?? 0), 2),
+            'total_discount' => round((float)($orderAgg['total_discount'] ?? 0), 2),
+            'total_promo' => round((float)($orderAgg['total_promo'] ?? 0), 2),
+            'total_net_sales' => round((float)($orderAgg['total_net_sales'] ?? 0), 2),
+            'total_cash_sales' => round((float)($cashAgg['total_cash_sales'] ?? 0), 2),
+            'total_non_cash_sales' => round((float)($cashAgg['total_non_cash_sales'] ?? 0), 2),
+            'total_deposit_receipts' => round((float)($depositAgg['total_deposit_receipts'] ?? 0), 2),
+            'total_cash_deposit_receipts' => round((float)($depositCashAgg['total_cash_deposit_receipts'] ?? 0), 2),
+            'total_refund' => round((float)($refundAgg['total_refund'] ?? 0), 2),
+            'total_void' => round((float)($voidAgg['total_void'] ?? 0), 2),
+        ];
+    }
+
+    private function filter_table_payload(string $table, array $payload): array
+    {
+        if ($table === '' || empty($payload)) {
+            return $payload;
+        }
+
+        $filtered = [];
+        foreach ($payload as $key => $value) {
+            if ($this->db->field_exists($key, $table)) {
+                $filtered[$key] = $value;
+            }
+        }
+
+        return $filtered;
+    }
+
+    private function generate_pos_shift_no(int $outletId, ?string $openedAt = null): string
+    {
+        $openedAt = $openedAt ?: date('Y-m-d H:i:s');
+        $dateKey = date('Ymd', strtotime($openedAt));
+        $prefix = 'SHIFT-' . $dateKey . '-' . str_pad((string)$outletId, 2, '0', STR_PAD_LEFT);
+        $row = $this->db->query(
+            "SELECT shift_no FROM pos_shift WHERE shift_no LIKE ? ORDER BY shift_no DESC LIMIT 1",
+            [$prefix . '-%']
+        )->row_array();
+        $next = 1;
+        if (!empty($row['shift_no'])) {
+            $parts = explode('-', (string)$row['shift_no']);
+            $next = ((int)end($parts)) + 1;
+        }
+        return sprintf('%s-%04d', $prefix, $next);
+    }
+
+    private function generate_pos_session_key(int $outletId, int $terminalId, int $employeeId, ?string $loginAt = null): string
+    {
+        $loginAt = $loginAt ?: date('Y-m-d H:i:s');
+        return strtoupper(implode('-', [
+            'SESS',
+            date('YmdHis', strtotime($loginAt)),
+            str_pad((string)$outletId, 2, '0', STR_PAD_LEFT),
+            str_pad((string)$terminalId, 2, '0', STR_PAD_LEFT),
+            str_pad((string)$employeeId, 3, '0', STR_PAD_LEFT),
+        ]));
+    }
+
     private function generate_pos_order_no(?string $orderedAt = null): string
     {
         $orderedAt = $orderedAt ?: date('Y-m-d H:i:s');
@@ -2051,6 +3929,25 @@ class Pos_model extends CI_Model
         $next = 1;
         if (!empty($row['order_no'])) {
             $parts = explode('-', (string)$row['order_no']);
+            $next = ((int)end($parts)) + 1;
+        }
+
+        return sprintf('%s-%04d', $prefix, $next);
+    }
+
+    private function generate_job_no(?string $requestedAt = null): string
+    {
+        $requestedAt = $requestedAt ?: date('Y-m-d H:i:s');
+        $dateKey = date('Ymd', strtotime($requestedAt));
+        $prefix = 'PJOB-' . $dateKey;
+        $row = $this->db->query(
+            "SELECT job_no FROM pos_printer_job WHERE job_no LIKE ? ORDER BY job_no DESC LIMIT 1",
+            [$prefix . '-%']
+        )->row_array();
+
+        $next = 1;
+        if (!empty($row['job_no'])) {
+            $parts = explode('-', (string)$row['job_no']);
             $next = ((int)end($parts)) + 1;
         }
 
@@ -2121,10 +4018,13 @@ class Pos_model extends CI_Model
         if (!$this->coredb->table_exists('pos_printer_template_master')) {
             return [];
         }
-        return $this->coredb->select('id, master_code, master_name')
+        $db = $this->coredb->select('id, master_code, master_name')
             ->from('pos_printer_template_master')
-            ->where('is_active', 1)
-            ->order_by('is_default', 'DESC')
+            ->where('is_active', 1);
+        if ($this->core_field_exists('pos_printer_template_master', 'is_default')) {
+            $db->order_by('is_default', 'DESC');
+        }
+        return $db
             ->order_by('master_name', 'ASC')
             ->get()
             ->result_array();
@@ -2186,12 +4086,12 @@ class Pos_model extends CI_Model
             ->result_array(); 
     }
 
-    private function bank_account_exists(int $id): bool
+    private function company_account_exists(int $id): bool
     {
         if ($id <= 0) {
             return false;
         }
-        return (int)$this->coredb->from('m_bank_account')->where('id', $id)->count_all_results() > 0;
+        return (int)$this->coredb->from('fin_company_account')->where('id', $id)->count_all_results() > 0;
     }
 
     private function terminal_device_key_exists(string $deviceKey, int $excludeId = 0): bool
@@ -2212,31 +4112,13 @@ class Pos_model extends CI_Model
         return (int)$db->count_all_results() > 0;
     }
 
-    private function generate_customer_code_core(?string $createdAt = null): string
-    {
-        $createdAt = $createdAt ?: date('Y-m-d H:i:s');
-        $dateKey = date('Ymd', strtotime($createdAt));
-        $prefix = 'CUS-' . $dateKey;
-        $row = $this->coredb->query(
-            "SELECT customer_code FROM crm_customer WHERE customer_code LIKE ? ORDER BY customer_code DESC LIMIT 1",
-            [$prefix . '-%']
-        )->row_array();
-
-        $next = 1;
-        if ($row && !empty($row['customer_code'])) {
-            $parts = explode('-', (string)$row['customer_code']);
-            $next = ((int)end($parts)) + 1;
-        }
-        return sprintf('%s-%04d', $prefix, $next);
-    }
-
     private function generate_member_no_core(?string $joinedAt = null): string
     {
         $joinedAt = $joinedAt ?: date('Y-m-d H:i:s');
         $dateKey = date('Ymd', strtotime($joinedAt));
         $prefix = 'MBR-' . $dateKey;
         $row = $this->coredb->query(
-            "SELECT member_no FROM crm_member_account WHERE member_no LIKE ? ORDER BY member_no DESC LIMIT 1",
+            "SELECT member_no FROM crm_member WHERE member_no LIKE ? ORDER BY member_no DESC LIMIT 1",
             [$prefix . '-%']
         )->row_array();
 
