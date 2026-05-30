@@ -51,6 +51,8 @@ if (!function_exists('_get_ri_icon')) {
             'inv.warehouse'         => 'ri-store-3-line',
             'grp.pos'               => 'ri-store-2-line',
             'grp.loyalty'           => 'ri-user-star-line',
+            'pos.sales-channel'     => 'ri-share-forward-line',
+            'pos.stock.live'        => 'ri-pulse-line',
             'pos.cashier'           => 'ri-shopping-bag-3-line',
             'pos.orders'            => 'ri-receipt-line',
             'pos.menu'              => 'ri-restaurant-line',
@@ -58,11 +60,27 @@ if (!function_exists('_get_ri_icon')) {
             'loyalty.point_rule'    => 'ri-coin-line',
             'loyalty.stamp_campaign'=> 'ri-coupon-3-line',
             'loyalty.voucher_campaign' => 'ri-ticket-2-line',
+            'master.group.product'  => 'ri-store-2-line',
+            'master.group.inventory'=> 'ri-flask-line',
+            'master.group.relation' => 'ri-links-line',
+            'master.group.config'   => 'ri-settings-3-line',
             'grp.material'          => 'ri-flask-line',
+            'produk'                => 'ri-store-2-line',
+            'produk.master'         => 'ri-folders-line',
+            'produk.master.data'    => 'ri-restaurant-line',
+            'produk.master.extra'   => 'ri-add-circle-line',
+            'product.monitoring.stock' => 'ri-line-chart-line',
+            'product.monitoring.availability' => 'ri-bar-chart-grouped-line',
             'grp.production'        => 'ri-tools-line',
+            'production.component.group.master' => 'ri-book-shelf-line',
+            'production.component.group.transaction' => 'ri-exchange-funds-line',
+            'production.component.group.monitoring' => 'ri-line-chart-line',
             'production.component.cost.variable' => 'ri-percent-line',
+            'production.component.adjustment' => 'ri-equalizer-3-line',
             'production.component.lot' => 'ri-stack-line',
             'grp.purchase'          => 'ri-shopping-cart-2-line',
+            'purchase.stock.adjustment.warehouse' => 'ri-scales-3-line',
+            'purchase.stock.adjustment.division' => 'ri-scales-3-line',
             'grp.finance'           => 'ri-bank-line',
             'fin.transactions'      => 'ri-exchange-line',
             'fin.income'            => 'ri-arrow-down-circle-line',
@@ -92,12 +110,18 @@ if (!function_exists('_get_ri_icon')) {
 if (!function_exists('_resolve_menu_icon')) {
     function _resolve_menu_icon(array $item): string
     {
+    $menuCode = trim((string)($item['menu_code'] ?? ''));
+    $mappedIcon = _get_ri_icon($menuCode, '');
+    if ($mappedIcon !== '') {
+      return $mappedIcon;
+    }
+
         $db_icon = trim($item['icon'] ?? '');
         // Hanya pakai DB icon jika formatnya RI (mulai dengan 'ri-')
         if (strpos($db_icon, 'ri-') === 0) {
             return $db_icon;
         }
-        return _get_ri_icon($item['menu_code'] ?? '');
+    return _get_ri_icon($menuCode);
     }
 }
 

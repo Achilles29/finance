@@ -195,7 +195,31 @@ class Master extends MY_Controller
         $lookup = (array)$fieldConfig['lookup'];
         $q = trim((string)$this->input->get('q', true));
         $id = (int)$this->input->get('id', true);
-        $rows = $this->Master_model->search_options(
+        $rows = $this->searchAjaxLookupRows($entity, $fieldName, $lookup, $q, $id);
+
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => true, 'rows' => $rows], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function searchAjaxLookupRows(string $entity, string $fieldName, array $lookup, string $q, int $id): array
+    {
+        if ($entity === 'extra') {
+            if (in_array($fieldName, ['source_product_id', 'replacement_product_id'], true)) {
+                return $this->searchExtraProductLookupRows($q, $id);
+            }
+            if (in_array($fieldName, ['source_component_id', 'replacement_component_id'], true)) {
+                return $this->searchExtraComponentLookupRows($q, $id);
+            }
+            if (in_array($fieldName, ['source_material_id', 'replacement_material_id'], true)) {
+                return $this->searchExtraMaterialLookupRows($q, $id);
+            }
+        }
+
+        return $this->Master_model->search_options(
             (string)($lookup['table'] ?? ''),
             (string)($lookup['value'] ?? 'id'),
             (string)($lookup['label'] ?? 'name'),
@@ -204,13 +228,96 @@ class Master extends MY_Controller
             (bool)($lookup['active_only'] ?? true),
             20
         );
+    }
 
-        while (ob_get_level() > 0) {
-            @ob_end_clean();
+    private function searchExtraProductLookupRows(string $q, int $id): array
+    {
+        $this->db->select('p.id AS value, p.product_name AS label, p.product_code, p.selling_price, p.photo_path, pd.name AS product_division_name, u.name AS uom_name');
+        $this->db->from('mst_product p');
+        $this->db->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left');
+        $this->db->join('mst_uom u', 'u.id = p.uom_id', 'left');
+        if ($id > 0) {
+            $this->db->where('p.id', $id);
+        } elseif ($q !== '') {
+            $this->db->group_start()
+                ->like('p.product_name', $q)
+                ->or_like('p.product_code', $q)
+                ->group_end();
         }
-        $this->output
-            ->set_content_type('application/json')
-            ->set_output(json_encode(['ok' => true, 'rows' => $rows], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+        if ($this->db->field_exists('is_active', 'mst_product')) {
+            $this->db->where('p.is_active', 1);
+        }
+        $this->db->order_by('p.product_name', 'ASC');
+        $this->db->limit($id > 0 ? 1 : 20);
+        $rows = $this->db->get()->result_array();
+
+        return array_map(function (array $row): array {
+            return [
+                'value' => (int)($row['value'] ?? 0),
+                'label' => (string)($row['label'] ?? ''),
+                'meta' => trim((string)($row['product_code'] ?? '-') . ' | ' . (string)($row['product_division_name'] ?? '-') . ' | Rp ' . number_format((float)($row['selling_price'] ?? 0), 0, ',', '.')),
+                'thumb_url' => !empty($row['photo_path']) ? base_url(ltrim((string)$row['photo_path'], '/')) : '',
+            ];
+        }, $rows);
+    }
+
+    private function searchExtraComponentLookupRows(string $q, int $id): array
+    {
+        $this->db->select('c.id AS value, c.component_name AS label, c.component_code, d.name AS division_name, u.name AS uom_name');
+        $this->db->from('mst_component c');
+        $this->db->join('mst_operational_division d', 'd.id = c.operational_division_id', 'left');
+        $this->db->join('mst_uom u', 'u.id = c.uom_id', 'left');
+        if ($id > 0) {
+            $this->db->where('c.id', $id);
+        } elseif ($q !== '') {
+            $this->db->group_start()
+                ->like('c.component_name', $q)
+                ->or_like('c.component_code', $q)
+                ->group_end();
+        }
+        if ($this->db->field_exists('is_active', 'mst_component')) {
+            $this->db->where('c.is_active', 1);
+        }
+        $this->db->order_by('c.component_name', 'ASC');
+        $this->db->limit($id > 0 ? 1 : 20);
+        $rows = $this->db->get()->result_array();
+
+        return array_map(function (array $row): array {
+            return [
+                'value' => (int)($row['value'] ?? 0),
+                'label' => (string)($row['label'] ?? ''),
+                'meta' => trim((string)($row['component_code'] ?? '-') . ' | ' . (string)($row['division_name'] ?? '-') . ' | ' . (string)($row['uom_name'] ?? '-')),
+            ];
+        }, $rows);
+    }
+
+    private function searchExtraMaterialLookupRows(string $q, int $id): array
+    {
+        $this->db->select('m.id AS value, m.material_name AS label, m.material_code, u.name AS uom_name');
+        $this->db->from('mst_material m');
+        $this->db->join('mst_uom u', 'u.id = m.content_uom_id', 'left');
+        if ($id > 0) {
+            $this->db->where('m.id', $id);
+        } elseif ($q !== '') {
+            $this->db->group_start()
+                ->like('m.material_name', $q)
+                ->or_like('m.material_code', $q)
+                ->group_end();
+        }
+        if ($this->db->field_exists('is_active', 'mst_material')) {
+            $this->db->where('m.is_active', 1);
+        }
+        $this->db->order_by('m.material_name', 'ASC');
+        $this->db->limit($id > 0 ? 1 : 20);
+        $rows = $this->db->get()->result_array();
+
+        return array_map(function (array $row): array {
+            return [
+                'value' => (int)($row['value'] ?? 0),
+                'label' => (string)($row['label'] ?? ''),
+                'meta' => trim((string)($row['material_code'] ?? '-') . ' | ' . (string)($row['uom_name'] ?? '-')),
+            ];
+        }, $rows);
     }
 
     public function store(string $entity)
@@ -1071,7 +1178,9 @@ class Master extends MY_Controller
             }
             if (!empty($f['lookup'])) {
                 $l = $f['lookup'];
-                $opts[$name] = $this->Master_model->get_options($l['table'], $l['value'], $l['label'], $l['active_only'] ?? true);
+                $valueCol = !empty($l['store_label']) ? (string)$l['label'] : (string)$l['value'];
+                $labelCol = (string)$l['label'];
+                $opts[$name] = $this->Master_model->get_options($l['table'], $valueCol, $labelCol, $l['active_only'] ?? true);
             }
         }
         return $opts;
@@ -2689,7 +2798,7 @@ class Master extends MY_Controller
                 'fields' => [
                     ['name' => 'extra_code', 'label' => 'Kode', 'type' => 'text'],
                     ['name' => 'extra_name', 'label' => 'Nama', 'type' => 'text'],
-                    ['name' => 'uom_name', 'label' => 'Nama UOM', 'type' => 'text'],
+                    ['name' => 'uom_name', 'label' => 'Nama UOM', 'type' => 'select', 'lookup' => ['table' => 'mst_uom', 'value' => 'name', 'label' => 'name', 'active_only' => false, 'store_label' => true]],
                     ['name' => 'extra_type', 'label' => 'Tipe', 'type' => 'select', 'options' => [
                         ['value' => 'ADD', 'label' => 'ADD'],
                         ['value' => 'REMOVE', 'label' => 'REMOVE'],
@@ -2705,8 +2814,8 @@ class Master extends MY_Controller
                         ['value' => 'PRODUCT', 'label' => 'Produk lain'],
                     ]],
                     ['name' => 'source_product_id', 'label' => 'Produk sumber', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_product', 'value' => 'id', 'label' => 'product_name', 'active_only' => false], 'placeholder' => 'Cari nama produk sumber...'],
-                    ['name' => 'source_component_id', 'label' => 'Component sumber', 'type' => 'select', 'lookup' => ['table' => 'mst_component', 'value' => 'id', 'label' => 'component_name', 'active_only' => false]],
-                    ['name' => 'source_material_id', 'label' => 'Bahan baku sumber', 'type' => 'select', 'lookup' => ['table' => 'mst_material', 'value' => 'id', 'label' => 'material_name', 'active_only' => false]],
+                    ['name' => 'source_component_id', 'label' => 'Component sumber', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_component', 'value' => 'id', 'label' => 'component_name', 'active_only' => false], 'placeholder' => 'Cari component sumber...'],
+                    ['name' => 'source_material_id', 'label' => 'Bahan baku sumber', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_material', 'value' => 'id', 'label' => 'material_name', 'active_only' => false], 'placeholder' => 'Cari bahan baku sumber...'],
                     ['name' => 'source_qty', 'label' => 'Qty sumber', 'type' => 'number', 'step' => '0.0001'],
                     ['name' => 'replacement_kind', 'label' => 'Mode pengganti', 'type' => 'select', 'options' => [
                         ['value' => 'NONE', 'label' => 'Tidak mengganti recipe lama'],
@@ -2715,8 +2824,8 @@ class Master extends MY_Controller
                         ['value' => 'PRODUCT', 'label' => 'Ganti dengan produk lain'],
                     ]],
                     ['name' => 'replacement_product_id', 'label' => 'Produk pengganti', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_product', 'value' => 'id', 'label' => 'product_name', 'active_only' => false], 'placeholder' => 'Cari nama produk pengganti...'],
-                    ['name' => 'replacement_component_id', 'label' => 'Component pengganti', 'type' => 'select', 'lookup' => ['table' => 'mst_component', 'value' => 'id', 'label' => 'component_name', 'active_only' => false]],
-                    ['name' => 'replacement_material_id', 'label' => 'Bahan baku pengganti', 'type' => 'select', 'lookup' => ['table' => 'mst_material', 'value' => 'id', 'label' => 'material_name', 'active_only' => false]],
+                    ['name' => 'replacement_component_id', 'label' => 'Component pengganti', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_component', 'value' => 'id', 'label' => 'component_name', 'active_only' => false], 'placeholder' => 'Cari component pengganti...'],
+                    ['name' => 'replacement_material_id', 'label' => 'Bahan baku pengganti', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_material', 'value' => 'id', 'label' => 'material_name', 'active_only' => false], 'placeholder' => 'Cari bahan baku pengganti...'],
                     ['name' => 'replacement_qty', 'label' => 'Qty pengganti', 'type' => 'number', 'step' => '0.0001'],
                     ['name' => 'show_in_cashier', 'label' => 'Tampil Kasir', 'type' => 'checkbox'],
                     ['name' => 'show_in_self_order', 'label' => 'Tampil Self Order', 'type' => 'checkbox'],

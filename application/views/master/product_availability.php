@@ -2,6 +2,7 @@
 $rows = is_array($rows ?? null) ? $rows : [];
 $filters = is_array($filters ?? null) ? $filters : [];
 $summary = is_array($summary ?? null) ? $summary : [];
+$outletOptions = is_array($outlet_options ?? null) ? $outlet_options : [];
 $productDivisionOptions = is_array($product_division_options ?? null) ? $product_division_options : [];
 $statusOptions = is_array($status_options ?? null) ? $status_options : [];
 $stockModeOptions = is_array($stock_mode_options ?? null) ? $stock_mode_options : [];
@@ -17,7 +18,7 @@ $number = static function ($value, int $decimals = 2): string {
   <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-3">
     <div>
       <h4 class="mb-1"><i class="ri ri-line-chart-line page-title-icon"></i><?php echo html_escape($title ?? 'Monitoring Stok Produk'); ?></h4>
-      <p class="text-muted mb-0">Qty utama memakai role MAIN. Jika resep belum memakai role MAIN, sistem otomatis memakai semua line resep. Qty semua line tetap menghitung seluruh recipe termasuk garnish, topping, dan pendukung.</p>
+      <p class="text-muted mb-0">Halaman ini sekarang memakai engine live yang sama dengan POS stock-live. Qty dan HPP dihitung dari recipe serta stok riil per outlet, tanpa fallback ke HPP standar saat stok kosong.</p>
     </div>
     <div class="d-flex gap-2 flex-wrap">
       <a href="<?php echo site_url('master/relation/product-recipe'); ?>" class="btn btn-outline-primary btn-sm">Halaman Resep</a>
@@ -84,6 +85,17 @@ $number = static function ($value, int $decimals = 2): string {
           <input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Nama / kode produk">
         </div>
         <div class="col-md-2">
+          <label class="form-label mb-1">Outlet</label>
+          <select name="outlet_id" class="form-select">
+            <option value="0">Pilih outlet</option>
+            <?php foreach ($outletOptions as $option): ?>
+              <option value="<?php echo (int)($option['id'] ?? 0); ?>" <?php echo (int)($filters['outlet_id'] ?? 0) === (int)($option['id'] ?? 0) ? 'selected' : ''; ?>>
+                <?php echo html_escape((string)($option['outlet_name'] ?? $option['outlet_code'] ?? '')); ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="col-md-2">
           <label class="form-label mb-1">Divisi Produk</label>
           <select name="product_division_id" class="form-select">
             <option value="0">Semua Divisi</option>
@@ -94,7 +106,7 @@ $number = static function ($value, int $decimals = 2): string {
             <?php endforeach; ?>
           </select>
         </div>
-        <div class="col-md-2">
+        <div class="col-md-1">
           <label class="form-label mb-1">Status</label>
           <select name="status" class="form-select">
             <?php foreach ($statusOptions as $option): ?>
@@ -104,7 +116,7 @@ $number = static function ($value, int $decimals = 2): string {
             <?php endforeach; ?>
           </select>
         </div>
-        <div class="col-md-2">
+        <div class="col-md-1">
           <label class="form-label mb-1">Mode Stok</label>
           <select name="stock_mode" class="form-select">
             <?php foreach ($stockModeOptions as $option): ?>

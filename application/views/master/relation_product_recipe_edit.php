@@ -11,16 +11,93 @@ $initialLines = [];
 foreach ($rows as $row) {
     $initialLines[] = [
         'line_type' => (string)($row['line_type'] ?? 'MATERIAL'),
-    'ingredient_role' => (string)($row['ingredient_role'] ?? 'MAIN'),
+        'ingredient_role' => (string)($row['ingredient_role'] ?? 'MAIN'),
         'material_item_id' => (int)($row['material_item_id'] ?? 0),
         'component_id' => (int)($row['component_id'] ?? 0),
-    'source_division_id' => (int)($row['source_division_id'] ?? 0),
+        'source_division_id' => (int)($row['source_division_id'] ?? 0),
         'qty' => round((float)($row['qty'] ?? 0), 4),
         'sort_order' => (int)($row['sort_order'] ?? 0),
         'notes' => (string)($row['notes'] ?? ''),
+        'source_option' => [
+            'value' => (int)((string)($row['line_type'] ?? 'MATERIAL') === 'COMPONENT' ? ($row['component_id'] ?? 0) : ($row['material_item_id'] ?? 0)),
+            'label' => (string)((string)($row['line_type'] ?? 'MATERIAL') === 'COMPONENT' ? ($row['component_name'] ?? '') : ($row['item_name'] ?? '')),
+            'meta' => (string)((string)($row['line_type'] ?? 'MATERIAL') === 'COMPONENT'
+                ? trim((string)($row['component_operational_division_name'] ?? '-') . ' | ' . (string)($row['uom_name'] ?? '-'))
+                : trim((string)($row['resolved_source_division_name'] ?? '-') . ' | ' . (string)($row['uom_name'] ?? '-'))),
+            'uom_label' => (string)($row['uom_name'] ?? '-'),
+            'source_division_id' => (int)((string)($row['line_type'] ?? 'MATERIAL') === 'COMPONENT'
+                ? ($row['component_operational_division_id'] ?? 0)
+                : ($row['resolved_source_division_id'] ?? 0)),
+            'source_division_name' => (string)((string)($row['line_type'] ?? 'MATERIAL') === 'COMPONENT'
+                ? ($row['component_operational_division_name'] ?? '-')
+                : ($row['resolved_source_division_name'] ?? '-')),
+        ],
     ];
 }
 ?>
+<style>
+  .recipe-ajax-box {
+    position: relative;
+    min-width: 300px;
+  }
+  .recipe-ajax-result {
+    position: absolute;
+    inset: calc(100% + 4px) 0 auto 0;
+    z-index: 35;
+    display: none;
+    background: #fff;
+    border: 1px solid #e2d6cc;
+    border-radius: 12px;
+    box-shadow: 0 16px 28px rgba(58, 34, 24, .12);
+    max-height: 240px;
+    overflow: auto;
+  }
+  .recipe-ajax-result.is-open {
+    display: block;
+  }
+  .recipe-ajax-item {
+    padding: .65rem .8rem;
+    border-bottom: 1px solid #f2e8e1;
+    cursor: pointer;
+  }
+  .recipe-ajax-item:last-child {
+    border-bottom: 0;
+  }
+  .recipe-ajax-item:hover {
+    background: #fff8f3;
+  }
+  .recipe-ajax-item-title {
+    font-weight: 700;
+    color: #423028;
+  }
+  .recipe-ajax-item-meta {
+    font-size: .78rem;
+    color: #7a675f;
+    margin-top: .15rem;
+  }
+  .recipe-ajax-selected {
+    margin-top: .35rem;
+    padding: .45rem .55rem;
+    border: 1px solid #eadfd6;
+    border-radius: 10px;
+    background: #fffaf7;
+    min-height: 42px;
+  }
+  .recipe-ajax-selected.is-empty {
+    color: #8e7b72;
+  }
+  .recipe-ajax-selected-title {
+    font-size: .83rem;
+    font-weight: 700;
+    color: #41312a;
+  }
+  .recipe-ajax-selected-meta,
+  .recipe-ajax-empty {
+    font-size: .75rem;
+    color: #7d6c64;
+    margin-top: .1rem;
+  }
+</style>
 <div class="container-xxl py-3">
   <div class="fin-page-header mb-3">
     <div>
@@ -102,13 +179,12 @@ foreach ($rows as $row) {
 
 <script>
 (function () {
-  var materials = <?php echo json_encode(array_values($options['materials'] ?? []), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
-  var components = <?php echo json_encode(array_values($options['components'] ?? []), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
   var sourceDivisions = <?php echo json_encode(array_values($options['source_divisions'] ?? []), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
   var ingredientRoles = <?php echo json_encode(array_values($options['ingredient_roles'] ?? []), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
   var initialLines = <?php echo json_encode(array_values($initialLines), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
   var defaultSourceDivisionName = <?php echo json_encode((string)($options['default_source_division_name'] ?? '-')); ?>;
   var defaultSourceDivisionId = <?php echo json_encode((int)($options['default_source_division_id'] ?? 0)); ?>;
+  var sourceLookupUrl = <?php echo json_encode(site_url('master/relation/product-recipe/source-lookup/' . (int)($parent['id'] ?? 0))); ?>;
   var lineBody = document.getElementById('line-body');
   var lineSearch = document.getElementById('line-search');
   var lineTypeFilter = document.getElementById('line-type-filter');
@@ -118,10 +194,25 @@ foreach ($rows as $row) {
   var sumLine = document.getElementById('sum-line');
   var sumMaterial = document.getElementById('sum-material');
   var sumComponent = document.getElementById('sum-component');
+  var lookupTimer = null;
 
   var state = {
-    lines: Array.isArray(initialLines) && initialLines.length ? initialLines : [{ line_type: 'MATERIAL', ingredient_role: 'MAIN', material_item_id: 0, component_id: 0, source_division_id: defaultSourceDivisionId || 0, qty: 1, sort_order: 10, notes: '' }]
+    lines: Array.isArray(initialLines) && initialLines.length ? initialLines : [emptyLine(10)]
   };
+
+  function emptyLine(sortOrder) {
+    return {
+      line_type: 'MATERIAL',
+      ingredient_role: 'MAIN',
+      material_item_id: 0,
+      component_id: 0,
+      source_division_id: defaultSourceDivisionId || 0,
+      qty: 1,
+      sort_order: Number(sortOrder || 10),
+      notes: '',
+      source_option: null
+    };
+  }
 
   function esc(value) {
     return String(value == null ? '' : value)
@@ -135,6 +226,38 @@ foreach ($rows as $row) {
   function findOption(list, value) {
     var num = Number(value || 0);
     return list.find(function (item) { return Number(item.value || 0) === num; }) || null;
+  }
+
+  function currentSourceId(line) {
+    return (line.line_type || 'MATERIAL') === 'COMPONENT'
+      ? Number(line.component_id || 0)
+      : Number(line.material_item_id || 0);
+  }
+
+  function normalizeSourceOption(option) {
+    if (!option || Number(option.value || 0) <= 0) {
+      return null;
+    }
+    return {
+      value: Number(option.value || 0),
+      label: String(option.label || ''),
+      meta: String(option.meta || ''),
+      uom_label: String(option.uom_label || '-'),
+      source_division_id: Number(option.source_division_id || 0),
+      source_division_name: String(option.source_division_name || '-')
+    };
+  }
+
+  function setLineSource(line, option) {
+    var normalized = normalizeSourceOption(option);
+    if ((line.line_type || 'MATERIAL') === 'COMPONENT') {
+      line.component_id = normalized ? Number(normalized.value || 0) : 0;
+      line.material_item_id = 0;
+    } else {
+      line.material_item_id = normalized ? Number(normalized.value || 0) : 0;
+      line.component_id = 0;
+    }
+    line.source_option = normalized;
   }
 
   function ingredientRoleOptionsHtml(selected) {
@@ -159,73 +282,107 @@ foreach ($rows as $row) {
   }
 
   function suggestedSourceDivisionId(line) {
+    if ((line.line_type || 'MATERIAL') === 'COMPONENT' && line.source_option && Number(line.source_option.source_division_id || 0) > 0) {
+      return Number(line.source_option.source_division_id || 0);
+    }
+    if ((line.line_type || 'MATERIAL') === 'MATERIAL' && line.source_option && Number(line.source_option.source_division_id || 0) > 0) {
+      return Number(line.source_option.source_division_id || 0);
+    }
+    if (Number(line.source_division_id || 0) > 0) {
+      return Number(line.source_division_id || 0);
+    }
     if ((line.line_type || 'MATERIAL') === 'COMPONENT') {
-      var component = findOption(components, line.component_id);
-      if (component && Number(component.source_division_id || 0) > 0) {
-        return Number(component.source_division_id || 0);
-      }
       return Number(defaultSourceDivisionId || 0);
     }
-    var material = findOption(materials, line.material_item_id);
-    if (material && Number(material.source_division_id || 0) > 0) {
-      return Number(material.source_division_id || 0);
-    }
     return Number(defaultSourceDivisionId || 0);
-  }
-
-  function filteredSourceList(line) {
-    if ((line.line_type || 'MATERIAL') !== 'COMPONENT') {
-      return materials;
-    }
-
-    var selectedDivisionId = Number(line.source_division_id || suggestedSourceDivisionId(line) || 0);
-    var list = components.filter(function (opt) {
-      return selectedDivisionId <= 0 || Number(opt.source_division_id || 0) === selectedDivisionId;
-    });
-
-    if (Number(line.component_id || 0) > 0 && !list.some(function (opt) { return Number(opt.value || 0) === Number(line.component_id || 0); })) {
-      var current = findOption(components, line.component_id);
-      if (current) {
-        list = list.concat([current]);
-      }
-    }
-
-    return list;
   }
 
   function lineMeta(line) {
     var resolvedDivisionId = Number(line.source_division_id || 0);
     var sourceDivision = findOption(sourceDivisions, resolvedDivisionId);
-    if ((line.line_type || 'MATERIAL') === 'COMPONENT') {
-      var component = findOption(components, line.component_id);
-      return {
-        sourceDivisionName: sourceDivision ? String(sourceDivision.label || '-') : (component ? String(component.source_division_name || '-') : '-'),
-        uomLabel: component ? String(component.uom_label || '-') : '-',
-        searchText: (component ? String(component.label || '') : '') + ' ' + String(line.notes || '')
-      };
-    }
-    var material = findOption(materials, line.material_item_id);
+    var sourceOption = normalizeSourceOption(line.source_option);
     return {
-      sourceDivisionName: sourceDivision ? String(sourceDivision.label || '-') : (material ? String(material.source_division_name || defaultSourceDivisionName || '-') : (defaultSourceDivisionName || '-')),
-      uomLabel: material ? String(material.uom_label || '-') : '-',
-      searchText: (material ? String(material.label || '') : '') + ' ' + String(line.notes || '')
+      sourceDivisionName: sourceDivision
+        ? String(sourceDivision.label || '-')
+        : (sourceOption ? String(sourceOption.source_division_name || '-') : (defaultSourceDivisionName || '-')),
+      uomLabel: sourceOption ? String(sourceOption.uom_label || '-') : '-',
+      searchText: [sourceOption ? String(sourceOption.label || '') : '', sourceOption ? String(sourceOption.meta || '') : '', String(line.notes || '')].join(' ')
     };
   }
 
-  function sourceOptionsHtml(line) {
-    var isComponent = (line.line_type || 'MATERIAL') === 'COMPONENT';
-    var list = filteredSourceList(line);
-    var field = isComponent ? 'component_id' : 'material_item_id';
-    var selected = Number(line[field] || 0);
-    var placeholder = isComponent
-      ? (list.length ? '- pilih component -' : '- pilih source divisi dulu -')
-      : '- pilih bahan baku -';
-    var html = '<option value="">' + esc(placeholder) + '</option>';
-    list.forEach(function (opt) {
-      var isSelected = Number(opt.value || 0) === selected ? ' selected' : '';
-      html += '<option value="' + esc(opt.value) + '"' + isSelected + '>' + esc(opt.label || '-') + '</option>';
+  function sourceLookupPlaceholder(line) {
+    return (line.line_type || 'MATERIAL') === 'COMPONENT'
+      ? 'Cari component sumber...'
+      : 'Cari bahan baku sumber...';
+  }
+
+  function sourcePreviewHtml(line) {
+    var sourceOption = normalizeSourceOption(line.source_option);
+    if (!sourceOption) {
+      return '<div class="recipe-ajax-empty">Belum ada sumber dipilih.</div>';
+    }
+    return '' +
+      '<div class="recipe-ajax-selected-title">' + esc(sourceOption.label || '-') + '</div>' +
+      '<div class="recipe-ajax-selected-meta">' + esc(sourceOption.meta || '-') + '</div>';
+  }
+
+  function closeSourceLookupResults() {
+    document.querySelectorAll('.recipe-ajax-result.is-open').forEach(function (el) {
+      el.classList.remove('is-open');
+      el.innerHTML = '';
     });
-    return html;
+  }
+
+  function getJson(url) {
+    return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (response) {
+        return response.text().then(function (text) {
+          var json = null;
+          try {
+            json = JSON.parse(text);
+          } catch (err) {
+            throw new Error('Response sumber recipe tidak valid.');
+          }
+          if (!response.ok || !json.ok) {
+            throw new Error(json.message || 'Gagal memuat sumber recipe.');
+          }
+          return json;
+        });
+      });
+  }
+
+  function fetchSourceLookupRows(line, query, id) {
+    var params = new URLSearchParams();
+    params.set('line_type', String(line.line_type || 'MATERIAL'));
+    params.set('source_division_id', String(line.source_division_id || suggestedSourceDivisionId(line) || 0));
+    if (Number(id || 0) > 0) {
+      params.set('id', String(Number(id || 0)));
+    } else {
+      params.set('q', String(query || ''));
+    }
+    return getJson(sourceLookupUrl + '?' + params.toString()).then(function (json) {
+      return Array.isArray(json.rows) ? json.rows : [];
+    });
+  }
+
+  function renderSourceLookupResults(box, index, rows) {
+    var resultEl = box.querySelector('.recipe-ajax-result');
+    if (!resultEl) {
+      return;
+    }
+    if (!Array.isArray(rows) || !rows.length) {
+      resultEl.innerHTML = '<div class="recipe-ajax-item"><div class="recipe-ajax-item-title">Tidak ada hasil</div><div class="recipe-ajax-item-meta">Coba kata kunci lain.</div></div>';
+      resultEl.classList.add('is-open');
+      return;
+    }
+    resultEl.innerHTML = rows.map(function (row) {
+      return '' +
+        '<div class="recipe-ajax-item" data-action="pick-source" data-index="' + index + '" data-value="' + esc(row.value) + '" data-label="' + esc(row.label || '') + '" data-meta="' + esc(row.meta || '') + '" data-uom-label="' + esc(row.uom_label || '-') + '" data-source-division-id="' + esc(row.source_division_id || 0) + '" data-source-division-name="' + esc(row.source_division_name || '-') + '">' +
+          '<div class="recipe-ajax-item-title">' + esc(row.label || '-') + '</div>' +
+          '<div class="recipe-ajax-item-meta">' + esc(row.meta || '-') + '</div>' +
+        '</div>';
+    }).join('');
+    resultEl.classList.add('is-open');
   }
 
   function recalcSummary() {
@@ -268,7 +425,11 @@ foreach ($rows as $row) {
         '<td><select class="form-select form-select-sm" data-field="ingredient_role" data-index="' + index + '">' + ingredientRoleOptionsHtml(line.ingredient_role || 'MAIN') + '</select></td>' +
         '<td><select class="form-select form-select-sm" data-field="source_division_id" data-index="' + index + '">' + sourceDivisionOptionsHtml(line.source_division_id || suggestedSourceDivisionId(line)) + '</select></td>' +
         '<td>' +
-          '<select class="form-select form-select-sm" data-field="source_id" data-index="' + index + '">' + sourceOptionsHtml(line) + '</select>' +
+          '<div class="recipe-ajax-box" data-index="' + index + '">' +
+            '<input type="text" class="form-control form-control-sm" data-field="source_lookup" data-index="' + index + '" value="' + esc((line.source_option && line.source_option.label) ? line.source_option.label : '') + '" placeholder="' + esc(sourceLookupPlaceholder(line)) + '" autocomplete="off">' +
+            '<div class="recipe-ajax-result"></div>' +
+            '<div class="recipe-ajax-selected' + (normalizeSourceOption(line.source_option) ? '' : ' is-empty') + '">' + sourcePreviewHtml(line) + '</div>' +
+          '</div>' +
         '</td>' +
         '<td><input type="number" step="0.0001" min="0" class="form-control form-control-sm" data-field="qty" data-index="' + index + '" value="' + esc(line.qty || 0) + '"></td>' +
         '<td><input type="text" class="form-control form-control-sm" value="' + esc(meta.uomLabel) + '" readonly></td>' +
@@ -293,35 +454,18 @@ foreach ($rows as $row) {
 
     if (target.dataset.field === 'line_type') {
       state.lines[index].line_type = target.value === 'COMPONENT' ? 'COMPONENT' : 'MATERIAL';
-      state.lines[index].material_item_id = 0;
-      state.lines[index].component_id = 0;
+      setLineSource(state.lines[index], null);
       state.lines[index].source_division_id = Number(state.lines[index].source_division_id || suggestedSourceDivisionId(state.lines[index]) || defaultSourceDivisionId || 0);
-      render();
-      return;
-    }
-
-    if (target.dataset.field === 'source_id') {
-      if ((state.lines[index].line_type || 'MATERIAL') === 'COMPONENT') {
-        state.lines[index].component_id = Number(target.value || 0);
-      } else {
-        state.lines[index].material_item_id = Number(target.value || 0);
-      }
-      if (Number(state.lines[index].source_division_id || 0) <= 0) {
-        state.lines[index].source_division_id = suggestedSourceDivisionId(state.lines[index]);
-      }
       render();
       return;
     }
 
     if (target.dataset.field === 'source_division_id') {
       state.lines[index].source_division_id = Number(target.value || 0);
-      if ((state.lines[index].line_type || 'MATERIAL') === 'COMPONENT') {
-        var filtered = filteredSourceList(state.lines[index]);
-        if (!filtered.some(function (opt) { return Number(opt.value || 0) === Number(state.lines[index].component_id || 0); })) {
-          state.lines[index].component_id = 0;
-        }
-        render();
+      if ((state.lines[index].line_type || 'MATERIAL') === 'COMPONENT' && state.lines[index].source_option && Number(state.lines[index].source_option.source_division_id || 0) !== Number(state.lines[index].source_division_id || 0)) {
+        setLineSource(state.lines[index], null);
       }
+      render();
       return;
     }
 
@@ -343,7 +487,64 @@ foreach ($rows as $row) {
     }
   });
 
+  lineBody.addEventListener('focusin', function (event) {
+    var target = event.target;
+    if (!target || !target.dataset || target.dataset.field !== 'source_lookup') {
+      return;
+    }
+    var index = Number(target.dataset.index || -1);
+    if (index < 0 || !state.lines[index]) {
+      return;
+    }
+    var box = target.closest('.recipe-ajax-box');
+    closeSourceLookupResults();
+    fetchSourceLookupRows(state.lines[index], target.value || '', currentSourceId(state.lines[index]))
+      .then(function (rows) { renderSourceLookupResults(box, index, rows); })
+      .catch(function () { renderSourceLookupResults(box, index, []); });
+  });
+
+  lineBody.addEventListener('input', function (event) {
+    var target = event.target;
+    if (!target || !target.dataset || target.dataset.field !== 'source_lookup') {
+      return;
+    }
+    var index = Number(target.dataset.index || -1);
+    if (index < 0 || !state.lines[index]) {
+      return;
+    }
+    setLineSource(state.lines[index], null);
+    var box = target.closest('.recipe-ajax-box');
+    clearTimeout(lookupTimer);
+    lookupTimer = window.setTimeout(function () {
+      fetchSourceLookupRows(state.lines[index], target.value || '', 0)
+        .then(function (rows) { renderSourceLookupResults(box, index, rows); })
+        .catch(function () { renderSourceLookupResults(box, index, []); });
+    }, 220);
+  });
+
   lineBody.addEventListener('click', function (event) {
+    var pickSource = event.target.closest('[data-action="pick-source"]');
+    if (pickSource) {
+      var sourceIndex = Number(pickSource.dataset.index || -1);
+      if (sourceIndex >= 0 && state.lines[sourceIndex]) {
+        var option = {
+          value: Number(pickSource.dataset.value || 0),
+          label: String(pickSource.dataset.label || ''),
+          meta: String(pickSource.dataset.meta || ''),
+          uom_label: String(pickSource.dataset.uomLabel || '-'),
+          source_division_id: Number(pickSource.dataset.sourceDivisionId || 0),
+          source_division_name: String(pickSource.dataset.sourceDivisionName || '-')
+        };
+        setLineSource(state.lines[sourceIndex], option);
+        if (Number(state.lines[sourceIndex].source_division_id || 0) <= 0) {
+          state.lines[sourceIndex].source_division_id = Number(option.source_division_id || suggestedSourceDivisionId(state.lines[sourceIndex]) || defaultSourceDivisionId || 0);
+        }
+        closeSourceLookupResults();
+        render();
+      }
+      return;
+    }
+
     var button = event.target.closest('button[data-action="remove"]');
     if (!button) {
       return;
@@ -354,14 +555,20 @@ foreach ($rows as $row) {
     }
     state.lines.splice(index, 1);
     if (!state.lines.length) {
-      state.lines.push({ line_type: 'MATERIAL', ingredient_role: 'MAIN', material_item_id: 0, component_id: 0, source_division_id: defaultSourceDivisionId || 0, qty: 1, sort_order: 10, notes: '' });
+      state.lines.push(emptyLine(10));
     }
     render();
   });
 
   btnAddLine.addEventListener('click', function () {
-    state.lines.push({ line_type: 'MATERIAL', ingredient_role: 'MAIN', material_item_id: 0, component_id: 0, source_division_id: defaultSourceDivisionId || 0, qty: 1, sort_order: (state.lines.length + 1) * 10, notes: '' });
+    state.lines.push(emptyLine((state.lines.length + 1) * 10));
     render();
+  });
+
+  document.addEventListener('click', function (event) {
+    if (!event.target.closest('.recipe-ajax-box')) {
+      closeSourceLookupResults();
+    }
   });
 
   if (lineSearch) {

@@ -46,7 +46,71 @@ $formatDivisionLabel = static function (string $code, string $name, $fallbackId 
 $formatDestination = static function (string $group): string {
   return strtoupper(trim($group)) === 'EVENT' ? 'Event' : 'Reguler';
 };
+$buildSourceAudit = static function (array $row): array {
+  $refTable = strtolower(trim((string)($row['ref_table'] ?? '')));
+  $refId = (int)($row['ref_id'] ?? 0);
+  $receiptId = (int)($row['receipt_id'] ?? 0);
+  $receiptLineId = (int)($row['receipt_line_id'] ?? 0);
+  $labelMap = [
+    'pos_stock_commit' => 'POS Commit',
+    'pur_purchase_receipt' => 'Receipt PO',
+    'pur_store_request_fulfillment' => 'Fulfillment SR',
+    'inv_division_stock_adjustment' => 'Adjustment Divisi',
+    'inv_division_stock_opening_snapshot' => 'Opening Snapshot',
+    'inv_warehouse_stock_opening_snapshot' => 'Opening Snapshot',
+  ];
+  $label = $labelMap[$refTable] ?? ($refTable !== '' ? strtoupper(str_replace('_', ' ', $refTable)) : '-');
+  if ($refId > 0) {
+    $label .= ' #' . $refId;
+  }
+  $meta = [];
+  if ($receiptId > 0) {
+    $meta[] = 'Receipt #' . $receiptId;
+  }
+  if ($receiptLineId > 0) {
+    $meta[] = 'Line #' . $receiptLineId;
+  }
+  return ['label' => $label, 'meta' => implode(' | ', $meta)];
+};
 ?>
+
+<style>
+  .stock-division-movement-wrap {
+    max-height: 74vh;
+    overflow: auto;
+    border-top: 1px solid #f0e1d6;
+  }
+  .stock-division-movement-table {
+    min-width: 1760px;
+    margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .stock-division-movement-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    background: linear-gradient(180deg, #7c1f2d 0%, #9f2f3e 100%);
+    color: #fff8f5;
+    border-bottom: 1px solid #7f2936;
+    white-space: nowrap;
+  }
+  .stock-division-movement-table td,
+  .stock-division-movement-table th {
+    vertical-align: top;
+  }
+  .stock-division-source-title {
+    font-weight: 800;
+    color: #2f2628;
+  }
+  .stock-division-source-meta {
+    display: block;
+    margin-top: .18rem;
+    color: #8a776f;
+    font-size: .72rem;
+    line-height: 1.35;
+  }
+</style>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
@@ -54,7 +118,7 @@ $formatDestination = static function (string $group): string {
     <small class="text-muted">Log keluar masuk stok per divisi dari inv_stock_movement_log.</small>
   </div>
   <div class="d-flex gap-1 flex-wrap align-items-center">
-    <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname divisi bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
+    <form method="post" action="<?php echo $generateUrl; ?>" class="d-inline js-stock-division-generate-form">
       <input type="hidden" name="stock_scope" value="DIVISION">
       <input type="hidden" name="month" value="<?php echo html_escape($genMonth); ?>">
       <input type="hidden" name="division_id" value="<?php echo (int)($division_id ?? 0); ?>">
@@ -132,8 +196,8 @@ $formatDestination = static function (string $group): string {
   <div class="card-body pb-0">
     <small class="fin-audit-note">Audit stok ditampilkan seragam: Before, Delta, After. Nilai bawah menunjukkan satuan beli jika tersedia.</small>
   </div>
-  <div class="table-responsive">
-    <table class="table table-striped table-hover mb-0 fin-audit-table">
+  <div class="stock-division-movement-wrap">
+    <table class="table table-striped table-hover fin-audit-table stock-division-movement-table">
       <thead>
         <tr>
           <th>Tanggal</th>
@@ -149,7 +213,7 @@ $formatDestination = static function (string $group): string {
           <th class="text-end col-balance">After</th>
           <th class="text-end col-amount">Unit Cost</th>
           <th class="text-end col-amount">Nilai Mutasi</th>
-          <th class="col-ref">Ref</th>
+          <th class="col-ref">Sumber / Ref</th>
         </tr>
       </thead>
       <tbody>
@@ -158,6 +222,7 @@ $formatDestination = static function (string $group): string {
         <?php else: ?>
           <?php foreach ($rows as $r): ?>
             <?php
+              $sourceAudit = $buildSourceAudit((array)$r);
               $divisionText = $formatDivisionLabel((string)($r['division_code'] ?? ''), (string)($r['division_name'] ?? ''), (string)($r['division_id'] ?? '-'));
 
               $movementTypeLabel = trim((string)($r['movement_type_label'] ?? $r['movement_type'] ?? '-'));
@@ -214,8 +279,8 @@ $formatDestination = static function (string $group): string {
               <td class="text-end col-amount"><?php echo ui_num($unitCost); ?></td>
               <td class="text-end col-amount"><?php echo number_format($mutationValue, 2, ',', '.'); ?></td>
               <td class="col-ref">
-                <?php echo html_escape((string)($r['ref_table'] ?? '-')); ?>
-                <?php if (!empty($r['ref_id'])): ?>#<?php echo (int)$r['ref_id']; ?><?php endif; ?>
+                <span class="stock-division-source-title"><?php echo html_escape((string)($sourceAudit['label'] ?? '-')); ?></span>
+                <?php if (!empty($sourceAudit['meta'])): ?><span class="stock-division-source-meta"><?php echo html_escape((string)$sourceAudit['meta']); ?></span><?php endif; ?>
               </td>
             </tr>
           <?php endforeach; ?>
@@ -224,3 +289,27 @@ $formatDestination = static function (string $group): string {
     </table>
   </div>
 </div>
+
+<script>
+(() => {
+  document.addEventListener('submit', (event) => {
+    const form = event.target.closest('.js-stock-division-generate-form');
+    if (!form) {
+      return;
+    }
+    if (!(window.FinanceUI && typeof window.FinanceUI.confirm === 'function')) {
+      return;
+    }
+    event.preventDefault();
+    Promise.resolve(window.FinanceUI.confirm('Generate opname divisi bulan ini dan carry-forward opening bulan berikutnya?', {
+      title: 'Generate Opname Divisi',
+      confirmText: 'Generate',
+      cancelText: 'Batal'
+    })).then((confirmed) => {
+      if (confirmed) {
+        form.submit();
+      }
+    });
+  });
+})();
+</script>

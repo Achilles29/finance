@@ -79,16 +79,6 @@ foreach ($lineRows as $lineRow) {
   .sr-nota-table th:nth-child(3), .sr-nota-table td:nth-child(3) { width: 10%; }
   .sr-nota-table th:nth-child(4), .sr-nota-table td:nth-child(4) { width: 16%; }
   .sr-nota-table th:nth-child(5), .sr-nota-table td:nth-child(5) { width: 26%; }
-  .sr-action-cell { white-space: normal; text-align: center; }
-  .sr-action-wrap { display: flex; flex-wrap: nowrap; gap: 4px; justify-content: center; align-items: center; min-width: 0; width: 100%; max-width: 100%; margin: 0 auto; overflow-x: auto; overflow-y: hidden; }
-  .sr-action-btn { width: 30px; height: 30px; min-width: 30px; padding: 0 !important; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1; flex: 0 0 30px; }
-  .sr-action-btn i { font-size: 0.92rem; }
-  .sr-action-btn.btn-outline-secondary { color: #6c757d; border-color: rgba(108,117,125,.55); }
-  .sr-action-btn.btn-outline-primary { color: #0d6efd; border-color: rgba(13,110,253,.55); }
-  .sr-action-btn.btn-outline-success { color: #198754; border-color: rgba(25,135,84,.55); }
-  .sr-action-btn.btn-outline-danger { color: #dc3545; border-color: rgba(220,53,69,.55); }
-  .sr-action-btn.btn-outline-info { color: #0dcaf0; border-color: rgba(13,202,240,.55); }
-  .sr-action-btn.btn-outline-warning { color: #d39e00; border-color: rgba(211,158,0,.55); }
   .sr-tab-link { font-weight: 600; }
   .sr-status-tab-link { font-weight: 600; white-space: nowrap; }
   .sr-view-tab-link { font-weight: 700; }
@@ -508,19 +498,19 @@ foreach ($lineRows as $lineRow) {
           <td class="sr-note-meta"><div class="sr-request-meta"><strong><?php echo html_escape((string)($r['division_name'] ?? '-')); ?> | <?php echo html_escape((string)($r['destination_type'] ?? '-')); ?></strong><span class="small text-muted">Need <?php echo html_escape((string)($r['needed_date'] ?? '-')); ?></span><span class="small text-muted">Line <?php echo (int)($r['line_count'] ?? 0); ?></span></div></td>
           <td><span class="badge bg-<?php echo $statusClass; ?> sr-status-badge"><?php echo html_escape($st); ?></span></td>
           <td class="text-end sr-note-qty"><div class="sr-qty-stack"><strong><?php echo ui_num((float)($r['req_buy_total'] ?? 0)); ?> pack</strong><small>Fulfilled <?php echo ui_num((float)($r['fulfilled_buy_total'] ?? 0)); ?> pack</small><small>Sisa <?php echo ui_num($remainBuy); ?> pack</small></div></td>
-          <td class="sr-action-cell">
-            <div class="sr-action-wrap">
-              <a href="<?php echo site_url('store-requests/detail/' . $rid); ?>" class="btn btn-sm btn-outline-secondary sr-action-btn" title="Detail SR" aria-label="Detail SR"><i class="ri ri-eye-line"></i></a>
+          <td class="action-cell">
+            <div class="d-flex gap-1 flex-nowrap justify-content-end">
+              <a href="<?php echo site_url('store-requests/detail/' . $rid); ?>" class="btn btn-sm btn-outline-info action-icon-btn" title="Detail SR" aria-label="Detail SR"><i class="ri ri-eye-line"></i></a>
               <?php if ($canEdit || ($canRepairHistory && $st === 'VOID')): ?>
-                <?php if ($st === 'DRAFT'): ?><button type="button" class="btn btn-sm btn-outline-primary sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="SUBMIT" title="Submit" aria-label="Submit"><i class="ri ri-send-plane-line"></i></button><?php endif; ?>
-                <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-outline-success sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="APPROVE" title="Approve" aria-label="Approve"><i class="ri ri-check-line"></i></button><?php endif; ?>
-                <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="REJECT" title="Reject" aria-label="Reject"><i class="ri ri-close-line"></i></button><?php endif; ?>
-                <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-info sr-action-btn sr-split" data-id="<?php echo $rid; ?>" title="Cek Split" aria-label="Cek Split"><i class="ri ri-git-branch-line"></i></button><?php endif; ?>
-                <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-warning sr-action-btn sr-fulfill" data-id="<?php echo $rid; ?>" title="Fulfilled dari gudang" aria-label="Fulfilled dari gudang"><i class="ri ri-checkbox-circle-line"></i></button><?php endif; ?>
-                <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-primary sr-action-btn sr-gpo" data-id="<?php echo $rid; ?>" title="Generate PO Shortage" aria-label="Generate PO Shortage"><i class="ri ri-shopping-bag-3-line"></i></button><?php endif; ?>
-                <?php if ($st === 'DRAFT'): ?><a href="<?php echo site_url('store-requests/edit/' . $rid); ?>" class="btn btn-sm btn-outline-warning sr-action-btn" title="Edit Draft" aria-label="Edit Draft"><i class="ri ri-pencil-line"></i></a><?php endif; ?>
-                <?php if (in_array($st, ['DRAFT','SUBMITTED','APPROVED','REJECTED','PARTIAL_FULFILLED','FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-action" data-id="<?php echo $rid; ?>" data-action="VOID" title="Void" aria-label="Void"><i class="ri ri-close-circle-line"></i></button><?php endif; ?>
-                <?php if ($st === 'VOID' && $canRepairHistory): ?><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-repair-history" data-id="<?php echo $rid; ?>" title="Repair histori stok SR VOID" aria-label="Repair histori stok SR VOID"><i class="ri ri-tools-line"></i></button><?php endif; ?>
+                <?php if ($st === 'DRAFT'): ?><button type="button" class="btn btn-sm btn-outline-primary action-icon-btn sr-action" data-id="<?php echo $rid; ?>" data-action="SUBMIT" title="Submit" aria-label="Submit"><i class="ri ri-send-plane-line"></i></button><?php endif; ?>
+                <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-outline-success action-icon-btn sr-action" data-id="<?php echo $rid; ?>" data-action="APPROVE" title="Approve" aria-label="Approve"><i class="ri ri-check-line"></i></button><?php endif; ?>
+                <?php if ($st === 'SUBMITTED'): ?><button type="button" class="btn btn-sm btn-outline-danger action-icon-btn sr-action" data-id="<?php echo $rid; ?>" data-action="REJECT" title="Reject" aria-label="Reject"><i class="ri ri-close-line"></i></button><?php endif; ?>
+                <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-info action-icon-btn sr-split" data-id="<?php echo $rid; ?>" title="Cek Split" aria-label="Cek Split"><i class="ri ri-git-branch-line"></i></button><?php endif; ?>
+                <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-warning action-icon-btn sr-fulfill" data-id="<?php echo $rid; ?>" title="Fulfilled dari gudang" aria-label="Fulfilled dari gudang"><i class="ri ri-checkbox-circle-line"></i></button><?php endif; ?>
+                <?php if (in_array($st, ['APPROVED','PARTIAL_FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-primary action-icon-btn sr-gpo" data-id="<?php echo $rid; ?>" title="Generate PO Shortage" aria-label="Generate PO Shortage"><i class="ri ri-shopping-bag-3-line"></i></button><?php endif; ?>
+                <?php if ($st === 'DRAFT'): ?><a href="<?php echo site_url('store-requests/edit/' . $rid); ?>" class="btn btn-sm btn-outline-primary action-icon-btn" title="Edit Draft" aria-label="Edit Draft"><i class="ri ri-edit-line"></i></a><?php endif; ?>
+                <?php if (in_array($st, ['DRAFT','SUBMITTED','APPROVED','REJECTED','PARTIAL_FULFILLED','FULFILLED'], true)): ?><button type="button" class="btn btn-sm btn-outline-danger action-icon-btn sr-action" data-id="<?php echo $rid; ?>" data-action="VOID" title="Void" aria-label="Void"><i class="ri ri-close-circle-line"></i></button><?php endif; ?>
+                <?php if ($st === 'VOID' && $canRepairHistory): ?><button type="button" class="btn btn-sm btn-outline-danger action-icon-btn sr-repair-history" data-id="<?php echo $rid; ?>" title="Repair histori stok SR VOID" aria-label="Repair histori stok SR VOID"><i class="ri ri-tools-line"></i></button><?php endif; ?>
               <?php else: ?>
                 <span class="text-muted small">-</span>
               <?php endif; ?>
@@ -842,7 +832,7 @@ foreach ($lineRows as $lineRow) {
         + '<td>'+fmtDate(line.profile_expired_date || '')+'</td>'
         + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm sr-qty-buy" data-idx="'+idx+'" value="'+num(line.qty_buy_requested).toFixed(2)+'"></td>'
         + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm sr-qty-content" data-idx="'+idx+'" value="'+num(line.qty_content_requested).toFixed(2)+'"></td>'
-        + '<td><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-remove-line" data-idx="'+idx+'">Hapus</button></td>'
+        + '<td class="action-cell"><div class="d-flex gap-1 flex-nowrap justify-content-end"><button type="button" class="btn btn-sm btn-outline-danger action-icon-btn sr-remove-line" data-idx="'+idx+'" title="Hapus" aria-label="Hapus"><i class="ri ri-delete-bin-line"></i></button></div></td>'
         + '</tr>';
     });
     tb.innerHTML = html;

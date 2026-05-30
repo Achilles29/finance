@@ -1,6 +1,6 @@
 # Panduan Pola Coding — Finance App
 **Status:** WAJIB DIBACA sebelum coding  
-**Terakhir diperbarui:** 2026-05-23  
+**Terakhir diperbarui:** 2026-05-30  
 **Berlaku untuk:** Semua pengembangan di direktori `finance/`
 
 > Dokumen ini adalah **satu-satunya acuan pola coding**. Setiap halaman baru, controller baru, atau fitur baru harus mengikuti pola di sini — tidak boleh improvisasi sendiri. Jika ada pola baru yang disepakati, tuliskan di sini, jangan hanya di kepala atau di chat.
@@ -43,7 +43,7 @@
 | PHP | 7.4+ | XAMPP lokal dan server |
 | Database | MySQL 5.7+ / MariaDB | Database `db_finance` (terpisah dari `core`) |
 | Frontend | Bootstrap 5 + Materio theme | Tema merah (#c0392b) + krem |
-| Icons | Remix Icons (`ri-*`) | Bukan FontAwesome, bukan Bootstrap Icons |
+| Icons | Remix Icons (`ri-*`) | Muat dari `assets/vendor/fonts/iconify-icons.css`, bukan subset parsial |
 | DataTable | Server-side via PHP, bukan DataTables.js | Gunakan pola tabel + pagination manual |
 | AJAX | Fetch API (bukan jQuery $.ajax) | `Content-Type: application/json` |
 | CSS Custom | `assets/css/app.css` | Tambahkan di sini, bukan inline style |
@@ -985,28 +985,35 @@ $cls = $status_class[$row['status']] ?? 'secondary';
 ## 17. Tombol Aksi
 
 ```php
-<!-- Pola tombol aksi di kolom tabel (gunakan dropdown jika >2 aksi) -->
+<!-- Pola tombol aksi di kolom tabel -->
 
-<!-- 1-2 aksi: tombol langsung -->
-<td class="text-center">
-    <a href="<?= site_url('purchase-orders/' . $row['id']) ?>"
-       class="btn btn-sm btn-outline-info action-icon-btn" title="Lihat Detail">
-        <i class="ri ri-eye-line"></i>
-    </a>
-    <?php if ($canEdit && $row['status'] === 'DRAFT'): ?>
-    <a href="<?= site_url('purchase-orders/edit/' . $row['id']) ?>"
-       class="btn btn-sm btn-outline-primary action-icon-btn" title="Edit">
-        <i class="ri ri-edit-line"></i>
-    </a>
-    <?php endif; ?>
+<td class="action-cell">
+    <div class="d-flex gap-1 flex-nowrap justify-content-end">
+        <a href="<?= site_url('purchase-orders/' . $row['id']) ?>"
+           class="btn btn-sm btn-outline-info action-icon-btn"
+           data-bs-toggle="tooltip"
+           title="Detail"
+           aria-label="Detail">
+            <i class="ri ri-eye-line"></i>
+        </a>
+        <?php if ($canEdit && $row['status'] === 'DRAFT'): ?>
+        <a href="<?= site_url('purchase-orders/edit/' . $row['id']) ?>"
+           class="btn btn-sm btn-outline-primary action-icon-btn"
+           data-bs-toggle="tooltip"
+           title="Edit"
+           aria-label="Edit">
+            <i class="ri ri-edit-line"></i>
+        </a>
+        <?php endif; ?>
+    </div>
 </td>
 
-<!-- >2 aksi: dropdown -->
-<td class="text-center">
+<!-- Jika aksi 4+ atau kombinasi terlalu padat, pindah ke dropdown -->
+<td class="action-cell">
     <div class="dropdown">
         <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
                 type="button" data-bs-toggle="dropdown">
-            <i class="ri ri-more-2-fill"></i>
+            <i class="ri ri-more-2-line"></i>
         </button>
         <ul class="dropdown-menu dropdown-menu-end">
             <li><a class="dropdown-item" href="...">
@@ -1022,15 +1029,89 @@ $cls = $status_class[$row['status']] ?? 'secondary';
 </td>
 ```
 
-**Aturan tombol aksi:**
-- Aksi destruktif (hapus, void) selalu `text-danger` + konfirmasi
-- Aksi edit hanya tampil jika status memungkinkan (cek kondisi)
-- Jika ada >2 aksi, pakai dropdown — jangan buat kolom terlalu lebar
-- Icon wajib ada untuk semua tombol (tidak boleh teks saja di tabel)
-- Untuk tabel yang memang butuh banyak tombol inline, pertahankan kolom aksi tetap satu baris dengan `nowrap + overflow-x auto`; rapatkan kolom lain dulu sebelum tombol dibiarkan turun baris
-- Di modul yang memakai tombol ikon inline, pakai kamus ikon yang konsisten: `Detail/Lihat = ri-eye-line`, `Edit/Ubah = ri-edit-line`, `Toggle Status = ri-refresh-line`, `Hapus = ri-delete-bin-line`, `Post = ri-checkbox-circle-line`
-- Khusus halaman `production/component-*`, pakai helper `production/_component_ops_tabs.php` dan ukuran tombol ikon besar: `38×38px` dengan ikon sekitar `1.12rem`; jangan kembali ke ukuran default `28×28`
-- Jangan tukar ikon detail ke `book-open`, `external-link`, atau ikon lain dalam modul yang sama kecuali maknanya benar-benar berbeda
+### 17.1 Prinsip Wajib
+
+- Kolom aksi tabel menggunakan tombol ikon, bukan teks polos.
+- Toolbar di luar tabel boleh memakai ikon + teks.
+- Gunakan class bersama `action-cell` + `action-icon-btn` untuk halaman umum.
+- Jangan buat variasi lokal baru (`user-actions`, `action-wrap`, `po-action-btn`, dll.) jika shared class yang ada sudah cukup.
+- Jika halaman memang punya workflow khusus dan padat, buat override lokal hanya bila shared class tidak cukup, lalu dokumentasikan di file ini.
+
+### 17.2 Bentuk, Ukuran, dan Model Tombol
+
+| Konteks | Class utama | Ukuran tombol | Ukuran ikon | Catatan |
+|---|---|---:|---:|---|
+| Aksi tabel umum | `action-icon-btn` | `28×28px` | `0.95rem` | Radius `8px`, icon-only |
+| Tombol teks pendek | `action-text-btn` | tinggi min `30px` | `0.95rem` | Untuk toolbar/filter ringan |
+| Produksi component | `component-action-btn` | `38×38px` | `~1.12rem` | Khusus `production/component-*` |
+| Dropdown trigger aksi | `btn btn-sm btn-outline-secondary` | ikut Bootstrap | `0.95rem` | Pakai `ri-more-2-line` |
+
+### 17.3 Kapan Pakai Icon-Only vs Icon+Teks
+
+- Kolom aksi per baris tabel: pakai icon-only.
+- Tombol aksi utama di header halaman: pakai ikon + teks.
+- Aksi destruktif dokumen besar di area detail/form: boleh ikon + teks agar dampaknya jelas.
+- Jika aksi inline per baris sudah `4` atau lebih, pindah ke dropdown.
+- Jika aksi hanya `1-3`, tetap inline dan satu baris.
+
+### 17.4 Kamus Ikon Aksi Kanonik
+
+| Aksi | Ikon standar | Warna default |
+|---|---|---|
+| Detail / Lihat | `ri-eye-line` | `btn-outline-info` |
+| Edit / Ubah | `ri-edit-line` | `btn-outline-primary` |
+| Tambah | `ri-add-line` | `btn-primary` / `btn-outline-primary` |
+| Hapus | `ri-delete-bin-line` | `btn-outline-danger` |
+| Void / Batal Dokumen | `ri-close-circle-line` | `btn-outline-danger` |
+| Post / Finalisasi | `ri-upload-2-line` | `btn-outline-success` / `btn-success` |
+| Toggle Status | `ri-refresh-line` | `btn-outline-warning` |
+| Approve / Verifikasi | `ri-check-line` | `btn-outline-success` |
+| Print | `ri-printer-line` | `btn-outline-secondary` |
+| Export / Download | `ri-download-cloud-line` | `btn-outline-secondary` |
+| Permission / Security | `ri-shield-keyhole-line` | `btn-outline-warning` |
+| Riwayat / Log | `ri-history-line` | `btn-outline-secondary` |
+| Formula / Relation | `ri-function-line` atau `ri-links-line` | `btn-outline-info` |
+| Checklist / Matrix | `ri-checkbox-multiple-line` | `btn-outline-info` |
+| More / Overflow | `ri-more-2-line` | `btn-outline-secondary` |
+
+### 17.5 Larangan dan Anti-Pattern
+
+- Jangan pakai `ri-pencil-line` untuk aksi edit normal. Standar edit adalah `ri-edit-line`.
+- Jangan campur tombol teks panjang di kolom aksi tabel yang sempit jika aksi itu bisa diwakili ikon.
+- Jangan campur ukuran `28×28`, `30×30`, `36×36` secara acak dalam modul yang sama.
+- Jangan pakai ikon berbeda untuk aksi yang sama dalam modul yang sama.
+- Jangan pakai `window.confirm()` untuk tombol aksi sensitif baru; lihat Bagian 18.
+- Jangan hilangkan `title` dan `aria-label` pada tombol icon-only.
+
+### 17.6 Struktur HTML yang Wajib Diikuti
+
+```php
+<td class="action-cell">
+    <div class="d-flex gap-1 flex-nowrap justify-content-end">
+        <a href="..." class="btn btn-sm btn-outline-info action-icon-btn" title="Detail" aria-label="Detail">
+            <i class="ri ri-eye-line"></i>
+        </a>
+        <a href="..." class="btn btn-sm btn-outline-primary action-icon-btn" title="Edit" aria-label="Edit">
+            <i class="ri ri-edit-line"></i>
+        </a>
+        <button type="button" class="btn btn-sm btn-outline-danger action-icon-btn" title="Hapus" aria-label="Hapus">
+            <i class="ri ri-delete-bin-line"></i>
+        </button>
+    </div>
+</td>
+```
+
+### 17.7 Temuan Audit yang Harus Dianggap Tidak Sesuai Standar
+
+- Halaman yang masih memakai wrapper lokal tanpa `action-cell` / `action-icon-btn` padahal aksinya icon-only harus dinormalisasi saat disentuh. Contoh saat audit ini: `users/index.php`, `attendance/schedules.php`, `purchase/stock_adjustment_index.php`.
+- Aksi `Edit` yang masih memakai `ri-pencil-line` harus diganti ke `ri-edit-line`. Contoh saat audit ini: `sidebar/manage.php`, `attendance/overtime_entries.php`, `payroll/manual_adjustments.php`, `payroll/cash_advances.php`, `procurement/store_requests.php`, `purchase/index.php`.
+- Tombol teks seperti `Post`, `Delete`, `Void`, `Hapus` di kolom aksi tabel sebaiknya diubah ke tombol ikon bila konteksnya memang aksi baris, bukan aksi header dokumen.
+
+### 17.8 Pengecualian yang Dibenarkan
+
+- Halaman `production/component-*` boleh tetap memakai `component-action-btn` karena ukuran dan densitasnya memang berbeda.
+- Tombol aksi di area form/detail yang bukan kolom tabel boleh tetap pakai ikon + teks jika perlu menekankan konsekuensi bisnis.
+- Jika satu aksi perlu label eksplisit demi keselamatan operasional, ikon + teks lebih diutamakan daripada icon-only.
 
 ---
 
@@ -1276,6 +1357,8 @@ Gunakan `td.action-cell` + `action-icon-btn` — jangan pernah pakai `flex-wrap`
 CSS yang berlaku (dari `app.css`):
 - `td.action-cell` → `white-space: nowrap`, `text-align: right`, `width: 1%`
 - `.action-icon-btn` → `28×28px`, `border-radius: 8px`, hover naik 1px
+- Ikon di dalam `action-icon-btn` → sekitar `0.95rem`
+- Untuk halaman `production/component-*`, gunakan `component-action-btn`, bukan `action-icon-btn`
 
 ### 21.5  Perbedaan Finance vs Core (referensi)
 

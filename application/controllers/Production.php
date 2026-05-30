@@ -36,7 +36,7 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.movement.index', 'view');
         $filters = $this->movement_filters();
-        $rows = $this->Production_model->component_movement_rows($filters, 300);
+        $rows = $this->Production_model->component_movement_rows($filters, (int)($filters['limit'] ?? 50));
 
         $this->render('production/component_movement_index', [
             'page_title' => 'Mutasi Base/Prepare',
@@ -127,6 +127,59 @@ class Production extends MY_Controller
         ]);
     }
 
+    public function component_reconcile()
+    {
+        $this->require_permission('production.component.daily.index', 'view');
+        $filters = $this->component_reconcile_filters();
+        $this->Production_model->ensure_component_daily_rollup_seeded();
+        $compare = $this->Production_model->component_reconcile_rows($filters, (int)($filters['limit'] ?? 50));
+
+        $this->render('production/component_reconcile_index', [
+            'page_title' => 'Rekonsiliasi Base/Prepare',
+            'active_menu' => 'production.component.reconcile',
+            'filters' => $filters,
+            'rows' => $compare['rows'] ?? [],
+            'summary' => $compare['summary'] ?? [],
+            'as_of_date' => $compare['as_of_date'] ?? ($filters['as_of_date'] ?? date('Y-m-d')),
+            'location_options' => $this->location_options(),
+            'divisions' => $this->active_divisions(),
+        ]);
+    }
+
+    public function component_reconcile_audit()
+    {
+        $this->require_permission('production.component.daily.index', 'view');
+        $filters = $this->component_reconcile_filters();
+        $this->Production_model->ensure_component_daily_rollup_seeded();
+        $result = $this->Production_model->component_reconcile_audit((string)($filters['as_of_date'] ?? ''), $filters);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Audit reconcile component gagal.'), 422);
+            return;
+        }
+        $this->json_ok($result);
+    }
+
+    public function component_reconcile_repair()
+    {
+        $this->require_permission('production.component.daily.index', 'edit');
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $result = $this->Production_model->repair_component_reconcile([
+            'location_type' => $this->normalize_location_filter($payload['location_type'] ?? ''),
+            'division_id' => (int)($payload['division_id'] ?? 0),
+            'component_id' => (int)($payload['component_id'] ?? 0),
+            'uom_id' => (int)($payload['uom_id'] ?? 0),
+        ]);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Repair reconcile component gagal.'), 422, $result['data'] ?? []);
+            return;
+        }
+        $this->json_ok($result);
+    }
+
     public function component_lots()
     {
         $this->require_permission('production.component.batch.index', 'view');
@@ -145,6 +198,22 @@ class Production extends MY_Controller
             'rows' => $rows,
             'filters' => $filters,
             'divisions' => $this->active_divisions(),
+        ]);
+    }
+
+    public function component_lot_usage($lotId)
+    {
+        $this->require_permission('production.component.batch.index', 'view');
+        $detail = $this->Production_model->component_lot_usage_detail((int)$lotId);
+        if (!($detail['ok'] ?? false)) {
+            show_error((string)($detail['message'] ?? 'Detail pemakaian lot component tidak ditemukan.'), 404, 'Not Found');
+            return;
+        }
+
+        $header = (array)($detail['header'] ?? []);
+        $this->render('production/component_lot_usage_detail', [
+            'page_title' => 'Pemakaian Lot ' . (string)($header['lot_no'] ?? '#'),
+            'detail' => $detail,
         ]);
     }
 
@@ -1091,11 +1160,15 @@ class Production extends MY_Controller
     {
         $dateFrom = trim((string)$this->input->get('date_from', true));
         $dateTo = trim((string)$this->input->get('date_to', true));
+        $limit = (int)$this->input->get('limit', true);
         if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateFrom)) {
             $dateFrom = date('Y-m-01');
         }
         if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateTo)) {
             $dateTo = date('Y-m-d');
+        }
+        if ($limit <= 0 || $limit > 500) {
+            $limit = 50;
         }
 
         return [
@@ -1105,6 +1178,7 @@ class Production extends MY_Controller
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
             'type' => $this->normalize_component_type_filter($this->input->get('type', true)),
+            'limit' => $limit,
         ];
     }
 
@@ -1121,6 +1195,29 @@ class Production extends MY_Controller
             'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
             'division_id' => (int)$this->input->get('division_id', true),
             'type' => $this->normalize_component_type_filter($this->input->get('type', true)),
+        ];
+    }
+
+    private function component_reconcile_filters(): array
+    {
+        $asOfDate = trim((string)$this->input->get('as_of_date', true));
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
+            $asOfDate = date('Y-m-d');
+        }
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 500) {
+            $limit = 50;
+        }
+
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'as_of_date' => $asOfDate,
+            'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
+            'division_id' => (int)$this->input->get('division_id', true),
+            'type' => $this->normalize_component_type_filter($this->input->get('type', true)),
+            'component_id' => (int)$this->input->get('component_id', true),
+            'uom_id' => (int)$this->input->get('uom_id', true),
+            'limit' => $limit,
         ];
     }
 

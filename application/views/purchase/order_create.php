@@ -1574,7 +1574,7 @@ foreach ($detailLines as $ln) {
         '<td class="line-inventory-col"><input type="number" class="form-control form-control-sm line-content text-end" min="0" step="0.01" value="' + num(l.content_per_buy || 0).toFixed(2) + '"' + (invDisabled ? ' disabled' : '') + '></td>' +
         '<td class="line-inventory-col"><input type="date" class="form-control form-control-sm line-expired" value="' + esc(expiredDate) + '"' + (invDisabled ? ' disabled' : '') + '></td>' +
         '<td><input type="number" class="form-control form-control-sm line-price text-end" min="0" step="0.01" value="' + num(l.unit_price || l.last_unit_price || 0).toFixed(2) + '"></td>' +
-        '<td><button type="button" class="btn btn-sm btn-outline-danger btn-remove-line">Hapus</button></td>' +
+        '<td class="action-cell"><div class="d-flex gap-1 flex-nowrap justify-content-end"><button type="button" class="btn btn-sm btn-outline-danger action-icon-btn btn-remove-line" title="Hapus" aria-label="Hapus"><i class="ri ri-delete-bin-line"></i></button></div></td>' +
       '</tr>');
     });
 

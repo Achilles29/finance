@@ -1495,7 +1495,7 @@ $rincianTabUrl = $buildTabUrl('rincian');
             '<div class="line-sub mt-1">' + escapeHtml(lotPreviewText(line)) + '</div>' +
           '</div>' +
           '<div class="component-adjustment-line-actions">' +
-            '<button type="button" class="btn btn-outline-secondary btn-sm" data-action="edit-line"><i class="ri ri-pencil-line me-1"></i>Edit</button>' +
+            '<button type="button" class="btn btn-outline-primary btn-sm" data-action="edit-line"><i class="ri ri-edit-line me-1"></i>Edit</button>' +
             '<button type="button" class="btn btn-outline-danger btn-sm" data-action="remove-line"><i class="ri ri-delete-bin-line me-1"></i>Hapus</button>' +
           '</div>' +
         '</div>' +

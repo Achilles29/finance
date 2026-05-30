@@ -13,17 +13,6 @@ $primaryFilterKey = (string)($config['primary_filter_key'] ?? 'mode');
     border-radius: 26px;
     box-shadow: 0 18px 48px rgba(126, 73, 35, .08);
   }
-  .loyalty-hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1.5fr) minmax(280px, .9fr);
-    gap: 1rem;
-  }
-  .loyalty-hero-card {
-    border: 1px solid #f0dfd2;
-    border-radius: 22px;
-    background: linear-gradient(145deg, #fffdfb 0%, #fff4eb 100%);
-    padding: 1.15rem 1.25rem;
-  }
   .loyalty-micro {
     display: inline-flex;
     align-items: center;
@@ -99,6 +88,44 @@ $primaryFilterKey = (string)($config['primary_filter_key'] ?? 'mode');
     color: #8a7063;
     margin-top: .15rem;
   }
+  .loyalty-ajax-item-layout {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+  }
+  .loyalty-ajax-thumb {
+    width: 50px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 12px;
+    background: #f9efe8;
+    border: 1px solid #ead7c8;
+    flex: 0 0 auto;
+  }
+  .loyalty-ajax-selected {
+    display: none;
+    margin-top: .55rem;
+    padding: .7rem .8rem;
+    border: 1px solid #ead7c8;
+    border-radius: 14px;
+    background: #fffaf6;
+  }
+  .loyalty-ajax-selected.is-show {
+    display: block;
+  }
+  .loyalty-save-spinner {
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid rgba(255,255,255,.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    display: inline-block;
+    animation: loyaltySpin .8s linear infinite;
+    vertical-align: middle;
+  }
+  @keyframes loyaltySpin {
+    to { transform: rotate(360deg); }
+  }
   .loyalty-table thead th {
     color: #7a6055;
     font-size: .8rem;
@@ -110,11 +137,6 @@ $primaryFilterKey = (string)($config['primary_filter_key'] ?? 'mode');
     padding-top: .85rem;
     padding-bottom: .85rem;
     border-bottom-color: #f4e8df;
-  }
-  @media (max-width: 991.98px) {
-    .loyalty-hero {
-      grid-template-columns: 1fr;
-    }
   }
 </style>
 
@@ -128,44 +150,11 @@ $primaryFilterKey = (string)($config['primary_filter_key'] ?? 'mode');
 
   <?php $this->load->view('loyalty/_tabs', ['promo_tab_active' => $promo_tab_active ?? '']); ?>
 
-  <div class="loyalty-hero mb-3">
-    <div class="loyalty-hero-card">
-      <div class="loyalty-micro mb-3"><?php echo html_escape((string)($config['entity_label'] ?? 'Data Loyalty')); ?></div>
-      <h5 class="mb-2">Bahasa pengaturannya kita bikin operasional</h5>
-      <div class="text-muted">Tidak perlu baca kode internal. Tinggal tentukan siapa yang dapat benefit, pemicunya apa, dan kapan programnya berlaku.</div>
-    </div>
-    <div class="loyalty-hero-card">
-      <div class="row g-2">
-        <div class="col-6">
-          <div class="loyalty-metric">
-            <div class="small text-muted">Fokus halaman</div>
-            <div class="fw-bold"><?php echo html_escape((string)($config['entity_label'] ?? 'Loyalty')); ?></div>
-          </div>
-        </div>
-        <div class="col-6">
-          <div class="loyalty-metric">
-            <div class="small text-muted">Pencarian produk</div>
-            <div class="fw-bold">Ajax nama produk</div>
-          </div>
-        </div>
-        <div class="col-12">
-          <div class="loyalty-metric">
-            <div class="small text-muted">Catatan arah</div>
-            <div class="fw-semibold">Voucher aktual dipisah dari promo voucher, jadi tim operasional tidak tercampur antara “aturan promo” dan “voucher yang benar-benar bisa dipakai”.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <div class="loyalty-filter-strip p-3 mb-3">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-      <div>
-        <h5 class="mb-1"><?php echo html_escape((string)($config['entity_label'] ?? 'Data')); ?></h5>
-        <div class="text-muted small">Pilih filter yang relevan, cari nama program atau produk, lalu buka form bila perlu ubah aturan.</div>
+        <div><h5 class="mb-1"><?php echo html_escape((string)($config['entity_label'] ?? 'Data')); ?></h5></div>
+        <button id="btn-new" type="button" class="btn btn-primary"><?php echo html_escape((string)($config['new_label'] ?? 'Tambah Data')); ?></button>
       </div>
-      <button id="btn-new" type="button" class="btn btn-primary"><?php echo html_escape((string)($config['new_label'] ?? 'Tambah Data')); ?></button>
-    </div>
 
     <div class="d-flex gap-2 flex-wrap mb-3" id="status-tabs">
       <button class="btn btn-sm loyalty-status-tab" data-status="ACTIVE">Aktif</button>
@@ -268,6 +257,7 @@ $primaryFilterKey = (string)($config['primary_filter_key'] ?? 'mode');
                       autocomplete="off"
                     >
                     <div class="loyalty-ajax-result" data-result="<?php echo html_escape($name); ?>"></div>
+                    <div class="loyalty-ajax-selected" data-selected-preview="<?php echo html_escape($name); ?>"></div>
                   </div>
                 <?php else: ?>
                   <input
@@ -287,7 +277,9 @@ $primaryFilterKey = (string)($config['primary_filter_key'] ?? 'mode');
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-light" data-bs-dismiss="modal">Batal</button>
-        <button type="button" class="btn btn-primary" id="btn-save">Simpan</button>
+        <button type="button" class="btn btn-primary" id="btn-save">
+          <span class="btn-label">Simpan</span>
+        </button>
       </div>
     </div>
   </div>
@@ -317,12 +309,17 @@ document.addEventListener('DOMContentLoaded', function () {
   const form = document.getElementById('form-save');
   const modalTitle = document.getElementById('promoModalLabel');
   const ajaxBoxes = Array.from(form.querySelectorAll('[data-ajax-field]'));
+  const saveButton = document.getElementById('btn-save');
+  const saveButtonLabel = saveButton ? saveButton.querySelector('.btn-label') : null;
 
   function escapeHtml(v) {
     return String(v ?? '').replace(/[&<>\"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[m]));
   }
   function money(v) {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Number(v || 0));
+  }
+  function percent(v, digits = 2) {
+    return `${number(v || 0, digits)}%`;
   }
   function number(v, digits = 2) {
     return new Intl.NumberFormat('id-ID', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Number(v || 0));
@@ -381,7 +378,36 @@ document.addEventListener('DOMContentLoaded', function () {
     if (type === 'money') return money(value || 0);
     if (type === 'number') return number(value || 0, 2);
     if (type === 'date') return fmtDate(value);
+    if (type === 'voucher_campaign_benefit') {
+      const voucherType = String(row.voucher_type || '').toUpperCase();
+      if (voucherType === 'PERCENT') return percent(value || 0, 2);
+      if (voucherType === 'FREE_PRODUCT') return `${number(row.free_qty || 0, 0)} produk`;
+      return money(value || 0);
+    }
+    if (type === 'voucher_issue_benefit') {
+      const voucherType = String(row.voucher_type || '').toUpperCase();
+      if (voucherType === 'PERCENT') return percent(row.percent_snapshot || 0, 2);
+      if (voucherType === 'FREE_PRODUCT') return 'Produk gratis';
+      return money(row.amount_snapshot || 0);
+    }
     return escapeHtml(value == null || value === '' ? '-' : String(value));
+  }
+  function renderAjaxSelected(box, row) {
+    const preview = box.querySelector('[data-selected-preview]');
+    if (!preview) return;
+    if (!row) {
+      preview.classList.remove('is-show');
+      preview.innerHTML = '';
+      return;
+    }
+    const kind = String(box.dataset.kind || 'ajax_product');
+    const title = kind === 'ajax_member' ? String(row.member_name || '') : String(row.product_name || '');
+    const meta = kind === 'ajax_member'
+      ? String(row.mobile_phone || '')
+      : [String(row.product_code || ''), String(row.product_division_name || ''), row.selling_price != null ? money(row.selling_price) : ''].filter(Boolean).join(' | ');
+    const thumb = row.photo_path ? `<img class="loyalty-ajax-thumb" src="${escapeHtml(row.photo_path)}" alt="${escapeHtml(title)}">` : '';
+    preview.innerHTML = `<div class="loyalty-ajax-item-layout">${thumb}<div><div class="loyalty-ajax-item-title">${escapeHtml(title)}</div>${meta ? `<div class="loyalty-ajax-item-sub">${escapeHtml(meta)}</div>` : ''}</div></div>`;
+    preview.classList.add('is-show');
   }
   function renderRows(rows) {
     if (!rows.length) {
@@ -397,6 +423,7 @@ document.addEventListener('DOMContentLoaded', function () {
           <div class="btn-group btn-group-sm">
             <button type="button" class="btn btn-outline-primary btn-edit" data-row="${encodeURIComponent(JSON.stringify(row))}">Edit</button>
             <button type="button" class="btn btn-outline-${Number(row.is_active || 0) === 1 ? 'danger' : 'success'} btn-toggle" data-id="${Number(row.id || 0)}">${Number(row.is_active || 0) === 1 ? 'Nonaktifkan' : 'Aktifkan'}</button>
+            <button type="button" class="btn btn-outline-dark btn-delete" data-id="${Number(row.id || 0)}">Hapus</button>
           </div>
         </td>
       </tr>
@@ -410,6 +437,15 @@ document.addEventListener('DOMContentLoaded', function () {
         await loadData();
       } catch (e) {
         alert(e.message || 'Gagal mengubah status');
+      }
+    }));
+    tableBody.querySelectorAll('.btn-delete').forEach((btn) => btn.addEventListener('click', async () => {
+      if (!confirm('Hapus data ini? Tindakan ini tidak bisa dibatalkan.')) return;
+      try {
+        await postJson(config.delete_base_url + '/' + Number(btn.dataset.id || 0), {});
+        await loadData();
+      } catch (e) {
+        alert(e.message || 'Gagal menghapus data');
       }
     }));
   }
@@ -473,6 +509,7 @@ document.addEventListener('DOMContentLoaded', function () {
         display.value = String(row.product_name || '');
       }
     }
+    renderAjaxSelected(box, row);
     closeAllAjaxResults();
   }
   function clearAjaxField(box) {
@@ -480,6 +517,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const display = box.querySelector('.loyalty-ajax-input');
     if (hidden) hidden.value = '';
     if (display) display.value = '';
+    renderAjaxSelected(box, null);
   }
   function fillForm(row) {
     form.reset();
@@ -563,11 +601,19 @@ document.addEventListener('DOMContentLoaded', function () {
           }
           resultEl.innerHTML = rows.map((row) => {
             const title = kind === 'ajax_member' ? String(row.member_name || '') : String(row.product_name || '');
-            const sub = kind === 'ajax_member' ? String(row.mobile_phone || '') : '';
+            const sub = kind === 'ajax_member'
+              ? String(row.mobile_phone || '')
+              : [String(row.product_code || ''), String(row.product_division_name || ''), row.selling_price != null ? money(row.selling_price) : ''].filter(Boolean).join(' | ');
+            const thumb = row.photo_path ? `<img class="loyalty-ajax-thumb" src="${escapeHtml(row.photo_path)}" alt="${escapeHtml(title)}">` : '';
             return `
               <div class="loyalty-ajax-item" data-row="${encodeURIComponent(JSON.stringify(row))}">
-                <div class="loyalty-ajax-item-title">${escapeHtml(title)}</div>
-                ${sub !== '' ? `<div class="loyalty-ajax-item-sub">${escapeHtml(sub)}</div>` : ''}
+                <div class="loyalty-ajax-item-layout">
+                  ${thumb}
+                  <div>
+                    <div class="loyalty-ajax-item-title">${escapeHtml(title)}</div>
+                    ${sub !== '' ? `<div class="loyalty-ajax-item-sub">${escapeHtml(sub)}</div>` : ''}
+                  </div>
+                </div>
               </div>
             `;
           }).join('');
@@ -610,12 +656,21 @@ document.addEventListener('DOMContentLoaded', function () {
     loadData().catch((e) => alert(e.message));
   });
   document.getElementById('btn-save').addEventListener('click', async () => {
+    if (saveButton) {
+      saveButton.disabled = true;
+      if (saveButtonLabel) saveButtonLabel.innerHTML = '<span class="loyalty-save-spinner me-2"></span>Menyimpan...';
+    }
     try {
       await postJson(config.save_url, collectPayload());
       modal.hide();
       await loadData();
     } catch (e) {
       alert(e.message || 'Gagal menyimpan data');
+    } finally {
+      if (saveButton) {
+        saveButton.disabled = false;
+        if (saveButtonLabel) saveButtonLabel.textContent = 'Simpan';
+      }
     }
   });
   syncControls();

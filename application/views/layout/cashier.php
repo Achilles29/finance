@@ -14,7 +14,7 @@ $activeSession = is_array($active_cashier_session ?? null) ? $active_cashier_ses
   .cashier-app-shell {
     min-height:100vh;
     display:grid;
-    grid-template-columns:74px minmax(0, 1fr);
+    grid-template-columns:90px minmax(0, 1fr);
   }
   .cashier-icon-rail {
     position:sticky;
@@ -31,10 +31,10 @@ $activeSession = is_array($active_cashier_session ?? null) ? $active_cashier_ses
     backdrop-filter: blur(12px);
   }
   .cashier-icon-brand {
-    width:44px; height:44px; border-radius:14px;
+    width:54px; height:54px; border-radius:16px;
     display:inline-flex; align-items:center; justify-content:center;
     background:linear-gradient(135deg,#8f3d33 0%, #cf624a 100%);
-    color:#fff; font-size:1.1rem;
+    color:#fff; font-size:.86rem; font-weight:900; letter-spacing:.08em;
     box-shadow:0 14px 28px rgba(143,61,51,.25);
   }
   .cashier-icon-nav {
@@ -45,12 +45,19 @@ $activeSession = is_array($active_cashier_session ?? null) ? $active_cashier_ses
     align-items:center;
   }
   .cashier-icon-link {
-    width:46px; height:46px; border-radius:16px;
-    display:inline-flex; align-items:center; justify-content:center;
+    width:58px; min-height:58px; border-radius:18px;
+    display:inline-flex; flex-direction:column; align-items:center; justify-content:center; gap:.18rem;
     background:rgba(255,255,255,.88);
     border:1px solid rgba(224,209,198,.9);
-    color:#6d5d58; text-decoration:none; font-size:1.12rem;
+    color:#6d5d58; text-decoration:none; font-size:1.02rem;
     box-shadow:0 10px 24px rgba(58,38,30,.06);
+  }
+  .cashier-icon-link-label {
+    font-size:.56rem;
+    font-weight:800;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    line-height:1;
   }
   .cashier-icon-link.active {
     background:linear-gradient(135deg,#8f3d33 0%, #cf624a 100%);
@@ -119,20 +126,24 @@ $activeSession = is_array($active_cashier_session ?? null) ? $active_cashier_ses
 <div class="cashier-layout">
   <div class="cashier-app-shell">
     <aside class="cashier-icon-rail">
-      <span class="cashier-icon-brand"><i class="ri-shopping-bag-3-line"></i></span>
+      <span class="cashier-icon-brand">NCE</span>
       <div class="cashier-icon-nav">
         <a href="<?= site_url('pos/cashier') ?>" class="cashier-icon-link<?= (($active_menu ?? '') === 'pos.cashier.index') ? ' active' : '' ?>" title="Kasir">
           <i class="ri-layout-grid-line"></i>
+          <span class="cashier-icon-link-label">Kasir</span>
         </a>
         <a href="<?= site_url('pos/printers/templates') ?>" class="cashier-icon-link" title="Printer">
           <i class="ri-printer-line"></i>
+          <span class="cashier-icon-link-label">Print</span>
         </a>
         <a href="<?= site_url('pos/orders/draft') ?>" class="cashier-icon-link" title="Workbench">
           <i class="ri-file-list-3-line"></i>
+          <span class="cashier-icon-link-label">Draft</span>
         </a>
       </div>
       <a href="<?= site_url('logout') ?>" class="cashier-icon-link logout" title="Logout">
         <i class="ri-logout-box-r-line"></i>
+        <span class="cashier-icon-link-label">Keluar</span>
       </a>
     </aside>
 
@@ -143,12 +154,9 @@ $activeSession = is_array($active_cashier_session ?? null) ? $active_cashier_ses
             <div class="cashier-brand">
               <div>
                 <div class="fw-bold text-dark">Kasir POS</div>
-                <div class="small text-muted">Mode fullscreen, fokus transaksi cepat.</div>
               </div>
             </div>
-            <div class="cashier-stage-note">
-              Tahap sekarang: buka kasir, input order, confirm stok, void/refund.
-            </div>
+            <div class="cashier-stage-note"></div>
             <div class="d-flex flex-wrap justify-content-end align-items-center gap-2">
               <?php if ($activeSession): ?>
                 <span class="cashier-topbar-chip">
@@ -158,6 +166,10 @@ $activeSession = is_array($active_cashier_session ?? null) ? $active_cashier_ses
                 <span class="cashier-topbar-chip">
                   <i class="ri-computer-line"></i>
                   <?= htmlspecialchars((string)($activeSession['terminal_name'] ?? '-'), ENT_QUOTES, 'UTF-8') ?>
+                </span>
+                <span class="cashier-topbar-chip">
+                  <i class="ri-time-line"></i>
+                  <?= htmlspecialchars((string)($activeSession['shift_no'] ?? '-'), ENT_QUOTES, 'UTF-8') ?>
                 </span>
                 <span class="cashier-topbar-chip">
                   <i class="ri-wallet-3-line"></i>

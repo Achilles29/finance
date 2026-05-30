@@ -46,6 +46,29 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
   .pos-order-draft-row { cursor:pointer; }
   .pos-order-draft-row:hover { background:#fff7f2; }
   .pos-order-mini-note { font-size:.78rem; color:#89756c; }
+  .pos-order-status-stack {
+    display:inline-flex;
+    flex-direction:column;
+    align-items:center;
+    gap:.35rem;
+  }
+  .pos-order-status-chip {
+    display:inline-flex;
+    align-items:center;
+    gap:.28rem;
+    padding:.2rem .58rem;
+    border-radius:999px;
+    font-size:.7rem;
+    font-weight:900;
+    white-space:nowrap;
+  }
+  .pos-order-status-chip.order-draft { background:#fff3cd; color:#8a5700; }
+  .pos-order-status-chip.order-confirmed { background:#dcfce7; color:#166534; }
+  .pos-order-status-chip.commit-queued { background:#e0f2fe; color:#075985; }
+  .pos-order-status-chip.commit-processing { background:#ede9fe; color:#5b21b6; }
+  .pos-order-status-chip.commit-posted { background:#dcfce7; color:#166534; }
+  .pos-order-status-chip.commit-failed { background:#fee2e2; color:#b91c1c; }
+  .pos-order-status-chip.commit-reversed { background:#f1f5f9; color:#334155; }
   .pos-reversal-line {
     border:1px solid rgba(224, 209, 198, .75); border-radius:14px; padding:.85rem 1rem;
     background:linear-gradient(135deg,#fffaf6 0%,#fff 100%);
@@ -706,6 +729,47 @@ document.addEventListener('DOMContentLoaded', function () {
     return p.toString();
   }
 
+  function orderStatusChip(status) {
+    const value = String(status || '').toUpperCase();
+    const label = value || '-';
+    const kind = value === 'CONFIRMED' ? 'order-confirmed' : 'order-draft';
+    return `<span class="pos-order-status-chip ${kind}">${escapeHtml(label)}</span>`;
+  }
+
+  function stockCommitChip(status) {
+    const value = String(status || '').toUpperCase();
+    if (!value) return '';
+    const map = {
+      PENDING: ['commit-queued', 'Stok PENDING'],
+      QUEUED: ['commit-queued', 'Stok QUEUED'],
+      PROCESSING: ['commit-processing', 'Stok PROCESSING'],
+      POSTED: ['commit-posted', 'Stok POSTED'],
+      FAILED: ['commit-failed', 'Stok FAILED'],
+      REVERSED: ['commit-reversed', 'Stok REVERSED']
+    };
+    const entry = map[value] || ['commit-queued', 'Stok ' + value];
+    return `<span class="pos-order-status-chip ${entry[0]}">${escapeHtml(entry[1])}</span>`;
+  }
+
+  function kickoffRuntimeJobSync(orderId, runtimeJobId) {
+    const safeOrderId = Number(orderId || 0);
+    const safeJobId = Number(runtimeJobId || 0);
+    if (safeOrderId <= 0 || safeJobId <= 0) {
+      return;
+    }
+    window.setTimeout(() => {
+      postJson(`<?php echo site_url('pos/orders/runtime-jobs/trigger'); ?>/${safeOrderId}`, {
+        job_id: safeJobId,
+        limit: 1
+      }).then(() => {
+        void loadDraft(safeOrderId).catch(() => {});
+        void loadRecents().catch(() => {});
+      }).catch(() => {
+        void loadRecents().catch(() => {});
+      });
+    }, 350);
+  }
+
   function syncRecentControls() {
     document.getElementById('recent_q').value = recentState.q;
     document.getElementById('recent_outlet_id').value = String(recentState.outlet_id || 0);
@@ -743,7 +807,12 @@ document.addEventListener('DOMContentLoaded', function () {
           <td><div class="fw-semibold">${escapeHtml(row.order_no || '-')}</div><div class="pos-order-mini-note">${escapeHtml(row.service_type || '-')} | ${escapeHtml(row.ordered_at || '-')}</div></td>
           <td><div>${escapeHtml(row.outlet_name || '-')}</div><div class="pos-order-mini-note">${escapeHtml(row.terminal_name || 'Tanpa Terminal')}</div></td>
           <td><div>${escapeHtml(row.employee_name || '-')}</div><div class="pos-order-mini-note">${escapeHtml(row.member_name || 'Walk in')}</div></td>
-          <td class="text-center"><span class="badge ${String(row.status || '').toUpperCase()==='CONFIRMED' ? 'bg-success-subtle text-success-emphasis' : 'bg-warning-subtle text-warning-emphasis'}">${escapeHtml(row.status || '-')}</span></td>
+          <td class="text-center">
+            <div class="pos-order-status-stack">
+              ${orderStatusChip(row.status || '-')}
+              ${stockCommitChip(row.stock_commit_status || '')}
+            </div>
+          </td>
           <td class="text-end fw-semibold">${money(row.grand_total || 0)}</td>
         </tr>
       `).join('');
@@ -823,6 +892,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     await saveDraft(true);
     const json = await postJson('<?php echo site_url('pos/orders/draft/confirm'); ?>/' + order.id, {});
+    kickoffRuntimeJobSync(order.id, Number(json.runtime_job_id || 0));
     alert(`Order berhasil dikonfirmasi.
 Commit No: ${json.commit_no || '-'}
 Resolved Line: ${Number(json.resolved_line_count || 0)}

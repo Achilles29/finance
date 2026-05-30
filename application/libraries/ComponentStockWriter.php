@@ -93,7 +93,17 @@ class ComponentStockWriter
         if ($db->trans_status() === false) {
             return ['ok' => false, 'message' => 'Posting opening gagal.'];
         }
-        return ['ok' => true];
+        return [
+            'ok' => true,
+            'availability_rebuild' => $this->trigger_availability_refresh(
+                array_values(array_unique(array_filter(array_map(static function (array $line): int {
+                    return (int)($line['component_id'] ?? 0);
+                }, $lines)))),
+                'COMPONENT_OPENING',
+                $actorEmployeeId,
+                $sourceId
+            ),
+        ];
     }
 
     public function post_adjustment(array $header, array $lines, int $actorEmployeeId = 0): array
@@ -230,7 +240,17 @@ class ComponentStockWriter
         if ($db->trans_status() === false) {
             return ['ok' => false, 'message' => 'Posting adjustment gagal.'];
         }
-        return ['ok' => true];
+        return [
+            'ok' => true,
+            'availability_rebuild' => $this->trigger_availability_refresh(
+                array_values(array_unique(array_filter(array_map(static function (array $line): int {
+                    return (int)($line['component_id'] ?? 0);
+                }, $lines)))),
+                'COMPONENT_ADJUSTMENT',
+                $actorEmployeeId,
+                $sourceId
+            ),
+        ];
     }
 
     public function post_batch(array $header, array $inputs, int $actorEmployeeId = 0): array
@@ -407,7 +427,20 @@ class ComponentStockWriter
         if ($db->trans_status() === false) {
             return ['ok' => false, 'message' => 'Posting batch gagal.'];
         }
-        return ['ok' => true];
+        return [
+            'ok' => true,
+            'availability_rebuild' => $this->trigger_availability_refresh(
+                array_values(array_unique(array_filter(array_merge(
+                    [(int)$componentIdOutput],
+                    array_map(static function (array $line): int {
+                        return (int)($line['component_id'] ?? 0);
+                    }, $inputs)
+                )))),
+                'COMPONENT_BATCH',
+                $actorEmployeeId,
+                $sourceId
+            ),
+        ];
     }
 
     private function post_document_movements(string $docType, array $header, array $lines, int $actorEmployeeId, array $sourceMeta): array
@@ -467,7 +500,46 @@ class ComponentStockWriter
         if ($db->trans_status() === false) {
             return ['ok' => false, 'message' => 'Posting dokumen gagal.'];
         }
-        return ['ok' => true];
+        return [
+            'ok' => true,
+            'availability_rebuild' => $this->trigger_availability_refresh(
+                array_values(array_unique(array_filter(array_map(static function (array $line): int {
+                    return (int)($line['component_id'] ?? 0);
+                }, $lines)))),
+                'COMPONENT_' . strtoupper($docType),
+                $actorEmployeeId,
+                $sourceId
+            ),
+        ];
+    }
+
+    private function trigger_availability_refresh(array $componentIds, string $eventSource, int $actorEmployeeId = 0, ?int $eventId = null): ?array
+    {
+        $componentIds = array_values(array_unique(array_filter(array_map('intval', $componentIds))));
+        if (empty($componentIds)) {
+            return null;
+        }
+
+        $this->ci->load->library('PosAvailabilityRebuildService');
+        $success = 0;
+        $failed = 0;
+        foreach ($componentIds as $componentId) {
+            $result = $this->ci->posavailabilityrebuildservice->handle_component_change($componentId, [
+                'trigger_context' => $eventSource,
+                'event_source' => $eventSource,
+                'event_table' => 'inv_component_movement_log',
+                'event_id' => $eventId,
+                'actor_employee_id' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+            ]);
+            $success += (int)($result['success_count'] ?? 0);
+            $failed += (int)($result['failed_count'] ?? 0);
+        }
+
+        return [
+            'component_count' => count($componentIds),
+            'success_count' => $success,
+            'failed_count' => $failed,
+        ];
     }
 
     private function post_single_movement(array $p): void
@@ -872,4 +944,3 @@ class ComponentStockWriter
         return in_array($locationType, ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT'], true) ? $locationType : null;
     }
 }
-

@@ -47,19 +47,6 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 ?>
 
 <style>
-  .att-schedules .action-wrap {
-    display: flex;
-    gap: .35rem;
-    align-items: center;
-  }
-  .att-schedules .action-wrap .btn {
-    min-height: 34px;
-    padding: 0 .55rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 9px;
-  }
   .att-schedules .table th,
   .att-schedules .table td {
     padding: 0.72rem 0.85rem;
@@ -114,7 +101,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
     <div class="table-responsive">
       <table class="table table-hover align-middle mb-0">
         <thead class="table-light">
-          <tr><th>Tanggal</th><th>NIP</th><th>Nama</th><th>Divisi</th><th>Shift</th><th>Catatan</th><?php if($canEdit||$canDelete): ?><th style="width:130px;">Aksi</th><?php endif; ?></tr>
+          <tr><th>Tanggal</th><th>NIP</th><th>Nama</th><th>Divisi</th><th>Shift</th><th>Catatan</th><?php if($canEdit||$canDelete): ?><th style="width:80px;" class="action-cell">Aksi</th><?php endif; ?></tr>
         </thead>
         <tbody>
         <?php if (empty($rows)): ?>
@@ -128,17 +115,17 @@ $buildPageItems = static function (int $page, int $totalPages): array {
             <td><?php echo html_escape((string)($r['shift_code'] ?? '-')); ?> - <?php echo html_escape((string)($r['shift_name'] ?? '')); ?></td>
             <td><?php echo html_escape((string)($r['notes'] ?? '-')); ?></td>
             <?php if($canEdit||$canDelete): ?>
-            <td>
-              <div class="action-wrap">
+            <td class="action-cell">
+              <div class="d-flex gap-1 flex-nowrap justify-content-end">
                 <?php if($canEdit): ?>
-                  <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editScheduleModal<?php echo (int)$r['id']; ?>" title="Edit">
-                    <i class="ri-edit-line me-1"></i><span>Edit</span>
+                  <button type="button" class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="modal" data-bs-target="#editScheduleModal<?php echo (int)$r['id']; ?>" title="Edit" aria-label="Edit">
+                    <i class="ri ri-edit-line"></i>
                   </button>
                 <?php endif; ?>
                 <?php if($canDelete): ?>
-                  <form method="post" action="<?php echo site_url('attendance/schedules/delete/'.(int)$r['id'].'?'.$buildQuery()); ?>" onsubmit="return confirm('Hapus jadwal ini?');">
-                    <button class="btn btn-outline-danger" type="submit" title="Hapus">
-                      <i class="ri-delete-bin-line me-1"></i><span>Hapus</span>
+                  <form method="post" action="<?php echo site_url('attendance/schedules/delete/'.(int)$r['id'].'?'.$buildQuery()); ?>" class="d-inline" onsubmit="return confirm('Hapus jadwal ini?');">
+                    <button class="btn btn-sm btn-outline-danger action-icon-btn" type="submit" title="Hapus" aria-label="Hapus">
+                      <i class="ri ri-delete-bin-line"></i>
                     </button>
                   </form>
                 <?php endif; ?>

@@ -6,7 +6,16 @@ ini adalah pengembangan dan penyempurnaan dari repo core (C:\xampp\htdocs\core).
 
 
 ======================= 
-/inventory/stock/adjustment/division harusnya juga memilih profil mana yang di adj ketika pilih item 
+
+skema bonus dan penilaian
+
+
+======================
+cek  pemakaian extra. saya order dengan extra TANPA NASI PUTIH dengan resep extra pada gambar. seharusnya component NASI PUTIH tidak keluar. tapi di mutasi keluar. cek juga untuk logika extra yang lain pastikan sinkron semua
+
+==============================
+kita lanjut ke ubah transaksi. yaitu ubah transaksi yang sudah disimpan. dengan catatan ubah ini tidak bisa mengurangi atau menghapus, untuk mengurangi dan menghapus menggunakan void.
+ubah transaksi dengan klik orderan lalu tinggal melakukan transaksi lag. ubah disini bisa mengganti nama customer saja, sales channel saja dan sterusnya, dan menambahkan produk. ketika di simpan transaksi lagi maka produk yang dicetak hanya produk baru
 
 
 ======================================================================= 

@@ -3,6 +3,43 @@ $filters = is_array($filters ?? null) ? $filters : [];
 $filterOptions = is_array($filter_options ?? null) ? $filter_options : [];
 $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [];
 ?>
+<style>
+  .loyalty-member-shell {
+    border: 1px solid #f0dfd2;
+    border-radius: 24px;
+    background: #fff;
+    box-shadow: 0 14px 36px rgba(126, 73, 35, .06);
+  }
+  .loyalty-member-status-tab.active,
+  .loyalty-member-status-tab:hover,
+  .loyalty-member-active-tab.active,
+  .loyalty-member-active-tab:hover {
+    background: #8f353a;
+    color: #fff;
+    border-color: #8f353a;
+  }
+  .loyalty-member-status-tab,
+  .loyalty-member-active-tab {
+    border-radius: 999px;
+    border: 1px solid #dcb7ab;
+    background: #fffaf6;
+    color: #81584d;
+    font-weight: 700;
+  }
+  .loyalty-member-save-spinner {
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid rgba(255,255,255,.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    display: inline-block;
+    animation: loyaltyMemberSpin .8s linear infinite;
+    vertical-align: middle;
+  }
+  @keyframes loyaltyMemberSpin {
+    to { transform: rotate(360deg); }
+  }
+</style>
 
 <div class="container-xxl py-3">
   <div class="fin-page-header">
@@ -14,7 +51,7 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
 
   <?php $this->load->view('loyalty/_tabs', ['promo_tab_active' => 'member']); ?>
 
-  <div class="card border-0 shadow-sm">
+  <div class="card border-0 shadow-sm loyalty-member-shell">
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center mb-3">
         <h5 class="mb-0">Database Member</h5>
@@ -22,15 +59,15 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
       </div>
 
       <div class="d-flex gap-2 flex-wrap mb-2" id="status-tabs">
-        <button class="btn btn-sm btn-outline-primary pos-status-tab" data-status="ACTIVE">Aktif</button>
-        <button class="btn btn-sm btn-outline-primary pos-status-tab" data-status="INACTIVE">Nonaktif</button>
-        <button class="btn btn-sm btn-outline-primary pos-status-tab" data-status="ALL">Semua</button>
+        <button class="btn btn-sm loyalty-member-active-tab pos-status-tab" data-status="ACTIVE">Aktif</button>
+        <button class="btn btn-sm loyalty-member-active-tab pos-status-tab" data-status="INACTIVE">Nonaktif</button>
+        <button class="btn btn-sm loyalty-member-active-tab pos-status-tab" data-status="ALL">Semua</button>
       </div>
       <div class="d-flex gap-2 flex-wrap mb-3" id="member-status-tabs">
-        <button class="btn btn-sm btn-outline-secondary pos-member-status-tab" data-member-status="ALL">Semua Status</button>
-        <button class="btn btn-sm btn-outline-secondary pos-member-status-tab" data-member-status="ACTIVE">Active</button>
-        <button class="btn btn-sm btn-outline-secondary pos-member-status-tab" data-member-status="SUSPENDED">Suspended</button>
-        <button class="btn btn-sm btn-outline-secondary pos-member-status-tab" data-member-status="CLOSED">Closed</button>
+        <button class="btn btn-sm loyalty-member-status-tab pos-member-status-tab" data-member-status="ALL">Semua Status</button>
+        <button class="btn btn-sm loyalty-member-status-tab pos-member-status-tab" data-member-status="ACTIVE">Active</button>
+        <button class="btn btn-sm loyalty-member-status-tab pos-member-status-tab" data-member-status="SUSPENDED">Suspended</button>
+        <button class="btn btn-sm loyalty-member-status-tab pos-member-status-tab" data-member-status="CLOSED">Closed</button>
       </div>
 
       <form id="filter-form" class="row g-2 mb-3">
@@ -155,7 +192,7 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-light" data-bs-dismiss="modal">Batal</button>
-        <button type="button" class="btn btn-primary" id="btn-save">Simpan</button>
+        <button type="button" class="btn btn-primary" id="btn-save"><span class="btn-label">Simpan</span></button>
       </div>
     </div>
   </div>
@@ -181,6 +218,8 @@ document.addEventListener('DOMContentLoaded', function () {
   const modal = (window.bootstrap && window.bootstrap.Modal) ? new window.bootstrap.Modal(modalEl) : null;
   const form = document.getElementById('form-save');
   const modalTitle = document.getElementById('memberModalLabel');
+  const saveButton = document.getElementById('btn-save');
+  const saveButtonLabel = saveButton ? saveButton.querySelector('.btn-label') : null;
 
   function escapeHtml(v) {
     return String(v ?? '').replace(/[&<>\"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[m]));
@@ -276,6 +315,7 @@ document.addEventListener('DOMContentLoaded', function () {
             <button type="button" class="btn btn-sm ${Number(r.is_active || 0) === 1 ? 'btn-outline-danger' : 'btn-outline-success'} btn-toggle" data-id="${Number(r.id || 0)}">
               ${Number(r.is_active || 0) === 1 ? 'Nonaktifkan' : 'Aktifkan'}
             </button>
+            <button type="button" class="btn btn-sm btn-outline-dark btn-delete" data-id="${Number(r.id || 0)}">Hapus</button>
           </div>
         </td>
       </tr>
@@ -367,24 +407,46 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
     const toggleBtn = e.target.closest('.btn-toggle');
-    if (!toggleBtn) return;
-    if (!confirm('Ubah status aktif member ini?')) return;
-    try {
-      await postJson(`<?php echo site_url('loyalty/members/toggle'); ?>/${toggleBtn.dataset.id}`, {});
-      await loadRows();
-    } catch (err) {
-      alert(err.message);
+    if (toggleBtn) {
+      if (!confirm('Ubah status aktif member ini?')) return;
+      try {
+        await postJson(`<?php echo site_url('loyalty/members/toggle'); ?>/${toggleBtn.dataset.id}`, {});
+        await loadRows();
+      } catch (err) {
+        alert(err.message);
+      }
+      return;
+    }
+
+    const deleteBtn = e.target.closest('.btn-delete');
+    if (deleteBtn) {
+      if (!confirm('Hapus member ini? Tindakan ini tidak bisa dibatalkan.')) return;
+      try {
+        await postJson(`<?php echo site_url('loyalty/members/delete'); ?>/${deleteBtn.dataset.id}`, {});
+        await loadRows();
+      } catch (err) {
+        alert(err.message);
+      }
     }
   });
 
   document.getElementById('btn-save').addEventListener('click', async () => {
     const payload = Object.fromEntries(new FormData(form).entries());
+    if (saveButton) {
+      saveButton.disabled = true;
+      if (saveButtonLabel) saveButtonLabel.innerHTML = '<span class="loyalty-member-save-spinner me-2"></span>Menyimpan...';
+    }
     try {
       await postJson('<?php echo site_url('loyalty/members/save'); ?>', payload);
       modal && modal.hide();
       await loadRows();
     } catch (err) {
       alert(err.message);
+    } finally {
+      if (saveButton) {
+        saveButton.disabled = false;
+        if (saveButtonLabel) saveButtonLabel.textContent = 'Simpan';
+      }
     }
   });
 

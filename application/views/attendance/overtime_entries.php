@@ -204,7 +204,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                 <td><span class="badge bg-<?php echo $statusClass; ?>"><?php echo html_escape($status); ?></span></td>
                 <td><?php echo html_escape((string)($r['notes'] ?? '-')); ?></td>
                 <td class="action-cell text-center">
-                  <a class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" href="<?php echo site_url('attendance/overtime-entries?' . $buildQuery(['edit_id' => (int)$r['id']])); ?>"><i class="ri ri-pencil-line"></i></a>
+                  <a class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit" href="<?php echo site_url('attendance/overtime-entries?' . $buildQuery(['edit_id' => (int)$r['id']])); ?>"><i class="ri ri-edit-line"></i></a>
                   <form method="post" action="<?php echo site_url('attendance/overtime-entries/delete/' . (int)$r['id']); ?>" class="d-inline" data-confirm="Hapus data lembur ini?">
                     <button type="submit" class="btn btn-sm btn-outline-danger action-icon-btn" data-bs-toggle="tooltip" title="Hapus" data-loading-label="Menghapus..."><i class="ri ri-delete-bin-line"></i></button>
                   </form>

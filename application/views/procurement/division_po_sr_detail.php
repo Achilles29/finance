@@ -77,8 +77,8 @@ if (!function_exists('finance_dreq_detail_badge')) {
   <div class="dreq-action-wrap">
     <a href="<?php echo site_url('procurement/division-po-sr'); ?>" class="btn btn-outline-secondary dreq-action-btn"><i class="ri ri-arrow-left-line"></i><span>Kembali</span></a>
     <?php if ($canEdit || $canVerify): ?>
-      <a href="<?php echo site_url('procurement/division-po-sr/edit/' . (int)($header['id'] ?? 0)); ?>" class="btn <?php echo $canVerify ? 'btn-outline-success' : 'btn-outline-warning'; ?> dreq-action-btn">
-        <i class="ri <?php echo $canVerify ? 'ri-check-line' : 'ri-pencil-line'; ?>"></i>
+      <a href="<?php echo site_url('procurement/division-po-sr/edit/' . (int)($header['id'] ?? 0)); ?>" class="btn <?php echo $canVerify ? 'btn-outline-success' : 'btn-outline-primary'; ?> dreq-action-btn">
+        <i class="ri <?php echo $canVerify ? 'ri-check-line' : 'ri-edit-line'; ?>"></i>
         <span><?php echo $canVerify ? 'Verifikasi' : 'Edit'; ?></span>
       </a>
     <?php endif; ?>

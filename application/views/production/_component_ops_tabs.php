@@ -15,6 +15,7 @@ $groups = [
         'links' => [
             ['key' => 'stock', 'label' => 'Stok Base/Prepare', 'url' => site_url('production/component-stock')],
             ['key' => 'movement', 'label' => 'Mutasi', 'url' => site_url('production/component-movements')],
+            ['key' => 'reconcile', 'label' => 'Reconcile', 'url' => site_url('production/component-reconcile')],
             ['key' => 'daily', 'label' => 'Daily Matrix', 'url' => site_url('production/component-daily')],
           ['key' => 'monthly', 'label' => 'Stok Bulanan', 'url' => site_url('production/component-monthly')],
             ['key' => 'lot', 'label' => 'Lot FIFO', 'url' => site_url('production/component-lots')],

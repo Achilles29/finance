@@ -575,6 +575,10 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     border-color: #cfa692;
     color: #5f2432;
   }
+  .pwd-cell-adjust-trigger .ri {
+    font-size: 0.95rem;
+    line-height: 1;
+  }
   .pwd-cell-adjust-glyph {
     display: block;
     line-height: 1;
@@ -1665,7 +1669,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
             : '<span class="pwd-cell-btn is-static ' + item.cls + '">' + valueText + '</span>';
           contentHtml = '<div class="pwd-cell-action-wrap">'
             + detailHtml
-            + '<button type="button" class="pwd-cell-adjust-trigger" data-action="adjust" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '" title="Adjustment langsung" aria-label="Adjustment langsung"><span class="pwd-cell-adjust-glyph" aria-hidden="true">&#9998;</span></button>'
+            + '<button type="button" class="pwd-cell-adjust-trigger" data-action="adjust" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '" title="Adjustment langsung" aria-label="Adjustment langsung"><i class="ri ri-edit-line" aria-hidden="true"></i></button>'
             + '</div>';
         } else if (Math.abs(valueContent) > 0.000001) {
           contentHtml = '<button type="button" class="pwd-cell-btn ' + item.cls + '" data-action="detail" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '">' + valueText + '</button>';

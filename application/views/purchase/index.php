@@ -99,8 +99,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
     .po-col-status {
         width: 11%;
     }
-    .po-col-action,
-    .po-action-cell {
+    .po-col-action {
         width: 7%;
         min-width: 86px;
     }
@@ -114,29 +113,6 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
         padding-left: 0.35rem;
         padding-right: 1.3rem;
         margin: 0 auto;
-    }
-    .po-cell-actions {
-        display: flex;
-        gap: 0.22rem;
-        align-items: center;
-        flex-wrap: nowrap;
-        justify-content: center;
-    }
-    .po-action-btn {
-        width: 1.85rem;
-        height: 1.85rem;
-        min-width: 1.85rem;
-        padding: 0 !important;
-        line-height: 1;
-        display: inline-flex;
-        justify-content: center;
-        align-items: center;
-        overflow: visible;
-        flex: 0 0 1.85rem;
-        border-radius: 0.45rem;
-    }
-    .po-action-btn i {
-        font-size: 0.9rem;
     }
     .po-tab-link {
         font-weight: 700;
@@ -783,26 +759,26 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
                                                 <?php endif; ?>
                                             </div>
                                         </td>
-                                        <td class="po-action-cell">
-                                            <div class="po-cell-actions">
-                                                <a href="<?php echo site_url('purchase-orders/detail/' . (int)($r['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-secondary po-action-btn" data-bs-toggle="tooltip" title="Detail" aria-label="Detail">
+                                        <td class="action-cell">
+                                            <div class="d-flex gap-1 flex-nowrap justify-content-end">
+                                                <a href="<?php echo site_url('purchase-orders/detail/' . (int)($r['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Detail" aria-label="Detail">
                                                     <i class="ri ri-eye-line"></i>
                                                 </a>
                                                 <?php if ($canEditPo && $canEditData): ?>
-                                                    <a href="<?php echo site_url('purchase-orders/edit/' . (int)($r['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-warning po-action-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit">
-                                                        <i class="ri ri-pencil-line"></i>
+                                                    <a href="<?php echo site_url('purchase-orders/edit/' . (int)($r['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit">
+                                                        <i class="ri ri-edit-line"></i>
                                                     </a>
                                                 <?php endif; ?>
                                                 <?php if (!$statusUpdateDisabled): ?>
-                                                    <button type="button" class="btn btn-sm btn-outline-primary btn-po-status-update po-action-btn" data-id="<?php echo (int)($r['id'] ?? 0); ?>" data-bs-toggle="tooltip" title="Update Status" aria-label="Update Status">
+                                                    <button type="button" class="btn btn-sm btn-outline-warning btn-po-status-update action-icon-btn" data-id="<?php echo (int)($r['id'] ?? 0); ?>" data-bs-toggle="tooltip" title="Update Status" aria-label="Update Status">
                                                         <i class="ri ri-refresh-line"></i>
                                                     </button>
                                                 <?php elseif ($requiresEditReview): ?>
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary po-action-btn" disabled title="Wajib review buyer via Edit Data dulu" aria-label="Update Status">
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary action-icon-btn" disabled title="Wajib review buyer via Edit Data dulu" aria-label="Update Status">
                                                         <i class="ri ri-refresh-line"></i>
                                                     </button>
                                                 <?php else: ?>
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary po-action-btn" disabled title="Butuh izin edit" aria-label="Update Status">
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary action-icon-btn" disabled title="Butuh izin edit" aria-label="Update Status">
                                                         <i class="ri ri-refresh-line"></i>
                                                     </button>
                                                 <?php endif; ?>

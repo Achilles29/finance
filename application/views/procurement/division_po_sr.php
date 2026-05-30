@@ -392,9 +392,9 @@ if (!function_exists('finance_dreq_status_badge')) {
                 </td>
                 <td class="text-end text-nowrap">
                   <div class="dreq-action-wrap">
-                    <a href="<?php echo site_url('procurement/division-po-sr/detail/' . $requestId); ?>" class="btn btn-sm btn-outline-secondary dreq-action-btn" title="Detail Pengajuan" aria-label="Detail Pengajuan"><i class="ri ri-eye-line"></i></a>
+                    <a href="<?php echo site_url('procurement/division-po-sr/detail/' . $requestId); ?>" class="btn btn-sm btn-outline-info dreq-action-btn" title="Detail Pengajuan" aria-label="Detail Pengajuan"><i class="ri ri-eye-line"></i></a>
                     <?php if ($canEditRow || $canVerifyRow): ?>
-                      <a href="<?php echo site_url('procurement/division-po-sr/edit/' . $requestId); ?>" class="btn btn-sm <?php echo $canVerifyRow ? 'btn-outline-success' : 'btn-outline-warning'; ?> dreq-action-btn" title="<?php echo $canVerifyRow ? 'Verifikasi Pengajuan' : 'Edit Pengajuan'; ?>" aria-label="<?php echo $canVerifyRow ? 'Verifikasi Pengajuan' : 'Edit Pengajuan'; ?>"><i class="ri <?php echo $canVerifyRow ? 'ri-check-line' : 'ri-pencil-line'; ?>"></i></a>
+                      <a href="<?php echo site_url('procurement/division-po-sr/edit/' . $requestId); ?>" class="btn btn-sm <?php echo $canVerifyRow ? 'btn-outline-success' : 'btn-outline-primary'; ?> dreq-action-btn" title="<?php echo $canVerifyRow ? 'Verifikasi Pengajuan' : 'Edit Pengajuan'; ?>" aria-label="<?php echo $canVerifyRow ? 'Verifikasi Pengajuan' : 'Edit Pengajuan'; ?>"><i class="ri <?php echo $canVerifyRow ? 'ri-check-line' : 'ri-edit-line'; ?>"></i></a>
                     <?php endif; ?>
                   </div>
                 </td>

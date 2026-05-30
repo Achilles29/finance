@@ -4,7 +4,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 class PosStockCommitService
 {
     protected $CI;
-    protected $allowedCommitStatuses = ['DRAFT', 'COMMITTED', 'PARTIAL_REVERSED', 'REVERSED', 'VOID'];
+    protected $allowedCommitStatuses = ['DRAFT', 'QUEUED', 'PROCESSING', 'COMMITTED', 'FAILED', 'PARTIAL_REVERSED', 'REVERSED', 'VOID'];
     protected $allowedCommitReasons = ['ORDER_CONFIRM', 'VOID_REVERSAL', 'REFUND_REVERSAL', 'MANUAL'];
     protected $allowedProcessStates = ['NONE', 'PARTIAL', 'FULL'];
     protected $allowedLineTypes = ['PRODUCT', 'EXTRA'];
@@ -98,6 +98,23 @@ class PosStockCommitService
     public function mark_committed(int $commitId): array
     {
         return $this->update_commit_status($commitId, 'COMMITTED', ['committed_at' => date('Y-m-d H:i:s')]);
+    }
+
+    public function mark_queued(int $commitId): array
+    {
+        return $this->update_commit_status($commitId, 'QUEUED');
+    }
+
+    public function mark_processing(int $commitId): array
+    {
+        return $this->update_commit_status($commitId, 'PROCESSING');
+    }
+
+    public function mark_failed(int $commitId, string $message = ''): array
+    {
+        return $this->update_commit_status($commitId, 'FAILED', [
+            'notes' => $this->merge_note_from_current($commitId, $message),
+        ]);
     }
 
     public function mark_reversed(int $commitId, string $status = 'REVERSED'): array
@@ -307,6 +324,12 @@ class PosStockCommitService
             return $append;
         }
         return $current . ' | ' . $append;
+    }
+
+    protected function merge_note_from_current(int $commitId, string $append)
+    {
+        $row = $this->CI->db->from('pos_stock_commit')->where('id', $commitId)->limit(1)->get()->row_array();
+        return $this->merge_note((string)($row['notes'] ?? ''), $append);
     }
 
     protected function generate_commit_no(): string

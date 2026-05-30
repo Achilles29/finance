@@ -32,7 +32,7 @@ $statusClass = [
   <div class="sr-detail-action-wrap">
     <a href="<?php echo site_url('store-requests'); ?>" class="btn btn-outline-secondary sr-detail-action-btn"><i class="ri ri-arrow-left-line"></i><span>Kembali</span></a>
     <?php if ($status === 'DRAFT'): ?>
-      <a href="<?php echo site_url('store-requests/edit/' . (int)($header['id'] ?? 0)); ?>" class="btn btn-outline-warning sr-detail-action-btn"><i class="ri ri-pencil-line"></i><span>Edit Draft</span></a>
+      <a href="<?php echo site_url('store-requests/edit/' . (int)($header['id'] ?? 0)); ?>" class="btn btn-outline-primary sr-detail-action-btn"><i class="ri ri-edit-line"></i><span>Edit Draft</span></a>
     <?php endif; ?>
   </div>
 </div>

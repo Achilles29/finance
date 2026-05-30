@@ -399,6 +399,9 @@ class Production_model extends CI_Model
             m.source_module,
             m.source_table,
             m.source_id,
+            m.source_line_id,
+            m.lot_no_snapshot,
+            m.received_date_snapshot,
             m.notes
         ", false);
         $this->db->from('inv_component_movement_log m');
@@ -427,21 +430,128 @@ class Production_model extends CI_Model
                 ->or_like('m.movement_no', $q)
                 ->group_end();
         }
-
-        $this->apply_component_display_order(
-            $divisionNameColumn !== null ? ('d.' . $divisionNameColumn) : 'm.division_id',
-            'c.component_type',
-            'c.component_name'
-        );
-        $this->db->order_by('m.movement_datetime', 'DESC');
-        $this->db->limit(max(1, (int)$limit));
+        $this->db->order_by('m.movement_date', 'ASC');
+        $this->db->order_by('m.movement_datetime', 'ASC');
+        $this->db->order_by('m.id', 'ASC');
         $rows = $this->db->get()->result_array();
+        $rows = $this->attach_component_movement_balances($rows, $dateFrom);
         foreach ($rows as &$row) {
             $row['movement_type_label'] = $this->component_movement_type_label((string)($row['movement_type'] ?? ''));
         }
         unset($row);
 
+        usort($rows, static function (array $left, array $right): int {
+            $timeCompare = strcmp((string)($right['movement_datetime'] ?? ''), (string)($left['movement_datetime'] ?? ''));
+            if ($timeCompare !== 0) {
+                return $timeCompare;
+            }
+            return (int)($right['id'] ?? 0) <=> (int)($left['id'] ?? 0);
+        });
+
+        return max(1, (int)$limit) > 0 ? array_slice($rows, 0, max(1, (int)$limit)) : $rows;
+    }
+
+    private function attach_component_movement_balances(array $rows, string $dateFrom): array
+    {
+        if (empty($rows)) {
+            return $rows;
+        }
+
+        $runningBalances = $this->component_movement_opening_balances_before_date($rows, $dateFrom);
+        foreach ($rows as &$row) {
+            $key = $this->component_movement_balance_key($row);
+            $beforeQty = (float)($runningBalances[$key] ?? 0.0);
+            $deltaQty = round((float)($row['qty_in'] ?? 0) - (float)($row['qty_out'] ?? 0), 4);
+            $afterQty = round($beforeQty + $deltaQty, 4);
+
+            $row['qty_before'] = round($beforeQty, 4);
+            $row['qty_delta'] = $deltaQty;
+            $row['qty_after'] = $afterQty;
+            $runningBalances[$key] = $afterQty;
+        }
+        unset($row);
+
         return $rows;
+    }
+
+    private function component_movement_opening_balances_before_date(array $rows, string $dateFrom): array
+    {
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateFrom)) {
+            return [];
+        }
+
+        $locationTypes = [];
+        $componentIds = [];
+        $uomIds = [];
+        $divisionIds = [];
+        $hasNullDivision = false;
+        foreach ($rows as $row) {
+            $locationType = strtoupper(trim((string)($row['location_type'] ?? '')));
+            $componentId = (int)($row['component_id'] ?? 0);
+            $uomId = (int)($row['uom_id'] ?? 0);
+            $divisionId = array_key_exists('division_id', $row) && $row['division_id'] !== null ? (int)$row['division_id'] : null;
+            if ($locationType === '' || $componentId <= 0 || $uomId <= 0) {
+                continue;
+            }
+            $locationTypes[$locationType] = $locationType;
+            $componentIds[$componentId] = $componentId;
+            $uomIds[$uomId] = $uomId;
+            if ($divisionId === null) {
+                $hasNullDivision = true;
+            } else {
+                $divisionIds[$divisionId] = $divisionId;
+            }
+        }
+
+        if (empty($locationTypes) || empty($componentIds) || empty($uomIds)) {
+            return [];
+        }
+
+        $query = $this->db->select('m.location_type, COALESCE(m.division_id, 0) AS division_id_key, m.component_id, m.uom_id, COALESCE(SUM(m.qty_in - m.qty_out), 0) AS qty_before', false)
+            ->from('inv_component_movement_log m')
+            ->where('m.movement_date <', $dateFrom)
+            ->where_in('m.location_type', array_values($locationTypes))
+            ->where_in('m.component_id', array_values($componentIds))
+            ->where_in('m.uom_id', array_values($uomIds));
+
+        if (!empty($divisionIds) && $hasNullDivision) {
+            $query->group_start()
+                ->where_in('m.division_id', array_values($divisionIds))
+                ->or_where('m.division_id IS NULL', null, false)
+                ->group_end();
+        } elseif (!empty($divisionIds)) {
+            $query->where_in('m.division_id', array_values($divisionIds));
+        } elseif ($hasNullDivision) {
+            $query->where('m.division_id IS NULL', null, false);
+        }
+
+        $balanceRows = $query
+            ->group_by(['m.location_type', 'division_id_key', 'm.component_id', 'm.uom_id'])
+            ->get()
+            ->result_array();
+
+        $balances = [];
+        foreach ($balanceRows as $balanceRow) {
+            $key = implode('|', [
+                strtoupper(trim((string)($balanceRow['location_type'] ?? ''))),
+                (int)($balanceRow['division_id_key'] ?? 0),
+                (int)($balanceRow['component_id'] ?? 0),
+                (int)($balanceRow['uom_id'] ?? 0),
+            ]);
+            $balances[$key] = round((float)($balanceRow['qty_before'] ?? 0), 4);
+        }
+
+        return $balances;
+    }
+
+    private function component_movement_balance_key(array $row): string
+    {
+        return implode('|', [
+            strtoupper(trim((string)($row['location_type'] ?? ''))),
+            (int)($row['division_id'] ?? 0),
+            (int)($row['component_id'] ?? 0),
+            (int)($row['uom_id'] ?? 0),
+        ]);
     }
 
     private function component_movement_type_label(string $movementType): string
@@ -890,6 +1000,710 @@ class Production_model extends CI_Model
         $rows = $this->attach_component_lot_summaries($rows);
 
         return $limit > 0 ? array_slice($rows, 0, $limit) : $rows;
+    }
+
+    public function component_reconcile_rows(array $filters, int $limit = 300): array
+    {
+        $asOfDate = trim((string)($filters['as_of_date'] ?? ''));
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
+            $asOfDate = date('Y-m-d');
+        }
+        $q = trim((string)($filters['q'] ?? ''));
+        $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
+        $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
+        $componentIdFilter = !empty($filters['component_id']) ? (int)$filters['component_id'] : 0;
+        $uomIdFilter = !empty($filters['uom_id']) ? (int)$filters['uom_id'] : 0;
+        $divisionNameColumn = $this->division_name_column();
+
+        $liveMap = [];
+        if ($this->db->table_exists('inv_component_stock_balance')) {
+            $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+            $this->db->select('s.location_type, s.division_id, ' . $divisionNameSelect . ', s.component_id, c.component_code, c.component_name, c.component_type, s.uom_id, u.code AS uom_code, s.qty_on_hand, s.avg_cost, s.total_value, s.last_txn_at', false)
+                ->from('inv_component_stock_balance s')
+                ->join('mst_component c', 'c.id = s.component_id', 'inner')
+                ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
+                ->join('mst_uom u', 'u.id = s.uom_id', 'left');
+            $this->apply_component_location_filter('s.location_type', $locationType);
+            if ($divisionId > 0) {
+                $this->db->where('s.division_id', $divisionId);
+            }
+            if ($componentIdFilter > 0) {
+                $this->db->where('s.component_id', $componentIdFilter);
+            }
+            if ($uomIdFilter > 0) {
+                $this->db->where('s.uom_id', $uomIdFilter);
+            }
+            if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+                $this->db->where('c.component_type', $componentType);
+            }
+            if ($q !== '') {
+                $this->db->group_start()
+                    ->like('c.component_code', $q)
+                    ->or_like('c.component_name', $q);
+                if ($divisionNameColumn !== null) {
+                    $this->db->or_like('d.' . $divisionNameColumn, $q);
+                }
+                $this->db->group_end();
+            }
+            $liveRows = $this->db->get()->result_array();
+            foreach ($liveRows as $row) {
+                $key = $this->component_identity_key((string)($row['location_type'] ?? ''), $row['division_id'] ?? null, (int)($row['component_id'] ?? 0), (int)($row['uom_id'] ?? 0));
+                $liveMap[$key] = [
+                    'location_type' => (string)($row['location_type'] ?? ''),
+                    'division_id' => $row['division_id'] !== null ? (int)$row['division_id'] : null,
+                    'division_name' => (string)($row['division_name'] ?? '-'),
+                    'component_id' => (int)($row['component_id'] ?? 0),
+                    'component_code' => (string)($row['component_code'] ?? ''),
+                    'component_name' => (string)($row['component_name'] ?? ''),
+                    'component_type' => (string)($row['component_type'] ?? ''),
+                    'uom_id' => (int)($row['uom_id'] ?? 0),
+                    'uom_code' => (string)($row['uom_code'] ?? ''),
+                    'balance_qty' => round((float)($row['qty_on_hand'] ?? 0), 4),
+                    'balance_avg_cost' => round((float)($row['avg_cost'] ?? 0), 6),
+                    'balance_total_value' => round((float)($row['total_value'] ?? 0), 2),
+                    'balance_last_txn_at' => (string)($row['last_txn_at'] ?? ''),
+                ];
+            }
+        }
+
+        $dailyMap = [];
+        if ($this->db->table_exists('inv_component_daily_rollup')) {
+            $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+            $this->db->select('r.movement_date, r.location_type, r.division_id, ' . $divisionNameSelect . ', r.component_id, c.component_code, c.component_name, c.component_type, r.uom_id, u.code AS uom_code, r.closing_qty, r.avg_cost, r.total_value', false)
+                ->from('inv_component_daily_rollup r')
+                ->join('mst_component c', 'c.id = r.component_id', 'inner')
+                ->join('mst_operational_division d', 'd.id = r.division_id', 'left')
+                ->join('mst_uom u', 'u.id = r.uom_id', 'left')
+                ->where('r.movement_date <=', $asOfDate);
+            $this->apply_component_location_filter('r.location_type', $locationType);
+            if ($divisionId > 0) {
+                $this->db->where('r.division_id', $divisionId);
+            }
+            if ($componentIdFilter > 0) {
+                $this->db->where('r.component_id', $componentIdFilter);
+            }
+            if ($uomIdFilter > 0) {
+                $this->db->where('r.uom_id', $uomIdFilter);
+            }
+            if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+                $this->db->where('c.component_type', $componentType);
+            }
+            if ($q !== '') {
+                $this->db->group_start()
+                    ->like('c.component_code', $q)
+                    ->or_like('c.component_name', $q);
+                if ($divisionNameColumn !== null) {
+                    $this->db->or_like('d.' . $divisionNameColumn, $q);
+                }
+                $this->db->group_end();
+            }
+            $dailyRows = $this->db
+                ->order_by('r.movement_date', 'ASC')
+                ->order_by('r.id', 'ASC')
+                ->get()
+                ->result_array();
+            foreach ($dailyRows as $row) {
+                $key = $this->component_identity_key((string)($row['location_type'] ?? ''), $row['division_id'] ?? null, (int)($row['component_id'] ?? 0), (int)($row['uom_id'] ?? 0));
+                $dailyMap[$key] = [
+                    'daily_date' => (string)($row['movement_date'] ?? ''),
+                    'daily_qty' => round((float)($row['closing_qty'] ?? 0), 4),
+                    'daily_avg_cost' => round((float)($row['avg_cost'] ?? 0), 6),
+                    'daily_total_value' => round((float)($row['total_value'] ?? 0), 2),
+                    'location_type' => (string)($row['location_type'] ?? ''),
+                    'division_id' => $row['division_id'] !== null ? (int)$row['division_id'] : null,
+                    'division_name' => (string)($row['division_name'] ?? '-'),
+                    'component_id' => (int)($row['component_id'] ?? 0),
+                    'component_code' => (string)($row['component_code'] ?? ''),
+                    'component_name' => (string)($row['component_name'] ?? ''),
+                    'component_type' => (string)($row['component_type'] ?? ''),
+                    'uom_id' => (int)($row['uom_id'] ?? 0),
+                    'uom_code' => (string)($row['uom_code'] ?? ''),
+                ];
+            }
+        }
+
+        $movementMap = [];
+        if ($this->db->table_exists('inv_component_movement_log')) {
+            $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+            $this->db->select('m.id, m.movement_no, m.movement_date, m.movement_datetime, m.location_type, m.division_id, ' . $divisionNameSelect . ', m.component_id, c.component_code, c.component_name, c.component_type, m.uom_id, u.code AS uom_code, m.movement_type, m.qty_in, m.qty_out, m.unit_cost, m.total_cost, m.source_module, m.source_table, m.source_id, m.source_line_id, m.notes', false)
+                ->from('inv_component_movement_log m')
+                ->join('mst_component c', 'c.id = m.component_id', 'inner')
+                ->join('mst_operational_division d', 'd.id = m.division_id', 'left')
+                ->join('mst_uom u', 'u.id = m.uom_id', 'left')
+                ->where('m.movement_date <=', $asOfDate);
+            $this->apply_component_location_filter('m.location_type', $locationType);
+            if ($divisionId > 0) {
+                $this->db->where('m.division_id', $divisionId);
+            }
+            if ($componentIdFilter > 0) {
+                $this->db->where('m.component_id', $componentIdFilter);
+            }
+            if ($uomIdFilter > 0) {
+                $this->db->where('m.uom_id', $uomIdFilter);
+            }
+            if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+                $this->db->where('c.component_type', $componentType);
+            }
+            if ($q !== '') {
+                $this->db->group_start()
+                    ->like('c.component_code', $q)
+                    ->or_like('c.component_name', $q);
+                if ($divisionNameColumn !== null) {
+                    $this->db->or_like('d.' . $divisionNameColumn, $q);
+                }
+                $this->db->group_end();
+            }
+            $movementRows = $this->db
+                ->order_by('m.movement_date', 'ASC')
+                ->order_by('m.movement_datetime', 'ASC')
+                ->order_by('m.id', 'ASC')
+                ->get()
+                ->result_array();
+            $runningQty = [];
+            $runningAvg = [];
+            $runningValue = [];
+            foreach ($movementRows as $row) {
+                $key = $this->component_identity_key((string)($row['location_type'] ?? ''), $row['division_id'] ?? null, (int)($row['component_id'] ?? 0), (int)($row['uom_id'] ?? 0));
+                $beforeQty = (float)($runningQty[$key] ?? 0);
+                $beforeAvg = (float)($runningAvg[$key] ?? 0);
+                $beforeValue = (float)($runningValue[$key] ?? 0);
+                $qtyIn = round((float)($row['qty_in'] ?? 0), 4);
+                $qtyOut = round((float)($row['qty_out'] ?? 0), 4);
+                $qtyAfter = round($beforeQty + $qtyIn - $qtyOut, 4);
+                $unitCost = round((float)($row['unit_cost'] ?? 0), 6);
+                $incomingValue = round($qtyIn * $unitCost, 2);
+                if ($qtyIn > 0) {
+                    $valueAfter = round($beforeValue + $incomingValue, 2);
+                } elseif ($qtyOut > 0) {
+                    $avgForOut = $beforeAvg > 0 ? $beforeAvg : $unitCost;
+                    $valueAfter = round($beforeValue - ($qtyOut * $avgForOut), 2);
+                } else {
+                    $valueAfter = $beforeValue;
+                }
+                if (abs($qtyAfter) < 0.0001) {
+                    $qtyAfter = 0.0;
+                }
+                if (abs($valueAfter) < 0.01) {
+                    $valueAfter = 0.0;
+                }
+                $avgAfter = abs($qtyAfter) > 0.0001 ? round($valueAfter / $qtyAfter, 6) : 0.0;
+
+                $runningQty[$key] = $qtyAfter;
+                $runningAvg[$key] = $avgAfter;
+                $runningValue[$key] = $valueAfter;
+                $movementMap[$key] = [
+                    'movement_date' => (string)($row['movement_date'] ?? ''),
+                    'movement_datetime' => (string)($row['movement_datetime'] ?? ''),
+                    'movement_no' => (string)($row['movement_no'] ?? ''),
+                    'movement_qty' => $qtyAfter,
+                    'movement_avg_cost' => $avgAfter,
+                    'movement_total_value' => round($valueAfter, 2),
+                    'location_type' => (string)($row['location_type'] ?? ''),
+                    'division_id' => $row['division_id'] !== null ? (int)$row['division_id'] : null,
+                    'division_name' => (string)($row['division_name'] ?? '-'),
+                    'component_id' => (int)($row['component_id'] ?? 0),
+                    'component_code' => (string)($row['component_code'] ?? ''),
+                    'component_name' => (string)($row['component_name'] ?? ''),
+                    'component_type' => (string)($row['component_type'] ?? ''),
+                    'uom_id' => (int)($row['uom_id'] ?? 0),
+                    'uom_code' => (string)($row['uom_code'] ?? ''),
+                ];
+            }
+        }
+
+        $allKeys = array_unique(array_merge(array_keys($liveMap), array_keys($dailyMap), array_keys($movementMap)));
+        $rows = [];
+        foreach ($allKeys as $key) {
+            $base = $liveMap[$key] ?? $dailyMap[$key] ?? $movementMap[$key] ?? [];
+            if (empty($base)) {
+                continue;
+            }
+            $balanceQty = round((float)($liveMap[$key]['balance_qty'] ?? 0), 4);
+            $dailyQty = round((float)($dailyMap[$key]['daily_qty'] ?? 0), 4);
+            $movementQty = round((float)($movementMap[$key]['movement_qty'] ?? 0), 4);
+            $verdict = $this->build_component_reconcile_verdict(
+                $balanceQty,
+                $dailyQty,
+                $movementQty,
+                [
+                    'daily_date' => (string)($dailyMap[$key]['daily_date'] ?? ''),
+                    'movement_date' => (string)($movementMap[$key]['movement_date'] ?? ''),
+                ]
+            );
+            $rows[] = [
+                'location_type' => (string)($base['location_type'] ?? ''),
+                'division_id' => $base['division_id'] !== null ? (int)$base['division_id'] : null,
+                'division_name' => (string)($base['division_name'] ?? '-'),
+                'component_id' => (int)($base['component_id'] ?? 0),
+                'component_code' => (string)($base['component_code'] ?? ''),
+                'component_name' => (string)($base['component_name'] ?? ''),
+                'component_type' => (string)($base['component_type'] ?? ''),
+                'uom_id' => (int)($base['uom_id'] ?? 0),
+                'uom_code' => (string)($base['uom_code'] ?? ''),
+                'balance_qty' => $balanceQty,
+                'daily_qty' => $dailyQty,
+                'movement_qty' => $movementQty,
+                'delta_balance_daily' => round($balanceQty - $dailyQty, 4),
+                'delta_balance_movement' => round($balanceQty - $movementQty, 4),
+                'delta_daily_movement' => round($dailyQty - $movementQty, 4),
+                'daily_date' => (string)($dailyMap[$key]['daily_date'] ?? ''),
+                'movement_date' => (string)($movementMap[$key]['movement_date'] ?? ''),
+                'movement_no' => (string)($movementMap[$key]['movement_no'] ?? ''),
+                'suspect_table' => (string)($verdict['suspect_table'] ?? 'MATCH'),
+                'suspect_reason' => (string)($verdict['reason'] ?? ''),
+                'is_match' => abs($balanceQty - $dailyQty) < 0.0001
+                    && abs($balanceQty - $movementQty) < 0.0001
+                    && abs($dailyQty - $movementQty) < 0.0001,
+            ];
+        }
+
+        usort($rows, function (array $left, array $right): int {
+            return $this->compare_component_display_rows($left, $right);
+        });
+
+        if ($limit > 0) {
+            $rows = array_slice($rows, 0, $limit);
+        }
+
+        return [
+            'as_of_date' => $asOfDate,
+            'rows' => $rows,
+            'summary' => [
+                'total' => count($rows),
+                'matched' => count(array_filter($rows, static function (array $row): bool {
+                    return !empty($row['is_match']);
+                })),
+                'mismatched' => count(array_filter($rows, static function (array $row): bool {
+                    return empty($row['is_match']);
+                })),
+            ],
+        ];
+    }
+
+    public function component_reconcile_audit(string $asOfDate, array $filters): array
+    {
+        $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $componentId = (int)($filters['component_id'] ?? 0);
+        $uomId = (int)($filters['uom_id'] ?? 0);
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
+        if ($locationType === '' || $componentId <= 0 || $uomId <= 0) {
+            return ['ok' => false, 'message' => 'Audit component membutuhkan location_type, component_id, dan uom_id.'];
+        }
+
+        $compare = $this->component_reconcile_rows([
+            'as_of_date' => $asOfDate,
+            'location_type' => $locationType,
+            'division_id' => $divisionId,
+            'component_id' => $componentId,
+            'uom_id' => $uomId,
+        ], 200);
+
+        $summaryRow = null;
+        foreach ((array)($compare['rows'] ?? []) as $row) {
+            if (strtoupper((string)($row['location_type'] ?? '')) !== $locationType) {
+                continue;
+            }
+            if ((int)($row['component_id'] ?? 0) !== $componentId || (int)($row['uom_id'] ?? 0) !== $uomId) {
+                continue;
+            }
+            if ($divisionId > 0 && (int)($row['division_id'] ?? 0) !== $divisionId) {
+                continue;
+            }
+            $summaryRow = $row;
+            break;
+        }
+
+        if ($summaryRow === null) {
+            return ['ok' => false, 'message' => 'Data reconcile component tidak ditemukan.'];
+        }
+
+        $movements = $this->list_component_reconcile_movements($compare['as_of_date'] ?? $asOfDate, [
+            'location_type' => $locationType,
+            'division_id' => $divisionId,
+            'component_id' => $componentId,
+            'uom_id' => $uomId,
+        ]);
+
+        $seed = [
+            'OPENING' => 'Opening',
+            'PRODUCTION' => 'Production',
+            'TRANSFER' => 'Transfer',
+            'VOID' => 'Void',
+            'REFUND' => 'Refund',
+            'ADJUSTMENT' => 'Adjustment',
+            'POS' => 'POS',
+            'OTHER' => 'Lainnya',
+        ];
+        $buckets = [];
+        foreach ($seed as $code => $label) {
+            $buckets[$code] = [
+                'bucket_code' => $code,
+                'bucket_label' => $label,
+                'count' => 0,
+                'delta_qty' => 0.0,
+                'mutation_value' => 0.0,
+                'last_movement_date' => '',
+                'last_movement_no' => '',
+            ];
+        }
+        foreach ($movements as $movement) {
+            $bucket = $this->classify_component_reconcile_bucket($movement);
+            $code = (string)($bucket['code'] ?? 'OTHER');
+            if (!isset($buckets[$code])) {
+                $buckets[$code] = [
+                    'bucket_code' => $code,
+                    'bucket_label' => (string)($bucket['label'] ?? $code),
+                    'count' => 0,
+                    'delta_qty' => 0.0,
+                    'mutation_value' => 0.0,
+                    'last_movement_date' => '',
+                    'last_movement_no' => '',
+                ];
+            }
+            $buckets[$code]['count']++;
+            $buckets[$code]['delta_qty'] = round((float)$buckets[$code]['delta_qty'] + (float)($movement['qty_delta'] ?? 0), 4);
+            $buckets[$code]['mutation_value'] = round((float)$buckets[$code]['mutation_value'] + (float)($movement['total_cost'] ?? 0), 2);
+            $movementDate = (string)($movement['movement_date'] ?? '');
+            if ($movementDate >= (string)$buckets[$code]['last_movement_date']) {
+                $buckets[$code]['last_movement_date'] = $movementDate;
+                $buckets[$code]['last_movement_no'] = (string)($movement['movement_no'] ?? '');
+            }
+        }
+
+        return [
+            'ok' => true,
+            'summary' => $summaryRow,
+            'buckets' => array_values($buckets),
+            'diagnosis' => [
+                'suspect_table' => (string)($summaryRow['suspect_table'] ?? 'MATCH'),
+                'reason' => (string)($summaryRow['suspect_reason'] ?? ''),
+                'daily_date' => (string)($summaryRow['daily_date'] ?? ''),
+                'movement_date' => (string)($summaryRow['movement_date'] ?? ''),
+            ],
+            'movements' => array_reverse($movements),
+        ];
+    }
+
+    private function build_component_reconcile_verdict(float $balanceQty, float $dailyQty, float $movementQty, array $meta = []): array
+    {
+        $eps = 0.0001;
+        $balanceVsDaily = abs($balanceQty - $dailyQty);
+        $balanceVsMovement = abs($balanceQty - $movementQty);
+        $dailyVsMovement = abs($dailyQty - $movementQty);
+        $dailyDate = (string)($meta['daily_date'] ?? '');
+        $movementDate = (string)($meta['movement_date'] ?? '');
+
+        if ($balanceVsDaily < $eps && $balanceVsMovement < $eps) {
+            return ['suspect_table' => 'MATCH', 'reason' => 'Balance, daily rollup, dan movement component masih sinkron.'];
+        }
+        if ($dailyVsMovement < $eps && $balanceVsDaily >= $eps) {
+            return ['suspect_table' => 'BALANCE', 'reason' => 'Balance component berbeda, sementara daily rollup masih sama dengan movement.'];
+        }
+        if ($balanceVsMovement < $eps && $dailyVsMovement >= $eps) {
+            $reason = 'Daily rollup component berbeda, sementara balance masih sama dengan movement.';
+            if ($dailyDate === '') {
+                $reason = 'Daily rollup component belum punya closing sampai tanggal audit, sementara balance sudah sama dengan movement.';
+            } elseif ($movementDate !== '' && $dailyDate !== '' && $dailyDate < $movementDate) {
+                $reason = 'Daily rollup component tertinggal dari movement terakhir.';
+            }
+            return ['suspect_table' => 'DAILY', 'reason' => $reason];
+        }
+        if ($balanceVsDaily < $eps && $dailyVsMovement >= $eps) {
+            return ['suspect_table' => 'MOVEMENT_OR_SOURCE', 'reason' => 'Balance dan daily rollup sama, tetapi movement component berbeda.'];
+        }
+
+        return ['suspect_table' => 'MULTIPLE', 'reason' => 'Balance, daily rollup, dan movement component tidak saling cocok.'];
+    }
+
+    public function repair_component_reconcile(array $filters): array
+    {
+        $identity = [
+            'location_type' => strtoupper(trim((string)($filters['location_type'] ?? ''))),
+            'division_id' => !empty($filters['division_id']) ? (int)$filters['division_id'] : null,
+            'component_id' => (int)($filters['component_id'] ?? 0),
+            'uom_id' => (int)($filters['uom_id'] ?? 0),
+        ];
+
+        return $this->rebuild_component_history_for_identity($identity);
+    }
+
+    private function list_component_reconcile_movements(string $asOfDate, array $filters): array
+    {
+        if (!$this->db->table_exists('inv_component_movement_log')) {
+            return [];
+        }
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
+            $asOfDate = date('Y-m-d');
+        }
+
+        $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
+        $componentId = (int)($filters['component_id'] ?? 0);
+        $uomId = (int)($filters['uom_id'] ?? 0);
+        $divisionNameColumn = $this->division_name_column();
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $rows = $this->db->select('m.id, m.movement_no, m.movement_date, m.movement_datetime, m.location_type, m.division_id, ' . $divisionNameSelect . ', m.component_id, c.component_code, c.component_name, c.component_type, m.uom_id, u.code AS uom_code, m.movement_type, m.qty_in, m.qty_out, m.unit_cost, m.total_cost, m.source_module, m.source_table, m.source_id, m.source_line_id, m.notes', false)
+            ->from('inv_component_movement_log m')
+            ->join('mst_component c', 'c.id = m.component_id', 'inner')
+            ->join('mst_operational_division d', 'd.id = m.division_id', 'left')
+            ->join('mst_uom u', 'u.id = m.uom_id', 'left')
+            ->where('m.movement_date <=', $asOfDate)
+            ->where('m.location_type', $locationType)
+            ->where('m.component_id', $componentId)
+            ->where('m.uom_id', $uomId)
+            ->order_by('m.movement_date', 'ASC')
+            ->order_by('m.movement_datetime', 'ASC')
+            ->order_by('m.id', 'ASC')
+            ->get()
+            ->result_array();
+
+        if ($divisionId > 0) {
+            $rows = array_values(array_filter($rows, static function (array $row) use ($divisionId): bool {
+                return (int)($row['division_id'] ?? 0) === $divisionId;
+            }));
+        }
+
+        $runningQty = 0.0;
+        foreach ($rows as &$row) {
+            $qtyIn = round((float)($row['qty_in'] ?? 0), 4);
+            $qtyOut = round((float)($row['qty_out'] ?? 0), 4);
+            $row['qty_before'] = round($runningQty, 4);
+            $row['qty_delta'] = round($qtyIn - $qtyOut, 4);
+            $row['qty_after'] = round($runningQty + $row['qty_delta'], 4);
+            $row['movement_type_label'] = $this->component_movement_type_label((string)($row['movement_type'] ?? ''));
+            $bucket = $this->classify_component_reconcile_bucket($row);
+            $row['source_bucket'] = (string)($bucket['code'] ?? 'OTHER');
+            $row['source_bucket_label'] = (string)($bucket['label'] ?? 'Lainnya');
+            $row['source_label'] = $this->format_component_reconcile_source_label($row);
+            $runningQty = (float)$row['qty_after'];
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function classify_component_reconcile_bucket(array $row): array
+    {
+        $movementType = strtoupper(trim((string)($row['movement_type'] ?? '')));
+        $sourceModule = strtoupper(trim((string)($row['source_module'] ?? '')));
+        $sourceTable = strtolower(trim((string)($row['source_table'] ?? '')));
+        $notes = strtolower(trim((string)($row['notes'] ?? '')));
+
+        if ($movementType === 'OPENING' || strpos($sourceTable, 'opening') !== false) {
+            return ['code' => 'OPENING', 'label' => 'Opening'];
+        }
+        if ($sourceModule === 'POS' || $sourceTable === 'pos_stock_commit') {
+            return ['code' => 'POS', 'label' => 'POS'];
+        }
+        if (strpos($sourceTable, 'refund') !== false || strpos($notes, 'refund') !== false) {
+            return ['code' => 'REFUND', 'label' => 'Refund'];
+        }
+        if ($movementType === 'PRODUCTION_IN' || $movementType === 'PRODUCTION_OUT' || strpos($sourceTable, 'component_batch') !== false) {
+            return ['code' => 'PRODUCTION', 'label' => 'Production'];
+        }
+        if ($movementType === 'TRANSFER_IN' || $movementType === 'TRANSFER_OUT') {
+            return ['code' => 'TRANSFER', 'label' => 'Transfer'];
+        }
+        if ($movementType === 'VOID_REVERSE' || strpos($notes, 'void') !== false) {
+            return ['code' => 'VOID', 'label' => 'Void'];
+        }
+        if (in_array($movementType, ['ADJUSTMENT_PLUS', 'ADJUSTMENT_MINUS', 'WASTE', 'SPOIL'], true) || strpos($sourceTable, 'adjustment') !== false) {
+            return ['code' => 'ADJUSTMENT', 'label' => 'Adjustment'];
+        }
+        return ['code' => 'OTHER', 'label' => 'Lainnya'];
+    }
+
+    private function format_component_reconcile_source_label(array $row): string
+    {
+        $sourceTable = strtolower(trim((string)($row['source_table'] ?? '')));
+        $sourceId = (int)($row['source_id'] ?? 0);
+        $map = [
+            'inv_component_opening' => 'Opening Component',
+            'inv_component_batch' => 'Batch Produksi',
+            'inv_component_adjustment' => 'Adjustment Component',
+            'pos_stock_commit' => 'POS Commit',
+        ];
+        $label = $map[$sourceTable] ?? ($sourceTable !== '' ? strtoupper(str_replace('_', ' ', $sourceTable)) : '-');
+        if ($sourceId > 0) {
+            $label .= ' #' . $sourceId;
+        }
+        return $label;
+    }
+
+    public function rebuild_component_history_for_identity(array $identity): array
+    {
+        if (!$this->db->table_exists('inv_component_movement_log') || !$this->db->table_exists('inv_component_daily_rollup') || !$this->db->table_exists('inv_component_stock_balance')) {
+            return ['ok' => false, 'message' => 'Tabel movement/daily/balance component belum lengkap.'];
+        }
+
+        $locationType = strtoupper(trim((string)($identity['location_type'] ?? '')));
+        $divisionId = array_key_exists('division_id', $identity) && $identity['division_id'] !== null && $identity['division_id'] !== ''
+            ? (int)$identity['division_id']
+            : null;
+        $componentId = (int)($identity['component_id'] ?? 0);
+        $uomId = (int)($identity['uom_id'] ?? 0);
+        if ($locationType === '' || $componentId <= 0 || $uomId <= 0) {
+            return ['ok' => false, 'message' => 'Identity component tidak valid.'];
+        }
+
+        $this->db->select('*')
+            ->from('inv_component_movement_log')
+            ->where('location_type', $locationType)
+            ->where('component_id', $componentId)
+            ->where('uom_id', $uomId);
+        if ($divisionId !== null) {
+            $this->db->where('division_id', $divisionId);
+        } else {
+            $this->db->where('division_id IS NULL', null, false);
+        }
+        $logs = $this->db
+            ->order_by('movement_date', 'ASC')
+            ->order_by('movement_datetime', 'ASC')
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
+
+        $daily = [];
+        $qtyBefore = 0.0;
+        $avgBefore = 0.0;
+        $valueBefore = 0.0;
+        $lastMovementAt = null;
+        foreach ($logs as $log) {
+            $movementDate = (string)($log['movement_date'] ?? '');
+            if ($movementDate === '') {
+                continue;
+            }
+            if (!isset($daily[$movementDate])) {
+                $daily[$movementDate] = [
+                    'month_key' => substr($movementDate, 0, 7) . '-01',
+                    'movement_date' => $movementDate,
+                    'location_type' => $locationType,
+                    'division_id' => $divisionId,
+                    'component_id' => $componentId,
+                    'uom_id' => $uomId,
+                    'opening_qty' => round($qtyBefore, 4),
+                    'in_qty' => 0.0,
+                    'out_qty' => 0.0,
+                    'waste_qty' => 0.0,
+                    'spoil_qty' => 0.0,
+                    'adjustment_qty' => 0.0,
+                    'closing_qty' => round($qtyBefore, 4),
+                    'avg_cost' => round($avgBefore, 6),
+                    'total_value' => round($valueBefore, 2),
+                    'mutation_count' => 0,
+                    'last_movement_at' => null,
+                    'rebuild_batch_no' => 'RECONCILE-' . date('YmdHis'),
+                ];
+            }
+
+            $qtyIn = round((float)($log['qty_in'] ?? 0), 4);
+            $qtyOut = round((float)($log['qty_out'] ?? 0), 4);
+            $unitCost = round((float)($log['unit_cost'] ?? 0), 6);
+            $movementType = strtoupper(trim((string)($log['movement_type'] ?? '')));
+            $movementAt = (string)($log['movement_datetime'] ?? ($movementDate . ' 00:00:00'));
+
+            if ($movementType === 'OPENING') {
+                $daily[$movementDate]['opening_qty'] = round((float)$daily[$movementDate]['opening_qty'] + $qtyIn - $qtyOut, 4);
+            } elseif (in_array($movementType, ['PRODUCTION_IN', 'TRANSFER_IN'], true)) {
+                $daily[$movementDate]['in_qty'] = round((float)$daily[$movementDate]['in_qty'] + $qtyIn, 4);
+            } elseif (in_array($movementType, ['PRODUCTION_OUT', 'TRANSFER_OUT', 'USAGE'], true)) {
+                $daily[$movementDate]['out_qty'] = round((float)$daily[$movementDate]['out_qty'] + $qtyOut, 4);
+            } elseif ($movementType === 'WASTE') {
+                $daily[$movementDate]['waste_qty'] = round((float)$daily[$movementDate]['waste_qty'] + $qtyOut, 4);
+            } elseif ($movementType === 'SPOIL') {
+                $daily[$movementDate]['spoil_qty'] = round((float)$daily[$movementDate]['spoil_qty'] + $qtyOut, 4);
+            } elseif (in_array($movementType, ['ADJUSTMENT_PLUS', 'VOID_REVERSE'], true)) {
+                $daily[$movementDate]['adjustment_qty'] = round((float)$daily[$movementDate]['adjustment_qty'] + $qtyIn, 4);
+            } elseif ($movementType === 'ADJUSTMENT_MINUS') {
+                $daily[$movementDate]['adjustment_qty'] = round((float)$daily[$movementDate]['adjustment_qty'] - $qtyOut, 4);
+            }
+
+            $qtyAfter = round($qtyBefore + $qtyIn - $qtyOut, 4);
+            $incomingValue = round($qtyIn * $unitCost, 2);
+            if ($qtyIn > 0) {
+                $valueAfter = round($valueBefore + $incomingValue, 2);
+            } elseif ($qtyOut > 0) {
+                $costForOut = $avgBefore > 0 ? $avgBefore : $unitCost;
+                $valueAfter = round($valueBefore - ($qtyOut * $costForOut), 2);
+            } else {
+                $valueAfter = $valueBefore;
+            }
+            if (abs($qtyAfter) < 0.0001) {
+                $qtyAfter = 0.0;
+            }
+            if (abs($valueAfter) < 0.01) {
+                $valueAfter = 0.0;
+            }
+            $avgAfter = abs($qtyAfter) > 0.0001 ? round($valueAfter / $qtyAfter, 6) : 0.0;
+
+            $daily[$movementDate]['closing_qty'] = $qtyAfter;
+            $daily[$movementDate]['avg_cost'] = $avgAfter;
+            $daily[$movementDate]['total_value'] = round($valueAfter, 2);
+            $daily[$movementDate]['mutation_count'] = (int)$daily[$movementDate]['mutation_count'] + 1;
+            $daily[$movementDate]['last_movement_at'] = $movementAt;
+
+            $qtyBefore = $qtyAfter;
+            $avgBefore = $avgAfter;
+            $valueBefore = $valueAfter;
+            $lastMovementAt = $movementAt;
+        }
+
+        $this->db->trans_begin();
+        $this->db->where('location_type', $locationType)
+            ->where('component_id', $componentId)
+            ->where('uom_id', $uomId);
+        if ($divisionId !== null) {
+            $this->db->where('division_id', $divisionId);
+        } else {
+            $this->db->where('division_id IS NULL', null, false);
+        }
+        $this->db->delete('inv_component_daily_rollup');
+
+        foreach (array_values($daily) as $row) {
+            $this->db->insert('inv_component_daily_rollup', $row);
+        }
+
+        $this->db->where('location_type', $locationType)
+            ->where('component_id', $componentId)
+            ->where('uom_id', $uomId);
+        if ($divisionId !== null) {
+            $this->db->where('division_id', $divisionId);
+        } else {
+            $this->db->where('division_id IS NULL', null, false);
+        }
+        $this->db->delete('inv_component_stock_balance');
+
+        if (!empty($logs) || abs($qtyBefore) > 0.0001 || abs($valueBefore) > 0.01) {
+            $this->db->insert('inv_component_stock_balance', [
+                'location_type' => $locationType,
+                'division_id' => $divisionId,
+                'component_id' => $componentId,
+                'uom_id' => $uomId,
+                'qty_on_hand' => round($qtyBefore, 4),
+                'avg_cost' => round($avgBefore, 6),
+                'total_value' => round($valueBefore, 2),
+                'last_txn_at' => $lastMovementAt,
+            ]);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal rebuild histori component.'];
+        }
+
+        $this->db->trans_commit();
+        return [
+            'ok' => true,
+            'message' => 'Repair component selesai dijalankan.',
+            'data' => [
+                'days_rebuilt' => count($daily),
+                'final_qty' => round($qtyBefore, 4),
+                'final_avg_cost' => round($avgBefore, 6),
+                'final_total_value' => round($valueBefore, 2),
+            ],
+        ];
     }
 
     private function attach_component_lot_summaries(array $rows): array
@@ -2671,6 +3485,77 @@ class Production_model extends CI_Model
         }
 
         return $result;
+    }
+
+    public function component_lot_usage_detail(int $lotId): array
+    {
+        if ($lotId <= 0 || !$this->db->table_exists('inv_component_lot')) {
+            return ['ok' => false, 'message' => 'Lot component tidak ditemukan.'];
+        }
+
+        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+            ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $divisionCodeSelect = $divisionCodeColumn !== null ? ('d.' . $divisionCodeColumn . ' AS division_code') : 'CAST(l.division_id AS CHAR) AS division_code';
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $header = $this->db
+            ->select('l.*')
+            ->select($divisionCodeSelect . ', ' . $divisionNameSelect, false)
+            ->select('c.component_code, c.component_name, c.component_type, u.code AS uom_code', false)
+            ->from('inv_component_lot l')
+            ->join('mst_operational_division d', 'd.id = l.division_id', 'left')
+            ->join('mst_component c', 'c.id = l.component_id', 'left')
+            ->join('mst_uom u', 'u.id = l.uom_id', 'left')
+            ->where('l.id', $lotId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Lot component tidak ditemukan.'];
+        }
+
+        if (!$this->db->table_exists('inv_component_lot_issue_log') || !$this->db->table_exists('inv_component_lot_issue_line')) {
+            return [
+                'ok' => true,
+                'header' => $header,
+                'summary' => ['usage_count' => 0, 'qty_out_total' => 0.0, 'cost_total' => 0.0],
+                'rows' => [],
+            ];
+        }
+
+        $rows = $this->db
+            ->select('li.id, li.issue_id, li.lot_id, li.qty_out, li.unit_cost, li.total_cost')
+            ->select('il.issue_no, il.issue_date, il.source_module, il.source_table, il.source_id, il.source_line_id, il.notes, il.status', false)
+            ->from('inv_component_lot_issue_line li')
+            ->join('inv_component_lot_issue_log il', 'il.id = li.issue_id', 'inner')
+            ->where('li.lot_id', $lotId)
+            ->order_by('il.issue_date', 'DESC')
+            ->order_by('il.id', 'DESC')
+            ->order_by('li.id', 'DESC')
+            ->get()
+            ->result_array();
+
+        $summary = [
+            'usage_count' => count($rows),
+            'qty_out_total' => 0.0,
+            'cost_total' => 0.0,
+        ];
+        foreach ($rows as $row) {
+            $summary['qty_out_total'] += (float)($row['qty_out'] ?? 0);
+            $summary['cost_total'] += (float)($row['total_cost'] ?? 0);
+        }
+
+        return [
+            'ok' => true,
+            'header' => $header,
+            'summary' => $summary,
+            'rows' => $rows,
+        ];
     }
 
     public function get_component_batch(int $id): ?array

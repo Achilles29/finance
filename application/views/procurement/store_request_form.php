@@ -242,7 +242,7 @@ foreach ($lines as $ln) {
         + '<td>' + fmtDate(line.profile_expired_date || '') + '</td>'
         + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm sr-qty-buy" data-idx="' + idx + '" value="' + num(line.qty_buy_requested).toFixed(2) + '"></td>'
         + '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm sr-qty-content" data-idx="' + idx + '" value="' + num(line.qty_content_requested).toFixed(2) + '"></td>'
-        + '<td><button type="button" class="btn btn-sm btn-outline-danger sr-action-btn sr-remove-line" data-idx="' + idx + '">Hapus</button></td>'
+        + '<td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger action-icon-btn sr-remove-line" data-idx="' + idx + '" title="Hapus Baris" aria-label="Hapus Baris"><i class="ri ri-delete-bin-line"></i></button></td>'
         + '</tr>';
     });
     tb.innerHTML = html;

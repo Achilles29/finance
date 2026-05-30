@@ -13,25 +13,6 @@ $canCreate = !empty($current_user['is_superadmin']) || !empty($user_perms['auth.
   .users-index .filter-wrap .form-select {
     min-height: 40px;
   }
-  .users-index .user-actions {
-    display: flex;
-    gap: 0.35rem;
-    flex-wrap: nowrap;
-    align-items: center;
-  }
-  .users-index .user-actions .btn {
-    width: 34px;
-    height: 34px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 9px;
-  }
-  .users-index .user-actions .btn i {
-    font-size: 1rem;
-    margin: 0;
-  }
   .users-index .table th,
   .users-index .table td {
     padding: 0.72rem 0.85rem;
@@ -103,7 +84,7 @@ $canCreate = !empty($current_user['is_superadmin']) || !empty($user_perms['auth.
             <th>Status</th>
             <th>Login Terakhir</th>
             <th>Dibuat</th>
-            <th style="width:130px;">Aksi</th>
+            <th style="width:130px;" class="action-cell">Aksi</th>
           </tr>
         </thead>
         <tbody>
@@ -133,20 +114,22 @@ $canCreate = !empty($current_user['is_superadmin']) || !empty($user_perms['auth.
               <?= !empty($u['last_login_at']) ? date('d/m/Y H:i', strtotime($u['last_login_at'])) : '—' ?>
             </td>
             <td class="text-muted small"><?= !empty($u['created_at']) ? date('d/m/Y', strtotime($u['created_at'])) : '—' ?></td>
-            <td>
-              <div class="user-actions">
-                <a href="<?= base_url('users/edit/' . (int)$u['id']) ?>" class="btn btn-outline-primary" title="Edit User">
+            <td class="action-cell">
+              <div class="d-flex gap-1 flex-nowrap justify-content-end">
+                <a href="<?= base_url('users/edit/' . (int)$u['id']) ?>" class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit">
                   <i class="ri ri-edit-line"></i>
                 </a>
-                <a href="<?= base_url('users/permissions/' . (int)$u['id']) ?>" class="btn btn-outline-warning" title="Override Izin">
+                <a href="<?= base_url('users/permissions/' . (int)$u['id']) ?>" class="btn btn-sm btn-outline-warning action-icon-btn" data-bs-toggle="tooltip" title="Override Izin" aria-label="Override Izin">
                   <i class="ri ri-shield-keyhole-line"></i>
                 </a>
                 <?php if ((int)$u['id'] !== (int)($current_user['id'] ?? 0)): ?>
                 <a href="<?= base_url('users/toggle/' . (int)$u['id']) ?>"
-                   class="btn <?= (int)$u['is_active'] === 1 ? 'btn-outline-danger' : 'btn-outline-success' ?>"
+                   class="btn btn-sm btn-outline-warning action-icon-btn"
+                   data-bs-toggle="tooltip"
                    title="<?= (int)$u['is_active'] === 1 ? 'Nonaktifkan' : 'Aktifkan' ?>"
+                   aria-label="<?= (int)$u['is_active'] === 1 ? 'Nonaktifkan' : 'Aktifkan' ?>"
                    onclick="return confirm('<?= (int)$u['is_active'] === 1 ? 'Nonaktifkan' : 'Aktifkan' ?> user ini?')">
-                  <i class="ri <?= (int)$u['is_active'] === 1 ? 'ri-close-circle-line' : 'ri-checkbox-circle-line' ?>"></i>
+                  <i class="ri ri-refresh-line"></i>
                 </a>
                 <?php endif; ?>
               </div>

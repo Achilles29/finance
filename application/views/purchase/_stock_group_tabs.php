@@ -18,6 +18,7 @@ if ($tabScope === 'DIVISION') {
         ['key' => 'adjustment', 'label' => 'Adjustment Divisi', 'url' => site_url('inventory/stock/adjustment/division')],
         ['key' => 'movement', 'label' => 'Keluar Masuk Divisi', 'url' => site_url('inventory/stock/division/movement')],
         ['key' => 'daily', 'label' => 'Stok Bulanan/Daily Divisi', 'url' => site_url('inventory/stock/division/daily')],
+        ['key' => 'compare', 'label' => 'Banding Stok Akhir', 'url' => site_url('inventory/stock/division/reconcile')],
         ['key' => 'lot', 'label' => 'Lot Divisi', 'url' => site_url('inventory/stock/division/lot')],
     ];
 } else {

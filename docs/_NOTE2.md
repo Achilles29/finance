@@ -21,41 +21,61 @@ secara umum kita bisa adopsi dari core yang sudah terbukti berjalan, degan beber
 yang perlu diperhatikan di POS ini nanti terhubung dengan stok tersedia berdasarkan resep produk, dan dengan pengaturan yang memungkinkan override produk
 
 ===============================
+inventory/stock/division/reconcile buatkan fitur audit missmatch nya dimana (bisa total atau per bahan) dan buatkan tombol repairnya 
 
 
+3. Payment + DP
+Sebelum loyalty, kita butuh payment flow stabil dulu:
 
+bayar penuh
 DP
+pelunasan
+split nanti kalau perlu
+receipt print
+Kenapa sebelum loyalty:
 
-sehubungan dengan stock cache yang sudah kita rencanakan, perlu halaman stok live time berdasarkan transaksi yang mempengaruhi stok. petakan dulu yang terpengaruh refractur, jang lupa void  juga berpengaruh. di ui nya sandingkan antara db dan kalkulasi live agar kelhatan ketika ada miss 
-
-
-
-
-
-
-- Master Extra belum terhubung dengan resep. kalau kamu lihat di core, extra itu kan juga mengurangi bahan baku. bisa menambah atau menggantikan bahan baku terntu. sumber extra bisa bahan baku, component atau produk lain.
-
-- loyalty/point-rules, loyalty/stamp-campaigns, loyalty/voucher-campaigns, percantik tampilan jangan kaku,  GUNAKAN BAHASA USER. produk wajib pakai pencarian ajax jangan dropdown, tampilkan nama saja tidak usah kode
-
-- Voucher ini kita ada 2 skema, voucher biasa yang diinput untuk bisa dipakai siapapaun, dan voucher promo ketika ada promo transaksi tertentu dapat voucher dan menggenerate voucher ke modul voucher yang 1 nya saat payment. yang sudah dibuat model mana? paham maksude saya kan?
+point/stamp/voucher idealnya nempel di momen payment final
+DP juga perlu aturan jelas: earn sekarang atau saat lunas
 
 
-===================
-buat ui dan alur bisnis halaman extra seperti di core, lebih jelas alurnya dan terhubung antar modul extra (tambahkan tab penghubung)
+
+apakah cetak printer sudah benar2 sesuai dengan pengaturan printer? preview, ukuran, tampilan dll
 
 
-pos/cashier hapus saja text : 
-"Tengah adalah area kasir utama: cari cepat, filter divisi, lalu tap kartu produk untuk masuk ke keranjang."
-"Tutup shift saat transaksi selesai dan sistem akan hitung ringkasan kasir."
-"Lanjutkan draft, buka order yang baru confirmed, atau siapkan proses void dan refund."
-"Area kanan untuk member, jenis layanan, catatan order, dan keranjang draft yang akan disimpan atau dikonfirmasi."
-customer tidak perlu tampilkan kode member, cukup nama dan nomor hp, di preview pencariannya juga
-order aktif default nya semua
-Bundel taruh di sebelah divisi terakhir saja (setelah eveet)
+4. Loyalty ke kasir
+Setelah payment stabil, baru sambungkan:
 
+redeem voucher
+earn point
+earn stamp
+issue voucher
+Kenapa belakangan:
 
-kalau di core ada skema event, yang juga digunakan untuk penjualan selain FnB, bagaimana menurutmu?
+loyalty paling sensitif ke aturan bisnis
+kalau dipasang sebelum payment mapan, biasanya kita bolak-balik
+Jawaban singkatnya
+Kalau ditanya “mulai dari mana dulu?”:
 
+Extra
+Kasir baca cache DB
+Payment + DP
+Loyalty
+Kenapa bukan loyalty dulu
+Karena loyalty lebih aman dipasang di atas transaksi yang sudah matang.
+Sedangkan extra dan cache availability itu fondasi langsung untuk input order kasir.
+
+Rekomendasi saya
+Saya sarankan kita lanjut persis ini:
+
+finalkan extra di kasir
+sambungkan availability cache DB ke katalog kasir
+lanjut payment/DP
+baru loyalty
+Kalau kamu setuju, saya mulai dari:
+
+klik produk di kasir -> modal/panel extra
+cart menghitung extra
+produk di kasir baca availability dari cache DB/override operasional
 =========================
 
 

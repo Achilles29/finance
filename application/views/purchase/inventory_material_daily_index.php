@@ -753,6 +753,10 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     border-color: #cfa692;
     color: #5f2432;
   }
+  .pmd-cell-adjust-trigger .ri {
+    font-size: 0.95rem;
+    line-height: 1;
+  }
   .pmd-cell-adjust-glyph {
     display: block;
     line-height: 1;
@@ -1904,11 +1908,11 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
           '<span class="pmd-summary-title">Nilai Sisa</span>' +
           '<div class="pmd-summary-amount">' + esc(money(metrics.total_value || 0)) + '</div>' +
         '</div>' +
-        '<div class="pmd-summary-grid">' +
-          '<div class="pmd-summary-metric"><span class="label">Awal Pack</span><strong>' + esc(num(metrics.opening_pack || 0)) + '</strong></div>' +
-          '<div class="pmd-summary-metric"><span class="label">Akhir Pack</span><strong>' + esc(num(metrics.closing_pack || 0)) + '</strong></div>' +
+          '<div class="pmd-summary-grid">' +
           '<div class="pmd-summary-metric"><span class="label">Awal Isi</span><strong>' + esc(num(metrics.opening_content || 0)) + '</strong></div>' +
           '<div class="pmd-summary-metric"><span class="label">Akhir Isi</span><strong>' + esc(num(metrics.closing_content || 0)) + '</strong></div>' +
+          '<div class="pmd-summary-metric"><span class="label">Awal Pack</span><strong>' + esc(num(metrics.opening_pack || 0)) + '</strong></div>' +
+          '<div class="pmd-summary-metric"><span class="label">Akhir Pack</span><strong>' + esc(num(metrics.closing_pack || 0)) + '</strong></div>' +
         '</div>' +
       '</div>';
   }
@@ -1965,7 +1969,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         var valuePack = Object.prototype.hasOwnProperty.call(day, packField)
           ? Number(day[packField] || 0)
           : (packSize > 0 ? (valueContent / packSize) : 0);
-        var valueText = '<span class="pmd-cell-pack">' + esc(num(valuePack)) + '</span><span class="pmd-cell-content">' + esc(num(valueContent)) + '</span>';
+        var valueText = '<span class="pmd-cell-pack">' + esc(num(valueContent)) + '</span><span class="pmd-cell-content">' + esc(num(valuePack)) + '</span>';
         var contentHtml = '';
         if (item.key === 'adjustment') {
           var detailHtml = Math.abs(valueContent) > 0.000001
@@ -1973,7 +1977,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
             : '<span class="pmd-cell-btn is-static ' + item.cls + '">' + valueText + '</span>';
           contentHtml = '<div class="pmd-cell-action-wrap">'
             + detailHtml
-            + '<button type="button" class="pmd-cell-adjust-trigger" data-action="adjust" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '" title="Adjustment langsung" aria-label="Adjustment langsung"><span class="pmd-cell-adjust-glyph" aria-hidden="true">&#9998;</span></button>'
+            + '<button type="button" class="pmd-cell-adjust-trigger" data-action="adjust" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '" title="Adjustment langsung" aria-label="Adjustment langsung"><i class="ri ri-edit-line" aria-hidden="true"></i></button>'
             + '</div>';
         } else if (Math.abs(valueContent) > 0.000001) {
           contentHtml = '<button type="button" class="pmd-cell-btn ' + item.cls + '" data-action="detail" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '">' + valueText + '</button>';
@@ -2319,7 +2323,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     p.set('scope', 'DIVISION');
     p.set('movement_date', dateText);
     p.set('division_id', String(group.division_id || 0));
-    p.set('stock_domain', 'MATERIAL');
+    p.set('stock_domain', String((row && row.stock_domain) || group.stock_domain || 'MATERIAL'));
     p.set('item_id', String(group.item_id || 0));
     p.set('material_id', String(group.material_id || 0));
 

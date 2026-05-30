@@ -87,3 +87,23 @@ SET FOREIGN_KEY_CHECKS = 1;
 
 
 
+
+
+SET FOREIGN_KEY_CHECKS = 0;
+
+TRUNCATE TABLE pos_order;
+TRUNCATE TABLE pos_order_line;
+TRUNCATE TABLE pos_order_line_extra;
+TRUNCATE TABLE pos_order_state_log;
+TRUNCATE TABLE pos_payment;
+TRUNCATE TABLE pos_payment_deposit_apply;
+TRUNCATE TABLE pos_payment_line;
+TRUNCATE TABLE pos_payment_method;
+TRUNCATE TABLE pos_refund;
+TRUNCATE TABLE pos_refund_line;
+TRUNCATE TABLE pos_void;
+TRUNCATE TABLE pos_void_line;
+TRUNCATE TABLE pos_void_line_extra;
+
+
+SET FOREIGN_KEY_CHECKS = 1;

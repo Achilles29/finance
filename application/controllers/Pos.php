@@ -55,6 +55,110 @@ class Pos extends MY_Controller
         ]);
     }
 
+    public function deposits()
+    {
+        $this->require_permission('pos.deposit.index', 'view');
+        $this->render('pos/deposit_index', [
+            'page_title' => 'Deposit / DP POS',
+            'filters' => $this->deposit_filters(),
+            'payment_methods' => $this->Pos_model->deposit_payment_method_options(),
+        ]);
+    }
+
+    public function deposits_data()
+    {
+        $this->require_permission('pos.deposit.index', 'view');
+        $this->json_ok($this->Pos_model->deposit_rows($this->deposit_filters()));
+    }
+
+    public function deposit_member_search()
+    {
+        $this->require_permission('pos.deposit.index', 'view');
+        $q = trim((string)$this->input->get('q', true));
+        $limit = max(1, min(15, (int)$this->input->get('limit', true)));
+        $this->json_ok([
+            'rows' => $this->Pos_model->order_member_search($q, $limit),
+        ]);
+    }
+
+    public function deposit_save()
+    {
+        $this->require_permission('pos.deposit.index', 'create');
+        $payload = $this->request_payload();
+        $result = $this->Pos_model->save_deposit($payload, $this->current_actor_employee_id());
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan deposit / DP.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)($result['id'] ?? 0),
+            'payment_no' => (string)($result['payment_no'] ?? ''),
+            'member_id' => (int)($result['member_id'] ?? 0),
+        ]);
+    }
+
+    public function deposit_void($id)
+    {
+        $this->require_permission('pos.deposit.index', 'edit');
+        $result = $this->Pos_model->void_deposit((int)$id, $this->current_actor_employee_id());
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal membatalkan deposit / DP.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$id]);
+    }
+
+    public function sales_channels()
+    {
+        $this->require_permission('pos.sales_channel.index', 'view');
+        $this->render('pos/sales_channel_index', [
+            'page_title' => 'Sales Channel POS',
+            'filters' => $this->sales_channel_filters(),
+            'filter_options' => $this->Pos_model->sales_channel_filter_options(),
+        ]);
+    }
+
+    public function sales_channels_data()
+    {
+        $this->require_permission('pos.sales_channel.index', 'view');
+        $this->json_ok($this->Pos_model->sales_channel_rows($this->sales_channel_filters()));
+    }
+
+    public function sales_channel_save()
+    {
+        $payload = $this->request_payload();
+        $id = (int)($payload['id'] ?? 0);
+        $this->require_permission('pos.sales_channel.index', $id > 0 ? 'edit' : 'create');
+        $result = $this->Pos_model->save_sales_channel($payload);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan sales channel.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id']]);
+    }
+
+    public function sales_channel_toggle($id)
+    {
+        $this->require_permission('pos.sales_channel.index', 'edit');
+        $result = $this->Pos_model->toggle_sales_channel((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal mengubah status sales channel.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id'], 'is_active' => (int)$result['is_active']]);
+    }
+
+    public function sales_channel_delete($id)
+    {
+        $this->require_permission('pos.sales_channel.index', 'delete');
+        $result = $this->Pos_model->delete_sales_channel((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menghapus sales channel.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id']]);
+    }
+
     public function payment_methods_data()
     {
         $this->require_permission('pos.payment_method.index', 'view');
@@ -725,6 +829,180 @@ class Pos extends MY_Controller
         ]);
     }
 
+    public function stock_live()
+    {
+        $pageCode = $this->can('pos.stock.live.index', 'view')
+            ? 'pos.stock.live.index'
+            : ($this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'view');
+        $filters = $this->stock_live_filters();
+        $filterOptions = $this->Pos_model->stock_live_filter_options();
+        if ((int)($filters['outlet_id'] ?? 0) <= 0 && !empty($filterOptions['outlets'][0]['id'])) {
+            $filters['outlet_id'] = (int)$filterOptions['outlets'][0]['id'];
+        }
+        $this->render('pos/stock_live_index', [
+            'page_title' => 'Stock Live POS',
+            'active_menu' => 'pos.stock.live.index',
+            'filters' => $filters,
+            'filter_options' => $filterOptions,
+        ]);
+    }
+
+    public function stock_live_data()
+    {
+        $pageCode = $this->can('pos.stock.live.index', 'view')
+            ? 'pos.stock.live.index'
+            : ($this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'view');
+        $filters = $this->stock_live_filters();
+        if ((int)($filters['outlet_id'] ?? 0) <= 0) {
+            $outlets = $this->Pos_model->local_outlet_options();
+            if (!empty($outlets[0]['id'])) {
+                $filters['outlet_id'] = (int)$outlets[0]['id'];
+            }
+        }
+        $dataset = $this->Pos_model->stock_live_rows($filters);
+        $rows = (array)($dataset['rows'] ?? []);
+        $latestLogs = [];
+        if ((int)$filters['outlet_id'] > 0) {
+            $latestLogs = $this->Pos_model->stock_live_latest_log_map((int)$filters['outlet_id'], array_column($rows, 'id'));
+        }
+
+        $this->load->library('PosAvailabilityRebuildService');
+        $resultRows = [];
+        foreach ($rows as $row) {
+            $productId = (int)($row['id'] ?? 0);
+            $live = $filters['outlet_id'] > 0
+                ? $this->posavailabilityrebuildservice->resolve_live_availability((int)$filters['outlet_id'], $productId, [
+                    'trigger_context' => 'PAGE_LIST',
+                    'actor_employee_id' => $this->current_actor_employee_id(),
+                ])
+                : ['ok' => false, 'message' => 'Outlet belum dipilih.'];
+
+            $comparison = ($live['ok'] ?? false)
+                ? $this->posavailabilityrebuildservice->compare_cache_snapshot([
+                    'availability_status' => (string)($row['cache_availability_status'] ?? ''),
+                    'estimated_available_qty' => (float)($row['cache_estimated_available_qty'] ?? 0),
+                    'bottleneck_name_snapshot' => (string)($row['cache_bottleneck_name_snapshot'] ?? ''),
+                    'hpp_live_snapshot' => (float)($row['cache_hpp_live_snapshot'] ?? 0),
+                    'is_dirty' => (int)($row['cache_is_dirty'] ?? 0),
+                ], $live)
+                : ['mismatch_flag' => 0, 'note' => 'Outlet belum dipilih.'];
+
+            $resultRows[] = [
+                'product_id' => $productId,
+                'product_code' => (string)($row['product_code'] ?? ''),
+                'product_name' => (string)($row['product_name'] ?? ''),
+                'product_division_name' => (string)($row['product_division_name'] ?? ''),
+                'classification_name' => (string)($row['classification_name'] ?? ''),
+                'product_category_name' => (string)($row['product_category_name'] ?? ''),
+                'selling_price' => (float)($row['selling_price'] ?? 0),
+                'cache' => [
+                    'status' => (string)($row['cache_availability_status'] ?? ''),
+                    'qty' => (float)($row['cache_estimated_available_qty'] ?? 0),
+                    'bottleneck' => (string)($row['cache_bottleneck_name_snapshot'] ?? ''),
+                    'hpp' => (float)($row['cache_hpp_live_snapshot'] ?? 0),
+                    'source_mode' => (string)($row['cache_source_mode'] ?? ''),
+                    'computed_at' => (string)($row['cache_computed_at'] ?? ''),
+                    'last_commit_event' => (string)($row['cache_last_commit_event'] ?? ''),
+                    'is_dirty' => (int)($row['cache_is_dirty'] ?? 0),
+                ],
+                'live' => ($live['ok'] ?? false) ? [
+                    'status' => (string)($live['availability_status'] ?? ''),
+                    'qty' => (float)($live['estimated_available_qty'] ?? 0),
+                    'bottleneck' => (string)($live['bottleneck_name_snapshot'] ?? ''),
+                    'hpp' => (float)($live['hpp_live_snapshot'] ?? 0),
+                    'override_allowed' => (int)($live['override_allowed'] ?? 0),
+                    'line_count' => count((array)($live['lines'] ?? [])),
+                ] : null,
+                'comparison' => (array)$comparison,
+                'live_error' => !($live['ok'] ?? false) ? (string)($live['message'] ?? 'Gagal hitung live.') : '',
+                'latest_log' => (array)($latestLogs[$productId] ?? []),
+            ];
+        }
+
+        if (!empty($filters['mismatch_only'])) {
+            $resultRows = array_values(array_filter($resultRows, static function (array $row): bool {
+                return !empty($row['comparison']['mismatch_flag']);
+            }));
+        }
+
+        $this->json_ok([
+            'rows' => $resultRows,
+            'meta' => (array)($dataset['meta'] ?? []),
+        ]);
+    }
+
+    public function stock_live_probe()
+    {
+        $pageCode = $this->can('pos.stock.live.index', 'view')
+            ? 'pos.stock.live.index'
+            : ($this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'view');
+        $outletId = max(0, (int)$this->input->get('outlet_id', true));
+        $productId = max(0, (int)$this->input->get('product_id', true));
+        $this->load->library('PosAvailabilityRebuildService');
+        $result = $this->posavailabilityrebuildservice->probe_compare($outletId, $productId, [
+            'trigger_context' => 'MANUAL_PROBE',
+            'actor_employee_id' => $this->current_actor_employee_id(),
+        ]);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menjalankan probe stock live.'), 422);
+            return;
+        }
+        $this->json_ok($result);
+    }
+
+    public function stock_live_rebuild_all()
+    {
+        $pageCode = $this->can('pos.stock.live.index', 'edit')
+            ? 'pos.stock.live.index'
+            : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'edit');
+        $payload = $this->request_payload();
+        $outletId = max(0, (int)($payload['outlet_id'] ?? 0));
+        $divisionId = max(0, (int)($payload['division_id'] ?? 0));
+        $this->load->library('PosAvailabilityRebuildService');
+        $result = $this->posavailabilityrebuildservice->rebuild_all_products($outletId, [
+            'division_id' => $divisionId,
+        ], [
+            'trigger_context' => 'MANUAL_REBUILD_ALL',
+            'event_source' => 'MANUAL_REBUILD_ALL',
+            'event_table' => 'mst_product_recipe',
+            'event_id' => null,
+            'actor_employee_id' => $this->current_actor_employee_id(),
+        ]);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal rebuild total stock live POS.'), 422);
+            return;
+        }
+        $this->json_ok($result);
+    }
+
+    public function stock_live_rebuild()
+    {
+        $pageCode = $this->can('pos.stock.live.index', 'edit')
+            ? 'pos.stock.live.index'
+            : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'edit');
+        $payload = $this->request_payload();
+        $outletId = max(0, (int)($payload['outlet_id'] ?? 0));
+        $productId = max(0, (int)($payload['product_id'] ?? 0));
+        $this->load->library('PosAvailabilityRebuildService');
+        $result = $this->posavailabilityrebuildservice->rebuild_product($outletId, $productId, [
+            'trigger_context' => 'MANUAL_REBUILD',
+            'event_source' => 'MANUAL_REBUILD',
+            'event_table' => 'pos_product_availability_cache',
+            'event_id' => $productId,
+            'actor_employee_id' => $this->current_actor_employee_id(),
+        ]);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal rebuild stock live POS.'), 422);
+            return;
+        }
+        $this->json_ok($result);
+    }
+
     public function order_draft_data()
     {
         $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
@@ -841,12 +1119,75 @@ class Pos extends MY_Controller
     {
         $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
         $this->require_permission($pageCode, 'edit');
-        $this->load->library('PosStockCommitService');
-        $this->load->library('PosOrderStockService');
-
         $actorEmployeeId = $this->current_actor_employee_id();
         $orderId = (int)$id;
-        $resolved = $this->Pos_model->resolve_order_stock_commit_payload($orderId, $actorEmployeeId);
+        $this->confirm_order_and_respond($orderId, $actorEmployeeId);
+    }
+
+    public function order_draft_save_confirm()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'edit');
+        $actorEmployeeId = $this->current_actor_employee_id();
+        $payload = $this->request_payload();
+        $saved = $this->Pos_model->save_order_draft($payload, $actorEmployeeId);
+        if (!($saved['ok'] ?? false)) {
+            $this->json_error((string)($saved['message'] ?? 'Gagal menyimpan draft order POS.'), 422);
+            return;
+        }
+        $orderId = (int)($saved['id'] ?? 0);
+        if ($orderId <= 0) {
+            $this->json_error('Draft order tersimpan tetapi ID order tidak valid.', 422);
+            return;
+        }
+        $this->confirm_order_and_respond($orderId, $actorEmployeeId, [
+            'append_mode' => !empty($saved['append_mode']),
+            'header_only_update' => !empty($saved['header_only_update']),
+            'line_ids' => (array)($saved['appended_line_ids'] ?? []),
+            'appended_line_count' => (int)($saved['appended_line_count'] ?? 0),
+        ]);
+    }
+
+    private function confirm_order_and_respond(int $orderId, int $actorEmployeeId, array $options = []): void
+    {
+        $this->load->library('PosStockCommitService');
+        $this->load->library('PosRuntimeJobService');
+
+        $appendMode = !empty($options['append_mode']);
+        $headerOnlyUpdate = !empty($options['header_only_update']);
+        $lineIds = array_values(array_unique(array_filter(array_map('intval', (array)($options['line_ids'] ?? [])))));
+        $appendedLineCount = (int)($options['appended_line_count'] ?? count($lineIds));
+
+        if ($appendMode && $headerOnlyUpdate && empty($lineIds)) {
+            $this->json_ok([
+                'id' => $orderId,
+                'snapshot_id' => 0,
+                'commit_no' => '',
+                'resolved_line_count' => 0,
+                'runtime_job_id' => 0,
+                'runtime_job_code' => '',
+                'print_job_count' => 0,
+                'runtime_kickoff' => [
+                    'ok' => false,
+                    'mode' => 'not_required',
+                    'message' => 'Tidak ada item baru. Sistem hanya menyimpan perubahan header transaksi POS.',
+                ],
+                'stock_sync' => [
+                    'queued' => false,
+                    'status' => 'NOT_REQUIRED',
+                    'kickoff_ok' => false,
+                ],
+                'stock_commit_status' => 'NOT_REQUIRED',
+                'append_mode' => true,
+                'appended_line_count' => 0,
+                'header_only_update' => true,
+            ]);
+            return;
+        }
+
+        $resolved = $this->Pos_model->resolve_order_stock_commit_payload($orderId, $actorEmployeeId, [
+            'line_ids' => $lineIds,
+        ]);
         if (!($resolved['ok'] ?? false)) {
             $this->json_error((string)($resolved['message'] ?? 'Gagal menyiapkan stock commit order POS.'), 422);
             return;
@@ -858,25 +1199,28 @@ class Pos extends MY_Controller
             return;
         }
 
-        $stockPost = $this->posorderstockservice->post_commit_snapshot((int)$snapshot['id'], [
-            'actor_employee_id' => $actorEmployeeId,
+        $queued = $this->posruntimejobservice->queue_order_confirm_commit($orderId, (int)$snapshot['id'], $actorEmployeeId, [
+            'event_source' => 'ORDER_CONFIRM',
+            'event_id' => $orderId,
         ]);
-        if (!($stockPost['ok'] ?? false)) {
-            $this->json_error((string)($stockPost['message'] ?? 'Snapshot berhasil, tetapi posting stok order POS gagal.'), 422, [
+        if (!($queued['ok'] ?? false)) {
+            $this->json_error((string)($queued['message'] ?? 'Snapshot berhasil, tetapi queue runtime POS gagal dibuat.'), 422, [
                 'snapshot_id' => (int)$snapshot['id'],
                 'commit_no' => (string)($snapshot['commit_no'] ?? ''),
             ]);
             return;
         }
 
-        $commit = $this->posstockcommitservice->mark_committed((int)$snapshot['id']);
-        if (!($commit['ok'] ?? false)) {
-            $this->json_error((string)($commit['message'] ?? 'Gagal menandai stock commit sebagai committed.'), 422);
+        $markQueued = $this->posstockcommitservice->mark_queued((int)$snapshot['id']);
+        if (!($markQueued['ok'] ?? false)) {
+            $this->posruntimejobservice->cancel_job((int)($queued['job_id'] ?? 0), 'Snapshot stock commit gagal ditandai queued.');
+            $this->json_error((string)($markQueued['message'] ?? 'Gagal menandai stock commit sebagai queued.'), 422);
             return;
         }
 
-        $finalize = $this->Pos_model->finalize_order_confirmation($orderId, (int)$snapshot['id'], $actorEmployeeId);
+        $finalize = $this->Pos_model->finalize_order_confirmation($orderId, (int)$snapshot['id'], $actorEmployeeId, 'QUEUED');
         if (!($finalize['ok'] ?? false)) {
+            $this->posruntimejobservice->cancel_job((int)($queued['job_id'] ?? 0), 'Order POS gagal difinalkan setelah queue dibuat.');
             $this->json_error((string)($finalize['message'] ?? 'Snapshot berhasil, tetapi order gagal difinalkan.'), 422, [
                 'snapshot_id' => (int)$snapshot['id'],
                 'commit_no' => (string)($snapshot['commit_no'] ?? ''),
@@ -884,15 +1228,348 @@ class Pos extends MY_Controller
             return;
         }
 
-        $printJobs = $this->Pos_model->queue_order_confirm_print_jobs($orderId);
+        $kickoff = [
+            'ok' => false,
+            'mode' => 'client_trigger_required',
+            'message' => 'Queue stok POS akan dipicu dari client setelah response confirm diterima.',
+        ];
+        if (function_exists('fastcgi_finish_request')) {
+            $kickoff = $this->schedule_runtime_job_processing($orderId, (int)($queued['job_id'] ?? 0), 1);
+        }
+
         $this->json_ok([
             'id' => $orderId,
             'snapshot_id' => (int)$snapshot['id'],
             'commit_no' => (string)($snapshot['commit_no'] ?? ''),
             'resolved_line_count' => (int)($resolved['resolved_line_count'] ?? 0),
-            'posted_stock_line_count' => (int)($stockPost['posted_lines'] ?? 0),
-            'print_job_count' => (int)($printJobs['job_count'] ?? 0),
+            'runtime_job_id' => (int)($queued['job_id'] ?? 0),
+            'runtime_job_code' => (string)($queued['job_code'] ?? ''),
+            'print_job_count' => 0,
+            'runtime_kickoff' => $kickoff,
+            'stock_sync' => [
+                'queued' => true,
+                'status' => 'QUEUED',
+                'kickoff_ok' => !empty($kickoff['ok']),
+            ],
+            'stock_commit_status' => 'QUEUED',
+            'append_mode' => $appendMode,
+            'appended_line_count' => $appendedLineCount,
+            'header_only_update' => false,
         ]);
+    }
+
+    public function order_confirm_print_targets($id)
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        $payload = $this->request_payload();
+        $snapshotId = (int)($payload['snapshot_id'] ?? 0);
+        $directPrint = $this->Pos_model->direct_print_targets_for_order_confirm((int)$id, $snapshotId);
+        if (!($directPrint['ok'] ?? false)) {
+            $this->json_error((string)($directPrint['message'] ?? 'Payload direct print gagal disiapkan.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)$id,
+            'snapshot_id' => $snapshotId,
+            'direct_print_targets' => (array)($directPrint['targets'] ?? []),
+        ]);
+    }
+
+    public function order_runtime_sync($id)
+    {
+        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'edit');
+        $payload = $this->request_payload();
+        $eventSource = strtoupper(trim((string)($payload['event_source'] ?? 'ORDER_CONFIRM')));
+        if (!in_array($eventSource, ['ORDER_CONFIRM', 'ORDER_VOID', 'ORDER_REFUND'], true)) {
+            $eventSource = 'ORDER_CONFIRM';
+        }
+        $eventId = max(0, (int)($payload['event_id'] ?? 0));
+        $result = $this->trigger_stock_live_refresh_for_order((int)$id, $eventSource, $eventId ?: (int)$id, true);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Sinkronisasi stok background gagal dijalankan.'), 422, [
+                'success_count' => (int)($result['success_count'] ?? 0),
+                'failed_count' => (int)($result['failed_count'] ?? 0),
+            ]);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)$id,
+            'event_source' => $eventSource,
+            'success_count' => (int)($result['success_count'] ?? 0),
+            'failed_count' => (int)($result['failed_count'] ?? 0),
+            'marked_product_count' => (int)($result['marked_product_count'] ?? 0),
+        ]);
+    }
+
+    public function order_runtime_job_trigger($id)
+    {
+        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'edit');
+        $payload = $this->request_payload();
+        $this->load->library('PosRuntimeJobService');
+
+        $orderId = (int)$id;
+        $jobId = max(0, (int)($payload['job_id'] ?? 0));
+        $limit = max(1, min(5, (int)($payload['limit'] ?? 1)));
+        $processed = $this->process_runtime_job_now($orderId, $jobId, $limit);
+        $latest = $this->posruntimejobservice->latest_job_for_order($orderId);
+
+        if (!($processed['ok'] ?? false)) {
+            $this->json_error((string)($processed['message'] ?? 'Job runtime POS gagal diproses.'), 422, [
+                'job' => (array)($latest['job'] ?? []),
+                'result' => $processed,
+            ]);
+            return;
+        }
+
+        $this->json_ok([
+            'id' => $orderId,
+            'job' => (array)($latest['job'] ?? []),
+            'processed_count' => (int)($processed['processed_count'] ?? 0),
+            'success_count' => (int)($processed['success_count'] ?? 0),
+            'failed_count' => (int)($processed['failed_count'] ?? 0),
+            'jobs' => (array)($processed['jobs'] ?? []),
+        ]);
+    }
+
+    public function order_runtime_job_status($id)
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        $this->load->library('PosRuntimeJobService');
+
+        $latest = $this->posruntimejobservice->latest_job_for_order((int)$id);
+        if (!($latest['ok'] ?? false)) {
+            $this->json_error((string)($latest['message'] ?? 'Status queue runtime POS belum tersedia.'), 404);
+            return;
+        }
+
+        $this->json_ok([
+            'id' => (int)$id,
+            'job' => (array)($latest['job'] ?? []),
+        ]);
+    }
+
+    public function order_runtime_failed_jobs()
+    {
+        $pageCode = $this->can('pos.stock.live.index', 'view')
+            ? 'pos.stock.live.index'
+            : ($this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'view');
+        $this->load->library('PosRuntimeJobService');
+
+        $result = $this->posruntimejobservice->failed_jobs([
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'q' => trim((string)$this->input->get('q', true)),
+            'limit' => max(1, min(100, (int)$this->input->get('limit', true) ?: 20)),
+        ]);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Data job gagal POS belum tersedia.'), 422);
+            return;
+        }
+
+        $this->json_ok([
+            'rows' => (array)($result['rows'] ?? []),
+        ]);
+    }
+
+    public function order_runtime_active_jobs()
+    {
+        $pageCode = $this->can('pos.stock.live.index', 'view')
+            ? 'pos.stock.live.index'
+            : ($this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'view');
+        $this->load->library('PosRuntimeJobService');
+
+        $result = $this->posruntimejobservice->active_jobs([
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'q' => trim((string)$this->input->get('q', true)),
+            'limit' => max(1, min(100, (int)$this->input->get('limit', true) ?: 20)),
+        ]);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Data job pending POS belum tersedia.'), 422);
+            return;
+        }
+
+        $this->json_ok([
+            'rows' => (array)($result['rows'] ?? []),
+        ]);
+    }
+
+    public function order_runtime_job_retry($jobId)
+    {
+        $pageCode = $this->can('pos.stock.live.index', 'edit')
+            ? 'pos.stock.live.index'
+            : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'edit');
+        $this->load->library('PosRuntimeJobService');
+
+        $retried = $this->posruntimejobservice->retry_job((int)$jobId, $this->current_actor_employee_id());
+        if (!($retried['ok'] ?? false)) {
+            $this->json_error((string)($retried['message'] ?? 'Job runtime POS gagal di-retry.'), 422);
+            return;
+        }
+
+        $job = (array)($retried['job'] ?? []);
+        $processed = $this->process_runtime_job_now((int)($job['order_id'] ?? 0), (int)($job['id'] ?? 0), 1);
+        if (!($processed['ok'] ?? false)) {
+            $this->json_error((string)($processed['message'] ?? 'Job retry POS gagal diproses.'), 422, [
+                'job' => $job,
+                'result' => $processed,
+            ]);
+            return;
+        }
+
+        $latest = $this->posruntimejobservice->latest_job_for_order((int)($job['order_id'] ?? 0));
+        $this->json_ok([
+            'job' => (array)($latest['job'] ?? $job),
+            'processed_count' => (int)($processed['processed_count'] ?? 0),
+            'success_count' => (int)($processed['success_count'] ?? 0),
+            'failed_count' => (int)($processed['failed_count'] ?? 0),
+            'jobs' => (array)($processed['jobs'] ?? []),
+        ]);
+    }
+
+    public function order_runtime_jobs_process_all()
+    {
+        $pageCode = $this->can('pos.stock.live.index', 'edit')
+            ? 'pos.stock.live.index'
+            : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'edit');
+
+        $payload = $this->request_payload();
+        $outletId = max(0, (int)($payload['outlet_id'] ?? 0));
+        $limit = max(1, min(25, (int)($payload['limit'] ?? 10)));
+        if ($outletId <= 0) {
+            $this->json_error('Pilih outlet dulu sebelum memproses semua pending queue POS.', 422);
+            return;
+        }
+
+        $this->load->library('PosRuntimeJobService');
+        $processed = $this->posruntimejobservice->process_pending_jobs([
+            'limit' => $limit,
+            'outlet_id' => $outletId,
+        ]);
+        if (!($processed['ok'] ?? false)) {
+            $this->json_error((string)($processed['message'] ?? 'Pending queue POS gagal diproses.'), 422, [
+                'result' => $processed,
+            ]);
+            return;
+        }
+
+        $this->json_ok([
+            'processed_count' => (int)($processed['processed_count'] ?? 0),
+            'success_count' => (int)($processed['success_count'] ?? 0),
+            'failed_count' => (int)($processed['failed_count'] ?? 0),
+            'jobs' => (array)($processed['jobs'] ?? []),
+            'outlet_id' => $outletId,
+        ]);
+    }
+
+    public function runtime_jobs_run($limit = 5, $orderId = 0, $jobId = 0)
+    {
+        if (!$this->input->is_cli_request()) {
+            show_404();
+            return;
+        }
+
+        $options = [
+            'limit' => max(1, min(50, (int)$limit)),
+            'order_id' => max(0, (int)$orderId),
+            'job_id' => max(0, (int)$jobId),
+        ];
+
+        $this->load->library('PosRuntimeJobService');
+        $result = $this->posruntimejobservice->process_pending_jobs($options);
+        echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+    }
+
+    private function spawn_runtime_job_worker(int $limit = 1, int $orderId = 0, int $jobId = 0): array
+    {
+        $phpBinary = $this->resolve_cli_php_binary();
+        $indexPath = realpath(FCPATH . 'index.php');
+        if ($phpBinary === null || $indexPath === false) {
+            return ['ok' => false, 'message' => 'PHP CLI atau front controller Finance tidak ditemukan untuk menjalankan worker background POS.'];
+        }
+
+        if (function_exists('session_write_close')) {
+            @session_write_close();
+        }
+
+        $command = 'start /B "" ' . $this->escape_windows_arg($phpBinary)
+            . ' ' . $this->escape_windows_arg($indexPath)
+            . ' pos runtime_jobs_run '
+            . (int)max(1, min(50, $limit)) . ' '
+            . (int)max(0, $orderId) . ' '
+            . (int)max(0, $jobId)
+            . ' >NUL 2>&1';
+
+        @pclose(@popen($command, 'r'));
+
+        return [
+            'ok' => true,
+            'mode' => 'async_cli_spawn',
+        ];
+    }
+
+    private function process_runtime_job_now(int $orderId, int $jobId, int $limit = 1): array
+    {
+        $this->load->library('PosRuntimeJobService');
+        return $this->posruntimejobservice->process_pending_jobs([
+            'limit' => max(1, min(5, $limit)),
+            'order_id' => max(0, $orderId),
+            'job_id' => max(0, $jobId),
+        ]);
+    }
+
+    private function schedule_runtime_job_processing(int $orderId, int $jobId, int $limit = 1): array
+    {
+        if (!function_exists('fastcgi_finish_request')) {
+            return [
+                'ok' => false,
+                'mode' => 'client_trigger_required',
+                'message' => 'FastCGI post-response worker tidak tersedia di environment ini.',
+            ];
+        }
+
+        $safeOrderId = max(0, $orderId);
+        $safeJobId = max(0, $jobId);
+        $safeLimit = max(1, min(5, $limit));
+        if ($safeOrderId <= 0 || $safeJobId <= 0) {
+            return ['ok' => false, 'message' => 'Order/job runtime POS tidak valid untuk diproses background.'];
+        }
+
+        if (function_exists('session_write_close')) {
+            @session_write_close();
+        }
+        @ignore_user_abort(true);
+
+        register_shutdown_function(function () use ($safeOrderId, $safeJobId, $safeLimit): void {
+            try {
+                if (function_exists('fastcgi_finish_request')) {
+                    @fastcgi_finish_request();
+                }
+                $CI =& get_instance();
+                if (!$CI) {
+                    return;
+                }
+                $CI->load->library('PosRuntimeJobService');
+                $CI->posruntimejobservice->process_pending_jobs([
+                    'limit' => $safeLimit,
+                    'order_id' => $safeOrderId,
+                    'job_id' => $safeJobId,
+                ]);
+            } catch (Throwable $e) {
+                log_message('error', 'POS runtime post-response processing failed for order ' . $safeOrderId . ' job ' . $safeJobId . ': ' . $e->getMessage());
+            }
+        });
+
+        return [
+            'ok' => true,
+            'mode' => 'fastcgi_post_response',
+        ];
     }
 
     public function order_reversal_preview($id)
@@ -917,9 +1594,14 @@ class Pos extends MY_Controller
             $this->json_error((string)($result['message'] ?? 'Gagal menyimpan void POS.'), 422);
             return;
         }
+        $availabilityRefresh = $this->trigger_stock_live_refresh_for_order((int)($payload['order_id'] ?? 0), 'ORDER_VOID', (int)($result['id'] ?? 0), false);
         $this->json_ok([
             'id' => (int)($result['id'] ?? 0),
             'void_no' => (string)($result['void_no'] ?? ''),
+            'availability_rebuild' => [
+                'success_count' => (int)($availabilityRefresh['success_count'] ?? 0),
+                'failed_count' => (int)($availabilityRefresh['failed_count'] ?? 0),
+            ],
         ]);
     }
 
@@ -933,9 +1615,14 @@ class Pos extends MY_Controller
             $this->json_error((string)($result['message'] ?? 'Gagal menyimpan refund POS.'), 422);
             return;
         }
+        $availabilityRefresh = $this->trigger_stock_live_refresh_for_order((int)($payload['order_id'] ?? 0), 'ORDER_REFUND', (int)($result['id'] ?? 0), false);
         $this->json_ok([
             'id' => (int)($result['id'] ?? 0),
             'refund_no' => (string)($result['refund_no'] ?? ''),
+            'availability_rebuild' => [
+                'success_count' => (int)($availabilityRefresh['success_count'] ?? 0),
+                'failed_count' => (int)($availabilityRefresh['failed_count'] ?? 0),
+            ],
         ]);
     }
 
@@ -975,6 +1662,44 @@ class Pos extends MY_Controller
             'q' => trim((string)$this->input->get('q', true)),
             'status' => $status,
             'method_type' => $methodType,
+            'page' => max(1, (int)$this->input->get('page', true)),
+            'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 50)),
+        ];
+    }
+
+    private function sales_channel_filters(): array
+    {
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['ACTIVE', 'INACTIVE', 'ALL'], true)) {
+            $status = 'ACTIVE';
+        }
+        $serviceType = strtoupper(trim((string)$this->input->get('service_type', true)));
+        if (!in_array($serviceType, ['ALL', 'DINE_IN', 'TAKE_AWAY', 'DELIVERY', 'PICKUP'], true)) {
+            $serviceType = 'ALL';
+        }
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'status' => $status,
+            'service_type' => $serviceType,
+            'page' => max(1, (int)$this->input->get('page', true)),
+            'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 50)),
+        ];
+    }
+
+    private function deposit_filters(): array
+    {
+        $status = strtoupper(trim((string)$this->input->get('payment_status', true)));
+        if (!in_array($status, ['PAID', 'PENDING', 'VOID', 'FAILED', 'ALL'], true)) {
+            $status = 'PAID';
+        }
+        $settlement = strtoupper(trim((string)$this->input->get('settlement_status', true)));
+        if (!in_array($settlement, ['ALL', 'OPEN', 'PARTIAL', 'FULL'], true)) {
+            $settlement = 'ALL';
+        }
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'payment_status' => $status,
+            'settlement_status' => $settlement,
             'page' => max(1, (int)$this->input->get('page', true)),
             'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 50)),
         ];
@@ -1057,11 +1782,73 @@ class Pos extends MY_Controller
         ];
     }
 
+    private function stock_live_filters(): array
+    {
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['ALL', 'AVAILABLE', 'LIMITED', 'OUT', 'HIDDEN'], true)) {
+            $status = 'ALL';
+        }
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'division_id' => max(0, (int)$this->input->get('division_id', true)),
+            'status' => $status,
+            'dirty_only' => !empty($this->input->get('dirty_only', true)),
+            'mismatch_only' => !empty($this->input->get('mismatch_only', true)),
+            'page' => max(1, (int)$this->input->get('page', true)),
+            'limit' => max(1, min(100, (int)$this->input->get('limit', true) ?: 25)),
+        ];
+    }
+
+    private function trigger_stock_live_refresh_for_order(int $orderId, string $eventSource, ?int $eventId = null, bool $rebuildNow = true): array
+    {
+        $order = $this->Pos_model->find_order_draft($orderId);
+        if (!$order) {
+            return ['ok' => false, 'message' => 'Order tidak ditemukan untuk refresh stock live.'];
+        }
+
+        $header = (array)($order['header'] ?? []);
+        $outletId = max(0, (int)($header['outlet_id'] ?? 0));
+        $productIds = [];
+        foreach ((array)($order['lines'] ?? []) as $line) {
+            $productId = (int)($line['product_id'] ?? 0);
+            if ($productId > 0) {
+                $productIds[$productId] = $productId;
+            }
+        }
+
+        if ($outletId <= 0 || empty($productIds)) {
+            return ['ok' => false, 'message' => 'Outlet atau produk order tidak siap untuk refresh stock live.'];
+        }
+
+        $this->load->library('PosAvailabilityRebuildService');
+        $productIds = array_values($productIds);
+        $dirty = $this->posavailabilityrebuildservice->mark_dirty($outletId, $productIds, [
+            'event_source' => $eventSource,
+        ]);
+        if (!$rebuildNow) {
+            return [
+                'ok' => true,
+                'success_count' => 0,
+                'failed_count' => 0,
+                'marked_product_count' => count($productIds),
+                'dirty' => $dirty,
+            ];
+        }
+        return $this->posavailabilityrebuildservice->rebuild_products($outletId, $productIds, [
+            'trigger_context' => $eventSource,
+            'event_source' => $eventSource,
+            'event_table' => 'pos_order',
+            'event_id' => $eventId ?: $orderId,
+            'actor_employee_id' => $this->current_actor_employee_id(),
+        ]);
+    }
+
     private function order_draft_filters(): array
     {
         $status = strtoupper(trim((string)$this->input->get('status', true)));
         if (!in_array($status, ['DRAFT', 'CONFIRMED', 'ALL'], true)) {
-            $status = 'DRAFT';
+            $status = 'ALL';
         }
         return [
             'q' => trim((string)$this->input->get('q', true)),
@@ -1075,6 +1862,34 @@ class Pos extends MY_Controller
     private function current_actor_employee_id(): int
     {
         return max(0, (int)($this->current_user['employee_id'] ?? 0));
+    }
+
+    private function resolve_cli_php_binary(): ?string
+    {
+        $candidates = [
+            'c:/xampp/php/php.exe',
+            'C:/xampp/php/php.exe',
+        ];
+        if (defined('PHP_BINARY') && PHP_BINARY) {
+            $candidates[] = PHP_BINARY;
+        }
+        if (defined('PHP_BINDIR') && PHP_BINDIR) {
+            $candidates[] = rtrim(str_replace('\\', '/', PHP_BINDIR), '/') . '/php.exe';
+        }
+
+        foreach ($candidates as $candidate) {
+            $normalized = str_replace('\\', '/', (string)$candidate);
+            if ($normalized !== '' && is_file($normalized)) {
+                return $normalized;
+            }
+        }
+
+        return null;
+    }
+
+    private function escape_windows_arg(string $value): string
+    {
+        return '"' . str_replace('"', '\\"', str_replace('\\', '/', $value)) . '"';
     }
 
     private function request_payload(): array

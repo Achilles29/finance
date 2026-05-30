@@ -203,10 +203,12 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
                       <td class="number-cell"><?php echo (int)$m['sort_order']; ?></td>
                       <td><?php echo (int)$m['is_active'] === 1 ? 'Aktif' : 'Nonaktif'; ?></td>
                       <td class="action-cell">
-                        <a href="<?php echo $manageBase . '?type=' . urlencode($type) . '&tab=menu-data&edit_id=' . (int)$m['id']; ?>" class="btn btn-sm btn-outline-primary action-icon-btn" title="Edit"><i class="ri ri-pencil-line"></i></a>
-                        <form method="post" action="<?php echo site_url('sidebar/manage/menu/delete/' . (int)$m['id']); ?>" class="d-inline" onsubmit="return confirm('Nonaktifkan menu ini?');">
-                          <button type="submit" class="btn btn-sm btn-outline-danger action-icon-btn" title="Delete (Soft)"><i class="ri ri-delete-bin-line"></i></button>
-                        </form>
+                        <div class="d-flex gap-1 flex-nowrap justify-content-end">
+                          <a href="<?php echo $manageBase . '?type=' . urlencode($type) . '&tab=menu-data&edit_id=' . (int)$m['id']; ?>" class="btn btn-sm btn-outline-primary action-icon-btn" title="Edit" aria-label="Edit"><i class="ri ri-edit-line"></i></a>
+                          <form method="post" action="<?php echo site_url('sidebar/manage/menu/delete/' . (int)$m['id']); ?>" class="d-inline" onsubmit="return confirm('Nonaktifkan menu ini?');">
+                            <button type="submit" class="btn btn-sm btn-outline-danger action-icon-btn" title="Nonaktifkan" aria-label="Nonaktifkan"><i class="ri ri-close-circle-line"></i></button>
+                          </form>
+                        </div>
                       </td>
                     </tr>
                   <?php endforeach; ?>

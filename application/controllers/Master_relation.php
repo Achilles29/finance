@@ -45,6 +45,12 @@ class Master_relation extends MY_Controller
     public function product_availability()
     {
         $filters = $this->productAvailabilityFilters();
+        $this->load->model('Pos_model');
+        $this->load->library('PosAvailabilityRebuildService');
+        $outletOptions = $this->Pos_model->local_outlet_options();
+        if ((int)($filters['outlet_id'] ?? 0) <= 0 && !empty($outletOptions[0]['id'])) {
+            $filters['outlet_id'] = (int)$outletOptions[0]['id'];
+        }
 
         $this->db->select('p.*, pd.name AS product_division_name, pd.code AS product_division_code, pc.name AS classification_name, cat.name AS product_category_name');
         $this->db->from('mst_product p');
@@ -93,7 +99,7 @@ class Master_relation extends MY_Controller
         ];
 
         foreach ($products as $product) {
-            $availabilityRow = $this->buildProductAvailabilityRow($product);
+            $availabilityRow = $this->buildProductAvailabilityLiveRow($product, (int)($filters['outlet_id'] ?? 0));
             $summary['total_product']++;
 
             if ($availabilityRow['availability_status'] === 'READY') {
@@ -121,6 +127,7 @@ class Master_relation extends MY_Controller
             'rows' => $rows,
             'filters' => $filters,
             'summary' => $summary,
+            'outlet_options' => $outletOptions,
             'product_division_options' => $this->Master_model->get_options('mst_product_division', 'id', 'name', true),
             'status_options' => [
                 ['value' => 'ALL', 'label' => 'Semua Status'],
@@ -239,6 +246,34 @@ class Master_relation extends MY_Controller
 
         $this->session->set_flashdata('success', 'Resep produk berhasil diperbarui.');
         redirect('master/relation/product-recipe/' . $productId);
+    }
+
+    public function product_recipe_source_lookup(int $productId)
+    {
+        $product = $this->loadProductRecipeParent($productId);
+        if (!$product) {
+            show_404();
+            return;
+        }
+
+        $lineType = strtoupper(trim((string)$this->input->get('line_type', true)));
+        $q = trim((string)$this->input->get('q', true));
+        $id = (int)$this->input->get('id', true);
+        $sourceDivisionId = (int)$this->input->get('source_division_id', true);
+
+        $rows = $lineType === 'COMPONENT'
+            ? $this->searchProductRecipeComponentSourceRows($q, $id, $sourceDivisionId)
+            : $this->searchProductRecipeMaterialSourceRows($product, $q, $id);
+
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => true,
+                'rows' => $rows,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
     }
 
     public function product_recipe_create(int $productId)
@@ -1180,6 +1215,89 @@ class Master_relation extends MY_Controller
         ];
     }
 
+    private function searchProductRecipeMaterialSourceRows(array $product, string $q, int $id): array
+    {
+        $defaultDivision = $this->resolveProductRecipeDefaultDivision($product);
+
+        $this->db->select('i.id AS value, i.item_name AS label, i.content_uom_id AS uom_id, u.name AS uom_name, m.material_code, m.material_name');
+        $this->db->from('mst_item i');
+        $this->db->join('mst_material m', 'm.id = i.material_id', 'left');
+        $this->db->join('mst_uom u', 'u.id = i.content_uom_id', 'left');
+        $this->db->where('i.is_material', 1);
+        $this->db->group_start();
+        $this->db->where('i.is_active', 1);
+        if ($id > 0) {
+            $this->db->or_where('i.id', $id);
+        }
+        $this->db->group_end();
+        if ($id > 0) {
+            $this->db->where('i.id', $id);
+        } elseif ($q !== '') {
+            $this->db->group_start()
+                ->like('i.item_name', $q)
+                ->or_like('m.material_name', $q)
+                ->or_like('m.material_code', $q)
+                ->group_end();
+        }
+        $this->db->order_by('i.item_name', 'ASC');
+        $this->db->limit($id > 0 ? 1 : 20);
+        $rows = $this->db->get()->result_array();
+
+        return array_map(static function (array $row) use ($defaultDivision): array {
+            return [
+                'value' => (int)($row['value'] ?? 0),
+                'label' => (string)($row['label'] ?? ''),
+                'meta' => trim((string)($row['material_code'] ?? '-') . ' | ' . (string)($row['material_name'] ?? $row['label'] ?? '-') . ' | ' . (string)($row['uom_name'] ?? '-')),
+                'uom_id' => (int)($row['uom_id'] ?? 0),
+                'uom_label' => (string)($row['uom_name'] ?? '-'),
+                'source_division_id' => (int)($defaultDivision['id'] ?? 0),
+                'source_division_name' => (string)($defaultDivision['name'] ?? '-'),
+            ];
+        }, $rows);
+    }
+
+    private function searchProductRecipeComponentSourceRows(string $q, int $id, int $sourceDivisionId): array
+    {
+        $this->db->select('c.id AS value, c.component_name AS label, c.component_code, c.operational_division_id AS source_division_id, d.name AS source_division_name, c.uom_id, u.name AS uom_name');
+        $this->db->from('mst_component c');
+        $this->db->join('mst_operational_division d', 'd.id = c.operational_division_id', 'left');
+        $this->db->join('mst_uom u', 'u.id = c.uom_id', 'left');
+        $this->db->group_start();
+        $this->db->where('c.is_active', 1);
+        if ($id > 0) {
+            $this->db->or_where('c.id', $id);
+        }
+        $this->db->group_end();
+        if ($id > 0) {
+            $this->db->where('c.id', $id);
+        } else {
+            if ($sourceDivisionId > 0) {
+                $this->db->where('c.operational_division_id', $sourceDivisionId);
+            }
+            if ($q !== '') {
+                $this->db->group_start()
+                    ->like('c.component_name', $q)
+                    ->or_like('c.component_code', $q)
+                    ->group_end();
+            }
+        }
+        $this->db->order_by('c.component_name', 'ASC');
+        $this->db->limit($id > 0 ? 1 : 20);
+        $rows = $this->db->get()->result_array();
+
+        return array_map(static function (array $row): array {
+            return [
+                'value' => (int)($row['value'] ?? 0),
+                'label' => (string)($row['label'] ?? ''),
+                'meta' => trim((string)($row['component_code'] ?? '-') . ' | ' . (string)($row['source_division_name'] ?? '-') . ' | ' . (string)($row['uom_name'] ?? '-')),
+                'uom_id' => (int)($row['uom_id'] ?? 0),
+                'uom_label' => (string)($row['uom_name'] ?? '-'),
+                'source_division_id' => (int)($row['source_division_id'] ?? 0),
+                'source_division_name' => (string)($row['source_division_name'] ?? '-'),
+            ];
+        }, $rows);
+    }
+
     private function normalizeProductRecipeIngredientRole($role): string
     {
         $role = strtoupper(trim((string)$role));
@@ -1197,6 +1315,7 @@ class Master_relation extends MY_Controller
 
         return [
             'q' => trim((string)$this->input->get('q', true)),
+            'outlet_id' => (int)$this->input->get('outlet_id', true),
             'product_division_id' => (int)$this->input->get('product_division_id', true),
             'status' => in_array($status, $allowedStatus, true) ? $status : 'ALL',
             'stock_mode' => in_array($stockMode, $allowedStockMode, true) ? $stockMode : 'ALL',
@@ -1254,6 +1373,155 @@ class Master_relation extends MY_Controller
             'blocking_line_label' => (string)$availability['blocking_line_label'],
             'blocking_line_detail' => (string)$availability['blocking_line_detail'],
             'main_basis_label' => (string)$availability['main_basis_label'],
+        ];
+    }
+
+    private function buildProductAvailabilityLiveRow(array $product, int $outletId): array
+    {
+        $stockModeMeta = $this->productAvailabilityStockModeMeta((string)($product['stock_mode'] ?? 'AUTO'));
+        $sellingPrice = round((float)($product['selling_price'] ?? 0), 2);
+        $live = $outletId > 0
+            ? $this->posavailabilityrebuildservice->resolve_live_availability($outletId, (int)($product['id'] ?? 0), [
+                'trigger_context' => 'MASTER_PRODUCT_AVAILABILITY',
+            ])
+            : ['ok' => false, 'message' => 'Outlet belum dipilih.'];
+
+        if (!($live['ok'] ?? false)) {
+            $availability = [
+                'status' => 'NO_RECIPE',
+                'status_label' => 'Live Error',
+                'status_class' => 'bg-label-secondary text-secondary',
+                'blocking_line_label' => 'Perhitungan live gagal',
+                'blocking_line_detail' => (string)($live['message'] ?? 'Gagal menghitung live availability.'),
+                'main_basis_label' => 'Outlet wajib dipilih',
+                'available_main' => 0.0,
+                'available_all' => 0.0,
+            ];
+            $hppLive = 0.0;
+        } else {
+            $availability = $this->mapPosLiveToProductAvailability($live);
+            $hppLive = round((float)($live['hpp_live_snapshot'] ?? 0), 6);
+        }
+
+        $hppMeta = $this->productAvailabilityHppMeta(
+            $sellingPrice > 0 ? (($hppLive / $sellingPrice) * 100) : 0.0,
+            $sellingPrice,
+            $hppLive
+        );
+
+        return [
+            'id' => (int)($product['id'] ?? 0),
+            'product_code' => (string)($product['product_code'] ?? ''),
+            'product_name' => (string)($product['product_name'] ?? '-'),
+            'product_division_name' => (string)($product['product_division_name'] ?? '-'),
+            'classification_name' => (string)($product['classification_name'] ?? '-'),
+            'product_category_name' => (string)($product['product_category_name'] ?? '-'),
+            'stock_mode' => (string)($product['stock_mode'] ?? 'AUTO'),
+            'stock_mode_label' => (string)$stockModeMeta['label'],
+            'stock_mode_class' => (string)$stockModeMeta['class'],
+            'line_count' => count((array)($live['lines'] ?? [])),
+            'material_count' => count(array_filter((array)($live['lines'] ?? []), static function (array $line): bool {
+                return strtoupper((string)($line['line_type'] ?? '')) === 'MATERIAL';
+            })),
+            'component_count' => count(array_filter((array)($live['lines'] ?? []), static function (array $line): bool {
+                return strtoupper((string)($line['line_type'] ?? '')) === 'COMPONENT';
+            })),
+            'selling_price' => $sellingPrice,
+            'hpp_live' => $hppLive,
+            'hpp_live_percent' => $sellingPrice > 0 ? round(($hppLive / $sellingPrice) * 100, 4) : 0.0,
+            'hpp_status' => (string)$hppMeta['status'],
+            'hpp_status_label' => (string)$hppMeta['label'],
+            'hpp_status_class' => (string)$hppMeta['class'],
+            'estimated_profit' => round($sellingPrice - $hppLive, 2),
+            'availability_qty_main' => round((float)($availability['available_main'] ?? 0), 4),
+            'availability_qty_all' => round((float)($availability['available_all'] ?? 0), 4),
+            'availability_qty_main_floor' => (int)floor(max(0.0, (float)($availability['available_main'] ?? 0))),
+            'availability_qty_all_floor' => (int)floor(max(0.0, (float)($availability['available_all'] ?? 0))),
+            'availability_status' => (string)$availability['status'],
+            'availability_status_label' => (string)$availability['status_label'],
+            'availability_status_class' => (string)$availability['status_class'],
+            'blocking_line_label' => (string)$availability['blocking_line_label'],
+            'blocking_line_detail' => (string)$availability['blocking_line_detail'],
+            'main_basis_label' => (string)$availability['main_basis_label'],
+        ];
+    }
+
+    private function mapPosLiveToProductAvailability(array $live): array
+    {
+        $lines = (array)($live['lines'] ?? []);
+        if (empty($lines)) {
+            return [
+                'available_main' => 0.0,
+                'available_all' => 0.0,
+                'status' => 'NO_RECIPE',
+                'status_label' => 'Belum Ada Resep',
+                'status_class' => 'bg-label-secondary text-secondary',
+                'blocking_line_label' => 'Belum ada line resep.',
+                'blocking_line_detail' => 'Tambahkan resep produk agar monitoring stok bisa dihitung live.',
+                'main_basis_label' => 'Belum ada role MAIN',
+            ];
+        }
+
+        $mainQty = (float)($live['estimated_available_qty_main'] ?? $live['estimated_available_qty'] ?? 0);
+        $allQty = (float)($live['estimated_available_qty_all'] ?? $live['estimated_available_qty'] ?? 0);
+        $mainMissing = (int)($live['main_missing_count'] ?? 0);
+        $softMissing = (int)($live['optional_missing_count'] ?? 0);
+        $mainLines = array_filter($lines, static function (array $line): bool {
+            return strtoupper((string)($line['source_role'] ?? 'MAIN')) === 'MAIN';
+        });
+        $basisLabel = !empty($mainLines) ? 'Role MAIN' : 'Semua line';
+        $bottleneck = trim((string)($live['bottleneck_name_snapshot'] ?? ''));
+        $blockingLabel = $bottleneck !== '' ? $bottleneck : '-';
+        $blockingDetail = 'Qty utama ' . number_format($mainQty, 4, ',', '.') . ' | Qty semua ' . number_format($allQty, 4, ',', '.');
+
+        if ($mainMissing > 0) {
+            if ($mainQty > 0.0001 || $allQty > 0.0001) {
+                return [
+                    'available_main' => $mainQty,
+                    'available_all' => $allQty,
+                    'status' => 'SHORT',
+                    'status_label' => 'Terbatas',
+                    'status_class' => 'bg-label-danger text-danger',
+                    'blocking_line_label' => $blockingLabel,
+                    'blocking_line_detail' => $blockingDetail,
+                    'main_basis_label' => $basisLabel,
+                ];
+            }
+
+            return [
+                'available_main' => $mainQty,
+                'available_all' => $allQty,
+                'status' => 'EMPTY',
+                'status_label' => 'Habis',
+                'status_class' => 'bg-label-dark text-dark',
+                'blocking_line_label' => $blockingLabel,
+                'blocking_line_detail' => $blockingDetail,
+                'main_basis_label' => $basisLabel,
+            ];
+        }
+
+        if ($softMissing > 0) {
+            return [
+                'available_main' => $mainQty,
+                'available_all' => $allQty,
+                'status' => 'WARNING',
+                'status_label' => 'Warning Non-Utama',
+                'status_class' => 'bg-label-warning text-warning',
+                'blocking_line_label' => $blockingLabel,
+                'blocking_line_detail' => $blockingDetail,
+                'main_basis_label' => $basisLabel,
+            ];
+        }
+
+        return [
+            'available_main' => $mainQty,
+            'available_all' => $allQty,
+            'status' => 'READY',
+            'status_label' => 'Ready',
+            'status_class' => 'bg-label-success text-success',
+            'blocking_line_label' => $blockingLabel,
+            'blocking_line_detail' => $blockingDetail,
+            'main_basis_label' => $basisLabel,
         ];
     }
 

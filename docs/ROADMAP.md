@@ -1,5 +1,5 @@
 # Roadmap Pengembangan — Finance App
-**Terakhir diperbarui:** 2026-05-25 (hardening production/component: usage tracking, picker AJAX, performa list, dan standarisasi action icon)  
+**Terakhir diperbarui:** 2026-05-30 (POS queue background stock commit dan audit retry UI)  
 **Target selesai:** 31 Mei 2026 (stabilisasi)  
 **Target live:** 1 Juni 2026
 
@@ -33,7 +33,7 @@ Tahap 5  — Payroll & Penggajian         🟡 BERJALAN (85%)
 Tahap 6  — Pembelian (Purchase)         🟡 BERJALAN (92%)
 Tahap 7  — Inventori & Gudang           🟡 BERJALAN (72%)
 Tahap 8  — Produksi & COGS              🟡 BERJALAN (58%)
-Tahap 9  — POS                          🟠 PERSIAPAN DESAIN
+Tahap 9  — POS                          🟡 BERJALAN (62%)
 Tahap 10 — Keuangan & Akuntansi         🟠 FONDASI DIMULAI
 Tahap 11 — Reports & Dashboard          🔲 BELUM MULAI
 ```
@@ -275,18 +275,32 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 
 ---
 
-### TAHAP 9 — POS (Point of Sale) 🟠
+### TAHAP 9 — POS (Point of Sale) 🟡
 
-**Status:** PERSIAPAN DESAIN (2026-05-13)
+**Status:** 62% (cashier/order draft/stock live dasar sudah berjalan; queue background stock commit aktif, payment final dan operasional shift masih dilanjutkan)
 
 **Target minimum viable POS (MVP):**
-- [ ] Order: tambah item, extra, diskon
+- [x] Order draft/cashier: tambah item, extra, review, confirm cepat
 - [ ] Payment: tunai, QRIS, kartu, split
-- [ ] Void / refund order
-- [ ] Stock deduction otomatis saat order
-- [ ] Shift management (buka/tutup shift)
-- [ ] Printer receipt
+- [x] Void / refund order (fondasi + preview + snapshot reversal)
+- [x] Stock deduction otomatis saat order via queue background + retry audit
+- [x] Shift management dasar (buka/tutup sesi kasir)
+- [x] Printer KOT/direct print saat confirm order
 - [ ] Loyalty (minimal: poin bertambah saat bayar)
+
+**Yang sudah berjalan:**
+- [x] Cashier workbench + order draft
+- [x] Extra per produk, konfigurasi modal cepat, dan direct print KOT
+- [x] Snapshot stock commit POS (`pos_stock_commit`)
+- [x] Queue runtime stock commit (`pos_runtime_job`) dengan status `QUEUED/PROCESSING/FAILED`
+- [x] Audit retry job gagal di Stock Live POS dan Reconcile Stok Divisi
+- [x] Worker CLI untuk pemrosesan background
+
+**Yang belum selesai:**
+- [ ] Payment settlement final + posting mutasi rekening lengkap
+- [ ] Hardening receipt/customer print final selain KOT
+- [ ] Loyalty point/stamp saat pembayaran
+- [ ] Dashboard operasional kasir dan monitoring throughput order
 
 **COGS dan laporan margin bisa menyusul** — jangan block POS karena Tahap 8 belum selesai.
 

@@ -231,7 +231,7 @@ $isEdit = !empty($editRow);
                       <?php if ($status === 'SETTLED'): ?>
                         <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">Lunas</span>
                       <?php else: ?>
-                        <a href="<?php echo site_url('payroll/cash-advances?tab=transaction&edit_id=' . (int)$r['id']); ?>" class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit"><i class="ri ri-pencil-line"></i></a>
+                        <a href="<?php echo site_url('payroll/cash-advances?tab=transaction&edit_id=' . (int)$r['id']); ?>" class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit"><i class="ri ri-edit-line"></i></a>
                         <form method="post" action="<?php echo site_url('payroll/cash-advances/void/' . (int)$r['id']); ?>" class="d-inline" data-confirm="VOID kasbon ini?">
                           <button type="submit" class="btn btn-sm btn-outline-warning action-icon-btn" data-bs-toggle="tooltip" title="Void" data-loading-label="Void..."><i class="ri ri-close-circle-line"></i></button>
                         </form>

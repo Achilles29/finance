@@ -11,8 +11,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap">
 
-<!-- Remix Icons (subset) -->
-<link rel="stylesheet" href="<?= base_url('assets/vendor/fonts/iconify-icons-subset.css?v=20260510a') ?>">
+<!-- Remix Icons (full set) -->
+<link rel="stylesheet" href="<?= base_url('assets/vendor/fonts/iconify-icons.css?v=20260530a') ?>">
 
 <!-- Materio Core CSS (Bootstrap included) -->
 <link rel="stylesheet" href="<?= base_url('assets/vendor/css/core.css') ?>">

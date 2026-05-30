@@ -235,6 +235,18 @@ class InventoryLedger
             $this->ci->db->trans_commit();
         }
 
+        $availabilityRefresh = null;
+        if ($materialId !== null) {
+            $this->ci->load->library('PosAvailabilityRebuildService');
+            $availabilityRefresh = $this->ci->posavailabilityrebuildservice->handle_material_change((int)$materialId, [
+                'trigger_context' => 'INVENTORY_LEDGER_POST',
+                'event_source' => 'INVENTORY_LEDGER_' . $movementType,
+                'event_table' => 'inv_stock_movement_log',
+                'event_id' => $movementId,
+                'actor_employee_id' => $this->nullableInt($payload['created_by'] ?? null),
+            ]);
+        }
+
         return [
             'ok' => true,
             'message' => 'Inventory ledger berhasil diposting.',
@@ -244,6 +256,7 @@ class InventoryLedger
                 'qty_buy_after' => $balanceResult['qty_buy_after'],
                 'qty_content_after' => $balanceResult['qty_content_after'],
                 'avg_cost_per_content' => $balanceResult['avg_cost_per_content'],
+                'availability_rebuild' => $availabilityRefresh,
             ],
         ];
     }

@@ -608,15 +608,17 @@ foreach ($rows as $row) {
                 <td class="text-end"><?php echo ui_num((float)($isWarehouseScope ? ($row['total_process_loss_buy'] ?? 0) : ($row['total_process_loss_content'] ?? 0))); ?></td>
                 <td class="text-end"><?php echo ui_num((float)($isWarehouseScope ? ($row['total_variance_buy'] ?? 0) : ($row['total_variance_content'] ?? 0))); ?></td>
                 <td class="text-end"><?php echo ui_num((float)($isWarehouseScope ? ($row['total_adjustment_plus_buy'] ?? 0) : ($row['total_adjustment_plus_content'] ?? 0))); ?></td>
-                <td>
+                <td class="action-cell">
                   <?php $rowStatus = strtoupper((string)($row['status'] ?? 'DRAFT')); ?>
                   <?php if ($rowStatus === 'DRAFT'): ?>
-                    <div class="d-flex gap-1 flex-wrap">
-                      <button type="button" class="btn btn-success btn-sm btn-post-doc" data-id="<?php echo (int)$row['id']; ?>">Post</button>
-                      <button type="button" class="btn btn-danger btn-sm btn-delete-doc" data-id="<?php echo (int)$row['id']; ?>">Delete</button>
+                    <div class="d-flex gap-1 flex-nowrap justify-content-end">
+                      <button type="button" class="btn btn-sm btn-outline-success action-icon-btn btn-post-doc" data-id="<?php echo (int)$row['id']; ?>" title="Post" aria-label="Post"><i class="ri ri-upload-2-line"></i></button>
+                      <button type="button" class="btn btn-sm btn-outline-danger action-icon-btn btn-delete-doc" data-id="<?php echo (int)$row['id']; ?>" title="Hapus" aria-label="Hapus"><i class="ri ri-delete-bin-line"></i></button>
                     </div>
                   <?php elseif ($rowStatus === 'POSTED'): ?>
-                    <button type="button" class="btn btn-outline-danger btn-sm btn-void-doc" data-id="<?php echo (int)$row['id']; ?>">Void</button>
+                    <div class="d-flex gap-1 flex-nowrap justify-content-end">
+                      <button type="button" class="btn btn-sm btn-outline-danger action-icon-btn btn-void-doc" data-id="<?php echo (int)$row['id']; ?>" title="Void" aria-label="Void"><i class="ri ri-close-circle-line"></i></button>
+                    </div>
                   <?php else: ?>
                     <span class="text-muted small">Sudah dibatalkan</span>
                   <?php endif; ?>
@@ -1300,7 +1302,7 @@ foreach ($rows as $row) {
         + '<td class="text-end">' + fmt(qtyByScope(line, line.qty_adjustment_plus_content)) + '</td>'
         + '<td class="text-end">' + fmt6(costByScope(line, line.unit_cost)) + '</td>'
         + '<td><div>' + (line.inbound_lot_no || '-') + '</div><small class="text-muted">' + (line.inbound_expiry_date || '') + '</small></td>'
-        + '<td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm btn-remove-line" data-index="' + index + '">Hapus</button></td>'
+        + '<td class="action-cell"><div class="d-flex gap-1 flex-nowrap justify-content-end"><button type="button" class="btn btn-sm btn-outline-danger action-icon-btn btn-remove-line" data-index="' + index + '" title="Hapus" aria-label="Hapus"><i class="ri ri-delete-bin-line"></i></button></div></td>'
         + '</tr>';
     }).join('');
     draftTableBody.querySelectorAll('.btn-remove-line').forEach((button) => {

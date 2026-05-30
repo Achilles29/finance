@@ -110,7 +110,7 @@ class Purchase extends MY_Controller
         $dateTo = trim((string)$this->input->get('date_to', true));
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 1000) {
-            $limit = 300;
+            $limit = 50;
         }
 
         $data = [
@@ -1285,6 +1285,115 @@ class Purchase extends MY_Controller
         $this->render('purchase/stock_division_daily_index', $data);
     }
 
+    public function stock_division_reconcile_index()
+    {
+        if (!$this->can(self::PAGE_STOCK_DIVISION, 'view')) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $divisions = $this->Purchase_model->list_active_operational_divisions();
+        $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
+        $asOfDate = trim((string)$this->input->get('as_of_date', true));
+        if ($asOfDate === '') {
+            $asOfDate = date('Y-m-d');
+        }
+        $q = trim((string)$this->input->get('q', true));
+        $divisionId = (int)$this->input->get('division_id', true);
+        $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destinationFilter === '') {
+            $destinationFilter = 'ALL';
+        }
+        $destinationFilter = $this->normalizeDestinationForDivisionFilter($destinationFilter, $divisionId, $destinationGuardMap);
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 2000) {
+            $limit = 300;
+        }
+
+        $compare = $this->Purchase_model->list_division_material_stock_compare(
+            $asOfDate,
+            $q,
+            $divisionId > 0 ? $divisionId : null,
+            $limit,
+            $destinationFilter
+        );
+
+        $data = [
+            'title' => 'Rekonsiliasi Stok Akhir Divisi',
+            'active_menu' => 'purchase.stock.division',
+            'as_of_date' => $compare['as_of_date'] ?? $asOfDate,
+            'q' => $q,
+            'division_id' => $divisionId,
+            'destination' => $destinationFilter,
+            'limit' => $limit,
+            'divisions' => $divisions,
+            'destination_guard_map' => $destinationGuardMap,
+            'rows' => $compare['rows'] ?? [],
+            'summary' => $compare['summary'] ?? [],
+        ];
+
+        $this->render('purchase/stock_division_reconcile_index', $data);
+    }
+
+    public function stock_division_reconcile_audit()
+    {
+        if (!$this->can(self::PAGE_STOCK_DIVISION, 'view')) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $divisionId = (int)$this->input->get('division_id', true);
+        $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destinationFilter === '') {
+            $destinationFilter = 'ALL';
+        }
+
+        $result = $this->Purchase_model->division_material_reconcile_audit(
+            trim((string)$this->input->get('as_of_date', true)),
+            [
+                'division_id' => $divisionId,
+                'item_id' => (int)$this->input->get('item_id', true),
+                'material_id' => (int)$this->input->get('material_id', true),
+                'destination' => $destinationFilter,
+            ]
+        );
+
+        $status = !empty($result['ok']) ? 200 : 422;
+        $this->output
+            ->set_status_header($status)
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    public function stock_division_reconcile_repair()
+    {
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');
+
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $destinationFilter = strtoupper(trim((string)($payload['destination'] ?? 'ALL')));
+        if ($destinationFilter === '') {
+            $destinationFilter = 'ALL';
+        }
+
+        $result = $this->Purchase_model->repair_division_material_reconcile(
+            (string)($payload['as_of_date'] ?? ''),
+            [
+                'division_id' => (int)($payload['division_id'] ?? 0),
+                'item_id' => (int)($payload['item_id'] ?? 0),
+                'material_id' => (int)($payload['material_id'] ?? 0),
+                'destination' => $destinationFilter,
+            ]
+        );
+
+        $status = !empty($result['ok']) ? 200 : 422;
+        $this->output
+            ->set_status_header($status)
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
     public function inventory_warehouse_daily_index()
     {
         if (!$this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')) {
@@ -1553,6 +1662,33 @@ class Purchase extends MY_Controller
             'inventory/stock/division/lot',
             'Posisi lot FIFO untuk stok divisi operasional.'
         );
+    }
+
+    public function material_lot_usage($lotId)
+    {
+        $canView = $this->can(self::PAGE_STOCK_WAREHOUSE, 'view')
+            || $this->can(self::PAGE_STOCK_DIVISION, 'view')
+            || $this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')
+            || $this->can(self::PAGE_STOCK_MATERIAL_MATRIX, 'view');
+        if (!$canView) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $detail = $this->Purchase_model->fifo_lot_usage_detail((int)$lotId);
+        if (!($detail['ok'] ?? false)) {
+            show_error((string)($detail['message'] ?? 'Detail pemakaian lot bahan baku tidak ditemukan.'), 404, 'Not Found');
+            return;
+        }
+
+        $header = (array)($detail['header'] ?? []);
+        $title = 'Pemakaian Lot ' . (string)($header['lot_no'] ?? '#');
+        $subtitle = 'Jejak konsumsi lot FIFO bahan baku ke transaksi, transfer, atau penyesuaian.';
+        $this->render('purchase/lot_usage_detail', [
+            'title' => $title,
+            'subtitle' => $subtitle,
+            'detail' => $detail,
+            'active_menu' => 'purchase.stock.warehouse.lot',
+        ]);
     }
 
     public function stock_daily_cell_detail()

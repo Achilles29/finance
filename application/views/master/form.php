@@ -5,6 +5,14 @@ $vcProductDefault = (float)($variable_cost_defaults['product'] ?? 20);
 $vcComponentDefault = (float)($variable_cost_defaults['component'] ?? 20);
 $isPayrollMaster = in_array($entity, ['pay-component', 'pay-profile', 'pay-profile-line', 'pay-assignment'], true);
 $isAttLocationMaster = ($entity === 'att-location');
+$isExtraMaster = ($entity === 'extra');
+$hasAjaxLookupField = false;
+foreach (($cfg['fields'] ?? []) as $fieldCfg) {
+  if (($fieldCfg['type'] ?? '') === 'ajax_lookup') {
+    $hasAjaxLookupField = true;
+    break;
+  }
+}
 $current = function ($name, $default = '') use ($row) {
     if (set_value($name) !== '') {
         return set_value($name);
@@ -51,13 +59,7 @@ $renderReadonlyValue = static function ($value, string $type): string {
 </style>
 <?php endif; ?>
 
-<?php if ($isAttLocationMaster): ?>
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-  crossorigin=""
->
+<?php if ($hasAjaxLookupField): ?>
 <style>
   .master-ajax-box {
     position: relative;
@@ -92,7 +94,46 @@ $renderReadonlyValue = static function ($value, string $type): string {
     font-weight: 600;
     color: #4d352c;
   }
+  .master-ajax-item-meta {
+    font-size: .84rem;
+    color: #7b6a61;
+    margin-top: .15rem;
+    line-height: 1.35;
+  }
+  .master-ajax-item-layout {
+    display: flex;
+    gap: .75rem;
+    align-items: center;
+  }
+  .master-ajax-item-thumb {
+    width: 50px;
+    height: 50px;
+    border-radius: 10px;
+    object-fit: cover;
+    background: #f6efe9;
+    border: 1px solid #ead8cd;
+    flex: 0 0 auto;
+  }
+  .master-ajax-selected {
+    margin-top: .5rem;
+    padding: .6rem .75rem;
+    border: 1px solid #ead8cd;
+    border-radius: 12px;
+    background: #fff8f3;
+  }
+  .master-ajax-selected.is-empty {
+    display: none;
+  }
 </style>
+<?php endif; ?>
+
+<?php if ($isAttLocationMaster): ?>
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin=""
+>
 
 <style>
   .att-location-map-wrap {
@@ -152,7 +193,10 @@ $renderReadonlyValue = static function ($value, string $type): string {
             }
           ?>
 
-          <div class="col-md-6 mb-3 <?php echo in_array($type, ['textarea'], true) ? 'col-12' : ''; ?>">
+          <div
+            class="col-md-6 mb-3 <?php echo in_array($type, ['textarea'], true) ? 'col-12' : ''; ?>"
+            <?php echo $isExtraMaster ? 'data-extra-field="' . html_escape($name) . '"' : ''; ?>
+          >
             <?php if ($type !== 'checkbox'): ?>
               <label class="form-label mb-1"><?php echo html_escape($label); ?></label>
             <?php endif; ?>
@@ -170,10 +214,11 @@ $renderReadonlyValue = static function ($value, string $type): string {
                 <?php endforeach; ?>
               </select>
             <?php elseif ($type === 'ajax_lookup'): ?>
-              <div class="master-ajax-box" data-master-ajax-field="<?php echo html_escape($name); ?>" data-search-url="<?php echo html_escape(site_url('master/lookup-search/' . $entity . '/' . $name)); ?>">
+              <div class="master-ajax-box" data-master-ajax-field="<?php echo html_escape($name); ?>" data-search-url="<?php echo html_escape(site_url('master/lookup-search/' . $entity . '/' . $name)); ?>" data-show-thumb="<?php echo $isExtraMaster ? '0' : '1'; ?>">
                 <input type="hidden" name="<?php echo html_escape($name); ?>" id="id_<?php echo html_escape($name); ?>" value="<?php echo html_escape((string)$val); ?>">
                 <input type="text" class="form-control master-ajax-input" data-display-input="<?php echo html_escape($name); ?>" placeholder="<?php echo html_escape((string)($f['placeholder'] ?? 'Cari data...')); ?>" <?php echo $isReadonly ? 'readonly' : ''; ?>>
                 <div class="master-ajax-result" data-result="<?php echo html_escape($name); ?>"></div>
+                <div class="master-ajax-selected is-empty" data-selected-preview="<?php echo html_escape($name); ?>"></div>
               </div>
             <?php elseif ($type === 'number'): ?>
               <input
@@ -238,6 +283,18 @@ $renderReadonlyValue = static function ($value, string $type): string {
 
             <?php if ($name === 'variable_cost_percent' && in_array($entity, ['product', 'component'], true)): ?>
               <small class="text-muted">Mode DEFAULT: nilai otomatis dari pengaturan, CUSTOM: isi manual, NONE: disembunyikan.</small>
+            <?php endif; ?>
+
+            <?php if ($entity === 'extra' && $name === 'extra_type'): ?>
+              <small class="text-muted">ADD untuk tambahan berbayar/opsional, REMOVE untuk menghilangkan komponen standar, CHOICE untuk memilih salah satu opsi pengganti, INFO untuk catatan operasional tanpa efek harga atau stok.</small>
+            <?php endif; ?>
+
+            <?php if ($entity === 'extra' && $name === 'source_kind'): ?>
+              <small class="text-muted">Pilih sumber yang benar-benar dipotong saat extra ini dipakai. Jika tidak memotong stok sama sekali, pilih "Tidak potong stok".</small>
+            <?php endif; ?>
+
+            <?php if ($entity === 'extra' && $name === 'replacement_kind'): ?>
+              <small class="text-muted">Pakai hanya jika extra ini menukar recipe lama dengan sumber lain. Jika extra hanya tambahan biasa, biarkan "Tidak mengganti recipe lama".</small>
             <?php endif; ?>
 
             <?php if ($isAttLocationMaster && in_array($name, ['latitude', 'longitude'], true)): ?>
@@ -326,11 +383,27 @@ $renderReadonlyValue = static function ($value, string $type): string {
     });
   }
 
+  function renderSelectedPreview(box, row) {
+    var preview = box.querySelector('[data-selected-preview]');
+    var showThumb = box.getAttribute('data-show-thumb') !== '0';
+    if (!preview) return;
+    if (!row || (!row.label && !row.meta && !row.thumb_url)) {
+      preview.classList.add('is-empty');
+      preview.innerHTML = '';
+      return;
+    }
+    var thumb = showThumb && row.thumb_url ? '<img class="master-ajax-item-thumb" src="' + escapeHtml(row.thumb_url) + '" alt="' + escapeHtml(row.label || '') + '">' : '';
+    var meta = row.meta ? '<div class="master-ajax-item-meta">' + escapeHtml(row.meta) + '</div>' : '';
+    preview.innerHTML = '<div class="master-ajax-item-layout">' + thumb + '<div><div class="master-ajax-item-title">' + escapeHtml(row.label || '') + '</div>' + meta + '</div></div>';
+    preview.classList.remove('is-empty');
+  }
+
   function setSelected(box, row) {
     var hidden = box.querySelector('input[type="hidden"]');
     var display = box.querySelector('.master-ajax-input');
     if (hidden) hidden.value = String(row.value || '');
     if (display) display.value = String(row.label || '');
+    renderSelectedPreview(box, row);
     closeAll();
   }
 
@@ -339,6 +412,7 @@ $renderReadonlyValue = static function ($value, string $type): string {
     var display = box.querySelector('.master-ajax-input');
     var result = box.querySelector('.master-ajax-result');
     var searchUrl = box.getAttribute('data-search-url') || '';
+    var showThumb = box.getAttribute('data-show-thumb') !== '0';
     var timer = null;
     if (!hidden || !display || !result || !searchUrl) return;
 
@@ -350,6 +424,7 @@ $renderReadonlyValue = static function ($value, string $type): string {
           var rows = Array.isArray(json.rows) ? json.rows : [];
           if (rows.length) {
             display.value = String(rows[0].label || '');
+            renderSelectedPreview(box, rows[0]);
           }
         })
         .catch(function () {});
@@ -357,6 +432,7 @@ $renderReadonlyValue = static function ($value, string $type): string {
 
     display.addEventListener('input', function () {
       hidden.value = '';
+      renderSelectedPreview(box, null);
       var q = display.value.trim();
       if (timer) window.clearTimeout(timer);
       if (q.length < 2) {
@@ -376,12 +452,19 @@ $renderReadonlyValue = static function ($value, string $type): string {
               return;
             }
             result.innerHTML = rows.map(function (row) {
-              return '<div class="master-ajax-item" data-value="' + escapeHtml(row.value) + '" data-label="' + escapeHtml(row.label) + '"><div class="master-ajax-item-title">' + escapeHtml(row.label) + '</div></div>';
+              var thumb = showThumb && row.thumb_url ? '<img class="master-ajax-item-thumb" src="' + escapeHtml(row.thumb_url) + '" alt="' + escapeHtml(row.label || '') + '">' : '';
+              var meta = row.meta ? '<div class="master-ajax-item-meta">' + escapeHtml(row.meta) + '</div>' : '';
+              return '<div class="master-ajax-item" data-value="' + escapeHtml(row.value) + '" data-label="' + escapeHtml(row.label) + '" data-meta="' + escapeHtml(row.meta || '') + '" data-thumb-url="' + escapeHtml(row.thumb_url || '') + '"><div class="master-ajax-item-layout">' + thumb + '<div><div class="master-ajax-item-title">' + escapeHtml(row.label) + '</div>' + meta + '</div></div></div>';
             }).join('');
             result.classList.add('is-open');
             Array.prototype.forEach.call(result.querySelectorAll('.master-ajax-item[data-value]'), function (item) {
               item.addEventListener('click', function () {
-                setSelected(box, { value: item.getAttribute('data-value'), label: item.getAttribute('data-label') });
+                setSelected(box, {
+                  value: item.getAttribute('data-value'),
+                  label: item.getAttribute('data-label'),
+                  meta: item.getAttribute('data-meta'),
+                  thumb_url: item.getAttribute('data-thumb-url')
+                });
               });
             });
           })
@@ -529,6 +612,91 @@ $renderReadonlyValue = static function ($value, string $type): string {
       URL.revokeObjectURL(objectUrl);
     };
   });
+})();
+</script>
+<?php endif; ?>
+
+<?php if ($entity === 'extra'): ?>
+<script>
+(function () {
+  var sourceKind = document.getElementById('id_source_kind');
+  var replacementKind = document.getElementById('id_replacement_kind');
+  if (!sourceKind || !replacementKind) return;
+
+  function fieldWrap(name) {
+    return document.querySelector('[data-extra-field="' + name + '"]');
+  }
+
+  function showField(name, visible) {
+    var wrap = fieldWrap(name);
+    if (!wrap) return;
+    if (visible) {
+      wrap.style.removeProperty('display');
+    } else {
+      wrap.style.setProperty('display', 'none', 'important');
+    }
+  }
+
+  function clearLookupValue(name) {
+    var hidden = document.getElementById('id_' + name);
+    if (hidden) hidden.value = '';
+    var box = hidden ? hidden.closest('[data-master-ajax-field]') : null;
+    if (!box) return;
+    var textInput = box.querySelector('.master-ajax-input');
+    var preview = box.querySelector('[data-selected-preview]');
+    var result = box.querySelector('[data-result]');
+    if (textInput) textInput.value = '';
+    if (preview) {
+      preview.innerHTML = '';
+      preview.classList.add('is-empty');
+    }
+    if (result) {
+      result.innerHTML = '';
+      result.classList.remove('is-open');
+    }
+  }
+
+  function clearNumericValue(name) {
+    var input = document.getElementById('id_' + name);
+    if (input) input.value = '';
+  }
+
+  function syncSourceFields() {
+    var kind = String(sourceKind.value || 'NONE').toUpperCase();
+    showField('source_product_id', kind === 'PRODUCT');
+    showField('source_component_id', kind === 'COMPONENT');
+    showField('source_material_id', kind === 'MATERIAL');
+    showField('source_qty', kind !== 'NONE');
+
+    if (kind !== 'PRODUCT') clearLookupValue('source_product_id');
+    if (kind !== 'COMPONENT') clearLookupValue('source_component_id');
+    if (kind !== 'MATERIAL') clearLookupValue('source_material_id');
+    if (kind === 'NONE') clearNumericValue('source_qty');
+  }
+
+  function syncReplacementFields() {
+    var kind = String(replacementKind.value || 'NONE').toUpperCase();
+    showField('replacement_product_id', kind === 'PRODUCT');
+    showField('replacement_component_id', kind === 'COMPONENT');
+    showField('replacement_material_id', kind === 'MATERIAL');
+    showField('replacement_qty', kind !== 'NONE');
+
+    if (kind !== 'PRODUCT') clearLookupValue('replacement_product_id');
+    if (kind !== 'COMPONENT') clearLookupValue('replacement_component_id');
+    if (kind !== 'MATERIAL') clearLookupValue('replacement_material_id');
+    if (kind === 'NONE') clearNumericValue('replacement_qty');
+  }
+
+  function syncAll() {
+    syncSourceFields();
+    syncReplacementFields();
+  }
+
+  sourceKind.addEventListener('change', syncSourceFields);
+  sourceKind.addEventListener('input', syncSourceFields);
+  replacementKind.addEventListener('change', syncReplacementFields);
+  replacementKind.addEventListener('input', syncReplacementFields);
+  syncAll();
 })();
 </script>
 <?php endif; ?>

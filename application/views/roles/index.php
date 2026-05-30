@@ -89,20 +89,20 @@ $canDelete  = $_is_super || !empty($user_perms['auth.roles.manage']['can_delete'
             </td>
             <td class="action-cell">
               <div class="d-flex gap-1 flex-nowrap justify-content-end">
-                <a href="<?= base_url('roles/matrix/' . $r['id']) ?>" class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Matrix Izin">
+                <a href="<?= base_url('roles/matrix/' . $r['id']) ?>" class="btn btn-sm btn-outline-warning action-icon-btn" data-bs-toggle="tooltip" title="Matrix Izin" aria-label="Matrix Izin">
                   <i class="ri ri-shield-keyhole-line"></i>
                 </a>
-                <a href="<?= base_url('roles/users/' . $r['id']) ?>" class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Lihat User">
+                <a href="<?= base_url('roles/users/' . $r['id']) ?>" class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Lihat User" aria-label="Lihat User">
                   <i class="ri ri-group-line"></i>
                 </a>
                 <?php if ($canEdit): ?>
-                <a href="<?= base_url('roles/edit/' . $r['id']) ?>" class="btn btn-sm btn-outline-secondary action-icon-btn" data-bs-toggle="tooltip" title="Edit">
+                <a href="<?= base_url('roles/edit/' . $r['id']) ?>" class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit">
                   <i class="ri ri-edit-line"></i>
                 </a>
                 <?php endif; ?>
                 <?php if ($canDelete && $r['role_code'] !== 'SUPERADMIN'): ?>
                 <a href="<?= base_url('roles/delete/' . $r['id']) ?>" class="btn btn-sm btn-outline-danger action-icon-btn"
-                   data-bs-toggle="tooltip" title="Hapus"
+                   data-bs-toggle="tooltip" title="Hapus" aria-label="Hapus"
                    onclick="return confirm('Hapus role <?= htmlspecialchars(addslashes($r['role_name'])) ?>? Tidak bisa jika masih ada user.')">
                   <i class="ri ri-delete-bin-line"></i>
                 </a>

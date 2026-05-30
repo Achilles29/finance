@@ -1666,6 +1666,7 @@ class Procurement_model extends CI_Model
         $status = strtoupper((string)($request['status'] ?? 'DRAFT'));
         $nextStatus = $status;
         $needsReverseFulfillment = false;
+        $reverseResult = ['ok' => true, 'data' => ['material_ids' => []]];
 
         if ($action === 'SUBMIT') {
             if ($status !== 'DRAFT') {
@@ -1732,10 +1733,28 @@ class Procurement_model extends CI_Model
         }
 
         $this->db->trans_commit();
+
+        $availabilityRefresh = [];
+        if ($action === 'VOID' && !empty($reverseResult['data']['material_ids']) && is_array($reverseResult['data']['material_ids'])) {
+            $availabilityRefresh = $this->trigger_pos_availability_refresh_for_materials(
+                (array)$reverseResult['data']['material_ids'],
+                [
+                    'trigger_context' => 'PROCUREMENT_SR_VOID',
+                    'event_source' => 'STORE_REQUEST_VOID',
+                    'event_table' => 'pur_store_request',
+                    'event_id' => $requestId,
+                    'actor_employee_id' => $userId,
+                ]
+            );
+        }
+
         return [
             'ok' => true,
             'message' => 'Aksi berhasil diproses. Status: ' . $nextStatus,
             'status' => $nextStatus,
+            'data' => [
+                'availability_rebuild' => $availabilityRefresh,
+            ],
         ];
     }
 
@@ -2145,6 +2164,22 @@ class Procurement_model extends CI_Model
         }
 
         $this->db->trans_commit();
+
+        $availabilityRefresh = [];
+        if (!empty($repair['data']['material_ids']) && is_array($repair['data']['material_ids'])) {
+            $availabilityRefresh = $this->trigger_pos_availability_refresh_for_materials(
+                (array)$repair['data']['material_ids'],
+                [
+                    'trigger_context' => 'PROCUREMENT_SR_VOID_REPAIR',
+                    'event_source' => 'STORE_REQUEST_VOID_REPAIR',
+                    'event_table' => 'pur_store_request',
+                    'event_id' => $requestId,
+                    'actor_employee_id' => $userId,
+                ]
+            );
+        }
+
+        $repair['data']['availability_rebuild'] = $availabilityRefresh;
         return $repair;
     }
 
@@ -3227,6 +3262,7 @@ class Procurement_model extends CI_Model
         }
 
         $rebuildTargets = [];
+        $availabilityMaterialIds = [];
         foreach ($fulfillments as $fulfillment) {
             $fulfillmentId = (int)($fulfillment['id'] ?? 0);
             if ($fulfillmentId <= 0) {
@@ -3261,6 +3297,11 @@ class Procurement_model extends CI_Model
                 $qtyContent = round((float)($line['qty_content_posted'] ?? 0), 4);
                 if ($qtyBuy <= 0 && $qtyContent <= 0) {
                     continue;
+                }
+
+                $availabilityMaterialId = $this->resolveAvailabilityMaterialIdFromLine($line);
+                if ($availabilityMaterialId > 0) {
+                    $availabilityMaterialIds[$availabilityMaterialId] = $availabilityMaterialId;
                 }
 
                 $stockDomain = $this->resolve_line_stock_domain($line);
@@ -3351,7 +3392,79 @@ class Procurement_model extends CI_Model
             'message' => 'Fulfillment SR berhasil dihapus dari histori stok dan direbuild ulang.',
             'data' => [
                 'rebuild_targets' => count($rebuildTargets),
+                'material_ids' => array_values($availabilityMaterialIds),
             ],
+        ];
+    }
+
+    private function resolveAvailabilityMaterialIdFromLine(array $line): int
+    {
+        $materialId = (int)($line['material_id'] ?? 0);
+        if ($materialId > 0) {
+            return $materialId;
+        }
+
+        $itemId = (int)($line['item_id'] ?? 0);
+        if ($itemId <= 0 || !$this->db->table_exists('mst_item')) {
+            return 0;
+        }
+
+        $item = $this->db
+            ->select('material_id')
+            ->from('mst_item')
+            ->where('id', $itemId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        return (int)($item['material_id'] ?? 0);
+    }
+
+    private function trigger_pos_availability_refresh_for_materials(array $materialIds, array $context = []): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $materialIds), static function ($id) {
+            return $id > 0;
+        })));
+
+        if (empty($ids)) {
+            return [
+                'ok' => true,
+                'material_ids' => [],
+                'success_count' => 0,
+                'failed_count' => 0,
+                'results' => [],
+            ];
+        }
+
+        $this->load->library('PosAvailabilityRebuildService');
+        $results = [];
+        $success = 0;
+        $failed = 0;
+
+        foreach ($ids as $materialId) {
+            $result = $this->posavailabilityrebuildservice->handle_material_change($materialId, $context + [
+                'material_id' => $materialId,
+            ]);
+            $results[] = [
+                'material_id' => $materialId,
+                'ok' => (bool)($result['ok'] ?? false),
+                'message' => (string)($result['message'] ?? ''),
+                'data' => (array)($result['data'] ?? []),
+            ];
+
+            if (!empty($result['ok'])) {
+                $success++;
+            } else {
+                $failed++;
+            }
+        }
+
+        return [
+            'ok' => $failed === 0,
+            'material_ids' => $ids,
+            'success_count' => $success,
+            'failed_count' => $failed,
+            'results' => $results,
         ];
     }
 

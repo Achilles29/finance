@@ -53,6 +53,42 @@ $lotAverageCost = static function (array $lotSummary): float {
 ?>
 
 <style>
+  .component-monthly-wrap {
+    max-height: 74vh;
+    overflow: auto;
+    border: 1px solid #e8d2c3;
+    border-radius: 18px;
+    background: linear-gradient(180deg, #fffaf5 0%, #fff 100%);
+    box-shadow: 0 18px 36px -30px rgba(95, 53, 39, .45);
+  }
+  .component-monthly-table {
+    min-width: 1680px;
+    margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .component-monthly-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    background: linear-gradient(180deg, #7c1f2d 0%, #9f2f3e 100%);
+    color: #fff8f5;
+    border-bottom: 1px solid #7f2936;
+    white-space: nowrap;
+  }
+  .component-monthly-table td,
+  .component-monthly-table th {
+    vertical-align: top;
+    border-right: 1px solid #efddd2;
+    border-bottom: 1px solid #f3e4da;
+    font-size: .83rem;
+  }
+  .component-monthly-table tbody td {
+    background: #fff;
+  }
+  .component-monthly-table tbody tr:nth-child(even) td {
+    background: #fffaf6;
+  }
   .component-monthly-lot-card {
     min-width: 250px;
     white-space: normal;
@@ -237,8 +273,8 @@ $lotAverageCost = static function (array $lotSummary): float {
 </div>
 
 <div class="card">
-  <div class="table-responsive">
-    <table class="table table-striped table-hover mb-0">
+  <div class="component-monthly-wrap">
+    <table class="table table-striped table-hover component-monthly-table">
       <thead>
         <tr>
           <th>Lokasi</th>

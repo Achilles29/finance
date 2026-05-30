@@ -34,8 +34,9 @@ class Loyalty_model extends CI_Model
 
         $limit = max(1, min(50, $limit));
         $db = $this->db
-            ->select('p.id, p.product_name')
+            ->select('p.id, p.product_name, p.product_code, p.selling_price, p.photo_path, pd.name AS product_division_name')
             ->from('mst_product p')
+            ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
             ->where('p.is_active', 1);
 
         if ($q !== '') {
@@ -246,6 +247,30 @@ class Loyalty_model extends CI_Model
         }, 'Member tidak ditemukan.', 'Gagal mengubah status member.');
     }
 
+    public function delete_member(int $id): array
+    {
+        $row = $this->find_member($id);
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Member tidak ditemukan.'];
+        }
+
+        if ($this->db->table_exists('pos_order') && $this->db->field_exists('member_id', 'pos_order')) {
+            $orderCount = (int)$this->db->from('pos_order')->where('member_id', $id)->count_all_results();
+            if ($orderCount > 0) {
+                return ['ok' => false, 'message' => 'Member sudah dipakai di transaksi POS dan tidak bisa dihapus. Nonaktifkan saja bila sudah tidak dipakai.'];
+            }
+        }
+
+        if ($this->db->table_exists('pos_voucher_issue') && $this->db->field_exists('member_id', 'pos_voucher_issue')) {
+            $voucherCount = (int)$this->db->from('pos_voucher_issue')->where('member_id', $id)->count_all_results();
+            if ($voucherCount > 0) {
+                return ['ok' => false, 'message' => 'Member sudah memiliki voucher terkait. Hapus/void voucher dulu atau nonaktifkan member.'];
+            }
+        }
+
+        return $this->delete_record('crm_member', $id, 'Member tidak ditemukan.', 'Gagal menghapus member.');
+    }
+
     public function point_rule_rows(array $filters): array
     {
         $db = $this->db->from('pos_point_rule r')->join('mst_product p', 'p.id = r.required_product_id', 'left');
@@ -277,6 +302,11 @@ class Loyalty_model extends CI_Model
         return $this->toggle_active_record('pos_point_rule', $id, null, 'Rule poin tidak ditemukan.', 'Gagal mengubah status rule poin.');
     }
 
+    public function delete_point_rule(int $id): array
+    {
+        return $this->delete_record('pos_point_rule', $id, 'Rule poin tidak ditemukan.', 'Gagal menghapus rule poin.');
+    }
+
     public function stamp_campaign_rows(array $filters): array
     {
         $db = $this->db->from('pos_stamp_campaign c')->join('mst_product p', 'p.id = c.required_product_id', 'left');
@@ -306,6 +336,11 @@ class Loyalty_model extends CI_Model
     public function toggle_stamp_campaign(int $id): array
     {
         return $this->toggle_active_record('pos_stamp_campaign', $id, null, 'Campaign stamp tidak ditemukan.', 'Gagal mengubah status campaign stamp.');
+    }
+
+    public function delete_stamp_campaign(int $id): array
+    {
+        return $this->delete_record('pos_stamp_campaign', $id, 'Campaign stamp tidak ditemukan.', 'Gagal menghapus campaign stamp.');
     }
 
     public function voucher_campaign_rows(array $filters): array
@@ -438,6 +473,14 @@ class Loyalty_model extends CI_Model
         return $this->toggle_active_record('pos_voucher_campaign', $id, null, 'Campaign voucher tidak ditemukan.', 'Gagal mengubah status campaign voucher.');
     }
 
+    public function delete_voucher_campaign(int $id): array
+    {
+        if ((int)$this->db->from('pos_voucher_issue')->where('campaign_id', $id)->count_all_results() > 0) {
+            return ['ok' => false, 'message' => 'Campaign voucher sudah punya voucher aktual. Hapus voucher aktualnya dulu atau nonaktifkan campaign.'];
+        }
+        return $this->delete_record('pos_voucher_campaign', $id, 'Campaign voucher tidak ditemukan.', 'Gagal menghapus campaign voucher.');
+    }
+
     public function save_voucher_issue(array $data): array
     {
         if (!$this->db->table_exists('pos_voucher_issue')) {
@@ -563,6 +606,21 @@ class Loyalty_model extends CI_Model
             $this->db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
         }
+    }
+
+    public function delete_voucher_issue(int $id): array
+    {
+        if (!$this->db->table_exists('pos_voucher_issue')) {
+            return ['ok' => false, 'message' => 'Tabel voucher aktual belum tersedia.'];
+        }
+        $row = $this->db->from('pos_voucher_issue')->where('id', $id)->limit(1)->get()->row_array();
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Voucher tidak ditemukan.'];
+        }
+        if (strtoupper((string)($row['voucher_status'] ?? 'OPEN')) === 'REDEEMED') {
+            return ['ok' => false, 'message' => 'Voucher yang sudah dipakai tidak bisa dihapus.'];
+        }
+        return $this->delete_record('pos_voucher_issue', $id, 'Voucher tidak ditemukan.', 'Gagal menghapus voucher.');
     }
 
     private function save_point_like_record(string $type, array $data): array
@@ -712,6 +770,27 @@ class Loyalty_model extends CI_Model
             }
             $this->db->trans_commit();
             return ['ok' => true, 'id' => $id, 'is_active' => $newValue];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    private function delete_record(string $table, int $id, string $notFoundMessage, string $defaultErrorMessage): array
+    {
+        $row = $this->db->from($table)->where('id', $id)->limit(1)->get()->row_array();
+        if (!$row) {
+            return ['ok' => false, 'message' => $notFoundMessage];
+        }
+
+        $this->db->trans_begin();
+        try {
+            $this->db->where('id', $id)->delete($table);
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException($defaultErrorMessage);
+            }
+            $this->db->trans_commit();
+            return ['ok' => true, 'id' => $id];
         } catch (Throwable $e) {
             $this->db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];

@@ -180,6 +180,43 @@ foreach ($rows as $row) {
 }
 ?>
 
+<style>
+  .lot-audit-summary-card,
+  .lot-audit-filter-card,
+  .lot-audit-table-card {
+    border:1px solid rgba(226,212,200,.88);
+    border-radius:22px;
+    box-shadow:0 14px 30px rgba(58,38,30,.06);
+  }
+  .lot-audit-summary-card .card-body {
+    padding:.9rem 1rem;
+  }
+  .lot-audit-summary-label {
+    font-size:.72rem;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:#8a7a72;
+    margin-bottom:.16rem;
+  }
+  .lot-audit-summary-value {
+    font-size:1.2rem;
+    font-weight:900;
+    color:#312729;
+  }
+  .lot-audit-ref-links {
+    display:flex;
+    gap:.35rem;
+    flex-wrap:wrap;
+    margin-top:.3rem;
+  }
+  .lot-audit-ref-links .btn {
+    --bs-btn-padding-y:.16rem;
+    --bs-btn-padding-x:.48rem;
+    --bs-btn-font-size:.68rem;
+    border-radius:999px;
+  }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
     <h4 class="mb-1"><i class="ri ri-stack-line page-title-icon"></i><?php echo html_escape($title ?? 'Audit Lot Material'); ?></h4>
@@ -198,7 +235,7 @@ foreach ($rows as $row) {
   </div>
 </div>
 
-<div class="card mb-3">
+<div class="card mb-3 lot-audit-filter-card">
   <div class="card-body py-3">
     <form method="get" action="<?php echo $baseUrl; ?>" class="row g-2 align-items-end">
       <?php if ($scopeLocked): ?>
@@ -283,12 +320,12 @@ foreach ($rows as $row) {
 </div>
 
 <div class="row g-2 mb-3">
-  <div class="col-6 col-md-4"><div class="card"><div class="card-body py-2"><div class="small text-muted">Jumlah Lot</div><div class="h5 mb-0"><?php echo number_format($summaryLotCount); ?></div></div></div></div>
-  <div class="col-6 col-md-4"><div class="card"><div class="card-body py-2"><div class="small text-muted">Qty Balance Total</div><div class="h5 mb-0"><?php echo number_format($summaryBalance, 2, ',', '.'); ?></div></div></div></div>
-  <div class="col-6 col-md-4"><div class="card"><div class="card-body py-2"><div class="small text-muted">Nilai Estimasi</div><div class="h5 mb-0">Rp <?php echo number_format($summaryValue, 2, ',', '.'); ?></div></div></div></div>
+  <div class="col-6 col-md-4"><div class="card lot-audit-summary-card"><div class="card-body"><div class="lot-audit-summary-label">Jumlah Lot</div><div class="lot-audit-summary-value"><?php echo number_format($summaryLotCount); ?></div></div></div></div>
+  <div class="col-6 col-md-4"><div class="card lot-audit-summary-card"><div class="card-body"><div class="lot-audit-summary-label">Qty Balance Total</div><div class="lot-audit-summary-value"><?php echo number_format($summaryBalance, 2, ',', '.'); ?></div></div></div></div>
+  <div class="col-6 col-md-4"><div class="card lot-audit-summary-card"><div class="card-body"><div class="lot-audit-summary-label">Nilai Estimasi</div><div class="lot-audit-summary-value">Rp <?php echo number_format($summaryValue, 2, ',', '.'); ?></div></div></div></div>
 </div>
 
-<div class="card">
+<div class="card lot-audit-table-card">
   <div class="table-responsive">
     <table class="table table-sm table-striped align-middle mb-0 fin-audit-table">
       <thead>
@@ -354,10 +391,16 @@ foreach ($rows as $row) {
               <td class="text-end col-amount">Rp <?php echo number_format((float)($row['unit_cost'] ?? 0), 2, ',', '.'); ?></td>
               <td>
                 <div class="small"><?php echo html_escape((string)($row['source_table'] ?? '-')); ?><?php echo !empty($row['source_id']) ? ' #' . (int)$row['source_id'] : ''; ?></div>
-                <?php if (!empty($sourceLink['url']) && !empty($sourceLink['label'])): ?>
-                  <div class="small"><a href="<?php echo html_escape($sourceLink['url']); ?>"><?php echo html_escape($sourceLink['label']); ?></a></div>
-                <?php endif; ?>
-                <div class="small text-muted">Issue line: <?php echo number_format((int)($row['issue_line_count'] ?? 0)); ?> | Qty keluar: <?php echo number_format((float)($row['issue_qty_total'] ?? 0), 2, ',', '.'); ?></div>
+                <div class="lot-audit-ref-links">
+                  <a href="<?php echo html_escape(site_url('inventory/stock/lot/usage/' . (int)($row['id'] ?? 0))); ?>" class="btn btn-outline-primary btn-sm">Pemakaian</a>
+                  <?php if (!empty($sourceLink['url']) && !empty($sourceLink['label'])): ?>
+                    <a href="<?php echo html_escape($sourceLink['url']); ?>" class="btn btn-outline-secondary btn-sm"><?php echo html_escape($sourceLink['label']); ?></a>
+                  <?php endif; ?>
+                  <?php foreach ($stockLinks as $stockLink): ?>
+                    <a href="<?php echo html_escape((string)($stockLink['url'] ?? '#')); ?>" class="btn btn-outline-secondary btn-sm"><?php echo html_escape((string)($stockLink['label'] ?? 'Stok')); ?></a>
+                  <?php endforeach; ?>
+                </div>
+                <div class="small text-muted mt-1">Issue line: <?php echo number_format((int)($row['issue_line_count'] ?? 0)); ?> | Qty keluar: <?php echo number_format((float)($row['issue_qty_total'] ?? 0), 2, ',', '.'); ?></div>
               </td>
             </tr>
           <?php endforeach; ?>

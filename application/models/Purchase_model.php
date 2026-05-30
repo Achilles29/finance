@@ -1390,6 +1390,19 @@ class Purchase_model extends CI_Model
 
         $window = $this->resolveDailyWindow($month, $dateFrom, $dateTo);
         $dates = $this->buildDateSeries($window['date_from'], $window['date_to']);
+        $rows = $this->fetchMaterialDailySourceRows($q, $divisionId, $window['date_from'], $window['date_to'], $destinationFilter);
+        $rows = $this->filterZeroOpeningClosingDailyRows($rows);
+        $rows = $this->attachMaterialDailyProfilePrices($rows);
+
+        return [
+            'window' => $window,
+            'dates' => $dates,
+            'rows' => $this->pivotDailyRows($rows, $limit),
+        ];
+    }
+
+    private function fetchMaterialDailySourceRows(string $q, ?int $divisionId, string $dateFrom, string $dateTo, ?string $destinationFilter = null): array
+    {
         $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
         $hasDestinationType = $this->db->field_exists('destination_type', 'inv_division_daily_rollup');
         $hasDiscardQtyContent = $this->db->field_exists('discarded_qty_content', 'inv_division_daily_rollup');
@@ -1434,10 +1447,16 @@ class Purchase_model extends CI_Model
             ->from('inv_division_daily_rollup d')
             ->join('mst_operational_division dv', 'dv.id = d.division_id', 'left')
             ->join('mst_item i', 'i.id = d.item_id', 'left')
-            ->join('mst_material m', 'm.id = d.material_id', 'left')
-            ->where('d.stock_domain', 'MATERIAL')
-            ->where('d.movement_date >=', $window['date_from'])
-            ->where('d.movement_date <=', $window['date_to']);
+            ->join('mst_material m', 'm.id = COALESCE(d.material_id, i.material_id)', 'left')
+            ->group_start()
+                ->where('d.stock_domain', 'MATERIAL')
+                ->or_group_start()
+                    ->where('d.stock_domain', 'ITEM')
+                    ->where('COALESCE(d.material_id, i.material_id) IS NOT NULL', null, false)
+                ->group_end()
+            ->group_end()
+            ->where('d.movement_date >=', $dateFrom)
+            ->where('d.movement_date <=', $dateTo);
         if ($this->db->field_exists('profile_expired_date', 'inv_division_daily_rollup')) {
             $this->db->select('d.profile_expired_date');
         } else {
@@ -1480,22 +1499,1127 @@ class Purchase_model extends CI_Model
                 ->group_end();
         }
 
-        $rows = $this->db
+        return $this->db
             ->order_by($hasDivisionName ? ('dv.' . $divisionNameColumn) : 'd.division_id', 'ASC')
             ->order_by('COALESCE(m.material_name, i.item_name)', 'ASC', false)
             ->order_by('d.profile_name', 'ASC')
             ->order_by('d.movement_date', 'ASC')
             ->get()
             ->result_array();
+    }
 
-        $rows = $this->filterZeroOpeningClosingDailyRows($rows);
-        $rows = $this->attachMaterialDailyProfilePrices($rows);
+    public function list_division_material_stock_compare(string $asOfDate, string $q, ?int $divisionId, int $limit, ?string $destinationFilter = null): array
+    {
+        $asOfDate = $this->normalizeDate($asOfDate) ?? date('Y-m-d');
+        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+        if ($limit <= 0 || $limit > 2000) {
+            $limit = 300;
+        }
+
+        $balanceRows = $this->list_division_stock($q, 5000, $destinationFilter, '', '', $divisionId);
+        $dailyRows = $this->list_division_daily_rollup_latest_closing($asOfDate, $q, $divisionId, $destinationFilter);
+        $matrixRows = $dailyRows;
+        $movementRows = $this->list_division_material_movement_closing($asOfDate, $q, $divisionId, $destinationFilter);
+
+        $balanceMap = $this->aggregateDivisionMaterialCompareSource($balanceRows, 'balance');
+        $dailyMap = $this->aggregateDivisionMaterialCompareSource($dailyRows, 'daily');
+        $matrixMap = $this->aggregateDivisionMaterialCompareRawDaily($matrixRows);
+        $movementMap = $this->aggregateDivisionMaterialCompareSource($movementRows, 'movement');
+
+        $allKeys = array_fill_keys(array_merge(
+            array_keys($balanceMap),
+            array_keys($dailyMap),
+            array_keys($matrixMap),
+            array_keys($movementMap)
+        ), true);
+
+        $rows = [];
+        foreach (array_keys($allKeys) as $key) {
+            $balance = $balanceMap[$key] ?? null;
+            $daily = $dailyMap[$key] ?? null;
+            $matrix = $matrixMap[$key] ?? null;
+            $movement = $movementMap[$key] ?? null;
+            $meta = $balance['_meta'] ?? $daily['_meta'] ?? $matrix['_meta'] ?? $movement['_meta'] ?? [];
+            if (empty($meta['material_id'])) {
+                continue;
+            }
+
+            $balanceContent = (float)($balance['qty_content'] ?? 0);
+            $dailyContent = (float)($daily['qty_content'] ?? 0);
+            $matrixContent = (float)($matrix['qty_content'] ?? 0);
+            $movementContent = (float)($movement['qty_content'] ?? 0);
+
+            $deltaBalanceVsMovement = round($balanceContent - $movementContent, 4);
+            $deltaDailyVsMovement = round($dailyContent - $movementContent, 4);
+            $deltaMatrixVsMovement = round($matrixContent - $movementContent, 4);
+            $verdict = $this->build_division_material_reconcile_verdict(
+                $balanceContent,
+                $dailyContent,
+                $movementContent,
+                [
+                    'daily_date' => (string)($daily['_meta']['latest_date'] ?? ''),
+                    'as_of_date' => $asOfDate,
+                ],
+                [
+                    'movement_date' => (string)($movement['_meta']['latest_date'] ?? ''),
+                ]
+            );
+
+            $matches = abs($deltaBalanceVsMovement) < 0.0001
+                && abs($deltaDailyVsMovement) < 0.0001
+                && abs($deltaMatrixVsMovement) < 0.0001;
+
+            $rows[] = [
+                'division_id' => (int)($meta['division_id'] ?? 0),
+                'division_name' => (string)($meta['division_name'] ?? ''),
+                'division_code' => (string)($meta['division_code'] ?? ''),
+                'destination_group' => (string)($meta['destination_group'] ?? 'REGULER'),
+                'destination_name' => (string)($meta['destination_name'] ?? 'Reguler'),
+                'item_id' => (int)($meta['item_id'] ?? 0),
+                'material_id' => (int)($meta['material_id'] ?? 0),
+                'material_code' => (string)($meta['material_code'] ?? ''),
+                'material_name' => (string)($meta['material_name'] ?? ''),
+                'balance_qty_content' => $balanceContent,
+                'balance_qty_pack' => (float)($balance['qty_pack'] ?? 0),
+                'daily_qty_content' => $dailyContent,
+                'daily_qty_pack' => (float)($daily['qty_pack'] ?? 0),
+                'matrix_qty_content' => $matrixContent,
+                'matrix_qty_pack' => (float)($matrix['qty_pack'] ?? 0),
+                'movement_qty_content' => $movementContent,
+                'movement_qty_pack' => (float)($movement['qty_pack'] ?? 0),
+                'delta_balance_vs_movement' => $deltaBalanceVsMovement,
+                'delta_daily_vs_movement' => $deltaDailyVsMovement,
+                'delta_matrix_vs_movement' => $deltaMatrixVsMovement,
+                'daily_date' => (string)($daily['_meta']['latest_date'] ?? ''),
+                'movement_date' => (string)($movement['_meta']['latest_date'] ?? ''),
+                'suspect_table' => (string)($verdict['suspect_table'] ?? 'MATCH'),
+                'suspect_reason' => (string)($verdict['reason'] ?? ''),
+                'is_match' => $matches ? 1 : 0,
+            ];
+        }
+
+        usort($rows, static function (array $a, array $b): int {
+            $cmp = strcasecmp((string)($a['division_name'] ?? ''), (string)($b['division_name'] ?? ''));
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+            $cmp = strcasecmp((string)($a['destination_group'] ?? ''), (string)($b['destination_group'] ?? ''));
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+            $cmp = strcasecmp((string)($a['material_name'] ?? ''), (string)($b['material_name'] ?? ''));
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+            return strcasecmp((string)($a['material_code'] ?? ''), (string)($b['material_code'] ?? ''));
+        });
+
+        $summary = [
+            'total_rows' => count($rows),
+            'match_rows' => 0,
+            'mismatch_rows' => 0,
+        ];
+        foreach ($rows as $row) {
+            if (!empty($row['is_match'])) {
+                $summary['match_rows']++;
+            } else {
+                $summary['mismatch_rows']++;
+            }
+        }
 
         return [
-            'window' => $window,
-            'dates' => $dates,
-            'rows' => $this->pivotDailyRows($rows, $limit),
+            'as_of_date' => $asOfDate,
+            'rows' => array_slice($rows, 0, $limit),
+            'summary' => $summary,
         ];
+    }
+
+    private function list_division_daily_rollup_latest_closing(string $asOfDate, string $q, ?int $divisionId, ?string $destinationFilter = null): array
+    {
+        if (!$this->db->table_exists('inv_division_daily_rollup')) {
+            return [];
+        }
+
+        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_division_daily_rollup');
+        $destinationTypeSource = $hasDestinationType ? 'd.destination_type' : "'OTHER'";
+        $destinationGroupExpr = "CASE WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+        $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
+        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+            ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $hasDivisionCode = $divisionCodeColumn !== null;
+        $hasDivisionName = $divisionNameColumn !== null;
+        $divisionCodeSelect = $hasDivisionCode ? ('dv.' . $divisionCodeColumn . ' AS division_code') : 'CAST(d.division_id AS CHAR) AS division_code';
+        $divisionNameSelect = $hasDivisionName ? ('dv.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $this->db
+            ->select('d.id, d.movement_date, d.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect, false)
+            ->select($destinationTypeSource . ' AS destination_type', false)
+            ->select($destinationGroupExpr . ' AS destination_group', false)
+            ->select($destinationNameExpr . ' AS destination_name', false)
+            ->select('d.item_id, COALESCE(d.material_id, i.material_id) AS material_id, d.buy_uom_id, d.content_uom_id', false)
+            ->select('d.profile_key, d.profile_name, d.profile_brand, d.profile_description, d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
+            ->select('d.closing_qty_buy, d.closing_qty_content')
+            ->select('i.item_code, i.item_name, m.material_code, m.material_name')
+            ->from('inv_division_daily_rollup d')
+            ->join('mst_operational_division dv', 'dv.id = d.division_id', 'left')
+            ->join('mst_item i', 'i.id = d.item_id', 'left')
+            ->join('mst_material m', 'm.id = COALESCE(d.material_id, i.material_id)', 'left')
+            ->group_start()
+                ->where('d.stock_domain', 'MATERIAL')
+                ->or_group_start()
+                    ->where('d.stock_domain', 'ITEM')
+                    ->where('COALESCE(d.material_id, i.material_id) IS NOT NULL', null, false)
+                ->group_end()
+            ->group_end()
+            ->where('d.movement_date <=', $asOfDate);
+
+        if ($divisionId !== null && $divisionId > 0) {
+            $this->db->where('d.division_id', $divisionId);
+        }
+        if ($destinationFilter !== null && $destinationFilter !== 'ALL' && $hasDestinationType) {
+            if ($destinationFilter === 'REGULER') {
+                $this->db->where_not_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } elseif ($destinationFilter === 'EVENT') {
+                $this->db->where_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } else {
+                $this->db->where('d.destination_type', $destinationFilter);
+            }
+        }
+        if ($q !== '') {
+            $this->db->group_start();
+            if ($hasDivisionCode) {
+                $this->db->like('dv.' . $divisionCodeColumn, $q);
+                if ($hasDivisionName) {
+                    $this->db->or_like('dv.' . $divisionNameColumn, $q);
+                }
+            } elseif ($hasDivisionName) {
+                $this->db->like('dv.' . $divisionNameColumn, $q);
+            }
+            $this->db->or_like('i.item_code', $q)
+                ->or_like('i.item_name', $q)
+                ->or_like('m.material_code', $q)
+                ->or_like('m.material_name', $q)
+                ->or_like('d.profile_name', $q)
+                ->or_like('d.profile_brand', $q)
+                ->or_like('d.profile_description', $q)
+                ->group_end();
+        }
+
+        $rows = $this->db
+            ->order_by('d.movement_date', 'ASC')
+            ->order_by('d.id', 'ASC')
+            ->get()
+            ->result_array();
+
+        $latestRows = [];
+        foreach ($rows as $row) {
+            $identityKey = implode('|', [
+                (int)($row['division_id'] ?? 0),
+                strtoupper((string)($row['destination_type'] ?? 'OTHER')),
+                (int)($row['item_id'] ?? 0),
+                (int)($row['material_id'] ?? 0),
+                (int)($row['buy_uom_id'] ?? 0),
+                (int)($row['content_uom_id'] ?? 0),
+                strtoupper(trim((string)($row['profile_key'] ?? ''))),
+            ]);
+            $latestRows[$identityKey] = $row;
+        }
+
+        return array_values($latestRows);
+    }
+
+    private function build_division_material_reconcile_verdict(float $balanceContent, float $dailyContent, float $movementContent, array $dailyMeta = [], array $movementMeta = []): array
+    {
+        $eps = 0.0001;
+        $balanceVsDaily = abs($balanceContent - $dailyContent);
+        $balanceVsMovement = abs($balanceContent - $movementContent);
+        $dailyVsMovement = abs($dailyContent - $movementContent);
+        $dailyDate = (string)($dailyMeta['daily_date'] ?? '');
+        $movementDate = (string)($movementMeta['movement_date'] ?? '');
+
+        if ($balanceVsDaily < $eps && $balanceVsMovement < $eps) {
+            return ['suspect_table' => 'MATCH', 'reason' => 'Balance, daily rollup, dan movement masih sinkron.'];
+        }
+        if ($dailyVsMovement < $eps && $balanceVsDaily >= $eps) {
+            return ['suspect_table' => 'BALANCE', 'reason' => 'Balance berbeda, sementara daily rollup masih sama dengan closing movement.'];
+        }
+        if ($balanceVsMovement < $eps && $dailyVsMovement >= $eps) {
+            $reason = 'Daily rollup berbeda, sementara balance masih sama dengan closing movement.';
+            if ($dailyDate === '') {
+                $reason = 'Daily rollup tidak punya closing sampai tanggal audit, sementara balance sudah sama dengan movement.';
+            } elseif ($movementDate !== '' && $dailyDate !== '' && $dailyDate < $movementDate) {
+                $reason = 'Daily rollup tertinggal dari movement terakhir, sementara balance sudah mengikuti movement.';
+            }
+            return ['suspect_table' => 'DAILY', 'reason' => $reason];
+        }
+        if ($balanceVsDaily < $eps && $dailyVsMovement >= $eps) {
+            return ['suspect_table' => 'MOVEMENT_OR_SOURCE', 'reason' => 'Balance dan daily rollup sama, tetapi closing movement berbeda. Periksa movement log atau sumber posting.'];
+        }
+
+        return ['suspect_table' => 'MULTIPLE', 'reason' => 'Balance, daily rollup, dan movement tidak saling cocok. Periksa jalur posting atau rebuild identity ini dari movement log.'];
+    }
+
+    public function division_material_reconcile_audit(string $asOfDate, array $filters): array
+    {
+        $asOfDate = $this->normalizeDate($asOfDate) ?? date('Y-m-d');
+        $divisionId = (int)($filters['division_id'] ?? 0);
+        $itemId = (int)($filters['item_id'] ?? 0);
+        $materialId = (int)($filters['material_id'] ?? 0);
+        $destinationFilter = $this->normalizeDestinationFilter((string)($filters['destination'] ?? 'ALL'));
+
+        if ($itemId <= 0 && $materialId <= 0) {
+            return ['ok' => false, 'message' => 'Material audit membutuhkan item_id atau material_id.'];
+        }
+
+        $compare = $this->list_division_material_stock_compare($asOfDate, '', $divisionId > 0 ? $divisionId : null, 5000, $destinationFilter);
+        $summaryRow = $this->find_division_material_compare_row((array)($compare['rows'] ?? []), [
+            'division_id' => $divisionId,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'destination' => $destinationFilter,
+        ]);
+        if ($summaryRow === null) {
+            return ['ok' => false, 'message' => 'Data reconcile bahan tidak ditemukan untuk filter ini.'];
+        }
+
+        $movements = $this->list_division_material_reconcile_movements($asOfDate, [
+            'division_id' => $divisionId,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'destination' => $destinationFilter,
+        ]);
+
+        $bucketSeed = [
+            'OPENING' => 'Opening',
+            'PO' => 'PO',
+            'SR' => 'SR',
+            'VOID' => 'Void',
+            'REFUND' => 'Refund',
+            'ADJUSTMENT' => 'Adjustment',
+            'POS' => 'POS',
+            'OTHER' => 'Lainnya',
+        ];
+        $bucketRows = [];
+        foreach ($bucketSeed as $code => $label) {
+            $bucketRows[$code] = [
+                'bucket_code' => $code,
+                'bucket_label' => $label,
+                'count' => 0,
+                'delta_content' => 0.0,
+                'delta_buy' => 0.0,
+                'mutation_value' => 0.0,
+                'last_movement_date' => '',
+                'last_movement_no' => '',
+            ];
+        }
+
+        foreach ($movements as $movement) {
+            $bucket = $this->classify_division_material_reconcile_bucket($movement);
+            $code = (string)($bucket['code'] ?? 'OTHER');
+            if (!isset($bucketRows[$code])) {
+                $bucketRows[$code] = [
+                    'bucket_code' => $code,
+                    'bucket_label' => (string)($bucket['label'] ?? $code),
+                    'count' => 0,
+                    'delta_content' => 0.0,
+                    'delta_buy' => 0.0,
+                    'mutation_value' => 0.0,
+                    'last_movement_date' => '',
+                    'last_movement_no' => '',
+                ];
+            }
+            $bucketRows[$code]['count']++;
+            $bucketRows[$code]['delta_content'] = round((float)$bucketRows[$code]['delta_content'] + (float)($movement['qty_content_delta'] ?? 0), 4);
+            $bucketRows[$code]['delta_buy'] = round((float)$bucketRows[$code]['delta_buy'] + (float)($movement['qty_buy_delta'] ?? 0), 4);
+            $bucketRows[$code]['mutation_value'] = round((float)$bucketRows[$code]['mutation_value'] + (float)($movement['mutation_value'] ?? 0), 2);
+            $movementDate = (string)($movement['movement_date'] ?? '');
+            if ($movementDate >= (string)$bucketRows[$code]['last_movement_date']) {
+                $bucketRows[$code]['last_movement_date'] = $movementDate;
+                $bucketRows[$code]['last_movement_no'] = (string)($movement['movement_no'] ?? '');
+            }
+        }
+
+        $identities = $this->list_division_material_reconcile_identities($asOfDate, [
+            'division_id' => $divisionId,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'destination' => $destinationFilter,
+        ]);
+
+        return [
+            'ok' => true,
+            'summary' => $summaryRow,
+            'buckets' => array_values($bucketRows),
+            'movements' => array_reverse($movements),
+            'diagnosis' => [
+                'suspect_table' => (string)($summaryRow['suspect_table'] ?? 'MATCH'),
+                'reason' => (string)($summaryRow['suspect_reason'] ?? ''),
+                'daily_date' => (string)($summaryRow['daily_date'] ?? ''),
+                'movement_date' => (string)($summaryRow['movement_date'] ?? ''),
+            ],
+            'repair_identity_count' => count($identities),
+        ];
+    }
+
+    public function repair_division_material_reconcile(string $asOfDate, array $filters): array
+    {
+        $asOfDate = $this->normalizeDate($asOfDate) ?? date('Y-m-d');
+        $divisionId = (int)($filters['division_id'] ?? 0);
+        $itemId = (int)($filters['item_id'] ?? 0);
+        $materialId = (int)($filters['material_id'] ?? 0);
+        $destinationFilter = $this->normalizeDestinationFilter((string)($filters['destination'] ?? 'ALL'));
+
+        $identities = $this->list_division_material_reconcile_identities($asOfDate, [
+            'division_id' => $divisionId,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'destination' => $destinationFilter,
+        ]);
+        if (empty($identities)) {
+            return ['ok' => false, 'message' => 'Identity stok bahan untuk repair tidak ditemukan.'];
+        }
+
+        $results = [];
+        $successCount = 0;
+        foreach ($identities as $identity) {
+            unset($identity['_start_date']);
+            $repair = $this->rebuild_division_material_history_from_movements($asOfDate, $identity);
+            if (($repair['ok'] ?? false)) {
+                $successCount++;
+            }
+            $results[] = [
+                'identity' => $identity,
+                'result' => $repair,
+            ];
+        }
+
+        if ($successCount <= 0) {
+            $message = 'Repair stok bahan gagal pada semua identity.';
+            if (!empty($results[0]['result']['message'])) {
+                $message = (string)$results[0]['result']['message'];
+            }
+            return ['ok' => false, 'message' => $message, 'data' => ['results' => $results]];
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Repair stok bahan selesai dijalankan.',
+            'data' => [
+                'identity_count' => count($identities),
+                'success_count' => $successCount,
+                'results' => $results,
+            ],
+        ];
+    }
+
+    private function rebuild_division_material_history_from_movements(string $asOfDate, array $identity): array
+    {
+        $asOfDate = $this->normalizeDate($asOfDate) ?? date('Y-m-d');
+        if (!$this->db->table_exists('inv_stock_movement_log') || !$this->db->table_exists('inv_division_daily_rollup') || !$this->db->table_exists('inv_division_stock_balance')) {
+            return ['ok' => false, 'message' => 'Tabel movement/daily/balance bahan belum lengkap untuk repair reconcile.'];
+        }
+
+        $hasMovementDestination = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
+        $hasMovementAdjustmentCategory = $this->db->field_exists('adjustment_category', 'inv_stock_movement_log');
+        $hasMovementProfileExpiredDate = $this->db->field_exists('profile_expired_date', 'inv_stock_movement_log');
+        $movementColumns = [
+            'l.id, l.movement_date, l.movement_type, l.item_id, l.material_id, l.buy_uom_id, l.content_uom_id, l.profile_key',
+            'l.profile_name, l.profile_brand, l.profile_description, l.profile_content_per_buy, l.profile_buy_uom_code, l.profile_content_uom_code',
+            'l.qty_buy_delta, l.qty_content_delta, l.unit_cost, l.created_at, l.ref_table',
+        ];
+        $movementColumns[] = $hasMovementAdjustmentCategory ? 'l.adjustment_category' : 'NULL AS adjustment_category';
+        $movementColumns[] = $hasMovementProfileExpiredDate ? 'l.profile_expired_date' : 'NULL AS profile_expired_date';
+        if ($hasMovementDestination) {
+            $movementColumns[] = 'l.destination_type';
+        }
+
+        $this->db
+            ->select(implode(', ', $movementColumns), false)
+            ->from('inv_stock_movement_log l')
+            ->where('l.movement_scope', 'DIVISION')
+            ->where('l.movement_date <=', $asOfDate);
+        $this->applyInventoryHistoryIdentityFilter('l', 'DIVISION', $identity, $hasMovementDestination);
+        $movementRows = $this->db
+            ->order_by('l.movement_date', 'ASC')
+            ->order_by('l.id', 'ASC')
+            ->get()
+            ->result_array();
+
+        $this->db->trans_begin();
+
+        if (empty($movementRows)) {
+            $this->purgeInventoryHistoryArtifactsForIdentity('inv_division_daily_rollup', 'inv_division_stock_balance', 'DIVISION', $identity);
+            if ($this->db->trans_status() === false) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Gagal membersihkan identity bahan tanpa movement.'];
+            }
+            $this->db->trans_commit();
+            return ['ok' => true, 'message' => 'Identity bahan dibersihkan karena tidak punya movement log.', 'data' => ['days_rebuilt' => 0]];
+        }
+
+        $this->applyDailyRollupIdentityFilter('inv_division_daily_rollup', 'DIVISION', $identity);
+        $this->db->delete('inv_division_daily_rollup');
+
+        $rollupColumns = $this->listTableFields('inv_division_daily_rollup');
+        $balanceColumns = $this->listTableFields('inv_division_stock_balance');
+        $currentBuy = 0.0;
+        $currentContent = 0.0;
+        $currentAvg = 0.0;
+        $lastProfile = [
+            'stock_domain' => (string)($identity['stock_domain'] ?? 'ITEM'),
+            'item_id' => $identity['item_id'] ?? null,
+            'material_id' => $identity['material_id'] ?? null,
+            'buy_uom_id' => $identity['buy_uom_id'] ?? null,
+            'content_uom_id' => $identity['content_uom_id'] ?? null,
+            'profile_key' => $identity['profile_key'] ?? null,
+            'profile_name' => $this->nullableString($identity['profile_name'] ?? null),
+            'profile_brand' => $this->nullableString($identity['profile_brand'] ?? null),
+            'profile_description' => $this->nullableString($identity['profile_description'] ?? null),
+            'profile_expired_date' => $this->normalizeDate((string)($identity['profile_expired_date'] ?? '')),
+            'profile_content_per_buy' => round((float)($identity['profile_content_per_buy'] ?? 0), 6),
+            'profile_buy_uom_code' => $this->nullableString($identity['profile_buy_uom_code'] ?? null),
+            'profile_content_uom_code' => $this->nullableString($identity['profile_content_uom_code'] ?? null),
+        ];
+
+        $movementByDate = [];
+        foreach ($movementRows as $movementRow) {
+            $movementDay = (string)($movementRow['movement_date'] ?? '');
+            if ($movementDay === '') {
+                continue;
+            }
+            if (!isset($movementByDate[$movementDay])) {
+                $movementByDate[$movementDay] = [];
+            }
+            $movementByDate[$movementDay][] = $movementRow;
+        }
+
+        $rowsToInsert = [];
+        foreach (array_keys($movementByDate) as $day) {
+            $openingBuy = $currentBuy;
+            $openingContent = $currentContent;
+            $deltaMaps = $this->emptyInventoryDailyDeltaMaps();
+            $mutationCount = 0;
+            $lastMovementAt = null;
+
+            foreach ($movementByDate[$day] as $movementRow) {
+                $movementType = strtoupper(trim((string)($movementRow['movement_type'] ?? 'ADJUSTMENT')));
+                $qtyBuyDelta = round((float)($movementRow['qty_buy_delta'] ?? 0), 4);
+                $qtyContentDelta = round((float)($movementRow['qty_content_delta'] ?? 0), 4);
+                $adjustmentCategory = $this->normalizeInventoryAdjustmentCategory((string)($movementRow['adjustment_category'] ?? ''));
+                if ($adjustmentCategory === null) {
+                    $adjustmentCategory = $this->resolveInventoryAdjustmentCategoryFromMovement($movementType, $qtyBuyDelta, $qtyContentDelta);
+                }
+                $deltaPack = $this->buildInventoryDailyDeltaPack($movementType, $qtyBuyDelta, $qtyContentDelta, $adjustmentCategory, $currentAvg);
+                foreach ($deltaPack['delta'] as $field => $value) {
+                    $deltaMaps['delta'][$field] = round($deltaMaps['delta'][$field] + $value, 4);
+                }
+                foreach ($deltaPack['value'] as $field => $value) {
+                    $deltaMaps['value'][$field] = round($deltaMaps['value'][$field] + $value, 2);
+                }
+
+                $state = $this->applyInventoryHistoryMovement($currentBuy, $currentContent, $currentAvg, $qtyBuyDelta, $qtyContentDelta, (float)($movementRow['unit_cost'] ?? 0));
+                $currentBuy = $state['qty_buy'];
+                $currentContent = $state['qty_content'];
+                $currentAvg = $state['avg_cost_per_content'];
+                $mutationCount++;
+                $lastMovementAt = $movementRow['created_at'] ?? $lastMovementAt;
+
+                foreach (['profile_name', 'profile_brand', 'profile_description', 'profile_buy_uom_code', 'profile_content_uom_code'] as $profileField) {
+                    $value = $this->nullableString($movementRow[$profileField] ?? null);
+                    if ($value !== null) {
+                        $lastProfile[$profileField] = $value;
+                    }
+                }
+                if (!empty($movementRow['profile_expired_date'])) {
+                    $lastProfile['profile_expired_date'] = $this->normalizeDate((string)$movementRow['profile_expired_date']);
+                }
+                if (isset($movementRow['profile_content_per_buy']) && (float)$movementRow['profile_content_per_buy'] > 0) {
+                    $lastProfile['profile_content_per_buy'] = round((float)$movementRow['profile_content_per_buy'], 6);
+                }
+            }
+
+            $row = [
+                'month_key' => date('Y-m-01', strtotime($day)),
+                'movement_date' => $day,
+                'stock_domain' => (string)($lastProfile['stock_domain'] ?? $identity['stock_domain'] ?? 'ITEM'),
+                'division_id' => $identity['division_id'] ?? null,
+                'destination_type' => $identity['destination_type'] ?? 'OTHER',
+                'item_id' => $identity['item_id'] ?? null,
+                'material_id' => $identity['material_id'] ?? null,
+                'buy_uom_id' => $identity['buy_uom_id'] ?? null,
+                'content_uom_id' => $identity['content_uom_id'] ?? null,
+                'profile_key' => $identity['profile_key'] ?? null,
+                'profile_name' => $lastProfile['profile_name'] ?? null,
+                'profile_brand' => $lastProfile['profile_brand'] ?? null,
+                'profile_description' => $lastProfile['profile_description'] ?? null,
+                'profile_content_per_buy' => round((float)($lastProfile['profile_content_per_buy'] ?? 0), 6),
+                'profile_buy_uom_code' => $lastProfile['profile_buy_uom_code'] ?? null,
+                'profile_content_uom_code' => $lastProfile['profile_content_uom_code'] ?? null,
+                'opening_qty_buy' => round($openingBuy, 4),
+                'opening_qty_content' => round($openingContent, 4),
+                'in_qty_buy' => $deltaMaps['delta']['in_qty_buy'],
+                'in_qty_content' => $deltaMaps['delta']['in_qty_content'],
+                'out_qty_buy' => $deltaMaps['delta']['out_qty_buy'],
+                'out_qty_content' => $deltaMaps['delta']['out_qty_content'],
+                'discarded_qty_buy' => $deltaMaps['delta']['discarded_qty_buy'],
+                'discarded_qty_content' => $deltaMaps['delta']['discarded_qty_content'],
+                'spoil_qty_buy' => $deltaMaps['delta']['spoil_qty_buy'],
+                'spoil_qty_content' => $deltaMaps['delta']['spoil_qty_content'],
+                'waste_qty_buy' => $deltaMaps['delta']['waste_qty_buy'],
+                'waste_qty_content' => $deltaMaps['delta']['waste_qty_content'],
+                'adjustment_qty_buy' => $deltaMaps['delta']['adjustment_qty_buy'],
+                'adjustment_qty_content' => $deltaMaps['delta']['adjustment_qty_content'],
+                'closing_qty_buy' => round($currentBuy, 4),
+                'closing_qty_content' => round($currentContent, 4),
+                'avg_cost_per_content' => round($currentAvg, 6),
+                'total_value' => round($currentContent * $currentAvg, 2),
+                'mutation_count' => $mutationCount,
+                'last_movement_at' => $lastMovementAt,
+            ];
+            foreach (['process_loss_qty_buy', 'process_loss_qty_content', 'variance_qty_buy', 'variance_qty_content', 'adjustment_plus_qty_buy', 'adjustment_plus_qty_content'] as $field) {
+                if (isset($rollupColumns[$field])) {
+                    $row[$field] = $deltaMaps['delta'][$field];
+                }
+            }
+            foreach (['waste_total_value', 'spoilage_total_value', 'process_loss_total_value', 'variance_total_value', 'adjustment_plus_total_value'] as $field) {
+                if (isset($rollupColumns[$field])) {
+                    $row[$field] = $deltaMaps['value'][$field];
+                }
+            }
+            if (isset($rollupColumns['profile_expired_date'])) {
+                $row['profile_expired_date'] = $lastProfile['profile_expired_date'] ?? null;
+            }
+            if (isset($rollupColumns['rebuild_batch_no'])) {
+                $row['rebuild_batch_no'] = 'RECONCILE-' . date('YmdHis');
+            }
+            $rowsToInsert[] = $this->filterExistingColumns($row, $rollupColumns);
+        }
+
+        foreach ($rowsToInsert as $insertRow) {
+            $this->db->insert('inv_division_daily_rollup', $insertRow);
+        }
+
+        $balanceRow = [
+            'qty_buy_balance' => round($currentBuy, 4),
+            'qty_content_balance' => round($currentContent, 4),
+            'avg_cost_per_content' => round($currentAvg, 6),
+            'profile_name' => $lastProfile['profile_name'] ?? null,
+            'profile_brand' => $lastProfile['profile_brand'] ?? null,
+            'profile_description' => $lastProfile['profile_description'] ?? null,
+            'profile_content_per_buy' => round((float)($lastProfile['profile_content_per_buy'] ?? 0), 6),
+            'profile_buy_uom_code' => $lastProfile['profile_buy_uom_code'] ?? null,
+            'profile_content_uom_code' => $lastProfile['profile_content_uom_code'] ?? null,
+            'notes' => 'Rebuilt from reconcile movement log ' . $asOfDate,
+        ];
+        if (isset($balanceColumns['profile_expired_date'])) {
+            $balanceRow['profile_expired_date'] = $lastProfile['profile_expired_date'] ?? null;
+        }
+
+        $hasBalanceDestination = isset($balanceColumns['destination_type']);
+        $sqlBalance = 'SELECT id FROM inv_division_stock_balance WHERE division_id = ? AND item_id <=> ? AND material_id <=> ? AND buy_uom_id <=> ? AND content_uom_id = ? AND profile_key <=> ?';
+        $paramsBalance = [
+            $identity['division_id'] ?? null,
+            $identity['item_id'] ?? null,
+            $identity['material_id'] ?? null,
+            $identity['buy_uom_id'] ?? null,
+            $identity['content_uom_id'] ?? null,
+            $identity['profile_key'] ?? null,
+        ];
+        if ($hasBalanceDestination) {
+            $sqlBalance .= ' AND destination_type = ?';
+            $paramsBalance[] = $identity['destination_type'] ?? 'OTHER';
+        }
+        $sqlBalance .= ' LIMIT 1 FOR UPDATE';
+        $existingBalance = $this->db->query($sqlBalance, $paramsBalance)->row_array();
+        if (!empty($existingBalance['id'])) {
+            $this->db->where('id', (int)$existingBalance['id'])->update('inv_division_stock_balance', $this->filterExistingColumns($balanceRow, $balanceColumns));
+        } else {
+            $insertBalance = [
+                'division_id' => $identity['division_id'] ?? null,
+                'item_id' => $identity['item_id'] ?? null,
+                'material_id' => $identity['material_id'] ?? null,
+                'buy_uom_id' => $identity['buy_uom_id'] ?? null,
+                'content_uom_id' => $identity['content_uom_id'] ?? null,
+                'profile_key' => $identity['profile_key'] ?? null,
+            ] + $balanceRow;
+            if ($hasBalanceDestination) {
+                $insertBalance['destination_type'] = $identity['destination_type'] ?? 'OTHER';
+            }
+            $this->db->insert('inv_division_stock_balance', $this->filterExistingColumns($insertBalance, $balanceColumns));
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Repair reconcile bahan gagal saat menulis ulang daily/balance dari movement log.'];
+        }
+
+        $this->db->trans_commit();
+        return [
+            'ok' => true,
+            'message' => 'Identity bahan berhasil disinkronkan ulang dari movement log.',
+            'data' => [
+                'days_rebuilt' => count($rowsToInsert),
+                'last_relevant_date' => (string)($movementRows[count($movementRows) - 1]['movement_date'] ?? $asOfDate),
+            ],
+        ];
+    }
+
+    private function find_division_material_compare_row(array $rows, array $filters): ?array
+    {
+        $divisionId = (int)($filters['division_id'] ?? 0);
+        $itemId = (int)($filters['item_id'] ?? 0);
+        $materialId = (int)($filters['material_id'] ?? 0);
+        $destination = strtoupper(trim((string)($filters['destination'] ?? 'ALL')));
+
+        foreach ($rows as $row) {
+            if ((int)($row['division_id'] ?? 0) !== $divisionId) {
+                continue;
+            }
+            if ($itemId > 0 && (int)($row['item_id'] ?? 0) !== $itemId) {
+                continue;
+            }
+            if ($materialId > 0 && (int)($row['material_id'] ?? 0) !== $materialId) {
+                continue;
+            }
+            if ($destination !== '' && $destination !== 'ALL' && strtoupper(trim((string)($row['destination_group'] ?? 'ALL'))) !== $destination) {
+                continue;
+            }
+            return $row;
+        }
+
+        return null;
+    }
+
+    private function list_division_material_reconcile_movements(string $asOfDate, array $filters): array
+    {
+        if (!$this->db->table_exists('inv_stock_movement_log')) {
+            return [];
+        }
+
+        $divisionId = (int)($filters['division_id'] ?? 0);
+        $itemId = (int)($filters['item_id'] ?? 0);
+        $materialId = (int)($filters['material_id'] ?? 0);
+        $destinationFilter = $this->normalizeDestinationFilter((string)($filters['destination'] ?? 'ALL'));
+        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
+        $hasAdjustmentCategory = $this->db->field_exists('adjustment_category', 'inv_stock_movement_log');
+        $hasAdjustmentReasonCode = $this->db->field_exists('adjustment_reason_code', 'inv_stock_movement_log');
+        $destinationTypeSource = $hasDestinationType ? 'l.destination_type' : "'OTHER'";
+        $openingSourceExpr = "CASE WHEN COALESCE(l.ref_table,'') IN ('inv_warehouse_stock_opening_snapshot','inv_division_stock_opening_snapshot') THEN 1 ELSE 0 END";
+        $movementTypeLabelExpr = "CASE WHEN {$openingSourceExpr} = 1 THEN 'OPENING_STOK_AWAL' ELSE l.movement_type END";
+        $adjustmentCategoryBaseExpr = $hasAdjustmentCategory
+            ? 'l.adjustment_category'
+            : "CASE
+                WHEN l.movement_type IN ('DISCARDED_OUT','WASTE_OUT') THEN 'WASTE'
+                WHEN l.movement_type = 'SPOIL_OUT' THEN 'SPOILAGE'
+                WHEN l.movement_type = 'PROCESS_LOSS_OUT' THEN 'PROCESS_LOSS'
+                WHEN l.movement_type = 'VARIANCE_OUT' THEN 'VARIANCE'
+                WHEN l.movement_type = 'ADJUSTMENT_IN' THEN 'ADJUSTMENT_PLUS'
+                WHEN l.movement_type = 'ADJUSTMENT' AND COALESCE(l.qty_content_delta, 0) >= 0 THEN 'ADJUSTMENT_PLUS'
+                WHEN l.movement_type = 'ADJUSTMENT' AND COALESCE(l.qty_content_delta, 0) < 0 THEN 'VARIANCE'
+                ELSE NULL
+            END";
+        $adjustmentReasonBaseExpr = $hasAdjustmentReasonCode ? 'l.adjustment_reason_code' : 'NULL';
+        $adjustmentCategoryExpr = "CASE WHEN {$openingSourceExpr} = 1 THEN NULL ELSE ({$adjustmentCategoryBaseExpr}) END";
+        $adjustmentReasonExpr = "CASE WHEN {$openingSourceExpr} = 1 THEN NULL ELSE ({$adjustmentReasonBaseExpr}) END";
+        $destinationGroupExpr = "CASE WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+
+        $this->db
+            ->select('l.id, l.movement_no, l.movement_date, l.division_id, l.destination_type, l.movement_type, l.ref_table, l.ref_id, l.receipt_id, l.receipt_line_id, l.item_id, COALESCE(l.material_id, i.material_id) AS material_id, l.buy_uom_id, l.content_uom_id, l.qty_buy_delta, l.qty_content_delta, l.qty_buy_after, l.qty_content_after, l.profile_key, l.profile_name, l.profile_brand, l.profile_description, l.profile_expired_date, l.profile_content_per_buy, l.profile_buy_uom_code, l.profile_content_uom_code, l.unit_cost, l.notes, l.created_at, i.item_code, i.item_name, m.material_code, m.material_name', false)
+            ->select($destinationGroupExpr . ' AS destination_group', false)
+            ->select($movementTypeLabelExpr . ' AS movement_type_label', false)
+            ->select($adjustmentCategoryExpr . ' AS adjustment_category', false)
+            ->select($adjustmentReasonExpr . ' AS adjustment_reason_code', false)
+            ->from('inv_stock_movement_log l')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->join('mst_material m', 'm.id = COALESCE(l.material_id, i.material_id)', 'left')
+            ->where('l.movement_scope', 'DIVISION')
+            ->where('l.movement_date <=', $asOfDate);
+
+        if ($divisionId > 0) {
+            $this->db->where('l.division_id', $divisionId);
+        }
+        if ($itemId > 0) {
+            $this->db->where('l.item_id', $itemId);
+        }
+        if ($materialId > 0) {
+            $this->db->where('COALESCE(l.material_id, i.material_id) = ' . (int)$materialId, null, false);
+        }
+        if ($hasDestinationType && $destinationFilter !== null && $destinationFilter !== 'ALL') {
+            if ($destinationFilter === 'REGULER') {
+                $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } elseif ($destinationFilter === 'EVENT') {
+                $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } else {
+                $this->db->where('l.destination_type', $destinationFilter);
+            }
+        }
+
+        $rows = $this->db
+            ->order_by('l.movement_date', 'ASC')
+            ->order_by('l.id', 'ASC')
+            ->get()
+            ->result_array();
+
+        foreach ($rows as &$row) {
+            $row['qty_buy_before'] = round((float)($row['qty_buy_after'] ?? 0) - (float)($row['qty_buy_delta'] ?? 0), 4);
+            $row['qty_content_before'] = round((float)($row['qty_content_after'] ?? 0) - (float)($row['qty_content_delta'] ?? 0), 4);
+            $row['mutation_value'] = round(abs((float)($row['qty_content_delta'] ?? 0)) * (float)($row['unit_cost'] ?? 0), 2);
+            $bucket = $this->classify_division_material_reconcile_bucket($row);
+            $row['source_bucket'] = (string)($bucket['code'] ?? 'OTHER');
+            $row['source_bucket_label'] = (string)($bucket['label'] ?? 'Lainnya');
+            $row['source_label'] = $this->format_division_material_reconcile_source_label($row);
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function list_division_material_reconcile_identities(string $asOfDate, array $filters): array
+    {
+        if (!$this->db->table_exists('inv_stock_movement_log')) {
+            return [];
+        }
+
+        $divisionId = (int)($filters['division_id'] ?? 0);
+        $itemId = (int)($filters['item_id'] ?? 0);
+        $materialId = (int)($filters['material_id'] ?? 0);
+        $destinationFilter = $this->normalizeDestinationFilter((string)($filters['destination'] ?? 'ALL'));
+        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
+
+        $this->db
+            ->distinct()
+            ->select('l.division_id, l.destination_type, l.item_id, COALESCE(l.material_id, i.material_id) AS material_id, l.buy_uom_id, l.content_uom_id, l.profile_key, l.profile_name, l.profile_brand, l.profile_description, l.profile_expired_date, l.profile_content_per_buy, l.profile_buy_uom_code, l.profile_content_uom_code', false)
+            ->from('inv_stock_movement_log l')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->where('l.movement_scope', 'DIVISION')
+            ->where('l.movement_date <=', $asOfDate);
+
+        if ($divisionId > 0) {
+            $this->db->where('l.division_id', $divisionId);
+        }
+        if ($itemId > 0) {
+            $this->db->where('l.item_id', $itemId);
+        }
+        if ($materialId > 0) {
+            $this->db->where('COALESCE(l.material_id, i.material_id) = ' . (int)$materialId, null, false);
+        }
+        if ($hasDestinationType && $destinationFilter !== null && $destinationFilter !== 'ALL') {
+            if ($destinationFilter === 'REGULER') {
+                $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } elseif ($destinationFilter === 'EVENT') {
+                $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } else {
+                $this->db->where('l.destination_type', $destinationFilter);
+            }
+        }
+
+        $rows = $this->db->get()->result_array();
+        $results = [];
+        foreach ($rows as $row) {
+            $identity = [
+                'division_id' => !empty($row['division_id']) ? (int)$row['division_id'] : null,
+                'destination_type' => !empty($row['destination_type']) ? strtoupper((string)$row['destination_type']) : null,
+                'stock_domain' => !empty($row['material_id']) ? 'MATERIAL' : 'ITEM',
+                'item_id' => (int)($row['item_id'] ?? 0),
+                'material_id' => !empty($row['material_id']) ? (int)$row['material_id'] : null,
+                'buy_uom_id' => (int)($row['buy_uom_id'] ?? 0),
+                'content_uom_id' => (int)($row['content_uom_id'] ?? 0),
+                'profile_key' => (string)($row['profile_key'] ?? ''),
+                'profile_name' => $this->nullableString($row['profile_name'] ?? null),
+                'profile_brand' => $this->nullableString($row['profile_brand'] ?? null),
+                'profile_description' => $this->nullableString($row['profile_description'] ?? null),
+                'profile_expired_date' => $this->normalizeDate((string)($row['profile_expired_date'] ?? '')),
+                'profile_content_per_buy' => round((float)($row['profile_content_per_buy'] ?? 1), 6),
+                'profile_buy_uom_code' => $this->nullableString($row['profile_buy_uom_code'] ?? null),
+                'profile_content_uom_code' => $this->nullableString($row['profile_content_uom_code'] ?? null),
+            ];
+            $identity['_start_date'] = $this->resolve_division_material_reconcile_identity_start_date($asOfDate, $identity);
+            $results[] = $identity;
+        }
+
+        return $results;
+    }
+
+    private function resolve_division_material_reconcile_identity_start_date(string $asOfDate, array $identity): string
+    {
+        $this->db->select('MIN(l.movement_date) AS min_date', false)
+            ->from('inv_stock_movement_log l')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->where('l.movement_scope', 'DIVISION')
+            ->where('l.movement_date <=', $asOfDate);
+        if (!empty($identity['division_id'])) {
+            $this->db->where('l.division_id', (int)$identity['division_id']);
+        }
+        if (!empty($identity['destination_type'])) {
+            $this->db->where('l.destination_type', (string)$identity['destination_type']);
+        }
+        $this->db->where('l.item_id', (int)($identity['item_id'] ?? 0));
+        if (!empty($identity['material_id'])) {
+            $this->db->where('COALESCE(l.material_id, i.material_id) = ' . (int)$identity['material_id'], null, false);
+        } else {
+            $this->db->where('COALESCE(l.material_id, i.material_id) IS NULL', null, false);
+        }
+        $this->db->where('l.buy_uom_id', (int)($identity['buy_uom_id'] ?? 0));
+        $this->db->where('l.content_uom_id', (int)($identity['content_uom_id'] ?? 0));
+        $profileKey = trim((string)($identity['profile_key'] ?? ''));
+        if ($profileKey !== '') {
+            $this->db->where('l.profile_key', $profileKey);
+        } else {
+            $this->db->where('(l.profile_key IS NULL OR TRIM(l.profile_key) = \'\')', null, false);
+        }
+
+        $row = $this->db->limit(1)->get()->row_array();
+        $minDate = $this->normalizeDate((string)($row['min_date'] ?? ''));
+        return $minDate ?? $asOfDate;
+    }
+
+    private function classify_division_material_reconcile_bucket(array $row): array
+    {
+        $movementType = strtoupper(trim((string)($row['movement_type'] ?? '')));
+        $movementLabel = strtoupper(trim((string)($row['movement_type_label'] ?? '')));
+        $refTable = strtolower(trim((string)($row['ref_table'] ?? '')));
+        $notes = strtolower(trim((string)($row['notes'] ?? '')));
+
+        if ($movementLabel === 'OPENING_STOK_AWAL' || strpos($refTable, 'opening') !== false) {
+            return ['code' => 'OPENING', 'label' => 'Opening'];
+        }
+        if (strpos($refTable, 'refund') !== false || strpos($notes, 'refund') !== false) {
+            return ['code' => 'REFUND', 'label' => 'Refund'];
+        }
+        if (strpos($movementType, 'VOID') !== false || strpos($notes, 'void') !== false) {
+            return ['code' => 'VOID', 'label' => 'Void'];
+        }
+        if ($refTable === 'pos_stock_commit' || strpos($notes, 'pos ') !== false) {
+            return ['code' => 'POS', 'label' => 'POS'];
+        }
+        if (strpos($refTable, 'store_request') !== false || strpos($refTable, 'fulfillment') !== false) {
+            return ['code' => 'SR', 'label' => 'SR'];
+        }
+        if (strpos($refTable, 'purchase_receipt') !== false || $movementType === 'PURCHASE_IN') {
+            return ['code' => 'PO', 'label' => 'PO'];
+        }
+        if (!empty($row['adjustment_category']) || strpos($movementType, 'ADJUSTMENT') !== false || strpos($movementType, 'WASTE') !== false || strpos($movementType, 'SPOIL') !== false || strpos($movementType, 'LOSS') !== false || strpos($movementType, 'VARIANCE') !== false) {
+            return ['code' => 'ADJUSTMENT', 'label' => 'Adjustment'];
+        }
+        return ['code' => 'OTHER', 'label' => 'Lainnya'];
+    }
+
+    private function format_division_material_reconcile_source_label(array $row): string
+    {
+        $refTable = strtolower(trim((string)($row['ref_table'] ?? '')));
+        $refId = (int)($row['ref_id'] ?? 0);
+        $map = [
+            'pur_purchase_receipt' => 'Receipt PO',
+            'pur_store_request_fulfillment' => 'Fulfillment SR',
+            'pos_stock_commit' => 'POS Commit',
+            'pos_refund' => 'Refund POS',
+            'inv_division_stock_opening_snapshot' => 'Opening Snapshot',
+            'inv_stock_adjustment' => 'Adjustment Stok',
+        ];
+        $label = $map[$refTable] ?? ($refTable !== '' ? strtoupper(str_replace('_', ' ', $refTable)) : '-');
+        if ($refId > 0) {
+            $label .= ' #' . $refId;
+        }
+        return $label;
+    }
+
+    private function aggregateDivisionMaterialCompareSource(array $rows, string $source): array
+    {
+        $map = [];
+        foreach ($rows as $row) {
+            $materialId = (int)($row['material_id'] ?? 0);
+            if ($materialId <= 0) {
+                continue;
+            }
+            $divisionId = (int)($row['division_id'] ?? 0);
+            $destinationGroup = strtoupper(trim((string)($row['destination_group'] ?? 'REGULER')));
+            $itemId = (int)($row['item_id'] ?? 0);
+            $key = $divisionId . '|' . $destinationGroup . '|M-' . $materialId . '|I-' . $itemId;
+            if (!isset($map[$key])) {
+                $map[$key] = [
+                    'qty_content' => 0.0,
+                    'qty_pack' => 0.0,
+                    '_meta' => [
+                        'division_id' => $divisionId,
+                        'division_code' => (string)($row['division_code'] ?? ''),
+                        'division_name' => (string)($row['division_name'] ?? ''),
+                        'destination_group' => $destinationGroup,
+                        'destination_name' => (string)($row['destination_name'] ?? ($destinationGroup === 'EVENT' ? 'Event' : 'Reguler')),
+                        'item_id' => $itemId,
+                        'material_id' => $materialId,
+                        'material_code' => (string)($row['material_code'] ?? ''),
+                        'material_name' => (string)($row['material_name'] ?? ($row['item_name'] ?? '')),
+                        'latest_date' => (string)($row['movement_date'] ?? ''),
+                    ],
+                ];
+            }
+
+            $rowDate = (string)($row['movement_date'] ?? '');
+            if ($rowDate !== '' && $rowDate >= (string)($map[$key]['_meta']['latest_date'] ?? '')) {
+                $map[$key]['_meta']['latest_date'] = $rowDate;
+            }
+
+            if ($source === 'balance') {
+                $map[$key]['qty_content'] += (float)($row['qty_content_balance'] ?? 0);
+                $map[$key]['qty_pack'] += (float)($row['qty_buy_balance'] ?? 0);
+            } elseif ($source === 'movement') {
+                $map[$key]['qty_content'] += (float)($row['qty_content_after'] ?? 0);
+                $map[$key]['qty_pack'] += (float)($row['qty_buy_after'] ?? 0);
+            } else {
+                $map[$key]['qty_content'] += (float)($row['closing_qty_content'] ?? 0);
+                $map[$key]['qty_pack'] += (float)($row['closing_qty_pack'] ?? 0);
+            }
+        }
+
+        return $map;
+    }
+
+    private function aggregateDivisionMaterialCompareRawDaily(array $rows): array
+    {
+        $map = [];
+        foreach ($rows as $row) {
+            $materialId = (int)($row['material_id'] ?? 0);
+            if ($materialId <= 0) {
+                continue;
+            }
+            $divisionId = (int)($row['division_id'] ?? 0);
+            $destinationGroup = strtoupper(trim((string)($row['destination_group'] ?? 'REGULER')));
+            $itemId = (int)($row['item_id'] ?? 0);
+            $key = $divisionId . '|' . $destinationGroup . '|M-' . $materialId . '|I-' . $itemId;
+
+            $closingContent = round((float)($row['closing_qty_content'] ?? 0), 4);
+            $packSize = (float)($row['profile_content_per_buy'] ?? 0);
+            $closingPack = $packSize > 0 ? round($closingContent / $packSize, 4) : 0.0;
+
+            if (!isset($map[$key])) {
+                $map[$key] = [
+                    'qty_content' => 0.0,
+                    'qty_pack' => 0.0,
+                    '_meta' => [
+                        'division_id' => $divisionId,
+                        'division_code' => (string)($row['division_code'] ?? ''),
+                        'division_name' => (string)($row['division_name'] ?? ''),
+                        'destination_group' => $destinationGroup,
+                        'destination_name' => (string)($row['destination_name'] ?? ($destinationGroup === 'EVENT' ? 'Event' : 'Reguler')),
+                        'item_id' => $itemId,
+                        'material_id' => $materialId,
+                        'material_code' => (string)($row['material_code'] ?? ''),
+                        'material_name' => (string)($row['material_name'] ?? ($row['item_name'] ?? '')),
+                        'latest_date' => (string)($row['movement_date'] ?? ''),
+                    ],
+                ];
+            }
+            $rowDate = (string)($row['movement_date'] ?? '');
+            if ($rowDate !== '' && $rowDate >= (string)($map[$key]['_meta']['latest_date'] ?? '')) {
+                $map[$key]['_meta']['latest_date'] = $rowDate;
+            }
+            $map[$key]['qty_content'] += $closingContent;
+            $map[$key]['qty_pack'] += $closingPack;
+        }
+
+        return $map;
+    }
+
+    private function list_division_material_movement_closing(string $asOfDate, string $q, ?int $divisionId, ?string $destinationFilter = null): array
+    {
+        if (!$this->db->table_exists('inv_stock_movement_log')) {
+            return [];
+        }
+
+        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
+        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+        $destinationTypeExpr = $hasDestinationType ? 'COALESCE(l.destination_type, \'OTHER\')' : "'OTHER'";
+        $subDestinationTypeExpr = $hasDestinationType ? 'COALESCE(x.destination_type, \'OTHER\')' : "'OTHER'";
+        $destinationGroupExpr = "CASE WHEN {$destinationTypeExpr} IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+
+        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+            ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $divisionCodeSelect = $divisionCodeColumn ? ('dv.' . $divisionCodeColumn . ' AS division_code') : 'CAST(l.division_id AS CHAR) AS division_code';
+        $divisionNameSelect = $divisionNameColumn ? ('dv.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $sql = "
+            SELECT
+                l.division_id,
+                {$divisionCodeSelect},
+                {$divisionNameSelect},
+                l.movement_date,
+                {$destinationTypeExpr} AS destination_type,
+                {$destinationGroupExpr} AS destination_group,
+                CASE WHEN {$destinationTypeExpr} IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'Event' ELSE 'Reguler' END AS destination_name,
+                l.item_id,
+                COALESCE(l.material_id, i.material_id) AS material_id,
+                i.item_code,
+                i.item_name,
+                m.material_code,
+                m.material_name,
+                l.qty_buy_after,
+                l.qty_content_after
+            FROM inv_stock_movement_log l
+            LEFT JOIN mst_item i ON i.id = l.item_id
+            LEFT JOIN mst_material m ON m.id = COALESCE(l.material_id, i.material_id)
+            LEFT JOIN mst_operational_division dv ON dv.id = l.division_id
+            INNER JOIN (
+                SELECT MAX(x.id) AS last_id
+                FROM inv_stock_movement_log x
+                LEFT JOIN mst_item xi ON xi.id = x.item_id
+                WHERE x.movement_scope = 'DIVISION'
+                  AND x.movement_date <= ?
+                  AND COALESCE(x.material_id, xi.material_id) IS NOT NULL
+        ";
+
+        $params = [$asOfDate];
+
+        if ($divisionId !== null && $divisionId > 0) {
+            $sql .= " AND x.division_id = ? ";
+            $params[] = $divisionId;
+        }
+        if ($hasDestinationType && $destinationFilter !== null && $destinationFilter !== 'ALL') {
+            if ($destinationFilter === 'REGULER') {
+                $sql .= " AND {$subDestinationTypeExpr} NOT IN ('BAR_EVENT','KITCHEN_EVENT') ";
+            } elseif ($destinationFilter === 'EVENT') {
+                $sql .= " AND {$subDestinationTypeExpr} IN ('BAR_EVENT','KITCHEN_EVENT') ";
+            } else {
+                $sql .= " AND {$subDestinationTypeExpr} = ? ";
+                $params[] = $destinationFilter;
+            }
+        }
+
+        $sql .= "
+                GROUP BY
+                    x.division_id,
+                    {$subDestinationTypeExpr},
+                    x.item_id,
+                    COALESCE(x.material_id, xi.material_id),
+                    x.buy_uom_id,
+                    x.content_uom_id,
+                    x.profile_key
+            ) latest ON latest.last_id = l.id
+            WHERE COALESCE(l.material_id, i.material_id) IS NOT NULL
+        ";
+
+        if ($q !== '') {
+            $sql .= " AND (
+                i.item_code LIKE ?
+                OR i.item_name LIKE ?
+                OR m.material_code LIKE ?
+                OR m.material_name LIKE ?
+            )";
+            $like = '%' . $q . '%';
+            array_push($params, $like, $like, $like, $like);
+        }
+
+        $sql .= " ORDER BY division_name ASC, destination_group ASC, COALESCE(m.material_name, i.item_name) ASC";
+
+        return $this->db->query($sql, $params)->result_array();
     }
 
     private function attachMaterialDailyProfilePrices(array $rows): array
@@ -2180,6 +3304,108 @@ class Purchase_model extends CI_Model
         unset($issue);
 
         return $issues;
+    }
+
+    public function fifo_lot_usage_detail(int $lotId): array
+    {
+        if ($lotId <= 0 || !$this->db->table_exists('inv_material_fifo_lot')) {
+            return ['ok' => false, 'message' => 'Lot bahan baku tidak ditemukan.'];
+        }
+
+        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+            ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $divisionCodeSelect = $divisionCodeColumn !== null ? ('dv.' . $divisionCodeColumn . ' AS division_code') : 'CAST(l.division_id AS CHAR) AS division_code';
+        $divisionNameSelect = $divisionNameColumn !== null ? ('dv.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+        $destinationExpr = "CASE WHEN l.location_scope = 'WAREHOUSE' AND l.destination_type IS NULL THEN 'GUDANG' ELSE COALESCE(l.destination_type, 'OTHER') END";
+        $destinationNameExpr = "CASE " . $destinationExpr . "
+                WHEN 'BAR' THEN 'Bar Reguler'
+                WHEN 'KITCHEN' THEN 'Kitchen Reguler'
+                WHEN 'BAR_EVENT' THEN 'Bar Event'
+                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'
+                WHEN 'OFFICE' THEN 'Office Reguler'
+                WHEN 'GUDANG' THEN 'Gudang'
+                ELSE 'Reguler'
+            END";
+
+        $header = $this->db
+            ->select('l.*')
+            ->select($divisionCodeSelect . ', ' . $divisionNameSelect, false)
+            ->select($destinationExpr . ' AS destination_type', false)
+            ->select($destinationNameExpr . ' AS destination_name', false)
+            ->select('i.item_code, i.item_name, m.material_code, m.material_name, bu.code AS buy_uom_code, cu.code AS content_uom_code', false)
+            ->from('inv_material_fifo_lot l')
+            ->join('mst_operational_division dv', 'dv.id = l.division_id', 'left')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->join('mst_material m', 'm.id = l.material_id', 'left')
+            ->join('mst_uom bu', 'bu.id = l.buy_uom_id', 'left')
+            ->join('mst_uom cu', 'cu.id = l.content_uom_id', 'left')
+            ->where('l.id', $lotId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Lot bahan baku tidak ditemukan.'];
+        }
+
+        if (!$this->db->table_exists('inv_material_fifo_issue_line') || !$this->db->table_exists('inv_material_fifo_issue_log')) {
+            return [
+                'ok' => true,
+                'header' => $header,
+                'summary' => ['usage_count' => 0, 'qty_out_total' => 0.0, 'cost_total' => 0.0],
+                'rows' => [],
+            ];
+        }
+
+        $sourceBalanceBeforeSelect = $this->db->field_exists('source_balance_before', 'inv_material_fifo_issue_line')
+            ? 'il.source_balance_before'
+            : 'NULL AS source_balance_before';
+        $sourceBalanceAfterSelect = $this->db->field_exists('source_balance_after', 'inv_material_fifo_issue_line')
+            ? 'il.source_balance_after'
+            : 'NULL AS source_balance_after';
+        $targetBalanceBeforeSelect = $this->db->field_exists('target_balance_before', 'inv_material_fifo_issue_line')
+            ? 'il.target_balance_before'
+            : 'NULL AS target_balance_before';
+        $targetBalanceAfterSelect = $this->db->field_exists('target_balance_after', 'inv_material_fifo_issue_line')
+            ? 'il.target_balance_after'
+            : 'NULL AS target_balance_after';
+
+        $rows = $this->db
+            ->select('il.id, il.issue_id, il.lot_id AS source_lot_id, il.target_lot_id, il.qty_out, il.unit_cost, il.total_cost')
+            ->select($sourceBalanceBeforeSelect . ', ' . $sourceBalanceAfterSelect . ', ' . $targetBalanceBeforeSelect . ', ' . $targetBalanceAfterSelect, false)
+            ->select('ig.issue_no, ig.issue_date, ig.issue_datetime, ig.location_scope, ig.source_module, ig.source_table, ig.source_id, ig.source_line_id, ig.notes, ig.status', false)
+            ->select('sl.lot_no AS source_lot_no, tl.lot_no AS target_lot_no', false)
+            ->from('inv_material_fifo_issue_line il')
+            ->join('inv_material_fifo_issue_log ig', 'ig.id = il.issue_id', 'inner')
+            ->join('inv_material_fifo_lot sl', 'sl.id = il.lot_id', 'left')
+            ->join('inv_material_fifo_lot tl', 'tl.id = il.target_lot_id', 'left')
+            ->where('il.lot_id', $lotId)
+            ->order_by('ig.issue_date', 'DESC')
+            ->order_by('ig.id', 'DESC')
+            ->order_by('il.id', 'DESC')
+            ->get()
+            ->result_array();
+
+        $summary = [
+            'usage_count' => count($rows),
+            'qty_out_total' => 0.0,
+            'cost_total' => 0.0,
+        ];
+        foreach ($rows as $row) {
+            $summary['qty_out_total'] += (float)($row['qty_out'] ?? 0);
+            $summary['cost_total'] += (float)($row['total_cost'] ?? 0);
+        }
+
+        return [
+            'ok' => true,
+            'header' => $header,
+            'summary' => $summary,
+            'rows' => $rows,
+        ];
     }
 
     public function sync_purchase_setup_from_core(int $limit = 2000): array
@@ -7811,6 +9037,19 @@ class Purchase_model extends CI_Model
 
         $this->db->trans_commit();
 
+        $availabilityRefresh = [];
+        if ($newStatus === 'VOID') {
+            $availabilityRefresh = $this->trigger_pos_availability_refresh_for_materials(
+                (array)($rollbackData['receipts']['material_ids'] ?? []),
+                [
+                    'event_source' => 'PURCHASE_ORDER_VOID',
+                    'event_table' => 'pur_purchase_order',
+                    'event_id' => $purchaseOrderId,
+                    'actor_employee_id' => $userId > 0 ? $userId : null,
+                ]
+            );
+        }
+
         return [
             'ok' => true,
             'message' => 'Status purchase order berhasil diperbarui.',
@@ -7821,6 +9060,7 @@ class Purchase_model extends CI_Model
                 'rollback' => $rollbackData,
                 'receipt_auto_post' => $receiptPostingData,
                 'payment_auto_apply' => $paidPostingData,
+                'availability_rebuild' => $availabilityRefresh,
             ],
         ];
     }
@@ -9325,6 +10565,7 @@ class Purchase_model extends CI_Model
 
         $receiptsVoided = 0;
         $linesReversed = 0;
+        $availabilityMaterialIds = [];
         $receiptLinesById = [];
         $requirements = [];
         $rebuildTargets = [];
@@ -9567,6 +10808,11 @@ class Purchase_model extends CI_Model
                     (int)($line['id'] ?? 0)
                 );
 
+                $availabilityMaterialId = $this->resolveAvailabilityMaterialIdFromLine($line);
+                if ($availabilityMaterialId > 0) {
+                    $availabilityMaterialIds[$availabilityMaterialId] = $availabilityMaterialId;
+                }
+
                 $linesReversed++;
             }
 
@@ -9645,7 +10891,70 @@ class Purchase_model extends CI_Model
                 'receipts_voided' => $receiptsVoided,
                 'lines_reversed' => $linesReversed,
                 'rebuild_targets' => count($rebuildTargets),
+                'material_ids' => array_values($availabilityMaterialIds),
             ],
+        ];
+    }
+
+    private function resolveAvailabilityMaterialIdFromLine(array $line): int
+    {
+        $materialId = (int)($line['material_id'] ?? 0);
+        if ($materialId > 0) {
+            return $materialId;
+        }
+
+        $itemId = (int)($line['item_id'] ?? 0);
+        if ($itemId <= 0 || !$this->db->table_exists('mst_item') || !$this->db->field_exists('material_id', 'mst_item')) {
+            return 0;
+        }
+
+        $item = $this->db
+            ->select('material_id')
+            ->from('mst_item')
+            ->where('id', $itemId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        return (int)($item['material_id'] ?? 0);
+    }
+
+    private function trigger_pos_availability_refresh_for_materials(array $materialIds, array $context = []): array
+    {
+        $materialIds = array_values(array_unique(array_filter(array_map('intval', $materialIds))));
+        if (empty($materialIds)) {
+            return [
+                'ok' => true,
+                'material_ids' => [],
+                'success_count' => 0,
+                'failed_count' => 0,
+                'results' => [],
+            ];
+        }
+
+        $this->load->library('PosAvailabilityRebuildService');
+
+        $results = [];
+        $success = 0;
+        $failed = 0;
+        foreach ($materialIds as $materialId) {
+            $result = $this->posavailabilityrebuildservice->handle_material_change($materialId, $context + [
+                'material_id' => $materialId,
+            ]);
+            $results[] = ['material_id' => $materialId] + $result;
+            if ($result['ok'] ?? false) {
+                $success++;
+            } else {
+                $failed++;
+            }
+        }
+
+        return [
+            'ok' => $failed === 0,
+            'material_ids' => $materialIds,
+            'success_count' => $success,
+            'failed_count' => $failed,
+            'results' => $results,
         ];
     }
 

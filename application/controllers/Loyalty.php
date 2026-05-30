@@ -50,6 +50,17 @@ class Loyalty extends MY_Controller
         $this->json_ok(['id' => (int)$result['id'], 'is_active' => (int)$result['is_active']]);
     }
 
+    public function member_delete($id)
+    {
+        $this->require_permission('loyalty.member.index', 'delete');
+        $result = $this->Loyalty_model->delete_member((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menghapus member.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$id]);
+    }
+
     public function point_rules()
     {
         $this->require_permission('loyalty.point_rule.index', 'view');
@@ -84,6 +95,17 @@ class Loyalty extends MY_Controller
             return;
         }
         $this->json_ok(['id' => (int)$result['id'], 'is_active' => (int)$result['is_active']]);
+    }
+
+    public function point_rule_delete($id)
+    {
+        $this->require_permission('loyalty.point_rule.index', 'delete');
+        $result = $this->Loyalty_model->delete_point_rule((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menghapus rule poin.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$id]);
     }
 
     public function stamp_campaigns()
@@ -122,6 +144,17 @@ class Loyalty extends MY_Controller
         $this->json_ok(['id' => (int)$result['id'], 'is_active' => (int)$result['is_active']]);
     }
 
+    public function stamp_campaign_delete($id)
+    {
+        $this->require_permission('loyalty.stamp_campaign.index', 'delete');
+        $result = $this->Loyalty_model->delete_stamp_campaign((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menghapus campaign stamp.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$id]);
+    }
+
     public function voucher_campaigns()
     {
         $this->require_permission('loyalty.voucher_campaign.index', 'view');
@@ -156,6 +189,17 @@ class Loyalty extends MY_Controller
             return;
         }
         $this->json_ok(['id' => (int)$result['id'], 'is_active' => (int)$result['is_active']]);
+    }
+
+    public function voucher_campaign_delete($id)
+    {
+        $this->require_permission('loyalty.voucher_campaign.index', 'delete');
+        $result = $this->Loyalty_model->delete_voucher_campaign((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menghapus campaign voucher.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$id]);
     }
 
     public function vouchers()
@@ -194,11 +238,30 @@ class Loyalty extends MY_Controller
         $this->json_ok(['id' => (int)$result['id'], 'voucher_status' => (string)$result['voucher_status']]);
     }
 
+    public function voucher_delete($id)
+    {
+        $this->require_permission('loyalty.voucher_campaign.index', 'delete');
+        $result = $this->Loyalty_model->delete_voucher_issue((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menghapus voucher.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$id]);
+    }
+
     public function product_search()
     {
         $this->require_permission('loyalty.point_rule.index', 'view');
         $q = trim((string)$this->input->get('q', true));
-        $this->json_ok(['rows' => $this->Loyalty_model->product_search($q)]);
+        $rows = array_map(function (array $row): array {
+            if (!empty($row['photo_path'])) {
+                $row['photo_path'] = base_url(ltrim((string)$row['photo_path'], '/'));
+            } else {
+                $row['photo_path'] = '';
+            }
+            return $row;
+        }, $this->Loyalty_model->product_search($q));
+        $this->json_ok(['rows' => $rows]);
     }
 
     public function member_search()
@@ -258,6 +321,7 @@ class Loyalty extends MY_Controller
                     'data_url' => site_url('loyalty/point-rules/data'),
                     'save_url' => site_url('loyalty/point-rules/save'),
                     'toggle_base_url' => site_url('loyalty/point-rules/toggle'),
+                    'delete_base_url' => site_url('loyalty/point-rules/delete'),
                     'product_search_url' => site_url('loyalty/product-search'),
                     'primary_filter_key' => 'earn_mode',
                     'primary_filter_options' => [
@@ -312,6 +376,7 @@ class Loyalty extends MY_Controller
                     'data_url' => site_url('loyalty/stamp-campaigns/data'),
                     'save_url' => site_url('loyalty/stamp-campaigns/save'),
                     'toggle_base_url' => site_url('loyalty/stamp-campaigns/toggle'),
+                    'delete_base_url' => site_url('loyalty/stamp-campaigns/delete'),
                     'product_search_url' => site_url('loyalty/product-search'),
                     'primary_filter_key' => 'earn_mode',
                     'primary_filter_options' => [
@@ -364,6 +429,7 @@ class Loyalty extends MY_Controller
                     'data_url' => site_url('loyalty/vouchers/data'),
                     'save_url' => site_url('loyalty/vouchers/save'),
                     'toggle_base_url' => site_url('loyalty/vouchers/toggle'),
+                    'delete_base_url' => site_url('loyalty/vouchers/delete'),
                     'member_search_url' => site_url('loyalty/member-search'),
                     'primary_filter_key' => 'voucher_status',
                     'primary_filter_options' => [
@@ -378,7 +444,7 @@ class Loyalty extends MY_Controller
                         ['key' => 'campaign_name', 'label' => 'Sumber Aturan'],
                         ['key' => 'member_name', 'label' => 'Khusus Member'],
                         ['key' => 'voucher_status_label', 'label' => 'Status'],
-                        ['key' => 'amount_snapshot', 'label' => 'Nominal', 'type' => 'money'],
+                        ['key' => 'amount_snapshot', 'label' => 'Benefit', 'type' => 'voucher_issue_benefit'],
                         ['key' => 'expired_at', 'label' => 'Kadaluarsa', 'type' => 'date'],
                     ],
                     'fields' => [
@@ -405,6 +471,7 @@ class Loyalty extends MY_Controller
                 'data_url' => site_url('loyalty/voucher-campaigns/data'),
                 'save_url' => site_url('loyalty/voucher-campaigns/save'),
                 'toggle_base_url' => site_url('loyalty/voucher-campaigns/toggle'),
+                'delete_base_url' => site_url('loyalty/voucher-campaigns/delete'),
                 'product_search_url' => site_url('loyalty/product-search'),
                 'primary_filter_key' => 'issue_mode',
                 'primary_filter_options' => [
@@ -418,7 +485,7 @@ class Loyalty extends MY_Controller
                     ['key' => 'campaign_name', 'label' => 'Nama Promo'],
                     ['key' => 'issue_mode_label', 'label' => 'Cara Voucher Keluar'],
                     ['key' => 'voucher_type_label', 'label' => 'Bentuk Benefit'],
-                    ['key' => 'discount_value', 'label' => 'Benefit', 'type' => 'money'],
+                    ['key' => 'discount_value', 'label' => 'Benefit', 'type' => 'voucher_campaign_benefit'],
                     ['key' => 'min_spend_amount', 'label' => 'Minimal belanja', 'type' => 'money'],
                     ['key' => 'end_date', 'label' => 'Berakhir', 'type' => 'date'],
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
