@@ -2452,15 +2452,21 @@ document.addEventListener('DOMContentLoaded', function () {
     const reviewMember = document.getElementById('cashier_review_member');
     const reviewNotes = document.getElementById('cashier_review_notes');
     const selectedChannel = salesChannelSelect && salesChannelSelect.selectedOptions.length ? salesChannelSelect.selectedOptions[0].textContent.trim() : 'Walk In';
+    const isAppendReview = mode === 'CONFIRM' && isConfirmedOrder();
+    const existingLines = order.lines.filter((line) => isLockedExistingLine(line));
+    const newLines = order.lines.filter((line) => !isLockedExistingLine(line));
+    const reviewLines = isAppendReview ? newLines : order.lines;
     if (title) title.textContent = mode === 'CONFIRM' ? 'Review Simpan Transaksi' : 'Review Simpan Draft';
     if (meta) meta.textContent = mode === 'CONFIRM'
-      ? (isConfirmedOrder()
-        ? 'Line lama terkunci. Header boleh diubah, line baru akan ditambahkan ke transaksi ini.'
+      ? (isAppendReview
+        ? (newLines.length
+          ? `Review hanya menampilkan ${newLines.length} line transaksi terbaru. ${existingLines.length} line lama tetap tersimpan dan tidak dicetak ulang.`
+          : `Tidak ada line baru. ${existingLines.length} line lama tetap tersimpan dan tidak dicetak ulang.`)
         : 'Cek order singkat sebelum transaksi disimpan.')
       : 'Cek order singkat sebelum draft disimpan.';
     if (hint) hint.textContent = mode === 'CONFIRM'
-      ? (isConfirmedOrder()
-        ? 'Hanya item baru yang dicetak dan diposting ke stok. Pengurangan item harus lewat void.'
+      ? (isAppendReview
+        ? 'Review difokuskan ke item baru. Pengurangan item lama tetap harus lewat void.'
         : 'Stok dipotong dan tiket langsung dicetak.')
       : 'Draft disimpan tanpa potong stok.';
     if (reviewChannel) reviewChannel.textContent = selectedChannel || 'Walk In';
@@ -2468,9 +2474,13 @@ document.addEventListener('DOMContentLoaded', function () {
     if (reviewTableNo) reviewTableNo.textContent = order.table_no || '-';
     if (reviewMember) reviewMember.textContent = order.member_name || 'Walk in';
     if (reviewNotes) reviewNotes.textContent = order.notes || '-';
-    if (total) total.textContent = money(order.lines.reduce((sum, line) => sum + lineGrandTotal(line), 0));
+    if (total) total.textContent = money(reviewLines.reduce((sum, line) => sum + lineGrandTotal(line), 0));
     if (list) {
-      list.innerHTML = order.lines.map((line, index) => {
+      if (!reviewLines.length) {
+        list.innerHTML = '<div class="cashier-empty">Tidak ada item baru pada transaksi ini. Sistem hanya akan menyimpan perubahan header.</div>';
+        return;
+      }
+      list.innerHTML = reviewLines.map((line) => {
         const extras = Array.isArray(line.extras) ? line.extras : [];
         return `
           <div class="cashier-review-item">
@@ -2480,7 +2490,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 <div class="cashier-review-line-meta">
                   <span class="cashier-chip info">Qty ${number(line.qty || 0, 0)}</span>
                   ${line.bundle_name ? `<span class="cashier-chip bundle">${escapeHtml(line.bundle_name)}</span>` : ''}
-                  ${isLockedExistingLine(line) ? '<span class="cashier-chip info">Tersimpan</span>' : (isConfirmedOrder() ? '<span class="cashier-chip ok">Baru</span>' : '')}
+                  ${isLockedExistingLine(line) ? '<span class="cashier-chip info">Tersimpan</span>' : (isAppendReview ? '<span class="cashier-chip ok">Baru</span>' : '')}
                   ${line.notes ? `<span class="cashier-chip warn">Catatan</span>` : ''}
                 </div>
               </div>

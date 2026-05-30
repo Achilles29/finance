@@ -2021,7 +2021,10 @@ class Production_model extends CI_Model
         $countRow = $this->db->select('COUNT(*) AS total_rows', false)->from('inv_component_daily_rollup')->get()->row_array();
         $totalRows = (int)($countRow['total_rows'] ?? 0);
         if ($totalRows > 0) {
-            if ($this->component_daily_rollup_needs_rebuild_for_void_openings()) {
+            if (
+                $this->component_daily_rollup_needs_rebuild_for_void_openings()
+                || $this->component_daily_rollup_needs_rebuild_for_negative_balances()
+            ) {
                 return $this->rebuild_component_daily_rollup_from_logs();
             }
             return ['ok' => true, 'seeded' => false];
@@ -2053,6 +2056,32 @@ class Production_model extends CI_Model
         )->row_array();
 
         return !empty($row);
+    }
+
+    private function component_daily_rollup_needs_rebuild_for_negative_balances(): bool
+    {
+        if (!$this->db->table_exists('inv_component_stock_balance')) {
+            return false;
+        }
+
+        $negativeBalance = $this->db->query(
+            "SELECT 1
+            FROM inv_component_stock_balance
+            WHERE qty_on_hand < -0.0001
+            LIMIT 1"
+        )->row_array();
+        if (empty($negativeBalance)) {
+            return false;
+        }
+
+        $negativeRollup = $this->db->query(
+            "SELECT 1
+            FROM inv_component_daily_rollup
+            WHERE closing_qty < -0.0001
+            LIMIT 1"
+        )->row_array();
+
+        return empty($negativeRollup);
     }
 
     public function rebuild_component_daily_rollup_from_logs(): array
@@ -2096,17 +2125,14 @@ class Production_model extends CI_Model
             if (abs($qtyAfter) < 0.0001) {
                 $qtyAfter = 0.0;
             }
-            if ($qtyAfter < 0) {
-                $qtyAfter = 0.0;
-            }
 
             if ($qtyIn > 0) {
                 $valueAfter = round($valueBefore + round($qtyIn * $unitCost, 2), 2);
-                $avgAfter = $qtyAfter > 0 ? round($valueAfter / $qtyAfter, 6) : 0.0;
+                $avgAfter = abs($qtyAfter) > 0.0001 ? round($valueAfter / $qtyAfter, 6) : 0.0;
             } else {
                 $valueOut = round($qtyOut * $avgBefore, 2);
-                $valueAfter = round(max(0, $valueBefore - $valueOut), 2);
-                $avgAfter = $qtyAfter > 0 ? round($valueAfter / $qtyAfter, 6) : 0.0;
+                $valueAfter = round($valueBefore - $valueOut, 2);
+                $avgAfter = abs($qtyAfter) > 0.0001 ? round($valueAfter / $qtyAfter, 6) : 0.0;
             }
 
             $dayKey = implode('|', [
