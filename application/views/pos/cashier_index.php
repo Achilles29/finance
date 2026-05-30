@@ -1251,8 +1251,6 @@ document.addEventListener('DOMContentLoaded', function () {
   let selectedRecentOrderId = null;
   let draftSaveInFlight = false;
   let confirmInFlight = false;
-  const defaultSaveDraftLabel = saveDraftButton ? saveDraftButton.textContent : 'Simpan Draft';
-  const defaultConfirmOrderLabel = confirmOrderButton ? confirmOrderButton.textContent : 'Simpan Transaksi';
 
   const reversalModalEl = document.getElementById('cashierReversalModal');
   const reversalModal = reversalModalEl && window.bootstrap ? new bootstrap.Modal(reversalModalEl) : null;
@@ -1304,6 +1302,8 @@ document.addEventListener('DOMContentLoaded', function () {
   const savingOverlay = document.getElementById('cashier_saving_overlay');
   const savingTitle = document.getElementById('cashier_saving_title');
   const savingBody = document.getElementById('cashier_saving_body');
+  const defaultSaveDraftLabel = saveDraftButton ? saveDraftButton.textContent : 'Simpan Draft';
+  const defaultConfirmOrderLabel = confirmOrderButton ? confirmOrderButton.textContent : 'Simpan Transaksi';
   const extraOptionCache = {};
   let activeExtraLineIndex = null;
   let activeExtraDraft = null;
