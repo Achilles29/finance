@@ -6,7 +6,7 @@ class PosPrinterPreviewService
     private $booleanKeys = [
         'show_logo','show_header','show_invoice_no','show_payment_no','show_customer','show_table_no',
         'show_order_time','show_payment_time','show_cashier_order','show_cashier_payment','show_product_name',
-        'show_qty','show_extra','show_notes','show_subtotal','show_payment_breakdown','show_discount',
+        'show_qty','show_extra','show_notes','show_order_notes','show_subtotal','show_payment_breakdown','show_discount',
         'show_compliment','show_deposit_applied','show_grand_total','show_paid_amount','show_balance_due',
         'show_void_reason','show_refund_reason','show_footer','show_price','show_footer_barcode','show_wifi_info',
         'show_customer_point_info','show_customer_stamp_info','show_customer_voucher'
@@ -67,6 +67,7 @@ class PosPrinterPreviewService
             'show_qty' => true,
             'show_extra' => true,
             'show_notes' => true,
+            'show_order_notes' => true,
             'show_subtotal' => $documentType === 'RECEIPT',
             'show_payment_breakdown' => $documentType === 'RECEIPT',
             'show_discount' => $documentType === 'RECEIPT',
@@ -256,6 +257,10 @@ class PosPrinterPreviewService
                 }
                 if ($payload['show_cashier_order'] || $payload['show_cashier_payment']) {
                     $lines[] = 'KASIR      ANNISA';
+                }
+                if ($payload['show_order_notes']) {
+                    $lines[] = 'CATATAN';
+                    $lines[] = 'Meja dekat jendela, request sambal terpisah.';
                 }
                 foreach ($items as $item) {
                     if ($payload['show_product_name']) {

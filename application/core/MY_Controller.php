@@ -174,8 +174,8 @@ class MY_Controller extends CI_Controller
     {
         $userId = (int)($this->current_user['id'] ?? 0);
         $isSuperadmin = $this->is_superadmin();
-        $permSignature = md5(json_encode($this->user_perms, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        $cacheFile = $this->get_sidebar_cache_file($userId, $isSuperadmin, $permSignature);
+        $cacheSignature = $this->get_sidebar_cache_signature($userId, $isSuperadmin);
+        $cacheFile = $this->get_sidebar_cache_file($userId, $isSuperadmin, $cacheSignature);
         $cachedSidebar = $this->read_sidebar_cache($cacheFile);
         if ($cachedSidebar !== null) {
             return $cachedSidebar;
@@ -191,6 +191,45 @@ class MY_Controller extends CI_Controller
         $this->write_sidebar_cache($cacheFile, $sidebarData);
 
         return $sidebarData;
+    }
+
+    private function get_sidebar_cache_signature(int $userId, bool $isSuperadmin): string
+    {
+        $permSignature = md5(json_encode($this->user_perms, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        $menuVersion = 'menu:none';
+        if ($this->db->table_exists('sys_menu')) {
+            $menuRow = $this->db
+                ->select('COUNT(*) AS total_rows, MAX(COALESCE(updated_at, created_at)) AS latest_change', false)
+                ->from('sys_menu')
+                ->get()
+                ->row_array() ?: [];
+            $menuVersion = 'menu:'
+                . (int)($menuRow['total_rows'] ?? 0)
+                . ':'
+                . (string)($menuRow['latest_change'] ?? '');
+        }
+
+        $favoriteVersion = 'fav:none';
+        if ($userId > 0 && $this->db->table_exists('sys_sidebar_favorite')) {
+            $favoriteRow = $this->db
+                ->select('COUNT(*) AS total_rows, MAX(created_at) AS latest_change', false)
+                ->from('sys_sidebar_favorite')
+                ->where('user_id', $userId)
+                ->get()
+                ->row_array() ?: [];
+            $favoriteVersion = 'fav:'
+                . (int)($favoriteRow['total_rows'] ?? 0)
+                . ':'
+                . (string)($favoriteRow['latest_change'] ?? '');
+        }
+
+        return md5(implode('|', [
+            $permSignature,
+            $isSuperadmin ? 'super:1' : 'super:0',
+            $menuVersion,
+            $favoriteVersion,
+        ]));
     }
 
     private function get_sidebar_cache_file(int $userId, bool $isSuperadmin, string $permSignature): ?string

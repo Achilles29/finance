@@ -3,6 +3,9 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Dashboard extends MY_Controller
 {
+    /** @var array<string,bool> */
+    private $dashboardTableReadyCache = [];
+
     public function __construct()
     {
         parent::__construct();
@@ -121,7 +124,7 @@ class Dashboard extends MY_Controller
         $kpi['refund_total'] = (float)($salesOverview['refund_total'] ?? 0);
         $kpi['sales_total'] = (float)($salesOverview['net_sales_total'] ?? 0);
 
-        if ($this->db->table_exists('att_daily')) {
+        if ($this->dashboard_table_ready('att_daily')) {
             $kpi['present_employee_count'] = (int)$this->db
                 ->select('COUNT(DISTINCT employee_id) AS total', false)
                 ->from('att_daily')
@@ -131,7 +134,7 @@ class Dashboard extends MY_Controller
                 ->get()->row('total');
         }
 
-        if ($this->db->table_exists('pur_purchase_order')) {
+        if ($this->dashboard_table_ready('pur_purchase_order')) {
             $kpi['open_purchase_order_count'] = (int)$this->db
                 ->select('COUNT(*) AS total', false)
                 ->from('pur_purchase_order')
@@ -141,7 +144,7 @@ class Dashboard extends MY_Controller
                 ->get()->row('total');
         }
 
-        if ($this->db->table_exists('pur_store_request')) {
+        if ($this->dashboard_table_ready('pur_store_request')) {
             $kpi['pending_store_request_count'] = (int)$this->db
                 ->select('COUNT(*) AS total', false)
                 ->from('pur_store_request')
@@ -165,7 +168,7 @@ class Dashboard extends MY_Controller
         $orders = [];
         $statusMap = [];
 
-        if ($this->db->table_exists('pos_order')) {
+        if ($this->dashboard_table_ready('pos_order')) {
             $eventDateExpr = $this->dashboard_pos_event_date_expr('o');
             $this->db
                 ->select($eventDateExpr . ' AS day_key', false)
@@ -222,7 +225,7 @@ class Dashboard extends MY_Controller
 
     private function dashboard_pos_status_rows(array $filters): array
     {
-        if (!$this->db->table_exists('pos_order')) {
+        if (!$this->dashboard_table_ready('pos_order')) {
             return [];
         }
 
@@ -247,7 +250,7 @@ class Dashboard extends MY_Controller
             'refund_total' => 0.0,
             'net_sales_total' => 0.0,
         ];
-        if (!$this->db->table_exists('pos_order')) {
+        if (!$this->dashboard_table_ready('pos_order')) {
             return $overview;
         }
 
@@ -312,7 +315,7 @@ class Dashboard extends MY_Controller
 
     private function dashboard_pos_refund_available(): bool
     {
-        return $this->db->table_exists('pos_refund_line') && $this->db->table_exists('pos_order_line');
+        return $this->dashboard_table_ready('pos_refund_line') && $this->dashboard_table_ready('pos_order_line');
     }
 
     private function dashboard_pos_refund_subquery(): string
@@ -328,7 +331,7 @@ class Dashboard extends MY_Controller
 
     private function dashboard_purchase_status_rows(array $filters): array
     {
-        if (!$this->db->table_exists('pur_purchase_order')) {
+        if (!$this->dashboard_table_ready('pur_purchase_order')) {
             return [];
         }
 
@@ -344,7 +347,7 @@ class Dashboard extends MY_Controller
 
     private function dashboard_store_request_status_rows(array $filters): array
     {
-        if (!$this->db->table_exists('pur_store_request')) {
+        if (!$this->dashboard_table_ready('pur_store_request')) {
             return [];
         }
 
@@ -362,7 +365,7 @@ class Dashboard extends MY_Controller
     {
         $cards = [];
 
-        if ($this->db->table_exists('inv_warehouse_stock_balance_')) {
+        if ($this->dashboard_table_ready('inv_warehouse_stock_balance_')) {
             $summary = $this->db->query(
                 "SELECT COUNT(*) AS total_rows,
                         COALESCE(SUM(CASE
@@ -382,7 +385,7 @@ class Dashboard extends MY_Controller
             ];
         }
 
-        if ($this->db->table_exists('inv_division_stock_balance_')) {
+        if ($this->dashboard_table_ready('inv_division_stock_balance_')) {
             $summary = $this->db->query(
                 "SELECT COUNT(*) AS total_rows,
                         COALESCE(SUM(CASE
@@ -402,22 +405,14 @@ class Dashboard extends MY_Controller
             ];
         }
 
-        if ($this->db->table_exists('inv_component_stock_balance')) {
-            $summary = $this->db->query(
-                "SELECT COUNT(*) AS total_rows,
-                        COALESCE(SUM(CASE
-                            WHEN b.qty_on_hand <= GREATEST(COALESCE(c.min_stock, 0), 0)
-                            THEN 1 ELSE 0 END), 0) AS critical_count,
-                        COALESCE(SUM(b.total_value), 0) AS total_value
-                 FROM inv_component_stock_balance b
-                 LEFT JOIN mst_component c ON c.id = b.component_id"
-            )->row_array();
+        $componentSummary = $this->dashboard_component_stock_summary();
+        if ($componentSummary !== null) {
             $cards[] = [
                 'code' => 'component',
                 'label' => 'Base/Prepare',
-                'total_rows' => (int)($summary['total_rows'] ?? 0),
-                'critical_count' => (int)($summary['critical_count'] ?? 0),
-                'total_value' => (float)($summary['total_value'] ?? 0),
+                'total_rows' => (int)($componentSummary['total_rows'] ?? 0),
+                'critical_count' => (int)($componentSummary['critical_count'] ?? 0),
+                'total_value' => (float)($componentSummary['total_value'] ?? 0),
             ];
         }
 
@@ -429,7 +424,7 @@ class Dashboard extends MY_Controller
         $rows = [];
         $divisionNameColumn = $this->dashboard_division_name_column();
 
-        if ($this->db->table_exists('inv_warehouse_stock_balance_')) {
+        if ($this->dashboard_table_ready('inv_warehouse_stock_balance_')) {
             $warehouseRows = $this->db->query(
                 "SELECT 'Gudang' AS stock_scope,
                         COALESCE(b.profile_name, m.material_name, i.item_name, CONCAT('Item #', b.item_id)) AS item_name,
@@ -448,7 +443,7 @@ class Dashboard extends MY_Controller
             $rows = array_merge($rows, $warehouseRows);
         }
 
-        if ($this->db->table_exists('inv_division_stock_balance_')) {
+        if ($this->dashboard_table_ready('inv_division_stock_balance_')) {
             $divisionLocationSelect = $divisionNameColumn !== null
                 ? ('COALESCE(d.' . $divisionNameColumn . ', b.destination_type, CONCAT(\'Divisi #\', b.division_id))')
                 : "COALESCE(b.destination_type, CONCAT('Divisi #', b.division_id))";
@@ -471,27 +466,7 @@ class Dashboard extends MY_Controller
             $rows = array_merge($rows, $divisionRows);
         }
 
-        if ($this->db->table_exists('inv_component_stock_balance')) {
-            $componentLocationSelect = $divisionNameColumn !== null
-                ? ('COALESCE(d.' . $divisionNameColumn . ', b.location_type, CONCAT(\'Divisi #\', b.division_id))')
-                : "COALESCE(b.location_type, CONCAT('Divisi #', b.division_id))";
-            $componentRows = $this->db->query(
-                "SELECT 'Base/Prepare' AS stock_scope,
-                        COALESCE(c.component_name, CONCAT('Component #', b.component_id)) AS item_name,
-                        {$componentLocationSelect} AS location_name,
-                        b.qty_on_hand AS qty_balance,
-                        GREATEST(COALESCE(c.min_stock, 0), 0) AS threshold_qty,
-                        COALESCE(b.total_value, 0) AS total_value
-                 FROM inv_component_stock_balance b
-                 LEFT JOIN mst_component c ON c.id = b.component_id
-                 LEFT JOIN mst_operational_division d ON d.id = b.division_id
-                 WHERE b.qty_on_hand <= GREATEST(COALESCE(c.min_stock, 0), 0)
-                 ORDER BY (GREATEST(COALESCE(c.min_stock, 0), 0) - b.qty_on_hand) DESC,
-                          b.qty_on_hand ASC
-                 LIMIT 5"
-            )->result_array();
-            $rows = array_merge($rows, $componentRows);
-        }
+        $rows = array_merge($rows, $this->dashboard_component_critical_rows($divisionNameColumn));
 
         usort($rows, static function (array $left, array $right): int {
             $leftGap = (float)($left['threshold_qty'] ?? 0) - (float)($left['qty_balance'] ?? 0);
@@ -507,7 +482,7 @@ class Dashboard extends MY_Controller
 
     private function dashboard_division_name_column(): ?string
     {
-        if (!$this->db->table_exists('mst_operational_division')) {
+        if (!$this->dashboard_table_ready('mst_operational_division')) {
             return null;
         }
 
@@ -522,11 +497,123 @@ class Dashboard extends MY_Controller
         return null;
     }
 
+    private function dashboard_component_stock_summary(): ?array
+    {
+        $componentQuery = $this->dashboard_component_monthly_query(
+            "SELECT COUNT(*) AS total_rows,
+                    COALESCE(SUM(CASE
+                        WHEN s.closing_qty <= GREATEST(COALESCE(c.min_stock, 0), 0)
+                        THEN 1 ELSE 0 END), 0) AS critical_count,
+                    COALESCE(SUM(s.total_value), 0) AS total_value
+             FROM inv_component_monthly_stock s
+             INNER JOIN ({latest_month_subquery}) lm
+                ON lm.location_type = s.location_type
+               AND lm.division_id <=> s.division_id
+               AND lm.component_id = s.component_id
+               AND lm.uom_id = s.uom_id
+               AND lm.month_key = s.month_key
+             LEFT JOIN mst_component c ON c.id = s.component_id"
+        );
+
+        if ($componentQuery === null) {
+            return null;
+        }
+
+        return $componentQuery->row_array();
+    }
+
+    private function dashboard_component_critical_rows(?string $divisionNameColumn): array
+    {
+        $componentLocationSelect = $divisionNameColumn !== null
+            ? ('COALESCE(d.' . $divisionNameColumn . ', s.location_type, CONCAT(\'Divisi #\', s.division_id))')
+            : "COALESCE(s.location_type, CONCAT('Divisi #', s.division_id))";
+
+        $componentQuery = $this->dashboard_component_monthly_query(
+            "SELECT 'Base/Prepare' AS stock_scope,
+                    COALESCE(c.component_name, CONCAT('Component #', s.component_id)) AS item_name,
+                    {$componentLocationSelect} AS location_name,
+                    s.closing_qty AS qty_balance,
+                    GREATEST(COALESCE(c.min_stock, 0), 0) AS threshold_qty,
+                    COALESCE(s.total_value, 0) AS total_value
+             FROM inv_component_monthly_stock s
+             INNER JOIN ({latest_month_subquery}) lm
+                ON lm.location_type = s.location_type
+               AND lm.division_id <=> s.division_id
+               AND lm.component_id = s.component_id
+               AND lm.uom_id = s.uom_id
+               AND lm.month_key = s.month_key
+             LEFT JOIN mst_component c ON c.id = s.component_id
+             LEFT JOIN mst_operational_division d ON d.id = s.division_id
+             WHERE s.closing_qty <= GREATEST(COALESCE(c.min_stock, 0), 0)
+             ORDER BY (GREATEST(COALESCE(c.min_stock, 0), 0) - s.closing_qty) DESC,
+                      s.closing_qty ASC
+             LIMIT 5"
+        );
+
+        return $componentQuery !== null ? $componentQuery->result_array() : [];
+    }
+
+    private function dashboard_component_monthly_query(string $sql)
+    {
+        if (!$this->dashboard_table_ready('inv_component_monthly_stock')) {
+            return null;
+        }
+
+        $targetMonth = $this->db->escape(date('Y-m-01'));
+        $latestMonthSubquery = "SELECT location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key
+                                FROM inv_component_monthly_stock
+                                WHERE month_key <= {$targetMonth}
+                                GROUP BY location_type, division_id, component_id, uom_id";
+
+        return $this->dashboard_safe_query(str_replace('{latest_month_subquery}', $latestMonthSubquery, $sql));
+    }
+
+    private function dashboard_table_ready(string $table): bool
+    {
+        if (array_key_exists($table, $this->dashboardTableReadyCache)) {
+            return $this->dashboardTableReadyCache[$table];
+        }
+
+        if (!$this->db->table_exists($table)) {
+            $this->dashboardTableReadyCache[$table] = false;
+            return false;
+        }
+
+        $protectedTable = $this->db->protect_identifiers($table, true);
+        $probe = $this->dashboard_safe_query('SELECT 1 FROM ' . $protectedTable . ' LIMIT 1');
+        $isReady = $probe !== null;
+        $this->dashboardTableReadyCache[$table] = $isReady;
+
+        return $isReady;
+    }
+
+    private function dashboard_safe_query(string $sql)
+    {
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+
+        try {
+            $query = $this->db->query($sql);
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if ($query === false) {
+            $error = $this->db->error();
+            if (!empty($error['code']) || !empty($error['message'])) {
+                log_message('error', 'Dashboard query failed: [' . ($error['code'] ?? 0) . '] ' . ($error['message'] ?? 'unknown database error'));
+            }
+            return null;
+        }
+
+        return $query;
+    }
+
     private function dashboard_recent_activity(array $filters): array
     {
         $rows = [];
 
-        if ($this->db->table_exists('pos_order')) {
+        if ($this->dashboard_table_ready('pos_order')) {
             $posRows = $this->db
                 ->select('order_no AS ref_no, status, grand_total AS amount, COALESCE(paid_at, ordered_at, created_at) AS event_at', false)
                 ->select($this->db->escape('POS') . ' AS source_label', false)
@@ -539,7 +626,7 @@ class Dashboard extends MY_Controller
             $rows = array_merge($rows, $posRows);
         }
 
-        if ($this->db->table_exists('pur_purchase_order')) {
+        if ($this->dashboard_table_ready('pur_purchase_order')) {
             $poRows = $this->db
                 ->select('po_no AS ref_no, status, grand_total AS amount, CONCAT(request_date, " 00:00:00") AS event_at', false)
                 ->select($this->db->escape('PURCHASE') . ' AS source_label', false)
@@ -552,7 +639,7 @@ class Dashboard extends MY_Controller
             $rows = array_merge($rows, $poRows);
         }
 
-        if ($this->db->table_exists('inv_stock_movement_log')) {
+        if ($this->dashboard_table_ready('inv_stock_movement_log')) {
             $movementRows = $this->db
                 ->select('movement_no AS ref_no, movement_type AS status, ABS(qty_content_delta * unit_cost) AS amount, CONCAT(movement_date, " 00:00:00") AS event_at', false)
                 ->select($this->db->escape('INVENTORY') . ' AS source_label', false)

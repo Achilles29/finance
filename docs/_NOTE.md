@@ -35,6 +35,8 @@ yang perlu diperhatikan di POS ini nanti terhubung dengan stok tersedia berdasar
 
 
 
+
+
 ================
 
 
@@ -59,3 +61,11 @@ v update pegawai
 - finalisasi printer
 - input kasbon dan hutang
 - skema bonus, target harian dan bulanan
+
+
+
+
+cetak ulang printer
+
+
+catatan order

@@ -4083,6 +4083,25 @@ class Pos_model extends CI_Model
         return ['rows' => $rows, 'meta' => ['total' => $total, 'page' => $page, 'limit' => $limit, 'total_pages' => $totalPages]];
     }
 
+    public function final_payment_id_for_order(int $orderId): int
+    {
+        if ($orderId <= 0) {
+            return 0;
+        }
+
+        $row = $this->db->select('p.id')
+            ->from('pos_payment p')
+            ->where('p.order_id', $orderId)
+            ->where('p.payment_type', 'FINAL')
+            ->where_in('p.payment_status', ['PAID', 'PENDING'])
+            ->order_by('p.id', 'ASC')
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        return (int)($row['id'] ?? 0);
+    }
+
     public function find_order_draft(int $id): ?array
     {
         $this->ensure_pos_order_customer_name_column();
@@ -5263,7 +5282,7 @@ class Pos_model extends CI_Model
         return ['ok' => true, 'targets' => $targets];
     }
 
-    public function direct_print_targets_for_payment(int $paymentId): array
+    public function direct_print_targets_for_payment(int $paymentId, bool $respectAutoPrint = true): array
     {
         if ($paymentId <= 0) {
             return ['ok' => false, 'message' => 'Pembayaran POS tidak valid untuk direct print.'];
@@ -5282,7 +5301,7 @@ class Pos_model extends CI_Model
             ->limit(1)
             ->get()
             ->row_array();
-        if (!$eventRow || (int)($eventRow['auto_print'] ?? 0) !== 1) {
+        if ($respectAutoPrint && (!$eventRow || (int)($eventRow['auto_print'] ?? 0) !== 1)) {
             return ['ok' => true, 'targets' => []];
         }
 
@@ -6849,6 +6868,12 @@ class Pos_model extends CI_Model
         if ($showOrderTime && !empty($header['ordered_at'])) {
             $chunks[] = 'WAKTU   ' . date('d-m-Y H:i', strtotime((string)$header['ordered_at']));
         }
+        if (!empty($payload['show_order_notes']) && !empty($header['notes'])) {
+            $chunks[] = 'CATATAN';
+            foreach ($this->wrap_print_text((string)$header['notes'], $width) as $noteLine) {
+                $chunks[] = $noteLine;
+            }
+        }
         $chunks[] = $dash;
 
         foreach ($lines as $line) {
@@ -7238,10 +7263,12 @@ class Pos_model extends CI_Model
             }
         }
 
-        if (!empty($header['notes'])) {
+        if (!empty($payload['show_order_notes']) && !empty($header['notes'])) {
             $chunks[] = $dash;
             $chunks[] = 'CATATAN';
-            $chunks[] = (string)$header['notes'];
+            foreach ($this->wrap_print_text((string)$header['notes'], $width) as $noteLine) {
+                $chunks[] = $noteLine;
+            }
         }
 
         if (!empty($payload['show_footer'])) {

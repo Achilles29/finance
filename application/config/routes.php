@@ -403,6 +403,7 @@ $route['pos/orders/payment/prepare/(:num)'] = 'pos/order_payment_prepare/$1';
 $route['pos/orders/payment/voucher-search'] = 'pos/order_payment_voucher_search';
 $route['pos/orders/payment/save'] = 'pos/order_payment_save';
 $route['pos/orders/payment/print-targets/(:num)'] = 'pos/order_payment_print_targets/$1';
+$route['pos/orders/receipt-print-targets/(:num)'] = 'pos/order_receipt_print_targets/$1';
 $route['pos/orders/confirm-print-targets/(:num)'] = 'pos/order_confirm_print_targets/$1';
 $route['pos/orders/void-print-targets/(:num)'] = 'pos/order_void_print_targets/$1';
 $route['pos/orders/refund-print-targets/(:num)'] = 'pos/order_refund_print_targets/$1';

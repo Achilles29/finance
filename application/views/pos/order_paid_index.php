@@ -493,6 +493,19 @@ document.addEventListener('DOMContentLoaded', function () {
     return (printResult.failed || []).map(normalizePrintFailureEntry);
   }
 
+  async function triggerReceiptReprint(orderId) {
+    const safeId = Number(orderId || 0);
+    if (safeId <= 0) {
+      throw new Error('Order tidak valid untuk cetak ulang struk.');
+    }
+    const payloadJson = await getJson(`<?php echo site_url('pos/orders/receipt-print-targets'); ?>/${safeId}`);
+    const printResult = await directPrintTargets(payloadJson.direct_print_targets || []);
+    return {
+      successCount: Number(printResult.successCount || 0),
+      failed: (printResult.failed || []).map(normalizePrintFailureEntry)
+    };
+  }
+
   function recentQs() {
     const p = new URLSearchParams();
     p.set('q', recentState.q);
@@ -1009,6 +1022,7 @@ document.addEventListener('DOMContentLoaded', function () {
             <td class="text-end fw-semibold">${money(row.grand_total || 0)}</td>
             <td class="text-center">
               <div class="pos-paid-action-stack">
+                <button type="button" class="btn btn-sm btn-outline-secondary btn-paid-print" data-id="${Number(row.id || 0)}" title="Cetak Struk" aria-label="Cetak Struk"><i class="ri ri-printer-line"></i></button>
                 <button type="button" class="btn btn-sm btn-outline-info btn-paid-detail" data-id="${Number(row.id || 0)}" title="Detail" aria-label="Detail"><i class="ri ri-eye-line"></i></button>
                 <button type="button" class="btn btn-sm btn-outline-danger btn-paid-refund" data-id="${Number(row.id || 0)}" ${disableRefund ? 'disabled' : ''} title="Refund" aria-label="Refund"><i class="ri ri-arrow-go-back-line"></i></button>
               </div>
@@ -1018,6 +1032,27 @@ document.addEventListener('DOMContentLoaded', function () {
       }).join('');
     }
     renderRecentPager(json.meta || {});
+    document.querySelectorAll('.btn-paid-print').forEach((btn) => btn.addEventListener('click', async () => {
+      const originalHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="pos-paid-btn-spinner" aria-hidden="true"></span>';
+      try {
+        const result = await triggerReceiptReprint(Number(btn.dataset.id || 0));
+        let message = result.successCount > 0
+          ? `Struk berhasil dikirim ke ${result.successCount} printer.`
+          : 'Tidak ada printer yang menerima struk.';
+        if (result.failed.length) {
+          message += '\n\nSebagian printer gagal menerima struk:\n';
+          message += result.failed.map((entry) => `- ${entry.name}: ${entry.reason}`).join('\n');
+        }
+        alert(message);
+      } catch (e) {
+        alert(e && e.message ? e.message : 'Gagal menyiapkan cetak ulang struk.');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+      }
+    }));
     document.querySelectorAll('.btn-paid-detail').forEach((btn) => btn.addEventListener('click', async () => {
       try { await openDetailModal(Number(btn.dataset.id || 0)); } catch (e) { alert(e.message); }
     }));

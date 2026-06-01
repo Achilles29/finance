@@ -120,8 +120,30 @@ class Sidebar extends MY_Controller
             return;
         }
 
+        $this->clear_sidebar_cache_files();
+
         $this->output->set_content_type('application/json')
             ->set_output(json_encode(['ok' => true]));
+    }
+
+    private function clear_sidebar_cache_files(): void
+    {
+        $cacheDir = APPPATH . 'cache/sidebar';
+        if (!is_dir($cacheDir)) {
+            return;
+        }
+
+        $pattern = $cacheDir . DIRECTORY_SEPARATOR . 'sidebar_*.json';
+        $cacheFiles = glob($pattern);
+        if (!is_array($cacheFiles)) {
+            return;
+        }
+
+        foreach ($cacheFiles as $cacheFile) {
+            if (is_file($cacheFile)) {
+                @unlink($cacheFile);
+            }
+        }
     }
 
     private function build_sidebar_preview_tree(string $type): array
@@ -130,6 +152,7 @@ class Sidebar extends MY_Controller
         if ($type !== 'MAIN') {
             return $tree;
         }
+        $tree = $this->regroup_pos_preview_tree($tree);
         $tree = $this->regroup_master_preview_tree($tree);
         $tree = $this->regroup_inventory_preview_tree($tree);
         $tree = $this->regroup_product_preview_tree($tree);
@@ -139,6 +162,117 @@ class Sidebar extends MY_Controller
             }
         }
         unset($item);
+        return $tree;
+    }
+
+    private function regroup_pos_preview_tree(array $tree): array
+    {
+        $hasCashierAnywhere = $this->preview_tree_contains_menu_code($tree, 'pos.cashier');
+        $hasReportGroupAnywhere = $this->preview_tree_contains_menu_code($tree, 'pos.report.group');
+
+        foreach ($tree as &$item) {
+            if (($item['menu_code'] ?? '') !== 'grp.pos') {
+                continue;
+            }
+
+            $children = (array)($item['children'] ?? []);
+            if (!$hasCashierAnywhere) {
+                $children[] = [
+                    'id' => -2600,
+                    'parent_id' => (int)($item['id'] ?? 0),
+                    'menu_code' => 'pos.cashier',
+                    'menu_label' => 'Kasir POS',
+                    'icon' => 'ri-shopping-bag-3-line',
+                    'url' => 'pos/cashier',
+                    'is_virtual' => 1,
+                    'sort_order' => 2,
+                    'children' => [],
+                ];
+            }
+
+            if (!$hasReportGroupAnywhere) {
+                $children[] = [
+                    'id' => -2601,
+                    'parent_id' => (int)($item['id'] ?? 0),
+                    'menu_code' => 'pos.report.group',
+                    'menu_label' => 'Laporan POS',
+                    'icon' => 'ri-bar-chart-box-line',
+                    'url' => null,
+                    'is_virtual' => 1,
+                    'sort_order' => 995,
+                    'children' => [
+                        [
+                            'id' => -2602,
+                            'parent_id' => -2601,
+                            'menu_code' => 'pos.report.sales',
+                            'menu_label' => 'Laporan Penjualan POS',
+                            'icon' => 'ri-receipt-line',
+                            'url' => 'pos/reports/sales',
+                            'is_virtual' => 1,
+                            'sort_order' => 1,
+                            'children' => [],
+                        ],
+                        [
+                            'id' => -2603,
+                            'parent_id' => -2601,
+                            'menu_code' => 'pos.report.sales.detail',
+                            'menu_label' => 'Laporan Penjualan Produk',
+                            'icon' => 'ri-file-list-3-line',
+                            'url' => 'pos/reports/sales-detail',
+                            'is_virtual' => 1,
+                            'sort_order' => 2,
+                            'children' => [],
+                        ],
+                        [
+                            'id' => -2604,
+                            'parent_id' => -2601,
+                            'menu_code' => 'pos.report.payment',
+                            'menu_label' => 'Laporan Pembayaran POS',
+                            'icon' => 'ri-bank-card-line',
+                            'url' => 'pos/reports/payments',
+                            'is_virtual' => 1,
+                            'sort_order' => 3,
+                            'children' => [],
+                        ],
+                        [
+                            'id' => -2605,
+                            'parent_id' => -2601,
+                            'menu_code' => 'pos.report.refund',
+                            'menu_label' => 'Laporan Refund POS',
+                            'icon' => 'ri-arrow-go-back-line',
+                            'url' => 'pos/reports/refunds',
+                            'is_virtual' => 1,
+                            'sort_order' => 4,
+                            'children' => [],
+                        ],
+                        [
+                            'id' => -2606,
+                            'parent_id' => -2601,
+                            'menu_code' => 'pos.report.void',
+                            'menu_label' => 'Laporan Void POS',
+                            'icon' => 'ri-close-circle-line',
+                            'url' => 'pos/reports/voids',
+                            'is_virtual' => 1,
+                            'sort_order' => 5,
+                            'children' => [],
+                        ],
+                    ],
+                ];
+            }
+
+            usort($children, static function (array $left, array $right): int {
+                $leftOrder = (int)($left['sort_order'] ?? 9999);
+                $rightOrder = (int)($right['sort_order'] ?? 9999);
+                if ($leftOrder === $rightOrder) {
+                    return strcmp((string)($left['menu_label'] ?? ''), (string)($right['menu_label'] ?? ''));
+                }
+                return $leftOrder <=> $rightOrder;
+            });
+
+            $item['children'] = $children;
+        }
+        unset($item);
+
         return $tree;
     }
 
@@ -457,6 +591,7 @@ class Sidebar extends MY_Controller
             'is_active' => 1,
             'sidebar_type' => $type,
         ]);
+        $this->clear_sidebar_cache_files();
 
         $this->session->set_flashdata('success', 'Menu sidebar berhasil ditambahkan.');
         redirect('sidebar/manage?type=' . $type . '&tab=menu-data');
@@ -514,6 +649,7 @@ class Sidebar extends MY_Controller
             'is_active' => $isActive,
             'sidebar_type' => $type,
         ]);
+        $this->clear_sidebar_cache_files();
 
         $this->session->set_flashdata('success', 'Menu sidebar berhasil diperbarui.');
         redirect('sidebar/manage?type=' . $type . '&tab=menu-data');
@@ -543,6 +679,7 @@ class Sidebar extends MY_Controller
 
         // Soft delete agar histori favorit dan relasi tetap aman.
         $this->Menu_model->update_sidebar_menu($id, ['is_active' => 0]);
+        $this->clear_sidebar_cache_files();
 
         $this->session->set_flashdata('success', 'Menu sidebar dinonaktifkan (soft delete).');
         redirect('sidebar/manage?type=' . $type . '&tab=menu-data');

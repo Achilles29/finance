@@ -1851,6 +1851,30 @@ class Pos extends MY_Controller
         ]);
     }
 
+    public function order_receipt_print_targets($id)
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : $this->order_workspace_page_code('view');
+        $this->require_permission($pageCode, 'view');
+
+        $paymentId = $this->Pos_model->final_payment_id_for_order((int)$id);
+        if ($paymentId <= 0) {
+            $this->json_error('Struk belum bisa dicetak ulang karena payment final belum ada.', 422);
+            return;
+        }
+
+        $directPrint = $this->Pos_model->direct_print_targets_for_payment($paymentId, false);
+        if (!($directPrint['ok'] ?? false)) {
+            $this->json_error((string)($directPrint['message'] ?? 'Payload direct print payment gagal disiapkan.'), 422);
+            return;
+        }
+
+        $this->json_ok([
+            'id' => (int)$id,
+            'payment_id' => $paymentId,
+            'direct_print_targets' => (array)($directPrint['targets'] ?? []),
+        ]);
+    }
+
     public function order_void_save()
     {
         $pageCode = $this->order_workspace_page_code('edit');

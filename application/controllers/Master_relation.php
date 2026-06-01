@@ -642,7 +642,10 @@ class Master_relation extends MY_Controller
 
     public function extra_workspace()
     {
-        $this->require_permission('master.product_extra.workspace.index', 'view');
+        $pageCode = $this->can('product.monitoring.availability.index', 'view')
+            ? 'product.monitoring.availability.index'
+            : 'master.product_extra.workspace.index';
+        $this->require_permission($pageCode, 'view');
         $summary = [
             'total_extra' => $this->db->table_exists('mst_extra') ? (int)$this->db->from('mst_extra')->count_all_results() : 0,
             'total_group' => $this->db->table_exists('mst_extra_group') ? (int)$this->db->from('mst_extra_group')->count_all_results() : 0,

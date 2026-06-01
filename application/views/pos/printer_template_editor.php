@@ -155,7 +155,8 @@ $selectedPrinterId = !empty($previewPrinters) ? (int)$previewPrinters[0]['id'] :
                 'show_product_name' => ['Tampilkan Nama Produk','Nama produk per baris'],
                 'show_qty' => ['Tampilkan Qty','Kuantitas per produk'],
                 'show_extra' => ['Tampilkan Extra','Modifier / extra produk'],
-                'show_notes' => ['Tampilkan Catatan','Catatan per produk'],
+                'show_notes' => ['Tampilkan Catatan Item','Catatan per produk atau line item'],
+                'show_order_notes' => ['Tampilkan Catatan Order','Catatan header dari pos_order.notes'],
                 'show_price' => ['Tampilkan Harga','Harga line item'],
                 'show_subtotal' => ['Tampilkan Subtotal','Subtotal sebelum diskon'],
                 'show_discount' => ['Tampilkan Diskon','Potongan transaksi'],
@@ -301,7 +302,7 @@ $selectedPrinterId = !empty($previewPrinters) ? (int)$previewPrinters[0]['id'] :
       ['Order / Payment', `${payload.show_invoice_no ? 'Order' : '-'} • ${payload.show_payment_no ? 'Payment' : '-'}`],
       ['Customer / Meja', `${payload.show_customer ? 'Customer' : '-'} • ${payload.show_table_no ? 'Meja' : '-'}`],
       ['Produk / Harga', `${payload.show_product_name ? 'Produk' : '-'} • ${payload.show_price ? 'Harga' : '-'}`],
-      ['Qty / Extra', `${payload.show_qty ? 'Qty' : '-'} • ${payload.show_extra ? 'Extra' : '-'}`],
+      ['Qty / Extra / Note', `${payload.show_qty ? 'Qty' : '-'} • ${payload.show_extra ? 'Extra' : '-'} • ${payload.show_order_notes ? 'Note Order' : '-'}`],
       ['Footer / Barcode', `${payload.show_footer ? 'Footer' : '-'} • ${payload.show_footer_barcode ? 'Barcode' : '-'}`],
       ['Poin / Stamp / Voucher', `${payload.show_customer_point_info ? 'Poin' : '-'} • ${payload.show_customer_stamp_info ? 'Stamp' : '-'} • ${payload.show_customer_voucher ? 'Voucher' : '-'}`],
     ];

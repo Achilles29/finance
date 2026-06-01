@@ -126,7 +126,10 @@ class Production extends MY_Controller
 
     public function component_reconcile()
     {
-        $this->require_permission('production.component.daily.index', 'view');
+        $pageCode = $this->can('production.component.reconcile.index', 'view')
+            ? 'production.component.reconcile.index'
+            : 'production.component.daily.index';
+        $this->require_permission($pageCode, 'view');
         $filters = $this->component_reconcile_filters();
         $compare = $this->Production_model->component_reconcile_rows($filters, (int)($filters['limit'] ?? 50));
 
@@ -177,7 +180,10 @@ class Production extends MY_Controller
 
     public function component_lots()
     {
-        $this->require_permission('production.component.batch.index', 'view');
+        $pageCode = $this->can('production.component.lot.index', 'view')
+            ? 'production.component.lot.index'
+            : 'production.component.batch.index';
+        $this->require_permission($pageCode, 'view');
         $filters = $this->lot_filters();
 
         $this->load->library('ComponentLotManager');
@@ -190,6 +196,7 @@ class Production extends MY_Controller
         $rows = $this->componentlotmanager->listLots($filters, 400);
         $this->render('production/component_lot_index', [
             'page_title' => 'Lot FIFO Base/Prepare',
+            'active_menu' => 'production.component.lot',
             'rows' => $rows,
             'filters' => $filters,
             'divisions' => $this->active_divisions(),
@@ -198,7 +205,10 @@ class Production extends MY_Controller
 
     public function component_lot_usage($lotId)
     {
-        $this->require_permission('production.component.batch.index', 'view');
+        $pageCode = $this->can('production.component.lot.index', 'view')
+            ? 'production.component.lot.index'
+            : 'production.component.batch.index';
+        $this->require_permission($pageCode, 'view');
         $detail = $this->Production_model->component_lot_usage_detail((int)$lotId);
         if (!($detail['ok'] ?? false)) {
             show_error((string)($detail['message'] ?? 'Detail pemakaian lot component tidak ditemukan.'), 404, 'Not Found');
@@ -208,6 +218,7 @@ class Production extends MY_Controller
         $header = (array)($detail['header'] ?? []);
         $this->render('production/component_lot_usage_detail', [
             'page_title' => 'Pemakaian Lot ' . (string)($header['lot_no'] ?? '#'),
+            'active_menu' => 'production.component.lot',
             'detail' => $detail,
         ]);
     }

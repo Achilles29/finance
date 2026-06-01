@@ -691,6 +691,29 @@ if (!function_exists('_append_pos_report_sidebar_children')) {
   }
 }
 
+if (!function_exists('_append_pos_cashier_sidebar_child')) {
+  function _append_pos_cashier_sidebar_child(array $children): array
+  {
+    if (_sidebar_tree_contains_menu_code($children, 'pos.cashier')) {
+      return $children;
+    }
+
+    $children[] = [
+      'id' => -2600,
+      'parent_id' => null,
+      'menu_code' => 'pos.cashier',
+      'menu_label' => 'Kasir POS',
+      'icon' => 'ri-shopping-bag-3-line',
+      'url' => 'pos/cashier',
+      'page_id' => null,
+      'sort_order' => 2,
+      'children' => [],
+    ];
+
+    return _sort_sidebar_children_by_order($children);
+  }
+}
+
 if (!function_exists('_append_pos_report_sidebar_children')) {
   function _append_pos_report_sidebar_children(array $children): array
   {
@@ -789,42 +812,23 @@ if (!function_exists('_append_pos_report_sidebar_children')) {
 if (!function_exists('_regroup_pos_sidebar_tree')) {
   function _regroup_pos_sidebar_tree(array $tree): array
   {
-    $posOrphans = [];
-    $filteredTree = [];
-    foreach ($tree as $item) {
-      $code = (string)($item['menu_code'] ?? '');
-      if (in_array($code, ['pos.cashier', 'pos.report.group'], true)) {
-        $posOrphans[$code] = $item;
-        continue;
-      }
-      $filteredTree[] = $item;
-    }
-
-    $tree = $filteredTree;
-    $attachedToGroup = false;
+    $hasCashierAnywhere = _sidebar_tree_contains_menu_code($tree, 'pos.cashier');
+    $hasReportGroupAnywhere = _sidebar_tree_contains_menu_code($tree, 'pos.report.group');
 
     foreach ($tree as &$item) {
       if (($item['menu_code'] ?? '') === 'grp.pos') {
         $children = (array)($item['children'] ?? []);
-        foreach ($posOrphans as $orphanCode => $orphanItem) {
-          if (!_sidebar_tree_contains_menu_code($children, $orphanCode)) {
-            $orphanItem['parent_id'] = (int)($item['id'] ?? 0);
-            $children[] = $orphanItem;
-          }
+        if (!$hasCashierAnywhere) {
+          $children = _append_pos_cashier_sidebar_child($children);
         }
         $children = _append_pos_operational_sidebar_children($children);
-        $children = _append_pos_report_sidebar_children($children);
+        if (!$hasReportGroupAnywhere) {
+          $children = _append_pos_report_sidebar_children($children);
+        }
         $item['children'] = _sort_sidebar_children_by_order($children);
-        $attachedToGroup = true;
       }
     }
     unset($item);
-
-    if (!$attachedToGroup) {
-      foreach ($posOrphans as $orphanItem) {
-        $tree[] = $orphanItem;
-      }
-    }
 
     return $tree;
   }
