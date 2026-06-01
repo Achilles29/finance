@@ -48,11 +48,13 @@ yang perlu diperhatikan di POS ini nanti terhubung dengan stok tersedia berdasar
 
 
 v update pegawai
-- error pengajuan PO SR
+v cetak ulang printer
+v catatan order
+v update gudang, bahan baku, component
+v update data sif
+
 - update menu
-- update gudang, bahan baku, component
 - update hak akses
-- update data sif
 - tata ulang sidebar
 - tampilan daily matrix
 - tampilan halaman stok
@@ -65,14 +67,5 @@ v update pegawai
 
 
 
-cetak ulang printer
 
 
-catatan order
-
-
-kalau gitu cek semua sidebar harus menghormati DB, kalau buat halaman baru harus masuk DB. catat
-
-
-tambahkan tombol cetak di /pos/orders/paid untuk mencetak ulang pesan yang sudah terbayar.
-lalu cek pos_order.notes belum muncul di pengaturan templet printer. saya butuh agar notes bisa masuk dalam cetak printer.

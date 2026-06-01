@@ -10,6 +10,8 @@ $pages_by_module = $pages_by_module ?? [];
 
 // Metadata per modul: ikon, warna aksen, label display
 $mod_meta = [
+    'DASHBOARD'  => ['icon' => 'ri-dashboard-line',           'color' => '#1d4ed8', 'bg' => '#eff6ff', 'label' => 'Dashboard'],
+  'SISTEM'     => ['icon' => 'ri-settings-3-line',          'color' => '#475569', 'bg' => '#f1f5f9', 'label' => 'Sistem & Hak Akses'],
     'AUTH'       => ['icon' => 'ri-lock-password-line',       'color' => '#2563eb', 'bg' => '#eff6ff', 'label' => 'Auth & RBAC'],
     'SYS'        => ['icon' => 'ri-settings-3-line',          'color' => '#475569', 'bg' => '#f1f5f9', 'label' => 'Sistem'],
     'MASTER'     => ['icon' => 'ri-database-2-line',          'color' => '#7c3aed', 'bg' => '#f5f3ff', 'label' => 'Master Data'],
@@ -21,6 +23,8 @@ $mod_meta = [
     'FINANCE'    => ['icon' => 'ri-bank-line',                'color' => '#be123c', 'bg' => '#fff1f2', 'label' => 'Keuangan'],
     'REPORT'     => ['icon' => 'ri-bar-chart-2-line',         'color' => '#6d28d9', 'bg' => '#faf5ff', 'label' => 'Laporan'],
     'POS'        => ['icon' => 'ri-store-2-line',             'color' => '#be185d', 'bg' => '#fdf2f8', 'label' => 'Point of Sale'],
+  'PRODUKSI'   => ['icon' => 'ri-flask-line',               'color' => '#0f766e', 'bg' => '#ecfeff', 'label' => 'Produksi'],
+  'MY_PORTAL'  => ['icon' => 'ri-user-settings-line',       'color' => '#4338ca', 'bg' => '#eef2ff', 'label' => 'Portal Saya'],
 ];
 
 // Pre-hitung stats per modul & grand total
@@ -40,11 +44,11 @@ foreach ($pages_by_module as $mod => $pages) {
 
 // Definisi permission flags: [flag_key, label, ikon, warna saat aktif]
 $perm_flags = [
-    'can_view'   => ['label' => 'View',   'icon' => 'ri-eye-line',            'cls' => 'ptog-view'],
+  'can_view'   => ['label' => 'Lihat',  'icon' => 'ri-eye-line',            'cls' => 'ptog-view'],
     'can_create' => ['label' => 'Buat',   'icon' => 'ri-add-circle-line',     'cls' => 'ptog-create'],
-    'can_edit'   => ['label' => 'Edit',   'icon' => 'ri-edit-line',           'cls' => 'ptog-edit'],
+  'can_edit'   => ['label' => 'Ubah',   'icon' => 'ri-edit-line',           'cls' => 'ptog-edit'],
     'can_delete' => ['label' => 'Hapus',  'icon' => 'ri-delete-bin-line',     'cls' => 'ptog-delete'],
-    'can_export' => ['label' => 'Export', 'icon' => 'ri-download-cloud-line', 'cls' => 'ptog-export'],
+  'can_export' => ['label' => 'Ekspor', 'icon' => 'ri-download-cloud-line', 'cls' => 'ptog-export'],
 ];
 ?>
 
@@ -91,7 +95,16 @@ $perm_flags = [
 .mx-page-row.row-active { border-left:3px solid #22c55e; }
 .mx-page-info { flex:1; min-width:140px; }
 .mx-page-name { font-size:0.82rem; font-weight:600; color:#1e293b; line-height:1.3; }
+.mx-page-meta { display:flex; gap:6px; flex-wrap:wrap; margin-top:2px; }
+.mx-page-secondary { font-size:0.72rem; color:#64748b; }
 .mx-page-code { font-size:0.67rem; color:#94a3b8; font-family:monospace; }
+.mx-page-badge {
+  display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px;
+  font-size:0.67rem; font-weight:700; border:1px solid transparent;
+}
+.mx-page-badge.menu { background:#ecfdf5; color:#166534; border-color:#bbf7d0; }
+.mx-page-badge.tech { background:#fff7ed; color:#9a3412; border-color:#fed7aa; }
+.mx-page-desc { font-size:0.69rem; color:#94a3b8; margin-top:2px; }
 .mx-perms     { display:flex; gap:5px; flex-wrap:wrap; }
 
 /* ── Permission toggle pills ────────────────────────────── */
@@ -147,6 +160,9 @@ $perm_flags = [
 /* ── Grand counter ───────────────────────────────────────── */
 .mx-grand-counter { font-size:0.78rem; color:#64748b; }
 .mx-grand-counter b { color:#1e293b; }
+
+.mx-toggle-lite { display:inline-flex; align-items:center; gap:8px; font-size:0.76rem; color:#475569; }
+.mx-toggle-lite input { margin:0; }
 </style>
 
 <!-- ── ROLE INFO BAR ──────────────────────────────────────────── -->
@@ -189,8 +205,12 @@ $perm_flags = [
   <!-- Search -->
   <div class="mx-search-wrap me-auto" style="min-width:180px; max-width:260px;">
     <i class="ri ri-search-line"></i>
-    <input type="text" id="mx-search" class="form-control form-control-sm" placeholder="Cari halaman…">
+    <input type="text" id="mx-search" class="form-control form-control-sm" placeholder="Cari nama menu / halaman / kode akses…">
   </div>
+  <label class="mx-toggle-lite ms-2">
+    <input type="checkbox" id="mx-show-technical">
+    <span>Tampilkan halaman teknis / internal</span>
+  </label>
   <!-- Expand/Collapse -->
   <div class="d-flex gap-2 ms-2">
     <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-expand-all" title="Buka semua">
@@ -267,14 +287,32 @@ $perm_flags = [
       <?php foreach ($pages as $pg):
         $pid     = $pg['page_id'];
         $row_act = $pg['can_view'] || $pg['can_create'] || $pg['can_edit'] || $pg['can_delete'] || $pg['can_export'];
+        $displayName = trim((string)($pg['menu_label'] ?? '')) !== '' ? (string)$pg['menu_label'] : (string)($pg['page_name'] ?? '-');
+        $secondaryName = trim((string)($pg['menu_label'] ?? '')) !== '' && trim((string)($pg['page_name'] ?? '')) !== '' && (string)$pg['menu_label'] !== (string)$pg['page_name']
+            ? (string)$pg['page_name']
+            : '';
+        $hasMenu = !empty($pg['has_menu']);
       ?>
       <div class="mx-page-row <?= $row_act ? 'row-active' : '' ?>"
            data-module="<?= htmlspecialchars($mod) ?>" data-pid="<?= $pid ?>"
-           data-page-name="<?= htmlspecialchars(strtolower($pg['page_name'] . ' ' . $pg['page_code'])) ?>">
+           data-has-menu="<?= $hasMenu ? '1' : '0' ?>"
+           data-page-name="<?= htmlspecialchars(strtolower(trim($displayName . ' ' . $secondaryName . ' ' . ($pg['page_code'] ?? '') . ' ' . ($pg['description'] ?? '')))) ?>">
         <!-- Page info -->
         <div class="mx-page-info">
-          <div class="mx-page-name"><?= htmlspecialchars($pg['page_name']) ?></div>
+          <div class="mx-page-name"><?= htmlspecialchars($displayName) ?></div>
+          <div class="mx-page-meta">
+            <span class="mx-page-badge <?= $hasMenu ? 'menu' : 'tech' ?>">
+              <i class="ri <?= $hasMenu ? 'ri-menu-line' : 'ri-code-s-slash-line' ?>"></i>
+              <?= $hasMenu ? 'Menu aktif' : 'Teknis / internal' ?>
+            </span>
+            <?php if ($secondaryName !== ''): ?>
+              <span class="mx-page-secondary"><?= htmlspecialchars($secondaryName) ?></span>
+            <?php endif; ?>
+          </div>
           <div class="mx-page-code"><?= htmlspecialchars($pg['page_code']) ?></div>
+          <?php if (!empty($pg['description'])): ?>
+            <div class="mx-page-desc"><?= htmlspecialchars((string)$pg['description']) ?></div>
+          <?php endif; ?>
         </div>
         <!-- Permission toggles -->
         <div class="mx-perms">
@@ -335,6 +373,37 @@ $perm_flags = [
   // ── Helpers ────────────────────────────────────────────────────
   function getCbsByPid(pid) {
     return document.querySelectorAll(`.matrix-cb[data-pid="${pid}"]`);
+  }
+
+  function applyRowFilters() {
+    const searchInput = document.getElementById('mx-search');
+    const showTechnical = !!document.getElementById('mx-show-technical')?.checked;
+    const q = (searchInput ? searchInput.value : '').trim().toLowerCase();
+
+    document.querySelectorAll('.mx-module').forEach(modEl => {
+      const pageRows = modEl.querySelectorAll('.mx-page-row');
+      let visible = 0;
+
+      pageRows.forEach(row => {
+        const matchesSearch = !q || row.dataset.pageName.includes(q);
+        const isTechnical = row.dataset.hasMenu !== '1';
+        const visibleRow = matchesSearch && (showTechnical || !isTechnical);
+        row.style.display = visibleRow ? '' : 'none';
+        if (visibleRow) visible++;
+      });
+
+      const noMatch = modEl.querySelector('.mx-no-match');
+      if (noMatch) {
+        noMatch.style.display = visible === 0 ? 'block' : 'none';
+      }
+
+      const collapseEl = modEl.querySelector('.collapse');
+      if (q && visible > 0 && collapseEl) {
+        bootstrap.Collapse.getOrCreateInstance(collapseEl).show();
+      }
+
+      modEl.style.display = visible === 0 ? 'none' : '';
+    });
   }
   function getCbsByModule(mod) {
     return document.querySelectorAll(`.matrix-cb[data-module="${mod}"]`);
@@ -526,34 +595,8 @@ $perm_flags = [
   });
 
   // ── Search filter ──────────────────────────────────────────────
-  document.getElementById('mx-search').addEventListener('input', function () {
-    const q = this.value.trim().toLowerCase();
-
-    document.querySelectorAll('.mx-module').forEach(modEl => {
-      const mod       = modEl.dataset.module;
-      const pageRows  = modEl.querySelectorAll('.mx-page-row');
-      let   visible   = 0;
-
-      pageRows.forEach(row => {
-        const match = !q || row.dataset.pageName.includes(q);
-        row.style.display = match ? '' : 'none';
-        if (match) visible++;
-      });
-
-      // Show/hide "no match" message
-      const noMatch = modEl.querySelector('.mx-no-match');
-      if (noMatch) noMatch.style.display = (visible === 0 && q) ? 'block' : 'none';
-
-      // Auto-expand module that has matches when searching
-      const collapseEl = modEl.querySelector('.collapse');
-      if (q && visible > 0 && collapseEl) {
-        bootstrap.Collapse.getOrCreateInstance(collapseEl).show();
-      }
-
-      // Hide entire module card if nothing matches
-      modEl.style.display = (visible === 0 && q) ? 'none' : '';
-    });
-  });
+  document.getElementById('mx-search').addEventListener('input', applyRowFilters);
+  document.getElementById('mx-show-technical').addEventListener('change', applyRowFilters);
 
   // ── Clear dirty on submit ──────────────────────────────────────
   document.getElementById('form-matrix').addEventListener('submit', () => {
@@ -561,6 +604,8 @@ $perm_flags = [
     const dot = document.getElementById('dirty-dot');
     if (dot) dot.classList.remove('show');
   });
+
+  applyRowFilters();
 
 }());
 </script>

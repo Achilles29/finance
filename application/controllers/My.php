@@ -3,6 +3,21 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class My extends MY_Controller
 {
+    private const PAGE_HOME = 'my.home.index';
+    private const PAGE_ATTENDANCE = 'my.attendance.index';
+    private const PAGE_PROFILE = 'my.profile.index';
+    private const PAGE_SCHEDULE = 'my.schedule.index';
+    private const PAGE_PAYROLL = 'my.payroll.index';
+    private const PAGE_LEAVE = 'my.leave.index';
+    private const PAGE_MEAL = 'my.meal.index';
+    private const PAGE_OVERTIME = 'my.overtime.index';
+    private const PAGE_PH = 'my.ph.index';
+    private const PAGE_ADJUSTMENT = 'my.adjustment.index';
+    private const PAGE_CASH_ADVANCE = 'my.cash_advance.index';
+
+    /** @var array<string,bool> */
+    private $registeredPageCache = [];
+
     public function __construct()
     {
         parent::__construct();
@@ -54,6 +69,8 @@ class My extends MY_Controller
 
     public function index()
     {
+        $this->require_registered_page_permission(self::PAGE_HOME);
+
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
 
@@ -69,6 +86,8 @@ class My extends MY_Controller
 
     public function attendance()
     {
+        $this->require_registered_page_permission(self::PAGE_ATTENDANCE);
+
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
 
@@ -132,6 +151,8 @@ class My extends MY_Controller
             show_404();
         }
 
+        $this->require_registered_page_permission(self::PAGE_ATTENDANCE);
+
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
         if (!$employee) {
@@ -162,16 +183,20 @@ class My extends MY_Controller
 
     public function profile()
     {
+        $this->require_registered_page_permission(self::PAGE_PROFILE);
         $this->render_placeholder('my.profile', 'Profil & Data Diri', 'Data pribadi, kontrak kerja, tanda tangan kontrak, dan dokumen pegawai akan dipusatkan di halaman ini.');
     }
 
     public function schedule()
     {
+        $this->require_registered_page_permission(self::PAGE_SCHEDULE);
         $this->render_placeholder('my.schedule', 'Jadwal Shift Saya', 'Halaman jadwal shift personal akan disatukan dengan kalender shift bulanan per pegawai.');
     }
 
     public function payroll()
     {
+        $this->require_registered_page_permission(self::PAGE_PAYROLL);
+
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
 
@@ -215,6 +240,8 @@ class My extends MY_Controller
 
     public function payroll_slip(int $lineId)
     {
+        $this->require_registered_page_permission(self::PAGE_PAYROLL);
+
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
         if (!$employee) {
@@ -234,6 +261,8 @@ class My extends MY_Controller
 
     public function leave_requests()
     {
+        $this->require_registered_page_permission(self::PAGE_LEAVE);
+
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
         if (!$employee) {
@@ -298,6 +327,8 @@ class My extends MY_Controller
             show_404();
         }
 
+        $this->require_registered_page_permission(self::PAGE_LEAVE);
+
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
         if (!$employee) {
@@ -322,6 +353,8 @@ class My extends MY_Controller
 
     public function leave_request_schedule()
     {
+        $this->require_registered_page_permission(self::PAGE_LEAVE);
+
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
         if (!$employee) {
@@ -364,6 +397,8 @@ class My extends MY_Controller
 
     public function meal_ledger()
     {
+        $this->require_registered_page_permission(self::PAGE_MEAL);
+
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
         if (!$employee) {
@@ -407,6 +442,8 @@ class My extends MY_Controller
 
     public function overtime()
     {
+        $this->require_registered_page_permission(self::PAGE_OVERTIME);
+
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
         if (!$employee) {
@@ -448,6 +485,8 @@ class My extends MY_Controller
 
     public function ph_ledger()
     {
+        $this->require_registered_page_permission(self::PAGE_PH);
+
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
         if (!$employee) {
@@ -496,6 +535,8 @@ class My extends MY_Controller
 
     public function manual_adjustments()
     {
+        $this->require_registered_page_permission(self::PAGE_ADJUSTMENT);
+
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
         if (!$employee) {
@@ -539,6 +580,8 @@ class My extends MY_Controller
 
     public function cash_advance()
     {
+        $this->require_registered_page_permission(self::PAGE_CASH_ADVANCE);
+
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
         if (!$employee) {
@@ -595,5 +638,30 @@ class My extends MY_Controller
             'selected_employee_id' => $employeeId,
             'message' => $message,
         ]);
+    }
+
+    private function require_registered_page_permission(string $pageCode): void
+    {
+        if ($this->is_registered_page($pageCode)) {
+            $this->require_permission($pageCode, 'view');
+        }
+    }
+
+    private function is_registered_page(string $pageCode): bool
+    {
+        if (!array_key_exists($pageCode, $this->registeredPageCache)) {
+            $exists = $this->db
+                ->select('id')
+                ->from('sys_page')
+                ->where('page_code', $pageCode)
+                ->where('is_active', 1)
+                ->limit(1)
+                ->get()
+                ->row_array();
+
+            $this->registeredPageCache[$pageCode] = !empty($exists);
+        }
+
+        return $this->registeredPageCache[$pageCode];
     }
 }

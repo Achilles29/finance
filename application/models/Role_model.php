@@ -59,17 +59,37 @@ class Role_model extends CI_Model
      */
     public function get_pages_with_permissions(int $role_id): array
     {
+        $menuRegistrySql = $this->db
+            ->select('m.page_id,
+                MIN(m.menu_code) AS menu_code,
+                MIN(m.menu_label) AS menu_label,
+                MIN(m.url) AS menu_url,
+                COUNT(*) AS menu_count', false)
+            ->from('sys_menu m')
+            ->where('m.is_active', 1)
+            ->where('m.page_id IS NOT NULL', null, false)
+            ->group_by('m.page_id')
+            ->get_compiled_select();
+
         $this->db->select('p.id as page_id, p.page_code, p.page_name, p.module, p.description,
+            COALESCE(menu.menu_code, \'\') AS menu_code,
+            COALESCE(menu.menu_label, \'\') AS menu_label,
+            COALESCE(menu.menu_url, \'\') AS menu_url,
+            CASE WHEN menu.page_id IS NULL THEN 0 ELSE 1 END AS has_menu,
+            COALESCE(menu.menu_count, 0) AS menu_count,
             COALESCE(rp.can_view,0)   as can_view,
             COALESCE(rp.can_create,0) as can_create,
             COALESCE(rp.can_edit,0)   as can_edit,
             COALESCE(rp.can_delete,0) as can_delete,
             COALESCE(rp.can_export,0) as can_export');
         $this->db->from('sys_page p');
+        $this->db->join('(' . $menuRegistrySql . ') menu', 'menu.page_id = p.id', 'left');
         $this->db->join('auth_role_permission rp',
             'rp.page_id = p.id AND rp.role_id = ' . (int)$role_id, 'left');
         $this->db->where('p.is_active', 1);
-        $this->db->order_by('p.module, p.page_name');
+        $this->db->order_by('p.module', 'ASC');
+        $this->db->order_by('has_menu', 'DESC', false);
+        $this->db->order_by('COALESCE(menu.menu_label, p.page_name)', 'ASC', false);
         $rows = $this->db->get()->result_array();
 
         $grouped = [];
@@ -77,6 +97,72 @@ class Role_model extends CI_Model
             $grouped[$row['module']][] = $row;
         }
         return $grouped;
+    }
+
+    public function get_registry_audit_summary(): array
+    {
+        $activePageCount = (int)$this->db
+            ->from('sys_page')
+            ->where('is_active', 1)
+            ->count_all_results();
+
+        $activeMenuCount = (int)$this->db
+            ->from('sys_menu')
+            ->where('is_active', 1)
+            ->count_all_results();
+
+        $activeMenusWithoutPageCount = (int)$this->db
+            ->from('sys_menu')
+            ->where('is_active', 1)
+            ->where('COALESCE(TRIM(url), \'\') <> \'\'', null, false)
+            ->where('page_id IS NULL', null, false)
+            ->count_all_results();
+
+        $activePagesWithoutMenuCount = (int)$this->db
+            ->query("SELECT COUNT(*) AS aggregate_total
+                FROM sys_page p
+                WHERE p.is_active = 1
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM sys_menu m
+                    WHERE m.page_id = p.id
+                      AND m.is_active = 1
+                  )")
+            ->row('aggregate_total');
+
+        $menusWithoutPage = $this->db
+            ->select('menu_code, menu_label, url')
+            ->from('sys_menu')
+            ->where('is_active', 1)
+            ->where('COALESCE(TRIM(url), \'\') <> \'\'', null, false)
+            ->where('page_id IS NULL', null, false)
+            ->order_by('menu_label', 'ASC')
+            ->limit(8)
+            ->get()
+            ->result_array();
+
+        $pagesWithoutMenu = $this->db
+            ->query("SELECT p.page_code, p.page_name, p.module
+                FROM sys_page p
+                WHERE p.is_active = 1
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM sys_menu m
+                    WHERE m.page_id = p.id
+                      AND m.is_active = 1
+                  )
+                ORDER BY p.module ASC, p.page_name ASC
+                LIMIT 8")
+            ->result_array();
+
+        return [
+            'active_page_count' => $activePageCount,
+            'active_menu_count' => $activeMenuCount,
+            'active_menus_without_page_count' => $activeMenusWithoutPageCount,
+            'active_pages_without_menu_count' => (int)$activePagesWithoutMenuCount,
+            'menus_without_page' => $menusWithoutPage,
+            'pages_without_menu' => $pagesWithoutMenu,
+        ];
     }
 
     /**

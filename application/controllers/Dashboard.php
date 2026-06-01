@@ -3,8 +3,13 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Dashboard extends MY_Controller
 {
+    private const PAGE_INDEX = 'dashboard.index';
+
     /** @var array<string,bool> */
     private $dashboardTableReadyCache = [];
+
+    /** @var array<string,bool> */
+    private $registeredPageCache = [];
 
     public function __construct()
     {
@@ -13,6 +18,8 @@ class Dashboard extends MY_Controller
 
     public function index()
     {
+        $this->require_registered_page_permission(self::PAGE_INDEX);
+
         $filters = $this->dashboard_filters();
         $stockCards = $this->dashboard_stock_cards();
         $salesOverview = $this->dashboard_pos_sales_overview($filters);
@@ -32,6 +39,31 @@ class Dashboard extends MY_Controller
         ];
 
         $this->render('dashboard/index', $data);
+    }
+
+    private function require_registered_page_permission(string $pageCode): void
+    {
+        if ($this->is_registered_page($pageCode)) {
+            $this->require_permission($pageCode, 'view');
+        }
+    }
+
+    private function is_registered_page(string $pageCode): bool
+    {
+        if (!array_key_exists($pageCode, $this->registeredPageCache)) {
+            $exists = $this->db
+                ->select('id')
+                ->from('sys_page')
+                ->where('page_code', $pageCode)
+                ->where('is_active', 1)
+                ->limit(1)
+                ->get()
+                ->row_array();
+
+            $this->registeredPageCache[$pageCode] = !empty($exists);
+        }
+
+        return $this->registeredPageCache[$pageCode];
     }
 
     private function dashboard_filters(): array

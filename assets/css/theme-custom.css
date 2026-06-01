@@ -438,6 +438,131 @@ html.layout-navbar-fixed .layout-content-navbar .content-wrapper {
 /* ================================================================ */
 /* MENU ICONS & SUB DOTS                                             */
 /* ================================================================ */
+#layout-menu .sb-portal-bridge-arrow,
+#layout-menu .ri-arrow-right-s-line,
+#layout-menu .ri-arrow-down-s-line,
+#layout-menu .menu-link.menu-toggle::after,
+#layout-menu .menu-item .menu-link.menu-toggle::after,
+#layout-menu .menu-item.open > .menu-link.menu-toggle::after,
+#layout-menu .menu-item.active > .menu-link.menu-toggle::after,
+#layout-menu .menu-sub .menu-link.menu-toggle::after {
+    color: #ffffff !important;
+    border-right-color: #ffffff !important;
+    border-bottom-color: #ffffff !important;
+    background-color: #fff5f2 !important;
+    opacity: 1 !important;
+}
+
+#layout-menu .menu-link.menu-toggle::after,
+#layout-menu .menu-item .menu-link.menu-toggle::after {
+    border-right-width: 2px !important;
+    border-bottom-width: 2px !important;
+}
+
+#layout-menu .menu-vertical .menu-item .menu-toggle::after,
+#layout-menu .menu-vertical .menu-item.active > .menu-toggle::after,
+#layout-menu .menu-vertical .menu-item.open > .menu-link::after,
+#layout-menu .menu-vertical .menu-sub .menu-item .menu-toggle::after,
+#layout-menu .menu-vertical .menu-sub .menu-item.open > .menu-link::after {
+    background-color: #fff5f2 !important;
+    opacity: 1 !important;
+}
+
+#layout-menu .menu-inner > .menu-item > .menu-link {
+    margin: 0.05rem 0.45rem;
+    padding: 0.6rem 0.85rem;
+    border-radius: 12px;
+    font-size: 0.94rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+#layout-menu .menu-inner > .menu-item + .menu-item {
+    margin-top: 0.12rem;
+}
+
+#layout-menu .menu-inner > .menu-item + .menu-item::before {
+    content: '';
+    display: block;
+    margin: 0 0.75rem 0.18rem;
+    border-top: 1px solid rgba(255, 233, 226, 0.14);
+}
+
+#layout-menu .menu-inner > .menu-item > .menu-link .menu-icon {
+    font-size: 1.08rem !important;
+    margin-right: 0.7rem !important;
+}
+
+#layout-menu .menu-inner > .menu-item > .menu-sub {
+    margin: 0.08rem 0.45rem 0.22rem 0.95rem;
+    padding: 0.12rem 0 0.06rem 0.48rem;
+    border-left: 1px solid rgba(255, 236, 230, 0.26);
+}
+
+#layout-menu .menu-inner > .menu-item > .menu-sub > .menu-item > .menu-link {
+    margin: 0.05rem 0.16rem 0.05rem 0;
+    padding: 0.48rem 0.74rem 0.48rem 0.88rem;
+    border-radius: 10px;
+    font-size: 0.845rem;
+    font-weight: 600;
+    color: #ffe7d9 !important;
+    background: rgba(255, 255, 255, 0.055);
+}
+
+#layout-menu .menu-inner > .menu-item > .menu-sub > .menu-item + .menu-item {
+    margin-top: 0.04rem;
+}
+
+#layout-menu .menu-inner > .menu-item > .menu-sub > .menu-item > .menu-link .menu-icon {
+    font-size: 0.9rem !important;
+    margin-right: 0.5rem !important;
+    opacity: 0.92;
+}
+
+#layout-menu .menu-inner > .menu-item > .menu-sub > .menu-item > .menu-sub {
+    margin: 0.08rem 0 0.14rem 0.42rem;
+    padding: 0.08rem 0 0.08rem 0.52rem;
+    border-left: 1px dashed rgba(255, 214, 201, 0.34);
+}
+
+#layout-menu .menu-inner > .menu-item > .menu-sub > .menu-item > .menu-sub > .menu-item > .menu-link {
+    margin: 0.04rem 0.1rem 0.04rem 0;
+    padding: 0.42rem 0.68rem 0.42rem 0.88rem;
+    border-radius: 9px;
+    font-size: 0.79rem;
+    font-weight: 500;
+    color: #ffd1bf !important;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+#layout-menu .menu-inner > .menu-item > .menu-sub > .menu-item > .menu-sub > .menu-item > .menu-link .menu-icon {
+    font-size: 0.84rem !important;
+    margin-right: 0.48rem !important;
+    opacity: 0.84;
+}
+
+#layout-menu .menu-sub .menu-item > .menu-link:hover {
+    background: rgba(255, 255, 255, 0.09) !important;
+    color: #ffffff !important;
+}
+
+#layout-menu .menu-sub .menu-item.open > .menu-link {
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: #ffffff !important;
+}
+
+#layout-menu .menu-sub .menu-item.active > .menu-link {
+    background: rgba(255, 255, 255, 0.16) !important;
+    color: #ffffff !important;
+    border-left: 2px solid rgba(255, 228, 224, 0.95);
+    box-shadow: none;
+}
+
+#layout-menu .menu-sub .menu-item.active > .menu-link .menu-icon,
+#layout-menu .menu-sub .menu-item.open > .menu-link .menu-icon {
+    color: #ffffff !important;
+}
+
 .menu-icon.tf-icons.ri::before {
     font-size: 1.1rem;
 }

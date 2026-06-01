@@ -30,6 +30,7 @@ class Roles extends MY_Controller
             'title'       => 'Manajemen Role',
             'active_menu' => 'sys.roles',
             'roles'       => $this->Role_model->get_all(),
+            'registry_audit' => $this->Role_model->get_registry_audit_summary(),
         ];
 
         $this->render('roles/index', $data);
@@ -219,7 +220,8 @@ class Roles extends MY_Controller
      */
     public function users(int $id)
     {
-        $this->require_permission(self::PAGE_INDEX);
+        $pageCode = $this->can(self::PAGE_USERS, 'view') ? self::PAGE_USERS : self::PAGE_INDEX;
+        $this->require_permission($pageCode, 'view');
 
         $role = $this->Role_model->get_by_id($id);
         if (!$role) show_404();
@@ -250,7 +252,8 @@ class Roles extends MY_Controller
      */
     public function save_users(int $id)
     {
-        $this->require_permission(self::PAGE_MANAGE, 'edit');
+        $pageCode = $this->can(self::PAGE_USERS, 'edit') ? self::PAGE_USERS : self::PAGE_MANAGE;
+        $this->require_permission($pageCode, 'edit');
 
         $role = $this->Role_model->get_by_id($id);
         if (!$role) show_404();
