@@ -18,8 +18,16 @@ $this->load->view('pos/_report_styles');
 <div class="container-xxl py-3">
   <div class="pos-report-shell">
     <div class="pos-report-hero mb-3">
-      <div class="pos-report-title">Laporan Pembayaran POS</div>
-      <p class="pos-report-copy mb-0">Ledger pembayaran POS per dokumen pembayaran. Query dasarnya membaca payment final hari ini; tampilan ini dirapikan supaya data yang ada langsung terbaca.</p>
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+          <div class="pos-report-title">Laporan Pembayaran POS</div>
+          <p class="pos-report-copy mb-0">Ledger pembayaran POS per dokumen pembayaran. Setelah perbaikan filter tanggal, data payment final hari ini sekarang ikut tampil normal di halaman ini.</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <a href="<?php echo site_url('pos/reports/payment-methods?date_from=' . rawurlencode((string)($filters['date_from'] ?? '')) . '&date_to=' . rawurlencode((string)($filters['date_to'] ?? '')) . ((int)($filters['outlet_id'] ?? 0) > 0 ? '&outlet_id=' . (int)$filters['outlet_id'] : '')); ?>" class="btn btn-outline-secondary"><i class="ri-bank-card-2-line me-1"></i>Metode Bayar</a>
+          <a href="<?php echo site_url('pos/reports/payment-accounts?date_from=' . rawurlencode((string)($filters['date_from'] ?? '')) . '&date_to=' . rawurlencode((string)($filters['date_to'] ?? '')) . ((int)($filters['outlet_id'] ?? 0) > 0 ? '&outlet_id=' . (int)$filters['outlet_id'] : '')); ?>" class="btn btn-outline-secondary"><i class="ri-wallet-3-line me-1"></i>Rekening Bayar</a>
+        </div>
+      </div>
     </div>
 
     <?php $this->load->view('pos/_report_nav', ['report_nav_active' => 'payment']); ?>
@@ -41,6 +49,7 @@ $this->load->view('pos/_report_styles');
         <div class="col-lg-1 col-md-6"><label class="form-label small text-muted mb-1">Dari</label><input type="date" name="date_from" class="form-control" value="<?php echo html_escape((string)($filters['date_from'] ?? '')); ?>"></div>
         <div class="col-lg-1 col-md-6"><label class="form-label small text-muted mb-1">Sampai</label><input type="date" name="date_to" class="form-control" value="<?php echo html_escape((string)($filters['date_to'] ?? '')); ?>"></div>
         <div class="col-lg-1 col-md-6"><label class="form-label small text-muted mb-1">Limit</label><select name="limit" class="form-select"><?php foreach ([25, 50, 100, 200] as $limit): ?><option value="<?php echo $limit; ?>"<?php echo (int)($filters['limit'] ?? 25) === $limit ? ' selected' : ''; ?>><?php echo $limit; ?></option><?php endforeach; ?></select></div>
+        <div class="col-lg-2 col-md-12 d-flex gap-2"><button type="submit" class="btn btn-dark flex-fill">Filter</button><a href="<?php echo site_url('pos/reports/payments'); ?>" class="btn btn-outline-secondary">Reset</a></div>
       </form>
     </div>
 

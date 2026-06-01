@@ -66,7 +66,7 @@ v update data sif
 - finalisasi printer
 - input kasbon dan hutang
 - skema bonus, target harian dan bulanan
-
+- redeem poin dll
 - link bahan baku dan component yang digunakan
 
 

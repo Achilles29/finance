@@ -241,6 +241,182 @@ class Pos_report_model extends CI_Model
         ];
     }
 
+    public function payment_method_report(array $filters): array
+    {
+        $rows = $this->payment_method_summary($filters);
+        return [
+            'rows' => $rows,
+            'overview' => $this->payment_method_overview($filters),
+        ];
+    }
+
+    public function payment_method_summary(array $filters = []): array
+    {
+        $receiptRows = $this->payment_method_receipt_summary_raw($filters);
+        $refundRows = $this->payment_method_refund_summary_raw($filters);
+
+        $merged = [];
+        foreach ($receiptRows as $row) {
+            $methodId = (int)($row['payment_method_id'] ?? 0);
+            $key = $methodId > 0 ? 'id:' . $methodId : 'name:' . md5((string)($row['method_name'] ?? ''));
+            $merged[$key] = [
+                'payment_method_id' => $methodId,
+                'method_name' => (string)($row['method_name'] ?? 'Tanpa Metode'),
+                'method_type' => (string)($row['method_type'] ?? ''),
+                'line_count' => (int)($row['line_count'] ?? 0),
+                'payment_count' => (int)($row['payment_count'] ?? 0),
+                'total_amount' => round((float)($row['total_amount'] ?? 0), 2),
+                'refund_amount' => 0.0,
+                'net_amount' => round((float)($row['total_amount'] ?? 0), 2),
+            ];
+        }
+        foreach ($refundRows as $row) {
+            $methodId = (int)($row['payment_method_id'] ?? 0);
+            $key = $methodId > 0 ? 'id:' . $methodId : 'name:' . md5((string)($row['method_name'] ?? ''));
+            if (!isset($merged[$key])) {
+                $merged[$key] = [
+                    'payment_method_id' => $methodId,
+                    'method_name' => (string)($row['method_name'] ?? 'Tanpa Metode'),
+                    'method_type' => (string)($row['method_type'] ?? ''),
+                    'line_count' => 0,
+                    'payment_count' => 0,
+                    'total_amount' => 0.0,
+                    'refund_amount' => 0.0,
+                    'net_amount' => 0.0,
+                ];
+            }
+            $merged[$key]['refund_amount'] = round((float)($row['refund_amount'] ?? 0), 2);
+            $merged[$key]['net_amount'] = round((float)$merged[$key]['total_amount'] - (float)$merged[$key]['refund_amount'], 2);
+        }
+
+        usort($merged, static function (array $left, array $right): int {
+            $amountCompare = (float)($right['net_amount'] ?? 0) <=> (float)($left['net_amount'] ?? 0);
+            if ($amountCompare !== 0) {
+                return $amountCompare;
+            }
+            return strcmp((string)($left['method_name'] ?? ''), (string)($right['method_name'] ?? ''));
+        });
+
+        return array_values($merged);
+    }
+
+    public function payment_method_overview(array $filters = []): array
+    {
+        $rows = $this->payment_method_summary($filters);
+        $overview = [
+            'line_count' => 0,
+            'payment_count' => 0,
+            'total_amount' => 0.0,
+            'refund_amount' => 0.0,
+            'net_amount' => 0.0,
+        ];
+        foreach ($rows as $row) {
+            $overview['line_count'] += (int)($row['line_count'] ?? 0);
+            $overview['payment_count'] += (int)($row['payment_count'] ?? 0);
+            $overview['total_amount'] += (float)($row['total_amount'] ?? 0);
+            $overview['refund_amount'] += (float)($row['refund_amount'] ?? 0);
+            $overview['net_amount'] += (float)($row['net_amount'] ?? 0);
+        }
+        $overview['total_amount'] = round($overview['total_amount'], 2);
+        $overview['refund_amount'] = round($overview['refund_amount'], 2);
+        $overview['net_amount'] = round($overview['net_amount'], 2);
+
+        return $overview;
+    }
+
+    public function payment_account_report(array $filters): array
+    {
+        $rows = $this->payment_account_summary($filters);
+        return [
+            'rows' => $rows,
+            'overview' => $this->payment_account_overview($filters),
+        ];
+    }
+
+    public function payment_account_summary(array $filters = []): array
+    {
+        $receiptRows = $this->payment_account_receipt_summary_raw($filters);
+        $refundRows = $this->payment_account_refund_summary_raw($filters);
+
+        $merged = [];
+        foreach ($receiptRows as $row) {
+            $accountId = (int)($row['account_id'] ?? 0);
+            $key = $accountId > 0
+                ? 'id:' . $accountId
+                : 'name:' . md5((string)($row['bank_name'] ?? '') . '|' . (string)($row['account_name'] ?? '') . '|' . (string)($row['account_no'] ?? ''));
+            $merged[$key] = [
+                'account_id' => $accountId,
+                'bank_name' => (string)($row['bank_name'] ?? 'Tanpa Rekening'),
+                'account_name' => (string)($row['account_name'] ?? '-'),
+                'account_no' => (string)($row['account_no'] ?? '-'),
+                'line_count' => (int)($row['line_count'] ?? 0),
+                'payment_count' => (int)($row['payment_count'] ?? 0),
+                'total_amount' => round((float)($row['total_amount'] ?? 0), 2),
+                'refund_amount' => 0.0,
+                'net_amount' => round((float)($row['total_amount'] ?? 0), 2),
+            ];
+        }
+        foreach ($refundRows as $row) {
+            $accountId = (int)($row['account_id'] ?? 0);
+            $key = $accountId > 0
+                ? 'id:' . $accountId
+                : 'name:' . md5((string)($row['bank_name'] ?? '') . '|' . (string)($row['account_name'] ?? '') . '|' . (string)($row['account_no'] ?? ''));
+            if (!isset($merged[$key])) {
+                $merged[$key] = [
+                    'account_id' => $accountId,
+                    'bank_name' => (string)($row['bank_name'] ?? 'Tanpa Rekening'),
+                    'account_name' => (string)($row['account_name'] ?? '-'),
+                    'account_no' => (string)($row['account_no'] ?? '-'),
+                    'line_count' => 0,
+                    'payment_count' => 0,
+                    'total_amount' => 0.0,
+                    'refund_amount' => 0.0,
+                    'net_amount' => 0.0,
+                ];
+            }
+            $merged[$key]['refund_amount'] = round((float)($row['refund_amount'] ?? 0), 2);
+            $merged[$key]['net_amount'] = round((float)$merged[$key]['total_amount'] - (float)$merged[$key]['refund_amount'], 2);
+        }
+
+        usort($merged, static function (array $left, array $right): int {
+            $amountCompare = (float)($right['net_amount'] ?? 0) <=> (float)($left['net_amount'] ?? 0);
+            if ($amountCompare !== 0) {
+                return $amountCompare;
+            }
+            $bankCompare = strcmp((string)($left['bank_name'] ?? ''), (string)($right['bank_name'] ?? ''));
+            if ($bankCompare !== 0) {
+                return $bankCompare;
+            }
+            return strcmp((string)($left['account_name'] ?? ''), (string)($right['account_name'] ?? ''));
+        });
+
+        return array_values($merged);
+    }
+
+    public function payment_account_overview(array $filters = []): array
+    {
+        $rows = $this->payment_account_summary($filters);
+        $overview = [
+            'line_count' => 0,
+            'payment_count' => 0,
+            'total_amount' => 0.0,
+            'refund_amount' => 0.0,
+            'net_amount' => 0.0,
+        ];
+        foreach ($rows as $row) {
+            $overview['line_count'] += (int)($row['line_count'] ?? 0);
+            $overview['payment_count'] += (int)($row['payment_count'] ?? 0);
+            $overview['total_amount'] += (float)($row['total_amount'] ?? 0);
+            $overview['refund_amount'] += (float)($row['refund_amount'] ?? 0);
+            $overview['net_amount'] += (float)($row['net_amount'] ?? 0);
+        }
+        $overview['total_amount'] = round($overview['total_amount'], 2);
+        $overview['refund_amount'] = round($overview['refund_amount'], 2);
+        $overview['net_amount'] = round($overview['net_amount'], 2);
+
+        return $overview;
+    }
+
     public function find_payment(int $id): ?array
     {
         $row = $this->db->select('p.*, o.order_no, o.status AS order_status, o.service_type, o.order_scope, o.ordered_at, o.paid_at AS order_paid_at, po.outlet_name, m.member_no, m.member_name, e.employee_name AS cashier_name')
@@ -761,6 +937,166 @@ class Pos_report_model extends CI_Model
         }
     }
 
+    private function payment_method_receipt_summary_raw(array $filters = []): array
+    {
+        $paymentType = strtoupper(trim((string)($filters['payment_type'] ?? 'ALL')));
+        if ($paymentType === 'REFUND') {
+            return [];
+        }
+
+        $status = strtoupper(trim((string)($filters['status'] ?? 'PAID')));
+        $this->db->from('pos_payment_line pl')
+            ->join('pos_payment p', 'p.id = pl.payment_id', 'inner')
+            ->join('pos_payment_method pm', 'pm.id = pl.payment_method_id', 'left')
+            ->join('pos_order o', 'o.id = p.order_id', 'left')
+            ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
+            ->join('crm_member m', 'm.id = p.member_id', 'left')
+            ->where('pl.status', 'PAID');
+
+        $this->apply_keyword_filter((string)($filters['q'] ?? ''), [
+            'pm.method_name',
+            'p.payment_no',
+            'o.order_no',
+            'm.member_no',
+            'm.member_name',
+            'po.outlet_name',
+        ]);
+        $this->apply_outlet_filter((int)($filters['outlet_id'] ?? 0));
+        $this->apply_date_range_filter('DATE(COALESCE(p.paid_at, p.created_at))', (string)($filters['date_from'] ?? ''), (string)($filters['date_to'] ?? ''));
+
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('p.payment_status', $status);
+        }
+        if ($paymentType !== '' && $paymentType !== 'ALL') {
+            $this->db->where('p.payment_type', $paymentType);
+        }
+
+        return $this->db->select('pm.id AS payment_method_id, COALESCE(pm.method_name, "Tanpa Metode") AS method_name, COALESCE(pm.method_type, "") AS method_type, COUNT(pl.id) AS line_count, COUNT(DISTINCT p.id) AS payment_count, COALESCE(SUM(pl.amount), 0) AS total_amount', false)
+            ->group_by(['pm.id', 'pm.method_name', 'pm.method_type'])
+            ->order_by('total_amount', 'DESC', false)
+            ->get()
+            ->result_array();
+    }
+
+    private function payment_method_refund_summary_raw(array $filters = []): array
+    {
+        $paymentType = strtoupper(trim((string)($filters['payment_type'] ?? 'ALL')));
+        if ($paymentType !== 'ALL' && $paymentType !== 'REFUND') {
+            return [];
+        }
+
+        $this->db->from('pos_refund r')
+            ->join('pos_payment_method pm', 'pm.id = r.payment_method_id', 'left')
+            ->join('pos_order o', 'o.id = r.order_id', 'left')
+            ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
+            ->join('crm_member m', 'm.id = r.member_id', 'left')
+            ->where('r.refund_status', 'POSTED');
+
+        $this->apply_keyword_filter((string)($filters['q'] ?? ''), [
+            'pm.method_name',
+            'r.refund_no',
+            'o.order_no',
+            'm.member_no',
+            'm.member_name',
+            'po.outlet_name',
+            'r.reference_no',
+        ]);
+        $this->apply_outlet_filter((int)($filters['outlet_id'] ?? 0));
+        $this->apply_date_range_filter('DATE(r.refunded_at)', (string)($filters['date_from'] ?? ''), (string)($filters['date_to'] ?? ''));
+
+        return $this->db->select('pm.id AS payment_method_id, COALESCE(pm.method_name, "Tanpa Metode") AS method_name, COALESCE(pm.method_type, "") AS method_type, COALESCE(SUM(r.refund_amount), 0) AS refund_amount', false)
+            ->group_by(['pm.id', 'pm.method_name', 'pm.method_type'])
+            ->get()
+            ->result_array();
+    }
+
+    private function payment_account_receipt_summary_raw(array $filters = []): array
+    {
+        $paymentType = strtoupper(trim((string)($filters['payment_type'] ?? 'ALL')));
+        if ($paymentType === 'REFUND') {
+            return [];
+        }
+
+        $accountExpr = $this->payment_company_account_expr('pl', 'pm');
+        if ($accountExpr === 'NULL' || !$this->db->table_exists('fin_company_account')) {
+            return [];
+        }
+
+        $status = strtoupper(trim((string)($filters['status'] ?? 'PAID')));
+        $this->db->from('pos_payment_line pl')
+            ->join('pos_payment p', 'p.id = pl.payment_id', 'inner')
+            ->join('pos_payment_method pm', 'pm.id = pl.payment_method_id', 'left')
+            ->join('fin_company_account acc', 'acc.id = ' . $accountExpr, 'left', false)
+            ->join('pos_order o', 'o.id = p.order_id', 'left')
+            ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
+            ->join('crm_member m', 'm.id = p.member_id', 'left')
+            ->where('pl.status', 'PAID');
+
+        $this->apply_keyword_filter((string)($filters['q'] ?? ''), [
+            'acc.bank_name',
+            'acc.account_name',
+            'acc.account_no',
+            'p.payment_no',
+            'o.order_no',
+            'm.member_no',
+            'm.member_name',
+            'po.outlet_name',
+        ]);
+        $this->apply_outlet_filter((int)($filters['outlet_id'] ?? 0));
+        $this->apply_date_range_filter('DATE(COALESCE(p.paid_at, p.created_at))', (string)($filters['date_from'] ?? ''), (string)($filters['date_to'] ?? ''));
+
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('p.payment_status', $status);
+        }
+        if ($paymentType !== '' && $paymentType !== 'ALL') {
+            $this->db->where('p.payment_type', $paymentType);
+        }
+
+        return $this->db->select("COALESCE(acc.id, 0) AS account_id, COALESCE(acc.bank_name, 'Tanpa Rekening') AS bank_name, COALESCE(acc.account_name, '-') AS account_name, COALESCE(acc.account_no, '-') AS account_no, COUNT(pl.id) AS line_count, COUNT(DISTINCT p.id) AS payment_count, COALESCE(SUM(pl.amount), 0) AS total_amount", false)
+            ->group_by(['acc.id', 'acc.bank_name', 'acc.account_name', 'acc.account_no'])
+            ->order_by('total_amount', 'DESC', false)
+            ->get()
+            ->result_array();
+    }
+
+    private function payment_account_refund_summary_raw(array $filters = []): array
+    {
+        $paymentType = strtoupper(trim((string)($filters['payment_type'] ?? 'ALL')));
+        if ($paymentType !== 'ALL' && $paymentType !== 'REFUND') {
+            return [];
+        }
+
+        if (!$this->db->table_exists('fin_company_account')) {
+            return [];
+        }
+
+        $this->db->from('pos_refund r')
+            ->join('fin_company_account acc', 'acc.id = r.company_account_id', 'left')
+            ->join('pos_order o', 'o.id = r.order_id', 'left')
+            ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
+            ->join('crm_member m', 'm.id = r.member_id', 'left')
+            ->where('r.refund_status', 'POSTED');
+
+        $this->apply_keyword_filter((string)($filters['q'] ?? ''), [
+            'acc.bank_name',
+            'acc.account_name',
+            'acc.account_no',
+            'r.refund_no',
+            'o.order_no',
+            'm.member_no',
+            'm.member_name',
+            'po.outlet_name',
+            'r.reference_no',
+        ]);
+        $this->apply_outlet_filter((int)($filters['outlet_id'] ?? 0));
+        $this->apply_date_range_filter('DATE(r.refunded_at)', (string)($filters['date_from'] ?? ''), (string)($filters['date_to'] ?? ''));
+
+        return $this->db->select("COALESCE(acc.id, 0) AS account_id, COALESCE(acc.bank_name, 'Tanpa Rekening') AS bank_name, COALESCE(acc.account_name, '-') AS account_name, COALESCE(acc.account_no, '-') AS account_no, COALESCE(SUM(r.refund_amount), 0) AS refund_amount", false)
+            ->group_by(['acc.id', 'acc.bank_name', 'acc.account_name', 'acc.account_no'])
+            ->get()
+            ->result_array();
+    }
+
     private function refund_rows(array $filters, int $limit, int $offset): array
     {
         $this->refund_base_query($filters);
@@ -926,10 +1262,10 @@ class Pos_report_model extends CI_Model
     private function apply_date_range_filter(string $expression, string $dateFrom, string $dateTo): void
     {
         if ($dateFrom !== '') {
-            $this->db->where($expression . ' >=', $dateFrom, false);
+            $this->db->where($expression . ' >=', $dateFrom);
         }
         if ($dateTo !== '') {
-            $this->db->where($expression . ' <=', $dateTo, false);
+            $this->db->where($expression . ' <=', $dateTo);
         }
     }
 

@@ -4,6 +4,7 @@ $links = [
     ['key' => 'sales-channel', 'label' => 'Sales Channel', 'url' => site_url('pos/sales-channels'), 'enabled' => true],
     ['key' => 'payment-method', 'label' => 'Payment Method', 'url' => site_url('pos/payment-methods'), 'enabled' => true],
     ['key' => 'deposit', 'label' => 'Deposit / DP', 'url' => site_url('pos/deposits'), 'enabled' => true],
+    ['key' => 'self-order', 'label' => 'Self Order', 'url' => site_url('pos/self-order'), 'enabled' => true],
     ['key' => 'outlet-terminal', 'label' => 'Outlet + Terminal', 'url' => site_url('pos/outlets-terminals'), 'enabled' => true],
     ['key' => 'printer', 'label' => 'Printer', 'url' => site_url('pos/printers'), 'enabled' => true],
 ];

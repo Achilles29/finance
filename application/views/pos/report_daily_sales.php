@@ -7,14 +7,30 @@ $shifts = is_array($shifts ?? null) ? $shifts : [];
 $byDivision = is_array($by_division ?? null) ? $by_division : [];
 $outlets = is_array($outlets ?? null) ? $outlets : [];
 $money = static function ($value): string { return 'Rp ' . number_format((float)$value, 0, ',', '.'); };
+$printUrl = site_url('pos/reports/daily-sales/print?date=' . rawurlencode((string)($filters['date'] ?? date('Y-m-d'))) . ((int)($filters['outlet_id'] ?? 0) > 0 ? '&outlet_id=' . (int)$filters['outlet_id'] : ''));
 $this->load->view('pos/_report_styles');
 ?>
 
 <div class="container-xxl py-3">
   <div class="pos-report-shell">
     <div class="pos-report-hero mb-3">
-      <div class="pos-report-title">Daily Sales POS</div>
-      <p class="pos-report-copy mb-0">Ringkasan penjualan harian POS dengan breakdown divisi produk, metode pembayaran, rekening penerimaan, dan riwayat shift pada tanggal terpilih.</p>
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+          <div class="pos-report-title">Daily Sales POS</div>
+          <p class="pos-report-copy mb-0">Ringkasan penjualan harian POS dengan breakdown divisi produk, metode pembayaran, rekening penerimaan, dan riwayat shift pada tanggal terpilih.</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <a href="<?php echo html_escape($printUrl); ?>" target="_blank" class="btn btn-outline-dark">
+            <i class="ri-printer-line me-1"></i>Cetak / PDF
+          </a>
+          <a href="<?php echo site_url('pos/reports/payment-methods?date_from=' . rawurlencode((string)($filters['date'] ?? '')) . '&date_to=' . rawurlencode((string)($filters['date'] ?? '')) . ((int)($filters['outlet_id'] ?? 0) > 0 ? '&outlet_id=' . (int)$filters['outlet_id'] : '')); ?>" class="btn btn-outline-secondary">
+            <i class="ri-bank-card-2-line me-1"></i>Metode Bayar
+          </a>
+          <a href="<?php echo site_url('pos/reports/payment-accounts?date_from=' . rawurlencode((string)($filters['date'] ?? '')) . '&date_to=' . rawurlencode((string)($filters['date'] ?? '')) . ((int)($filters['outlet_id'] ?? 0) > 0 ? '&outlet_id=' . (int)$filters['outlet_id'] : '')); ?>" class="btn btn-outline-secondary">
+            <i class="ri-wallet-3-line me-1"></i>Rekening Bayar
+          </a>
+        </div>
+      </div>
     </div>
 
     <?php $this->load->view('pos/_report_nav', ['report_nav_active' => 'daily_sales']); ?>
@@ -61,3 +77,4 @@ $this->load->view('pos/_report_styles');
     </div>
   </div>
 </div>
+

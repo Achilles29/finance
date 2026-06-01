@@ -30,7 +30,7 @@
     <!-- <link rel="stylesheet" href="../assets/vendor/libs/node-waves/node-waves.css" /> -->
     <link rel="stylesheet" href="<?= base_url('assets/libs/node-waves/node-waves.css'); ?>">
     <link rel="stylesheet" href="<?= base_url('assets/css/core.css'); ?>">
-    <link rel="stylesheet" href="<?= base_url('assets/css/theme-custom.css'); ?>">
+    <link rel="stylesheet" href="<?= base_url('assets/css/theme-custom.css?v=20260601a'); ?>">
     <link rel="stylesheet" href="<?= base_url('assets/css/custom.css'); ?>">
     <link rel="stylesheet" href="<?= base_url('assets/css/app.css'); ?>">
     <link rel="stylesheet" href="<?= base_url('assets/css/portal-shell.css'); ?>">

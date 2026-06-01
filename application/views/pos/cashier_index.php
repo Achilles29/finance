@@ -1547,6 +1547,11 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
                       <div class="small text-muted mt-1" id="cashier_payment_member_balance">Point 0 | Stamp 0</div>
                       <div class="small text-muted" id="cashier_payment_voucher_count">0 voucher tersedia</div>
                     </div>
+                    <div id="cashier_payment_deposit_card" class="selected-customer-card border rounded p-2 mt-2 payment-inline-card d-none">
+                      <div class="fw-semibold">Deposit / DP Member</div>
+                      <div class="small text-muted mt-1" id="cashier_payment_deposit_meta">Belum ada DP yang bisa dipakai.</div>
+                      <div class="small mt-2" id="cashier_payment_deposit_rows"></div>
+                    </div>
                   </div>
                 </div>
                 <div id="cashier_payment_selected_voucher" class="selected-customer-card border rounded p-2 mt-2 d-none payment-inline-card" data-selection="" data-discount="0">
@@ -1591,6 +1596,7 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
                 <div class="cashier-payment-summary-list">
                   <div class="cashier-payment-summary-row"><span>Subtotal</span><strong id="cashier_payment_base_total">Rp 0</strong></div>
                   <div class="cashier-payment-summary-row"><span>Voucher / Potongan</span><strong id="cashier_payment_voucher_total">Rp 0</strong></div>
+                  <div class="cashier-payment-summary-row"><span>Pakai DP</span><strong id="cashier_payment_deposit_total">Rp 0</strong></div>
                   <div class="cashier-payment-summary-row"><span>Sudah Dibayar</span><strong id="cashier_payment_paid_total">Rp 0</strong></div>
                   <div class="cashier-payment-summary-row total"><span>Total Tagihan</span><strong id="cashier_payment_grand_total">Rp 0</strong></div>
                   <div class="cashier-payment-summary-row"><span>Dibayar Sekarang</span><strong id="cashier_payment_entered_total">Rp 0</strong></div>
@@ -1967,6 +1973,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const paymentOrderNo = document.getElementById('cashier_payment_order_no');
   const paymentBaseTotal = document.getElementById('cashier_payment_base_total');
   const paymentVoucherTotal = document.getElementById('cashier_payment_voucher_total');
+  const paymentDepositTotal = document.getElementById('cashier_payment_deposit_total');
   const paymentPaidTotal = document.getElementById('cashier_payment_paid_total');
   const paymentGrandTotal = document.getElementById('cashier_payment_grand_total');
   const paymentEnteredTotal = document.getElementById('cashier_payment_entered_total');
@@ -1976,6 +1983,9 @@ document.addEventListener('DOMContentLoaded', function () {
   const paymentCustomerName = document.getElementById('cashier_payment_customer_name');
   const paymentMemberBalance = document.getElementById('cashier_payment_member_balance');
   const paymentVoucherCount = document.getElementById('cashier_payment_voucher_count');
+  const paymentDepositCard = document.getElementById('cashier_payment_deposit_card');
+  const paymentDepositMeta = document.getElementById('cashier_payment_deposit_meta');
+  const paymentDepositRows = document.getElementById('cashier_payment_deposit_rows');
   const paymentVoucherSearch = document.getElementById('cashier_payment_voucher_search');
   const paymentVoucherCheckButton = document.getElementById('cashier_payment_voucher_check');
   const paymentVoucherStatus = document.getElementById('cashier_payment_voucher_status');
@@ -2828,6 +2838,23 @@ document.addEventListener('DOMContentLoaded', function () {
     return (paymentContext && Array.isArray(paymentContext.payment_methods) ? paymentContext.payment_methods : []).find((row) => Number(row.id || 0) === safeId) || null;
   }
 
+  function paymentDepositPreviewRows(targetAmount) {
+    const sourceRows = Array.isArray(paymentContext && paymentContext.deposit_rows ? paymentContext.deposit_rows : [])
+      ? paymentContext.deposit_rows
+      : [];
+    let remainingTarget = Math.max(0, Number(targetAmount || 0));
+    return sourceRows.map((row) => {
+      const remainingAmount = Math.max(0, Number(row.remaining_amount || 0));
+      const previewAppliedAmount = Math.max(0, Math.min(remainingAmount, remainingTarget));
+      remainingTarget = Math.max(0, remainingTarget - previewAppliedAmount);
+      return {
+        ...row,
+        remaining_amount: remainingAmount,
+        preview_applied_amount: previewAppliedAmount,
+      };
+    });
+  }
+
   function paymentDraftTotals() {
     const baseTotal = Number(paymentContext && paymentContext.base_total ? paymentContext.base_total : 0);
     const paidTotal = Number(paymentContext && paymentContext.paid_total ? paymentContext.paid_total : 0);
@@ -2840,7 +2867,11 @@ document.addEventListener('DOMContentLoaded', function () {
     const grandTotal = canEditAdjustment
       ? Math.max(0, baseTotal - voucherAmount - promoAmount)
       : Number(paymentContext && paymentContext.grand_total ? paymentContext.grand_total : baseTotal);
-    const dueTotal = Math.max(0, grandTotal - paidTotal);
+    const dueBeforeDeposit = Math.max(0, grandTotal - paidTotal);
+    const depositRows = paymentDepositPreviewRows(dueBeforeDeposit);
+    const depositAppliedTotal = depositRows.reduce((sum, row) => sum + Number(row.preview_applied_amount || 0), 0);
+    const depositAvailableTotal = depositRows.reduce((sum, row) => sum + Number(row.remaining_amount || 0), 0);
+    const dueTotal = Math.max(0, dueBeforeDeposit - depositAppliedTotal);
     let enteredTotal = 0;
     let appliedTotal = 0;
     let remainingDue = dueTotal;
@@ -2886,6 +2917,10 @@ document.addEventListener('DOMContentLoaded', function () {
       voucherAmount,
       promoAmount,
       grandTotal,
+      dueBeforeDeposit,
+      depositAvailableTotal,
+      depositAppliedTotal,
+      depositRows,
       dueTotal,
       enteredTotal,
       appliedTotal,
@@ -2909,6 +2944,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const totals = paymentDraftTotals();
     if (paymentBaseTotal) paymentBaseTotal.textContent = money(totals.baseTotal);
     if (paymentVoucherTotal) paymentVoucherTotal.textContent = money(totals.voucherAmount + totals.promoAmount);
+    if (paymentDepositTotal) paymentDepositTotal.textContent = money(totals.depositAppliedTotal);
     if (paymentPaidTotal) paymentPaidTotal.textContent = money(totals.paidTotal);
     if (paymentGrandTotal) paymentGrandTotal.textContent = money(totals.grandTotal);
     if (paymentEnteredTotal) paymentEnteredTotal.textContent = money(totals.appliedTotal);
@@ -2924,10 +2960,37 @@ document.addEventListener('DOMContentLoaded', function () {
       const voucherCount = Number(paymentContext && paymentContext.loyalty_summary ? paymentContext.loyalty_summary.open_voucher_count || 0 : 0);
       paymentVoucherCount.textContent = `${voucherCount} voucher tersedia`;
     }
+    if (paymentDepositCard && paymentDepositMeta && paymentDepositRows) {
+      if (totals.depositAvailableTotal > 0.009) {
+        paymentDepositCard.classList.remove('d-none');
+        const openCount = totals.depositRows.length;
+        paymentDepositMeta.textContent = `${openCount} DP terbuka. Tersedia ${money(totals.depositAvailableTotal)} dan otomatis dipakai ${money(totals.depositAppliedTotal)}.`;
+        paymentDepositRows.innerHTML = totals.depositRows.map((row) => {
+          const chunks = [escapeHtml(row.payment_no || 'DP')];
+          chunks.push('sisa ' + money(row.remaining_amount || 0));
+          if (Number(row.preview_applied_amount || 0) > 0.009) {
+            chunks.push('dipakai ' + money(row.preview_applied_amount || 0));
+          }
+          return `<div>${chunks.join(' • ')}</div>`;
+        }).join('');
+      } else {
+        paymentDepositCard.classList.add('d-none');
+        paymentDepositMeta.textContent = paymentContext && paymentContext.member_id
+          ? 'Tidak ada DP terbuka untuk member ini.'
+          : 'Pilih member agar DP bisa dipakai otomatis.';
+        paymentDepositRows.innerHTML = '';
+      }
+    }
     if (paymentTotalHint) {
       if (totals.guardMessage) {
         paymentTotalHint.textContent = totals.guardMessage;
         paymentTotalHint.classList.add('text-danger');
+      } else if (totals.depositAppliedTotal > 0.009 && totals.dueTotal <= 0.009) {
+        paymentTotalHint.textContent = `Seluruh tagihan tertutup DP sebesar ${money(totals.depositAppliedTotal)}. Metode pembayaran tambahan tidak wajib.`;
+        paymentTotalHint.classList.remove('text-danger');
+      } else if (totals.depositAppliedTotal > 0.009) {
+        paymentTotalHint.textContent = `DP member otomatis dipakai ${money(totals.depositAppliedTotal)}. Sisa yang perlu dibayar sekarang ${money(totals.dueTotal)}.`;
+        paymentTotalHint.classList.remove('text-danger');
       } else if (totals.changeTotal > 0) {
         paymentTotalHint.textContent = `Uang diterima ${money(totals.enteredTotal)}. Yang disimpan ${money(totals.appliedTotal)} dan kembalian ${money(totals.changeTotal)}.`;
         paymentTotalHint.classList.remove('text-danger');
@@ -2952,14 +3015,24 @@ document.addEventListener('DOMContentLoaded', function () {
         paymentSubmitButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Menyimpan Payment...';
       } else {
         paymentSubmitButton.disabled = false;
-        paymentSubmitButton.textContent = totals.remainingTotal > 0.009 ? 'Simpan Pembayaran Sebagian' : 'Selesaikan Pembayaran';
+        paymentSubmitButton.textContent = totals.dueTotal <= 0.009
+          ? 'Selesaikan dengan DP'
+          : (totals.remainingTotal > 0.009 ? 'Simpan Pembayaran Sebagian' : 'Selesaikan Pembayaran');
       }
+    }
+    if (paymentAddRowButton) {
+      paymentAddRowButton.disabled = totals.dueTotal <= 0.009;
     }
     syncPaymentQuickButtons();
   }
 
   function renderPaymentRows() {
     if (!paymentRowsContainer) return;
+    const totals = paymentDraftTotals();
+    if (totals.dueTotal <= 0.009) {
+      paymentRowsContainer.innerHTML = '<div class="small text-muted border rounded p-3">Tagihan sudah tertutup penuh oleh DP member. Tidak perlu input metode pembayaran tambahan.</div>';
+      return;
+    }
     const methodOptions = ['<option value="">Pilih metode...</option>'].concat((paymentContext && paymentContext.payment_methods ? paymentContext.payment_methods : []).map((method) => `<option value="${Number(method.id || 0)}">${escapeHtml(method.method_name || '-')}</option>`));
     paymentRowsContainer.innerHTML = paymentRows.map((row, index) => `
       <div class="row g-2 payment-inline-card border rounded p-2 cashier-payment-method-row ${index === paymentActiveRowIndex ? 'is-active' : ''}" data-index="${index}">
@@ -3037,7 +3110,8 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!paymentQuickAmountButtons.length) {
       return;
     }
-    const disabled = paymentRows.length <= 0;
+    const totals = paymentDraftTotals();
+    const disabled = paymentRows.length <= 0 || totals.dueTotal <= 0.009;
     paymentQuickAmountButtons.forEach((button) => {
       button.disabled = disabled;
       button.classList.toggle('opacity-50', disabled);
@@ -3256,7 +3330,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const json = await getJson('<?php echo site_url('pos/orders/payment/prepare'); ?>/' + Number(order.id || 0));
       paymentContext = json.payment || null;
       const seedAmount = Number(paymentContext && paymentContext.due_total ? paymentContext.due_total : 0);
-      paymentRows = [defaultPaymentRow(seedAmount > 0 ? seedAmount : '')];
+      paymentRows = seedAmount > 0 ? [defaultPaymentRow(seedAmount)] : [];
       paymentActiveRowIndex = 0;
       if (paymentMeta) {
         paymentMeta.textContent = `${String(paymentContext && paymentContext.order_no ? paymentContext.order_no : '-')} | ${String(paymentContext && paymentContext.customer_name ? paymentContext.customer_name : 'Walk in')}`;
@@ -3291,6 +3365,9 @@ document.addEventListener('DOMContentLoaded', function () {
   function buildPaymentSuccessMessage(result) {
     const loyalty = result && result.loyalty ? result.loyalty : {};
     const parts = [`Payment ${String(result && result.payment_no ? result.payment_no : '').trim()} tersimpan.`];
+    if (Number(result && result.deposit_applied_amount ? result.deposit_applied_amount : 0) > 0) {
+      parts.push(`DP terpakai ${money(result.deposit_applied_amount || 0)}.`);
+    }
     if (String(result && result.order_status ? result.order_status : '').toUpperCase() === 'PAID_PARTIAL') {
       parts.push(`Pembayaran sebagian tercatat. Sisa tagihan ${money(result && result.remaining_due ? result.remaining_due : 0)}.`);
     }
@@ -3315,13 +3392,13 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     const totals = paymentDraftTotals();
     const payload = collectPaymentPayload();
-    if (!payload.payment_method_ids.length) {
+    if (!payload.payment_method_ids.length && totals.dueTotal > 0.009) {
       throw new Error('Pilih minimal satu metode pembayaran.');
     }
     if (totals.guardMessage) {
       throw new Error(totals.guardMessage);
     }
-    if (totals.appliedTotal <= 0) {
+    if (totals.appliedTotal <= 0 && totals.depositAppliedTotal <= 0) {
       throw new Error('Masukkan nominal pembayaran yang valid.');
     }
     paymentSubmitInFlight = true;

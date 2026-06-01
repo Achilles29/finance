@@ -508,6 +508,238 @@ class Pos_model extends CI_Model
         }
     }
 
+    public function self_order_settings(): array
+    {
+        $settings = [
+            'is_enabled' => 1,
+            'member_base_url' => $this->default_self_order_member_base_url(),
+            'table_qr_secret' => '',
+            'table_qr_enforce' => 1,
+            'midtrans_is_enabled' => 0,
+            'midtrans_server_key' => '',
+            'midtrans_client_key' => '',
+            'midtrans_is_production' => 0,
+            'qris_notes' => '',
+        ];
+
+        if ($this->db->table_exists('pos_self_order_setting')) {
+            $row = $this->db->get_where('pos_self_order_setting', ['id' => 1])->row_array();
+            if ($row) {
+                $settings['is_enabled'] = (int)($row['is_enabled'] ?? 1);
+                $settings['member_base_url'] = trim((string)($row['member_base_url'] ?? $settings['member_base_url']));
+                $settings['qris_notes'] = (string)($row['notes'] ?? '');
+            }
+        }
+
+        if ($this->db->table_exists('pr_table_qr_secret')) {
+            $row = $this->db->get_where('pr_table_qr_secret', ['id' => 1])->row_array();
+            if ($row) {
+                $settings['table_qr_secret'] = trim((string)($row['secret'] ?? ''));
+                $settings['table_qr_enforce'] = (int)($row['enforce'] ?? 1);
+            }
+        }
+
+        if ($this->db->table_exists('pr_qris_setting')) {
+            $row = $this->db->get_where('pr_qris_setting', ['id' => 1])->row_array();
+            if ($row) {
+                $settings['midtrans_is_enabled'] = (int)($row['is_enabled'] ?? 0);
+                $settings['midtrans_server_key'] = (string)($row['midtrans_server_key'] ?? '');
+                $settings['midtrans_client_key'] = (string)($row['midtrans_client_key'] ?? '');
+                $settings['midtrans_is_production'] = (int)($row['midtrans_is_production'] ?? 0);
+            }
+        }
+
+        $settings['member_base_url'] = $this->normalize_member_base_url($settings['member_base_url']);
+        $settings['qr_scan_example'] = $settings['member_base_url'] . 'meja/{id}/{signature}';
+        return $settings;
+    }
+
+    public function save_self_order_settings(array $data): array
+    {
+        $requiredTables = ['pos_self_order_setting', 'pr_table_qr_secret', 'pr_qris_setting'];
+        foreach ($requiredTables as $table) {
+            if (!$this->db->table_exists($table)) {
+                return ['ok' => false, 'message' => 'Schema self order belum lengkap. Jalankan migration self order terlebih dulu.'];
+            }
+        }
+
+        $db = $this->db;
+        $memberBaseUrl = $this->normalize_member_base_url((string)($data['member_base_url'] ?? ''));
+        $secret = trim((string)($data['table_qr_secret'] ?? ''));
+        if ($secret === '') {
+            $secret = bin2hex(random_bytes(24));
+        }
+
+        $db->trans_begin();
+        try {
+            $db->replace('pos_self_order_setting', $this->filter_table_payload('pos_self_order_setting', [
+                'id' => 1,
+                'is_enabled' => !empty($data['is_enabled']) ? 1 : 0,
+                'member_base_url' => $memberBaseUrl,
+                'notes' => $this->nullable_text($data['qris_notes'] ?? ''),
+            ]));
+
+            $db->replace('pr_table_qr_secret', $this->filter_table_payload('pr_table_qr_secret', [
+                'id' => 1,
+                'secret' => $secret,
+                'enforce' => !empty($data['table_qr_enforce']) ? 1 : 0,
+            ]));
+
+            $db->replace('pr_qris_setting', $this->filter_table_payload('pr_qris_setting', [
+                'id' => 1,
+                'is_enabled' => !empty($data['midtrans_is_enabled']) ? 1 : 0,
+                'midtrans_server_key' => trim((string)($data['midtrans_server_key'] ?? '')),
+                'midtrans_client_key' => trim((string)($data['midtrans_client_key'] ?? '')),
+                'midtrans_is_production' => !empty($data['midtrans_is_production']) ? 1 : 0,
+            ]));
+
+            if ($db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan pengaturan self order.');
+            }
+
+            $db->trans_commit();
+            return ['ok' => true];
+        } catch (Throwable $e) {
+            $db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function self_order_table_rows(array $filters = []): array
+    {
+        $q = trim((string)($filters['q'] ?? ''));
+        $status = strtoupper(trim((string)($filters['status'] ?? 'ACTIVE')));
+
+        if (!$this->db->table_exists('pr_meja')) {
+            return ['rows' => []];
+        }
+
+        $db = $this->db;
+        $db->from('pr_meja');
+        if ($q !== '') {
+            $db->group_start()
+                ->like('nama_meja', $q);
+            if ($this->db->field_exists('qr_label', 'pr_meja')) {
+                $db->or_like('qr_label', $q);
+            }
+            $db->group_end();
+        }
+        if ($this->db->field_exists('is_active', 'pr_meja')) {
+            if ($status === 'ACTIVE') {
+                $db->where('is_active', 1);
+            } elseif ($status === 'INACTIVE') {
+                $db->where('is_active', 0);
+            }
+        }
+
+        $sortField = $this->db->field_exists('sort_order', 'pr_meja') ? 'sort_order' : 'id';
+        $rows = $db->order_by($sortField, 'ASC')
+            ->order_by('nama_meja', 'ASC')
+            ->get()
+            ->result_array();
+
+        $settings = $this->self_order_settings();
+        foreach ($rows as &$row) {
+            $row['is_active'] = isset($row['is_active']) ? (int)$row['is_active'] : 1;
+            $row['capacity'] = isset($row['capacity']) ? (int)$row['capacity'] : 0;
+            $row['sort_order'] = isset($row['sort_order']) ? (int)$row['sort_order'] : 0;
+            $row['qr_label'] = trim((string)($row['qr_label'] ?? ''));
+            $row['qr_url'] = $this->build_self_order_table_url((int)($row['id'] ?? 0), $settings);
+        }
+        unset($row);
+
+        return ['rows' => $rows];
+    }
+
+    public function find_self_order_table(int $id): ?array
+    {
+        if ($id <= 0 || !$this->db->table_exists('pr_meja')) {
+            return null;
+        }
+        return $this->db->from('pr_meja')->where('id', $id)->limit(1)->get()->row_array() ?: null;
+    }
+
+    public function save_self_order_table(array $data): array
+    {
+        if (!$this->db->table_exists('pr_meja')) {
+            return ['ok' => false, 'message' => 'Schema meja self order belum tersedia. Jalankan migration self order terlebih dulu.'];
+        }
+
+        $db = $this->db;
+        $id = (int)($data['id'] ?? 0);
+        $name = trim((string)($data['nama_meja'] ?? ''));
+        if ($name === '') {
+            return ['ok' => false, 'message' => 'Nama meja wajib diisi.'];
+        }
+
+        $payload = [
+            'nama_meja' => $name,
+            'qr_label' => $this->nullable_text($data['qr_label'] ?? ''),
+            'capacity' => max(0, (int)($data['capacity'] ?? 0)),
+            'sort_order' => max(0, (int)($data['sort_order'] ?? 0)),
+            'is_active' => !isset($data['is_active']) || (int)$data['is_active'] === 1 ? 1 : 0,
+        ];
+        $payload = $this->filter_table_payload('pr_meja', $payload);
+
+        $db->trans_begin();
+        try {
+            if ($id > 0) {
+                if (!$this->find_self_order_table($id)) {
+                    throw new RuntimeException('Meja tidak ditemukan.');
+                }
+                $db->where('id', $id)->update('pr_meja', $payload);
+            } else {
+                $db->insert('pr_meja', $payload);
+                $id = (int)$db->insert_id();
+            }
+            if ($db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan meja self order.');
+            }
+            $db->trans_commit();
+            return ['ok' => true, 'id' => $id];
+        } catch (Throwable $e) {
+            $db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function delete_self_order_table(int $id): array
+    {
+        if ($id <= 0 || !$this->db->table_exists('pr_meja')) {
+            return ['ok' => false, 'message' => 'Meja tidak ditemukan.'];
+        }
+        $row = $this->find_self_order_table($id);
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Meja tidak ditemukan.'];
+        }
+
+        $used = 0;
+        if ($this->db->table_exists('pos_order') && $this->db->field_exists('table_no', 'pos_order')) {
+            $used = (int)$this->db->where('table_no', (string)($row['nama_meja'] ?? ''))->count_all_results('pos_order');
+        }
+        if ($used > 0) {
+            return ['ok' => false, 'message' => 'Meja sudah dipakai di transaksi POS. Nonaktifkan saja bila tidak ingin dipakai lagi.'];
+        }
+
+        $this->db->trans_begin();
+        try {
+            $this->db->where('id', $id)->delete('pr_meja');
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menghapus meja self order.');
+            }
+            $this->db->trans_commit();
+            return ['ok' => true, 'id' => $id];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function self_order_print_rows(): array
+    {
+        return $this->self_order_table_rows(['status' => 'ACTIVE'])['rows'] ?? [];
+    }
+
     public function payment_method_rows(array $filters): array
     {
         $q = trim((string)($filters['q'] ?? ''));
@@ -947,6 +1179,7 @@ class Pos_model extends CI_Model
         $memberPointBalance = round((float)($memberRow['point_balance_cache'] ?? 0), 4);
         $memberStampBalance = round((float)($memberRow['stamp_balance_cache'] ?? 0), 4);
         $memberVoucherRows = $this->cashier_member_voucher_rows($memberId, $order, $baseTotal);
+        $depositPreview = $this->cashier_member_deposit_preview($memberId, $dueTotal);
 
         return [
             'ok' => true,
@@ -962,10 +1195,15 @@ class Pos_model extends CI_Model
                 'base_total' => $baseTotal,
                 'grand_total' => $currentGrandTotal,
                 'paid_total' => $paidTotal,
-                'due_total' => $dueTotal,
+                'due_total_before_deposit' => $dueTotal,
+                'due_total' => round((float)($depositPreview['cash_due_total'] ?? $dueTotal), 2),
                 'can_edit_adjustment' => $paidTotal <= 0.009,
                 'payment_methods' => $this->deposit_payment_method_options(),
                 'voucher_options' => $this->cashier_voucher_options_for_order($order, $baseTotal),
+                'deposit_available_total' => round((float)($depositPreview['available_total'] ?? 0), 2),
+                'deposit_applied_total' => round((float)($depositPreview['applied_total'] ?? 0), 2),
+                'deposit_remaining_total' => round((float)($depositPreview['remaining_total'] ?? 0), 2),
+                'deposit_rows' => (array)($depositPreview['rows'] ?? []),
                 'loyalty_summary' => [
                     'open_voucher_count' => count($memberVoucherRows),
                     'point_balance' => $memberPointBalance,
@@ -973,6 +1211,111 @@ class Pos_model extends CI_Model
                 ],
             ],
         ];
+    }
+
+    private function cashier_member_open_deposit_rows(int $memberId, bool $forUpdate = false): array
+    {
+        if ($memberId <= 0 || !$this->db->table_exists('pos_payment')) {
+            return [];
+        }
+
+        $hasPaymentLine = $this->db->table_exists('pos_payment_line');
+        $remainingExpr = 'GREATEST(COALESCE(p.net_amount,0) - COALESCE(p.deposit_applied_amount,0), 0)';
+        $paymentMethodSelect = $hasPaymentLine
+            ? ", GROUP_CONCAT(DISTINCT pm.method_name ORDER BY pm.method_name SEPARATOR ', ') AS payment_method_names"
+            : ", '' AS payment_method_names";
+        $paymentLineJoin = $hasPaymentLine
+            ? ' LEFT JOIN pos_payment_line pl ON pl.payment_id = p.id LEFT JOIN pos_payment_method pm ON pm.id = pl.payment_method_id '
+            : '';
+        $forUpdateSql = $forUpdate ? ' FOR UPDATE' : '';
+
+        $sql = "
+            SELECT
+                p.id,
+                p.payment_no,
+                p.member_id,
+                p.net_amount,
+                p.deposit_applied_amount,
+                COALESCE(p.paid_at, p.created_at) AS paid_at,
+                {$remainingExpr} AS remaining_amount
+                {$paymentMethodSelect}
+            FROM pos_payment p
+            {$paymentLineJoin}
+            WHERE p.member_id = ?
+              AND p.payment_type = 'DEPOSIT'
+              AND p.payment_status = 'PAID'
+              AND {$remainingExpr} > 0
+            GROUP BY p.id
+            ORDER BY COALESCE(p.paid_at, p.created_at) ASC, p.id ASC
+            {$forUpdateSql}
+        ";
+
+        return $this->db->query($sql, [$memberId])->result_array();
+    }
+
+    private function cashier_member_deposit_preview(int $memberId, float $dueTotal, bool $forUpdate = false): array
+    {
+        $targetDue = round(max(0, $dueTotal), 2);
+        $availableTotal = 0.0;
+        $appliedTotal = 0.0;
+        $remainingNeed = $targetDue;
+        $rows = [];
+
+        foreach ($this->cashier_member_open_deposit_rows($memberId, $forUpdate) as $row) {
+            $remainingAmount = round(max(0, (float)($row['remaining_amount'] ?? 0)), 2);
+            if ($remainingAmount <= 0) {
+                continue;
+            }
+
+            $previewApplied = round(min($remainingAmount, $remainingNeed), 2);
+            $availableTotal += $remainingAmount;
+            $appliedTotal += $previewApplied;
+            $remainingNeed = round(max(0, $remainingNeed - $previewApplied), 2);
+
+            $row['net_amount'] = round((float)($row['net_amount'] ?? 0), 2);
+            $row['deposit_applied_amount'] = round((float)($row['deposit_applied_amount'] ?? 0), 2);
+            $row['remaining_amount'] = $remainingAmount;
+            $row['preview_applied_amount'] = $previewApplied;
+            $rows[] = $row;
+        }
+
+        return [
+            'rows' => $rows,
+            'available_total' => round($availableTotal, 2),
+            'applied_total' => round($appliedTotal, 2),
+            'remaining_total' => round(max(0, $availableTotal - $appliedTotal), 2),
+            'cash_due_total' => round(max(0, $targetDue - $appliedTotal), 2),
+        ];
+    }
+
+    private function apply_cashier_member_deposit_usage(int $orderId, int $paymentId, array $depositRows, string $now): void
+    {
+        $hasApplyTable = $this->db->table_exists('pos_payment_deposit_apply');
+
+        foreach ($depositRows as $row) {
+            $depositId = (int)($row['id'] ?? 0);
+            $appliedAmount = round((float)($row['preview_applied_amount'] ?? 0), 2);
+            if ($depositId <= 0 || $appliedAmount <= 0) {
+                continue;
+            }
+
+            $this->db->set('deposit_applied_amount', 'COALESCE(deposit_applied_amount,0)+' . $this->db->escape($appliedAmount), false)
+                ->where('id', $depositId)
+                ->update('pos_payment');
+
+            if ($hasApplyTable) {
+                $this->db->insert('pos_payment_deposit_apply', $this->filter_table_payload('pos_payment_deposit_apply', [
+                    'deposit_payment_id' => $depositId,
+                    'applied_payment_id' => $paymentId,
+                    'order_id' => $orderId > 0 ? $orderId : null,
+                    'applied_amount' => $appliedAmount,
+                    'apply_status' => 'APPLIED',
+                    'notes' => 'Auto apply DP saat pembayaran kasir POS',
+                    'applied_at' => $now,
+                    'created_at' => $now,
+                ]));
+            }
+        }
     }
 
     public function save_cashier_payment(array $payload, int $actorEmployeeId): array
@@ -1046,17 +1389,29 @@ class Pos_model extends CI_Model
                 throw new RuntimeException('Order ini sudah tidak memiliki sisa tagihan.');
             }
 
-            $normalizedLines = $this->normalize_cashier_payment_lines($payload, $dueTotal);
-            if (!($normalizedLines['ok'] ?? false)) {
-                throw new RuntimeException((string)($normalizedLines['message'] ?? 'Metode pembayaran tidak valid.'));
-            }
-            $paymentLines = (array)($normalizedLines['rows'] ?? []);
-            $paidNow = round((float)($normalizedLines['total_amount'] ?? 0), 2);
-            $enteredNow = round((float)($normalizedLines['entered_total'] ?? $paidNow), 2);
-            $changeTotal = round((float)($normalizedLines['change_total'] ?? 0), 2);
-            $remainingDue = round(max(0, $dueTotal - $paidNow), 2);
-            if ($paidNow <= 0) {
-                throw new RuntimeException('Masukkan minimal satu metode pembayaran dengan nominal valid.');
+            $memberId = !empty($orderRow['member_id']) ? (int)$orderRow['member_id'] : 0;
+            $depositPreview = $this->cashier_member_deposit_preview($memberId, $dueTotal, true);
+            $depositAppliedAmount = round((float)($depositPreview['applied_total'] ?? 0), 2);
+            $cashDueTotal = round((float)($depositPreview['cash_due_total'] ?? $dueTotal), 2);
+
+            $paymentLines = [];
+            $paidNow = 0.0;
+            $enteredNow = 0.0;
+            $changeTotal = 0.0;
+            $remainingDue = $cashDueTotal;
+            if ($cashDueTotal > 0.009) {
+                $normalizedLines = $this->normalize_cashier_payment_lines($payload, $cashDueTotal);
+                if (!($normalizedLines['ok'] ?? false)) {
+                    throw new RuntimeException((string)($normalizedLines['message'] ?? 'Metode pembayaran tidak valid.'));
+                }
+                $paymentLines = (array)($normalizedLines['rows'] ?? []);
+                $paidNow = round((float)($normalizedLines['total_amount'] ?? 0), 2);
+                $enteredNow = round((float)($normalizedLines['entered_total'] ?? $paidNow), 2);
+                $changeTotal = round((float)($normalizedLines['change_total'] ?? 0), 2);
+                $remainingDue = round(max(0, $cashDueTotal - $paidNow), 2);
+                if ($paidNow <= 0) {
+                    throw new RuntimeException('Masukkan minimal satu metode pembayaran dengan nominal valid.');
+                }
             }
             $isFullyPaid = $remainingDue <= 0.009;
             $nextOrderStatus = $isFullyPaid ? 'PAID' : 'PAID_PARTIAL';
@@ -1078,7 +1433,7 @@ class Pos_model extends CI_Model
                 'voucher_amount' => $voucherAmount,
                 'point_redeem_amount' => $pointRedeemAmount,
                 'compliment_amount' => $complimentAmount,
-                'deposit_applied_amount' => 0,
+                'deposit_applied_amount' => $depositAppliedAmount,
                 'net_amount' => $grandTotal,
                 'change_amount' => $changeTotal,
                 'notes' => $this->nullable_text($payload['notes'] ?? ''),
@@ -1126,6 +1481,10 @@ class Pos_model extends CI_Model
                 }
             }
 
+            if ($depositAppliedAmount > 0) {
+                $this->apply_cashier_member_deposit_usage($orderId, $paymentId, (array)($depositPreview['rows'] ?? []), $now);
+            }
+
             $orderUpdate = [
                 'status' => $nextOrderStatus,
                 'discount_amount' => $discountAmount,
@@ -1134,7 +1493,7 @@ class Pos_model extends CI_Model
                 'point_redeem_amount' => $pointRedeemAmount,
                 'compliment_amount' => $complimentAmount,
                 'grand_total' => $grandTotal,
-                'paid_total' => round($existingPaidTotal + $paidNow, 2),
+                'paid_total' => round($existingPaidTotal + $depositAppliedAmount + $paidNow, 2),
                 'change_total' => $changeTotal,
             ];
             if ($isFullyPaid) {
@@ -1166,6 +1525,7 @@ class Pos_model extends CI_Model
                 'paid_now' => $paidNow,
                 'entered_now' => $enteredNow,
                 'change_total' => $changeTotal,
+                'deposit_applied_amount' => $depositAppliedAmount,
                 'remaining_due' => $remainingDue,
                 'loyalty' => $loyaltySummary,
             ];
@@ -6705,23 +7065,26 @@ class Pos_model extends CI_Model
             ->get()
             ->result_array();
 
-        $paidNow = 0.0;
+        $cashPaidNow = 0.0;
         foreach ($paymentLines as $paymentLine) {
-            $paidNow += (float)($paymentLine['amount'] ?? 0);
+            $cashPaidNow += (float)($paymentLine['amount'] ?? 0);
         }
-        $paidNow = round($paidNow, 2);
+        $cashPaidNow = round($cashPaidNow, 2);
+        $depositAppliedNow = round((float)($header['deposit_applied_amount'] ?? 0), 2);
         $changeAmount = round((float)($header['change_amount'] ?? 0), 2);
-        $enteredNow = round($paidNow + max(0, $changeAmount), 2);
+        $enteredNow = round($cashPaidNow + max(0, $changeAmount), 2);
         $orderGrandTotal = round((float)($header['order_grand_total'] ?? $header['net_amount'] ?? 0), 2);
-        $orderPaidTotal = round((float)($header['order_paid_total'] ?? $paidNow), 2);
-        $previousPaid = round(max(0, $orderPaidTotal - $paidNow), 2);
+        $orderPaidTotal = round((float)($header['order_paid_total'] ?? ($cashPaidNow + $depositAppliedNow)), 2);
+        $previousPaid = round(max(0, $orderPaidTotal - $cashPaidNow - $depositAppliedNow), 2);
         $remainingDue = round(max(0, $orderGrandTotal - $orderPaidTotal), 2);
 
         $header['customer_name'] = $order['header']['customer_name'] ?? $header['customer_name'] ?? '';
         $header['member_name'] = $order['header']['member_name'] ?? $header['member_name'] ?? '';
         $header['cashier_username'] = $order['header']['cashier_username'] ?? '';
         $header['cashier_employee_name'] = $order['header']['cashier_employee_name'] ?? '';
-        $header['paid_now'] = $paidNow;
+        $header['paid_now'] = $cashPaidNow;
+        $header['deposit_applied_now'] = $depositAppliedNow;
+        $header['settled_now'] = round($cashPaidNow + $depositAppliedNow, 2);
         $header['entered_now'] = $enteredNow;
         $header['previous_paid'] = $previousPaid;
         $header['remaining_due'] = $remainingDue;
@@ -7372,7 +7735,12 @@ class Pos_model extends CI_Model
         if ($previousPaid > 0.009) {
             $chunks[] = $this->pad_right_print('BAYAR LALU', $labelWidth) . $this->pad_left_print($this->format_number_print($previousPaid), $amountWidth);
         }
-        $chunks[] = $this->pad_right_print('BAYAR NOW', $labelWidth) . $this->pad_left_print($this->format_number_print($header['paid_now'] ?? 0), $amountWidth);
+        if ((float)($header['deposit_applied_now'] ?? 0) > 0.009) {
+            $chunks[] = $this->pad_right_print('PAKAI DP', $labelWidth) . $this->pad_left_print($this->format_number_print($header['deposit_applied_now'] ?? 0), $amountWidth);
+        }
+        if ((float)($header['paid_now'] ?? 0) > 0.009 || (float)($header['deposit_applied_now'] ?? 0) <= 0.009) {
+            $chunks[] = $this->pad_right_print('BAYAR NOW', $labelWidth) . $this->pad_left_print($this->format_number_print($header['paid_now'] ?? 0), $amountWidth);
+        }
         if ((float)($header['change_amount'] ?? 0) > 0.009) {
             $chunks[] = $this->pad_right_print('KEMBALI', $labelWidth) . $this->pad_left_print($this->format_number_print($header['change_amount'] ?? 0), $amountWidth);
         }
@@ -9367,6 +9735,44 @@ class Pos_model extends CI_Model
             $this->db->where('outlet_id', $outletId);
         }
         return $this->db->order_by('terminal_name', 'ASC')->get()->result_array();
+    }
+
+    private function default_self_order_member_base_url(): string
+    {
+        $env = trim((string)getenv('MEMBER_BASE_URL'));
+        if ($env !== '') {
+            return $this->normalize_member_base_url($env);
+        }
+        return $this->normalize_member_base_url(base_url('../member/'));
+    }
+
+    private function normalize_member_base_url(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            $env = trim((string)getenv('MEMBER_BASE_URL'));
+            if ($env !== '') {
+                return rtrim($env, '/') . '/';
+            }
+            return rtrim((string)base_url('../member/'), '/') . '/';
+        }
+        return rtrim($value, '/') . '/';
+    }
+
+    private function build_self_order_table_url(int $tableId, array $settings = []): string
+    {
+        $tableId = max(0, $tableId);
+        $settings = !empty($settings) ? $settings : $this->self_order_settings();
+        $base = $this->normalize_member_base_url((string)($settings['member_base_url'] ?? ''));
+        $secret = trim((string)($settings['table_qr_secret'] ?? ''));
+        if ($tableId <= 0) {
+            return $base . 'meja';
+        }
+        if ($secret === '') {
+            return $base . 'meja/' . $tableId;
+        }
+        $sig = hash_hmac('sha256', (string)$tableId, $secret);
+        return $base . 'meja/' . $tableId . '/' . $sig;
     }
 
     private function distinct_non_empty_values(CI_DB_query_builder $db, string $table, string $column): array

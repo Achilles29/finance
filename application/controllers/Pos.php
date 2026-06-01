@@ -73,6 +73,81 @@ class Pos extends MY_Controller
         $this->json_ok($this->Pos_model->deposit_rows($this->deposit_filters()));
     }
 
+    public function self_order()
+    {
+        redirect('pos/self-order/settings');
+    }
+
+    public function self_order_settings()
+    {
+        $this->require_permission('pos.self_order.index', 'view');
+
+        if (strtoupper((string)$this->input->method()) === 'POST') {
+            $this->require_permission('pos.self_order.index', 'edit');
+            $result = $this->Pos_model->save_self_order_settings($this->input->post(null, false) ?: []);
+            $this->session->set_flashdata(($result['ok'] ?? false) ? 'success' : 'error', (string)($result['message'] ?? (($result['ok'] ?? false) ? 'Pengaturan self order berhasil disimpan.' : 'Gagal menyimpan pengaturan self order.')));
+            redirect('pos/self-order/settings');
+            return;
+        }
+
+        $this->render('pos/self_order_settings', [
+            'page_title' => 'Self Order POS',
+            'active_menu' => 'pos.self_order.index',
+            'settings' => $this->Pos_model->self_order_settings(),
+        ]);
+    }
+
+    public function self_order_tables()
+    {
+        $this->require_permission('pos.self_order.index', 'view');
+        $this->render('pos/self_order_tables', [
+            'page_title' => 'QR Meja Self Order',
+            'active_menu' => 'pos.self_order.index',
+            'filters' => $this->self_order_table_filters(),
+            'settings' => $this->Pos_model->self_order_settings(),
+        ]);
+    }
+
+    public function self_order_tables_data()
+    {
+        $this->require_permission('pos.self_order.index', 'view');
+        $this->json_ok($this->Pos_model->self_order_table_rows($this->self_order_table_filters()));
+    }
+
+    public function self_order_table_save()
+    {
+        $payload = $this->request_payload();
+        $id = (int)($payload['id'] ?? 0);
+        $this->require_permission('pos.self_order.index', $id > 0 ? 'edit' : 'create');
+        $result = $this->Pos_model->save_self_order_table($payload);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan meja self order.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)($result['id'] ?? 0)]);
+    }
+
+    public function self_order_table_delete($id)
+    {
+        $this->require_permission('pos.self_order.index', 'delete');
+        $result = $this->Pos_model->delete_self_order_table((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menghapus meja self order.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$id]);
+    }
+
+    public function self_order_tables_print()
+    {
+        $this->require_permission('pos.self_order.index', 'view');
+        $rows = $this->Pos_model->self_order_print_rows();
+        $this->load->view('pos/self_order_tables_print', [
+            'title' => 'Print QR Meja Self Order',
+            'rows' => $rows,
+        ]);
+    }
+
     public function deposit_member_search()
     {
         $this->require_permission('pos.deposit.index', 'view');
@@ -1853,6 +1928,7 @@ class Pos extends MY_Controller
             'order_status' => (string)($result['order_status'] ?? 'PAID'),
             'paid_now' => (float)($result['paid_now'] ?? 0),
             'entered_now' => (float)($result['entered_now'] ?? 0),
+            'deposit_applied_amount' => (float)($result['deposit_applied_amount'] ?? 0),
             'change_total' => (float)($result['change_total'] ?? 0),
             'remaining_due' => (float)($result['remaining_due'] ?? 0),
             'loyalty' => (array)($result['loyalty'] ?? []),
@@ -2071,6 +2147,37 @@ class Pos extends MY_Controller
         ]);
     }
 
+    public function report_daily_sales_print()
+    {
+        $pageCode = $this->can('pos.report.daily_sales.index', 'view')
+            ? 'pos.report.daily_sales.index'
+            : $this->report_view_page_code('pos.report.sales.index');
+        $this->require_permission($pageCode, 'view');
+
+        $filters = $this->daily_sales_report_filters();
+        $dataset = $this->Pos_report_model->daily_sales_report((string)$filters['date'], (int)$filters['outlet_id']);
+        $outletName = '';
+        foreach ($this->Pos_report_model->outlet_options() as $outlet) {
+            if ((int)($outlet['id'] ?? 0) === (int)$filters['outlet_id']) {
+                $outletName = (string)($outlet['outlet_name'] ?? '');
+                break;
+            }
+        }
+
+        $this->load->view('pos/report_daily_sales_print', [
+            'date' => (string)$filters['date'],
+            'outlet_id' => (int)$filters['outlet_id'],
+            'outlet_name' => $outletName,
+            'overview' => (array)($dataset['overview'] ?? []),
+            'pay_methods' => (array)($dataset['pay_methods'] ?? []),
+            'pay_accounts' => (array)($dataset['pay_accounts'] ?? []),
+            'shifts' => (array)($dataset['shifts'] ?? []),
+            'by_division' => (array)($dataset['by_division'] ?? []),
+            'total_purchase' => (float)($dataset['total_purchase'] ?? 0),
+            'net_daily_sales' => (float)($dataset['net_daily_sales'] ?? 0),
+        ]);
+    }
+
     public function report_payment_detail($id)
     {
         $pageCode = $this->report_view_page_code('pos.report.payment.index');
@@ -2084,6 +2191,48 @@ class Pos extends MY_Controller
             'active_menu' => 'pos.report.payment',
             'row' => $row,
             'lines' => $this->Pos_report_model->payment_lines((int)$id),
+        ]);
+    }
+
+    public function report_payment_methods()
+    {
+        $pageCode = $this->can('pos.report.payment.method.index', 'view')
+            ? 'pos.report.payment.method.index'
+            : $this->report_view_page_code('pos.report.payment.index');
+        $this->require_permission($pageCode, 'view');
+
+        $filters = $this->payment_summary_report_filters();
+        $dataset = $this->Pos_report_model->payment_method_report($filters);
+
+        $this->render('pos/report_payment_methods', [
+            'page_title' => 'Laporan Metode Pembayaran POS',
+            'active_menu' => 'pos.report.payment.method',
+            'report_nav_active' => 'payment_methods',
+            'filters' => $filters,
+            'rows' => (array)($dataset['rows'] ?? []),
+            'overview' => (array)($dataset['overview'] ?? []),
+            'outlets' => $this->Pos_report_model->outlet_options(),
+        ]);
+    }
+
+    public function report_payment_accounts()
+    {
+        $pageCode = $this->can('pos.report.payment.account.index', 'view')
+            ? 'pos.report.payment.account.index'
+            : $this->report_view_page_code('pos.report.payment.index');
+        $this->require_permission($pageCode, 'view');
+
+        $filters = $this->payment_summary_report_filters();
+        $dataset = $this->Pos_report_model->payment_account_report($filters);
+
+        $this->render('pos/report_payment_accounts', [
+            'page_title' => 'Laporan Rekening Pembayaran POS',
+            'active_menu' => 'pos.report.payment.account',
+            'report_nav_active' => 'payment_accounts',
+            'filters' => $filters,
+            'rows' => (array)($dataset['rows'] ?? []),
+            'overview' => (array)($dataset['overview'] ?? []),
+            'outlets' => $this->Pos_report_model->outlet_options(),
         ]);
     }
 
@@ -2338,6 +2487,28 @@ class Pos extends MY_Controller
         ];
     }
 
+    private function payment_summary_report_filters(): array
+    {
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['ALL', 'PENDING', 'PAID', 'FAILED', 'VOID'], true)) {
+            $status = 'PAID';
+        }
+
+        $paymentType = strtoupper(trim((string)$this->input->get('payment_type', true)));
+        if (!in_array($paymentType, ['ALL', 'FINAL', 'DEPOSIT', 'REFUND'], true)) {
+            $paymentType = 'ALL';
+        }
+
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'status' => $status,
+            'payment_type' => $paymentType,
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'date_from' => $this->report_date_input('date_from'),
+            'date_to' => $this->report_date_input('date_to'),
+        ];
+    }
+
     private function void_report_filters(): array
     {
         $voidScope = strtoupper(trim((string)$this->input->get('void_scope', true)));
@@ -2454,6 +2625,18 @@ class Pos extends MY_Controller
             'settlement_status' => $settlement,
             'page' => max(1, (int)$this->input->get('page', true)),
             'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 50)),
+        ];
+    }
+
+    private function self_order_table_filters(): array
+    {
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['ACTIVE', 'INACTIVE', 'ALL'], true)) {
+            $status = 'ACTIVE';
+        }
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'status' => $status,
         ];
     }
 

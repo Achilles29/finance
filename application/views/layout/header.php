@@ -19,7 +19,7 @@
 <link rel="stylesheet" href="<?= base_url('assets/vendor/libs/perfect-scrollbar/perfect-scrollbar.css') ?>">
 
 <!-- Finance Theme (merah + cream) -->
-<link rel="stylesheet" href="<?= base_url('assets/css/theme-custom.css?v=20260526j') ?>">
+<link rel="stylesheet" href="<?= base_url('assets/css/theme-custom.css?v=20260601a') ?>">
 <link rel="stylesheet" href="<?= base_url('assets/css/app.css?v=20260520a') ?>">
 
 <!-- Materio Helpers (sebelum body) -->
