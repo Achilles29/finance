@@ -52,6 +52,7 @@ v cetak ulang printer
 v catatan order
 v update gudang, bahan baku, component
 v update data sif
+- laporan daily sales seperti core /pos-reports/daily-sales , kemudian cetak 
 
 - update resep extra nasi
 

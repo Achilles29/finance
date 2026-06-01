@@ -122,6 +122,125 @@ class Pos_report_model extends CI_Model
         ];
     }
 
+    public function cashier_close_report(array $filters): array
+    {
+        $page = max(1, (int)($filters['page'] ?? 1));
+        $limit = max(1, min(200, (int)($filters['limit'] ?? 25)));
+        $total = $this->count_cashier_close_rows($filters);
+        [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
+
+        return [
+            'rows' => $this->cashier_close_rows($filters, $limit, $offset),
+            'overview' => $this->cashier_close_overview($filters),
+            'meta' => [
+                'total' => $total,
+                'page' => $page,
+                'limit' => $limit,
+                'total_pages' => $totalPages,
+                'offset' => $offset,
+            ],
+        ];
+    }
+
+    public function cashier_close_detail(int $shiftId, int $focusAccountId = 0): ?array
+    {
+        if ($shiftId <= 0 || !$this->db->table_exists('pos_shift')) {
+            return null;
+        }
+
+        $hasShiftSummary = $this->db->table_exists('pos_shift_summary');
+        $select = [
+            'sh.id',
+            'sh.shift_no',
+            'sh.outlet_id',
+            'o.outlet_name',
+            'sh.terminal_id',
+            't.terminal_name',
+            'sh.cashier_open_employee_id',
+            'eo.employee_name AS cashier_open_name',
+            'sh.cashier_close_employee_id',
+            'ec.employee_name AS cashier_close_name',
+            'sh.status',
+            'sh.opened_at',
+            'sh.closed_at',
+            'sh.opening_cash',
+            'sh.expected_cash',
+            'sh.actual_cash',
+            'sh.variance_cash',
+            'sh.notes',
+            $hasShiftSummary ? 'COALESCE(ss.total_order_count, 0) AS total_order_count' : '0 AS total_order_count',
+            $hasShiftSummary ? 'COALESCE(ss.total_gross_sales, 0) AS total_gross_sales' : '0 AS total_gross_sales',
+            $hasShiftSummary ? 'COALESCE(ss.total_discount, 0) AS total_discount' : '0 AS total_discount',
+            $hasShiftSummary ? 'COALESCE(ss.total_promo, 0) AS total_promo' : '0 AS total_promo',
+            $hasShiftSummary ? 'COALESCE(ss.total_net_sales, 0) AS total_net_sales' : '0 AS total_net_sales',
+            $hasShiftSummary ? 'COALESCE(ss.total_cash_sales, 0) AS total_cash_sales' : '0 AS total_cash_sales',
+            $hasShiftSummary ? 'COALESCE(ss.total_non_cash_sales, 0) AS total_non_cash_sales' : '0 AS total_non_cash_sales',
+            $hasShiftSummary ? 'COALESCE(ss.total_refund, 0) AS total_refund' : '0 AS total_refund',
+            $hasShiftSummary ? 'COALESCE(ss.total_void, 0) AS total_void' : '0 AS total_void',
+            $this->cashier_close_deposit_expr('sh.id') . ' AS total_deposit_receipts',
+            $this->cashier_close_cash_deposit_expr('sh.id') . ' AS total_cash_deposit_receipts',
+        ];
+
+        $this->db->select(implode(', ', $select), false)
+            ->from('pos_shift sh')
+            ->join('pos_outlet o', 'o.id = sh.outlet_id', 'left')
+            ->join('pos_terminal t', 't.id = sh.terminal_id', 'left')
+            ->join('org_employee eo', 'eo.id = sh.cashier_open_employee_id', 'left')
+            ->join('org_employee ec', 'ec.id = sh.cashier_close_employee_id', 'left')
+            ->where('sh.id', $shiftId)
+            ->limit(1);
+
+        if ($hasShiftSummary) {
+            $this->db->join('pos_shift_summary ss', 'ss.shift_id = sh.id', 'left');
+        }
+
+        $row = $this->db->get()->row_array();
+        if (!$row) {
+            return null;
+        }
+
+        $snapshotMap = $this->cashier_close_snapshot_map([$shiftId]);
+        $mutationMap = $this->cashier_close_mutation_map([$shiftId]);
+        $accountRows = $this->merge_cashier_close_account_rows(
+            $snapshotMap[$shiftId] ?? [],
+            $mutationMap[$shiftId] ?? [],
+            $focusAccountId
+        );
+        $focusRow = $this->locate_cashier_close_focus_account($accountRows, $focusAccountId, 'Brankas / rekening fokus');
+
+        $row['total_recorded_receipts'] = round((float)($row['total_net_sales'] ?? 0) + (float)($row['total_deposit_receipts'] ?? 0), 2);
+        $row['account_rows'] = $accountRows;
+        $row['focus_account'] = $focusRow;
+        $row['has_cash_variance'] = abs((float)($row['variance_cash'] ?? 0)) > 0.009;
+        $row['has_focus_variance'] = abs((float)($focusRow['variance_net'] ?? 0)) > 0.009;
+
+        return $row;
+    }
+
+    public function daily_sales_report(string $date, int $outletId = 0): array
+    {
+        $date = $this->normalize_report_date($date);
+        $outletId = max(0, $outletId);
+
+        $overview = $this->daily_sales_overview($date, $outletId);
+        $payMethods = $this->daily_sales_payment_methods($date, $outletId);
+        $payAccounts = $this->daily_sales_payment_accounts($date, $outletId);
+        $shifts = $this->daily_sales_shifts($date, $outletId);
+        $byDivision = $this->daily_sales_by_division($date, $outletId);
+        $totalPurchase = $this->daily_sales_purchase_total($date);
+
+        return [
+            'date' => $date,
+            'overview' => $overview,
+            'pay_methods' => $payMethods,
+            'pay_accounts' => $payAccounts,
+            'shifts' => $shifts,
+            'by_division' => $byDivision,
+            'total_purchase' => $totalPurchase,
+            'net_daily_sales' => round((float)($overview['net_sales'] ?? 0) - $totalPurchase, 2),
+        ];
+    }
+
     public function find_payment(int $id): ?array
     {
         $row = $this->db->select('p.*, o.order_no, o.status AS order_status, o.service_type, o.order_scope, o.ordered_at, o.paid_at AS order_paid_at, po.outlet_name, m.member_no, m.member_name, e.employee_name AS cashier_name')
@@ -842,6 +961,772 @@ class Pos_report_model extends CI_Model
     private function payment_line_summary_subquery(): string
     {
         return "(\n            SELECT\n                pl.payment_id,\n                COALESCE(SUM(pl.amount), 0) AS amount_total,\n                GROUP_CONCAT(DISTINCT pm.method_name ORDER BY pm.method_name ASC SEPARATOR ', ') AS method_names\n            FROM pos_payment_line pl\n            INNER JOIN pos_payment_method pm ON pm.id = pl.payment_method_id\n            GROUP BY pl.payment_id\n        )";
+    }
+
+    private function count_cashier_close_rows(array $filters): int
+    {
+        if (!$this->db->table_exists('pos_shift')) {
+            return 0;
+        }
+
+        $this->db->from('pos_shift sh')
+            ->join('pos_outlet o', 'o.id = sh.outlet_id', 'left')
+            ->join('pos_terminal t', 't.id = sh.terminal_id', 'left')
+            ->join('org_employee eo', 'eo.id = sh.cashier_open_employee_id', 'left')
+            ->join('org_employee ec', 'ec.id = sh.cashier_close_employee_id', 'left')
+            ->where('sh.status', 'CLOSED');
+
+        $this->apply_cashier_close_filters($filters);
+        return (int)$this->db->count_all_results();
+    }
+
+    private function cashier_close_rows(array $filters, int $limit, int $offset): array
+    {
+        if (!$this->db->table_exists('pos_shift')) {
+            return [];
+        }
+
+        $hasShiftSummary = $this->db->table_exists('pos_shift_summary');
+        $depositExpr = $this->cashier_close_deposit_expr('sh.id');
+        $cashDepositExpr = $this->cashier_close_cash_deposit_expr('sh.id');
+
+        $select = [
+            'sh.id',
+            'sh.shift_no',
+            'sh.outlet_id',
+            'o.outlet_name',
+            'sh.terminal_id',
+            't.terminal_name',
+            'sh.cashier_open_employee_id',
+            'eo.employee_name AS cashier_open_name',
+            'sh.cashier_close_employee_id',
+            'ec.employee_name AS cashier_close_name',
+            'sh.status',
+            'sh.opened_at',
+            'sh.closed_at',
+            'sh.opening_cash',
+            'sh.expected_cash',
+            'sh.actual_cash',
+            'sh.variance_cash',
+            'sh.notes',
+            $hasShiftSummary ? 'COALESCE(ss.total_order_count, 0) AS total_order_count' : '0 AS total_order_count',
+            $hasShiftSummary ? 'COALESCE(ss.total_gross_sales, 0) AS total_gross_sales' : '0 AS total_gross_sales',
+            $hasShiftSummary ? 'COALESCE(ss.total_discount, 0) AS total_discount' : '0 AS total_discount',
+            $hasShiftSummary ? 'COALESCE(ss.total_promo, 0) AS total_promo' : '0 AS total_promo',
+            $hasShiftSummary ? 'COALESCE(ss.total_net_sales, 0) AS total_net_sales' : '0 AS total_net_sales',
+            $hasShiftSummary ? 'COALESCE(ss.total_cash_sales, 0) AS total_cash_sales' : '0 AS total_cash_sales',
+            $hasShiftSummary ? 'COALESCE(ss.total_non_cash_sales, 0) AS total_non_cash_sales' : '0 AS total_non_cash_sales',
+            $hasShiftSummary ? 'COALESCE(ss.total_refund, 0) AS total_refund' : '0 AS total_refund',
+            $hasShiftSummary ? 'COALESCE(ss.total_void, 0) AS total_void' : '0 AS total_void',
+            $depositExpr . ' AS total_deposit_receipts',
+            $cashDepositExpr . ' AS total_cash_deposit_receipts',
+        ];
+
+        $this->db->select(implode(', ', $select), false)
+            ->from('pos_shift sh')
+            ->join('pos_outlet o', 'o.id = sh.outlet_id', 'left')
+            ->join('pos_terminal t', 't.id = sh.terminal_id', 'left')
+            ->join('org_employee eo', 'eo.id = sh.cashier_open_employee_id', 'left')
+            ->join('org_employee ec', 'ec.id = sh.cashier_close_employee_id', 'left');
+
+        if ($hasShiftSummary) {
+            $this->db->join('pos_shift_summary ss', 'ss.shift_id = sh.id', 'left');
+        }
+
+        $this->db->where('sh.status', 'CLOSED');
+        $this->apply_cashier_close_filters($filters);
+        $rows = $this->db->order_by('sh.closed_at', 'DESC')
+            ->order_by('sh.id', 'DESC')
+            ->limit($limit, $offset)
+            ->get()
+            ->result_array();
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        $shiftIds = array_values(array_unique(array_map(static function ($row): int {
+            return (int)($row['id'] ?? 0);
+        }, $rows)));
+        $shiftIds = array_values(array_filter($shiftIds, static function ($id): bool {
+            return $id > 0;
+        }));
+
+        $snapshotMap = $this->cashier_close_snapshot_map($shiftIds);
+        $mutationMap = $this->cashier_close_mutation_map($shiftIds);
+        $focusAccountId = max(0, (int)($filters['account_id'] ?? 0));
+        $focusAccountLabel = trim((string)($filters['account_label'] ?? ''));
+
+        foreach ($rows as &$row) {
+            $shiftId = (int)($row['id'] ?? 0);
+            $accountRows = $this->merge_cashier_close_account_rows(
+                $snapshotMap[$shiftId] ?? [],
+                $mutationMap[$shiftId] ?? [],
+                $focusAccountId
+            );
+
+            $focusRow = $this->locate_cashier_close_focus_account($accountRows, $focusAccountId, $focusAccountLabel);
+            $row['total_recorded_receipts'] = round((float)($row['total_net_sales'] ?? 0) + (float)($row['total_deposit_receipts'] ?? 0), 2);
+            $row['account_rows'] = $accountRows;
+            $row['focus_account'] = $focusRow;
+            $row['has_cash_variance'] = abs((float)($row['variance_cash'] ?? 0)) > 0.009;
+            $row['has_focus_variance'] = abs((float)($focusRow['variance_net'] ?? 0)) > 0.009;
+            $row['has_any_variance'] = !empty($row['has_cash_variance']) || !empty($row['has_focus_variance']);
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function cashier_close_overview(array $filters): array
+    {
+        if (!$this->db->table_exists('pos_shift')) {
+            return [
+                'shift_count' => 0,
+                'total_orders' => 0,
+                'total_net_sales' => 0.0,
+                'total_deposit_receipts' => 0.0,
+                'total_expected_cash' => 0.0,
+                'total_actual_cash' => 0.0,
+                'total_variance_cash' => 0.0,
+                'variance_shift_count' => 0,
+            ];
+        }
+
+        $hasShiftSummary = $this->db->table_exists('pos_shift_summary');
+        $depositExpr = $this->cashier_close_deposit_expr('sh.id');
+
+        $select = [
+            'COUNT(*) AS shift_count',
+            $hasShiftSummary ? 'COALESCE(SUM(ss.total_order_count), 0) AS total_orders' : '0 AS total_orders',
+            $hasShiftSummary ? 'COALESCE(SUM(ss.total_net_sales), 0) AS total_net_sales' : '0 AS total_net_sales',
+            'COALESCE(SUM(' . $depositExpr . '), 0) AS total_deposit_receipts',
+            'COALESCE(SUM(sh.expected_cash), 0) AS total_expected_cash',
+            'COALESCE(SUM(sh.actual_cash), 0) AS total_actual_cash',
+            'COALESCE(SUM(sh.variance_cash), 0) AS total_variance_cash',
+            'COALESCE(SUM(CASE WHEN ABS(sh.variance_cash) > 0.009 THEN 1 ELSE 0 END), 0) AS variance_shift_count',
+        ];
+
+        $this->db->select(implode(', ', $select), false)
+            ->from('pos_shift sh')
+            ->join('pos_outlet o', 'o.id = sh.outlet_id', 'left')
+            ->join('pos_terminal t', 't.id = sh.terminal_id', 'left')
+            ->join('org_employee eo', 'eo.id = sh.cashier_open_employee_id', 'left')
+            ->join('org_employee ec', 'ec.id = sh.cashier_close_employee_id', 'left');
+
+        if ($hasShiftSummary) {
+            $this->db->join('pos_shift_summary ss', 'ss.shift_id = sh.id', 'left');
+        }
+
+        $this->db->where('sh.status', 'CLOSED');
+        $this->apply_cashier_close_filters($filters);
+        $row = $this->db->get()->row_array();
+
+        return [
+            'shift_count' => (int)($row['shift_count'] ?? 0),
+            'total_orders' => (int)($row['total_orders'] ?? 0),
+            'total_net_sales' => round((float)($row['total_net_sales'] ?? 0), 2),
+            'total_deposit_receipts' => round((float)($row['total_deposit_receipts'] ?? 0), 2),
+            'total_expected_cash' => round((float)($row['total_expected_cash'] ?? 0), 2),
+            'total_actual_cash' => round((float)($row['total_actual_cash'] ?? 0), 2),
+            'total_variance_cash' => round((float)($row['total_variance_cash'] ?? 0), 2),
+            'variance_shift_count' => (int)($row['variance_shift_count'] ?? 0),
+        ];
+    }
+
+    private function apply_cashier_close_filters(array $filters): void
+    {
+        $this->apply_keyword_filter((string)($filters['q'] ?? ''), [
+            'sh.shift_no',
+            'o.outlet_name',
+            't.terminal_name',
+            'eo.employee_name',
+            'ec.employee_name',
+            'sh.notes',
+        ]);
+
+        if ((int)($filters['outlet_id'] ?? 0) > 0) {
+            $this->db->where('sh.outlet_id', (int)$filters['outlet_id']);
+        }
+
+        $this->apply_date_range_filter(
+            'DATE(COALESCE(sh.closed_at, sh.opened_at))',
+            (string)($filters['date_from'] ?? ''),
+            (string)($filters['date_to'] ?? '')
+        );
+    }
+
+    private function cashier_close_deposit_expr(string $shiftExpr): string
+    {
+        if (!$this->db->table_exists('pos_payment')) {
+            return '0';
+        }
+
+        return '(SELECT COALESCE(SUM(p.net_amount), 0) FROM pos_payment p WHERE p.shift_id = ' . $shiftExpr . " AND p.payment_status = 'PAID' AND p.payment_type = 'DEPOSIT')";
+    }
+
+    private function cashier_close_cash_deposit_expr(string $shiftExpr): string
+    {
+        if (!$this->db->table_exists('pos_payment') || !$this->db->table_exists('pos_payment_line') || !$this->db->table_exists('pos_payment_method')) {
+            return '0';
+        }
+
+        return "(SELECT COALESCE(SUM(pl.amount), 0)\n            FROM pos_payment p\n            INNER JOIN pos_payment_line pl ON pl.payment_id = p.id AND pl.status = 'PAID'\n            INNER JOIN pos_payment_method pm ON pm.id = pl.payment_method_id\n            WHERE p.shift_id = " . $shiftExpr . " AND p.payment_status = 'PAID' AND p.payment_type = 'DEPOSIT' AND pm.method_type = 'CASH')";
+    }
+
+    private function cashier_close_snapshot_map(array $shiftIds): array
+    {
+        if (empty($shiftIds) || !$this->db->table_exists('pos_shift_account_summary')) {
+            return [];
+        }
+
+        $rows = $this->db->select('shift_id, company_account_id, account_code, account_name, bank_name, account_label, gross_amount, refund_amount, net_amount, sort_order')
+            ->from('pos_shift_account_summary')
+            ->where_in('shift_id', $shiftIds)
+            ->order_by('shift_id', 'ASC')
+            ->order_by('sort_order', 'ASC')
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $shiftId = (int)($row['shift_id'] ?? 0);
+            if ($shiftId <= 0) {
+                continue;
+            }
+            $accountKey = $this->cashier_close_account_key((int)($row['company_account_id'] ?? 0), $this->cashier_close_account_label($row));
+            if (!isset($map[$shiftId][$accountKey])) {
+                $map[$shiftId][$accountKey] = [
+                    'account_id' => (int)($row['company_account_id'] ?? 0),
+                    'account_label' => $this->cashier_close_account_label($row),
+                    'account_code' => (string)($row['account_code'] ?? ''),
+                    'account_name' => (string)($row['account_name'] ?? ''),
+                    'bank_name' => (string)($row['bank_name'] ?? ''),
+                    'snapshot_gross' => 0.0,
+                    'snapshot_refund' => 0.0,
+                    'snapshot_net' => 0.0,
+                    'mutation_in' => 0.0,
+                    'mutation_out' => 0.0,
+                    'mutation_net' => 0.0,
+                    'variance_net' => 0.0,
+                ];
+            }
+
+            $map[$shiftId][$accountKey]['snapshot_gross'] += round((float)($row['gross_amount'] ?? 0), 2);
+            $map[$shiftId][$accountKey]['snapshot_refund'] += round((float)($row['refund_amount'] ?? 0), 2);
+            $map[$shiftId][$accountKey]['snapshot_net'] += round((float)($row['net_amount'] ?? 0), 2);
+        }
+
+        return $map;
+    }
+
+    private function cashier_close_mutation_map(array $shiftIds): array
+    {
+        if (
+            empty($shiftIds)
+            || !$this->db->table_exists('fin_account_mutation_log')
+            || !$this->db->table_exists('pos_payment')
+            || !$this->db->table_exists('pos_payment_line')
+            || !$this->db->table_exists('pos_refund')
+            || !$this->db->table_exists('pos_order')
+        ) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($shiftIds), '?'));
+        $params = array_merge($shiftIds, $shiftIds, $shiftIds);
+        $sql = "
+            SELECT
+                src.shift_id,
+                src.account_id,
+                MAX(src.account_code) AS account_code,
+                MAX(src.account_name) AS account_name,
+                MAX(src.bank_name) AS bank_name,
+                COALESCE(SUM(src.amount_in), 0) AS mutation_in,
+                COALESCE(SUM(src.amount_out), 0) AS mutation_out
+            FROM (
+                SELECT
+                    p.shift_id,
+                    ml.account_id,
+                    acc.account_code,
+                    acc.account_name,
+                    acc.bank_name,
+                    CASE WHEN ml.mutation_type = 'IN' THEN ml.amount ELSE 0 END AS amount_in,
+                    CASE WHEN ml.mutation_type = 'OUT' THEN ml.amount ELSE 0 END AS amount_out
+                FROM fin_account_mutation_log ml
+                INNER JOIN pos_payment_line pl ON ml.ref_table = 'pos_payment_line' AND ml.ref_id = pl.id
+                INNER JOIN pos_payment p ON p.id = pl.payment_id
+                LEFT JOIN fin_company_account acc ON acc.id = ml.account_id
+                WHERE ml.ref_module = 'POS'
+                  AND p.shift_id IN ($placeholders)
+
+                UNION ALL
+
+                SELECT
+                    p.shift_id,
+                    ml.account_id,
+                    acc.account_code,
+                    acc.account_name,
+                    acc.bank_name,
+                    CASE WHEN ml.mutation_type = 'IN' THEN ml.amount ELSE 0 END AS amount_in,
+                    CASE WHEN ml.mutation_type = 'OUT' THEN ml.amount ELSE 0 END AS amount_out
+                FROM fin_account_mutation_log ml
+                INNER JOIN pos_payment p ON ml.ref_table = 'pos_payment' AND ml.ref_id = p.id
+                LEFT JOIN fin_company_account acc ON acc.id = ml.account_id
+                WHERE ml.ref_module = 'POS'
+                  AND p.shift_id IN ($placeholders)
+
+                UNION ALL
+
+                SELECT
+                    o.shift_id,
+                    ml.account_id,
+                    acc.account_code,
+                    acc.account_name,
+                    acc.bank_name,
+                    CASE WHEN ml.mutation_type = 'IN' THEN ml.amount ELSE 0 END AS amount_in,
+                    CASE WHEN ml.mutation_type = 'OUT' THEN ml.amount ELSE 0 END AS amount_out
+                FROM fin_account_mutation_log ml
+                INNER JOIN pos_refund r ON ml.ref_table = 'pos_refund' AND ml.ref_id = r.id
+                INNER JOIN pos_order o ON o.id = r.order_id
+                LEFT JOIN fin_company_account acc ON acc.id = ml.account_id
+                WHERE ml.ref_module = 'POS'
+                  AND o.shift_id IN ($placeholders)
+            ) src
+            GROUP BY src.shift_id, src.account_id
+        ";
+
+        $rows = $this->db->query($sql, $params)->result_array();
+        $map = [];
+        foreach ($rows as $row) {
+            $shiftId = (int)($row['shift_id'] ?? 0);
+            if ($shiftId <= 0) {
+                continue;
+            }
+            $accountId = (int)($row['account_id'] ?? 0);
+            $accountLabel = $this->cashier_close_account_label($row);
+            $accountKey = $this->cashier_close_account_key($accountId, $accountLabel);
+            $map[$shiftId][$accountKey] = [
+                'account_id' => $accountId,
+                'account_label' => $accountLabel,
+                'account_code' => (string)($row['account_code'] ?? ''),
+                'account_name' => (string)($row['account_name'] ?? ''),
+                'bank_name' => (string)($row['bank_name'] ?? ''),
+                'snapshot_gross' => 0.0,
+                'snapshot_refund' => 0.0,
+                'snapshot_net' => 0.0,
+                'mutation_in' => round((float)($row['mutation_in'] ?? 0), 2),
+                'mutation_out' => round((float)($row['mutation_out'] ?? 0), 2),
+                'mutation_net' => round((float)($row['mutation_in'] ?? 0) - (float)($row['mutation_out'] ?? 0), 2),
+                'variance_net' => 0.0,
+            ];
+        }
+
+        return $map;
+    }
+
+    private function merge_cashier_close_account_rows(array $snapshotRows, array $mutationRows, int $focusAccountId = 0): array
+    {
+        $keys = array_unique(array_merge(array_keys($snapshotRows), array_keys($mutationRows)));
+        $rows = [];
+
+        foreach ($keys as $accountKey) {
+            $snapshot = $snapshotRows[$accountKey] ?? [];
+            $mutation = $mutationRows[$accountKey] ?? [];
+            $accountId = (int)($snapshot['account_id'] ?? $mutation['account_id'] ?? 0);
+            $accountLabel = trim((string)($snapshot['account_label'] ?? $mutation['account_label'] ?? ''));
+            $row = [
+                'account_id' => $accountId,
+                'account_label' => $accountLabel !== '' ? $accountLabel : 'Tanpa rekening',
+                'snapshot_gross' => round((float)($snapshot['snapshot_gross'] ?? 0), 2),
+                'snapshot_refund' => round((float)($snapshot['snapshot_refund'] ?? 0), 2),
+                'snapshot_net' => round((float)($snapshot['snapshot_net'] ?? 0), 2),
+                'mutation_in' => round((float)($mutation['mutation_in'] ?? 0), 2),
+                'mutation_out' => round((float)($mutation['mutation_out'] ?? 0), 2),
+                'mutation_net' => round((float)($mutation['mutation_net'] ?? 0), 2),
+            ];
+            $row['variance_net'] = round($row['snapshot_net'] - $row['mutation_net'], 2);
+            $row['is_focus'] = $focusAccountId > 0 && $accountId === $focusAccountId;
+            $row['has_variance'] = abs((float)$row['variance_net']) > 0.009;
+            $rows[] = $row;
+        }
+
+        usort($rows, static function (array $left, array $right): int {
+            $focusCompare = ((int)!empty($right['is_focus'])) <=> ((int)!empty($left['is_focus']));
+            if ($focusCompare !== 0) {
+                return $focusCompare;
+            }
+            $varianceCompare = abs((float)($right['variance_net'] ?? 0)) <=> abs((float)($left['variance_net'] ?? 0));
+            if ($varianceCompare !== 0) {
+                return $varianceCompare;
+            }
+            $snapshotCompare = (float)($right['snapshot_net'] ?? 0) <=> (float)($left['snapshot_net'] ?? 0);
+            if ($snapshotCompare !== 0) {
+                return $snapshotCompare;
+            }
+            return strcmp((string)($left['account_label'] ?? ''), (string)($right['account_label'] ?? ''));
+        });
+
+        return $rows;
+    }
+
+    private function cashier_close_account_key(int $accountId, string $accountLabel): string
+    {
+        if ($accountId > 0) {
+            return 'id:' . $accountId;
+        }
+
+        $normalized = strtoupper(trim($accountLabel));
+        return 'label:' . md5($normalized !== '' ? $normalized : 'UNKNOWN');
+    }
+
+    private function cashier_close_account_label(array $row): string
+    {
+        $label = trim((string)($row['account_label'] ?? ''));
+        if ($label !== '') {
+            return $label;
+        }
+
+        $code = trim((string)($row['account_code'] ?? ''));
+        $name = trim((string)($row['account_name'] ?? ''));
+        $bank = trim((string)($row['bank_name'] ?? ''));
+
+        $parts = [];
+        if ($code !== '') {
+            $parts[] = $code;
+        }
+        if ($name !== '') {
+            $parts[] = $name;
+        }
+
+        $label = implode(' - ', $parts);
+        if ($bank !== '') {
+            $label .= ($label !== '' ? ' | ' : '') . $bank;
+        }
+
+        return $label !== '' ? $label : 'Tanpa rekening';
+    }
+
+    private function normalize_report_date(string $date): string
+    {
+        $date = trim($date);
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return date('Y-m-d');
+        }
+
+        return $date;
+    }
+
+    private function locate_cashier_close_focus_account(array $accountRows, int $focusAccountId, string $fallbackLabel): array
+    {
+        foreach ($accountRows as $row) {
+            if ($focusAccountId > 0 && (int)($row['account_id'] ?? 0) === $focusAccountId) {
+                return $row;
+            }
+        }
+
+        if (!empty($accountRows)) {
+            return $accountRows[0];
+        }
+
+        return [
+            'account_id' => $focusAccountId,
+            'account_label' => $fallbackLabel,
+            'snapshot_gross' => 0.0,
+            'snapshot_refund' => 0.0,
+            'snapshot_net' => 0.0,
+            'mutation_in' => 0.0,
+            'mutation_out' => 0.0,
+            'mutation_net' => 0.0,
+            'variance_net' => 0.0,
+            'is_focus' => true,
+            'has_variance' => false,
+        ];
+    }
+
+    private function daily_sales_overview(string $date, int $outletId = 0): array
+    {
+        $dateSql = $this->db->escape($date);
+
+        $this->db->from('pos_order o')
+            ->where_not_in('o.status', ['DRAFT', 'PENDING', 'VOID'])
+            ->where('DATE(COALESCE(o.paid_at, o.confirmed_at, o.ordered_at)) = ' . $dateSql, null, false);
+        if ($outletId > 0) {
+            $this->db->where('o.outlet_id', $outletId);
+        }
+
+        $sales = $this->db->select('COUNT(DISTINCT o.id) AS order_count, COALESCE(SUM(o.grand_total), 0) AS gross_sales, COALESCE(SUM(o.paid_total), 0) AS received_gross, COALESCE(SUM(GREATEST(o.grand_total - o.paid_total, 0)), 0) AS pending_amount', false)
+            ->get()
+            ->row_array() ?: [];
+
+        $this->db->from('pos_order o')
+            ->where_in('o.status', ['PENDING', 'PAID_PARTIAL']);
+        if ($outletId > 0) {
+            $this->db->where('o.outlet_id', $outletId);
+        }
+        $this->db->where('DATE(COALESCE(o.paid_at, o.confirmed_at, o.ordered_at)) = ' . $dateSql, null, false);
+        $pendingCount = (int)$this->db->count_all_results();
+
+        $refundQuery = $this->db->select('COALESCE(SUM(r.refund_amount), 0) AS refund_amount', false)
+            ->from('pos_refund r')
+            ->join('pos_order o', 'o.id = r.order_id', 'inner')
+            ->where('r.refund_status', 'POSTED')
+            ->where('DATE(r.refunded_at) = ' . $dateSql, null, false);
+        if ($outletId > 0) {
+            $refundQuery->where('o.outlet_id', $outletId);
+        }
+        $refund = $refundQuery->get()->row_array() ?: [];
+
+        $grossSales = round((float)($sales['gross_sales'] ?? 0), 2);
+        $refundAmount = round((float)($refund['refund_amount'] ?? 0), 2);
+        $receivedGross = round((float)($sales['received_gross'] ?? 0), 2);
+        $netSales = round($grossSales - $refundAmount, 2);
+        $netReceived = round($receivedGross - $refundAmount, 2);
+        $orderCount = (int)($sales['order_count'] ?? 0);
+
+        return [
+            'order_count' => $orderCount,
+            'pending_count' => $pendingCount,
+            'pending_amount' => round((float)($sales['pending_amount'] ?? 0), 2),
+            'gross_sales' => $grossSales,
+            'refund_amount' => $refundAmount,
+            'net_sales' => $netSales,
+            'received_gross' => $receivedGross,
+            'refund_received' => $refundAmount,
+            'net_received' => $netReceived,
+            'selisih' => round($netSales - $netReceived, 2),
+            'aov' => $orderCount > 0 ? round($grossSales / $orderCount, 2) : 0.0,
+        ];
+    }
+
+    private function daily_sales_by_division(string $date, int $outletId = 0): array
+    {
+        $nameExpr = $this->product_division_name_expr('pd');
+        $dateSql = $this->db->escape($date);
+
+        $this->db->select($nameExpr . ' AS division_name, COALESCE(SUM(ol.net_amount), 0) AS revenue', false)
+            ->from('pos_order_line ol')
+            ->join('pos_order o', 'o.id = ol.order_id', 'inner')
+            ->join('mst_product p', 'p.id = ol.product_id', 'left')
+            ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
+            ->where('ol.line_type', 'PRODUCT')
+            ->where('ol.line_status <>', 'VOID')
+            ->where_not_in('o.status', ['DRAFT', 'PENDING', 'VOID'])
+            ->where('DATE(COALESCE(o.paid_at, o.confirmed_at, o.ordered_at)) = ' . $dateSql, null, false)
+            ->group_by('p.product_division_id')
+            ->order_by('COALESCE(pd.sort_order, 9999)', 'ASC', false)
+            ->order_by('division_name', 'ASC');
+        if ($outletId > 0) {
+            $this->db->where('o.outlet_id', $outletId);
+        }
+
+        return $this->db->get()->result_array();
+    }
+
+    private function daily_sales_payment_methods(string $date, int $outletId = 0): array
+    {
+        $dateSql = $this->db->escape($date);
+
+        $query = $this->db->select("pm.id AS payment_method_id, pm.method_name, COALESCE(SUM(CASE WHEN p.payment_type IN ('FINAL', 'DEPOSIT') THEN pl.amount ELSE 0 END), 0) AS gross_amount, COUNT(DISTINCT CASE WHEN p.payment_type IN ('FINAL', 'DEPOSIT') THEN p.id END) AS trx_count", false)
+            ->from('pos_payment_line pl')
+            ->join('pos_payment p', 'p.id = pl.payment_id AND p.payment_status = "PAID" AND pl.status = "PAID"', 'inner', false)
+            ->join('pos_payment_method pm', 'pm.id = pl.payment_method_id', 'inner')
+            ->join('pos_order o', 'o.id = p.order_id', 'left')
+            ->where('DATE(COALESCE(p.paid_at, p.created_at)) = ' . $dateSql, null, false)
+            ->group_by(['pm.id', 'pm.method_name'])
+            ->order_by('gross_amount', 'DESC', false);
+        if ($outletId > 0) {
+            $query->where('o.outlet_id', $outletId);
+        }
+
+        $receiptRows = $query->get()->result_array();
+        $refundQuery = $this->db->select('pm.id AS payment_method_id, pm.method_name, COALESCE(SUM(r.refund_amount), 0) AS refund_amount', false)
+            ->from('pos_refund r')
+            ->join('pos_payment_method pm', 'pm.id = r.payment_method_id', 'left')
+            ->join('pos_order o', 'o.id = r.order_id', 'left')
+            ->where('r.refund_status', 'POSTED')
+            ->where('r.payment_method_id IS NOT NULL', null, false)
+            ->where('DATE(r.refunded_at) = ' . $dateSql, null, false)
+            ->group_by(['pm.id', 'pm.method_name']);
+        if ($outletId > 0) {
+            $refundQuery->where('o.outlet_id', $outletId);
+        }
+        $refundRows = $refundQuery->get()->result_array();
+
+        $merged = [];
+        foreach ($receiptRows as $row) {
+            $methodId = (int)($row['payment_method_id'] ?? 0);
+            $key = $methodId > 0 ? 'id:' . $methodId : 'name:' . md5((string)($row['method_name'] ?? ''));
+            $merged[$key] = [
+                'payment_method_id' => $methodId,
+                'method_name' => (string)($row['method_name'] ?? 'Tanpa Metode'),
+                'gross_amount' => round((float)($row['gross_amount'] ?? 0), 2),
+                'refund_amount' => 0.0,
+                'net_amount' => round((float)($row['gross_amount'] ?? 0), 2),
+                'trx_count' => (int)($row['trx_count'] ?? 0),
+            ];
+        }
+        foreach ($refundRows as $row) {
+            $methodId = (int)($row['payment_method_id'] ?? 0);
+            $key = $methodId > 0 ? 'id:' . $methodId : 'name:' . md5((string)($row['method_name'] ?? ''));
+            if (!isset($merged[$key])) {
+                $merged[$key] = [
+                    'payment_method_id' => $methodId,
+                    'method_name' => (string)($row['method_name'] ?? 'Tanpa Metode'),
+                    'gross_amount' => 0.0,
+                    'refund_amount' => 0.0,
+                    'net_amount' => 0.0,
+                    'trx_count' => 0,
+                ];
+            }
+            $merged[$key]['refund_amount'] = round((float)($row['refund_amount'] ?? 0), 2);
+            $merged[$key]['net_amount'] = round((float)$merged[$key]['gross_amount'] - (float)$merged[$key]['refund_amount'], 2);
+        }
+
+        usort($merged, static function (array $left, array $right): int {
+            return (float)($right['net_amount'] ?? 0) <=> (float)($left['net_amount'] ?? 0);
+        });
+
+        return array_values($merged);
+    }
+
+    private function daily_sales_payment_accounts(string $date, int $outletId = 0): array
+    {
+        $accountExpr = $this->payment_company_account_expr('pl', 'pm');
+        if ($accountExpr === 'NULL' || !$this->db->table_exists('fin_company_account')) {
+            return [];
+        }
+
+        $dateSql = $this->db->escape($date);
+
+        $query = $this->db->select("acc.id AS account_id, COALESCE(acc.bank_name, 'Tanpa Rekening') AS bank_name, COALESCE(acc.account_name, '-') AS account_name, COALESCE(acc.account_no, '-') AS account_no, COALESCE(SUM(CASE WHEN p.payment_type IN ('FINAL', 'DEPOSIT') THEN pl.amount ELSE 0 END), 0) AS gross_amount", false)
+            ->from('pos_payment_line pl')
+            ->join('pos_payment p', 'p.id = pl.payment_id AND p.payment_status = "PAID" AND pl.status = "PAID"', 'inner', false)
+            ->join('pos_payment_method pm', 'pm.id = pl.payment_method_id', 'left')
+            ->join('fin_company_account acc', 'acc.id = ' . $accountExpr, 'left', false)
+            ->join('pos_order o', 'o.id = p.order_id', 'left')
+            ->where('DATE(COALESCE(p.paid_at, p.created_at)) = ' . $dateSql, null, false)
+            ->where($accountExpr . ' IS NOT NULL', null, false)
+            ->group_by(['acc.id', 'acc.bank_name', 'acc.account_name', 'acc.account_no'])
+            ->order_by('gross_amount', 'DESC', false);
+        if ($outletId > 0) {
+            $query->where('o.outlet_id', $outletId);
+        }
+
+        $receiptRows = $query->get()->result_array();
+        $refundQuery = $this->db->select("acc.id AS account_id, COALESCE(acc.bank_name, 'Tanpa Rekening') AS bank_name, COALESCE(acc.account_name, '-') AS account_name, COALESCE(acc.account_no, '-') AS account_no, COALESCE(SUM(r.refund_amount), 0) AS refund_amount", false)
+            ->from('pos_refund r')
+            ->join('fin_company_account acc', 'acc.id = r.company_account_id', 'left')
+            ->join('pos_order o', 'o.id = r.order_id', 'left')
+            ->where('r.refund_status', 'POSTED')
+            ->where('r.company_account_id IS NOT NULL', null, false)
+            ->where('DATE(r.refunded_at) = ' . $dateSql, null, false)
+            ->group_by(['acc.id', 'acc.bank_name', 'acc.account_name', 'acc.account_no']);
+        if ($outletId > 0) {
+            $refundQuery->where('o.outlet_id', $outletId);
+        }
+        $refundRows = $refundQuery->get()->result_array();
+
+        $merged = [];
+        foreach ($receiptRows as $row) {
+            $accountId = (int)($row['account_id'] ?? 0);
+            $key = $accountId > 0 ? 'id:' . $accountId : 'name:' . md5((string)($row['account_name'] ?? ''));
+            $merged[$key] = [
+                'account_id' => $accountId,
+                'bank_name' => (string)($row['bank_name'] ?? 'Tanpa Rekening'),
+                'account_name' => (string)($row['account_name'] ?? '-'),
+                'account_no' => (string)($row['account_no'] ?? '-'),
+                'gross_amount' => round((float)($row['gross_amount'] ?? 0), 2),
+                'refund_amount' => 0.0,
+                'net_amount' => round((float)($row['gross_amount'] ?? 0), 2),
+            ];
+        }
+        foreach ($refundRows as $row) {
+            $accountId = (int)($row['account_id'] ?? 0);
+            $key = $accountId > 0 ? 'id:' . $accountId : 'name:' . md5((string)($row['account_name'] ?? ''));
+            if (!isset($merged[$key])) {
+                $merged[$key] = [
+                    'account_id' => $accountId,
+                    'bank_name' => (string)($row['bank_name'] ?? 'Tanpa Rekening'),
+                    'account_name' => (string)($row['account_name'] ?? '-'),
+                    'account_no' => (string)($row['account_no'] ?? '-'),
+                    'gross_amount' => 0.0,
+                    'refund_amount' => 0.0,
+                    'net_amount' => 0.0,
+                ];
+            }
+            $merged[$key]['refund_amount'] = round((float)($row['refund_amount'] ?? 0), 2);
+            $merged[$key]['net_amount'] = round((float)$merged[$key]['gross_amount'] - (float)$merged[$key]['refund_amount'], 2);
+        }
+
+        usort($merged, static function (array $left, array $right): int {
+            return (float)($right['net_amount'] ?? 0) <=> (float)($left['net_amount'] ?? 0);
+        });
+
+        return array_values($merged);
+    }
+
+    private function daily_sales_shifts(string $date, int $outletId = 0): array
+    {
+        $query = $this->db->select('sh.id, sh.shift_no, sh.opened_at, sh.closed_at, sh.status AS shift_status, eo.employee_name AS cashier_name, COALESCE(ss.total_order_count, 0) AS trx_count, COALESCE(ss.total_net_sales, 0) + COALESCE((SELECT SUM(p.net_amount) FROM pos_payment p WHERE p.shift_id = sh.id AND p.payment_type = "DEPOSIT" AND p.payment_status = "PAID"), 0) AS revenue', false)
+            ->from('pos_shift sh')
+            ->join('org_employee eo', 'eo.id = sh.cashier_open_employee_id', 'left')
+            ->join('pos_shift_summary ss', 'ss.shift_id = sh.id', 'left')
+            ->where('(DATE(sh.opened_at) = ' . $this->db->escape($date) . ' OR DATE(sh.closed_at) = ' . $this->db->escape($date) . ')', null, false)
+            ->order_by('sh.opened_at', 'ASC');
+        if ($outletId > 0) {
+            $query->where('sh.outlet_id', $outletId);
+        }
+
+        return $query->get()->result_array();
+    }
+
+    private function daily_sales_purchase_total(string $date): float
+    {
+        if (!$this->db->table_exists('pur_purchase_order')) {
+            return 0.0;
+        }
+
+        $row = $this->db->select('COALESCE(SUM(grand_total), 0) AS total_purchase', false)
+            ->from('pur_purchase_order')
+            ->where('request_date', $date)
+            ->where_not_in('status', ['DRAFT', 'REJECTED', 'VOID'])
+            ->get()
+            ->row_array();
+
+        return round((float)($row['total_purchase'] ?? 0), 2);
+    }
+
+    private function product_division_name_expr(string $alias = 'pd'): string
+    {
+        $alias = preg_replace('/[^A-Za-z0-9_]/', '', $alias) ?: 'pd';
+        if ($this->db->field_exists('division_name', 'mst_product_division')) {
+            return 'COALESCE(' . $alias . '.division_name, "Lainnya")';
+        }
+        if ($this->db->field_exists('name', 'mst_product_division')) {
+            return 'COALESCE(' . $alias . '.name, "Lainnya")';
+        }
+
+        return '"Lainnya"';
+    }
+
+    private function payment_company_account_expr(string $paymentLineAlias = 'pl', string $paymentMethodAlias = 'pm'): string
+    {
+        $hasPaymentLineAccount = $this->db->field_exists('company_account_id', 'pos_payment_line');
+        $hasPaymentMethodAccount = $this->db->field_exists('company_account_id', 'pos_payment_method');
+
+        if ($hasPaymentLineAccount && $hasPaymentMethodAccount) {
+            return 'COALESCE(' . $paymentLineAlias . '.company_account_id, ' . $paymentMethodAlias . '.company_account_id)';
+        }
+        if ($hasPaymentLineAccount) {
+            return $paymentLineAlias . '.company_account_id';
+        }
+        if ($hasPaymentMethodAccount) {
+            return $paymentMethodAlias . '.company_account_id';
+        }
+
+        return 'NULL';
     }
 
     private function paginate(int $total, int $page, int $limit): array

@@ -2043,6 +2043,34 @@ class Pos extends MY_Controller
         ]);
     }
 
+    public function report_daily_sales()
+    {
+        $pageCode = $this->can('pos.report.daily_sales.index', 'view')
+            ? 'pos.report.daily_sales.index'
+            : $this->report_view_page_code('pos.report.sales.index');
+        $this->require_permission($pageCode, 'view');
+
+        $filters = $this->daily_sales_report_filters();
+        $dataset = $this->Pos_report_model->daily_sales_report((string)$filters['date'], (int)$filters['outlet_id']);
+
+        $this->render('pos/report_daily_sales', [
+            'page_title' => 'Daily Sales POS',
+            'active_menu' => 'pos.report.daily_sales',
+            'report_nav_active' => 'daily_sales',
+            'filters' => $filters,
+            'outlets' => $this->Pos_report_model->outlet_options(),
+            'overview' => (array)($dataset['overview'] ?? []),
+            'pay_methods' => (array)($dataset['pay_methods'] ?? []),
+            'pay_accounts' => (array)($dataset['pay_accounts'] ?? []),
+            'shifts' => (array)($dataset['shifts'] ?? []),
+            'by_division' => (array)($dataset['by_division'] ?? []),
+            'total_purchase' => (float)($dataset['total_purchase'] ?? 0),
+            'net_daily_sales' => (float)($dataset['net_daily_sales'] ?? 0),
+            'prev_date' => date('Y-m-d', strtotime((string)$filters['date'] . ' -1 day')),
+            'next_date' => date('Y-m-d', strtotime((string)$filters['date'] . ' +1 day')),
+        ]);
+    }
+
     public function report_payment_detail($id)
     {
         $pageCode = $this->report_view_page_code('pos.report.payment.index');
@@ -2106,6 +2134,84 @@ class Pos extends MY_Controller
             'overview' => (array)($dataset['overview'] ?? []),
             'meta' => (array)($dataset['meta'] ?? []),
             'outlets' => $this->Pos_report_model->outlet_options(),
+        ]);
+    }
+
+    public function report_cashier_close()
+    {
+        $pageCode = $this->report_view_page_code('pos.report.cashier.close.index');
+        $this->require_permission($pageCode, 'view');
+
+        $this->load->model('Finance_report_model');
+        $filters = $this->cashier_close_report_filters();
+        $accounts = $this->Finance_report_model->active_company_accounts();
+        $selectedAccountId = (int)($filters['account_id'] ?? 0);
+        if ($selectedAccountId <= 0) {
+            $selectedAccountId = $this->Finance_report_model->default_cash_account_id($accounts);
+        }
+
+        $selectedAccount = null;
+        foreach ($accounts as $account) {
+            if ((int)($account['id'] ?? 0) === $selectedAccountId) {
+                $selectedAccount = $account;
+                break;
+            }
+        }
+
+        $filters['account_id'] = $selectedAccountId;
+        $filters['account_label'] = $this->cashier_close_account_label($selectedAccount);
+        $dataset = $this->Pos_report_model->cashier_close_report($filters);
+
+        $this->render('pos/report_cashier_close_index', [
+            'page_title' => 'Laporan Tutup Kasir POS',
+            'active_menu' => 'pos.report.cashier.close',
+            'report_nav_active' => 'cashier_close',
+            'filters' => $filters,
+            'rows' => (array)($dataset['rows'] ?? []),
+            'overview' => (array)($dataset['overview'] ?? []),
+            'meta' => (array)($dataset['meta'] ?? []),
+            'outlets' => $this->Pos_report_model->outlet_options(),
+            'accounts' => $accounts,
+            'selected_account' => $selectedAccount,
+        ]);
+    }
+
+    public function report_cashier_close_detail($id)
+    {
+        $pageCode = $this->report_view_page_code('pos.report.cashier.close.index');
+        $this->require_permission($pageCode, 'view');
+
+        $shiftId = (int)$id;
+        $this->load->model('Finance_report_model');
+        $accounts = $this->Finance_report_model->active_company_accounts();
+        $focusAccountId = max(0, (int)$this->input->get('account_id', true));
+        if ($focusAccountId <= 0) {
+            $focusAccountId = $this->Finance_report_model->default_cash_account_id($accounts);
+        }
+
+        $audit = $this->Pos_report_model->cashier_close_detail($shiftId, $focusAccountId);
+        $report = $this->Pos_model->shift_close_report($shiftId);
+        if (!$audit || !$report) {
+            show_404();
+        }
+
+        $selectedAccount = null;
+        foreach ($accounts as $account) {
+            if ((int)($account['id'] ?? 0) === $focusAccountId) {
+                $selectedAccount = $account;
+                break;
+            }
+        }
+
+        $this->render('pos/report_cashier_close_detail', [
+            'page_title' => 'Detail Tutup Kasir POS',
+            'active_menu' => 'pos.report.cashier.close',
+            'report_nav_active' => 'cashier_close',
+            'row' => $audit,
+            'report' => $report,
+            'accounts' => $accounts,
+            'selected_account' => $selectedAccount,
+            'focus_account_id' => $focusAccountId,
         ]);
     }
 
@@ -2248,6 +2354,50 @@ class Pos extends MY_Controller
             'page' => max(1, (int)$this->input->get('page', true)),
             'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 25)),
         ];
+    }
+
+    private function cashier_close_report_filters(): array
+    {
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'account_id' => max(0, (int)$this->input->get('account_id', true)),
+            'date_from' => $this->report_date_input('date_from'),
+            'date_to' => $this->report_date_input('date_to'),
+            'page' => max(1, (int)$this->input->get('page', true)),
+            'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 25)),
+        ];
+    }
+
+    private function daily_sales_report_filters(): array
+    {
+        return [
+            'date' => $this->report_date_input('date'),
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+        ];
+    }
+
+    private function cashier_close_account_label(?array $account): string
+    {
+        $row = is_array($account) ? $account : [];
+        $code = trim((string)($row['account_code'] ?? ''));
+        $name = trim((string)($row['account_name'] ?? ''));
+        $bank = trim((string)($row['bank_name'] ?? ''));
+
+        $parts = [];
+        if ($code !== '') {
+            $parts[] = $code;
+        }
+        if ($name !== '') {
+            $parts[] = $name;
+        }
+
+        $label = implode(' - ', $parts);
+        if ($bank !== '') {
+            $label .= ($label !== '' ? ' | ' : '') . $bank;
+        }
+
+        return $label !== '' ? $label : 'Brankas / rekening fokus';
     }
 
     private function payment_method_filters(): array
