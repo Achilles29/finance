@@ -4832,19 +4832,28 @@ class Production_model extends CI_Model
                 ->group_by(['division_id', 'destination_type', 'identity_key'])
                 ->get_compiled_select();
 
-            $this->db->select('SUM(COALESCE(s.closing_qty_content,0)) AS qty_balance, AVG(COALESCE(s.avg_cost_per_content,0)) AS avg_cost_per_content', false)
-                ->from('inv_division_monthly_stock s')
-                ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
-                ->where('s.division_id', $divisionId)
-                ->where('s.material_id', $materialId)
-                ->where('s.destination_type', $destinationType);
-            if ($uomId > 0) {
-                $this->db->where('s.content_uom_id', $uomId);
+            $queryStock = static function ($db, string $latestMonthSql, int $targetDivisionId, int $targetMaterialId, string $targetDestinationType, ?int $targetItemId = null, int $targetUomId = 0): array {
+                $db->select('SUM(COALESCE(s.closing_qty_content,0)) AS qty_balance, AVG(COALESCE(s.avg_cost_per_content,0)) AS avg_cost_per_content', false)
+                    ->from('inv_division_monthly_stock s')
+                    ->join('(' . $latestMonthSql . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                    ->where('s.division_id', $targetDivisionId)
+                    ->where('s.material_id', $targetMaterialId)
+                    ->where('s.destination_type', $targetDestinationType);
+                if ($targetUomId > 0) {
+                    $db->where('s.content_uom_id', $targetUomId);
+                }
+                if ($targetItemId !== null && $targetItemId > 0) {
+                    $db->where('s.item_id', $targetItemId);
+                }
+                return (array)$db->get()->row_array();
+            };
+
+            $row = $queryStock($this->db, $latestMonthSubquery, $divisionId, $materialId, $destinationType, $itemId, $uomId);
+            if ((float)($row['qty_balance'] ?? 0) <= 0) {
+                // Some legacy monthly rows carry the content quantity on a different item/UOM profile.
+                // Fall back to the material bucket for the same division + destination so preview matches live formula availability.
+                $row = $queryStock($this->db, $latestMonthSubquery, $divisionId, $materialId, $destinationType, null, 0);
             }
-            if ($itemId !== null && $itemId > 0) {
-                $this->db->where('s.item_id', $itemId);
-            }
-            $row = $this->db->get()->row_array();
             $availableQty = (float)($row['qty_balance'] ?? 0);
             $unitCost = (float)($row['avg_cost_per_content'] ?? 0);
         } elseif (false && $materialId > 0 && $divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {

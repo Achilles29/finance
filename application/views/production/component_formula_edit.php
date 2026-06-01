@@ -103,7 +103,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const materialItemId = t === 'MATERIAL' ? Number(line.material_item_id || 0) : 0;
     const uomLabel = esc(line.uom_code || '-');
     return `
-      <tr>
+      <tr data-source-uom="${uomLabel}">
         <td>
           <select class="form-select form-select-sm line-type">
             <option value="MATERIAL" ${t==='MATERIAL'?'selected':''}>MATERIAL</option>
