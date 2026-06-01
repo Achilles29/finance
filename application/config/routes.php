@@ -171,6 +171,7 @@ $route['purchase/payment/apply'] = 'purchase/payment_apply';
 $route['finance/accounts'] = 'master/index/company-account';
 $route['finance/mutations'] = 'purchase/finance_mutation_index';
 $route['finance/mutations/store'] = 'purchase/finance_mutation_store';
+$route['finance-reports/cash-vault-daily'] = 'finance_reports/cash_vault_daily';
 $route['purchase/stock/opening'] = 'inventory/stock_opening_index';
 $route['purchase/stock/opening/warehouse'] = 'inventory_warehouse/opening';
 $route['purchase/stock/opening/division'] = 'inventory_division/opening';
