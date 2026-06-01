@@ -505,6 +505,14 @@ class MaterialFifoManager
             'allow_any_buy_uom' => ($identity['buy_uom_id'] ?? null) === null,
             'allow_any_profile_key' => ($identity['profile_key'] ?? null) === null,
         ]);
+        if (empty($divisionLots) && ($identity['material_id'] ?? null) !== null) {
+            $divisionLots = $this->findIssueSourceLots($identity, [
+                'allow_any_item_id' => true,
+                'allow_any_buy_uom' => true,
+                'allow_any_content_uom' => true,
+                'allow_any_profile_key' => true,
+            ]);
+        }
 
         $available = 0.0;
         foreach ($divisionLots as $lot) {
@@ -1262,16 +1270,19 @@ class MaterialFifoManager
     {
         $allowAnyItemId = !empty($options['allow_any_item_id']);
         $allowAnyBuyUom = !empty($options['allow_any_buy_uom']);
+        $allowAnyContentUom = !empty($options['allow_any_content_uom']);
         $allowAnyProfileKey = !empty($options['allow_any_profile_key']);
 
         $this->ci->db
             ->from('inv_material_fifo_lot')
             ->where('location_scope', strtoupper((string)$identity['location_scope']))
             ->where('status', 'OPEN')
-            ->where('content_uom_id', (int)$identity['content_uom_id'])
             ->where('qty_balance >', 0, false)
             ->order_by('receipt_date', 'ASC')
             ->order_by('id', 'ASC');
+        if (!$allowAnyContentUom) {
+            $this->ci->db->where('content_uom_id', (int)$identity['content_uom_id']);
+        }
 
         if ($identity['division_id'] === null) {
             $this->ci->db->where('division_id IS NULL', null, false);
