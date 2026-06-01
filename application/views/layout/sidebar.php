@@ -789,13 +789,43 @@ if (!function_exists('_append_pos_report_sidebar_children')) {
 if (!function_exists('_regroup_pos_sidebar_tree')) {
   function _regroup_pos_sidebar_tree(array $tree): array
   {
+    $posOrphans = [];
+    $filteredTree = [];
+    foreach ($tree as $item) {
+      $code = (string)($item['menu_code'] ?? '');
+      if (in_array($code, ['pos.cashier', 'pos.report.group'], true)) {
+        $posOrphans[$code] = $item;
+        continue;
+      }
+      $filteredTree[] = $item;
+    }
+
+    $tree = $filteredTree;
+    $attachedToGroup = false;
+
     foreach ($tree as &$item) {
       if (($item['menu_code'] ?? '') === 'grp.pos') {
-        $item['children'] = _append_pos_operational_sidebar_children((array)($item['children'] ?? []));
-        $item['children'] = _append_pos_report_sidebar_children((array)($item['children'] ?? []));
+        $children = (array)($item['children'] ?? []);
+        foreach ($posOrphans as $orphanCode => $orphanItem) {
+          if (!_sidebar_tree_contains_menu_code($children, $orphanCode)) {
+            $orphanItem['parent_id'] = (int)($item['id'] ?? 0);
+            $children[] = $orphanItem;
+          }
+        }
+        $children = _append_pos_operational_sidebar_children($children);
+        $children = _append_pos_report_sidebar_children($children);
+        $item['children'] = _sort_sidebar_children_by_order($children);
+        $attachedToGroup = true;
       }
     }
     unset($item);
+
+    if (!$attachedToGroup) {
+      foreach ($posOrphans as $orphanItem) {
+        $tree[] = $orphanItem;
+      }
+    }
+
     return $tree;
   }
 }

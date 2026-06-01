@@ -40,6 +40,7 @@ ON DUPLICATE KEY UPDATE
   icon = VALUES(icon),
   url = VALUES(url),
   page_id = VALUES(page_id),
+  parent_id = VALUES(parent_id),
   sort_order = VALUES(sort_order),
   is_active = VALUES(is_active),
   updated_at = CURRENT_TIMESTAMP;
@@ -69,6 +70,7 @@ ON DUPLICATE KEY UPDATE
   icon = VALUES(icon),
   url = VALUES(url),
   page_id = VALUES(page_id),
+  parent_id = VALUES(parent_id),
   sort_order = VALUES(sort_order),
   is_active = VALUES(is_active),
   updated_at = CURRENT_TIMESTAMP;
