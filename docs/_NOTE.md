@@ -69,3 +69,10 @@ cetak ulang printer
 
 
 catatan order
+
+
+kalau gitu cek semua sidebar harus menghormati DB, kalau buat halaman baru harus masuk DB. catat
+
+
+tambahkan tombol cetak di /pos/orders/paid untuk mencetak ulang pesan yang sudah terbayar.
+lalu cek pos_order.notes belum muncul di pengaturan templet printer. saya butuh agar notes bisa masuk dalam cetak printer.

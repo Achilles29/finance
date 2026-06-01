@@ -1,0 +1,189 @@
+2026-06-01 13:45:00,071 [INFO] Printer service start | host=POS-PRINTER-AGENT-01
+2026-06-01 13:45:00,239 [INFO] Printer RPP02 siap | localhost:3000 | MAC 86677A299143 | 80mm
+2026-06-01 13:45:00,239 [INFO] Printer EP5802AI siap | localhost:3001 | MAC 66126E868AC7 | 58mm
+2026-06-01 13:45:00,240 [INFO] Printer RPP02N siap | localhost:3002 | MAC 86677A87177B | 80mm
+2026-06-01 13:45:00,240 [INFO] Printer EP8003AI siap | localhost:3003 | MAC 102233E45439 | 58mm
+2026-06-01 13:45:00,278 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:3001
+2026-06-01 13:45:00,279 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:3000
+2026-06-01 13:45:00,279 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:3002
+2026-06-01 13:45:00,279 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:3003
+2026-06-01 13:45:00,279 [INFO] [33mPress CTRL+C to quit[0m
+2026-06-01 13:45:00,281 [INFO] [33mPress CTRL+C to quit[0m
+2026-06-01 13:45:00,281 [INFO] [33mPress CTRL+C to quit[0m
+2026-06-01 13:45:00,282 [INFO] [33mPress CTRL+C to quit[0m
+2026-06-01 13:45:16,456 [INFO] 127.0.0.1 - - [01/Jun/2026 13:45:16] "GET /health HTTP/1.1" 200 -
+2026-06-01 13:45:16,467 [INFO] 127.0.0.1 - - [01/Jun/2026 13:45:16] "GET /health HTTP/1.1" 200 -
+2026-06-01 13:45:16,477 [INFO] 127.0.0.1 - - [01/Jun/2026 13:45:16] "GET /health HTTP/1.1" 200 -
+2026-06-01 13:45:16,487 [INFO] 127.0.0.1 - - [01/Jun/2026 13:45:16] "GET /health HTTP/1.1" 200 -
+2026-06-01 13:45:19,551 [INFO] 127.0.0.1 - - [01/Jun/2026 13:45:19] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 13:45:43,717 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 13:45:51,942 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 13:45:53,444 [ERROR] Gagal cetak EP5802AI: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 13:45:53,453 [INFO] 127.0.0.1 - - [01/Jun/2026 13:45:53] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 13:46:00,478 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM11': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 13:46:08,887 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM11': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 13:46:10,388 [ERROR] Gagal cetak RPP02N: could not open port 'COM11': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM11': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 13:46:10,390 [INFO] 127.0.0.1 - - [01/Jun/2026 13:46:10] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 13:46:56,443 [INFO] 127.0.0.1 - - [01/Jun/2026 13:46:56] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 13:46:59,345 [INFO] 127.0.0.1 - - [01/Jun/2026 13:46:59] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 13:50:51,086 [INFO] 127.0.0.1 - - [01/Jun/2026 13:50:51] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 13:50:58,046 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM15': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 13:51:02,398 [INFO] 127.0.0.1 - - [01/Jun/2026 13:51:02] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 13:55:12,780 [INFO] 127.0.0.1 - - [01/Jun/2026 13:55:12] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 13:55:16,302 [INFO] 127.0.0.1 - - [01/Jun/2026 13:55:16] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 13:56:15,128 [INFO] 127.0.0.1 - - [01/Jun/2026 13:56:15] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 13:56:22,023 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 13:56:30,575 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 13:56:32,076 [ERROR] Gagal cetak EP5802AI: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 13:56:32,079 [INFO] 127.0.0.1 - - [01/Jun/2026 13:56:32] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 13:56:43,571 [INFO] 127.0.0.1 - - [01/Jun/2026 13:56:43] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 13:56:50,505 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM13': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 13:56:58,935 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM13': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 13:57:00,437 [ERROR] Gagal cetak EP8003AI: could not open port 'COM13': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM13': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 13:57:00,441 [INFO] 127.0.0.1 - - [01/Jun/2026 13:57:00] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 13:58:37,655 [INFO] 127.0.0.1 - - [01/Jun/2026 13:58:37] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 13:58:43,358 [INFO] 127.0.0.1 - - [01/Jun/2026 13:58:43] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 14:02:03,216 [INFO] 127.0.0.1 - - [01/Jun/2026 14:02:03] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:02:09,980 [INFO] 127.0.0.1 - - [01/Jun/2026 14:02:09] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 14:15:02,473 [INFO] 127.0.0.1 - - [01/Jun/2026 14:15:02] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:15:05,785 [INFO] 127.0.0.1 - - [01/Jun/2026 14:15:05] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 14:15:22,579 [INFO] 127.0.0.1 - - [01/Jun/2026 14:15:22] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:15:29,649 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:15:37,951 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:15:39,452 [ERROR] Gagal cetak EP5802AI: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:15:39,456 [INFO] 127.0.0.1 - - [01/Jun/2026 14:15:39] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 14:17:02,714 [INFO] 127.0.0.1 - - [01/Jun/2026 14:17:02] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:17:05,557 [INFO] 127.0.0.1 - - [01/Jun/2026 14:17:05] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 14:17:18,421 [INFO] 127.0.0.1 - - [01/Jun/2026 14:17:18] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:17:25,185 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM13': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:17:34,037 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM13': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:17:35,539 [ERROR] Gagal cetak EP8003AI: could not open port 'COM13': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM13': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:17:35,542 [INFO] 127.0.0.1 - - [01/Jun/2026 14:17:35] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 14:19:38,289 [INFO] 127.0.0.1 - - [01/Jun/2026 14:19:38] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:19:43,861 [INFO] 127.0.0.1 - - [01/Jun/2026 14:19:43] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 14:26:44,774 [INFO] 127.0.0.1 - - [01/Jun/2026 14:26:44] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:26:49,457 [INFO] 127.0.0.1 - - [01/Jun/2026 14:26:49] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 14:27:48,597 [INFO] 127.0.0.1 - - [01/Jun/2026 14:27:48] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:27:55,525 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:28:04,159 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:28:05,661 [ERROR] Gagal cetak EP5802AI: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:28:05,664 [INFO] 127.0.0.1 - - [01/Jun/2026 14:28:05] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 14:30:20,354 [INFO] 127.0.0.1 - - [01/Jun/2026 14:30:20] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:30:27,064 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:30:35,373 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:30:36,874 [ERROR] Gagal cetak EP5802AI: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:30:36,875 [INFO] 127.0.0.1 - - [01/Jun/2026 14:30:36] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 14:36:18,749 [INFO] 127.0.0.1 - - [01/Jun/2026 14:36:18] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:36:25,641 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:36:34,161 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:36:35,663 [ERROR] Gagal cetak EP5802AI: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:36:35,665 [INFO] 127.0.0.1 - - [01/Jun/2026 14:36:35] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 14:37:41,175 [INFO] 127.0.0.1 - - [01/Jun/2026 14:37:41] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:37:48,030 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:37:56,404 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:37:57,906 [ERROR] Gagal cetak EP5802AI: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:37:57,908 [INFO] 127.0.0.1 - - [01/Jun/2026 14:37:57] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 14:39:57,241 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:40:05,631 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:40:07,131 [ERROR] Gagal cetak EP5802AI: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:40:07,133 [INFO] 127.0.0.1 - - [01/Jun/2026 14:40:07] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 14:40:24,405 [INFO] 127.0.0.1 - - [01/Jun/2026 14:40:24] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:40:26,528 [INFO] 127.0.0.1 - - [01/Jun/2026 14:40:26] "GET /health HTTP/1.1" 200 -
+2026-06-01 14:40:26,555 [INFO] 127.0.0.1 - - [01/Jun/2026 14:40:26] "GET /health HTTP/1.1" 200 -
+2026-06-01 14:40:26,581 [INFO] 127.0.0.1 - - [01/Jun/2026 14:40:26] "GET /health HTTP/1.1" 200 -
+2026-06-01 14:40:26,609 [INFO] 127.0.0.1 - - [01/Jun/2026 14:40:26] "GET /health HTTP/1.1" 200 -
+2026-06-01 14:40:30,875 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:40:38,760 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:40:40,261 [ERROR] Gagal cetak EP5802AI: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM3': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:40:40,263 [INFO] 127.0.0.1 - - [01/Jun/2026 14:40:40] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 14:41:19,234 [INFO] 127.0.0.1 - - [01/Jun/2026 14:41:19] "GET /health HTTP/1.1" 200 -
+2026-06-01 14:41:22,707 [INFO] 127.0.0.1 - - [01/Jun/2026 14:41:22] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 14:42:31,842 [INFO] 127.0.0.1 - - [01/Jun/2026 14:42:31] "OPTIONS /cetak HTTP/1.1" 200 -
