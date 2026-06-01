@@ -7,6 +7,8 @@ class Pos extends MY_Controller
     {
         parent::__construct();
         $this->load->model('Pos_model');
+        $this->load->model('Pos_report_model');
+        $this->load->model('Pos_order_monitor_model');
         $this->load->library('PosPrinterPreviewService');
     }
 
@@ -263,7 +265,14 @@ class Pos extends MY_Controller
     public function printers()
     {
         $this->require_permission('pos.printer.index', 'view');
-        redirect('pos/printers/templates');
+        $this->render('pos/printer_index', [
+            'page_title' => 'Printer POS',
+            'active_menu' => 'pos.printer.index',
+            'template_filters' => $this->printer_template_filters(),
+            'profile_filters' => $this->printer_profile_filters(),
+            'device_filters' => $this->printer_device_filters(),
+            'filter_options' => $this->Pos_model->printer_filter_options(),
+        ]);
     }
 
     public function printer_templates()
@@ -765,10 +774,26 @@ class Pos extends MY_Controller
     public function order_draft()
     {
         $this->require_permission('pos.order.draft.index', 'view');
+        $filters = $this->order_draft_filters('UNPAID');
         $this->render('pos/order_draft_index', [
             'page_title' => 'Draft Order POS',
             'active_menu' => 'pos.order.draft.index',
-            'filters' => $this->order_draft_filters(),
+            'workspace_mode' => 'UNPAID',
+            'filters' => $filters,
+            'filter_options' => $this->Pos_model->order_draft_filter_options(),
+        ]);
+    }
+
+    public function order_paid()
+    {
+        $pageCode = $this->order_workspace_page_code('view', 'pos.order.paid.index');
+        $this->require_permission($pageCode, 'view');
+        $filters = $this->order_draft_filters('PAID');
+        $this->render('pos/order_paid_index', [
+            'page_title' => 'Pesanan Terbayar POS',
+            'active_menu' => 'pos.order.paid.index',
+            'workspace_mode' => 'PAID',
+            'filters' => $filters,
             'filter_options' => $this->Pos_model->order_draft_filter_options(),
         ]);
     }
@@ -781,7 +806,7 @@ class Pos extends MY_Controller
         $this->render_cashier('pos/cashier_index', [
             'page_title' => 'Kasir POS',
             'active_menu' => 'pos.cashier.index',
-            'filters' => $this->order_draft_filters(),
+            'filters' => $this->order_draft_filters('MIXED'),
             'filter_options' => $this->Pos_model->order_draft_filter_options(),
             'catalog_filters' => $this->Pos_model->cashier_catalog_filter_options(),
             'cashier_bootstrap' => $bootstrap,
@@ -815,8 +840,36 @@ class Pos extends MY_Controller
             $this->json_error((string)($result['message'] ?? 'Gagal menutup kasir POS.'), 422);
             return;
         }
+
+        $shiftId = (int)($result['shift_id'] ?? 0);
+        $directPrint = $shiftId > 0
+            ? $this->Pos_model->direct_print_targets_for_shift_close($shiftId, (array)($result['report'] ?? []))
+            : ['ok' => true, 'targets' => []];
+
         $this->json_ok([
+            'shift_id' => $shiftId,
             'summary' => (array)($result['summary'] ?? []),
+            'report' => (array)($result['report'] ?? []),
+            'direct_print_targets' => (array)(($directPrint['ok'] ?? false) ? ($directPrint['targets'] ?? []) : []),
+            'print_prepare_message' => !($directPrint['ok'] ?? false)
+                ? (string)($directPrint['message'] ?? 'Payload direct print tutup kasir gagal disiapkan.')
+                : '',
+        ]);
+    }
+
+    public function cashier_close_preview()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        $result = $this->Pos_model->cashier_close_preview($this->current_actor_employee_id());
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Preview tutup kasir belum tersedia.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'shift_id' => (int)($result['shift_id'] ?? 0),
+            'session' => (array)($result['session'] ?? []),
+            'report' => (array)($result['report'] ?? []),
         ]);
     }
 
@@ -827,6 +880,112 @@ class Pos extends MY_Controller
         $this->json_ok([
             'session' => $this->Pos_model->find_active_cashier_session($this->current_actor_employee_id()),
         ]);
+    }
+
+    public function order_monitor()
+    {
+        $pageCode = $this->order_workspace_page_code('view', 'pos.stock.live.index');
+        $this->require_permission($pageCode, 'view');
+        $filters = $this->order_monitor_filters();
+        $this->Pos_order_monitor_model->bootstrap_open_tasks((int)($filters['outlet_id'] ?? 0));
+        $this->render('pos/order_monitor_index', [
+            'page_title' => 'Monitor Dapur, Bar & Checker',
+            'active_menu' => 'pos.order.monitor',
+            'filters' => $filters,
+            'station_options' => $this->Pos_order_monitor_model->station_options(),
+            'outlet_options' => $this->Pos_order_monitor_model->active_outlets(),
+            'payload' => $this->Pos_order_monitor_model->board_payload(
+                (string)($filters['station'] ?? 'ALL'),
+                (int)($filters['outlet_id'] ?? 0),
+                (string)($filters['date_from'] ?? ''),
+                (string)($filters['date_to'] ?? '')
+            ),
+            'poll_ms' => 12000,
+        ]);
+    }
+
+    public function order_monitor_data()
+    {
+        $pageCode = $this->order_workspace_page_code('view', 'pos.stock.live.index');
+        $this->require_permission($pageCode, 'view');
+        $filters = $this->order_monitor_filters();
+        $this->Pos_order_monitor_model->bootstrap_open_tasks((int)($filters['outlet_id'] ?? 0));
+        $this->json_ok([
+            'payload' => $this->Pos_order_monitor_model->board_payload(
+                (string)($filters['station'] ?? 'ALL'),
+                (int)($filters['outlet_id'] ?? 0),
+                (string)($filters['date_from'] ?? ''),
+                (string)($filters['date_to'] ?? '')
+            ),
+        ]);
+    }
+
+    public function order_monitor_ack_task()
+    {
+        $this->handle_order_monitor_task_action('ack');
+    }
+
+    public function order_monitor_ready_task()
+    {
+        $this->handle_order_monitor_task_action('ready');
+    }
+
+    public function order_monitor_checker_task()
+    {
+        $this->handle_order_monitor_task_action('checker');
+    }
+
+    public function order_monitor_ack_order_station()
+    {
+        $pageCode = $this->order_workspace_page_code('edit', 'pos.stock.live.index');
+        $this->require_permission($pageCode, 'edit');
+        $payload = $this->request_payload();
+        $orderId = max(0, (int)($payload['order_id'] ?? 0));
+        $stationRole = strtoupper(trim((string)($payload['station_role'] ?? '')));
+        if ($orderId <= 0 || !in_array($stationRole, ['BAR', 'KITCHEN'], true)) {
+            $this->json_error('Order atau stasiun monitor tidak valid.', 422);
+            return;
+        }
+        if (!$this->Pos_order_monitor_model->ack_order_station($orderId, $stationRole, $this->current_actor_employee_id())) {
+            $this->json_error('Task stasiun gagal diterima.', 422);
+            return;
+        }
+        $this->json_ok(['order_id' => $orderId, 'station_role' => $stationRole]);
+    }
+
+    public function order_monitor_ready_order_station()
+    {
+        $pageCode = $this->order_workspace_page_code('edit', 'pos.stock.live.index');
+        $this->require_permission($pageCode, 'edit');
+        $payload = $this->request_payload();
+        $orderId = max(0, (int)($payload['order_id'] ?? 0));
+        $stationRole = strtoupper(trim((string)($payload['station_role'] ?? '')));
+        if ($orderId <= 0 || !in_array($stationRole, ['BAR', 'KITCHEN'], true)) {
+            $this->json_error('Order atau stasiun monitor tidak valid.', 422);
+            return;
+        }
+        if (!$this->Pos_order_monitor_model->ready_order_station($orderId, $stationRole, $this->current_actor_employee_id())) {
+            $this->json_error('Task stasiun gagal ditandai siap.', 422);
+            return;
+        }
+        $this->json_ok(['order_id' => $orderId, 'station_role' => $stationRole]);
+    }
+
+    public function order_monitor_checker_order()
+    {
+        $pageCode = $this->order_workspace_page_code('edit', 'pos.stock.live.index');
+        $this->require_permission($pageCode, 'edit');
+        $payload = $this->request_payload();
+        $orderId = max(0, (int)($payload['order_id'] ?? 0));
+        if ($orderId <= 0) {
+            $this->json_error('Order monitor tidak valid.', 422);
+            return;
+        }
+        if (!$this->Pos_order_monitor_model->checker_order($orderId, $this->current_actor_employee_id())) {
+            $this->json_error('Task checker gagal diselesaikan.', 422);
+            return;
+        }
+        $this->json_ok(['order_id' => $orderId]);
     }
 
     public function stock_live()
@@ -1005,21 +1164,29 @@ class Pos extends MY_Controller
 
     public function order_draft_data()
     {
-        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $pageCode = $this->order_workspace_page_code('view');
         $this->require_permission($pageCode, 'view');
-        $this->json_ok($this->Pos_model->order_draft_rows($this->order_draft_filters()));
+        $workspaceMode = strtoupper(trim((string)$this->input->get('workspace_mode', true)));
+        if (!in_array($workspaceMode, ['UNPAID', 'PAID', 'MIXED'], true)) {
+            $workspaceMode = 'MIXED';
+        }
+        $this->json_ok($this->Pos_model->order_draft_rows($this->order_draft_filters($workspaceMode)));
     }
 
     public function order_draft_load($id)
     {
-        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $pageCode = $this->order_workspace_page_code('view');
         $this->require_permission($pageCode, 'view');
         $result = $this->Pos_model->find_order_draft((int)$id);
         if (!$result) {
             $this->json_error('Draft order tidak ditemukan.', 404);
             return;
         }
-        $this->json_ok($result);
+        $this->json_ok($result + [
+            'payments' => $this->Pos_report_model->order_payment_rows((int)$id),
+            'refunds' => $this->Pos_report_model->order_refund_rows((int)$id),
+            'voids' => $this->Pos_report_model->order_void_rows((int)$id),
+        ]);
     }
 
     public function order_draft_member_search()
@@ -1228,6 +1395,8 @@ class Pos extends MY_Controller
             return;
         }
 
+        $this->Pos_order_monitor_model->sync_order_tasks($orderId);
+
         $kickoff = [
             'ok' => false,
             'mode' => 'client_trigger_required',
@@ -1272,6 +1441,36 @@ class Pos extends MY_Controller
         $this->json_ok([
             'id' => (int)$id,
             'snapshot_id' => $snapshotId,
+            'direct_print_targets' => (array)($directPrint['targets'] ?? []),
+        ]);
+    }
+
+    public function order_void_print_targets($id)
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        $directPrint = $this->Pos_model->direct_print_targets_for_void((int)$id);
+        if (!($directPrint['ok'] ?? false)) {
+            $this->json_error((string)($directPrint['message'] ?? 'Payload direct print void gagal disiapkan.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)$id,
+            'direct_print_targets' => (array)($directPrint['targets'] ?? []),
+        ]);
+    }
+
+    public function order_refund_print_targets($id)
+    {
+        $pageCode = $this->can('pos.order.paid.index', 'view') ? 'pos.order.paid.index' : 'pos.cashier.index';
+        $this->require_permission($pageCode, 'view');
+        $directPrint = $this->Pos_model->direct_print_targets_for_refund((int)$id);
+        if (!($directPrint['ok'] ?? false)) {
+            $this->json_error((string)($directPrint['message'] ?? 'Payload direct print refund gagal disiapkan.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)$id,
             'direct_print_targets' => (array)($directPrint['targets'] ?? []),
         ]);
     }
@@ -1574,7 +1773,7 @@ class Pos extends MY_Controller
 
     public function order_reversal_preview($id)
     {
-        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $pageCode = $this->order_workspace_page_code('view');
         $this->require_permission($pageCode, 'view');
         $result = $this->Pos_model->order_reversal_preview((int)$id);
         if (!($result['ok'] ?? false)) {
@@ -1584,9 +1783,77 @@ class Pos extends MY_Controller
         $this->json_ok($result);
     }
 
+    public function order_payment_prepare($id)
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : $this->order_workspace_page_code('view');
+        $this->require_permission($pageCode, 'view');
+        $result = $this->Pos_model->cashier_payment_prepare((int)$id, $this->current_actor_employee_id());
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyiapkan pembayaran POS.'), 422);
+            return;
+        }
+        $this->json_ok($result);
+    }
+
+    public function order_payment_voucher_search()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : $this->order_workspace_page_code('view');
+        $this->require_permission($pageCode, 'view');
+        $orderId = (int)$this->input->get('order_id', true);
+        $q = trim((string)$this->input->get('q', true));
+        $limit = max(1, min(12, (int)$this->input->get('limit', true)));
+        $result = $this->Pos_model->search_cashier_vouchers($orderId, $this->current_actor_employee_id(), $q, $limit);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal memeriksa voucher pembayaran POS.'), 422, [
+                'rows' => (array)($result['rows'] ?? []),
+            ]);
+            return;
+        }
+        $this->json_ok([
+            'rows' => (array)($result['rows'] ?? []),
+        ]);
+    }
+
+    public function order_payment_save()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : $this->order_workspace_page_code('edit');
+        $this->require_permission($pageCode, 'edit');
+        $payload = $this->request_payload();
+        $result = $this->Pos_model->save_cashier_payment($payload, $this->current_actor_employee_id());
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan pembayaran POS.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)($result['id'] ?? 0),
+            'payment_no' => (string)($result['payment_no'] ?? ''),
+            'order_status' => (string)($result['order_status'] ?? 'PAID'),
+            'paid_now' => (float)($result['paid_now'] ?? 0),
+            'entered_now' => (float)($result['entered_now'] ?? 0),
+            'change_total' => (float)($result['change_total'] ?? 0),
+            'remaining_due' => (float)($result['remaining_due'] ?? 0),
+            'loyalty' => (array)($result['loyalty'] ?? []),
+        ]);
+    }
+
+    public function order_payment_print_targets($id)
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : $this->order_workspace_page_code('view');
+        $this->require_permission($pageCode, 'view');
+        $directPrint = $this->Pos_model->direct_print_targets_for_payment((int)$id);
+        if (!($directPrint['ok'] ?? false)) {
+            $this->json_error((string)($directPrint['message'] ?? 'Payload direct print payment gagal disiapkan.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)$id,
+            'direct_print_targets' => (array)($directPrint['targets'] ?? []),
+        ]);
+    }
+
     public function order_void_save()
     {
-        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $pageCode = $this->order_workspace_page_code('edit');
         $this->require_permission($pageCode, 'edit');
         $payload = $this->request_payload();
         $result = $this->Pos_model->save_order_void($payload, $this->current_actor_employee_id());
@@ -1594,10 +1861,12 @@ class Pos extends MY_Controller
             $this->json_error((string)($result['message'] ?? 'Gagal menyimpan void POS.'), 422);
             return;
         }
+        $this->Pos_order_monitor_model->sync_order_tasks((int)($payload['order_id'] ?? 0));
         $availabilityRefresh = $this->trigger_stock_live_refresh_for_order((int)($payload['order_id'] ?? 0), 'ORDER_VOID', (int)($result['id'] ?? 0), false);
         $this->json_ok([
             'id' => (int)($result['id'] ?? 0),
             'void_no' => (string)($result['void_no'] ?? ''),
+            'order_status' => (string)($result['order_status'] ?? ''),
             'availability_rebuild' => [
                 'success_count' => (int)($availabilityRefresh['success_count'] ?? 0),
                 'failed_count' => (int)($availabilityRefresh['failed_count'] ?? 0),
@@ -1607,7 +1876,7 @@ class Pos extends MY_Controller
 
     public function order_refund_save()
     {
-        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $pageCode = $this->order_workspace_page_code('edit', 'pos.order.paid.index');
         $this->require_permission($pageCode, 'edit');
         $payload = $this->request_payload();
         $result = $this->Pos_model->save_order_refund($payload, $this->current_actor_employee_id());
@@ -1615,14 +1884,209 @@ class Pos extends MY_Controller
             $this->json_error((string)($result['message'] ?? 'Gagal menyimpan refund POS.'), 422);
             return;
         }
+        $this->Pos_order_monitor_model->sync_order_tasks((int)($payload['order_id'] ?? 0));
         $availabilityRefresh = $this->trigger_stock_live_refresh_for_order((int)($payload['order_id'] ?? 0), 'ORDER_REFUND', (int)($result['id'] ?? 0), false);
         $this->json_ok([
             'id' => (int)($result['id'] ?? 0),
             'refund_no' => (string)($result['refund_no'] ?? ''),
+            'order_status' => (string)($result['order_status'] ?? ''),
             'availability_rebuild' => [
                 'success_count' => (int)($availabilityRefresh['success_count'] ?? 0),
                 'failed_count' => (int)($availabilityRefresh['failed_count'] ?? 0),
             ],
+        ]);
+    }
+
+    public function report_sales()
+    {
+        $pageCode = $this->report_view_page_code('pos.report.sales.index');
+        $this->require_permission($pageCode, 'view');
+        $filters = $this->sales_report_filters();
+        $dataset = $this->Pos_report_model->sales_summary_report($filters);
+        $this->render('pos/report_sales_index', [
+            'page_title' => 'Laporan Penjualan POS',
+            'active_menu' => 'pos.report.sales',
+            'report_nav_active' => 'sales',
+            'filters' => $filters,
+            'rows' => (array)($dataset['rows'] ?? []),
+            'overview' => (array)($dataset['overview'] ?? []),
+            'meta' => (array)($dataset['meta'] ?? []),
+            'outlets' => $this->Pos_report_model->outlet_options(),
+            'payment_methods' => $this->Pos_model->deposit_payment_method_options(),
+        ]);
+    }
+
+    public function report_sales_detail()
+    {
+        $pageCode = $this->report_view_page_code('pos.report.sales.detail.index');
+        $this->require_permission($pageCode, 'view');
+        $filters = $this->sales_report_filters();
+        $dataset = $this->Pos_report_model->sales_detail_report($filters);
+        $this->render('pos/report_sales_detail_index', [
+            'page_title' => 'Laporan Penjualan Produk POS',
+            'active_menu' => 'pos.report.sales.detail',
+            'report_nav_active' => 'sales_detail',
+            'filters' => $filters,
+            'rows' => (array)($dataset['rows'] ?? []),
+            'overview' => (array)($dataset['overview'] ?? []),
+            'meta' => (array)($dataset['meta'] ?? []),
+            'outlets' => $this->Pos_report_model->outlet_options(),
+        ]);
+    }
+
+    public function report_sales_transaction($id)
+    {
+        $pageCode = $this->report_view_page_code('pos.report.sales.detail.index');
+        $this->require_permission($pageCode, 'view');
+        $order = $this->Pos_model->find_order_draft((int)$id);
+        if (!$order) {
+            show_404();
+        }
+        $this->render('pos/report_sales_transaction', [
+            'page_title' => 'Detail Transaksi POS',
+            'active_menu' => 'pos.report.sales',
+            'order' => $order,
+            'payments' => $this->Pos_report_model->order_payment_rows((int)$id),
+            'refunds' => $this->Pos_report_model->order_refund_rows((int)$id),
+            'voids' => $this->Pos_report_model->order_void_rows((int)$id),
+            'point_ledgers' => $this->Pos_report_model->order_point_ledger_rows((int)$id),
+            'stamp_ledgers' => $this->Pos_report_model->order_stamp_ledger_rows((int)$id),
+            'voucher_redemptions' => $this->Pos_report_model->order_voucher_redemption_rows((int)$id),
+            'voucher_issues' => $this->Pos_report_model->order_voucher_issue_rows((int)$id),
+            'payment_method_options' => $this->Pos_model->deposit_payment_method_options(),
+            'can_edit_payment_method' => $this->can_edit_sales_transaction_payment(),
+        ]);
+    }
+
+    public function report_sales_payment_line_update($id)
+    {
+        if (!$this->can_edit_sales_transaction_payment()) {
+            $this->json_error('Anda tidak memiliki izin untuk mengubah metode pembayaran transaksi POS.', 403);
+            return;
+        }
+
+        $paymentMethodId = (int)$this->input->post('payment_method_id', true);
+        $result = $this->Pos_model->update_payment_line_method((int)$id, $paymentMethodId, $this->current_actor_employee_id());
+        if (!($result['ok'] ?? false)) {
+            $statusCode = max(400, (int)($result['status_code'] ?? 422));
+            $this->json_error((string)($result['message'] ?? 'Gagal memperbarui metode pembayaran.'), $statusCode);
+            return;
+        }
+
+        $this->json_ok([
+            'message' => (string)($result['message'] ?? 'Metode pembayaran berhasil diperbarui.'),
+            'line' => (array)($result['line'] ?? []),
+        ]);
+    }
+
+    public function report_payments()
+    {
+        $pageCode = $this->report_view_page_code('pos.report.payment.index');
+        $this->require_permission($pageCode, 'view');
+        $filters = $this->payment_report_filters();
+        $dataset = $this->Pos_report_model->payment_report($filters);
+        $this->render('pos/report_payment_index', [
+            'page_title' => 'Laporan Pembayaran POS',
+            'active_menu' => 'pos.report.payment',
+            'filters' => $filters,
+            'rows' => (array)($dataset['rows'] ?? []),
+            'overview' => (array)($dataset['overview'] ?? []),
+            'meta' => (array)($dataset['meta'] ?? []),
+            'outlets' => $this->Pos_report_model->outlet_options(),
+        ]);
+    }
+
+    public function report_payment_detail($id)
+    {
+        $pageCode = $this->report_view_page_code('pos.report.payment.index');
+        $this->require_permission($pageCode, 'view');
+        $row = $this->Pos_report_model->find_payment((int)$id);
+        if (!$row) {
+            show_404();
+        }
+        $this->render('pos/report_payment_detail', [
+            'page_title' => 'Detail Pembayaran POS',
+            'active_menu' => 'pos.report.payment',
+            'row' => $row,
+            'lines' => $this->Pos_report_model->payment_lines((int)$id),
+        ]);
+    }
+
+    public function report_refunds()
+    {
+        $pageCode = $this->report_view_page_code('pos.report.refund.index');
+        $this->require_permission($pageCode, 'view');
+        $filters = $this->refund_report_filters();
+        $dataset = $this->Pos_report_model->refund_report($filters);
+        $this->render('pos/report_refund_index', [
+            'page_title' => 'Laporan Refund POS',
+            'active_menu' => 'pos.report.refund',
+            'filters' => $filters,
+            'rows' => (array)($dataset['rows'] ?? []),
+            'overview' => (array)($dataset['overview'] ?? []),
+            'meta' => (array)($dataset['meta'] ?? []),
+            'outlets' => $this->Pos_report_model->outlet_options(),
+        ]);
+    }
+
+    public function report_refund_detail($id)
+    {
+        $pageCode = $this->report_view_page_code('pos.report.refund.index');
+        $this->require_permission($pageCode, 'view');
+        $row = $this->Pos_report_model->find_refund((int)$id);
+        if (!$row) {
+            show_404();
+        }
+        $this->render('pos/report_refund_detail', [
+            'page_title' => 'Detail Refund POS',
+            'active_menu' => 'pos.report.refund',
+            'row' => $row,
+            'lines' => $this->Pos_report_model->refund_lines((int)$id),
+        ]);
+    }
+
+    public function report_voids()
+    {
+        $pageCode = $this->report_view_page_code('pos.report.void.index');
+        $this->require_permission($pageCode, 'view');
+        $filters = $this->void_report_filters();
+        $dataset = $this->Pos_report_model->void_report($filters);
+        $this->render('pos/report_void_index', [
+            'page_title' => 'Laporan Void POS',
+            'active_menu' => 'pos.report.void',
+            'filters' => $filters,
+            'rows' => (array)($dataset['rows'] ?? []),
+            'overview' => (array)($dataset['overview'] ?? []),
+            'meta' => (array)($dataset['meta'] ?? []),
+            'outlets' => $this->Pos_report_model->outlet_options(),
+        ]);
+    }
+
+    public function report_void_detail($id)
+    {
+        $pageCode = $this->report_view_page_code('pos.report.void.index');
+        $this->require_permission($pageCode, 'view');
+        $row = $this->Pos_report_model->find_void((int)$id);
+        if (!$row) {
+            show_404();
+        }
+
+        $extras = $this->Pos_report_model->void_extras((int)$id);
+        $extrasByVoidLine = [];
+        foreach ($extras as $extra) {
+            $voidLineId = (int)($extra['void_line_id'] ?? 0);
+            if (!isset($extrasByVoidLine[$voidLineId])) {
+                $extrasByVoidLine[$voidLineId] = [];
+            }
+            $extrasByVoidLine[$voidLineId][] = $extra;
+        }
+
+        $this->render('pos/report_void_detail', [
+            'page_title' => 'Detail Void POS',
+            'active_menu' => 'pos.report.void',
+            'row' => $row,
+            'lines' => $this->Pos_report_model->void_lines((int)$id),
+            'extras_by_void_line' => $extrasByVoidLine,
         ]);
     }
 
@@ -1645,6 +2109,97 @@ class Pos extends MY_Controller
             'tier' => trim((string)$this->input->get('tier', true)),
             'page' => max(1, (int)$this->input->get('page', true)),
             'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 50)),
+        ];
+    }
+
+    private function sales_report_filters(): array
+    {
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['ALL', 'CONFIRMED', 'PAID_PARTIAL', 'PAID', 'IN_KITCHEN', 'READY', 'SERVED', 'REFUND_PARTIAL', 'REFUND_FULL'], true)) {
+            $status = 'ALL';
+        }
+
+        $orderScope = strtoupper(trim((string)$this->input->get('order_scope', true)));
+        if (!in_array($orderScope, ['ALL', 'REGULAR', 'EVENT'], true)) {
+            $orderScope = 'ALL';
+        }
+
+        $serviceType = strtoupper(trim((string)$this->input->get('service_type', true)));
+        if (!in_array($serviceType, ['ALL', 'DINE_IN', 'TAKE_AWAY', 'DELIVERY', 'PICKUP'], true)) {
+            $serviceType = 'ALL';
+        }
+
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'status' => $status,
+            'order_scope' => $orderScope,
+            'service_type' => $serviceType,
+            'payment_method_id' => max(0, (int)$this->input->get('payment_method_id', true)),
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'date_from' => $this->optional_report_date_input('date_from'),
+            'date_to' => $this->optional_report_date_input('date_to'),
+            'page' => max(1, (int)$this->input->get('page', true)),
+            'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 25)),
+        ];
+    }
+
+    private function payment_report_filters(): array
+    {
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['ALL', 'PENDING', 'PAID', 'FAILED', 'VOID'], true)) {
+            $status = 'ALL';
+        }
+
+        $paymentType = strtoupper(trim((string)$this->input->get('payment_type', true)));
+        if (!in_array($paymentType, ['ALL', 'FINAL', 'DEPOSIT', 'REFUND'], true)) {
+            $paymentType = 'FINAL';
+        }
+
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'status' => $status,
+            'payment_type' => $paymentType,
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'date_from' => $this->report_date_input('date_from'),
+            'date_to' => $this->report_date_input('date_to'),
+            'page' => max(1, (int)$this->input->get('page', true)),
+            'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 25)),
+        ];
+    }
+
+    private function refund_report_filters(): array
+    {
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['ALL', 'POSTED', 'VOID'], true)) {
+            $status = 'ALL';
+        }
+
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'status' => $status,
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'date_from' => $this->report_date_input('date_from'),
+            'date_to' => $this->report_date_input('date_to'),
+            'page' => max(1, (int)$this->input->get('page', true)),
+            'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 25)),
+        ];
+    }
+
+    private function void_report_filters(): array
+    {
+        $voidScope = strtoupper(trim((string)$this->input->get('void_scope', true)));
+        if (!in_array($voidScope, ['ALL', 'FULL', 'PARTIAL'], true)) {
+            $voidScope = 'ALL';
+        }
+
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'void_scope' => $voidScope,
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'date_from' => $this->optional_report_date_input('date_from'),
+            'date_to' => $this->optional_report_date_input('date_to'),
+            'page' => max(1, (int)$this->input->get('page', true)),
+            'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 25)),
         ];
     }
 
@@ -1800,6 +2355,51 @@ class Pos extends MY_Controller
         ];
     }
 
+    private function order_monitor_filters(): array
+    {
+        $station = strtoupper(trim((string)$this->input->get('station', true)));
+        if (!in_array($station, ['ALL', 'BAR', 'KITCHEN', 'CHECKER'], true)) {
+            $station = 'ALL';
+        }
+
+        return [
+            'station' => $station,
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'date_from' => $this->optional_report_date_input('date_from') ?: date('Y-m-d'),
+            'date_to' => $this->optional_report_date_input('date_to') ?: date('Y-m-d'),
+        ];
+    }
+
+    private function handle_order_monitor_task_action(string $action): void
+    {
+        $pageCode = $this->order_workspace_page_code('edit', 'pos.stock.live.index');
+        $this->require_permission($pageCode, 'edit');
+        $payload = $this->request_payload();
+        $taskId = max(0, (int)($payload['task_id'] ?? 0));
+        if ($taskId <= 0) {
+            $this->json_error('Task monitor tidak valid.', 422);
+            return;
+        }
+
+        if ($action === 'ack') {
+            $ok = $this->Pos_order_monitor_model->ack_task($taskId, $this->current_actor_employee_id());
+            $errorMessage = 'Task gagal diterima.';
+        } elseif ($action === 'ready') {
+            $ok = $this->Pos_order_monitor_model->ready_task($taskId, $this->current_actor_employee_id());
+            $errorMessage = 'Task gagal ditandai siap.';
+        } else {
+            $ok = $this->Pos_order_monitor_model->checker_task($taskId, $this->current_actor_employee_id());
+            $errorMessage = 'Task checker gagal diselesaikan.';
+        }
+
+        if (!$ok) {
+            $this->json_error($errorMessage, 422);
+            return;
+        }
+
+        $this->json_ok(['task_id' => $taskId]);
+    }
+
     private function trigger_stock_live_refresh_for_order(int $orderId, string $eventSource, ?int $eventId = null, bool $rebuildNow = true): array
     {
         $order = $this->Pos_model->find_order_draft($orderId);
@@ -1844,19 +2444,84 @@ class Pos extends MY_Controller
         ]);
     }
 
-    private function order_draft_filters(): array
+    private function order_workspace_page_code(string $ability = 'view', string $preferredPageCode = ''): string
     {
+        if ($preferredPageCode !== '' && $this->can($preferredPageCode, $ability)) {
+            return $preferredPageCode;
+        }
+        if ($this->can('pos.cashier.index', $ability)) {
+            return 'pos.cashier.index';
+        }
+        return 'pos.order.draft.index';
+    }
+
+    private function order_draft_filters(string $workspaceMode = 'MIXED'): array
+    {
+        $workspaceMode = strtoupper(trim($workspaceMode));
         $status = strtoupper(trim((string)$this->input->get('status', true)));
-        if (!in_array($status, ['DRAFT', 'CONFIRMED', 'ALL'], true)) {
-            $status = 'ALL';
+        $allowedStatuses = ['DRAFT', 'CONFIRMED', 'PAID', 'ALL'];
+        $defaultStatus = 'ALL';
+        if ($workspaceMode === 'UNPAID') {
+            $allowedStatuses = ['DRAFT', 'CONFIRMED', 'ALL'];
+            $defaultStatus = 'DRAFT';
+        } elseif ($workspaceMode === 'PAID') {
+            $allowedStatuses = ['PAID', 'ALL'];
+            $defaultStatus = 'PAID';
+        }
+        if (!in_array($status, $allowedStatuses, true)) {
+            $status = $defaultStatus;
         }
         return [
             'q' => trim((string)$this->input->get('q', true)),
             'status' => $status,
+            'workspace_mode' => $workspaceMode,
             'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
             'page' => max(1, (int)$this->input->get('page', true)),
             'limit' => max(1, min(100, (int)$this->input->get('limit', true) ?: 20)),
         ];
+    }
+
+    private function report_view_page_code(string $preferredPageCode): string
+    {
+        if ($preferredPageCode !== '' && $this->can($preferredPageCode, 'view')) {
+            return $preferredPageCode;
+        }
+        if ($this->can('pos.order.draft.index', 'view')) {
+            return 'pos.order.draft.index';
+        }
+        if ($this->can('pos.cashier.index', 'view')) {
+            return 'pos.cashier.index';
+        }
+        if ($this->can('pos.stock.live.index', 'view')) {
+            return 'pos.stock.live.index';
+        }
+        return 'pos.order.draft.index';
+    }
+
+    private function can_edit_sales_transaction_payment(): bool
+    {
+        return $this->can('pos.report.sales.detail.index', 'edit')
+            || $this->can('pos.report.sales.index', 'edit')
+            || $this->can('pos.order.draft.index', 'edit')
+            || $this->can('pos.cashier.index', 'edit');
+    }
+
+    private function report_date_input(string $key): string
+    {
+        $value = trim((string)$this->input->get($key, true));
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return $value;
+        }
+        return date('Y-m-d');
+    }
+
+    private function optional_report_date_input(string $key): string
+    {
+        $value = trim((string)$this->input->get($key, true));
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return $value;
+        }
+        return '';
     }
 
     private function current_actor_employee_id(): int

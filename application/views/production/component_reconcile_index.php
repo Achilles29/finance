@@ -136,7 +136,7 @@ $statusChip = static function (array $row): array {
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
     <h3 class="mb-1">Rekonsiliasi Base/Prepare</h3>
-    <div class="text-muted small">Bandingkan saldo live component, closing daily rollup terakhir hingga tanggal acuan, dan closing hasil movement log.</div>
+    <div class="text-muted small">Bandingkan saldo live component, closing proyeksi harian hingga tanggal acuan, dan closing hasil movement log.</div>
   </div>
   <div class="text-muted small">Tanggal acuan: <strong><?php echo html_escape((string)($as_of_date ?? date('Y-m-d'))); ?></strong></div>
 </div>
@@ -196,7 +196,7 @@ $statusChip = static function (array $row): array {
         <th style="min-width:240px;">Component</th>
         <th>Lokasi</th>
         <th class="text-end">Saldo Live</th>
-        <th class="text-end">Daily Rollup</th>
+        <th class="text-end">Proyeksi Harian</th>
         <th class="text-end">Movement</th>
         <th class="text-end">Live vs Daily</th>
         <th class="text-end">Live vs Movement</th>
@@ -439,7 +439,7 @@ document.addEventListener('DOMContentLoaded', function () {
     renderAudit(identity, json);
   }
   async function runRepair(identity, button) {
-    const confirmed = await askConfirm('Repair component ini akan rebuild daily rollup dan stock balance untuk identity yang dipilih. Lanjutkan?', {
+    const confirmed = await askConfirm('Repair component ini akan rebuild artefak kompatibilitas dan sinkronkan ulang dari movement log untuk identity yang dipilih. Lanjutkan?', {
       title: 'Repair Reconcile Component',
       confirmText: 'Repair',
       cancelText: 'Batal'

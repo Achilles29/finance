@@ -1,5 +1,5 @@
 # Roadmap Pengembangan — Finance App
-**Terakhir diperbarui:** 2026-05-30 (POS queue background stock commit dan audit retry UI)  
+**Terakhir diperbarui:** 2026-06-01 (POS cashier/payment/report/shift-close hardening + snapshot rekening tutup shift + printer workspace parity review)  
 **Target selesai:** 31 Mei 2026 (stabilisasi)  
 **Target live:** 1 Juni 2026
 
@@ -30,10 +30,10 @@ Tahap 2  — Master Data                  ✅ GATE CLOSED
 Tahap 3  — HR & Organisasi              🟡 BERJALAN (80%)
 Tahap 4  — Absensi                      🟡 BERJALAN (95%)
 Tahap 5  — Payroll & Penggajian         🟡 BERJALAN (85%)
-Tahap 6  — Pembelian (Purchase)         🟡 BERJALAN (92%)
-Tahap 7  — Inventori & Gudang           🟡 BERJALAN (72%)
-Tahap 8  — Produksi & COGS              🟡 BERJALAN (58%)
-Tahap 9  — POS                          🟡 BERJALAN (62%)
+Tahap 6  — Pembelian (Purchase)         🟡 BERJALAN (93%)
+Tahap 7  — Inventori & Gudang           🟡 BERJALAN (82%)
+Tahap 8  — Produksi & COGS              🟡 BERJALAN (66%)
+Tahap 9  — POS                          🟡 BERJALAN (78%)
 Tahap 10 — Keuangan & Akuntansi         🟠 FONDASI DIMULAI
 Tahap 11 — Reports & Dashboard          🔲 BELUM MULAI
 ```
@@ -196,7 +196,7 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 
 ### TAHAP 6 — Pembelian (Purchase) 🟡
 
-**Status:** 92% (PO/SR utama sudah berjalan, Division PO SR aktif, sisa hardening utama pindah ke expiry/lot dan dokumentasi user)
+**Status:** 93% (PO/SR utama sudah berjalan, Division PO SR aktif, reader procurement aktif sudah mulai pindah ke stock bulanan; sisa hardening utama pindah ke expiry/lot, compatibility cleanup, dan dokumentasi user)
 
 **Yang sudah berjalan:**
 - [x] Purchase Order CRUD + status flow
@@ -216,17 +216,19 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 - [x] Store Request → generate PO otomatis (`store_request_generate_po`)
 - [x] Division PO SR: workbench penghubung SR ke PO
 - [x] Pengajuan divisi: verify per line, fallback gudang → katalog purchase, PDF server-side, dan UOM PACK/ISI
+- [x] Helper procurement aktif untuk profile gudang, unit cost SR, dan stok tersedia gudang mulai diputus dari `inv_warehouse_stock_balance` dan diarahkan ke stock bulanan
 
 **Yang belum selesai:**
 - [ ] UI form PO: tampilkan konteks pack profile (nama brand, isi/kemasan) saat memilih item (UX enhancement)
 - [ ] Dokumentasi alur user Purchase + Store Request final
 - [ ] Hardening rule split Division Request → SR/PO supaya guard route dan rollback dokumen turunannya makin tegas
+- [ ] Bersihkan sisa jalur compatibility procurement yang masih menyentuh tabel legacy saat rebuild/repair dan costing fallback non-aktif
 
 ---
 
 ### TAHAP 7 — Inventori & Gudang 🟡
 
-**Status:** 72% (opening/opname/receipt/views berjalan, flow item→material ada, sisa berat ada di lot/expiry-aware ledger dan distribusi otomatis)
+**Status:** 82% (opening/opname/receipt/views berjalan, reader aktif gudang/divisi mulai pindah ke stock bulanan dan daily movement-first; repair/rebuild purchase yang disentuh juga makin monthly-only. Sisa berat ada di lot/expiry-aware ledger, compatibility cleanup, dan distribusi otomatis)
 
 **Yang sudah berjalan:**
 - [x] Opening stok gudang dan divisi
@@ -239,18 +241,32 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 - [x] View movement gudang dan divisi
 - [x] Flow item → material (`Inventory_flow::item_material` + `inv_item_material_source_map`)
 - [x] Landasan audit lot/expiry untuk procurement sudah dipetakan di dokumen desain dan audit 2026-05-22 / 2026-05-24
+- [x] Dashboard, opening search, stock list, dan helper saldo aktif purchase/procurement mulai membaca `inv_warehouse_monthly_stock` / `inv_division_monthly_stock` atau movement log, bukan `inv_*_stock_balance`
+- [x] Wording UI stok yang disentuh mulai memakai istilah `stok bulanan` / `proyeksi harian`, bukan `stock balance` / `daily rollup`
+- [x] InventoryLedger aktif untuk gudang/divisi sudah menulis movement log + monthly stock tanpa mutasi aktif ke `inv_warehouse_stock_balance` / `inv_division_stock_balance`
+- [x] Bootstrap FIFO gudang yang disentuh sudah membaca saldo agregat dari `inv_warehouse_monthly_stock`, bukan `inv_warehouse_stock_balance`
+- [x] Rebuild histori opening yang disentuh sudah sinkron langsung ke monthly stock tanpa write aktif ke `inv_*_daily_rollup` / `inv_*_stock_balance`
+- [x] Repair reconcile bahan divisi yang disentuh sudah membangun ulang histori dari movement log langsung ke monthly stock tanpa rewrite aktif ke `inv_division_daily_rollup` / `inv_division_stock_balance`
+- [x] Verifikasi pasca-rebuild dan guard opening divisi yang disentuh sekarang mengikuti monthly stock, bukan lagi menerima `stock_balance` sebagai jalur aktif
+- [x] Fallback stock list/current-balance yang disentuh di `Purchase_model` sudah dibersihkan dari query aktif ke `inv_warehouse_stock_balance` / `inv_division_stock_balance`
+- [x] Registrasi target rebuild saat VOID PO yang disentuh sekarang mengambil identity terkait dari `inv_stock_movement_log.receipt_line_id`, bukan dari `stock_balance`
+- [x] Opening stok yang disentuh sekarang merepost saldo opening final ke movement log setelah replace/update snapshot, jadi daily/movement/reconcile tidak lagi kehilangan opening saat mode `set saldo live persis`
+- [x] Resolver opening yang disentuh sekarang ikut mempertimbangkan harga saat memilih/membuat `profile_key`, sehingga perubahan harga profile tidak lagi diam-diam reuse profile lama
+- [x] Resolver opening dari catalog yang disentuh sekarang membandingkan harga profile dalam basis harga beli catalog (`avg_cost_per_content x content_per_buy`), jadi pilih catalog harga `300.000` tidak lagi salah membuat profile baru berharga `300`
+- [x] Reconcile bahan divisi yang disentuh sekarang mengambil closing `Material Daily` terakhir per identity pada tanggal audit, bukan menjumlah seluruh closing harian dalam rentang bulan yang sama
 
 **Yang belum selesai:**
 - [ ] Distribusi otomatis gudang item → stok material via `mst_material_item_source` (trigger dari receipt/transfer)
 - [ ] Receipt PO dan fulfill SR harus menyimpan/memakai lot aktual end-to-end
 - [ ] Rekey profile procurement agar expiry tidak lagi menjadi bagian identity catalog/profile
 - [ ] Hardening ledger: konsistensi balance setelah setiap transaksi diaudit end-to-end
+- [ ] Bersihkan sisa helper report/reconcile/repair compatibility yang masih membaca atau menghapus `inv_warehouse_daily_rollup`, `inv_division_daily_rollup`, `inv_warehouse_stock_balance`, atau `inv_division_stock_balance`
 
 ---
 
 ### TAHAP 8 — Produksi & COGS 🟡
 
-**Status:** 58% (surface component master/formula/usage dan editor operasional sudah lebih utuh; COGS dan integrasi lintas modul masih tahap berikutnya)
+**Status:** 66% (surface component master/formula/usage dan editor operasional sudah lebih utuh; reader aktif component mulai pindah ke stock bulanan/proyeksi movement; repair/reconcile component yang disentuh juga makin monthly-only. COGS dan integrasi lintas modul masih tahap berikutnya)
 
 **Yang sudah berjalan:**
 - [x] Stok Base/Prepare
@@ -260,11 +276,18 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 - [x] Daily matrix Base/Prepare
 - [x] Batch produksi component (BASE/PREPARE) dengan editor input material/component
 - [x] Workbench navigasi component: master, formula, variable cost, dan operasional sudah terhubung konsisten
-- [x] Monthly carry-forward component dari daily rollup ke monthly opname + opening bulan berikutnya
+- [x] Monthly carry-forward component ke monthly opname + opening bulan berikutnya mulai membaca proyeksi harian movement-first
 - [x] AJAX picker component/material menggantikan dropdown statis di surface operasional component
 - [x] Usage tracking component tampil di master dan formula, dengan halaman usage detail terpisah
 - [x] HPP live component master diselaraskan dengan formula summary + cache request-level untuk list yang lebih ringan
 - [x] Action icon component distandarkan lintas halaman dan dicatat di coding standards
+- [x] Reader aktif component untuk daily/monthly/reconcile/stock utama mulai membaca `inv_component_monthly_stock` + `inv_component_movement_log`, bukan `inv_component_daily_rollup` / `inv_component_stock_balance`
+- [x] Writer/helper component dan POS yang disentuh mulai mengambil snapshot saldo awal dari stock bulanan component, bukan balance legacy
+- [x] Writer aktif component yang disentuh sudah menulis movement log + monthly stock tanpa dual-write aktif ke `inv_component_stock_balance` / `inv_component_daily_rollup`
+- [x] Repair rebuild component per identity yang disentuh sekarang menyinkronkan ulang histori dari `inv_component_movement_log` langsung ke `inv_component_monthly_stock`, tanpa rewrite aktif ke `inv_component_daily_rollup` / `inv_component_stock_balance`
+- [x] Posting/void opening-adjustment component tidak lagi memicu rebuild aktif ke `inv_component_daily_rollup`; reader proyeksi harian juga tidak lagi double-count movement `OPENING` yang sudah masuk seed `inv_component_monthly_stock`
+- [x] Rollback/void movement component yang disentuh tidak lagi update `inv_component_stock_balance`; sesudah reverse log dibuat, monthly stock identity terkait direbuild ulang dari `inv_component_movement_log`
+- [x] Utility `Purchase_model` yang memilih profile key kanonik sekarang memberi bobot utama ke stock bulanan gudang/divisi, bukan lagi ke `stock_balance` / `daily_rollup` legacy
 
 **Yang belum selesai:**
 - [ ] COGS calculation: HPP aktual dari batch
@@ -272,35 +295,47 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 - [ ] Hardening carry-forward component: audit conflict manual opening dan review UX posting ke dokumen operasional
 - [ ] Satukan detail/edit formula dan halaman turunan component lain ke pola workbench yang sama sampai benar-benar terasa satu modul
 - [ ] Browser smoke test visual untuk seluruh halaman component setelah hardening UI terakhir
+- [ ] Bersihkan sisa helper compatibility component yang masih menyentuh `inv_component_daily_rollup` dan `inv_component_stock_balance` pada jalur rebuild, repair, dan recovery historis
 
 ---
 
 ### TAHAP 9 — POS (Point of Sale) 🟡
 
-**Status:** 62% (cashier/order draft/stock live dasar sudah berjalan; queue background stock commit aktif, payment final dan operasional shift masih dilanjutkan)
+**Status:** 78% (cashier/order draft/paid orders, payment final, void/refund, printer workspace, laporan POS, dan tutup shift dengan snapshot kas/rekening sudah berjalan; gap utama yang tersisa adalah loyalty native di cashier, monitor dapur/checker, reprint/audit order yang lebih matang, dan mobile/customer-display surface)
 
 **Target minimum viable POS (MVP):**
 - [x] Order draft/cashier: tambah item, extra, review, confirm cepat
-- [ ] Payment: tunai, QRIS, kartu, split
+- [x] Payment: tunai, QRIS, kartu, split
 - [x] Void / refund order (fondasi + preview + snapshot reversal)
 - [x] Stock deduction otomatis saat order via queue background + retry audit
-- [x] Shift management dasar (buka/tutup sesi kasir)
+- [x] Shift management dasar (buka/tutup sesi kasir + preview tutup shift)
 - [x] Printer KOT/direct print saat confirm order
 - [ ] Loyalty (minimal: poin bertambah saat bayar)
 
 **Yang sudah berjalan:**
 - [x] Cashier workbench + order draft
 - [x] Extra per produk, konfigurasi modal cepat, dan direct print KOT
+- [x] Workspace paid orders dengan detail pembayaran, refund, dan void per order
+- [x] Payment final POS dengan split method, voucher lookup, update metode pembayaran transaksi, dan posting mutasi rekening perusahaan
+- [x] Void/refund POS dengan direct print slip, refresh availability, dan laporan detail
+- [x] Laporan POS: sales summary, sales detail per produk, sales transaction audit, payment, refund, dan void
+- [x] Printer workspace Finance-native: template, output profile, device printer, live preview, guide, bootstrap, dan test print
+- [x] Tutup shift kasir dengan preview pendapatan, input pecahan cash, direct print, snapshot pecahan, dan snapshot rekap rekening per shift
 - [x] Snapshot stock commit POS (`pos_stock_commit`)
 - [x] Queue runtime stock commit (`pos_runtime_job`) dengan status `QUEUED/PROCESSING/FAILED`
 - [x] Audit retry job gagal di Stock Live POS dan Reconcile Stok Divisi
 - [x] Worker CLI untuk pemrosesan background
+- [x] Reader live availability POS yang disentuh mulai membaca snapshot material/component dari stock bulanan, bukan balance legacy aktif
+- [x] Writer stok component dari POS yang disentuh sudah menulis movement log + monthly stock tanpa dual-write aktif ke tabel component legacy
 
 **Yang belum selesai:**
-- [ ] Payment settlement final + posting mutasi rekening lengkap
-- [ ] Hardening receipt/customer print final selain KOT
-- [ ] Loyalty point/stamp saat pembayaran
+- [ ] Loyalty point/stamp/voucher native di flow cashier dan histori customer POS
+- [ ] Monitor dapur/bar/checker untuk ack-ready-check per order seperti surface `core`
+- [ ] Reprint order/receipt dan halaman histori order yang lebih matang untuk audit operasional
+- [ ] Printer routing/job monitoring parity penuh seperti `core` (`routes` + job board), bukan hanya direct print + device/profile/template workspace
+- [ ] Mobile API / customer display surface untuk POS non-desktop
 - [ ] Dashboard operasional kasir dan monitoring throughput order
+- [ ] Rapikan kontrak rebuild availability agar seluruh writer stok non-POS menandai affected product tanpa bergantung ke tabel balance legacy
 
 **COGS dan laporan margin bisa menyusul** — jangan block POS karena Tahap 8 belum selesai.
 
@@ -313,6 +348,8 @@ Jalur D — Landasan POS+Finance: Tahap 9 (desain) → Tahap 10 (fondasi)
 **Yang sudah berjalan:**
 - [x] Rekening perusahaan (`fin_company_account`) aktif
 - [x] Mutation log rekening dipakai oleh purchase dan payroll
+- [x] Payment/deposit/refund/void correction POS yang relevan sudah memakai posting mutasi rekening perusahaan
+- [x] Tutup shift POS sekarang menyimpan snapshot rekap rekening per shift (`pos_shift_account_summary`) untuk audit kasir
 
 **Yang belum selesai:**
 - [ ] Halaman mutasi rekening (filter bulan berjalan, ringkasan saldo)

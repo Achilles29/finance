@@ -1,5 +1,5 @@
 # Index Dokumentasi — Finance App
-**Terakhir diperbarui:** 2026-05-25
+**Terakhir diperbarui:** 2026-06-01
 
 ---
 
@@ -12,7 +12,7 @@
 | **[ROADMAP.md](ROADMAP.md)** | Progress per tahap, target, status checklist | Review progress, planning sprint |
 | **[MODULES.md](MODULES.md)** | Detail setiap modul: tabel, alur, file kunci, catatan | Saat mulai mengerjakan modul tertentu |
 
-Catatan update terbaru: surface `production/component` sudah naik dari fondasi schema menjadi workbench aktif dengan editor operasional, usage tracking, carry-forward bulanan, dan standarisasi action icon.
+Catatan update terbaru: POS Finance sekarang sudah melampaui fondasi schema dan masuk ke workspace aktif untuk kasir, payment, paid orders, refund/void, laporan POS, printer workspace, dan tutup shift dengan snapshot kas/rekening.
 
 ---
 

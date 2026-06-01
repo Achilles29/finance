@@ -29,6 +29,8 @@ $printers = is_array($filterOptions['printers'] ?? null) ? $filterOptions['print
   .pos-printer-code { font-weight:800; color:#3b2d31; } 
   .pos-printer-inline-note { font-size:.78rem; color:#8a786c; } 
   .pos-printer-badge-soft { display:inline-flex; align-items:center; gap:.3rem; padding:.22rem .55rem; border-radius:999px; background:#f6eee8; color:#7f5d4f; font-size:.74rem; font-weight:700; } 
+  .pos-printer-source-note { font-size:.76rem; color:#8a786c; line-height:1.45; }
+  .pos-printer-modal-note { border:1px solid rgba(188,44,69,.12); border-radius:16px; background:#fff8f4; padding:.8rem .9rem; color:#7d5c53; }
   .pos-printer-section-stat { display:flex; gap:.55rem; flex-wrap:wrap; margin-top:.85rem; }
   .pos-printer-section-stat .badge { border-radius:999px; padding:.45rem .75rem; font-weight:700; }
   @media (max-width: 991.98px) { 
@@ -62,17 +64,17 @@ $printers = is_array($filterOptions['printers'] ?? null) ? $filterOptions['print
         <div class="pos-printer-mini-card">
           <div class="pos-printer-mini-label">Template</div>
           <div class="pos-printer-mini-value">Receipt, KOT, Refund</div>
-          <div class="pos-printer-mini-note">Pastikan payload JSON sesuai format runtime.</div>
+            <div class="pos-printer-mini-note">Sumber: <strong>pos_printer_template</strong> untuk bentuk dokumen.</div>
         </div>
         <div class="pos-printer-mini-card">
           <div class="pos-printer-mini-label">Output</div>
           <div class="pos-printer-mini-value">Paper, copy, footer</div>
-          <div class="pos-printer-mini-note">Dipakai untuk hasil cetak kasir dan dapur.</div>
+            <div class="pos-printer-mini-note">Sumber: <strong>pos_printer_profile</strong> + <strong>pos_printer_content_setting</strong>.</div>
         </div>
         <div class="pos-printer-mini-card">
           <div class="pos-printer-mini-label">Device</div>
           <div class="pos-printer-mini-value">Bluetooth / LAN</div>
-          <div class="pos-printer-mini-note">Bluetooth desktop pakai LOCAL_AGENT + Python helper.</div>
+            <div class="pos-printer-mini-note">Sumber: <strong>pos_printer</strong> untuk koneksi, role, scope, host, dan port.</div>
         </div>
       </div>
     </div>
@@ -377,6 +379,16 @@ $printers = is_array($filterOptions['printers'] ?? null) ? $filterOptions['print
               <?php endforeach; ?>
             </select>
           </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1 small text-muted">Template Runtime</label>
+            <select class="form-select" name="template_id">
+              <option value="">Default sesuai dokumen</option>
+              <?php foreach ($templates as $template): ?>
+                <option value="<?php echo (int)$template['id']; ?>"><?php echo html_escape((string)$template['template_name']); ?> | <?php echo html_escape((string)($template['document_type'] ?? 'OTHER')); ?></option>
+              <?php endforeach; ?>
+            </select>
+            <div class="pos-printer-source-note mt-1">Kalau dipilih, service runtime akan memakai template ini dulu. Kalau kosong, fallback ke template default sesuai dokumen cetak.</div>
+          </div>
           <div class="col-md-3">
             <label class="form-label mb-1 small text-muted">Paper (mm)</label>
             <select class="form-select" name="paper_width_mm">
@@ -513,9 +525,11 @@ $printers = is_array($filterOptions['printers'] ?? null) ? $filterOptions['print
             <label class="form-label mb-1 small text-muted">Python Port</label>
             <input type="number" class="form-control" name="python_port" min="1" max="65535" placeholder="3000">
           </div>
-          <div class="col-md-2">
-            <label class="form-label mb-1 small text-muted">Paper (mm)</label>
-            <select class="form-select" name="paper_width_mm"><option value="80">80</option><option value="58">58</option></select>
+          <div class="col-md-4">
+            <div class="pos-printer-modal-note h-100">
+              <div class="fw-semibold mb-1">Output tidak diatur di form device</div>
+              <div class="small">Ukuran kertas, jumlah copy, template runtime, footer, dan visibilitas harga dibaca dari pengaturan output printer. Form device ini hanya untuk koneksi fisik, role, scope, host agent, MAC, IP, dan port.</div>
+            </div>
           </div>
           <div class="col-md-2">
             <label class="form-label mb-1 small text-muted">Status</label>
@@ -643,6 +657,7 @@ document.addEventListener('DOMContentLoaded', function () {
     profileForm.reset();
     profileForm.elements.id.value = row?.id || '';
     profileForm.elements.printer_id.value = row?.id || row?.printer_id || '';
+    profileForm.elements.template_id.value = row?.template_id || '';
     profileForm.elements.paper_width_mm.value = String(row?.paper_width_mm || 80);
     profileForm.elements.copy_count.value = row?.copy_count || 1;
     profileForm.elements.cut_mode.value = row?.cut_mode || 'PARTIAL';
@@ -671,7 +686,6 @@ document.addEventListener('DOMContentLoaded', function () {
     deviceForm.elements.ip_address.value = row?.ip_address || '';
     deviceForm.elements.port.value = row?.port || '';
     deviceForm.elements.python_port.value = row?.python_port || '';
-    deviceForm.elements.paper_width_mm.value = String(row?.paper_width_mm || 80);
     deviceForm.elements.is_active.value = Number(row?.is_active ?? 1);
     document.getElementById('printerDeviceModalLabel').textContent = row ? `Edit Device: ${row.device_name}` : 'Tambah Device Printer';
     deviceModal.show();
@@ -717,7 +731,7 @@ document.addEventListener('DOMContentLoaded', function () {
           <td><div>${escapeHtml(r.printer_role || 'CUSTOM')}</div><div class="pos-printer-inline-note">${escapeHtml(r.print_scope || 'DIVISION')}</div></td>
           <td class="text-center">${escapeHtml(r.paper_width_mm || 80)}mm</td>
           <td class="text-center">${escapeHtml(r.copy_count || 1)}x</td>
-          <td class="text-center"><div class="pos-printer-inline-note">Logo ${Number(r.show_logo||0)?'On':'Off'} | Footer ${Number(r.show_footer||0)?'On':'Off'}</div><div class="pos-printer-inline-note">Harga ${String(r.price_visibility || 'always').toLowerCase()==='never'?'Hide':'Show'}</div></td>
+          <td class="text-center"><div class="pos-printer-inline-note">Template ${escapeHtml(r.template_name || 'Default dokumen')}</div><div class="pos-printer-inline-note">Logo ${Number(r.show_logo||0)?'On':'Off'} | Footer ${Number(r.show_footer||0)?'On':'Off'} | Harga ${String(r.price_visibility || 'always').toLowerCase()==='never'?'Hide':'Show'}</div></td>
           <td class="text-center">${statusBadge(r.is_active)}</td>
           <td class="text-center"><div class="d-inline-flex gap-1"><button type="button" class="btn btn-sm btn-outline-primary btn-profile-edit" data-row="${rowPayload(r)}">Edit</button><button type="button" class="btn btn-sm ${Number(r.is_active||0)===1?'btn-outline-danger':'btn-outline-success'} btn-profile-toggle" data-id="${Number(r.id||0)}">${Number(r.is_active||0)===1?'Nonaktifkan':'Aktifkan'}</button></div></td>
         </tr>`).join('');
@@ -742,7 +756,7 @@ document.addEventListener('DOMContentLoaded', function () {
             <td><div class="fw-semibold">${escapeHtml(r.device_name || '-')}</div><div class="pos-printer-inline-note">${escapeHtml(r.device_code || '-')}</div></td>
             <td>${escapeHtml(r.outlet_name || 'Global')}</td>
             <td><div>${escapeHtml(r.printer_role || 'CUSTOM')}</div><div class="pos-printer-inline-note">${escapeHtml(r.print_scope || 'DIVISION')}</div></td>
-            <td><div class="pos-printer-badge-soft">${escapeHtml(r.connection_type || 'USB')}</div><div class="pos-printer-inline-note mt-1">${escapeHtml(r.system_device_name || r.ip_address || '-')}</div></td>
+            <td><div class="pos-printer-badge-soft">${escapeHtml(r.connection_type || 'USB')}</div><div class="pos-printer-inline-note mt-1">${escapeHtml(r.system_device_name || r.ip_address || '-')}</div><div class="pos-printer-inline-note">Output ${escapeHtml(r.paper_width_mm || 80)}mm | ${escapeHtml(r.copies || 1)}x | ${escapeHtml(r.template_name || 'Default dokumen')}</div></td>
             <td><div class="fw-semibold">${escapeHtml(r.agent_host || '-')}</div><div class="pos-printer-inline-note">${escapeHtml(r.mac_address || '-')} ${r.python_port ? '| Port ' + escapeHtml(r.python_port) : ''}</div></td>
             <td class="text-center">${statusBadge(r.is_active)}</td>
             <td class="text-center"><div class="d-inline-flex gap-1 flex-wrap justify-content-center"><a class="btn btn-sm btn-outline-secondary" href="<?php echo site_url('pos/printers/preview'); ?>/${Number(r.id||0)}">Preview</a><button type="button" class="btn btn-sm btn-outline-success btn-device-test" data-id="${Number(r.id||0)}">Test</button><button type="button" class="btn btn-sm btn-outline-primary btn-device-edit" data-row="${rowPayload(r)}">Edit</button><button type="button" class="btn btn-sm ${Number(r.is_active||0)===1?'btn-outline-danger':'btn-outline-success'} btn-device-toggle" data-id="${Number(r.id||0)}">${Number(r.is_active||0)===1?'Nonaktifkan':'Aktifkan'}</button></div></td>
@@ -833,7 +847,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const payload = Object.fromEntries(new FormData(deviceForm).entries());
     payload.port = payload.port === '' ? '' : Number(payload.port);
     payload.python_port = payload.python_port === '' ? '' : Number(payload.python_port);
-    payload.paper_width_mm = Number(payload.paper_width_mm || 80);
     payload.is_active = Number(payload.is_active || 0);
     await postJson('<?php echo site_url('pos/printers/devices/save'); ?>', payload);
     deviceModal.hide();

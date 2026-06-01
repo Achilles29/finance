@@ -3,6 +3,11 @@ $this->load->view('layout/header', ['title' => $title ?? 'Kasir POS']);
 $username = htmlspecialchars($current_user['username'] ?? 'U', ENT_QUOTES, 'UTF-8');
 $initials = mb_strtoupper(mb_substr($current_user['username'] ?? 'U', 0, 1));
 $activeSession = is_array($active_cashier_session ?? null) ? $active_cashier_session : null;
+$_isSuper = !empty($current_user['is_superadmin']);
+$canCashier = $_isSuper || !empty($user_perms['pos.cashier.index']['can_view']);
+$canPaid = $_isSuper || !empty($user_perms['pos.order.paid.index']['can_view']) || !empty($user_perms['pos.order.draft.index']['can_view']);
+$canPrinter = $_isSuper || !empty($user_perms['pos.printer.index']['can_view']);
+$canDraft = $_isSuper || !empty($user_perms['pos.order.draft.index']['can_view']);
 ?>
 <style>
   .cashier-layout {
@@ -128,20 +133,32 @@ $activeSession = is_array($active_cashier_session ?? null) ? $active_cashier_ses
     <aside class="cashier-icon-rail">
       <span class="cashier-icon-brand">NCE</span>
       <div class="cashier-icon-nav">
-        <a href="<?= site_url('pos/cashier') ?>" class="cashier-icon-link<?= (($active_menu ?? '') === 'pos.cashier.index') ? ' active' : '' ?>" title="Kasir">
-          <i class="ri-layout-grid-line"></i>
-          <span class="cashier-icon-link-label">Kasir</span>
-        </a>
-        <a href="<?= site_url('pos/printers/templates') ?>" class="cashier-icon-link" title="Printer">
-          <i class="ri-printer-line"></i>
-          <span class="cashier-icon-link-label">Print</span>
-        </a>
-        <a href="<?= site_url('pos/orders/draft') ?>" class="cashier-icon-link" title="Workbench">
-          <i class="ri-file-list-3-line"></i>
-          <span class="cashier-icon-link-label">Draft</span>
-        </a>
+        <?php if ($canCashier): ?>
+          <a href="<?= site_url('pos/cashier') ?>" class="cashier-icon-link<?= (($active_menu ?? '') === 'pos.cashier.index') ? ' active' : '' ?>" title="Kasir" target="_blank" rel="noopener noreferrer">
+            <i class="ri-layout-grid-line"></i>
+            <span class="cashier-icon-link-label">Kasir</span>
+          </a>
+        <?php endif; ?>
+        <?php if ($canPaid): ?>
+          <a href="<?= site_url('pos/orders/paid') ?>" class="cashier-icon-link<?= (($active_menu ?? '') === 'pos.order.paid.index') ? ' active' : '' ?>" title="Pesanan Terbayar" target="_blank" rel="noopener noreferrer">
+            <i class="ri-wallet-3-line"></i>
+            <span class="cashier-icon-link-label">Terbayar</span>
+          </a>
+        <?php endif; ?>
+        <?php if ($canPrinter): ?>
+          <a href="<?= site_url('pos/printers/templates') ?>" class="cashier-icon-link<?= (($active_menu ?? '') === 'pos.printer.index') ? ' active' : '' ?>" title="Printer" target="_blank" rel="noopener noreferrer">
+            <i class="ri-printer-line"></i>
+            <span class="cashier-icon-link-label">Print</span>
+          </a>
+        <?php endif; ?>
+        <?php if ($canDraft): ?>
+          <a href="<?= site_url('pos/orders/draft') ?>" class="cashier-icon-link<?= (($active_menu ?? '') === 'pos.order.draft.index') ? ' active' : '' ?>" title="Workbench" target="_blank" rel="noopener noreferrer">
+            <i class="ri-file-list-3-line"></i>
+            <span class="cashier-icon-link-label">Draft</span>
+          </a>
+        <?php endif; ?>
       </div>
-      <a href="<?= site_url('logout') ?>" class="cashier-icon-link logout" title="Logout">
+      <a href="<?= site_url('logout') ?>" class="cashier-icon-link logout" title="Logout" target="_blank" rel="noopener noreferrer">
         <i class="ri-logout-box-r-line"></i>
         <span class="cashier-icon-link-label">Keluar</span>
       </a>

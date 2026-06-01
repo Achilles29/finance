@@ -61,6 +61,31 @@ foreach ($rows as $summaryRow) {
     $summaryDraft++;
   }
 }
+$moneyDraft = 0.0;
+$moneyPosted = 0.0;
+$moneySpoil = 0.0;
+$moneyWaste = 0.0;
+$moneyPlus = 0.0;
+$moneyMinus = 0.0;
+foreach ($lineRows as $moneyRow) {
+  $status = strtoupper((string)($moneyRow['status'] ?? 'DRAFT'));
+  if ($status === 'VOID') {
+    continue;
+  }
+  $lineTotalValue = round((float)($moneyRow['total_adjustment_value'] ?? 0), 2);
+  if ($status === 'POSTED') {
+    $moneyPosted += $lineTotalValue;
+  } else {
+    $moneyDraft += $lineTotalValue;
+  }
+  $moneySpoil += round((float)($moneyRow['value_spoil'] ?? 0), 2);
+  $moneyWaste += round((float)($moneyRow['value_waste'] ?? 0), 2);
+  $moneyPlus += round((float)($moneyRow['value_plus'] ?? 0), 2);
+  $moneyMinus += round((float)($moneyRow['value_minus'] ?? 0), 2);
+}
+$formatMoney = static function (float $value): string {
+  return number_format($value, 2, ',', '.');
+};
 $locationGroupLabel = static function ($locationType): string {
   $value = strtoupper(trim((string)$locationType));
   if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') {
@@ -372,6 +397,15 @@ $rincianTabUrl = $buildTabUrl('rincian');
   <div class="col-6 col-lg-3"><div class="component-adjustment-chip"><div class="small text-muted">Void</div><strong><?php echo number_format($summaryVoid, 0, ',', '.'); ?></strong></div></div>
 </div>
 
+<div class="row g-2 mb-3">
+  <div class="col-6 col-lg-2"><div class="component-adjustment-chip"><div class="small text-muted">Nilai Draft</div><strong><?php echo $formatMoney((float)$moneyDraft); ?></strong></div></div>
+  <div class="col-6 col-lg-2"><div class="component-adjustment-chip"><div class="small text-muted">Nilai Posted</div><strong><?php echo $formatMoney((float)$moneyPosted); ?></strong></div></div>
+  <div class="col-6 col-lg-2"><div class="component-adjustment-chip"><div class="small text-muted">Nilai Spoil</div><strong><?php echo $formatMoney((float)$moneySpoil); ?></strong></div></div>
+  <div class="col-6 col-lg-2"><div class="component-adjustment-chip"><div class="small text-muted">Nilai Waste</div><strong><?php echo $formatMoney((float)$moneyWaste); ?></strong></div></div>
+  <div class="col-6 col-lg-2"><div class="component-adjustment-chip"><div class="small text-muted">Nilai Plus</div><strong><?php echo $formatMoney((float)$moneyPlus); ?></strong></div></div>
+  <div class="col-6 col-lg-2"><div class="component-adjustment-chip"><div class="small text-muted">Nilai Minus</div><strong><?php echo $formatMoney((float)$moneyMinus); ?></strong></div></div>
+</div>
+
 <?php if ($sourceOpeningNo !== ''): ?>
   <div class="alert alert-warning mb-3">
     Koreksi stok ini diprefill dari opening <?php echo html_escape($sourceOpeningNo); ?> yang sudah diposting. Tambahkan selisih yang kurang lewat adjustment, bukan opening baru.
@@ -391,17 +425,6 @@ $rincianTabUrl = $buildTabUrl('rincian');
           <button type="button" class="btn btn-sm component-adjustment-add-trigger" id="btn-add-adjustment-line"><i class="ri ri-add-line me-1"></i>Tambah Baris</button>
         </div>
       </div>
-    </div>
-
-      <div class="alert alert-light border small mb-3">
-      <div class="fw-semibold mb-1">Panduan singkat</div>
-      <div class="mb-1">Satu baris sekarang mewakili <strong>satu component dan satu jenis adjustment</strong>, jadi input lebih cepat dan tidak melebar.</div>
-      <div class="mb-1"><strong>Waste</strong>: barang terbuang saat operasional.</div>
-      <div class="mb-1"><strong>Spoil</strong>: rusak, expired, atau gagal simpan.</div>
-      <div class="mb-1"><strong>Plus</strong>: stok tambahan karena koreksi, reclass, atau stock found. <strong>Harga Plus</strong> wajib diisi dan lokasi tujuannya mengikuti <strong>Header Adjustment</strong>.</div>
-      <div class="mb-1"><strong>Minus</strong>: selisih stok, usage yang terlambat tercatat, atau koreksi proses.</div>
-      <div class="mb-1"><strong>Catatan lokasi Plus</strong>: jika stok plus masuk ke Event, pilih header lokasi Event dulu. Jika dalam hari yang sama ada plus ke Reguler dan Event, simpan sebagai draft terpisah.</div>
-      <div><strong>Nilai Adjustment</strong>: untuk spoil, waste, dan minus sistem memakai nilai stok berjalan/FIFO lot aktif; untuk plus memakai harga yang Anda input.</div>
     </div>
 
     <form id="frmAdjustment" autocomplete="off">

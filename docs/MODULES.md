@@ -1,5 +1,5 @@
 # Panduan Modul — Finance App
-**Terakhir diperbarui:** 2026-05-18
+**Terakhir diperbarui:** 2026-06-01
 
 > Dokumen ini menjelaskan setiap modul: tujuan, tabel kunci, alur bisnis, controller/model/view yang terlibat, dan catatan penting. Dibaca saat mulai mengerjakan atau melanjutkan modul tertentu.
 
@@ -541,25 +541,114 @@ prd_cogs_calculation       — hasil kalkulasi HPP per batch
 ## 9. POS
 
 ### Tujuan
-Point of Sale — transaksi penjualan ke pelanggan.
+Point of Sale — transaksi penjualan ke pelanggan, settlement kasir, direct print operasional, dan audit transaksi harian per outlet/terminal.
 
 ### Status
-**PERSIAPAN DESAIN** — akan mulai coding setelah Tahap 7 cukup stabil.
+**WORKSPACE AKTIF** — cashier, order, payment, refund/void, laporan, printer workspace, stock live, dan tutup shift dasar sudah berjalan di `finance`.
+
+### File Kunci
+| Tipe | File |
+|---|---|
+| Controller | `application/controllers/Pos.php` |
+| Controller | `application/controllers/Pos_printer_agent.php` |
+| Model | `application/models/Pos_model.php` |
+| Model | `application/models/Pos_report_model.php` |
+| View | `application/views/pos/cashier_index.php` |
+| View | `application/views/pos/order_draft_index.php` |
+| View | `application/views/pos/order_paid_index.php` |
+| View | `application/views/pos/stock_live_index.php` |
+| View | `application/views/pos/report_*.php` |
+| View | `application/views/pos/printer_*.php` |
+| Library | `application/libraries/PosRuntimeJobService.php` |
+| Library | `application/libraries/PosStockCommitService.php` |
 
 ### Target MVP
 ```
 pos_order          — order pelanggan (meja, take away, delivery)
-pos_order_item     — item dalam order
-pos_order_extra    — extra/topping per item
+pos_order_line     — item dalam order
+pos_order_line_extra — extra/topping per item
 pos_payment        — pembayaran order
+pos_payment_line   — split pembayaran per metode
+pos_refund         — refund transaksi POS
+pos_void           — void transaksi POS
 pos_shift          — shift kasir (buka/tutup)
 pos_shift_summary  — ringkasan kas saat tutup shift
+pos_shift_cash_denomination — snapshot pecahan cash saat tutup shift
+pos_shift_account_summary — snapshot rekap pendapatan per rekening saat tutup shift
+```
+
+### Surface yang Sudah Aktif
+- Master POS: member, deposit, sales channel, payment method, outlet, terminal, printer template/profile/device.
+- Workspace operasional: order draft, cashier, paid orders, stock live POS.
+- Flow transaksi: save draft, confirm order, snapshot stock commit, queue runtime stock posting, payment final, void, refund.
+- Direct print: confirm order, payment receipt, void slip, refund slip, deposit receipt, shift close summary.
+- Reporting: sales summary, sales detail produk, detail transaksi, payment report, refund report, void report.
+- Shift kasir: buka sesi, preview tutup shift, input pecahan, snapshot kas aktual, snapshot per rekening, cetak ringkasan tutup shift.
+
+### Tabel Kunci
+```
+pos_outlet                     — outlet POS
+pos_terminal                   — terminal/device kasir
+pos_sales_channel              — channel/service type order
+pos_payment_method             — metode pembayaran POS
+pos_order                      — header order POS
+pos_order_line                 — line order POS
+pos_order_line_extra           — extra/topping per line
+pos_payment                    — header pembayaran POS
+pos_payment_line               — line pembayaran/split method
+pos_refund                     — header refund POS
+pos_refund_line                — line refund POS
+pos_void                       — header void POS
+pos_void_line                  — line void POS
+pos_shift                      — shift kasir
+pos_shift_summary              — agregat penjualan/kas per shift
+pos_shift_cash_denomination    — snapshot pecahan kas saat shift ditutup
+pos_shift_account_summary      — snapshot pendapatan per rekening saat shift ditutup
+pos_stock_commit               — snapshot posting stok dari order POS
+pos_runtime_job                — queue runtime untuk stock commit / retry
+pos_product_availability_cache — cache availability produk POS
+pos_printer                    — master printer POS
+pos_printer_profile            — pengaturan output printer
+pos_printer_template           — template dokumen printer
 ```
 
 ### Integrasi Wajib dengan Modul Lain
 - Saat order di-checkout: kurangi stok material/komponen dari divisi yang relevan
 - Pembayaran: tambah saldo `fin_company_account` sesuai metode bayar
 - Loyalty: tambah poin ke `crm_member_account`
+
+### Alur Inti yang Sudah Berjalan
+
+#### A. Kasir / Order
+1. Kasir buka sesi → `cashier_open()` membuat `pos_shift` + `pos_cashier_session`
+2. User pilih produk/bundle/extra → `order_draft_save()` menyimpan draft POS
+3. Confirm order → snapshot stok dibuat di `pos_stock_commit`, queue runtime dibuat di `pos_runtime_job`, lalu order difinalkan
+4. Printer KOT/direct print confirm dikirim dari payload runtime printer Finance
+
+#### B. Payment / Void / Refund
+1. `order_payment_prepare()` menyiapkan sisa tagihan, deposit, voucher, dan metode bayar
+2. `order_payment_save()` menyimpan pembayaran split dan posting mutasi rekening bila metode terkait punya rekening perusahaan
+3. `order_void_save()` dan `order_refund_save()` menyimpan reversal, memicu rebuild availability, dan menyiapkan payload direct print
+4. Detail transaksi di `report_sales_transaction()` menggabungkan payment, refund, void, point/stamp/voucher rows yang sudah tersimpan
+
+#### C. Tutup Shift
+1. `cashier_close_preview()` menghitung preview pendapatan shift aktif
+2. Kasir isi pecahan cash → backend hitung ulang `actual_cash` dari pecahan, bukan percaya nominal input readonly
+3. `close_cashier_session()` menutup shift, update `pos_shift_summary`, simpan `pos_shift_cash_denomination`, dan simpan `pos_shift_account_summary`
+4. Slip tutup shift dicetak dari snapshot shift, bukan hitung ulang live untuk rekening/pecahan yang sudah ditutup
+
+### Catatan Penting
+- POS Finance memakai pola direct print payload ke local agent, bukan print job queue `core` sepenuhnya.
+- Endpoint AJAX POS harus tetap JSON-safe; query schema-opsional wajib dijaga dengan `field_exists()` agar tidak meledak menjadi HTML DB error.
+- Untuk tutup shift, rekap rekening setelah shift `CLOSED` harus dibaca dari `pos_shift_account_summary`, bukan dari transaksi live.
+- Worker runtime POS di Windows tidak boleh dijadikan satu-satunya andalan; fallback aman adalah trigger HTTP `order_runtime_job_trigger()` dari client.
+
+### Masih Bisa Dikembangkan dari Core
+- Monitor dapur/bar/checker (`Pos_order_monitor.php` di `core`) untuk ack/ready/checker board per station.
+- Reprint order/receipt dan histori order yang lebih matang seperti surface `Pos_orders.php` di `core`.
+- Loyalty native di konteks kasir/customer POS: point, stamp, voucher wallet, redeem setting, dan campaign issue.
+- Mobile / Android API dan customer-display surface seperti `Pos_android_api.php` di `core`.
+- Printer routing & job monitoring parity penuh seperti `Pos_printer_routes.php` dan `Pos_printer_jobs.php` di `core`.
 
 ---
 

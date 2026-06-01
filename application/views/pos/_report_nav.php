@@ -1,0 +1,30 @@
+<?php
+$reportNavActive = trim((string)($report_nav_active ?? ''));
+if ($reportNavActive === '') {
+    $activeMenuValue = trim((string)($active_menu ?? ''));
+    $map = [
+        'pos.report.sales' => 'sales',
+        'pos.report.sales.detail' => 'sales_detail',
+        'pos.report.payment' => 'payment',
+        'pos.report.refund' => 'refund',
+        'pos.report.void' => 'void',
+    ];
+    $reportNavActive = $map[$activeMenuValue] ?? '';
+}
+
+$navItems = [
+    'sales' => ['label' => 'Penjualan', 'url' => 'pos/reports/sales', 'icon' => 'ri-receipt-line'],
+    'sales_detail' => ['label' => 'Penjualan Produk', 'url' => 'pos/reports/sales-detail', 'icon' => 'ri-file-list-3-line'],
+    'payment' => ['label' => 'Pembayaran', 'url' => 'pos/reports/payments', 'icon' => 'ri-bank-card-line'],
+    'refund' => ['label' => 'Refund', 'url' => 'pos/reports/refunds', 'icon' => 'ri-arrow-go-back-line'],
+    'void' => ['label' => 'Void', 'url' => 'pos/reports/voids', 'icon' => 'ri-close-circle-line'],
+];
+?>
+<div class="pos-report-nav mb-3">
+  <?php foreach ($navItems as $navKey => $navItem): ?>
+    <a href="<?php echo site_url($navItem['url']); ?>" class="btn btn-sm btn-outline-dark<?php echo $reportNavActive === $navKey ? ' active' : ''; ?>">
+      <i class="<?php echo html_escape((string)($navItem['icon'] ?? 'ri-circle-line')); ?> me-1"></i>
+      <?php echo html_escape($navItem['label']); ?>
+    </a>
+  <?php endforeach; ?>
+</div>

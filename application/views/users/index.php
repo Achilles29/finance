@@ -3,11 +3,45 @@
  * users/index.php — Daftar user
  */
 $canCreate = !empty($current_user['is_superadmin']) || !empty($user_perms['auth.users.manage']['can_create']);
+$status = $status ?? 'active';
+$searchValue = trim((string)($filter['search'] ?? ''));
+$buildUserTabUrl = static function (string $tabStatus) use ($searchValue): string {
+    $query = ['status' => $tabStatus];
+    if ($searchValue !== '') {
+        $query['search'] = $searchValue;
+    }
+    return base_url('users' . (!empty($query) ? '?' . http_build_query($query) : ''));
+};
 ?>
 <style>
   .users-index .users-header-title {
     font-size: 1.55rem;
     letter-spacing: 0.01em;
+  }
+  .users-index .status-tabs {
+    display: inline-flex;
+    gap: 0.4rem;
+    padding: 0.3rem;
+    border-radius: 999px;
+    background: #f7efe8;
+    border: 1px solid #ead8cc;
+  }
+  .users-index .status-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 88px;
+    padding: 0.42rem 0.9rem;
+    border-radius: 999px;
+    text-decoration: none;
+    color: #7b5a4c;
+    font-weight: 600;
+    font-size: 0.82rem;
+  }
+  .users-index .status-tab.is-active {
+    background: #b11f2d;
+    color: #fff;
+    box-shadow: 0 8px 18px rgba(177, 31, 45, 0.18);
   }
   .users-index .filter-wrap .form-control,
   .users-index .filter-wrap .form-select {
@@ -23,13 +57,48 @@ $canCreate = !empty($current_user['is_superadmin']) || !empty($user_perms['auth.
   }
   .users-index .username-cell {
     display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .users-index .username-main {
+    min-width: 0;
+    flex: 1 1 220px;
+  }
+  .users-index .username-head {
+    display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex-wrap: wrap;
   }
   .users-index .username-label {
     font-weight: 700;
     color: #2f2f2f;
     letter-spacing: 0.01em;
+    line-height: 1.2;
+  }
+  .users-index .user-meta-row {
+    margin-top: 0.35rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .users-index .user-meta-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    font-size: 0.72rem;
+    line-height: 1;
+    padding: 0.34rem 0.52rem;
+    border-radius: 999px;
+    background: #f6eee7;
+    color: #7b5e50;
+    border: 1px solid #ead9cd;
+    white-space: nowrap;
+  }
+  .users-index .user-meta-sep {
+    color: #bea393;
   }
   .users-index .emp-badge {
     display: inline-block;
@@ -43,6 +112,8 @@ $canCreate = !empty($current_user['is_superadmin']) || !empty($user_perms['auth.
     font-weight: 700;
     letter-spacing: 0.02em;
     text-transform: uppercase;
+    white-space: nowrap;
+    align-self: flex-start;
   }
 </style>
 
@@ -58,17 +129,21 @@ $canCreate = !empty($current_user['is_superadmin']) || !empty($user_perms['auth.
 
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body py-3 filter-wrap">
-    <?= form_open('users', ['method' => 'get', 'class' => 'd-flex flex-wrap gap-2 align-items-center']) ?>
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+      <div class="status-tabs">
+        <a href="<?= htmlspecialchars($buildUserTabUrl('active')) ?>" class="status-tab <?= $status === 'active' ? 'is-active' : '' ?>">Aktif</a>
+        <a href="<?= htmlspecialchars($buildUserTabUrl('inactive')) ?>" class="status-tab <?= $status === 'inactive' ? 'is-active' : '' ?>">Nonaktif</a>
+        <a href="<?= htmlspecialchars($buildUserTabUrl('all')) ?>" class="status-tab <?= $status === 'all' ? 'is-active' : '' ?>">Semua</a>
+      </div>
+
+      <?= form_open('users', ['method' => 'get', 'class' => 'd-flex flex-wrap gap-2 align-items-center']) ?>
+      <input type="hidden" name="status" value="<?= htmlspecialchars($status) ?>">
       <input type="text" name="search" class="form-control" style="max-width:280px;"
-             placeholder="Cari username / email..." value="<?= htmlspecialchars($filter['search'] ?? '') ?>">
-      <select name="is_active" class="form-select" style="max-width:180px;">
-        <option value="">Semua Status</option>
-        <option value="1" <?= isset($filter['is_active']) && $filter['is_active'] == '1' ? 'selected' : '' ?>>Aktif</option>
-        <option value="0" <?= isset($filter['is_active']) && $filter['is_active'] == '0' ? 'selected' : '' ?>>Nonaktif</option>
-      </select>
+             placeholder="Cari username / email..." value="<?= htmlspecialchars($searchValue) ?>">
       <button type="submit" class="btn btn-outline-secondary"><i class="ri ri-search-line me-1"></i>Filter</button>
       <a href="<?= base_url('users') ?>" class="btn btn-outline-secondary">Reset</a>
-    <?= form_close() ?>
+      <?= form_close() ?>
+    </div>
   </div>
 </div>
 
@@ -84,7 +159,7 @@ $canCreate = !empty($current_user['is_superadmin']) || !empty($user_perms['auth.
             <th>Status</th>
             <th>Login Terakhir</th>
             <th>Dibuat</th>
-            <th style="width:130px;" class="action-cell">Aksi</th>
+            <th style="width:170px;" class="action-cell">Aksi</th>
           </tr>
         </thead>
         <tbody>
@@ -96,7 +171,21 @@ $canCreate = !empty($current_user['is_superadmin']) || !empty($user_perms['auth.
             <td class="text-muted small"><?= $i + 1 ?></td>
             <td>
               <div class="username-cell">
-                <span class="username-label"><?= htmlspecialchars($u['username']) ?></span>
+                <div class="username-main">
+                  <div class="username-head">
+                    <span class="username-label"><?= htmlspecialchars($u['username']) ?></span>
+                  </div>
+                  <?php if (!empty($u['division_name']) || !empty($u['position_name'])): ?>
+                  <div class="user-meta-row">
+                    <?php if (!empty($u['division_name'])): ?>
+                      <span class="user-meta-pill"><?= htmlspecialchars((string)$u['division_name']) ?></span>
+                    <?php endif; ?>
+                    <?php if (!empty($u['position_name'])): ?>
+                      <span class="user-meta-pill"><?= htmlspecialchars((string)$u['position_name']) ?></span>
+                    <?php endif; ?>
+                  </div>
+                  <?php endif; ?>
+                </div>
                 <?php if (!empty($u['employee_id'])): ?>
                 <span class="emp-badge">Pegawai</span>
                 <?php endif; ?>
@@ -116,6 +205,9 @@ $canCreate = !empty($current_user['is_superadmin']) || !empty($user_perms['auth.
             <td class="text-muted small"><?= !empty($u['created_at']) ? date('d/m/Y', strtotime($u['created_at'])) : '—' ?></td>
             <td class="action-cell">
               <div class="d-flex gap-1 flex-nowrap justify-content-end">
+                <a href="<?= base_url('users/detail/' . (int)$u['id']) ?>" class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Detail" aria-label="Detail">
+                  <i class="ri ri-eye-line"></i>
+                </a>
                 <a href="<?= base_url('users/edit/' . (int)$u['id']) ?>" class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit">
                   <i class="ri ri-edit-line"></i>
                 </a>

@@ -4,6 +4,9 @@ $storeUrl = site_url('inventory/stock/opening/store');
 $voidUrlBase = site_url('inventory/stock/opening/void');
 $itemSearchUrl = site_url('inventory/stock/opening/item-search');
 $generateUrl = site_url('inventory/stock/opname/generate');
+$stockOpeningExportUrl = (string)($stock_opening_export_url ?? site_url('inventory/stock/opening/division/export-template'));
+$stockOpeningExportExistingUrl = (string)($stock_opening_export_existing_url ?? site_url('inventory/stock/opening/division/export-existing'));
+$stockOpeningImportUrl = (string)($stock_opening_import_url ?? site_url('inventory/stock/opening/division/import'));
 $stockScope = strtoupper(trim((string)($stock_scope ?? 'WAREHOUSE')));
 if (!in_array($stockScope, ['WAREHOUSE', 'DIVISION'], true)) {
   $stockScope = 'WAREHOUSE';
@@ -32,6 +35,26 @@ foreach ($rowsData as $row) {
     align-items: flex-end;
     line-height: 1.2;
   }
+  .opening-bulk-card {
+    border: 1px solid #eadfce;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #fffaf3 0%, #f7efe4 100%);
+    box-shadow: 0 0.75rem 1.8rem rgba(102, 73, 35, 0.08);
+  }
+  .opening-bulk-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .opening-bulk-actions .btn {
+    min-width: 170px;
+  }
+  .opening-bulk-upload {
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid #eadfce;
+    border-radius: 16px;
+    padding: 1rem;
+  }
 </style>
 
 <div class="mb-2">
@@ -51,6 +74,59 @@ foreach ($rowsData as $row) {
 </div>
 
 <div id="alert-area"></div>
+
+<?php if ($this->session->flashdata('success')): ?>
+  <div class="alert alert-success mt-3"><?php echo html_escape((string)$this->session->flashdata('success')); ?></div>
+<?php endif; ?>
+<?php if ($this->session->flashdata('warning')): ?>
+  <div class="alert alert-warning mt-3"><?php echo html_escape((string)$this->session->flashdata('warning')); ?></div>
+<?php endif; ?>
+<?php if ($this->session->flashdata('error')): ?>
+  <div class="alert alert-danger mt-3"><?php echo html_escape((string)$this->session->flashdata('error')); ?></div>
+<?php endif; ?>
+
+<?php if ($isDivisionScope): ?>
+<div class="card opening-bulk-card mb-3">
+  <div class="card-body">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+      <div>
+        <h6 class="mb-1">Import / Export Opening Massal</h6>
+        <small class="text-muted">Template mengikuti divisi, tujuan, dan snapshot month yang sedang dipilih di form opening. Isi nilai opening di Excel lalu upload kembali dalam format XLSX.</small>
+      </div>
+      <div class="opening-bulk-actions">
+        <form method="get" action="<?php echo html_escape($stockOpeningExportUrl); ?>" id="stock-opening-export-form" class="d-inline">
+          <input type="hidden" name="division_id" value="<?php echo (int)$selectedDivisionId; ?>">
+          <input type="hidden" name="destination" value="<?php echo html_escape($selectedDestination); ?>">
+          <input type="hidden" name="month" value="<?php echo html_escape($month !== '' ? substr((string)$month, 0, 7) : date('Y-m')); ?>">
+          <button type="submit" class="btn btn-outline-secondary btn-sm">Export Template Excel</button>
+        </form>
+        <form method="get" action="<?php echo html_escape($stockOpeningExportExistingUrl); ?>" id="stock-opening-export-existing-form" class="d-inline">
+          <input type="hidden" name="division_id" value="<?php echo (int)$selectedDivisionId; ?>">
+          <input type="hidden" name="destination" value="<?php echo html_escape($selectedDestination); ?>">
+          <input type="hidden" name="month" value="<?php echo html_escape($month !== '' ? substr((string)$month, 0, 7) : date('Y-m')); ?>">
+          <input type="hidden" name="q" value="<?php echo html_escape((string)$q); ?>">
+          <button type="submit" class="btn btn-outline-dark btn-sm">Export Data Existing</button>
+        </form>
+      </div>
+    </div>
+    <div class="opening-bulk-upload">
+      <form method="post" action="<?php echo html_escape($stockOpeningImportUrl); ?>" enctype="multipart/form-data" class="row g-3 align-items-end" id="stock-opening-import-form">
+        <input type="hidden" name="division_id" value="<?php echo (int)$selectedDivisionId; ?>">
+        <input type="hidden" name="destination" value="<?php echo html_escape($selectedDestination); ?>">
+        <input type="hidden" name="month" value="<?php echo html_escape($month !== '' ? substr((string)$month, 0, 7) : date('Y-m')); ?>">
+        <div class="col-lg-9">
+          <label class="form-label mb-1">File Import Excel</label>
+          <input type="file" name="import_file" class="form-control" accept=".xlsx" required>
+          <small class="text-muted">Kolom utama template: item_code atau material_code, buy_uom_code, content_uom_code, opening_qty_buy, opening_avg_cost_per_content.</small>
+        </div>
+        <div class="col-lg-3 d-grid">
+          <button type="submit" class="btn btn-primary">Import Opening Excel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
 
 <div class="row g-3 mb-3">
   <div class="col-lg-4">
@@ -341,8 +417,12 @@ foreach ($rowsData as $row) {
   var qtyBuyEl = document.getElementById('opening_qty_buy');
   var qtyContentEl = document.getElementById('opening_qty_content');
   var ratioEl = document.getElementById('profile_content_per_buy');
+  var costInputEl = document.getElementById('opening_avg_cost_per_content');
   var costLabelEl = document.getElementById('cost_label');
   var saveBtnEl = document.getElementById('btn-save-opening');
+  var openingExportForm = document.getElementById('stock-opening-export-form');
+  var openingExportExistingForm = document.getElementById('stock-opening-export-existing-form');
+  var openingImportForm = document.getElementById('stock-opening-import-form');
 
   var itemSearchTimer = null;
   var itemLastQuery = '';
@@ -414,6 +494,7 @@ foreach ($rowsData as $row) {
   if (divisionEl && destinationEl) {
     divisionEl.addEventListener('change', function () {
       applyDivisionDestinationRule(true);
+      syncMassOpeningForms();
     });
     applyDivisionDestinationRule(true);
   }
@@ -463,8 +544,42 @@ foreach ($rowsData as $row) {
   if (snapshotEl) {
     snapshotEl.addEventListener('change', syncMovementDatePreview);
     snapshotEl.addEventListener('input', syncMovementDatePreview);
+    snapshotEl.addEventListener('change', syncMassOpeningForms);
+    snapshotEl.addEventListener('input', syncMassOpeningForms);
   }
   syncMovementDatePreview();
+
+  function syncMassOpeningForms() {
+    var monthValue = snapshotEl ? String(snapshotEl.value || '') : '';
+    var divisionValue = divisionEl ? String(divisionEl.value || '') : '';
+    var destinationValue = destinationEl ? String(destinationEl.value || '') : 'OTHER';
+    [openingExportForm, openingExportExistingForm, openingImportForm].forEach(function (form) {
+      if (!form) {
+        return;
+      }
+      var monthInput = form.querySelector('input[name="month"]');
+      var divisionInput = form.querySelector('input[name="division_id"]');
+      var destinationInput = form.querySelector('input[name="destination"]');
+      if (monthInput) monthInput.value = monthValue;
+      if (divisionInput) divisionInput.value = divisionValue;
+      if (destinationInput) destinationInput.value = destinationValue;
+    });
+  }
+
+  syncMassOpeningForms();
+
+  [openingExportForm, openingExportExistingForm, openingImportForm].forEach(function (form) {
+    if (!form) {
+      return;
+    }
+    form.addEventListener('submit', function (event) {
+      syncMassOpeningForms();
+      if (stockScope === 'DIVISION' && divisionEl && !divisionEl.value) {
+        event.preventDefault();
+        showAlert('warning', 'Pilih divisi dulu sebelum export atau import opening massal.');
+      }
+    });
+  });
 
   function setSavingState(isSaving) {
     if (!saveBtnEl) {
@@ -483,6 +598,17 @@ foreach ($rowsData as $row) {
       .replace(/>/g, '&gt;')
       .replace(/\"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  function formatSuggestedPrice(value, decimals) {
+    var number = Number(value || 0);
+    if (!isFinite(number) || number <= 0) {
+      return '';
+    }
+    return number.toLocaleString('id-ID', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    });
   }
 
   function renderItemPreview(items) {
@@ -505,12 +631,17 @@ foreach ($rowsData as $row) {
       var profileName = (it.profile_name || '').toString();
       var profileBrand = (it.profile_brand || '').toString();
       var profileDescription = (it.profile_description || '').toString();
+      var suggestedUnitPrice = Number(it.suggested_unit_price || 0);
+      var suggestedAvgCost = Number(it.suggested_avg_cost_per_content || 0);
       var sourceLabel = sourceType === 'PROFILE_STOCK'
         ? 'Sumber: Profil Stok'
         : (sourceType === 'PROFILE_CATALOG' ? 'Sumber: Purchase Catalog' : 'Sumber: Master Item/Bahan');
       subtitle.push(sourceLabel);
       if (material) subtitle.push('Material: ' + material);
       if (buyUomCode || contentUomCode) subtitle.push('UOM beli/isi: ' + (buyUomCode || '-') + ' / ' + (contentUomCode || '-'));
+      if (suggestedUnitPrice > 0 || suggestedAvgCost > 0) {
+        subtitle.push('Saran harga: ' + (suggestedUnitPrice > 0 ? ('buy Rp ' + formatSuggestedPrice(suggestedUnitPrice, 2)) : '-') + ' | isi Rp ' + (suggestedAvgCost > 0 ? formatSuggestedPrice(suggestedAvgCost, 6) : '-'));
+      }
       if (profileName || profileBrand || profileDescription) {
         subtitle.push('Profil: ' + [profileName, profileBrand, profileDescription].filter(Boolean).join(' | '));
       }
@@ -529,7 +660,10 @@ foreach ($rowsData as $row) {
         + ' data-content-uom-id="' + Number(it.default_content_uom_id || 0) + '"'
         + ' data-content-per-buy="' + Number(it.default_content_per_buy || 1) + '"'
         + ' data-is-material="' + Number(it.is_material || 0) + '"'
-        + ' data-material-id="' + Number(it.material_id || 0) + '">'
+        + ' data-material-id="' + Number(it.material_id || 0) + '"'
+        + ' data-suggested-unit-price="' + Number(it.suggested_unit_price || 0) + '"'
+        + ' data-suggested-avg-cost="' + Number(it.suggested_avg_cost_per_content || 0) + '"'
+        + ' data-suggested-price-source="' + escapeHtml(it.suggested_price_source || '') + '">'
         + '<div class="fw-semibold">' + escapeHtml(label) + '</div>'
         + (subtitle.length ? '<small class="text-muted">' + escapeHtml(subtitle.join(' | ')) + '</small>' : '')
         + '</button>';
@@ -599,7 +733,10 @@ foreach ($rowsData as $row) {
       default_content_uom_id: Number(target.getAttribute('data-content-uom-id') || 0),
       default_content_per_buy: Number(target.getAttribute('data-content-per-buy') || 1),
       is_material: Number(target.getAttribute('data-is-material') || 0),
-      material_id: Number(target.getAttribute('data-material-id') || 0)
+      material_id: Number(target.getAttribute('data-material-id') || 0),
+      suggested_unit_price: Number(target.getAttribute('data-suggested-unit-price') || 0),
+      suggested_avg_cost_per_content: Number(target.getAttribute('data-suggested-avg-cost') || 0),
+      suggested_price_source: String(target.getAttribute('data-suggested-price-source') || '')
     };
 
     if (selectedItemMeta.default_buy_uom_id > 0) {
@@ -611,6 +748,17 @@ foreach ($rowsData as $row) {
     if (selectedItemMeta.default_content_per_buy > 0) {
       ratioEl.value = String(selectedItemMeta.default_content_per_buy);
       refreshQtyContent();
+    }
+
+    if (costInputEl) {
+      var suggestedCost = stockScope === 'WAREHOUSE'
+        ? Number(selectedItemMeta.suggested_unit_price || 0)
+        : Number(selectedItemMeta.suggested_avg_cost_per_content || 0);
+      if (suggestedCost > 0) {
+        costInputEl.value = stockScope === 'WAREHOUSE'
+          ? suggestedCost.toFixed(2)
+          : suggestedCost.toFixed(6);
+      }
     }
 
     var isMaterial = selectedItemMeta.is_material === 1 || selectedItemMeta.material_id > 0;
@@ -636,7 +784,7 @@ foreach ($rowsData as $row) {
     itemIdEl.value = String(id);
     itemSearchEl.value = label;
     itemPreviewEl.innerHTML = '';
-    itemHintEl.textContent = 'Item terpilih: ' + label + ' (' + (sourceType === 'PROFILE_STOCK' ? 'Profil Stok' : (sourceType === 'PROFILE_CATALOG' ? 'Purchase Catalog' : 'Master')) + ')';
+    itemHintEl.textContent = 'Item terpilih: ' + label + ' (' + (sourceType === 'PROFILE_STOCK' ? 'Profil Stok' : (sourceType === 'PROFILE_CATALOG' ? 'Purchase Catalog' : 'Master')) + ')' + (selectedItemMeta.suggested_price_source ? ' | harga saran tersedia' : '');
   });
 
   function clearProfileKeyForManualProfileChange() {

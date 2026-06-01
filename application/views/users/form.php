@@ -10,6 +10,8 @@
 $user       = $user ?? null;
 $user_roles = $user_roles ?? [];
 $employee_options = $employee_options ?? [];
+$protected_role_ids = array_map('intval', (array)($protected_role_ids ?? []));
+$can_manage_protected_roles = !empty($can_manage_protected_roles);
 $selected_employee_id = (int)set_value('employee_id', (int)($user['employee_id'] ?? 0));
 ?>
 <style>
@@ -49,6 +51,10 @@ $selected_employee_id = (int)set_value('employee_id', (int)($user['employee_id']
     border-color: #b22f3a;
     background: #fff8f8;
   }
+  .users-form .role-card.is-locked {
+    opacity: 0.88;
+    background: #f4f0ed;
+  }
   .users-form .role-name {
     font-weight: 700;
     color: #3a2a26;
@@ -68,6 +74,12 @@ $selected_employee_id = (int)set_value('employee_id', (int)($user['employee_id']
     height: 18px;
     accent-color: #b22f3a;
     flex-shrink: 0;
+  }
+  .users-form .role-lock {
+    display: inline-block;
+    margin-top: 0.35rem;
+    font-size: 0.72rem;
+    color: #8b3b3b;
   }
   @media (max-width: 767.98px) {
     .users-form .roles-grid {
@@ -161,20 +173,32 @@ $selected_employee_id = (int)set_value('employee_id', (int)($user['employee_id']
     <!-- Role -->
     <div class="mb-4">
       <label class="form-label fw-semibold">Role</label>
+      <?php if (!$can_manage_protected_roles): ?>
+        <div class="form-text mb-2">Role `ADMIN` dan `SUPERADMIN` hanya bisa diubah oleh akun superadmin.</div>
+      <?php endif; ?>
       <?php if (empty($all_roles)): ?>
         <p class="text-muted small">Belum ada role aktif.</p>
       <?php else: ?>
       <div class="roles-grid">
         <?php foreach ($all_roles as $role): ?>
-        <?php $isChecked = in_array($role['id'], $user_roles); ?>
-        <label class="role-card <?= $isChecked ? 'is-checked' : '' ?>" for="role_<?= $role['id'] ?>">
+        <?php
+          $roleId = (int)($role['id'] ?? 0);
+          $isProtected = in_array($roleId, $protected_role_ids, true);
+          $isLocked = $isProtected && !$can_manage_protected_roles;
+          $isChecked = in_array($roleId, $user_roles);
+        ?>
+        <label class="role-card <?= $isChecked ? 'is-checked' : '' ?> <?= $isLocked ? 'is-locked' : '' ?>" for="role_<?= $roleId ?>">
           <span>
             <span class="role-name"><?= htmlspecialchars($role['role_name']) ?></span><br>
             <span class="role-code"><?= htmlspecialchars($role['role_code']) ?></span>
+            <?php if ($isLocked): ?>
+              <span class="role-lock">Hanya superadmin yang boleh mengubah role ini.</span>
+            <?php endif; ?>
           </span>
           <input class="role-check" type="checkbox" name="role_ids[]"
-                 id="role_<?= $role['id'] ?>" value="<?= $role['id'] ?>"
-                 <?= $isChecked ? 'checked' : '' ?>>
+                 id="role_<?= $roleId ?>" value="<?= $roleId ?>"
+                 <?= $isChecked ? 'checked' : '' ?>
+                 <?= $isLocked ? 'disabled' : '' ?>>
         </label>
         <?php endforeach; ?>
       </div>

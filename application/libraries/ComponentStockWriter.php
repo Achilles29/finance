@@ -48,6 +48,14 @@ class ComponentStockWriter
                     ? round((float)$line['unit_cost'], 6)
                     : $this->current_avg_cost($locationType, $divisionId, $componentId, $uomId);
                 $sourceLineId = isset($line['source_line_id']) ? (int)$line['source_line_id'] : (isset($line['id']) ? (int)$line['id'] : null);
+                $receiptDate = trim((string)($line['received_date'] ?? $movementDate));
+                if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $receiptDate)) {
+                    $receiptDate = $movementDate;
+                }
+                $lotNo = trim((string)($line['lot_no'] ?? ''));
+                if ($lotNo === '') {
+                    $lotNo = $this->generate_component_opening_lot_no($movementDate, $componentId, $sourceId, (int)$sourceLineId);
+                }
 
                 $this->post_single_movement([
                     'movement_date' => $movementDate,
@@ -73,8 +81,8 @@ class ComponentStockWriter
                     'uom_id' => $uomId,
                     'qty_in' => $qty,
                     'unit_cost' => $unitCost,
-                    'lot_no' => $this->generate_component_opening_lot_no($movementDate, $componentId, $sourceId, (int)$sourceLineId),
-                    'receipt_date' => $movementDate,
+                    'lot_no' => $lotNo,
+                    'receipt_date' => $receiptDate,
                     'source_module' => 'PRODUCTION_OPENING',
                     'source_table' => 'inv_component_opening',
                     'source_id' => $sourceId > 0 ? $sourceId : null,
@@ -552,16 +560,17 @@ class ComponentStockWriter
         $unitCost = round((float)($p['unit_cost'] ?? 0), 6);
         $totalCost = round($qty * $unitCost, 2);
 
-        $balance = $this->lock_balance_row(
+        $authoritativeBalance = $this->load_balance_state(
             (string)$p['location_type'],
             isset($p['division_id']) ? (int)$p['division_id'] : null,
             (int)$p['component_id'],
-            (int)$p['uom_id']
+            (int)$p['uom_id'],
+            (string)$p['movement_date']
         );
 
-        $qtyBefore = (float)($balance['qty_on_hand'] ?? 0);
-        $avgBefore = (float)($balance['avg_cost'] ?? 0);
-        $valueBefore = round($qtyBefore * $avgBefore, 2);
+        $qtyBefore = (float)($authoritativeBalance['qty_on_hand'] ?? 0);
+        $avgBefore = (float)($authoritativeBalance['avg_cost'] ?? 0);
+        $valueBefore = round((float)($authoritativeBalance['total_value'] ?? ($qtyBefore * $avgBefore)), 2);
         $qtyAfter = round($qtyBefore + $qtyIn - $qtyOut, 4);
         if ($qtyAfter < -0.0001) {
             throw new RuntimeException('Stok komponen tidak cukup untuk movement ' . $movementType . '.');
@@ -580,28 +589,6 @@ class ComponentStockWriter
         }
 
         $now = date('Y-m-d H:i:s');
-        if (!empty($balance['id'])) {
-            $this->ci->db->where('id', (int)$balance['id'])->update('inv_component_stock_balance', [
-                'qty_on_hand' => $qtyAfter,
-                'avg_cost' => $avgAfter,
-                'total_value' => $valueAfter,
-                'last_txn_at' => $p['movement_date'] . ' ' . date('H:i:s'),
-                'updated_at' => $now,
-            ]);
-        } else {
-            $this->ci->db->insert('inv_component_stock_balance', [
-                'location_type' => $p['location_type'],
-                'division_id' => $p['division_id'],
-                'component_id' => $p['component_id'],
-                'uom_id' => $p['uom_id'],
-                'qty_on_hand' => $qtyAfter,
-                'avg_cost' => $avgAfter,
-                'total_value' => $valueAfter,
-                'last_txn_at' => $p['movement_date'] . ' ' . date('H:i:s'),
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
-        }
 
         $this->ci->db->insert('inv_component_movement_log', [
             'movement_no' => $this->generate_movement_no((string)$p['movement_date']),
@@ -627,7 +614,7 @@ class ComponentStockWriter
             'created_at' => $now,
         ]);
 
-        $this->sync_daily_rollup([
+        $this->sync_monthly_stock([
             'movement_date' => (string)$p['movement_date'],
             'movement_datetime' => $p['movement_date'] . ' ' . date('H:i:s'),
             'location_type' => (string)$p['location_type'],
@@ -637,12 +624,16 @@ class ComponentStockWriter
             'movement_type' => $movementType,
             'qty_in' => $qtyIn,
             'qty_out' => $qtyOut,
+            'source_table' => (string)($p['source_table'] ?? ''),
+            'source_id' => isset($p['source_id']) ? (int)$p['source_id'] : null,
+            'notes' => $p['notes'] ?? '',
         ], $qtyBefore, $qtyAfter, $avgAfter, $valueAfter);
+
     }
 
-    private function sync_daily_rollup(array $movement, float $qtyBefore, float $qtyAfter, float $avgAfter, float $valueAfter): void
+    private function sync_monthly_stock(array $movement, float $qtyBefore, float $qtyAfter, float $avgAfter, float $valueAfter): void
     {
-        if (!$this->ci->db->table_exists('inv_component_daily_rollup')) {
+        if (!$this->ci->db->table_exists('inv_component_monthly_stock')) {
             return;
         }
 
@@ -654,20 +645,25 @@ class ComponentStockWriter
         $movementType = strtoupper(trim((string)($movement['movement_type'] ?? '')));
         $qtyIn = round((float)($movement['qty_in'] ?? 0), 4);
         $qtyOut = round((float)($movement['qty_out'] ?? 0), 4);
-        $isOpeningSnapshot = $movementType === 'OPENING';
-
         if ($movementDate === '' || $componentId <= 0 || $uomId <= 0 || $locationType === '') {
             return;
         }
 
+        $monthKey = date('Y-m-01', strtotime($movementDate));
         $row = $this->ci->db->query(
-            'SELECT * FROM inv_component_daily_rollup WHERE movement_date = ? AND location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? LIMIT 1 FOR UPDATE',
-            [$movementDate, $locationType, $divisionId, $componentId, $uomId]
+            'SELECT * FROM inv_component_monthly_stock WHERE month_key = ? AND location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? LIMIT 1 FOR UPDATE',
+            [$monthKey, $locationType, $divisionId, $componentId, $uomId]
         )->row_array();
 
+        $isOpeningSnapshot = $movementType === 'OPENING';
+        $movementDayCount = (int)($row['movement_day_count'] ?? 0);
+        if ($row === null || (string)($row['last_movement_date'] ?? '') !== $movementDate) {
+            $movementDayCount++;
+        }
+        $movementValue = round(($qtyIn > 0 ? $qtyIn : $qtyOut) * max($avgAfter, 0), 2);
+
         $data = [
-            'month_key' => date('Y-m-01', strtotime($movementDate)),
-            'movement_date' => $movementDate,
+            'month_key' => $monthKey,
             'location_type' => $locationType,
             'division_id' => $divisionId,
             'component_id' => $componentId,
@@ -675,49 +671,72 @@ class ComponentStockWriter
             'opening_qty' => $isOpeningSnapshot
                 ? ($row ? round((float)($row['opening_qty'] ?? 0) + $qtyIn, 4) : round($qtyAfter, 4))
                 : ($row ? round((float)($row['opening_qty'] ?? 0), 4) : round($qtyBefore, 4)),
+            'opening_total_value' => $row ? round((float)($row['opening_total_value'] ?? 0), 2) : 0.0,
             'in_qty' => $row ? round((float)($row['in_qty'] ?? 0), 4) : 0.0,
+            'in_total_value' => $row ? round((float)($row['in_total_value'] ?? 0), 2) : 0.0,
             'out_qty' => $row ? round((float)($row['out_qty'] ?? 0), 4) : 0.0,
+            'out_total_value' => $row ? round((float)($row['out_total_value'] ?? 0), 2) : 0.0,
             'waste_qty' => $row ? round((float)($row['waste_qty'] ?? 0), 4) : 0.0,
+            'waste_total_value' => $row ? round((float)($row['waste_total_value'] ?? 0), 2) : 0.0,
             'spoil_qty' => $row ? round((float)($row['spoil_qty'] ?? 0), 4) : 0.0,
-            'adjustment_qty' => $row ? round((float)($row['adjustment_qty'] ?? 0), 4) : 0.0,
+            'spoil_total_value' => $row ? round((float)($row['spoil_total_value'] ?? 0), 2) : 0.0,
+            'adjustment_plus_qty' => $row ? round((float)($row['adjustment_plus_qty'] ?? 0), 4) : 0.0,
+            'adjustment_plus_total_value' => $row ? round((float)($row['adjustment_plus_total_value'] ?? 0), 2) : 0.0,
+            'adjustment_minus_qty' => $row ? round((float)($row['adjustment_minus_qty'] ?? 0), 4) : 0.0,
+            'adjustment_minus_total_value' => $row ? round((float)($row['adjustment_minus_total_value'] ?? 0), 2) : 0.0,
             'closing_qty' => round($qtyAfter, 4),
             'avg_cost' => round($avgAfter, 6),
             'total_value' => round($valueAfter, 2),
+            'movement_day_count' => $movementDayCount,
             'mutation_count' => $row ? ((int)($row['mutation_count'] ?? 0) + 1) : 1,
+            'last_movement_date' => $movementDate,
             'last_movement_at' => (string)($movement['movement_datetime'] ?? ($movementDate . ' ' . date('H:i:s'))),
+            'last_movement_table' => (string)($movement['source_table'] ?? '') !== '' ? (string)$movement['source_table'] : null,
+            'last_movement_id' => !empty($movement['source_id']) ? (int)$movement['source_id'] : null,
+            'source_mode' => 'LIVE',
+            'notes' => trim((string)($movement['notes'] ?? '')) !== '' ? trim((string)$movement['notes']) : ($row['notes'] ?? null),
         ];
+        if ($isOpeningSnapshot) {
+            $data['opening_total_value'] = round((float)$data['opening_total_value'] + ($qtyIn * max($avgAfter, 0)), 2);
+        }
 
         switch ($movementType) {
             case 'PRODUCTION_IN':
             case 'TRANSFER_IN':
-                $data['in_qty'] += $qtyIn;
+                $data['in_qty'] = round((float)$data['in_qty'] + $qtyIn, 4);
+                $data['in_total_value'] = round((float)$data['in_total_value'] + $movementValue, 2);
                 break;
             case 'PRODUCTION_OUT':
             case 'TRANSFER_OUT':
-                $data['out_qty'] += $qtyOut;
+                $data['out_qty'] = round((float)$data['out_qty'] + $qtyOut, 4);
+                $data['out_total_value'] = round((float)$data['out_total_value'] + $movementValue, 2);
                 break;
             case 'WASTE':
-                $data['waste_qty'] += $qtyOut;
+                $data['waste_qty'] = round((float)$data['waste_qty'] + $qtyOut, 4);
+                $data['waste_total_value'] = round((float)$data['waste_total_value'] + $movementValue, 2);
                 break;
             case 'SPOIL':
-                $data['spoil_qty'] += $qtyOut;
+                $data['spoil_qty'] = round((float)$data['spoil_qty'] + $qtyOut, 4);
+                $data['spoil_total_value'] = round((float)$data['spoil_total_value'] + $movementValue, 2);
                 break;
             case 'ADJUSTMENT_PLUS':
             case 'VOID_REVERSE':
-                $data['adjustment_qty'] += $qtyIn;
+                $data['adjustment_plus_qty'] = round((float)$data['adjustment_plus_qty'] + $qtyIn, 4);
+                $data['adjustment_plus_total_value'] = round((float)$data['adjustment_plus_total_value'] + $movementValue, 2);
                 break;
             case 'ADJUSTMENT_MINUS':
             case 'VOID_OUT':
-                $data['adjustment_qty'] -= $qtyOut;
+                $data['adjustment_minus_qty'] = round((float)$data['adjustment_minus_qty'] + $qtyOut, 4);
+                $data['adjustment_minus_total_value'] = round((float)$data['adjustment_minus_total_value'] + $movementValue, 2);
                 break;
         }
 
         if ($row && !empty($row['id'])) {
-            $this->ci->db->where('id', (int)$row['id'])->update('inv_component_daily_rollup', $data);
+            $this->ci->db->where('id', (int)$row['id'])->update('inv_component_monthly_stock', $data);
             return;
         }
 
-        $this->ci->db->insert('inv_component_daily_rollup', $data);
+        $this->ci->db->insert('inv_component_monthly_stock', $data);
     }
 
     private function post_material_input_usage(array $header, array $line, string $movementDate, string $locationType, int $divisionId, string $destinationType, int $actorEmployeeId): array
@@ -894,22 +913,39 @@ class ComponentStockWriter
         return 'ICA' . $datePart . str_pad((string)$componentId, 5, '0', STR_PAD_LEFT) . str_pad((string)max(0, $sourceId), 5, '0', STR_PAD_LEFT) . str_pad((string)max(0, $sourceLineId), 4, '0', STR_PAD_LEFT) . strtoupper(substr($suffix, 0, 1));
     }
 
-    private function lock_balance_row(string $locationType, ?int $divisionId, int $componentId, int $uomId): array
+    private function load_balance_state(string $locationType, ?int $divisionId, int $componentId, int $uomId, string $movementDate): array
     {
-        $row = $this->ci->db->query(
-            'SELECT * FROM inv_component_stock_balance WHERE location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? LIMIT 1 FOR UPDATE',
-            [$locationType, $divisionId, $componentId, $uomId]
-        )->row_array();
-        return is_array($row) ? $row : [];
+        if ($this->ci->db->table_exists('inv_component_monthly_stock')) {
+            $targetMonth = date('Y-m-01', strtotime($movementDate));
+            $row = $this->ci->db->query(
+                'SELECT month_key, closing_qty AS qty_on_hand, avg_cost, total_value
+                 FROM inv_component_monthly_stock
+                 WHERE location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? AND month_key <= ?
+                 ORDER BY month_key DESC, updated_at DESC, last_movement_at DESC
+                 LIMIT 1',
+                [$locationType, $divisionId, $componentId, $uomId, $targetMonth]
+            )->row_array();
+            if (!empty($row)) {
+                return $row;
+            }
+        }
+
+        return [];
     }
 
     private function current_avg_cost(string $locationType, ?int $divisionId, int $componentId, int $uomId): float
     {
-        $row = $this->ci->db->query(
-            'SELECT avg_cost FROM inv_component_stock_balance WHERE location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? LIMIT 1',
-            [$locationType, $divisionId, $componentId, $uomId]
-        )->row_array();
-        return round((float)($row['avg_cost'] ?? 0), 6);
+        if ($this->ci->db->table_exists('inv_component_monthly_stock')) {
+            $row = $this->ci->db->query(
+                'SELECT avg_cost FROM inv_component_monthly_stock WHERE location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? ORDER BY month_key DESC, updated_at DESC, last_movement_at DESC LIMIT 1',
+                [$locationType, $divisionId, $componentId, $uomId]
+            )->row_array();
+            if (!empty($row)) {
+                return round((float)($row['avg_cost'] ?? 0), 6);
+            }
+        }
+
+        return 0.0;
     }
 
     private function generate_movement_no(string $movementDate): string

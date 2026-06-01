@@ -10,12 +10,10 @@ ini adalah pengembangan dan penyempurnaan dari repo core (C:\xampp\htdocs\core).
 skema bonus dan penilaian
 
 
-======================
-cek  pemakaian extra. saya order dengan extra TANPA NASI PUTIH dengan resep extra pada gambar. seharusnya component NASI PUTIH tidak keluar. tapi di mutasi keluar. cek juga untuk logika extra yang lain pastikan sinkron semua
 
-==============================
-kita lanjut ke ubah transaksi. yaitu ubah transaksi yang sudah disimpan. dengan catatan ubah ini tidak bisa mengurangi atau menghapus, untuk mengurangi dan menghapus menggunakan void.
-ubah transaksi dengan klik orderan lalu tinggal melakukan transaksi lag. ubah disini bisa mengganti nama customer saja, sales channel saja dan sterusnya, dan menambahkan produk. ketika di simpan transaksi lagi maka produk yang dicetak hanya produk baru
+
+===================================
+- PENGATURAN TEMPLATE CETAK
 
 
 ======================================================================= 
@@ -37,4 +35,27 @@ yang perlu diperhatikan di POS ini nanti terhubung dengan stok tersedia berdasar
 
 
 
+================
 
+
+- Monitor dapur, bar, dan checker seperti surface Pos_order_monitor di core, karena ini masih gap operasional paling nyata.
+- Reprint order dan receipt plus histori order yang lebih matang seperti Pos_orders di core, supaya audit kasir tidak hanya bergantung pada modal/detail report saat ini.
+- Loyalty native di konteks POS, terutama point, stamp, voucher wallet, dan redeem flow yang benar-benar menyatu ke cashier.
+- Mobile API atau customer-display surface seperti Pos_android_api di core, kalau nanti POS Finance mau dipakai di non-desktop.
+- Printer routing dan job monitoring parity penuh seperti Pos_printer_routes dan Pos_printer_jobs di core; Finance sudah punya template, profile, device, dan direct print, tetapi belum selengkap board routing dan monitoring job-nya.
+
+
+v update pegawai
+- error pengajuan PO SR
+- update menu
+- update gudang, bahan baku, component
+- update hak akses
+- update data sif
+- tata ulang sidebar
+- tampilan daily matrix
+- tampilan halaman stok
+- urutan tab masing masing halaman stok
+- laporan keuangan
+- finalisasi printer
+- input kasbon dan hutang
+- skema bonus, target harian dan bulanan

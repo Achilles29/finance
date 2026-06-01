@@ -51,8 +51,16 @@ if (!function_exists('_get_ri_icon')) {
             'inv.warehouse'         => 'ri-store-3-line',
             'grp.pos'               => 'ri-store-2-line',
             'grp.loyalty'           => 'ri-user-star-line',
+            'pos.report.group'      => 'ri-bar-chart-box-line',
+            'pos.report.sales'      => 'ri-receipt-line',
+            'pos.report.sales.detail' => 'ri-file-list-3-line',
+            'pos.report.payment'    => 'ri-bank-card-line',
+            'pos.report.refund'     => 'ri-arrow-go-back-line',
+            'pos.report.void'       => 'ri-close-circle-line',
+            'pos.order.paid.index'  => 'ri-wallet-3-line',
             'pos.sales-channel'     => 'ri-share-forward-line',
             'pos.stock.live'        => 'ri-pulse-line',
+            'pos.order.monitor'     => 'ri-restaurant-2-line',
             'pos.cashier'           => 'ri-shopping-bag-3-line',
             'pos.orders'            => 'ri-receipt-line',
             'pos.menu'              => 'ri-restaurant-line',
@@ -75,6 +83,7 @@ if (!function_exists('_get_ri_icon')) {
             'production.component.group.master' => 'ri-book-shelf-line',
             'production.component.group.transaction' => 'ri-exchange-funds-line',
             'production.component.group.monitoring' => 'ri-line-chart-line',
+            'production.component.reconcile' => 'ri-scales-3-line',
             'production.component.cost.variable' => 'ri-percent-line',
             'production.component.adjustment' => 'ri-equalizer-3-line',
             'production.component.lot' => 'ri-stack-line',
@@ -374,6 +383,7 @@ if (!function_exists('_regroup_inventory_children')) {
         'match' => [
           'purchase.stock.warehouse',
           'purchase.stock.opening.warehouse',
+          'purchase.stock.adjustment.warehouse',
         ],
       ],
       'division' => [
@@ -383,6 +393,7 @@ if (!function_exists('_regroup_inventory_children')) {
           'purchase.stock.division',
           'purchase.stock.opening.division',
           'purchase.stock.material.matrix',
+          'purchase.stock.adjustment.division',
         ],
       ],
     ];
@@ -472,6 +483,22 @@ if (!function_exists('_sidebar_tree_contains_menu_code')) {
   }
 }
 
+if (!function_exists('_sort_sidebar_children_by_order')) {
+  function _sort_sidebar_children_by_order(array $children): array
+  {
+    usort($children, static function (array $left, array $right): int {
+      $leftOrder = (int)($left['sort_order'] ?? 9999);
+      $rightOrder = (int)($right['sort_order'] ?? 9999);
+      if ($leftOrder === $rightOrder) {
+        return strcmp((string)($left['menu_label'] ?? ''), (string)($right['menu_label'] ?? ''));
+      }
+      return $leftOrder <=> $rightOrder;
+    });
+
+    return $children;
+  }
+}
+
 if (!function_exists('_append_product_stock_monitoring_child')) {
   function _append_product_stock_monitoring_child(array $children): array
   {
@@ -540,45 +567,71 @@ if (!function_exists('_regroup_product_sidebar_tree')) {
   }
 }
 
-if (!function_exists('_append_production_component_lot_child')) {
-  function _append_production_component_lot_child(array $children): array
+if (!function_exists('_append_production_component_monitoring_children')) {
+  function _append_production_component_monitoring_children(array $children): array
   {
-    if (_sidebar_tree_contains_menu_code($children, 'production.component.lot')) {
-      return $children;
-    }
+    $groupLeafRows = [
+      [
+        'id' => -2302,
+        'parent_id' => null,
+        'menu_code' => 'production.component.reconcile',
+        'menu_label' => 'Reconcile Base/Prepare',
+        'icon' => 'ri-scales-3-line',
+        'url' => 'production/component-reconcile',
+        'page_id' => null,
+        'sort_order' => 4,
+        'children' => [],
+      ],
+      [
+        'id' => -2301,
+        'parent_id' => null,
+        'menu_code' => 'production.component.lot',
+        'menu_label' => 'Lot Component',
+        'icon' => 'ri-stack-line',
+        'url' => 'production/component-lots',
+        'page_id' => null,
+        'sort_order' => 5,
+        'children' => [],
+      ],
+    ];
 
     foreach ($children as &$child) {
       if ((string)($child['menu_code'] ?? '') === 'production.component.group.monitoring') {
-        $child['children'][] = [
-          'id' => -2301,
-          'parent_id' => (int)($child['id'] ?? 0),
-          'menu_code' => 'production.component.lot',
-          'menu_label' => 'Lot Component',
-          'icon' => 'ri-stack-line',
-          'url' => 'production/component-lots',
-          'page_id' => null,
-          'sort_order' => 993,
-          'children' => [],
-        ];
+        $existingCodes = [];
+        foreach ((array)($child['children'] ?? []) as $leafChild) {
+          $existingCodes[(string)($leafChild['menu_code'] ?? '')] = true;
+        }
+        foreach ($groupLeafRows as $leafRow) {
+          if (isset($existingCodes[$leafRow['menu_code']])) {
+            continue;
+          }
+          $leafRow['parent_id'] = (int)($child['id'] ?? 0);
+          $child['children'][] = $leafRow;
+        }
+        $child['children'] = _sort_sidebar_children_by_order((array)($child['children'] ?? []));
         unset($child);
         return $children;
       }
     }
     unset($child);
 
-    $children[] = [
-      'id' => -2301,
-      'parent_id' => null,
-      'menu_code' => 'production.component.lot',
-      'menu_label' => 'Lot Component',
-      'icon' => 'ri-stack-line',
-      'url' => 'production/component-lots',
-      'page_id' => null,
-      'sort_order' => 993,
-      'children' => [],
-    ];
+    $fallbackLeafRows = $groupLeafRows;
+    foreach ($fallbackLeafRows as &$leafRow) {
+      $leafRow['sort_order'] = 990 + (int)$leafRow['sort_order'];
+    }
+    unset($leafRow);
 
-    return $children;
+    $existingCodes = [];
+    foreach ($children as $child) {
+      $existingCodes[(string)($child['menu_code'] ?? '')] = true;
+    }
+    foreach ($fallbackLeafRows as $leafRow) {
+      if (!isset($existingCodes[$leafRow['menu_code']])) {
+        $children[] = $leafRow;
+      }
+    }
+
+    return _sort_sidebar_children_by_order($children);
   }
 }
 
@@ -587,7 +640,159 @@ if (!function_exists('_regroup_production_sidebar_tree')) {
   {
     foreach ($tree as &$item) {
       if (($item['menu_code'] ?? '') === 'grp.production') {
-        $item['children'] = _append_production_component_lot_child((array)($item['children'] ?? []));
+        $item['children'] = _append_production_component_monitoring_children((array)($item['children'] ?? []));
+      }
+    }
+    unset($item);
+    return $tree;
+  }
+}
+
+if (!function_exists('_append_pos_report_sidebar_children')) {
+  function _append_pos_operational_sidebar_children(array $children): array
+  {
+    $leafRows = [
+      [
+        'id' => -2598,
+        'parent_id' => null,
+        'menu_code' => 'pos.order.monitor',
+        'menu_label' => 'Monitor Dapur / Bar',
+        'icon' => 'ri-restaurant-2-line',
+        'url' => 'pos/order-monitor',
+        'page_id' => null,
+        'sort_order' => 44,
+        'children' => [],
+      ],
+      [
+        'id' => -2599,
+        'parent_id' => null,
+        'menu_code' => 'pos.order.paid.index',
+        'menu_label' => 'Pesanan Terbayar',
+        'icon' => 'ri-wallet-3-line',
+        'url' => 'pos/orders/paid',
+        'page_id' => null,
+        'sort_order' => 45,
+        'children' => [],
+      ],
+    ];
+
+    $existingCodes = [];
+    foreach ($children as $child) {
+      $existingCodes[(string)($child['menu_code'] ?? '')] = true;
+    }
+
+    foreach ($leafRows as $leafRow) {
+      if (!isset($existingCodes[$leafRow['menu_code']])) {
+        $children[] = $leafRow;
+      }
+    }
+
+    return $children;
+  }
+}
+
+if (!function_exists('_append_pos_report_sidebar_children')) {
+  function _append_pos_report_sidebar_children(array $children): array
+  {
+    $groupCode = 'pos.report.group';
+    $leafRows = [
+      [
+        'id' => -2602,
+        'parent_id' => -2601,
+        'menu_code' => 'pos.report.sales',
+        'menu_label' => 'Laporan Penjualan POS',
+        'icon' => 'ri-receipt-line',
+        'url' => 'pos/reports/sales',
+        'page_id' => null,
+        'sort_order' => 1,
+        'children' => [],
+      ],
+      [
+        'id' => -2603,
+        'parent_id' => -2601,
+        'menu_code' => 'pos.report.sales.detail',
+        'menu_label' => 'Laporan Penjualan Produk',
+        'icon' => 'ri-file-list-3-line',
+        'url' => 'pos/reports/sales-detail',
+        'page_id' => null,
+        'sort_order' => 2,
+        'children' => [],
+      ],
+      [
+        'id' => -2604,
+        'parent_id' => -2601,
+        'menu_code' => 'pos.report.payment',
+        'menu_label' => 'Laporan Pembayaran POS',
+        'icon' => 'ri-bank-card-line',
+        'url' => 'pos/reports/payments',
+        'page_id' => null,
+        'sort_order' => 3,
+        'children' => [],
+      ],
+      [
+        'id' => -2605,
+        'parent_id' => -2601,
+        'menu_code' => 'pos.report.refund',
+        'menu_label' => 'Laporan Refund POS',
+        'icon' => 'ri-arrow-go-back-line',
+        'url' => 'pos/reports/refunds',
+        'page_id' => null,
+        'sort_order' => 4,
+        'children' => [],
+      ],
+      [
+        'id' => -2606,
+        'parent_id' => -2601,
+        'menu_code' => 'pos.report.void',
+        'menu_label' => 'Laporan Void POS',
+        'icon' => 'ri-close-circle-line',
+        'url' => 'pos/reports/voids',
+        'page_id' => null,
+        'sort_order' => 5,
+        'children' => [],
+      ],
+    ];
+
+    foreach ($children as &$child) {
+      if ((string)($child['menu_code'] ?? '') === $groupCode) {
+        $existingCodes = [];
+        foreach ((array)($child['children'] ?? []) as $leafChild) {
+          $existingCodes[(string)($leafChild['menu_code'] ?? '')] = true;
+        }
+        foreach ($leafRows as $leafRow) {
+          if (!isset($existingCodes[$leafRow['menu_code']])) {
+            $child['children'][] = $leafRow;
+          }
+        }
+        unset($child);
+        return $children;
+      }
+    }
+    unset($child);
+
+    $children[] = [
+      'id' => -2601,
+      'parent_id' => null,
+      'menu_code' => $groupCode,
+      'menu_label' => 'Laporan POS',
+      'icon' => 'ri-bar-chart-box-line',
+      'url' => null,
+      'page_id' => null,
+      'sort_order' => 995,
+      'children' => $leafRows,
+    ];
+
+    return $children;
+  }
+}
+
+if (!function_exists('_regroup_pos_sidebar_tree')) {
+  function _regroup_pos_sidebar_tree(array $tree): array
+  {
+    foreach ($tree as &$item) {
+      if (($item['menu_code'] ?? '') === 'grp.pos') {
+        $item['children'] = _append_pos_operational_sidebar_children((array)($item['children'] ?? []));
+        $item['children'] = _append_pos_report_sidebar_children((array)($item['children'] ?? []));
       }
     }
     unset($item);
@@ -684,6 +889,7 @@ if (!$is_employee_portal && !empty($sidebar_main)) {
   $sidebar_main = _regroup_inventory_sidebar_tree((array)$sidebar_main);
   $sidebar_main = _regroup_product_sidebar_tree((array)$sidebar_main);
   $sidebar_main = _regroup_production_sidebar_tree((array)$sidebar_main);
+  $sidebar_main = _regroup_pos_sidebar_tree((array)$sidebar_main);
   foreach ($sidebar_main as &$sb_item) {
     if (($sb_item['menu_code'] ?? '') === 'grp.purchase') {
       $sb_item['menu_label'] = 'PO & SR';

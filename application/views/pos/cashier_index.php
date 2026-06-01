@@ -7,8 +7,12 @@ $cashierBootstrap = is_array($cashier_bootstrap ?? null) ? $cashier_bootstrap : 
 $activeSession = is_array($cashierBootstrap['active_session'] ?? null) ? $cashierBootstrap['active_session'] : null;
 $salesChannels = is_array($cashierBootstrap['sales_channels'] ?? null) ? $cashierBootstrap['sales_channels'] : [];
 $defaultSalesChannelId = !empty($cashierBootstrap['default_sales_channel_id']) ? (int)$cashierBootstrap['default_sales_channel_id'] : 0;
+$defaultLaunchOutletId = !empty($cashierBootstrap['default_outlet_id']) ? (int)$cashierBootstrap['default_outlet_id'] : 0;
+$defaultLaunchTerminalId = !empty($cashierBootstrap['default_terminal_id']) ? (int)$cashierBootstrap['default_terminal_id'] : 0;
+$defaultLaunchOpeningCash = array_key_exists('default_opening_cash', $cashierBootstrap) ? (float)$cashierBootstrap['default_opening_cash'] : 300000;
 $catalogFilters = is_array($catalog_filters ?? null) ? $catalog_filters : [];
 $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFilters['divisions'] : [];
+$reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? null) ? $filterOptions['reversal_reason_options'] : [];
 ?>
 
 <style>
@@ -187,6 +191,45 @@ $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFil
   .cashier-cart-extras .cashier-extra-pill {
     font-size:.62rem;
     padding:.14rem .42rem;
+  }
+  .cashier-cart-price-breakdown {
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:.42rem;
+    margin-top:.42rem;
+  }
+  .cashier-cart-price-metric {
+    border:1px solid rgba(225,210,199,.72);
+    border-radius:12px;
+    background:#fff;
+    padding:.42rem .5rem;
+    min-width:0;
+  }
+  .cashier-cart-price-metric .label {
+    display:block;
+    font-size:.6rem;
+    line-height:1.1;
+    color:#8a7a72;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    margin-bottom:.14rem;
+  }
+  .cashier-cart-price-metric strong {
+    display:block;
+    color:#2f2628;
+    font-size:.78rem;
+    line-height:1.15;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .cashier-cart-price-metric.is-subtotal {
+    background:linear-gradient(180deg,#fff7ea 0%,#fff 100%);
+    border-color:rgba(239, 198, 112, .95);
+  }
+  .cashier-cart-price-metric.is-subtotal strong {
+    color:#8f4c17;
+    font-weight:900;
   }
   .cashier-cart-total { font-size:1.72rem; font-weight:900; color:#2e2527; }
   .cashier-cart-actions .btn { min-height:46px; }
@@ -408,6 +451,7 @@ $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFil
     gap:.5rem;
     align-items:start;
   }
+  .cashier-header-grid .cashier-customer-name-wrap,
   .cashier-header-grid .cashier-order-notes-wrap {
     grid-column:1 / -1;
   }
@@ -472,14 +516,223 @@ $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFil
     border:1px solid rgba(225,210,199,.78); border-radius:18px; padding:.85rem 1rem;
     background:#fffaf7;
   }
+  .cashier-close-panel {
+    border:1px solid rgba(225,210,199,.82);
+    border-radius:20px;
+    background:linear-gradient(180deg,#fffaf7 0%,#fff 100%);
+    padding:1rem 1.05rem;
+    height:100%;
+  }
+  .cashier-close-section-title {
+    font-size:.78rem;
+    font-weight:800;
+    letter-spacing:.05em;
+    text-transform:uppercase;
+    color:#8a776d;
+    margin-bottom:.55rem;
+  }
+  .cashier-close-summary-grid {
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+    gap:.7rem;
+  }
+  .cashier-close-summary-card {
+    border:1px solid rgba(224,209,198,.76);
+    border-radius:16px;
+    background:#fffdfb;
+    padding:.8rem .9rem;
+  }
+  .cashier-close-summary-card .label {
+    display:block;
+    font-size:.75rem;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:#8a776d;
+    margin-bottom:.2rem;
+  }
+  .cashier-close-summary-card .value {
+    font-size:1rem;
+    font-weight:800;
+    color:#3a2b2b;
+  }
+  .cashier-close-breakdown {
+    border-top:1px solid rgba(229,216,206,.88);
+    margin-top:1rem;
+    padding-top:1rem;
+  }
+  .cashier-close-breakdown-list {
+    display:grid;
+    gap:.55rem;
+  }
+  .cashier-close-breakdown-row {
+    border:1px solid rgba(224,209,198,.74);
+    border-radius:14px;
+    background:#fffdfb;
+    padding:.68rem .8rem;
+  }
+  .cashier-close-breakdown-head {
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:.8rem;
+  }
+  .cashier-close-breakdown-name {
+    font-weight:700;
+    color:#3a2b2b;
+  }
+  .cashier-close-breakdown-meta {
+    display:flex;
+    flex-wrap:wrap;
+    gap:.45rem .7rem;
+    margin-top:.35rem;
+    font-size:.8rem;
+    color:#7b6b63;
+  }
+  .cashier-close-denom-list {
+    display:grid;
+    gap:.55rem;
+  }
+  .cashier-close-denom-row {
+    display:grid;
+    grid-template-columns:minmax(0, 1fr) 96px 132px;
+    gap:.65rem;
+    align-items:center;
+    border:1px solid rgba(224,209,198,.74);
+    border-radius:14px;
+    padding:.6rem .75rem;
+    background:#fffdfb;
+  }
+  .cashier-close-denom-label {
+    font-weight:700;
+    color:#3a2b2b;
+  }
+  .cashier-close-denom-total {
+    text-align:right;
+    font-weight:700;
+    color:#8f3d33;
+  }
+  .cashier-close-total-box {
+    border:1px solid rgba(188,44,69,.14);
+    border-radius:18px;
+    background:#fff6f4;
+    padding:.9rem 1rem;
+  }
+  .cashier-close-total-row {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:.75rem;
+  }
+  .cashier-close-total-row + .cashier-close-total-row {
+    margin-top:.4rem;
+  }
+  .cashier-close-total-row strong {
+    font-size:1rem;
+    color:#3a2b2b;
+  }
+  .cashier-close-total-row.variance strong.negative { color:#b42318; }
+  .cashier-close-total-row.variance strong.positive { color:#067647; }
+  .cashier-close-empty {
+    border:1px dashed rgba(224,209,198,.88);
+    border-radius:14px;
+    padding:.85rem .95rem;
+    color:#8a776d;
+    background:#fffdfb;
+  }
+  @media (max-width: 767.98px) {
+    .cashier-close-summary-grid { grid-template-columns:1fr; }
+    .cashier-close-denom-row { grid-template-columns:minmax(0, 1fr) 84px 110px; }
+  }
   .cashier-readonly {
     background:#f7f3ef !important;
     border-color:#eadfd6 !important;
   }
   .cashier-reversal-line {
-    border:1px solid rgba(224,209,198,.75); border-radius:14px; padding:.85rem 1rem; background:#fffaf7;
+    border:1px solid rgba(224,209,198,.75); border-radius:14px; padding:.68rem .8rem; background:#fffaf7;
   }
-  .cashier-reversal-line + .cashier-reversal-line { margin-top:.7rem; }
+  .cashier-reversal-line + .cashier-reversal-line { margin-top:.55rem; }
+  .cashier-reversal-help {
+    background:#fff7f2;
+    border:1px solid rgba(224,209,198,.85);
+    border-radius:14px;
+    padding:.72rem .82rem;
+    color:#755f56;
+  }
+  .cashier-reversal-toolbar {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:.6rem;
+    flex-wrap:wrap;
+  }
+  .cashier-reversal-policy-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:.85rem; }
+  .cashier-reversal-policy-card {
+    border:1px solid rgba(224, 209, 198, .75);
+    border-radius:16px;
+    padding:.8rem .9rem;
+    background:linear-gradient(135deg,#fffaf6 0%,#fff 100%);
+    cursor:pointer;
+  }
+  .cashier-reversal-policy-card.active { border-color:#8f3d33; box-shadow:0 12px 24px rgba(143,61,51,.12); }
+  .cashier-reversal-policy-title { font-weight:800; color:#3a2b2b; }
+  .cashier-reversal-policy-note { font-size:.8rem; color:#7b6b63; }
+  .cashier-reversal-section-title { font-size:.78rem; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:#8a776d; }
+  .cashier-reversal-policy-wrap {
+    border-top:1px solid rgba(229,216,206,.88);
+    padding-top:1rem;
+  }
+  .cashier-reversal-policy-hint {
+    border:1px solid rgba(224,209,198,.75);
+    border-radius:14px;
+    background:#fffdfb;
+    padding:.75rem .9rem;
+    font-size:.8rem;
+    color:#7b6b63;
+  }
+  .cashier-reversal-item-head {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:.85rem;
+  }
+  .cashier-reversal-item-main {
+    display:flex;
+    align-items:center;
+    gap:.6rem;
+    min-width:0;
+    flex:1;
+  }
+  .cashier-reversal-item-name {
+    font-weight:800;
+    color:#32292a;
+    line-height:1.2;
+  }
+  .cashier-reversal-item-side {
+    display:flex;
+    align-items:center;
+    gap:.45rem;
+    flex:0 0 auto;
+  }
+  .cashier-reversal-item-side .form-control {
+    width:88px;
+    text-align:center;
+    font-weight:700;
+  }
+  .cashier-reversal-extra-list {
+    margin-top:.7rem;
+    display:grid;
+    gap:.48rem;
+    padding-top:.7rem;
+    border-top:1px dashed rgba(214,195,182,.9);
+  }
+  .cashier-reversal-extra-row {
+    border:1px dashed rgba(214,195,182,.9);
+    border-radius:14px;
+    padding:.52rem .68rem;
+    background:#fff;
+  }
+  .cashier-reversal-qty-input { width:78px; }
+  .cashier-reversal-summary-note { font-size:.78rem; color:#8b7a70; }
   .cashier-extra-pill {
     display:inline-flex; align-items:center; gap:.35rem; margin:.2rem .35rem .2rem 0;
     padding:.24rem .58rem; border-radius:999px; background:#fff5ea; color:#8f4c17; font-size:.72rem; font-weight:700;
@@ -568,7 +821,9 @@ $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFil
     .cashier-header-grid { grid-template-columns:1fr; }
     .cashier-product-grid { grid-template-columns:repeat(auto-fill,minmax(144px,1fr)); }
     .cashier-cart-editor-row { grid-template-columns:1fr; }
+    .cashier-cart-price-breakdown { grid-template-columns:1fr; }
     .cashier-review-summary-grid { grid-template-columns:1fr 1fr; }
+    .cashier-reversal-policy-grid { grid-template-columns:1fr; }
   }
   .cashier-catalog-chip-row {
     display:flex;
@@ -746,6 +1001,62 @@ $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFil
     line-height:1.45;
     white-space:pre-line;
   }
+  .cashier-print-failure-panel {
+    border:1px solid rgba(194,69,52,.14);
+    border-radius:18px;
+    background:linear-gradient(180deg,#fff8f5 0%,#fff 100%);
+    padding:1rem;
+  }
+  .cashier-print-failure-head {
+    display:flex;
+    gap:.75rem;
+    align-items:flex-start;
+    margin-bottom:.85rem;
+  }
+  .cashier-print-failure-icon {
+    width:2.6rem;
+    height:2.6rem;
+    border-radius:999px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    background:#fde7e1;
+    color:#bf4b38;
+    font-size:1.2rem;
+    flex:0 0 auto;
+  }
+  .cashier-print-failure-title {
+    font-size:1rem;
+    font-weight:800;
+    color:#3f2d2a;
+    margin-bottom:.15rem;
+  }
+  .cashier-print-failure-lead {
+    font-size:.86rem;
+    color:#7a625d;
+    line-height:1.45;
+  }
+  .cashier-print-failure-list {
+    display:grid;
+    gap:.7rem;
+  }
+  .cashier-print-failure-item {
+    border:1px solid rgba(191,167,160,.35);
+    border-radius:14px;
+    background:#fff;
+    padding:.78rem .85rem;
+  }
+  .cashier-print-failure-name {
+    font-size:.88rem;
+    font-weight:800;
+    color:#3b2b2b;
+    margin-bottom:.18rem;
+  }
+  .cashier-print-failure-reason {
+    font-size:.82rem;
+    color:#735f5b;
+    line-height:1.4;
+  }
   .cashier-review-line-meta {
     display:flex;
     gap:.45rem;
@@ -763,6 +1074,119 @@ $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFil
   }
   .cashier-action-bar .cashier-action-wide {
     grid-column:1 / -1;
+  }
+  .payment-block { border:1px solid rgba(109,31,47,.10); border-radius:18px; background:#fff; padding:15px; box-shadow:0 12px 28px rgba(31,36,48,.05); }
+  .payment-block-compact { padding:14px; }
+  .payment-block-title { font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:#8a7a72; margin-bottom:8px; font-weight:800; }
+  .payment-inline-card { background:linear-gradient(180deg, #fff, #fbf7f1); border-color:rgba(109,31,47,.12) !important; box-shadow:0 8px 18px rgba(31,36,48,.05); }
+  .selected-customer-card { border-radius:16px; }
+  .cashier-payment-btn-primary {
+    background:#943f35;
+    border-color:#943f35;
+    color:#fff;
+    font-weight:800;
+  }
+  .cashier-payment-btn-primary:hover,
+  .cashier-payment-btn-primary:focus {
+    background:#7f342c;
+    border-color:#7f342c;
+    color:#fff;
+  }
+  .cashier-payment-btn-accent {
+    background:#f8e7d9;
+    border-color:#d39a73;
+    color:#8a4722;
+    font-weight:800;
+  }
+  .cashier-payment-btn-accent:hover,
+  .cashier-payment-btn-accent:focus {
+    background:#f1d8c3;
+    border-color:#c7885b;
+    color:#7a3d1b;
+  }
+  .cashier-payment-btn-neutral {
+    background:#f4ece7;
+    border-color:#d8c3b7;
+    color:#5c4b45;
+    font-weight:700;
+  }
+  .cashier-payment-btn-neutral:hover,
+  .cashier-payment-btn-neutral:focus {
+    background:#eadfd8;
+    border-color:#ccb3a5;
+    color:#4f403b;
+  }
+  .cashier-payment-btn-danger {
+    background:#fff1f0;
+    border-color:#ef8f87;
+    color:#c53d32;
+    font-weight:800;
+  }
+  .cashier-payment-btn-danger:hover,
+  .cashier-payment-btn-danger:focus {
+    background:#ffe4e2;
+    border-color:#e27168;
+    color:#a92e25;
+  }
+  .cashier-payment-btn-success {
+    background:#39b54a;
+    border-color:#39b54a;
+    color:#fff;
+    font-weight:800;
+    box-shadow:0 10px 22px rgba(57,181,74,.18);
+  }
+  .cashier-payment-btn-success:hover,
+  .cashier-payment-btn-success:focus {
+    background:#2e9a3d;
+    border-color:#2e9a3d;
+    color:#fff;
+  }
+  .suggest-box { position:relative; }
+  .suggest-box .list-group {
+    position:absolute;
+    top:100%;
+    left:0;
+    right:0;
+    z-index:25;
+    max-height:280px;
+    overflow:auto;
+    border:1px solid rgba(201, 183, 168, .72);
+    border-radius:16px;
+    box-shadow:0 16px 36px rgba(61, 38, 27, .14);
+  }
+  .suggest-box .list-group-item {
+    border:0;
+    border-bottom:1px solid rgba(232,220,210,.9);
+    padding:.9rem 1rem;
+  }
+  .suggest-box .list-group-item:last-child { border-bottom:0; }
+  .suggest-box .list-group-item:hover,
+  .suggest-box .list-group-item:focus { background:#fff7f2; }
+  .existing-payment-chip { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:rgba(109,31,47,.10); color:#943f35; font-size:11px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; }
+  .cashier-payment-layout-summary { display:flex; flex-direction:column; gap:12px; }
+  .cashier-payment-summary-list { display:grid; gap:.32rem; font-size:.92rem; color:#5a4a45; }
+  .cashier-payment-summary-row { display:flex; justify-content:space-between; gap:1rem; }
+  .cashier-payment-summary-row.total { color:#943f35; font-size:1.15rem; font-weight:800; }
+  .cashier-payment-summary-row.balance {
+    margin-top:.45rem;
+    padding-top:.65rem;
+    border-top:1px solid rgba(223, 208, 198, .9);
+    font-size:1rem;
+    font-weight:800;
+    color:#2f2628;
+  }
+  .cashier-payment-note {
+    font-size:.76rem;
+    color:#7b6761;
+  }
+  .cashier-payment-method-row { margin-bottom:.75rem; }
+  .cashier-payment-method-row:last-child { margin-bottom:0; }
+  .cashier-payment-method-row.is-active {
+    border-color:rgba(148, 63, 53, .45) !important;
+    box-shadow:0 0 0 2px rgba(148, 63, 53, .08), 0 8px 18px rgba(31,36,48,.05);
+  }
+  @media (max-width: 767.98px) {
+    .cashier-payment-layout-summary { margin-top:1rem; }
   }
   .cashier-recent-footer {
     position:sticky;
@@ -805,7 +1229,7 @@ $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFil
                     <select class="form-select" id="cashier_launch_outlet" <?php echo empty($outlets) ? 'disabled' : ''; ?>>
                       <option value="">Pilih Outlet</option>
                       <?php foreach ($outlets as $outlet): ?>
-                        <option value="<?php echo (int)$outlet['id']; ?>"><?php echo html_escape((string)$outlet['outlet_name']); ?></option>
+                        <option value="<?php echo (int)$outlet['id']; ?>" <?php echo $defaultLaunchOutletId === (int)$outlet['id'] ? 'selected' : ''; ?>><?php echo html_escape((string)$outlet['outlet_name']); ?></option>
                       <?php endforeach; ?>
                     </select>
                   </div>
@@ -814,13 +1238,13 @@ $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFil
                     <select class="form-select" id="cashier_launch_terminal" <?php echo empty($outlets) ? 'disabled' : ''; ?>>
                       <option value="">Pilih Device</option>
                       <?php foreach ($terminals as $terminal): ?>
-                        <option value="<?php echo (int)$terminal['id']; ?>" data-outlet-id="<?php echo (int)($terminal['outlet_id'] ?? 0); ?>"><?php echo html_escape((string)$terminal['terminal_name']); ?></option>
+                        <option value="<?php echo (int)$terminal['id']; ?>" data-outlet-id="<?php echo (int)($terminal['outlet_id'] ?? 0); ?>" <?php echo $defaultLaunchTerminalId === (int)$terminal['id'] ? 'selected' : ''; ?>><?php echo html_escape((string)$terminal['terminal_name']); ?></option>
                       <?php endforeach; ?>
                     </select>
                   </div>
                   <div class="col-md-6">
                     <label class="form-label small text-muted mb-1">Modal Awal</label>
-                    <input type="number" min="0" step="1000" class="form-control" id="cashier_launch_opening_cash" placeholder="Mis. 200000">
+                    <input type="number" min="0" step="1000" class="form-control" id="cashier_launch_opening_cash" placeholder="Mis. 200000" value="<?php echo (int)$defaultLaunchOpeningCash; ?>">
                   </div>
                   <div class="col-md-6">
                     <label class="form-label small text-muted mb-1">Catatan Buka Kasir</label>
@@ -943,6 +1367,11 @@ $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFil
                   <div class="cashier-member-empty">Walk in customer. Transaksi ini belum memakai member.</div>
                 </div>
                 <div class="cashier-header-grid">
+                  <div class="cashier-customer-name-wrap">
+                    <label class="form-label small text-muted mb-1">Nama Customer</label>
+                    <input type="text" class="form-control" id="cashier_customer_name" placeholder="Nama untuk walk in / cetak">
+                    <div class="small text-muted mt-1">Dipakai untuk customer non-member dan tampilan cetak. Jika member dipilih, nama ini mengikuti data member.</div>
+                  </div>
                   <div>
                     <label class="form-label small text-muted mb-1">Sales Channel</label>
                     <select class="form-select" id="cashier_sales_channel">
@@ -996,7 +1425,8 @@ $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFil
               </div>
               <div class="cashier-mini-note mb-3" id="cashier_summary_info">Belum ada baris item</div>
               <div class="cashier-action-bar cashier-cart-actions">
-                <button type="button" class="btn btn-outline-dark cashier-action-wide" id="cashier_preview_reversal" disabled>Preview Void / Refund</button>
+                <button type="button" class="btn btn-outline-dark cashier-action-wide" id="cashier_preview_reversal" disabled>Preview Void</button>
+                <button type="button" class="btn btn-success cashier-action-wide" id="cashier_open_payment" disabled>Payment</button>
                 <button type="button" class="btn btn-outline-primary" id="cashier_save_draft" <?php echo empty($activeSession) ? 'disabled' : ''; ?>>Simpan Draft</button>
                 <button type="button" class="btn btn-primary" id="cashier_confirm_order" <?php echo empty($activeSession) ? 'disabled' : ''; ?>>Simpan Transaksi</button>
               </div>
@@ -1009,78 +1439,245 @@ $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFil
 </div>
 
 <div class="modal fade" id="cashierReversalModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+  <div class="modal-dialog modal-md modal-dialog-scrollable">
     <div class="modal-content border-0 shadow-lg" style="border-radius:24px;">
       <div class="modal-header">
         <div>
-          <h5 class="modal-title mb-1">Preview Void / Refund POS</h5>
+          <h5 class="modal-title mb-1">Preview Void POS</h5>
           <div class="small text-muted" id="cashier_reversal_meta">Order belum dipilih.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <div class="row g-3 mb-3">
-          <div class="col-md-6">
-            <label class="form-label small text-muted mb-1">Kebijakan Stok</label>
-            <div class="form-check form-switch border rounded-4 px-3 py-2">
-              <input class="form-check-input" type="checkbox" id="cashier_reversal_return" checked>
-              <label class="form-check-label ms-2" for="cashier_reversal_return">Kembalikan ke stok untuk line yang belum diproses</label>
-            </div>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small text-muted mb-1">Adjustment Mode</label>
-            <select class="form-select" id="cashier_reversal_adjustment">
-              <option value="NONE">NONE</option>
-              <option value="AUTO_WASTE">AUTO_WASTE</option>
-              <option value="AUTO_SPOIL">AUTO_SPOIL</option>
-              <option value="AUTO_ADJUSTMENT">AUTO_ADJUSTMENT</option>
-            </select>
-          </div>
-          <div class="col-12">
-            <label class="form-label small text-muted mb-1">Alasan</label>
-            <textarea class="form-control" id="cashier_reversal_reason" rows="2" placeholder="Alasan void atau refund untuk audit transaksi"></textarea>
+        <div class="alert alert-warning border-0 d-none" id="cashier_reversal_empty_hint">Snapshot void belum tersedia untuk order ini.</div>
+        <div class="cashier-reversal-help mb-3">
+          <div class="fw-semibold mb-1">Void hanya untuk order POS yang belum dibayar.</div>
+          <div class="small mb-0">Pilih produk untuk void penuh atau sebagian. Jika produk punya extra, pilih produk berarti extra ikut otomatis. Untuk void extra saja, kosongkan produk lalu centang extra yang ingin dibatalkan.</div>
+        </div>
+        <div class="cashier-reversal-toolbar mb-2">
+          <div class="cashier-reversal-summary-note">Default kosong. Centang item yang memang akan di-void.</div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="cashier_reversal_check_all">Cek Semua</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="cashier_reversal_uncheck_all">Uncek Semua</button>
           </div>
         </div>
-        <div id="cashier_reversal_lines"></div>
+        <div id="cashier_reversal_lines" class="mb-3"></div>
+        <div class="cashier-reversal-policy-wrap">
+          <div class="cashier-reversal-section-title mb-2">Kebijakan Void</div>
+          <div class="cashier-reversal-policy-grid mb-3">
+            <label class="cashier-reversal-policy-card active" id="cashier_reversal_return_card">
+              <input class="d-none" type="radio" name="cashier_reversal_policy" id="cashier_reversal_return" value="RETURN_TO_STOCK" checked>
+              <div class="cashier-reversal-policy-title">Kembalikan ke stok</div>
+              <div class="cashier-reversal-policy-note mt-1">Bahan yang sudah terpotong akan dikembalikan lagi ke stok. Tidak ada adjustment yang dibuat.</div>
+            </label>
+            <label class="cashier-reversal-policy-card" id="cashier_reversal_adjust_card">
+              <input class="d-none" type="radio" name="cashier_reversal_policy" id="cashier_reversal_adjust" value="ADJUSTMENT_ONLY">
+              <div class="cashier-reversal-policy-title">Jangan kembalikan ke stok</div>
+              <div class="cashier-reversal-policy-note mt-1">Bahan tidak dikembalikan ke stok, jadi void akan dicatat sebagai adjustment seperti waste, spoil, atau penyesuaian lainnya.</div>
+            </label>
+          </div>
+          <div class="cashier-reversal-policy-hint mb-3" id="cashier_reversal_policy_hint">Jika stok dikembalikan, sistem hanya mengembalikan bahan ke stok dan tidak membuat adjustment.</div>
+          <div class="row g-3">
+            <div class="col-md-6 d-none" id="cashier_reversal_adjustment_wrap">
+              <label class="form-label small text-muted mb-1">Tipe Adjustment</label>
+              <select class="form-select" id="cashier_reversal_adjustment">
+                <option value="NONE">Pilih tipe adjustment...</option>
+                <option value="AUTO_WASTE">Waste otomatis</option>
+                <option value="AUTO_SPOIL">Spoil otomatis</option>
+                <option value="AUTO_ADJUSTMENT">Penyesuaian otomatis</option>
+              </select>
+              <div class="small text-muted mt-1">Wajib dipilih jika stok bahan tidak dikembalikan.</div>
+            </div>
+            <div class="col-md-6 d-none" id="cashier_reversal_reason_wrap">
+              <label class="form-label small text-muted mb-1">Alasan Void</label>
+              <select class="form-select" id="cashier_reversal_reason_code">
+                <option value="">Pilih alasan...</option>
+              </select>
+              <input type="text" class="form-control mt-2 d-none" id="cashier_reversal_reason_other" placeholder="Tulis alasan lainnya">
+            </div>
+            <div class="col-12">
+              <label class="form-label small text-muted mb-1">Catatan Audit</label>
+              <textarea class="form-control" id="cashier_reversal_reason" rows="2" placeholder="Catatan tambahan untuk audit void ini (opsional)"></textarea>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
-        <button type="button" class="btn btn-outline-danger" id="cashier_save_void">Simpan Void</button>
-        <button type="button" class="btn btn-danger" id="cashier_save_refund">Simpan Refund</button>
+        <button type="button" class="btn btn-danger" id="cashier_save_void">Simpan Void</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="cashierPaymentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content border-0 shadow-lg" style="border-radius:24px;">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Menyelesaikan Penjualan</h5>
+          <div class="small text-muted" id="cashier_payment_meta">Pilih metode pembayaran untuk transaksi aktif.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3 align-items-start">
+          <div class="col-xl-7">
+            <div class="d-flex flex-column gap-3">
+              <div class="payment-block payment-block-compact">
+                <div class="payment-block-title">Voucher &amp; Potongan</div>
+                <div class="row g-2 align-items-start">
+                  <div class="col-lg-7">
+                    <label class="form-label">Voucher Database</label>
+                    <div class="input-group">
+                      <input type="text" class="form-control" id="cashier_payment_voucher_search" placeholder="Input kode / nama voucher lalu cek">
+                      <button type="button" class="btn cashier-payment-btn-primary" id="cashier_payment_voucher_check">Cek</button>
+                    </div>
+                    <div class="small text-muted mt-1" id="cashier_payment_voucher_status">Input kode voucher lalu klik cek.</div>
+                    <div class="suggest-box mt-1">
+                      <div id="cashier_payment_voucher_suggestions" class="list-group mt-1" style="display:none;"></div>
+                    </div>
+                  </div>
+                  <div class="col-lg-5">
+                    <label class="form-label">Info Member</label>
+                    <div class="selected-customer-card border rounded p-2 payment-inline-card">
+                      <div class="fw-semibold" id="cashier_payment_customer_name">Walk in</div>
+                      <div class="small text-muted mt-1" id="cashier_payment_member_balance">Point 0 | Stamp 0</div>
+                      <div class="small text-muted" id="cashier_payment_voucher_count">0 voucher tersedia</div>
+                    </div>
+                  </div>
+                </div>
+                <div id="cashier_payment_selected_voucher" class="selected-customer-card border rounded p-2 mt-2 d-none payment-inline-card" data-selection="" data-discount="0">
+                  <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div>
+                      <div class="fw-semibold" id="cashier_payment_selected_voucher_name"></div>
+                      <div class="text-muted small" id="cashier_payment_selected_voucher_meta"></div>
+                    </div>
+                    <button type="button" class="btn btn-sm cashier-payment-btn-neutral" id="cashier_payment_clear_voucher">Hapus</button>
+                  </div>
+                  <div class="text-muted small mt-1" id="cashier_payment_selected_voucher_message"></div>
+                </div>
+              </div>
+
+              <div class="payment-block">
+                <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
+                  <div class="payment-block-title mb-0">Metode Pembayaran</div>
+                  <button type="button" class="btn btn-sm cashier-payment-btn-accent" id="cashier_payment_add_row">+ Tambah Metode</button>
+                </div>
+                <div id="cashier_payment_rows"></div>
+                <div class="d-flex flex-wrap gap-2 mt-2 mb-2">
+                  <button type="button" class="btn btn-sm cashier-payment-btn-neutral payment-quick-amount" data-mode="remaining">Pas</button>
+                  <button type="button" class="btn btn-sm cashier-payment-btn-neutral payment-quick-amount" data-amount="10000">10K</button>
+                  <button type="button" class="btn btn-sm cashier-payment-btn-neutral payment-quick-amount" data-amount="20000">20K</button>
+                  <button type="button" class="btn btn-sm cashier-payment-btn-neutral payment-quick-amount" data-amount="50000">50K</button>
+                  <button type="button" class="btn btn-sm cashier-payment-btn-neutral payment-quick-amount" data-amount="100000">100K</button>
+                </div>
+                <div class="cashier-payment-note mt-2" id="cashier_payment_total_hint">Nominal pembayaran bisa kurang untuk simpan bayar sebagian. Kembalian hanya berlaku untuk tunai tunggal.</div>
+              </div>
+
+              <div class="payment-block payment-block-compact">
+                <div class="payment-block-title">Catatan Payment</div>
+                <textarea class="form-control" id="cashier_payment_notes" rows="2" placeholder="Opsional"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-xl-5">
+            <div class="cashier-payment-layout-summary">
+              <div class="payment-block payment-block-compact">
+                <div class="payment-block-title">Ringkasan Pembayaran</div>
+                <div class="cashier-payment-summary-list">
+                  <div class="cashier-payment-summary-row"><span>Subtotal</span><strong id="cashier_payment_base_total">Rp 0</strong></div>
+                  <div class="cashier-payment-summary-row"><span>Voucher / Potongan</span><strong id="cashier_payment_voucher_total">Rp 0</strong></div>
+                  <div class="cashier-payment-summary-row"><span>Sudah Dibayar</span><strong id="cashier_payment_paid_total">Rp 0</strong></div>
+                  <div class="cashier-payment-summary-row total"><span>Total Tagihan</span><strong id="cashier_payment_grand_total">Rp 0</strong></div>
+                  <div class="cashier-payment-summary-row"><span>Dibayar Sekarang</span><strong id="cashier_payment_entered_total">Rp 0</strong></div>
+                  <div class="cashier-payment-summary-row"><span>Kembalian</span><strong id="cashier_payment_change_total">Rp 0</strong></div>
+                  <div class="cashier-payment-summary-row balance"><span>Sisa Setelah Payment</span><strong id="cashier_payment_remaining_total">Rp 0</strong></div>
+                </div>
+              </div>
+
+              <div class="payment-block payment-block-compact">
+                <div class="payment-block-title">Informasi Order</div>
+                <div class="cashier-payment-note mb-1">Order aktif</div>
+                <div class="fw-semibold" id="cashier_payment_order_no">-</div>
+                <div class="cashier-payment-note mt-2">Sisa tagihan saat ini</div>
+                <div class="fw-bold fs-5" id="cashier_payment_due_total">Rp 0</div>
+                <div class="cashier-payment-note mt-2" id="cashier_payment_voucher_hint">Belum ada voucher dipilih.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn cashier-payment-btn-neutral" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn cashier-payment-btn-success" id="cashier_submit_payment">Simpan Payment</button>
       </div>
     </div>
   </div>
 </div>
 
 <div class="modal fade" id="cashierCloseModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-md modal-dialog-centered">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content border-0 shadow-lg" style="border-radius:24px;">
       <div class="modal-header">
         <div>
           <h5 class="modal-title mb-1">Tutup Kasir</h5>
-          <div class="small text-muted">Masukkan kas aktual lalu sistem akan menghitung ringkasan shift.</div>
+          <div class="small text-muted">Preview pendapatan shift aktif, hitung pecahan tunai, lalu simpan dan cetak slip kasir.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
         <div class="row g-3">
-          <div class="col-12">
-            <label class="form-label small text-muted mb-1">Kas Aktual</label>
-            <input type="number" min="0" step="1000" class="form-control" id="cashier_close_actual_cash" placeholder="Mis. 850000">
+          <div class="col-lg-7">
+            <div class="cashier-close-panel">
+              <div class="cashier-close-section-title">Preview Pendapatan</div>
+              <div class="small text-muted mb-3" id="cashier_close_shift_meta">Memuat shift aktif...</div>
+              <div class="cashier-close-summary-grid">
+                <div class="cashier-close-summary-card"><span class="label">Total Order</span><div class="value" id="cashier_close_total_orders">0</div></div>
+                <div class="cashier-close-summary-card"><span class="label">Penjualan Bersih</span><div class="value" id="cashier_close_net_sales">Rp 0</div></div>
+                <div class="cashier-close-summary-card"><span class="label">Cash Sales</span><div class="value" id="cashier_close_cash_sales">Rp 0</div></div>
+                <div class="cashier-close-summary-card"><span class="label">Non Cash</span><div class="value" id="cashier_close_non_cash_sales">Rp 0</div></div>
+                <div class="cashier-close-summary-card"><span class="label">Deposit Receipt</span><div class="value" id="cashier_close_deposit_sales">Rp 0</div></div>
+                <div class="cashier-close-summary-card"><span class="label">Refund</span><div class="value" id="cashier_close_refund_total">Rp 0</div></div>
+                <div class="cashier-close-summary-card"><span class="label">Void</span><div class="value" id="cashier_close_void_total">Rp 0</div></div>
+                <div class="cashier-close-summary-card"><span class="label">Expected Cash</span><div class="value" id="cashier_close_expected_cash">Rp 0</div></div>
+              </div>
+
+              <div class="cashier-close-breakdown">
+                <div class="cashier-close-section-title">Per Metode Pembayaran</div>
+                <div class="cashier-close-breakdown-list" id="cashier_close_method_summary">
+                  <div class="cashier-close-empty">Belum ada data metode pembayaran.</div>
+                </div>
+              </div>
+
+              <div class="cashier-close-breakdown">
+                <div class="cashier-close-section-title">Per Rekening</div>
+                <div class="cashier-close-breakdown-list" id="cashier_close_account_summary">
+                  <div class="cashier-close-empty">Belum ada data rekening.</div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="col-12">
-            <label class="form-label small text-muted mb-1">Catatan Penutupan</label>
-            <textarea class="form-control" id="cashier_close_notes" rows="2" placeholder="Opsional"></textarea>
-          </div>
-          <div class="col-12">
-            <div class="cashier-session-summary">
-              <div class="small text-muted mb-2">Yang akan dihitung saat tutup kasir</div>
-              <div class="d-flex flex-wrap gap-2">
-                <span class="cashier-chip info">Penjualan cash</span>
-                <span class="cashier-chip info">Penjualan non-cash</span>
-                <span class="cashier-chip info">DP / deposit receipt</span>
-                <span class="cashier-chip info">Refund</span>
-                <span class="cashier-chip info">Void</span>
+          <div class="col-lg-5">
+            <div class="cashier-close-panel">
+              <div class="cashier-close-section-title">Hitung Pecahan Tunai</div>
+              <div class="small text-muted mb-3">Isi jumlah lembar atau keping per pecahan. Kas aktual akan dihitung otomatis dari total pecahan.</div>
+              <div class="cashier-close-denom-list" id="cashier_close_denom_rows"></div>
+
+              <div class="cashier-close-total-box mt-3">
+                <div class="cashier-close-total-row"><span>Kas aktual dari pecahan</span><strong id="cashier_close_actual_cash_text">Rp 0</strong></div>
+                <div class="cashier-close-total-row"><span>Expected cash shift</span><strong id="cashier_close_expected_cash_text">Rp 0</strong></div>
+                <div class="cashier-close-total-row variance"><span>Selisih</span><strong id="cashier_close_variance_text">Rp 0</strong></div>
+              </div>
+
+              <div class="mt-3">
+                <label class="form-label small text-muted mb-1">Kas Aktual</label>
+                <input type="number" min="0" step="500" class="form-control cashier-readonly" id="cashier_close_actual_cash" placeholder="Otomatis dari pecahan" readonly>
+              </div>
+              <div class="mt-3">
+                <label class="form-label small text-muted mb-1">Catatan Penutupan</label>
+                <textarea class="form-control" id="cashier_close_notes" rows="3" placeholder="Opsional"></textarea>
               </div>
             </div>
           </div>
@@ -1187,6 +1784,16 @@ $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFil
       </div>
       <div class="modal-body">
         <div class="cashier-info-text" id="cashier_info_message">Transaksi berhasil diproses.</div>
+        <div class="cashier-print-failure-panel d-none" id="cashier_print_failure_panel">
+          <div class="cashier-print-failure-head">
+            <div class="cashier-print-failure-icon"><i class="ri-printer-line"></i></div>
+            <div>
+              <div class="cashier-print-failure-title">Sebagian cetak belum terkirim</div>
+              <div class="cashier-print-failure-lead" id="cashier_print_failure_lead">Transaksi sudah tersimpan, tetapi ada printer yang perlu dicek.</div>
+            </div>
+          </div>
+          <div class="cashier-print-failure-list" id="cashier_print_failure_list"></div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Tutup</button>
@@ -1208,6 +1815,11 @@ $catalogDivisions = is_array($catalogFilters['divisions'] ?? null) ? $catalogFil
 document.addEventListener('DOMContentLoaded', function () {
   const initialFilters = <?php echo json_encode($filters, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const activeSession = <?php echo json_encode($activeSession, JSON_INVALID_UTF8_SUBSTITUTE); ?> || null;
+  const launchDefaults = <?php echo json_encode([
+    'outlet_id' => $defaultLaunchOutletId,
+    'terminal_id' => $defaultLaunchTerminalId,
+    'opening_cash' => $defaultLaunchOpeningCash,
+  ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE); ?> || {};
   const catalogFiltersData = <?php echo json_encode([
     'divisions' => $catalogDivisions,
   ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE); ?>;
@@ -1238,6 +1850,7 @@ document.addEventListener('DOMContentLoaded', function () {
     member_id: null,
     member_no: '',
     member_name: '',
+    customer_name: '',
     member_mobile_phone: '',
     member_point_balance: 0,
     member_stamp_balance: 0,
@@ -1251,9 +1864,21 @@ document.addEventListener('DOMContentLoaded', function () {
   let selectedRecentOrderId = null;
   let draftSaveInFlight = false;
   let confirmInFlight = false;
+  let paymentContext = null;
+  let paymentRows = [];
+  let paymentActiveRowIndex = 0;
+  let paymentSelectedVoucher = null;
+  let paymentVoucherSearchTimer = null;
+  let paymentPrepareInFlight = false;
+  let paymentSubmitInFlight = false;
+  let closePreview = null;
+  const closeDenominations = [500, 1000, 5000, 10000, 20000, 50000, 100000];
 
   const reversalModalEl = document.getElementById('cashierReversalModal');
   const reversalModal = reversalModalEl && window.bootstrap ? new bootstrap.Modal(reversalModalEl) : null;
+  const reversalReasonOptions = <?php echo json_encode($reversalReasonOptions, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+  const paymentModalEl = document.getElementById('cashierPaymentModal');
+  const paymentModal = paymentModalEl && window.bootstrap ? new bootstrap.Modal(paymentModalEl) : null;
   const closeModalEl = document.getElementById('cashierCloseModal');
   const closeModal = closeModalEl && window.bootstrap ? new bootstrap.Modal(closeModalEl) : null;
   const extraModalEl = document.getElementById('cashierExtraModal');
@@ -1262,6 +1887,10 @@ document.addEventListener('DOMContentLoaded', function () {
   const reviewModal = reviewModalEl && window.bootstrap ? new bootstrap.Modal(reviewModalEl) : null;
   const infoModalEl = document.getElementById('cashierInfoModal');
   const infoModal = infoModalEl && window.bootstrap ? new bootstrap.Modal(infoModalEl) : null;
+  const infoMessageEl = document.getElementById('cashier_info_message');
+  const infoPrintPanelEl = document.getElementById('cashier_print_failure_panel');
+  const infoPrintLeadEl = document.getElementById('cashier_print_failure_lead');
+  const infoPrintListEl = document.getElementById('cashier_print_failure_list');
   const workspace = document.getElementById('cashier_workspace');
   const launchOutlet = document.getElementById('cashier_launch_outlet');
   const launchTerminal = document.getElementById('cashier_launch_terminal');
@@ -1269,6 +1898,13 @@ document.addEventListener('DOMContentLoaded', function () {
   const launchNotes = document.getElementById('cashier_launch_notes');
   const openButton = document.getElementById('cashier_open_btn');
   const closeButton = document.getElementById('cashier_close_btn');
+  const closeDenomRows = document.getElementById('cashier_close_denom_rows');
+  const closeShiftMeta = document.getElementById('cashier_close_shift_meta');
+  const closeMethodSummary = document.getElementById('cashier_close_method_summary');
+  const closeAccountSummary = document.getElementById('cashier_close_account_summary');
+  const closeActualCashText = document.getElementById('cashier_close_actual_cash_text');
+  const closeExpectedCashText = document.getElementById('cashier_close_expected_cash_text');
+  const closeVarianceText = document.getElementById('cashier_close_variance_text');
   const outletSelect = document.getElementById('cashier_outlet_id');
   const terminalSelect = document.getElementById('cashier_terminal_id');
   const salesChannelSelect = document.getElementById('cashier_sales_channel');
@@ -1279,7 +1915,38 @@ document.addEventListener('DOMContentLoaded', function () {
   const memberSearchInput = document.getElementById('cashier_member_search');
   const memberResult = document.getElementById('cashier_member_result');
   const memberSelected = document.getElementById('cashier_member_selected');
+  const customerNameInput = document.getElementById('cashier_customer_name');
   const productSearchInput = document.getElementById('cashier_product_search');
+  const paymentButton = document.getElementById('cashier_open_payment');
+  const paymentMeta = document.getElementById('cashier_payment_meta');
+  const paymentOrderNo = document.getElementById('cashier_payment_order_no');
+  const paymentBaseTotal = document.getElementById('cashier_payment_base_total');
+  const paymentVoucherTotal = document.getElementById('cashier_payment_voucher_total');
+  const paymentPaidTotal = document.getElementById('cashier_payment_paid_total');
+  const paymentGrandTotal = document.getElementById('cashier_payment_grand_total');
+  const paymentEnteredTotal = document.getElementById('cashier_payment_entered_total');
+  const paymentChangeTotal = document.getElementById('cashier_payment_change_total');
+  const paymentRemainingTotal = document.getElementById('cashier_payment_remaining_total');
+  const paymentDueTotal = document.getElementById('cashier_payment_due_total');
+  const paymentCustomerName = document.getElementById('cashier_payment_customer_name');
+  const paymentMemberBalance = document.getElementById('cashier_payment_member_balance');
+  const paymentVoucherCount = document.getElementById('cashier_payment_voucher_count');
+  const paymentVoucherSearch = document.getElementById('cashier_payment_voucher_search');
+  const paymentVoucherCheckButton = document.getElementById('cashier_payment_voucher_check');
+  const paymentVoucherStatus = document.getElementById('cashier_payment_voucher_status');
+  const paymentVoucherSuggestions = document.getElementById('cashier_payment_voucher_suggestions');
+  const paymentSelectedVoucherCard = document.getElementById('cashier_payment_selected_voucher');
+  const paymentSelectedVoucherName = document.getElementById('cashier_payment_selected_voucher_name');
+  const paymentSelectedVoucherMeta = document.getElementById('cashier_payment_selected_voucher_meta');
+  const paymentSelectedVoucherMessage = document.getElementById('cashier_payment_selected_voucher_message');
+  const paymentClearVoucherButton = document.getElementById('cashier_payment_clear_voucher');
+  const paymentVoucherHint = document.getElementById('cashier_payment_voucher_hint');
+  const paymentRowsContainer = document.getElementById('cashier_payment_rows');
+  const paymentAddRowButton = document.getElementById('cashier_payment_add_row');
+  const paymentTotalHint = document.getElementById('cashier_payment_total_hint');
+  const paymentNotes = document.getElementById('cashier_payment_notes');
+  const paymentSubmitButton = document.getElementById('cashier_submit_payment');
+  const paymentQuickAmountButtons = Array.from(document.querySelectorAll('.payment-quick-amount'));
   const catalogResult = document.getElementById('cashier_catalog_result');
   const catalogHint = document.getElementById('cashier_catalog_hint');
   const catalogCount = document.getElementById('cashier_catalog_count');
@@ -1287,6 +1954,12 @@ document.addEventListener('DOMContentLoaded', function () {
   const cartList = document.getElementById('cashier_cart_list');
   const cartEmpty = document.getElementById('cashier_cart_empty');
   const reversalButton = document.getElementById('cashier_preview_reversal');
+  const reversalCheckAllButton = document.getElementById('cashier_reversal_check_all');
+  const reversalUncheckAllButton = document.getElementById('cashier_reversal_uncheck_all');
+  const reversalAdjustmentWrap = document.getElementById('cashier_reversal_adjustment_wrap');
+  const reversalReasonWrap = document.getElementById('cashier_reversal_reason_wrap');
+  const reversalReasonCode = document.getElementById('cashier_reversal_reason_code');
+  const reversalReasonOther = document.getElementById('cashier_reversal_reason_other');
   const saveDraftButton = document.getElementById('cashier_save_draft');
   const confirmOrderButton = document.getElementById('cashier_confirm_order');
   const extraGroupsContainer = document.getElementById('cashier_extra_groups');
@@ -1304,10 +1977,13 @@ document.addEventListener('DOMContentLoaded', function () {
   const savingBody = document.getElementById('cashier_saving_body');
   const defaultSaveDraftLabel = saveDraftButton ? saveDraftButton.textContent : 'Simpan Draft';
   const defaultConfirmOrderLabel = confirmOrderButton ? confirmOrderButton.textContent : 'Simpan Transaksi';
+  const submitCloseButton = document.getElementById('cashier_submit_close');
+  const defaultCloseSubmitLabel = submitCloseButton ? submitCloseButton.textContent : 'Tutup Shift';
   const extraOptionCache = {};
   let activeExtraLineIndex = null;
   let activeExtraDraft = null;
   let pendingReviewAction = null;
+  let closeSubmitInFlight = false;
 
   function escapeHtml(v) {
     return String(v ?? '').replace(/[&<>\"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[m]));
@@ -1320,6 +1996,33 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   function number(v, digits = 2) {
     return new Intl.NumberFormat('id-ID', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Number(v || 0));
+  }
+  function parsePaymentAmount(value) {
+    const raw = String(value ?? '').trim();
+    if (raw === '') {
+      return 0;
+    }
+    const compact = raw.replace(/\s+/g, '');
+    let normalized = compact;
+    const lastComma = compact.lastIndexOf(',');
+    const lastDot = compact.lastIndexOf('.');
+    if (lastComma >= 0 && lastDot >= 0) {
+      const decimalIndex = Math.max(lastComma, lastDot);
+      const integerPart = compact.slice(0, decimalIndex).replace(/[.,]/g, '').replace(/[^\d-]/g, '');
+      const decimalPart = compact.slice(decimalIndex + 1).replace(/[^\d]/g, '');
+      normalized = `${integerPart || '0'}.${decimalPart}`;
+    } else if (lastComma >= 0) {
+      const parts = compact.split(',');
+      if (parts.length === 2) {
+        normalized = `${parts[0].replace(/[^\d-]/g, '') || '0'}.${parts[1].replace(/[^\d]/g, '')}`;
+      } else {
+        normalized = compact.replace(/,/g, '').replace(/[^\d-]/g, '');
+      }
+    } else {
+      normalized = compact.replace(/[^\d.-]/g, '');
+    }
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
   }
   function normalizePhotoUrl(path) {
     const raw = String(path || '').trim();
@@ -1421,9 +2124,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function showInfoModal(message, title = 'Informasi') {
     const titleEl = document.getElementById('cashier_info_title');
-    const messageEl = document.getElementById('cashier_info_message');
+    if (infoPrintPanelEl) infoPrintPanelEl.classList.add('d-none');
+    if (infoPrintListEl) infoPrintListEl.innerHTML = '';
+    if (infoPrintLeadEl) infoPrintLeadEl.textContent = '';
+    if (infoMessageEl) infoMessageEl.classList.remove('d-none');
     if (titleEl) titleEl.textContent = title;
-    if (messageEl) messageEl.textContent = message || '-';
+    if (infoMessageEl) infoMessageEl.textContent = message || '-';
     if (infoModal) {
       infoModal.show();
       return;
@@ -1431,11 +2137,69 @@ document.addEventListener('DOMContentLoaded', function () {
     alert(message || '-');
   }
 
+  function formatPrintFailureReason(reason) {
+    const normalized = String(reason || '').trim();
+    if (normalized === '') {
+      return 'Servis printer lokal menolak permintaan cetak. Cek koneksi printer dan agent desktop.';
+    }
+    if (/^HTTP 500$/i.test(normalized)) {
+      return 'Servis printer lokal mengembalikan error internal (HTTP 500). Cek template runtime, nama device OS, dan status agent printer.';
+    }
+    if (/^HTTP 404$/i.test(normalized)) {
+      return 'Servis printer lokal tidak menemukan endpoint cetak. Pastikan agent printer berjalan di port yang benar.';
+    }
+    if (/failed to fetch|networkerror|load failed/i.test(normalized)) {
+      return 'Browser tidak bisa menjangkau servis printer lokal. Pastikan agent printer aktif dan port tidak diblokir.';
+    }
+    return normalized;
+  }
+
+  function normalizePrintFailureEntry(entry) {
+    if (entry && typeof entry === 'object') {
+      return {
+        name: String(entry.name || entry.printer_name || 'Printer').trim() || 'Printer',
+        reason: formatPrintFailureReason(entry.reason || entry.message || ''),
+      };
+    }
+    const raw = String(entry || '').trim();
+    const separatorIndex = raw.indexOf(':');
+    if (separatorIndex > 0) {
+      return {
+        name: raw.slice(0, separatorIndex).trim() || 'Printer',
+        reason: formatPrintFailureReason(raw.slice(separatorIndex + 1).trim()),
+      };
+    }
+    return {
+      name: 'Printer',
+      reason: formatPrintFailureReason(raw),
+    };
+  }
+
   function showPrintFailureModal(actionLabel, failedPrinters) {
     const failed = Array.isArray(failedPrinters) ? failedPrinters.filter(Boolean) : [];
     if (!failed.length) return;
-    const prefix = actionLabel ? `${actionLabel} berhasil, tetapi printer berikut gagal:` : 'Ada printer yang gagal mencetak:';
-    showInfoModal(prefix + '\n- ' + failed.join('\n- '), 'Printer');
+    if (!infoModal || !infoPrintPanelEl || !infoPrintListEl) {
+      const prefix = actionLabel ? `${actionLabel} berhasil, tetapi printer berikut gagal:` : 'Ada printer yang gagal mencetak:';
+      showInfoModal(prefix + '\n- ' + failed.join('\n- '), 'Printer');
+      return;
+    }
+    const entries = failed.map(normalizePrintFailureEntry);
+    const titleEl = document.getElementById('cashier_info_title');
+    if (titleEl) titleEl.textContent = 'Printer perlu dicek';
+    if (infoMessageEl) infoMessageEl.classList.add('d-none');
+    if (infoPrintPanelEl) infoPrintPanelEl.classList.remove('d-none');
+    if (infoPrintLeadEl) {
+      infoPrintLeadEl.textContent = actionLabel
+        ? `${actionLabel} sudah tersimpan, tetapi ada printer yang gagal menerima slip.`
+        : 'Ada printer yang gagal menerima dokumen cetak.';
+    }
+    infoPrintListEl.innerHTML = entries.map((entry) => `
+      <div class="cashier-print-failure-item">
+        <div class="cashier-print-failure-name">${escapeHtml(entry.name || 'Printer')}</div>
+        <div class="cashier-print-failure-reason">${escapeHtml(entry.reason || '-')}</div>
+      </div>
+    `).join('');
+    infoModal.show();
   }
 
   function showToast(message, kind = 'info', title = 'Informasi', timeout = 3200) {
@@ -1455,9 +2219,213 @@ document.addEventListener('DOMContentLoaded', function () {
     }, Math.max(1400, Number(timeout || 3200)));
   }
 
+  function closePreviewSummary() {
+    return closePreview && closePreview.report && closePreview.report.summary ? closePreview.report.summary : {};
+  }
+
+  function renderCloseDenominationRows() {
+    if (!closeDenomRows) return;
+    closeDenomRows.innerHTML = closeDenominations.map((denomination) => `
+      <div class="cashier-close-denom-row" data-denomination="${denomination}">
+        <div>
+          <div class="cashier-close-denom-label">${money(denomination)}</div>
+          <div class="small text-muted">Jumlah lembar / keping</div>
+        </div>
+        <input type="number" min="0" step="1" value="0" class="form-control cashier-close-denom-qty">
+        <div class="cashier-close-denom-total">${money(0)}</div>
+      </div>
+    `).join('');
+  }
+
+  function closeCashBreakdownRows() {
+    if (!closeDenomRows) return [];
+    return Array.from(closeDenomRows.querySelectorAll('.cashier-close-denom-row')).map((row) => {
+      const denomination = Number(row.dataset.denomination || 0);
+      const qty = Number(row.querySelector('.cashier-close-denom-qty')?.value || 0);
+      return {
+        denomination,
+        qty,
+        amount: denomination * qty,
+        row,
+      };
+    });
+  }
+
+  function syncCloseCashTotals() {
+    const rows = closeCashBreakdownRows();
+    let total = 0;
+    rows.forEach((entry) => {
+      const amount = Number(entry.amount || 0);
+      total += amount;
+      const totalEl = entry.row?.querySelector('.cashier-close-denom-total');
+      if (totalEl) totalEl.textContent = money(amount);
+    });
+    const summary = closePreviewSummary();
+    const expectedCash = Number(summary.expected_cash || 0);
+    const variance = total - expectedCash;
+    const actualCashInput = document.getElementById('cashier_close_actual_cash');
+    if (actualCashInput) actualCashInput.value = String(total);
+    if (closeActualCashText) closeActualCashText.textContent = money(total);
+    if (closeExpectedCashText) closeExpectedCashText.textContent = money(expectedCash);
+    if (closeVarianceText) {
+      closeVarianceText.textContent = money(variance);
+      closeVarianceText.classList.remove('negative', 'positive');
+      if (variance < 0) {
+        closeVarianceText.classList.add('negative');
+      } else if (variance > 0) {
+        closeVarianceText.classList.add('positive');
+      }
+    }
+  }
+
+  function renderCloseBreakdownRows(rows, emptyMessage, labelKey) {
+    const items = Array.isArray(rows) ? rows : [];
+    if (!items.length) {
+      return `<div class="cashier-close-empty">${escapeHtml(emptyMessage)}</div>`;
+    }
+    return items.map((row) => `
+      <div class="cashier-close-breakdown-row">
+        <div class="cashier-close-breakdown-head">
+          <div class="cashier-close-breakdown-name">${escapeHtml(row[labelKey] || '-')}</div>
+          <div class="fw-bold">${money(row.net_amount || 0)}</div>
+        </div>
+        <div class="cashier-close-breakdown-meta">
+          <span>Masuk ${money(row.gross_amount || 0)}</span>
+          <span>Refund ${money(row.refund_amount || 0)}</span>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function renderClosePreview(json) {
+    closePreview = json;
+    const report = json && json.report ? json.report : {};
+    const shift = report.shift || {};
+    const summary = report.summary || {};
+    if (closeShiftMeta) {
+      const shiftNo = shift.shift_no || '-';
+      const outlet = shift.outlet_name || '-';
+      const terminal = shift.terminal_name || '-';
+      const openedAt = shift.opened_at ? new Date(String(shift.opened_at).replace(' ', 'T')).toLocaleString('id-ID') : '-';
+      closeShiftMeta.textContent = `${shiftNo} • ${outlet} • ${terminal} • buka ${openedAt}`;
+    }
+    document.getElementById('cashier_close_total_orders').textContent = String(Number(summary.total_order_count || 0));
+    document.getElementById('cashier_close_net_sales').textContent = money(summary.total_net_sales || 0);
+    document.getElementById('cashier_close_cash_sales').textContent = money(summary.total_cash_sales || 0);
+    document.getElementById('cashier_close_non_cash_sales').textContent = money(summary.total_non_cash_sales || 0);
+    document.getElementById('cashier_close_deposit_sales').textContent = money(summary.total_deposit_receipts || 0);
+    document.getElementById('cashier_close_refund_total').textContent = money(summary.total_refund || 0);
+    document.getElementById('cashier_close_void_total').textContent = money(summary.total_void || 0);
+    document.getElementById('cashier_close_expected_cash').textContent = money(summary.expected_cash || 0);
+    if (closeMethodSummary) {
+      closeMethodSummary.innerHTML = renderCloseBreakdownRows(report.by_method || [], 'Belum ada data metode pembayaran.', 'method_name');
+    }
+    if (closeAccountSummary) {
+      closeAccountSummary.innerHTML = renderCloseBreakdownRows(report.by_account || [], 'Belum ada data rekening.', 'account_label');
+    }
+    syncCloseCashTotals();
+  }
+
+  function resetCloseForm() {
+    if (closeDenomRows) {
+      closeDenomRows.querySelectorAll('.cashier-close-denom-qty').forEach((input) => {
+        input.value = '0';
+      });
+    }
+    const notesCloseInput = document.getElementById('cashier_close_notes');
+    if (notesCloseInput) notesCloseInput.value = '';
+    syncCloseCashTotals();
+  }
+
+  async function openCloseModalPreview() {
+    if (closeShiftMeta) closeShiftMeta.textContent = 'Memuat preview shift aktif...';
+    const json = await getJson('<?php echo site_url('pos/cashier/close-preview'); ?>');
+    resetCloseForm();
+    renderClosePreview(json);
+    if (closeModal) closeModal.show();
+  }
+
+  function buildCloseSuccessMessage(summary, printPrepareMessage = '', failedPrinters = []) {
+    const parts = [
+      'Kasir berhasil ditutup.',
+      '',
+      'Total Order: ' + Number(summary.total_order_count || 0),
+      'Net Sales: ' + money(summary.total_net_sales || 0),
+      'Cash Sales: ' + money(summary.total_cash_sales || 0),
+      'Non Cash: ' + money(summary.total_non_cash_sales || 0),
+      'Deposit: ' + money(summary.total_deposit_receipts || 0),
+      'Refund: ' + money(summary.total_refund || 0),
+      'Void: ' + money(summary.total_void || 0),
+      'Expected Cash: ' + money(summary.expected_cash || 0),
+      'Actual Cash: ' + money(summary.actual_cash || 0),
+      'Variance: ' + money(summary.variance_cash || 0),
+    ];
+    if (printPrepareMessage) {
+      parts.push('', 'Printer: ' + printPrepareMessage);
+    }
+    if (Array.isArray(failedPrinters) && failedPrinters.length) {
+      parts.push('', 'Printer gagal:');
+      failedPrinters.forEach((entry) => {
+        const normalized = normalizePrintFailureEntry(entry);
+        parts.push(`- ${normalized.name}: ${normalized.reason}`);
+      });
+    }
+    return parts.join('\n');
+  }
+
+  function setCloseSubmitState(isBusy) {
+    closeSubmitInFlight = !!isBusy;
+    if (!submitCloseButton) return;
+    if (closeSubmitInFlight) {
+      submitCloseButton.disabled = true;
+      submitCloseButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Menyimpan Tutup Shift...';
+      return;
+    }
+    submitCloseButton.disabled = false;
+    submitCloseButton.textContent = defaultCloseSubmitLabel;
+  }
+
+  function activeReversalKind() {
+    return 'VOID';
+  }
+
+  function orderStatusLabel(status) {
+    const value = String(status || '').toUpperCase();
+    const map = {
+      DRAFT: 'Draft',
+      CONFIRMED: 'Terkonfirmasi',
+      PAID: 'Lunas',
+      VOID: 'Void penuh',
+      PARTIAL: 'Sebagian',
+      REFUNDED_FULL: 'Refund penuh',
+      REFUNDED_PARTIAL: 'Refund sebagian',
+      CANCELLED: 'Dibatalkan'
+    };
+    return map[value] || (value ? value.replace(/_/g, ' ') : '-');
+  }
+
+  function stockCommitStatusEntry(status) {
+    const value = String(status || '').toUpperCase();
+    const map = {
+      PENDING: ['commit-queued', 'Sinkron stok menunggu'],
+      QUEUED: ['commit-queued', 'Sinkron stok antre'],
+      PROCESSING: ['commit-processing', 'Sinkron stok diproses'],
+      POSTED: ['commit-posted', 'Stok sudah sinkron'],
+      FAILED: ['commit-failed', 'Sinkron stok gagal'],
+      REVERSED: ['commit-reversed', 'Sinkron stok dibatalkan']
+    };
+    return map[value] || ['commit-queued', value ? ('Status stok: ' + value.replace(/_/g, ' ')) : '-'];
+  }
+
+  function reversalProcessingLabel(processStatus) {
+    return String(processStatus || '').toUpperCase() === 'NOT_PROCESSED'
+      ? 'Bisa dikembalikan ke stok'
+      : 'Akan dicatat sebagai penyesuaian';
+  }
+
   function orderStatusChip(status) {
     const value = String(status || '').toUpperCase();
-    const label = value || '-';
+    const label = orderStatusLabel(value);
     const kind = value === 'CONFIRMED' ? 'order-confirmed' : 'order-draft';
     return `<span class="cashier-status-chip ${kind}">${escapeHtml(label)}</span>`;
   }
@@ -1465,15 +2433,7 @@ document.addEventListener('DOMContentLoaded', function () {
   function stockCommitChip(status) {
     const value = String(status || '').toUpperCase();
     if (!value) return '';
-    const map = {
-      PENDING: ['commit-queued', 'Stok PENDING'],
-      QUEUED: ['commit-queued', 'Stok QUEUED'],
-      PROCESSING: ['commit-processing', 'Stok PROCESSING'],
-      POSTED: ['commit-posted', 'Stok POSTED'],
-      FAILED: ['commit-failed', 'Stok FAILED'],
-      REVERSED: ['commit-reversed', 'Stok REVERSED']
-    };
-    const entry = map[value] || ['commit-queued', 'Stok ' + value];
+    const entry = stockCommitStatusEntry(value);
     return `<span class="cashier-status-chip ${entry[0]}">${escapeHtml(entry[1])}</span>`;
   }
 
@@ -1547,13 +2507,32 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function showSavingOverlay(mode) {
+    const normalizedMode = String(mode || 'DRAFT').toUpperCase();
     if (savingTitle) {
-      savingTitle.textContent = mode === 'CONFIRM' ? 'Menyimpan Transaksi' : 'Menyimpan Draft';
+      if (normalizedMode === 'CONFIRM') {
+        savingTitle.textContent = 'Menyimpan Transaksi';
+      } else if (normalizedMode === 'PAYMENT') {
+        savingTitle.textContent = 'Menyimpan Payment';
+      } else if (normalizedMode === 'VOID') {
+        savingTitle.textContent = 'Menyimpan Void';
+      } else if (normalizedMode === 'REFUND') {
+        savingTitle.textContent = 'Menyimpan Refund';
+      } else {
+        savingTitle.textContent = 'Menyimpan Draft';
+      }
     }
     if (savingBody) {
-      savingBody.textContent = mode === 'CONFIRM'
-        ? 'Pesanan sedang diproses dan siap dicetak.'
-        : 'Draft sedang disimpan.';
+      if (normalizedMode === 'CONFIRM') {
+        savingBody.textContent = 'Pesanan sedang diproses dan siap dicetak.';
+      } else if (normalizedMode === 'PAYMENT') {
+        savingBody.textContent = 'Pembayaran sedang disimpan, benefit member dihitung, dan receipt kasir sedang disiapkan.';
+      } else if (normalizedMode === 'VOID') {
+        savingBody.textContent = 'Void sedang disimpan dan slip printer sedang disiapkan.';
+      } else if (normalizedMode === 'REFUND') {
+        savingBody.textContent = 'Refund sedang disimpan dan slip printer sedang disiapkan.';
+      } else {
+        savingBody.textContent = 'Draft sedang disimpan.';
+      }
     }
     if (savingOverlay) {
       savingOverlay.classList.add('active');
@@ -1583,7 +2562,33 @@ document.addEventListener('DOMContentLoaded', function () {
     order.service_type = serviceType ? (serviceType.value || 'DINE_IN') : 'DINE_IN';
     order.guest_count = Math.max(1, Number(guestCount ? (guestCount.value || 1) : 1));
     order.table_no = tableNoInput ? (tableNoInput.value || '') : '';
+    order.customer_name = order.member_id
+      ? String(order.member_name || order.customer_name || '').trim()
+      : String(customerNameInput ? (customerNameInput.value || '') : order.customer_name || '').trim();
     order.notes = notesInput ? (notesInput.value || '') : '';
+  }
+
+  function customerDisplayName(source = order) {
+    const value = source && typeof source === 'object'
+      ? (source.customer_display_name || source.customer_name || source.member_name || '')
+      : '';
+    return String(value || '').trim() || 'Walk in';
+  }
+
+  function syncCustomerNameInputState() {
+    if (!customerNameInput) {
+      return;
+    }
+    const lockedToMember = !!order.member_id;
+    const value = lockedToMember
+      ? String(order.member_name || order.customer_name || '').trim()
+      : String(order.customer_name || '').trim();
+    if (customerNameInput.value !== value) {
+      customerNameInput.value = value;
+    }
+    customerNameInput.readOnly = lockedToMember;
+    customerNameInput.classList.toggle('cashier-readonly', lockedToMember);
+    customerNameInput.placeholder = lockedToMember ? 'Mengikuti member terpilih' : 'Nama untuk walk in / cetak';
   }
 
   function selectedSalesChannelMeta() {
@@ -1635,16 +2640,39 @@ document.addEventListener('DOMContentLoaded', function () {
   function filterLaunchTerminalOptions() {
     if (!launchOutlet || !launchTerminal) return;
     const outletId = Number(launchOutlet.value || 0);
+    let visibleTerminalIds = [];
     Array.from(launchTerminal.options).forEach((opt, idx) => {
       if (idx === 0) {
         opt.hidden = false;
         return;
       }
       const optionOutletId = Number(opt.dataset.outletId || 0);
-      opt.hidden = !(outletId === 0 || optionOutletId === 0 || optionOutletId === outletId);
+      const isVisible = outletId === 0 || optionOutletId === 0 || optionOutletId === outletId;
+      opt.hidden = !isVisible;
+      if (isVisible) {
+        const optionId = Number(opt.value || 0);
+        if (optionId > 0) {
+          visibleTerminalIds.push(optionId);
+        }
+      }
     });
-    if (launchTerminal.selectedOptions.length && launchTerminal.selectedOptions[0].hidden) {
-      launchTerminal.value = '';
+    const selectedOption = launchTerminal.selectedOptions.length ? launchTerminal.selectedOptions[0] : null;
+    const currentTerminalId = Number(launchTerminal.value || 0);
+    const hasVisibleCurrent = !!selectedOption && !selectedOption.hidden && currentTerminalId > 0;
+    if (!hasVisibleCurrent) {
+      const fallbackTerminalId = visibleTerminalIds.length ? Math.min.apply(null, visibleTerminalIds) : 0;
+      launchTerminal.value = fallbackTerminalId > 0 ? String(fallbackTerminalId) : '';
+    }
+  }
+
+  function applyLaunchDefaults() {
+    if (activeSession) return;
+    if (launchOutlet && !launchOutlet.value && Number(launchDefaults.outlet_id || 0) > 0) {
+      launchOutlet.value = String(launchDefaults.outlet_id || '');
+    }
+    filterLaunchTerminalOptions();
+    if (launchOpeningCash && !String(launchOpeningCash.value || '').trim()) {
+      launchOpeningCash.value = String(Number(launchDefaults.opening_cash || 300000));
     }
   }
 
@@ -1658,6 +2686,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function canEditCartLine(line) {
     return !isLockedExistingLine(line);
+  }
+
+  function canOpenPayment() {
+    const normalizedStatus = String(order.status || '').toUpperCase();
+    return !!order.id && ['CONFIRMED', 'PAID_PARTIAL', 'IN_KITCHEN', 'READY', 'SERVED'].includes(normalizedStatus);
   }
 
   function updateActionState() {
@@ -1675,11 +2708,561 @@ document.addEventListener('DOMContentLoaded', function () {
       confirmOrderButton.disabled = !sessionReady || !confirmEditableOrder || draftSaveInFlight || confirmInFlight;
       confirmOrderButton.textContent = isConfirmedOrder() ? 'Simpan Perubahan Transaksi' : defaultConfirmOrderLabel;
     }
+    if (paymentButton) {
+      paymentButton.disabled = !sessionReady || !canOpenPayment() || draftSaveInFlight || confirmInFlight || paymentPrepareInFlight || paymentSubmitInFlight;
+    }
+  }
+
+  function defaultPaymentRow(amount = '') {
+    const defaultMethodId = Array.isArray(paymentContext && paymentContext.payment_methods ? paymentContext.payment_methods : [])
+      ? Number(((paymentContext.payment_methods || [])[0] || {}).id || 0)
+      : 0;
+    return {
+      payment_method_id: defaultMethodId > 0 ? String(defaultMethodId) : '',
+      paid_amount: amount !== '' ? String(amount) : '',
+      reference_no: ''
+    };
+  }
+
+  function selectedPaymentVoucherOption() {
+    return paymentSelectedVoucher;
+  }
+
+  function paymentMethodMetaById(methodId) {
+    const safeId = Number(methodId || 0);
+    if (safeId <= 0) {
+      return null;
+    }
+    return (paymentContext && Array.isArray(paymentContext.payment_methods) ? paymentContext.payment_methods : []).find((row) => Number(row.id || 0) === safeId) || null;
+  }
+
+  function paymentDraftTotals() {
+    const baseTotal = Number(paymentContext && paymentContext.base_total ? paymentContext.base_total : 0);
+    const paidTotal = Number(paymentContext && paymentContext.paid_total ? paymentContext.paid_total : 0);
+    const canEditAdjustment = !!(paymentContext && paymentContext.can_edit_adjustment);
+    const option = selectedPaymentVoucherOption();
+    const optionKind = String(option && (option.kind || option.source_type) ? (option.kind || option.source_type) : '').toUpperCase();
+    const optionDiscount = Number(option && (option.discount_amount ?? option.estimated_discount) ? (option.discount_amount ?? option.estimated_discount) : 0);
+    let voucherAmount = canEditAdjustment && optionKind === 'ISSUE' ? optionDiscount : 0;
+    let promoAmount = canEditAdjustment && optionKind === 'CAMPAIGN' ? optionDiscount : 0;
+    const grandTotal = canEditAdjustment
+      ? Math.max(0, baseTotal - voucherAmount - promoAmount)
+      : Number(paymentContext && paymentContext.grand_total ? paymentContext.grand_total : baseTotal);
+    const dueTotal = Math.max(0, grandTotal - paidTotal);
+    let enteredTotal = 0;
+    let appliedTotal = 0;
+    let remainingDue = dueTotal;
+    let changeTotal = 0;
+    let invalidNonCashOverpay = false;
+    const activeRows = paymentRows.map((row, index) => {
+      const enteredAmount = Math.max(0, parsePaymentAmount(row.paid_amount || 0));
+      const methodMeta = paymentMethodMetaById(row.payment_method_id || 0);
+      return {
+        index,
+        enteredAmount,
+        methodMeta,
+        methodType: String(methodMeta && methodMeta.method_type ? methodMeta.method_type : '').toUpperCase(),
+      };
+    }).filter((row) => row.enteredAmount > 0 && row.methodMeta);
+
+    activeRows.forEach((row) => {
+      const appliedAmount = Math.max(0, Math.min(row.enteredAmount, remainingDue));
+      enteredTotal += row.enteredAmount;
+      appliedTotal += appliedAmount;
+      if (row.methodType !== 'CASH' && row.enteredAmount > remainingDue + 0.009) {
+        invalidNonCashOverpay = true;
+      }
+      remainingDue = Math.max(0, remainingDue - appliedAmount);
+    });
+
+    const changeEligible = activeRows.length === 1 && activeRows[0].methodType === 'CASH';
+    if (changeEligible) {
+      changeTotal = Math.max(0, enteredTotal - appliedTotal);
+    }
+
+    let guardMessage = '';
+    if (invalidNonCashOverpay) {
+      guardMessage = 'Nominal metode non tunai tidak boleh melebihi sisa tagihan.';
+    } else if (activeRows.length > 1 && enteredTotal > dueTotal + 0.009) {
+      guardMessage = 'Jika metode pembayaran lebih dari satu, total input tidak boleh melebihi sisa tagihan. Kembalian hanya berlaku untuk pembayaran tunai tunggal.';
+    }
+
+    const remainingTotal = Math.max(0, dueTotal - appliedTotal);
+    return {
+      baseTotal,
+      paidTotal,
+      voucherAmount,
+      promoAmount,
+      grandTotal,
+      dueTotal,
+      enteredTotal,
+      appliedTotal,
+      remainingTotal,
+      changeTotal,
+      activeRowCount: activeRows.length,
+      canCashChange: changeEligible,
+      guardMessage,
+    };
+  }
+
+  function syncSinglePaymentAmountToDue() {
+    if (paymentRows.length !== 1) {
+      return;
+    }
+    const totals = paymentDraftTotals();
+    paymentRows[0].paid_amount = totals.dueTotal > 0 ? String(totals.dueTotal) : '';
+  }
+
+  function renderPaymentSummary() {
+    const totals = paymentDraftTotals();
+    if (paymentBaseTotal) paymentBaseTotal.textContent = money(totals.baseTotal);
+    if (paymentVoucherTotal) paymentVoucherTotal.textContent = money(totals.voucherAmount + totals.promoAmount);
+    if (paymentPaidTotal) paymentPaidTotal.textContent = money(totals.paidTotal);
+    if (paymentGrandTotal) paymentGrandTotal.textContent = money(totals.grandTotal);
+    if (paymentEnteredTotal) paymentEnteredTotal.textContent = money(totals.appliedTotal);
+    if (paymentChangeTotal) paymentChangeTotal.textContent = money(totals.changeTotal);
+    if (paymentRemainingTotal) paymentRemainingTotal.textContent = money(totals.remainingTotal);
+    if (paymentDueTotal) paymentDueTotal.textContent = money(totals.dueTotal);
+    if (paymentCustomerName) paymentCustomerName.textContent = String(paymentContext && paymentContext.customer_name ? paymentContext.customer_name : 'Walk in');
+    if (paymentOrderNo) paymentOrderNo.textContent = String(paymentContext && paymentContext.order_no ? paymentContext.order_no : '-');
+    if (paymentMemberBalance) {
+      paymentMemberBalance.textContent = `Point ${number(paymentContext && paymentContext.member_point_balance ? paymentContext.member_point_balance : 0, 0)} | Stamp ${number(paymentContext && paymentContext.member_stamp_balance ? paymentContext.member_stamp_balance : 0, 0)}`;
+    }
+    if (paymentVoucherCount) {
+      const voucherCount = Number(paymentContext && paymentContext.loyalty_summary ? paymentContext.loyalty_summary.open_voucher_count || 0 : 0);
+      paymentVoucherCount.textContent = `${voucherCount} voucher tersedia`;
+    }
+    if (paymentTotalHint) {
+      if (totals.guardMessage) {
+        paymentTotalHint.textContent = totals.guardMessage;
+        paymentTotalHint.classList.add('text-danger');
+      } else if (totals.changeTotal > 0) {
+        paymentTotalHint.textContent = `Uang diterima ${money(totals.enteredTotal)}. Yang disimpan ${money(totals.appliedTotal)} dan kembalian ${money(totals.changeTotal)}.`;
+        paymentTotalHint.classList.remove('text-danger');
+      } else if (totals.remainingTotal > 0 && totals.appliedTotal > 0) {
+        paymentTotalHint.textContent = `Payment sebagian akan disimpan. Sisa tagihan setelah payment: ${money(totals.remainingTotal)}.`;
+        paymentTotalHint.classList.remove('text-danger');
+      } else {
+        paymentTotalHint.textContent = `Input payment: ${money(totals.enteredTotal)} dari tagihan ${money(totals.dueTotal)}.`;
+        paymentTotalHint.classList.remove('text-danger');
+      }
+    }
+    if (paymentVoucherHint) {
+      const option = selectedPaymentVoucherOption();
+      paymentVoucherHint.textContent = option && option.message
+        ? option.message
+        : 'Pilih voucher member atau promo voucher aktif bila ada.';
+      paymentVoucherHint.classList.toggle('text-danger', !!(option && !option.valid));
+    }
+    if (paymentSubmitButton) {
+      if (paymentSubmitInFlight) {
+        paymentSubmitButton.disabled = true;
+        paymentSubmitButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Menyimpan Payment...';
+      } else {
+        paymentSubmitButton.disabled = false;
+        paymentSubmitButton.textContent = totals.remainingTotal > 0.009 ? 'Simpan Pembayaran Sebagian' : 'Selesaikan Pembayaran';
+      }
+    }
+    syncPaymentQuickButtons();
+  }
+
+  function renderPaymentRows() {
+    if (!paymentRowsContainer) return;
+    const methodOptions = ['<option value="">Pilih metode...</option>'].concat((paymentContext && paymentContext.payment_methods ? paymentContext.payment_methods : []).map((method) => `<option value="${Number(method.id || 0)}">${escapeHtml(method.method_name || '-')}</option>`));
+    paymentRowsContainer.innerHTML = paymentRows.map((row, index) => `
+      <div class="row g-2 payment-inline-card border rounded p-2 cashier-payment-method-row ${index === paymentActiveRowIndex ? 'is-active' : ''}" data-index="${index}">
+        <div class="col-md-4">
+          <label class="form-label small text-muted mb-1">Metode</label>
+          <select class="form-select cashier-payment-method" data-index="${index}">${methodOptions.join('')}</select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small text-muted mb-1">Nominal</label>
+          <input type="text" inputmode="decimal" autocomplete="off" class="form-control cashier-payment-amount" data-index="${index}" value="${escapeHtml(row.paid_amount || '')}" placeholder="Nominal bayar">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small text-muted mb-1">Referensi</label>
+          <input type="text" class="form-control cashier-payment-reference" data-index="${index}" value="${escapeHtml(row.reference_no || '')}" placeholder="Referensi">
+        </div>
+        <div class="col-md-1 d-flex align-items-end">
+          <button type="button" class="btn cashier-payment-btn-danger cashier-payment-remove w-100" data-index="${index}" ${paymentRows.length <= 1 ? 'disabled' : ''}>x</button>
+        </div>
+      </div>
+    `).join('');
+    paymentRowsContainer.querySelectorAll('.cashier-payment-method-row').forEach((rowEl) => rowEl.addEventListener('click', (event) => {
+      const interactiveTarget = event.target && event.target.closest('input, select, button, textarea, label');
+      if (interactiveTarget) {
+        return;
+      }
+      const nextIndex = Number(rowEl.dataset.index || 0);
+      if (nextIndex === paymentActiveRowIndex) {
+        return;
+      }
+      paymentActiveRowIndex = nextIndex;
+      renderPaymentRows();
+      renderPaymentSummary();
+    }));
+    paymentRowsContainer.querySelectorAll('.cashier-payment-method').forEach((input) => {
+      input.value = String(paymentRows[Number(input.dataset.index || 0)]?.payment_method_id || '');
+      input.addEventListener('change', (event) => {
+        const idx = Number(event.target.dataset.index || 0);
+        paymentActiveRowIndex = idx;
+        paymentRows[idx].payment_method_id = event.target.value || '';
+        renderPaymentSummary();
+      });
+    });
+    paymentRowsContainer.querySelectorAll('.cashier-payment-amount').forEach((input) => {
+      input.addEventListener('focus', (event) => {
+        paymentActiveRowIndex = Number(event.target.dataset.index || 0);
+      });
+      input.addEventListener('input', (event) => {
+        const idx = Number(event.target.dataset.index || 0);
+        paymentActiveRowIndex = idx;
+        paymentRows[idx].paid_amount = event.target.value || '';
+        renderPaymentSummary();
+      });
+    });
+    paymentRowsContainer.querySelectorAll('.cashier-payment-reference').forEach((input) => {
+      input.addEventListener('focus', (event) => {
+        paymentActiveRowIndex = Number(event.target.dataset.index || 0);
+      });
+      input.addEventListener('input', (event) => {
+        const idx = Number(event.target.dataset.index || 0);
+        paymentActiveRowIndex = idx;
+        paymentRows[idx].reference_no = event.target.value || '';
+      });
+    });
+    paymentRowsContainer.querySelectorAll('.cashier-payment-remove').forEach((btn) => btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.index || 0);
+      if (paymentRows.length <= 1) return;
+      paymentRows.splice(idx, 1);
+      paymentActiveRowIndex = Math.max(0, Math.min(paymentActiveRowIndex, paymentRows.length - 1));
+      renderPaymentRows();
+      renderPaymentSummary();
+    }));
+  }
+
+  function syncPaymentQuickButtons() {
+    if (!paymentQuickAmountButtons.length) {
+      return;
+    }
+    const disabled = paymentRows.length <= 0;
+    paymentQuickAmountButtons.forEach((button) => {
+      button.disabled = disabled;
+      button.classList.toggle('opacity-50', disabled);
+    });
+  }
+
+  function paymentRemainingForQuickRow(targetIndex) {
+    const totals = paymentDraftTotals();
+    let remaining = totals.dueTotal;
+    paymentRows.forEach((row, index) => {
+      if (index === targetIndex) {
+        return;
+      }
+      const methodMeta = paymentMethodMetaById(row.payment_method_id || 0);
+      if (!methodMeta) {
+        return;
+      }
+      const enteredAmount = Math.max(0, parsePaymentAmount(row.paid_amount || 0));
+      if (enteredAmount <= 0) {
+        return;
+      }
+      remaining = Math.max(0, remaining - Math.min(enteredAmount, remaining));
+    });
+    return remaining;
+  }
+
+  function applyQuickPaymentAmount(button) {
+    if (!button) {
+      return;
+    }
+    if (!paymentRows.length) {
+      throw new Error('Belum ada baris metode pembayaran yang bisa diisi.');
+    }
+    const idx = Math.max(0, Math.min(paymentActiveRowIndex, paymentRows.length - 1));
+    const row = paymentRows[idx] || null;
+    if (!row) {
+      return;
+    }
+    const methodMeta = paymentMethodMetaById(row.payment_method_id || 0);
+    if (!methodMeta) {
+      throw new Error('Pilih metode pembayaran dulu sebelum memakai tombol nominal cepat.');
+    }
+    const remainingForRow = paymentRemainingForQuickRow(idx);
+    const isCash = String(methodMeta.method_type || '').toUpperCase() === 'CASH';
+    let amount = button.dataset.mode === 'remaining'
+      ? remainingForRow
+      : Number(button.dataset.amount || 0);
+    if (!isCash || paymentRows.length > 1) {
+      amount = Math.min(amount, remainingForRow);
+    }
+    paymentRows[idx].paid_amount = amount > 0 ? String(amount) : '';
+    renderPaymentRows();
+    renderPaymentSummary();
+  }
+
+  function resetPaymentVoucherSelection() {
+    paymentSelectedVoucher = null;
+    if (paymentVoucherSearch) paymentVoucherSearch.value = '';
+    if (paymentVoucherStatus) {
+      paymentVoucherStatus.textContent = 'Input kode voucher lalu klik cek.';
+      paymentVoucherStatus.className = 'small text-muted mt-1';
+    }
+    if (paymentSelectedVoucherCard) {
+      paymentSelectedVoucherCard.classList.add('d-none');
+      paymentSelectedVoucherCard.setAttribute('data-selection', '');
+      paymentSelectedVoucherCard.setAttribute('data-discount', '0');
+    }
+    if (paymentVoucherSuggestions) {
+      paymentVoucherSuggestions.innerHTML = '';
+      paymentVoucherSuggestions.style.display = 'none';
+    }
+  }
+
+  function renderPaymentVoucherSelection(row) {
+    paymentSelectedVoucher = row;
+    if (paymentSelectedVoucherCard) {
+      paymentSelectedVoucherCard.classList.remove('d-none');
+      paymentSelectedVoucherCard.setAttribute('data-selection', String(row.selection_value || ''));
+      paymentSelectedVoucherCard.setAttribute('data-discount', String(Number(row.discount_amount || 0)));
+    }
+    if (paymentSelectedVoucherName) paymentSelectedVoucherName.textContent = row.label || row.voucher_code || 'Voucher';
+    if (paymentSelectedVoucherMeta) paymentSelectedVoucherMeta.textContent = `Potongan preview ${money(row.discount_amount || 0)}${row.expired_at ? ' - exp ' + row.expired_at : ''}`;
+    if (paymentSelectedVoucherMessage) paymentSelectedVoucherMessage.textContent = row.message || '';
+    if (paymentVoucherStatus) {
+      paymentVoucherStatus.textContent = row.message || 'Voucher siap dipakai.';
+      paymentVoucherStatus.className = row.ok ? 'small text-success mt-1' : 'small text-danger mt-1';
+    }
+    if (paymentVoucherSuggestions) {
+      paymentVoucherSuggestions.innerHTML = '';
+      paymentVoucherSuggestions.style.display = 'none';
+    }
+    syncSinglePaymentAmountToDue();
+    renderPaymentRows();
+    renderPaymentSummary();
+  }
+
+  function renderPaymentVoucherSuggestions(rows) {
+    if (!paymentVoucherSuggestions) return;
+    if (!rows.length) {
+      if (paymentVoucherStatus) {
+        paymentVoucherStatus.textContent = 'Voucher tidak ditemukan.';
+        paymentVoucherStatus.className = 'small text-danger mt-1';
+      }
+      paymentVoucherSuggestions.innerHTML = '<div class="list-group-item text-muted">Voucher tidak ditemukan. Pastikan kode atau nama voucher benar.</div>';
+      paymentVoucherSuggestions.style.display = 'block';
+      return;
+    }
+    if (paymentVoucherStatus) {
+      paymentVoucherStatus.textContent = 'Voucher ditemukan. Pilih voucher yang ingin dipakai.';
+      paymentVoucherStatus.className = 'small text-success mt-1';
+    }
+    paymentVoucherSuggestions.innerHTML = rows.map((row, idx) => {
+      const badge = row.ok
+        ? '<span class="badge bg-success-subtle text-success border border-success-subtle">Valid</span>'
+        : '<span class="badge bg-danger-subtle text-danger border border-danger-subtle">Tidak Valid</span>';
+      const action = row.ok
+        ? `<button type="button" class="btn btn-sm btn-primary" data-voucher-idx="${idx}">Pakai</button>`
+        : '<button type="button" class="btn btn-sm cashier-payment-btn-neutral" disabled>Tidak Bisa</button>';
+      return `<div class="list-group-item text-start">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <div class="flex-fill min-w-0">
+            <div class="d-flex justify-content-between gap-2"><strong>${escapeHtml(row.label || row.voucher_code || '-')}</strong>${badge}</div>
+            <div class="small text-muted mt-1">${escapeHtml(row.message || '-')}</div>
+            <div class="small text-muted">Preview potongan ${money(row.discount_amount || 0)}</div>
+          </div>
+          <div class="flex-shrink-0">${action}</div>
+        </div>
+      </div>`;
+    }).join('');
+    paymentVoucherSuggestions.style.display = 'block';
+    paymentVoucherSuggestions.querySelectorAll('[data-voucher-idx]').forEach((btn) => btn.addEventListener('click', () => {
+      const row = rows[Number(btn.getAttribute('data-voucher-idx') || 0)] || null;
+      if (!row) return;
+      if (!row.ok) {
+        alert(row.message || 'Voucher tidak bisa dipakai untuk transaksi ini.');
+        return;
+      }
+      renderPaymentVoucherSelection(row);
+    }));
+  }
+
+  async function searchPaymentVouchers(options = {}) {
+    const query = paymentVoucherSearch ? paymentVoucherSearch.value.trim() : '';
+    if (!paymentContext || Number(paymentContext.order_id || 0) <= 0) {
+      if (paymentVoucherStatus) {
+        paymentVoucherStatus.textContent = 'Order belum siap untuk pengecekan voucher.';
+        paymentVoucherStatus.className = 'small text-danger mt-1';
+      }
+      if (paymentVoucherSuggestions) {
+        paymentVoucherSuggestions.innerHTML = '';
+        paymentVoucherSuggestions.style.display = 'none';
+      }
+      return;
+    }
+    if (paymentVoucherStatus) {
+      paymentVoucherStatus.textContent = 'Memeriksa voucher...';
+      paymentVoucherStatus.className = 'small text-muted mt-1';
+    }
+    try {
+      const payload = await getJson('<?php echo site_url('pos/orders/payment/voucher-search'); ?>?order_id=' + encodeURIComponent(paymentContext.order_id) + '&q=' + encodeURIComponent(query));
+      const rows = payload.rows || [];
+      if (!rows.length && options.showIfEmpty) {
+        renderPaymentVoucherSuggestions(rows);
+        return;
+      }
+      if (!rows.length) {
+        if (paymentVoucherStatus) {
+          paymentVoucherStatus.textContent = 'Tidak ada voucher yang cocok.';
+          paymentVoucherStatus.className = 'small text-muted mt-1';
+        }
+        if (paymentVoucherSuggestions) {
+          paymentVoucherSuggestions.innerHTML = '';
+          paymentVoucherSuggestions.style.display = 'none';
+        }
+        return;
+      }
+      if (options.preferExact && query !== '') {
+        const exact = rows.find((row) => String(row.voucher_code || '').toUpperCase() === query.toUpperCase());
+        if (exact) {
+          if (!exact.ok) {
+            if (paymentVoucherStatus) {
+              paymentVoucherStatus.textContent = exact.message || 'Voucher tidak bisa dipakai.';
+              paymentVoucherStatus.className = 'small text-danger mt-1';
+            }
+            renderPaymentVoucherSuggestions([exact]);
+            return;
+          }
+          renderPaymentVoucherSelection(exact);
+          return;
+        }
+        if (rows.length === 1 && rows[0].ok) {
+          renderPaymentVoucherSelection(rows[0]);
+          return;
+        }
+      }
+      renderPaymentVoucherSuggestions(rows);
+    } catch (error) {
+      if (paymentVoucherStatus) {
+        paymentVoucherStatus.textContent = error && error.message ? error.message : 'Gagal memeriksa voucher.';
+        paymentVoucherStatus.className = 'small text-danger mt-1';
+      }
+      if (paymentVoucherSuggestions) {
+        paymentVoucherSuggestions.innerHTML = '';
+        paymentVoucherSuggestions.style.display = 'none';
+      }
+    }
+  }
+
+  async function openPaymentModal() {
+    if (!canOpenPayment()) {
+      throw new Error('Pilih order confirmed yang siap dibayar dulu.');
+    }
+    paymentPrepareInFlight = true;
+    updateActionState();
+    try {
+      const json = await getJson('<?php echo site_url('pos/orders/payment/prepare'); ?>/' + Number(order.id || 0));
+      paymentContext = json.payment || null;
+      const seedAmount = Number(paymentContext && paymentContext.due_total ? paymentContext.due_total : 0);
+      paymentRows = [defaultPaymentRow(seedAmount > 0 ? seedAmount : '')];
+      paymentActiveRowIndex = 0;
+      if (paymentMeta) {
+        paymentMeta.textContent = `${String(paymentContext && paymentContext.order_no ? paymentContext.order_no : '-')} | ${String(paymentContext && paymentContext.customer_name ? paymentContext.customer_name : 'Walk in')}`;
+      }
+      if (paymentNotes) paymentNotes.value = '';
+      resetPaymentVoucherSelection();
+      if (paymentVoucherSearch) paymentVoucherSearch.disabled = !(paymentContext && paymentContext.can_edit_adjustment);
+      if (paymentVoucherCheckButton) paymentVoucherCheckButton.disabled = !(paymentContext && paymentContext.can_edit_adjustment);
+      if (paymentClearVoucherButton) paymentClearVoucherButton.disabled = !(paymentContext && paymentContext.can_edit_adjustment);
+      renderPaymentRows();
+      renderPaymentSummary();
+      if (paymentModal) paymentModal.show();
+    } finally {
+      paymentPrepareInFlight = false;
+      updateActionState();
+    }
+  }
+
+  function collectPaymentPayload() {
+    const rows = paymentRows.filter((row) => Number(row.payment_method_id || 0) > 0 && parsePaymentAmount(row.paid_amount || 0) > 0);
+    return {
+      order_id: Number(order.id || 0),
+      voucher_selection: paymentSelectedVoucher ? String(paymentSelectedVoucher.selection_value || '') : '',
+      voucher_code: paymentSelectedVoucher ? String(paymentSelectedVoucher.voucher_code || '') : '',
+      notes: paymentNotes ? paymentNotes.value.trim() : '',
+      payment_method_ids: rows.map((row) => Number(row.payment_method_id || 0)),
+      paid_amounts: rows.map((row) => parsePaymentAmount(row.paid_amount || 0)),
+      reference_nos: rows.map((row) => String(row.reference_no || '').trim())
+    };
+  }
+
+  function buildPaymentSuccessMessage(result) {
+    const loyalty = result && result.loyalty ? result.loyalty : {};
+    const parts = [`Payment ${String(result && result.payment_no ? result.payment_no : '').trim()} tersimpan.`];
+    if (String(result && result.order_status ? result.order_status : '').toUpperCase() === 'PAID_PARTIAL') {
+      parts.push(`Pembayaran sebagian tercatat. Sisa tagihan ${money(result && result.remaining_due ? result.remaining_due : 0)}.`);
+    }
+    if (Number(result && result.change_total ? result.change_total : 0) > 0) {
+      parts.push(`Kembalian ${money(result.change_total || 0)}.`);
+    }
+    if (Number(loyalty.point_earned || 0) > 0) {
+      parts.push(`Poin bertambah ${number(loyalty.point_earned || 0, 0)}.`);
+    }
+    if (Number(loyalty.stamp_earned || 0) > 0) {
+      parts.push(`Stamp bertambah ${number(loyalty.stamp_earned || 0, 0)}.`);
+    }
+    if (Array.isArray(loyalty.issued_vouchers) && loyalty.issued_vouchers.length) {
+      parts.push(`Voucher baru: ${loyalty.issued_vouchers.join(', ')}.`);
+    }
+    return parts.join(' ');
+  }
+
+  async function submitPayment() {
+    if (paymentSubmitInFlight) {
+      throw new Error('Payment sedang diproses.');
+    }
+    const totals = paymentDraftTotals();
+    const payload = collectPaymentPayload();
+    if (!payload.payment_method_ids.length) {
+      throw new Error('Pilih minimal satu metode pembayaran.');
+    }
+    if (totals.guardMessage) {
+      throw new Error(totals.guardMessage);
+    }
+    if (totals.appliedTotal <= 0) {
+      throw new Error('Masukkan nominal pembayaran yang valid.');
+    }
+    paymentSubmitInFlight = true;
+    updateActionState();
+    renderPaymentSummary();
+    showSavingOverlay('PAYMENT');
+    try {
+      const result = await postJson('<?php echo site_url('pos/orders/payment/save'); ?>', payload);
+      if (paymentModal) paymentModal.hide();
+      if (Number(result.id || 0) > 0) {
+        try {
+          const payloadJson = await postJson(`<?php echo site_url('pos/orders/payment/print-targets'); ?>/${Number(result.id || 0)}`, {});
+          const printResult = await directPrintTargets(payloadJson.direct_print_targets || []);
+          showPrintFailureModal('Payment', printResult.failed || []);
+        } catch (e) {
+          showPrintFailureModal('Payment', [e && e.message ? e.message : 'Gagal menyiapkan direct print']);
+        }
+      }
+      showInfoModal(buildPaymentSuccessMessage(result), 'Payment');
+      resetOrder();
+      await loadRecents();
+    } finally {
+      paymentSubmitInFlight = false;
+      hideSavingOverlay();
+      updateActionState();
+      renderPaymentSummary();
+    }
   }
 
   function renderMemberSelection() {
     if (!order.member_id) {
       memberSelected.innerHTML = '<div class="cashier-member-empty">Walk in customer. Transaksi ini belum memakai member.</div>';
+      syncCustomerNameInputState();
       return;
     }
     memberSelected.innerHTML = `
@@ -1694,15 +3277,20 @@ document.addEventListener('DOMContentLoaded', function () {
     `;
     const btn = document.getElementById('cashier_clear_member');
     if (btn) btn.addEventListener('click', clearMemberSelection);
+    syncCustomerNameInputState();
   }
 
   function clearMemberSelection() {
+    const previousMemberName = String(order.member_name || '').trim();
     order.member_id = null;
     order.member_no = '';
     order.member_name = '';
     order.member_mobile_phone = '';
     order.member_point_balance = 0;
     order.member_stamp_balance = 0;
+    if (String(order.customer_name || '').trim() === previousMemberName) {
+      order.customer_name = '';
+    }
     if (memberSearchInput) memberSearchInput.value = '';
     if (memberResult) memberResult.classList.add('d-none');
     renderMemberSelection();
@@ -1712,6 +3300,7 @@ document.addEventListener('DOMContentLoaded', function () {
     order.member_id = Number(row.id || 0) || null;
     order.member_no = row.member_no || '';
     order.member_name = row.member_name || '';
+    order.customer_name = row.member_name || '';
     order.member_mobile_phone = row.mobile_phone || '';
     order.member_point_balance = Number(row.point_balance_cache || 0);
     order.member_stamp_balance = Number(row.stamp_balance_cache || 0);
@@ -1747,9 +3336,11 @@ document.addEventListener('DOMContentLoaded', function () {
         ? '<span class="cashier-chip info mt-2">Item tersimpan</span>'
         : (isConfirmedOrder() ? '<span class="cashier-chip ok mt-2">Item baru</span>' : '');
       const extras = Array.isArray(line.extras) ? line.extras : [];
+      const productTotal = Number(line.qty || 0) * Number(line.unit_price || 0);
       const extraTotal = extras.reduce((carry, extra) => carry + (Number(extra.qty || 0) * Number(extra.unit_price || 0)), 0);
+      const lineSubtotal = productTotal + extraTotal;
       const extraSummary = extras.length
-        ? `<div class="cashier-cart-extras">${extras.map((extra) => `<span class="cashier-extra-pill">${escapeHtml(extra.extra_name || '-')} x${number(extra.qty || 0, 0)}</span>`).join('')}</div>`
+        ? `<div class="cashier-cart-extras">${extras.map((extra) => `<span class="cashier-extra-pill">${escapeHtml(extra.extra_name || '-')} x${number(extra.qty || 0, 0)}${Number(extra.unit_price || 0) > 0 ? ' • ' + money((Number(extra.qty || 0) * Number(extra.unit_price || 0))) : ''}</span>`).join('')}</div>`
         : '';
       const extraCountChip = `<span class="cashier-cart-extra-count">Extra ${extras.length}</span>`;
       const removeButton = lockedExistingLine
@@ -1781,13 +3372,27 @@ document.addEventListener('DOMContentLoaded', function () {
             </div>
           </div>
           ${extraSummary}
+          <div class="cashier-cart-price-breakdown">
+            <div class="cashier-cart-price-metric">
+              <span class="label">Harga Produk</span>
+              <strong>${money(productTotal)}</strong>
+            </div>
+            <div class="cashier-cart-price-metric">
+              <span class="label">Harga Extra</span>
+              <strong>${money(extraTotal)}</strong>
+            </div>
+            <div class="cashier-cart-price-metric is-subtotal">
+              <span class="label">Subtotal</span>
+              <strong>${money(lineSubtotal)}</strong>
+            </div>
+          </div>
           <div class="cashier-cart-line-bottom">
             <div class="cashier-cart-line-left">
               ${extraCountChip}
               ${availabilityChip(line.availability_status)}
               <button type="button" class="btn btn-sm btn-outline-warning cashier-edit-extra" data-index="${idx}" ${lockedExistingLine ? 'disabled title="Item lama tidak bisa diubah dari kasir"' : ''}>Atur</button>
             </div>
-            <div class="fw-bold">${money((Number(line.qty || 0) * Number(line.unit_price || 0)) + extraTotal)}</div>
+            <div class="fw-bold">${money(lineSubtotal)}</div>
           </div>
         </div>
       `;
@@ -2193,6 +3798,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const p = new URLSearchParams();
     p.set('q', recentState.q);
     p.set('status', recentState.status);
+    p.set('workspace_mode', 'MIXED');
     p.set('outlet_id', recentState.outlet_id);
     p.set('page', recentState.page);
     p.set('limit', recentState.limit);
@@ -2211,7 +3817,7 @@ document.addEventListener('DOMContentLoaded', function () {
         <div class="d-flex justify-content-between align-items-start gap-2">
           <div class="cashier-recent-meta">
             <div class="cashier-recent-order-no">${escapeHtml(row.order_no || '-')}</div>
-            <div class="cashier-recent-customer">${escapeHtml(row.member_name || 'Walk in')}</div>
+            <div class="cashier-recent-customer">${escapeHtml(customerDisplayName(row))}</div>
             <div class="cashier-recent-table">Meja ${escapeHtml(row.table_no || '-')}</div>
           </div>
           <div class="text-end">
@@ -2243,6 +3849,7 @@ document.addEventListener('DOMContentLoaded', function () {
     order.member_id = Number(header.member_id || 0) || null;
     order.member_no = header.member_no || '';
     order.member_name = header.member_name || '';
+    order.customer_name = header.customer_name || header.customer_display_name || header.member_name || '';
     order.member_mobile_phone = header.member_mobile_phone || '';
     order.member_point_balance = 0;
     order.member_stamp_balance = 0;
@@ -2321,6 +3928,7 @@ document.addEventListener('DOMContentLoaded', function () {
         guest_count: order.guest_count,
         table_no: order.table_no,
         member_id: order.member_id,
+        customer_name: order.customer_name,
         notes: order.notes,
         require_active_session: 1,
         lines: order.lines.map((line) => ({
@@ -2472,7 +4080,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (reviewChannel) reviewChannel.textContent = selectedChannel || 'Walk In';
     if (reviewGuest) reviewGuest.textContent = String(order.guest_count || 1);
     if (reviewTableNo) reviewTableNo.textContent = order.table_no || '-';
-    if (reviewMember) reviewMember.textContent = order.member_name || 'Walk in';
+    if (reviewMember) reviewMember.textContent = customerDisplayName(order);
     if (reviewNotes) reviewNotes.textContent = order.notes || '-';
     if (total) total.textContent = money(reviewLines.reduce((sum, line) => sum + lineGrandTotal(line), 0));
     if (list) {
@@ -2560,6 +4168,7 @@ document.addEventListener('DOMContentLoaded', function () {
     order.member_id = null;
     order.member_no = '';
     order.member_name = '';
+    order.customer_name = '';
     order.member_mobile_phone = '';
     order.member_point_balance = 0;
     order.member_stamp_balance = 0;
@@ -2576,46 +4185,238 @@ document.addEventListener('DOMContentLoaded', function () {
     renderCart();
   }
 
+  function reversalUsesStockReturn() {
+    return !!document.getElementById('cashier_reversal_return')?.checked;
+  }
+
+  function refreshReversalPolicyCards() {
+    const usesReturn = reversalUsesStockReturn();
+    const adjustmentSelect = document.getElementById('cashier_reversal_adjustment');
+    const policyHint = document.getElementById('cashier_reversal_policy_hint');
+    document.getElementById('cashier_reversal_return_card')?.classList.toggle('active', usesReturn);
+    document.getElementById('cashier_reversal_adjust_card')?.classList.toggle('active', !usesReturn);
+    reversalAdjustmentWrap?.classList.toggle('d-none', usesReturn);
+    reversalReasonWrap?.classList.toggle('d-none', usesReturn);
+    if (adjustmentSelect) {
+      adjustmentSelect.disabled = usesReturn;
+      if (usesReturn) {
+        adjustmentSelect.value = 'NONE';
+      } else if (!adjustmentSelect.value || adjustmentSelect.value === 'NONE') {
+        adjustmentSelect.value = 'AUTO_WASTE';
+      }
+    }
+    if (policyHint) {
+      policyHint.textContent = usesReturn
+        ? 'Jika stok dikembalikan, sistem hanya mengembalikan bahan ke stok dan tidak membuat adjustment.'
+        : 'Jika stok tidak dikembalikan, pilih tipe adjustment yang mewakili waste, spoil, atau penyesuaian lainnya.';
+    }
+  }
+
+  function fillReversalReasonOptions() {
+    if (!reversalReasonCode) {
+      return;
+    }
+    const rows = Array.isArray(reversalReasonOptions[activeReversalKind()]) ? reversalReasonOptions[activeReversalKind()] : [];
+    reversalReasonCode.innerHTML = ['<option value="">Pilih alasan...</option>']
+      .concat(rows.map((row) => `<option value="${escapeHtml(row.code || '')}">${escapeHtml(row.label || '')}</option>`))
+      .join('');
+    if (reversalReasonOther) {
+      reversalReasonOther.value = '';
+      reversalReasonOther.classList.add('d-none');
+    }
+  }
+
+  function refreshReasonOtherVisibility() {
+    if (!reversalReasonCode || !reversalReasonOther) {
+      return;
+    }
+    reversalReasonOther.classList.toggle('d-none', String(reversalReasonCode.value || '').toUpperCase() !== 'OTHER');
+  }
+
+  function resetReversalForm() {
+    document.getElementById('cashier_reversal_return').checked = true;
+    document.getElementById('cashier_reversal_adjust').checked = false;
+    document.getElementById('cashier_reversal_adjustment').value = 'NONE';
+    document.getElementById('cashier_reversal_reason').value = '';
+    fillReversalReasonOptions();
+    refreshReversalPolicyCards();
+  }
+
+  function setReversalSelectionState(checked) {
+    document.querySelectorAll('.cashier-reversal-line').forEach((card) => {
+      const productToggle = card.querySelector('.cashier-reversal-product-toggle');
+      if (productToggle) {
+        productToggle.checked = checked;
+      }
+      card.querySelectorAll('.cashier-reversal-extra-row').forEach((row) => {
+        const extraToggle = row.querySelector('.cashier-reversal-extra-toggle');
+        if (extraToggle) {
+          extraToggle.checked = checked;
+        }
+      });
+    });
+    syncReversalSelections();
+  }
+
+  function syncReversalSelections() {
+    document.querySelectorAll('.cashier-reversal-line').forEach((card) => {
+      const productToggle = card.querySelector('.cashier-reversal-product-toggle');
+      const productQty = card.querySelector('.cashier-reversal-product-qty');
+      const extraRows = card.querySelectorAll('.cashier-reversal-extra-row');
+      if (!productToggle) {
+        return;
+      }
+      const productSelected = productToggle.checked;
+      if (productQty) {
+        productQty.disabled = !productSelected;
+      }
+      extraRows.forEach((row) => {
+        const extraToggle = row.querySelector('.cashier-reversal-extra-toggle');
+        const extraQty = row.querySelector('.cashier-reversal-extra-qty');
+        const autoHint = row.querySelector('.cashier-reversal-extra-auto-hint');
+        if (!extraToggle || !extraQty) {
+          return;
+        }
+        if (productSelected) {
+          extraToggle.checked = true;
+          extraToggle.disabled = true;
+          extraQty.disabled = true;
+          autoHint?.classList.remove('d-none');
+        } else {
+          extraToggle.disabled = false;
+          extraQty.disabled = !extraToggle.checked;
+          autoHint?.classList.add('d-none');
+        }
+      });
+    });
+  }
+
+  function finalReversalReason() {
+    const auditNote = String(document.getElementById('cashier_reversal_reason').value || '').trim();
+    if (reversalUsesStockReturn()) {
+      return auditNote;
+    }
+    const selectedCode = String(reversalReasonCode?.value || '').trim();
+    if (selectedCode === '') {
+      throw new Error('Pilih alasan void ketika stok tidak dikembalikan.');
+    }
+    const rows = Array.isArray(reversalReasonOptions[activeReversalKind()]) ? reversalReasonOptions[activeReversalKind()] : [];
+    const matched = rows.find((row) => String(row.code || '') === selectedCode);
+    let reasonText = matched && matched.label ? String(matched.label) : selectedCode;
+    if (selectedCode === 'OTHER') {
+      const otherText = String(reversalReasonOther?.value || '').trim();
+      if (otherText === '') {
+        throw new Error('Isi alasan lainnya untuk void ini.');
+      }
+      reasonText = otherText;
+    }
+    return auditNote ? `${reasonText} | ${auditNote}` : reasonText;
+  }
+
   function renderReversalPreview(json) {
     reversalPreview = json;
-    document.getElementById('cashier_reversal_meta').textContent = `${json.order?.header?.order_no || '-'} | ${json.order?.header?.status || '-'} | ${json.order?.header?.member_name || 'Walk in'}`;
+    document.getElementById('cashier_reversal_meta').textContent = `${json.order?.header?.order_no || '-'} | ${orderStatusLabel(json.order?.header?.status || '')} | ${customerDisplayName(json.order?.header || {})}`;
     const lines = Array.isArray(json.order?.lines) ? json.order.lines : [];
     const container = document.getElementById('cashier_reversal_lines');
+    const emptyHint = document.getElementById('cashier_reversal_empty_hint');
+    if (!lines.length) {
+      emptyHint?.classList.remove('d-none');
+      container.innerHTML = '';
+      return;
+    }
+    emptyHint?.classList.add('d-none');
+    resetReversalForm();
     container.innerHTML = lines.map((line) => {
-      const processed = String(line.process_status || 'NOT_PROCESSED').toUpperCase();
-      const isProcessed = processed !== 'NOT_PROCESSED';
+      const extras = Array.isArray(line.extras) ? line.extras : [];
+      const processingLabel = reversalProcessingLabel(line.process_status || '');
       return `
-        <div class="cashier-reversal-line">
-          <div class="d-flex justify-content-between align-items-start gap-2">
-            <div>
-              <div class="fw-semibold">${escapeHtml(line.product_name || '-')}</div>
-              <div class="cashier-mini-note">${escapeHtml(line.product_code || '-')} | Qty ${number(line.qty || 0, 2)} | Status ${escapeHtml(line.line_status || '-')}</div>
+        <div class="cashier-reversal-line" data-line-id="${Number(line.id || 0)}">
+          <div class="cashier-reversal-item-head">
+            <label class="cashier-reversal-item-main mb-0">
+              <input class="form-check-input cashier-reversal-product-toggle" type="checkbox">
+              <span class="cashier-reversal-item-name">${escapeHtml(line.product_name || '-')}</span>
+            </label>
+            <div class="cashier-reversal-item-side">
+              <span class="small text-muted">Qty</span>
+              <input type="number" class="form-control form-control-sm cashier-reversal-product-qty cashier-reversal-qty-input" min="0" step="0.01" value="${Number(line.qty || 0)}" disabled>
             </div>
-            ${isProcessed ? '<span class="cashier-chip warn">Masuk Adjustment</span>' : '<span class="cashier-chip ok">Bisa Return Stock</span>'}
           </div>
-          <div class="cashier-mini-note mt-2">
-            Process Status: <strong>${escapeHtml(processed)}</strong>
-            ${isProcessed ? ' | Sudah diproses, jadi stok tidak dikembalikan normal.' : ' | Belum diproses, stok boleh dikembalikan.'}
-          </div>
+          <div class="small text-muted mt-1">${escapeHtml(processingLabel)}</div>
+          ${extras.length ? `<div class="cashier-reversal-extra-list">${extras.map((extra) => `
+            <div class="cashier-reversal-extra-row" data-extra-id="${Number(extra.id || 0)}">
+              <div class="cashier-reversal-item-head">
+                <label class="cashier-reversal-item-main mb-0">
+                  <input class="form-check-input cashier-reversal-extra-toggle" type="checkbox">
+                  <span class="cashier-reversal-item-name">${escapeHtml(extra.extra_name || '-')}</span>
+                </label>
+                <div class="cashier-reversal-item-side">
+                  <span class="small text-muted">Qty</span>
+                  <input type="number" class="form-control form-control-sm cashier-reversal-extra-qty cashier-reversal-qty-input" min="0" step="0.01" value="${Number(extra.qty || 0)}" disabled>
+                </div>
+                <span class="cashier-reversal-extra-auto-hint small text-success d-none">Auto</span>
+              </div>
+            </div>`).join('')}</div>` : ''}
         </div>
       `;
     }).join('');
+    syncReversalSelections();
+    container.querySelectorAll('.cashier-reversal-product-toggle, .cashier-reversal-extra-toggle').forEach((field) => field.addEventListener('change', syncReversalSelections));
   }
 
   function buildReversalPayload() {
     if (!reversalPreview || !reversalPreview.order || !reversalPreview.order.header) {
       throw new Error('Preview reversal belum dimuat.');
     }
-    const returnToStock = document.getElementById('cashier_reversal_return').checked;
-    const adjustmentMode = document.getElementById('cashier_reversal_adjustment').value || 'NONE';
-    const reason = document.getElementById('cashier_reversal_reason').value || '';
-    const lines = (reversalPreview.order.lines || []).map((line) => ({
-      order_line_id: Number(line.id || 0),
-      qty: Number(line.qty || 0),
-      processed_state: String(line.process_status || 'NOT_PROCESSED').toUpperCase(),
-      return_to_stock: returnToStock && String(line.process_status || '').toUpperCase() === 'NOT_PROCESSED',
-      notes: reason
-    })).filter((line) => line.order_line_id > 0 && line.qty > 0);
+    const returnToStock = reversalUsesStockReturn();
+    const adjustmentMode = returnToStock ? 'NONE' : (document.getElementById('cashier_reversal_adjustment').value || 'NONE');
+    if (!returnToStock && adjustmentMode === 'NONE') {
+      throw new Error('Pilih tipe adjustment ketika stok tidak dikembalikan.');
+    }
+    const reason = finalReversalReason();
+    const orderLineMap = new Map((reversalPreview.order.lines || []).map((line) => [Number(line.id || 0), line]));
+    const lines = [];
+
+    document.querySelectorAll('.cashier-reversal-line').forEach((card) => {
+      const orderLineId = Number(card.dataset.lineId || 0);
+      const sourceLine = orderLineMap.get(orderLineId);
+      if (!sourceLine || orderLineId <= 0) {
+        return;
+      }
+      const productToggle = card.querySelector('.cashier-reversal-product-toggle');
+      const productQty = card.querySelector('.cashier-reversal-product-qty');
+      const productSelected = !!(productToggle && productToggle.checked);
+      const extraSelections = [];
+
+      card.querySelectorAll('.cashier-reversal-extra-row').forEach((row) => {
+        const extraToggle = row.querySelector('.cashier-reversal-extra-toggle');
+        const extraQty = row.querySelector('.cashier-reversal-extra-qty');
+        const orderLineExtraId = Number(row.dataset.extraId || 0);
+        if (!extraToggle || !extraToggle.checked || orderLineExtraId <= 0) {
+          return;
+        }
+        extraSelections.push({
+          order_line_extra_id: orderLineExtraId,
+          qty: Math.max(0, Number(extraQty?.value || 0)),
+          processed_state: String(sourceLine.process_status || 'NOT_PROCESSED').toUpperCase(),
+          return_to_stock: returnToStock && String(sourceLine.process_status || '').toUpperCase() === 'NOT_PROCESSED',
+          notes: reason,
+        });
+      });
+
+      const qty = productSelected ? Math.max(0, Number(productQty?.value || 0)) : 0;
+      if (!productSelected && !extraSelections.length) {
+        return;
+      }
+      lines.push({
+        order_line_id: orderLineId,
+        qty,
+        processed_state: String(sourceLine.process_status || 'NOT_PROCESSED').toUpperCase(),
+        return_to_stock: returnToStock && String(sourceLine.process_status || '').toUpperCase() === 'NOT_PROCESSED',
+        notes: reason,
+        extras: extraSelections.filter((extra) => extra.order_line_extra_id > 0 && extra.qty > 0),
+      });
+    });
+
     return {
       order_id: Number(reversalPreview.order.header.id || 0),
       return_to_stock: returnToStock ? 1 : 0,
@@ -2626,24 +4427,58 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   async function openReversalPreview() {
-    if (!order.id) throw new Error('Simpan atau pilih order dulu sebelum preview void/refund.');
+    if (!order.id) throw new Error('Simpan atau pilih order dulu sebelum preview void.');
     const json = await getJson('<?php echo site_url('pos/orders/reversal-preview'); ?>/' + order.id);
     renderReversalPreview(json);
     if (reversalModal) reversalModal.show();
   }
 
-  async function submitReversal(kind) {
-    const payload = buildReversalPayload();
-    const endpoint = kind === 'VOID'
-      ? '<?php echo site_url('pos/orders/void/save'); ?>'
-      : '<?php echo site_url('pos/orders/refund/save'); ?>';
-    const json = await postJson(endpoint, payload);
-    if (reversalModal) reversalModal.hide();
-    alert(kind === 'VOID'
-      ? `Void berhasil disimpan.\nNo Void: ${json.void_no || '-'}`
-      : `Refund berhasil disimpan.\nNo Refund: ${json.refund_no || '-'}`);
-    await loadDraft(order.id);
-    await loadRecents();
+  async function triggerReversalDirectPrint(mode, documentId) {
+    const normalizedMode = String(mode || 'VOID').toUpperCase();
+    const safeId = Number(documentId || 0);
+    if (safeId <= 0) {
+      return;
+    }
+    const endpoint = normalizedMode === 'REFUND'
+      ? `<?php echo site_url('pos/orders/refund-print-targets'); ?>/${safeId}`
+      : `<?php echo site_url('pos/orders/void-print-targets'); ?>/${safeId}`;
+    const actionLabel = normalizedMode === 'REFUND' ? 'Refund' : 'Void';
+    try {
+      const payloadJson = await postJson(endpoint, {});
+      const printResult = await directPrintTargets(payloadJson.direct_print_targets || []);
+      showPrintFailureModal(actionLabel, printResult.failed || []);
+    } catch (e) {
+      showPrintFailureModal(actionLabel, [e && e.message ? e.message : 'Gagal menyiapkan direct print']);
+    }
+  }
+
+  async function submitReversal() {
+    const reversalMode = activeReversalKind();
+    const saveUrl = reversalMode === 'REFUND'
+      ? '<?php echo site_url('pos/orders/refund/save'); ?>'
+      : '<?php echo site_url('pos/orders/void/save'); ?>';
+    const successLabel = reversalMode === 'REFUND' ? 'Refund' : 'Void';
+    showSavingOverlay(reversalMode);
+    try {
+      const payload = buildReversalPayload();
+      if (!payload.lines.length) {
+        throw new Error('Pilih minimal satu item atau extra yang ingin dibatalkan.');
+      }
+      const json = await postJson(saveUrl, payload);
+      if (reversalModal) reversalModal.hide();
+      await triggerReversalDirectPrint(reversalMode, Number(json.id || 0));
+      showToast(`${successLabel} berhasil disimpan. No ${successLabel}: ${reversalMode === 'REFUND' ? (json.refund_no || '-') : (json.void_no || '-')}`, 'success', successLabel, 3200);
+      const latestOrderStatus = String(json.order_status || '').toUpperCase();
+      if (latestOrderStatus === 'VOID' || latestOrderStatus === 'REFUND_FULL' || latestOrderStatus === 'REFUNDED_FULL') {
+        resetOrder();
+      } else if (order.id) {
+        await loadDraft(order.id);
+      }
+      await loadRecents();
+      await loadCatalog().catch(() => {});
+    } finally {
+      hideSavingOverlay();
+    }
   }
 
   async function openCashierSession() {
@@ -2666,41 +4501,48 @@ document.addEventListener('DOMContentLoaded', function () {
   async function closeCashierSession() {
     const actualCashInput = document.getElementById('cashier_close_actual_cash');
     const notesCloseInput = document.getElementById('cashier_close_notes');
+    const cashBreakdown = closeCashBreakdownRows().map((entry) => ({
+      denomination: Number(entry.denomination || 0),
+      qty: Number(entry.qty || 0)
+    }));
     const payload = {
       actual_cash: Number(actualCashInput.value || 0),
-      notes: notesCloseInput.value || ''
+      notes: notesCloseInput.value || '',
+      cash_breakdown: cashBreakdown
     };
-    const json = await postJson('<?php echo site_url('pos/cashier/close'); ?>', payload);
-    const summary = json.summary || {};
-    if (closeModal) closeModal.hide();
-    alert(
-      'Kasir berhasil ditutup.\n\n'
-      + 'Total Order: ' + Number(summary.total_order_count || 0)
-      + '\nNet Sales: ' + money(summary.total_net_sales || 0)
-      + '\nCash Sales: ' + money(summary.total_cash_sales || 0)
-      + '\nNon Cash: ' + money(summary.total_non_cash_sales || 0)
-      + '\nDP / Deposit: ' + money(summary.total_deposit_receipts || 0)
-      + '\nRefund: ' + money(summary.total_refund || 0)
-      + '\nVoid: ' + money(summary.total_void || 0)
-      + '\nExpected Cash: ' + money(summary.expected_cash || 0)
-      + '\nActual Cash: ' + money(summary.actual_cash || 0)
-      + '\nVariance: ' + money(summary.variance_cash || 0)
-    );
-    window.location.reload();
+    setCloseSubmitState(true);
+    try {
+      const json = await postJson('<?php echo site_url('pos/cashier/close'); ?>', payload);
+      const summary = json.summary || {};
+      let failedPrinters = [];
+      if (Number(json.shift_id || 0) > 0) {
+        try {
+          const printResult = await directPrintTargets(json.direct_print_targets || []);
+          failedPrinters = Array.isArray(printResult.failed) ? printResult.failed : [];
+        } catch (e) {
+          failedPrinters = [e && e.message ? e.message : 'Gagal mengirim slip tutup kasir ke printer'];
+        }
+      }
+      if (closeModal) closeModal.hide();
+      alert(buildCloseSuccessMessage(summary, json.print_prepare_message || '', failedPrinters));
+      window.location.reload();
+    } finally {
+      setCloseSubmitState(false);
+    }
   }
 
   if (launchOutlet) launchOutlet.addEventListener('change', filterLaunchTerminalOptions);
+  renderCloseDenominationRows();
+  closeDenomRows?.addEventListener('input', (event) => {
+    if (!event.target || !event.target.classList.contains('cashier-close-denom-qty')) return;
+    syncCloseCashTotals();
+  });
   if (openButton) openButton.addEventListener('click', async () => {
     try { await openCashierSession(); } catch (e) { alert(e.message); }
   });
-  if (closeButton) closeButton.addEventListener('click', () => {
-    const closeCashInput = document.getElementById('cashier_close_actual_cash');
-    if (activeSession && closeCashInput && !closeCashInput.value) {
-      closeCashInput.value = Number(activeSession.opening_cash || 0);
-    }
-    if (closeModal) closeModal.show();
+  if (closeButton) closeButton.addEventListener('click', async () => {
+    try { await openCloseModalPreview(); } catch (e) { alert(e.message); }
   });
-  const submitCloseButton = document.getElementById('cashier_submit_close');
   if (submitCloseButton) submitCloseButton.addEventListener('click', async () => {
     try { await closeCashierSession(); } catch (e) { alert(e.message); }
   });
@@ -2708,7 +4550,10 @@ document.addEventListener('DOMContentLoaded', function () {
   if (serviceType) serviceType.addEventListener('change', syncHeaderToOrder);
   if (guestCount) guestCount.addEventListener('input', () => { syncHeaderToOrder(); recalcCart(); });
   if (tableNoInput) tableNoInput.addEventListener('input', syncHeaderToOrder);
+  if (customerNameInput) customerNameInput.addEventListener('input', syncHeaderToOrder);
   if (notesInput) notesInput.addEventListener('input', syncHeaderToOrder);
+  if (reversalCheckAllButton) reversalCheckAllButton.addEventListener('click', () => setReversalSelectionState(true));
+  if (reversalUncheckAllButton) reversalUncheckAllButton.addEventListener('click', () => setReversalSelectionState(false));
 
   if (memberSearchInput) memberSearchInput.addEventListener('input', () => {
     const q = memberSearchInput.value.trim();
@@ -2758,6 +4603,9 @@ document.addEventListener('DOMContentLoaded', function () {
   document.addEventListener('click', (e) => {
     if (memberResult && !memberResult.contains(e.target) && e.target !== memberSearchInput) {
       memberResult.classList.add('d-none');
+    }
+    if (paymentVoucherSuggestions && !paymentVoucherSuggestions.contains(e.target) && e.target !== paymentVoucherSearch) {
+      paymentVoucherSuggestions.style.display = 'none';
     }
   });
 
@@ -2809,11 +4657,65 @@ document.addEventListener('DOMContentLoaded', function () {
       pendingReviewAction = null;
     });
   }
+  if (paymentModalEl) {
+    paymentModalEl.addEventListener('hidden.bs.modal', () => {
+      paymentContext = null;
+      paymentRows = [];
+      paymentActiveRowIndex = 0;
+      paymentSelectedVoucher = null;
+      if (paymentNotes) paymentNotes.value = '';
+      if (paymentVoucherSuggestions) {
+        paymentVoucherSuggestions.innerHTML = '';
+        paymentVoucherSuggestions.style.display = 'none';
+      }
+    });
+  }
   if (saveDraftButton) saveDraftButton.addEventListener('click', async () => {
     try { openReviewModal('DRAFT'); } catch (e) { alert(e.message); }
   });
   if (confirmOrderButton) confirmOrderButton.addEventListener('click', async () => {
     try { openReviewModal('CONFIRM'); } catch (e) { alert(e.message); }
+  });
+  if (paymentButton) paymentButton.addEventListener('click', async () => {
+    try { await openPaymentModal(); } catch (e) { alert(e.message); }
+  });
+  if (paymentVoucherSearch) paymentVoucherSearch.addEventListener('input', () => {
+    clearTimeout(paymentVoucherSearchTimer);
+    paymentVoucherSearchTimer = setTimeout(() => {
+      searchPaymentVouchers();
+    }, 220);
+  });
+  if (paymentVoucherSearch) paymentVoucherSearch.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      searchPaymentVouchers({ preferExact: true, showIfEmpty: true });
+    }
+  });
+  if (paymentVoucherSearch) paymentVoucherSearch.addEventListener('focus', () => {
+    if ((paymentVoucherSearch.value || '').trim() !== '') {
+      searchPaymentVouchers();
+    }
+  });
+  if (paymentVoucherCheckButton) paymentVoucherCheckButton.addEventListener('click', () => {
+    searchPaymentVouchers({ preferExact: true, showIfEmpty: true });
+  });
+  if (paymentClearVoucherButton) paymentClearVoucherButton.addEventListener('click', () => {
+    resetPaymentVoucherSelection();
+    syncSinglePaymentAmountToDue();
+    renderPaymentRows();
+    renderPaymentSummary();
+  });
+  paymentQuickAmountButtons.forEach((button) => button.addEventListener('click', () => {
+    try { applyQuickPaymentAmount(button); } catch (e) { alert(e.message); }
+  }));
+  if (paymentAddRowButton) paymentAddRowButton.addEventListener('click', () => {
+    paymentRows.push(defaultPaymentRow(''));
+    paymentActiveRowIndex = paymentRows.length - 1;
+    renderPaymentRows();
+    renderPaymentSummary();
+  });
+  if (paymentSubmitButton) paymentSubmitButton.addEventListener('click', async () => {
+    try { await submitPayment(); } catch (e) { alert(e.message); }
   });
   if (reviewSubmitButton) reviewSubmitButton.addEventListener('click', async () => {
     try { await submitReviewedOrder(); } catch (e) { alert(e.message); }
@@ -2821,17 +4723,19 @@ document.addEventListener('DOMContentLoaded', function () {
   reversalButton.addEventListener('click', async () => {
     try { await openReversalPreview(); } catch (e) { alert(e.message); }
   });
+  document.getElementById('cashier_reversal_return')?.addEventListener('change', refreshReversalPolicyCards);
+  document.getElementById('cashier_reversal_adjust')?.addEventListener('change', refreshReversalPolicyCards);
+  reversalReasonCode?.addEventListener('change', refreshReasonOtherVisibility);
   document.getElementById('cashier_save_void').addEventListener('click', async () => {
-    try { await submitReversal('VOID'); } catch (e) { alert(e.message); }
-  });
-  document.getElementById('cashier_save_refund').addEventListener('click', async () => {
-    try { await submitReversal('REFUND'); } catch (e) { alert(e.message); }
+    try { await submitReversal(); } catch (e) { alert(e.message); }
   });
 
   if (activeSession && workspace) {
     workspace.classList.remove('d-none');
   }
-  filterLaunchTerminalOptions();
+  applyLaunchDefaults();
+  fillReversalReasonOptions();
+  refreshReversalPolicyCards();
   renderDivisionFilters();
   renderMemberSelection();
   renderCart();

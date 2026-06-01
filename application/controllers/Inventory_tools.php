@@ -197,400 +197,46 @@ class Inventory_tools extends CI_Controller
                     'content_per_buy' => 1,
                     'conversion_factor_to_content' => 1,
                     'unit_price' => 125000,
-                    'item_name' => 'SMOKE SERVICE',
-                    'line_description' => 'Smoke test service',
+                    'service_name' => 'Smoke test jasa',
                 ],
             ], $userId, 'CLI_SMOKE');
-
             if (!($result['ok'] ?? false)) {
                 return $result;
             }
 
             $poId = (int)($result['data']['purchase_order_id'] ?? 0);
-            $paymentCount = (int)$this->db->from('pur_purchase_payment_plan')->where('purchase_order_id', $poId)->where('status', 'PAID')->count_all_results();
-            $receiptCount = (int)$this->db->from('pur_purchase_receipt')->where('purchase_order_id', $poId)->count_all_results();
-            $movementCount = (int)$this->db->from('inv_stock_movement_log')->where('ref_table', 'pur_purchase_receipt')->count_all_results();
-
-            if ($paymentCount <= 0) {
-                return ['ok' => false, 'message' => 'PO jasa status PAID tidak membentuk payment plan PAID.'];
-            }
-            if ($receiptCount > 0) {
-                return ['ok' => false, 'message' => 'PO jasa seharusnya tidak membentuk receipt.'];
-            }
-
-            return [
-                'ok' => true,
-                'message' => 'PO jasa tidak menyentuh stok dan pembayaran otomatis terbentuk.',
-                'data' => [
-                    'po_id' => $poId,
-                    'payment_count' => $paymentCount,
-                    'receipt_count' => $receiptCount,
-                    'movement_count_all_receipts_in_tx' => $movementCount,
-                ],
-            ];
-        });
-
-        $cases[] = $this->runSmokeCase('po_expense_item_paid', function () use ($fx, $smokeDate, $userId) {
-            $type = $this->firstSmokeType($fx['purchase_types'], ['BAR_OPS', 'EXP_UTIL', 'BEBAN']);
-            if ($type === null) {
-                return ['ok' => false, 'message' => 'Purchase type expense tidak tersedia.'];
-            }
-
-            $result = $this->Purchase_model->store_order_with_lines([
-                'request_date' => $smokeDate,
-                'expected_date' => $smokeDate,
-                'purchase_type_id' => (int)$type['id'],
-                'vendor_id' => (int)$fx['vendor']['id'],
-                'payment_account_id' => (int)$fx['account']['id'],
-                'status' => 'PAID',
-                'notes' => 'Smoke test PO expense item',
-            ], [
-                [
-                    'line_kind' => 'ITEM',
-                    'buy_uom_id' => (int)$fx['uom_id'],
-                    'content_uom_id' => (int)$fx['uom_id'],
-                    'qty_buy' => 1,
-                    'content_per_buy' => 1,
-                    'conversion_factor_to_content' => 1,
-                    'unit_price' => 50000,
-                    'item_name' => 'SMOKE EXPENSE ITEM',
-                    'line_description' => 'Smoke test expense item',
-                ],
-            ], $userId, 'CLI_SMOKE');
-
-            if (!($result['ok'] ?? false)) {
-                return $result;
-            }
-
-            $poId = (int)($result['data']['purchase_order_id'] ?? 0);
-            $paymentCount = (int)$this->db->from('pur_purchase_payment_plan')->where('purchase_order_id', $poId)->where('status', 'PAID')->count_all_results();
-            $receiptCount = (int)$this->db->from('pur_purchase_receipt')->where('purchase_order_id', $poId)->count_all_results();
-            if ($paymentCount <= 0) {
-                return ['ok' => false, 'message' => 'PO expense status PAID tidak membentuk payment plan PAID.'];
-            }
-            if ($receiptCount > 0) {
-                return ['ok' => false, 'message' => 'PO expense seharusnya tidak membentuk receipt.'];
-            }
-
-            return [
-                'ok' => true,
-                'message' => 'PO expense item tidak menyentuh stok dan pembayaran otomatis terbentuk.',
-                'data' => [
-                    'po_id' => $poId,
-                    'payment_count' => $paymentCount,
-                    'receipt_count' => $receiptCount,
-                    'type_code' => (string)$type['type_code'],
-                ],
-            ];
-        });
-
-        $cases[] = $this->runSmokeCase('sr_fulfill_division', function () use ($fx, $smokeDate, $userId) {
-            $profile = $this->ensureSmokeWarehouseProfile($fx, $smokeDate, $userId);
-            if (!($profile['ok'] ?? false)) {
-                return $profile;
-            }
-            $inventoryProfile = (array)($profile['data']['profile'] ?? []);
-            $qty = $this->smokeRequestQty($inventoryProfile, false);
-            $create = $this->Procurement_model->create_store_request([
-                'request_date' => $smokeDate,
-                'needed_date' => $smokeDate,
-                'request_division_id' => (int)$fx['sr_division']['id'],
-                'destination_type' => (string)$fx['sr_destination'],
-                'status' => 'DRAFT',
-                'notes' => 'Smoke test SR fulfill',
-            ], [
-                $this->buildSmokeStoreRequestLine($inventoryProfile, $qty['qty_buy'], $qty['qty_content']),
-            ], $userId);
-            if (!($create['ok'] ?? false)) {
-                return $create;
-            }
-
-            $requestId = (int)($create['id'] ?? 0);
-            $submit = $this->Procurement_model->apply_store_request_action($requestId, 'SUBMIT', 'Smoke submit', $userId);
-            if (!($submit['ok'] ?? false)) {
-                return $submit;
-            }
-            $approve = $this->Procurement_model->apply_store_request_action($requestId, 'APPROVE', 'Smoke approve', $userId);
-            if (!($approve['ok'] ?? false)) {
-                return $approve;
-            }
-
-            $fulfill = $this->Procurement_model->fulfill_auto_from_warehouse($requestId, $smokeDate, 'Smoke fulfill', $userId);
-            if (!($fulfill['ok'] ?? false)) {
-                return $fulfill;
-            }
-
-            $fulfillmentId = (int)($fulfill['data']['fulfillment_id'] ?? 0);
-            $movementSummary = $this->summarizeMovementByRef('pur_store_request_fulfillment', $fulfillmentId);
-            if (!$this->movementSummaryHas($movementSummary, 'WAREHOUSE', 'TRANSFER_OUT')) {
-                return ['ok' => false, 'message' => 'SR fulfill tidak menghasilkan movement WAREHOUSE TRANSFER_OUT.', 'data' => ['movement_summary' => $movementSummary]];
-            }
-            if (!$this->movementSummaryHas($movementSummary, 'DIVISION', 'TRANSFER_IN')) {
-                return ['ok' => false, 'message' => 'SR fulfill tidak menghasilkan movement DIVISION TRANSFER_IN.', 'data' => ['movement_summary' => $movementSummary]];
-            }
-
-            return [
-                'ok' => true,
-                'message' => 'SR fulfill berhasil memindahkan stok gudang ke divisi.',
-                'data' => [
-                    'request_id' => $requestId,
-                    'fulfillment_id' => $fulfillmentId,
-                    'status_after' => (string)($fulfill['data']['status_after'] ?? ''),
-                    'movement_summary' => $movementSummary,
-                ],
-            ];
-        });
-
-        $cases[] = $this->runSmokeCase('component_batch_material_usage_trace', function () use ($fx, $smokeDate, $userId) {
-            $profile = $this->ensureSmokeWarehouseProfile($fx, $smokeDate, $userId);
-            if (!($profile['ok'] ?? false)) {
-                return $profile;
-            }
-            $inventoryProfile = (array)($profile['data']['profile'] ?? []);
-            $qty = $this->smokeRequestQty($inventoryProfile, false);
-            $create = $this->Procurement_model->create_store_request([
-                'request_date' => $smokeDate,
-                'needed_date' => $smokeDate,
-                'request_division_id' => (int)$fx['sr_division']['id'],
-                'destination_type' => (string)$fx['sr_destination'],
-                'status' => 'DRAFT',
-                'notes' => 'Smoke test material usage batch',
-            ], [
-                $this->buildSmokeStoreRequestLine($inventoryProfile, $qty['qty_buy'], $qty['qty_content']),
-            ], $userId);
-            if (!($create['ok'] ?? false)) {
-                return $create;
-            }
-
-            $requestId = (int)($create['id'] ?? 0);
-            $submit = $this->Procurement_model->apply_store_request_action($requestId, 'SUBMIT', 'Smoke submit', $userId);
-            if (!($submit['ok'] ?? false)) {
-                return $submit;
-            }
-            $approve = $this->Procurement_model->apply_store_request_action($requestId, 'APPROVE', 'Smoke approve', $userId);
-            if (!($approve['ok'] ?? false)) {
-                return $approve;
-            }
-            $fulfill = $this->Procurement_model->fulfill_auto_from_warehouse($requestId, $smokeDate, 'Smoke fulfill untuk batch material', $userId);
-            if (!($fulfill['ok'] ?? false)) {
-                return $fulfill;
-            }
-
-            $component = (array)($fx['component'] ?? []);
-            if (empty($component)) {
-                return ['ok' => false, 'message' => 'Component aktif untuk smoke test batch material tidak tersedia.'];
-            }
-
-            $save = $this->Production_model->save_component_batch([
-                'batch_date' => $smokeDate,
-                'location_type' => (string)$fx['sr_destination'],
-                'division_id' => (int)$fx['sr_division']['id'],
-                'component_id' => (int)$component['id'],
-                'output_qty' => 1,
-                'output_uom_id' => (int)($component['uom_id'] ?? 0),
-                'notes' => 'Smoke batch material usage',
-            ], [[
-                'source_kind' => 'MATERIAL',
-                'item_id' => (int)($fx['inventory_profile']['item_id'] ?? 0) > 0 ? (int)$fx['inventory_profile']['item_id'] : null,
-                'material_id' => (int)($fx['inventory_profile']['material_id'] ?? 0) > 0 ? (int)$fx['inventory_profile']['material_id'] : null,
-                'uom_id' => (int)($fx['inventory_profile']['content_uom_id'] ?? 0),
-                'qty' => (float)$qty['qty_content'],
-                'unit_cost' => 0,
-                'notes' => 'Smoke input material',
-            ]], $userId);
-            if (!($save['ok'] ?? false)) {
-                return $save;
-            }
-
-            $batchId = (int)($save['id'] ?? 0);
-            $header = $this->Production_model->get_component_batch($batchId);
-            $inputs = $this->Production_model->get_component_batch_inputs($batchId);
-
-            $this->load->library('ComponentStockWriter');
-            $post = $this->componentstockwriter->post_batch((array)$header, $inputs, $userId);
-            if (!($post['ok'] ?? false)) {
-                return $post;
-            }
-
-            $this->db->where('id', $batchId)->update('inv_component_batch', [
-                'status' => 'POSTED',
-                'posted_at' => date('Y-m-d H:i:s'),
-                'posted_by' => $userId > 0 ? $userId : null,
-            ]);
-
-            $movementSummary = $this->summarizeMovementByRef('inv_component_batch', $batchId);
-            if (!$this->movementSummaryHas($movementSummary, 'DIVISION', 'USAGE_OUT')) {
-                return ['ok' => false, 'message' => 'Batch material tidak menghasilkan movement DIVISION USAGE_OUT.', 'data' => ['movement_summary' => $movementSummary]];
-            }
-
-            $issueCount = (int)$this->db->from('inv_material_fifo_issue_log')
-                ->where('source_table', 'inv_component_batch')
-                ->where('source_id', $batchId)
-                ->where('status', 'POSTED')
+            $receiptCount = (int)$this->db
+                ->from('pur_purchase_receipt')
+                ->where('purchase_order_id', $poId)
                 ->count_all_results();
-            if ($issueCount <= 0) {
-                return ['ok' => false, 'message' => 'Batch material tidak membentuk issue log FIFO divisi.'];
-            }
-
-            $componentMovementCount = (int)$this->db->from('inv_component_movement_log')
-                ->where('source_table', 'inv_component_batch')
-                ->where('source_id', $batchId)
-                ->where('movement_type', 'PRODUCTION_IN')
+            $paymentPlanCount = (int)$this->db
+                ->from('pur_purchase_payment_plan')
+                ->where('purchase_order_id', $poId)
                 ->count_all_results();
-            if ($componentMovementCount <= 0) {
-                return ['ok' => false, 'message' => 'Batch material tidak menghasilkan movement component PRODUCTION_IN.'];
-            }
-
-            return [
-                'ok' => true,
-                'message' => 'Batch material berhasil mengonsumsi lot FIFO divisi dan menghasilkan output component.',
-                'data' => [
-                    'batch_id' => $batchId,
-                    'request_id' => $requestId,
-                    'issue_count' => $issueCount,
-                    'component_movement_count' => $componentMovementCount,
-                    'movement_summary' => $movementSummary,
-                ],
-            ];
-        });
-
-        $cases[] = $this->runSmokeCase('sr_shortage_to_draft_po', function () use ($fx, $smokeDate, $userId) {
-            $qty = $this->smokeRequestQty((array)$fx['inventory_profile'], true);
-            $create = $this->Procurement_model->create_store_request([
-                'request_date' => $smokeDate,
-                'needed_date' => $smokeDate,
-                'request_division_id' => (int)$fx['sr_division']['id'],
-                'destination_type' => (string)$fx['sr_destination'],
-                'status' => 'DRAFT',
-                'notes' => 'Smoke test SR shortage',
-            ], [
-                $this->buildSmokeStoreRequestLine((array)$fx['inventory_profile'], $qty['qty_buy'], $qty['qty_content']),
-            ], $userId);
-            if (!($create['ok'] ?? false)) {
-                return $create;
-            }
-
-            $requestId = (int)($create['id'] ?? 0);
-            $submit = $this->Procurement_model->apply_store_request_action($requestId, 'SUBMIT', 'Smoke submit', $userId);
-            if (!($submit['ok'] ?? false)) {
-                return $submit;
-            }
-            $approve = $this->Procurement_model->apply_store_request_action($requestId, 'APPROVE', 'Smoke approve', $userId);
-            if (!($approve['ok'] ?? false)) {
-                return $approve;
-            }
-
-            $payload = $this->Procurement_model->get_shortage_po_payload($requestId);
-            if (!($payload['ok'] ?? false)) {
-                return $payload;
-            }
-
-            $purchaseTypeId = (int)($this->Procurement_model->find_inventory_purchase_type_id() ?? 0);
-            if ($purchaseTypeId <= 0) {
-                return ['ok' => false, 'message' => 'Purchase type inventory untuk draft PO shortage tidak ditemukan.'];
-            }
-
-            $header = (array)($payload['header'] ?? []);
-            $poResult = $this->Purchase_model->store_order_with_lines([
-                'request_date' => (string)($header['request_date'] ?? $smokeDate),
-                'expected_date' => (string)($header['needed_date'] ?? $smokeDate),
-                'purchase_type_id' => $purchaseTypeId,
-                'vendor_id' => (int)$fx['vendor']['id'],
-                'destination_type' => 'GUDANG',
-                'status' => 'DRAFT',
-                'notes' => 'Smoke draft PO shortage dari SR',
-                'external_ref_no' => (string)($header['sr_no'] ?? ('SR#' . $requestId)),
-            ], (array)($payload['lines'] ?? []), $userId, 'CLI_SMOKE');
-            if (!($poResult['ok'] ?? false)) {
-                return $poResult;
-            }
-
-            $poId = (int)($poResult['data']['purchase_order_id'] ?? 0);
-            $this->Procurement_model->link_store_request_po($requestId, $poId, 'SHORTAGE', 'Smoke shortage link', $userId);
-
-            $receiptCount = (int)$this->db->from('pur_purchase_receipt')->where('purchase_order_id', $poId)->count_all_results();
-            $linkCount = (int)$this->db->from('pur_store_request_po_link')->where('store_request_id', $requestId)->where('purchase_order_id', $poId)->count_all_results();
-            if ($receiptCount > 0) {
-                return ['ok' => false, 'message' => 'Draft PO shortage seharusnya belum membentuk receipt.'];
-            }
-            if ($linkCount <= 0) {
-                return ['ok' => false, 'message' => 'Link SR ke draft PO shortage tidak terbentuk.'];
-            }
-
-            return [
-                'ok' => true,
-                'message' => 'SR shortage berhasil menghasilkan draft PO tanpa mutasi stok baru.',
-                'data' => [
-                    'request_id' => $requestId,
-                    'purchase_order_id' => $poId,
-                    'shortage_line_count' => count((array)($payload['lines'] ?? [])),
-                    'po_link_count' => $linkCount,
-                ],
-            ];
-        });
-
-        $cases[] = $this->runSmokeCase('po_void_rollback_received', function () use ($fx, $smokeDate, $userId) {
-            $type = (array)$fx['purchase_types']['INV_STOK'];
-            $create = $this->Purchase_model->store_order_with_lines([
-                'request_date' => $smokeDate,
-                'expected_date' => $smokeDate,
-                'purchase_type_id' => (int)$type['id'],
-                'vendor_id' => (int)$fx['vendor']['id'],
-                'status' => 'RECEIVED',
-                'notes' => 'Smoke test PO void rollback receipt',
-            ], [
-                $this->buildSmokeInventoryPurchaseLine((array)$fx['inventory_profile'], 1.0),
-            ], $userId, 'CLI_SMOKE');
-            if (!($create['ok'] ?? false)) {
-                return $create;
-            }
-
-            $poId = (int)($create['data']['purchase_order_id'] ?? 0);
-            $receipt = $this->db->from('pur_purchase_receipt')->where('purchase_order_id', $poId)->where('status', 'POSTED')->limit(1)->get()->row_array();
-            if (!$receipt) {
-                return ['ok' => false, 'message' => 'Receipt awal tidak terbentuk untuk uji VOID PO.'];
-            }
-
-            $beforeSummary = $this->summarizeMovementByRef('pur_purchase_receipt', (int)$receipt['id']);
-            $voidResult = $this->Purchase_model->update_order_status($poId, 'VOID', $userId, 'CLI_SMOKE');
-            if (!($voidResult['ok'] ?? false)) {
-                return $voidResult;
-            }
-
-            $receiptAfter = $this->db->from('pur_purchase_receipt')->where('id', (int)$receipt['id'])->limit(1)->get()->row_array();
-            $receiptMovementCount = (int)$this->db
-                ->from('inv_stock_movement_log')
-                ->where('ref_table', 'pur_purchase_receipt')
-                ->where('ref_id', (int)$receipt['id'])
-                ->count_all_results();
-            $adjustmentCount = (int)$this->db
+            $movementCount = (int)$this->db
                 ->from('inv_stock_movement_log')
                 ->where('ref_table', 'pur_purchase_order')
                 ->where('ref_id', $poId)
-                ->where('movement_type', 'ADJUSTMENT')
                 ->count_all_results();
 
-            if (strtoupper((string)($receiptAfter['status'] ?? '')) !== 'VOID') {
-                return ['ok' => false, 'message' => 'Receipt tidak berubah ke VOID saat PO di-VOID.'];
+            if ($receiptCount !== 0) {
+                return ['ok' => false, 'message' => 'PO jasa tidak boleh membentuk receipt stok.', 'data' => ['receipt_count' => $receiptCount]];
             }
-            if (!$this->movementSummaryHas($beforeSummary, 'WAREHOUSE', 'PURCHASE_IN')) {
-                return ['ok' => false, 'message' => 'Setup uji rollback PO tidak memiliki PURCHASE_IN awal.'];
+            if ($paymentPlanCount <= 0) {
+                return ['ok' => false, 'message' => 'PO jasa PAID tidak membentuk payment plan.'];
             }
-            if ($receiptMovementCount !== 0) {
-                return ['ok' => false, 'message' => 'VOID PO tidak menghapus movement receipt dari histori.', 'data' => ['movement_count' => $receiptMovementCount]];
-            }
-            if ($adjustmentCount !== 0) {
-                return ['ok' => false, 'message' => 'VOID PO masih menyisakan ADJUSTMENT rollback pada histori stok.', 'data' => ['adjustment_count' => $adjustmentCount]];
+            if ($movementCount !== 0) {
+                return ['ok' => false, 'message' => 'PO jasa tidak boleh menghasilkan movement stok.', 'data' => ['movement_count' => $movementCount]];
             }
 
             return [
                 'ok' => true,
-                'message' => 'VOID PO receipt berhasil menghapus histori receipt dari stok dan me-VOID receipt.',
+                'message' => 'PO jasa PAID berhasil tanpa membentuk receipt atau movement stok.',
                 'data' => [
                     'po_id' => $poId,
-                    'receipt_id' => (int)$receipt['id'],
-                    'movement_count' => $receiptMovementCount,
-                    'adjustment_count' => $adjustmentCount,
+                    'receipt_count' => $receiptCount,
+                    'payment_plan_count' => $paymentPlanCount,
+                    'movement_count' => $movementCount,
                 ],
             ];
         });
@@ -663,7 +309,7 @@ class Inventory_tools extends CI_Controller
                 'purchase_type_id' => (int)$type['id'],
                 'vendor_id' => (int)$fx['vendor']['id'],
                 'status' => 'REJECTED',
-                'notes' => 'Smoke invalid transition PO',
+                'notes' => 'Smoke test invalid transition rejected to paid',
             ], [
                 $this->buildSmokeInventoryPurchaseLine((array)$fx['inventory_profile'], 1.0),
             ], $userId, 'CLI_SMOKE');
@@ -673,355 +319,45 @@ class Inventory_tools extends CI_Controller
 
             $poId = (int)($create['data']['purchase_order_id'] ?? 0);
             $transition = $this->Purchase_model->update_order_status($poId, 'PAID', $userId, 'CLI_SMOKE');
-            if (!empty($transition['ok'])) {
-                return ['ok' => false, 'message' => 'Transisi REJECTED -> PAID seharusnya ditolak.'];
-            }
-            if (strpos((string)($transition['message'] ?? ''), 'Transisi status tidak diizinkan') === false) {
-                return ['ok' => false, 'message' => 'Pesan penolakan transisi PO tidak sesuai.', 'data' => ['result' => $transition]];
-            }
-
-            return [
-                'ok' => true,
-                'message' => 'Transisi ilegal PO REJECTED -> PAID berhasil ditolak.',
-                'data' => ['po_id' => $poId],
-            ];
-        });
-
-        $cases[] = $this->runSmokeCase('sr_void_rollback_after_fulfill', function () use ($fx, $smokeDate, $userId) {
-            $profile = $this->ensureSmokeWarehouseProfile($fx, $smokeDate, $userId);
-            if (!($profile['ok'] ?? false)) {
-                return $profile;
-            }
-            $inventoryProfile = (array)($profile['data']['profile'] ?? []);
-            $qty = $this->smokeRequestQty($inventoryProfile, false);
-            $create = $this->Procurement_model->create_store_request([
-                'request_date' => $smokeDate,
-                'needed_date' => $smokeDate,
-                'request_division_id' => (int)$fx['sr_division']['id'],
-                'destination_type' => (string)$fx['sr_destination'],
-                'status' => 'DRAFT',
-                'notes' => 'Smoke test SR void rollback',
-            ], [
-                $this->buildSmokeStoreRequestLine($inventoryProfile, $qty['qty_buy'], $qty['qty_content']),
-            ], $userId);
-            if (!($create['ok'] ?? false)) {
-                return $create;
-            }
-
-            $requestId = (int)($create['id'] ?? 0);
-            foreach (['SUBMIT', 'APPROVE'] as $action) {
-                $actionResult = $this->Procurement_model->apply_store_request_action($requestId, $action, 'Smoke ' . strtolower($action), $userId);
-                if (!($actionResult['ok'] ?? false)) {
-                    return $actionResult;
-                }
-            }
-
-            $fulfill = $this->Procurement_model->fulfill_auto_from_warehouse($requestId, $smokeDate, 'Smoke fulfill before void', $userId);
-            if (!($fulfill['ok'] ?? false)) {
-                return $fulfill;
-            }
-
-            $fulfillmentId = (int)($fulfill['data']['fulfillment_id'] ?? 0);
-            $voidResult = $this->Procurement_model->apply_store_request_action($requestId, 'VOID', 'Smoke void rollback', $userId);
-            if (!($voidResult['ok'] ?? false)) {
-                return $voidResult;
-            }
-
-            $movementCount = (int)$this->db->from('inv_stock_movement_log')->where('ref_table', 'pur_store_request_fulfillment')->where('ref_id', $fulfillmentId)->count_all_results();
-            $fulfillment = $this->db->from('pur_store_request_fulfillment')->where('id', $fulfillmentId)->limit(1)->get()->row_array();
-            $line = $this->db->from('pur_store_request_line')->where('store_request_id', $requestId)->limit(1)->get()->row_array();
-
-            if ($movementCount !== 0) {
-                return ['ok' => false, 'message' => 'VOID SR tidak menghapus movement fulfillment dari histori.', 'data' => ['movement_count' => $movementCount]];
-            }
-            if (strtoupper((string)($fulfillment['status'] ?? '')) !== 'VOID') {
-                return ['ok' => false, 'message' => 'VOID SR tidak me-VOID dokumen fulfillment.'];
-            }
-            if ((float)($line['qty_content_fulfilled'] ?? 0) != 0.0) {
-                return ['ok' => false, 'message' => 'VOID SR tidak me-reset qty fulfilled line SR.'];
+            if (($transition['ok'] ?? false) === true) {
+                return [
+                    'ok' => false,
+                    'message' => 'PO REJECTED tidak boleh bisa langsung dipindah ke PAID.',
+                    'data' => [
+                        'po_id' => $poId,
+                        'transition_result' => $transition,
+                    ],
+                ];
             }
 
             return [
                 'ok' => true,
-                'message' => 'VOID SR setelah fulfill berhasil rollback histori fulfillment.',
+                'message' => 'Transisi REJECTED ke PAID berhasil ditolak.',
                 'data' => [
-                    'request_id' => $requestId,
-                    'fulfillment_id' => $fulfillmentId,
+                    'po_id' => $poId,
+                    'transition_result' => $transition,
                 ],
             ];
         });
 
-        $cases[] = $this->runSmokeCase('sr_invalid_transition_approve_from_draft', function () use ($fx, $smokeDate, $userId) {
-            $qty = $this->smokeRequestQty((array)$fx['inventory_profile'], false);
-            $create = $this->Procurement_model->create_store_request([
-                'request_date' => $smokeDate,
-                'needed_date' => $smokeDate,
-                'request_division_id' => (int)$fx['sr_division']['id'],
-                'destination_type' => (string)$fx['sr_destination'],
-                'status' => 'DRAFT',
-                'notes' => 'Smoke invalid SR transition',
-            ], [
-                $this->buildSmokeStoreRequestLine((array)$fx['inventory_profile'], $qty['qty_buy'], $qty['qty_content']),
-            ], $userId);
-            if (!($create['ok'] ?? false)) {
-                return $create;
-            }
-
-            $requestId = (int)($create['id'] ?? 0);
-            $approve = $this->Procurement_model->apply_store_request_action($requestId, 'APPROVE', 'Smoke invalid approve', $userId);
-            if (!empty($approve['ok'])) {
-                return ['ok' => false, 'message' => 'APPROVE dari DRAFT seharusnya ditolak.'];
-            }
-            if (strpos((string)($approve['message'] ?? ''), 'Hanya SUBMITTED yang dapat diapprove') === false) {
-                return ['ok' => false, 'message' => 'Pesan penolakan transisi SR tidak sesuai.', 'data' => ['result' => $approve]];
-            }
-
-            return [
-                'ok' => true,
-                'message' => 'Transisi ilegal SR DRAFT -> APPROVE berhasil ditolak.',
-                'data' => ['request_id' => $requestId],
-            ];
-        });
-
-        $failed = array_values(array_filter($cases, static function ($case) {
-            return !empty($case) && empty($case['ok']);
+        $failedCases = array_values(array_filter($cases, static function (array $case): bool {
+            return !($case['ok'] ?? false);
         }));
+        $passedCount = count($cases) - count($failedCases);
 
-        $summary = [
-            'ok' => empty($failed),
-            'message' => empty($failed)
-                ? 'Smoke test PO/SR/gudang berhasil untuk seluruh case.'
-                : 'Smoke test menemukan ' . count($failed) . ' case gagal.',
+        $result = [
+            'ok' => empty($failedCases),
+            'message' => empty($failedCases) ? 'Smoke test inventory_tools selesai.' : 'Smoke test inventory_tools menemukan kegagalan.',
             'data' => [
                 'date' => $smokeDate,
                 'case_count' => count($cases),
-                'failed_count' => count($failed),
+                'passed_count' => $passedCount,
+                'failed_count' => count($failedCases),
                 'cases' => $cases,
             ],
         ];
 
-        if (!empty($failed)) {
-            fwrite(STDERR, json_encode($summary, JSON_PRETTY_PRINT) . PHP_EOL);
-            exit(1);
-        }
-
-        fwrite(STDOUT, json_encode($summary, JSON_PRETTY_PRINT) . PHP_EOL);
-        exit(0);
-    }
-
-    public function repair_opening_history()
-    {
-        $argv = $_SERVER['argv'] ?? [];
-        $cliArgs = [];
-        for ($i = 3; $i < count($argv); $i += 2) {
-            $key = isset($argv[$i]) ? trim((string)$argv[$i]) : '';
-            if ($key === '') {
-                continue;
-            }
-            $cliArgs[$key] = isset($argv[$i + 1]) ? trim((string)$argv[$i + 1]) : '';
-        }
-
-        $result = $this->Purchase_model->repair_inventory_opening_history([
-            'stock_scope' => strtoupper((string)($cliArgs['scope'] ?? 'WAREHOUSE')),
-            'month_from' => (string)($cliArgs['month_from'] ?? date('Y-m-01')),
-            'item_id' => (int)($cliArgs['item_id'] ?? 0),
-            'limit' => (int)($cliArgs['limit'] ?? 500),
-            'division_id' => (int)($cliArgs['division_id'] ?? 0),
-        ], 0, 'CLI');
-
-        if (!($result['ok'] ?? false)) {
-            fwrite(STDERR, (string)($result['message'] ?? 'Repair opening gagal.') . PHP_EOL);
-            exit(1);
-        }
-
-        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
-        exit(0);
-    }
-
-    public function store_request_fulfill()
-    {
-        $argv = $_SERVER['argv'] ?? [];
-        $cliArgs = [];
-        for ($i = 3; $i < count($argv); $i += 2) {
-            $key = isset($argv[$i]) ? trim((string)$argv[$i]) : '';
-            if ($key === '') {
-                continue;
-            }
-            $cliArgs[$key] = isset($argv[$i + 1]) ? trim((string)$argv[$i + 1]) : '';
-        }
-
-        $requestId = (int)($cliArgs['id'] ?? 0);
-        $fulfillmentDate = (string)($cliArgs['date'] ?? date('Y-m-d'));
-        $notes = (string)($cliArgs['notes'] ?? 'CLI fulfill store request');
-        $userId = (int)($cliArgs['user_id'] ?? 0);
-        $dryRun = !isset($cliArgs['dry_run']) || !in_array(strtolower((string)$cliArgs['dry_run']), ['0', 'false', 'no'], true);
-
-        if ($requestId <= 0) {
-            fwrite(STDERR, "Parameter id wajib diisi dan > 0." . PHP_EOL);
-            exit(1);
-        }
-
-        $this->load->model('Procurement_model');
-        $this->db->trans_strict(false);
-        $this->db->trans_begin();
-
-        try {
-            $result = $this->Procurement_model->fulfill_auto_from_warehouse(
-                $requestId,
-                $fulfillmentDate,
-                $notes,
-                $userId
-            );
-        } catch (Throwable $e) {
-            $this->db->trans_rollback();
-            fwrite(STDERR, json_encode([
-                'ok' => false,
-                'message' => $e->getMessage(),
-            ], JSON_PRETTY_PRINT) . PHP_EOL);
-            exit(1);
-        }
-
-        if ($dryRun) {
-            $this->db->trans_rollback();
-            if (is_array($result)) {
-                $result['data']['dry_run'] = true;
-            }
-        } elseif (!($result['ok'] ?? false)) {
-            $this->db->trans_rollback();
-        } else {
-            $this->db->trans_commit();
-        }
-
-        if (!($result['ok'] ?? false)) {
-            fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
-            exit(1);
-        }
-
-        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
-        exit(0);
-    }
-
-    public function repair_void_store_request_history()
-    {
-        $cliArgs = $this->parseCliArgs();
-
-        $requestId = (int)($cliArgs['id'] ?? 0);
-        $userId = (int)($cliArgs['user_id'] ?? 0);
-        if ($requestId <= 0) {
-            fwrite(STDERR, "Parameter id wajib diisi dan > 0." . PHP_EOL);
-            exit(1);
-        }
-
-        $this->load->model('Procurement_model');
-        $result = $this->Procurement_model->repair_void_store_request_history($requestId, $userId);
-        if (!($result['ok'] ?? false)) {
-            fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
-            exit(1);
-        }
-
-        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
-        exit(0);
-    }
-
-    public function repair_po_receipt_conversion()
-    {
-        $cliArgs = $this->parseCliArgs();
-
-        $poId = (int)($cliArgs['id'] ?? 0);
-        $poNo = trim((string)($cliArgs['po_no'] ?? ''));
-        $userId = (int)($cliArgs['user_id'] ?? 0);
-        $normalizeCatalog = !in_array(strtolower(trim((string)($cliArgs['normalize_catalog'] ?? '1'))), ['0', 'false', 'no'], true);
-
-        if ($poId <= 0 && $poNo === '') {
-            fwrite(STDERR, "Parameter id atau po_no wajib diisi." . PHP_EOL);
-            exit(1);
-        }
-
-        if ($poId <= 0 && $poNo !== '') {
-            $row = $this->db
-                ->select('id')
-                ->from('pur_purchase_order')
-                ->where('po_no', $poNo)
-                ->limit(1)
-                ->get()
-                ->row_array();
-            $poId = (int)($row['id'] ?? 0);
-        }
-
-        if ($poId <= 0) {
-            fwrite(STDERR, "Purchase order tidak ditemukan." . PHP_EOL);
-            exit(1);
-        }
-
-        $result = $this->Purchase_model->repairPostedReceiptConversion($poId, $userId, $normalizeCatalog);
-        if (!($result['ok'] ?? false)) {
-            fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
-            exit(1);
-        }
-
-        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
-        exit(0);
-    }
-
-    public function rebuild_inventory_identity()
-    {
-        $cliArgs = $this->parseCliArgs();
-
-        $scope = strtoupper(trim((string)($cliArgs['scope'] ?? 'DIVISION')));
-        $startDate = (string)($cliArgs['start_date'] ?? date('Y-m-01'));
-        $stockDomain = strtoupper(trim((string)($cliArgs['stock_domain'] ?? 'ITEM')));
-        if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
-            fwrite(STDERR, "Parameter scope harus WAREHOUSE atau DIVISION." . PHP_EOL);
-            exit(1);
-        }
-        if (!in_array($stockDomain, ['ITEM', 'MATERIAL'], true)) {
-            $stockDomain = 'ITEM';
-        }
-
-        $identity = [
-            'stock_domain' => $stockDomain,
-            'division_id' => isset($cliArgs['division_id']) && $cliArgs['division_id'] !== '' ? (int)$cliArgs['division_id'] : null,
-            'destination_type' => isset($cliArgs['destination_type']) && trim((string)$cliArgs['destination_type']) !== '' ? strtoupper(trim((string)$cliArgs['destination_type'])) : null,
-            'item_id' => isset($cliArgs['item_id']) && $cliArgs['item_id'] !== '' ? (int)$cliArgs['item_id'] : null,
-            'material_id' => isset($cliArgs['material_id']) && $cliArgs['material_id'] !== '' ? (int)$cliArgs['material_id'] : null,
-            'buy_uom_id' => isset($cliArgs['buy_uom_id']) && $cliArgs['buy_uom_id'] !== '' ? (int)$cliArgs['buy_uom_id'] : null,
-            'content_uom_id' => isset($cliArgs['content_uom_id']) && $cliArgs['content_uom_id'] !== '' ? (int)$cliArgs['content_uom_id'] : null,
-            'profile_key' => isset($cliArgs['profile_key']) ? trim((string)$cliArgs['profile_key']) : null,
-            'profile_name' => isset($cliArgs['profile_name']) ? trim((string)$cliArgs['profile_name']) : null,
-            'profile_brand' => isset($cliArgs['profile_brand']) ? trim((string)$cliArgs['profile_brand']) : null,
-            'profile_description' => isset($cliArgs['profile_description']) ? trim((string)$cliArgs['profile_description']) : null,
-            'profile_expired_date' => isset($cliArgs['profile_expired_date']) ? trim((string)$cliArgs['profile_expired_date']) : null,
-            'profile_content_per_buy' => isset($cliArgs['profile_content_per_buy']) && $cliArgs['profile_content_per_buy'] !== '' ? (float)$cliArgs['profile_content_per_buy'] : 0,
-            'profile_buy_uom_code' => isset($cliArgs['profile_buy_uom_code']) ? trim((string)$cliArgs['profile_buy_uom_code']) : null,
-            'profile_content_uom_code' => isset($cliArgs['profile_content_uom_code']) ? trim((string)$cliArgs['profile_content_uom_code']) : null,
-        ];
-
-        $result = $this->Purchase_model->rebuild_inventory_history_for_identity($scope, $startDate, $identity);
-        if (!($result['ok'] ?? false)) {
-            fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
-            exit(1);
-        }
-
-        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
-        exit(0);
-    }
-
-    public function normalize_purchase_catalog_conversion()
-    {
-        $cliArgs = $this->parseCliArgs();
-        $catalogId = (int)($cliArgs['catalog_id'] ?? 0);
-        $profileKey = trim((string)($cliArgs['profile_key'] ?? ''));
-
-        $filters = [];
-        if ($catalogId > 0) {
-            $filters['catalog_ids'] = [$catalogId];
-        }
-        if ($profileKey !== '') {
-            $filters['profile_keys'] = [$profileKey];
-        }
-
-        $result = $this->Purchase_model->normalizePurchaseCatalogConversion($filters, true);
-        if (!($result['ok'] ?? false)) {
+        if (!empty($failedCases)) {
             fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
             exit(1);
         }
@@ -1043,6 +379,555 @@ class Inventory_tools extends CI_Controller
     public function normalize_purchase_catalog_expiry_phase1()
     {
         $this->run_purchase_catalog_profile_key_normalize_cli(false);
+    }
+
+    public function reconcile_purchase_catalog_exact_profiles()
+    {
+        $cliArgs = $this->parseCliArgs();
+        $limit = (int)($cliArgs['limit'] ?? 10000);
+        $dryRun = !isset($cliArgs['dry_run']) || !in_array(strtolower(trim((string)($cliArgs['dry_run'] ?? '1'))), ['0', 'false', 'no'], true);
+
+        $filters = [
+            'dry_run' => $dryRun,
+            'limit' => $limit,
+        ];
+
+        $catalogIdsRaw = trim((string)($cliArgs['catalog_ids'] ?? ''));
+        if ($catalogIdsRaw !== '') {
+            $catalogIds = array_values(array_filter(array_map('intval', preg_split('/[^0-9]+/', $catalogIdsRaw) ?: []), static function ($id) {
+                return $id > 0;
+            }));
+            if (!empty($catalogIds)) {
+                $filters['catalog_ids'] = $catalogIds;
+            }
+        }
+
+        $profileKeysRaw = trim((string)($cliArgs['profile_keys'] ?? ''));
+        if ($profileKeysRaw !== '') {
+            $profileKeys = array_values(array_filter(array_map('trim', explode(',', $profileKeysRaw)), static function ($value) {
+                return $value !== '';
+            }));
+            if (!empty($profileKeys)) {
+                $filters['profile_keys'] = $profileKeys;
+            }
+        }
+
+        $result = $this->Purchase_model->reconcilePurchaseCatalogExactProfiles($filters, true);
+        if (!($result['ok'] ?? false)) {
+            fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+            exit(1);
+        }
+
+        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+        exit(0);
+    }
+
+    public function post_core_warehouse_opening_stage()
+    {
+        $cliArgs = $this->parseCliArgs();
+        $userId = (int)($cliArgs['user_id'] ?? 0);
+        $snapshotMonth = trim((string)($cliArgs['snapshot_month'] ?? date('Y-m-01')));
+        if ($snapshotMonth === '') {
+            $snapshotMonth = date('Y-m-01');
+        }
+        $dryRun = !isset($cliArgs['dry_run']) || !in_array(strtolower(trim((string)($cliArgs['dry_run'] ?? '1'))), ['0', 'false', 'no'], true);
+
+        $groups = $this->load_core_warehouse_opening_stage_groups($snapshotMonth);
+        if (empty($groups)) {
+            $result = [
+                'ok' => true,
+                'message' => 'Tidak ada row staging opening gudang positif untuk diposting.',
+                'data' => [
+                    'snapshot_month' => $snapshotMonth,
+                    'group_count' => 0,
+                    'stage_row_count' => 0,
+                    'movement_count' => 0,
+                    'snapshot_count' => 0,
+                    'samples' => [],
+                ],
+            ];
+            fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+            exit(0);
+        }
+
+        if ($dryRun) {
+            $result = [
+                'ok' => true,
+                'message' => 'Dry-run posting opening staging gudang selesai.',
+                'data' => [
+                    'snapshot_month' => $snapshotMonth,
+                    'group_count' => count($groups),
+                    'stage_row_count' => array_sum(array_map(static function (array $row): int {
+                        return (int)($row['stage_row_count'] ?? 0);
+                    }, $groups)),
+                    'samples' => array_slice($groups, 0, 10),
+                ],
+            ];
+            fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+            exit(0);
+        }
+
+        $purgedSnapshotIds = $this->purge_legacy_core_warehouse_opening_snapshots($snapshotMonth);
+        $posted = [];
+
+        foreach ($groups as $group) {
+            $payload = [
+                'stock_scope' => 'WAREHOUSE',
+                'snapshot_month' => (string)$group['snapshot_month'],
+                'stock_domain' => (string)$group['stock_domain'],
+                'item_id' => (int)$group['item_id'],
+                'material_id' => (int)$group['material_id'],
+                'buy_uom_id' => (int)$group['buy_uom_id'],
+                'content_uom_id' => (int)$group['content_uom_id'],
+                'profile_name' => (string)$group['profile_name'],
+                'profile_brand' => $group['profile_brand'] !== null ? (string)$group['profile_brand'] : null,
+                'profile_description' => $group['profile_description'] !== null ? (string)$group['profile_description'] : null,
+                'profile_content_per_buy' => (float)$group['profile_content_per_buy'],
+                'opening_qty_buy' => (float)$group['opening_qty_buy'],
+                'opening_qty_content' => (float)$group['opening_qty_content'],
+                'opening_avg_cost_per_content' => (float)$group['opening_avg_cost_per_content'],
+                'replace_mode' => 1,
+                'notes' => 'Core warehouse opening repost from staging. stage_ids=' . (string)$group['stage_ids'] . '; unit_price_buy=' . (string)$group['unit_price_buy'],
+            ];
+
+            $result = $this->Purchase_model->store_warehouse_opening_and_post($payload, $userId, 'CLI_CORE_STAGE');
+            if (!($result['ok'] ?? false)) {
+                fwrite(STDERR, json_encode([
+                    'ok' => false,
+                    'message' => 'Gagal posting stage_ids=' . (string)$group['stage_ids'],
+                    'payload' => $payload,
+                    'result' => $result,
+                ], JSON_PRETTY_PRINT) . PHP_EOL);
+                exit(1);
+            }
+
+            $data = (array)($result['data'] ?? []);
+            $profileKey = trim((string)($data['profile_key'] ?? ''));
+            $snapshotId = (int)($data['snapshot_id'] ?? 0);
+            $movementNo = trim((string)($data['movement_no'] ?? ''));
+
+            $stageIds = array_values(array_filter(array_map('intval', explode(',', (string)$group['stage_ids'])), static function ($id) {
+                return $id > 0;
+            }));
+            if (!empty($stageIds)) {
+                $this->db
+                    ->where_in('id', $stageIds)
+                    ->update('stg_core_inventory_warehouse_opening', [
+                        'matched_finance_profile_key' => $profileKey !== '' ? $profileKey : null,
+                        'matched_profile_source' => 'PRICE_AWARE_MODEL_POST',
+                        'mapping_status' => 'POSTED_PRICE_AWARE',
+                        'mapping_notes' => 'Diposting ulang via Purchase_model::store_warehouse_opening_and_post dengan exact profile by price.',
+                        'import_status' => 'POSTED_MODEL',
+                        'import_notes' => 'Snapshot_id=' . $snapshotId . '; movement_no=' . $movementNo,
+                        'imported_opening_id' => $snapshotId > 0 ? $snapshotId : null,
+                    ]);
+            }
+
+            $posted[] = [
+                'stage_ids' => (string)$group['stage_ids'],
+                'profile_name' => (string)$group['profile_name'],
+                'unit_price_buy' => (float)$group['unit_price_buy'],
+                'profile_key' => $profileKey,
+                'snapshot_id' => $snapshotId,
+                'movement_no' => $movementNo,
+                'opening_qty_buy' => (float)$group['opening_qty_buy'],
+                'opening_qty_content' => (float)$group['opening_qty_content'],
+            ];
+        }
+
+        $movementCount = 0;
+        if (!empty($posted)) {
+            $snapshotIds = array_values(array_filter(array_map(static function (array $row): int {
+                return (int)($row['snapshot_id'] ?? 0);
+            }, $posted), static function ($id) {
+                return $id > 0;
+            }));
+            if (!empty($snapshotIds) && $this->db->table_exists('inv_stock_movement_log')) {
+                $movementCount = (int)$this->db
+                    ->from('inv_stock_movement_log')
+                    ->where('ref_table', 'inv_warehouse_stock_opening_snapshot')
+                    ->where_in('ref_id', $snapshotIds)
+                    ->count_all_results();
+            }
+        }
+
+        $result = [
+            'ok' => true,
+            'message' => 'Posting opening staging gudang via model selesai.',
+            'data' => [
+                'snapshot_month' => $snapshotMonth,
+                'purged_legacy_snapshot_ids' => $purgedSnapshotIds,
+                'group_count' => count($posted),
+                'stage_row_count' => array_sum(array_map(static function (array $row): int {
+                    return count(array_filter(array_map('intval', explode(',', (string)($row['stage_ids'] ?? '')))));
+                }, $posted)),
+                'movement_count' => $movementCount,
+                'samples' => array_slice($posted, 0, 15),
+            ],
+        ];
+        fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
+        exit(0);
+    }
+
+    public function post_core_material_division_opening()
+    {
+        $cliArgs = $this->parseCliArgs();
+        $userId = (int)($cliArgs['user_id'] ?? 0);
+        $snapshotMonth = trim((string)($cliArgs['snapshot_month'] ?? date('Y-m-01')));
+        if ($snapshotMonth === '') {
+            $snapshotMonth = date('Y-m-01');
+        }
+        $dryRun = !isset($cliArgs['dry_run']) || !in_array(strtolower(trim((string)($cliArgs['dry_run'] ?? '1'))), ['0', 'false', 'no'], true);
+
+        $groups = $this->load_core_material_division_opening_groups($snapshotMonth);
+        if (empty($groups)) {
+            fwrite(STDOUT, json_encode([
+                'ok' => true,
+                'message' => 'Tidak ada saldo bahan baku core positif untuk diposting.',
+                'data' => [
+                    'snapshot_month' => $snapshotMonth,
+                    'group_count' => 0,
+                ],
+            ], JSON_PRETTY_PRINT) . PHP_EOL);
+            exit(0);
+        }
+
+        $processed = [];
+        $skipped = [];
+        $correctionLotCount = 0;
+        $trimmedLotCount = 0;
+
+        foreach ($groups as $group) {
+            $groupId = (int)($group['source_stock_id'] ?? 0);
+            if ((int)($group['division_id'] ?? 0) <= 0 || (int)($group['item_id'] ?? 0) <= 0 || (int)($group['material_id'] ?? 0) <= 0 || (int)($group['buy_uom_id'] ?? 0) <= 0 || (int)($group['content_uom_id'] ?? 0) <= 0) {
+                $skipped[] = [
+                    'source_stock_id' => $groupId,
+                    'profile_name' => (string)($group['profile_name'] ?? ''),
+                    'message' => 'Mapping division/item/material/uom belum lengkap.',
+                ];
+                continue;
+            }
+
+            $lots = $this->load_core_material_division_opening_lots($group);
+            $plan = $this->plan_opening_lot_rows(
+                round((float)($group['opening_qty_content'] ?? 0), 4),
+                round(max(0.000001, (float)($group['profile_content_per_buy'] ?? 1)), 6),
+                $lots,
+                'MATCORR-' . $snapshotMonth . '-' . $groupId,
+                round((float)($group['opening_avg_cost_per_content'] ?? 0), 6),
+                $snapshotMonth,
+                'Correction lot bahan baku dari saldo agregat core'
+            );
+            $plannedLots = (array)($plan['planned_lots'] ?? []);
+            $openingQtyBuy = round((float)($plan['planned_qty_buy'] ?? 0), 4);
+            if ($openingQtyBuy <= 0) {
+                $openingQtyBuy = round((float)($group['opening_qty_content'] ?? 0) / max(0.000001, (float)($group['profile_content_per_buy'] ?? 1)), 4);
+            }
+            $correctionLotCount += count(array_filter($plannedLots, static function (array $lot): bool {
+                return !empty($lot['is_correction']);
+            }));
+            $trimmedLotCount += (int)($plan['trimmed_lot_count'] ?? 0);
+
+            if ($dryRun) {
+                $processed[] = [
+                    'source_stock_id' => $groupId,
+                    'profile_name' => (string)($group['profile_name'] ?? ''),
+                    'division_id' => (int)($group['division_id'] ?? 0),
+                    'destination_type' => (string)($group['destination_type'] ?? ''),
+                    'opening_qty_buy' => $openingQtyBuy,
+                    'opening_qty_content' => round((float)($group['opening_qty_content'] ?? 0), 4),
+                    'source_lot_count' => count($lots),
+                    'planned_lot_count' => count($plannedLots),
+                    'trimmed_qty_content' => round((float)($plan['trimmed_qty_content'] ?? 0), 4),
+                    'correction_qty_content' => round((float)($plan['correction_qty_content'] ?? 0), 4),
+                ];
+                continue;
+            }
+
+            $result = $this->Purchase_model->store_warehouse_opening_and_post([
+                'stock_scope' => 'DIVISION',
+                'snapshot_month' => $snapshotMonth,
+                'division_id' => (int)$group['division_id'],
+                'destination_type' => (string)$group['destination_type'],
+                'stock_domain' => 'MATERIAL',
+                'item_id' => (int)$group['item_id'],
+                'material_id' => (int)$group['material_id'],
+                'buy_uom_id' => (int)$group['buy_uom_id'],
+                'content_uom_id' => (int)$group['content_uom_id'],
+                'profile_name' => (string)$group['profile_name'],
+                'profile_brand' => $group['profile_brand'] !== null ? (string)$group['profile_brand'] : null,
+                'profile_description' => $group['profile_description'] !== null ? (string)$group['profile_description'] : null,
+                'profile_content_per_buy' => (float)$group['profile_content_per_buy'],
+                'opening_qty_buy' => $openingQtyBuy,
+                'opening_qty_content' => round((float)$group['opening_qty_content'], 4),
+                'opening_avg_cost_per_content' => round((float)$group['opening_avg_cost_per_content'], 6),
+                'replace_mode' => 1,
+                'notes' => 'Core material opening repost. source_stock_id=' . $groupId . '; source_profile_key=' . (string)($group['source_profile_key'] ?? '-'),
+            ], $userId, 'CLI_CORE_MATERIAL');
+            if (!($result['ok'] ?? false)) {
+                fwrite(STDERR, json_encode([
+                    'ok' => false,
+                    'message' => 'Gagal posting bahan baku source_stock_id=' . $groupId,
+                    'group' => $group,
+                    'result' => $result,
+                ], JSON_PRETTY_PRINT) . PHP_EOL);
+                exit(1);
+            }
+
+            $data = (array)($result['data'] ?? []);
+            $snapshotId = (int)($data['snapshot_id'] ?? 0);
+            $profileKey = trim((string)($data['profile_key'] ?? ''));
+            $lotSeed = $this->seed_material_opening_lots($group, $snapshotId, $profileKey, $plannedLots);
+            if (!($lotSeed['ok'] ?? false)) {
+                fwrite(STDERR, json_encode([
+                    'ok' => false,
+                    'message' => 'Gagal seed lot bahan baku source_stock_id=' . $groupId,
+                    'group' => $group,
+                    'snapshot_id' => $snapshotId,
+                    'result' => $lotSeed,
+                ], JSON_PRETTY_PRINT) . PHP_EOL);
+                exit(1);
+            }
+
+            $processed[] = [
+                'source_stock_id' => $groupId,
+                'profile_name' => (string)($group['profile_name'] ?? ''),
+                'snapshot_id' => $snapshotId,
+                'profile_key' => $profileKey,
+                'planned_lot_count' => count($plannedLots),
+                'trimmed_qty_content' => round((float)($plan['trimmed_qty_content'] ?? 0), 4),
+                'correction_qty_content' => round((float)($plan['correction_qty_content'] ?? 0), 4),
+            ];
+        }
+
+        fwrite(STDOUT, json_encode([
+            'ok' => true,
+            'message' => $dryRun ? 'Dry-run opening bahan baku core selesai.' : 'Opening bahan baku core selesai diposting.',
+            'data' => [
+                'snapshot_month' => $snapshotMonth,
+                'group_count' => count($groups),
+                'processed_count' => count($processed),
+                'skipped_count' => count($skipped),
+                'correction_lot_count' => $correctionLotCount,
+                'trimmed_lot_count' => $trimmedLotCount,
+                'processed' => array_slice($processed, 0, 30),
+                'skipped' => array_slice($skipped, 0, 20),
+            ],
+        ], JSON_PRETTY_PRINT) . PHP_EOL);
+        exit(0);
+    }
+
+    public function post_core_component_opening()
+    {
+        $cliArgs = $this->parseCliArgs();
+        $userId = (int)($cliArgs['user_id'] ?? 0);
+        $snapshotMonth = trim((string)($cliArgs['snapshot_month'] ?? date('Y-m-01')));
+        if ($snapshotMonth === '') {
+            $snapshotMonth = date('Y-m-01');
+        }
+        $dryRun = !isset($cliArgs['dry_run']) || !in_array(strtolower(trim((string)($cliArgs['dry_run'] ?? '1'))), ['0', 'false', 'no'], true);
+
+        $groups = $this->load_core_component_opening_groups($snapshotMonth);
+        if (empty($groups)) {
+            fwrite(STDOUT, json_encode([
+                'ok' => true,
+                'message' => 'Tidak ada saldo component core positif untuk diposting.',
+                'data' => [
+                    'snapshot_month' => $snapshotMonth,
+                    'group_count' => 0,
+                ],
+            ], JSON_PRETTY_PRINT) . PHP_EOL);
+            exit(0);
+        }
+
+        $this->load->library('ComponentStockWriter');
+
+        $docPlans = [];
+        $skipped = [];
+        $correctionLotCount = 0;
+        $trimmedLotCount = 0;
+
+        foreach ($groups as $group) {
+            if ((int)($group['division_id'] ?? 0) <= 0 || (int)($group['component_id'] ?? 0) <= 0 || (int)($group['uom_id'] ?? 0) <= 0) {
+                $skipped[] = [
+                    'source_stock_id' => (int)($group['source_stock_id'] ?? 0),
+                    'component_name' => (string)($group['component_name'] ?? ''),
+                    'message' => 'Mapping division/component/uom belum lengkap.',
+                ];
+                continue;
+            }
+
+            $lots = $this->load_core_component_opening_lots($group);
+            $plan = $this->plan_opening_lot_rows(
+                round((float)($group['opening_qty'] ?? 0), 4),
+                1.0,
+                $lots,
+                'CMPCORR-' . $snapshotMonth . '-' . (int)($group['source_stock_id'] ?? 0),
+                round((float)($group['avg_cost'] ?? 0), 6),
+                $snapshotMonth,
+                'Correction lot component dari saldo agregat core'
+            );
+            $plannedLots = (array)($plan['planned_lots'] ?? []);
+            $correctionLotCount += count(array_filter($plannedLots, static function (array $lot): bool {
+                return !empty($lot['is_correction']);
+            }));
+            $trimmedLotCount += (int)($plan['trimmed_lot_count'] ?? 0);
+
+            $docKey = (string)$group['location_type'] . '|' . (int)$group['division_id'];
+            if (!isset($docPlans[$docKey])) {
+                $docPlans[$docKey] = [
+                    'header' => [
+                        'location_type' => (string)$group['location_type'],
+                        'division_id' => (int)$group['division_id'],
+                    ],
+                    'lines' => [],
+                ];
+            }
+
+            foreach ($plannedLots as $plannedLot) {
+                $docPlans[$docKey]['lines'][] = [
+                    'component_id' => (int)$group['component_id'],
+                    'uom_id' => (int)$group['uom_id'],
+                    'opening_qty' => round((float)($plannedLot['qty_content'] ?? 0), 4),
+                    'unit_cost' => round((float)($plannedLot['unit_cost'] ?? 0), 6),
+                    'note' => trim((string)($plannedLot['note'] ?? '')),
+                    'lot_no' => (string)($plannedLot['lot_no'] ?? ''),
+                    'received_date' => (string)($plannedLot['received_date'] ?? $snapshotMonth),
+                ];
+            }
+        }
+
+        if ($dryRun) {
+            $preview = [];
+            foreach ($docPlans as $docKey => $docPlan) {
+                $preview[] = [
+                    'doc_key' => $docKey,
+                    'location_type' => (string)($docPlan['header']['location_type'] ?? ''),
+                    'division_id' => (int)($docPlan['header']['division_id'] ?? 0),
+                    'line_count' => count((array)($docPlan['lines'] ?? [])),
+                ];
+            }
+
+            fwrite(STDOUT, json_encode([
+                'ok' => true,
+                'message' => 'Dry-run opening component core selesai.',
+                'data' => [
+                    'snapshot_month' => $snapshotMonth,
+                    'group_count' => count($groups),
+                    'document_count' => count($docPlans),
+                    'skipped_count' => count($skipped),
+                    'correction_lot_count' => $correctionLotCount,
+                    'trimmed_lot_count' => $trimmedLotCount,
+                    'documents' => $preview,
+                    'skipped' => array_slice($skipped, 0, 20),
+                ],
+            ], JSON_PRETTY_PRINT) . PHP_EOL);
+            exit(0);
+        }
+
+        $postedDocs = [];
+        foreach ($docPlans as $docPlan) {
+            $locationType = (string)($docPlan['header']['location_type'] ?? '');
+            $divisionId = (int)($docPlan['header']['division_id'] ?? 0);
+            $cleanup = $this->cleanup_component_opening_migration_doc($snapshotMonth, $locationType, $divisionId, $userId);
+            if (!($cleanup['ok'] ?? false)) {
+                fwrite(STDERR, json_encode($cleanup, JSON_PRETTY_PRINT) . PHP_EOL);
+                exit(1);
+            }
+
+            $openingNo = 'ICO-MIG-' . date('Ym', strtotime($snapshotMonth)) . '-' . $locationType . '-' . $divisionId . '-' . date('His');
+            $headerInsert = [
+                'opening_no' => $openingNo,
+                'opening_date' => $snapshotMonth,
+                'location_type' => $locationType,
+                'division_id' => $divisionId,
+                'status' => 'DRAFT',
+                'notes' => 'Core component opening migration. snapshot_month=' . $snapshotMonth,
+                'created_by' => $userId > 0 ? $userId : null,
+            ];
+            $this->db->insert('inv_component_opening', $headerInsert);
+            $openingId = (int)$this->db->insert_id();
+            if ($openingId <= 0) {
+                fwrite(STDERR, json_encode(['ok' => false, 'message' => 'Gagal membuat header opening component migrasi.'], JSON_PRETTY_PRINT) . PHP_EOL);
+                exit(1);
+            }
+
+            $lineNo = 1;
+            $customLines = [];
+            foreach ($docPlan['lines'] as $line) {
+                $lineInsert = [
+                    'opening_id' => $openingId,
+                    'line_no' => $lineNo++,
+                    'component_id' => (int)$line['component_id'],
+                    'uom_id' => (int)$line['uom_id'],
+                    'opening_qty' => round((float)$line['opening_qty'], 4),
+                    'unit_cost' => round((float)$line['unit_cost'], 6),
+                    'total_value' => round((float)$line['opening_qty'] * (float)$line['unit_cost'], 2),
+                    'note' => $line['note'] !== '' ? (string)$line['note'] : null,
+                ];
+                $this->db->insert('inv_component_opening_line', $lineInsert);
+                $lineId = (int)$this->db->insert_id();
+                if ($lineId <= 0) {
+                    fwrite(STDERR, json_encode(['ok' => false, 'message' => 'Gagal membuat line opening component migrasi.', 'opening_id' => $openingId], JSON_PRETTY_PRINT) . PHP_EOL);
+                    exit(1);
+                }
+
+                $customLines[] = [
+                    'id' => $lineId,
+                    'component_id' => (int)$line['component_id'],
+                    'uom_id' => (int)$line['uom_id'],
+                    'opening_qty' => round((float)$line['opening_qty'], 4),
+                    'qty' => round((float)$line['opening_qty'], 4),
+                    'unit_cost' => round((float)$line['unit_cost'], 6),
+                    'note' => (string)($line['note'] ?? ''),
+                    'lot_no' => (string)($line['lot_no'] ?? ''),
+                    'received_date' => (string)($line['received_date'] ?? $snapshotMonth),
+                    'source_line_id' => $lineId,
+                ];
+            }
+
+            $header = $this->Production_model->get_component_opening($openingId);
+            if (!$header) {
+                fwrite(STDERR, json_encode(['ok' => false, 'message' => 'Header opening component migrasi tidak dapat dibaca ulang.', 'opening_id' => $openingId], JSON_PRETTY_PRINT) . PHP_EOL);
+                exit(1);
+            }
+
+            $post = $this->componentstockwriter->post_opening($header, $customLines, $userId);
+            if (!($post['ok'] ?? false)) {
+                fwrite(STDERR, json_encode(['ok' => false, 'message' => 'Posting opening component migrasi gagal.', 'opening_id' => $openingId, 'result' => $post], JSON_PRETTY_PRINT) . PHP_EOL);
+                exit(1);
+            }
+
+            $this->db->where('id', $openingId)->update('inv_component_opening', [
+                'status' => 'POSTED',
+                'posted_at' => date('Y-m-d H:i:s'),
+                'posted_by' => $userId > 0 ? $userId : null,
+            ]);
+
+            $postedDocs[] = [
+                'opening_id' => $openingId,
+                'opening_no' => $openingNo,
+                'location_type' => $locationType,
+                'division_id' => $divisionId,
+                'line_count' => count($customLines),
+            ];
+        }
+
+        fwrite(STDOUT, json_encode([
+            'ok' => true,
+            'message' => 'Opening component core selesai diposting.',
+            'data' => [
+                'snapshot_month' => $snapshotMonth,
+                'group_count' => count($groups),
+                'document_count' => count($postedDocs),
+                'skipped_count' => count($skipped),
+                'correction_lot_count' => $correctionLotCount,
+                'trimmed_lot_count' => $trimmedLotCount,
+                'documents' => $postedDocs,
+                'skipped' => array_slice($skipped, 0, 20),
+            ],
+        ], JSON_PRETTY_PRINT) . PHP_EOL);
+        exit(0);
     }
 
     public function rebuild_purchase_impact()
@@ -1143,6 +1028,428 @@ class Inventory_tools extends CI_Controller
 
         fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL);
         exit(0);
+    }
+
+    private function load_core_warehouse_opening_stage_groups(string $snapshotMonth): array
+    {
+        $sql = "
+            SELECT
+              s.snapshot_month,
+              s.stock_domain,
+              s.item_id,
+              s.material_id,
+              s.buy_uom_id,
+              s.content_uom_id,
+              MAX(s.profile_name) AS profile_name,
+              MAX(s.profile_brand) AS profile_brand,
+              MAX(s.profile_description) AS profile_description,
+              ROUND(MAX(s.profile_content_per_buy), 6) AS profile_content_per_buy,
+              ROUND(CASE WHEN SUM(s.opening_qty_buy) > 0 THEN SUM(s.opening_total_value) / SUM(s.opening_qty_buy) ELSE 0 END, 2) AS unit_price_buy,
+              ROUND(SUM(s.opening_qty_buy), 4) AS opening_qty_buy,
+              ROUND(SUM(s.opening_qty_content), 4) AS opening_qty_content,
+              ROUND(CASE WHEN SUM(s.opening_qty_content) > 0 THEN SUM(s.opening_total_value) / SUM(s.opening_qty_content) ELSE 0 END, 6) AS opening_avg_cost_per_content,
+              ROUND(SUM(s.opening_total_value), 2) AS opening_total_value,
+              COUNT(*) AS stage_row_count,
+              GROUP_CONCAT(s.id ORDER BY s.id SEPARATOR ',') AS stage_ids
+            FROM stg_core_inventory_warehouse_opening s
+            WHERE s.snapshot_month = ?
+              AND COALESCE(s.source_qty_on_hand, 0) > 0
+            GROUP BY
+              s.snapshot_month,
+              s.stock_domain,
+              s.item_id,
+              s.material_id,
+              s.buy_uom_id,
+              s.content_uom_id,
+              UPPER(TRIM(COALESCE(s.profile_name, ''))),
+              UPPER(TRIM(COALESCE(s.profile_brand, ''))),
+              UPPER(TRIM(COALESCE(s.profile_description, ''))),
+              ROUND(COALESCE(s.profile_content_per_buy, 0), 6),
+              ROUND(CASE WHEN COALESCE(s.opening_qty_buy, 0) > 0 THEN COALESCE(s.opening_total_value, 0) / s.opening_qty_buy ELSE 0 END, 2)
+            ORDER BY profile_name ASC, profile_brand ASC, MIN(s.id) ASC
+        ";
+
+        return $this->db->query($sql, [$snapshotMonth])->result_array();
+    }
+
+        private function load_core_material_division_opening_groups(string $snapshotMonth): array
+        {
+                $sql = "
+                        SELECT
+                            s.id AS source_stock_id,
+                            ? AS snapshot_month,
+                            CASE
+                                WHEN s.destination_type IN ('BAR', 'BAR_EVENT') THEN d_bar.id
+                                WHEN s.destination_type IN ('KITCHEN', 'KITCHEN_EVENT') THEN d_kitchen.id
+                                ELSE NULL
+                            END AS division_id,
+                            s.destination_type,
+                            s.destination_division_id AS source_destination_division_id,
+                            s.material_id AS source_material_id,
+                            s.uom_id AS source_uom_id,
+                            NULLIF(TRIM(s.profile_key), '') AS source_profile_key,
+                            tm.id AS material_id,
+                            ti.item_id AS item_id,
+                            tbu.id AS buy_uom_id,
+                            COALESCE(tcu.id, tbu.id) AS content_uom_id,
+                            COALESCE(NULLIF(TRIM(sm.material_name), ''), NULLIF(TRIM(tm.material_name), '')) AS profile_name,
+                            NULLIF(TRIM(s.brand_name), '') AS profile_brand,
+                            NULLIF(TRIM(COALESCE(s.description_snapshot, s.packaging)), '') AS profile_description,
+                            ROUND(GREATEST(COALESCE(s.isi_per_pack, s.content_qty, 1), 0.000001), 6) AS profile_content_per_buy,
+                            ROUND(COALESCE(s.qty_on_hand, 0), 4) AS opening_qty_content,
+                            ROUND(COALESCE(s.avg_cost, 0), 6) AS opening_avg_cost_per_content,
+                            su.code AS source_uom_code
+                        FROM core.rsp_material_stock s
+                        INNER JOIN core.m_material sm
+                            ON sm.id = s.material_id
+                        LEFT JOIN core.m_uom su
+                            ON su.id = s.uom_id
+                        INNER JOIN mst_material tm
+                            ON tm.material_code = sm.material_code
+                        LEFT JOIN (
+                            SELECT material_id, MIN(id) AS item_id
+                            FROM mst_item
+                            WHERE material_id IS NOT NULL
+                            GROUP BY material_id
+                        ) ti
+                            ON ti.material_id = tm.id
+                        LEFT JOIN mst_uom tbu
+                            ON tbu.code = su.code
+                        LEFT JOIN core.m_uom scu
+                            ON scu.id = COALESCE(s.content_uom_id, s.uom_id)
+                        LEFT JOIN mst_uom tcu
+                            ON tcu.code = scu.code
+                        LEFT JOIN mst_operational_division d_bar
+                            ON d_bar.code = 'BAR'
+                        LEFT JOIN mst_operational_division d_kitchen
+                            ON d_kitchen.code = 'KITCHEN'
+                        WHERE COALESCE(s.qty_on_hand, 0) > 0
+                        ORDER BY s.destination_type ASC, tm.id ASC, s.id ASC
+                ";
+
+                return $this->db->query($sql, [$snapshotMonth])->result_array();
+        }
+
+        private function load_core_material_division_opening_lots(array $group): array
+        {
+                $sql = "
+                        SELECT
+                            l.id AS source_line_id,
+                            l.lot_no,
+                            l.received_date,
+                            ROUND(COALESCE(l.qty_remaining, 0), 4) AS qty_content,
+                            ROUND(COALESCE(l.qty_pack, 0), 4) AS qty_buy,
+                            ROUND(COALESCE(l.unit_cost, 0), 6) AS unit_cost,
+                            CONCAT('Core lot ', COALESCE(l.lot_no, '#'), ' dari rsp_material_stock_lot') AS note
+                        FROM core.rsp_material_stock_lot l
+                        WHERE l.destination_type = ?
+                            AND l.destination_division_id <=> ?
+                            AND l.material_id = ?
+                            AND l.uom_id = ?
+                            AND COALESCE(l.qty_remaining, 0) > 0
+                            AND NULLIF(TRIM(COALESCE(l.brand_name, '')), '') <=> ?
+                            AND NULLIF(TRIM(COALESCE(l.description_snapshot, l.packaging)), '') <=> ?
+                            AND ROUND(GREATEST(COALESCE(l.isi_per_pack, l.content_qty, 1), 0.000001), 6) = ?
+                        ORDER BY l.received_date ASC, l.id ASC
+                ";
+
+                return $this->db->query($sql, [
+                        $group['destination_type'] ?? null,
+                        $group['source_destination_division_id'] ?? null,
+                        $group['source_material_id'] ?? null,
+                        $group['source_uom_id'] ?? null,
+                        ($group['profile_brand'] ?? null) !== '' ? $group['profile_brand'] : null,
+                        ($group['profile_description'] ?? null) !== '' ? $group['profile_description'] : null,
+                        round(max(0.000001, (float)($group['profile_content_per_buy'] ?? 1)), 6),
+                ])->result_array();
+        }
+
+        private function seed_material_opening_lots(array $group, int $snapshotId, string $profileKey, array $plannedLots): array
+        {
+                if ($snapshotId <= 0) {
+                        return ['ok' => false, 'message' => 'Snapshot ID bahan baku tidak valid.'];
+                }
+
+                $this->load->library('MaterialFifoManager');
+                $ready = $this->materialfifomanager->ensureReady();
+                if (!($ready['ok'] ?? false)) {
+                        return $ready;
+                }
+
+                $rollback = $this->materialfifomanager->rollbackReceiptInboundLotsBySource('inv_division_stock_opening_snapshot', $snapshotId, null);
+                if (!($rollback['ok'] ?? false)) {
+                        return $rollback;
+                }
+
+                foreach ($plannedLots as $plannedLot) {
+                        $qtyContent = round((float)($plannedLot['qty_content'] ?? 0), 4);
+                        if ($qtyContent <= 0) {
+                                continue;
+                        }
+
+                        $register = $this->materialfifomanager->registerReceiptInboundLot([
+                                'location_scope' => 'DIVISION',
+                                'division_id' => (int)($group['division_id'] ?? 0),
+                                'destination_type' => (string)($group['destination_type'] ?? 'OTHER'),
+                                'item_id' => (int)($group['item_id'] ?? 0),
+                                'material_id' => (int)($group['material_id'] ?? 0),
+                                'buy_uom_id' => (int)($group['buy_uom_id'] ?? 0),
+                                'content_uom_id' => (int)($group['content_uom_id'] ?? 0),
+                                'profile_key' => $profileKey !== '' ? $profileKey : null,
+                                'qty_content_in' => $qtyContent,
+                                'unit_cost' => round((float)($plannedLot['unit_cost'] ?? 0), 6),
+                                'lot_no' => (string)($plannedLot['lot_no'] ?? ''),
+                                'receipt_date' => (string)($plannedLot['received_date'] ?? ($group['snapshot_month'] ?? date('Y-m-01'))),
+                                'source_table' => 'inv_division_stock_opening_snapshot',
+                                'source_id' => $snapshotId,
+                                'source_line_id' => !empty($plannedLot['source_line_id']) ? (int)$plannedLot['source_line_id'] : null,
+                        ]);
+                        if (!($register['ok'] ?? false)) {
+                                return $register;
+                        }
+                }
+
+                return ['ok' => true];
+        }
+
+        private function load_core_component_opening_groups(string $snapshotMonth): array
+        {
+                $sql = "
+                        SELECT
+                            s.id AS source_stock_id,
+                            ? AS snapshot_month,
+                            s.location_type,
+                            CASE
+                                WHEN s.location_type IN ('BAR', 'BAR_EVENT') THEN d_bar.id
+                                WHEN s.location_type IN ('KITCHEN', 'KITCHEN_EVENT') THEN d_kitchen.id
+                                ELSE NULL
+                            END AS division_id,
+                            s.division_id AS source_division_id,
+                            s.component_id AS source_component_id,
+                            s.uom_id AS source_uom_id,
+                            c.id AS component_id,
+                            u.id AS uom_id,
+                            c.component_name,
+                            ROUND(COALESCE(s.qty_on_hand, 0), 4) AS opening_qty,
+                            ROUND(COALESCE(s.avg_cost, 0), 6) AS avg_cost
+                        FROM core.prd_component_stock s
+                        INNER JOIN core.prd_component sc
+                            ON sc.id = s.component_id
+                        INNER JOIN core.m_uom su
+                            ON su.id = s.uom_id
+                        INNER JOIN mst_component c
+                            ON c.component_code = sc.component_code
+                        INNER JOIN mst_uom u
+                            ON u.code = su.code
+                        LEFT JOIN mst_operational_division d_bar
+                            ON d_bar.code = 'BAR'
+                        LEFT JOIN mst_operational_division d_kitchen
+                            ON d_kitchen.code = 'KITCHEN'
+                        WHERE COALESCE(s.qty_on_hand, 0) > 0
+                        ORDER BY s.location_type ASC, c.id ASC, s.id ASC
+                ";
+
+                return $this->db->query($sql, [$snapshotMonth])->result_array();
+        }
+
+        private function load_core_component_opening_lots(array $group): array
+        {
+                $sql = "
+                        SELECT
+                            l.id AS source_line_id,
+                            l.lot_no,
+                            l.received_date,
+                            ROUND(COALESCE(l.qty_remaining, 0), 4) AS qty_content,
+                            ROUND(COALESCE(l.qty_remaining, 0), 4) AS qty_buy,
+                            ROUND(COALESCE(l.unit_cost, 0), 6) AS unit_cost,
+                            CONCAT('Core lot ', COALESCE(l.lot_no, '#'), ' dari prd_component_stock_lot') AS note
+                        FROM core.prd_component_stock_lot l
+                        WHERE l.location_type = ?
+                            AND l.division_id <=> ?
+                            AND l.component_id = ?
+                            AND l.uom_id = ?
+                            AND COALESCE(l.qty_remaining, 0) > 0
+                        ORDER BY l.received_date ASC, l.id ASC
+                ";
+
+                return $this->db->query($sql, [
+                        $group['location_type'] ?? null,
+                        $group['source_division_id'] ?? null,
+                        $group['source_component_id'] ?? null,
+                        $group['source_uom_id'] ?? null,
+                ])->result_array();
+        }
+
+        private function cleanup_component_opening_migration_doc(string $snapshotMonth, string $locationType, int $divisionId, int $userId): array
+        {
+                $monthStart = date('Y-m-01', strtotime($snapshotMonth));
+                $monthEnd = date('Y-m-t', strtotime($snapshotMonth));
+                $existing = $this->db
+                        ->select('id, status, notes')
+                        ->from('inv_component_opening')
+                        ->where('location_type', $locationType)
+                        ->where('division_id', $divisionId)
+                        ->where('opening_date >=', $monthStart)
+                        ->where('opening_date <=', $monthEnd)
+                        ->where('status <>', 'VOID')
+                        ->order_by('id', 'DESC')
+                        ->limit(1)
+                        ->get()
+                        ->row_array();
+
+                if (!$existing) {
+                        return ['ok' => true];
+                }
+
+                $notes = (string)($existing['notes'] ?? '');
+                if (stripos($notes, 'Core component opening migration.') === false) {
+                        return [
+                                'ok' => false,
+                                'message' => 'Sudah ada opening component non-migrasi untuk bulan/lokasi/divisi ini. Cleanup manual dibutuhkan.',
+                                'data' => $existing,
+                        ];
+                }
+
+                $status = strtoupper(trim((string)($existing['status'] ?? 'DRAFT')));
+                if ($status === 'POSTED') {
+                        return $this->Production_model->void_component_opening((int)$existing['id'], $userId);
+                }
+                if ($status === 'DRAFT') {
+                        return $this->Production_model->delete_draft_doc('inv_component_opening', 'inv_component_opening_line', 'opening_id', (int)$existing['id']);
+                }
+
+                return ['ok' => true];
+        }
+
+        private function plan_opening_lot_rows(
+                float $targetQtyContent,
+                float $contentPerBuy,
+                array $lots,
+                string $correctionLotNo,
+                float $correctionUnitCost,
+                string $correctionReceivedDate,
+                string $correctionNote
+        ): array {
+                $targetQtyContent = round(max(0, $targetQtyContent), 4);
+                $contentPerBuy = round(max(0.000001, $contentPerBuy), 6);
+
+                usort($lots, static function (array $left, array $right): int {
+                        $leftDate = (string)($left['received_date'] ?? '');
+                        $rightDate = (string)($right['received_date'] ?? '');
+                        if ($leftDate !== $rightDate) {
+                                return strcmp($leftDate, $rightDate);
+                        }
+                        return ((int)($left['source_line_id'] ?? 0)) <=> ((int)($right['source_line_id'] ?? 0));
+                });
+
+                $sourceTotalQty = 0.0;
+                foreach ($lots as $lot) {
+                        $sourceTotalQty += round((float)($lot['qty_content'] ?? 0), 4);
+                }
+                $sourceTotalQty = round($sourceTotalQty, 4);
+
+                $excess = round(max(0, $sourceTotalQty - $targetQtyContent), 4);
+                $plannedLots = [];
+                $trimmedLotCount = 0;
+                foreach ($lots as $lot) {
+                        $qtyContent = round(max(0, (float)($lot['qty_content'] ?? 0)), 4);
+                        $qtyBuy = round(max(0, (float)($lot['qty_buy'] ?? $qtyContent)), 4);
+                        if ($qtyContent <= 0) {
+                                continue;
+                        }
+
+                        if ($excess > 0) {
+                                $trimQty = round(min($excess, $qtyContent), 4);
+                                if ($trimQty > 0) {
+                                        $buyRatio = $qtyContent > 0 ? ($qtyBuy / $qtyContent) : 0.0;
+                                        $qtyContent = round(max(0, $qtyContent - $trimQty), 4);
+                                        $qtyBuy = round(max(0, $qtyBuy - ($trimQty * $buyRatio)), 4);
+                                        $excess = round(max(0, $excess - $trimQty), 4);
+                                        $trimmedLotCount++;
+                                }
+                        }
+
+                        if ($qtyContent <= 0) {
+                                continue;
+                        }
+
+                        $lot['qty_content'] = $qtyContent;
+                        $lot['qty_buy'] = $qtyBuy > 0 ? $qtyBuy : round($qtyContent / $contentPerBuy, 4);
+                        $lot['is_correction'] = false;
+                        $plannedLots[] = $lot;
+                }
+
+                $plannedQtyContent = 0.0;
+                $plannedQtyBuy = 0.0;
+                foreach ($plannedLots as $plannedLot) {
+                        $plannedQtyContent += round((float)($plannedLot['qty_content'] ?? 0), 4);
+                        $plannedQtyBuy += round((float)($plannedLot['qty_buy'] ?? 0), 4);
+                }
+                $plannedQtyContent = round($plannedQtyContent, 4);
+                $plannedQtyBuy = round($plannedQtyBuy, 4);
+
+                $correctionQtyContent = round(max(0, $targetQtyContent - $plannedQtyContent), 4);
+                if ($correctionQtyContent > 0) {
+                        $plannedLots[] = [
+                                'source_line_id' => null,
+                                'lot_no' => $correctionLotNo,
+                                'received_date' => $correctionReceivedDate,
+                                'qty_content' => $correctionQtyContent,
+                                'qty_buy' => round($correctionQtyContent / $contentPerBuy, 4),
+                                'unit_cost' => round(max(0, $correctionUnitCost), 6),
+                                'note' => $correctionNote,
+                                'is_correction' => true,
+                        ];
+                        $plannedQtyContent = round($plannedQtyContent + $correctionQtyContent, 4);
+                        $plannedQtyBuy = round($plannedQtyBuy + round($correctionQtyContent / $contentPerBuy, 4), 4);
+                }
+
+                return [
+                        'planned_lots' => $plannedLots,
+                        'planned_qty_content' => $plannedQtyContent,
+                        'planned_qty_buy' => $plannedQtyBuy,
+                        'trimmed_qty_content' => round(max(0, $sourceTotalQty - min($sourceTotalQty, $targetQtyContent)), 4),
+                        'correction_qty_content' => $correctionQtyContent,
+                        'trimmed_lot_count' => $trimmedLotCount,
+                ];
+        }
+
+    private function purge_legacy_core_warehouse_opening_snapshots(string $snapshotMonth): array
+    {
+        if (!$this->db->table_exists('inv_warehouse_stock_opening_snapshot')) {
+            return [];
+        }
+
+        $rows = $this->db
+            ->select('id')
+            ->from('inv_warehouse_stock_opening_snapshot')
+            ->where('snapshot_month', $snapshotMonth)
+            ->group_start()
+                ->like('notes', 'Import bridge unique_text core warehouse balance.', 'after')
+                ->or_like('notes', 'Import auto_create_catalog core warehouse balance.', 'after')
+            ->group_end()
+            ->get()
+            ->result_array();
+
+        $ids = array_values(array_filter(array_map(static function (array $row): int {
+            return (int)($row['id'] ?? 0);
+        }, $rows), static function ($id) {
+            return $id > 0;
+        }));
+        if (empty($ids)) {
+            return [];
+        }
+
+        if ($this->db->table_exists('inv_stock_movement_log')) {
+            $this->db
+                ->where('ref_table', 'inv_warehouse_stock_opening_snapshot')
+                ->where_in('ref_id', $ids)
+                ->delete('inv_stock_movement_log');
+        }
+
+        $this->db->where_in('id', $ids)->delete('inv_warehouse_stock_opening_snapshot');
+
+        return $ids;
     }
 
     private function parseCliArgs(): array

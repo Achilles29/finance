@@ -628,57 +628,83 @@ class PosAvailabilityRebuildService
 
     private function load_material_live_snapshot(int $materialId, int $divisionId = 0, int $uomId = 0): array
     {
-        if ($materialId <= 0 || !$this->ci->db->table_exists('inv_division_stock_balance')) {
+        if ($materialId <= 0) {
             return ['qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0];
         }
 
-        $select = "
-            COALESCE(SUM(qty_content_balance), 0) AS qty_content_balance,
-            COALESCE(
-                CASE WHEN ABS(SUM(qty_content_balance)) > 0.000001
-                    THEN SUM(qty_content_balance * avg_cost_per_content) / SUM(qty_content_balance)
-                    ELSE MAX(avg_cost_per_content)
-                END,
-                0
-            ) AS avg_cost_per_content
-        ";
-        $db = $this->ci->db->select($select, false)
-            ->from('inv_division_stock_balance')
-            ->where('material_id', $materialId);
-        if ($divisionId > 0) {
-            $db->where('division_id', $divisionId);
-        }
-        if ($uomId > 0 && $this->ci->db->field_exists('content_uom_id', 'inv_division_stock_balance')) {
-            $db->where('content_uom_id', $uomId);
+        if ($this->ci->db->table_exists('inv_division_monthly_stock')) {
+            $targetMonth = date('Y-m-01');
+            $latestMonthSubquery = $this->ci->db
+                ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
+                ->from('inv_division_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by(['division_id', 'destination_type', 'identity_key'])
+                ->get_compiled_select();
+
+            $select = "
+                COALESCE(SUM(s.closing_qty_content), 0) AS qty_content_balance,
+                COALESCE(
+                    CASE WHEN ABS(SUM(s.closing_qty_content)) > 0.000001
+                        THEN SUM(s.closing_qty_content * s.avg_cost_per_content) / SUM(s.closing_qty_content)
+                        ELSE MAX(s.avg_cost_per_content)
+                    END,
+                    0
+                ) AS avg_cost_per_content
+            ";
+            $db = $this->ci->db->select($select, false)
+                ->from('inv_division_monthly_stock s')
+                ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                ->where('s.material_id', $materialId);
+            if ($divisionId > 0) {
+                $db->where('s.division_id', $divisionId);
+            }
+            if ($uomId > 0) {
+                $db->where('s.content_uom_id', $uomId);
+            }
+
+            return $db->get()->row_array() ?: ['qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0];
         }
 
-        return $db->get()->row_array() ?: ['qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0];
+        return ['qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0];
     }
 
     private function load_component_live_snapshot(int $componentId, int $divisionId = 0): array
     {
-        if ($componentId <= 0 || !$this->ci->db->table_exists('inv_component_stock_balance')) {
+        if ($componentId <= 0) {
             return ['qty_on_hand' => 0.0, 'avg_cost' => 0.0];
         }
 
-        $select = "
-            COALESCE(SUM(qty_on_hand), 0) AS qty_on_hand,
-            COALESCE(
-                CASE WHEN ABS(SUM(qty_on_hand)) > 0.000001
-                    THEN SUM(qty_on_hand * avg_cost) / SUM(qty_on_hand)
-                    ELSE MAX(avg_cost)
-                END,
-                0
-            ) AS avg_cost
-        ";
-        $db = $this->ci->db->select($select, false)
-            ->from('inv_component_stock_balance')
-            ->where('component_id', $componentId);
-        if ($divisionId > 0 && $this->ci->db->field_exists('division_id', 'inv_component_stock_balance')) {
-            $db->where('division_id', $divisionId);
+        if ($this->ci->db->table_exists('inv_component_monthly_stock')) {
+            $targetMonth = date('Y-m-01');
+            $latestMonthSubquery = $this->ci->db
+                ->select('location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key', false)
+                ->from('inv_component_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
+                ->get_compiled_select();
+
+            $select = "
+                COALESCE(SUM(s.closing_qty), 0) AS qty_on_hand,
+                COALESCE(
+                    CASE WHEN ABS(SUM(s.closing_qty)) > 0.000001
+                        THEN SUM(s.closing_qty * s.avg_cost) / SUM(s.closing_qty)
+                        ELSE MAX(s.avg_cost)
+                    END,
+                    0
+                ) AS avg_cost
+            ";
+            $db = $this->ci->db->select($select, false)
+                ->from('inv_component_monthly_stock s')
+                ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
+                ->where('s.component_id', $componentId);
+            if ($divisionId > 0) {
+                $db->where('s.division_id', $divisionId);
+            }
+
+            return $db->get()->row_array() ?: ['qty_on_hand' => 0.0, 'avg_cost' => 0.0];
         }
 
-        return $db->get()->row_array() ?: ['qty_on_hand' => 0.0, 'avg_cost' => 0.0];
+        return ['qty_on_hand' => 0.0, 'avg_cost' => 0.0];
     }
 
     private function load_cache_row(int $outletId, int $productId): ?array

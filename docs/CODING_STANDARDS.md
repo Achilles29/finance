@@ -970,15 +970,28 @@ $status_class = [
     'REJECTED'   => 'danger',
     'PARTIAL'    => 'warning',
 ];
+$status_label = [
+    'DRAFT'    => 'Draft',
+    'PENDING'  => 'Menunggu',
+    'APPROVED' => 'Disetujui',
+    'ACTIVE'   => 'Aktif',
+    'PAID'     => 'Lunas',
+    'CLOSED'   => 'Selesai',
+    'VOID'     => 'Dibatalkan',
+    'REJECTED' => 'Ditolak',
+    'PARTIAL'  => 'Sebagian',
+];
 $cls = $status_class[$row['status']] ?? 'secondary';
+$label = $status_label[$row['status']] ?? $row['status'];
 ?>
-<span class="badge bg-<?= $cls ?>"><?= html_escape($row['status']) ?></span>
+<span class="badge bg-<?= $cls ?>"><?= html_escape($label) ?></span>
 ```
 
 **Aturan badge:**
 - Selalu pakai `badge bg-{warna}` Bootstrap
 - Warna status harus konsisten antar halaman (lihat mapping di atas)
-- Status tampil dalam UPPERCASE sesuai nilai enum di DB
+- Status yang tampil di UI harus berupa bahasa pengguna, bukan enum mentah dari database
+- Jika render status dilakukan di JavaScript, tetap sediakan mapping label yang setara dan jangan tampilkan kode seperti `NOT_PROCESSED`, `AUTO_WASTE`, atau `REFUNDED_FULL` langsung ke user
 
 ---
 

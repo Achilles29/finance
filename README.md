@@ -16,6 +16,9 @@ Finance adalah aplikasi operasional internal berbasis CodeIgniter 3 untuk purcha
 - Form operasional component sudah memakai editor baris dan AJAX picker, tanpa form JSON mentah.
 - Monthly carry-forward component dari daily rollup ke monthly opname + opening bulan berikutnya sudah tersedia.
 - Master dan formula component sekarang punya indikator penggunaan, halaman usage detail, fallback HPP live yang selaras, dan action icon yang distandarkan.
+- Surface POS sudah naik ke workspace operasional aktif: kasir, draft order, paid orders, payment final, void/refund, stock live, dan laporan penjualan/pembayaran/refund/void.
+- Printer POS sekarang punya workspace template, profile output, dan device desktop/local-agent; direct print sudah tersambung ke confirm order, payment, void, refund, deposit, dan tutup shift.
+- Tutup shift kasir sekarang memakai preview pendapatan, input pecahan cash, snapshot pecahan, dan snapshot rekap per rekening saat shift ditutup.
 
 ## Catatan Praktis
 

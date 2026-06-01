@@ -16,6 +16,9 @@ $detailLotRows = is_array($detailOpening['lot_rows'] ?? null) ? $detailOpening['
 $detailActiveLotRows = is_array($detailOpening['active_lot_rows'] ?? null) ? $detailOpening['active_lot_rows'] : [];
 $detailSummary = is_array($detailOpening['summary'] ?? null) ? $detailOpening['summary'] : [];
 $locationOptions = is_array($location_options ?? null) ? $location_options : [];
+$componentOpeningExportUrl = (string)($component_opening_export_url ?? site_url('production/component-openings/export-template'));
+$componentOpeningExportExistingUrl = (string)($component_opening_export_existing_url ?? site_url('production/component-openings/export-existing'));
+$componentOpeningImportUrl = (string)($component_opening_import_url ?? site_url('production/component-openings/import'));
 $q = (string)($q ?? '');
 $month = preg_match('/^\d{4}-\d{2}$/', (string)($month ?? '')) ? (string)$month : date('Y-m');
 $selectedLocationType = (string)($selected_location_type ?? '');
@@ -162,6 +165,26 @@ foreach ($monthlyRows as $monthlyRow) {
     background: #fffaf7;
     padding: 1rem 1.1rem;
   }
+  .component-bulk-card {
+    border: 1px solid #eadfce;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #fffaf3 0%, #f7efe4 100%);
+    box-shadow: 0 0.75rem 1.8rem rgba(102, 73, 35, 0.08);
+  }
+  .component-bulk-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .component-bulk-actions .btn {
+    min-width: 170px;
+  }
+  .component-bulk-upload {
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid #eadfce;
+    border-radius: 16px;
+    padding: 1rem;
+  }
 </style>
 
 <div class="mb-3">
@@ -171,7 +194,56 @@ foreach ($monthlyRows as $monthlyRow) {
 
 <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'opening']); ?>
 
+<?php if ($this->session->flashdata('success')): ?>
+  <div class="alert alert-success mb-3"><?php echo html_escape((string)$this->session->flashdata('success')); ?></div>
+<?php endif; ?>
+<?php if ($this->session->flashdata('warning')): ?>
+  <div class="alert alert-warning mb-3"><?php echo html_escape((string)$this->session->flashdata('warning')); ?></div>
+<?php endif; ?>
+<?php if ($this->session->flashdata('error')): ?>
+  <div class="alert alert-danger mb-3"><?php echo html_escape((string)$this->session->flashdata('error')); ?></div>
+<?php endif; ?>
+
 <div id="component-opening-alert" class="mb-3"></div>
+
+<div class="card component-bulk-card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+      <div>
+        <h5 class="mb-1">Import / Export Opening Spreadsheet</h5>
+        <small class="text-muted">Template mengikuti bulan opening dan lokasi di form. Upload hanya XLSX, lalu sistem akan simpan dan langsung post opening memakai logika yang sama dengan proses manual.</small>
+      </div>
+      <div class="component-bulk-actions">
+        <form method="get" action="<?php echo html_escape($componentOpeningExportUrl); ?>" id="component-opening-export-form" class="d-inline">
+          <input type="hidden" name="month" value="<?php echo html_escape((string)($editPayload['opening_month'] ?? date('Y-m'))); ?>">
+          <input type="hidden" name="location_group" value="<?php echo html_escape((string)($editPayload['location_group'] ?? 'REGULER')); ?>">
+          <button type="submit" class="btn btn-outline-secondary btn-sm">Export Template Excel</button>
+        </form>
+        <form method="get" action="<?php echo html_escape($componentOpeningExportExistingUrl); ?>" id="component-opening-export-existing-form" class="d-inline">
+          <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+          <input type="hidden" name="location_type" value="<?php echo html_escape($selectedLocationType); ?>">
+          <input type="hidden" name="division_id" value="<?php echo (int)$selectedDivisionId; ?>">
+          <input type="hidden" name="q" value="<?php echo html_escape($q); ?>">
+          <button type="submit" class="btn btn-outline-dark btn-sm">Export Data Existing</button>
+        </form>
+      </div>
+    </div>
+    <div class="component-bulk-upload">
+      <form method="post" action="<?php echo html_escape($componentOpeningImportUrl); ?>" enctype="multipart/form-data" class="row g-3 align-items-end" id="component-opening-import-form">
+        <input type="hidden" name="month" value="<?php echo html_escape((string)($editPayload['opening_month'] ?? date('Y-m'))); ?>">
+        <input type="hidden" name="location_group" value="<?php echo html_escape((string)($editPayload['location_group'] ?? 'REGULER')); ?>">
+        <div class="col-lg-9">
+          <label class="form-label mb-1">File Import Excel</label>
+          <input type="file" name="import_file" class="form-control" accept=".xlsx" required>
+          <small class="text-muted">Kolom utama template: opening_month, location_group, component_code, uom_code, opening_qty, unit_cost.</small>
+        </div>
+        <div class="col-lg-3 d-grid">
+          <button type="submit" class="btn btn-primary">Import dan Post</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 <div class="row g-3 mb-3">
   <div class="col-xl-8">
@@ -271,7 +343,7 @@ foreach ($monthlyRows as $monthlyRow) {
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body">
         <h5 class="mb-1">Carry-Forward Bulanan</h5>
-        <small class="text-muted d-block mb-3">Generate opname penutup bulan terpilih dari daily rollup, lalu otomatis buat opening bulan berikutnya.</small>
+        <small class="text-muted d-block mb-3">Generate opname penutup bulan terpilih dari proyeksi harian berbasis movement, lalu otomatis buat opening bulan berikutnya.</small>
 
         <div class="row g-2 mb-3">
           <div class="col-12">
@@ -669,6 +741,9 @@ foreach ($monthlyRows as $monthlyRow) {
   const locationGroupInput = document.getElementById('opening-location-group');
   const locationTypeInput = document.getElementById('opening-location-type');
   const locationHelp = document.getElementById('opening-location-help');
+  const openingImportForm = document.getElementById('component-opening-import-form');
+  const openingExportForm = document.getElementById('component-opening-export-form');
+  const openingExportExistingForm = document.getElementById('component-opening-export-existing-form');
   let lines = Array.isArray(editingOpening?.lines) ? editingOpening.lines.slice() : [];
 
   function escapeHtml(value) {
@@ -818,6 +893,35 @@ foreach ($monthlyRows as $monthlyRow) {
     locationHelp.textContent = divisionId
       ? (locationTypeInput.value ? 'Lokasi akan disimpan sebagai ' + locationTypeInput.value + '.' : 'Pilih Reguler atau Event untuk menentukan lokasi ledger.')
       : 'Pilih component dulu agar lokasi bisa diturunkan otomatis.';
+    syncSpreadsheetForms();
+  }
+
+  function syncSpreadsheetForms() {
+    const openingMonthValue = String(form?.querySelector('input[name="opening_month"]')?.value || '<?php echo html_escape($month); ?>');
+    const locationGroupValue = String(locationGroupInput?.value || 'REGULER');
+    [openingImportForm, openingExportForm].forEach((targetForm) => {
+      if (!targetForm) {
+        return;
+      }
+      const monthInput = targetForm.querySelector('input[name="month"]');
+      const locationInput = targetForm.querySelector('input[name="location_group"]');
+      if (monthInput) {
+        monthInput.value = openingMonthValue;
+      }
+      if (locationInput) {
+        locationInput.value = locationGroupValue || 'REGULER';
+      }
+    });
+    if (openingExportExistingForm) {
+      const monthInput = openingExportExistingForm.querySelector('input[name="month"]');
+      const locationInput = openingExportExistingForm.querySelector('input[name="location_type"]');
+      if (monthInput) {
+        monthInput.value = openingMonthValue;
+      }
+      if (locationInput) {
+        locationInput.value = locationGroupValue || 'REGULER';
+      }
+    }
   }
 
   function bindComponentPickers() {
@@ -907,6 +1011,19 @@ foreach ($monthlyRows as $monthlyRow) {
     renderLines();
   });
 
+  form?.querySelector('input[name="opening_month"]')?.addEventListener('change', syncSpreadsheetForms);
+  form?.querySelector('input[name="opening_month"]')?.addEventListener('input', syncSpreadsheetForms);
+  locationGroupInput?.addEventListener('change', syncSpreadsheetForms);
+  openingImportForm?.addEventListener('submit', () => {
+    syncSpreadsheetForms();
+  });
+  openingExportForm?.addEventListener('submit', () => {
+    syncSpreadsheetForms();
+  });
+  openingExportExistingForm?.addEventListener('submit', () => {
+    syncSpreadsheetForms();
+  });
+
   lineBody?.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-action="remove"]');
     if (!button) {
@@ -964,6 +1081,8 @@ foreach ($monthlyRows as $monthlyRow) {
     }
     button.disabled = false;
   }
+
+  syncSpreadsheetForms();
 
   async function reopenOpening(button) {
     const reopenUrl = button?.dataset?.reopenUrl || '';

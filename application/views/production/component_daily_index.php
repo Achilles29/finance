@@ -711,15 +711,9 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
               <?php $hasLotChildren = count($lotRows) > 1; ?>
               <?php $singleLot = (!$hasLotChildren && !empty($lotRows)) ? (array)$lotRows[0] : null; ?>
               <?php $lotToggleId = 'componentDailyLot_' . (int)$rowIndex; ?>
-              <?php $avgLotCost = $lotAverageCost($lotSummary); ?>
               <?php $summaryClosingQty = (float)($row['total_closing'] ?? 0); ?>
               <?php $summaryAvgCost = (float)($row['avg_cost'] ?? 0); ?>
               <?php $summaryTotalValue = (float)($row['total_value'] ?? 0); ?>
-              <?php if ($isCurrentMonthView && (float)($lotSummary['balance_qty'] ?? 0) > 0): ?>
-                <?php $summaryClosingQty = (float)($lotSummary['balance_qty'] ?? 0); ?>
-                <?php $summaryAvgCost = $avgLotCost; ?>
-                <?php $summaryTotalValue = (float)($lotSummary['total_value'] ?? 0); ?>
-              <?php endif; ?>
               <tr>
                 <td class="component-daily-fixed">
                   <div><a href="<?php echo html_escape($buildLotUrl((array)$row, 'ALL')); ?>" class="fw-semibold text-decoration-none"><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></a></div>
@@ -752,8 +746,8 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
                         <strong><?php echo number_format($summaryTotalValue, 2, ',', '.'); ?></strong>
                       </div>
                       <div class="component-daily-summary-metric">
-                        <span class="label"><?php echo $hasLotChildren ? 'Avg Parent' : 'Avg Cost'; ?></span>
-                        <strong><?php echo number_format($hasLotChildren ? $avgLotCost : $summaryAvgCost, 2, ',', '.'); ?></strong>
+                        <span class="label">Avg Cost</span>
+                        <strong><?php echo number_format($summaryAvgCost, 2, ',', '.'); ?></strong>
                       </div>
                       <div class="component-daily-summary-metric">
                         <span class="label"><?php echo $hasLotChildren ? 'Range Lot' : 'Lot Cost'; ?></span>

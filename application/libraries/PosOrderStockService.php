@@ -5,6 +5,8 @@ class PosOrderStockService
 {
     /** @var CI_Controller */
     private $ci;
+    /** @var array<int, string>|null */
+    private $commitLineMovementRefEnumValues = null;
 
     public function __construct()
     {
@@ -32,7 +34,8 @@ class PosOrderStockService
             $skipped = 0;
             foreach ($snapshot['lines'] as $line) {
                 $movementRefType = strtoupper(trim((string)($line['movement_ref_type'] ?? 'NONE')));
-                if ($movementRefType !== '' && $movementRefType !== 'NONE') {
+                $movementRefId = (int)($line['movement_ref_id'] ?? 0);
+                if (($movementRefType !== '' && $movementRefType !== 'NONE') || $movementRefId > 0) {
                     $skipped++;
                     continue;
                 }
@@ -46,7 +49,7 @@ class PosOrderStockService
                 }
 
                 $db->where('id', (int)$line['id'])->update('pos_stock_commit_line', [
-                    'movement_ref_type' => (string)($result['movement_ref_type'] ?? 'NONE'),
+                    'movement_ref_type' => $this->normalize_commit_line_movement_ref_type_for_storage((string)($result['movement_ref_type'] ?? 'NONE')),
                     'movement_ref_id' => !empty($result['movement_ref_id']) ? (int)$result['movement_ref_id'] : null,
                     'unit_cost_live' => round((float)($result['unit_cost_live'] ?? ($line['unit_cost_live'] ?? 0)), 6),
                     'total_cost_live' => round((float)($result['total_cost_live'] ?? ($line['total_cost_live'] ?? 0)), 6),
@@ -272,7 +275,7 @@ class PosOrderStockService
         $divisionId = $this->resolve_operational_division_id($line);
         $destinationType = $this->resolve_destination_type($line, (string)($header['order_scope'] ?? 'REGULAR'));
         $fullReverse = abs($reverseQty - round((float)($line['committed_qty'] ?? 0), 4)) < 0.0001;
-        $movementRefType = strtoupper(trim((string)($line['movement_ref_type'] ?? '')));
+        $movementRefType = $this->resolve_material_movement_ref_type($header, $line);
 
         if ($movementRefType === 'FIFO_ISSUE' && $fullReverse && file_exists(APPPATH . 'libraries/MaterialFifoManager.php')) {
             $issueData = $this->load_material_issue((int)($line['movement_ref_id'] ?? 0));
@@ -412,7 +415,7 @@ class PosOrderStockService
         $locationType = $this->resolve_component_location_type($line, (string)($header['order_scope'] ?? 'REGULAR'));
         $divisionId = $this->resolve_operational_division_id($line);
         $fullReverse = abs($reverseQty - round((float)($line['committed_qty'] ?? 0), 4)) < 0.0001;
-        $movementRefType = strtoupper(trim((string)($line['movement_ref_type'] ?? '')));
+        $movementRefType = $this->resolve_component_movement_ref_type($header, $line);
 
         if ($movementRefType === 'COMPONENT_LOT_ISSUE' && $fullReverse && file_exists(APPPATH . 'libraries/ComponentLotManager.php')) {
             $this->ci->load->library('ComponentLotManager');
@@ -456,15 +459,13 @@ class PosOrderStockService
         $totalCost = round($qty * $unitCost, 2);
         $allowNegative = !empty($p['allow_negative']);
 
-        $row = $this->ci->db->query(
-            'SELECT * FROM inv_component_stock_balance WHERE location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? LIMIT 1 FOR UPDATE',
-            [
-                (string)$p['location_type'],
-                isset($p['division_id']) ? (int)$p['division_id'] : null,
-                (int)$p['component_id'],
-                (int)$p['uom_id'],
-            ]
-        )->row_array();
+        $row = $this->load_component_balance_snapshot(
+            (string)$p['location_type'],
+            isset($p['division_id']) ? (int)$p['division_id'] : null,
+            (int)$p['component_id'],
+            (int)$p['uom_id'],
+            (string)$p['movement_date']
+        );
 
         $qtyBefore = round((float)($row['qty_on_hand'] ?? 0), 4);
         $avgBefore = round((float)($row['avg_cost'] ?? 0), 6);
@@ -491,28 +492,6 @@ class PosOrderStockService
         }
 
         $now = date('Y-m-d H:i:s');
-        if (!empty($row['id'])) {
-            $this->ci->db->where('id', (int)$row['id'])->update('inv_component_stock_balance', [
-                'qty_on_hand' => $qtyAfter,
-                'avg_cost' => $avgAfter,
-                'total_value' => $valueAfter,
-                'last_txn_at' => $now,
-                'updated_at' => $now,
-            ]);
-        } else {
-            $this->ci->db->insert('inv_component_stock_balance', [
-                'location_type' => (string)$p['location_type'],
-                'division_id' => isset($p['division_id']) ? (int)$p['division_id'] : null,
-                'component_id' => (int)$p['component_id'],
-                'uom_id' => (int)$p['uom_id'],
-                'qty_on_hand' => $qtyAfter,
-                'avg_cost' => $avgAfter,
-                'total_value' => $valueAfter,
-                'last_txn_at' => $now,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
-        }
 
         $movementNo = $this->generate_component_movement_no((string)$p['movement_date']);
         $this->ci->db->insert('inv_component_movement_log', [
@@ -538,8 +517,9 @@ class PosOrderStockService
         ]);
         $movementId = (int)$this->ci->db->insert_id();
 
-        $this->sync_component_daily_rollup([
+        $this->sync_component_monthly_stock([
             'movement_date' => (string)$p['movement_date'],
+            'movement_datetime' => $now,
             'location_type' => (string)$p['location_type'],
             'division_id' => isset($p['division_id']) ? (int)$p['division_id'] : null,
             'component_id' => (int)$p['component_id'],
@@ -551,21 +531,25 @@ class PosOrderStockService
             'qty_after' => $qtyAfter,
             'avg_after' => $avgAfter,
             'value_after' => $valueAfter,
+            'source_table' => (string)($p['source_table'] ?? 'pos_stock_commit'),
+            'source_id' => !empty($p['source_id']) ? (int)$p['source_id'] : null,
+            'notes' => !empty($p['notes']) ? (string)$p['notes'] : null,
         ]);
 
         return ['ok' => true, 'movement_id' => $movementId, 'movement_no' => $movementNo];
     }
 
-    private function sync_component_daily_rollup(array $ctx): void
+    private function sync_component_monthly_stock(array $ctx): void
     {
-        if (!$this->ci->db->table_exists('inv_component_daily_rollup')) {
+        if (!$this->ci->db->table_exists('inv_component_monthly_stock')) {
             return;
         }
 
+        $monthKey = date('Y-m-01', strtotime((string)$ctx['movement_date']));
         $row = $this->ci->db->query(
-            'SELECT * FROM inv_component_daily_rollup WHERE movement_date = ? AND location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? LIMIT 1 FOR UPDATE',
+            'SELECT * FROM inv_component_monthly_stock WHERE month_key = ? AND location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? LIMIT 1 FOR UPDATE',
             [
-                (string)$ctx['movement_date'],
+                $monthKey,
                 (string)$ctx['location_type'],
                 isset($ctx['division_id']) ? (int)$ctx['division_id'] : null,
                 (int)$ctx['component_id'],
@@ -573,47 +557,77 @@ class PosOrderStockService
             ]
         )->row_array();
 
+        $movementType = strtoupper((string)$ctx['movement_type']);
+        $movementValue = round(((float)($ctx['qty_in'] ?? 0) > 0 ? (float)($ctx['qty_in'] ?? 0) : (float)($ctx['qty_out'] ?? 0)) * max((float)($ctx['avg_after'] ?? 0), 0), 2);
+        $movementDate = (string)$ctx['movement_date'];
+        $movementDayCount = (int)($row['movement_day_count'] ?? 0);
+        if ($row === null || (string)($row['last_movement_date'] ?? '') !== $movementDate) {
+            $movementDayCount++;
+        }
+
         $data = [
-            'month_key' => date('Y-m-01', strtotime((string)$ctx['movement_date'])),
-            'movement_date' => (string)$ctx['movement_date'],
+            'month_key' => $monthKey,
             'location_type' => (string)$ctx['location_type'],
             'division_id' => isset($ctx['division_id']) ? (int)$ctx['division_id'] : null,
             'component_id' => (int)$ctx['component_id'],
             'uom_id' => (int)$ctx['uom_id'],
-            'opening_qty' => $row ? round((float)($row['opening_qty'] ?? 0), 4) : round((float)$ctx['qty_before'], 4),
+            'opening_qty' => $movementType === 'OPENING'
+                ? ($row ? round((float)($row['opening_qty'] ?? 0) + (float)($ctx['qty_in'] ?? 0), 4) : round((float)($ctx['qty_after'] ?? 0), 4))
+                : ($row ? round((float)($row['opening_qty'] ?? 0), 4) : round((float)($ctx['qty_before'] ?? 0), 4)),
+            'opening_total_value' => $row ? round((float)($row['opening_total_value'] ?? 0), 2) : 0.0,
             'in_qty' => $row ? round((float)($row['in_qty'] ?? 0), 4) : 0.0,
+            'in_total_value' => $row ? round((float)($row['in_total_value'] ?? 0), 2) : 0.0,
             'out_qty' => $row ? round((float)($row['out_qty'] ?? 0), 4) : 0.0,
+            'out_total_value' => $row ? round((float)($row['out_total_value'] ?? 0), 2) : 0.0,
             'waste_qty' => $row ? round((float)($row['waste_qty'] ?? 0), 4) : 0.0,
+            'waste_total_value' => $row ? round((float)($row['waste_total_value'] ?? 0), 2) : 0.0,
             'spoil_qty' => $row ? round((float)($row['spoil_qty'] ?? 0), 4) : 0.0,
-            'adjustment_qty' => $row ? round((float)($row['adjustment_qty'] ?? 0), 4) : 0.0,
-            'closing_qty' => round((float)$ctx['qty_after'], 4),
-            'avg_cost' => round((float)$ctx['avg_after'], 6),
-            'total_value' => round((float)$ctx['value_after'], 2),
+            'spoil_total_value' => $row ? round((float)($row['spoil_total_value'] ?? 0), 2) : 0.0,
+            'adjustment_plus_qty' => $row ? round((float)($row['adjustment_plus_qty'] ?? 0), 4) : 0.0,
+            'adjustment_plus_total_value' => $row ? round((float)($row['adjustment_plus_total_value'] ?? 0), 2) : 0.0,
+            'adjustment_minus_qty' => $row ? round((float)($row['adjustment_minus_qty'] ?? 0), 4) : 0.0,
+            'adjustment_minus_total_value' => $row ? round((float)($row['adjustment_minus_total_value'] ?? 0), 2) : 0.0,
+            'closing_qty' => round((float)($ctx['qty_after'] ?? 0), 4),
+            'avg_cost' => round((float)($ctx['avg_after'] ?? 0), 6),
+            'total_value' => round((float)($ctx['value_after'] ?? 0), 2),
+            'movement_day_count' => $movementDayCount,
             'mutation_count' => $row ? ((int)($row['mutation_count'] ?? 0) + 1) : 1,
-            'last_movement_at' => date('Y-m-d H:i:s'),
+            'last_movement_date' => $movementDate,
+            'last_movement_at' => (string)($ctx['movement_datetime'] ?? date('Y-m-d H:i:s')),
+            'last_movement_table' => !empty($ctx['source_table']) ? (string)$ctx['source_table'] : null,
+            'last_movement_id' => !empty($ctx['source_id']) ? (int)$ctx['source_id'] : null,
+            'source_mode' => 'LIVE',
+            'notes' => !empty($ctx['notes']) ? (string)$ctx['notes'] : ($row['notes'] ?? null),
         ];
 
-        $movementType = strtoupper((string)$ctx['movement_type']);
-        if (in_array($movementType, ['PRODUCTION_IN', 'TRANSFER_IN', 'VOID_REVERSE', 'OPENING'], true)) {
-            $data['in_qty'] = round((float)$data['in_qty'] + (float)$ctx['qty_in'], 4);
+        if ($movementType === 'OPENING') {
+            $data['opening_total_value'] = round((float)$data['opening_total_value'] + $movementValue, 2);
+        } elseif (in_array($movementType, ['PRODUCTION_IN', 'TRANSFER_IN', 'VOID_REVERSE'], true)) {
+            $data['in_qty'] = round((float)$data['in_qty'] + (float)($ctx['qty_in'] ?? 0), 4);
+            $data['in_total_value'] = round((float)$data['in_total_value'] + $movementValue, 2);
         } elseif (in_array($movementType, ['USAGE', 'PRODUCTION_OUT', 'TRANSFER_OUT'], true)) {
-            $data['out_qty'] = round((float)$data['out_qty'] + (float)$ctx['qty_out'], 4);
+            $data['out_qty'] = round((float)$data['out_qty'] + (float)($ctx['qty_out'] ?? 0), 4);
+            $data['out_total_value'] = round((float)$data['out_total_value'] + $movementValue, 2);
         } elseif ($movementType === 'WASTE') {
-            $data['waste_qty'] = round((float)$data['waste_qty'] + (float)$ctx['qty_out'], 4);
+            $data['waste_qty'] = round((float)$data['waste_qty'] + (float)($ctx['qty_out'] ?? 0), 4);
+            $data['waste_total_value'] = round((float)$data['waste_total_value'] + $movementValue, 2);
         } elseif ($movementType === 'SPOIL') {
-            $data['spoil_qty'] = round((float)$data['spoil_qty'] + (float)$ctx['qty_out'], 4);
+            $data['spoil_qty'] = round((float)$data['spoil_qty'] + (float)($ctx['qty_out'] ?? 0), 4);
+            $data['spoil_total_value'] = round((float)$data['spoil_total_value'] + $movementValue, 2);
         } elseif ($movementType === 'ADJUSTMENT_PLUS') {
-            $data['adjustment_qty'] = round((float)$data['adjustment_qty'] + (float)$ctx['qty_in'], 4);
+            $data['adjustment_plus_qty'] = round((float)$data['adjustment_plus_qty'] + (float)($ctx['qty_in'] ?? 0), 4);
+            $data['adjustment_plus_total_value'] = round((float)$data['adjustment_plus_total_value'] + $movementValue, 2);
         } elseif ($movementType === 'ADJUSTMENT_MINUS') {
-            $data['adjustment_qty'] = round((float)$data['adjustment_qty'] - (float)$ctx['qty_out'], 4);
+            $data['adjustment_minus_qty'] = round((float)$data['adjustment_minus_qty'] + (float)($ctx['qty_out'] ?? 0), 4);
+            $data['adjustment_minus_total_value'] = round((float)$data['adjustment_minus_total_value'] + $movementValue, 2);
         }
 
         if ($row && !empty($row['id'])) {
-            $this->ci->db->where('id', (int)$row['id'])->update('inv_component_daily_rollup', $data);
+            $this->ci->db->where('id', (int)$row['id'])->update('inv_component_monthly_stock', $data);
             return;
         }
 
-        $this->ci->db->insert('inv_component_daily_rollup', $data);
+        $this->ci->db->insert('inv_component_monthly_stock', $data);
     }
 
     private function load_snapshot(int $commitId): array
@@ -711,15 +725,8 @@ class PosOrderStockService
             'profile_content_uom_code' => null,
         ];
 
-        if ($materialId > 0 && $this->ci->db->table_exists('inv_division_stock_balance')) {
-            $db = $this->ci->db->from('inv_division_stock_balance')
-                ->where('division_id', $divisionId)
-                ->where('material_id', $materialId)
-                ->where('content_uom_id', $uomId);
-            if ($this->ci->db->field_exists('destination_type', 'inv_division_stock_balance')) {
-                $db->where('destination_type', $destinationType);
-            }
-            $balance = $db->order_by('updated_at', 'DESC')->limit(1)->get()->row_array() ?: [];
+        if ($materialId > 0) {
+            $balance = $this->load_division_material_profile_snapshot($materialId, $divisionId, $destinationType, $uomId);
             if (!empty($balance)) {
                 $identity = array_merge($identity, [
                     'item_id' => !empty($balance['item_id']) ? (int)$balance['item_id'] : null,
@@ -789,15 +796,13 @@ class PosOrderStockService
     {
         $contentPerBuy = null;
         $profile = null;
-        if ($this->ci->db->table_exists('inv_division_stock_balance') && !empty($issueLine['material_id']) && !empty($issueLine['content_uom_id'])) {
-            $db = $this->ci->db->from('inv_division_stock_balance')
-                ->where('division_id', $divisionId)
-                ->where('material_id', (int)$issueLine['material_id'])
-                ->where('content_uom_id', (int)$issueLine['content_uom_id']);
-            if ($this->ci->db->field_exists('destination_type', 'inv_division_stock_balance')) {
-                $db->where('destination_type', $destinationType);
-            }
-            $profile = $db->order_by('updated_at', 'DESC')->limit(1)->get()->row_array() ?: null;
+        if (!empty($issueLine['material_id']) && !empty($issueLine['content_uom_id'])) {
+            $profile = $this->load_division_material_profile_snapshot(
+                (int)$issueLine['material_id'],
+                $divisionId,
+                $destinationType,
+                (int)$issueLine['content_uom_id']
+            );
         }
 
         $contentPerBuy = !empty($profile['profile_content_per_buy']) ? (float)$profile['profile_content_per_buy'] : 0.0;
@@ -819,6 +824,56 @@ class PosOrderStockService
             'qty_content_delta_abs' => $qtyContent,
             'qty_buy_delta_abs' => $this->resolve_buy_qty_from_profile($qtyContent, $contentPerBuy),
         ];
+    }
+
+    private function load_division_material_profile_snapshot(int $materialId, int $divisionId, string $destinationType, int $uomId): array
+    {
+        if ($materialId <= 0 || $divisionId <= 0 || $uomId <= 0) {
+            return [];
+        }
+
+        if ($this->ci->db->table_exists('inv_division_monthly_stock')) {
+            $row = $this->ci->db->from('inv_division_monthly_stock')
+                ->where('division_id', $divisionId)
+                ->where('destination_type', $destinationType)
+                ->where('material_id', $materialId)
+                ->where('content_uom_id', $uomId)
+                ->order_by('month_key', 'DESC')
+                ->order_by('updated_at', 'DESC')
+                ->order_by('last_movement_at', 'DESC')
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+            if (!empty($row)) {
+                return $row;
+            }
+        }
+
+        return [];
+    }
+
+    private function load_component_balance_snapshot(string $locationType, ?int $divisionId, int $componentId, int $uomId, string $movementDate): array
+    {
+        if ($locationType === '' || $componentId <= 0 || $uomId <= 0) {
+            return [];
+        }
+
+        if ($this->ci->db->table_exists('inv_component_monthly_stock')) {
+            $targetMonth = date('Y-m-01', strtotime($movementDate));
+            $row = $this->ci->db->query(
+                'SELECT month_key, closing_qty AS qty_on_hand, avg_cost, total_value, last_movement_at
+                 FROM inv_component_monthly_stock
+                 WHERE location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? AND month_key <= ?
+                 ORDER BY month_key DESC, updated_at DESC, last_movement_at DESC
+                 LIMIT 1 FOR UPDATE',
+                [$locationType, $divisionId, $componentId, $uomId, $targetMonth]
+            )->row_array();
+            if (!empty($row)) {
+                return $row;
+            }
+        }
+
+        return [];
     }
 
     private function generate_component_movement_no(string $movementDate): string
@@ -860,5 +915,123 @@ class PosOrderStockService
             return $append;
         }
         return $base . ' | ' . $append;
+    }
+
+    private function normalize_commit_line_movement_ref_type_for_storage(string $movementRefType): ?string
+    {
+        $canonical = strtoupper(trim($movementRefType));
+        if ($canonical === '' || $canonical === 'NONE') {
+            return 'NONE';
+        }
+
+        $supported = $this->commit_line_movement_ref_enum_values();
+        if (empty($supported)) {
+            return $canonical;
+        }
+        if (in_array($canonical, $supported, true)) {
+            return $canonical;
+        }
+
+        $fallbackMap = [
+            'FIFO_ISSUE' => 'MATERIAL_LEDGER',
+            'LEDGER_MOVEMENT' => 'MATERIAL_LEDGER',
+            'COMPONENT_LOT_ISSUE' => 'COMPONENT_LEDGER',
+            'COMPONENT_MOVEMENT' => 'COMPONENT_LEDGER',
+        ];
+        $fallback = $fallbackMap[$canonical] ?? 'NONE';
+        if (in_array($fallback, $supported, true)) {
+            return $fallback;
+        }
+
+        return 'NONE';
+    }
+
+    private function commit_line_movement_ref_enum_values(): array
+    {
+        if (is_array($this->commitLineMovementRefEnumValues)) {
+            return $this->commitLineMovementRefEnumValues;
+        }
+
+        $this->commitLineMovementRefEnumValues = [];
+        if (!$this->ci->db->table_exists('pos_stock_commit_line')) {
+            return $this->commitLineMovementRefEnumValues;
+        }
+
+        $row = $this->ci->db->query("SHOW COLUMNS FROM pos_stock_commit_line LIKE 'movement_ref_type'")->row_array();
+        $type = (string)($row['Type'] ?? ($row['type'] ?? ''));
+        if (preg_match('/^enum\((.+)\)$/i', $type, $matches)) {
+            preg_match_all("/'([^']+)'/", (string)$matches[1], $valueMatches);
+            $this->commitLineMovementRefEnumValues = array_values(array_unique(array_map('strtoupper', $valueMatches[1] ?? [])));
+        }
+
+        return $this->commitLineMovementRefEnumValues;
+    }
+
+    private function resolve_material_movement_ref_type(array $header, array $line): string
+    {
+        $stored = strtoupper(trim((string)($line['movement_ref_type'] ?? 'NONE')));
+        if ($stored === 'FIFO_ISSUE' || $stored === 'LEDGER_MOVEMENT') {
+            return $stored;
+        }
+
+        if ($this->is_material_fifo_issue_reference($header, $line)) {
+            return 'FIFO_ISSUE';
+        }
+
+        return !empty($line['movement_ref_id']) ? 'LEDGER_MOVEMENT' : 'NONE';
+    }
+
+    private function resolve_component_movement_ref_type(array $header, array $line): string
+    {
+        $stored = strtoupper(trim((string)($line['movement_ref_type'] ?? 'NONE')));
+        if ($stored === 'COMPONENT_LOT_ISSUE' || $stored === 'COMPONENT_MOVEMENT') {
+            return $stored;
+        }
+
+        if ($this->is_component_lot_issue_reference($header, $line)) {
+            return 'COMPONENT_LOT_ISSUE';
+        }
+
+        return !empty($line['movement_ref_id']) ? 'COMPONENT_MOVEMENT' : 'NONE';
+    }
+
+    private function is_material_fifo_issue_reference(array $header, array $line): bool
+    {
+        $refId = (int)($line['movement_ref_id'] ?? 0);
+        if ($refId <= 0 || !$this->ci->db->table_exists('inv_material_fifo_issue_log')) {
+            return false;
+        }
+
+        $this->ci->db->from('inv_material_fifo_issue_log')
+            ->where('id', $refId)
+            ->where('source_table', 'pos_stock_commit');
+        if (!empty($header['id'])) {
+            $this->ci->db->where('source_id', (int)$header['id']);
+        }
+        if (!empty($line['id'])) {
+            $this->ci->db->where('source_line_id', (int)$line['id']);
+        }
+
+        return (bool)$this->ci->db->limit(1)->get()->row_array();
+    }
+
+    private function is_component_lot_issue_reference(array $header, array $line): bool
+    {
+        $refId = (int)($line['movement_ref_id'] ?? 0);
+        if ($refId <= 0 || !$this->ci->db->table_exists('inv_component_lot_issue_log')) {
+            return false;
+        }
+
+        $this->ci->db->from('inv_component_lot_issue_log')
+            ->where('id', $refId)
+            ->where('source_table', 'pos_stock_commit');
+        if (!empty($header['id'])) {
+            $this->ci->db->where('source_id', (int)$header['id']);
+        }
+        if (!empty($line['id'])) {
+            $this->ci->db->where('source_line_id', (int)$line['id']);
+        }
+
+        return (bool)$this->ci->db->limit(1)->get()->row_array();
     }
 }

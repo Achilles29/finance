@@ -12,14 +12,22 @@ class User_model extends CI_Model
 
     public function get_all(array $filter = []): array
     {
-        $this->db->select('u.id, u.username, u.email, u.is_active, u.last_login_at, u.created_at, u.employee_id');
+        $this->db->select('u.id, u.username, u.email, u.is_active, u.last_login_at, u.created_at, u.employee_id,
+            e.employee_name, d.division_name, d.sort_order AS division_sort_order,
+            p.position_name, p.sort_order AS position_sort_order', false);
         $this->db->from('auth_user u');
+        $this->db->join('org_employee e', 'e.id = u.employee_id', 'left');
+        $this->db->join('org_division d', 'd.id = e.division_id', 'left');
+        $this->db->join('org_position p', 'p.id = e.position_id', 'left');
 
         if (!empty($filter['search'])) {
             $s = $this->db->escape_like_str($filter['search']);
             $this->db->group_start();
             $this->db->like('u.username', $s, 'both');
             $this->db->or_like('u.email', $s, 'both');
+            $this->db->or_like('e.employee_name', $s, 'both');
+            $this->db->or_like('d.division_name', $s, 'both');
+            $this->db->or_like('p.position_name', $s, 'both');
             $this->db->group_end();
         }
 
@@ -27,6 +35,12 @@ class User_model extends CI_Model
             $this->db->where('u.is_active', (int)$filter['is_active']);
         }
 
+        $this->db->order_by('CASE WHEN u.employee_id IS NULL OR u.employee_id = 0 THEN 1 ELSE 0 END', '', false);
+        $this->db->order_by('COALESCE(d.sort_order, 999999)', 'ASC', false);
+        $this->db->order_by('d.division_name', 'ASC');
+        $this->db->order_by('COALESCE(p.sort_order, 999999)', 'ASC', false);
+        $this->db->order_by('p.position_name', 'ASC');
+        $this->db->order_by('e.employee_name', 'ASC');
         $this->db->order_by('u.username', 'ASC');
         return $this->db->get()->result_array();
     }
@@ -35,6 +49,45 @@ class User_model extends CI_Model
     {
         $row = $this->db->get_where('auth_user', ['id' => $id])->row_array();
         if ($row) unset($row['password_hash']);
+        return $row ?: null;
+    }
+
+    public function get_detail_by_id(int $id): ?array
+    {
+        $row = $this->db->select('u.id, u.username, u.email, u.is_active, u.last_login_at, u.created_at, u.updated_at, u.employee_id,
+                e.employee_code, e.employee_name, e.employee_nip,
+                d.id AS division_id, d.division_name,
+                p.id AS position_id, p.position_name', false)
+            ->from('auth_user u')
+            ->join('org_employee e', 'e.id = u.employee_id', 'left')
+            ->join('org_division d', 'd.id = e.division_id', 'left')
+            ->join('org_position p', 'p.id = e.position_id', 'left')
+            ->where('u.id', $id)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        if ($row) {
+            unset($row['password_hash']);
+        }
+
+        return $row ?: null;
+    }
+
+    public function get_primary_user_by_employee_id(int $employeeId): ?array
+    {
+        if ($employeeId <= 0) {
+            return null;
+        }
+
+        $row = $this->db->select('id, username, email, employee_id, is_active, created_at, updated_at')
+            ->from('auth_user')
+            ->where('employee_id', $employeeId)
+            ->order_by('id', 'ASC')
+            ->limit(1)
+            ->get()
+            ->row_array();
+
         return $row ?: null;
     }
 
@@ -61,6 +114,10 @@ class User_model extends CI_Model
             $this->db->or_where('u.id', $excludeUserId);
             $this->db->group_end();
         }
+        $this->db->order_by('d.sort_order', 'ASC');
+        $this->db->order_by('d.division_name', 'ASC');
+        $this->db->order_by('p.sort_order', 'ASC');
+        $this->db->order_by('p.position_name', 'ASC');
         $this->db->order_by('e.employee_name', 'ASC');
         return $this->db->get()->result_array();
     }
@@ -187,19 +244,144 @@ class User_model extends CI_Model
     {
         $this->db->trans_start();
 
-        $this->db->where('user_id', $user_id)->delete('auth_user_role');
+        $this->replace_user_roles($user_id, $role_ids, $assigned_by);
+
+        $this->db->trans_complete();
+    }
+
+    public function get_role_selection_options(bool $active_only = true): array
+    {
+        $this->db->select('id, role_code, role_name, description, is_active');
+        $this->db->from('auth_role');
+        if ($active_only) {
+            $this->db->where('is_active', 1);
+        }
+        $this->db->order_by('role_name', 'ASC');
+        return $this->db->get()->result_array();
+    }
+
+    public function get_protected_role_ids(): array
+    {
+        $rows = $this->db->select('id')
+            ->from('auth_role')
+            ->where_in('role_code', $this->protected_role_codes())
+            ->get()
+            ->result_array();
+
+        return array_map('intval', array_column($rows, 'id'));
+    }
+
+    public function normalize_role_ids(array $role_ids, bool $allow_protected = true): array
+    {
+        $normalized = array_values(array_unique(array_filter(array_map('intval', $role_ids))));
+        if (empty($normalized)) {
+            return [];
+        }
+
+        $this->db->select('id');
+        $this->db->from('auth_role');
+        $this->db->where_in('id', $normalized);
+        $this->db->where('is_active', 1);
+        if (!$allow_protected) {
+            $this->db->where_not_in('role_code', $this->protected_role_codes());
+        }
+        $rows = $this->db->get()->result_array();
+
+        return array_map('intval', array_column($rows, 'id'));
+    }
+
+    public function preserve_protected_role_ids(array $submitted_role_ids, array $existing_role_ids, bool $allow_protected): array
+    {
+        $submitted_role_ids = $this->normalize_role_ids($submitted_role_ids, $allow_protected);
+        if ($allow_protected) {
+            return $submitted_role_ids;
+        }
+
+        $protected_role_ids = $this->get_protected_role_ids();
+        if (empty($protected_role_ids)) {
+            return $submitted_role_ids;
+        }
+
+        $existing_role_ids = $this->normalize_role_ids($existing_role_ids, true);
+        $preserved_role_ids = array_values(array_intersect($existing_role_ids, $protected_role_ids));
+
+        return array_values(array_unique(array_merge($submitted_role_ids, $preserved_role_ids)));
+    }
+
+    public function get_employee_role_ids(int $employee_id): array
+    {
+        if ($employee_id <= 0 || !$this->db->table_exists('org_employee_role_assignment')) {
+            return [];
+        }
+
+        $rows = $this->db->select('role_id')
+            ->from('org_employee_role_assignment')
+            ->where('employee_id', $employee_id)
+            ->order_by('role_id', 'ASC')
+            ->get()
+            ->result_array();
+
+        return array_map('intval', array_column($rows, 'role_id'));
+    }
+
+    public function get_linked_user_ids_by_employee(int $employee_id): array
+    {
+        if ($employee_id <= 0) {
+            return [];
+        }
+
+        $rows = $this->db->select('id')
+            ->from('auth_user')
+            ->where('employee_id', $employee_id)
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
+
+        return array_map('intval', array_column($rows, 'id'));
+    }
+
+    public function get_effective_role_ids_for_employee(int $employee_id): array
+    {
+        $role_ids = $this->get_employee_role_ids($employee_id);
+        $default_role_id = $this->get_position_default_role_id($employee_id);
+        if ($default_role_id > 0) {
+            $role_ids[] = $default_role_id;
+        }
+
+        return $this->normalize_role_ids($role_ids, true);
+    }
+
+    public function sync_employee_roles(int $employee_id, array $role_ids, int $assigned_by): array
+    {
+        if ($employee_id <= 0 || !$this->db->table_exists('org_employee_role_assignment')) {
+            return [];
+        }
+
+        $role_ids = $this->normalize_role_ids($role_ids, true);
+
+        $this->db->trans_start();
+
+        $this->db->where('employee_id', $employee_id)->delete('org_employee_role_assignment');
 
         $now = date('Y-m-d H:i:s');
-        foreach (array_unique(array_filter($role_ids)) as $role_id) {
-            $this->db->insert('auth_user_role', [
-                'user_id'     => $user_id,
-                'role_id'     => (int)$role_id,
-                'assigned_by' => $assigned_by,
+        foreach ($role_ids as $role_id) {
+            $this->db->insert('org_employee_role_assignment', [
+                'employee_id' => $employee_id,
+                'role_id' => (int)$role_id,
+                'assigned_by' => $assigned_by > 0 ? $assigned_by : null,
                 'assigned_at' => $now,
             ]);
         }
 
+        $effective_role_ids = $this->get_effective_role_ids_for_employee($employee_id);
+        $linked_user_ids = $this->get_linked_user_ids_by_employee($employee_id);
+        foreach ($linked_user_ids as $user_id) {
+            $this->replace_user_roles($user_id, $effective_role_ids, $assigned_by);
+        }
+
         $this->db->trans_complete();
+
+        return $linked_user_ids;
     }
 
     // ---------------------------------------------------------------
@@ -271,5 +453,42 @@ class User_model extends CI_Model
     public function is_email_taken(string $email, int $exclude_id = 0): bool
     {
         return $this->_email_exists($email, $exclude_id);
+    }
+
+    private function replace_user_roles(int $user_id, array $role_ids, int $assigned_by): void
+    {
+        $this->db->where('user_id', $user_id)->delete('auth_user_role');
+
+        $now = date('Y-m-d H:i:s');
+        foreach ($this->normalize_role_ids($role_ids, true) as $role_id) {
+            $this->db->insert('auth_user_role', [
+                'user_id' => $user_id,
+                'role_id' => (int)$role_id,
+                'assigned_by' => $assigned_by > 0 ? $assigned_by : null,
+                'assigned_at' => $now,
+            ]);
+        }
+    }
+
+    private function get_position_default_role_id(int $employee_id): int
+    {
+        if ($employee_id <= 0) {
+            return 0;
+        }
+
+        $row = $this->db->select('p.default_role_id')
+            ->from('org_employee e')
+            ->join('org_position p', 'p.id = e.position_id', 'left')
+            ->where('e.id', $employee_id)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        return (int)($row['default_role_id'] ?? 0);
+    }
+
+    private function protected_role_codes(): array
+    {
+        return ['ADMIN', 'SUPERADMIN'];
     }
 }

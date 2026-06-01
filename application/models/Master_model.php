@@ -87,6 +87,10 @@ class Master_model extends CI_Model
             return $this->get_grouped_product_master_filtered($table, $searchable, $q, $limit, $offset, $isActive, $filters);
         }
 
+        if ($table === 'org_employee') {
+            return $this->get_org_employee_filtered($searchable, $q, $limit, $offset, $isActive, $filters);
+        }
+
         $this->db->from($table);
         if ($isActive !== null && $this->db->field_exists('is_active', $table)) {
             $this->db->where('is_active', $isActive);
@@ -110,6 +114,49 @@ class Master_model extends CI_Model
         }
         $this->db->order_by($orderBy, $orderDir);
         $this->db->limit($limit, $offset);
+        return $this->db->get()->result_array();
+    }
+
+    private function get_org_employee_filtered(array $searchable, string $q, int $limit, int $offset, ?int $isActive = null, array $filters = []): array
+    {
+        $this->db->select('e.*');
+        $this->db->from('org_employee e');
+        $this->db->join('org_division d', 'd.id = e.division_id', 'left');
+        $this->db->join('org_position p', 'p.id = e.position_id', 'left');
+
+        if ($isActive !== null) {
+            $this->db->where('e.is_active', $isActive);
+        }
+
+        foreach ($filters as $field => $value) {
+            if ($value === null || $value === '' || !$this->db->field_exists($field, 'org_employee')) {
+                continue;
+            }
+            $this->db->where('e.' . $field, $value);
+        }
+
+        if ($q !== '' && !empty($searchable)) {
+            $this->db->group_start();
+            foreach ($searchable as $i => $col) {
+                $qualified = 'e.' . $col;
+                if ($i === 0) {
+                    $this->db->like($qualified, $q);
+                } else {
+                    $this->db->or_like($qualified, $q);
+                }
+            }
+            $this->db->or_like('d.division_name', $q);
+            $this->db->or_like('p.position_name', $q);
+            $this->db->group_end();
+        }
+
+        $this->db->order_by('COALESCE(d.sort_order, 999999)', 'ASC', false);
+        $this->db->order_by('d.division_name', 'ASC');
+        $this->db->order_by('COALESCE(p.sort_order, 999999)', 'ASC', false);
+        $this->db->order_by('p.position_name', 'ASC');
+        $this->db->order_by('e.employee_name', 'ASC');
+        $this->db->limit($limit, $offset);
+
         return $this->db->get()->result_array();
     }
 

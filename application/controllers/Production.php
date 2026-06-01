@@ -58,7 +58,6 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.daily.index', 'view');
         $filters = $this->daily_filters();
-        $this->Production_model->ensure_component_daily_rollup_seeded();
         $matrix = $this->Production_model->component_daily_matrix($filters, 500);
         if (empty($matrix['rows'])) {
             $latestMonth = $this->Production_model->latest_component_daily_month([
@@ -85,7 +84,6 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.daily.index', 'view');
         $filters = $this->daily_filters();
-        $this->Production_model->ensure_component_daily_rollup_seeded();
         $matrix = $this->Production_model->component_daily_matrix($filters, 1500);
         if (empty($matrix['rows'])) {
             $latestMonth = $this->Production_model->latest_component_daily_month([
@@ -105,7 +103,6 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.daily.index', 'view');
         $filters = $this->daily_filters();
-        $this->Production_model->ensure_component_daily_rollup_seeded();
         $rows = $this->Production_model->component_monthly_rows($filters, 500);
         if (empty($rows)) {
             $latestMonth = $this->Production_model->latest_component_daily_month([
@@ -131,7 +128,6 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.daily.index', 'view');
         $filters = $this->component_reconcile_filters();
-        $this->Production_model->ensure_component_daily_rollup_seeded();
         $compare = $this->Production_model->component_reconcile_rows($filters, (int)($filters['limit'] ?? 50));
 
         $this->render('production/component_reconcile_index', [
@@ -150,7 +146,6 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.daily.index', 'view');
         $filters = $this->component_reconcile_filters();
-        $this->Production_model->ensure_component_daily_rollup_seeded();
         $result = $this->Production_model->component_reconcile_audit((string)($filters['as_of_date'] ?? ''), $filters);
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Audit reconcile component gagal.'), 422);
@@ -272,7 +267,252 @@ class Production extends MY_Controller
             'components' => $this->active_components(),
             'uoms' => $this->active_uoms(),
             'divisions' => $this->active_divisions(),
+            'component_opening_export_url' => site_url('production/component-openings/export-template'),
+            'component_opening_export_existing_url' => site_url('production/component-openings/export-existing'),
+            'component_opening_import_url' => site_url('production/component-openings/import'),
         ]);
+    }
+
+    public function component_opening_export_template()
+    {
+        if (!$this->can('production.component.opening.index', 'view') && !$this->can('production.component.opening.index', 'create')) {
+            $this->require_permission('production.component.opening.index', 'view');
+        }
+
+        $month = $this->component_import_month((string)$this->input->get('month', true));
+        $locationGroup = $this->component_import_location_group((string)$this->input->get('location_group', true));
+        if ($locationGroup === '') {
+            $locationGroup = $this->component_import_location_group((string)$this->input->get('location_type', true));
+        }
+        if ($locationGroup === '') {
+            $locationGroup = 'REGULER';
+        }
+
+        $rows = [];
+        foreach ($this->active_components() as $component) {
+            $rows[] = [
+                'opening_month' => $month,
+                'location_group' => $locationGroup,
+                'division_code' => (string)($component['division_code'] ?? ''),
+                'division_name' => (string)($component['division_name'] ?? ''),
+                'component_id' => (int)($component['id'] ?? 0),
+                'component_code' => (string)($component['component_code'] ?? ''),
+                'component_name' => (string)($component['component_name'] ?? ''),
+                'uom_id' => (int)($component['uom_id'] ?? 0),
+                'uom_code' => (string)($component['uom_code'] ?? ''),
+                'opening_qty' => '',
+                'unit_cost' => '',
+                'note' => '',
+            ];
+        }
+
+        $headers = [
+            'opening_month', 'location_group', 'division_code', 'division_name',
+            'component_id', 'component_code', 'component_name', 'uom_id', 'uom_code',
+            'opening_qty', 'unit_cost', 'note',
+        ];
+        $filename = 'component-opening-template-' . strtolower($locationGroup) . '-' . $month . '.xlsx';
+
+        $this->load->library('SimpleSpreadsheetIO');
+        $this->simplespreadsheetio->output_xlsx($filename, $headers, $rows, 'Template Opening');
+    }
+
+    public function component_opening_export_existing()
+    {
+        if (!$this->can('production.component.opening.index', 'view') && !$this->can('production.component.opening.index', 'export')) {
+            $this->require_permission('production.component.opening.index', 'view');
+        }
+
+        $filters = [
+            'q' => trim((string)$this->input->get('q', true)),
+            'month' => $this->component_import_month((string)$this->input->get('month', true)),
+            'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
+            'division_id' => (int)$this->input->get('division_id', true) > 0 ? (int)$this->input->get('division_id', true) : null,
+        ];
+
+        $documents = $this->Production_model->list_component_openings($filters, 1000);
+        $rows = [];
+        foreach ($documents as $document) {
+            $openingId = (int)($document['id'] ?? 0);
+            if ($openingId <= 0) {
+                continue;
+            }
+            foreach ($this->Production_model->get_component_opening_lines($openingId) as $line) {
+                $rows[] = [
+                    'opening_no' => (string)($document['opening_no'] ?? ''),
+                    'status' => (string)($document['status'] ?? ''),
+                    'opening_month' => substr((string)($document['opening_date'] ?? ''), 0, 7),
+                    'location_group' => $this->normalize_location_filter((string)($document['location_type'] ?? '')),
+                    'division_name' => (string)($document['division_name'] ?? ''),
+                    'component_id' => (string)($line['component_id'] ?? ''),
+                    'component_code' => (string)($line['component_code'] ?? ''),
+                    'component_name' => (string)($line['component_name'] ?? ''),
+                    'uom_id' => (string)($line['uom_id'] ?? ''),
+                    'uom_code' => (string)($line['uom_code'] ?? ''),
+                    'opening_qty' => (string)($line['opening_qty'] ?? ''),
+                    'unit_cost' => (string)($line['unit_cost'] ?? ''),
+                    'total_value' => (string)($line['total_value'] ?? ''),
+                    'note' => (string)($line['note'] ?? ''),
+                ];
+            }
+        }
+
+        $headers = [
+            'opening_no', 'status', 'opening_month', 'location_group', 'division_name',
+            'component_id', 'component_code', 'component_name', 'uom_id', 'uom_code',
+            'opening_qty', 'unit_cost', 'total_value', 'note',
+        ];
+        $filename = 'component-opening-existing-' . preg_replace('/[^0-9\-]/', '', (string)($filters['month'] ?? date('Y-m'))) . '.xlsx';
+
+        $this->load->library('SimpleSpreadsheetIO');
+        $this->simplespreadsheetio->output_xlsx($filename, $headers, $rows, 'Opening Existing');
+    }
+
+    public function component_opening_import()
+    {
+        $this->require_permission('production.component.opening.index', 'create');
+
+        $defaultMonth = $this->component_import_month((string)$this->input->post('month', true));
+        $defaultLocationGroup = $this->component_import_location_group((string)$this->input->post('location_group', true));
+        if ($defaultLocationGroup === '') {
+            $defaultLocationGroup = $this->component_import_location_group((string)$this->input->post('location_type', true));
+        }
+        if ($defaultLocationGroup === '') {
+            $defaultLocationGroup = 'REGULER';
+        }
+        $backUrl = $this->component_opening_redirect_url([
+            'month' => $defaultMonth,
+            'location_type' => $defaultLocationGroup,
+        ]);
+
+        $this->load->library('SimpleSpreadsheetIO');
+        $parsed = $this->simplespreadsheetio->parse_uploaded_file('import_file');
+        if (!($parsed['ok'] ?? false)) {
+            $this->session->set_flashdata('error', (string)($parsed['message'] ?? 'File import component opening tidak valid.'));
+            redirect($backUrl);
+            return;
+        }
+
+        $componentMaps = $this->component_opening_component_maps();
+        $uomMap = $this->component_opening_uom_map();
+        $groups = [];
+        $errors = [];
+        $skippedCount = 0;
+
+        foreach ((array)($parsed['rows'] ?? []) as $index => $row) {
+            $rowNumber = $index + 2;
+            $qty = round($this->component_import_decimal($this->component_import_row_value($row, ['opening_qty', 'qty'], '0')), 4);
+            if ($qty <= 0) {
+                $skippedCount++;
+                continue;
+            }
+
+            $component = null;
+            $componentId = (int)$this->component_import_row_value($row, ['component_id'], 0);
+            if ($componentId > 0 && !empty($componentMaps['id'][$componentId])) {
+                $component = $componentMaps['id'][$componentId];
+            }
+            if ($component === null) {
+                $componentCode = strtoupper(trim((string)$this->component_import_row_value($row, ['component_code'], '')));
+                if ($componentCode !== '' && !empty($componentMaps['code'][$componentCode])) {
+                    $component = $componentMaps['code'][$componentCode];
+                }
+            }
+            if ($component === null) {
+                $errors[] = 'Baris ' . $rowNumber . ': Component tidak ditemukan.';
+                continue;
+            }
+
+            $divisionId = (int)($component['operational_division_id'] ?? 0);
+            if ($divisionId <= 0) {
+                $errors[] = 'Baris ' . $rowNumber . ': Divisi component belum terdefinisi.';
+                continue;
+            }
+
+            $month = $this->component_import_month((string)$this->component_import_row_value($row, ['opening_month', 'month'], $defaultMonth));
+            $locationGroup = $this->component_import_location_group((string)$this->component_import_row_value($row, ['location_group', 'location_type'], $defaultLocationGroup));
+            if ($locationGroup === '') {
+                $errors[] = 'Baris ' . $rowNumber . ': Lokasi harus REGULER atau EVENT.';
+                continue;
+            }
+
+            $uomId = $this->component_import_uom_id($this->component_import_row_value($row, ['uom_id', 'uom_code'], ''), $uomMap, (int)($component['uom_id'] ?? 0));
+            if ($uomId <= 0) {
+                $errors[] = 'Baris ' . $rowNumber . ': UOM component tidak valid.';
+                continue;
+            }
+
+            $groupKey = $month . '|' . $locationGroup . '|' . $divisionId;
+            if (empty($groups[$groupKey])) {
+                $groups[$groupKey] = [
+                    'label' => $month . ' / ' . $locationGroup . ' / ' . (string)($component['division_name'] ?? $component['division_code'] ?? ('Divisi #' . $divisionId)),
+                    'header' => [
+                        'id' => 0,
+                        'opening_no' => '',
+                        'opening_month' => $month,
+                        'location_type' => $locationGroup,
+                        'division_id' => $divisionId,
+                        'notes' => 'Import spreadsheet opening component ' . date('Y-m-d H:i:s'),
+                    ],
+                    'lines' => [],
+                ];
+            }
+
+            $groups[$groupKey]['lines'][] = [
+                'component_id' => (int)($component['id'] ?? 0),
+                'uom_id' => $uomId,
+                'opening_qty' => $qty,
+                'unit_cost' => round($this->component_import_decimal($this->component_import_row_value($row, ['unit_cost', 'cost'], '0')), 6),
+                'note' => (string)$this->component_import_row_value($row, ['note', 'notes'], ''),
+            ];
+        }
+
+        if (empty($groups) && empty($errors)) {
+            $this->session->set_flashdata('error', 'Tidak ada baris import dengan qty opening lebih dari 0.');
+            redirect($backUrl);
+            return;
+        }
+
+        $successDocs = 0;
+        $successLines = 0;
+        foreach ($groups as $group) {
+            $save = $this->Production_model->save_component_opening(
+                (array)$group['header'],
+                (array)$group['lines'],
+                (int)($this->current_user['employee_id'] ?? 0)
+            );
+            if (!($save['ok'] ?? false)) {
+                $errors[] = 'Dokumen ' . (string)($group['label'] ?? '-') . ': ' . (string)($save['message'] ?? 'Gagal menyimpan opening.');
+                continue;
+            }
+
+            $post = $this->post_component_opening_document((int)($save['id'] ?? 0));
+            if (!($post['ok'] ?? false)) {
+                $errors[] = 'Dokumen ' . (string)($group['label'] ?? '-') . ': ' . (string)($post['message'] ?? 'Gagal posting opening import.');
+                continue;
+            }
+
+            $successDocs++;
+            $successLines += count((array)$group['lines']);
+        }
+
+        $summary = 'Import component opening selesai. Berhasil simpan+post ' . $successDocs . ' dokumen / ' . $successLines . ' baris';
+        if ($skippedCount > 0) {
+            $summary .= ', dilewati ' . $skippedCount . ' baris kosong/qty 0';
+        }
+        if (!empty($errors)) {
+            $summary .= ', gagal ' . count($errors) . ' item. ' . implode(' | ', array_slice($errors, 0, 5));
+        }
+
+        if ($successDocs > 0 && empty($errors)) {
+            $this->session->set_flashdata('success', $summary . '.');
+        } elseif ($successDocs > 0) {
+            $this->session->set_flashdata('warning', $summary);
+        } else {
+            $this->session->set_flashdata('error', $summary);
+        }
+
+        redirect($backUrl);
     }
 
     public function component_opening_save()
@@ -336,53 +576,12 @@ class Production extends MY_Controller
     public function component_opening_post($id)
     {
         $this->require_permission('production.component.opening.index', 'edit');
-        $id = (int)$id;
-        $header = $this->Production_model->get_component_opening($id);
-        if (!$header) {
-            $this->json_error('Opening tidak ditemukan.', 404);
-            return;
-        }
-        if (strtoupper((string)$header['status']) !== 'DRAFT') {
-            $this->json_error('Hanya opening DRAFT yang bisa diposting.', 422);
-            return;
-        }
-        $conflict = $this->Production_model->find_component_opening_month_conflict(
-            $id,
-            (string)($header['opening_date'] ?? date('Y-m-d')),
-            strtoupper(trim((string)($header['location_type'] ?? ''))),
-            !empty($header['division_id']) ? (int)$header['division_id'] : null
-        );
-        if ($conflict) {
-            $this->json_error('Opening bulan yang sama sudah ada di dokumen ' . (string)($conflict['opening_no'] ?? ('#' . (int)($conflict['id'] ?? 0))) . '.', 422);
-            return;
-        }
-        $linesRaw = $this->Production_model->get_component_opening_lines($id);
-        $lines = [];
-        foreach ($linesRaw as $line) {
-            $lines[] = [
-                'id' => (int)$line['id'],
-                'component_id' => (int)$line['component_id'],
-                'uom_id' => (int)$line['uom_id'],
-                'opening_qty' => (float)$line['opening_qty'],
-                'qty' => (float)$line['opening_qty'],
-                'movement_type' => 'OPENING',
-                'unit_cost' => (float)$line['unit_cost'],
-                'note' => (string)($line['note'] ?? ''),
-            ];
-        }
-        $header['opening_date'] = substr((string)($header['opening_date'] ?? date('Y-m-d')), 0, 7) . '-01';
-        $post = $this->componentstockwriter->post_opening($header, $lines, (int)($this->current_user['employee_id'] ?? 0));
+        $post = $this->post_component_opening_document((int)$id);
         if (!($post['ok'] ?? false)) {
-            $this->json_error((string)($post['message'] ?? 'Posting opening gagal.'), 422);
+            $this->json_error((string)($post['message'] ?? 'Posting opening gagal.'), (int)($post['status_code'] ?? 422));
             return;
         }
-        $this->db->where('id', $id)->update('inv_component_opening', [
-            'status' => 'POSTED',
-            'posted_at' => date('Y-m-d H:i:s'),
-            'posted_by' => !empty($this->current_user['employee_id']) ? (int)$this->current_user['employee_id'] : null,
-        ]);
-        $this->Production_model->rebuild_component_daily_rollup_from_logs();
-        $this->json_ok(['id' => $id]);
+        $this->json_ok(['id' => (int)$id]);
     }
 
     public function component_opening_detail($id)
@@ -601,7 +800,6 @@ class Production extends MY_Controller
             'posted_at' => date('Y-m-d H:i:s'),
             'posted_by' => !empty($this->current_user['employee_id']) ? (int)$this->current_user['employee_id'] : null,
         ]);
-        $this->Production_model->rebuild_component_daily_rollup_from_logs();
         $this->json_ok(['id' => $id]);
     }
 
@@ -1259,6 +1457,198 @@ class Production extends MY_Controller
     private function location_options()
     {
         return ['' => 'Semua Lokasi', 'BAR' => 'BAR', 'KITCHEN' => 'KITCHEN', 'BAR_EVENT' => 'BAR_EVENT', 'KITCHEN_EVENT' => 'KITCHEN_EVENT'];
+    }
+
+    private function component_opening_redirect_url(array $state = []): string
+    {
+        $query = [
+            'month' => $this->component_import_month((string)($state['month'] ?? date('Y-m'))),
+            'location_type' => $this->component_import_location_group((string)($state['location_type'] ?? 'REGULER')) ?: 'REGULER',
+        ];
+
+        return site_url('production/component-openings') . '?' . http_build_query($query);
+    }
+
+    private function component_import_row_value(array $row, array $keys, $default = '')
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $row) && trim((string)$row[$key]) !== '') {
+                return $row[$key];
+            }
+        }
+        return $default;
+    }
+
+    private function component_import_decimal($value): float
+    {
+        $raw = trim((string)$value);
+        if ($raw === '') {
+            return 0.0;
+        }
+        $raw = str_replace(' ', '', $raw);
+        if (strpos($raw, ',') !== false && strpos($raw, '.') !== false) {
+            if (strrpos($raw, ',') > strrpos($raw, '.')) {
+                $raw = str_replace('.', '', $raw);
+                $raw = str_replace(',', '.', $raw);
+            } else {
+                $raw = str_replace(',', '', $raw);
+            }
+        } elseif (strpos($raw, ',') !== false) {
+            $raw = str_replace(',', '.', $raw);
+        }
+        return (float)$raw;
+    }
+
+    private function component_import_month(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return date('Y-m');
+        }
+        if (preg_match('/^\d{4}-\d{2}$/', $value)) {
+            return $value;
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return substr($value, 0, 7);
+        }
+        if (preg_match('/^\d+(?:\.\d+)?$/', $value)) {
+            $date = $this->component_excel_serial_to_date((float)$value);
+            if ($date !== null) {
+                return substr($date, 0, 7);
+            }
+        }
+        $time = strtotime($value);
+        return $time ? date('Y-m', $time) : date('Y-m');
+    }
+
+    private function component_import_location_group(string $value): string
+    {
+        $normalized = $this->normalize_location_filter($value);
+        return in_array($normalized, ['REGULER', 'EVENT'], true) ? $normalized : '';
+    }
+
+    private function component_excel_serial_to_date(float $serial): ?string
+    {
+        if ($serial <= 0) {
+            return null;
+        }
+        $days = (int)floor($serial) - 25569;
+        if ($days <= 0) {
+            return null;
+        }
+        return gmdate('Y-m-d', $days * 86400);
+    }
+
+    private function component_opening_component_maps(): array
+    {
+        $rows = $this->active_components();
+        $maps = ['id' => [], 'code' => []];
+        foreach ($rows as $row) {
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0) {
+                $maps['id'][$id] = $row;
+            }
+            $code = strtoupper(trim((string)($row['component_code'] ?? '')));
+            if ($code !== '') {
+                $maps['code'][$code] = $row;
+            }
+        }
+        return $maps;
+    }
+
+    private function component_opening_uom_map(): array
+    {
+        $rows = $this->active_uoms();
+        $map = [];
+        foreach ($rows as $row) {
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0) {
+                $map[$id] = $row;
+                $code = strtoupper(trim((string)($row['code'] ?? '')));
+                if ($code !== '') {
+                    $map['CODE:' . $code] = $row;
+                }
+            }
+        }
+        return $map;
+    }
+
+    private function post_component_opening_document(int $id): array
+    {
+        if ($id <= 0) {
+            return ['ok' => false, 'message' => 'Opening tidak valid.', 'status_code' => 404];
+        }
+
+        $header = $this->Production_model->get_component_opening($id);
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Opening tidak ditemukan.', 'status_code' => 404];
+        }
+        if (strtoupper((string)($header['status'] ?? '')) !== 'DRAFT') {
+            return ['ok' => false, 'message' => 'Hanya opening DRAFT yang bisa diposting.', 'status_code' => 422];
+        }
+
+        $conflict = $this->Production_model->find_component_opening_month_conflict(
+            $id,
+            (string)($header['opening_date'] ?? date('Y-m-d')),
+            strtoupper(trim((string)($header['location_type'] ?? ''))),
+            !empty($header['division_id']) ? (int)$header['division_id'] : null
+        );
+        if ($conflict) {
+            return [
+                'ok' => false,
+                'message' => 'Opening bulan yang sama sudah ada di dokumen ' . (string)($conflict['opening_no'] ?? ('#' . (int)($conflict['id'] ?? 0))) . '.',
+                'status_code' => 422,
+            ];
+        }
+
+        $linesRaw = $this->Production_model->get_component_opening_lines($id);
+        $lines = [];
+        foreach ($linesRaw as $line) {
+            $lines[] = [
+                'id' => (int)($line['id'] ?? 0),
+                'component_id' => (int)($line['component_id'] ?? 0),
+                'uom_id' => (int)($line['uom_id'] ?? 0),
+                'opening_qty' => (float)($line['opening_qty'] ?? 0),
+                'qty' => (float)($line['opening_qty'] ?? 0),
+                'movement_type' => 'OPENING',
+                'unit_cost' => (float)($line['unit_cost'] ?? 0),
+                'note' => (string)($line['note'] ?? ''),
+            ];
+        }
+
+        $header['opening_date'] = substr((string)($header['opening_date'] ?? date('Y-m-d')), 0, 7) . '-01';
+        $post = $this->componentstockwriter->post_opening($header, $lines, (int)($this->current_user['employee_id'] ?? 0));
+        if (!($post['ok'] ?? false)) {
+            return ['ok' => false, 'message' => (string)($post['message'] ?? 'Posting opening gagal.'), 'status_code' => 422];
+        }
+
+        $this->db->where('id', $id)->update('inv_component_opening', [
+            'status' => 'POSTED',
+            'posted_at' => date('Y-m-d H:i:s'),
+            'posted_by' => !empty($this->current_user['employee_id']) ? (int)$this->current_user['employee_id'] : null,
+        ]);
+
+        return ['ok' => true, 'id' => $id];
+    }
+
+    private function component_import_uom_id($rawValue, array $uomMap, int $fallbackId): int
+    {
+        $value = trim((string)$rawValue);
+        if ($value === '') {
+            return $fallbackId;
+        }
+
+        $numeric = (int)$value;
+        if ($numeric > 0 && !empty($uomMap[$numeric])) {
+            return $numeric;
+        }
+
+        $code = strtoupper($value);
+        if (!empty($uomMap['CODE:' . $code])) {
+            return (int)($uomMap['CODE:' . $code]['id'] ?? 0);
+        }
+
+        return $fallbackId;
     }
 
     private function normalize_location_type($value)

@@ -5,7 +5,7 @@ $storeUrl = site_url('purchase/receipt/store');
 
 <div class="mb-2">
   <h4 class="mb-1"><i class="ri ri-inbox-archive-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-  <small class="text-muted">Posting penerimaan barang purchase ke gudang atau divisi, sekaligus update stock balance dan movement log.</small>
+  <small class="text-muted">Posting penerimaan barang purchase ke gudang atau divisi, sekaligus update stok bulanan dan movement log.</small>
 </div>
 
 <?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'receipt-purchase']); ?>

@@ -2011,19 +2011,26 @@ class Master_relation extends MY_Controller
         $live = 0.0;
         $availableQty = 0.0;
         $hasStockLiveCost = false;
-        if ($divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {
-            $liveRow = $this->db->select('avg_cost_per_content')
-                ->from('inv_division_stock_balance')
-                ->where('division_id', $divisionId)
-                ->where('material_id', $materialId)
-                ->order_by('updated_at', 'DESC')
-                ->limit(1)
+        if ($divisionId > 0 && $this->db->table_exists('inv_division_monthly_stock')) {
+            $targetMonth = date('Y-m-01');
+            $latestMonthSubquery = $this->db
+                ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
+                ->from('inv_division_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by(['division_id', 'destination_type', 'identity_key'])
+                ->get_compiled_select();
+            $liveRow = $this->db->select('AVG(COALESCE(s.avg_cost_per_content,0)) AS avg_cost_per_content', false)
+                ->from('inv_division_monthly_stock s')
+                ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                ->where('s.division_id', $divisionId)
+                ->where('s.material_id', $materialId)
                 ->get()
                 ->row_array();
-            $qtyRow = $this->db->select('SUM(COALESCE(qty_content_balance,0)) AS qty_balance', false)
-                ->from('inv_division_stock_balance')
-                ->where('division_id', $divisionId)
-                ->where('material_id', $materialId)
+            $qtyRow = $this->db->select('SUM(COALESCE(s.closing_qty_content,0)) AS qty_balance', false)
+                ->from('inv_division_monthly_stock s')
+                ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                ->where('s.division_id', $divisionId)
+                ->where('s.material_id', $materialId)
                 ->get()
                 ->row_array();
             $live = (float)($liveRow['avg_cost_per_content'] ?? 0);
@@ -2065,18 +2072,29 @@ class Master_relation extends MY_Controller
         $live = 0.0;
         $availableQty = 0.0;
         $hasStockLiveCost = false;
-        if ($this->db->table_exists('inv_component_stock_balance')) {
-            $this->db->select('avg_cost')->from('inv_component_stock_balance')->where('component_id', $componentId);
+        if ($this->db->table_exists('inv_component_monthly_stock')) {
+            $targetMonth = date('Y-m-01');
+            $latestMonthSubquery = $this->db
+                ->select('location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key', false)
+                ->from('inv_component_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
+                ->get_compiled_select();
+            $this->db->select('AVG(COALESCE(s.avg_cost,0)) AS avg_cost', false)
+                ->from('inv_component_monthly_stock s')
+                ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
+                ->where('s.component_id', $componentId);
             if ($divisionId > 0) {
-                $this->db->where('division_id', $divisionId);
+                $this->db->where('s.division_id', $divisionId);
             }
-            $liveRow = $this->db->order_by('updated_at', 'DESC')->limit(1)->get()->row_array();
+            $liveRow = $this->db->get()->row_array();
 
-            $this->db->select('SUM(COALESCE(qty_on_hand,0)) AS qty_balance', false)
-                ->from('inv_component_stock_balance')
-                ->where('component_id', $componentId);
+            $this->db->select('SUM(COALESCE(s.closing_qty,0)) AS qty_balance', false)
+                ->from('inv_component_monthly_stock s')
+                ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
+                ->where('s.component_id', $componentId);
             if ($divisionId > 0) {
-                $this->db->where('division_id', $divisionId);
+                $this->db->where('s.division_id', $divisionId);
             }
             $qtyRow = $this->db->get()->row_array();
 

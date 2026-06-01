@@ -3,6 +3,10 @@ $filters = is_array($filters ?? null) ? $filters : [];
 $filterOptions = is_array($filter_options ?? null) ? $filter_options : [];
 $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets'] : [];
 $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['terminals'] : [];
+$refundPaymentMethods = is_array($filterOptions['refund_payment_methods'] ?? null) ? $filterOptions['refund_payment_methods'] : [];
+$reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? null) ? $filterOptions['reversal_reason_options'] : [];
+$workspaceMode = strtoupper(trim((string)($workspace_mode ?? 'UNPAID')));
+$isPaidWorkspace = $workspaceMode === 'PAID';
 ?>
 
 <style>
@@ -80,16 +84,36 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
   }
   .pos-reversal-flag.return { background:#e8f8ec; color:#1d7f45; }
   .pos-reversal-flag.adjust { background:#fff4dd; color:#8d5a00; }
+  .pos-reversal-policy-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:.85rem; }
+  .pos-reversal-policy-card {
+    border:1px solid rgba(224, 209, 198, .75); border-radius:18px; padding:1rem 1.1rem;
+    background:linear-gradient(135deg,#fffaf6 0%,#fff 100%); cursor:pointer;
+  }
+  .pos-reversal-policy-card.active { border-color:#8f3d33; box-shadow:0 12px 24px rgba(143,61,51,.12); }
+  .pos-reversal-policy-title { font-weight:800; color:#3a2b2b; }
+  .pos-reversal-policy-note { font-size:.8rem; color:#7b6b63; }
+  .pos-reversal-section-title { font-size:.78rem; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:#8a776d; }
+  .pos-reversal-extra-list { margin-top:.85rem; display:grid; gap:.55rem; }
+  .pos-reversal-extra-row {
+    border:1px dashed rgba(214, 195, 182, .9); border-radius:14px; padding:.7rem .85rem;
+    background:#fff;
+  }
+  .pos-reversal-qty-input { width:92px; }
+  .pos-reversal-help { background:#fff7f2; border:1px solid rgba(224, 209, 198, .85); border-radius:16px; padding:.8rem .95rem; color:#755f56; }
+  .pos-reversal-summary-note { font-size:.78rem; color:#8b7a70; }
   @media (max-width: 991.98px) {
     .pos-order-main .btn { width:100%; }
+    .pos-reversal-policy-grid { grid-template-columns:1fr; }
   }
 </style>
 
 <div class="container-xxl py-3">
   <div class="fin-page-header">
     <div>
-      <h4 class="fin-page-title mb-1">Draft Order POS</h4>
-      <p class="fin-page-subtitle mb-0">Susun order kasir lebih dulu, commit snapshot konsumsi saat konfirmasi, lalu pakai fondasi ini untuk alur payment, void, dan refund yang lebih presisi.</p>
+      <h4 class="fin-page-title mb-1"><?php echo $isPaidWorkspace ? 'Pesanan Terbayar POS' : 'Draft Order POS'; ?></h4>
+      <p class="fin-page-subtitle mb-0"><?php echo $isPaidWorkspace
+        ? 'Halaman ini memusatkan order yang sudah dibayar untuk refund, audit pembayaran, dan kebutuhan cetak ulang struk pembayaran.'
+        : 'Susun order kasir lebih dulu, commit snapshot konsumsi saat konfirmasi, lalu pakai fondasi ini untuk alur payment, void, dan refund yang lebih presisi.'; ?></p>
     </div>
   </div>
 
@@ -104,15 +128,17 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
       <div class="card-body p-4">
         <div class="d-flex flex-wrap gap-3 justify-content-between align-items-start mb-4">
           <div>
-            <div class="small text-uppercase fw-bold text-muted">Workbench Kasir</div>
-            <h5 class="mb-1 mt-2">Susun Draft, lalu Commit Snapshot</h5>
-            <p class="mb-0 text-muted">Versi awal ini fokus ke line produk, outlet/terminal, dan snapshot konsumsi stok berbasis recipe.</p>
+            <div class="small text-uppercase fw-bold text-muted"><?php echo $isPaidWorkspace ? 'Refund Workspace' : 'Workbench Kasir'; ?></div>
+            <h5 class="mb-1 mt-2"><?php echo $isPaidWorkspace ? 'Refund dan Review Pembayaran' : 'Susun Draft, lalu Commit Snapshot'; ?></h5>
+            <p class="mb-0 text-muted"><?php echo $isPaidWorkspace
+              ? 'Order yang tampil di sini sudah punya jejak pembayaran, sehingga reversal diarahkan ke refund. Gunakan daftar ini untuk review payment trail sebelum refund atau saat perlu cetak ulang bukti bayar.'
+              : 'Versi awal ini fokus ke line produk, outlet/terminal, dan snapshot konsumsi stok berbasis recipe.'; ?></p>
           </div>
           <div class="d-flex flex-wrap gap-2">
-            <button type="button" class="btn btn-outline-secondary" id="btn-reset-order">Reset Draft</button>
-            <button type="button" class="btn btn-outline-dark" id="btn-reversal-preview" disabled>Preview Void / Refund</button>
-            <button type="button" class="btn btn-outline-primary" id="btn-save-order" <?php echo empty($outlets) ? 'disabled' : ''; ?>>Simpan Draft</button>
-            <button type="button" class="btn btn-primary" id="btn-confirm-order" <?php echo empty($outlets) ? 'disabled' : ''; ?>>Confirm + Stock Commit</button>
+            <button type="button" class="btn btn-outline-secondary" id="btn-reset-order"><?php echo $isPaidWorkspace ? 'Kosongkan Preview' : 'Reset Draft'; ?></button>
+            <button type="button" class="btn btn-outline-dark" id="btn-reversal-preview" disabled><?php echo $isPaidWorkspace ? 'Preview Refund' : 'Preview Void'; ?></button>
+            <button type="button" class="btn btn-outline-primary<?php echo $isPaidWorkspace ? ' d-none' : ''; ?>" id="btn-save-order" <?php echo empty($outlets) ? 'disabled' : ''; ?>>Simpan Draft</button>
+            <button type="button" class="btn btn-primary<?php echo $isPaidWorkspace ? ' d-none' : ''; ?>" id="btn-confirm-order" <?php echo empty($outlets) ? 'disabled' : ''; ?>>Confirm + Stock Commit</button>
           </div>
         </div>
 
@@ -120,7 +146,7 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
           <input type="hidden" name="id" value="">
           <div class="col-md-4">
             <label class="form-label mb-1 small text-muted">Outlet POS</label>
-            <select class="form-select" name="outlet_id" id="outlet_id" <?php echo empty($outlets) ? 'disabled' : 'required'; ?>>
+            <select class="form-select" name="outlet_id" id="outlet_id" <?php echo empty($outlets) ? 'disabled' : 'required'; ?> <?php echo $isPaidWorkspace ? 'disabled' : ''; ?>>
               <option value="">Pilih Outlet</option>
               <?php foreach ($outlets as $outlet): ?>
                 <option value="<?php echo (int)$outlet['id']; ?>"><?php echo html_escape((string)$outlet['outlet_name']); ?></option>
@@ -129,7 +155,7 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
           </div>
           <div class="col-md-3">
             <label class="form-label mb-1 small text-muted">Terminal</label>
-            <select class="form-select" name="terminal_id" id="terminal_id" <?php echo empty($outlets) ? 'disabled' : ''; ?>>
+            <select class="form-select" name="terminal_id" id="terminal_id" <?php echo empty($outlets) ? 'disabled' : ''; ?> <?php echo $isPaidWorkspace ? 'disabled' : ''; ?>>
               <option value="">Tanpa Terminal</option>
               <?php foreach ($terminals as $terminal): ?>
                 <option value="<?php echo (int)$terminal['id']; ?>" data-outlet-id="<?php echo (int)($terminal['outlet_id'] ?? 0); ?>"><?php echo html_escape((string)$terminal['terminal_name']); ?></option>
@@ -138,7 +164,7 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
           </div>
           <div class="col-md-2">
             <label class="form-label mb-1 small text-muted">Service</label>
-            <select class="form-select" name="service_type" id="service_type">
+            <select class="form-select" name="service_type" id="service_type" <?php echo $isPaidWorkspace ? 'disabled' : ''; ?>>
               <option value="DINE_IN">DINE_IN</option>
               <option value="TAKE_AWAY">TAKE_AWAY</option>
               <option value="DELIVERY">DELIVERY</option>
@@ -147,7 +173,7 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
           </div>
           <div class="col-md-1">
             <label class="form-label mb-1 small text-muted">Guest</label>
-            <input type="number" class="form-control" name="guest_count" id="guest_count" min="1" value="1">
+            <input type="number" class="form-control" name="guest_count" id="guest_count" min="1" value="1" <?php echo $isPaidWorkspace ? 'readonly' : ''; ?>>
           </div>
           <div class="col-md-2">
             <label class="form-label mb-1 small text-muted">Order No</label>
@@ -156,7 +182,7 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
           <div class="col-lg-7">
             <label class="form-label mb-1 small text-muted">Member</label>
             <div class="pos-order-search-wrap">
-              <input type="text" class="form-control" id="member_search" placeholder="Ketik nama / no HP / nomor member untuk transaksi member...">
+              <input type="text" class="form-control" id="member_search" placeholder="Ketik nama / no HP / nomor member untuk transaksi member..." <?php echo $isPaidWorkspace ? 'disabled' : ''; ?>>
               <div class="pos-order-search-result d-none" id="member_search_result"></div>
             </div>
           </div>
@@ -168,11 +194,11 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
           </div>
           <div class="col-12">
             <label class="form-label mb-1 small text-muted">Catatan Order</label>
-            <input type="text" class="form-control" name="notes" id="notes" placeholder="Catatan meja, request kasir, catatan layanan, atau marker internal.">
+            <input type="text" class="form-control" name="notes" id="notes" placeholder="Catatan meja, request kasir, catatan layanan, atau marker internal." <?php echo $isPaidWorkspace ? 'readonly' : ''; ?>>
           </div>
         </form>
 
-        <div class="row g-3 align-items-start mb-4">
+        <div class="row g-3 align-items-start mb-4<?php echo $isPaidWorkspace ? ' d-none' : ''; ?>">
           <div class="col-lg-8">
             <div class="pos-order-search-wrap">
               <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
@@ -225,8 +251,13 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
             <p class="mb-0 text-muted">Klik salah satu draft untuk dilanjutkan. Ini membantu kasir melanjutkan order yang belum selesai dibayar.</p>
           </div>
           <div class="d-flex flex-wrap gap-2">
-            <button type="button" class="btn btn-sm btn-outline-primary order-status-tab" data-status="DRAFT">Draft</button>
-            <button type="button" class="btn btn-sm btn-outline-primary order-status-tab" data-status="CONFIRMED">Confirmed</button>
+            <?php if (!$isPaidWorkspace): ?>
+              <button type="button" class="btn btn-sm btn-outline-primary order-status-tab" data-status="DRAFT">Draft</button>
+              <button type="button" class="btn btn-sm btn-outline-primary order-status-tab" data-status="CONFIRMED">Confirmed</button>
+            <?php endif; ?>
+            <?php if ($isPaidWorkspace): ?>
+              <button type="button" class="btn btn-sm btn-outline-primary order-status-tab" data-status="PAID">Terbayar</button>
+            <?php endif; ?>
             <button type="button" class="btn btn-sm btn-outline-primary order-status-tab" data-status="ALL">Semua</button>
           </div>
         </div>
@@ -284,7 +315,7 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
     <div class="modal-content border-0 shadow-lg" style="border-radius:24px;">
       <div class="modal-header">
         <div>
-          <h5 class="modal-title mb-1">Preview Void / Refund POS</h5>
+          <h5 class="modal-title mb-1"><?php echo $isPaidWorkspace ? 'Preview Refund POS' : 'Preview Void POS'; ?></h5>
           <div class="small text-muted" id="reversal_modal_meta">Order belum dipilih.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -293,38 +324,70 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
         <div class="alert alert-warning border-0 d-none" id="reversal_empty_hint">
           Snapshot reversal belum tersedia untuk order ini.
         </div>
+        <div class="pos-reversal-help mb-3">
+          <div class="fw-semibold mb-1"><?php echo $isPaidWorkspace ? 'Refund hanya untuk order yang sudah dibayar.' : 'Void hanya untuk order yang belum dibayar.'; ?></div>
+          <div class="small mb-0">Jika produk punya extra, pilih produk berarti extra ikut otomatis. Jika ingin extra saja, kosongkan produk lalu centang extra yang ingin diproses.</div>
+        </div>
         <div class="row g-3 mb-3">
-          <div class="col-md-6">
-            <label class="form-label small text-muted mb-1">Kebijakan Stok</label>
-            <div class="form-check form-switch border rounded-4 px-3 py-2">
-              <input class="form-check-input" type="checkbox" id="reversal_return_to_stock" checked>
-              <label class="form-check-label ms-2" for="reversal_return_to_stock">
-                Kembalikan ke stok untuk line yang belum diproses
+          <div class="col-12">
+            <div class="pos-reversal-section-title mb-2">Kebijakan Reversal</div>
+            <div class="pos-reversal-policy-grid">
+              <label class="pos-reversal-policy-card active" id="reversal_policy_return_card">
+                <input class="d-none" type="radio" name="reversal_stock_policy" id="reversal_policy_return" value="RETURN_TO_STOCK" checked>
+                <div class="pos-reversal-policy-title">Kembalikan ke stok</div>
+                <div class="pos-reversal-policy-note mt-1">Stok yang sebelumnya sudah berkurang akan ditambah lagi untuk line yang belum diproses.</div>
+              </label>
+              <label class="pos-reversal-policy-card" id="reversal_policy_adjust_card">
+                <input class="d-none" type="radio" name="reversal_stock_policy" id="reversal_policy_adjust" value="ADJUSTMENT_ONLY">
+                <div class="pos-reversal-policy-title">Jangan kembalikan ke stok</div>
+                <div class="pos-reversal-policy-note mt-1">Gunakan saat barang sudah terlanjur terpakai, rusak, atau perlu dicatat sebagai adjustment.</div>
               </label>
             </div>
-            <div class="small text-muted mt-1">Line yang sudah diproses tetap diarahkan ke adjustment-only sesuai skema yang kita sepakati.</div>
           </div>
           <div class="col-md-6">
             <label class="form-label small text-muted mb-1">Adjustment Mode</label>
             <select class="form-select" id="reversal_adjustment_mode">
-              <option value="NONE">NONE</option>
-              <option value="AUTO_WASTE">AUTO_WASTE</option>
-              <option value="AUTO_SPOIL">AUTO_SPOIL</option>
-              <option value="AUTO_ADJUSTMENT">AUTO_ADJUSTMENT</option>
+              <option value="NONE">Pilih tipe adjustment...</option>
+              <option value="AUTO_WASTE">Waste otomatis</option>
+              <option value="AUTO_SPOIL">Spoil otomatis</option>
+              <option value="AUTO_ADJUSTMENT">Penyesuaian otomatis</option>
             </select>
             <div class="small text-muted mt-1">Dipakai untuk line yang sudah diproses atau sengaja tidak dikembalikan ke stok.</div>
           </div>
-          <div class="col-12">
+          <div class="col-md-6 d-none" id="reversal_reason_wrap">
             <label class="form-label small text-muted mb-1">Alasan</label>
-            <textarea class="form-control" id="reversal_reason" rows="2" placeholder="Alasan void/refund untuk audit POS"></textarea>
+            <select class="form-select" id="reversal_reason_code">
+              <option value="">Pilih alasan...</option>
+            </select>
+            <input type="text" class="form-control mt-2 d-none" id="reversal_reason_other" placeholder="Tulis alasan lainnya">
+          </div>
+          <?php if ($isPaidWorkspace): ?>
+            <div class="col-md-6">
+              <label class="form-label small text-muted mb-1">Metode Pengembalian</label>
+              <select class="form-select" id="refund_payment_method_id">
+                <option value="">Pilih metode refund...</option>
+                <?php foreach ($refundPaymentMethods as $method): ?>
+                  <option value="<?php echo (int)($method['id'] ?? 0); ?>"><?php echo html_escape((string)($method['method_name'] ?? '-')); ?><?php echo !empty($method['method_type']) ? ' • ' . html_escape((string)$method['method_type']) : ''; ?></option>
+                <?php endforeach; ?>
+              </select>
+              <div class="small text-muted mt-1">Boleh berbeda dari metode pembayaran saat customer membayar.</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small text-muted mb-1">Referensi Refund</label>
+              <input type="text" class="form-control" id="refund_reference_no" placeholder="No referensi transfer / catatan kasir (opsional)">
+            </div>
+          <?php endif; ?>
+          <div class="col-12">
+            <label class="form-label small text-muted mb-1">Catatan Audit</label>
+            <textarea class="form-control" id="reversal_reason" rows="2" placeholder="Catatan tambahan untuk audit POS (opsional)"></textarea>
           </div>
         </div>
         <div id="reversal_line_list"></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
-        <button type="button" class="btn btn-outline-danger" id="btn-save-void">Simpan Void</button>
-        <button type="button" class="btn btn-danger" id="btn-save-refund">Simpan Refund</button>
+        <button type="button" class="btn btn-outline-danger<?php echo $isPaidWorkspace ? ' d-none' : ''; ?>" id="btn-save-void">Simpan Void</button>
+        <button type="button" class="btn btn-danger<?php echo $isPaidWorkspace ? '' : ' d-none'; ?>" id="btn-save-refund">Simpan Refund</button>
       </div>
     </div>
   </div>
@@ -332,10 +395,13 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  const workspaceMode = <?php echo json_encode($workspaceMode, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+  const isPaidWorkspace = workspaceMode === 'PAID';
+  const reversalReasonOptions = <?php echo json_encode($reversalReasonOptions, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const initialFilters = <?php echo json_encode($filters, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const recentState = {
     q: initialFilters.q || '',
-    status: initialFilters.status || 'DRAFT',
+    status: initialFilters.status || (isPaidWorkspace ? 'PAID' : 'DRAFT'),
     outlet_id: parseInt(initialFilters.outlet_id || 0, 10) || 0,
     page: parseInt(initialFilters.page || 1, 10) || 1,
     limit: parseInt(initialFilters.limit || 20, 10) || 20
@@ -360,6 +426,11 @@ document.addEventListener('DOMContentLoaded', function () {
   const lineBody = document.getElementById('order_line_body');
   const emptyState = document.getElementById('order_empty_state');
   const reversalButton = document.getElementById('btn-reversal-preview');
+  const reversalReasonWrap = document.getElementById('reversal_reason_wrap');
+  const reversalReasonCode = document.getElementById('reversal_reason_code');
+  const reversalReasonOther = document.getElementById('reversal_reason_other');
+  const refundPaymentMethodField = document.getElementById('refund_payment_method_id');
+  const refundReferenceField = document.getElementById('refund_reference_no');
   let searchMode = 'PRODUCT';
 
   function escapeHtml(v) { return String(v ?? '').replace(/[&<>\"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[m])); }
@@ -500,16 +571,20 @@ document.addEventListener('DOMContentLoaded', function () {
             <div class="pos-order-mini-note mt-1">${number(line.estimated_available_qty || 0, 2)} ${escapeHtml(line.uom_code || '')}</div>
           </td>
           <td class="text-center" style="width:120px;">
-            <input type="number" class="form-control form-control-sm text-center order-line-qty" data-index="${idx}" min="0.01" step="0.01" value="${Number(line.qty || 1)}">
+            <input type="number" class="form-control form-control-sm text-center order-line-qty" data-index="${idx}" min="0.01" step="0.01" value="${Number(line.qty || 1)}" ${isPaidWorkspace ? 'disabled' : ''}>
           </td>
           <td class="text-end">${money(line.unit_price || 0)}</td>
           <td class="text-end">${money(line.hpp_live_snapshot || line.hpp_standard || 0)}</td>
           <td class="text-end fw-semibold">${money((Number(line.qty || 0) * Number(line.unit_price || 0)))}</td>
-          <td style="min-width:180px;"><input type="text" class="form-control form-control-sm order-line-note" data-index="${idx}" value="${escapeHtml(line.notes || '')}" placeholder="Catatan line"></td>
-          <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger order-line-remove" data-index="${idx}"><i class="ri-delete-bin-line"></i></button></td>
+          <td style="min-width:180px;"><input type="text" class="form-control form-control-sm order-line-note" data-index="${idx}" value="${escapeHtml(line.notes || '')}" placeholder="Catatan line" ${isPaidWorkspace ? 'disabled' : ''}></td>
+          <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger order-line-remove" data-index="${idx}" ${isPaidWorkspace ? 'disabled' : ''}><i class="ri-delete-bin-line"></i></button></td>
         </tr>
       `;
     }).join('');
+    if (isPaidWorkspace) {
+      recalcSummary();
+      return;
+    }
     lineBody.querySelectorAll('.order-line-qty').forEach((el) => el.addEventListener('input', () => {
       const idx = Number(el.dataset.index || 0);
       const qty = Math.max(0, Number(el.value || 0));
@@ -725,29 +800,63 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function recentQs() {
     const p = new URLSearchParams();
-    p.set('q', recentState.q); p.set('status', recentState.status); p.set('outlet_id', recentState.outlet_id); p.set('page', recentState.page); p.set('limit', recentState.limit);
+    p.set('q', recentState.q); p.set('status', recentState.status); p.set('workspace_mode', workspaceMode); p.set('outlet_id', recentState.outlet_id); p.set('page', recentState.page); p.set('limit', recentState.limit);
     return p.toString();
   }
 
   function orderStatusChip(status) {
     const value = String(status || '').toUpperCase();
-    const label = value || '-';
+    const label = orderStatusLabel(value);
     const kind = value === 'CONFIRMED' ? 'order-confirmed' : 'order-draft';
     return `<span class="pos-order-status-chip ${kind}">${escapeHtml(label)}</span>`;
+  }
+
+  function orderStatusLabel(status) {
+    const value = String(status || '').toUpperCase();
+    const map = {
+      DRAFT: 'Draft',
+      CONFIRMED: 'Terkonfirmasi',
+      PAID: 'Lunas',
+      VOID: 'Void penuh',
+      PARTIAL: 'Sebagian',
+      REFUNDED_FULL: 'Refund penuh',
+      REFUNDED_PARTIAL: 'Refund sebagian',
+      CANCELLED: 'Dibatalkan'
+    };
+    return map[value] || (value ? value.replace(/_/g, ' ') : '-');
+  }
+
+  function lineStatusLabel(status) {
+    const value = String(status || '').toUpperCase();
+    const map = {
+      OPEN: 'Aktif',
+      ACTIVE: 'Aktif',
+      VOID: 'Void penuh',
+      VOID_PARTIAL: 'Void sebagian',
+      REFUNDED_FULL: 'Refund penuh',
+      REFUNDED_PARTIAL: 'Refund sebagian'
+    };
+    return map[value] || (value ? value.replace(/_/g, ' ') : '-');
+  }
+
+  function processStatusLabel(status) {
+    return String(status || '').toUpperCase() === 'NOT_PROCESSED'
+      ? 'Belum diproses'
+      : 'Sudah diproses';
   }
 
   function stockCommitChip(status) {
     const value = String(status || '').toUpperCase();
     if (!value) return '';
     const map = {
-      PENDING: ['commit-queued', 'Stok PENDING'],
-      QUEUED: ['commit-queued', 'Stok QUEUED'],
-      PROCESSING: ['commit-processing', 'Stok PROCESSING'],
-      POSTED: ['commit-posted', 'Stok POSTED'],
-      FAILED: ['commit-failed', 'Stok FAILED'],
-      REVERSED: ['commit-reversed', 'Stok REVERSED']
+      PENDING: ['commit-queued', 'Sinkron stok menunggu'],
+      QUEUED: ['commit-queued', 'Sinkron stok antre'],
+      PROCESSING: ['commit-processing', 'Sinkron stok diproses'],
+      POSTED: ['commit-posted', 'Stok sudah sinkron'],
+      FAILED: ['commit-failed', 'Sinkron stok gagal'],
+      REVERSED: ['commit-reversed', 'Sinkron stok dibatalkan']
     };
-    const entry = map[value] || ['commit-queued', 'Stok ' + value];
+    const entry = map[value] || ['commit-queued', value ? ('Status stok: ' + value.replace(/_/g, ' ')) : '-'];
     return `<span class="pos-order-status-chip ${entry[0]}">${escapeHtml(entry[1])}</span>`;
   }
 
@@ -908,20 +1017,166 @@ Print Job: ${Number(json.print_job_count || 0)}`);
     renderLines();
   }
 
+  function reversalUsesStockReturn() {
+    return !!document.getElementById('reversal_policy_return')?.checked;
+  }
+
+  function activeReversalKind() {
+    return isPaidWorkspace ? 'REFUND' : 'VOID';
+  }
+
+  function refreshReversalPolicyCards() {
+    const usesReturn = reversalUsesStockReturn();
+    document.getElementById('reversal_policy_return_card')?.classList.toggle('active', usesReturn);
+    document.getElementById('reversal_policy_adjust_card')?.classList.toggle('active', !usesReturn);
+    reversalReasonWrap?.classList.toggle('d-none', usesReturn);
+  }
+
+  function fillReversalReasonOptions() {
+    if (!reversalReasonCode) {
+      return;
+    }
+    const rows = Array.isArray(reversalReasonOptions[activeReversalKind()]) ? reversalReasonOptions[activeReversalKind()] : [];
+    reversalReasonCode.innerHTML = ['<option value="">Pilih alasan...</option>']
+      .concat(rows.map((row) => `<option value="${escapeHtml(row.code || '')}">${escapeHtml(row.label || '')}</option>`))
+      .join('');
+    if (reversalReasonOther) {
+      reversalReasonOther.value = '';
+      reversalReasonOther.classList.add('d-none');
+    }
+  }
+
+  function refreshReasonOtherVisibility() {
+    if (!reversalReasonOther || !reversalReasonCode) {
+      return;
+    }
+    reversalReasonOther.classList.toggle('d-none', String(reversalReasonCode.value || '').toUpperCase() !== 'OTHER');
+  }
+
+  function resetReversalForm() {
+    document.getElementById('reversal_policy_return').checked = true;
+    document.getElementById('reversal_policy_adjust').checked = false;
+    document.getElementById('reversal_adjustment_mode').value = 'NONE';
+    document.getElementById('reversal_reason').value = '';
+    if (refundPaymentMethodField) refundPaymentMethodField.value = '';
+    if (refundReferenceField) refundReferenceField.value = '';
+    fillReversalReasonOptions();
+    refreshReversalPolicyCards();
+  }
+
+  function syncReversalSelections() {
+    document.querySelectorAll('.pos-reversal-line').forEach((card) => {
+      const productToggle = card.querySelector('.reversal-product-toggle');
+      const productQty = card.querySelector('.reversal-product-qty');
+      const extraRows = card.querySelectorAll('.pos-reversal-extra-row');
+      if (!productToggle) {
+        return;
+      }
+      const productSelected = productToggle.checked;
+      if (productQty) {
+        productQty.disabled = !productSelected;
+      }
+      extraRows.forEach((row) => {
+        const extraToggle = row.querySelector('.reversal-extra-toggle');
+        const extraQty = row.querySelector('.reversal-extra-qty');
+        const autoHint = row.querySelector('.reversal-extra-auto-hint');
+        if (!extraToggle || !extraQty) {
+          return;
+        }
+        if (productSelected) {
+          extraToggle.checked = true;
+          extraToggle.disabled = true;
+          extraQty.disabled = true;
+          autoHint?.classList.remove('d-none');
+        } else {
+          extraToggle.disabled = false;
+          extraQty.disabled = !extraToggle.checked;
+          autoHint?.classList.add('d-none');
+        }
+      });
+    });
+  }
+
+  function finalReversalReason() {
+    const auditNote = String(document.getElementById('reversal_reason').value || '').trim();
+    if (reversalUsesStockReturn()) {
+      return auditNote;
+    }
+    const selectedCode = String(reversalReasonCode?.value || '').trim();
+    if (selectedCode === '') {
+      throw new Error('Pilih alasan reversal ketika stok tidak dikembalikan.');
+    }
+    const rows = Array.isArray(reversalReasonOptions[activeReversalKind()]) ? reversalReasonOptions[activeReversalKind()] : [];
+    const matched = rows.find((row) => String(row.code || '') === selectedCode);
+    let reasonText = matched && rowHasLabel(matched) ? String(matched.label) : selectedCode;
+    if (selectedCode === 'OTHER') {
+      const otherText = String(reversalReasonOther?.value || '').trim();
+      if (otherText === '') {
+        throw new Error('Isi alasan lainnya untuk reversal ini.');
+      }
+      reasonText = otherText;
+    }
+    return auditNote ? `${reasonText} | ${auditNote}` : reasonText;
+  }
+
+  function rowHasLabel(row) {
+    return !!(row && typeof row === 'object' && row.label);
+  }
+
   function buildReversalPayload(kind) {
     if (!reversalPreview || !reversalPreview.order || !reversalPreview.order.header) {
       throw new Error('Preview reversal belum dimuat.');
     }
-    const returnToStock = document.getElementById('reversal_return_to_stock').checked;
+    const returnToStock = reversalUsesStockReturn();
     const adjustmentMode = document.getElementById('reversal_adjustment_mode').value || 'NONE';
-    const reason = document.getElementById('reversal_reason').value || '';
-    const lines = (reversalPreview.order.lines || []).map((line) => ({
-      order_line_id: Number(line.id || 0),
-      qty: Number(line.qty || 0),
-      processed_state: String(line.process_status || 'NOT_PROCESSED').toUpperCase(),
-      return_to_stock: returnToStock && String(line.process_status || '').toUpperCase() === 'NOT_PROCESSED',
-      notes: reason
-    })).filter((line) => line.order_line_id > 0 && line.qty > 0);
+    const reason = finalReversalReason();
+    const orderLineMap = new Map((reversalPreview.order.lines || []).map((line) => [Number(line.id || 0), line]));
+    const lines = [];
+
+    document.querySelectorAll('.pos-reversal-line').forEach((card) => {
+      const orderLineId = Number(card.dataset.lineId || 0);
+      const sourceLine = orderLineMap.get(orderLineId);
+      if (!sourceLine || orderLineId <= 0) {
+        return;
+      }
+      const productToggle = card.querySelector('.reversal-product-toggle');
+      const productQty = card.querySelector('.reversal-product-qty');
+      const productSelected = !!(productToggle && productToggle.checked);
+      const extraSelections = [];
+
+      card.querySelectorAll('.pos-reversal-extra-row').forEach((row) => {
+        const extraToggle = row.querySelector('.reversal-extra-toggle');
+        const extraQty = row.querySelector('.reversal-extra-qty');
+        const orderLineExtraId = Number(row.dataset.extraId || 0);
+        if (!extraToggle || !extraToggle.checked || orderLineExtraId <= 0) {
+          return;
+        }
+        extraSelections.push({
+          order_line_extra_id: orderLineExtraId,
+          qty: Math.max(0, Number(extraQty?.value || 0)),
+          processed_state: String(sourceLine.process_status || 'NOT_PROCESSED').toUpperCase(),
+          return_to_stock: returnToStock && String(sourceLine.process_status || '').toUpperCase() === 'NOT_PROCESSED',
+          notes: reason,
+        });
+      });
+
+      const qty = productSelected ? Math.max(0, Number(productQty?.value || 0)) : 0;
+      if (!productSelected && !extraSelections.length) {
+        return;
+      }
+      lines.push({
+        order_line_id: orderLineId,
+        qty,
+        processed_state: String(sourceLine.process_status || 'NOT_PROCESSED').toUpperCase(),
+        return_to_stock: returnToStock && String(sourceLine.process_status || '').toUpperCase() === 'NOT_PROCESSED',
+        notes: reason,
+        extras: extraSelections.filter((extra) => extra.order_line_extra_id > 0 && extra.qty > 0),
+      });
+    });
+
+    if (kind === 'REFUND' && !refundPaymentMethodField?.value) {
+      throw new Error('Pilih metode pembayaran pengembalian untuk refund ini.');
+    }
 
     return {
       kind,
@@ -929,13 +1184,15 @@ Print Job: ${Number(json.print_job_count || 0)}`);
       return_to_stock: returnToStock ? 1 : 0,
       adjustment_mode: adjustmentMode,
       reason,
-      lines
+      payment_method_id: kind === 'REFUND' ? Number(refundPaymentMethodField?.value || 0) : 0,
+      reference_no: kind === 'REFUND' ? String(refundReferenceField?.value || '') : '',
+      lines: lines.filter((line) => line.order_line_id > 0 && (line.qty > 0 || (Array.isArray(line.extras) && line.extras.length > 0)))
     };
   }
 
   function renderReversalPreview(json) {
     reversalPreview = json;
-    document.getElementById('reversal_modal_meta').textContent = `${json.order?.header?.order_no || '-'} • ${json.order?.header?.status || '-'} • ${json.order?.header?.member_name || 'Walk in'}`;
+    document.getElementById('reversal_modal_meta').textContent = `${json.order?.header?.order_no || '-'} • ${orderStatusLabel(json.order?.header?.status || '')} • ${json.order?.header?.customer_name || json.order?.header?.member_name || 'Walk in'}`;
     const list = document.getElementById('reversal_line_list');
     const emptyHint = document.getElementById('reversal_empty_hint');
     const orderLines = Array.isArray(json.order?.lines) ? json.order.lines : [];
@@ -945,27 +1202,58 @@ Print Job: ${Number(json.print_job_count || 0)}`);
       return;
     }
     emptyHint.classList.add('d-none');
+    resetReversalForm();
     list.innerHTML = orderLines.map((line) => {
       const processed = String(line.process_status || 'NOT_PROCESSED').toUpperCase();
       const isProcessed = processed !== 'NOT_PROCESSED';
       const flagClass = isProcessed ? 'adjust' : 'return';
       const flagLabel = isProcessed ? 'Masuk Adjustment' : 'Bisa Kembali ke Stok';
+      const processedLabel = processStatusLabel(processed);
+      const extras = Array.isArray(line.extras) ? line.extras : [];
       return `
-        <div class="pos-reversal-line">
+        <div class="pos-reversal-line" data-line-id="${Number(line.id || 0)}">
           <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
             <div>
-              <div class="fw-semibold">${escapeHtml(line.product_name || '-')}</div>
-              <div class="pos-order-mini-note">${escapeHtml(line.product_code || '-')} | Qty ${number(line.qty || 0, 2)} | Status Line ${escapeHtml(line.line_status || '-')}</div>
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <input class="form-check-input reversal-product-toggle" type="checkbox" ${Number(line.qty || 0) > 0 ? 'checked' : ''}>
+                <div class="fw-semibold">${escapeHtml(line.product_name || '-')}</div>
+              </div>
+              <div class="pos-order-mini-note">${escapeHtml(line.product_code || '-')} | Qty ${number(line.qty || 0, 2)} | Status item ${escapeHtml(lineStatusLabel(line.line_status || '-'))}</div>
+              ${extras.length ? '<div class="pos-reversal-summary-note mt-2">Pilih produk = extra ikut otomatis. Untuk extra saja, kosongkan produk lalu pilih extra di bawah.</div>' : ''}
             </div>
             <span class="pos-reversal-flag ${flagClass}">${escapeHtml(flagLabel)}</span>
           </div>
-          <div class="small text-muted mt-2">
-            Process Status: <strong>${escapeHtml(processed)}</strong>
-            ${isProcessed ? ' • Sudah diproses, jadi stok tidak dikembalikan normal.' : ' • Belum diproses, stok boleh dikembalikan.'}
+          <div class="row g-2 mt-2 align-items-end">
+            <div class="col-md-3">
+              <label class="form-label small text-muted mb-1">Qty Produk</label>
+              <input type="number" class="form-control form-control-sm reversal-product-qty pos-reversal-qty-input" min="0" step="0.01" value="${Number(line.qty || 0)}">
+            </div>
+            <div class="col-md-9">
+              <div class="small text-muted">Status proses: <strong>${escapeHtml(processedLabel)}</strong>${isProcessed ? ' • Stok akan diarahkan ke adjustment.' : ' • Stok boleh dikembalikan.'}</div>
+            </div>
           </div>
+          ${extras.length ? `<div class="pos-reversal-extra-list">${extras.map((extra) => `
+            <div class="pos-reversal-extra-row" data-extra-id="${Number(extra.id || 0)}">
+              <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                <label class="d-flex align-items-center gap-2 mb-0">
+                  <input class="form-check-input reversal-extra-toggle" type="checkbox">
+                  <span class="fw-semibold">${escapeHtml(extra.extra_name || '-')}</span>
+                </label>
+                <span class="reversal-extra-auto-hint small text-success d-none">Ikut otomatis saat produk dipilih</span>
+              </div>
+              <div class="d-flex flex-wrap gap-3 align-items-center mt-2">
+                <div>
+                  <div class="small text-muted">Qty Extra</div>
+                  <input type="number" class="form-control form-control-sm reversal-extra-qty pos-reversal-qty-input" min="0" step="0.01" value="${Number(extra.qty || 0)}" disabled>
+                </div>
+                <div class="small text-muted">Harga tambahan ${money(extra.unit_price || 0)}</div>
+              </div>
+            </div>`).join('')}</div>` : ''}
         </div>
       `;
     }).join('');
+    syncReversalSelections();
+    list.querySelectorAll('.reversal-product-toggle, .reversal-extra-toggle').forEach((field) => field.addEventListener('change', syncReversalSelections));
   }
 
   async function openReversalPreview() {
@@ -999,7 +1287,7 @@ Print Job: ${Number(json.print_job_count || 0)}`);
   document.getElementById('recent_q').addEventListener('input', (e) => { recentState.q = e.target.value; recentState.page = 1; loadRecents(); });
   document.getElementById('recent_outlet_id').addEventListener('change', (e) => { recentState.outlet_id = Number(e.target.value || 0); recentState.page = 1; loadRecents(); });
   document.getElementById('recent_limit').addEventListener('change', (e) => { recentState.limit = Number(e.target.value || 20); recentState.page = 1; loadRecents(); });
-  document.getElementById('btn-clear-recent').addEventListener('click', () => { recentState.q = ''; recentState.status = 'DRAFT'; recentState.outlet_id = 0; recentState.page = 1; recentState.limit = 20; loadRecents(); });
+  document.getElementById('btn-clear-recent').addEventListener('click', () => { recentState.q = ''; recentState.status = isPaidWorkspace ? 'PAID' : 'DRAFT'; recentState.outlet_id = 0; recentState.page = 1; recentState.limit = 20; loadRecents(); });
 
   outletSelect.addEventListener('change', () => { filterTerminalOptions(); syncHeaderToOrder(); });
   terminalSelect.addEventListener('change', syncHeaderToOrder);
@@ -1025,8 +1313,13 @@ Print Job: ${Number(json.print_job_count || 0)}`);
   document.getElementById('btn-save-refund').addEventListener('click', async () => {
     try { await submitReversal('REFUND'); } catch (e) { alert(e.message); }
   });
+  document.getElementById('reversal_policy_return')?.addEventListener('change', refreshReversalPolicyCards);
+  document.getElementById('reversal_policy_adjust')?.addEventListener('change', refreshReversalPolicyCards);
+  reversalReasonCode?.addEventListener('change', refreshReasonOtherVisibility);
 
   syncOrderToHeader();
+  fillReversalReasonOptions();
+  refreshReversalPolicyCards();
   renderLines();
   loadRecents().catch((e) => alert(e.message));
 });

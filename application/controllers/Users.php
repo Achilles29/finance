@@ -25,19 +25,22 @@ class Users extends MY_Controller
     {
         $this->require_permission(self::PAGE_INDEX);
 
+        $status = strtolower(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['active', 'inactive', 'all'], true)) {
+            $status = 'active';
+        }
+
         $filter = [
             'search'    => $this->input->get('search', true),
-            'is_active' => $this->input->get('is_active'),
+            'is_active' => $status === 'all' ? null : ($status === 'active' ? 1 : 0),
         ];
-        if ($filter['is_active'] === null || $filter['is_active'] === '') {
-            unset($filter['is_active']);
-        }
 
         $data = [
             'title'       => 'Manajemen User',
             'active_menu' => 'sys.users',
             'users'       => $this->User_model->get_all($filter),
             'filter'      => $filter,
+            'status'      => $status,
         ];
 
         $this->render('users/index', $data);
@@ -54,7 +57,9 @@ class Users extends MY_Controller
         $data = [
             'title'       => 'Tambah User Baru',
             'active_menu' => 'sys.users',
-            'all_roles'   => $this->Role_model->get_all(true),
+            'all_roles'   => $this->User_model->get_role_selection_options(true),
+            'protected_role_ids' => $this->User_model->get_protected_role_ids(),
+            'can_manage_protected_roles' => $this->is_superadmin(),
             'employee_options' => $this->User_model->get_employee_options(),
             'form_action' => 'users/store',
             'edit_mode'   => false,
@@ -108,9 +113,7 @@ class Users extends MY_Controller
         ]);
 
         if ($user_id) {
-            $role_ids = $this->input->post('role_ids') ?: [];
-            // Auto-include default role dari jabatan pegawai (jika ada)
-            $role_ids = $this->_merge_position_default_role($role_ids, $employeeId);
+            $role_ids = $this->_resolve_role_assignments((array)($this->input->post('role_ids') ?: []), $employeeId);
             $this->User_model->sync_roles($user_id, $role_ids, $this->current_user['id']);
 
             $this->session->set_flashdata('success', 'User berhasil dibuat.');
@@ -135,7 +138,9 @@ class Users extends MY_Controller
         $data = [
             'title'        => 'Edit User: ' . htmlspecialchars($user['username']),
             'active_menu'  => 'sys.users',
-            'all_roles'    => $this->Role_model->get_all(true),
+            'all_roles'    => $this->User_model->get_role_selection_options(true),
+            'protected_role_ids' => $this->User_model->get_protected_role_ids(),
+            'can_manage_protected_roles' => $this->is_superadmin(),
             'employee_options' => $this->User_model->get_employee_options($id),
             'user_roles'   => array_column($this->User_model->get_user_roles($id), 'id'),
             'user'         => $user,
@@ -144,6 +149,28 @@ class Users extends MY_Controller
         ];
 
         $this->render('users/form', $data);
+    }
+
+    public function detail(int $id)
+    {
+        $this->require_permission(self::PAGE_INDEX);
+
+        $user = $this->User_model->get_detail_by_id($id);
+        if (!$user) show_404();
+
+        $roles = $this->User_model->get_user_roles($id);
+        $overrides = $this->User_model->get_user_overrides($id);
+
+        $data = [
+            'title' => 'Detail User: ' . htmlspecialchars($user['username']),
+            'active_menu' => 'sys.users',
+            'user' => $user,
+            'user_roles' => $roles,
+            'override_count' => count($overrides),
+            'override_modules' => array_values(array_unique(array_column($overrides, 'module'))),
+        ];
+
+        $this->render('users/detail', $data);
     }
 
     public function update(int $id)
@@ -185,9 +212,11 @@ class Users extends MY_Controller
             'employee_id' => $employeeId > 0 ? $employeeId : null,
         ]);
 
-        $role_ids = $this->input->post('role_ids') ?: [];
-        // Auto-include default role dari jabatan pegawai (jika ada)
-        $role_ids = $this->_merge_position_default_role($role_ids, $employeeId);
+        $role_ids = $this->_resolve_role_assignments(
+            (array)($this->input->post('role_ids') ?: []),
+            $employeeId,
+            array_column($this->User_model->get_user_roles($id), 'id')
+        );
         $this->User_model->sync_roles($id, $role_ids, $this->current_user['id']);
 
         // Jika user yang diedit sedang login, refresh permissions
@@ -303,35 +332,16 @@ class Users extends MY_Controller
     // PRIVATE HELPERS
     // ---------------------------------------------------------------
 
-    /**
-     * Ambil default_role_id dari jabatan pegawai (via org_position),
-     * lalu merge ke dalam array role_ids yang dipilih admin.
-     * Jika tidak ada pegawai atau jabatan tidak punya default role, kembalikan apa adanya.
-     */
-    private function _merge_position_default_role(array $role_ids, int $employee_id): array
+    private function _resolve_role_assignments(array $role_ids, int $employee_id, array $existing_role_ids = []): array
     {
-        if ($employee_id <= 0) {
-            return $role_ids;
-        }
-
-        $row = $this->db->select('p.default_role_id')
-            ->from('org_employee e')
-            ->join('org_position p', 'p.id = e.position_id', 'left')
-            ->where('e.id', $employee_id)
-            ->limit(1)
-            ->get()->row_array();
-
-        $defaultRoleId = (int)($row['default_role_id'] ?? 0);
-        if ($defaultRoleId <= 0) {
-            return $role_ids;
-        }
-
-        // Tambahkan jika belum ada
         $role_ids = array_map('intval', $role_ids);
-        if (!in_array($defaultRoleId, $role_ids, true)) {
-            $role_ids[] = $defaultRoleId;
-        }
+        $employeeRoleIds = $employee_id > 0 ? $this->User_model->get_effective_role_ids_for_employee($employee_id) : [];
+        $existingProtectedScope = array_merge($existing_role_ids, $employeeRoleIds);
 
-        return $role_ids;
+        return $this->User_model->preserve_protected_role_ids(
+            array_merge($role_ids, $employeeRoleIds),
+            $existingProtectedScope,
+            $this->is_superadmin()
+        );
     }
 }

@@ -986,7 +986,7 @@ foreach ($detailLines as $ln) {
     var current = Object.assign(createEmptyLine(), existing || {});
     var selectedName = it.catalog_name || it.item_name || it.material_name || '';
     var brandName = String(it.brand_name || it.profile_brand || it.snapshot_brand_name || '').trim();
-    var lineDescription = String(it.line_description || it.profile_description || it.snapshot_line_description || it.notes || '').trim();
+    var lineDescription = String(it.line_description || it.profile_description || it.snapshot_line_description || '').trim();
     var next = {
       source_catalog_id: it.catalog_id || null,
       source_profile_key: it.profile_key || '',
@@ -1599,7 +1599,7 @@ foreach ($detailLines as $ln) {
     items.forEach(function (it, idx) {
       var name = it.catalog_name || it.item_name || it.material_name || '-';
       var brandName = String(it.brand_name || it.profile_brand || it.snapshot_brand_name || '').trim();
-      var lineDescription = String(it.line_description || it.profile_description || it.snapshot_line_description || it.notes || '').trim();
+      var lineDescription = String(it.line_description || it.profile_description || it.snapshot_line_description || '').trim();
       var profile = 'Merk: ' + (brandName || '-') + ' | Ket: ' + (lineDescription || '-');
       var buyUom = String(it.buy_uom_code || '-');
       var contentUom = String(it.content_uom_code || '-');

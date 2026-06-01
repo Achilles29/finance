@@ -318,6 +318,67 @@ class Production_model extends CI_Model
         $divisionNameColumn = $this->division_name_column();
         $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
+        if ($this->db->table_exists('inv_component_monthly_stock')) {
+            $targetMonth = date('Y-m-01');
+            $latestMonthSubquery = $this->db
+                ->select('location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key', false)
+                ->from('inv_component_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
+                ->get_compiled_select();
+
+            $this->db->select(" 
+                s.location_type,
+                s.division_id,
+                {$divisionNameSelect},
+                s.component_id,
+                c.component_code,
+                c.component_name,
+                c.component_type,
+                s.uom_id,
+                u.code AS uom_code,
+                u.name AS uom_name,
+                s.closing_qty AS qty_on_hand,
+                s.avg_cost,
+                s.total_value,
+                COALESCE(s.last_movement_at, CONCAT(s.month_key, ' 00:00:00')) AS last_txn_at,
+                COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, ' 00:00:00')) AS updated_at
+            ", false);
+            $this->db->from('inv_component_monthly_stock s');
+            $this->db->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false);
+            $this->db->join('mst_component c', 'c.id = s.component_id', 'inner');
+            $this->db->join('mst_operational_division d', 'd.id = s.division_id', 'left');
+            $this->db->join('mst_uom u', 'u.id = s.uom_id', 'left');
+            $this->db->join('mst_component_category cat', 'cat.id = c.component_category_id', 'left');
+
+            $this->apply_component_location_filter('s.location_type', $locationType);
+            if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+                $this->db->where('c.component_type', $componentType);
+            }
+            if ($q !== '') {
+                $this->db->group_start();
+                $this->db
+                    ->like('c.component_name', $q)
+                    ->or_like('c.component_code', $q);
+                if ($divisionNameColumn !== null) {
+                    $this->db->or_like('d.' . $divisionNameColumn, $q);
+                }
+                $this->db->group_end();
+            }
+
+            $this->apply_component_display_order(
+                $divisionNameColumn !== null ? ('d.' . $divisionNameColumn) : 's.division_id',
+                'c.component_type',
+                'c.component_name'
+            );
+            $this->db->order_by('s.location_type', 'ASC');
+            $this->db->limit(max(1, (int)$limit));
+            $rows = $this->db->get()->result_array();
+            return $this->attach_component_lot_summaries($rows);
+        }
+
+        return [];
+
         $this->db->select("
             s.location_type,
             s.division_id,
@@ -627,6 +688,31 @@ class Production_model extends CI_Model
         $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
         $startDate = $month . '-01';
         $endDate = date('Y-m-t', strtotime($startDate));
+        $projectionRows = $this->fetch_component_daily_projection_rows($filters, $startDate, $endDate);
+        if ($projectionRows !== null) {
+            usort($projectionRows, function (array $left, array $right): int {
+                $displayCompare = $this->compare_component_display_rows($left, $right);
+                if ($displayCompare !== 0) {
+                    return $displayCompare;
+                }
+
+                $dateCompare = strcmp((string)($right['movement_date'] ?? ''), (string)($left['movement_date'] ?? ''));
+                if ($dateCompare !== 0) {
+                    return $dateCompare;
+                }
+
+                return ((int)($right['component_id'] ?? 0) <=> (int)($left['component_id'] ?? 0));
+            });
+
+            if ($limit > 0 && count($projectionRows) > $limit) {
+                return array_slice($projectionRows, 0, $limit);
+            }
+
+            return $projectionRows;
+        }
+
+        return [];
+
         $divisionNameColumn = $this->division_name_column();
         $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
@@ -691,13 +777,53 @@ class Production_model extends CI_Model
 
     public function latest_component_daily_month(array $filters = []): ?string
     {
-        if (!$this->db->table_exists('inv_component_daily_rollup')) {
-            return null;
-        }
-
         $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
         $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
         $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
+
+        if ($this->db->table_exists('inv_component_monthly_stock')) {
+            $this->db->select('MAX(s.month_key) AS max_month', false)
+                ->from('inv_component_monthly_stock s')
+                ->join('mst_component c', 'c.id = s.component_id', 'inner');
+            $this->apply_component_location_filter('s.location_type', $locationType);
+            if ($divisionId > 0) {
+                $this->db->where('s.division_id', $divisionId);
+            }
+            if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+                $this->db->where('c.component_type', $componentType);
+            }
+
+            $row = $this->db->get()->row_array();
+            $maxMonth = trim((string)($row['max_month'] ?? ''));
+            if (preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $maxMonth)) {
+                return substr($maxMonth, 0, 7);
+            }
+        }
+
+        if ($this->db->table_exists('inv_component_movement_log')) {
+            $this->db->select('MAX(m.movement_date) AS max_date', false)
+                ->from('inv_component_movement_log m')
+                ->join('mst_component c', 'c.id = m.component_id', 'inner');
+            $this->apply_component_location_filter('m.location_type', $locationType);
+            if ($divisionId > 0) {
+                $this->db->where('m.division_id', $divisionId);
+            }
+            if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+                $this->db->where('c.component_type', $componentType);
+            }
+
+            $row = $this->db->get()->row_array();
+            $maxDate = trim((string)($row['max_date'] ?? ''));
+            if (preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $maxDate)) {
+                return substr($maxDate, 0, 7);
+            }
+        }
+
+        return null;
+
+        if (!$this->db->table_exists('inv_component_daily_rollup')) {
+            return null;
+        }
 
         $this->db->select('MAX(r.movement_date) AS max_date', false)
             ->from('inv_component_daily_rollup r')
@@ -732,52 +858,7 @@ class Production_model extends CI_Model
         $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
         $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
         $q = trim((string)($filters['q'] ?? ''));
-
-        if (!$this->db->table_exists('inv_component_daily_rollup')) {
-            return [
-                'window' => ['month' => $month, 'date_from' => $windowStart, 'date_to' => $windowEnd],
-                'dates' => $this->month_date_series($windowStart, $windowEnd),
-                'rows' => [],
-            ];
-        }
-
-        $divisionNameColumn = $this->division_name_column();
-        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
-
-        $this->db->select('r.movement_date, r.location_type, r.division_id, ' . $divisionNameSelect . ', r.component_id, c.component_code, c.component_name, c.component_type, r.uom_id, u.code AS uom_code, r.opening_qty, r.in_qty, r.out_qty, r.waste_qty, r.spoil_qty, r.adjustment_qty, r.closing_qty, r.avg_cost, r.total_value', false)
-            ->from('inv_component_daily_rollup r')
-            ->join('mst_component c', 'c.id = r.component_id', 'inner')
-            ->join('mst_operational_division d', 'd.id = r.division_id', 'left')
-            ->join('mst_uom u', 'u.id = r.uom_id', 'left')
-            ->where('r.movement_date >=', $windowStart)
-            ->where('r.movement_date <=', $windowEnd);
-
-        $this->apply_component_location_filter('r.location_type', $locationType);
-        if ($divisionId > 0) {
-            $this->db->where('r.division_id', $divisionId);
-        }
-        if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
-            $this->db->where('c.component_type', $componentType);
-        }
-        if ($q !== '') {
-            $this->db->group_start()
-                ->like('c.component_code', $q)
-                ->or_like('c.component_name', $q);
-            if ($divisionNameColumn !== null) {
-                $this->db->or_like('d.' . $divisionNameColumn, $q);
-            }
-            $this->db->group_end();
-        }
-
-        $this->apply_component_display_order(
-            $divisionNameColumn !== null ? ('d.' . $divisionNameColumn) : 'r.division_id',
-            'c.component_type',
-            'c.component_name'
-        );
-        $rows = $this->db
-            ->order_by('r.movement_date', 'ASC')
-            ->get()
-            ->result_array();
+        $rows = $this->component_daily_rows($filters, 0);
 
         $dates = $this->month_date_series($windowStart, $windowEnd);
         $dateMap = [];
@@ -827,6 +908,8 @@ class Production_model extends CI_Model
                     'total_closing' => 0.0,
                     'avg_cost' => 0.0,
                     'total_value' => 0.0,
+                    '_seed_opening' => round((float)($row['opening_qty'] ?? 0), 4),
+                    '_min_date' => $movementDate,
                 ];
             }
 
@@ -856,12 +939,17 @@ class Production_model extends CI_Model
             $grouped[$key]['total_closing'] = $closing;
             $grouped[$key]['avg_cost'] = round((float)($row['avg_cost'] ?? 0), 6);
             $grouped[$key]['total_value'] = round((float)($row['total_value'] ?? 0), 2);
+            if ($movementDate !== '' && (($grouped[$key]['_min_date'] ?? '') === '' || $movementDate < (string)$grouped[$key]['_min_date'])) {
+                $grouped[$key]['_min_date'] = $movementDate;
+                $grouped[$key]['_seed_opening'] = $opening;
+            }
         }
 
         $dateKeys = array_keys($dateMap);
         foreach ($grouped as &$group) {
             $firstOpening = null;
             $lastClosing = 0.0;
+            $seedOpening = round((float)($group['_seed_opening'] ?? 0), 4);
             foreach ($dateKeys as $index => $dateKey) {
                 $day = (array)($group['days'][$dateKey] ?? []);
                 $in = round((float)($day['in'] ?? 0), 4);
@@ -869,7 +957,7 @@ class Production_model extends CI_Model
                 $adj = round((float)($day['adj'] ?? 0), 4);
 
                 if ($index === 0) {
-                    $opening = round((float)($day['opening'] ?? 0), 4);
+                    $opening = $seedOpening;
                 } else {
                     $opening = round($lastClosing, 4);
                 }
@@ -898,26 +986,13 @@ class Production_model extends CI_Model
 
             $group['total_opening'] = round((float)($firstOpening ?? 0), 4);
             $group['total_closing'] = round($lastClosing, 4);
+            unset($group['_seed_opening'], $group['_min_date']);
         }
         unset($group);
 
         $matrixRows = array_values($grouped);
         $matrixRows = $this->attach_component_lot_summaries($matrixRows);
         $matrixRows = $this->attach_component_daily_lot_rows($matrixRows, $dates, $windowStart, $windowEnd);
-        $isCurrentMonth = $month === date('Y-m');
-        foreach ($matrixRows as &$matrixRow) {
-            $lotSummary = is_array($matrixRow['lot_summary'] ?? null) ? $matrixRow['lot_summary'] : [];
-            $lotBalance = round((float)($lotSummary['balance_qty'] ?? 0), 4);
-            if (!$isCurrentMonth || $lotBalance <= 0) {
-                continue;
-            }
-
-            $lotValue = round((float)($lotSummary['total_value'] ?? 0), 2);
-            $matrixRow['total_closing'] = $lotBalance;
-            $matrixRow['avg_cost'] = $lotBalance > 0 ? round($lotValue / $lotBalance, 6) : 0.0;
-            $matrixRow['total_value'] = $lotValue;
-        }
-        unset($matrixRow);
         if ($limit > 0 && count($matrixRows) > $limit) {
             $matrixRows = array_slice($matrixRows, 0, $limit);
         }
@@ -1008,6 +1083,7 @@ class Production_model extends CI_Model
         if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
             $asOfDate = date('Y-m-d');
         }
+        $asOfMonth = substr($asOfDate, 0, 7) . '-01';
         $q = trim((string)($filters['q'] ?? ''));
         $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
         $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
@@ -1017,7 +1093,27 @@ class Production_model extends CI_Model
         $divisionNameColumn = $this->division_name_column();
 
         $liveMap = [];
-        if ($this->db->table_exists('inv_component_stock_balance')) {
+        if ($this->db->table_exists('inv_component_monthly_stock')) {
+            $liveRows = $this->fetch_component_monthly_projection_seed_rows($filters, $asOfMonth);
+            foreach ($liveRows as $row) {
+                $key = $this->component_identity_key((string)($row['location_type'] ?? ''), $row['division_id'] ?? null, (int)($row['component_id'] ?? 0), (int)($row['uom_id'] ?? 0));
+                $liveMap[$key] = [
+                    'location_type' => (string)($row['location_type'] ?? ''),
+                    'division_id' => $row['division_id'] !== null ? (int)$row['division_id'] : null,
+                    'division_name' => (string)($row['division_name'] ?? '-'),
+                    'component_id' => (int)($row['component_id'] ?? 0),
+                    'component_code' => (string)($row['component_code'] ?? ''),
+                    'component_name' => (string)($row['component_name'] ?? ''),
+                    'component_type' => (string)($row['component_type'] ?? ''),
+                    'uom_id' => (int)($row['uom_id'] ?? 0),
+                    'uom_code' => (string)($row['uom_code'] ?? ''),
+                    'balance_qty' => round((float)($row['closing_qty'] ?? 0), 4),
+                    'balance_avg_cost' => round((float)($row['avg_cost'] ?? 0), 6),
+                    'balance_total_value' => round((float)($row['total_value'] ?? 0), 2),
+                    'balance_last_txn_at' => (string)($row['last_movement_at'] ?? ''),
+                ];
+            }
+        } elseif (false && $this->db->table_exists('inv_component_stock_balance')) {
             $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
             $this->db->select('s.location_type, s.division_id, ' . $divisionNameSelect . ', s.component_id, c.component_code, c.component_name, c.component_type, s.uom_id, u.code AS uom_code, s.qty_on_hand, s.avg_cost, s.total_value, s.last_txn_at', false)
                 ->from('inv_component_stock_balance s')
@@ -1068,43 +1164,16 @@ class Production_model extends CI_Model
         }
 
         $dailyMap = [];
-        if ($this->db->table_exists('inv_component_daily_rollup')) {
-            $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
-            $this->db->select('r.movement_date, r.location_type, r.division_id, ' . $divisionNameSelect . ', r.component_id, c.component_code, c.component_name, c.component_type, r.uom_id, u.code AS uom_code, r.closing_qty, r.avg_cost, r.total_value', false)
-                ->from('inv_component_daily_rollup r')
-                ->join('mst_component c', 'c.id = r.component_id', 'inner')
-                ->join('mst_operational_division d', 'd.id = r.division_id', 'left')
-                ->join('mst_uom u', 'u.id = r.uom_id', 'left')
-                ->where('r.movement_date <=', $asOfDate);
-            $this->apply_component_location_filter('r.location_type', $locationType);
-            if ($divisionId > 0) {
-                $this->db->where('r.division_id', $divisionId);
-            }
-            if ($componentIdFilter > 0) {
-                $this->db->where('r.component_id', $componentIdFilter);
-            }
-            if ($uomIdFilter > 0) {
-                $this->db->where('r.uom_id', $uomIdFilter);
-            }
-            if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
-                $this->db->where('c.component_type', $componentType);
-            }
-            if ($q !== '') {
-                $this->db->group_start()
-                    ->like('c.component_code', $q)
-                    ->or_like('c.component_name', $q);
-                if ($divisionNameColumn !== null) {
-                    $this->db->or_like('d.' . $divisionNameColumn, $q);
-                }
-                $this->db->group_end();
-            }
-            $dailyRows = $this->db
-                ->order_by('r.movement_date', 'ASC')
-                ->order_by('r.id', 'ASC')
-                ->get()
-                ->result_array();
+        $dailyRows = $this->fetch_component_daily_projection_rows(array_merge($filters, ['month' => substr($asOfDate, 0, 7)]), substr($asOfDate, 0, 7) . '-01', $asOfDate);
+        if ($dailyRows !== null) {
             foreach ($dailyRows as $row) {
                 $key = $this->component_identity_key((string)($row['location_type'] ?? ''), $row['division_id'] ?? null, (int)($row['component_id'] ?? 0), (int)($row['uom_id'] ?? 0));
+                $currentDate = (string)($dailyMap[$key]['daily_date'] ?? '');
+                $rowDate = (string)($row['movement_date'] ?? '');
+                if ($currentDate !== '' && $rowDate < $currentDate) {
+                    continue;
+                }
+
                 $dailyMap[$key] = [
                     'daily_date' => (string)($row['movement_date'] ?? ''),
                     'daily_qty' => round((float)($row['closing_qty'] ?? 0), 4),
@@ -1395,25 +1464,25 @@ class Production_model extends CI_Model
         $movementDate = (string)($meta['movement_date'] ?? '');
 
         if ($balanceVsDaily < $eps && $balanceVsMovement < $eps) {
-            return ['suspect_table' => 'MATCH', 'reason' => 'Balance, daily rollup, dan movement component masih sinkron.'];
+            return ['suspect_table' => 'MATCH', 'reason' => 'Balance, proyeksi harian, dan movement component masih sinkron.'];
         }
         if ($dailyVsMovement < $eps && $balanceVsDaily >= $eps) {
-            return ['suspect_table' => 'BALANCE', 'reason' => 'Balance component berbeda, sementara daily rollup masih sama dengan movement.'];
+            return ['suspect_table' => 'BALANCE', 'reason' => 'Balance component berbeda, sementara proyeksi harian masih sama dengan movement.'];
         }
         if ($balanceVsMovement < $eps && $dailyVsMovement >= $eps) {
-            $reason = 'Daily rollup component berbeda, sementara balance masih sama dengan movement.';
+            $reason = 'Proyeksi harian component berbeda, sementara balance masih sama dengan movement.';
             if ($dailyDate === '') {
-                $reason = 'Daily rollup component belum punya closing sampai tanggal audit, sementara balance sudah sama dengan movement.';
+                $reason = 'Proyeksi harian component belum punya closing sampai tanggal audit, sementara balance sudah sama dengan movement.';
             } elseif ($movementDate !== '' && $dailyDate !== '' && $dailyDate < $movementDate) {
-                $reason = 'Daily rollup component tertinggal dari movement terakhir.';
+                $reason = 'Proyeksi harian component tertinggal dari movement terakhir.';
             }
             return ['suspect_table' => 'DAILY', 'reason' => $reason];
         }
         if ($balanceVsDaily < $eps && $dailyVsMovement >= $eps) {
-            return ['suspect_table' => 'MOVEMENT_OR_SOURCE', 'reason' => 'Balance dan daily rollup sama, tetapi movement component berbeda.'];
+            return ['suspect_table' => 'MOVEMENT_OR_SOURCE', 'reason' => 'Balance dan proyeksi harian sama, tetapi movement component berbeda.'];
         }
 
-        return ['suspect_table' => 'MULTIPLE', 'reason' => 'Balance, daily rollup, dan movement component tidak saling cocok.'];
+        return ['suspect_table' => 'MULTIPLE', 'reason' => 'Balance, proyeksi harian, dan movement component tidak saling cocok.'];
     }
 
     public function repair_component_reconcile(array $filters): array
@@ -1534,8 +1603,8 @@ class Production_model extends CI_Model
 
     public function rebuild_component_history_for_identity(array $identity): array
     {
-        if (!$this->db->table_exists('inv_component_movement_log') || !$this->db->table_exists('inv_component_daily_rollup') || !$this->db->table_exists('inv_component_stock_balance')) {
-            return ['ok' => false, 'message' => 'Tabel movement/daily/balance component belum lengkap.'];
+        if (!$this->db->table_exists('inv_component_movement_log') || !$this->db->table_exists('inv_component_monthly_stock')) {
+            return ['ok' => false, 'message' => 'Tabel movement/monthly stock component belum lengkap.'];
         }
 
         $locationType = strtoupper(trim((string)($identity['location_type'] ?? '')));
@@ -1566,6 +1635,7 @@ class Production_model extends CI_Model
             ->result_array();
 
         $daily = [];
+        $rebuildBatchNo = 'RECONCILE-' . date('YmdHis');
         $qtyBefore = 0.0;
         $avgBefore = 0.0;
         $valueBefore = 0.0;
@@ -1584,6 +1654,7 @@ class Production_model extends CI_Model
                     'component_id' => $componentId,
                     'uom_id' => $uomId,
                     'opening_qty' => round($qtyBefore, 4),
+                    'opening_total_value' => round($valueBefore, 2),
                     'in_qty' => 0.0,
                     'out_qty' => 0.0,
                     'waste_qty' => 0.0,
@@ -1594,7 +1665,7 @@ class Production_model extends CI_Model
                     'total_value' => round($valueBefore, 2),
                     'mutation_count' => 0,
                     'last_movement_at' => null,
-                    'rebuild_batch_no' => 'RECONCILE-' . date('YmdHis'),
+                    'rebuild_batch_no' => $rebuildBatchNo,
                 ];
             }
 
@@ -1659,33 +1730,78 @@ class Production_model extends CI_Model
         } else {
             $this->db->where('division_id IS NULL', null, false);
         }
-        $this->db->delete('inv_component_daily_rollup');
+        $this->db->delete('inv_component_monthly_stock');
 
+        $monthlyRows = [];
         foreach (array_values($daily) as $row) {
-            $this->db->insert('inv_component_daily_rollup', $row);
+            $monthKey = (string)($row['month_key'] ?? '');
+            if ($monthKey === '') {
+                continue;
+            }
+            if (!isset($monthlyRows[$monthKey])) {
+                $monthlyRows[$monthKey] = [
+                    'month_key' => $monthKey,
+                    'location_type' => $locationType,
+                    'division_id' => $divisionId,
+                    'component_id' => $componentId,
+                    'uom_id' => $uomId,
+                    'opening_qty' => round((float)($row['opening_qty'] ?? 0), 4),
+                    'opening_total_value' => round((float)($row['opening_total_value'] ?? 0), 2),
+                    'in_qty' => 0.0,
+                    'in_total_value' => 0.0,
+                    'out_qty' => 0.0,
+                    'out_total_value' => 0.0,
+                    'waste_qty' => 0.0,
+                    'waste_total_value' => 0.0,
+                    'spoil_qty' => 0.0,
+                    'spoil_total_value' => 0.0,
+                    'adjustment_plus_qty' => 0.0,
+                    'adjustment_plus_total_value' => 0.0,
+                    'adjustment_minus_qty' => 0.0,
+                    'adjustment_minus_total_value' => 0.0,
+                    'closing_qty' => round((float)($row['closing_qty'] ?? 0), 4),
+                    'avg_cost' => round((float)($row['avg_cost'] ?? 0), 6),
+                    'total_value' => round((float)($row['total_value'] ?? 0), 2),
+                    'movement_day_count' => 0,
+                    'mutation_count' => 0,
+                    'last_movement_date' => null,
+                    'last_movement_at' => null,
+                    'last_movement_table' => 'inv_component_movement_log',
+                    'last_movement_id' => null,
+                    'source_mode' => 'REBUILD',
+                    'notes' => 'Rebuilt from component movement log',
+                ];
+            }
+
+            $avgCost = round((float)($row['avg_cost'] ?? 0), 6);
+            $adjustmentQty = round((float)($row['adjustment_qty'] ?? 0), 4);
+
+            $monthlyRows[$monthKey]['in_qty'] = round((float)$monthlyRows[$monthKey]['in_qty'] + (float)($row['in_qty'] ?? 0), 4);
+            $monthlyRows[$monthKey]['in_total_value'] = round((float)$monthlyRows[$monthKey]['in_total_value'] + ((float)($row['in_qty'] ?? 0) * $avgCost), 2);
+            $monthlyRows[$monthKey]['out_qty'] = round((float)$monthlyRows[$monthKey]['out_qty'] + (float)($row['out_qty'] ?? 0), 4);
+            $monthlyRows[$monthKey]['out_total_value'] = round((float)$monthlyRows[$monthKey]['out_total_value'] + ((float)($row['out_qty'] ?? 0) * $avgCost), 2);
+            $monthlyRows[$monthKey]['waste_qty'] = round((float)$monthlyRows[$monthKey]['waste_qty'] + (float)($row['waste_qty'] ?? 0), 4);
+            $monthlyRows[$monthKey]['waste_total_value'] = round((float)$monthlyRows[$monthKey]['waste_total_value'] + ((float)($row['waste_qty'] ?? 0) * $avgCost), 2);
+            $monthlyRows[$monthKey]['spoil_qty'] = round((float)$monthlyRows[$monthKey]['spoil_qty'] + (float)($row['spoil_qty'] ?? 0), 4);
+            $monthlyRows[$monthKey]['spoil_total_value'] = round((float)$monthlyRows[$monthKey]['spoil_total_value'] + ((float)($row['spoil_qty'] ?? 0) * $avgCost), 2);
+            if ($adjustmentQty >= 0) {
+                $monthlyRows[$monthKey]['adjustment_plus_qty'] = round((float)$monthlyRows[$monthKey]['adjustment_plus_qty'] + $adjustmentQty, 4);
+                $monthlyRows[$monthKey]['adjustment_plus_total_value'] = round((float)$monthlyRows[$monthKey]['adjustment_plus_total_value'] + ($adjustmentQty * $avgCost), 2);
+            } else {
+                $monthlyRows[$monthKey]['adjustment_minus_qty'] = round((float)$monthlyRows[$monthKey]['adjustment_minus_qty'] + abs($adjustmentQty), 4);
+                $monthlyRows[$monthKey]['adjustment_minus_total_value'] = round((float)$monthlyRows[$monthKey]['adjustment_minus_total_value'] + (abs($adjustmentQty) * $avgCost), 2);
+            }
+            $monthlyRows[$monthKey]['closing_qty'] = round((float)($row['closing_qty'] ?? 0), 4);
+            $monthlyRows[$monthKey]['avg_cost'] = $avgCost;
+            $monthlyRows[$monthKey]['total_value'] = round((float)($row['total_value'] ?? 0), 2);
+            $monthlyRows[$monthKey]['movement_day_count'] = (int)$monthlyRows[$monthKey]['movement_day_count'] + 1;
+            $monthlyRows[$monthKey]['mutation_count'] = (int)$monthlyRows[$monthKey]['mutation_count'] + (int)($row['mutation_count'] ?? 0);
+            $monthlyRows[$monthKey]['last_movement_date'] = (string)($row['movement_date'] ?? $monthKey);
+            $monthlyRows[$monthKey]['last_movement_at'] = $row['last_movement_at'] ?? null;
         }
 
-        $this->db->where('location_type', $locationType)
-            ->where('component_id', $componentId)
-            ->where('uom_id', $uomId);
-        if ($divisionId !== null) {
-            $this->db->where('division_id', $divisionId);
-        } else {
-            $this->db->where('division_id IS NULL', null, false);
-        }
-        $this->db->delete('inv_component_stock_balance');
-
-        if (!empty($logs) || abs($qtyBefore) > 0.0001 || abs($valueBefore) > 0.01) {
-            $this->db->insert('inv_component_stock_balance', [
-                'location_type' => $locationType,
-                'division_id' => $divisionId,
-                'component_id' => $componentId,
-                'uom_id' => $uomId,
-                'qty_on_hand' => round($qtyBefore, 4),
-                'avg_cost' => round($avgBefore, 6),
-                'total_value' => round($valueBefore, 2),
-                'last_txn_at' => $lastMovementAt,
-            ]);
+        foreach (array_values($monthlyRows) as $monthlyRow) {
+            $this->upsert_by_unique('inv_component_monthly_stock', $monthlyRow, ['month_key', 'location_type', 'division_id', 'component_id', 'uom_id']);
         }
 
         if ($this->db->trans_status() === false) {
@@ -1699,6 +1815,7 @@ class Production_model extends CI_Model
             'message' => 'Repair component selesai dijalankan.',
             'data' => [
                 'days_rebuilt' => count($daily),
+                'months_rebuilt' => count($monthlyRows),
                 'final_qty' => round($qtyBefore, 4),
                 'final_avg_cost' => round($avgBefore, 6),
                 'final_total_value' => round($valueBefore, 2),
@@ -2012,6 +2129,315 @@ class Production_model extends CI_Model
         return strtoupper(trim($locationType)) . '|' . $normalizedDivisionId . '|' . $componentId . '|' . $uomId;
     }
 
+    private function fetch_component_monthly_projection_seed_rows(array $filters, string $targetMonth): array
+    {
+        if (!$this->db->table_exists('inv_component_monthly_stock')) {
+            return [];
+        }
+
+        $q = trim((string)($filters['q'] ?? ''));
+        $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
+        $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
+        $componentIdFilter = !empty($filters['component_id']) ? (int)$filters['component_id'] : 0;
+        $uomIdFilter = !empty($filters['uom_id']) ? (int)$filters['uom_id'] : 0;
+        $divisionNameColumn = $this->division_name_column();
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $latestMonthSubquery = $this->db
+            ->select('location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key', false)
+            ->from('inv_component_monthly_stock')
+            ->where('month_key <=', $targetMonth)
+            ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
+            ->get_compiled_select();
+
+        $this->db->select('s.month_key, s.location_type, s.division_id, ' . $divisionNameSelect . ', s.component_id, c.component_code, c.component_name, c.component_type, s.uom_id, u.code AS uom_code, s.opening_qty, s.opening_total_value, s.closing_qty, s.avg_cost, s.total_value, s.last_movement_at', false)
+            ->from('inv_component_monthly_stock s')
+            ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
+            ->join('mst_component c', 'c.id = s.component_id', 'inner')
+            ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
+            ->join('mst_uom u', 'u.id = s.uom_id', 'left');
+
+        $this->apply_component_location_filter('s.location_type', $locationType);
+        if ($divisionId > 0) {
+            $this->db->where('s.division_id', $divisionId);
+        }
+        if ($componentIdFilter > 0) {
+            $this->db->where('s.component_id', $componentIdFilter);
+        }
+        if ($uomIdFilter > 0) {
+            $this->db->where('s.uom_id', $uomIdFilter);
+        }
+        if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+            $this->db->where('c.component_type', $componentType);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('c.component_code', $q)
+                ->or_like('c.component_name', $q);
+            if ($divisionNameColumn !== null) {
+                $this->db->or_like('d.' . $divisionNameColumn, $q);
+            }
+            $this->db->group_end();
+        }
+
+        return $this->db->get()->result_array();
+    }
+
+    private function fetch_component_daily_projection_rows(array $filters, string $startDate, string $endDate): ?array
+    {
+        $hasMonthlyProjection = $this->db->table_exists('inv_component_monthly_stock');
+        $hasMovementLog = $this->db->table_exists('inv_component_movement_log');
+        if (!$hasMonthlyProjection && !$hasMovementLog) {
+            return null;
+        }
+
+        $monthKey = date('Y-m-01', strtotime($startDate));
+        $seedRows = $this->fetch_component_monthly_projection_seed_rows($filters, $monthKey);
+        $stateMap = [];
+        $metaMap = [];
+        $seedMonthMap = [];
+        $dailyRows = [];
+
+        foreach ($seedRows as $seedRow) {
+            $key = $this->component_identity_key((string)($seedRow['location_type'] ?? ''), $seedRow['division_id'] ?? null, (int)($seedRow['component_id'] ?? 0), (int)($seedRow['uom_id'] ?? 0));
+            $isCurrentMonthSeed = (string)($seedRow['month_key'] ?? '') === $monthKey;
+            $seedQty = $isCurrentMonthSeed ? (float)($seedRow['opening_qty'] ?? 0) : (float)($seedRow['closing_qty'] ?? 0);
+            $seedValue = $isCurrentMonthSeed ? (float)($seedRow['opening_total_value'] ?? 0) : (float)($seedRow['total_value'] ?? 0);
+            if (abs($seedValue) < 0.01 && abs($seedQty) > 0.0001) {
+                $seedValue = round($seedQty * (float)($seedRow['avg_cost'] ?? 0), 2);
+            }
+
+            $seedQty = round($seedQty, 4);
+            $seedValue = round($seedValue, 2);
+            $stateMap[$key] = [
+                'qty' => $seedQty,
+                'value' => $seedValue,
+                'avg' => abs($seedQty) > 0.0001 ? round($seedValue / $seedQty, 6) : round((float)($seedRow['avg_cost'] ?? 0), 6),
+            ];
+            $metaMap[$key] = [
+                'location_type' => (string)($seedRow['location_type'] ?? ''),
+                'division_id' => $seedRow['division_id'] !== null ? (int)$seedRow['division_id'] : null,
+                'division_name' => (string)($seedRow['division_name'] ?? '-'),
+                'component_id' => (int)($seedRow['component_id'] ?? 0),
+                'component_code' => (string)($seedRow['component_code'] ?? ''),
+                'component_name' => (string)($seedRow['component_name'] ?? ''),
+                'component_type' => (string)($seedRow['component_type'] ?? ''),
+                'uom_id' => (int)($seedRow['uom_id'] ?? 0),
+                'uom_code' => (string)($seedRow['uom_code'] ?? ''),
+            ];
+            $seedMonthMap[$key] = (string)($seedRow['month_key'] ?? '');
+        }
+
+        if ($hasMovementLog) {
+            $q = trim((string)($filters['q'] ?? ''));
+            $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+            $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
+            $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
+            $componentIdFilter = !empty($filters['component_id']) ? (int)$filters['component_id'] : 0;
+            $uomIdFilter = !empty($filters['uom_id']) ? (int)$filters['uom_id'] : 0;
+            $divisionNameColumn = $this->division_name_column();
+            $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+            $this->db->select('m.id, m.movement_date, m.movement_datetime, m.location_type, m.division_id, ' . $divisionNameSelect . ', m.component_id, c.component_code, c.component_name, c.component_type, m.uom_id, u.code AS uom_code, m.movement_type, m.qty_in, m.qty_out, m.unit_cost, m.total_cost, m.source_table', false)
+                ->from('inv_component_movement_log m')
+                ->join('mst_component c', 'c.id = m.component_id', 'inner')
+                ->join('mst_operational_division d', 'd.id = m.division_id', 'left')
+                ->join('mst_uom u', 'u.id = m.uom_id', 'left')
+                ->where('m.movement_date >=', $startDate)
+                ->where('m.movement_date <=', $endDate);
+
+            $this->apply_component_location_filter('m.location_type', $locationType);
+            if ($divisionId > 0) {
+                $this->db->where('m.division_id', $divisionId);
+            }
+            if ($componentIdFilter > 0) {
+                $this->db->where('m.component_id', $componentIdFilter);
+            }
+            if ($uomIdFilter > 0) {
+                $this->db->where('m.uom_id', $uomIdFilter);
+            }
+            if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+                $this->db->where('c.component_type', $componentType);
+            }
+            if ($q !== '') {
+                $this->db->group_start()
+                    ->like('c.component_code', $q)
+                    ->or_like('c.component_name', $q);
+                if ($divisionNameColumn !== null) {
+                    $this->db->or_like('d.' . $divisionNameColumn, $q);
+                }
+                $this->db->group_end();
+            }
+
+            $movementRows = $this->db
+                ->order_by('m.movement_date', 'ASC')
+                ->order_by('m.movement_datetime', 'ASC')
+                ->order_by('m.id', 'ASC')
+                ->get()
+                ->result_array();
+
+            foreach ($movementRows as $movementRow) {
+                $key = $this->component_identity_key((string)($movementRow['location_type'] ?? ''), $movementRow['division_id'] ?? null, (int)($movementRow['component_id'] ?? 0), (int)($movementRow['uom_id'] ?? 0));
+                if (!isset($metaMap[$key])) {
+                    $metaMap[$key] = [
+                        'location_type' => (string)($movementRow['location_type'] ?? ''),
+                        'division_id' => $movementRow['division_id'] !== null ? (int)$movementRow['division_id'] : null,
+                        'division_name' => (string)($movementRow['division_name'] ?? '-'),
+                        'component_id' => (int)($movementRow['component_id'] ?? 0),
+                        'component_code' => (string)($movementRow['component_code'] ?? ''),
+                        'component_name' => (string)($movementRow['component_name'] ?? ''),
+                        'component_type' => (string)($movementRow['component_type'] ?? ''),
+                        'uom_id' => (int)($movementRow['uom_id'] ?? 0),
+                        'uom_code' => (string)($movementRow['uom_code'] ?? ''),
+                    ];
+                }
+                if (!isset($stateMap[$key])) {
+                    $stateMap[$key] = ['qty' => 0.0, 'value' => 0.0, 'avg' => 0.0];
+                }
+
+                $movementDate = (string)($movementRow['movement_date'] ?? '');
+                $movementType = strtoupper(trim((string)($movementRow['movement_type'] ?? '')));
+                $sourceTable = (string)($movementRow['source_table'] ?? '');
+                $seededFromCurrentMonth = (($seedMonthMap[$key] ?? '') === $monthKey);
+                if ($movementType === 'OPENING' && $seededFromCurrentMonth && $sourceTable === 'inv_component_opening') {
+                    continue;
+                }
+                $qtyIn = round((float)($movementRow['qty_in'] ?? 0), 4);
+                $qtyOut = round((float)($movementRow['qty_out'] ?? 0), 4);
+                $qtyBefore = round((float)($stateMap[$key]['qty'] ?? 0), 4);
+                $avgBefore = round((float)($stateMap[$key]['avg'] ?? 0), 6);
+                $valueBefore = round((float)($stateMap[$key]['value'] ?? 0), 2);
+
+                if (!isset($dailyRows[$key][$movementDate])) {
+                    $dailyRows[$key][$movementDate] = $metaMap[$key] + [
+                        'month_key' => $monthKey,
+                        'movement_date' => $movementDate,
+                        'opening_qty' => $movementType === 'OPENING' ? round($qtyBefore + $qtyIn, 4) : $qtyBefore,
+                        'in_qty' => 0.0,
+                        'out_qty' => 0.0,
+                        'waste_qty' => 0.0,
+                        'spoil_qty' => 0.0,
+                        'adjustment_qty' => 0.0,
+                        'closing_qty' => $qtyBefore,
+                        'avg_cost' => $avgBefore,
+                        'total_value' => $valueBefore,
+                        'mutation_count' => 0,
+                    ];
+                } elseif ($movementType === 'OPENING') {
+                    $dailyRows[$key][$movementDate]['opening_qty'] = round((float)($dailyRows[$key][$movementDate]['opening_qty'] ?? 0) + $qtyIn, 4);
+                }
+
+                $qtyAfter = round($qtyBefore + $qtyIn - $qtyOut, 4);
+                if (abs($qtyAfter) < 0.0001) {
+                    $qtyAfter = 0.0;
+                }
+
+                $unitCost = round((float)($movementRow['unit_cost'] ?? 0), 6);
+                if ($qtyIn > 0) {
+                    $valueAfter = round($valueBefore + round($qtyIn * $unitCost, 2), 2);
+                } elseif ($qtyOut > 0) {
+                    $valueAfter = round($valueBefore - round($qtyOut * $avgBefore, 2), 2);
+                } else {
+                    $valueAfter = $valueBefore;
+                }
+                if (abs($valueAfter) < 0.01) {
+                    $valueAfter = 0.0;
+                }
+
+                $avgAfter = abs($qtyAfter) > 0.0001 ? round($valueAfter / $qtyAfter, 6) : 0.0;
+                $isOpeningSnapshotReverse = $sourceTable === 'inv_component_opening' && $qtyOut > 0;
+                $handledAsOpeningSnapshotReverse = false;
+                if ($isOpeningSnapshotReverse) {
+                    $dailyRows[$key][$movementDate]['opening_qty'] = round((float)($dailyRows[$key][$movementDate]['opening_qty'] ?? 0) - $qtyOut, 4);
+                    if (abs((float)$dailyRows[$key][$movementDate]['opening_qty']) < 0.0001) {
+                        $dailyRows[$key][$movementDate]['opening_qty'] = 0.0;
+                    }
+                    $handledAsOpeningSnapshotReverse = true;
+                }
+
+                switch ($movementType) {
+                    case 'PRODUCTION_IN':
+                    case 'TRANSFER_IN':
+                        $dailyRows[$key][$movementDate]['in_qty'] = round((float)$dailyRows[$key][$movementDate]['in_qty'] + $qtyIn, 4);
+                        break;
+                    case 'PRODUCTION_OUT':
+                    case 'TRANSFER_OUT':
+                    case 'USAGE':
+                        $dailyRows[$key][$movementDate]['out_qty'] = round((float)$dailyRows[$key][$movementDate]['out_qty'] + $qtyOut, 4);
+                        break;
+                    case 'WASTE':
+                        $dailyRows[$key][$movementDate]['waste_qty'] = round((float)$dailyRows[$key][$movementDate]['waste_qty'] + $qtyOut, 4);
+                        break;
+                    case 'SPOIL':
+                        $dailyRows[$key][$movementDate]['spoil_qty'] = round((float)$dailyRows[$key][$movementDate]['spoil_qty'] + $qtyOut, 4);
+                        break;
+                    case 'ADJUSTMENT_PLUS':
+                    case 'VOID_REVERSE':
+                        $dailyRows[$key][$movementDate]['adjustment_qty'] = round((float)$dailyRows[$key][$movementDate]['adjustment_qty'] + $qtyIn, 4);
+                        break;
+                    case 'ADJUSTMENT_MINUS':
+                    case 'VOID_OUT':
+                        if (!$handledAsOpeningSnapshotReverse) {
+                            $dailyRows[$key][$movementDate]['adjustment_qty'] = round((float)$dailyRows[$key][$movementDate]['adjustment_qty'] - $qtyOut, 4);
+                        }
+                        break;
+                }
+
+                $dailyRows[$key][$movementDate]['closing_qty'] = $qtyAfter;
+                $dailyRows[$key][$movementDate]['avg_cost'] = $avgAfter;
+                $dailyRows[$key][$movementDate]['total_value'] = round($valueAfter, 2);
+                $dailyRows[$key][$movementDate]['mutation_count'] = (int)$dailyRows[$key][$movementDate]['mutation_count'] + 1;
+                $stateMap[$key] = [
+                    'qty' => $qtyAfter,
+                    'value' => round($valueAfter, 2),
+                    'avg' => $avgAfter,
+                ];
+            }
+        }
+
+        foreach ($stateMap as $key => $state) {
+            if (!empty($dailyRows[$key])) {
+                continue;
+            }
+
+            $seedQty = round((float)($state['qty'] ?? 0), 4);
+            $seedValue = round((float)($state['value'] ?? 0), 2);
+            if (abs($seedQty) < 0.0001 && abs($seedValue) < 0.01) {
+                continue;
+            }
+
+            $meta = $metaMap[$key] ?? [];
+            if (empty($meta)) {
+                continue;
+            }
+
+            $dailyRows[$key][$startDate] = $meta + [
+                'month_key' => $monthKey,
+                'movement_date' => $startDate,
+                'opening_qty' => $seedQty,
+                'in_qty' => 0.0,
+                'out_qty' => 0.0,
+                'waste_qty' => 0.0,
+                'spoil_qty' => 0.0,
+                'adjustment_qty' => 0.0,
+                'closing_qty' => $seedQty,
+                'avg_cost' => round((float)($state['avg'] ?? 0), 6),
+                'total_value' => $seedValue,
+                'mutation_count' => 0,
+            ];
+        }
+
+        $rows = [];
+        foreach ($dailyRows as $dailyPerKey) {
+            foreach ($dailyPerKey as $row) {
+                $rows[] = $row;
+            }
+        }
+
+        return $rows;
+    }
+
     public function ensure_component_daily_rollup_seeded(): array
     {
         if (!$this->db->table_exists('inv_component_daily_rollup') || !$this->db->table_exists('inv_component_movement_log')) {
@@ -2192,6 +2618,7 @@ class Production_model extends CI_Model
                     break;
                 case 'PRODUCTION_OUT':
                 case 'TRANSFER_OUT':
+                case 'USAGE':
                     $daily[$dayKey]['out_qty'] += $qtyOut;
                     $daily[$dayKey]['_has_non_snapshot_activity'] = true;
                     break;
@@ -2580,6 +3007,7 @@ class Production_model extends CI_Model
             }
         }
 
+        $rebuildIdentities = [];
         foreach ($openingMovements as $movement) {
             $reverse = $this->reverse_component_document_movement_row(
                 $movement,
@@ -2593,6 +3021,15 @@ class Production_model extends CI_Model
                 $this->db->trans_rollback();
                 return $reverse;
             }
+            if (!empty($reverse['identity']) && is_array($reverse['identity'])) {
+                $rebuildIdentities[] = $reverse['identity'];
+            }
+        }
+
+        $rebuild = $this->rebuild_component_histories($rebuildIdentities);
+        if (!($rebuild['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return $rebuild;
         }
 
         $update = ['status' => $targetStatus];
@@ -2622,7 +3059,6 @@ class Production_model extends CI_Model
         }
 
         $this->db->trans_commit();
-        $this->rebuild_component_daily_rollup_from_logs();
         return ['ok' => true, 'id' => $id];
     }
 
@@ -2679,19 +3115,20 @@ class Production_model extends CI_Model
 
         $q = trim((string)($filters['q'] ?? ''));
         $monthKey = $this->normalize_month_key((string)($filters['month'] ?? ''));
+        $monthDate = $monthKey !== null ? ($monthKey . '-01') : null;
         $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
         $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : null;
         $divisionNameColumn = $this->division_name_column();
         $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
-        $this->db->select('m.*, c.component_code, c.component_name, c.component_type, u.code AS uom_code, u.name AS uom_name, ' . $divisionNameSelect, false);
+        $this->db->select("DATE_FORMAT(m.month_key, '%Y-%m') AS month_key, m.location_type, m.division_id, m.component_id, m.uom_id, m.opening_qty, m.opening_avg_cost AS hpp_live, m.opening_total_value AS total_value, m.source_type, DATE_FORMAT(m.source_month_key, '%Y-%m') AS source_month, m.generated_at, c.component_code, c.component_name, c.component_type, u.code AS uom_code, u.name AS uom_name, " . $divisionNameSelect, false);
         $this->db->from('inv_component_monthly_opening m');
         $this->db->join('mst_component c', 'c.id = m.component_id', 'left');
         $this->db->join('mst_uom u', 'u.id = m.uom_id', 'left');
         $this->db->join('mst_operational_division d', 'd.id = m.division_id', 'left');
 
-        if ($monthKey !== null) {
-            $this->db->where('m.month_key', $monthKey);
+        if ($monthDate !== null) {
+            $this->db->where('m.month_key', $monthDate);
         }
         $this->apply_component_location_filter('m.location_type', $locationType);
         if ($divisionId !== null) {
@@ -2730,12 +3167,6 @@ class Production_model extends CI_Model
             ];
         }
 
-        if (!$this->db->table_exists('inv_component_daily_rollup')) {
-            return [
-                'ok' => false,
-                'message' => 'Tabel inv_component_daily_rollup belum tersedia.',
-            ];
-        }
         if (!$this->db->table_exists('inv_component_monthly_opname')) {
             return [
                 'ok' => false,
@@ -2754,29 +3185,18 @@ class Production_model extends CI_Model
         $monthStart = $monthKey . '-01';
         $monthEnd = date('Y-m-t', strtotime($monthStart));
         $nextMonth = date('Y-m', strtotime('+1 month', strtotime($monthStart)));
-        $nextOpeningDate = $nextMonth . '-01';
+        $nextMonthStart = $nextMonth . '-01';
 
-        $this->db->select('r.movement_date, r.location_type, r.division_id, r.component_id, r.uom_id, r.opening_qty, r.closing_qty, r.avg_cost, r.total_value, r.mutation_count, c.component_code, c.component_name');
-        $this->db->from('inv_component_daily_rollup r');
-        $this->db->join('mst_component c', 'c.id = r.component_id', 'left');
-        $this->db->where('r.movement_date >=', $monthStart);
-        $this->db->where('r.movement_date <=', $monthEnd);
-        $this->apply_component_location_filter('r.location_type', $locationType);
-        if ($divisionId !== null) {
-            $this->db->where('r.division_id', $divisionId);
-        }
-        $rows = $this->db
-            ->order_by('r.movement_date', 'ASC')
-            ->order_by('r.location_type', 'ASC')
-            ->order_by('r.division_id', 'ASC')
-            ->order_by('r.component_id', 'ASC')
-            ->get()
-            ->result_array();
+        $rows = $this->component_daily_rows([
+            'month' => $monthKey,
+            'location_type' => $locationType,
+            'division_id' => $divisionId,
+        ], 0);
 
         if (empty($rows)) {
             return [
                 'ok' => false,
-                'message' => 'Belum ada daily rollup component untuk bulan ' . $monthKey . '.',
+                'message' => 'Belum ada proyeksi harian component untuk bulan ' . $monthKey . '.',
             ];
         }
 
@@ -2814,46 +3234,85 @@ class Production_model extends CI_Model
 
             if (!isset($aggregated[$groupKey])) {
                 $aggregated[$groupKey] = [
-                    'month_key' => $monthKey,
+                    'month_key' => $monthStart,
                     'location_type' => strtoupper((string)($row['location_type'] ?? '')),
                     'division_id' => !empty($row['division_id']) ? (int)$row['division_id'] : null,
                     'component_id' => (int)($row['component_id'] ?? 0),
                     'uom_id' => (int)($row['uom_id'] ?? 0),
-                    'opname_date' => $monthEnd,
+                    'opening_qty' => round((float)($row['opening_qty'] ?? 0), 4),
+                    'opening_total_value' => round(((float)($row['opening_qty'] ?? 0) * (float)($row['avg_cost'] ?? 0)), 2),
+                    'in_qty' => 0.0,
+                    'in_total_value' => 0.0,
+                    'out_qty' => 0.0,
+                    'out_total_value' => 0.0,
+                    'waste_qty' => 0.0,
+                    'waste_total_value' => 0.0,
+                    'spoil_qty' => 0.0,
+                    'spoil_total_value' => 0.0,
+                    'adjustment_plus_qty' => 0.0,
+                    'adjustment_plus_total_value' => 0.0,
+                    'adjustment_minus_qty' => 0.0,
+                    'adjustment_minus_total_value' => 0.0,
                     'closing_qty' => 0.0,
-                    'hpp_live' => 0.0,
+                    'avg_cost' => 0.0,
                     'total_value' => 0.0,
+                    'movement_day_count' => 0,
+                    'mutation_count' => 0,
                     'generated_by' => $userId > 0 ? $userId : null,
+                    '_first_date' => '9999-12-31',
                     '_last_date' => '0000-00-00',
-                    '_mutation_count' => 0,
                 ];
             }
 
             $movementDate = (string)($row['movement_date'] ?? '');
-            $aggregated[$groupKey]['_mutation_count'] += (int)($row['mutation_count'] ?? 0);
+            $aggregated[$groupKey]['movement_day_count']++;
+            $aggregated[$groupKey]['mutation_count'] += (int)($row['mutation_count'] ?? 0);
+            $aggregated[$groupKey]['in_qty'] += round((float)($row['in_qty'] ?? 0), 4);
+            $aggregated[$groupKey]['out_qty'] += round((float)($row['out_qty'] ?? 0), 4);
+            $aggregated[$groupKey]['waste_qty'] += round((float)($row['waste_qty'] ?? 0), 4);
+            $aggregated[$groupKey]['spoil_qty'] += round((float)($row['spoil_qty'] ?? 0), 4);
+            $adjustmentQty = round((float)($row['adjustment_qty'] ?? 0), 4);
+            if ($adjustmentQty >= 0) {
+                $aggregated[$groupKey]['adjustment_plus_qty'] += $adjustmentQty;
+            } else {
+                $aggregated[$groupKey]['adjustment_minus_qty'] += abs($adjustmentQty);
+            }
+            if ($movementDate < $aggregated[$groupKey]['_first_date']) {
+                $aggregated[$groupKey]['_first_date'] = $movementDate;
+                $aggregated[$groupKey]['opening_qty'] = round((float)($row['opening_qty'] ?? 0), 4);
+                $aggregated[$groupKey]['opening_total_value'] = round(((float)($row['opening_qty'] ?? 0) * (float)($row['avg_cost'] ?? 0)), 2);
+            }
             if ($movementDate >= $aggregated[$groupKey]['_last_date']) {
                 $aggregated[$groupKey]['_last_date'] = $movementDate;
                 $aggregated[$groupKey]['closing_qty'] = round((float)($row['closing_qty'] ?? 0), 4);
-                $aggregated[$groupKey]['hpp_live'] = round((float)($row['avg_cost'] ?? 0), 6);
+                $aggregated[$groupKey]['avg_cost'] = round((float)($row['avg_cost'] ?? 0), 6);
                 $aggregated[$groupKey]['total_value'] = round((float)($row['total_value'] ?? 0), 2);
             }
         }
 
         foreach ($aggregated as $groupKey => $row) {
-            unset($aggregated[$groupKey]['_last_date'], $aggregated[$groupKey]['_mutation_count']);
+            $avgCost = (float)($row['avg_cost'] ?? 0);
+            $aggregated[$groupKey]['in_total_value'] = round((float)$row['in_qty'] * $avgCost, 2);
+            $aggregated[$groupKey]['out_total_value'] = round((float)$row['out_qty'] * $avgCost, 2);
+            $aggregated[$groupKey]['waste_total_value'] = round((float)$row['waste_qty'] * $avgCost, 2);
+            $aggregated[$groupKey]['spoil_total_value'] = round((float)$row['spoil_qty'] * $avgCost, 2);
+            $aggregated[$groupKey]['adjustment_plus_total_value'] = round((float)$row['adjustment_plus_qty'] * $avgCost, 2);
+            $aggregated[$groupKey]['adjustment_minus_total_value'] = round((float)$row['adjustment_minus_qty'] * $avgCost, 2);
+            unset($aggregated[$groupKey]['_first_date'], $aggregated[$groupKey]['_last_date']);
         }
 
         $conflictQuery = $this->db->from('inv_component_monthly_opening')
-            ->where('month_key', $nextMonth)
+            ->where('month_key', $nextMonthStart)
             ->group_start()
-                ->where('source_month IS NULL', null, false)
-                ->or_where('source_month <>', $monthKey)
+                ->where('source_type <>', 'OPNAME')
+                ->or_where('source_month_key IS NULL', null, false)
+                ->or_where('source_month_key <>', $monthStart)
             ->group_end();
         if ($locationType !== '') {
-            $this->db->where('location_type', $locationType);
+            $conflictQuery->where('location_type', $locationType);
         }
         if ($divisionId !== null) {
-            $this->db->where('division_id', $divisionId);
+            $conflictQuery->where('division_id', $divisionId);
         }
         $manualConflictCount = (int)$conflictQuery->count_all_results();
         if ($manualConflictCount > 0) {
@@ -2865,7 +3324,7 @@ class Production_model extends CI_Model
 
         $this->db->trans_begin();
 
-        $this->db->where('month_key', $monthKey);
+        $this->db->where('month_key', $monthStart);
         if ($locationType !== '') {
             $this->db->where('location_type', $locationType);
         }
@@ -2874,8 +3333,9 @@ class Production_model extends CI_Model
         }
         $this->db->delete('inv_component_monthly_opname');
 
-        $this->db->where('month_key', $nextMonth);
-        $this->db->where('source_month', $monthKey);
+        $this->db->where('month_key', $nextMonthStart);
+        $this->db->where('source_type', 'OPNAME');
+        $this->db->where('source_month_key', $monthStart);
         if ($locationType !== '') {
             $this->db->where('location_type', $locationType);
         }
@@ -2895,16 +3355,17 @@ class Production_model extends CI_Model
             }
 
             $openingRow = [
-                'month_key' => $nextMonth,
+                'month_key' => $nextMonthStart,
                 'location_type' => (string)$row['location_type'],
                 'division_id' => $row['division_id'],
                 'component_id' => (int)$row['component_id'],
                 'uom_id' => (int)$row['uom_id'],
-                'opening_date' => $nextOpeningDate,
                 'opening_qty' => round((float)$row['closing_qty'], 4),
-                'hpp_live' => round((float)$row['hpp_live'], 6),
-                'total_value' => round((float)$row['total_value'], 2),
-                'source_month' => $monthKey,
+                'opening_avg_cost' => round((float)$row['avg_cost'], 6),
+                'opening_total_value' => round((float)$row['total_value'], 2),
+                'source_type' => 'OPNAME',
+                'source_month_key' => $monthStart,
+                'source_ref_table' => 'inv_component_monthly_opname',
                 'generated_by' => $userId > 0 ? $userId : null,
             ];
             $this->upsert_by_unique('inv_component_monthly_opening', $openingRow, ['month_key', 'location_type', 'division_id', 'component_id', 'uom_id']);
@@ -4361,7 +4822,32 @@ class Production_model extends CI_Model
     {
         $availableQty = 0.0;
         $unitCost = 0.0;
-        if ($materialId > 0 && $divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {
+        if ($materialId > 0 && $divisionId > 0 && $this->db->table_exists('inv_division_monthly_stock')) {
+            $destinationType = $locationType;
+            $targetMonth = date('Y-m-01');
+            $latestMonthSubquery = $this->db
+                ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
+                ->from('inv_division_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by(['division_id', 'destination_type', 'identity_key'])
+                ->get_compiled_select();
+
+            $this->db->select('SUM(COALESCE(s.closing_qty_content,0)) AS qty_balance, AVG(COALESCE(s.avg_cost_per_content,0)) AS avg_cost_per_content', false)
+                ->from('inv_division_monthly_stock s')
+                ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                ->where('s.division_id', $divisionId)
+                ->where('s.material_id', $materialId)
+                ->where('s.destination_type', $destinationType);
+            if ($uomId > 0) {
+                $this->db->where('s.content_uom_id', $uomId);
+            }
+            if ($itemId !== null && $itemId > 0) {
+                $this->db->where('s.item_id', $itemId);
+            }
+            $row = $this->db->get()->row_array();
+            $availableQty = (float)($row['qty_balance'] ?? 0);
+            $unitCost = (float)($row['avg_cost_per_content'] ?? 0);
+        } elseif (false && $materialId > 0 && $divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {
             $destinationType = $locationType;
             $this->db->select('SUM(COALESCE(qty_content_balance,0)) AS qty_balance, AVG(COALESCE(avg_cost_per_content,0)) AS avg_cost_per_content', false)
                 ->from('inv_division_stock_balance')
@@ -4399,7 +4885,32 @@ class Production_model extends CI_Model
 
         $availableQty = 0.0;
         $unitCost = 0.0;
-        if ($componentId > 0 && $this->db->table_exists('inv_component_stock_balance')) {
+        if ($componentId > 0 && $this->db->table_exists('inv_component_monthly_stock')) {
+            $targetMonth = date('Y-m-01');
+            $latestMonthSubquery = $this->db
+                ->select('location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key', false)
+                ->from('inv_component_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
+                ->get_compiled_select();
+
+            $this->db->select('SUM(COALESCE(s.closing_qty,0)) AS qty_balance, AVG(COALESCE(s.avg_cost,0)) AS avg_cost', false)
+                ->from('inv_component_monthly_stock s')
+                ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
+                ->where('s.component_id', $componentId);
+            if ($locationType !== '') {
+                $this->db->where('s.location_type', $locationType);
+            }
+            if ($divisionId !== null) {
+                $this->db->where('s.division_id', $divisionId);
+            }
+            if ($uomId > 0) {
+                $this->db->where('s.uom_id', $uomId);
+            }
+            $row = $this->db->get()->row_array();
+            $availableQty = (float)($row['qty_balance'] ?? 0);
+            $unitCost = (float)($row['avg_cost'] ?? 0);
+        } elseif (false && $componentId > 0 && $this->db->table_exists('inv_component_stock_balance')) {
             $this->db->select('SUM(COALESCE(qty_on_hand,0)) AS qty_balance, AVG(COALESCE(avg_cost,0)) AS avg_cost', false)
                 ->from('inv_component_stock_balance')
                 ->where('component_id', $componentId);
@@ -4566,6 +5077,7 @@ class Production_model extends CI_Model
             return ['ok' => false, 'message' => 'VOID adjustment ditolak: ' . (string)($voidLot['message'] ?? 'void lot adjustment plus gagal.')];
         }
 
+        $rebuildIdentities = [];
         foreach ($adjustmentMovements as $movement) {
             $reverse = $this->reverse_component_document_movement_row(
                 $movement,
@@ -4579,6 +5091,15 @@ class Production_model extends CI_Model
                 $this->db->trans_rollback();
                 return $reverse;
             }
+            if (!empty($reverse['identity']) && is_array($reverse['identity'])) {
+                $rebuildIdentities[] = $reverse['identity'];
+            }
+        }
+
+        $rebuild = $this->rebuild_component_histories($rebuildIdentities);
+        if (!($rebuild['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return $rebuild;
         }
 
         $update = ['status' => 'VOID'];
@@ -4601,7 +5122,6 @@ class Production_model extends CI_Model
         }
 
         $this->db->trans_commit();
-        $this->rebuild_component_daily_rollup_from_logs();
         return ['ok' => true, 'id' => $id];
     }
 
@@ -4723,12 +5243,22 @@ class Production_model extends CI_Model
             }
         }
 
+        $rebuildIdentities = [];
         foreach ($batchMovements as $movement) {
             $reverse = $this->reverse_component_movement_row($movement, (string)($header['batch_date'] ?? date('Y-m-d')), $id, $actorEmployeeId);
             if (!($reverse['ok'] ?? false)) {
                 $this->db->trans_rollback();
                 return $reverse;
             }
+            if (!empty($reverse['identity']) && is_array($reverse['identity'])) {
+                $rebuildIdentities[] = $reverse['identity'];
+            }
+        }
+
+        $rebuild = $this->rebuild_component_histories($rebuildIdentities);
+        if (!($rebuild['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return $rebuild;
         }
 
         $update = ['status' => 'VOID'];
@@ -4751,7 +5281,6 @@ class Production_model extends CI_Model
         }
 
         $this->db->trans_commit();
-        $this->rebuild_component_daily_rollup_from_logs();
         return ['ok' => true, 'id' => $id];
     }
 
@@ -4854,6 +5383,72 @@ class Production_model extends CI_Model
         );
     }
 
+    private function rebuild_component_histories(array $identities): array
+    {
+        if (empty($identities)) {
+            return ['ok' => true];
+        }
+
+        $seen = [];
+        foreach ($identities as $identity) {
+            $locationType = strtoupper(trim((string)($identity['location_type'] ?? '')));
+            $divisionId = array_key_exists('division_id', $identity) && $identity['division_id'] !== null && $identity['division_id'] !== ''
+                ? (int)$identity['division_id']
+                : null;
+            $componentId = (int)($identity['component_id'] ?? 0);
+            $uomId = (int)($identity['uom_id'] ?? 0);
+            if ($locationType === '' || $componentId <= 0 || $uomId <= 0) {
+                continue;
+            }
+
+            $identityKey = implode('|', [
+                $locationType,
+                $divisionId !== null ? (string)$divisionId : 'NULL',
+                (string)$componentId,
+                (string)$uomId,
+            ]);
+            if (isset($seen[$identityKey])) {
+                continue;
+            }
+            $seen[$identityKey] = true;
+
+            $rebuild = $this->rebuild_component_history_for_identity([
+                'location_type' => $locationType,
+                'division_id' => $divisionId,
+                'component_id' => $componentId,
+                'uom_id' => $uomId,
+            ]);
+            if (!($rebuild['ok'] ?? false)) {
+                return $rebuild;
+            }
+        }
+
+        return ['ok' => true];
+    }
+
+    private function load_component_current_balance_state(string $locationType, ?int $divisionId, int $componentId, int $uomId): array
+    {
+        if ($this->db->table_exists('inv_component_monthly_stock')) {
+            $row = $this->db->query(
+                'SELECT month_key, closing_qty AS qty_on_hand, avg_cost, total_value
+                 FROM inv_component_monthly_stock
+                 WHERE location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ?
+                 ORDER BY month_key DESC, updated_at DESC, last_movement_at DESC
+                 LIMIT 1 FOR UPDATE',
+                [$locationType, $divisionId, $componentId, $uomId]
+            )->row_array();
+            if (!empty($row)) {
+                return $row;
+            }
+        }
+
+        return [
+            'qty_on_hand' => 0.0,
+            'avg_cost' => 0.0,
+            'total_value' => 0.0,
+        ];
+    }
+
     private function reverse_component_document_movement_row(
         array $movement,
         string $movementDate,
@@ -4887,14 +5482,11 @@ class Production_model extends CI_Model
             return ['ok' => true];
         }
 
-        $balance = $this->db->query(
-            'SELECT * FROM inv_component_stock_balance WHERE location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? LIMIT 1 FOR UPDATE',
-            [$locationType, $divisionId, $componentId, $uomId]
-        )->row_array();
+        $balance = $this->load_component_current_balance_state($locationType, $divisionId, $componentId, $uomId);
 
         $qtyBefore = (float)($balance['qty_on_hand'] ?? 0);
         $avgBefore = (float)($balance['avg_cost'] ?? 0);
-        $valueBefore = round($qtyBefore * $avgBefore, 2);
+        $valueBefore = round((float)($balance['total_value'] ?? ($qtyBefore * $avgBefore)), 2);
         $isIn = $reverseType === 'VOID_REVERSE';
         $qtyAfter = $isIn ? round($qtyBefore + $reverseQty, 4) : round($qtyBefore - $reverseQty, 4);
         if ($qtyAfter < -0.0001) {
@@ -4914,28 +5506,6 @@ class Production_model extends CI_Model
         }
 
         $now = date('Y-m-d H:i:s');
-        if ($balance && !empty($balance['id'])) {
-            $this->db->where('id', (int)$balance['id'])->update('inv_component_stock_balance', [
-                'qty_on_hand' => $qtyAfter,
-                'avg_cost' => $avgAfter,
-                'total_value' => $valueAfter,
-                'last_txn_at' => $movementDate . ' ' . date('H:i:s'),
-                'updated_at' => $now,
-            ]);
-        } else {
-            $this->db->insert('inv_component_stock_balance', [
-                'location_type' => $locationType,
-                'division_id' => $divisionId,
-                'component_id' => $componentId,
-                'uom_id' => $uomId,
-                'qty_on_hand' => $qtyAfter,
-                'avg_cost' => $avgAfter,
-                'total_value' => $valueAfter,
-                'last_txn_at' => $movementDate . ' ' . date('H:i:s'),
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
-        }
 
         $this->db->insert('inv_component_movement_log', [
             'movement_no' => $this->generate_doc_no('inv_component_movement_log', 'movement_no', 'ICM', $movementDate),
@@ -4959,7 +5529,15 @@ class Production_model extends CI_Model
             'created_at' => $now,
         ]);
 
-        return ['ok' => true];
+        return [
+            'ok' => true,
+            'identity' => [
+                'location_type' => $locationType,
+                'division_id' => $divisionId,
+                'component_id' => $componentId,
+                'uom_id' => $uomId,
+            ],
+        ];
     }
 
     public function list_component_categories(array $filters = [], int $limit = 300): array
@@ -5105,19 +5683,32 @@ class Production_model extends CI_Model
             )"
             : '0';
 
-        $this->db->select("
-            c.*,
-            cat.name AS category_name,
-            u.code AS uom_code,
-            d.name AS division_name,
-            pd.name AS product_division_name,
-            (
+        $stockHppLiveExpr = '0';
+        if ($this->db->table_exists('inv_component_monthly_stock')) {
+            $stockHppLiveExpr = "(
+                SELECT s.avg_cost
+                FROM inv_component_monthly_stock s
+                WHERE s.component_id = c.id
+                ORDER BY s.month_key DESC, s.updated_at DESC, s.last_movement_at DESC, s.id DESC
+                LIMIT 1
+            )";
+        } elseif ($this->db->table_exists('inv_component_stock_balance')) {
+            $stockHppLiveExpr = "(
                 SELECT s.avg_cost
                 FROM inv_component_stock_balance s
                 WHERE s.component_id = c.id
                 ORDER BY s.updated_at DESC, s.id DESC
                 LIMIT 1
-            ) AS stock_hpp_live,
+            )";
+        }
+
+        $this->db->select(" 
+            c.*,
+            cat.name AS category_name,
+            u.code AS uom_code,
+            d.name AS division_name,
+            pd.name AS product_division_name,
+            {$stockHppLiveExpr} AS stock_hpp_live,
             {$formulaCountExpr} AS formula_count,
             {$componentUsageExpr} AS component_usage_count,
             {$productUsageExpr} AS product_usage_count
@@ -6459,7 +7050,38 @@ class Production_model extends CI_Model
             $standard = (float)($material['hpp_standard'] ?? 0);
             $live = 0.0;
             $hasStockLiveCost = false;
-            if ($divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {
+            if ($divisionId > 0 && $this->db->table_exists('inv_division_monthly_stock')) {
+                $balanceKey = $divisionId . '|' . $materialId;
+                if (!array_key_exists($balanceKey, $this->materialBalanceCache)) {
+                    $targetMonth = date('Y-m-01');
+                    $latestMonthSubquery = $this->db
+                        ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
+                        ->from('inv_division_monthly_stock')
+                        ->where('month_key <=', $targetMonth)
+                        ->group_by(['division_id', 'destination_type', 'identity_key'])
+                        ->get_compiled_select();
+                    $liveRow = $this->db->select('AVG(COALESCE(s.avg_cost_per_content,0)) AS avg_cost_per_content', false)
+                        ->from('inv_division_monthly_stock s')
+                        ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                        ->where('s.division_id', $divisionId)
+                        ->where('s.material_id', $materialId)
+                        ->get()
+                        ->row_array();
+                    $qtyRow = $this->db->select('SUM(COALESCE(s.closing_qty_content,0)) AS qty_balance', false)
+                        ->from('inv_division_monthly_stock s')
+                        ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                        ->where('s.division_id', $divisionId)
+                        ->where('s.material_id', $materialId)
+                        ->get()
+                        ->row_array();
+                    $this->materialBalanceCache[$balanceKey] = [
+                        'avg_cost_per_content' => (float)($liveRow['avg_cost_per_content'] ?? 0),
+                        'qty_balance' => (float)($qtyRow['qty_balance'] ?? 0),
+                    ];
+                }
+                $live = (float)($this->materialBalanceCache[$balanceKey]['avg_cost_per_content'] ?? 0);
+                $hasStockLiveCost = $live > 0;
+            } elseif (false && $divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {
                 $balanceKey = $divisionId . '|' . $materialId;
                 if (!array_key_exists($balanceKey, $this->materialBalanceCache)) {
                     $liveRow = $this->db->select('avg_cost_per_content')
@@ -6488,7 +7110,7 @@ class Production_model extends CI_Model
                 $live = $standard;
             }
             $availableQty = 0.0;
-            if ($divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {
+            if ($divisionId > 0 && $this->db->table_exists('inv_division_monthly_stock')) {
                 $availableQty = (float)($this->materialBalanceCache[$divisionId . '|' . $materialId]['qty_balance'] ?? 0);
             }
             $result = [
@@ -6520,7 +7142,40 @@ class Production_model extends CI_Model
         $standard = (float)($sub['hpp_standard'] ?? 0);
         $live = 0.0;
         $hasStockLiveCost = false;
-        if ($this->db->table_exists('inv_component_stock_balance')) {
+        if ($this->db->table_exists('inv_component_monthly_stock')) {
+            $balanceKey = $divisionId . '|' . $subComponentId;
+            if (!array_key_exists($balanceKey, $this->componentBalanceCache)) {
+                $targetMonth = date('Y-m-01');
+                $latestMonthSubquery = $this->db
+                    ->select('location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key', false)
+                    ->from('inv_component_monthly_stock')
+                    ->where('month_key <=', $targetMonth)
+                    ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
+                    ->get_compiled_select();
+                $this->db->select('AVG(COALESCE(s.avg_cost,0)) AS avg_cost', false)
+                    ->from('inv_component_monthly_stock s')
+                    ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
+                    ->where('s.component_id', $subComponentId);
+                if ($divisionId > 0) {
+                    $this->db->where('s.division_id', $divisionId);
+                }
+                $liveRow = $this->db->get()->row_array();
+                $this->db->select('SUM(COALESCE(s.closing_qty,0)) AS qty_balance', false)
+                    ->from('inv_component_monthly_stock s')
+                    ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
+                    ->where('s.component_id', $subComponentId);
+                if ($divisionId > 0) {
+                    $this->db->where('s.division_id', $divisionId);
+                }
+                $qtyRow = $this->db->get()->row_array();
+                $this->componentBalanceCache[$balanceKey] = [
+                    'avg_cost' => (float)($liveRow['avg_cost'] ?? 0),
+                    'qty_balance' => (float)($qtyRow['qty_balance'] ?? 0),
+                ];
+            }
+            $live = (float)($this->componentBalanceCache[$balanceKey]['avg_cost'] ?? 0);
+            $hasStockLiveCost = $live > 0;
+        } elseif (false && $this->db->table_exists('inv_component_stock_balance')) {
             $balanceKey = $divisionId . '|' . $subComponentId;
             if (!array_key_exists($balanceKey, $this->componentBalanceCache)) {
                 $this->db->select('avg_cost')->from('inv_component_stock_balance')->where('component_id', $subComponentId);
@@ -6547,7 +7202,7 @@ class Production_model extends CI_Model
             $live = $standard;
         }
         $availableQty = 0.0;
-        if ($this->db->table_exists('inv_component_stock_balance')) {
+        if ($this->db->table_exists('inv_component_monthly_stock')) {
             $availableQty = (float)($this->componentBalanceCache[$divisionId . '|' . $subComponentId]['qty_balance'] ?? 0);
         }
         $liveSource = $hasStockLiveCost ? 'STOCK_COMPONENT' : 'FALLBACK_STANDARD';

@@ -6,6 +6,17 @@ $vcComponentDefault = (float)($variable_cost_defaults['component'] ?? 20);
 $isPayrollMaster = in_array($entity, ['pay-component', 'pay-profile', 'pay-profile-line', 'pay-assignment'], true);
 $isAttLocationMaster = ($entity === 'att-location');
 $isExtraMaster = ($entity === 'extra');
+$employeeAccessRoles = $employee_access_roles ?? [];
+$employeeSelectedRoleIds = array_map('intval', (array)($employee_selected_role_ids ?? []));
+$employeeProtectedRoleIds = array_map('intval', (array)($employee_protected_role_ids ?? []));
+$employeeCanManageProtectedRoles = !empty($employee_can_manage_protected_roles);
+$employeeLinkedUsers = $employee_linked_users ?? [];
+$employeeLoginUser = $employee_login_user ?? null;
+$employeeLoginUserCount = (int)($employee_login_user_count ?? count($employeeLinkedUsers));
+$employeeHasLoginUser = !empty($employeeLoginUser);
+$employeeLoginChecked = $employeeHasLoginUser || (string)set_value('create_login_account') === '1';
+$employeeLoginUsernameValue = set_value('login_username', (string)($employeeLoginUser['username'] ?? ''));
+$employeeRoleStorageReady = !empty($employee_role_storage_ready);
 $hasAjaxLookupField = false;
 foreach (($cfg['fields'] ?? []) as $fieldCfg) {
   if (($fieldCfg['type'] ?? '') === 'ajax_lookup') {
@@ -55,6 +66,83 @@ $renderReadonlyValue = static function ($value, string $type): string {
   .master-form--payroll .form-control,
   .master-form--payroll .form-select {
     min-height: 40px;
+  }
+</style>
+<?php endif; ?>
+
+<?php if ($entity === 'org-employee'): ?>
+<style>
+  .employee-login-box {
+    border: 1px solid #e3d5ca;
+    border-radius: 14px;
+    padding: 1rem;
+    background: #fffdf9;
+  }
+  .employee-login-fields {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px dashed #e8d7cb;
+  }
+  .employee-access-box {
+    border: 1px solid #e3d5ca;
+    border-radius: 14px;
+    padding: 1rem;
+    background: #fffaf7;
+  }
+  .employee-access-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+  .employee-access-card {
+    border: 1px solid #e4d9d0;
+    border-radius: 10px;
+    padding: 0.75rem 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    background: #fff;
+    transition: all .14s ease;
+  }
+  .employee-access-card.is-checked {
+    border-color: #b22f3a;
+    background: #fff7f7;
+  }
+  .employee-access-card.is-locked {
+    opacity: 0.88;
+    background: #f5f1ee;
+  }
+  .employee-access-name {
+    font-weight: 700;
+    color: #3a2a26;
+    line-height: 1.2;
+  }
+  .employee-access-meta {
+    margin-top: 0.25rem;
+    display: inline-block;
+    font-size: 0.68rem;
+    border-radius: 999px;
+    padding: 0.2rem 0.5rem;
+    background: #eceff3;
+    color: #51606f;
+  }
+  .employee-access-lock {
+    display: inline-block;
+    margin-top: 0.35rem;
+    font-size: 0.72rem;
+    color: #8b3b3b;
+  }
+  .employee-access-check {
+    width: 18px;
+    height: 18px;
+    accent-color: #b22f3a;
+    flex-shrink: 0;
+  }
+  @media (max-width: 767.98px) {
+    .employee-access-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
 <?php endif; ?>
@@ -220,6 +308,15 @@ $renderReadonlyValue = static function ($value, string $type): string {
                 <div class="master-ajax-result" data-result="<?php echo html_escape($name); ?>"></div>
                 <div class="master-ajax-selected is-empty" data-selected-preview="<?php echo html_escape($name); ?>"></div>
               </div>
+            <?php elseif ($type === 'date'): ?>
+              <input
+                type="date"
+                name="<?php echo html_escape($name); ?>"
+                id="id_<?php echo html_escape($name); ?>"
+                class="form-control"
+                value="<?php echo html_escape((string)$val); ?>"
+                <?php echo $isReadonly ? 'readonly' : ''; ?>
+              >
             <?php elseif ($type === 'number'): ?>
               <input
                 type="number"
@@ -338,6 +435,107 @@ $renderReadonlyValue = static function ($value, string $type): string {
         </div>
       <?php endif; ?>
 
+      <?php if ($entity === 'org-employee'): ?>
+        <div class="employee-login-box mb-3">
+          <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+            <div>
+              <h6 class="mb-1">Akun Login</h6>
+              <div class="text-muted small">Centang untuk membuat akun login pegawai agar otomatis muncul di halaman <strong>finance/users</strong>.</div>
+            </div>
+            <?php if ($employeeHasLoginUser): ?>
+              <span class="badge text-bg-success">Sudah punya akun login</span>
+            <?php endif; ?>
+          </div>
+
+          <?php if ($employeeHasLoginUser): ?>
+            <div class="alert alert-light border small mt-3 mb-0">
+              Akun login utama sudah tertaut sebagai <strong><?php echo html_escape((string)($employeeLoginUser['username'] ?? '-')); ?></strong>.
+              <?php if ($employeeLoginUserCount > 1): ?>
+                Ada <?php echo (int)$employeeLoginUserCount; ?> akun login tertaut ke pegawai ini; form ini mengelola akun pertama yang sudah ada.
+              <?php else: ?>
+                Anda bisa isi password baru jika ingin reset password dari form pegawai.
+              <?php endif; ?>
+            </div>
+          <?php endif; ?>
+
+          <div class="form-check mt-3">
+            <input type="checkbox" class="form-check-input" name="create_login_account" id="id_create_login_account" value="1" <?php echo $employeeLoginChecked ? 'checked' : ''; ?> <?php echo $employeeHasLoginUser ? 'disabled' : ''; ?>>
+            <label class="form-check-label" for="id_create_login_account">
+              <?php echo $employeeHasLoginUser ? 'Akun login aktif untuk pegawai ini' : 'Buat akun login untuk pegawai ini'; ?>
+            </label>
+          </div>
+
+          <div class="employee-login-fields" id="employeeLoginFields" style="<?php echo $employeeLoginChecked ? '' : 'display:none;'; ?>">
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label class="form-label mb-1">Username Login<?php echo !$employeeHasLoginUser ? ' <span class="text-danger">*</span>' : ''; ?></label>
+                <input type="text" name="login_username" id="id_login_username" class="form-control" maxlength="60" pattern="[a-zA-Z0-9_\-]+" title="Hanya huruf, angka, _ dan -" value="<?php echo html_escape((string)$employeeLoginUsernameValue); ?>" <?php echo $employeeHasLoginUser ? 'readonly' : ''; ?> >
+                <small class="text-muted d-block mt-1"><?php echo $employeeHasLoginUser ? 'Username dikelola dari user yang sudah ada dan tidak diubah dari form pegawai.' : 'Username dipakai untuk login ke aplikasi.'; ?></small>
+              </div>
+              <div class="col-md-6 mb-3">
+                <label class="form-label mb-1">Password Login<?php echo !$employeeHasLoginUser ? ' <span class="text-danger">*</span>' : ''; ?></label>
+                <input type="password" name="login_password" id="id_login_password" class="form-control" maxlength="72" minlength="8" placeholder="<?php echo $employeeHasLoginUser ? 'Kosongkan jika tidak ingin reset password' : 'Minimal 8 karakter'; ?>">
+                <small class="text-muted d-block mt-1"><?php echo $employeeHasLoginUser ? 'Isi hanya jika ingin mengganti password akun login yang sudah tertaut.' : 'Password awal untuk akun login baru.'; ?></small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="employee-access-box mb-3">
+          <div class="d-flex justify-content-between align-items-start gap-2 mb-2 flex-wrap">
+            <div>
+              <h6 class="mb-1">Hak Akses Login</h6>
+              <div class="text-muted small">Checklist ini menjadi role default pegawai dan otomatis disinkronkan ke akun user yang tertaut.</div>
+            </div>
+            <?php if (!$employeeCanManageProtectedRoles): ?>
+              <span class="badge text-bg-light border">ADMIN &amp; SUPERADMIN terkunci</span>
+            <?php endif; ?>
+          </div>
+
+          <?php if (!$employeeRoleStorageReady): ?>
+            <div class="alert alert-warning mb-0">Hak akses pegawai belum aktif. Jalankan SQL <strong>2026-06-02a_org_employee_role_assignment.sql</strong> terlebih dahulu.</div>
+          <?php else: ?>
+            <?php if (empty($employeeLinkedUsers)): ?>
+              <div class="alert alert-light border small mb-3">Belum ada akun user yang tertaut. Role yang dipilih tetap disimpan di profil pegawai dan akan diterapkan otomatis saat akun user ditautkan.</div>
+            <?php else: ?>
+              <?php $linkedNames = array_map(static function ($user): string {
+                  $label = (string)($user['username'] ?? '-');
+                  if ((int)($user['is_active'] ?? 0) !== 1) {
+                      $label .= ' (nonaktif)';
+                  }
+                  return $label;
+              }, $employeeLinkedUsers); ?>
+              <div class="alert alert-light border small mb-3">Sinkron aktif ke user: <strong><?php echo html_escape(implode(', ', $linkedNames)); ?></strong></div>
+            <?php endif; ?>
+
+            <?php if (empty($employeeAccessRoles)): ?>
+              <p class="text-muted small mb-0">Belum ada role aktif.</p>
+            <?php else: ?>
+              <div class="employee-access-grid">
+                <?php foreach ($employeeAccessRoles as $role): ?>
+                  <?php
+                    $roleId = (int)($role['id'] ?? 0);
+                    $isProtectedRole = in_array($roleId, $employeeProtectedRoleIds, true);
+                    $isLockedRole = $isProtectedRole && !$employeeCanManageProtectedRoles;
+                    $isCheckedRole = in_array($roleId, $employeeSelectedRoleIds, true);
+                  ?>
+                  <label class="employee-access-card <?php echo $isCheckedRole ? 'is-checked' : ''; ?> <?php echo $isLockedRole ? 'is-locked' : ''; ?>" for="employee_role_<?php echo $roleId; ?>">
+                    <span>
+                      <span class="employee-access-name"><?php echo html_escape((string)($role['role_name'] ?? '')); ?></span><br>
+                      <span class="employee-access-meta"><?php echo html_escape((string)($role['role_code'] ?? '')); ?></span>
+                      <?php if ($isLockedRole): ?>
+                        <span class="employee-access-lock d-block">Hanya superadmin yang boleh mengubah role ini.</span>
+                      <?php endif; ?>
+                    </span>
+                    <input class="employee-access-check" type="checkbox" name="employee_role_ids[]" id="employee_role_<?php echo $roleId; ?>" value="<?php echo $roleId; ?>" <?php echo $isCheckedRole ? 'checked' : ''; ?> <?php echo $isLockedRole ? 'disabled' : ''; ?>>
+                  </label>
+                <?php endforeach; ?>
+              </div>
+            <?php endif; ?>
+          <?php endif; ?>
+        </div>
+      <?php endif; ?>
+
       <div class="mt-2">
         <button type="submit" class="btn btn-primary">Simpan</button>
         <a href="<?php echo site_url('master/' . $entity); ?>" class="btn btn-outline-secondary">Batal</a>
@@ -358,6 +556,31 @@ $renderReadonlyValue = static function ($value, string $type): string {
   };
   check.addEventListener('change', sync);
   sync();
+})();
+</script>
+<?php endif; ?>
+
+<?php if ($entity === 'org-employee'): ?>
+<script>
+(function () {
+  var loginToggle = document.getElementById('id_create_login_account');
+  var loginFields = document.getElementById('employeeLoginFields');
+  if (loginToggle && loginFields) {
+    var syncLoginFields = function () {
+      loginFields.style.display = loginToggle.checked ? '' : 'none';
+    };
+    loginToggle.addEventListener('change', syncLoginFields);
+    syncLoginFields();
+  }
+
+  var checks = Array.prototype.slice.call(document.querySelectorAll('.employee-access-check'));
+  checks.forEach(function (check) {
+    check.addEventListener('change', function () {
+      var card = check.closest('.employee-access-card');
+      if (!card) return;
+      card.classList.toggle('is-checked', check.checked);
+    });
+  });
 })();
 </script>
 <?php endif; ?>

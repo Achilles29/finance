@@ -1315,16 +1315,16 @@ class MaterialFifoManager
 
     private function synchronizeWarehouseLotsFromAggregate(array $identity): array
     {
-        if (!$this->ci->db->table_exists('inv_warehouse_stock_balance')) {
+        if (!$this->ci->db->table_exists('inv_warehouse_monthly_stock')) {
             return ['ok' => true, 'data' => ['bootstrapped' => false]];
         }
 
-        $balance = $this->fetchWarehouseAggregateBalance($identity);
-        if (!$balance) {
+        $monthlyStock = $this->fetchWarehouseAggregateMonthlyStock($identity);
+        if (!$monthlyStock) {
             return ['ok' => true, 'data' => ['bootstrapped' => false]];
         }
 
-        $aggregateQty = round((float)($balance['qty_content_balance'] ?? 0), 4);
+        $aggregateQty = round((float)($monthlyStock['closing_qty_content'] ?? 0), 4);
         if ($aggregateQty <= 0) {
             return ['ok' => true, 'data' => ['bootstrapped' => false]];
         }
@@ -1353,7 +1353,7 @@ class MaterialFifoManager
         $receiptDate = $this->resolveWarehouseBootstrapDate($identity);
         $lotNo = $this->generateLotNo($receiptDate, [
             'BOOT',
-            $balance['id'] ?? 0,
+            $monthlyStock['id'] ?? 0,
             $identity['item_id'] ?? 0,
             $identity['material_id'] ?? 0,
             $identity['profile_key'] ?? '',
@@ -1373,9 +1373,9 @@ class MaterialFifoManager
             'lot_no' => $lotNo,
             'receipt_date' => $receiptDate,
             'expiry_date' => null,
-            'unit_cost' => max(0, round((float)($balance['avg_cost_per_content'] ?? 0), 6)),
-            'source_table' => 'inv_warehouse_stock_balance',
-            'source_id' => $this->nullableInt($balance['id'] ?? null),
+            'unit_cost' => max(0, round((float)($monthlyStock['avg_cost_per_content'] ?? 0), 6)),
+            'source_table' => 'inv_warehouse_monthly_stock',
+            'source_id' => $this->nullableInt($monthlyStock['id'] ?? null),
             'source_line_id' => null,
             'receipt_id' => null,
             'receipt_line_id' => null,
@@ -1388,26 +1388,28 @@ class MaterialFifoManager
         return ['ok' => true, 'data' => ['bootstrapped' => true, 'qty_added' => $missingQty]];
     }
 
-    private function fetchWarehouseAggregateBalance(array $identity): ?array
+    private function fetchWarehouseAggregateMonthlyStock(array $identity): ?array
     {
-        $sql = 'SELECT id, qty_content_balance, avg_cost_per_content
-            FROM inv_warehouse_stock_balance
+        $sql = 'SELECT id, closing_qty_content, avg_cost_per_content
+            FROM inv_warehouse_monthly_stock
             WHERE item_id <=> ?
               AND buy_uom_id <=> ?
               AND content_uom_id = ?
-              AND profile_key <=> ?';
+              AND profile_key <=> ?
+              AND month_key <= ?';
         $params = [
             $this->nullableInt($identity['item_id'] ?? null),
             $this->nullableInt($identity['buy_uom_id'] ?? null),
             (int)$identity['content_uom_id'],
             $this->nullableString($identity['profile_key'] ?? null),
+            date('Y-m-01'),
         ];
 
-        if ($this->ci->db->field_exists('material_id', 'inv_warehouse_stock_balance')) {
+        if ($this->ci->db->field_exists('material_id', 'inv_warehouse_monthly_stock')) {
             $sql .= ' AND material_id <=> ?';
             $params[] = $this->nullableInt($identity['material_id'] ?? null);
         }
-        $sql .= ' LIMIT 1';
+        $sql .= ' ORDER BY month_key DESC, id DESC LIMIT 1';
 
         $row = $this->ci->db->query($sql, $params)->row_array();
 

@@ -10,7 +10,7 @@ class Master extends MY_Controller
     public function __construct()
     {
         parent::__construct();
-        $this->load->model('Master_model');
+        $this->load->model(['Master_model', 'User_model', 'Auth_model']);
         $this->load->library('form_validation');
     }
 
@@ -168,6 +168,9 @@ class Master extends MY_Controller
             'is_edit' => false,
             'variable_cost_defaults' => $vcDefaults,
         ];
+        if ($entity === 'org-employee') {
+            $data = array_merge($data, $this->employeeAccessFormData());
+        }
         $this->render('master/form', $data);
     }
 
@@ -335,6 +338,10 @@ class Master extends MY_Controller
             $this->session->set_flashdata('error', validation_errors('<li>', '</li>'));
             redirect('master/' . $entity . '/create');
         }
+        if ($entity === 'org-employee' && !$this->validateEmployeeLoginRequest()) {
+            redirect('master/' . $entity . '/create');
+            return;
+        }
 
         $payload = $this->collectPayload($cfg, 0);
         if ($payload === null) {
@@ -357,7 +364,11 @@ class Master extends MY_Controller
             $payload = array_merge($payload, $photoPayload);
         }
 
-        $this->Master_model->insert($cfg['table'], $payload);
+        $insertId = $this->Master_model->insert($cfg['table'], $payload);
+        if ($entity === 'org-employee') {
+            $this->syncEmployeeLoginAccount($insertId, $payload);
+            $this->syncEmployeeAccessRoles($insertId);
+        }
         $this->session->set_flashdata('success', $cfg['title'] . ' berhasil disimpan.');
         redirect('master/' . $entity);
     }
@@ -388,6 +399,9 @@ class Master extends MY_Controller
             'is_edit' => true,
             'variable_cost_defaults' => $vcDefaults,
         ];
+        if ($entity === 'org-employee') {
+            $data = array_merge($data, $this->employeeAccessFormData($row));
+        }
         $this->render('master/form', $data);
     }
 
@@ -518,6 +532,10 @@ class Master extends MY_Controller
             $this->session->set_flashdata('error', validation_errors('<li>', '</li>'));
             redirect('master/' . $entity . '/edit/' . $id);
         }
+        if ($entity === 'org-employee' && !$this->validateEmployeeLoginRequest($id)) {
+            redirect('master/' . $entity . '/edit/' . $id);
+            return;
+        }
 
         $payload = $this->collectPayload($cfg, $id);
         if ($payload === null) {
@@ -541,6 +559,10 @@ class Master extends MY_Controller
         }
 
         $this->Master_model->update($cfg['table'], $id, $payload);
+        if ($entity === 'org-employee') {
+            $this->syncEmployeeLoginAccount($id, $payload);
+            $this->syncEmployeeAccessRoles($id);
+        }
         $this->session->set_flashdata('success', $cfg['title'] . ' berhasil diperbarui.');
         redirect('master/' . $entity);
     }
@@ -697,6 +719,18 @@ class Master extends MY_Controller
         foreach ($cfg['rules'] as $rule) {
             $this->form_validation->set_rules($rule[0], $rule[1], $rule[2]);
         }
+
+        if (($cfg['table'] ?? '') === 'org_employee') {
+            $linkedUser = $id > 0 ? $this->User_model->get_primary_user_by_employee_id($id) : null;
+            if (!empty($linkedUser) || $this->input->post('create_login_account')) {
+                if (empty($linkedUser)) {
+                    $this->form_validation->set_rules('login_username', 'Username Login', 'required|trim|min_length[3]|max_length[60]|alpha_dash');
+                    $this->form_validation->set_rules('login_password', 'Password Login', 'required|min_length[8]|max_length[72]');
+                } else {
+                    $this->form_validation->set_rules('login_password', 'Password Login', 'trim|min_length[8]|max_length[72]');
+                }
+            }
+        }
     }
 
     private function collectPayload(array $cfg, int $id): ?array
@@ -755,6 +789,11 @@ class Master extends MY_Controller
                     $this->session->set_flashdata('error', 'NIP sudah dipakai.');
                     return null;
                 }
+            }
+
+            foreach (['basic_salary', 'position_allowance', 'objective_allowance', 'meal_rate', 'overtime_rate'] as $moneyField) {
+                $value = $data[$moneyField] ?? null;
+                $data[$moneyField] = $value === null || $value === '' ? 0 : round((float)$value, 2);
             }
 
             if (array_key_exists('bank_id', $data)) {
@@ -1186,6 +1225,125 @@ class Master extends MY_Controller
         return $opts;
     }
 
+    private function employeeAccessFormData(?array $row = null): array
+    {
+        $employeeId = (int)($row['id'] ?? 0);
+        $linkedUsers = $employeeId > 0
+            ? $this->db->select('id, username, is_active')
+                ->from('auth_user')
+                ->where('employee_id', $employeeId)
+                ->order_by('id', 'ASC')
+                ->get()
+                ->result_array()
+            : [];
+        $primaryLinkedUser = !empty($linkedUsers) ? $linkedUsers[0] : null;
+
+        return [
+            'employee_access_roles' => $this->User_model->get_role_selection_options(true),
+            'employee_selected_role_ids' => $employeeId > 0 ? $this->User_model->get_employee_role_ids($employeeId) : [],
+            'employee_protected_role_ids' => $this->User_model->get_protected_role_ids(),
+            'employee_can_manage_protected_roles' => $this->is_superadmin(),
+            'employee_linked_users' => $linkedUsers,
+            'employee_login_user' => $primaryLinkedUser,
+            'employee_login_user_count' => count($linkedUsers),
+            'employee_role_storage_ready' => $this->db->table_exists('org_employee_role_assignment'),
+        ];
+    }
+
+    private function validateEmployeeLoginRequest(int $employeeId = 0): bool
+    {
+        $linkedUser = $employeeId > 0 ? $this->User_model->get_primary_user_by_employee_id($employeeId) : null;
+        if (!empty($linkedUser)) {
+            return true;
+        }
+
+        if (!$this->input->post('create_login_account')) {
+            return true;
+        }
+
+        $username = trim((string)$this->input->post('login_username', true));
+        if ($username !== '' && $this->User_model->is_username_taken($username)) {
+            $this->session->set_flashdata('error', 'Username login sudah dipakai.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function syncEmployeeLoginAccount(int $employeeId, array $employeePayload): void
+    {
+        if ($employeeId <= 0) {
+            return;
+        }
+
+        $linkedUser = $this->User_model->get_primary_user_by_employee_id($employeeId);
+        $password = trim((string)$this->input->post('login_password'));
+
+        if (!empty($linkedUser)) {
+            if ($password === '') {
+                return;
+            }
+
+            $this->User_model->update((int)$linkedUser['id'], [
+                'password' => $password,
+                'employee_id' => $employeeId,
+            ]);
+            return;
+        }
+
+        if (!$this->input->post('create_login_account')) {
+            return;
+        }
+
+        $username = trim((string)$this->input->post('login_username', true));
+        if ($username === '' || $password === '') {
+            return;
+        }
+
+        $email = trim((string)($employeePayload['email'] ?? ''));
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $email = '';
+        }
+
+        $userId = $this->User_model->create([
+            'username' => $username,
+            'email' => $email !== '' ? $email : null,
+            'password' => $password,
+            'employee_id' => $employeeId,
+        ]);
+
+        if (!$userId) {
+            $this->session->set_flashdata('warning', 'Data pegawai tersimpan, tetapi akun login gagal dibuat. Periksa username lalu coba lagi dari edit pegawai.');
+        }
+    }
+
+    private function syncEmployeeAccessRoles(int $employeeId): void
+    {
+        if ($employeeId <= 0) {
+            return;
+        }
+
+        if (!$this->db->table_exists('org_employee_role_assignment')) {
+            if (!empty($this->input->post('employee_role_ids'))) {
+                $this->session->set_flashdata('warning', 'Checklist hak akses pegawai belum aktif karena tabel org_employee_role_assignment belum dibuat. Jalankan SQL terbaru terlebih dahulu.');
+            }
+            return;
+        }
+
+        $existingRoleIds = $this->User_model->get_employee_role_ids($employeeId);
+        $submittedRoleIds = (array)$this->input->post('employee_role_ids');
+        $roleIds = $this->User_model->preserve_protected_role_ids(
+            $submittedRoleIds,
+            $existingRoleIds,
+            $this->is_superadmin()
+        );
+
+        $linkedUserIds = $this->User_model->sync_employee_roles($employeeId, $roleIds, (int)($this->current_user['id'] ?? 0));
+        if (in_array((int)($this->current_user['id'] ?? 0), $linkedUserIds, true)) {
+            $this->Auth_model->refresh_permissions((int)$this->current_user['id']);
+        }
+    }
+
     private function buildLookupMaps(array $cfg): array
     {
         $maps = [];
@@ -1409,13 +1567,19 @@ class Master extends MY_Controller
         $material = $this->db->select('id, hpp_standard')->from('mst_material')->where('id', $materialId)->limit(1)->get()->row_array();
         $standard = (float)($material['hpp_standard'] ?? 0);
         $live = 0.0;
-        if ($divisionId > 0 && $this->db->table_exists('inv_division_stock_balance')) {
-            $liveRow = $this->db->select('avg_cost_per_content')
-                ->from('inv_division_stock_balance')
-                ->where('division_id', $divisionId)
-                ->where('material_id', $materialId)
-                ->order_by('updated_at', 'DESC')
-                ->limit(1)
+        if ($divisionId > 0 && $this->db->table_exists('inv_division_monthly_stock')) {
+            $targetMonth = date('Y-m-01');
+            $latestMonthSubquery = $this->db
+                ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
+                ->from('inv_division_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by(['division_id', 'destination_type', 'identity_key'])
+                ->get_compiled_select();
+            $liveRow = $this->db->select('AVG(COALESCE(s.avg_cost_per_content,0)) AS avg_cost_per_content', false)
+                ->from('inv_division_monthly_stock s')
+                ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                ->where('s.division_id', $divisionId)
+                ->where('s.material_id', $materialId)
                 ->get()
                 ->row_array();
             $live = (float)($liveRow['avg_cost_per_content'] ?? 0);
@@ -1438,12 +1602,22 @@ class Master extends MY_Controller
         $component = $this->db->select('id, hpp_standard')->from('mst_component')->where('id', $componentId)->limit(1)->get()->row_array();
         $standard = (float)($component['hpp_standard'] ?? 0);
         $live = 0.0;
-        if ($this->db->table_exists('inv_component_stock_balance')) {
-            $this->db->select('avg_cost')->from('inv_component_stock_balance')->where('component_id', $componentId);
+        if ($this->db->table_exists('inv_component_monthly_stock')) {
+            $targetMonth = date('Y-m-01');
+            $latestMonthSubquery = $this->db
+                ->select('location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key', false)
+                ->from('inv_component_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
+                ->get_compiled_select();
+            $this->db->select('AVG(COALESCE(s.avg_cost,0)) AS avg_cost', false)
+                ->from('inv_component_monthly_stock s')
+                ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
+                ->where('s.component_id', $componentId);
             if ($divisionId > 0) {
-                $this->db->where('division_id', $divisionId);
+                $this->db->where('s.division_id', $divisionId);
             }
-            $liveRow = $this->db->order_by('updated_at', 'DESC')->limit(1)->get()->row_array();
+            $liveRow = $this->db->get()->row_array();
             $live = (float)($liveRow['avg_cost'] ?? 0);
         }
         if ($live <= 0) {
@@ -1656,8 +1830,8 @@ class Master extends MY_Controller
                         ['value' => 'L', 'label' => 'Laki-laki'],
                         ['value' => 'P', 'label' => 'Perempuan'],
                     ]],
-                    ['name' => 'birth_date', 'label' => 'Tanggal Lahir (YYYY-MM-DD)', 'type' => 'text'],
-                    ['name' => 'join_date', 'label' => 'Tanggal Bergabung (YYYY-MM-DD)', 'type' => 'text'],
+                    ['name' => 'birth_date', 'label' => 'Tanggal Lahir', 'type' => 'date'],
+                    ['name' => 'join_date', 'label' => 'Tanggal Bergabung', 'type' => 'date'],
                     ['name' => 'mobile_phone', 'label' => 'No HP', 'type' => 'text'],
                     ['name' => 'email', 'label' => 'Email', 'type' => 'text'],
                     ['name' => 'address', 'label' => 'Alamat', 'type' => 'textarea'],

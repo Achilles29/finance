@@ -4,7 +4,52 @@ $linkedUsers = $linked_users ?? [];
 $schedules = $schedules ?? [];
 $attDailyRows = $att_daily_rows ?? [];
 $entity = $entity ?? 'org-employee';
+$basicSalary = (float)($row['basic_salary'] ?? 0);
+$positionAllowance = (float)($row['position_allowance'] ?? 0);
+$objectiveAllowance = (float)($row['objective_allowance'] ?? 0);
+$mealRate = (float)($row['meal_rate'] ?? 0);
+$overtimeRate = (float)($row['overtime_rate'] ?? 0);
+$takeHomeWithoutMeal = $basicSalary + $positionAllowance + $objectiveAllowance;
+$takeHomeWithMeal = $takeHomeWithoutMeal + $mealRate;
 ?>
+
+<style>
+  .employee-comp-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .employee-comp-summary-card {
+    border: 1px solid #e7d8cd;
+    border-radius: 14px;
+    padding: 0.9rem 1rem;
+    background: linear-gradient(180deg, #fffdfb 0%, #fff6ef 100%);
+  }
+  .employee-comp-summary-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #8a6d5c;
+    margin-bottom: 0.3rem;
+  }
+  .employee-comp-summary-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #7b1220;
+    line-height: 1.2;
+  }
+  .employee-comp-summary-note {
+    margin-top: 0.3rem;
+    font-size: 0.75rem;
+    color: #8a776d;
+  }
+  @media (max-width: 767.98px) {
+    .employee-comp-summary {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
@@ -42,11 +87,24 @@ $entity = $entity ?? 'org-employee';
     <div class="card h-100">
       <div class="card-body">
         <h6 class="mb-3">Komponen Kompensasi</h6>
-        <div class="small mb-2"><span class="text-muted">Gaji Pokok:</span> <strong><?php echo number_format((float)($row['basic_salary'] ?? 0), 2, ',', '.'); ?></strong></div>
-        <div class="small mb-2"><span class="text-muted">Tunjangan Jabatan:</span> <strong><?php echo number_format((float)($row['position_allowance'] ?? 0), 2, ',', '.'); ?></strong></div>
-        <div class="small mb-2"><span class="text-muted">Tunjangan Objektif/Lain:</span> <strong><?php echo number_format((float)($row['objective_allowance'] ?? 0), 2, ',', '.'); ?></strong></div>
-        <div class="small mb-2"><span class="text-muted">Uang Makan:</span> <strong><?php echo number_format((float)($row['meal_rate'] ?? 0), 2, ',', '.'); ?></strong></div>
-        <div class="small mb-2"><span class="text-muted">Rate Lembur/Jam:</span> <strong><?php echo number_format((float)($row['overtime_rate'] ?? 0), 2, ',', '.'); ?></strong></div>
+        <div class="employee-comp-summary">
+          <div class="employee-comp-summary-card">
+            <div class="employee-comp-summary-label">Take Home Pay Tanpa Uang Makan</div>
+            <div class="employee-comp-summary-value">Rp <?php echo number_format($takeHomeWithoutMeal, 2, ',', '.'); ?></div>
+            <div class="employee-comp-summary-note">Gaji pokok + tunjangan jabatan + tunjangan objektif.</div>
+          </div>
+          <div class="employee-comp-summary-card">
+            <div class="employee-comp-summary-label">Take Home Pay Dengan Uang Makan</div>
+            <div class="employee-comp-summary-value">Rp <?php echo number_format($takeHomeWithMeal, 2, ',', '.'); ?></div>
+            <div class="employee-comp-summary-note">Total di atas ditambah komponen uang makan.</div>
+          </div>
+        </div>
+        <div class="small mb-2"><span class="text-muted">Gaji Pokok:</span> <strong><?php echo number_format($basicSalary, 2, ',', '.'); ?></strong></div>
+        <div class="small mb-2"><span class="text-muted">Tunjangan Jabatan:</span> <strong><?php echo number_format($positionAllowance, 2, ',', '.'); ?></strong></div>
+        <div class="small mb-2"><span class="text-muted">Tunjangan Objektif/Lain:</span> <strong><?php echo number_format($objectiveAllowance, 2, ',', '.'); ?></strong></div>
+        <div class="small mb-2"><span class="text-muted">Uang Makan:</span> <strong><?php echo number_format($mealRate, 2, ',', '.'); ?></strong></div>
+        <div class="small mb-2"><span class="text-muted">Rate Lembur/Jam:</span> <strong><?php echo number_format($overtimeRate, 2, ',', '.'); ?></strong></div>
+        <div class="small text-muted">Ringkasan take home pay ini belum memasukkan lembur, potongan, bonus, atau komponen payroll periodik lainnya.</div>
         <hr>
         <div class="small mb-2"><span class="text-muted">Bank:</span> <?php echo html_escape((string)($row['bank_display_name'] ?? $row['bank_name'] ?? '-')); ?></div>
         <div class="small mb-2"><span class="text-muted">No Rekening:</span> <?php echo html_escape((string)($row['bank_account_no'] ?? '-')); ?></div>

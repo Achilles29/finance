@@ -484,13 +484,17 @@ class Procurement_model extends CI_Model
 
     public function search_warehouse_profiles(string $q, int $limit = 20): array
     {
-        if (!$this->db->table_exists('inv_warehouse_stock_balance')) {
-            return [];
+        if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
+            return $this->search_warehouse_profiles_monthly($q, $limit);
         }
 
+        return [];
+    }
+
+    private function search_warehouse_profiles_monthly(string $q, int $limit = 20): array
+    {
         $q = trim($q);
-        $hasWhMaterial = $this->db->field_exists('material_id', 'inv_warehouse_stock_balance');
-        $hasWhStockDomain = $this->db->field_exists('stock_domain', 'inv_warehouse_stock_balance');
+        $limit = max(1, min(100, $limit));
         $hasCatalog = $this->db->table_exists('mst_purchase_catalog')
             && $this->db->field_exists('profile_key', 'mst_purchase_catalog')
             && $this->db->field_exists('last_purchase_date', 'mst_purchase_catalog');
@@ -499,25 +503,32 @@ class Procurement_model extends CI_Model
         $hasCatalogLineKind = $hasCatalog && $this->db->field_exists('line_kind', 'mst_purchase_catalog');
         $hasCatalogLastUnitPrice = $hasCatalog && $this->db->field_exists('last_unit_price', 'mst_purchase_catalog');
         $hasCatalogStandardPrice = $hasCatalog && $this->db->field_exists('standard_price', 'mst_purchase_catalog');
+        $targetMonth = date('Y-m-01');
+
+        $latestMonthSubquery = $this->db
+            ->select('identity_key, MAX(month_key) AS month_key', false)
+            ->from('inv_warehouse_monthly_stock')
+            ->where('month_key <=', $targetMonth)
+            ->group_by('identity_key')
+            ->get_compiled_select();
 
         $this->db
-            ->select('s.item_id, ' . ($hasWhMaterial ? 'COALESCE(s.material_id, i.material_id) AS material_id' : 'i.material_id AS material_id') . ', s.buy_uom_id, s.content_uom_id, s.profile_key', false)
-            ->select($hasWhStockDomain ? 's.stock_domain' : 'NULL AS stock_domain', false)
+            ->select('s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id, s.profile_key', false)
+            ->select('s.stock_domain', false)
             ->select('s.profile_name, s.profile_brand, s.profile_description, s.profile_expired_date, s.profile_content_per_buy')
-            ->select('s.profile_buy_uom_code, s.profile_content_uom_code, s.qty_buy_balance, s.qty_content_balance')
+            ->select('s.profile_buy_uom_code, s.profile_content_uom_code, s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance')
             ->select(($hasCatalogVendorPrice || $hasCatalogLastUnitPrice || $hasCatalogStandardPrice)
                 ? 'COALESCE(' . ($hasCatalogVendorPrice ? 'cvp.last_unit_price, cvp.standard_price, ' : '') . ($hasCatalogLastUnitPrice ? 'c.last_unit_price' : 'NULL') . ', ' . ($hasCatalogStandardPrice ? 'c.standard_price' : 'NULL') . ', 0) AS last_unit_price'
                 : '0 AS last_unit_price', false)
             ->select($hasCatalog ? 'COALESCE(' . ($hasCatalogVendorPrice ? 'cvp.last_purchase_date, ' : '') . 'c.last_purchase_date) AS last_purchase_date' : 'NULL AS last_purchase_date', false)
             ->select($hasCatalogLineKind ? 'c.line_kind AS catalog_line_kind' : 'NULL AS catalog_line_kind', false)
-            ->select('i.item_code, i.item_name, ' . ($hasWhMaterial ? 'm.material_code, m.material_name' : 'NULL AS material_code, NULL AS material_name'), false)
-            ->from('inv_warehouse_stock_balance s')
+            ->select('i.item_code, i.item_name, m.material_code, m.material_name')
+            ->from('inv_warehouse_monthly_stock s')
+            ->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
             ->join('mst_item i', 'i.id = s.item_id', 'left')
-            ->where('COALESCE(s.qty_content_balance, 0) >', 0);
+            ->join('mst_material m', 'm.id = s.material_id', 'left')
+            ->where('COALESCE(s.closing_qty_content, 0) >', 0);
 
-        if ($hasWhMaterial) {
-            $this->db->join('mst_material m', 'm.id = s.material_id', 'left');
-        }
         if ($hasCatalog) {
             $this->db->join('mst_purchase_catalog c', 'c.profile_key = s.profile_key', 'left');
             if ($hasCatalogVendorPrice) {
@@ -531,17 +542,15 @@ class Procurement_model extends CI_Model
                 ->or_like('s.profile_brand', $q)
                 ->or_like('s.profile_description', $q)
                 ->or_like('s.profile_key', $q)
-                ->or_like('i.item_name', $q);
-            if ($hasWhMaterial) {
-                $this->db->or_like('m.material_name', $q);
-            }
-            $this->db->group_end();
+                ->or_like('i.item_name', $q)
+                ->or_like('m.material_name', $q)
+                ->group_end();
         }
 
         $rows = $this->db
-            ->order_by('s.qty_buy_balance', 'DESC')
-            ->order_by('s.qty_content_balance', 'DESC')
-            ->limit(max(1, min(100, $limit)))
+            ->order_by('s.closing_qty_buy', 'DESC')
+            ->order_by('s.closing_qty_content', 'DESC')
+            ->limit($limit)
             ->get()
             ->result_array();
 
@@ -638,7 +647,6 @@ class Procurement_model extends CI_Model
         if (!$this->has_division_request_schema()) {
             return [];
         }
-
         $q = trim((string)($filters['q'] ?? ''));
         $divisionId = (int)($filters['division_id'] ?? 0);
         $status = strtoupper(trim((string)($filters['status'] ?? '')));
@@ -1445,9 +1453,6 @@ class Procurement_model extends CI_Model
 
             if (!empty($fulfillmentIds)) {
                 $fulfillmentLineRows = $this->db
-                    ->select('fl.*')
-                    ->select('srl.line_no AS request_line_no', false)
-                    ->select('bu.code AS buy_uom_code, cu.code AS content_uom_code', false)
                     ->from('pur_store_request_fulfillment_line fl')
                     ->join('pur_store_request_line srl', 'srl.id = fl.store_request_line_id', 'left')
                     ->join('mst_uom bu', 'bu.id = fl.buy_uom_id', 'left')
@@ -2577,20 +2582,46 @@ class Procurement_model extends CI_Model
             INNER JOIN pur_store_request_fulfillment f ON f.id = fl.fulfillment_id
             WHERE COALESCE(f.status, '') <> 'VOID'
             GROUP BY fl.store_request_line_id";
-        $warehouseCostSql = "SELECT
-                COALESCE(w.profile_key, '') AS profile_key,
-                COALESCE(w.buy_uom_id, 0) AS buy_uom_id,
-                COALESCE(w.content_uom_id, 0) AS content_uom_id,
-                AVG(COALESCE(w.avg_cost_per_content, 0)) AS avg_cost_per_content
-            FROM inv_warehouse_stock_balance w
-            GROUP BY COALESCE(w.profile_key, ''), COALESCE(w.buy_uom_id, 0), COALESCE(w.content_uom_id, 0)";
-        $warehouseItemCostSql = "SELECT
-                COALESCE(w.item_id, 0) AS item_id,
-                COALESCE(w.buy_uom_id, 0) AS buy_uom_id,
-                COALESCE(w.content_uom_id, 0) AS content_uom_id,
-                AVG(COALESCE(w.avg_cost_per_content, 0)) AS avg_cost_per_content
-            FROM inv_warehouse_stock_balance w
-            GROUP BY COALESCE(w.item_id, 0), COALESCE(w.buy_uom_id, 0), COALESCE(w.content_uom_id, 0)";
+        if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
+            $targetMonth = date('Y-m-01');
+            $latestWarehouseMonthSql = "SELECT identity_key, MAX(month_key) AS month_key
+                FROM inv_warehouse_monthly_stock
+                WHERE month_key <= " . $this->db->escape($targetMonth) . "
+                GROUP BY identity_key";
+            $warehouseCostSql = "SELECT
+                    COALESCE(w.profile_key, '') AS profile_key,
+                    COALESCE(w.buy_uom_id, 0) AS buy_uom_id,
+                    COALESCE(w.content_uom_id, 0) AS content_uom_id,
+                    AVG(COALESCE(w.avg_cost_per_content, 0)) AS avg_cost_per_content
+                FROM inv_warehouse_monthly_stock w
+                INNER JOIN ({$latestWarehouseMonthSql}) wm
+                    ON wm.identity_key = w.identity_key
+                   AND wm.month_key = w.month_key
+                GROUP BY COALESCE(w.profile_key, ''), COALESCE(w.buy_uom_id, 0), COALESCE(w.content_uom_id, 0)";
+            $warehouseItemCostSql = "SELECT
+                    COALESCE(w.item_id, 0) AS item_id,
+                    COALESCE(w.buy_uom_id, 0) AS buy_uom_id,
+                    COALESCE(w.content_uom_id, 0) AS content_uom_id,
+                    AVG(COALESCE(w.avg_cost_per_content, 0)) AS avg_cost_per_content
+                FROM inv_warehouse_monthly_stock w
+                INNER JOIN ({$latestWarehouseMonthSql}) wm
+                    ON wm.identity_key = w.identity_key
+                   AND wm.month_key = w.month_key
+                GROUP BY COALESCE(w.item_id, 0), COALESCE(w.buy_uom_id, 0), COALESCE(w.content_uom_id, 0)";
+        } else {
+            $warehouseCostSql = "SELECT
+                    '' AS profile_key,
+                    0 AS buy_uom_id,
+                    0 AS content_uom_id,
+                    0 AS avg_cost_per_content
+                WHERE 1=0";
+            $warehouseItemCostSql = "SELECT
+                    0 AS item_id,
+                    0 AS buy_uom_id,
+                    0 AS content_uom_id,
+                    0 AS avg_cost_per_content
+                WHERE 1=0";
+        }
 
         return "SELECT
                 ln.id AS line_id,
@@ -2627,16 +2658,25 @@ class Procurement_model extends CI_Model
         $profileKey = trim((string)($line['profile_key'] ?? ''));
         $contentPerBuy = $contentPerBuy > 0 ? $contentPerBuy : 1.0;
 
-        if ($this->db->table_exists('inv_warehouse_stock_balance') && $itemId > 0 && $buyUomId > 0 && $contentUomId > 0) {
+        if ($this->db->table_exists('inv_warehouse_monthly_stock') && $itemId > 0 && $buyUomId > 0 && $contentUomId > 0) {
+            $targetMonth = date('Y-m-01');
+            $latestMonthSubquery = $this->db
+                ->select('identity_key, MAX(month_key) AS month_key', false)
+                ->from('inv_warehouse_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by('identity_key')
+                ->get_compiled_select();
+
             if ($profileKey !== '') {
                 $row = $this->db
-                    ->select('avg_cost_per_content, qty_content_balance')
-                    ->from('inv_warehouse_stock_balance')
-                    ->where('item_id', $itemId)
-                    ->where('buy_uom_id', $buyUomId)
-                    ->where('content_uom_id', $contentUomId)
-                    ->where('profile_key', $profileKey)
-                    ->order_by('qty_content_balance', 'DESC')
+                    ->select('s.avg_cost_per_content, s.closing_qty_content')
+                    ->from('inv_warehouse_monthly_stock s')
+                    ->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                    ->where('s.item_id', $itemId)
+                    ->where('s.buy_uom_id', $buyUomId)
+                    ->where('s.content_uom_id', $contentUomId)
+                    ->where('s.profile_key', $profileKey)
+                    ->order_by('s.closing_qty_content', 'DESC')
                     ->limit(1)
                     ->get()
                     ->row_array();
@@ -2647,11 +2687,12 @@ class Procurement_model extends CI_Model
             }
 
             $row = $this->db
-                ->select('AVG(COALESCE(avg_cost_per_content,0)) AS avg_cost', false)
-                ->from('inv_warehouse_stock_balance')
-                ->where('item_id', $itemId)
-                ->where('buy_uom_id', $buyUomId)
-                ->where('content_uom_id', $contentUomId)
+                ->select('AVG(COALESCE(s.avg_cost_per_content,0)) AS avg_cost', false)
+                ->from('inv_warehouse_monthly_stock s')
+                ->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                ->where('s.item_id', $itemId)
+                ->where('s.buy_uom_id', $buyUomId)
+                ->where('s.content_uom_id', $contentUomId)
                 ->get()
                 ->row_array();
             $avg = (float)($row['avg_cost'] ?? 0);
@@ -3174,9 +3215,6 @@ class Procurement_model extends CI_Model
 
     private function get_warehouse_available_content(?int $itemId, ?int $materialId, ?int $buyUomId, ?int $contentUomId, string $profileKey): float
     {
-        if (!$this->db->table_exists('inv_warehouse_stock_balance')) {
-            return 0.0;
-        }
         if (
             (($itemId === null || $itemId <= 0) && ($materialId === null || $materialId <= 0))
             || $buyUomId === null || $buyUomId <= 0
@@ -3185,27 +3223,38 @@ class Procurement_model extends CI_Model
         ) {
             return 0.0;
         }
-        $sql = 'SELECT qty_content_balance
-                FROM inv_warehouse_stock_balance
-                WHERE buy_uom_id = ?
-                  AND content_uom_id = ?
-                  AND profile_key <=> ?';
-        $params = [$buyUomId, $contentUomId, $profileKey];
-        $hasWarehouseMaterial = $this->db->field_exists('material_id', 'inv_warehouse_stock_balance');
 
-        if ($hasWarehouseMaterial && $materialId !== null && $materialId > 0) {
-            $sql .= ' AND material_id = ?';
-            $params[] = $materialId;
-        } elseif ($itemId !== null && $itemId > 0) {
-            $sql .= ' AND item_id = ?';
-            $params[] = $itemId;
-        } else {
-            return 0.0;
+        if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
+            $targetMonth = date('Y-m-01');
+            $sql = 'SELECT closing_qty_content
+                    FROM inv_warehouse_monthly_stock
+                    WHERE month_key = (
+                        SELECT MAX(wm.month_key)
+                        FROM inv_warehouse_monthly_stock wm
+                        WHERE wm.identity_key = inv_warehouse_monthly_stock.identity_key
+                          AND wm.month_key <= ?
+                    )
+                      AND buy_uom_id = ?
+                      AND content_uom_id = ?
+                      AND profile_key <=> ?';
+            $params = [$targetMonth, $buyUomId, $contentUomId, $profileKey];
+
+            if ($materialId !== null && $materialId > 0) {
+                $sql .= ' AND material_id = ?';
+                $params[] = $materialId;
+            } elseif ($itemId !== null && $itemId > 0) {
+                $sql .= ' AND item_id = ?';
+                $params[] = $itemId;
+            } else {
+                return 0.0;
+            }
+            $sql .= ' ORDER BY updated_at DESC, last_movement_at DESC LIMIT 1';
+
+            $row = $this->db->query($sql, $params)->row_array();
+            return round((float)($row['closing_qty_content'] ?? 0), 4);
         }
-        $sql .= ' LIMIT 1';
 
-        $row = $this->db->query($sql, $params)->row_array();
-        return round((float)($row['qty_content_balance'] ?? 0), 4);
+        return 0.0;
     }
 
     private function reverse_fulfillments_before_void(int $requestId, string $notes, int $userId): array

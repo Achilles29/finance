@@ -171,6 +171,54 @@ foreach ($rows as $row) {
     $summaryDraft++;
   }
 }
+$fmtMoney = static function ($value): string {
+  return 'Rp ' . number_format((float)$value, 2, ',', '.');
+};
+$docSummary = [
+  'line_count' => 0,
+  'shrink_value' => 0.0,
+  'addition_value' => 0.0,
+  'net_value' => 0.0,
+];
+foreach ($rows as $row) {
+  $shrinkValue = (float)($row['total_waste_value'] ?? 0)
+    + (float)($row['total_spoil_value'] ?? 0)
+    + (float)($row['total_process_loss_value'] ?? 0)
+    + (float)($row['total_variance_value'] ?? 0);
+  $additionValue = (float)($row['total_adjustment_plus_value'] ?? 0);
+  $docSummary['line_count'] += (int)($row['line_count'] ?? 0);
+  $docSummary['shrink_value'] += $shrinkValue;
+  $docSummary['addition_value'] += $additionValue;
+}
+$docSummary['net_value'] = $docSummary['addition_value'] - $docSummary['shrink_value'];
+
+$detailSummary = [
+  'line_count' => count($lineRows),
+  'doc_count' => 0,
+  'adjusted_qty' => 0.0,
+  'shrink_value' => 0.0,
+  'addition_value' => 0.0,
+  'net_value' => 0.0,
+];
+$detailDocIds = [];
+foreach ($lineRows as $lineRow) {
+  $adjustmentId = (int)($lineRow['adjustment_id'] ?? 0);
+  if ($adjustmentId > 0) {
+    $detailDocIds[$adjustmentId] = true;
+  }
+  $wasteQty = (float)($lineRow['qty_waste_content'] ?? 0);
+  $spoilQty = (float)($lineRow['qty_spoil_content'] ?? 0);
+  $processLossQty = (float)($lineRow['qty_process_loss_content'] ?? 0);
+  $varianceQty = (float)($lineRow['qty_variance_content'] ?? 0);
+  $adjustmentPlusQty = (float)($lineRow['qty_adjustment_plus_content'] ?? 0);
+  $unitCost = (float)($lineRow['unit_cost'] ?? 0);
+
+  $detailSummary['adjusted_qty'] += $detailQtyByScope($lineRow, $wasteQty + $spoilQty + $processLossQty + $varianceQty + $adjustmentPlusQty);
+  $detailSummary['shrink_value'] += ($wasteQty + $spoilQty + $processLossQty + $varianceQty) * $unitCost;
+  $detailSummary['addition_value'] += $adjustmentPlusQty * $unitCost;
+}
+$detailSummary['doc_count'] = count($detailDocIds);
+$detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary['shrink_value'];
 ?>
 
 <style>
@@ -182,6 +230,39 @@ foreach ($rows as $row) {
     padding: .65rem .8rem;
     background: #fff;
   }
+  .adjustment-metric-card {
+    border: 1px solid rgba(15, 23, 42, .08);
+    border-radius: 1rem;
+    padding: .9rem 1rem;
+    background: linear-gradient(180deg, #ffffff 0%, #faf8f4 100%);
+    box-shadow: 0 .8rem 1.8rem rgba(15, 23, 42, .05);
+    height: 100%;
+  }
+  .adjustment-metric-card .label {
+    display: block;
+    font-size: .72rem;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    font-weight: 700;
+    margin-bottom: .25rem;
+  }
+  .adjustment-metric-card .value {
+    display: block;
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: #111827;
+    line-height: 1.15;
+  }
+  .adjustment-metric-card .meta {
+    display: block;
+    margin-top: .35rem;
+    color: #6b7280;
+    font-size: .78rem;
+    line-height: 1.35;
+  }
+  .adjustment-metric-card.value-danger .value { color: #b42318; }
+  .adjustment-metric-card.value-success .value { color: #166534; }
   .adjustment-line-table td,
   .adjustment-line-table th { vertical-align: middle; }
   .adjustment-selected-card {
@@ -488,6 +569,61 @@ foreach ($rows as $row) {
       <div class="col-6 col-md-3"><div class="adjustment-summary-chip"><div class="small text-muted">Void</div><div class="h5 mb-0 text-danger"><?php echo number_format($summaryVoid); ?></div></div></div>
     </div>
 
+    <div class="row g-2 mb-3">
+      <div class="col-md-4">
+        <div class="adjustment-metric-card value-danger">
+          <span class="label">Nilai Pengurang</span>
+          <span class="value"><?php echo html_escape($fmtMoney($docSummary['shrink_value'])); ?></span>
+          <span class="meta">Waste + spoil + process loss + variance untuk dokumen yang sedang tampil.</span>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="adjustment-metric-card value-success">
+          <span class="label">Nilai Penambah</span>
+          <span class="value"><?php echo html_escape($fmtMoney($docSummary['addition_value'])); ?></span>
+          <span class="meta">Akumulasi nilai Adjustment + dari dokumen terfilter.</span>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="adjustment-metric-card <?php echo $docSummary['net_value'] >= 0 ? 'value-success' : 'value-danger'; ?>">
+          <span class="label">Dampak Bersih</span>
+          <span class="value"><?php echo html_escape($fmtMoney($docSummary['net_value'])); ?></span>
+          <span class="meta"><?php echo number_format((int)$docSummary['line_count']); ?> line pada <?php echo number_format(count($rows)); ?> dokumen yang sedang tampil.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-2 mb-3" id="draft-summary-cards">
+      <div class="col-md-3">
+        <div class="adjustment-metric-card">
+          <span class="label">Line Draft</span>
+          <span class="value" id="draft-summary-line-count">0</span>
+          <span class="meta">Jumlah line yang siap disimpan ke draft.</span>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="adjustment-metric-card">
+          <span class="label">Qty Draft</span>
+          <span class="value" id="draft-summary-qty-total">0</span>
+          <span class="meta"><?php echo html_escape($qtyUnitLabel); ?> total dari semua bucket adjustment.</span>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="adjustment-metric-card value-danger">
+          <span class="label">Nilai Pengurang Draft</span>
+          <span class="value" id="draft-summary-shrink-value"><?php echo html_escape($fmtMoney(0)); ?></span>
+          <span class="meta">Nilai keluar dari waste, spoil, process loss, dan variance.</span>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="adjustment-metric-card value-success">
+          <span class="label">Nilai Bersih Draft</span>
+          <span class="value" id="draft-summary-net-value"><?php echo html_escape($fmtMoney(0)); ?></span>
+          <span class="meta">Adjustment + dikurangi seluruh pengurang pada draft saat ini.</span>
+        </div>
+      </div>
+    </div>
+
     <div class="card mb-3">
       <div class="card-body pb-2">
         <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
@@ -507,12 +643,13 @@ foreach ($rows as $row) {
               <th class="text-end"><?php echo html_escape($varianceColumnLabel); ?></th>
               <th class="text-end"><?php echo html_escape($adjustmentPlusColumnLabel); ?></th>
               <th class="text-end"><?php echo html_escape($costColumnLabel); ?></th>
+              <th class="text-end">Nilai Total</th>
               <th>Lot In</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            <tr><td colspan="10" class="text-center text-muted py-4">Belum ada line draft.</td></tr>
+            <tr><td colspan="11" class="text-center text-muted py-4">Belum ada line draft.</td></tr>
           </tbody>
         </table>
       </div>
@@ -581,14 +718,22 @@ foreach ($rows as $row) {
               <th class="text-end"><?php echo html_escape($processLossColumnLabel); ?></th>
               <th class="text-end"><?php echo html_escape($varianceColumnLabel); ?></th>
               <th class="text-end"><?php echo html_escape($adjustmentPlusColumnLabel); ?></th>
+              <th class="text-end">Nilai Total</th>
               <th>Aksi</th>
             </tr>
           </thead>
           <tbody>
           <?php if (empty($rows)): ?>
-            <tr><td colspan="<?php echo $isDivisionScope ? '11' : '10'; ?>" class="text-center text-muted py-4">Belum ada dokumen adjustment.</td></tr>
+            <tr><td colspan="<?php echo $isDivisionScope ? '12' : '11'; ?>" class="text-center text-muted py-4">Belum ada dokumen adjustment.</td></tr>
           <?php else: ?>
             <?php foreach ($rows as $row): ?>
+              <?php
+                $documentTotalValue = (float)($row['total_waste_value'] ?? 0)
+                  + (float)($row['total_spoil_value'] ?? 0)
+                  + (float)($row['total_process_loss_value'] ?? 0)
+                  + (float)($row['total_variance_value'] ?? 0)
+                  + (float)($row['total_adjustment_plus_value'] ?? 0);
+              ?>
               <tr id="stock-adjustment-<?php echo (int)($row['id'] ?? 0); ?>">
                 <td>
                   <div class="fw-semibold"><?php echo html_escape((string)($row['adjustment_no'] ?? '-')); ?></div>
@@ -608,6 +753,7 @@ foreach ($rows as $row) {
                 <td class="text-end"><?php echo ui_num((float)($isWarehouseScope ? ($row['total_process_loss_buy'] ?? 0) : ($row['total_process_loss_content'] ?? 0))); ?></td>
                 <td class="text-end"><?php echo ui_num((float)($isWarehouseScope ? ($row['total_variance_buy'] ?? 0) : ($row['total_variance_content'] ?? 0))); ?></td>
                 <td class="text-end"><?php echo ui_num((float)($isWarehouseScope ? ($row['total_adjustment_plus_buy'] ?? 0) : ($row['total_adjustment_plus_content'] ?? 0))); ?></td>
+                <td class="text-end fw-semibold"><?php echo html_escape($fmtMoney($documentTotalValue)); ?></td>
                 <td class="action-cell">
                   <?php $rowStatus = strtoupper((string)($row['status'] ?? 'DRAFT')); ?>
                   <?php if ($rowStatus === 'DRAFT'): ?>
@@ -635,6 +781,51 @@ foreach ($rows as $row) {
   </div>
 
   <div class="tab-pane fade <?php echo $activeTab === 'rincian' ? 'show active' : ''; ?>" id="adjustment-tab-rincian" role="tabpanel">
+    <div class="row g-2 mb-3">
+      <div class="col-md-2">
+        <div class="adjustment-metric-card">
+          <span class="label">Baris Tampil</span>
+          <span class="value"><?php echo number_format((int)$detailSummary['line_count']); ?></span>
+          <span class="meta">Jumlah line adjustment yang lolos filter saat ini.</span>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="adjustment-metric-card">
+          <span class="label">Dokumen</span>
+          <span class="value"><?php echo number_format((int)$detailSummary['doc_count']); ?></span>
+          <span class="meta">Dokumen sumber yang membentuk rincian ini.</span>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="adjustment-metric-card">
+          <span class="label">Qty Adjust</span>
+          <span class="value"><?php echo ui_num($detailSummary['adjusted_qty']); ?></span>
+          <span class="meta"><?php echo html_escape($qtyUnitLabel); ?> total dari seluruh bucket di tab rincian.</span>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="adjustment-metric-card value-danger">
+          <span class="label">Nilai Pengurang</span>
+          <span class="value"><?php echo html_escape($fmtMoney($detailSummary['shrink_value'])); ?></span>
+          <span class="meta">Akumulasi nilai keluar semua line terfilter.</span>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="adjustment-metric-card value-success">
+          <span class="label">Nilai Penambah</span>
+          <span class="value"><?php echo html_escape($fmtMoney($detailSummary['addition_value'])); ?></span>
+          <span class="meta">Adjustment + yang menambah stok pada hasil filter saat ini.</span>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="adjustment-metric-card <?php echo $detailSummary['net_value'] >= 0 ? 'value-success' : 'value-danger'; ?>">
+          <span class="label">Dampak Bersih</span>
+          <span class="value"><?php echo html_escape($fmtMoney($detailSummary['net_value'])); ?></span>
+          <span class="meta">Nilai penambah dikurangi seluruh nilai pengurang.</span>
+        </div>
+      </div>
+    </div>
+
     <div class="card mb-3">
       <div class="card-body py-3">
         <form method="get" action="<?php echo $baseUrl; ?>" class="row g-2 align-items-end" id="adjustment-line-filter-form" data-adjustment-filter="1">
@@ -702,13 +893,14 @@ foreach ($rows as $row) {
               <th class="text-end"><?php echo html_escape($varianceColumnLabel); ?></th>
               <th class="text-end"><?php echo html_escape($adjustmentPlusColumnLabel); ?></th>
               <th class="text-end"><?php echo html_escape($costColumnLabel); ?></th>
+              <th class="text-end">Nilai Total</th>
               <th>Lot In</th>
               <th>Catatan</th>
             </tr>
           </thead>
           <tbody>
           <?php if (empty($lineRows)): ?>
-            <tr><td colspan="<?php echo $isDivisionScope ? '16' : '15'; ?>" class="text-center text-muted py-4">Belum ada rincian adjustment.</td></tr>
+            <tr><td colspan="<?php echo $isDivisionScope ? '17' : '16'; ?>" class="text-center text-muted py-4">Belum ada rincian adjustment.</td></tr>
           <?php else: ?>
             <?php foreach ($lineRows as $lineRow): ?>
               <?php
@@ -717,6 +909,13 @@ foreach ($rows as $row) {
                 $lineObject = $detailObjectLabel($lineRow);
                 $lineProfile = $detailProfileLabel($lineRow);
                 $lineReason = $detailReasonSummary($lineRow);
+                $lineTotalValue = (
+                  (float)($lineRow['qty_waste_content'] ?? 0)
+                  + (float)($lineRow['qty_spoil_content'] ?? 0)
+                  + (float)($lineRow['qty_process_loss_content'] ?? 0)
+                  + (float)($lineRow['qty_variance_content'] ?? 0)
+                  + (float)($lineRow['qty_adjustment_plus_content'] ?? 0)
+                ) * (float)($lineRow['unit_cost'] ?? 0);
                 $lotParts = array_filter([
                   trim((string)($lineRow['inbound_lot_no'] ?? '')),
                   trim((string)($lineRow['inbound_expiry_date'] ?? '')),
@@ -753,6 +952,7 @@ foreach ($rows as $row) {
                 <td class="text-end"><?php echo ui_num($detailQtyByScope($lineRow, 'qty_variance_content')); ?></td>
                 <td class="text-end"><?php echo ui_num($detailQtyByScope($lineRow, 'qty_adjustment_plus_content')); ?></td>
                 <td class="text-end"><?php echo ui_num($detailCostByScope($lineRow)); ?></td>
+                <td class="text-end fw-semibold"><?php echo html_escape($fmtMoney($lineTotalValue)); ?></td>
                 <td><?php echo !empty($lotParts) ? html_escape(implode(' | ', $lotParts)) : '-'; ?></td>
                 <td>
                   <div><?php echo html_escape((string)($lineRow['line_note'] ?? '-')); ?></div>
@@ -881,6 +1081,7 @@ foreach ($rows as $row) {
 
   const fmt = (num) => Number(num || 0).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   const fmt6 = (num) => Number(num || 0).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 6 });
+  const fmtMoney = (num) => 'Rp ' + Number(num || 0).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const reasonLabel = (category, value) => ((reasonLabelMap?.[category] || {})[value] || value || '-');
   const contentPerBuyValue = (row) => {
     const value = Number(row?.profile_content_per_buy || row?.default_content_per_buy || 1);
@@ -1276,8 +1477,21 @@ foreach ($rows as $row) {
   };
 
   const renderDraftLines = () => {
+    const draftLineCountEl = document.getElementById('draft-summary-line-count');
+    const draftQtyTotalEl = document.getElementById('draft-summary-qty-total');
+    const draftShrinkValueEl = document.getElementById('draft-summary-shrink-value');
+    const draftNetValueEl = document.getElementById('draft-summary-net-value');
+
+    let draftQtyTotal = 0;
+    let draftShrinkValue = 0;
+    let draftAdditionValue = 0;
+
     if (!lines.length) {
-      draftTableBody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">Belum ada line draft.</td></tr>';
+      if (draftLineCountEl) draftLineCountEl.textContent = '0';
+      if (draftQtyTotalEl) draftQtyTotalEl.textContent = '0';
+      if (draftShrinkValueEl) draftShrinkValueEl.textContent = fmtMoney(0);
+      if (draftNetValueEl) draftNetValueEl.textContent = fmtMoney(0);
+      draftTableBody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">Belum ada line draft.</td></tr>';
       return;
     }
     draftTableBody.innerHTML = lines.map((line, index) => {
@@ -1285,6 +1499,12 @@ foreach ($rows as $row) {
         ? ((line.material_code || line.item_code || '-') + ' - ' + (line.material_name || line.item_name || '-'))
         : ((line.item_code || line.material_code || '-') + ' - ' + (line.item_name || line.material_name || '-'));
       const profileText = [line.profile_name, line.profile_brand].filter(Boolean).join(' | ');
+      const shrinkQtyContent = Number(line.qty_waste_content || 0) + Number(line.qty_spoil_content || 0) + Number(line.qty_process_loss_content || 0) + Number(line.qty_variance_content || 0);
+      const additionQtyContent = Number(line.qty_adjustment_plus_content || 0);
+      const lineTotalValue = (shrinkQtyContent + additionQtyContent) * Number(line.unit_cost || 0);
+      draftQtyTotal += qtyByScope(line, shrinkQtyContent + additionQtyContent);
+      draftShrinkValue += shrinkQtyContent * Number(line.unit_cost || 0);
+      draftAdditionValue += additionQtyContent * Number(line.unit_cost || 0);
       const reasonParts = [];
       if (Number(line.qty_waste_content || 0) > 0) reasonParts.push('Waste: ' + reasonLabel('WASTE', line.waste_reason_code));
       if (Number(line.qty_spoil_content || 0) > 0) reasonParts.push('Spoil: ' + reasonLabel('SPOILAGE', line.spoil_reason_code));
@@ -1301,10 +1521,15 @@ foreach ($rows as $row) {
         + '<td class="text-end">' + fmt(qtyByScope(line, line.qty_variance_content)) + '</td>'
         + '<td class="text-end">' + fmt(qtyByScope(line, line.qty_adjustment_plus_content)) + '</td>'
         + '<td class="text-end">' + fmt6(costByScope(line, line.unit_cost)) + '</td>'
+        + '<td class="text-end fw-semibold">' + fmtMoney(lineTotalValue) + '</td>'
         + '<td><div>' + (line.inbound_lot_no || '-') + '</div><small class="text-muted">' + (line.inbound_expiry_date || '') + '</small></td>'
         + '<td class="action-cell"><div class="d-flex gap-1 flex-nowrap justify-content-end"><button type="button" class="btn btn-sm btn-outline-danger action-icon-btn btn-remove-line" data-index="' + index + '" title="Hapus" aria-label="Hapus"><i class="ri ri-delete-bin-line"></i></button></div></td>'
         + '</tr>';
     }).join('');
+    if (draftLineCountEl) draftLineCountEl.textContent = String(lines.length);
+    if (draftQtyTotalEl) draftQtyTotalEl.textContent = fmt(draftQtyTotal);
+    if (draftShrinkValueEl) draftShrinkValueEl.textContent = fmtMoney(draftShrinkValue);
+    if (draftNetValueEl) draftNetValueEl.textContent = fmtMoney(draftAdditionValue - draftShrinkValue);
     draftTableBody.querySelectorAll('.btn-remove-line').forEach((button) => {
       button.addEventListener('click', () => {
         const idx = Number(button.dataset.index || -1);

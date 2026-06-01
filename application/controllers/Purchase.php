@@ -646,6 +646,9 @@ class Purchase extends MY_Controller
             'stock_scope' => 'DIVISION',
             'is_division_scope' => true,
             'base_url_opening' => 'inventory/stock/opening/division',
+            'stock_opening_export_url' => site_url('inventory/stock/opening/division/export-template'),
+            'stock_opening_export_existing_url' => site_url('inventory/stock/opening/division/export-existing'),
+            'stock_opening_import_url' => site_url('inventory/stock/opening/division/import'),
             'month' => $month,
             'q' => $q,
             'division_id' => $divisionId,
@@ -657,6 +660,519 @@ class Purchase extends MY_Controller
         ];
 
         $this->render('purchase/stock_opening_index', $data);
+    }
+
+    public function stock_opening_division_export_template()
+    {
+        if (!$this->can(self::PAGE_STOCK_DIVISION, 'view') && !$this->can(self::PAGE_STOCK_DIVISION, 'create')) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $divisionId = (int)$this->input->get('division_id', true);
+        $destination = $this->stock_opening_import_destination((string)$this->input->get('destination', true));
+        $month = $this->stock_opening_import_month((string)$this->input->get('month', true));
+        $backUrl = $this->stock_opening_division_redirect_url([
+            'division_id' => $divisionId,
+            'destination' => $destination,
+            'month' => $month,
+        ]);
+
+        $divisionMap = $this->stock_opening_division_map();
+        if ($divisionId <= 0 || empty($divisionMap[$divisionId])) {
+            $this->session->set_flashdata('error', 'Pilih divisi lebih dulu untuk export template opening divisi.');
+            redirect($backUrl);
+            return;
+        }
+
+        $division = $divisionMap[$divisionId];
+        $rows = [];
+        foreach ($this->stock_opening_import_item_rows() as $item) {
+            $rows[] = [
+                'division_code' => (string)($division['code'] ?? ''),
+                'division_name' => (string)($division['name'] ?? ''),
+                'destination_type' => $destination,
+                'snapshot_month' => $month,
+                'item_id' => (int)($item['id'] ?? 0),
+                'item_code' => (string)($item['item_code'] ?? ''),
+                'item_name' => (string)($item['item_name'] ?? ''),
+                'material_id' => (int)($item['material_id'] ?? 0),
+                'material_code' => (string)($item['material_code'] ?? ''),
+                'material_name' => (string)($item['material_name'] ?? ''),
+                'buy_uom_code' => (string)($item['buy_uom_code'] ?? ''),
+                'content_uom_code' => (string)($item['content_uom_code'] ?? ''),
+                'profile_content_per_buy' => (string)($item['content_per_buy'] ?? '1'),
+                'opening_qty_buy' => '',
+                'opening_qty_content' => '',
+                'opening_avg_cost_per_content' => '',
+                'profile_name' => (string)($item['item_name'] ?? ''),
+                'profile_brand' => '',
+                'profile_description' => '',
+                'profile_expired_date' => '',
+                'replace_mode' => '1',
+                'notes' => '',
+            ];
+        }
+
+        $filename = 'opening-division-template-' . strtolower((string)($division['code'] ?? ('division-' . $divisionId))) . '-' . $month . '.xlsx';
+        $headers = [
+            'division_code', 'division_name', 'destination_type', 'snapshot_month',
+            'item_id', 'item_code', 'item_name', 'material_id', 'material_code', 'material_name',
+            'buy_uom_code', 'content_uom_code', 'profile_content_per_buy',
+            'opening_qty_buy', 'opening_qty_content', 'opening_avg_cost_per_content',
+            'profile_name', 'profile_brand', 'profile_description', 'profile_expired_date',
+            'replace_mode', 'notes',
+        ];
+
+        $this->load->library('SimpleSpreadsheetIO');
+        $this->simplespreadsheetio->output_xlsx($filename, $headers, $rows, 'Template Opening');
+    }
+
+    public function stock_opening_division_export_existing()
+    {
+        if (!$this->can(self::PAGE_STOCK_DIVISION, 'view') && !$this->can(self::PAGE_STOCK_DIVISION, 'export')) {
+            $this->require_permission(self::PAGE_STOCK_DIVISION, 'view');
+        }
+
+        $month = trim((string)$this->input->get('month', true));
+        $q = trim((string)$this->input->get('q', true));
+        $divisionId = (int)$this->input->get('division_id', true);
+        $destination = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destination === '') {
+            $destination = 'ALL';
+        }
+
+        $rows = $this->Purchase_model->list_stock_opening_snapshots('DIVISION', $month, $q, 2000, $divisionId > 0 ? $divisionId : null, $destination);
+        $exportRows = [];
+        foreach ($rows as $row) {
+            $exportRows[] = [
+                'snapshot_month' => (string)($row['snapshot_month'] ?? ''),
+                'division_code' => (string)($row['division_code'] ?? ''),
+                'division_name' => (string)($row['division_name'] ?? ''),
+                'destination_type' => (string)($row['destination_type'] ?? ''),
+                'item_id' => (string)($row['item_id'] ?? ''),
+                'item_code' => (string)($row['item_code'] ?? ''),
+                'item_name' => (string)($row['item_name'] ?? ''),
+                'material_id' => (string)($row['material_id'] ?? ''),
+                'material_code' => (string)($row['material_code'] ?? ''),
+                'material_name' => (string)($row['material_name'] ?? ''),
+                'profile_name' => (string)($row['profile_name'] ?? ''),
+                'profile_brand' => (string)($row['profile_brand'] ?? ''),
+                'profile_description' => (string)($row['profile_description'] ?? ''),
+                'buy_uom_code' => (string)($row['buy_uom_code'] ?? ''),
+                'content_uom_code' => (string)($row['content_uom_code'] ?? ''),
+                'profile_content_per_buy' => (string)($row['profile_content_per_buy'] ?? ''),
+                'opening_qty_buy' => (string)($row['opening_qty_buy'] ?? ''),
+                'opening_qty_content' => (string)($row['opening_qty_content'] ?? ''),
+                'opening_avg_cost_per_content' => (string)($row['opening_avg_cost_per_content'] ?? ''),
+                'opening_total_value' => (string)($row['opening_total_value'] ?? ''),
+                'source_type' => (string)($row['source_type'] ?? ''),
+                'notes' => (string)($row['notes'] ?? ''),
+            ];
+        }
+
+        $headers = [
+            'snapshot_month', 'division_code', 'division_name', 'destination_type',
+            'item_id', 'item_code', 'item_name', 'material_id', 'material_code', 'material_name',
+            'profile_name', 'profile_brand', 'profile_description',
+            'buy_uom_code', 'content_uom_code', 'profile_content_per_buy',
+            'opening_qty_buy', 'opening_qty_content', 'opening_avg_cost_per_content', 'opening_total_value',
+            'source_type', 'notes',
+        ];
+        $filename = 'opening-division-existing-' . ($month !== '' ? preg_replace('/[^0-9\-]/', '', $month) : date('Y-m')) . '.xlsx';
+
+        $this->load->library('SimpleSpreadsheetIO');
+        $this->simplespreadsheetio->output_xlsx($filename, $headers, $exportRows, 'Opening Existing');
+    }
+
+    public function stock_opening_division_import()
+    {
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'create');
+
+        $defaultDivisionId = (int)$this->input->post('division_id', true);
+        $defaultDestination = $this->stock_opening_import_destination((string)$this->input->post('destination', true));
+        $defaultMonth = $this->stock_opening_import_month((string)$this->input->post('month', true));
+        $backUrl = $this->stock_opening_division_redirect_url([
+            'division_id' => $defaultDivisionId,
+            'destination' => $defaultDestination,
+            'month' => $defaultMonth,
+        ]);
+
+        $this->load->library('SimpleSpreadsheetIO');
+        $parsed = $this->simplespreadsheetio->parse_uploaded_file('import_file');
+        if (!($parsed['ok'] ?? false)) {
+            $this->session->set_flashdata('error', (string)($parsed['message'] ?? 'File import opening divisi tidak valid.'));
+            redirect($backUrl);
+            return;
+        }
+
+        $divisionMap = $this->stock_opening_division_map();
+        $uomMap = $this->stock_opening_uom_map();
+        $itemMaps = $this->stock_opening_item_lookup_maps();
+        $successCount = 0;
+        $skippedCount = 0;
+        $errors = [];
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+
+        try {
+            foreach ((array)($parsed['rows'] ?? []) as $index => $row) {
+                $rowNumber = $index + 2;
+                $qtyBuy = $this->stock_opening_import_decimal($this->stock_opening_row_value($row, ['opening_qty_buy', 'qty_buy'], ''));
+                if ($qtyBuy <= 0) {
+                    $skippedCount++;
+                    continue;
+                }
+
+                $resolved = $this->stock_opening_import_payload_from_row($row, $defaultDivisionId, $defaultDestination, $defaultMonth, $divisionMap, $uomMap, $itemMaps);
+                if (!($resolved['ok'] ?? false)) {
+                    $errors[] = 'Baris ' . $rowNumber . ': ' . (string)($resolved['message'] ?? 'Data tidak valid.');
+                    continue;
+                }
+
+                $result = $this->Purchase_model->store_warehouse_opening_and_post(
+                    (array)$resolved['payload'],
+                    (int)($this->current_user['id'] ?? 0),
+                    (string)$this->input->ip_address()
+                );
+                if (!($result['ok'] ?? false)) {
+                    $errors[] = 'Baris ' . $rowNumber . ': ' . (string)($result['message'] ?? 'Gagal menyimpan opening.');
+                    continue;
+                }
+
+                $successCount++;
+            }
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        $summary = 'Import opening divisi selesai. Berhasil ' . $successCount . ' baris';
+        if ($skippedCount > 0) {
+            $summary .= ', dilewati ' . $skippedCount . ' baris kosong/qty 0';
+        }
+        if (!empty($errors)) {
+            $summary .= ', gagal ' . count($errors) . ' baris. ' . implode(' | ', array_slice($errors, 0, 5));
+        }
+
+        if ($successCount > 0 && empty($errors)) {
+            $this->session->set_flashdata('success', $summary . '.');
+        } elseif ($successCount > 0) {
+            $this->session->set_flashdata('warning', $summary);
+        } else {
+            $this->session->set_flashdata('error', $summary);
+        }
+
+        redirect($backUrl);
+    }
+
+    private function stock_opening_division_redirect_url(array $state = []): string
+    {
+        $query = [
+            'month' => $this->stock_opening_import_month((string)($state['month'] ?? date('Y-m'))),
+            'division_id' => (int)($state['division_id'] ?? 0),
+            'destination' => $this->stock_opening_import_destination((string)($state['destination'] ?? 'ALL')),
+        ];
+
+        return site_url('inventory/stock/opening/division') . '?' . http_build_query($query);
+    }
+
+    private function stock_opening_division_map(): array
+    {
+        $rows = $this->Purchase_model->list_active_operational_divisions();
+        $map = [];
+        foreach ($rows as $row) {
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0) {
+                $map[$id] = $row;
+                $code = strtoupper(trim((string)($row['code'] ?? '')));
+                if ($code !== '') {
+                    $map['CODE:' . $code] = $row;
+                }
+            }
+        }
+        return $map;
+    }
+
+    private function stock_opening_uom_map(): array
+    {
+        $rows = $this->Purchase_model->list_active_uoms();
+        $map = [];
+        foreach ($rows as $row) {
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0) {
+                $map[$id] = $row;
+                $code = strtoupper(trim((string)($row['code'] ?? '')));
+                if ($code !== '') {
+                    $map['CODE:' . $code] = $row;
+                }
+            }
+        }
+        return $map;
+    }
+
+    private function stock_opening_item_lookup_maps(): array
+    {
+        $rows = $this->stock_opening_import_item_rows();
+        $maps = [
+            'rows' => $rows,
+            'id' => [],
+            'item_code' => [],
+            'material_id' => [],
+            'material_code' => [],
+        ];
+        foreach ($rows as $row) {
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0) {
+                $maps['id'][$id] = $row;
+            }
+            $itemCode = strtoupper(trim((string)($row['item_code'] ?? '')));
+            if ($itemCode !== '') {
+                $maps['item_code'][$itemCode] = $row;
+            }
+            $materialId = (int)($row['material_id'] ?? 0);
+            if ($materialId > 0 && empty($maps['material_id'][$materialId])) {
+                $maps['material_id'][$materialId] = $row;
+            }
+            $materialCode = strtoupper(trim((string)($row['material_code'] ?? '')));
+            if ($materialCode !== '' && empty($maps['material_code'][$materialCode])) {
+                $maps['material_code'][$materialCode] = $row;
+            }
+        }
+
+        return $maps;
+    }
+
+    private function stock_opening_import_item_rows(): array
+    {
+        if (!$this->db->table_exists('mst_item')) {
+            return [];
+        }
+
+        $hasMaterial = $this->db->table_exists('mst_material') && $this->db->field_exists('material_id', 'mst_item');
+        $hasUom = $this->db->table_exists('mst_uom');
+        $buyUomField = $this->db->field_exists('buy_uom_id', 'mst_item') ? 'i.buy_uom_id' : ($this->db->field_exists('base_uom_id', 'mst_item') ? 'i.base_uom_id' : 'NULL');
+        $contentUomField = $this->db->field_exists('content_uom_id', 'mst_item') ? 'i.content_uom_id' : ($this->db->field_exists('base_uom_id', 'mst_item') ? 'i.base_uom_id' : 'NULL');
+        $contentPerBuyField = $this->db->field_exists('content_per_buy', 'mst_item') ? 'COALESCE(i.content_per_buy, 1)' : '1';
+
+        $this->db
+            ->select('i.id, i.item_code, i.item_name')
+            ->select($buyUomField . ' AS buy_uom_id', false)
+            ->select($contentUomField . ' AS content_uom_id', false)
+            ->select($contentPerBuyField . ' AS content_per_buy', false)
+            ->from('mst_item i')
+            ->where('i.is_active', 1)
+            ->order_by('i.item_name', 'ASC');
+
+        if ($hasMaterial) {
+            $this->db->select('m.id AS material_id, m.material_code, m.material_name');
+            $this->db->join('mst_material m', 'm.id = i.material_id', 'left');
+        } else {
+            $this->db->select('NULL AS material_id, NULL AS material_code, NULL AS material_name', false);
+        }
+
+        if ($hasUom && $buyUomField !== 'NULL') {
+            $this->db->select('bu.code AS buy_uom_code');
+            $this->db->join('mst_uom bu', 'bu.id = ' . $buyUomField, 'left', false);
+        } else {
+            $this->db->select('NULL AS buy_uom_code', false);
+        }
+
+        if ($hasUom && $contentUomField !== 'NULL') {
+            $this->db->select('cu.code AS content_uom_code');
+            $this->db->join('mst_uom cu', 'cu.id = ' . $contentUomField, 'left', false);
+        } else {
+            $this->db->select('NULL AS content_uom_code', false);
+        }
+
+        return $this->db->get()->result_array();
+    }
+
+    private function stock_opening_import_payload_from_row(array $row, int $defaultDivisionId, string $defaultDestination, string $defaultMonth, array $divisionMap, array $uomMap, array $itemMaps): array
+    {
+        $divisionCode = strtoupper(trim((string)$this->stock_opening_row_value($row, ['division_code'], '')));
+        $divisionId = (int)$this->stock_opening_row_value($row, ['division_id'], $defaultDivisionId);
+        if ($divisionId <= 0 && $divisionCode !== '' && !empty($divisionMap['CODE:' . $divisionCode])) {
+            $divisionId = (int)($divisionMap['CODE:' . $divisionCode]['id'] ?? 0);
+        }
+        if ($divisionId <= 0 || empty($divisionMap[$divisionId])) {
+            return ['ok' => false, 'message' => 'Divisi tidak valid.'];
+        }
+
+        $destination = $this->stock_opening_import_destination((string)$this->stock_opening_row_value($row, ['destination_type'], $defaultDestination));
+        $month = $this->stock_opening_import_month((string)$this->stock_opening_row_value($row, ['snapshot_month', 'opening_month'], $defaultMonth));
+
+        $item = null;
+        $itemId = (int)$this->stock_opening_row_value($row, ['item_id'], 0);
+        if ($itemId > 0 && !empty($itemMaps['id'][$itemId])) {
+            $item = $itemMaps['id'][$itemId];
+        }
+        if ($item === null) {
+            $itemCode = strtoupper(trim((string)$this->stock_opening_row_value($row, ['item_code'], '')));
+            if ($itemCode !== '' && !empty($itemMaps['item_code'][$itemCode])) {
+                $item = $itemMaps['item_code'][$itemCode];
+            }
+        }
+        if ($item === null) {
+            $materialId = (int)$this->stock_opening_row_value($row, ['material_id'], 0);
+            if ($materialId > 0 && !empty($itemMaps['material_id'][$materialId])) {
+                $item = $itemMaps['material_id'][$materialId];
+            }
+        }
+        if ($item === null) {
+            $materialCode = strtoupper(trim((string)$this->stock_opening_row_value($row, ['material_code'], '')));
+            if ($materialCode !== '' && !empty($itemMaps['material_code'][$materialCode])) {
+                $item = $itemMaps['material_code'][$materialCode];
+            }
+        }
+        if ($item === null) {
+            return ['ok' => false, 'message' => 'Item atau material tidak ditemukan.'];
+        }
+
+        $buyUomId = $this->stock_opening_import_uom_id($this->stock_opening_row_value($row, ['buy_uom_id', 'buy_uom_code'], ''), $uomMap, (int)($item['buy_uom_id'] ?? 0));
+        $contentUomId = $this->stock_opening_import_uom_id($this->stock_opening_row_value($row, ['content_uom_id', 'content_uom_code'], ''), $uomMap, (int)($item['content_uom_id'] ?? 0));
+        if ($buyUomId <= 0 || $contentUomId <= 0) {
+            return ['ok' => false, 'message' => 'UOM beli/isi tidak valid.'];
+        }
+
+        $qtyBuy = round($this->stock_opening_import_decimal($this->stock_opening_row_value($row, ['opening_qty_buy', 'qty_buy'], '0')), 4);
+        $ratio = round(max(0.000001, $this->stock_opening_import_decimal($this->stock_opening_row_value($row, ['profile_content_per_buy', 'content_per_buy'], (string)($item['content_per_buy'] ?? '1')))), 6);
+        $qtyContent = round($this->stock_opening_import_decimal($this->stock_opening_row_value($row, ['opening_qty_content', 'qty_content'], '0')), 4);
+        if ($qtyContent <= 0) {
+            $qtyContent = round($qtyBuy * $ratio, 4);
+        }
+
+        $payload = [
+            'stock_scope' => 'DIVISION',
+            'stock_domain' => ((int)($item['material_id'] ?? 0) > 0) ? 'MATERIAL' : 'ITEM',
+            'division_id' => $divisionId,
+            'destination_type' => $destination,
+            'snapshot_month' => $month,
+            'movement_date' => $month . '-01',
+            'item_id' => (int)($item['id'] ?? 0),
+            'material_id' => (int)($item['material_id'] ?? 0),
+            'buy_uom_id' => $buyUomId,
+            'content_uom_id' => $contentUomId,
+            'opening_qty_buy' => $qtyBuy,
+            'opening_qty_content' => $qtyContent,
+            'opening_avg_cost_per_content' => round($this->stock_opening_import_decimal($this->stock_opening_row_value($row, ['opening_avg_cost_per_content', 'avg_cost', 'unit_cost'], '0')), 6),
+            'profile_name' => (string)$this->stock_opening_row_value($row, ['profile_name'], (string)($item['item_name'] ?? '')),
+            'profile_brand' => (string)$this->stock_opening_row_value($row, ['profile_brand'], ''),
+            'profile_description' => (string)$this->stock_opening_row_value($row, ['profile_description'], ''),
+            'profile_expired_date' => $this->stock_opening_import_date((string)$this->stock_opening_row_value($row, ['profile_expired_date'], '')),
+            'profile_content_per_buy' => $ratio,
+            'replace_mode' => (int)$this->stock_opening_row_value($row, ['replace_mode'], '1') === 1 ? 1 : 0,
+            'notes' => (string)$this->stock_opening_row_value($row, ['notes', 'note'], ''),
+        ];
+
+        return ['ok' => true, 'payload' => $payload];
+    }
+
+    private function stock_opening_import_uom_id($rawValue, array $uomMap, int $fallbackId): int
+    {
+        $value = trim((string)$rawValue);
+        if ($value === '') {
+            return $fallbackId;
+        }
+
+        $numeric = (int)$value;
+        if ($numeric > 0 && !empty($uomMap[$numeric])) {
+            return $numeric;
+        }
+
+        $code = strtoupper($value);
+        if (!empty($uomMap['CODE:' . $code])) {
+            return (int)($uomMap['CODE:' . $code]['id'] ?? 0);
+        }
+
+        return $fallbackId;
+    }
+
+    private function stock_opening_row_value(array $row, array $keys, $default = '')
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $row) && trim((string)$row[$key]) !== '') {
+                return $row[$key];
+            }
+        }
+        return $default;
+    }
+
+    private function stock_opening_import_month(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return date('Y-m');
+        }
+        if (preg_match('/^\d{4}-\d{2}$/', $value)) {
+            return $value;
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return substr($value, 0, 7);
+        }
+        if (preg_match('/^\d+(?:\.\d+)?$/', $value)) {
+            $date = $this->stock_opening_excel_serial_to_date((float)$value);
+            if ($date !== null) {
+                return substr($date, 0, 7);
+            }
+        }
+        $time = strtotime($value);
+        return $time ? date('Y-m', $time) : date('Y-m');
+    }
+
+    private function stock_opening_import_date(string $value): ?string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return $value;
+        }
+        if (preg_match('/^\d+(?:\.\d+)?$/', $value)) {
+            return $this->stock_opening_excel_serial_to_date((float)$value);
+        }
+        $time = strtotime($value);
+        return $time ? date('Y-m-d', $time) : null;
+    }
+
+    private function stock_opening_import_destination(string $value): string
+    {
+        $value = strtoupper(trim($value));
+        if (in_array($value, ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'], true)) {
+            return $value;
+        }
+        return 'OTHER';
+    }
+
+    private function stock_opening_import_decimal($value): float
+    {
+        $raw = trim((string)$value);
+        if ($raw === '') {
+            return 0.0;
+        }
+        $raw = str_replace(' ', '', $raw);
+        if (strpos($raw, ',') !== false && strpos($raw, '.') !== false) {
+            if (strrpos($raw, ',') > strrpos($raw, '.')) {
+                $raw = str_replace('.', '', $raw);
+                $raw = str_replace(',', '.', $raw);
+            } else {
+                $raw = str_replace(',', '', $raw);
+            }
+        } elseif (strpos($raw, ',') !== false) {
+            $raw = str_replace(',', '.', $raw);
+        }
+        return (float)$raw;
+    }
+
+    private function stock_opening_excel_serial_to_date(float $serial): ?string
+    {
+        if ($serial <= 0) {
+            return null;
+        }
+        $days = (int)floor($serial) - 25569;
+        if ($days <= 0) {
+            return null;
+        }
+        return gmdate('Y-m-d', $days * 86400);
     }
 
     public function stock_opening_item_search()
