@@ -187,3 +187,59 @@ AgentError: could not open port 'COM3': OSError(22, 'The semaphore timeout perio
 2026-06-01 14:41:19,234 [INFO] 127.0.0.1 - - [01/Jun/2026 14:41:19] "GET /health HTTP/1.1" 200 -
 2026-06-01 14:41:22,707 [INFO] 127.0.0.1 - - [01/Jun/2026 14:41:22] "POST /cetak HTTP/1.1" 200 -
 2026-06-01 14:42:31,842 [INFO] 127.0.0.1 - - [01/Jun/2026 14:42:31] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:42:54,134 [INFO] 127.0.0.1 - - [01/Jun/2026 14:42:54] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 14:44:12,190 [INFO] 127.0.0.1 - - [01/Jun/2026 14:44:12] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:44:17,677 [INFO] 127.0.0.1 - - [01/Jun/2026 14:44:17] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 14:44:59,325 [INFO] 127.0.0.1 - - [01/Jun/2026 14:44:59] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:45:03,876 [INFO] 127.0.0.1 - - [01/Jun/2026 14:45:03] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 14:46:13,552 [INFO] 127.0.0.1 - - [01/Jun/2026 14:46:13] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:46:17,823 [INFO] 127.0.0.1 - - [01/Jun/2026 14:46:17] "POST /cetak HTTP/1.1" 200 -
+2026-06-01 14:46:48,731 [INFO] 127.0.0.1 - - [01/Jun/2026 14:46:48] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:46:56,227 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM11': OSError(22, 'The semaphore timeout period has expired.', None, 121)
+2026-06-01 14:47:00,785 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+2026-06-01 14:47:02,286 [ERROR] Gagal cetak RPP02: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+2026-06-01 14:47:02,288 [INFO] 127.0.0.1 - - [01/Jun/2026 14:47:02] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 14:47:43,419 [INFO] 127.0.0.1 - - [01/Jun/2026 14:47:43] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:47:46,208 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+2026-06-01 14:47:52,798 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+2026-06-01 14:47:54,299 [ERROR] Gagal cetak RPP02: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+2026-06-01 14:47:54,311 [INFO] 127.0.0.1 - - [01/Jun/2026 14:47:54] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 14:48:07,630 [INFO] 127.0.0.1 - - [01/Jun/2026 14:48:07] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:48:11,027 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+2026-06-01 14:48:14,982 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+2026-06-01 14:48:16,483 [ERROR] Gagal cetak RPP02: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+2026-06-01 14:48:16,487 [INFO] 127.0.0.1 - - [01/Jun/2026 14:48:16] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 14:48:50,650 [INFO] 127.0.0.1 - - [01/Jun/2026 14:48:50] "OPTIONS /cetak HTTP/1.1" 200 -
+2026-06-01 14:48:55,241 [WARNING] Cetak gagal attempt 1/2: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+2026-06-01 14:48:59,925 [WARNING] Cetak gagal attempt 2/2: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+2026-06-01 14:49:01,425 [ERROR] Gagal cetak RPP02: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+Traceback (most recent call last):
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 298, in cetak
+    self.safe_print(printer["mac"], text, paper)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\xampp\htdocs\finance\tools\pos_printer_agent\agent.py", line 366, in safe_print
+    raise AgentError(str(last_error) if last_error else "Gagal cetak.")
+AgentError: could not open port 'COM11': OSError(22, 'Element not found.', None, 1168)
+2026-06-01 14:49:01,427 [INFO] 127.0.0.1 - - [01/Jun/2026 14:49:01] "[35m[1mPOST /cetak HTTP/1.1[0m" 500 -
+2026-06-01 14:50:14,389 [INFO] 127.0.0.1 - - [01/Jun/2026 14:50:14] "GET /health HTTP/1.1" 200 -

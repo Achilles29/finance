@@ -133,6 +133,7 @@ $downloadFiles = is_array($download_files ?? null) ? $download_files : [];
         <div class="d-grid gap-2 printer-guide-downloads" style="min-width:260px;">
           <a class="btn btn-primary" href="<?= site_url('pos/printers/download/config_json') ?>"><i class="ri-download-2-line"></i>Download config.json</a>
           <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/agent_py') ?>"><i class="ri-file-code-line"></i>Download agent.py</a>
+          <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/check_saved_printers') ?>"><i class="ri-file-search-line"></i>Download check_saved_printers.py</a>
           <a class="btn btn-outline-secondary" href="<?= site_url('pos/printers/download/detect_windows') ?>"><i class="ri-terminal-box-line"></i>Download detect_windows.bat</a>
           <a class="btn btn-outline-secondary" href="<?= site_url('pos/printers/download/run_windows') ?>"><i class="ri-play-circle-line"></i>Download run_windows.bat</a>
         </div>
@@ -241,6 +242,7 @@ python agent.py --config config.json</div>
             <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/readme') ?>"><i class="ri-book-open-line"></i>README Agent</a>
             <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/requirements') ?>"><i class="ri-file-list-3-line"></i>requirements.txt</a>
             <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/agent_py') ?>"><i class="ri-file-code-line"></i>agent.py</a>
+            <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/check_saved_printers') ?>"><i class="ri-file-search-line"></i>check_saved_printers.py</a>
             <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/detect_py') ?>"><i class="ri-search-eye-line"></i>detect_printers.py</a>
             <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/detect_windows') ?>"><i class="ri-terminal-box-line"></i>detect_windows.bat</a>
             <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/run_windows') ?>"><i class="ri-play-circle-line"></i>run_windows.bat</a>

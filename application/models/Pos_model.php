@@ -3483,6 +3483,8 @@ class Pos_model extends CI_Model
             }
         }
 
+        $printerOutletId = (int)($activeSession['outlet_id'] ?? $defaultOutletId);
+
         return [
             'outlets' => $outlets,
             'terminals' => $terminals,
@@ -3491,8 +3493,47 @@ class Pos_model extends CI_Model
             'default_outlet_id' => $defaultOutletId,
             'default_terminal_id' => $defaultTerminalId,
             'default_opening_cash' => 300000,
+            'order_reprint_printers' => $this->cashier_order_reprint_printer_options($printerOutletId),
             'active_session' => $activeSession,
         ];
+    }
+
+    public function cashier_order_reprint_printer_options(int $outletId = 0): array
+    {
+        $options = [];
+        foreach ($this->local_agent_kot_printers_for_outlet($outletId) as $printer) {
+            $printerId = (int)($printer['printer_id'] ?? 0);
+            if ($printerId <= 0) {
+                continue;
+            }
+            $role = strtoupper(trim((string)($printer['printer_role'] ?? 'CUSTOM')));
+            if ($role === 'KASIR') {
+                continue;
+            }
+            $printerName = trim((string)($printer['printer_name'] ?? ''));
+            $printerCode = trim((string)($printer['printer_code'] ?? ''));
+            $labelParts = [
+                $printerName !== '' ? $printerName : ($printerCode !== '' ? $printerCode : 'Printer POS'),
+            ];
+            if ($role !== '' && $role !== 'CUSTOM') {
+                $labelParts[] = $role;
+            }
+            if ($printerCode !== '' && strcasecmp($printerCode, $printerName) !== 0) {
+                $labelParts[] = $printerCode;
+            }
+            $options[] = [
+                'id' => $printerId,
+                'printer_name' => $printerName,
+                'printer_code' => $printerCode,
+                'printer_role' => $role,
+                'print_scope' => strtoupper(trim((string)($printer['print_scope'] ?? 'DIVISION'))),
+                'label' => implode(' | ', array_values(array_filter($labelParts, static function ($value): bool {
+                    return trim((string)$value) !== '';
+                }))),
+            ];
+        }
+
+        return $options;
     }
 
     public function sales_channel_options(): array
@@ -5195,8 +5236,90 @@ class Pos_model extends CI_Model
             return ['ok' => true, 'targets' => []];
         }
 
-        $outletId = (int)(($order['header']['outlet_id'] ?? 0));
-        $printers = $this->coredb
+        $outletId = (int)($order['header']['outlet_id'] ?? 0);
+        $printers = $this->local_agent_kot_printers_for_outlet($outletId);
+        if (empty($printers)) {
+            return ['ok' => true, 'targets' => []];
+        }
+
+        return [
+            'ok' => true,
+            'targets' => $this->build_direct_order_kot_targets($order, $lines, $printers),
+        ];
+    }
+
+    public function direct_print_targets_for_order_reprint(int $orderId, array $options = []): array
+    {
+        if ($orderId <= 0) {
+            return ['ok' => false, 'message' => 'Order POS tidak valid untuk cetak ulang.'];
+        }
+        if (
+            !$this->db->table_exists('pos_printer')
+            || !$this->db->table_exists('pos_printer_profile')
+        ) {
+            return ['ok' => true, 'targets' => []];
+        }
+
+        $order = $this->find_order_draft($orderId);
+        if (!$order) {
+            return ['ok' => false, 'message' => 'Order POS tidak ditemukan untuk cetak ulang.'];
+        }
+
+        $lines = (array)($order['lines'] ?? []);
+        $lineScope = strtoupper(trim((string)($options['line_scope'] ?? 'ALL')));
+        if ($lineScope === 'LATEST') {
+            $snapshotLineIds = $this->resolve_direct_print_line_ids_for_snapshot($orderId, 0);
+            if (!is_array($snapshotLineIds) || empty($snapshotLineIds)) {
+                return ['ok' => false, 'message' => 'Belum ada snapshot item terbaru untuk order ini. Pilih "Semua pesanan" bila ingin mencetak seluruh line order.'];
+            }
+            $lineIdMap = array_fill_keys($snapshotLineIds, true);
+            $lines = array_values(array_filter($lines, static function ($line) use ($lineIdMap) {
+                $lineId = (int)($line['id'] ?? 0);
+                return $lineId > 0 && isset($lineIdMap[$lineId]);
+            }));
+        }
+        if (empty($lines)) {
+            return ['ok' => true, 'targets' => []];
+        }
+
+        $outletId = (int)($order['header']['outlet_id'] ?? 0);
+        $printers = $this->local_agent_kot_printers_for_outlet($outletId);
+        if (empty($printers)) {
+            return ['ok' => true, 'targets' => []];
+        }
+
+        $printerId = max(0, (int)($options['printer_id'] ?? 0));
+        if ($printerId > 0) {
+            $foundPrinter = false;
+            foreach ($printers as $printer) {
+                if ((int)($printer['printer_id'] ?? 0) === $printerId) {
+                    $foundPrinter = true;
+                    break;
+                }
+            }
+            if (!$foundPrinter) {
+                return ['ok' => false, 'message' => 'Printer tujuan tidak ditemukan atau tidak aktif untuk outlet order ini.'];
+            }
+        }
+
+        return [
+            'ok' => true,
+            'targets' => $this->build_direct_order_kot_targets($order, $lines, $printers, [
+                'printer_id' => $printerId,
+            ]),
+        ];
+    }
+
+    private function local_agent_kot_printers_for_outlet(int $outletId = 0): array
+    {
+        if (
+            !$this->db->table_exists('pos_printer')
+            || !$this->db->table_exists('pos_printer_profile')
+        ) {
+            return [];
+        }
+
+        return $this->coredb
             ->select("
                 p.id AS printer_id,
                 p.printer_code,
@@ -5224,10 +5347,11 @@ class Pos_model extends CI_Model
             ->order_by('p.id', 'ASC')
             ->get()
             ->result_array();
+    }
 
-        if (empty($printers)) {
-            return ['ok' => true, 'targets' => []];
-        }
+    private function build_direct_order_kot_targets(array $order, array $lines, array $printers, array $filters = []): array
+    {
+        $selectedPrinterId = max(0, (int)($filters['printer_id'] ?? 0));
 
         $lineBuckets = [
             'BAR' => [],
@@ -5246,10 +5370,15 @@ class Pos_model extends CI_Model
 
         $targets = [];
         foreach ($printers as $printer) {
+            $printerId = (int)($printer['printer_id'] ?? 0);
             $role = strtoupper(trim((string)($printer['printer_role'] ?? 'CUSTOM')));
             if ($role === 'KASIR') {
                 continue;
             }
+            if ($selectedPrinterId > 0 && $printerId !== $selectedPrinterId) {
+                continue;
+            }
+
             $scope = strtoupper(trim((string)($printer['print_scope'] ?? 'DIVISION')));
             $selectedLines = $scope === 'ALL'
                 ? $lineBuckets['ALL']
@@ -5259,13 +5388,14 @@ class Pos_model extends CI_Model
             if (empty($selectedLines)) {
                 continue;
             }
+
             $template = $this->resolve_direct_print_template($printer, 'ORDER_CONFIRM_KOT');
             $printWidth = $this->normalize_printer_chars_per_line(
                 (int)($printer['paper_width_mm'] ?? 80),
                 (int)($printer['chars_per_line'] ?? 48)
             );
             $targets[] = [
-                'printer_id' => (int)($printer['printer_id'] ?? 0),
+                'printer_id' => $printerId,
                 'printer_code' => (string)($printer['printer_code'] ?? ''),
                 'printer_name' => (string)($printer['printer_name'] ?? ''),
                 'printer_role' => $role,
@@ -5279,7 +5409,7 @@ class Pos_model extends CI_Model
             ];
         }
 
-        return ['ok' => true, 'targets' => $targets];
+        return $targets;
     }
 
     public function direct_print_targets_for_payment(int $paymentId, bool $respectAutoPrint = true): array

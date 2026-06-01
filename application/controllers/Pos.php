@@ -1445,6 +1445,29 @@ class Pos extends MY_Controller
         ]);
     }
 
+    public function order_reprint_print_targets($id)
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        $payload = $this->request_payload();
+        $lineScope = strtoupper(trim((string)($payload['line_scope'] ?? 'ALL')));
+        $printerId = (int)($payload['printer_id'] ?? 0);
+        $directPrint = $this->Pos_model->direct_print_targets_for_order_reprint((int)$id, [
+            'line_scope' => $lineScope,
+            'printer_id' => $printerId,
+        ]);
+        if (!($directPrint['ok'] ?? false)) {
+            $this->json_error((string)($directPrint['message'] ?? 'Payload cetak ulang order gagal disiapkan.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)$id,
+            'line_scope' => $lineScope,
+            'printer_id' => $printerId,
+            'direct_print_targets' => (array)($directPrint['targets'] ?? []),
+        ]);
+    }
+
     public function order_void_print_targets($id)
     {
         $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
@@ -2617,6 +2640,7 @@ class Pos extends MY_Controller
             'readme' => ['filename' => 'README.md', 'path' => $base . 'README.md'],
             'requirements' => ['filename' => 'requirements.txt', 'path' => $base . 'requirements.txt'],
             'agent_py' => ['filename' => 'agent.py', 'path' => $base . 'agent.py'],
+            'check_saved_printers' => ['filename' => 'check_saved_printers.py', 'path' => $base . 'check_saved_printers.py'],
             'detect_py' => ['filename' => 'detect_printers.py', 'path' => $base . 'detect_printers.py'],
             'run_windows' => ['filename' => 'run_windows.bat', 'path' => $base . 'run_windows.bat'],
             'detect_windows' => ['filename' => 'detect_windows.bat', 'path' => $base . 'detect_windows.bat'],

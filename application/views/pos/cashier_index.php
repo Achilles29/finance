@@ -6,6 +6,7 @@ $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['ter
 $cashierBootstrap = is_array($cashier_bootstrap ?? null) ? $cashier_bootstrap : [];
 $activeSession = is_array($cashierBootstrap['active_session'] ?? null) ? $cashierBootstrap['active_session'] : null;
 $salesChannels = is_array($cashierBootstrap['sales_channels'] ?? null) ? $cashierBootstrap['sales_channels'] : [];
+$orderReprintPrinters = is_array($cashierBootstrap['order_reprint_printers'] ?? null) ? $cashierBootstrap['order_reprint_printers'] : [];
 $defaultSalesChannelId = !empty($cashierBootstrap['default_sales_channel_id']) ? (int)$cashierBootstrap['default_sales_channel_id'] : 0;
 $defaultLaunchOutletId = !empty($cashierBootstrap['default_outlet_id']) ? (int)$cashierBootstrap['default_outlet_id'] : 0;
 $defaultLaunchTerminalId = !empty($cashierBootstrap['default_terminal_id']) ? (int)$cashierBootstrap['default_terminal_id'] : 0;
@@ -1301,7 +1302,8 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
               <div id="cashier_recent_list" class="cashier-recent-list"></div>
               <div id="cashier_recent_empty" class="cashier-empty d-none">Belum ada order pada filter ini.</div>
             </div>
-            <div class="cashier-recent-footer">
+            <div class="cashier-recent-footer d-grid gap-2">
+              <button type="button" class="btn btn-outline-primary w-100" id="cashier_reprint_order_btn">Cetak Ulang Order Dipilih</button>
               <button type="button" class="btn btn-outline-danger w-100" id="cashier_close_btn">Tutup Kasir</button>
             </div>
           </div>
@@ -1775,6 +1777,40 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
   </div>
 </div>
 
+<div class="modal fade" id="cashierOrderReprintModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg" style="border-radius:24px;">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Cetak Ulang Order Aktif</h5>
+          <div class="small text-muted" id="cashier_order_reprint_meta">Pilih satu order aktif dulu dari panel kiri.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small text-muted mb-1">Printer / Divisi Tujuan</label>
+          <select class="form-select" id="cashier_order_reprint_printer">
+            <option value="">Semua printer / divisi aktif</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small text-muted mb-1">Cakupan Item</label>
+          <select class="form-select" id="cashier_order_reprint_scope">
+            <option value="LATEST">Pesanan baru saja</option>
+            <option value="ALL">Semua pesanan</option>
+          </select>
+        </div>
+        <div class="small text-muted" id="cashier_order_reprint_hint">Gunakan mode item terbaru bila ingin mencetak ulang snapshot paling akhir tanpa mengulang seluruh order.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-primary" id="cashier_order_reprint_submit">Kirim ke Printer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade cashier-info-modal" id="cashierInfoModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content border-0 shadow-lg">
@@ -1815,6 +1851,7 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
 document.addEventListener('DOMContentLoaded', function () {
   const initialFilters = <?php echo json_encode($filters, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const activeSession = <?php echo json_encode($activeSession, JSON_INVALID_UTF8_SUBSTITUTE); ?> || null;
+  const orderReprintPrinters = <?php echo json_encode($orderReprintPrinters, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE); ?> || [];
   const launchDefaults = <?php echo json_encode([
     'outlet_id' => $defaultLaunchOutletId,
     'terminal_id' => $defaultLaunchTerminalId,
@@ -1885,6 +1922,8 @@ document.addEventListener('DOMContentLoaded', function () {
   const extraModal = extraModalEl && window.bootstrap ? new bootstrap.Modal(extraModalEl) : null;
   const reviewModalEl = document.getElementById('cashierReviewModal');
   const reviewModal = reviewModalEl && window.bootstrap ? new bootstrap.Modal(reviewModalEl) : null;
+  const orderReprintModalEl = document.getElementById('cashierOrderReprintModal');
+  const orderReprintModal = orderReprintModalEl && window.bootstrap ? new bootstrap.Modal(orderReprintModalEl) : null;
   const infoModalEl = document.getElementById('cashierInfoModal');
   const infoModal = infoModalEl && window.bootstrap ? new bootstrap.Modal(infoModalEl) : null;
   const infoMessageEl = document.getElementById('cashier_info_message');
@@ -1898,6 +1937,12 @@ document.addEventListener('DOMContentLoaded', function () {
   const launchNotes = document.getElementById('cashier_launch_notes');
   const openButton = document.getElementById('cashier_open_btn');
   const closeButton = document.getElementById('cashier_close_btn');
+  const orderReprintButton = document.getElementById('cashier_reprint_order_btn');
+  const orderReprintMeta = document.getElementById('cashier_order_reprint_meta');
+  const orderReprintPrinterSelect = document.getElementById('cashier_order_reprint_printer');
+  const orderReprintScopeSelect = document.getElementById('cashier_order_reprint_scope');
+  const orderReprintHint = document.getElementById('cashier_order_reprint_hint');
+  const orderReprintSubmitButton = document.getElementById('cashier_order_reprint_submit');
   const closeDenomRows = document.getElementById('cashier_close_denom_rows');
   const closeShiftMeta = document.getElementById('cashier_close_shift_meta');
   const closeMethodSummary = document.getElementById('cashier_close_method_summary');
@@ -1977,6 +2022,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const savingBody = document.getElementById('cashier_saving_body');
   const defaultSaveDraftLabel = saveDraftButton ? saveDraftButton.textContent : 'Simpan Draft';
   const defaultConfirmOrderLabel = confirmOrderButton ? confirmOrderButton.textContent : 'Simpan Transaksi';
+  const defaultOrderReprintLabel = orderReprintSubmitButton ? orderReprintSubmitButton.textContent : 'Kirim ke Printer';
   const submitCloseButton = document.getElementById('cashier_submit_close');
   const defaultCloseSubmitLabel = submitCloseButton ? submitCloseButton.textContent : 'Tutup Shift';
   const extraOptionCache = {};
@@ -2693,6 +2739,10 @@ document.addEventListener('DOMContentLoaded', function () {
     return !!order.id && ['CONFIRMED', 'PAID_PARTIAL', 'IN_KITCHEN', 'READY', 'SERVED'].includes(normalizedStatus);
   }
 
+  function canReprintSelectedOrder() {
+    return !!order.id && Array.isArray(order.lines) && order.lines.length > 0 && orderReprintPrinters.length > 0;
+  }
+
   function updateActionState() {
     reversalButton.disabled = !order.id;
     const sessionReady = !!activeSession;
@@ -2710,6 +2760,48 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     if (paymentButton) {
       paymentButton.disabled = !sessionReady || !canOpenPayment() || draftSaveInFlight || confirmInFlight || paymentPrepareInFlight || paymentSubmitInFlight;
+    }
+    if (orderReprintButton) {
+      orderReprintButton.disabled = !sessionReady || !canReprintSelectedOrder() || draftSaveInFlight || confirmInFlight || paymentPrepareInFlight || paymentSubmitInFlight;
+      if (!orderReprintPrinters.length) {
+        orderReprintButton.title = 'Belum ada printer direct print aktif untuk sesi kasir ini.';
+      } else if (!order.id || !order.lines.length) {
+        orderReprintButton.title = 'Pilih satu order aktif dari panel kiri terlebih dulu.';
+      } else {
+        orderReprintButton.title = '';
+      }
+    }
+  }
+
+  function renderOrderReprintPrinterOptions() {
+    if (!orderReprintPrinterSelect) return;
+    const currentValue = String(orderReprintPrinterSelect.value || '');
+    const options = ['<option value="">Semua printer / divisi aktif</option>'];
+    orderReprintPrinters.forEach((printer) => {
+      const printerId = Number(printer.id || 0);
+      if (printerId <= 0) return;
+      options.push(`<option value="${printerId}">${escapeHtml(printer.label || printer.printer_name || printer.printer_code || 'Printer POS')}</option>`);
+    });
+    orderReprintPrinterSelect.innerHTML = options.join('');
+    const hasCurrent = orderReprintPrinters.some((printer) => String(printer.id || '') === currentValue);
+    orderReprintPrinterSelect.value = hasCurrent ? currentValue : '';
+  }
+
+  function refreshOrderReprintModalState() {
+    if (orderReprintMeta) {
+      if (order.id) {
+        const orderLabel = order.order_no || `Order #${Number(order.id || 0)}`;
+        const customerLabel = String(order.customer_name || order.member_name || 'Walk in').trim() || 'Walk in';
+        const statusLabel = String(order.status || 'DRAFT').toUpperCase();
+        orderReprintMeta.textContent = `${orderLabel} • ${customerLabel} • ${statusLabel}`;
+      } else {
+        orderReprintMeta.textContent = 'Pilih satu order aktif dulu dari panel kiri.';
+      }
+    }
+    if (orderReprintHint) {
+      orderReprintHint.textContent = String(order.status || '').toUpperCase() === 'DRAFT'
+        ? 'Mode "Pesanan baru saja" hanya bisa dipakai jika order ini sudah pernah confirm dan punya snapshot item terbaru.'
+        : 'Mode "Pesanan baru saja" akan mengambil snapshot item paling akhir. Gunakan "Semua pesanan" untuk mengirim ulang seluruh line order.';
     }
   }
 
@@ -3988,6 +4080,60 @@ document.addEventListener('DOMContentLoaded', function () {
     return { successCount, failed };
   }
 
+  function openOrderReprintModal() {
+    if (!canReprintSelectedOrder()) {
+      throw new Error(orderReprintPrinters.length ? 'Pilih 1 order aktif dulu sebelum cetak ulang.' : 'Belum ada printer direct print aktif untuk kasir ini.');
+    }
+    renderOrderReprintPrinterOptions();
+    if (orderReprintScopeSelect) {
+      orderReprintScopeSelect.value = String(order.status || '').toUpperCase() === 'DRAFT' ? 'ALL' : String(orderReprintScopeSelect.value || 'LATEST').toUpperCase();
+    }
+    refreshOrderReprintModalState();
+    if (orderReprintModal) {
+      orderReprintModal.show();
+    }
+  }
+
+  async function submitOrderReprint() {
+    if (!canReprintSelectedOrder()) {
+      throw new Error(orderReprintPrinters.length ? 'Pilih 1 order aktif dulu sebelum cetak ulang.' : 'Belum ada printer direct print aktif untuk kasir ini.');
+    }
+
+    const lineScope = orderReprintScopeSelect ? String(orderReprintScopeSelect.value || 'ALL').toUpperCase() : 'ALL';
+    const printerId = orderReprintPrinterSelect ? Number(orderReprintPrinterSelect.value || 0) : 0;
+    if (orderReprintSubmitButton) {
+      orderReprintSubmitButton.disabled = true;
+      orderReprintSubmitButton.textContent = 'Menyiapkan...';
+    }
+
+    try {
+      const payloadJson = await postJson(`<?php echo site_url('pos/orders/reprint-print-targets'); ?>/${Number(order.id || 0)}`, {
+        line_scope: lineScope,
+        printer_id: printerId,
+      });
+      const targets = Array.isArray(payloadJson.direct_print_targets) ? payloadJson.direct_print_targets : [];
+      if (!targets.length) {
+        throw new Error(lineScope === 'LATEST'
+          ? 'Tidak ada target cetak untuk item terbaru di order ini.'
+          : 'Tidak ada printer aktif yang cocok untuk order ini.');
+      }
+      const printResult = await directPrintTargets(targets);
+      const successLabel = lineScope === 'LATEST'
+        ? 'Item terbaru berhasil dikirim ulang ke printer.'
+        : 'Order berhasil dikirim ulang ke printer.';
+      showToast(successLabel, 'success', 'Cetak Ulang', 2800);
+      showPrintFailureModal('Cetak Ulang Order', printResult.failed || []);
+      if (orderReprintModal) {
+        orderReprintModal.hide();
+      }
+    } finally {
+      if (orderReprintSubmitButton) {
+        orderReprintSubmitButton.disabled = false;
+        orderReprintSubmitButton.textContent = defaultOrderReprintLabel;
+      }
+    }
+  }
+
   async function confirmDraft() {
     if (confirmInFlight) {
       throw new Error('Transaksi sedang diproses. Tunggu sebentar.');
@@ -4657,6 +4803,14 @@ document.addEventListener('DOMContentLoaded', function () {
       pendingReviewAction = null;
     });
   }
+  if (orderReprintModalEl) {
+    orderReprintModalEl.addEventListener('hidden.bs.modal', () => {
+      if (orderReprintSubmitButton) {
+        orderReprintSubmitButton.disabled = false;
+        orderReprintSubmitButton.textContent = defaultOrderReprintLabel;
+      }
+    });
+  }
   if (paymentModalEl) {
     paymentModalEl.addEventListener('hidden.bs.modal', () => {
       paymentContext = null;
@@ -4675,6 +4829,12 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   if (confirmOrderButton) confirmOrderButton.addEventListener('click', async () => {
     try { openReviewModal('CONFIRM'); } catch (e) { alert(e.message); }
+  });
+  if (orderReprintButton) orderReprintButton.addEventListener('click', () => {
+    try { openOrderReprintModal(); } catch (e) { alert(e.message); }
+  });
+  if (orderReprintSubmitButton) orderReprintSubmitButton.addEventListener('click', async () => {
+    try { await submitOrderReprint(); } catch (e) { alert(e.message); }
   });
   if (paymentButton) paymentButton.addEventListener('click', async () => {
     try { await openPaymentModal(); } catch (e) { alert(e.message); }
@@ -4739,6 +4899,8 @@ document.addEventListener('DOMContentLoaded', function () {
   renderDivisionFilters();
   renderMemberSelection();
   renderCart();
+  renderOrderReprintPrinterOptions();
+  refreshOrderReprintModalState();
   syncServiceTypeFromChannel(true);
   syncHeaderToOrder();
   loadRecents().catch((e) => alert(e.message));
