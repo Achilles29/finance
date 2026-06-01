@@ -53,6 +53,8 @@ v catatan order
 v update gudang, bahan baku, component
 v update data sif
 
+- update resep extra nasi
+
 - update menu
 - update hak akses
 - tata ulang sidebar
@@ -64,7 +66,7 @@ v update data sif
 - input kasbon dan hutang
 - skema bonus, target harian dan bulanan
 
-
+- link bahan baku dan component yang digunakan
 
 
 

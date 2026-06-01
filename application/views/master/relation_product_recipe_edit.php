@@ -36,9 +36,45 @@ foreach ($rows as $row) {
 }
 ?>
 <style>
+  #recipe-table {
+    table-layout: fixed;
+    width: 100%;
+    min-width: 1180px;
+  }
+  #recipe-table th,
+  #recipe-table td {
+    vertical-align: top;
+  }
+  #recipe-table .col-type {
+    width: 128px;
+  }
+  #recipe-table .col-role {
+    width: 118px;
+  }
+  #recipe-table .col-source-division {
+    width: 152px;
+  }
+  #recipe-table .col-source {
+    width: 270px;
+  }
+  #recipe-table .col-qty {
+    width: 88px;
+  }
+  #recipe-table .col-uom {
+    width: 82px;
+  }
+  #recipe-table .col-sort {
+    width: 86px;
+  }
+  #recipe-table .col-notes {
+    width: 150px;
+  }
+  #recipe-table .col-action {
+    width: 84px;
+  }
   .recipe-ajax-box {
     position: relative;
-    min-width: 300px;
+    min-width: 0;
   }
   .recipe-ajax-result {
     position: absolute;
@@ -156,17 +192,28 @@ foreach ($rows as $row) {
 
         <div class="table-responsive">
           <table class="table table-sm align-middle" id="recipe-table">
+            <colgroup>
+              <col class="col-type">
+              <col class="col-role">
+              <col class="col-source-division">
+              <col class="col-source">
+              <col class="col-qty">
+              <col class="col-uom">
+              <col class="col-sort">
+              <col class="col-notes">
+              <col class="col-action">
+            </colgroup>
             <thead>
               <tr>
-                <th style="width:120px;">Tipe</th>
-                <th style="width:150px;">Role</th>
-                <th style="width:180px;">Source Divisi</th>
-                <th style="width:360px;">Sumber</th>
-                <th style="width:110px;">Qty</th>
-                <th style="width:90px;">UOM</th>
-                <th style="width:100px;">Sort</th>
-                <th>Catatan</th>
-                <th style="width:90px;"></th>
+                <th class="col-type">Tipe</th>
+                <th class="col-role">Role</th>
+                <th class="col-source-division">Source Divisi</th>
+                <th class="col-source">Sumber</th>
+                <th class="col-qty">Qty</th>
+                <th class="col-uom">UOM</th>
+                <th class="col-sort">Sort</th>
+                <th class="col-notes">Catatan</th>
+                <th class="col-action"></th>
               </tr>
             </thead>
             <tbody id="line-body"></tbody>

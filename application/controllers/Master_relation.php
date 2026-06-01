@@ -335,6 +335,16 @@ class Master_relation extends MY_Controller
             return;
         }
 
+        $ingredientRole = $this->normalizeProductRecipeIngredientRole($this->input->post('ingredient_role', true));
+        if ($lineType === 'MATERIAL') {
+            $duplicateCheck = $this->validateProductRecipeMaterialDuplicate($productId, $resolved, $ingredientRole);
+            if (empty($duplicateCheck['ok'])) {
+                $this->session->set_flashdata('error', (string)($duplicateCheck['message'] ?? 'Material resep produk dobel.'));
+                redirect('master/relation/product-recipe/' . $productId . '/create');
+                return;
+            }
+        }
+
         $payload = [
             'product_id' => $productId,
             'line_no' => (int)$this->input->post('line_no', true) ?: 1,
@@ -348,7 +358,7 @@ class Master_relation extends MY_Controller
             'sort_order' => (int)$this->input->post('sort_order', true) ?: 0,
         ];
         if ($this->db->field_exists('ingredient_role', 'mst_product_recipe')) {
-            $payload['ingredient_role'] = $this->normalizeProductRecipeIngredientRole($this->input->post('ingredient_role', true));
+            $payload['ingredient_role'] = $ingredientRole;
         }
 
         $this->Master_model->insert('mst_product_recipe', $payload);
@@ -422,6 +432,16 @@ class Master_relation extends MY_Controller
             return;
         }
 
+        $ingredientRole = $this->normalizeProductRecipeIngredientRole($this->input->post('ingredient_role', true));
+        if ($lineType === 'MATERIAL') {
+            $duplicateCheck = $this->validateProductRecipeMaterialDuplicate((int)$row['product_id'], $resolved, $ingredientRole, $id);
+            if (empty($duplicateCheck['ok'])) {
+                $this->session->set_flashdata('error', (string)($duplicateCheck['message'] ?? 'Material resep produk dobel.'));
+                redirect('master/relation/product-recipe/edit/' . $id);
+                return;
+            }
+        }
+
         $payload = [
             'line_no' => (int)$this->input->post('line_no', true) ?: 1,
             'line_type' => $lineType,
@@ -434,7 +454,7 @@ class Master_relation extends MY_Controller
             'sort_order' => (int)$this->input->post('sort_order', true) ?: 0,
         ];
         if ($this->db->field_exists('ingredient_role', 'mst_product_recipe')) {
-            $payload['ingredient_role'] = $this->normalizeProductRecipeIngredientRole($this->input->post('ingredient_role', true));
+            $payload['ingredient_role'] = $ingredientRole;
         }
 
         $this->Master_model->update('mst_product_recipe', $id, $payload);
@@ -1698,8 +1718,9 @@ class Master_relation extends MY_Controller
 
         if ($lineType === 'MATERIAL') {
             $item = $this->db
-                ->select('i.id, i.item_name, i.content_uom_id AS uom_id, u.name AS uom_name')
+                ->select('i.id, i.item_name, i.material_id, m.material_name, i.content_uom_id AS uom_id, u.name AS uom_name')
                 ->from('mst_item i')
+                ->join('mst_material m', 'm.id = i.material_id', 'left')
                 ->join('mst_uom u', 'u.id = i.content_uom_id', 'left')
                 ->where('i.id', $materialItemId)
                 ->where('i.is_material', 1)
@@ -1715,6 +1736,8 @@ class Master_relation extends MY_Controller
             return [
                 'ok' => true,
                 'material_item_id' => (int)$item['id'],
+                'material_id' => (int)($item['material_id'] ?? 0),
+                'material_name' => (string)($item['material_name'] ?? $item['item_name'] ?? 'Material'),
                 'component_id' => null,
                 'source_division_id' => $resolvedManualDivisionId > 0
                     ? $resolvedManualDivisionId
@@ -1746,10 +1769,77 @@ class Master_relation extends MY_Controller
         return [
             'ok' => true,
             'material_item_id' => null,
+            'material_id' => null,
+            'material_name' => null,
             'component_id' => (int)$component['id'],
             'source_division_id' => $sourceDivisionId > 0 ? $sourceDivisionId : null,
             'uom_id' => (int)$component['uom_id'],
         ];
+    }
+
+    private function productRecipeMaterialDuplicateKey(array $resolved, string $ingredientRole): ?string
+    {
+        $materialId = (int)($resolved['material_id'] ?? 0);
+        if ($materialId <= 0) {
+            return null;
+        }
+
+        $roleKey = $this->db->field_exists('ingredient_role', 'mst_product_recipe')
+            ? $this->normalizeProductRecipeIngredientRole($ingredientRole)
+            : '-';
+
+        return implode('|', [
+            $materialId,
+            (int)($resolved['source_division_id'] ?? 0),
+            $roleKey,
+        ]);
+    }
+
+    private function validateProductRecipeMaterialDuplicate(int $productId, array $resolved, string $ingredientRole, int $excludeId = 0): array
+    {
+        $materialId = (int)($resolved['material_id'] ?? 0);
+        if ($materialId <= 0) {
+            return ['ok' => true];
+        }
+
+        $sourceDivisionId = (int)($resolved['source_division_id'] ?? 0);
+        $ingredientRole = $this->normalizeProductRecipeIngredientRole($ingredientRole);
+        $materialName = trim((string)($resolved['material_name'] ?? ''));
+        if ($materialName === '') {
+            $materialName = 'Material';
+        }
+
+        $this->db->select('r.id')
+            ->from('mst_product_recipe r')
+            ->join('mst_item i', 'i.id = r.material_item_id', 'left')
+            ->where('r.product_id', $productId)
+            ->where('r.line_type', 'MATERIAL')
+            ->where('i.material_id', $materialId)
+            ->where('COALESCE(r.source_division_id, 0) = ' . $sourceDivisionId, null, false)
+            ->limit(1);
+        if ($excludeId > 0) {
+            $this->db->where('r.id <>', $excludeId);
+        }
+        if ($this->db->field_exists('ingredient_role', 'mst_product_recipe')) {
+            if ($ingredientRole === 'MAIN') {
+                $this->db->group_start()
+                    ->where('r.ingredient_role', 'MAIN')
+                    ->or_where('r.ingredient_role IS NULL', null, false)
+                    ->group_end();
+            } else {
+                $this->db->where('r.ingredient_role', $ingredientRole);
+            }
+        }
+
+        $exists = $this->db->get()->row_array();
+        if ($exists) {
+            return [
+                'ok' => false,
+                'message' => sprintf('Material %s sudah ada pada resep untuk role/divisi yang sama. Gabungkan jadi satu line.', $materialName),
+            ];
+        }
+
+        return ['ok' => true];
     }
 
     private function resolveProductRecipeDefaultDivision(array $product): array
@@ -1931,6 +2021,7 @@ class Master_relation extends MY_Controller
     {
         $normalized = [];
         $lineNo = 1;
+        $seenMaterialKeys = [];
 
         foreach ($lines as $index => $line) {
             if (!is_array($line)) {
@@ -1960,6 +2051,23 @@ class Master_relation extends MY_Controller
             }
 
             $notes = trim((string)($line['notes'] ?? ''));
+            $ingredientRole = $this->normalizeProductRecipeIngredientRole($line['ingredient_role'] ?? 'MAIN');
+            if ($lineType === 'MATERIAL') {
+                $duplicateKey = $this->productRecipeMaterialDuplicateKey($resolved, $ingredientRole);
+                if ($duplicateKey !== null) {
+                    $materialName = trim((string)($resolved['material_name'] ?? ''));
+                    if ($materialName === '') {
+                        $materialName = 'Material';
+                    }
+                    if (isset($seenMaterialKeys[$duplicateKey])) {
+                        return [
+                            'ok' => false,
+                            'message' => 'Baris #' . ($index + 1) . ': Material ' . $materialName . ' dobel pada role/divisi yang sama. Gabungkan jadi satu line.',
+                        ];
+                    }
+                    $seenMaterialKeys[$duplicateKey] = true;
+                }
+            }
             $row = [
                 'product_id' => (int)$product['id'],
                 'line_no' => $lineNo,
@@ -1973,7 +2081,7 @@ class Master_relation extends MY_Controller
                 'sort_order' => (int)($line['sort_order'] ?? ($lineNo * 10)),
             ];
             if ($this->db->field_exists('ingredient_role', 'mst_product_recipe')) {
-                $row['ingredient_role'] = $this->normalizeProductRecipeIngredientRole($line['ingredient_role'] ?? 'MAIN');
+                $row['ingredient_role'] = $ingredientRole;
             }
             $normalized[] = $row;
             $lineNo++;

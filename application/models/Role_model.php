@@ -81,7 +81,7 @@ class Role_model extends CI_Model
             COALESCE(rp.can_create,0) as can_create,
             COALESCE(rp.can_edit,0)   as can_edit,
             COALESCE(rp.can_delete,0) as can_delete,
-            COALESCE(rp.can_export,0) as can_export');
+            COALESCE(rp.can_export,0) as can_export', false);
         $this->db->from('sys_page p');
         $this->db->join('(' . $menuRegistrySql . ') menu', 'menu.page_id = p.id', 'left');
         $this->db->join('auth_role_permission rp',

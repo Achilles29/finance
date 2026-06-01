@@ -4577,7 +4577,7 @@ class Production_model extends CI_Model
         $itemId = !empty($line['material_item_id']) ? (int)$line['material_item_id'] : null;
         $uomId = (int)($line['uom_id'] ?? $this->resolve_formula_uom_id('MATERIAL', $materialId, null));
         $stockState = $this->component_batch_material_stock_state($materialId, $itemId, $uomId, $divisionId, $locationType);
-        $stockKey = $materialId . '|' . $itemId . '|' . $uomId . '|' . $divisionId . '|' . $locationType;
+        $stockKey = (string)($stockState['stock_key'] ?? ($materialId . '|' . $itemId . '|' . $uomId . '|' . $divisionId . '|' . $locationType));
         $availableQty = array_key_exists($stockKey, $state['material_stock'])
             ? (float)$state['material_stock'][$stockKey]['available_qty']
             : (float)$stockState['available_qty'];
@@ -4822,6 +4822,7 @@ class Production_model extends CI_Model
     {
         $availableQty = 0.0;
         $unitCost = 0.0;
+        $stockKey = $materialId . '|' . $itemId . '|' . $uomId . '|' . $divisionId . '|' . $locationType;
         if ($materialId > 0 && $divisionId > 0 && $this->db->table_exists('inv_division_monthly_stock')) {
             $destinationType = $locationType;
             $targetMonth = date('Y-m-01');
@@ -4853,6 +4854,9 @@ class Production_model extends CI_Model
                 // Some legacy monthly rows carry the content quantity on a different item/UOM profile.
                 // Fall back to the material bucket for the same division + destination so preview matches live formula availability.
                 $row = $queryStock($this->db, $latestMonthSubquery, $divisionId, $materialId, $destinationType, null, 0);
+                if ((float)($row['qty_balance'] ?? 0) > 0) {
+                    $stockKey = 'MFB|' . $materialId . '|' . $divisionId . '|' . $destinationType;
+                }
             }
             $availableQty = (float)($row['qty_balance'] ?? 0);
             $unitCost = (float)($row['avg_cost_per_content'] ?? 0);
@@ -4882,6 +4886,7 @@ class Production_model extends CI_Model
         return [
             'available_qty' => round($availableQty, 4),
             'unit_cost' => round($unitCost, 6),
+            'stock_key' => $stockKey,
         ];
     }
 
@@ -6643,6 +6648,71 @@ class Production_model extends CI_Model
         ];
     }
 
+    private function formula_material_expression(): string
+    {
+        if (!$this->db->field_exists('material_id', 'mst_component_formula')) {
+            return 'i.material_id';
+        }
+
+        return 'COALESCE(f.material_id, i.material_id)';
+    }
+
+    private function component_formula_material_name(int $materialId): string
+    {
+        $row = $this->db->select('material_name')
+            ->from('mst_material')
+            ->where('id', $materialId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $name = trim((string)($row['material_name'] ?? ''));
+        return $name !== '' ? $name : ('Material #' . $materialId);
+    }
+
+    private function has_component_formula_material_duplicate(int $componentId, int $materialId, int $excludeId = 0): bool
+    {
+        if ($componentId <= 0 || $materialId <= 0) {
+            return false;
+        }
+
+        $materialExpr = $this->formula_material_expression();
+        $this->db->select('f.id', false)
+            ->from('mst_component_formula f')
+            ->join('mst_item i', 'i.id = f.material_item_id', 'left')
+            ->where('f.component_id', $componentId)
+            ->where('f.line_type', 'MATERIAL')
+            ->where($materialExpr . ' = ' . $materialId, null, false)
+            ->limit(1);
+        if ($excludeId > 0) {
+            $this->db->where('f.id <>', $excludeId);
+        }
+
+        return (bool)$this->db->get()->row_array();
+    }
+
+    private function detect_duplicate_formula_material_in_rows(array $rows): ?int
+    {
+        $materialCol = $this->formula_material_column();
+        $seen = [];
+
+        foreach ($rows as $row) {
+            if (strtoupper(trim((string)($row['line_type'] ?? ''))) !== 'MATERIAL') {
+                continue;
+            }
+            $materialId = (int)($row[$materialCol] ?? 0);
+            if ($materialId <= 0) {
+                continue;
+            }
+            if (isset($seen[$materialId])) {
+                return $materialId;
+            }
+            $seen[$materialId] = true;
+        }
+
+        return null;
+    }
+
     public function save_component_formula(array $data): array
     {
         $id = (int)($data['id'] ?? 0);
@@ -6705,6 +6775,9 @@ class Production_model extends CI_Model
         }
         if ($this->resolve_formula_uom_id($lineType, $materialId, $subComponentId) <= 0) {
             return ['ok' => false, 'message' => 'UOM sumber formula tidak valid.'];
+        }
+        if ($lineType === 'MATERIAL' && $this->has_component_formula_material_duplicate($componentId, (int)$materialId, $id)) {
+            return ['ok' => false, 'message' => 'Material ' . $this->component_formula_material_name((int)$materialId) . ' sudah ada pada formula component ini. Gabungkan jadi satu line.'];
         }
         $materialCol = $this->formula_material_column();
         $payload = [
@@ -6815,6 +6888,14 @@ class Production_model extends CI_Model
         }
         if (count($normalized) <= 0) {
             return ['ok' => false, 'message' => 'Minimal harus ada 1 line formula valid.'];
+        }
+
+        $duplicateMaterialId = $this->detect_duplicate_formula_material_in_rows($normalized);
+        if ($duplicateMaterialId !== null) {
+            return [
+                'ok' => false,
+                'message' => 'Material ' . $this->component_formula_material_name($duplicateMaterialId) . ' dobel pada formula component ini. Gabungkan jadi satu line.',
+            ];
         }
 
         $this->db->trans_start();
