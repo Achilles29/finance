@@ -8,6 +8,9 @@ $formatAuditQty = static function ($value): string {
 };
 
 $status = strtoupper((string)($header['status'] ?? 'DRAFT'));
+$usagePurposeLabel = static function ($value): string {
+  return strtoupper(trim((string)$value)) === 'OPERASIONAL' ? 'Kebutuhan Operasional' : 'Persediaan Produksi';
+};
 $statusClass = [
     'DRAFT' => 'bg-secondary',
     'SUBMITTED' => 'bg-primary',
@@ -66,6 +69,7 @@ $statusClass = [
           <tr>
             <th>#</th>
             <th>Profile</th>
+            <th>Pemakaian</th>
             <th class="text-end">Qty Request</th>
             <th class="text-end">Qty Fulfilled</th>
             <th>Status</th>
@@ -73,7 +77,7 @@ $statusClass = [
         </thead>
         <tbody>
           <?php if (empty($lines)): ?>
-            <tr><td colspan="5" class="text-center text-muted py-3">Belum ada line Store Request.</td></tr>
+            <tr><td colspan="6" class="text-center text-muted py-3">Belum ada line Store Request.</td></tr>
           <?php else: ?>
             <?php foreach ($lines as $line): ?>
               <tr>
@@ -83,6 +87,7 @@ $statusClass = [
                   <div class="small text-muted"><?php echo html_escape((string)($line['profile_brand'] ?? '-')); ?></div>
                   <div class="small text-muted"><?php echo html_escape((string)($line['profile_description'] ?? '-')); ?></div>
                 </td>
+                <td><span class="badge bg-light text-dark border"><?php echo html_escape($usagePurposeLabel($line['usage_purpose'] ?? $line['default_usage_purpose'] ?? 'BAHAN_BAKU')); ?></span></td>
                 <td class="text-end">
                   <div><?php echo number_format((float)($line['qty_buy_requested'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($line['buy_uom_code'] ?? '-')); ?></div>
                   <div class="small text-muted"><?php echo number_format((float)($line['qty_content_requested'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($line['content_uom_code'] ?? '-')); ?></div>

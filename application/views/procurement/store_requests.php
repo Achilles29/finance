@@ -465,13 +465,54 @@ foreach ($lineRows as $lineRow) {
   #srCreateModal .modal-dialog {
     max-width: min(1480px, 96vw);
   }
+  #srCreateModal .modal-body {
+    padding-bottom: .85rem;
+  }
   #srCreateModal .table,
   #srCreateModal .sr-scroll table {
-    min-width: 1180px;
+    min-width: 1240px;
+  }
+  #srCreateModal #srLineTableBody {
+    white-space: nowrap;
+  }
+  #srCreateModal .table-responsive {
+    overflow-x: auto;
+    padding-bottom: .35rem;
+  }
+  #srCreateModal .table-responsive > .table {
+    min-width: 1480px;
+  }
+  #srCreateModal .sr-usage-purpose {
+    min-width: 190px;
+    width: 100%;
   }
   #srCreateModal .table th,
   #srCreateModal .sr-scroll th {
     white-space: nowrap;
+  }
+  #srCreateModal .table th:nth-child(4),
+  #srCreateModal .table td:nth-child(4) {
+    min-width: 210px;
+  }
+  #srCreateModal .table th:nth-child(5),
+  #srCreateModal .table td:nth-child(5) {
+    min-width: 110px;
+  }
+  #srCreateModal .table th:nth-child(6),
+  #srCreateModal .table td:nth-child(6),
+  #srCreateModal .table th:nth-child(7),
+  #srCreateModal .table td:nth-child(7) {
+    min-width: 130px;
+  }
+  #srCreateModal .table th:nth-child(8),
+  #srCreateModal .table td:nth-child(8) {
+    min-width: 100px;
+  }
+  #srCreateModal .table th:nth-child(9),
+  #srCreateModal .table td:nth-child(9),
+  #srCreateModal .table th:nth-child(10),
+  #srCreateModal .table td:nth-child(10) {
+    min-width: 110px;
   }
   @media (max-width: 767.98px) {
     .sr-hero-title {
@@ -730,8 +771,8 @@ foreach ($lineRows as $lineRow) {
 
           <div class="table-responsive">
             <table class="table table-sm table-striped mb-0">
-              <thead><tr><th>Profile</th><th>Keterangan</th><th>Jenis</th><th>UOM</th><th class="text-end">Stok Gudang</th><th class="text-end">Harga Satuan</th><th>Exp Date</th><th>Qty Beli Req</th><th>Qty Isi Req</th><th>Aksi</th></tr></thead>
-              <tbody id="srLineTableBody"><tr><td colspan="10" class="text-muted text-center py-2">Belum ada line.</td></tr></tbody>
+              <thead><tr><th>Profile</th><th>Keterangan</th><th>Jenis</th><th>Pemakaian</th><th>UOM</th><th class="text-end">Stok Gudang</th><th class="text-end">Harga Satuan</th><th>Exp Date</th><th>Qty Beli Req</th><th>Qty Isi Req</th><th>Aksi</th></tr></thead>
+              <tbody id="srLineTableBody"><tr><td colspan="11" class="text-muted text-center py-2">Belum ada line.</td></tr></tbody>
             </table>
           </div>
         </form>
@@ -777,6 +818,10 @@ foreach ($lineRows as $lineRow) {
   var generatePoUrlBase = <?php echo json_encode(site_url('procurement/store-request/generate-po/')); ?>;
   var reloadUrl = <?php echo json_encode($resetUrl); ?>;
   var destinationGuardMap = <?php echo json_encode($destinationGuardMap); ?>;
+  var usagePurposeOptions = [
+    { value: 'BAHAN_BAKU', label: 'Persediaan Produksi' },
+    { value: 'OPERASIONAL', label: 'Kebutuhan Operasional' }
+  ];
   var canRepairHistory = <?php echo $canRepairHistory ? 'true' : 'false'; ?>;
   var alertBox = document.getElementById('srAlert');
   var createAlertBox = document.getElementById('srCreateAlert');
@@ -795,6 +840,16 @@ foreach ($lineRows as $lineRow) {
   function esc(s){ return String(s||'').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
   function fmtMoney(v){ return 'Rp ' + num(v).toLocaleString('id-ID', {minimumFractionDigits:2, maximumFractionDigits:2}); }
   function fmtDate(v){ return v ? esc(v) : '-'; }
+  function normalizeUsagePurpose(value){ return String(value || '').toUpperCase().trim() === 'OPERASIONAL' ? 'OPERASIONAL' : 'BAHAN_BAKU'; }
+  function renderUsagePurposeOptions(selected){
+    var normalized = normalizeUsagePurpose(selected);
+    var html = '';
+    usagePurposeOptions.forEach(function(option){
+      var value = normalizeUsagePurpose(option.value);
+      html += '<option value="' + esc(value) + '"' + (value === normalized ? ' selected' : '') + '>' + esc(option.label) + '</option>';
+    });
+    return html;
+  }
   function fetchJson(url, opts){ return fetch(url, opts).then(function(res){ return res.text().then(function(t){ var d={}; try{d=t?JSON.parse(t):{};}catch(e){d={};} if(!res.ok && !d.ok){ d.ok=false; d.message=d.message||('Request gagal ('+res.status+')'); } return d;}); }); }
   function uiConfirm(message, options){
     if(window.FinanceUI && typeof window.FinanceUI.confirm === 'function'){
@@ -913,7 +968,7 @@ foreach ($lineRows as $lineRow) {
 
   function renderCreateLines(){
     var tb=document.getElementById('srLineTableBody'); if(!tb) return;
-    if(!createLines.length){ tb.innerHTML='<tr><td colspan="10" class="text-muted text-center py-2">Belum ada line.</td></tr>'; return; }
+    if(!createLines.length){ tb.innerHTML='<tr><td colspan="11" class="text-muted text-center py-2">Belum ada line.</td></tr>'; return; }
     var html='';
     createLines.forEach(function(line, idx){
       var lineBrand = line.profile_brand ? '<div class="small text-muted">Brand: '+esc(line.profile_brand)+'</div>' : '';
@@ -922,6 +977,7 @@ foreach ($lineRows as $lineRow) {
         + '<td><strong>'+esc(line.profile_name||'-')+'</strong>'+lineBrand+'</td>'
         + '<td class="small">'+lineDescription+'</td>'
         + '<td>'+esc(line.line_kind||'-')+'</td>'
+        + '<td><select class="form-select form-select-sm sr-usage-purpose" data-idx="'+idx+'">'+renderUsagePurposeOptions(line.usage_purpose || line.default_usage_purpose)+'</select></td>'
         + '<td>'+esc(line.profile_buy_uom_code||'-')+' -> '+esc(line.profile_content_uom_code||'-')+'</td>'
         + '<td class="text-end"><div class="fw-semibold">'+num(line.qty_buy_balance).toFixed(2)+' '+esc(line.profile_buy_uom_code||'-')+'</div><div class="small text-muted">'+num(line.qty_content_balance).toFixed(2)+' '+esc(line.profile_content_uom_code||'-')+'</div></td>'
         + '<td class="text-end"><div class="fw-semibold">'+fmtMoney(line.last_unit_price)+'</div><div class="small text-muted">/ '+esc(line.profile_buy_uom_code||'-')+'</div></td>'
@@ -963,7 +1019,9 @@ foreach ($lineRows as $lineRow) {
       qty_buy_balance: num(row.qty_buy_balance),
       qty_content_balance: num(row.qty_content_balance),
       qty_buy_requested: 1,
-      qty_content_requested: Number(cpb.toFixed(2))
+      qty_content_requested: Number(cpb.toFixed(2)),
+      default_usage_purpose: normalizeUsagePurpose(row.default_usage_purpose || row.usage_purpose),
+      usage_purpose: normalizeUsagePurpose(row.usage_purpose || row.default_usage_purpose)
     });
     renderCreateLines();
   }
@@ -1073,6 +1131,16 @@ foreach ($lineRows as $lineRow) {
         runGeneratePo(pid, poBtn);
       });
       return;
+    }
+  });
+
+  document.addEventListener('change', function(e){
+    var usage = e.target.closest('.sr-usage-purpose');
+    if (usage && canCreate){
+      var idxU = parseInt(usage.getAttribute('data-idx') || '-1', 10);
+      if (idxU >= 0 && createLines[idxU]){
+        createLines[idxU].usage_purpose = normalizeUsagePurpose(usage.value);
+      }
     }
   });
 

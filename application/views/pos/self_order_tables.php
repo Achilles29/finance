@@ -4,15 +4,15 @@ $settings = is_array($settings ?? null) ? $settings : [];
 ?>
 
 <div class="container-xxl py-3">
+  <?php $this->load->view('pos/_master_tabs', ['pos_master_tab_active' => 'self-order']); ?>
+  <?php $this->load->view('pos/_self_order_tabs', ['self_order_tab_active' => 'tables']); ?>
+
   <div class="fin-page-header mb-3">
     <div>
       <h4 class="fin-page-title mb-1">QR Meja Self Order</h4>
       <p class="fin-page-subtitle mb-0">Kelola meja aktif, preview QR scan, dan cetak kartu QR untuk order mandiri pelanggan.</p>
     </div>
   </div>
-
-  <?php $this->load->view('pos/_master_tabs', ['pos_master_tab_active' => 'self-order']); ?>
-  <?php $this->load->view('pos/_self_order_tabs', ['self_order_tab_active' => 'tables']); ?>
 
   <div class="card border-0 shadow-sm">
     <div class="card-body">

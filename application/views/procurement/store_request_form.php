@@ -7,6 +7,10 @@ $lines = (array)($lines ?? []);
 $divisionOptions = $division_options ?? [];
 $destinationOptions = $destination_options ?? [];
 $destinationGuardMap = $destination_guard_map ?? [];
+$usagePurposeOptions = (array)($usage_purpose_options ?? [
+  ['value' => 'BAHAN_BAKU', 'label' => 'Persediaan Produksi'],
+  ['value' => 'OPERASIONAL', 'label' => 'Kebutuhan Operasional'],
+]);
 
 $initialLines = [];
 foreach ($lines as $ln) {
@@ -32,6 +36,8 @@ foreach ($lines as $ln) {
         'qty_content_balance' => (float)($ln['qty_content_balance'] ?? 0),
         'qty_buy_requested' => (float)($ln['qty_buy_requested'] ?? 0),
         'qty_content_requested' => (float)($ln['qty_content_requested'] ?? 0),
+        'default_usage_purpose' => (string)($ln['default_usage_purpose'] ?? ($ln['usage_purpose'] ?? 'BAHAN_BAKU')),
+        'usage_purpose' => (string)($ln['usage_purpose'] ?? ($ln['default_usage_purpose'] ?? 'BAHAN_BAKU')),
     ];
 }
 ?>
@@ -40,7 +46,7 @@ foreach ($lines as $ln) {
   .sr-scroll { max-height: 300px; overflow: auto; }
   .sr-form-card .table td, .sr-form-card .table th { vertical-align: middle; }
   .sr-action-btn { border-radius: 9px; padding: 4px 10px !important; display: inline-flex; align-items: center; justify-content: center; min-height: 32px; font-size: 12px; font-weight: 600; line-height: 1.2; }
-  .sr-form-card .table { min-width: 1180px; }
+  .sr-form-card .table { min-width: 1300px; }
   .sr-form-card .table th { white-space: nowrap; }
   .sr-form-card .action-icon-btn { width: 30px !important; height: 30px !important; min-width: 30px !important; border-radius: 8px !important; padding: 0 !important; }
   .sr-form-card .action-icon-btn i { font-size: .92rem !important; }
@@ -118,8 +124,8 @@ foreach ($lines as $ln) {
 
     <div class="table-responsive">
       <table class="table table-sm table-striped mb-0">
-        <thead><tr><th>Profile</th><th>Keterangan</th><th>Jenis</th><th>UOM</th><th class="text-end">Stok Gudang</th><th class="text-end">Harga Satuan</th><th>Exp Date</th><th>Qty Beli Req</th><th>Qty Isi Req</th><th>Aksi</th></tr></thead>
-        <tbody id="srLineTableBody"><tr><td colspan="10" class="text-muted text-center py-2">Belum ada line.</td></tr></tbody>
+        <thead><tr><th>Profile</th><th>Keterangan</th><th>Jenis</th><th>Pemakaian</th><th>UOM</th><th class="text-end">Stok Gudang</th><th class="text-end">Harga Satuan</th><th>Exp Date</th><th>Qty Beli Req</th><th>Qty Isi Req</th><th>Aksi</th></tr></thead>
+        <tbody id="srLineTableBody"><tr><td colspan="11" class="text-muted text-center py-2">Belum ada line.</td></tr></tbody>
       </table>
     </div>
     <div class="d-flex gap-2 justify-content-end mt-3">
@@ -140,6 +146,7 @@ foreach ($lines as $ln) {
   var updateBaseUrl = <?php echo json_encode(site_url('procurement/store-request/update/')); ?>;
   var listUrl = <?php echo json_encode(site_url('store-requests')); ?>;
   var destinationGuardMap = <?php echo json_encode($destinationGuardMap); ?>;
+  var usagePurposeOptions = <?php echo json_encode($usagePurposeOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?> || [];
   var initialLines = <?php echo json_encode($initialLines); ?>;
   var createLines = Array.isArray(initialLines) ? initialLines : [];
   var profileSearchTimer = null;
@@ -154,6 +161,20 @@ foreach ($lines as $ln) {
   function esc(s){ return String(s || '').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
   function fmtMoney(v){ return 'Rp ' + num(v).toLocaleString('id-ID', {minimumFractionDigits:2, maximumFractionDigits:2}); }
   function fmtDate(v){ return v ? esc(v) : '-'; }
+  function normalizeUsagePurpose(value){ return String(value || '').toUpperCase().trim() === 'OPERASIONAL' ? 'OPERASIONAL' : 'BAHAN_BAKU'; }
+  function renderUsagePurposeOptions(selected){
+    var normalized = normalizeUsagePurpose(selected);
+    var html = '';
+    var rows = usagePurposeOptions.length ? usagePurposeOptions : [
+      { value: 'BAHAN_BAKU', label: 'Persediaan Produksi' },
+      { value: 'OPERASIONAL', label: 'Kebutuhan Operasional' }
+    ];
+    rows.forEach(function(option){
+      var value = normalizeUsagePurpose(option.value);
+      html += '<option value="' + esc(value) + '"' + (value === normalized ? ' selected' : '') + '>' + esc(option.label || value) + '</option>';
+    });
+    return html;
+  }
   function fetchJson(url, opts){
     return fetch(url, opts).then(function(res){
       return res.text().then(function(t){
@@ -231,7 +252,7 @@ foreach ($lines as $ln) {
 
   function renderCreateLines(){
     var tb = document.getElementById('srLineTableBody'); if(!tb) return;
-    if(!createLines.length){ tb.innerHTML = '<tr><td colspan="10" class="text-muted text-center py-2">Belum ada line.</td></tr>'; return; }
+    if(!createLines.length){ tb.innerHTML = '<tr><td colspan="11" class="text-muted text-center py-2">Belum ada line.</td></tr>'; return; }
     var html = '';
     createLines.forEach(function(line, idx){
       var lineBrand = line.profile_brand ? '<div class="small text-muted">Brand: ' + esc(line.profile_brand) + '</div>' : '';
@@ -240,6 +261,7 @@ foreach ($lines as $ln) {
         + '<td><strong>' + esc(line.profile_name || '-') + '</strong>' + lineBrand + '</td>'
         + '<td class="small">' + lineDescription + '</td>'
         + '<td>' + esc(line.line_kind || '-') + '</td>'
+        + '<td><select class="form-select form-select-sm sr-usage-purpose" data-idx="' + idx + '">' + renderUsagePurposeOptions(line.usage_purpose || line.default_usage_purpose) + '</select></td>'
         + '<td>' + esc(line.profile_buy_uom_code || '-') + ' -> ' + esc(line.profile_content_uom_code || '-') + '</td>'
         + '<td class="text-end"><div class="fw-semibold">' + num(line.qty_buy_balance).toFixed(2) + ' ' + esc(line.profile_buy_uom_code || '-') + '</div><div class="small text-muted">' + num(line.qty_content_balance).toFixed(2) + ' ' + esc(line.profile_content_uom_code || '-') + '</div></td>'
         + '<td class="text-end"><div class="fw-semibold">' + fmtMoney(line.last_unit_price) + '</div><div class="small text-muted">/ ' + esc(line.profile_buy_uom_code || '-') + '</div></td>'
@@ -281,7 +303,9 @@ foreach ($lines as $ln) {
       qty_buy_balance: num(row.qty_buy_balance),
       qty_content_balance: num(row.qty_content_balance),
       qty_buy_requested: 1,
-      qty_content_requested: Number(cpb.toFixed(2))
+      qty_content_requested: Number(cpb.toFixed(2)),
+      default_usage_purpose: normalizeUsagePurpose(row.default_usage_purpose || row.usage_purpose),
+      usage_purpose: normalizeUsagePurpose(row.usage_purpose || row.default_usage_purpose)
     });
     renderCreateLines();
   }
@@ -347,6 +371,16 @@ foreach ($lines as $ln) {
         createLines[idxC].qty_content_requested = num(content.value);
         createLines[idxC].qty_buy_requested = createLines[idxC].qty_content_requested / cpbC;
         renderCreateLines();
+      }
+    }
+  });
+
+  document.addEventListener('change', function(e){
+    var usage = e.target.closest('.sr-usage-purpose');
+    if (usage){
+      var idxU = parseInt(usage.getAttribute('data-idx') || '-1', 10);
+      if (idxU >= 0 && createLines[idxU]){
+        createLines[idxU].usage_purpose = normalizeUsagePurpose(usage.value);
       }
     }
   });

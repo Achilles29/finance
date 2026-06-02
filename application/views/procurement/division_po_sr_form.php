@@ -7,11 +7,15 @@ $destinationOptions = $destination_options ?? [];
 $destinationGuardMap = $destination_guard_map ?? [];
 $uomOptions = $uom_options ?? [];
 $vendorOptions = $vendor_options ?? [];
+$usagePurposeOptions = (array)($usage_purpose_options ?? [
+  ['value' => 'BAHAN_BAKU', 'label' => 'Persediaan Produksi'],
+  ['value' => 'OPERASIONAL', 'label' => 'Kebutuhan Operasional'],
+]);
 $isPurchaseScope = !empty($is_purchase_scope);
 $canVerify = !empty($can_verify);
 $requestId = (int)($request_id ?? 0);
 $showVendorColumn = $canVerify;
-$lineColumnCount = $canVerify ? 9 : ($showVendorColumn ? 14 : 13);
+$lineColumnCount = $canVerify ? 10 : ($showVendorColumn ? 15 : 14);
 $defaultRequestDate = (string)($header['request_date'] ?? date('Y-m-d'));
 $defaultNeededDate = (string)($header['needed_date'] ?? date('Y-m-d', strtotime('+1 day')));
 
@@ -72,7 +76,9 @@ foreach ((array)$lines as $line) {
         'qty_buy_balance' => $qtyContentBalance / $contentPerBuy,
         'qty_content_balance' => $qtyContentBalance,
         'estimated_unit_price' => (float)($line['estimated_unit_price'] ?? 0),
-        'source_type' => $qtyContentBalance > 0 ? 'WAREHOUSE' : 'CATALOG',
+        'default_usage_purpose' => (string)($line['default_usage_purpose'] ?? ($line['usage_purpose'] ?? 'BAHAN_BAKU')),
+        'usage_purpose' => (string)($line['usage_purpose'] ?? ($line['default_usage_purpose'] ?? 'BAHAN_BAKU')),
+        'source_type' => (string)($line['source_type'] ?? ($qtyContentBalance > 0 ? 'WAREHOUSE' : 'CATALOG')),
         'notes' => (string)($line['notes'] ?? ''),
         'line_reviewed' => !$canVerify || !empty($line['line_reviewed']),
     ];
@@ -99,7 +105,7 @@ if (!function_exists('finance_dreq_location_label')) {
   .dreq-line-table th, .dreq-line-table td { vertical-align: middle; }
   .dreq-line-table th { padding: .55rem .45rem; white-space: nowrap; }
   .dreq-line-table td { padding: .45rem .4rem; }
-  .dreq-line-table { min-width: 1760px; }
+  .dreq-line-table { min-width: 1890px; }
   .dreq-line-table.is-verify {
     min-width: 940px;
     table-layout: fixed;
@@ -110,27 +116,33 @@ if (!function_exists('finance_dreq_location_label')) {
     word-break: break-word;
   }
   .dreq-line-table.is-verify th:nth-child(1),
-  .dreq-line-table.is-verify td:nth-child(1) { width: 24%; }
+  .dreq-line-table.is-verify td:nth-child(1) { width: 22%; }
   .dreq-line-table.is-verify th:nth-child(2),
-  .dreq-line-table.is-verify td:nth-child(2) { width: 8%; }
+  .dreq-line-table.is-verify td:nth-child(2) { width: 7%; }
   .dreq-line-table.is-verify th:nth-child(3),
-  .dreq-line-table.is-verify td:nth-child(3) { width: 9%; }
+  .dreq-line-table.is-verify td:nth-child(3) { width: 8%; }
   .dreq-line-table.is-verify th:nth-child(4),
-  .dreq-line-table.is-verify td:nth-child(4) { width: 16%; }
+  .dreq-line-table.is-verify td:nth-child(4) { width: 14%; }
   .dreq-line-table.is-verify th:nth-child(5),
-  .dreq-line-table.is-verify td:nth-child(5) { width: 13%; }
+  .dreq-line-table.is-verify td:nth-child(5) { width: 10%; }
   .dreq-line-table.is-verify th:nth-child(6),
-  .dreq-line-table.is-verify td:nth-child(6) { width: 12%; }
+  .dreq-line-table.is-verify td:nth-child(6) { width: 9%; }
   .dreq-line-table.is-verify th:nth-child(7),
-  .dreq-line-table.is-verify td:nth-child(7) { width: 7%; }
+  .dreq-line-table.is-verify td:nth-child(7) { width: 11%; }
   .dreq-line-table.is-verify th:nth-child(8),
-  .dreq-line-table.is-verify td:nth-child(8) { width: 11%; }
+  .dreq-line-table.is-verify td:nth-child(8) { width: 6%; }
+  .dreq-line-table.is-verify th:nth-child(9),
+  .dreq-line-table.is-verify td:nth-child(9) { width: 7%; }
+  .dreq-line-table.is-verify th:nth-child(10),
+  .dreq-line-table.is-verify td:nth-child(10) { width: 6%; }
   .dreq-search-scroll { max-height: 260px; overflow: auto; }
   .dreq-manual-card { display: none; }
   .dreq-search-table th, .dreq-search-table td { vertical-align: middle; }
   .dreq-profile-cell { min-width: 360px; }
   .dreq-uom-cell { min-width: 140px; }
   .dreq-vendor-cell { min-width: 240px; }
+  .dreq-usage-cell { min-width: 150px; }
+  .dreq-usage-select { min-width: 150px; }
   .dreq-stock-cell { min-width: 95px; }
   .dreq-request-cell { min-width: 180px; }
   .dreq-qty-input { min-width: 110px; }
@@ -509,6 +521,7 @@ if (!function_exists('finance_dreq_location_label')) {
               <th>Route</th>
               <?php if ($showVendorColumn): ?><th>Vendor PO</th><?php endif; ?>
               <th>UOM</th>
+              <th>Pemakaian</th>
               <?php if (!$canVerify): ?>
               <th class="text-end">Stok Beli</th>
               <th class="text-end">Stok Isi</th>
@@ -603,6 +616,14 @@ if (!function_exists('finance_dreq_location_label')) {
             <label class="form-label mb-1">Harga Estimasi</label>
             <input type="number" class="form-control text-end" id="dreqDraftPrice" min="0" step="0.01" placeholder="0.00">
           </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Pemakaian</label>
+            <select class="form-select" id="dreqDraftUsagePurpose">
+              <?php foreach ($usagePurposeOptions as $option): ?>
+                <option value="<?php echo html_escape((string)($option['value'] ?? '')); ?>"><?php echo html_escape((string)($option['label'] ?? $option['value'] ?? '')); ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
           <div class="col-12">
             <label class="form-label mb-1">Catatan Line</label>
             <input type="text" class="form-control" id="dreqDraftNotes" placeholder="Opsional">
@@ -694,8 +715,16 @@ if (!function_exists('finance_dreq_location_label')) {
             <label class="form-label mb-1">Harga Estimasi</label>
             <input type="number" class="form-control text-end" id="dreqVerifyPrice" min="0" step="0.01" placeholder="0.00">
           </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Pemakaian</label>
+            <select class="form-select" id="dreqVerifyUsagePurpose">
+              <?php foreach ($usagePurposeOptions as $option): ?>
+                <option value="<?php echo html_escape((string)($option['value'] ?? '')); ?>"><?php echo html_escape((string)($option['label'] ?? $option['value'] ?? '')); ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
           <?php if ($showVendorColumn): ?>
-          <div class="col-md-9">
+          <div class="col-md-6">
             <label class="form-label mb-1">Vendor PO</label>
             <div class="dreq-vendor-wrap">
               <select class="form-select" id="dreqVerifyVendor"></select>
@@ -733,6 +762,7 @@ if (!function_exists('finance_dreq_location_label')) {
   var destinationGuardMap = <?php echo json_encode($destinationGuardMap, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?> || {};
   var destinationOptionMeta = <?php echo json_encode($destinationOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?> || [];
   var vendorOptions = <?php echo json_encode($vendorOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?> || [];
+  var usagePurposeOptions = <?php echo json_encode($usagePurposeOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?> || [];
   var canAssignVendor = <?php echo $showVendorColumn ? 'true' : 'false'; ?>;
   var isVerifyMode = <?php echo $canVerify ? 'true' : 'false'; ?>;
   var lineColumnCount = <?php echo (int)$lineColumnCount; ?>;
@@ -753,6 +783,7 @@ if (!function_exists('finance_dreq_location_label')) {
   var draftQtyEl = document.getElementById('dreqDraftQty');
   var draftExpiredEl = document.getElementById('dreqDraftExpired');
   var draftPriceEl = document.getElementById('dreqDraftPrice');
+  var draftUsagePurposeEl = document.getElementById('dreqDraftUsagePurpose');
   var draftNotesEl = document.getElementById('dreqDraftNotes');
   var draftRouteLabelEl = document.getElementById('dreqDraftRouteLabel');
   var draftRouteNoteEl = document.getElementById('dreqDraftRouteNote');
@@ -775,6 +806,7 @@ if (!function_exists('finance_dreq_location_label')) {
   var verifyQtyEl = document.getElementById('dreqVerifyQty');
   var verifyPoQtyEl = document.getElementById('dreqVerifyPoQty');
   var verifyPriceEl = document.getElementById('dreqVerifyPrice');
+  var verifyUsagePurposeEl = document.getElementById('dreqVerifyUsagePurpose');
   var verifyVendorEl = document.getElementById('dreqVerifyVendor');
   var verifyNotesEl = document.getElementById('dreqVerifyNotes');
   var verifySuggestionListEl = document.getElementById('dreqVerifySuggestionList');
@@ -807,6 +839,28 @@ if (!function_exists('finance_dreq_location_label')) {
 
   function requestMode(value) {
     return selectedRequestMode(value) === 'CONTENT' ? 'CONTENT' : 'BUY';
+  }
+
+  function normalizeUsagePurpose(value) {
+    return String(value || '').toUpperCase().trim() === 'OPERASIONAL' ? 'OPERASIONAL' : 'BAHAN_BAKU';
+  }
+
+  function usagePurposeLabel(value) {
+    return normalizeUsagePurpose(value) === 'OPERASIONAL' ? 'Kebutuhan Operasional' : 'Persediaan Produksi';
+  }
+
+  function renderUsagePurposeOptions(selectedValue) {
+    var normalized = normalizeUsagePurpose(selectedValue);
+    var html = '';
+    var rows = usagePurposeOptions.length ? usagePurposeOptions : [
+      { value: 'BAHAN_BAKU', label: 'Persediaan Produksi' },
+      { value: 'OPERASIONAL', label: 'Kebutuhan Operasional' }
+    ];
+    rows.forEach(function (option) {
+      var value = normalizeUsagePurpose(option.value);
+      html += '<option value="' + esc(value) + '"' + (value === normalized ? ' selected' : '') + '>' + esc(option.label || value) + '</option>';
+    });
+    return html;
   }
 
   function defaultRequestModeForRow(row) {
@@ -913,6 +967,8 @@ if (!function_exists('finance_dreq_location_label')) {
       last_purchase_date: row.last_purchase_date || '',
       catalog_id: num(row.catalog_id) > 0 ? num(row.catalog_id) : null,
       estimated_unit_price: round2(num(row.estimated_unit_price || row.last_unit_price || row.standard_price || 0)),
+      default_usage_purpose: normalizeUsagePurpose(row.default_usage_purpose || row.usage_purpose),
+      usage_purpose: normalizeUsagePurpose(row.usage_purpose || row.default_usage_purpose),
       catalog_suggestions: Array.isArray(row.catalog_suggestions) ? row.catalog_suggestions : [],
       suggestion_loading: !!row.suggestion_loading,
       suggestion_query: row.suggestion_query || '',
@@ -1409,6 +1465,7 @@ if (!function_exists('finance_dreq_location_label')) {
       request_uom_mode: verifyModeEl ? selectedRequestMode(verifyModeEl.value) : '',
       vendor_id: verifyVendorEl ? (num(verifyVendorEl.value) > 0 ? num(verifyVendorEl.value) : null) : null,
       estimated_unit_price: verifyPriceEl ? round2(Math.max(0, num(verifyPriceEl.value))) : 0,
+      usage_purpose: verifyUsagePurposeEl ? normalizeUsagePurpose(verifyUsagePurposeEl.value) : normalizeUsagePurpose(requestLines[activeVerifyLineIdx].usage_purpose),
       notes: verifyNotesEl ? String(verifyNotesEl.value || '').trim() : '',
       line_reviewed: false
     }));
@@ -1525,6 +1582,9 @@ if (!function_exists('finance_dreq_location_label')) {
     if (verifyPriceEl) {
       verifyPriceEl.value = fixed2(row.estimated_unit_price || 0);
     }
+    if (verifyUsagePurposeEl) {
+      verifyUsagePurposeEl.value = normalizeUsagePurpose(row.usage_purpose || row.default_usage_purpose);
+    }
     if (verifyVendorEl) {
       verifyVendorEl.innerHTML = renderVendorOptions(row.vendor_id || '');
       verifyVendorEl.value = row.vendor_id ? String(row.vendor_id) : '';
@@ -1551,6 +1611,7 @@ if (!function_exists('finance_dreq_location_label')) {
       required_expiry_date: draftExpiredEl ? String(draftExpiredEl.value || '').trim() : '',
       expiry_policy: (draftExpiredEl && String(draftExpiredEl.value || '').trim() !== '') ? 'EXACT_DATE' : 'NONE',
       estimated_unit_price: draftPriceEl ? round2(Math.max(0, num(draftPriceEl.value))) : 0,
+      usage_purpose: draftUsagePurposeEl ? normalizeUsagePurpose(draftUsagePurposeEl.value) : normalizeUsagePurpose((pendingDraftRow || {}).usage_purpose),
       notes: draftNotesEl ? String(draftNotesEl.value || '').trim() : '',
       request_uom_mode: draftModeEl ? selectedRequestMode(draftModeEl.value) : ''
     }));
@@ -1647,6 +1708,9 @@ if (!function_exists('finance_dreq_location_label')) {
     }
     if (draftPriceEl) {
       draftPriceEl.value = fixed2(normalized.estimated_unit_price || 0);
+    }
+    if (draftUsagePurposeEl) {
+      draftUsagePurposeEl.value = normalizeUsagePurpose(normalized.usage_purpose || normalized.default_usage_purpose);
     }
     if (draftNotesEl) {
       draftNotesEl.value = normalized.notes || '';
@@ -2085,6 +2149,9 @@ if (!function_exists('finance_dreq_location_label')) {
       var vendorValue = num(row.vendor_id) > 0 ? num(row.vendor_id) : '';
       var vendorText = row.vendor_name || vendorNameById(vendorValue) || '-';
       var vendorCellHtml = '';
+      var usageCellHtml = isVerifyMode
+        ? '<td class="dreq-usage-cell"><span class="badge bg-light text-dark border">' + esc(usagePurposeLabel(row.usage_purpose || row.default_usage_purpose)) + '</span></td>'
+        : '<td class="dreq-usage-cell"><select class="form-select form-select-sm line-usage-purpose dreq-usage-select" data-idx="' + idx + '">' + renderUsagePurposeOptions(row.usage_purpose || row.default_usage_purpose) + '</select></td>';
       var profileMeta = [];
       if (String(row.profile_brand || '').trim() !== '') {
         profileMeta.push('Merk: ' + String(row.profile_brand || '').trim());
@@ -2144,6 +2211,7 @@ if (!function_exists('finance_dreq_location_label')) {
           + '<td><span class="badge bg-' + routeClass + '">' + esc(routeLabel(row)) + '</span></td>'
           + vendorCellHtml
           + '<td class="dreq-uom-cell"><div class="fw-semibold">' + esc(row.profile_buy_uom_code || '-') + ' -> ' + esc(row.profile_content_uom_code || '-') + '</div><div class="small text-muted">' + esc(packSummary(row)) + '</div></td>'
+          + usageCellHtml
           + '<td><div class="dreq-request-stack">' + requestDisplayHtml + (hasMode && requestSummary ? '<div class="small text-muted">~ ' + esc(requestSummary) + '</div>' : '<div class="small text-muted">' + esc(requestCaption) + '</div>') + '</div></td>'
           + '<td>' + srDisplayHtml + '</td>'
           + '<td><div class="dreq-request-stack">' + poDisplayHtml + (hasMode && poSummary ? '<div class="small text-muted">~ ' + esc(poSummary) + '</div>' : '<div class="small text-muted">' + esc(poCaption) + '</div>') + '</div></td>'
@@ -2156,6 +2224,7 @@ if (!function_exists('finance_dreq_location_label')) {
           + '<td><span class="badge bg-' + routeClass + '">' + esc(routeLabel(row)) + '</span></td>'
           + vendorCellHtml
           + '<td class="dreq-uom-cell"><div class="fw-semibold">' + esc(row.profile_buy_uom_code || '-') + ' -> ' + esc(row.profile_content_uom_code || '-') + '</div><div class="small text-muted">' + esc(packSummary(row)) + '</div></td>'
+          + usageCellHtml
           + '<td class="text-end dreq-stock-cell">' + fixed2(row.qty_buy_balance) + '</td>'
           + '<td class="text-end dreq-stock-cell">' + fixed2(row.qty_content_balance) + '</td>'
           + requestCellHtml
@@ -2290,6 +2359,8 @@ if (!function_exists('finance_dreq_location_label')) {
       qty_content_po_requested: round2(qtyBuy * contentPerBuy),
       qty_buy_balance: 0,
       qty_content_balance: 0,
+      default_usage_purpose: 'BAHAN_BAKU',
+      usage_purpose: 'BAHAN_BAKU',
       notes: ''
     });
   }
@@ -2467,7 +2538,7 @@ if (!function_exists('finance_dreq_location_label')) {
   if (verifyModalEl) {
     ['input', 'change'].forEach(function (eventName) {
       verifyModalEl.addEventListener(eventName, function (event) {
-        if (event.target && event.target.closest('#dreqVerifyBrand, #dreqVerifyDescription, #dreqVerifyRequestMode, #dreqVerifyQty, #dreqVerifyPoQty, #dreqVerifyPrice, #dreqVerifyVendor, #dreqVerifyNotes')) {
+        if (event.target && event.target.closest('#dreqVerifyBrand, #dreqVerifyDescription, #dreqVerifyRequestMode, #dreqVerifyQty, #dreqVerifyPoQty, #dreqVerifyPrice, #dreqVerifyUsagePurpose, #dreqVerifyVendor, #dreqVerifyNotes')) {
           setVerifyAlert('', '');
           updateVerifyModalPreview();
         }
@@ -2542,7 +2613,7 @@ if (!function_exists('finance_dreq_location_label')) {
   if (draftModalEl) {
     ['input', 'change'].forEach(function (eventName) {
       draftModalEl.addEventListener(eventName, function (event) {
-        if (event.target && event.target.closest('#dreqDraftBrand, #dreqDraftDescription, #dreqDraftRequestMode, #dreqDraftQty, #dreqDraftExpired, #dreqDraftPrice, #dreqDraftNotes')) {
+        if (event.target && event.target.closest('#dreqDraftBrand, #dreqDraftDescription, #dreqDraftRequestMode, #dreqDraftQty, #dreqDraftExpired, #dreqDraftPrice, #dreqDraftUsagePurpose, #dreqDraftNotes')) {
           setDraftAlert('', '');
           updateDraftPreview();
         }
@@ -2663,6 +2734,17 @@ if (!function_exists('finance_dreq_location_label')) {
   });
 
   document.addEventListener('change', function (event) {
+    var usage = event.target.closest('.line-usage-purpose');
+    if (usage) {
+      var usageIdx = parseInt(usage.getAttribute('data-idx') || '-1', 10);
+      if (usageIdx >= 0 && requestLines[usageIdx]) {
+        requestLines[usageIdx].usage_purpose = normalizeUsagePurpose(usage.value);
+        markLineNeedsReview(usageIdx);
+        setLinesJson();
+      }
+      return;
+    }
+
     var mode = event.target.closest('.line-request-mode');
     if (mode) {
       var idx = parseInt(mode.getAttribute('data-idx') || '-1', 10);

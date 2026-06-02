@@ -4,6 +4,18 @@ $detailData = (array)($detail ?? []);
 $detailOrder = (array)($detailData['order'] ?? []);
 $detailLines = (array)($detailData['lines'] ?? []);
 
+if (!function_exists('finance_po_usage_purpose_from_notes')) {
+  function finance_po_usage_purpose_from_notes($notes)
+  {
+    $notes = (string)$notes;
+    if (preg_match('/Tujuan\s+pemakaian\s*:\s*(Kebutuhan\s+Operasional|Persediaan\s+Produksi|Operasional|Bahan\s+Baku)/i', $notes, $matches)) {
+      $label = strtoupper(str_replace(' ', '_', trim((string)$matches[1])));
+      return in_array($label, ['KEBUTUHAN_OPERASIONAL', 'OPERASIONAL'], true) ? 'OPERASIONAL' : 'BAHAN_BAKU';
+    }
+    return 'BAHAN_BAKU';
+  }
+}
+
 $storeUrl = $editMode
   ? site_url('purchase/order/update/' . (int)($detailOrder['id'] ?? 0))
   : site_url('purchase/order/store');
@@ -74,6 +86,7 @@ foreach ($detailLines as $ln) {
     'expiry_policy' => (string)($ln['expiry_policy'] ?? (!empty($ln['required_expiry_date']) || !empty($ln['expired_date']) ? 'EXACT_DATE' : 'NONE')),
     'required_expiry_date' => (string)($ln['required_expiry_date'] ?? ($ln['expired_date'] ?? ($ln['snapshot_expired_date'] ?? ''))),
     'min_remaining_days' => !empty($ln['min_remaining_days']) ? (int)$ln['min_remaining_days'] : null,
+    'usage_purpose' => (string)($ln['usage_purpose'] ?? finance_po_usage_purpose_from_notes((string)($ln['notes'] ?? ''))),
     'notes' => (string)($ln['notes'] ?? ''),
   ];
 }
@@ -368,6 +381,7 @@ foreach ($detailLines as $ln) {
   #po-line-table .line-material-name { min-width: 180px; }
   #po-line-table .line-brand { min-width: 120px; }
   #po-line-table .line-desc { min-width: 220px; }
+  #po-line-table .line-usage { min-width: 140px; }
   #po-line-table .line-buy-uom,
   #po-line-table .line-content-uom { min-width: 120px; }
   #po-line-table .line-qty,
@@ -510,6 +524,7 @@ foreach ($detailLines as $ln) {
             <th>Nama</th>
             <th>Merk</th>
             <th>Keterangan</th>
+            <th>Pemakaian</th>
             <th class="line-inventory-col">UOM Beli</th>
             <th class="line-inventory-col">UOM Isi</th>
             <th class="text-end line-inventory-col">Qty Beli</th>
@@ -520,7 +535,7 @@ foreach ($detailLines as $ln) {
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="11" class="text-center text-muted py-3">Belum ada line.</td></tr>
+          <tr><td colspan="12" class="text-center text-muted py-3">Belum ada line.</td></tr>
         </tbody>
       </table>
     </div>
@@ -1084,6 +1099,7 @@ foreach ($detailLines as $ln) {
       expiry_policy: 'NONE',
       required_expiry_date: '',
       min_remaining_days: null,
+      usage_purpose: 'BAHAN_BAKU',
       notes: '',
       catalog_suggestions: [],
       suggestion_loading: false,
@@ -1529,7 +1545,7 @@ foreach ($detailLines as $ln) {
 
   function refreshLines() {
     if (!lines.length) {
-      lineTbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Belum ada line.</td></tr>';
+      lineTbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-3">Belum ada line.</td></tr>';
       return;
     }
 
@@ -1565,9 +1581,10 @@ foreach ($detailLines as $ln) {
       html.push('<tr data-idx="' + idx + '">' +
         '<td>' + (idx + 1) + '</td>' +
         '<td><div class="d-flex gap-1 align-items-center"><input type="text" class="form-control form-control-sm line-name" value="' + esc(nameInput) + '">' +
-        '<input type="text" class="form-control form-control-sm line-material-name" value="' + esc(materialNameInput) + '" placeholder="Form Bahan Baku" readonly' + (showMaterialForm ? '' : ' style="display:none;"') + '></div>' + suggestionHtml + '</td>' +
+        '<input type="text" class="form-control form-control-sm line-material-name" value="' + esc(materialNameInput) + '" placeholder="Profil Persediaan Produksi" readonly' + (showMaterialForm ? '' : ' style="display:none;"') + '></div>' + suggestionHtml + '</td>' +
         '<td><input type="text" class="form-control form-control-sm line-brand" value="' + esc(brand === '-' ? '' : brand) + '"></td>' +
         '<td><input type="text" class="form-control form-control-sm line-desc" value="' + esc(desc === '-' ? '' : desc) + '"></td>' +
+        '<td><div class="form-control form-control-sm line-usage bg-light">' + esc(String(l.usage_purpose || 'BAHAN_BAKU') === 'OPERASIONAL' ? 'Kebutuhan Operasional' : 'Persediaan Produksi') + '</div></td>' +
         '<td class="line-inventory-col"><select class="form-select form-select-sm line-buy-uom"' + (invDisabled ? ' disabled' : '') + '>' + buildUomOptions(buyUomId) + '</select></td>' +
         '<td class="line-inventory-col"><select class="form-select form-select-sm line-content-uom"' + ((materialLocked || invDisabled) ? ' disabled' : '') + '>' + buildUomOptions(contentUomId) + '</select></td>' +
         '<td class="line-inventory-col"><input type="number" class="form-control form-control-sm line-qty text-end" min="0" step="0.01" value="' + num(l.qty_buy || 0).toFixed(2) + '"' + (invDisabled ? ' disabled' : '') + '></td>' +

@@ -749,6 +749,278 @@ class Pos_model extends CI_Model
         return $this->self_order_table_rows(['status' => 'ACTIVE'])['rows'] ?? [];
     }
 
+    public function self_order_order_filter_options(): array
+    {
+        return [
+            'outlets' => $this->local_outlet_options(),
+        ];
+    }
+
+    public function self_order_order_rows(array $filters = []): array
+    {
+        if (!$this->db->table_exists('pos_order')) {
+            return [
+                'rows' => [],
+                'counts' => $this->self_order_empty_counts(),
+                'meta' => ['total' => 0, 'page' => 1, 'limit' => 20, 'total_pages' => 1],
+            ];
+        }
+
+        $hasCustomerName = $this->ensure_pos_order_customer_name_column();
+        $hasTableNo = $this->db->field_exists('table_no', 'pos_order');
+        $q = trim((string)($filters['q'] ?? ''));
+        $outletId = max(0, (int)($filters['outlet_id'] ?? 0));
+        $paymentTab = strtoupper(trim((string)($filters['payment_tab'] ?? 'ALL')));
+        if (!in_array($paymentTab, ['ALL', 'KASIR', 'QRIS'], true)) {
+            $paymentTab = 'ALL';
+        }
+        $statusTab = strtoupper(trim((string)($filters['status_tab'] ?? 'ALL')));
+        if (!in_array($statusTab, ['ALL', 'NEEDS_VERIFY', 'WAITING_PAYMENT', 'ACTIVE_CASHIER', 'PAID_ORDER'], true)) {
+            $statusTab = 'ALL';
+        }
+        $page = max(1, (int)($filters['page'] ?? 1));
+        $limit = max(1, min(100, (int)($filters['limit'] ?? 20)));
+
+        $dateFrom = $this->normalize_self_order_filter_date((string)($filters['date_from'] ?? ''));
+        $dateTo = $this->normalize_self_order_filter_date((string)($filters['date_to'] ?? ''));
+        if ($dateFrom === '') {
+            $dateFrom = date('Y-m-d');
+        }
+        if ($dateTo === '') {
+            $dateTo = $dateFrom;
+        }
+        if ($dateFrom > $dateTo) {
+            [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
+        }
+
+        $customerDisplayExpr = $this->order_customer_display_expr('o', 'm');
+        $rows = $this->db
+            ->select('
+                o.id,
+                o.order_no,
+                o.order_channel,
+                o.outlet_id,
+                o.service_type,
+                o.status,
+                o.stock_commit_status,
+                o.kitchen_status,
+                o.ordered_at,
+                o.confirmed_at,
+                o.paid_at,
+                o.grand_total,
+                o.paid_total,
+                o.guest_count,
+                o.notes,
+                ' . ($hasTableNo ? 'o.table_no' : 'NULL AS table_no') . ',
+                ' . ($hasCustomerName ? 'o.customer_name' : 'NULL AS customer_name') . ',
+                ' . $customerDisplayExpr . ' AS customer_display_name,
+                po.outlet_name,
+                m.member_no,
+                m.member_name,
+                m.mobile_phone AS member_mobile_phone,
+                e.employee_name AS cashier_employee_name,
+                UPPER(COALESCE(au.username, \'\')) AS cashier_username
+            ', false)
+            ->from('pos_order o')
+            ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
+            ->join('crm_member m', 'm.id = o.member_id', 'left')
+            ->join('org_employee e', 'e.id = o.cashier_employee_id', 'left')
+            ->join('auth_user au', 'au.employee_id = o.cashier_employee_id', 'left')
+            ->where('o.order_channel', 'SELF_ORDER')
+            ->where('DATE(o.ordered_at) >=', $dateFrom)
+            ->where('DATE(o.ordered_at) <=', $dateTo)
+            ->order_by('o.ordered_at', 'DESC')
+            ->order_by('o.id', 'DESC')
+            ->get()
+            ->result_array();
+
+        if (empty($rows)) {
+            return [
+                'rows' => [],
+                'counts' => $this->self_order_empty_counts(),
+                'meta' => ['total' => 0, 'page' => 1, 'limit' => $limit, 'total_pages' => 1],
+            ];
+        }
+
+        $paymentMap = $this->self_order_final_payment_map(array_map('intval', array_column($rows, 'id')));
+        $prepared = [];
+        foreach ($rows as $row) {
+            $orderId = (int)($row['id'] ?? 0);
+            $payment = (array)($paymentMap[$orderId] ?? []);
+            $flow = $this->self_order_flow_state($row, $payment);
+
+            $customerName = $this->resolve_order_customer_name($row['customer_name'] ?? '', $row['member_name'] ?? '');
+            $searchHaystack = strtoupper(implode(' ', array_filter([
+                (string)($row['order_no'] ?? ''),
+                (string)$customerName,
+                (string)($row['member_no'] ?? ''),
+                (string)($row['member_mobile_phone'] ?? ''),
+                (string)($row['table_no'] ?? ''),
+                (string)($payment['payment_mode'] ?? ''),
+                (string)($payment['method_name'] ?? ''),
+            ])));
+            if ($q !== '' && strpos($searchHaystack, strtoupper($q)) === false) {
+                continue;
+            }
+            if ($outletId > 0 && (int)($row['outlet_id'] ?? 0) !== $outletId) {
+                continue;
+            }
+            if ($paymentTab !== 'ALL' && strtoupper((string)($flow['payment_mode'] ?? 'KASIR')) !== $paymentTab) {
+                continue;
+            }
+
+            $prepared[] = $row + $flow + [
+                'customer_name_display' => $customerName !== '' ? $customerName : 'Walk in',
+                'cashier_name_display' => trim((string)($row['cashier_username'] ?? '')) !== ''
+                    ? strtoupper(trim((string)$row['cashier_username']))
+                    : trim((string)($row['cashier_employee_name'] ?? '-')),
+                'payment_reference' => (string)($payment['reference_no'] ?? ''),
+                'payment_method_name' => (string)($payment['method_name'] ?? ''),
+                'payment_method_type' => (string)($payment['method_type'] ?? ''),
+            ];
+        }
+
+        $counts = $this->self_order_empty_counts();
+        foreach ($prepared as $row) {
+            $counts['ALL']++;
+            $code = strtoupper((string)($row['flow_code'] ?? ''));
+            if (isset($counts[$code])) {
+                $counts[$code]++;
+            }
+        }
+
+        if ($statusTab !== 'ALL') {
+            $prepared = array_values(array_filter($prepared, static function (array $row) use ($statusTab): bool {
+                return strtoupper((string)($row['flow_code'] ?? '')) === $statusTab;
+            }));
+        }
+
+        $total = count($prepared);
+        [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
+        $rows = array_slice($prepared, $offset, $limit);
+
+        return [
+            'rows' => $rows,
+            'counts' => $counts,
+            'meta' => [
+                'total' => $total,
+                'page' => $page,
+                'limit' => $limit,
+                'total_pages' => $totalPages,
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+                'payment_tab' => $paymentTab,
+                'status_tab' => $statusTab,
+            ],
+        ];
+    }
+
+    public function self_order_verification_context(int $orderId): array
+    {
+        if ($orderId <= 0) {
+            return ['ok' => false, 'message' => 'Order self order tidak valid.'];
+        }
+
+        $order = $this->find_order_draft($orderId);
+        if (!$order) {
+            return ['ok' => false, 'message' => 'Order self order tidak ditemukan.'];
+        }
+
+        $header = (array)($order['header'] ?? []);
+        if (strtoupper(trim((string)($header['order_channel'] ?? ''))) !== 'SELF_ORDER') {
+            return ['ok' => false, 'message' => 'Order ini bukan order self order.'];
+        }
+
+        $paymentMap = $this->self_order_final_payment_map([$orderId]);
+        $payment = (array)($paymentMap[$orderId] ?? []);
+        $flow = $this->self_order_flow_state($header, $payment);
+        if (empty($flow['can_verify'])) {
+            return [
+                'ok' => false,
+                'message' => (string)($flow['verify_message'] ?? 'Order self order belum siap diverifikasi.'),
+                'flow' => $flow,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'header' => $header,
+            'payment' => $payment,
+            'flow' => $flow,
+            'payment_mode' => (string)($flow['payment_mode'] ?? 'KASIR'),
+            'payment_status' => (string)($flow['payment_status'] ?? 'PENDING'),
+            'is_paid' => !empty($flow['is_paid']),
+        ];
+    }
+
+    public function finalize_self_order_verification(int $orderId, int $snapshotId, int $actorEmployeeId, array $context = []): array
+    {
+        $row = $this->db->from('pos_order')->where('id', $orderId)->limit(1)->get()->row_array();
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Order self order tidak ditemukan saat finalisasi verifikasi.'];
+        }
+
+        $paymentMode = strtoupper(trim((string)($context['payment_mode'] ?? 'KASIR')));
+        $isPaid = !empty($context['is_paid']);
+        $targetStatus = $isPaid ? 'PAID' : 'CONFIRMED';
+        $stockCommitStatus = strtoupper(trim((string)($context['stock_commit_status'] ?? 'QUEUED')));
+        if (!in_array($stockCommitStatus, ['PENDING', 'QUEUED', 'PROCESSING', 'POSTED', 'FAILED', 'REVERSED'], true)) {
+            $stockCommitStatus = 'QUEUED';
+        }
+
+        $previousDbDebug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        $this->db->trans_begin();
+        try {
+            $payload = [
+                'status' => $targetStatus,
+                'stock_commit_status' => $stockCommitStatus,
+            ];
+            if (empty($row['confirmed_at'])) {
+                $payload['confirmed_at'] = date('Y-m-d H:i:s');
+            }
+            if ($stockCommitStatus === 'POSTED') {
+                $payload['stock_committed_at'] = date('Y-m-d H:i:s');
+            }
+            if ($isPaid && empty($row['paid_at'])) {
+                $payload['paid_at'] = date('Y-m-d H:i:s');
+                $payload['paid_total'] = (float)($row['grand_total'] ?? 0);
+            }
+            if ($actorEmployeeId > 0 && $this->db->field_exists('cashier_employee_id', 'pos_order')) {
+                $payload['cashier_employee_id'] = $actorEmployeeId;
+            }
+
+            $this->db->where('id', $orderId)->update('pos_order', $this->filter_table_payload('pos_order', $payload));
+            $this->insert_order_state_log(
+                $orderId,
+                (string)($row['status'] ?? 'PENDING'),
+                $targetStatus,
+                $isPaid ? 'SELF_ORDER_VERIFY_PAID' : 'SELF_ORDER_VERIFY_CASHIER',
+                $actorEmployeeId,
+                ($isPaid
+                    ? 'Self order diverifikasi setelah pembayaran diterima.'
+                    : 'Self order diverifikasi untuk dibayar di kasir.')
+                . ' Snapshot stock commit #' . $snapshotId . ' dibuat.'
+            );
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal memfinalkan verifikasi order self order.');
+            }
+            $this->db->trans_commit();
+            $this->db->db_debug = $previousDbDebug;
+            return [
+                'ok' => true,
+                'id' => $orderId,
+                'target_status' => $targetStatus,
+                'workspace_bucket' => $isPaid ? 'PAID_ORDER' : 'ACTIVE_CASHIER',
+                'payment_mode' => $paymentMode,
+            ];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            $this->db->db_debug = $previousDbDebug;
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
     private function self_order_table_master(): ?string
     {
         if ($this->db->table_exists('pos_self_order_table')) {
@@ -783,6 +1055,124 @@ class Pos_model extends CI_Model
         }
 
         return null;
+    }
+
+    private function self_order_empty_counts(): array
+    {
+        return [
+            'ALL' => 0,
+            'NEEDS_VERIFY' => 0,
+            'WAITING_PAYMENT' => 0,
+            'ACTIVE_CASHIER' => 0,
+            'PAID_ORDER' => 0,
+        ];
+    }
+
+    private function normalize_self_order_filter_date(string $value): string
+    {
+        $value = trim($value);
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) ? $value : '';
+    }
+
+    private function decode_json_assoc(string $raw): array
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function self_order_final_payment_map(array $orderIds): array
+    {
+        $orderIds = array_values(array_unique(array_filter(array_map('intval', $orderIds))));
+        if (empty($orderIds) || !$this->db->table_exists('pos_payment')) {
+            return [];
+        }
+
+        $rows = $this->db->select('
+                p.*,
+                pl.payment_method_id,
+                pl.reference_no,
+                pm.method_name,
+                pm.method_type
+            ')
+            ->from('pos_payment p')
+            ->join('pos_payment_line pl', 'pl.payment_id = p.id AND pl.line_no = 1', 'left')
+            ->join('pos_payment_method pm', 'pm.id = pl.payment_method_id', 'left')
+            ->where_in('p.order_id', $orderIds)
+            ->where('p.payment_type', 'FINAL')
+            ->order_by('p.order_id', 'ASC')
+            ->order_by('p.id', 'DESC')
+            ->get()
+            ->result_array();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $orderId = (int)($row['order_id'] ?? 0);
+            if ($orderId > 0 && !isset($map[$orderId])) {
+                $meta = $this->decode_json_assoc((string)($row['notes'] ?? ''));
+                $row['payment_mode'] = $this->self_order_payment_mode($row, $meta);
+                $row['payment_status_label'] = strtoupper(trim((string)($meta['payment_status_label'] ?? ($row['payment_status'] ?? 'PENDING'))));
+                $row['payment_provider_label'] = trim((string)($meta['payment_provider'] ?? ''));
+                $row['payment_ref_label'] = trim((string)($meta['payment_ref'] ?? ($row['reference_no'] ?? '')));
+                $map[$orderId] = $row;
+            }
+        }
+
+        return $map;
+    }
+
+    private function self_order_payment_mode(array $payment, array $meta = []): string
+    {
+        $mode = strtoupper(trim((string)($meta['payment_method'] ?? '')));
+        if (!in_array($mode, ['KASIR', 'QRIS'], true)) {
+            $methodType = strtoupper(trim((string)($payment['method_type'] ?? '')));
+            $mode = $methodType === 'QRIS' ? 'QRIS' : 'KASIR';
+        }
+        return $mode !== '' ? $mode : 'KASIR';
+    }
+
+    private function self_order_flow_state(array $order, array $payment): array
+    {
+        $paymentMode = strtoupper(trim((string)($payment['payment_mode'] ?? 'KASIR')));
+        $paymentStatus = strtoupper(trim((string)($payment['payment_status_label'] ?? ($payment['payment_status'] ?? 'PENDING'))));
+        $orderStatus = strtoupper(trim((string)($order['status'] ?? 'PENDING')));
+        $stockCommitStatus = strtoupper(trim((string)($order['stock_commit_status'] ?? 'PENDING')));
+
+        $isPaid = in_array($paymentStatus, ['PAID', 'SUCCESS', 'SETTLED'], true)
+            || in_array($orderStatus, ['PAID', 'PAID_PARTIAL', 'READY', 'SERVED', 'REFUND_PARTIAL', 'REFUND_FULL', 'REFUNDED_FULL'], true)
+            || round((float)($order['paid_total'] ?? 0), 2) >= round((float)($order['grand_total'] ?? 0), 2);
+
+        $verified = in_array($stockCommitStatus, ['QUEUED', 'PROCESSING', 'POSTED', 'FAILED', 'REVERSED'], true);
+        $canVerify = !$verified && ($paymentMode === 'KASIR' || ($paymentMode === 'QRIS' && $isPaid));
+        $verifyMessage = '';
+
+        if ($verified) {
+            $flowCode = $isPaid ? 'PAID_ORDER' : 'ACTIVE_CASHIER';
+            $flowLabel = $isPaid ? 'Masuk Pesanan Terbayar' : 'Masuk Order Aktif';
+        } elseif ($paymentMode === 'QRIS' && !$isPaid) {
+            $flowCode = 'WAITING_PAYMENT';
+            $flowLabel = 'Menunggu Pembayaran QRIS';
+            $verifyMessage = 'Order ini masih menunggu pembayaran QRIS dari customer.';
+        } else {
+            $flowCode = 'NEEDS_VERIFY';
+            $flowLabel = 'Perlu Verifikasi Kasir';
+            $verifyMessage = 'Order siap diverifikasi untuk dicetak dan diproses.';
+        }
+
+        return [
+            'payment_mode' => $paymentMode,
+            'payment_status' => $paymentStatus !== '' ? $paymentStatus : 'PENDING',
+            'payment_provider' => trim((string)($payment['payment_provider_label'] ?? '')),
+            'flow_code' => $flowCode,
+            'flow_label' => $flowLabel,
+            'is_paid' => $isPaid ? 1 : 0,
+            'is_verified' => $verified ? 1 : 0,
+            'can_verify' => $canVerify ? 1 : 0,
+            'verify_message' => $verifyMessage,
+        ];
     }
 
     public function payment_method_rows(array $filters): array
@@ -5375,10 +5765,15 @@ class Pos_model extends CI_Model
         $header = (array)($order['header'] ?? []);
         $lines = (array)($order['lines'] ?? []);
         $targetLineIds = array_values(array_unique(array_filter(array_map('intval', (array)($options['line_ids'] ?? [])))));
+        $allowedStatusesOverride = array_values(array_unique(array_filter(array_map(static function ($status): string {
+            return strtoupper(trim((string)$status));
+        }, (array)($options['allowed_statuses'] ?? [])))));
         if (empty($lines)) {
             return ['ok' => false, 'message' => 'Order draft belum memiliki produk.'];
         }
-        $allowedStatuses = empty($targetLineIds) ? ['DRAFT', 'PENDING'] : ['DRAFT', 'PENDING', 'CONFIRMED'];
+        $allowedStatuses = !empty($allowedStatusesOverride)
+            ? $allowedStatusesOverride
+            : (empty($targetLineIds) ? ['DRAFT', 'PENDING'] : ['DRAFT', 'PENDING', 'CONFIRMED']);
         if (!in_array((string)($header['status'] ?? ''), $allowedStatuses, true)) {
             return ['ok' => false, 'message' => 'Status order POS tidak valid untuk konfirmasi transaksi dari kasir.'];
         }

@@ -3,8 +3,13 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Procurement_model extends CI_Model
 {
+    private $usagePurposeSchemaEnsured = false;
+    private const USAGE_PURPOSE_PRODUCTION = 'BAHAN_BAKU';
+    private const USAGE_PURPOSE_OPERATIONAL = 'OPERASIONAL';
+
     public function has_division_request_schema(): bool
     {
+        $this->ensure_usage_purpose_schema();
         return $this->db->table_exists('pur_division_request')
             && $this->db->table_exists('pur_division_request_line')
             && $this->db->table_exists('pur_division_request_link');
@@ -20,9 +25,210 @@ class Procurement_model extends CI_Model
         return $this->db->field_exists('vendor_id', 'pur_division_request_line');
     }
 
+    private function has_division_request_usage_purpose_column(): bool
+    {
+        $this->ensure_usage_purpose_schema();
+        return $this->db->field_exists('usage_purpose', 'pur_division_request_line');
+    }
+
     private function normalize_division_request_uom_mode($value): string
     {
         return strtoupper(trim((string)$value)) === 'CONTENT' ? 'CONTENT' : 'BUY';
+    }
+
+    private function normalize_usage_purpose($value): string
+    {
+        return strtoupper(trim((string)$value)) === self::USAGE_PURPOSE_OPERATIONAL
+            ? self::USAGE_PURPOSE_OPERATIONAL
+            : self::USAGE_PURPOSE_PRODUCTION;
+    }
+
+    private function usage_purpose_label($value): string
+    {
+        return $this->normalize_usage_purpose($value) === self::USAGE_PURPOSE_OPERATIONAL
+            ? 'Kebutuhan Operasional'
+            : 'Persediaan Produksi';
+    }
+
+    private function has_purchase_order_usage_purpose_column(): bool
+    {
+        $this->ensure_usage_purpose_schema();
+        return $this->db->field_exists('usage_purpose', 'pur_purchase_order_line');
+    }
+
+    private function has_purchase_receipt_usage_purpose_column(): bool
+    {
+        $this->ensure_usage_purpose_schema();
+        return $this->db->field_exists('usage_purpose', 'pur_purchase_receipt_line');
+    }
+
+    private function has_store_request_fulfillment_usage_purpose_column(): bool
+    {
+        $this->ensure_usage_purpose_schema();
+        return $this->db->field_exists('usage_purpose', 'pur_store_request_fulfillment_line');
+    }
+
+    private function resolve_usage_stock_domain($usagePurpose, array $line = []): string
+    {
+        if ($this->normalize_usage_purpose($usagePurpose) === self::USAGE_PURPOSE_OPERATIONAL) {
+            return 'ITEM';
+        }
+
+        $lineKind = strtoupper(trim((string)($line['line_kind'] ?? '')));
+        if (in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
+            return $lineKind;
+        }
+
+        return (int)($line['material_id'] ?? 0) > 0 ? 'MATERIAL' : 'ITEM';
+    }
+
+    private function resolve_usage_material_id_for_stock($usagePurpose, array $line): ?int
+    {
+        if ($this->normalize_usage_purpose($usagePurpose) === self::USAGE_PURPOSE_OPERATIONAL) {
+            return null;
+        }
+        return $this->nullable_int($line['material_id'] ?? null);
+    }
+
+    private function resolve_operational_item_id(?int $itemId, ?int $materialId, string $profileKey): ?int
+    {
+        if ($itemId !== null && $itemId > 0) {
+            return $itemId;
+        }
+
+        $profileKey = trim($profileKey);
+        if ($profileKey !== '' && $this->db->table_exists('mst_purchase_catalog')) {
+            $row = $this->db
+                ->select('item_id')
+                ->from('mst_purchase_catalog')
+                ->where('profile_key', $profileKey)
+                ->where('item_id IS NOT NULL', null, false)
+                ->where('item_id >', 0)
+                ->order_by('is_active', 'DESC')
+                ->order_by('id', 'DESC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $resolved = (int)($row['item_id'] ?? 0);
+            if ($resolved > 0) {
+                return $resolved;
+            }
+        }
+
+        if ($profileKey !== '' && $this->db->table_exists('inv_warehouse_monthly_stock')) {
+            $targetMonth = date('Y-m-01');
+            $row = $this->db
+                ->select('item_id')
+                ->from('inv_warehouse_monthly_stock')
+                ->where('profile_key', $profileKey)
+                ->where('stock_domain', 'ITEM')
+                ->where('month_key <=', $targetMonth)
+                ->where('item_id IS NOT NULL', null, false)
+                ->where('item_id >', 0)
+                ->order_by('month_key', 'DESC')
+                ->order_by('updated_at', 'DESC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $resolved = (int)($row['item_id'] ?? 0);
+            if ($resolved > 0) {
+                return $resolved;
+            }
+        }
+
+        if ($materialId !== null && $materialId > 0 && $this->db->table_exists('mst_purchase_catalog')) {
+            $row = $this->db
+                ->select('item_id')
+                ->from('mst_purchase_catalog')
+                ->where('material_id', $materialId)
+                ->where('item_id IS NOT NULL', null, false)
+                ->where('item_id >', 0)
+                ->order_by('is_active', 'DESC')
+                ->order_by('id', 'DESC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $resolved = (int)($row['item_id'] ?? 0);
+            if ($resolved > 0) {
+                return $resolved;
+            }
+        }
+
+        return null;
+    }
+
+    private function resolve_material_id_from_item(?int $itemId, ?int $materialId, string $profileKey): ?int
+    {
+        if ($materialId !== null && $materialId > 0) {
+            return $materialId;
+        }
+
+        if ($itemId !== null && $itemId > 0 && $this->db->table_exists('mst_item')) {
+            $row = $this->db
+                ->select('material_id')
+                ->from('mst_item')
+                ->where('id', $itemId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $resolved = (int)($row['material_id'] ?? 0);
+            if ($resolved > 0) {
+                return $resolved;
+            }
+        }
+
+        $profileKey = trim($profileKey);
+        if ($profileKey !== '' && $this->db->table_exists('mst_purchase_catalog')) {
+            $row = $this->db
+                ->select('material_id')
+                ->from('mst_purchase_catalog')
+                ->where('profile_key', $profileKey)
+                ->where('material_id IS NOT NULL', null, false)
+                ->where('material_id >', 0)
+                ->order_by('is_active', 'DESC')
+                ->order_by('id', 'DESC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $resolved = (int)($row['material_id'] ?? 0);
+            if ($resolved > 0) {
+                return $resolved;
+            }
+        }
+
+        return null;
+    }
+
+    private function ensure_usage_purpose_schema(): void
+    {
+        if ($this->usagePurposeSchemaEnsured) {
+            return;
+        }
+        $this->usagePurposeSchemaEnsured = true;
+
+        $this->ensure_table_column('mst_item', 'default_usage_purpose', "VARCHAR(20) NOT NULL DEFAULT 'BAHAN_BAKU'");
+        $this->ensure_table_column('pur_store_request_line', 'usage_purpose', "VARCHAR(20) NOT NULL DEFAULT 'BAHAN_BAKU'");
+        $this->ensure_table_column('pur_division_request_line', 'usage_purpose', "VARCHAR(20) NOT NULL DEFAULT 'BAHAN_BAKU'");
+        $this->ensure_table_column('pur_purchase_order_line', 'usage_purpose', "VARCHAR(20) NOT NULL DEFAULT 'BAHAN_BAKU'");
+        $this->ensure_table_column('pur_purchase_receipt_line', 'usage_purpose', "VARCHAR(20) NOT NULL DEFAULT 'BAHAN_BAKU'");
+        $this->ensure_table_column('pur_store_request_fulfillment_line', 'usage_purpose', "VARCHAR(20) NOT NULL DEFAULT 'BAHAN_BAKU'");
+    }
+
+    private function ensure_table_column(string $table, string $column, string $definition): void
+    {
+        if (!$this->db->table_exists($table) || $this->db->field_exists($column, $table)) {
+            return;
+        }
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $this->db->query(sprintf('ALTER TABLE `%s` ADD COLUMN `%s` %s', $table, $column, $definition));
+        } catch (Throwable $e) {
+            // Keep the app running; feature code still falls back to defaults when the column is absent.
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
     }
     private function normalize_expiry_policy($value): string
     {
@@ -90,8 +296,15 @@ class Procurement_model extends CI_Model
 
     public function has_store_request_schema(): bool
     {
+        $this->ensure_usage_purpose_schema();
         return $this->db->table_exists('pur_store_request')
             && $this->db->table_exists('pur_store_request_line');
+    }
+
+    private function has_store_request_usage_purpose_column(): bool
+    {
+        $this->ensure_usage_purpose_schema();
+        return $this->db->field_exists('usage_purpose', 'pur_store_request_line');
     }
 
     private function purchaseCatalogVendorTableExists(): bool
@@ -495,6 +708,8 @@ class Procurement_model extends CI_Model
     {
         $q = trim($q);
         $limit = max(1, min(100, $limit));
+        $hasItemDefaultUsagePurpose = $this->db->table_exists('mst_item')
+            && $this->db->field_exists('default_usage_purpose', 'mst_item');
         $hasCatalog = $this->db->table_exists('mst_purchase_catalog')
             && $this->db->field_exists('profile_key', 'mst_purchase_catalog')
             && $this->db->field_exists('last_purchase_date', 'mst_purchase_catalog');
@@ -522,6 +737,7 @@ class Procurement_model extends CI_Model
                 : 'ROUND(COALESCE(s.avg_cost_per_content, 0) * COALESCE(NULLIF(s.profile_content_per_buy, 0), 1), 2) AS last_unit_price', false)
             ->select($hasCatalog ? 'COALESCE(' . ($hasCatalogVendorPrice ? 'cvp.last_purchase_date, ' : '') . 'c.last_purchase_date) AS last_purchase_date' : 'NULL AS last_purchase_date', false)
             ->select($hasCatalogLineKind ? 'c.line_kind AS catalog_line_kind' : 'NULL AS catalog_line_kind', false)
+            ->select($hasItemDefaultUsagePurpose ? 'i.default_usage_purpose AS default_usage_purpose' : "'BAHAN_BAKU' AS default_usage_purpose", false)
             ->select('i.item_code, i.item_name, m.material_code, m.material_name')
             ->from('inv_warehouse_monthly_stock s')
             ->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
@@ -557,7 +773,10 @@ class Procurement_model extends CI_Model
         foreach ($rows as &$row) {
             $stockDomain = strtoupper(trim((string)($row['stock_domain'] ?? '')));
             $catalogLineKind = strtoupper(trim((string)($row['catalog_line_kind'] ?? '')));
-            if (in_array($stockDomain, ['MATERIAL', 'ITEM'], true)) {
+            $defaultUsagePurpose = $this->normalize_usage_purpose($row['default_usage_purpose'] ?? 'BAHAN_BAKU');
+            if ($defaultUsagePurpose === self::USAGE_PURPOSE_OPERATIONAL && (int)($row['item_id'] ?? 0) > 0) {
+                $row['line_kind'] = 'ITEM';
+            } elseif (in_array($stockDomain, ['MATERIAL', 'ITEM'], true)) {
                 $row['line_kind'] = $stockDomain;
             } elseif ((int)($row['material_id'] ?? 0) > 0) {
                 $row['line_kind'] = 'MATERIAL';
@@ -570,6 +789,8 @@ class Procurement_model extends CI_Model
             if ($row['line_kind'] === 'ITEM') {
                 $row['material_id'] = null;
             }
+            $row['default_usage_purpose'] = $defaultUsagePurpose;
+            $row['usage_purpose'] = $this->normalize_usage_purpose($row['usage_purpose'] ?? $row['default_usage_purpose']);
         }
         unset($row);
 
@@ -579,7 +800,10 @@ class Procurement_model extends CI_Model
             $key = $profileKey !== ''
                 ? ('PK:' . $profileKey . '|B:' . (int)($row['buy_uom_id'] ?? 0) . '|C:' . (int)($row['content_uom_id'] ?? 0))
                 : ('I:' . (int)($row['item_id'] ?? 0) . '|M:' . (int)($row['material_id'] ?? 0) . '|B:' . (int)($row['buy_uom_id'] ?? 0) . '|C:' . (int)($row['content_uom_id'] ?? 0));
-            $score = strtoupper((string)($row['line_kind'] ?? 'ITEM')) === 'MATERIAL' ? 2 : 1;
+            $preferredLineKind = $this->normalize_usage_purpose($row['default_usage_purpose'] ?? 'BAHAN_BAKU') === self::USAGE_PURPOSE_OPERATIONAL
+                ? 'ITEM'
+                : 'MATERIAL';
+            $score = strtoupper((string)($row['line_kind'] ?? 'ITEM')) === $preferredLineKind ? 2 : 1;
             if (!isset($dedup[$key])) {
                 $dedup[$key] = ['row' => $row, 'score' => $score];
                 continue;
@@ -864,11 +1088,22 @@ class Procurement_model extends CI_Model
             return null;
         }
 
+        $usagePurposeSelect = $this->has_division_request_usage_purpose_column()
+            ? "COALESCE(l.usage_purpose, i.default_usage_purpose, 'BAHAN_BAKU') AS usage_purpose"
+            : "COALESCE(i.default_usage_purpose, 'BAHAN_BAKU') AS usage_purpose";
+
         $this->db
             ->from('pur_division_request_line l')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->join('mst_uom bu', 'bu.id = l.buy_uom_id', 'left')
+            ->join('mst_uom cu', 'cu.id = l.content_uom_id', 'left')
             ->where('l.request_id', $requestId)
             ->order_by('l.line_no', 'ASC')
-            ->select('l.*');
+            ->select('l.*')
+            ->select('COALESCE(l.profile_buy_uom_code, bu.code) AS profile_buy_uom_code', false)
+            ->select('COALESCE(l.profile_content_uom_code, cu.code) AS profile_content_uom_code', false)
+            ->select($usagePurposeSelect, false)
+            ->select("COALESCE(i.default_usage_purpose, 'BAHAN_BAKU') AS default_usage_purpose", false);
         if ($this->has_division_request_vendor_column() && $this->db->table_exists('mst_vendor')) {
             $this->db
                 ->select('v.vendor_name')
@@ -1450,10 +1685,16 @@ class Procurement_model extends CI_Model
             return null;
         }
 
+        $usagePurposeSelect = $this->has_store_request_usage_purpose_column()
+            ? "COALESCE(l.usage_purpose, i.default_usage_purpose, 'BAHAN_BAKU') AS usage_purpose"
+            : "COALESCE(i.default_usage_purpose, 'BAHAN_BAKU') AS usage_purpose";
         $lines = $this->db
             ->select('l.*')
             ->select('bu.code AS buy_uom_code, cu.code AS content_uom_code', false)
+            ->select($usagePurposeSelect, false)
+            ->select("COALESCE(i.default_usage_purpose, 'BAHAN_BAKU') AS default_usage_purpose", false)
             ->from('pur_store_request_line l')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
             ->join('mst_uom bu', 'bu.id = l.buy_uom_id', 'left')
             ->join('mst_uom cu', 'cu.id = l.content_uom_id', 'left')
             ->where('l.store_request_id', $requestId)
@@ -1831,13 +2072,17 @@ class Procurement_model extends CI_Model
             if ($requestRemain < 0) {
                 $requestRemain = 0;
             }
-            $available = $this->get_warehouse_available_content(
-                $this->nullable_int($ln['item_id'] ?? null),
-                $this->nullable_int($ln['material_id'] ?? null),
-                $this->nullable_int($ln['buy_uom_id'] ?? null),
-                $this->nullable_int($ln['content_uom_id'] ?? null),
-                (string)($ln['profile_key'] ?? '')
-            );
+            $usagePurpose = $this->normalize_usage_purpose($ln['usage_purpose'] ?? $ln['default_usage_purpose'] ?? self::USAGE_PURPOSE_PRODUCTION);
+            $sourceCtx = $this->resolve_fulfillment_source_context($ln, $usagePurpose);
+            $effectiveItemId = $sourceCtx['item_id'] ?? $this->nullable_int($ln['item_id'] ?? null);
+            $effectiveMaterialId = $sourceCtx['material_id'] ?? $this->nullable_int($ln['material_id'] ?? null);
+            $effectiveLineKind = strtoupper(trim((string)($ln['line_kind'] ?? '')));
+            if (strtoupper((string)($sourceCtx['stock_domain'] ?? '')) === 'ITEM') {
+                $effectiveLineKind = 'ITEM';
+            } elseif (strtoupper((string)($sourceCtx['stock_domain'] ?? '')) === 'MATERIAL') {
+                $effectiveLineKind = 'MATERIAL';
+            }
+            $available = round((float)($sourceCtx['available_content'] ?? 0), 4);
             $fulfillable = min($requestRemain, $available);
             $shortage = max(0, $requestRemain - $fulfillable);
 
@@ -1849,9 +2094,9 @@ class Procurement_model extends CI_Model
             $resultRows[] = [
                 'line_id' => (int)$ln['id'],
                 'line_no' => (int)$ln['line_no'],
-                'line_kind' => (string)$ln['line_kind'],
-                'item_id' => (int)($ln['item_id'] ?? 0),
-                'material_id' => (int)($ln['material_id'] ?? 0),
+                'line_kind' => $effectiveLineKind !== '' ? $effectiveLineKind : (string)$ln['line_kind'],
+                'item_id' => (int)($effectiveItemId ?? 0),
+                'material_id' => (int)($effectiveMaterialId ?? 0),
                 'profile_key' => (string)($ln['profile_key'] ?? ''),
                 'profile_name' => (string)($ln['profile_name'] ?? ''),
                 'profile_buy_uom_code' => (string)($ln['profile_buy_uom_code'] ?? ''),
@@ -1859,6 +2104,8 @@ class Procurement_model extends CI_Model
                 'buy_uom_id' => (int)($ln['buy_uom_id'] ?? 0),
                 'content_uom_id' => (int)($ln['content_uom_id'] ?? 0),
                 'content_per_buy' => $contentPerBuy,
+                'usage_purpose' => $usagePurpose,
+                'usage_purpose_label' => $this->usage_purpose_label($usagePurpose),
                 'request_remain_content' => $requestRemain,
                 'available_content' => $available,
                 'fulfillable_content' => $fulfillable,
@@ -1965,13 +2212,16 @@ class Procurement_model extends CI_Model
                 continue;
             }
 
-            $available = $this->get_warehouse_available_content(
-                $this->nullable_int($line['item_id'] ?? null),
-                $this->nullable_int($line['material_id'] ?? null),
-                $this->nullable_int($line['buy_uom_id'] ?? null),
-                $this->nullable_int($line['content_uom_id'] ?? null),
-                (string)($line['profile_key'] ?? '')
-            );
+            $usagePurpose = $this->normalize_usage_purpose($line['usage_purpose'] ?? self::USAGE_PURPOSE_PRODUCTION);
+            $sourceCtx = $this->resolve_fulfillment_source_context($line, $usagePurpose);
+            $line['item_id'] = $sourceCtx['item_id'] ?? $this->nullable_int($line['item_id'] ?? null);
+            $line['material_id'] = $sourceCtx['material_id'] ?? $this->nullable_int($line['material_id'] ?? null);
+            if (strtoupper((string)($sourceCtx['stock_domain'] ?? '')) === 'ITEM') {
+                $line['line_kind'] = 'ITEM';
+            } elseif (strtoupper((string)($sourceCtx['stock_domain'] ?? '')) === 'MATERIAL') {
+                $line['line_kind'] = 'MATERIAL';
+            }
+            $available = round((float)($sourceCtx['available_content'] ?? 0), 4);
 
             $qtyContent = min($remaining, $available, round((float)($row['fulfillable_content'] ?? 0), 4));
             if ($qtyContent <= 0) {
@@ -2002,6 +2252,9 @@ class Procurement_model extends CI_Model
                 'notes' => $this->nullable_string($notes),
                 'created_at' => date('Y-m-d H:i:s'),
             ];
+            if ($this->has_store_request_fulfillment_usage_purpose_column()) {
+                $fulfillmentLineData['usage_purpose'] = $usagePurpose;
+            }
             $this->append_expiry_requirement_columns('pur_store_request_fulfillment_line', $fulfillmentLineData, $line, 'profile_expired_date');
             if ($this->db->field_exists('fifo_issue_id', 'pur_store_request_fulfillment_line')) {
                 $fulfillmentLineData['fifo_issue_id'] = null;
@@ -2016,32 +2269,55 @@ class Procurement_model extends CI_Model
                 return ['ok' => false, 'message' => 'Gagal menyimpan detail fulfillment SR.'];
             }
 
-            $fifoTransfer = $this->materialfifomanager->transferWarehouseToDivision([
-                'issue_date' => $date,
-                'division_id' => $divisionId,
-                'destination_type' => $destinationType,
-                'item_id' => $this->nullable_int($line['item_id'] ?? null),
-                'material_id' => $this->nullable_int($line['material_id'] ?? null),
-                'buy_uom_id' => $this->nullable_int($line['buy_uom_id'] ?? null),
-                'content_uom_id' => $this->nullable_int($line['content_uom_id'] ?? null),
-                'profile_key' => $this->nullable_string($line['profile_key'] ?? null),
-                'qty_content_out' => $qtyContent,
-                'source_module' => 'PROCUREMENT_SR',
-                'source_table' => 'pur_store_request_fulfillment',
-                'source_id' => $fulfillmentId,
-                'source_line_id' => $fulfillmentLineId,
-                'notes' => 'SR ' . $srNo . ' fulfill ke divisi',
-            ]);
-            if (!($fifoTransfer['ok'] ?? false)) {
-                $this->db->trans_rollback();
-                return ['ok' => false, 'message' => (string)($fifoTransfer['message'] ?? 'Gagal consume FIFO gudang untuk fulfillment SR.')];
-            }
+            $stockDomain = strtoupper((string)($sourceCtx['stock_domain'] ?? $this->resolve_usage_stock_domain($usagePurpose, $line)));
+            $stockMaterialId = $stockDomain === 'MATERIAL'
+                ? $this->nullable_int($sourceCtx['material_id'] ?? $this->resolve_usage_material_id_for_stock($usagePurpose, $line))
+                : null;
+            $fifoIssueId = 0;
+            $fifoIssueNo = null;
+            if ($stockDomain === 'MATERIAL') {
+                $fifoTransfer = $usagePurpose === self::USAGE_PURPOSE_OPERATIONAL
+                    ? $this->materialfifomanager->consumeWarehouseUsage([
+                        'issue_date' => $date,
+                        'item_id' => $this->nullable_int($line['item_id'] ?? null),
+                        'material_id' => $stockMaterialId,
+                        'buy_uom_id' => $this->nullable_int($line['buy_uom_id'] ?? null),
+                        'content_uom_id' => $this->nullable_int($line['content_uom_id'] ?? null),
+                        'profile_key' => $this->nullable_string($line['profile_key'] ?? null),
+                        'qty_content_out' => $qtyContent,
+                        'source_module' => 'PROCUREMENT_SR',
+                        'source_table' => 'pur_store_request_fulfillment',
+                        'source_id' => $fulfillmentId,
+                        'source_line_id' => $fulfillmentLineId,
+                        'notes' => 'SR ' . $srNo . ' pemakaian operasional dari gudang',
+                    ])
+                    : $this->materialfifomanager->transferWarehouseToDivision([
+                        'issue_date' => $date,
+                        'division_id' => $divisionId,
+                        'destination_type' => $destinationType,
+                        'item_id' => $this->nullable_int($line['item_id'] ?? null),
+                        'material_id' => $stockMaterialId,
+                        'buy_uom_id' => $this->nullable_int($line['buy_uom_id'] ?? null),
+                        'content_uom_id' => $this->nullable_int($line['content_uom_id'] ?? null),
+                        'profile_key' => $this->nullable_string($line['profile_key'] ?? null),
+                        'qty_content_out' => $qtyContent,
+                        'source_module' => 'PROCUREMENT_SR',
+                        'source_table' => 'pur_store_request_fulfillment',
+                        'source_id' => $fulfillmentId,
+                        'source_line_id' => $fulfillmentLineId,
+                        'notes' => 'SR ' . $srNo . ' fulfill ke divisi',
+                    ]);
+                if (!($fifoTransfer['ok'] ?? false)) {
+                    $this->db->trans_rollback();
+                    return ['ok' => false, 'message' => (string)($fifoTransfer['message'] ?? 'Gagal consume FIFO gudang untuk fulfillment SR.')];
+                }
 
-            $fifoIssueId = (int)($fifoTransfer['data']['issue_id'] ?? 0);
-            $fifoIssueNo = $this->nullable_string($fifoTransfer['data']['issue_no'] ?? null);
-            $fifoUnitCost = round((float)($fifoTransfer['data']['avg_unit_cost'] ?? 0), 6);
-            if ($fifoUnitCost > 0) {
-                $unitCostSnapshot = $fifoUnitCost;
+                $fifoIssueId = (int)($fifoTransfer['data']['issue_id'] ?? 0);
+                $fifoIssueNo = $this->nullable_string($fifoTransfer['data']['issue_no'] ?? null);
+                $fifoUnitCost = round((float)($fifoTransfer['data']['avg_unit_cost'] ?? 0), 6);
+                if ($fifoUnitCost > 0) {
+                    $unitCostSnapshot = $fifoUnitCost;
+                }
             }
 
             $this->db->where('id', $fulfillmentLineId)->update('pur_store_request_fulfillment_line', [
@@ -2056,7 +2332,7 @@ class Procurement_model extends CI_Model
                 'ref_table' => 'pur_store_request_fulfillment',
                 'ref_id' => $fulfillmentId,
                 'item_id' => $this->nullable_int($line['item_id'] ?? null),
-                'material_id' => $this->nullable_int($line['material_id'] ?? null),
+                'material_id' => $stockMaterialId,
                 'buy_uom_id' => $this->nullable_int($line['buy_uom_id'] ?? null),
                 'content_uom_id' => $this->nullable_int($line['content_uom_id'] ?? null),
                 'profile_key' => $this->nullable_string($line['profile_key'] ?? null),
@@ -2068,35 +2344,39 @@ class Procurement_model extends CI_Model
                 'profile_buy_uom_code' => $this->nullable_string($line['profile_buy_uom_code'] ?? null),
                 'profile_content_uom_code' => $this->nullable_string($line['profile_content_uom_code'] ?? null),
                 'unit_cost' => $unitCostSnapshot,
-                'stock_domain' => $this->resolve_line_stock_domain($line),
+                'stock_domain' => $stockDomain,
                 'created_by' => $userId > 0 ? $userId : null,
                 'manage_transaction' => false,
             ];
 
             $warehousePost = $this->inventoryledger->post(array_merge($commonPayload, [
                 'movement_scope' => 'WAREHOUSE',
-                'movement_type' => 'TRANSFER_OUT',
+                'movement_type' => $usagePurpose === self::USAGE_PURPOSE_OPERATIONAL ? 'USAGE_OUT' : 'TRANSFER_OUT',
                 'qty_buy_delta' => -1 * $qtyBuy,
                 'qty_content_delta' => -1 * $qtyContent,
-                'notes' => 'SR ' . $srNo . ' fulfill ke divisi',
+                'notes' => $usagePurpose === self::USAGE_PURPOSE_OPERATIONAL
+                    ? 'SR ' . $srNo . ' dipakai operasional dari gudang'
+                    : 'SR ' . $srNo . ' fulfill ke divisi',
             ]));
             if (!($warehousePost['ok'] ?? false)) {
                 $this->db->trans_rollback();
                 return ['ok' => false, 'message' => (string)($warehousePost['message'] ?? 'Gagal posting mutasi gudang.')];
             }
 
-            $divisionPost = $this->inventoryledger->post(array_merge($commonPayload, [
-                'movement_scope' => 'DIVISION',
-                'movement_type' => 'TRANSFER_IN',
-                'division_id' => $divisionId,
-                'destination_type' => $destinationType,
-                'qty_buy_delta' => $qtyBuy,
-                'qty_content_delta' => $qtyContent,
-                'notes' => 'SR ' . $srNo . ' diterima divisi',
-            ]));
-            if (!($divisionPost['ok'] ?? false)) {
-                $this->db->trans_rollback();
-                return ['ok' => false, 'message' => (string)($divisionPost['message'] ?? 'Gagal posting mutasi divisi.')];
+            if ($usagePurpose !== self::USAGE_PURPOSE_OPERATIONAL) {
+                $divisionPost = $this->inventoryledger->post(array_merge($commonPayload, [
+                    'movement_scope' => 'DIVISION',
+                    'movement_type' => 'TRANSFER_IN',
+                    'division_id' => $divisionId,
+                    'destination_type' => $destinationType,
+                    'qty_buy_delta' => $qtyBuy,
+                    'qty_content_delta' => $qtyContent,
+                    'notes' => 'SR ' . $srNo . ' diterima divisi',
+                ]));
+                if (!($divisionPost['ok'] ?? false)) {
+                    $this->db->trans_rollback();
+                    return ['ok' => false, 'message' => (string)($divisionPost['message'] ?? 'Gagal posting mutasi divisi.')];
+                }
             }
 
             $newFulfilledContent = round((float)($line['qty_content_fulfilled'] ?? 0) + $qtyContent, 4);
@@ -2245,10 +2525,16 @@ class Procurement_model extends CI_Model
             if ($cpb <= 0) {
                 $cpb = 1;
             }
+            $usagePurpose = $this->normalize_usage_purpose($row['usage_purpose'] ?? 'BAHAN_BAKU');
+            $poNotes = ['Auto shortage dari SR ' . (string)($header['sr_no'] ?? '')];
+            if ($usagePurpose === 'OPERASIONAL') {
+                $poNotes[] = 'Tujuan pemakaian: ' . $this->usage_purpose_label($usagePurpose);
+            }
             $poLines[] = [
                 'line_kind' => (string)($row['line_kind'] ?? 'ITEM'),
                 'item_id' => (int)($row['item_id'] ?? 0) > 0 ? (int)$row['item_id'] : null,
                 'material_id' => (int)($row['material_id'] ?? 0) > 0 ? (int)$row['material_id'] : null,
+                'usage_purpose' => $usagePurpose,
                 'line_description' => $this->nullable_string($row['profile_description'] ?? null),
                 'brand_name' => $this->nullable_string($row['profile_brand'] ?? null),
                 'qty_buy' => round($shortageContent / max($cpb, 0.000001), 4),
@@ -2267,7 +2553,7 @@ class Procurement_model extends CI_Model
                 'snapshot_line_description' => $this->nullable_string($row['profile_description'] ?? null),
                 'snapshot_buy_uom_code' => (string)($row['profile_buy_uom_code'] ?? ''),
                 'snapshot_content_uom_code' => (string)($row['profile_content_uom_code'] ?? ''),
-                'notes' => 'Auto shortage dari SR ' . (string)($header['sr_no'] ?? ''),
+                'notes' => implode(' | ', $poNotes),
             ];
         }
 
@@ -2342,6 +2628,7 @@ class Procurement_model extends CI_Model
     {
         $normalizedLines = [];
         $lineNo = 0;
+        $hasUsagePurposeColumn = $this->has_store_request_usage_purpose_column();
 
         foreach ($lines as $line) {
             if (!is_array($line)) {
@@ -2357,11 +2644,28 @@ class Procurement_model extends CI_Model
             $contentPerBuy = round((float)($line['profile_content_per_buy'] ?? 0), 6);
             $qtyBuyRequested = round((float)($line['qty_buy_requested'] ?? 0), 2);
             $qtyContentRequested = round((float)($line['qty_content_requested'] ?? 0), 2);
+            $usagePurpose = $this->normalize_usage_purpose($line['usage_purpose'] ?? ($line['default_usage_purpose'] ?? 'BAHAN_BAKU'));
+
+            if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL) {
+                $resolvedOperationalItemId = $this->resolve_operational_item_id(
+                    $itemId > 0 ? $itemId : null,
+                    $materialId > 0 ? $materialId : null,
+                    $profileKey
+                );
+                if ($resolvedOperationalItemId !== null && $resolvedOperationalItemId > 0) {
+                    $itemId = $resolvedOperationalItemId;
+                    $lineKind = 'ITEM';
+                    $materialId = 0;
+                }
+            }
 
             if ($materialId > 0) {
                 $lineKind = 'MATERIAL';
             } elseif ($lineKind === '') {
                 $lineKind = $itemId > 0 ? 'ITEM' : '';
+            }
+            if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL && $itemId > 0) {
+                $lineKind = 'ITEM';
             }
             if (!in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
                 return ['ok' => false, 'message' => 'Line #' . $lineNo . ' line_kind tidak valid.'];
@@ -2390,7 +2694,7 @@ class Procurement_model extends CI_Model
 
             $expiryRequirement = $this->extract_expiry_requirement($line, 'profile_expired_date');
 
-            $normalizedLines[] = [
+            $normalizedLine = [
                 'line_no' => $lineNo,
                 'line_kind' => $lineKind,
                 'item_id' => $itemId > 0 ? $itemId : null,
@@ -2418,6 +2722,10 @@ class Procurement_model extends CI_Model
                 'notes' => $this->nullable_string($line['notes'] ?? null),
                 'created_at' => date('Y-m-d H:i:s'),
             ];
+            if ($hasUsagePurposeColumn) {
+                $normalizedLine['usage_purpose'] = $usagePurpose;
+            }
+            $normalizedLines[] = $normalizedLine;
         }
 
         return ['ok' => true, 'lines' => $normalizedLines];
@@ -2427,6 +2735,7 @@ class Procurement_model extends CI_Model
     {
         $normalizedLines = [];
         $lineNo = 0;
+        $hasUsagePurposeColumn = $this->has_division_request_usage_purpose_column();
         foreach ($lines as $line) {
             if (!is_array($line)) {
                 continue;
@@ -2454,11 +2763,28 @@ class Procurement_model extends CI_Model
             $profileName = $this->nullable_string($line['profile_name'] ?? ($line['catalog_name'] ?? ($line['item_name'] ?? null)));
             $profileBrand = $this->nullable_string($line['profile_brand'] ?? ($line['brand_name'] ?? null));
             $profileDescription = $this->nullable_string($line['profile_description'] ?? ($line['line_description'] ?? null));
+            $usagePurpose = $this->normalize_usage_purpose($line['usage_purpose'] ?? ($line['default_usage_purpose'] ?? 'BAHAN_BAKU'));
+
+            if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL) {
+                $resolvedOperationalItemId = $this->resolve_operational_item_id(
+                    $itemId > 0 ? $itemId : null,
+                    $materialId > 0 ? $materialId : null,
+                    $profileKey
+                );
+                if ($resolvedOperationalItemId !== null && $resolvedOperationalItemId > 0) {
+                    $itemId = $resolvedOperationalItemId;
+                    $lineKind = 'ITEM';
+                    $materialId = 0;
+                }
+            }
 
             if ($materialId > 0) {
                 $lineKind = 'MATERIAL';
             } elseif ($lineKind === '') {
                 $lineKind = ($itemId > 0 || $sourceType === 'MANUAL') ? 'ITEM' : '';
+            }
+            if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL && $itemId > 0) {
+                $lineKind = 'ITEM';
             }
             if (!in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
                 return ['ok' => false, 'message' => 'Line #' . $lineNo . ' jenis line tidak valid.'];
@@ -2512,7 +2838,7 @@ class Procurement_model extends CI_Model
 
             $expiryRequirement = $this->extract_expiry_requirement($line, 'profile_expired_date');
 
-            $normalizedLines[] = [
+            $normalizedLine = [
                 'line_kind' => $lineKind,
                 'item_id' => $itemId > 0 ? $itemId : null,
                 'material_id' => $materialId > 0 ? $materialId : null,
@@ -2539,6 +2865,10 @@ class Procurement_model extends CI_Model
                 'source_type' => in_array($sourceType, ['WAREHOUSE', 'CATALOG', 'MASTER', 'MANUAL'], true) ? $sourceType : 'WAREHOUSE',
                 'notes' => $this->nullable_string($line['notes'] ?? null),
             ];
+            if ($hasUsagePurposeColumn) {
+                $normalizedLine['usage_purpose'] = $usagePurpose;
+            }
+            $normalizedLines[] = $normalizedLine;
         }
 
         return ['ok' => true, 'lines' => $normalizedLines];
@@ -2840,17 +3170,20 @@ class Procurement_model extends CI_Model
         $lineNo = 1;
         $hasRequestUomMode = $this->has_division_request_request_uom_mode_column();
         $hasVendorColumn = $this->has_division_request_vendor_column();
+        $hasUsagePurposeColumn = $this->has_division_request_usage_purpose_column();
         $hasEstimatedUnitPrice = $this->db->field_exists('estimated_unit_price', 'pur_division_request_line');
 
         foreach ($lineRows as $line) {
             $sourceType = strtoupper(trim((string)($line['source_type'] ?? 'WAREHOUSE')));
+            $usagePurpose = $this->normalize_usage_purpose($line['usage_purpose'] ?? self::USAGE_PURPOSE_PRODUCTION);
             $availableContent = $sourceType === 'WAREHOUSE'
                 ? $this->get_warehouse_available_content(
                     $this->nullable_int($line['item_id'] ?? null),
                     $this->nullable_int($line['material_id'] ?? null),
                     $this->nullable_int($line['buy_uom_id'] ?? null),
                     $this->nullable_int($line['content_uom_id'] ?? null),
-                    (string)($line['profile_key'] ?? '')
+                    (string)($line['profile_key'] ?? ''),
+                    $usagePurpose
                 )
                 : 0.0;
             $requestedContent = round((float)($line['qty_content_requested'] ?? 0), 4);
@@ -2926,6 +3259,9 @@ class Procurement_model extends CI_Model
             if ($hasVendorColumn) {
                 $storedLine['vendor_id'] = $this->nullable_int($line['vendor_id'] ?? null);
             }
+            if ($hasUsagePurposeColumn) {
+                $storedLine['usage_purpose'] = $usagePurpose;
+            }
             if ($hasEstimatedUnitPrice) {
                 $storedLine['estimated_unit_price'] = $estimatedUnitPrice;
             }
@@ -2950,6 +3286,9 @@ class Procurement_model extends CI_Model
                     'qty_content_requested' => $srContent,
                     'notes' => null,
                 ];
+                if ($this->has_store_request_usage_purpose_column()) {
+                    $srLine['usage_purpose'] = $usagePurpose;
+                }
                 $this->append_expiry_requirement_columns('pur_store_request_line', $srLine, $line, 'profile_expired_date');
                 $srLines[] = $srLine;
             }
@@ -2964,11 +3303,15 @@ class Procurement_model extends CI_Model
                 if ($lineNoteText !== '') {
                     $poLineNotes[] = $lineNoteText;
                 }
+                if ($usagePurpose === 'OPERASIONAL') {
+                    $poLineNotes[] = 'Tujuan pemakaian: ' . $this->usage_purpose_label($usagePurpose);
+                }
                 $poLines[] = [
                     'source_line_no' => (int)($storedLine['line_no'] ?? 0),
                     'line_kind' => (string)$line['line_kind'],
                     'item_id' => $this->nullable_int($line['item_id'] ?? null),
                     'material_id' => $this->nullable_int($line['material_id'] ?? null),
+                    'usage_purpose' => $usagePurpose,
                     'vendor_id' => $this->nullable_int($line['vendor_id'] ?? null),
                     'catalog_name' => (string)($line['profile_name'] ?? ''),
                     'item_name' => (string)($line['profile_name'] ?? ''),
@@ -3088,9 +3431,16 @@ class Procurement_model extends CI_Model
                 'standard_price' => round((float)($row['standard_price'] ?? 0), 2),
                 'last_unit_price' => round((float)($row['last_unit_price'] ?? ($row['standard_price'] ?? 0)), 2),
                 'last_purchase_date' => $this->normalize_date((string)($row['last_purchase_date'] ?? '')),
+                'default_usage_purpose' => $this->normalize_usage_purpose($row['default_usage_purpose'] ?? 'BAHAN_BAKU'),
+                'usage_purpose' => $this->normalize_usage_purpose($row['usage_purpose'] ?? ($row['default_usage_purpose'] ?? 'BAHAN_BAKU')),
                 'source_type' => strtoupper(trim((string)($row['source_type'] ?? 'CATALOG'))),
                 'search_source' => 'CATALOG',
             ];
+
+            if ($candidate['default_usage_purpose'] === self::USAGE_PURPOSE_OPERATIONAL && $itemId !== null && $itemId > 0) {
+                $candidate['line_kind'] = 'ITEM';
+                $candidate['material_id'] = null;
+            }
 
             if (!isset($normalized[$identity]) || $this->should_prefer_division_request_candidate($normalized[$identity], $candidate, false)) {
                 $normalized[$identity] = $candidate;
@@ -3246,14 +3596,32 @@ class Procurement_model extends CI_Model
             : null;
     }
 
-    private function get_warehouse_available_content(?int $itemId, ?int $materialId, ?int $buyUomId, ?int $contentUomId, string $profileKey): float
+    private function get_warehouse_available_content(?int $itemId, ?int $materialId, ?int $buyUomId, ?int $contentUomId, string $profileKey, ?string $usagePurpose = null): float
     {
-        if (
-            (($itemId === null || $itemId <= 0) && ($materialId === null || $materialId <= 0))
-            || $buyUomId === null || $buyUomId <= 0
-            || $contentUomId === null || $contentUomId <= 0
-        ) {
+        $stockDomain = $this->resolve_usage_stock_domain($usagePurpose ?? self::USAGE_PURPOSE_PRODUCTION, [
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+        ]);
+
+        return $this->get_warehouse_available_content_for_domain(
+            $itemId,
+            $materialId,
+            $buyUomId,
+            $contentUomId,
+            $profileKey,
+            $stockDomain
+        );
+    }
+
+    private function get_warehouse_available_content_for_domain(?int $itemId, ?int $materialId, ?int $buyUomId, ?int $contentUomId, string $profileKey, string $stockDomain): float
+    {
+        if ($buyUomId === null || $buyUomId <= 0 || $contentUomId === null || $contentUomId <= 0) {
             return 0.0;
+        }
+
+        $stockDomain = strtoupper(trim($stockDomain));
+        if (!in_array($stockDomain, ['ITEM', 'MATERIAL'], true)) {
+            $stockDomain = ($materialId !== null && $materialId > 0) ? 'MATERIAL' : 'ITEM';
         }
 
         if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
@@ -3278,8 +3646,9 @@ class Procurement_model extends CI_Model
                             )
                               AND buy_uom_id = ?
                               AND content_uom_id = ?
+                              AND stock_domain = ?
                               AND ' . $identityCheck['column'] . ' = ?';
-                    $params = [$targetMonth, $buyUomId, $contentUomId, $identityCheck['value']];
+                    $params = [$targetMonth, $buyUomId, $contentUomId, $stockDomain, $identityCheck['value']];
                     if ($useProfileKey && trim($profileKey) !== '') {
                         $sql .= ' AND profile_key <=> ?';
                         $params[] = $profileKey;
@@ -3293,9 +3662,107 @@ class Procurement_model extends CI_Model
                     }
                 }
             }
+
+            if (trim($profileKey) !== '') {
+                $row = $this->db
+                    ->select('closing_qty_content')
+                    ->from('inv_warehouse_monthly_stock s')
+                    ->where('s.month_key = (
+                        SELECT MAX(wm.month_key)
+                        FROM inv_warehouse_monthly_stock wm
+                        WHERE wm.identity_key = s.identity_key
+                          AND wm.month_key <= ' . $this->db->escape($targetMonth) . '
+                    )', null, false)
+                    ->where('s.buy_uom_id', $buyUomId)
+                    ->where('s.content_uom_id', $contentUomId)
+                    ->where('s.stock_domain', $stockDomain)
+                    ->where('s.profile_key', trim($profileKey))
+                    ->order_by('s.updated_at', 'DESC')
+                    ->order_by('s.last_movement_at', 'DESC')
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                $available = round((float)($row['closing_qty_content'] ?? 0), 4);
+                if ($available > 0) {
+                    return $available;
+                }
+            }
         }
 
         return 0.0;
+    }
+
+    private function resolve_fulfillment_source_context(array $line, string $usagePurpose): array
+    {
+        $itemId = $this->nullable_int($line['item_id'] ?? null);
+        $materialId = $this->nullable_int($line['material_id'] ?? null);
+        $buyUomId = $this->nullable_int($line['buy_uom_id'] ?? null);
+        $contentUomId = $this->nullable_int($line['content_uom_id'] ?? null);
+        $profileKey = (string)($line['profile_key'] ?? '');
+
+        if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL) {
+            $resolvedOperationalItemId = $this->resolve_operational_item_id($itemId, $materialId, $profileKey);
+            $resolvedMaterialId = $this->resolve_material_id_from_item($resolvedOperationalItemId, $materialId, $profileKey);
+            if ($resolvedOperationalItemId !== null && $resolvedOperationalItemId > 0) {
+                $itemAvailable = $this->get_warehouse_available_content_for_domain(
+                    $resolvedOperationalItemId,
+                    null,
+                    $buyUomId,
+                    $contentUomId,
+                    $profileKey,
+                    'ITEM'
+                );
+                if ($itemAvailable > 0) {
+                    return [
+                        'item_id' => $resolvedOperationalItemId,
+                        'material_id' => null,
+                        'stock_domain' => 'ITEM',
+                        'available_content' => $itemAvailable,
+                    ];
+                }
+            }
+
+            if ($resolvedMaterialId !== null && $resolvedMaterialId > 0) {
+                $materialAvailable = $this->get_warehouse_available_content_for_domain(
+                    null,
+                    $resolvedMaterialId,
+                    $buyUomId,
+                    $contentUomId,
+                    $profileKey,
+                    'MATERIAL'
+                );
+                if ($materialAvailable > 0) {
+                    return [
+                        'item_id' => null,
+                        'material_id' => $resolvedMaterialId,
+                        'stock_domain' => 'MATERIAL',
+                        'available_content' => $materialAvailable,
+                    ];
+                }
+            }
+
+            return [
+                'item_id' => $resolvedOperationalItemId,
+                'material_id' => $resolvedMaterialId,
+                'stock_domain' => $resolvedOperationalItemId !== null && $resolvedOperationalItemId > 0 ? 'ITEM' : 'MATERIAL',
+                'available_content' => 0.0,
+            ];
+        }
+
+        $stockDomain = $this->resolve_usage_stock_domain($usagePurpose, $line);
+        return [
+            'item_id' => $itemId,
+            'material_id' => $this->resolve_usage_material_id_for_stock($usagePurpose, $line),
+            'stock_domain' => $stockDomain,
+            'available_content' => $this->get_warehouse_available_content_for_domain(
+                $itemId,
+                $this->resolve_usage_material_id_for_stock($usagePurpose, $line),
+                $buyUomId,
+                $contentUomId,
+                $profileKey,
+                $stockDomain
+            ),
+        ];
     }
 
     private function reverse_fulfillments_before_void(int $requestId, string $notes, int $userId): array
@@ -3395,10 +3862,11 @@ class Procurement_model extends CI_Model
                 }
 
                 $stockDomain = $this->resolve_line_stock_domain($line);
+                $stockMaterialId = $this->resolve_usage_material_id_for_stock($line['usage_purpose'] ?? self::USAGE_PURPOSE_PRODUCTION, $line);
                 $baseIdentity = [
                     'stock_domain' => $stockDomain,
                     'item_id' => (int)($line['item_id'] ?? 0),
-                    'material_id' => $this->nullable_int($line['material_id'] ?? null),
+                    'material_id' => $stockMaterialId,
                     'buy_uom_id' => $this->nullable_int($line['buy_uom_id'] ?? null),
                     'content_uom_id' => (int)($line['content_uom_id'] ?? 0),
                     'profile_key' => $this->nullable_string($line['profile_key'] ?? null),
@@ -3489,6 +3957,11 @@ class Procurement_model extends CI_Model
 
     private function resolveAvailabilityMaterialIdFromLine(array $line): int
     {
+        $usagePurpose = $this->normalize_usage_purpose($line['usage_purpose'] ?? self::USAGE_PURPOSE_PRODUCTION);
+        if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL) {
+            return 0;
+        }
+
         $materialId = (int)($line['material_id'] ?? 0);
         if ($materialId > 0) {
             return $materialId;
@@ -3595,11 +4068,7 @@ class Procurement_model extends CI_Model
 
     private function resolve_line_stock_domain(array $line): string
     {
-        $lineKind = strtoupper(trim((string)($line['line_kind'] ?? '')));
-        if (in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
-            return $lineKind;
-        }
-        return (int)($line['material_id'] ?? 0) > 0 ? 'MATERIAL' : 'ITEM';
+        return $this->resolve_usage_stock_domain($line['usage_purpose'] ?? self::USAGE_PURPOSE_PRODUCTION, $line);
     }
 
     private function normalize_destination(string $destination): ?string

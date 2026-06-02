@@ -76,7 +76,7 @@ v update data sif
 - resep component lintas
 - POS event
 - master bahan baku relasi ke stok
-
+- superadmin kunci tanggal libur dan PH
 
 
 
@@ -95,3 +95,13 @@ ada saran?
 2. saya simpulkan berarti begini:
 purchase melakukan PO dan SR dari gudang mandiri atau verifiikasi pengajian divisi yang menuju ke stok divisi, ada opsi digunakan sebagai bahan baku atau operasional, tapi defaultnya bahan baku. begitu ?
 
+
+
+saya coba SR ke BAR pilih operasioanal, saat simpan masih menambahkan ke stok bahan baku
+halaman apa saja yang harus disesuaikan terkait penambahan identitas bahan baku / operasional ini?
+
+
+
+/self-order/orders kolom detail belum bisa
+/self-order/orders buat bisa di expand masing masing orderan untuk melihat rinciannya, jadi tidak wajib masuk halaman detail
+/self-order/orders verifikasi tidak muncul spinner, dan tidak berhasil (tidak terjadi apapun)

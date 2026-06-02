@@ -3,15 +3,15 @@ $settings = is_array($settings ?? null) ? $settings : [];
 ?>
 
 <div class="container-xxl py-3">
-  <div class="fin-page-header mb-3">
-    <div>
-      <h4 class="fin-page-title mb-1">Self Order POS</h4>
-      <p class="fin-page-subtitle mb-0">Kelola aktivasi self order, URL aplikasi member, keamanan QR meja, dan kredensial Midtrans QRIS dari admin `finance`.</p>
-    </div>
-  </div>
-
   <?php $this->load->view('pos/_master_tabs', ['pos_master_tab_active' => 'self-order']); ?>
   <?php $this->load->view('pos/_self_order_tabs', ['self_order_tab_active' => 'settings']); ?>
+
+  <div class="fin-page-header mb-3">
+    <div>
+      <h4 class="fin-page-title mb-1">Settings Self Order</h4>
+      <p class="fin-page-subtitle mb-0">Aktivasi jalur order mandiri, arahkan QR ke aplikasi member, dan simpan kredensial Midtrans QRIS.</p>
+    </div>
+  </div>
 
   <?php if ($this->session->flashdata('success')): ?>
     <div class="alert alert-success"><?php echo html_escape((string)$this->session->flashdata('success')); ?></div>

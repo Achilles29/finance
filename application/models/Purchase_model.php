@@ -5,6 +5,9 @@ class Purchase_model extends CI_Model
 {
     private $uomCodeCache = [];
     private $tableFieldsCache = [];
+    private $usagePurposeSchemaEnsured = false;
+    private const USAGE_PURPOSE_PRODUCTION = 'BAHAN_BAKU';
+    private const USAGE_PURPOSE_OPERATIONAL = 'OPERASIONAL';
 
     public function get_dashboard_summary(): array
     {
@@ -9455,6 +9458,9 @@ class Purchase_model extends CI_Model
             if ($this->db->field_exists('snapshot_expired_date', 'pur_purchase_order_line')) {
                 $lineQb->select('snapshot_expired_date');
             }
+            if ($this->hasPurchaseOrderUsagePurposeColumn()) {
+                $lineQb->select('usage_purpose');
+            }
 
             $lines = $lineQb->get()->result_array();
         }
@@ -9526,7 +9532,7 @@ class Purchase_model extends CI_Model
                 }));
 
                 if (!empty($receiptIds)) {
-                    $receiptLineRows = $this->db
+                    $receiptLineRowsQb = $this->db
                         ->select('rl.id AS receipt_line_id, rl.purchase_receipt_id, rl.purchase_order_line_id, rl.line_kind, rl.item_id, rl.material_id, rl.qty_buy_received, rl.qty_content_received, rl.buy_uom_id, rl.content_uom_id, rl.brand_name, rl.line_description, rl.expired_date, rl.profile_key, rl.lot_id, rl.lot_no, rl.notes, rl.created_at')
                         ->select('pol.line_no AS po_line_no', false)
                         ->select('i.item_name, m.material_name, bu.code AS buy_uom_code, cu.code AS content_uom_code', false)
@@ -9538,9 +9544,11 @@ class Purchase_model extends CI_Model
                         ->join('mst_uom cu', 'cu.id = rl.content_uom_id', 'left')
                         ->where_in('rl.purchase_receipt_id', $receiptIds)
                         ->order_by('rl.purchase_receipt_id', 'ASC')
-                        ->order_by('rl.id', 'ASC')
-                        ->get()
-                        ->result_array();
+                        ->order_by('rl.id', 'ASC');
+                    if ($this->hasPurchaseReceiptUsagePurposeColumn()) {
+                        $receiptLineRowsQb->select('rl.usage_purpose');
+                    }
+                    $receiptLineRows = $receiptLineRowsQb->get()->result_array();
 
                     $receiptLineIds = array_values(array_filter(array_map(static function ($row) {
                         return (int)($row['receipt_line_id'] ?? 0);
@@ -11365,6 +11373,11 @@ class Purchase_model extends CI_Model
             if ($this->db->field_exists('snapshot_expired_date', 'pur_purchase_order_line')) {
                 $lineQb->select('pol.snapshot_expired_date');
             }
+            if ($this->hasPurchaseReceiptUsagePurposeColumn()) {
+                $lineQb->select('rl.usage_purpose');
+            } elseif ($this->hasPurchaseOrderUsagePurposeColumn()) {
+                $lineQb->select('pol.usage_purpose');
+            }
 
             $lines = $lineQb->get()->result_array();
             $receiptTouched = false;
@@ -11551,12 +11564,14 @@ class Purchase_model extends CI_Model
                         $line['receipt_expired_date']
                         ?? ($line['po_expired_date'] ?? ($line['snapshot_expired_date'] ?? ''))
                     ));
+                    $stockDomain = $this->resolveLineStockDomain($line);
+                    $stockMaterialId = $this->resolveLineMaterialIdForStock($line);
                     $this->registerVoidRollbackRebuildTarget($rebuildTargets, $scope, $rebuildStartDate, [
-                        'stock_domain' => strtoupper((string)($line['line_kind'] ?? 'ITEM')) === 'MATERIAL' ? 'MATERIAL' : 'ITEM',
+                        'stock_domain' => $stockDomain,
                         'division_id' => $scope === 'DIVISION' ? $divisionId : null,
                         'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
                         'item_id' => $this->nullableInt($line['item_id'] ?? null),
-                        'material_id' => $this->nullableInt($line['material_id'] ?? null),
+                        'material_id' => $stockMaterialId,
                         'buy_uom_id' => $this->nullableInt($line['buy_uom_id'] ?? null),
                         'content_uom_id' => $this->nullableInt($line['content_uom_id'] ?? null),
                         'profile_key' => $this->nullableString($line['profile_key'] ?? null),
@@ -11889,11 +11904,11 @@ class Purchase_model extends CI_Model
                 }
 
                 $baseIdentity = [
-                    'stock_domain' => strtoupper((string)($line['line_kind'] ?? 'ITEM')) === 'MATERIAL' ? 'MATERIAL' : 'ITEM',
+                    'stock_domain' => $this->resolveLineStockDomain($line),
                     'division_id' => $scope === 'DIVISION' ? $divisionId : null,
                     'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
                     'item_id' => $this->nullableInt($line['item_id'] ?? null),
-                    'material_id' => $this->nullableInt($line['material_id'] ?? null),
+                    'material_id' => $this->resolveLineMaterialIdForStock($line),
                     'buy_uom_id' => $this->nullableInt($line['buy_uom_id'] ?? null),
                     'content_uom_id' => $this->nullableInt($line['content_uom_id'] ?? null),
                     'profile_name' => $this->nullableString($profileName !== '' ? $profileName : null),
@@ -12080,6 +12095,11 @@ class Purchase_model extends CI_Model
             if ($this->db->field_exists('snapshot_expired_date', 'pur_purchase_order_line')) {
                 $rbQb->select('pol.snapshot_expired_date AS po_snapshot_expired_date');
             }
+            if ($this->hasPurchaseReceiptUsagePurposeColumn()) {
+                $rbQb->select('rl.usage_purpose');
+            } elseif ($this->hasPurchaseOrderUsagePurposeColumn()) {
+                $rbQb->select('pol.usage_purpose');
+            }
 
             $lines = $rbQb->get()->result_array();
 
@@ -12231,25 +12251,29 @@ class Purchase_model extends CI_Model
                     $line['expired_date']
                     ?? ($line['po_expired_date'] ?? ($line['po_snapshot_expired_date'] ?? ''))
                 ));
+                $stockDomain = $this->resolveLineStockDomain($line);
+                $stockMaterialId = $this->resolveLineMaterialIdForStock($line);
 
-                $lotRollback = $this->materialfifomanager->rollbackReceiptInboundLotsBySource(
-                    'pur_purchase_receipt',
-                    $receiptId,
-                    (int)($line['id'] ?? 0)
-                );
-                if (!($lotRollback['ok'] ?? false)) {
-                    return [
-                        'ok' => false,
-                        'message' => 'Rollback lot receipt gagal untuk receipt #' . (string)($receipt['receipt_no'] ?? $receiptId) . ': ' . (string)($lotRollback['message'] ?? 'gagal rollback lot inbound'),
-                    ];
+                if ($stockDomain === 'MATERIAL') {
+                    $lotRollback = $this->materialfifomanager->rollbackReceiptInboundLotsBySource(
+                        'pur_purchase_receipt',
+                        $receiptId,
+                        (int)($line['id'] ?? 0)
+                    );
+                    if (!($lotRollback['ok'] ?? false)) {
+                        return [
+                            'ok' => false,
+                            'message' => 'Rollback lot receipt gagal untuk receipt #' . (string)($receipt['receipt_no'] ?? $receiptId) . ': ' . (string)($lotRollback['message'] ?? 'gagal rollback lot inbound'),
+                        ];
+                    }
                 }
 
                 $this->registerVoidRollbackRebuildTarget($rebuildTargets, $scope, $rebuildStartDate, [
-                    'stock_domain' => strtoupper((string)($line['line_kind'] ?? 'ITEM')) === 'MATERIAL' ? 'MATERIAL' : 'ITEM',
+                    'stock_domain' => $stockDomain,
                     'division_id' => $scope === 'DIVISION' ? $divisionId : null,
                     'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
                     'item_id' => $this->nullableInt($line['item_id'] ?? null),
-                    'material_id' => $this->nullableInt($line['material_id'] ?? null),
+                    'material_id' => $stockMaterialId,
                     'buy_uom_id' => $this->nullableInt($line['buy_uom_id'] ?? null),
                     'content_uom_id' => $this->nullableInt($line['content_uom_id'] ?? null),
                     'profile_key' => $this->nullableString($line['profile_key'] ?? null),
@@ -12267,11 +12291,11 @@ class Purchase_model extends CI_Model
                     $scope,
                     $rebuildStartDate,
                     [
-                        'stock_domain' => strtoupper((string)($line['line_kind'] ?? 'ITEM')) === 'MATERIAL' ? 'MATERIAL' : 'ITEM',
+                        'stock_domain' => $stockDomain,
                         'division_id' => $scope === 'DIVISION' ? $divisionId : null,
                         'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
                         'item_id' => $this->nullableInt($line['item_id'] ?? null),
-                        'material_id' => $this->nullableInt($line['material_id'] ?? null),
+                        'material_id' => $stockMaterialId,
                         'buy_uom_id' => $this->nullableInt($line['buy_uom_id'] ?? null),
                         'content_uom_id' => $this->nullableInt($line['content_uom_id'] ?? null),
                         'profile_key' => $this->nullableString($line['profile_key'] ?? null),
@@ -12376,6 +12400,10 @@ class Purchase_model extends CI_Model
 
     private function resolveAvailabilityMaterialIdFromLine(array $line): int
     {
+        if ($this->resolveLineUsagePurpose($line) === self::USAGE_PURPOSE_OPERATIONAL) {
+            return 0;
+        }
+
         $materialId = (int)($line['material_id'] ?? 0);
         if ($materialId > 0) {
             return $materialId;
@@ -13149,7 +13177,7 @@ class Purchase_model extends CI_Model
             ->select('l.id AS purchase_order_line_id, l.line_no, l.line_kind, l.item_id, l.material_id')
             ->select('l.snapshot_item_name, l.snapshot_material_name, l.snapshot_brand_name, l.snapshot_line_description')
             ->select('l.buy_uom_id, l.content_uom_id, l.snapshot_buy_uom_code, l.snapshot_content_uom_code')
-            ->select('l.qty_buy, l.qty_content, l.content_per_buy, l.conversion_factor_to_content, l.unit_price, l.profile_key')
+            ->select('l.qty_buy, l.qty_content, l.content_per_buy, l.conversion_factor_to_content, l.unit_price, l.profile_key, l.notes')
             ->select('COALESCE(rcv.qty_buy_received_total, 0) AS qty_buy_received_total', false)
             ->select('COALESCE(rcv.qty_content_received_total, 0) AS qty_content_received_total', false)
             ->from('pur_purchase_order_line l')
@@ -13162,6 +13190,9 @@ class Purchase_model extends CI_Model
         }
         if ($this->db->field_exists('snapshot_expired_date', 'pur_purchase_order_line')) {
             $qb->select('l.snapshot_expired_date');
+        }
+        if ($this->hasPurchaseOrderUsagePurposeColumn()) {
+            $qb->select('l.usage_purpose');
         }
 
         return $qb->get()->result_array();
@@ -13292,6 +13323,9 @@ class Purchase_model extends CI_Model
             );
             $qtyContentReceived = round($qtyBuyReceived * $factor, 4);
             $profileExpiredDate = $this->normalizeDate((string)($poLine['expired_date'] ?? ($poLine['snapshot_expired_date'] ?? '')));
+            $usagePurpose = $this->resolveLineUsagePurpose($poLine);
+            $stockDomain = $this->resolveLineStockDomain($poLine);
+            $stockMaterialId = $this->resolveLineMaterialIdForStock($poLine);
 
             $receiptLineData = [
                 'purchase_receipt_id' => $receiptId,
@@ -13309,6 +13343,9 @@ class Purchase_model extends CI_Model
                 'profile_key' => $this->nullableString($poLine['profile_key'] ?? null),
                 'notes' => $this->nullableString($line['notes'] ?? null),
             ];
+            if ($this->hasPurchaseReceiptUsagePurposeColumn()) {
+                $receiptLineData['usage_purpose'] = $usagePurpose;
+            }
             if ($this->db->field_exists('expired_date', 'pur_purchase_receipt_line')) {
                 $receiptLineData['expired_date'] = $profileExpiredDate;
             }
@@ -13351,45 +13388,47 @@ class Purchase_model extends CI_Model
             $unitPrice = (float)($poLine['unit_price'] ?? 0);
             $unitCost = $factor > 0 ? round($unitPrice / $factor, 6) : 0;
 
-            $lotResult = $this->materialfifomanager->registerReceiptInboundLot([
-                'location_scope' => $movementScope,
-                'division_id' => $movementScope === 'DIVISION' ? $destinationDivisionId : null,
-                'destination_type' => $movementScope === 'DIVISION' ? $destinationType : 'GUDANG',
-                'receipt_date' => $receiptDate,
-                'expiry_date' => $profileExpiredDate,
-                'item_id' => $this->nullableInt($poLine['item_id'] ?? null),
-                'material_id' => $this->nullableInt($poLine['material_id'] ?? null),
-                'buy_uom_id' => $this->nullableInt($poLine['buy_uom_id'] ?? null),
-                'content_uom_id' => $this->nullableInt($poLine['content_uom_id'] ?? null),
-                'profile_key' => $effectiveProfileKey,
-                'qty_content_in' => $qtyContentReceived,
-                'unit_cost' => $unitCost,
-                'source_table' => 'pur_purchase_receipt',
-                'source_id' => $receiptId,
-                'source_line_id' => $receiptLineId,
-                'receipt_id' => $receiptId,
-                'receipt_line_id' => $receiptLineId,
-            ]);
-            if (!($lotResult['ok'] ?? false)) {
-                $this->db->trans_rollback();
-                return [
-                    'ok' => false,
-                    'message' => (string)($lotResult['message'] ?? 'Gagal membuat lot FIFO inbound untuk receipt.'),
-                ];
-            }
+            if ($stockDomain === 'MATERIAL') {
+                $lotResult = $this->materialfifomanager->registerReceiptInboundLot([
+                    'location_scope' => $movementScope,
+                    'division_id' => $movementScope === 'DIVISION' ? $destinationDivisionId : null,
+                    'destination_type' => $movementScope === 'DIVISION' ? $destinationType : 'GUDANG',
+                    'receipt_date' => $receiptDate,
+                    'expiry_date' => $profileExpiredDate,
+                    'item_id' => $this->nullableInt($poLine['item_id'] ?? null),
+                    'material_id' => $stockMaterialId,
+                    'buy_uom_id' => $this->nullableInt($poLine['buy_uom_id'] ?? null),
+                    'content_uom_id' => $this->nullableInt($poLine['content_uom_id'] ?? null),
+                    'profile_key' => $effectiveProfileKey,
+                    'qty_content_in' => $qtyContentReceived,
+                    'unit_cost' => $unitCost,
+                    'source_table' => 'pur_purchase_receipt',
+                    'source_id' => $receiptId,
+                    'source_line_id' => $receiptLineId,
+                    'receipt_id' => $receiptId,
+                    'receipt_line_id' => $receiptLineId,
+                ]);
+                if (!($lotResult['ok'] ?? false)) {
+                    $this->db->trans_rollback();
+                    return [
+                        'ok' => false,
+                        'message' => (string)($lotResult['message'] ?? 'Gagal membuat lot FIFO inbound untuk receipt.'),
+                    ];
+                }
 
-            $lotId = (int)($lotResult['data']['lot_id'] ?? 0);
-            $lotNo = $this->nullableString($lotResult['data']['lot_no'] ?? null);
-            if ($lotId > 0 || $lotNo !== null) {
-                $receiptLineUpdate = [];
-                if ($this->db->field_exists('lot_id', 'pur_purchase_receipt_line') && $lotId > 0) {
-                    $receiptLineUpdate['lot_id'] = $lotId;
-                }
-                if ($this->db->field_exists('lot_no', 'pur_purchase_receipt_line') && $lotNo !== null) {
-                    $receiptLineUpdate['lot_no'] = $lotNo;
-                }
-                if (!empty($receiptLineUpdate)) {
-                    $this->db->where('id', $receiptLineId)->update('pur_purchase_receipt_line', $receiptLineUpdate);
+                $lotId = (int)($lotResult['data']['lot_id'] ?? 0);
+                $lotNo = $this->nullableString($lotResult['data']['lot_no'] ?? null);
+                if ($lotId > 0 || $lotNo !== null) {
+                    $receiptLineUpdate = [];
+                    if ($this->db->field_exists('lot_id', 'pur_purchase_receipt_line') && $lotId > 0) {
+                        $receiptLineUpdate['lot_id'] = $lotId;
+                    }
+                    if ($this->db->field_exists('lot_no', 'pur_purchase_receipt_line') && $lotNo !== null) {
+                        $receiptLineUpdate['lot_no'] = $lotNo;
+                    }
+                    if (!empty($receiptLineUpdate)) {
+                        $this->db->where('id', $receiptLineId)->update('pur_purchase_receipt_line', $receiptLineUpdate);
+                    }
                 }
             }
 
@@ -13400,13 +13439,13 @@ class Purchase_model extends CI_Model
                 'division_id' => $movementScope === 'DIVISION' ? $destinationDivisionId : null,
                 'destination_type' => $movementScope === 'DIVISION' ? $destinationType : null,
                 'movement_type' => 'PURCHASE_IN',
-                'stock_domain' => strtoupper((string)($poLine['line_kind'] ?? 'ITEM')) === 'MATERIAL' ? 'MATERIAL' : 'ITEM',
+                'stock_domain' => $stockDomain,
                 'ref_table' => 'pur_purchase_receipt',
                 'ref_id' => $receiptId,
                 'receipt_id' => $receiptId,
                 'receipt_line_id' => $receiptLineId,
                 'item_id' => $this->nullableInt($poLine['item_id'] ?? null),
-                'material_id' => $this->nullableInt($poLine['material_id'] ?? null),
+                'material_id' => $stockMaterialId,
                 'buy_uom_id' => $this->nullableInt($poLine['buy_uom_id'] ?? null),
                 'content_uom_id' => $this->nullableInt($poLine['content_uom_id'] ?? null),
                 'qty_buy_delta' => $qtyBuyReceived,
@@ -14873,6 +14912,7 @@ class Purchase_model extends CI_Model
 
         $itemId = $this->nullableInt($line['item_id'] ?? null);
         $materialId = $this->nullableInt($line['material_id'] ?? null);
+        $usagePurpose = $this->resolveLineUsagePurpose($line);
         $buyUomId = (int)($line['buy_uom_id'] ?? 0);
         $contentUomId = $this->nullableInt($line['content_uom_id'] ?? null);
         $lineName = $this->nullableString($line['catalog_name'] ?? ($line['item_name'] ?? null));
@@ -15027,6 +15067,9 @@ class Purchase_model extends CI_Model
             'profile_key' => $profileKey,
             'notes' => $this->nullableString($line['notes'] ?? null),
         ];
+        if ($this->hasPurchaseOrderUsagePurposeColumn()) {
+            $data['usage_purpose'] = $usagePurpose;
+        }
         if ($this->db->field_exists('expired_date', 'pur_purchase_order_line')) {
             $data['expired_date'] = $expiredDate;
         }
@@ -16282,6 +16325,106 @@ class Purchase_model extends CI_Model
 
         $this->tableFieldsCache[$table] = $map;
         return $this->tableFieldsCache[$table];
+    }
+
+    private function ensureUsagePurposeSchema(): void
+    {
+        if ($this->usagePurposeSchemaEnsured) {
+            return;
+        }
+        $this->usagePurposeSchemaEnsured = true;
+
+        $this->ensureTableColumn('mst_item', 'default_usage_purpose', "VARCHAR(20) NOT NULL DEFAULT 'BAHAN_BAKU'");
+        $this->ensureTableColumn('pur_purchase_order_line', 'usage_purpose', "VARCHAR(20) NOT NULL DEFAULT 'BAHAN_BAKU'");
+        $this->ensureTableColumn('pur_purchase_receipt_line', 'usage_purpose', "VARCHAR(20) NOT NULL DEFAULT 'BAHAN_BAKU'");
+        $this->ensureTableColumn('pur_store_request_fulfillment_line', 'usage_purpose', "VARCHAR(20) NOT NULL DEFAULT 'BAHAN_BAKU'");
+    }
+
+    private function ensureTableColumn(string $table, string $column, string $definition): void
+    {
+        if (!$this->db->table_exists($table) || $this->db->field_exists($column, $table)) {
+            return;
+        }
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $this->db->query(sprintf('ALTER TABLE `%s` ADD COLUMN `%s` %s', $table, $column, $definition));
+        } catch (Throwable $e) {
+            // Keep feature fallback-safe for partially patched environments.
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+    }
+
+    private function hasPurchaseOrderUsagePurposeColumn(): bool
+    {
+        $this->ensureUsagePurposeSchema();
+        return isset($this->listTableFields('pur_purchase_order_line')['usage_purpose']);
+    }
+
+    private function hasPurchaseReceiptUsagePurposeColumn(): bool
+    {
+        $this->ensureUsagePurposeSchema();
+        return isset($this->listTableFields('pur_purchase_receipt_line')['usage_purpose']);
+    }
+
+    private function normalizeUsagePurpose($value): string
+    {
+        return strtoupper(trim((string)$value)) === self::USAGE_PURPOSE_OPERATIONAL
+            ? self::USAGE_PURPOSE_OPERATIONAL
+            : self::USAGE_PURPOSE_PRODUCTION;
+    }
+
+    private function usagePurposeLabel($value): string
+    {
+        return $this->normalizeUsagePurpose($value) === self::USAGE_PURPOSE_OPERATIONAL
+            ? 'Kebutuhan Operasional'
+            : 'Persediaan Produksi';
+    }
+
+    private function parseUsagePurposeFromNotes(?string $notes): string
+    {
+        $notes = (string)$notes;
+        if (preg_match('/Tujuan\s+pemakaian\s*:\s*(Kebutuhan\s+Operasional|Persediaan\s+Produksi|Operasional|Bahan\s+Baku)/i', $notes, $matches)) {
+            $label = strtoupper(trim((string)$matches[1]));
+            return in_array($label, ['KEBUTUHAN OPERASIONAL', 'OPERASIONAL'], true)
+                ? self::USAGE_PURPOSE_OPERATIONAL
+                : self::USAGE_PURPOSE_PRODUCTION;
+        }
+        return self::USAGE_PURPOSE_PRODUCTION;
+    }
+
+    private function resolveLineUsagePurpose(array $line): string
+    {
+        if (array_key_exists('usage_purpose', $line) && trim((string)$line['usage_purpose']) !== '') {
+            return $this->normalizeUsagePurpose($line['usage_purpose']);
+        }
+        if (array_key_exists('default_usage_purpose', $line) && trim((string)$line['default_usage_purpose']) !== '') {
+            return $this->normalizeUsagePurpose($line['default_usage_purpose']);
+        }
+        return $this->parseUsagePurposeFromNotes((string)($line['notes'] ?? ''));
+    }
+
+    private function resolveLineStockDomain(array $line): string
+    {
+        $usagePurpose = $this->resolveLineUsagePurpose($line);
+        if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL) {
+            return 'ITEM';
+        }
+
+        $lineKind = strtoupper(trim((string)($line['line_kind'] ?? '')));
+        if (in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
+            return $lineKind;
+        }
+        return (int)($line['material_id'] ?? 0) > 0 ? 'MATERIAL' : 'ITEM';
+    }
+
+    private function resolveLineMaterialIdForStock(array $line): ?int
+    {
+        return $this->resolveLineUsagePurpose($line) === self::USAGE_PURPOSE_OPERATIONAL
+            ? null
+            : $this->nullableInt($line['material_id'] ?? null);
     }
 
     private function positiveDecimal($value, float $fallback): float

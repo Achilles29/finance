@@ -189,6 +189,20 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
     </div>
 </div>
 
+<?php
+if (!function_exists('finance_po_usage_purpose_from_notes')) {
+    function finance_po_usage_purpose_from_notes($notes)
+    {
+        $notes = (string)$notes;
+        if (preg_match('/Tujuan\s+pemakaian\s*:\s*(Kebutuhan\s+Operasional|Persediaan\s+Produksi|Operasional|Bahan\s+Baku)/i', $notes, $matches)) {
+            $label = strtoupper(str_replace(' ', '_', trim((string)$matches[1])));
+            return in_array($label, ['KEBUTUHAN_OPERASIONAL', 'OPERASIONAL'], true) ? 'Kebutuhan Operasional' : 'Persediaan Produksi';
+        }
+        return 'Persediaan Produksi';
+    }
+}
+?>
+
 <div class="row g-3">
     <div class="col-lg-4">
         <div class="card h-100">
@@ -254,6 +268,7 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
                                 <th>Nama Snapshot</th>
                                 <th>Merk</th>
                                 <th>Keterangan</th>
+                                <th>Pemakaian</th>
                                 <th class="text-end">Qty Beli</th>
                                 <th>UOM</th>
                                 <th class="text-end">Harga</th>
@@ -262,7 +277,7 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
                         </thead>
                         <tbody>
                             <?php if (empty($lines)): ?>
-                                <tr><td colspan="8" class="text-center text-muted py-3">Tidak ada line PO.</td></tr>
+                                <tr><td colspan="9" class="text-center text-muted py-3">Tidak ada line PO.</td></tr>
                             <?php else: ?>
                                 <?php foreach ($lines as $ln): ?>
                                     <?php
@@ -276,6 +291,7 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
                                         <td><?php echo html_escape($lineName); ?></td>
                                         <td><?php echo html_escape((string)($ln['snapshot_brand_name'] ?? '-')); ?></td>
                                         <td><?php echo html_escape((string)($ln['snapshot_line_description'] ?? '-')); ?></td>
+                                        <td><?php echo html_escape((string)($ln['usage_purpose'] ?? '') !== '' ? (((string)$ln['usage_purpose'] === 'OPERASIONAL') ? 'Kebutuhan Operasional' : 'Persediaan Produksi') : finance_po_usage_purpose_from_notes((string)($ln['notes'] ?? ''))); ?></td>
                                         <td class="text-end"><?php echo number_format((float)($ln['qty_buy'] ?? 0), 2, ',', '.'); ?></td>
                                         <td><?php echo html_escape((string)($ln['snapshot_buy_uom_code'] ?? '-')); ?></td>
                                         <td class="text-end"><?php echo number_format((float)($ln['unit_price'] ?? 0), 2, ',', '.'); ?></td>

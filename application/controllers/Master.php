@@ -12,6 +12,29 @@ class Master extends MY_Controller
         parent::__construct();
         $this->load->model(['Master_model', 'User_model', 'Auth_model']);
         $this->load->library('form_validation');
+        $this->ensure_item_usage_purpose_schema();
+    }
+
+    private function ensure_item_usage_purpose_schema(): void
+    {
+        $this->ensure_table_column('mst_item', 'default_usage_purpose', "VARCHAR(20) NOT NULL DEFAULT 'BAHAN_BAKU'");
+    }
+
+    private function ensure_table_column(string $table, string $column, string $definition): void
+    {
+        if (!$this->db->table_exists($table) || $this->db->field_exists($column, $table)) {
+            return;
+        }
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $this->db->query(sprintf('ALTER TABLE `%s` ADD COLUMN `%s` %s', $table, $column, $definition));
+        } catch (Throwable $e) {
+            // Ignore schema drift here; the field remains optional at runtime.
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
     }
 
     private function redirect_contract_operational_if_needed(string $entity, string $action = 'index', int $id = 0): bool
@@ -810,6 +833,11 @@ class Master extends MY_Controller
         if (($cfg['table'] ?? '') === 'mst_item') {
             $isMaterial = (int)($data['is_material'] ?? 0);
             $materialId = (int)($data['material_id'] ?? 0);
+            $usagePurpose = strtoupper(trim((string)($data['default_usage_purpose'] ?? 'BAHAN_BAKU')));
+            if (!in_array($usagePurpose, ['BAHAN_BAKU', 'OPERASIONAL'], true)) {
+                $usagePurpose = 'BAHAN_BAKU';
+            }
+            $data['default_usage_purpose'] = $usagePurpose;
 
             if ($isMaterial === 1 && $materialId <= 0) {
                 $newCode = trim((string)$this->input->post('new_material_code', true));
@@ -2529,6 +2557,10 @@ class Master extends MY_Controller
                     ['name' => 'last_buy_price', 'label' => 'Harga Beli Terakhir', 'type' => 'number', 'step' => '0.01'],
                     ['name' => 'is_material', 'label' => 'Item ini Bahan Baku', 'type' => 'checkbox'],
                     ['name' => 'material_id', 'label' => 'Bahan Baku Existing', 'type' => 'select', 'lookup' => ['table' => 'mst_material', 'value' => 'id', 'label' => 'material_name', 'active_only' => false]],
+                    ['name' => 'default_usage_purpose', 'label' => 'Default Tujuan Pemakaian', 'type' => 'select', 'options' => [
+                        ['value' => 'BAHAN_BAKU', 'label' => 'Persediaan Produksi'],
+                        ['value' => 'OPERASIONAL', 'label' => 'Kebutuhan Operasional'],
+                    ]],
                     ['name' => 'new_material_code', 'label' => 'Kode Bahan Baku Baru', 'type' => 'text', 'readonly' => true],
                     ['name' => 'new_material_name', 'label' => 'Nama Bahan Baku Baru', 'type' => 'text', 'readonly' => true],
                     ['name' => 'new_material_hpp', 'label' => 'HPP Bahan Baku Baru', 'type' => 'number', 'readonly' => true, 'step' => '0.0001'],
@@ -2542,6 +2574,7 @@ class Master extends MY_Controller
                     ['key' => 'buy_uom_id_label', 'label' => 'UOM Beli'],
                     ['key' => 'content_uom_id_label', 'label' => 'UOM Isi'],
                     ['key' => 'is_material', 'label' => 'Bahan Baku', 'type' => 'bool'],
+                    ['key' => 'default_usage_purpose', 'label' => 'Default Pemakaian'],
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
                 ],
             ],

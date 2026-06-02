@@ -23,8 +23,14 @@ if (!function_exists('finance_dreq_detail_badge')) {
                 return 'bg-secondary';
             default:
                 return 'bg-light text-dark';
-        }
-    }
+  }
+}
+if (!function_exists('finance_dreq_usage_label')) {
+  function finance_dreq_usage_label($value)
+  {
+    return strtoupper(trim((string)$value)) === 'OPERASIONAL' ? 'Kebutuhan Operasional' : 'Persediaan Produksi';
+  }
+}
 }
 
   if (!function_exists('finance_dreq_detail_location_label')) {
@@ -186,7 +192,7 @@ if (!function_exists('finance_dreq_detail_badge')) {
         <tr>
           <th>#</th>
           <th>Profile</th>
-          <th>Jenis</th>
+          <th>Pemakaian</th>
           <th>Vendor PO</th>
           <th>UOM</th>
           <th class="text-end">Qty Beli</th>
@@ -207,7 +213,7 @@ if (!function_exists('finance_dreq_detail_badge')) {
               <td>
                 <div class="fw-semibold"><?php echo html_escape((string)($line['profile_name'] ?? '-')); ?></div>
               </td>
-              <td><?php echo html_escape((string)($line['line_kind'] ?? '-')); ?></td>
+              <td><span class="badge bg-light text-dark border"><?php echo html_escape(finance_dreq_usage_label($line['usage_purpose'] ?? $line['default_usage_purpose'] ?? 'BAHAN_BAKU')); ?></span></td>
               <td><?php echo html_escape((string)($line['vendor_name'] ?? '-')); ?></td>
               <td><?php echo html_escape((string)($line['profile_buy_uom_code'] ?? '-')); ?> -> <?php echo html_escape((string)($line['profile_content_uom_code'] ?? '-')); ?></td>
               <td class="text-end"><?php echo ui_num((float)($line['qty_buy_requested'] ?? 0)); ?></td>

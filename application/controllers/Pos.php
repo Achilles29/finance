@@ -75,7 +75,7 @@ class Pos extends MY_Controller
 
     public function self_order()
     {
-        redirect('pos/self-order/settings');
+        redirect('pos/self-order/orders');
     }
 
     public function self_order_settings()
@@ -146,6 +146,50 @@ class Pos extends MY_Controller
             'title' => 'Print QR Meja Self Order',
             'rows' => $rows,
         ]);
+    }
+
+    public function self_order_orders()
+    {
+        $this->require_permission('pos.self_order.index', 'view');
+        $filters = $this->self_order_order_filters();
+        $this->render('pos/self_order_orders', [
+            'page_title' => 'Orderan Self Order',
+            'active_menu' => 'pos.self_order.index',
+            'filters' => $filters,
+            'filter_options' => $this->Pos_model->self_order_order_filter_options(),
+        ]);
+    }
+
+    public function self_order_orders_data()
+    {
+        $this->require_permission('pos.self_order.index', 'view');
+        $this->json_ok($this->Pos_model->self_order_order_rows($this->self_order_order_filters()));
+    }
+
+    public function self_order_order_detail($id)
+    {
+        $this->require_permission('pos.self_order.index', 'view');
+        $result = $this->Pos_model->find_order_draft((int)$id);
+        if (!$result) {
+            $this->json_error('Order self order tidak ditemukan.', 404);
+            return;
+        }
+        $header = (array)($result['header'] ?? []);
+        if (strtoupper(trim((string)($header['order_channel'] ?? ''))) !== 'SELF_ORDER') {
+            $this->json_error('Order ini bukan order self order.', 422);
+            return;
+        }
+        $this->json_ok($result + [
+            'payments' => $this->Pos_report_model->order_payment_rows((int)$id),
+            'refunds' => $this->Pos_report_model->order_refund_rows((int)$id),
+            'voids' => $this->Pos_report_model->order_void_rows((int)$id),
+        ]);
+    }
+
+    public function self_order_order_verify($id)
+    {
+        $this->require_permission('pos.self_order.index', 'edit');
+        $this->verify_self_order_and_respond((int)$id, $this->current_actor_employee_id());
     }
 
     public function deposit_member_search()
@@ -2743,6 +2787,128 @@ class Pos extends MY_Controller
             'page' => max(1, (int)$this->input->get('page', true)),
             'limit' => max(1, min(100, (int)$this->input->get('limit', true) ?: 25)),
         ];
+    }
+
+    private function self_order_order_filters(): array
+    {
+        $paymentTab = strtoupper(trim((string)$this->input->get('payment_tab', true)));
+        if (!in_array($paymentTab, ['ALL', 'KASIR', 'QRIS'], true)) {
+            $paymentTab = 'ALL';
+        }
+        $statusTab = strtoupper(trim((string)$this->input->get('status_tab', true)));
+        if (!in_array($statusTab, ['ALL', 'NEEDS_VERIFY', 'WAITING_PAYMENT', 'ACTIVE_CASHIER', 'PAID_ORDER'], true)) {
+            $statusTab = 'ALL';
+        }
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'payment_tab' => $paymentTab,
+            'status_tab' => $statusTab,
+            'date_from' => $this->optional_report_date_input('date_from') ?: date('Y-m-d'),
+            'date_to' => $this->optional_report_date_input('date_to') ?: date('Y-m-d'),
+            'page' => max(1, (int)$this->input->get('page', true)),
+            'limit' => max(1, min(100, (int)$this->input->get('limit', true) ?: 20)),
+        ];
+    }
+
+    private function verify_self_order_and_respond(int $orderId, int $actorEmployeeId): void
+    {
+        $this->load->library('PosStockCommitService');
+        $this->load->library('PosRuntimeJobService');
+
+        $context = $this->Pos_model->self_order_verification_context($orderId);
+        if (!($context['ok'] ?? false)) {
+            $this->json_error((string)($context['message'] ?? 'Order self order belum siap diverifikasi.'), 422);
+            return;
+        }
+
+        $resolved = $this->Pos_model->resolve_order_stock_commit_payload($orderId, $actorEmployeeId, [
+            'allowed_statuses' => ['PENDING', 'PAID'],
+        ]);
+        if (!($resolved['ok'] ?? false)) {
+            $this->json_error((string)($resolved['message'] ?? 'Gagal menyiapkan stock commit order self order.'), 422);
+            return;
+        }
+
+        $snapshot = $this->posstockcommitservice->create_snapshot($orderId, (array)($resolved['header'] ?? []), (array)($resolved['lines'] ?? []));
+        if (!($snapshot['ok'] ?? false)) {
+            $this->json_error((string)($snapshot['message'] ?? 'Gagal membuat snapshot stock commit self order.'), 422);
+            return;
+        }
+
+        $queued = $this->posruntimejobservice->queue_order_confirm_commit($orderId, (int)$snapshot['id'], $actorEmployeeId, [
+            'event_source' => 'SELF_ORDER_VERIFY',
+            'event_id' => $orderId,
+        ]);
+        if (!($queued['ok'] ?? false)) {
+            $this->json_error((string)($queued['message'] ?? 'Snapshot berhasil, tetapi queue runtime self order gagal dibuat.'), 422, [
+                'snapshot_id' => (int)$snapshot['id'],
+                'commit_no' => (string)($snapshot['commit_no'] ?? ''),
+            ]);
+            return;
+        }
+
+        $markQueued = $this->posstockcommitservice->mark_queued((int)$snapshot['id']);
+        if (!($markQueued['ok'] ?? false)) {
+            $this->posruntimejobservice->cancel_job((int)($queued['job_id'] ?? 0), 'Snapshot self order gagal ditandai queued.');
+            $this->json_error((string)($markQueued['message'] ?? 'Gagal menandai stock commit self order sebagai queued.'), 422);
+            return;
+        }
+
+        $finalize = $this->Pos_model->finalize_self_order_verification($orderId, (int)$snapshot['id'], $actorEmployeeId, [
+            'payment_mode' => (string)($context['payment_mode'] ?? 'KASIR'),
+            'payment_status' => (string)($context['payment_status'] ?? 'PENDING'),
+            'is_paid' => !empty($context['is_paid']),
+            'stock_commit_status' => 'QUEUED',
+        ]);
+        if (!($finalize['ok'] ?? false)) {
+            $this->posruntimejobservice->cancel_job((int)($queued['job_id'] ?? 0), 'Order self order gagal difinalkan setelah queue dibuat.');
+            $this->json_error((string)($finalize['message'] ?? 'Order self order gagal difinalkan.'), 422, [
+                'snapshot_id' => (int)$snapshot['id'],
+                'commit_no' => (string)($snapshot['commit_no'] ?? ''),
+            ]);
+            return;
+        }
+
+        $this->Pos_order_monitor_model->sync_order_tasks($orderId);
+
+        $kickoff = [
+            'ok' => false,
+            'mode' => 'client_trigger_required',
+            'message' => 'Queue stok self order akan dipicu dari client setelah response verify diterima.',
+        ];
+        if (function_exists('fastcgi_finish_request')) {
+            $kickoff = $this->schedule_runtime_job_processing($orderId, (int)($queued['job_id'] ?? 0), 1);
+        }
+
+        $directPrint = $this->Pos_model->direct_print_targets_for_order_confirm($orderId, (int)$snapshot['id']);
+        if (!($directPrint['ok'] ?? false)) {
+            $this->json_error((string)($directPrint['message'] ?? 'Order diverifikasi, tetapi payload cetak gagal disiapkan.'), 422, [
+                'snapshot_id' => (int)$snapshot['id'],
+                'commit_no' => (string)($snapshot['commit_no'] ?? ''),
+            ]);
+            return;
+        }
+
+        $this->json_ok([
+            'id' => $orderId,
+            'snapshot_id' => (int)$snapshot['id'],
+            'commit_no' => (string)($snapshot['commit_no'] ?? ''),
+            'resolved_line_count' => (int)($resolved['resolved_line_count'] ?? 0),
+            'runtime_job_id' => (int)($queued['job_id'] ?? 0),
+            'runtime_job_code' => (string)($queued['job_code'] ?? ''),
+            'runtime_kickoff' => $kickoff,
+            'stock_sync' => [
+                'queued' => true,
+                'status' => 'QUEUED',
+                'kickoff_ok' => !empty($kickoff['ok']),
+            ],
+            'stock_commit_status' => 'QUEUED',
+            'workspace_bucket' => (string)($finalize['workspace_bucket'] ?? ''),
+            'target_status' => (string)($finalize['target_status'] ?? ''),
+            'payment_mode' => (string)($context['payment_mode'] ?? 'KASIR'),
+            'direct_print_targets' => (array)($directPrint['targets'] ?? []),
+        ]);
     }
 
     private function order_monitor_filters(): array
