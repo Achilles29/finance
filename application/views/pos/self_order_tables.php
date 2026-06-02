@@ -217,7 +217,7 @@ document.addEventListener('DOMContentLoaded', function () {
   async function loadRows() {
     syncControls();
     const json = await getJson('<?php echo site_url('pos/self-order/tables/data'); ?>?' + qsFromState());
-    renderRows(Array.isArray(json.data && json.data.rows) ? json.data.rows : []);
+    renderRows(Array.isArray(json.rows) ? json.rows : []);
     history.replaceState(null, '', '<?php echo site_url('pos/self-order/tables'); ?>?' + qsFromState());
   }
 

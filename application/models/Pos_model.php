@@ -531,16 +531,18 @@ class Pos_model extends CI_Model
             }
         }
 
-        if ($this->db->table_exists('pr_table_qr_secret')) {
-            $row = $this->db->get_where('pr_table_qr_secret', ['id' => 1])->row_array();
+        $qrSecretTable = $this->self_order_qr_secret_table();
+        if ($qrSecretTable !== null) {
+            $row = $this->db->get_where($qrSecretTable, ['id' => 1])->row_array();
             if ($row) {
                 $settings['table_qr_secret'] = trim((string)($row['secret'] ?? ''));
                 $settings['table_qr_enforce'] = (int)($row['enforce'] ?? 1);
             }
         }
 
-        if ($this->db->table_exists('pr_qris_setting')) {
-            $row = $this->db->get_where('pr_qris_setting', ['id' => 1])->row_array();
+        $qrisTable = $this->self_order_qris_table();
+        if ($qrisTable !== null) {
+            $row = $this->db->get_where($qrisTable, ['id' => 1])->row_array();
             if ($row) {
                 $settings['midtrans_is_enabled'] = (int)($row['is_enabled'] ?? 0);
                 $settings['midtrans_server_key'] = (string)($row['midtrans_server_key'] ?? '');
@@ -556,11 +558,14 @@ class Pos_model extends CI_Model
 
     public function save_self_order_settings(array $data): array
     {
-        $requiredTables = ['pos_self_order_setting', 'pr_table_qr_secret', 'pr_qris_setting'];
-        foreach ($requiredTables as $table) {
-            if (!$this->db->table_exists($table)) {
-                return ['ok' => false, 'message' => 'Schema self order belum lengkap. Jalankan migration self order terlebih dulu.'];
-            }
+        $qrSecretTable = $this->self_order_qr_secret_table();
+        $qrisTable = $this->self_order_qris_table();
+        if (
+            !$this->db->table_exists('pos_self_order_setting')
+            || $qrSecretTable === null
+            || $qrisTable === null
+        ) {
+            return ['ok' => false, 'message' => 'Schema self order belum lengkap. Jalankan migration self order terlebih dulu.'];
         }
 
         $db = $this->db;
@@ -579,13 +584,13 @@ class Pos_model extends CI_Model
                 'notes' => $this->nullable_text($data['qris_notes'] ?? ''),
             ]));
 
-            $db->replace('pr_table_qr_secret', $this->filter_table_payload('pr_table_qr_secret', [
+            $db->replace($qrSecretTable, $this->filter_table_payload($qrSecretTable, [
                 'id' => 1,
                 'secret' => $secret,
                 'enforce' => !empty($data['table_qr_enforce']) ? 1 : 0,
             ]));
 
-            $db->replace('pr_qris_setting', $this->filter_table_payload('pr_qris_setting', [
+            $db->replace($qrisTable, $this->filter_table_payload($qrisTable, [
                 'id' => 1,
                 'is_enabled' => !empty($data['midtrans_is_enabled']) ? 1 : 0,
                 'midtrans_server_key' => trim((string)($data['midtrans_server_key'] ?? '')),
@@ -609,22 +614,23 @@ class Pos_model extends CI_Model
     {
         $q = trim((string)($filters['q'] ?? ''));
         $status = strtoupper(trim((string)($filters['status'] ?? 'ACTIVE')));
+        $tableName = $this->self_order_table_master();
 
-        if (!$this->db->table_exists('pr_meja')) {
+        if ($tableName === null) {
             return ['rows' => []];
         }
 
         $db = $this->db;
-        $db->from('pr_meja');
+        $db->from($tableName);
         if ($q !== '') {
             $db->group_start()
                 ->like('nama_meja', $q);
-            if ($this->db->field_exists('qr_label', 'pr_meja')) {
+            if ($this->db->field_exists('qr_label', $tableName)) {
                 $db->or_like('qr_label', $q);
             }
             $db->group_end();
         }
-        if ($this->db->field_exists('is_active', 'pr_meja')) {
+        if ($this->db->field_exists('is_active', $tableName)) {
             if ($status === 'ACTIVE') {
                 $db->where('is_active', 1);
             } elseif ($status === 'INACTIVE') {
@@ -632,7 +638,7 @@ class Pos_model extends CI_Model
             }
         }
 
-        $sortField = $this->db->field_exists('sort_order', 'pr_meja') ? 'sort_order' : 'id';
+        $sortField = $this->db->field_exists('sort_order', $tableName) ? 'sort_order' : 'id';
         $rows = $db->order_by($sortField, 'ASC')
             ->order_by('nama_meja', 'ASC')
             ->get()
@@ -653,15 +659,17 @@ class Pos_model extends CI_Model
 
     public function find_self_order_table(int $id): ?array
     {
-        if ($id <= 0 || !$this->db->table_exists('pr_meja')) {
+        $tableName = $this->self_order_table_master();
+        if ($id <= 0 || $tableName === null) {
             return null;
         }
-        return $this->db->from('pr_meja')->where('id', $id)->limit(1)->get()->row_array() ?: null;
+        return $this->db->from($tableName)->where('id', $id)->limit(1)->get()->row_array() ?: null;
     }
 
     public function save_self_order_table(array $data): array
     {
-        if (!$this->db->table_exists('pr_meja')) {
+        $tableName = $this->self_order_table_master();
+        if ($tableName === null) {
             return ['ok' => false, 'message' => 'Schema meja self order belum tersedia. Jalankan migration self order terlebih dulu.'];
         }
 
@@ -679,7 +687,7 @@ class Pos_model extends CI_Model
             'sort_order' => max(0, (int)($data['sort_order'] ?? 0)),
             'is_active' => !isset($data['is_active']) || (int)$data['is_active'] === 1 ? 1 : 0,
         ];
-        $payload = $this->filter_table_payload('pr_meja', $payload);
+        $payload = $this->filter_table_payload($tableName, $payload);
 
         $db->trans_begin();
         try {
@@ -687,9 +695,9 @@ class Pos_model extends CI_Model
                 if (!$this->find_self_order_table($id)) {
                     throw new RuntimeException('Meja tidak ditemukan.');
                 }
-                $db->where('id', $id)->update('pr_meja', $payload);
+                $db->where('id', $id)->update($tableName, $payload);
             } else {
-                $db->insert('pr_meja', $payload);
+                $db->insert($tableName, $payload);
                 $id = (int)$db->insert_id();
             }
             if ($db->trans_status() === false) {
@@ -705,7 +713,8 @@ class Pos_model extends CI_Model
 
     public function delete_self_order_table(int $id): array
     {
-        if ($id <= 0 || !$this->db->table_exists('pr_meja')) {
+        $tableName = $this->self_order_table_master();
+        if ($id <= 0 || $tableName === null) {
             return ['ok' => false, 'message' => 'Meja tidak ditemukan.'];
         }
         $row = $this->find_self_order_table($id);
@@ -723,7 +732,7 @@ class Pos_model extends CI_Model
 
         $this->db->trans_begin();
         try {
-            $this->db->where('id', $id)->delete('pr_meja');
+            $this->db->where('id', $id)->delete($tableName);
             if ($this->db->trans_status() === false) {
                 throw new RuntimeException('Gagal menghapus meja self order.');
             }
@@ -738,6 +747,42 @@ class Pos_model extends CI_Model
     public function self_order_print_rows(): array
     {
         return $this->self_order_table_rows(['status' => 'ACTIVE'])['rows'] ?? [];
+    }
+
+    private function self_order_table_master(): ?string
+    {
+        if ($this->db->table_exists('pos_self_order_table')) {
+            return 'pos_self_order_table';
+        }
+        if ($this->db->table_exists('pr_meja')) {
+            return 'pr_meja';
+        }
+
+        return null;
+    }
+
+    private function self_order_qr_secret_table(): ?string
+    {
+        if ($this->db->table_exists('pos_self_order_qr_secret')) {
+            return 'pos_self_order_qr_secret';
+        }
+        if ($this->db->table_exists('pr_table_qr_secret')) {
+            return 'pr_table_qr_secret';
+        }
+
+        return null;
+    }
+
+    private function self_order_qris_table(): ?string
+    {
+        if ($this->db->table_exists('pos_self_order_qris_setting')) {
+            return 'pos_self_order_qris_setting';
+        }
+        if ($this->db->table_exists('pr_qris_setting')) {
+            return 'pr_qris_setting';
+        }
+
+        return null;
     }
 
     public function payment_method_rows(array $filters): array

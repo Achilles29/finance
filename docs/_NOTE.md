@@ -86,27 +86,12 @@ Buat satu DP untuk member lewat halaman pos/deposits.
 Bayar order POS atas member yang sama untuk memastikan modal payment otomatis memotong DP dan receipt menampilkan PAKAI DP.
 
 
+saya ada sedikit kendala. AIR ISI ULANG GALON selama ini dicatat sebagai item non material. tapi mulai saat ini BAR menggunakan AIR ISI ULANG GALON sebagai BASE TEA. namun permintaan AIR ISI ULANG GALON bukan hanya di BAR, karena AIR ISI ULANG GALON itu untuk air minum pegawai juga yang bukan bahan baku.
+ada saran?
 
-satu lagi sentuhan di pos/reports/sales:
-- gunakan " Standar Tab Bertingkat" di coding standar, termasuk pewarnaanya purchase-orders seperti purchase order. sudah masuk coding standars belum? kalau belum masukkan ketat bentuk form, teks, warna masing masing sesuai di purchase-orders
+cek air isi ulang galon di gudang dan catalog yang uom , qty belum sesuai data di m_material, lakukan konversi
 
-purchase-orders:
--  hapus " Purchase Overview" diatas biar tidak boros, lalu "Create Order" diturunkan agar tidak tinggi diatas gitu
-- icon di kolom aksi terlalu kecil, standar nya bagaimana? besarin lagi
-- berikan guarding agar wajib pilih vendor.
-- karena filter tampilan defaultnya adalah hari ini, maka tambahkan pada card atau dimana saja , warning keras jika masih ada PO dengan status belum void di bulan ini. 
+saya simpulkan berarti begini:
 
-store-requests:
-- hapus " Store Request Overview" di atas dan "Verifikasi, fulfillment gudang, dan generate PO shortage dengan pembacaan status yang lebih tajam. PO final tetap diproses di menu Purchase Order." dan turunkan tombol SR agar tidak ketinggian.
-- berikan warna button berbeda dengan backgroundnya
-- saya coba SR AIR MINERAL GALON kenapa harga satuan 0, padahal di gudang tampil. lalu ketika di fullfill gagal "Tidak ada qty yang bisa dipenuhi dari stok gudang."
-- icon di kolom aksi terlalu kecil, standar nya bagaimana? besarin lagi
-- gunakan " Standar Tab Bertingkat" di coding standar 
-- sesuaikan ukuran gambar 3 agar tidak ada teks terpotong
-- karena filter tampilan defaultnya adalah hari ini, maka tambahkan pada card atau dimana saja , warning keras jika masih ada SR dengan status belum fullfilment di bulan ini. 
+purchase melakukan PO dan SR dari gudang mandiri atau verifiikasi pengajian divisi yang menuju ke stok divisi, ada opsi digunakan sebagai bahan baku atau operasional, tapi defaultnya bahan baku
 
-
-
-
-icon di kolom aksi purchase-orders dan store-requests masih terlalu kecil. standarnya memang segitu? tidak seperti /procurement/division-po-sr yang cukup besar. masukan ukuran icon kolom aksi di /procurement/division-po-sr sebagai standars (catat kodenya bukan /procurement/division-po-sr nya)
-ingat ya, buatkan ringkasan dari point pointku di akhir jawabanmu

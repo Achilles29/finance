@@ -513,7 +513,7 @@ class Procurement_model extends CI_Model
             ->get_compiled_select();
 
         $this->db
-            ->select('s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id, s.profile_key', false)
+            ->select('s.item_id, s.material_id, s.buy_uom_id, s.content_uom_id, s.profile_key', false)
             ->select('s.stock_domain', false)
             ->select('s.profile_name, s.profile_brand, s.profile_description, s.profile_expired_date, s.profile_content_per_buy')
             ->select('s.profile_buy_uom_code, s.profile_content_uom_code, s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content')
@@ -557,14 +557,18 @@ class Procurement_model extends CI_Model
         foreach ($rows as &$row) {
             $stockDomain = strtoupper(trim((string)($row['stock_domain'] ?? '')));
             $catalogLineKind = strtoupper(trim((string)($row['catalog_line_kind'] ?? '')));
-            if ((int)($row['material_id'] ?? 0) > 0) {
-                $row['line_kind'] = 'MATERIAL';
-            } elseif (in_array($stockDomain, ['MATERIAL', 'ITEM'], true)) {
+            if (in_array($stockDomain, ['MATERIAL', 'ITEM'], true)) {
                 $row['line_kind'] = $stockDomain;
+            } elseif ((int)($row['material_id'] ?? 0) > 0) {
+                $row['line_kind'] = 'MATERIAL';
             } elseif (in_array($catalogLineKind, ['MATERIAL', 'ITEM'], true)) {
                 $row['line_kind'] = $catalogLineKind;
             } else {
                 $row['line_kind'] = (int)($row['material_id'] ?? 0) > 0 ? 'MATERIAL' : 'ITEM';
+            }
+
+            if ($row['line_kind'] === 'ITEM') {
+                $row['material_id'] = null;
             }
         }
         unset($row);

@@ -125,6 +125,23 @@ class MaterialFifoManager
             'profile_key' => $identity['profile_key'],
         ]);
 
+        $lotIdentity = $identity;
+        if (empty($warehouseLots) && ($identity['item_id'] ?? null) !== null && ($identity['material_id'] ?? null) !== null) {
+            $warehouseLots = $this->findOpenLots([
+                'location_scope' => 'WAREHOUSE',
+                'division_id' => null,
+                'destination_type' => 'GUDANG',
+                'item_id' => $identity['item_id'],
+                'material_id' => null,
+                'buy_uom_id' => $identity['buy_uom_id'],
+                'content_uom_id' => $identity['content_uom_id'],
+                'profile_key' => $identity['profile_key'],
+            ]);
+            if (!empty($warehouseLots)) {
+                $lotIdentity['material_id'] = null;
+            }
+        }
+
         $available = 0.0;
         foreach ($warehouseLots as $lot) {
             $available += round((float)($lot['qty_balance'] ?? 0), 4);
@@ -192,8 +209,8 @@ class MaterialFifoManager
                 'location_scope' => 'WAREHOUSE',
                 'division_id' => null,
                 'destination_type' => 'GUDANG',
-                'item_id' => $identity['item_id'],
-                'material_id' => $identity['material_id'],
+                'item_id' => $lotIdentity['item_id'],
+                'material_id' => $lotIdentity['material_id'],
                 'buy_uom_id' => $identity['buy_uom_id'],
                 'content_uom_id' => $identity['content_uom_id'],
                 'profile_key' => $identity['profile_key'],

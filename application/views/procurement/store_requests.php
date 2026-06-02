@@ -355,6 +355,27 @@ foreach ($lineRows as $lineRow) {
     border-radius: 12px;
     font-weight: 700;
   }
+  .sr-filter-grid {
+    display: grid;
+    gap: .65rem;
+    align-items: end;
+  }
+  .sr-filter-field {
+    min-width: 0;
+  }
+  .sr-filter-field .form-label {
+    white-space: nowrap;
+  }
+  .sr-filter-field .form-control,
+  .sr-filter-field .form-select {
+    min-width: 0;
+  }
+  .sr-filter-field--date .form-control {
+    min-width: 148px;
+  }
+  .sr-filter-field--limit .form-select {
+    min-width: 96px;
+  }
   .sr-filter-actions {
     display: flex;
     gap: .5rem;
@@ -373,6 +394,39 @@ foreach ($lineRows as $lineRow) {
     background: #fff;
     border-color: #a9b2be;
     color: #4b5563;
+  }
+  @media (min-width: 992px) {
+    .sr-filter-grid {
+      grid-template-columns: minmax(0, 1.9fr) minmax(126px, .95fr) minmax(126px, .95fr) minmax(126px, .95fr) minmax(148px, 1.05fr) minmax(148px, 1.05fr) minmax(92px, .62fr);
+    }
+    .sr-filter-actions {
+      grid-column: 1 / -1;
+      margin-top: .1rem;
+    }
+  }
+  @media (max-width: 991.98px) {
+    .sr-filter-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .sr-filter-actions {
+      grid-column: 1 / -1;
+    }
+  }
+  @media (max-width: 575.98px) {
+    .sr-filter-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .sr-filter-field--date .form-control,
+    .sr-filter-field--limit .form-select {
+      min-width: 0;
+    }
+    .sr-filter-actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .sr-filter-actions .btn {
+      width: 100%;
+    }
   }
   .sr-table-main thead th {
     white-space: nowrap;
@@ -479,16 +533,16 @@ foreach ($lineRows as $lineRow) {
 
 <div class="card mb-3 sr-filter-card">
   <div class="card-body">
-    <form class="row g-2 align-items-end" method="get" action="<?php echo site_url('store-requests'); ?>">
+    <form class="sr-filter-grid" method="get" action="<?php echo site_url('store-requests'); ?>">
       <input type="hidden" name="tab" value="<?php echo html_escape($activeTab); ?>">
-      <div class="col-md-3"><label class="form-label mb-1">Cari</label><input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="No SR / catatan"></div>
-      <div class="col-md-2"><label class="form-label mb-1">Status</label><select name="status" class="form-select"><option value="">Semua</option><?php foreach($statusOptions as $st): ?><option value="<?php echo html_escape($st); ?>" <?php echo ((string)($filters['status'] ?? '') === $st) ? 'selected' : ''; ?>><?php echo html_escape($st); ?></option><?php endforeach; ?></select></div>
-      <div class="col-md-2"><label class="form-label mb-1">Divisi</label><select name="division_id" class="form-select"><option value="">Semua</option><?php foreach($divisionOptions as $d): ?><option value="<?php echo (int)$d['id']; ?>" <?php echo ((int)($filters['division_id'] ?? 0) === (int)$d['id']) ? 'selected' : ''; ?>><?php echo html_escape((string)($d['division_name'] ?? $d['name'] ?? ('DIV#'.$d['id']))); ?></option><?php endforeach; ?></select></div>
-      <div class="col-md-2"><label class="form-label mb-1">Tujuan</label><select name="destination_type" class="form-select"><option value="">Semua</option><?php foreach($destinationOptions as $op): ?><option value="<?php echo html_escape((string)$op['value']); ?>" <?php echo ((string)($filters['destination_type'] ?? '') === (string)$op['value']) ? 'selected' : ''; ?>><?php echo html_escape((string)$op['label']); ?></option><?php endforeach; ?></select></div>
-      <div class="col-md-1"><label class="form-label mb-1">Dari</label><input type="date" name="date_start" class="form-control" value="<?php echo html_escape((string)($filters['date_start'] ?? '')); ?>"></div>
-      <div class="col-md-1"><label class="form-label mb-1">Sampai</label><input type="date" name="date_end" class="form-control" value="<?php echo html_escape((string)($filters['date_end'] ?? '')); ?>"></div>
-      <div class="col-md-1"><label class="form-label mb-1">Baris</label><select name="limit" class="form-select"><?php foreach([25,50,100,200] as $lm): ?><option value="<?php echo $lm; ?>" <?php echo $limit === $lm ? 'selected' : ''; ?>><?php echo $lm; ?></option><?php endforeach; ?></select></div>
-      <div class="col-12 sr-filter-actions">
+      <div class="sr-filter-field sr-filter-field--search"><label class="form-label mb-1">Cari</label><input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="No SR / catatan"></div>
+      <div class="sr-filter-field sr-filter-field--status"><label class="form-label mb-1">Status</label><select name="status" class="form-select"><option value="">Semua</option><?php foreach($statusOptions as $st): ?><option value="<?php echo html_escape($st); ?>" <?php echo ((string)($filters['status'] ?? '') === $st) ? 'selected' : ''; ?>><?php echo html_escape($st); ?></option><?php endforeach; ?></select></div>
+      <div class="sr-filter-field sr-filter-field--division"><label class="form-label mb-1">Divisi</label><select name="division_id" class="form-select"><option value="">Semua</option><?php foreach($divisionOptions as $d): ?><option value="<?php echo (int)$d['id']; ?>" <?php echo ((int)($filters['division_id'] ?? 0) === (int)$d['id']) ? 'selected' : ''; ?>><?php echo html_escape((string)($d['division_name'] ?? $d['name'] ?? ('DIV#'.$d['id']))); ?></option><?php endforeach; ?></select></div>
+      <div class="sr-filter-field sr-filter-field--destination"><label class="form-label mb-1">Tujuan</label><select name="destination_type" class="form-select"><option value="">Semua</option><?php foreach($destinationOptions as $op): ?><option value="<?php echo html_escape((string)$op['value']); ?>" <?php echo ((string)($filters['destination_type'] ?? '') === (string)$op['value']) ? 'selected' : ''; ?>><?php echo html_escape((string)$op['label']); ?></option><?php endforeach; ?></select></div>
+      <div class="sr-filter-field sr-filter-field--date"><label class="form-label mb-1">Dari</label><input type="date" name="date_start" class="form-control" value="<?php echo html_escape((string)($filters['date_start'] ?? '')); ?>"></div>
+      <div class="sr-filter-field sr-filter-field--date"><label class="form-label mb-1">Sampai</label><input type="date" name="date_end" class="form-control" value="<?php echo html_escape((string)($filters['date_end'] ?? '')); ?>"></div>
+      <div class="sr-filter-field sr-filter-field--limit"><label class="form-label mb-1">Baris</label><select name="limit" class="form-select"><?php foreach([25,50,100,200] as $lm): ?><option value="<?php echo $lm; ?>" <?php echo $limit === $lm ? 'selected' : ''; ?>><?php echo $lm; ?></option><?php endforeach; ?></select></div>
+      <div class="sr-filter-actions">
         <a href="<?php echo $resetUrl; ?>" class="btn btn-outline-secondary">Clear Filter</a>
         <button type="submit" class="btn btn-primary">Terapkan</button>
       </div>
