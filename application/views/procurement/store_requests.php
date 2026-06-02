@@ -16,6 +16,7 @@ $activeTab = in_array((string)($active_tab ?? 'nota'), ['nota', 'rincian'], true
 $canCreate = !empty($can_create);
 $canEdit = !empty($can_edit);
 $canRepairHistory = !empty($can_repair_history);
+$monthAttentionSummary = (array)($month_attention_summary ?? []);
 
 $baseFilters = [
   'q' => (string)($filters['q'] ?? ''),
@@ -159,7 +160,7 @@ foreach ($lineRows as $lineRow) {
   .sr-hero-body {
     position: relative;
     z-index: 1;
-    padding: 1.2rem 1.3rem;
+    padding: .95rem 1.15rem;
   }
   .sr-hero-kicker {
     display: inline-flex;
@@ -176,22 +177,17 @@ foreach ($lineRows as $lineRow) {
     border: 1px solid rgba(31, 93, 84, .14);
   }
   .sr-hero-title {
-    margin: .8rem 0 .35rem;
+    margin: 0 0 .35rem;
     color: #21302c;
-    font-size: 1.9rem;
+    font-size: 1.55rem;
     font-weight: 800;
-    line-height: 1.05;
-  }
-  .sr-hero-subtitle {
-    max-width: 760px;
-    color: #586964;
-    line-height: 1.5;
+    line-height: 1.1;
   }
   .sr-hero-meta {
     display: flex;
     flex-wrap: wrap;
     gap: .45rem;
-    margin-top: .95rem;
+    margin-top: .55rem;
   }
   .sr-hero-chip {
     display: inline-flex;
@@ -211,10 +207,13 @@ foreach ($lineRows as $lineRow) {
     align-items: center;
   }
   .sr-hero-btn {
-    border-radius: 16px;
-    padding: .78rem 1rem;
+    border-radius: 14px;
+    padding: .58rem .88rem;
     font-weight: 800;
-    box-shadow: 0 12px 24px rgba(24, 16, 17, .12);
+    box-shadow: 0 8px 18px rgba(24, 16, 17, .12);
+  }
+  .sr-hero-actions {
+    align-self: center;
   }
   .sr-board-card,
   .sr-filter-card,
@@ -304,21 +303,42 @@ foreach ($lineRows as $lineRow) {
     border: 0;
     border-radius: 15px;
     padding: .55rem .85rem;
-    background: #eef5f2;
+    background: #eef3f1;
     color: #405651;
     font-weight: 700;
     box-shadow: inset 0 1px 0 rgba(255,255,255,.72);
-    border: 1px solid #dfe6e2;
+    border: 1px solid #d6e0dc;
   }
   .sr-tab-strip .nav-link:hover {
     color: #2e433f;
-    background: #e2efea;
+    background: #e2ece8;
   }
   .sr-tab-strip .nav-link.active {
     background: #1f5d54;
     color: #f6fffc;
     box-shadow: 0 14px 24px rgba(20, 52, 47, .18);
     border-color: #1f5d54;
+  }
+  .sr-status-tab-link {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .sr-view-tab-link {
+    font-weight: 700;
+    border-color: #cec2b8 !important;
+    background: #efe8e2 !important;
+    color: #544740 !important;
+  }
+  .sr-view-tab-link:hover {
+    color: #443a34 !important;
+    background: #e7ddd5 !important;
+    border-color: #c6b7aa !important;
+  }
+  .sr-view-tab-link.active {
+    background: #2f2a4f !important;
+    border-color: #2f2a4f !important;
+    color: #fff !important;
+    box-shadow: 0 6px 14px rgba(47, 42, 79, .2);
   }
   .sr-filter-card .card-body,
   .sr-board-card .card-body {
@@ -344,6 +364,16 @@ foreach ($lineRows as $lineRow) {
   .sr-filter-actions .btn {
     min-width: 120px;
   }
+  .sr-filter-actions .btn-primary {
+    background: #c73f2b;
+    border-color: #c73f2b;
+    box-shadow: 0 10px 20px rgba(199, 63, 43, .18);
+  }
+  .sr-filter-actions .btn-outline-secondary {
+    background: #fff;
+    border-color: #a9b2be;
+    color: #4b5563;
+  }
   .sr-table-main thead th {
     white-space: nowrap;
   }
@@ -362,12 +392,39 @@ foreach ($lineRows as $lineRow) {
   .sr-legend-card .card-body {
     background: linear-gradient(180deg, #fffaf3 0%, #ffffff 100%);
   }
+  .sr-month-warning {
+    border-radius: 16px;
+    box-shadow: 0 10px 24px rgba(185, 28, 28, .08);
+  }
+  .sr-board-card .action-icon-btn,
+  #srCreateModal .action-icon-btn {
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+    border-radius: 8px !important;
+    padding: 0 !important;
+  }
+  .sr-board-card .action-icon-btn i,
+  #srCreateModal .action-icon-btn i {
+    font-size: .92rem !important;
+  }
+  #srCreateModal .modal-dialog {
+    max-width: min(1480px, 96vw);
+  }
+  #srCreateModal .table,
+  #srCreateModal .sr-scroll table {
+    min-width: 1180px;
+  }
+  #srCreateModal .table th,
+  #srCreateModal .sr-scroll th {
+    white-space: nowrap;
+  }
   @media (max-width: 767.98px) {
     .sr-hero-title {
       font-size: 1.45rem;
     }
     .sr-hero-body {
-      padding: 1rem;
+      padding: .9rem 1rem;
     }
     .sr-hero-actions {
       width: 100%;
@@ -382,9 +439,7 @@ foreach ($lineRows as $lineRow) {
 <div class="card sr-hero mb-3">
   <div class="sr-hero-body d-flex justify-content-between align-items-start flex-wrap gap-3">
     <div>
-      <span class="sr-hero-kicker"><i class="ri ri-stack-line"></i> Store Request Overview</span>
-      <h4 class="sr-hero-title"><?php echo html_escape($title ?? 'Store Request'); ?></h4>
-      <div class="sr-hero-subtitle">Verifikasi, fulfillment gudang, dan generate PO shortage dengan pembacaan status yang lebih tajam. PO final tetap diproses di menu <strong>Purchase Order</strong>.</div>
+      <h4 class="sr-hero-title d-flex align-items-center gap-2"><i class="ri ri-inbox-archive-line text-primary"></i><span><?php echo html_escape($title ?? 'Store Request'); ?></span></h4>
       <div class="sr-hero-meta">
         <span class="sr-hero-chip">Status: <?php echo html_escape($summaryStatusText); ?></span>
         <span class="sr-hero-chip"><?php echo html_escape($summaryRangeText); ?></span>
@@ -394,11 +449,18 @@ foreach ($lineRows as $lineRow) {
     <div class="sr-hero-actions">
       <?php if ($canCreate): ?>
         <a href="<?php echo site_url('store-requests/create'); ?>" class="btn btn-outline-secondary d-inline-flex align-items-center gap-2 sr-hero-btn"><i class="ri ri-file-list-3-line"></i>Form Full SR</a>
-        <button type="button" class="btn btn-warning d-inline-flex align-items-center gap-2 sr-hero-btn" data-bs-toggle="modal" data-bs-target="#srCreateModal"><i class="ri ri-add-line"></i>+ Tambah SR</button>
+        <button type="button" class="btn btn-danger d-inline-flex align-items-center gap-2 sr-hero-btn" data-bs-toggle="modal" data-bs-target="#srCreateModal"><i class="ri ri-add-line"></i>Tambah SR</button>
       <?php endif; ?>
     </div>
   </div>
 </div>
+
+<?php if ((int)($monthAttentionSummary['pending_fulfillment_count'] ?? 0) > 0): ?>
+<div class="alert alert-danger sr-month-warning mb-3" role="alert">
+  <div class="fw-semibold mb-1">Perhatian Bulan Ini</div>
+  <div>Masih ada <?php echo number_format((int)($monthAttentionSummary['pending_fulfillment_count'] ?? 0)); ?> store request bulan ini yang belum fulfillment penuh. Nilai request yang masih perlu ditindaklanjuti: Rp <?php echo number_format((float)($monthAttentionSummary['pending_fulfillment_value_total'] ?? 0), 2, ',', '.'); ?>.</div>
+</div>
+<?php endif; ?>
 
 <?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'store-request']); ?>
 
@@ -434,26 +496,6 @@ foreach ($lineRows as $lineRow) {
   </div>
 </div>
 
-<div class="card mb-3 sr-legend-card">
-  <div class="card-body py-2 sr-status-legend">
-    <div class="small">
-      <strong>Fungsi Status:</strong>
-      <code>DRAFT</code> masih draft,
-      <code>SUBMITTED</code> menunggu verifikasi,
-      <code>APPROVED</code> siap fulfillment/split shortage,
-      <code>PARTIAL_FULFILLED</code> terpenuhi sebagian,
-      <code>FULFILLED</code> selesai penuh,
-      <code>REJECTED</code> ditolak,
-      <code>VOID</code> dibatalkan.
-    </div>
-    <div class="small mt-1">
-      <strong>Fungsi Aksi:</strong>
-      <code>Submit</code> kirim draft, <code>Approve/Reject</code> verifikasi, <code>Split</code> lihat pembagian cukup stok vs shortage,
-      <code>Fulfill</code> posting transfer gudang, <code>Gen PO</code> buat draft PO untuk shortage, <code>Void</code> batalkan dokumen.
-    </div>
-  </div>
-</div>
-
 <div class="card sr-board-card">
   <div class="card-body pb-0">
     <ul class="nav nav-pills sr-tab-strip mb-3" role="tablist">
@@ -466,10 +508,10 @@ foreach ($lineRows as $lineRow) {
 
     <ul class="nav nav-pills sr-tab-strip mb-3" role="tablist">
       <li class="nav-item" role="presentation">
-        <a class="nav-link sr-tab-link <?php echo $activeTab === 'nota' ? 'active' : ''; ?>" href="<?php echo $tabNotaUrl; ?>">Per Nota</a>
+        <a class="nav-link sr-tab-link sr-view-tab-link <?php echo $activeTab === 'nota' ? 'active' : ''; ?>" href="<?php echo $tabNotaUrl; ?>">Per Nota</a>
       </li>
       <li class="nav-item" role="presentation">
-        <a class="nav-link sr-tab-link <?php echo $activeTab === 'rincian' ? 'active' : ''; ?>" href="<?php echo $tabRincianUrl; ?>">Per Rincian</a>
+        <a class="nav-link sr-tab-link sr-view-tab-link <?php echo $activeTab === 'rincian' ? 'active' : ''; ?>" href="<?php echo $tabRincianUrl; ?>">Per Rincian</a>
       </li>
     </ul>
   </div>

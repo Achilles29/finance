@@ -68,7 +68,45 @@ v update data sif
 - skema bonus, target harian dan bulanan
 - redeem poin dll
 - link bahan baku dan component yang digunakan
+- estimasi keuangan
+- cek po SR gudang air mineral galon
+- catalog purchase jangan cari yang tidak aktif
+- resep produk lintas lokasi
+- resep component lintas
+- POS event
+- master bahan baku relasi ke stok
 
 
 
 
+
+Langkah paling natural berikutnya:
+
+Buat satu DP untuk member lewat halaman pos/deposits.
+Bayar order POS atas member yang sama untuk memastikan modal payment otomatis memotong DP dan receipt menampilkan PAKAI DP.
+
+
+
+satu lagi sentuhan di pos/reports/sales:
+- gunakan " Standar Tab Bertingkat" di coding standar, termasuk pewarnaanya purchase-orders seperti purchase order. sudah masuk coding standars belum? kalau belum masukkan ketat bentuk form, teks, warna masing masing sesuai di purchase-orders
+
+purchase-orders:
+-  hapus " Purchase Overview" diatas biar tidak boros, lalu "Create Order" diturunkan agar tidak tinggi diatas gitu
+- icon di kolom aksi terlalu kecil, standar nya bagaimana? besarin lagi
+- berikan guarding agar wajib pilih vendor.
+- karena filter tampilan defaultnya adalah hari ini, maka tambahkan pada card atau dimana saja , warning keras jika masih ada PO dengan status belum void di bulan ini. 
+
+store-requests:
+- hapus " Store Request Overview" di atas dan "Verifikasi, fulfillment gudang, dan generate PO shortage dengan pembacaan status yang lebih tajam. PO final tetap diproses di menu Purchase Order." dan turunkan tombol SR agar tidak ketinggian.
+- berikan warna button berbeda dengan backgroundnya
+- saya coba SR AIR MINERAL GALON kenapa harga satuan 0, padahal di gudang tampil. lalu ketika di fullfill gagal "Tidak ada qty yang bisa dipenuhi dari stok gudang."
+- icon di kolom aksi terlalu kecil, standar nya bagaimana? besarin lagi
+- gunakan " Standar Tab Bertingkat" di coding standar 
+- sesuaikan ukuran gambar 3 agar tidak ada teks terpotong
+- karena filter tampilan defaultnya adalah hari ini, maka tambahkan pada card atau dimana saja , warning keras jika masih ada SR dengan status belum fullfilment di bulan ini. 
+
+
+
+
+icon di kolom aksi purchase-orders dan store-requests masih terlalu kecil. standarnya memang segitu? tidak seperti /procurement/division-po-sr yang cukup besar. masukan ukuran icon kolom aksi di /procurement/division-po-sr sebagai standars (catat kodenya bukan /procurement/division-po-sr nya)
+ingat ya, buatkan ringkasan dari point pointku di akhir jawabanmu

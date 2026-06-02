@@ -2,6 +2,7 @@
 $cardSummary = (array)($card_summary ?? []);
 $filteredSummary = (array)($filtered_summary ?? []);
 $lineSummary = (array)($line_summary ?? []);
+$monthAttentionSummary = (array)($month_attention_summary ?? []);
 $poRows = (array)($rows ?? []);
 $poLineRows = (array)($line_rows ?? []);
 $poPageCount = count($poRows);
@@ -535,12 +536,45 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
         border-radius: 12px;
         font-weight: 700;
     }
+    .po-month-warning {
+        border-radius: 16px;
+        border-width: 1px;
+        box-shadow: 0 10px 24px rgba(185, 28, 28, 0.08);
+    }
+    .po-board-card .action-icon-btn,
+    .po-rincian-table .action-icon-btn {
+        width: 30px !important;
+        height: 30px !important;
+        min-width: 30px !important;
+        border-radius: 8px !important;
+        padding: 0 !important;
+    }
+    .po-board-card .action-icon-btn i,
+    .po-rincian-table .action-icon-btn i {
+        font-size: .92rem !important;
+    }
+    .po-hero-body {
+        padding: 0.95rem 1.15rem;
+    }
+    .po-hero-title {
+        font-size: 1.55rem;
+        line-height: 1.1;
+        margin-bottom: 0;
+    }
+    .po-hero-actions {
+        align-self: center;
+    }
+    .po-hero-btn {
+        padding: 0.58rem 0.9rem;
+        border-radius: 14px;
+        box-shadow: 0 8px 18px rgba(159, 33, 65, 0.15);
+    }
     @media (max-width: 767.98px) {
         .po-hero-title {
             font-size: 1.45rem;
         }
         .po-hero-body {
-            padding: 1rem;
+            padding: 0.9rem 1rem;
         }
         .po-hero-actions {
             width: 100%;
@@ -555,8 +589,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
 <div class="card po-hero mb-3">
     <div class="po-hero-body d-flex justify-content-between align-items-start flex-wrap gap-3">
         <div>
-            <span class="po-hero-kicker"><i class="ri ri-command-line"></i> Purchase Overview</span>
-            <h4 class="po-hero-title">Purchase Order</h4>
+            <h4 class="po-hero-title d-flex align-items-center gap-2"><i class="ri ri-shopping-cart-line text-primary"></i><span>Purchase Order</span></h4>
             <div class="po-hero-meta">
                 <span class="po-hero-chip">Status: <?php echo html_escape($summaryStatusText); ?></span>
                 <span class="po-hero-chip"><?php echo html_escape($summaryRangeText); ?></span>
@@ -568,6 +601,13 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
         </div>
     </div>
 </div>
+
+<?php if ((int)($monthAttentionSummary['unpaid_count'] ?? 0) > 0): ?>
+<div class="alert alert-danger po-month-warning mb-3" role="alert">
+    <div class="fw-semibold mb-1">Perhatian Bulan Ini</div>
+    <div>Masih ada <?php echo number_format((int)($monthAttentionSummary['unpaid_count'] ?? 0)); ?> purchase order bulan ini yang statusnya belum PAID. Nilai dokumen yang belum PAID: Rp <?php echo number_format((float)($monthAttentionSummary['unpaid_value'] ?? 0), 2, ',', '.'); ?>.</div>
+</div>
+<?php endif; ?>
 
 <?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'purchase-order']); ?>
 

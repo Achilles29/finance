@@ -516,10 +516,10 @@ class Procurement_model extends CI_Model
             ->select('s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id, s.profile_key', false)
             ->select('s.stock_domain', false)
             ->select('s.profile_name, s.profile_brand, s.profile_description, s.profile_expired_date, s.profile_content_per_buy')
-            ->select('s.profile_buy_uom_code, s.profile_content_uom_code, s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance')
+            ->select('s.profile_buy_uom_code, s.profile_content_uom_code, s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content')
             ->select(($hasCatalogVendorPrice || $hasCatalogLastUnitPrice || $hasCatalogStandardPrice)
-                ? 'COALESCE(' . ($hasCatalogVendorPrice ? 'cvp.last_unit_price, cvp.standard_price, ' : '') . ($hasCatalogLastUnitPrice ? 'c.last_unit_price' : 'NULL') . ', ' . ($hasCatalogStandardPrice ? 'c.standard_price' : 'NULL') . ', 0) AS last_unit_price'
-                : '0 AS last_unit_price', false)
+                ? 'COALESCE(' . ($hasCatalogVendorPrice ? 'cvp.last_unit_price, cvp.standard_price, ' : '') . ($hasCatalogLastUnitPrice ? 'c.last_unit_price' : 'NULL') . ', ' . ($hasCatalogStandardPrice ? 'c.standard_price' : 'NULL') . ', NULLIF(ROUND(COALESCE(s.avg_cost_per_content, 0) * COALESCE(NULLIF(s.profile_content_per_buy, 0), 1), 2), 0), 0) AS last_unit_price'
+                : 'ROUND(COALESCE(s.avg_cost_per_content, 0) * COALESCE(NULLIF(s.profile_content_per_buy, 0), 1), 2) AS last_unit_price', false)
             ->select($hasCatalog ? 'COALESCE(' . ($hasCatalogVendorPrice ? 'cvp.last_purchase_date, ' : '') . 'c.last_purchase_date) AS last_purchase_date' : 'NULL AS last_purchase_date', false)
             ->select($hasCatalogLineKind ? 'c.line_kind AS catalog_line_kind' : 'NULL AS catalog_line_kind', false)
             ->select('i.item_code, i.item_name, m.material_code, m.material_name')
@@ -613,19 +613,11 @@ class Procurement_model extends CI_Model
         }
 
         $warehouseRows = $this->search_warehouse_profiles($q, $limit);
-        if (!empty($warehouseRows)) {
-            foreach ($warehouseRows as &$row) {
-                $row['source_type'] = 'WAREHOUSE';
-                $row['search_source'] = 'WAREHOUSE';
-            }
-            unset($row);
-
-            return [
-                'rows' => $warehouseRows,
-                'source' => 'WAREHOUSE',
-                'allow_manual' => false,
-            ];
+        foreach ($warehouseRows as &$row) {
+            $row['source_type'] = 'WAREHOUSE';
+            $row['search_source'] = 'WAREHOUSE';
         }
+        unset($row);
 
         $this->load->model('Purchase_model');
         $catalogRows = $this->Purchase_model->search_catalog_profiles($q, 0, '', 0, 0, $catalogLimit);
@@ -634,12 +626,49 @@ class Procurement_model extends CI_Model
         }
 
         $normalizedRows = $this->normalize_division_request_candidate_rows($catalogRows);
+        $mergedRows = $this->merge_division_request_candidate_rows($warehouseRows, $normalizedRows);
+
+        if (!empty($mergedRows)) {
+            $source = !empty($warehouseRows)
+                ? (!empty($normalizedRows) ? 'COMBINED' : 'WAREHOUSE')
+                : 'CATALOG';
+
+            return [
+                'rows' => array_slice($mergedRows, 0, $limit),
+                'source' => $source,
+                'allow_manual' => false,
+            ];
+        }
 
         return [
-            'rows' => array_slice($normalizedRows, 0, $limit),
-            'source' => empty($catalogRows) ? 'MANUAL' : 'CATALOG',
+            'rows' => [],
+            'source' => 'MANUAL',
             'allow_manual' => empty($catalogRows),
         ];
+    }
+
+    private function merge_division_request_candidate_rows(array $warehouseRows, array $catalogRows): array
+    {
+        $merged = [];
+        $seen = [];
+
+        foreach ([$warehouseRows, $catalogRows] as $rows) {
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+
+                $identity = $this->build_division_request_candidate_identity($row);
+                if (isset($seen[$identity])) {
+                    continue;
+                }
+
+                $seen[$identity] = true;
+                $merged[] = $row;
+            }
+        }
+
+        return $merged;
     }
 
     public function list_division_requests(array $filters, int $limit = 50): array
@@ -3219,39 +3248,47 @@ class Procurement_model extends CI_Model
             (($itemId === null || $itemId <= 0) && ($materialId === null || $materialId <= 0))
             || $buyUomId === null || $buyUomId <= 0
             || $contentUomId === null || $contentUomId <= 0
-            || trim($profileKey) === ''
         ) {
             return 0.0;
         }
 
         if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
             $targetMonth = date('Y-m-01');
-            $sql = 'SELECT closing_qty_content
-                    FROM inv_warehouse_monthly_stock
-                    WHERE month_key = (
-                        SELECT MAX(wm.month_key)
-                        FROM inv_warehouse_monthly_stock wm
-                        WHERE wm.identity_key = inv_warehouse_monthly_stock.identity_key
-                          AND wm.month_key <= ?
-                    )
-                      AND buy_uom_id = ?
-                      AND content_uom_id = ?
-                      AND profile_key <=> ?';
-            $params = [$targetMonth, $buyUomId, $contentUomId, $profileKey];
-
-            if ($materialId !== null && $materialId > 0) {
-                $sql .= ' AND material_id = ?';
-                $params[] = $materialId;
-            } elseif ($itemId !== null && $itemId > 0) {
-                $sql .= ' AND item_id = ?';
-                $params[] = $itemId;
-            } else {
-                return 0.0;
+            $identityChecks = [];
+            if ($itemId !== null && $itemId > 0) {
+                $identityChecks[] = ['column' => 'item_id', 'value' => $itemId];
             }
-            $sql .= ' ORDER BY updated_at DESC, last_movement_at DESC LIMIT 1';
+            if ($materialId !== null && $materialId > 0) {
+                $identityChecks[] = ['column' => 'material_id', 'value' => $materialId];
+            }
 
-            $row = $this->db->query($sql, $params)->row_array();
-            return round((float)($row['closing_qty_content'] ?? 0), 4);
+            foreach ([true, false] as $useProfileKey) {
+                foreach ($identityChecks as $identityCheck) {
+                    $sql = 'SELECT closing_qty_content
+                            FROM inv_warehouse_monthly_stock
+                            WHERE month_key = (
+                                SELECT MAX(wm.month_key)
+                                FROM inv_warehouse_monthly_stock wm
+                                WHERE wm.identity_key = inv_warehouse_monthly_stock.identity_key
+                                  AND wm.month_key <= ?
+                            )
+                              AND buy_uom_id = ?
+                              AND content_uom_id = ?
+                              AND ' . $identityCheck['column'] . ' = ?';
+                    $params = [$targetMonth, $buyUomId, $contentUomId, $identityCheck['value']];
+                    if ($useProfileKey && trim($profileKey) !== '') {
+                        $sql .= ' AND profile_key <=> ?';
+                        $params[] = $profileKey;
+                    }
+                    $sql .= ' ORDER BY updated_at DESC, last_movement_at DESC LIMIT 1';
+
+                    $row = $this->db->query($sql, $params)->row_array();
+                    $available = round((float)($row['closing_qty_content'] ?? 0), 4);
+                    if ($available > 0) {
+                        return $available;
+                    }
+                }
+            }
         }
 
         return 0.0;

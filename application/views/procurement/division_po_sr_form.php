@@ -2190,6 +2190,8 @@ if (!function_exists('finance_dreq_location_label')) {
 
     if (source === 'WAREHOUSE') {
       setSearchMeta('Menampilkan stok gudang saja. Jika kebutuhan total melebihi stok snapshot, isi Qty Request lebih besar dari stok dan sistem akan split otomatis: SR sesuai stok, sisanya ke PO.');
+    } else if (source === 'COMBINED') {
+      setSearchMeta('Menampilkan stok gudang terlebih dulu, lalu tambahan kandidat dari katalog/master. Jika barang yang dicari tidak ada persis di gudang, pilih kandidat katalog yang paling sesuai agar line diarahkan ke PO bila perlu.');
     } else {
       setSearchMeta('Stok gudang kosong untuk kata kunci ini, jadi sistem menampilkan fallback katalog/master. Line ini akan diarahkan ke PO bila tidak ada stok gudang saat proses.');
     }

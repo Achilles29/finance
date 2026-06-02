@@ -2431,6 +2431,16 @@ class Pos extends MY_Controller
             $serviceType = 'ALL';
         }
 
+        $today = date('Y-m-d');
+        $dateFrom = $this->optional_report_date_input('date_from');
+        $dateTo = $this->optional_report_date_input('date_to');
+        if ($dateFrom === '') {
+            $dateFrom = $today;
+        }
+        if ($dateTo === '') {
+            $dateTo = $today;
+        }
+
         return [
             'q' => trim((string)$this->input->get('q', true)),
             'status' => $status,
@@ -2438,8 +2448,8 @@ class Pos extends MY_Controller
             'service_type' => $serviceType,
             'payment_method_id' => max(0, (int)$this->input->get('payment_method_id', true)),
             'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
-            'date_from' => $this->optional_report_date_input('date_from'),
-            'date_to' => $this->optional_report_date_input('date_to'),
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
             'page' => max(1, (int)$this->input->get('page', true)),
             'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 25)),
         ];

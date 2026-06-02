@@ -1,6 +1,7 @@
 <?php
 $filters = is_array($filters ?? null) ? $filters : [];
 $outlets = is_array($outlets ?? null) ? $outlets : [];
+$showOutletChip = !array_key_exists('show_outlet_chip', get_defined_vars()) || !empty($show_outlet_chip);
 
 $formatDate = static function ($value): string {
     $time = $value ? strtotime((string)$value) : false;
@@ -17,7 +18,9 @@ foreach ($outlets as $outlet) {
 
 $chips = [];
 $chips[] = ['label' => 'Periode', 'value' => $formatDate($filters['date_from'] ?? '') . ' s/d ' . $formatDate($filters['date_to'] ?? '')];
-$chips[] = ['label' => 'Outlet', 'value' => ((int)($filters['outlet_id'] ?? 0) > 0) ? ($outletMap[(int)$filters['outlet_id']] ?? ('Outlet #' . (int)$filters['outlet_id'])) : 'Semua Outlet'];
+if ($showOutletChip) {
+    $chips[] = ['label' => 'Outlet', 'value' => ((int)($filters['outlet_id'] ?? 0) > 0) ? ($outletMap[(int)$filters['outlet_id']] ?? ('Outlet #' . (int)$filters['outlet_id'])) : 'Semua Outlet'];
+}
 
 if (trim((string)($filters['q'] ?? '')) !== '') {
     $chips[] = ['label' => 'Cari', 'value' => trim((string)$filters['q'])];

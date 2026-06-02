@@ -58,6 +58,7 @@ class Purchase extends MY_Controller
             'card_summary' => $this->Purchase_model->get_purchase_order_filtered_summary($q, $rangeStatus, $dateStart, $dateEnd),
             'filtered_summary' => $this->Purchase_model->get_purchase_order_filtered_summary($q, $status, $dateStart, $dateEnd),
             'line_summary' => $this->Purchase_model->get_purchase_order_line_filtered_summary($q, $status, $dateStart, $dateEnd),
+            'month_attention_summary' => $this->Purchase_model->get_purchase_order_filtered_summary('', 'ALL', date('Y-m-01'), date('Y-m-t')),
             'q' => $q,
             'status' => $status,
             'date_start' => $dateStart,
@@ -2569,10 +2570,15 @@ class Purchase extends MY_Controller
             return;
         }
 
+        $vendorId = max(0, (int)($header['vendor_id'] ?? 0));
         $purchaseTypeId = (int)($header['purchase_type_id'] ?? 0);
         $requestDate = trim((string)($header['request_date'] ?? ''));
         if ($purchaseTypeId <= 0 || $requestDate === '') {
             $this->jsonError('Header PO belum lengkap: purchase_type_id dan request_date wajib diisi.', 422);
+            return;
+        }
+        if ($vendorId <= 0) {
+            $this->jsonError('Vendor wajib dipilih sebelum menyimpan purchase order.', 422);
             return;
         }
 

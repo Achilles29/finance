@@ -411,7 +411,7 @@ foreach ($detailLines as $ln) {
       <div class="col-lg-3 col-md-6">
         <label class="form-label">Vendor</label>
         <div class="po-vendor-inline">
-          <select id="vendor_id" class="form-select po-vendor-select">
+          <select id="vendor_id" class="form-select po-vendor-select" required>
             <option value="">Pilih Vendor...</option>
             <?php foreach (($vendors ?? []) as $v): ?>
               <option value="<?php echo (int)$v['id']; ?>" <?php echo ((int)$v['id'] === $initialVendorId) ? 'selected' : ''; ?>><?php echo html_escape((string)$v['vendor_code'] . ' - ' . (string)$v['vendor_name']); ?></option>
@@ -2065,6 +2065,7 @@ foreach ($detailLines as $ln) {
   var vendorEl = document.getElementById('vendor_id');
   if (vendorEl) {
     vendorEl.addEventListener('change', function () {
+      vendorEl.classList.remove('is-invalid');
       refreshAllLineSuggestions(true);
     });
   }
@@ -2124,6 +2125,15 @@ foreach ($detailLines as $ln) {
 
     if (!header.purchase_type_id || !header.request_date) {
       alertMsg('warning', 'Header belum lengkap: request date dan purchase type wajib diisi.');
+      return;
+    }
+    if (!header.vendor_id) {
+      var vendorField = document.getElementById('vendor_id');
+      if (vendorField) {
+        vendorField.classList.add('is-invalid');
+        vendorField.focus();
+      }
+      alertMsg('warning', 'Vendor wajib dipilih sebelum menyimpan purchase order.');
       return;
     }
 

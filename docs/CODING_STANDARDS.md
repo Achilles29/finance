@@ -1054,7 +1054,7 @@ $label = $status_label[$row['status']] ?? $row['status'];
 
 | Konteks | Class utama | Ukuran tombol | Ukuran ikon | Catatan |
 |---|---|---:|---:|---|
-| Aksi tabel umum | `action-icon-btn` | `28×28px` | `0.95rem` | Radius `8px`, icon-only |
+| Aksi tabel umum | `action-icon-btn` | `30×30px` | `0.92rem` | Radius `8px`, icon-only, `min-width: 30px` |
 | Tombol teks pendek | `action-text-btn` | tinggi min `30px` | `0.95rem` | Untuk toolbar/filter ringan |
 | Produksi component | `component-action-btn` | `38×38px` | `~1.12rem` | Khusus `production/component-*` |
 | Dropdown trigger aksi | `btn btn-sm btn-outline-secondary` | ikut Bootstrap | `0.95rem` | Pakai `ri-more-2-line` |
@@ -1323,7 +1323,7 @@ Perbedaan visual ini **disengaja** dan harus dipertahankan agar kedua aplikasi m
   --fin-h5-sz:      1.0rem;   --fin-h5-wt: 700;
   --fin-card-radius: 12px;
   --fin-btn-height:  32px;
-  --fin-btn-icon-sz: 28px;
+    --fin-btn-icon-sz: 30px;
 }
 ```
 
@@ -1369,8 +1369,8 @@ Gunakan `td.action-cell` + `action-icon-btn` — jangan pernah pakai `flex-wrap`
 
 CSS yang berlaku (dari `app.css`):
 - `td.action-cell` → `white-space: nowrap`, `text-align: right`, `width: 1%`
-- `.action-icon-btn` → `28×28px`, `border-radius: 8px`, hover naik 1px
-- Ikon di dalam `action-icon-btn` → sekitar `0.95rem`
+- `.action-icon-btn` → `30×30px`, `min-width: 30px`, `border-radius: 8px`, hover naik 1px
+- Ikon di dalam `action-icon-btn` → sekitar `0.92rem`
 - Untuk halaman `production/component-*`, gunakan `component-action-btn`, bukan `action-icon-btn`
 
 ### 21.5  Perbedaan Finance vs Core (referensi)
@@ -1507,3 +1507,12 @@ Aturan tambahan:
 - Jangan gunakan 1 gaya tab yang sama persis untuk ketiga fungsi di atas.
 - Jika ada `dropdown status` di kolom tabel, posisikan sejajar dengan badge status (inline) untuk menjaga tinggi baris tetap ringkas.
 - Untuk teks hero/subtitle halaman, hindari kalimat panjang yang tidak menambah aksi; prioritaskan ruang untuk tab dan filter.
+
+Spesifikasi visual wajib untuk grup seperti `purchase-orders`, `store-requests`, dan halaman laporan yang memakai tab penghubung serupa:
+- `Tab Penghubung Halaman` harus mengikuti gaya purchase-order live: background default putih, border tipis hangat, radius sekitar `10px`, teks `600-700`, active maroon `#9f2141` dengan teks putih, dan hover krem lembut. Ini adalah gaya kanonik untuk pindah lintas halaman dalam satu rumpun modul.
+- `Tab Penghubung Halaman` boleh menampilkan `hint` kecil/sekunder di bawah atau di samping label utama, tetapi label utama tetap paling dominan dan urutan tab harus mengikuti menu sidebar, bukan hardcode acak.
+- `Tab Pembagi Jenis` tetap berbentuk pill status dan harus lebih ringan dari tab penghubung. Untuk grup yang mengikuti pola Purchase Order, gunakan dasar netral hangat seperti `#eef3f1` atau keluarga abu-hijau pucat, border tipis `#d6e0dc`, teks gelap lembut, dan active teal gelap `#1f5d54` dengan teks putih. Jangan memakai warna active maroon penuh untuk tab jenis jika tab penghubung sudah ada di halaman yang sama.
+- `Tab Pembagi Halaman` (`Per Nota`, `Per Rincian`, dst.) harus beda visual dari tab jenis. Untuk pola Purchase Order, gunakan dasar netral `#efe8e2`, border `#cec2b8`, teks `#544740`, dan active `#2f2a4f` dengan teks putih. Jangan samakan active state level 3 dengan level 2.
+- Form filter di halaman grup purchase/procurement harus meniru pola purchase-order: field ringkas, tinggi kontrol seragam, label pendek, tombol aksi tidak boleh tenggelam warnanya ke background card, dan layout desktop diupayakan hemat tinggi sebelum menambah baris baru.
+- Hero title tidak perlu kicker seperti `Overview` jika tidak menambah konteks aksi. Ruang vertikal lebih diprioritaskan untuk tab, warning operasional, dan filter.
+- Tombol aksi utama di hero (`Create Order`, `Tambah SR`, dll.) tidak boleh terlalu tinggi. Gunakan padding moderat dan posisikan sejajar atau sedikit turun dari title block agar hero tidak terasa boros.

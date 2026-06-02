@@ -99,6 +99,8 @@ class Purchase_model extends CI_Model
             'paid_value' => 0.0,
             'unpaid_count' => 0,
             'unpaid_value' => 0.0,
+            'active_count' => 0,
+            'active_value' => 0.0,
         ];
 
         if (!$this->db->table_exists('pur_purchase_order')) {
@@ -115,6 +117,8 @@ class Purchase_model extends CI_Model
             ->select("COALESCE(SUM(CASE WHEN po.status = 'PAID' THEN po.grand_total ELSE 0 END), 0) AS paid_value", false)
             ->select("SUM(CASE WHEN po.status IN ('DRAFT','APPROVED','ORDERED','PARTIAL_RECEIVED','RECEIVED') THEN 1 ELSE 0 END) AS unpaid_count", false)
             ->select("COALESCE(SUM(CASE WHEN po.status IN ('DRAFT','APPROVED','ORDERED','PARTIAL_RECEIVED','RECEIVED') THEN po.grand_total ELSE 0 END), 0) AS unpaid_value", false)
+            ->select("SUM(CASE WHEN po.status <> 'VOID' THEN 1 ELSE 0 END) AS active_count", false)
+            ->select("COALESCE(SUM(CASE WHEN po.status <> 'VOID' THEN po.grand_total ELSE 0 END), 0) AS active_value", false)
             ->from('pur_purchase_order po')
             ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
             ->join('mst_vendor v', 'v.id = po.vendor_id', 'left');
@@ -150,6 +154,8 @@ class Purchase_model extends CI_Model
         $summary['paid_value'] = round((float)($row['paid_value'] ?? 0), 2);
         $summary['unpaid_count'] = (int)($row['unpaid_count'] ?? 0);
         $summary['unpaid_value'] = round((float)($row['unpaid_value'] ?? 0), 2);
+        $summary['active_count'] = (int)($row['active_count'] ?? 0);
+        $summary['active_value'] = round((float)($row['active_value'] ?? 0), 2);
 
         return $summary;
     }
@@ -13769,6 +13775,12 @@ class Purchase_model extends CI_Model
 
         $vendorId = $this->nullableInt($header['vendor_id'] ?? null);
         $purchaseTypeId = (int)($header['purchase_type_id'] ?? 0);
+        if ($vendorId === null || $vendorId <= 0) {
+            return [
+                'ok' => false,
+                'message' => 'Vendor wajib dipilih.',
+            ];
+        }
         if ($purchaseTypeId <= 0) {
             return [
                 'ok' => false,

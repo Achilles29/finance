@@ -55,7 +55,7 @@
   --fin-table-pad-x: 1rem;
   --fin-table-pad-y: 0.65rem;
   --fin-btn-height: 32px;
-  --fin-btn-icon-sz: 28px;
+  --fin-btn-icon-sz: 30px;
 }
 
 /* Apply font globally */
@@ -402,9 +402,10 @@ th.action-cell {
   justify-content: center !important;
   width: var(--fin-btn-icon-sz) !important;
   height: var(--fin-btn-icon-sz) !important;
+  min-width: var(--fin-btn-icon-sz) !important;
   padding: 0 !important;
   border-radius: 8px !important;
-  font-size: 0.925rem !important;
+  font-size: 0.92rem !important;
   line-height: 1 !important;
   flex-shrink: 0;
   transition: all 0.15s ease !important;

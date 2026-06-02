@@ -40,6 +40,10 @@ foreach ($lines as $ln) {
   .sr-scroll { max-height: 300px; overflow: auto; }
   .sr-form-card .table td, .sr-form-card .table th { vertical-align: middle; }
   .sr-action-btn { border-radius: 9px; padding: 4px 10px !important; display: inline-flex; align-items: center; justify-content: center; min-height: 32px; font-size: 12px; font-weight: 600; line-height: 1.2; }
+  .sr-form-card .table { min-width: 1180px; }
+  .sr-form-card .table th { white-space: nowrap; }
+  .sr-form-card .action-icon-btn { width: 30px !important; height: 30px !important; min-width: 30px !important; border-radius: 8px !important; padding: 0 !important; }
+  .sr-form-card .action-icon-btn i { font-size: .92rem !important; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
