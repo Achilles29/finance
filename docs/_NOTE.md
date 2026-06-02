@@ -69,6 +69,7 @@ v update data sif
 - redeem poin dll
 - link bahan baku dan component yang digunakan
 - estimasi keuangan
+- estimasi uang makan
 - cek po SR gudang air mineral galon
 - catalog purchase jangan cari yang tidak aktif
 - resep produk lintas lokasi
@@ -89,9 +90,8 @@ Bayar order POS atas member yang sama untuk memastikan modal payment otomatis me
 saya ada sedikit kendala. AIR ISI ULANG GALON selama ini dicatat sebagai item non material. tapi mulai saat ini BAR menggunakan AIR ISI ULANG GALON sebagai BASE TEA. namun permintaan AIR ISI ULANG GALON bukan hanya di BAR, karena AIR ISI ULANG GALON itu untuk air minum pegawai juga yang bukan bahan baku.
 ada saran?
 
-cek air isi ulang galon di gudang dan catalog yang uom , qty belum sesuai data di m_material, lakukan konversi
+1. cek air isi ulang galon di gudang dan catalog yang uom , qty belum sesuai data di m_material, lakukan konversi
 
-saya simpulkan berarti begini:
-
-purchase melakukan PO dan SR dari gudang mandiri atau verifiikasi pengajian divisi yang menuju ke stok divisi, ada opsi digunakan sebagai bahan baku atau operasional, tapi defaultnya bahan baku
+2. saya simpulkan berarti begini:
+purchase melakukan PO dan SR dari gudang mandiri atau verifiikasi pengajian divisi yang menuju ke stok divisi, ada opsi digunakan sebagai bahan baku atau operasional, tapi defaultnya bahan baku. begitu ?
 
