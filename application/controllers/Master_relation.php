@@ -2130,18 +2130,41 @@ class Master_relation extends MY_Controller
                 ->where('month_key <=', $targetMonth)
                 ->group_by(['division_id', 'destination_type', 'identity_key'])
                 ->get_compiled_select();
-            $liveRow = $this->db->select('AVG(COALESCE(s.avg_cost_per_content,0)) AS avg_cost_per_content', false)
+            $liveRow = $this->db->select("
+                    COALESCE(
+                        CASE
+                            WHEN ABS(SUM(COALESCE(s.closing_qty_content, 0))) > 0.000001
+                                THEN SUM(COALESCE(s.closing_qty_content, 0) * COALESCE(s.avg_cost_per_content, 0)) / SUM(COALESCE(s.closing_qty_content, 0))
+                            ELSE MAX(COALESCE(s.avg_cost_per_content, 0))
+                        END,
+                        0
+                    ) AS avg_cost_per_content
+                ", false)
                 ->from('inv_division_monthly_stock s')
+                ->join('mst_item mi', 'mi.id = s.item_id', 'left')
                 ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
                 ->where('s.division_id', $divisionId)
-                ->where('s.material_id', $materialId)
+                ->group_start()
+                    ->where('s.material_id', $materialId)
+                    ->or_group_start()
+                        ->where('s.stock_domain', 'ITEM')
+                        ->where('mi.material_id', $materialId)
+                    ->group_end()
+                ->group_end()
                 ->get()
                 ->row_array();
             $qtyRow = $this->db->select('SUM(COALESCE(s.closing_qty_content,0)) AS qty_balance', false)
                 ->from('inv_division_monthly_stock s')
+                ->join('mst_item mi', 'mi.id = s.item_id', 'left')
                 ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
                 ->where('s.division_id', $divisionId)
-                ->where('s.material_id', $materialId)
+                ->group_start()
+                    ->where('s.material_id', $materialId)
+                    ->or_group_start()
+                        ->where('s.stock_domain', 'ITEM')
+                        ->where('mi.material_id', $materialId)
+                    ->group_end()
+                ->group_end()
                 ->get()
                 ->row_array();
             $live = (float)($liveRow['avg_cost_per_content'] ?? 0);
@@ -2191,7 +2214,16 @@ class Master_relation extends MY_Controller
                 ->where('month_key <=', $targetMonth)
                 ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
                 ->get_compiled_select();
-            $this->db->select('AVG(COALESCE(s.avg_cost,0)) AS avg_cost', false)
+            $this->db->select("
+                    COALESCE(
+                        CASE
+                            WHEN ABS(SUM(COALESCE(s.closing_qty, 0))) > 0.000001
+                                THEN SUM(COALESCE(s.closing_qty, 0) * COALESCE(s.avg_cost, 0)) / SUM(COALESCE(s.closing_qty, 0))
+                            ELSE MAX(COALESCE(s.avg_cost, 0))
+                        END,
+                        0
+                    ) AS avg_cost
+                ", false)
                 ->from('inv_component_monthly_stock s')
                 ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
                 ->where('s.component_id', $componentId);

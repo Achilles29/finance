@@ -48,7 +48,10 @@ SELECT
      FROM pur_store_request_fulfillment_line fl
     WHERE fl.profile_key = c.profile_key
       AND COALESCE(fl.usage_purpose, 'BAHAN_BAKU') = 'BAHAN_BAKU'
-      AND UPPER(COALESCE(fl.line_kind, 'ITEM')) = 'ITEM') AS fulfillment_item_rows,
+      AND (
+        COALESCE(fl.item_id, 0) = COALESCE(c.item_id, 0)
+        OR COALESCE(fl.material_id, 0) <> COALESCE(i.material_id, 0)
+      )) AS fulfillment_item_rows,
   (SELECT COUNT(*)
      FROM inv_stock_movement_log ml
     WHERE ml.profile_key = c.profile_key) AS movement_rows,

@@ -166,10 +166,10 @@ SET @sql_fix_fulfill_line := IF(
   @has_fulfill_usage > 0,
   "UPDATE pur_store_request_fulfillment_line l
    JOIN tmp_prod_domain_targets t ON t.profile_key = l.profile_key
-   SET l.line_kind = 'MATERIAL',
-       l.material_id = t.target_material_id
+   SET l.material_id = t.target_material_id
    WHERE COALESCE(l.usage_purpose, 'BAHAN_BAKU') = 'BAHAN_BAKU'
-     AND UPPER(COALESCE(l.line_kind, 'ITEM')) = 'ITEM'",
+     AND COALESCE(l.item_id, 0) = t.item_id
+     AND COALESCE(l.material_id, 0) <> t.target_material_id",
   'SELECT 1'
 );
 PREPARE stmt_fix_fulfill_line FROM @sql_fix_fulfill_line; EXECUTE stmt_fix_fulfill_line; DEALLOCATE PREPARE stmt_fix_fulfill_line;

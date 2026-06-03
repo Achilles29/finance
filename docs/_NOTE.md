@@ -113,3 +113,16 @@ lakukan penyesuaian /pos/orders/paid:
 jangan hanya repair data, tapi juga harus temukan pangkal masalahnya.
 
 kenapa yang 1000 terbaca sebagai item dan yang 70 material?? padahal jelas belanja stok bar, dan itemnya material, pemakaian Persediaan Produksi, dan masuk ke stok divisi bar. dimana letak awal kesalahannya? dan apakah ini berlaku untuk bahan lain juga? seharusnya konsisten kalau mau pakai material ya jadikan semua yang masuk ke stok divisi sebagai material, kalau mau pakai item ya buat semua jadi item. baik dari PO, SR, Adjusment, opening
+
+
+========================
+walaupun tanpa variable cost masih tetap beda, hpp live ESPRESSO ARABIKA tanpa variable di relasi resep saja sudah 5.400,00, tapi hpp live americano hot di Monitoring Stok Produk dan Stock Live POS 4.555,03. bagaimana bisa terjadi?
+
+tentang Multi lot fifo, apakah yang diambil hanya bahannya, atau costnya juga mengikuti proporsional bahan lotnya?
+
+buat SQL audit + repair khusus artefak lot/adjustment VOID dan row monthly legacy
+
+product-recipe dan product/availability dan Stock Live POS idealnya sama logikanya mengikuti resep, teramsuk variable cost nya apakah pakai, tidak pakai, atus costum variable
+
+=================
+oke berarti sekarang hpp live suda menggunakan FIFO ya, bukan rata2? 
