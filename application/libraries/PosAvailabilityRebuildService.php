@@ -653,8 +653,15 @@ class PosAvailabilityRebuildService
             ";
             $db = $this->ci->db->select($select, false)
                 ->from('inv_division_monthly_stock s')
+                ->join('mst_item mi', 'mi.id = s.item_id', 'left')
                 ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
-                ->where('s.material_id', $materialId);
+                ->group_start()
+                    ->where('s.material_id', $materialId)
+                    ->or_group_start()
+                        ->where('s.stock_domain', 'ITEM')
+                        ->where('mi.material_id', $materialId)
+                    ->group_end()
+                ->group_end();
             if ($divisionId > 0) {
                 $db->where('s.division_id', $divisionId);
             }

@@ -801,7 +801,8 @@ class PosOrderStockService
                 (int)$issueLine['material_id'],
                 $divisionId,
                 $destinationType,
-                (int)$issueLine['content_uom_id']
+                (int)$issueLine['content_uom_id'],
+                !empty($issueLine['profile_key']) ? (string)$issueLine['profile_key'] : null
             );
         }
 
@@ -826,18 +827,23 @@ class PosOrderStockService
         ];
     }
 
-    private function load_division_material_profile_snapshot(int $materialId, int $divisionId, string $destinationType, int $uomId): array
+    private function load_division_material_profile_snapshot(int $materialId, int $divisionId, string $destinationType, int $uomId, ?string $profileKey = null): array
     {
         if ($materialId <= 0 || $divisionId <= 0 || $uomId <= 0) {
             return [];
         }
 
         if ($this->ci->db->table_exists('inv_division_monthly_stock')) {
-            $row = $this->ci->db->from('inv_division_monthly_stock')
+            $db = $this->ci->db->from('inv_division_monthly_stock')
                 ->where('division_id', $divisionId)
                 ->where('destination_type', $destinationType)
                 ->where('material_id', $materialId)
-                ->where('content_uom_id', $uomId)
+                ->where('content_uom_id', $uomId);
+            $profileKey = trim((string)$profileKey);
+            if ($profileKey !== '') {
+                $db->where('profile_key', $profileKey);
+            }
+            $row = $db
                 ->order_by('month_key', 'DESC')
                 ->order_by('updated_at', 'DESC')
                 ->order_by('last_movement_at', 'DESC')

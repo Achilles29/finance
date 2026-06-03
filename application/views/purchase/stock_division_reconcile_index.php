@@ -17,7 +17,7 @@ $statusChip = static function (array $row): array {
     if (!empty($row['is_match'])) {
         return ['label' => 'Match', 'class' => 'ok'];
     }
-    return ['label' => 'Mismatch', 'class' => 'bad'];
+    return ['label' => 'Mismatch Material', 'class' => 'bad'];
 };
 ?>
 
@@ -226,7 +226,7 @@ $statusChip = static function (array $row): array {
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
     <h3 class="mb-1">Rekonsiliasi Stok Akhir Divisi</h3>
-    <div class="text-muted small">Bandingkan stok bahan baku per divisi antara stok saat ini, material daily, daily divisi, dan closing dari movement mentah.</div>
+    <div class="text-muted small">Bandingkan stok bahan baku per divisi antara stok saat ini, material daily, daily divisi, dan closing dari movement mentah. Halaman ini fokus pada <strong>material/profile divisi</strong>, bukan mismatch produk POS.</div>
   </div>
   <div class="text-muted small">Tanggal acuan: <strong><?php echo html_escape((string)($as_of_date ?? date('Y-m-d'))); ?></strong></div>
 </div>
@@ -279,7 +279,7 @@ $statusChip = static function (array $row): array {
     <div class="value"><?php echo number_format((int)($summary['match_rows'] ?? 0)); ?></div>
   </div>
   <div class="src-kpi">
-    <span class="label">Mismatch</span>
+    <span class="label">Mismatch Material</span>
     <div class="value"><?php echo number_format((int)($summary['mismatch_rows'] ?? 0)); ?></div>
   </div>
 </div>

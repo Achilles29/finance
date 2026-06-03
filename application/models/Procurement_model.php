@@ -74,6 +74,10 @@ class Procurement_model extends CI_Model
             return 'ITEM';
         }
 
+        if ($this->resolve_production_material_id($line['item_id'] ?? null, $line['material_id'] ?? null) !== null) {
+            return 'MATERIAL';
+        }
+
         $lineKind = strtoupper(trim((string)($line['line_kind'] ?? '')));
         if (in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
             return $lineKind;
@@ -87,7 +91,31 @@ class Procurement_model extends CI_Model
         if ($this->normalize_usage_purpose($usagePurpose) === self::USAGE_PURPOSE_OPERATIONAL) {
             return null;
         }
-        return $this->nullable_int($line['material_id'] ?? null);
+        return $this->resolve_production_material_id($line['item_id'] ?? null, $line['material_id'] ?? null);
+    }
+
+    private function resolve_production_material_id($itemId, $materialId): ?int
+    {
+        $resolvedMaterialId = $this->nullable_int($materialId);
+        if ($resolvedMaterialId !== null && $resolvedMaterialId > 0) {
+            return $resolvedMaterialId;
+        }
+
+        $resolvedItemId = $this->nullable_int($itemId);
+        if ($resolvedItemId === null || $resolvedItemId <= 0 || !$this->db->table_exists('mst_item') || !$this->db->field_exists('material_id', 'mst_item')) {
+            return null;
+        }
+
+        $row = $this->db
+            ->select('material_id')
+            ->from('mst_item')
+            ->where('id', $resolvedItemId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $material = (int)($row['material_id'] ?? 0);
+        return $material > 0 ? $material : null;
     }
 
     private function resolve_operational_item_id(?int $itemId, ?int $materialId, string $profileKey): ?int
@@ -774,8 +802,12 @@ class Procurement_model extends CI_Model
             $stockDomain = strtoupper(trim((string)($row['stock_domain'] ?? '')));
             $catalogLineKind = strtoupper(trim((string)($row['catalog_line_kind'] ?? '')));
             $defaultUsagePurpose = $this->normalize_usage_purpose($row['default_usage_purpose'] ?? 'BAHAN_BAKU');
+            $resolvedProductionMaterialId = $this->resolve_production_material_id($row['item_id'] ?? null, $row['material_id'] ?? null);
             if ($defaultUsagePurpose === self::USAGE_PURPOSE_OPERATIONAL && (int)($row['item_id'] ?? 0) > 0) {
                 $row['line_kind'] = 'ITEM';
+            } elseif ($defaultUsagePurpose === self::USAGE_PURPOSE_PRODUCTION && $resolvedProductionMaterialId !== null && $resolvedProductionMaterialId > 0) {
+                $row['line_kind'] = 'MATERIAL';
+                $row['material_id'] = $resolvedProductionMaterialId;
             } elseif (in_array($stockDomain, ['MATERIAL', 'ITEM'], true)) {
                 $row['line_kind'] = $stockDomain;
             } elseif ((int)($row['material_id'] ?? 0) > 0) {
@@ -2659,6 +2691,14 @@ class Procurement_model extends CI_Model
                 }
             }
 
+            if ($usagePurpose === self::USAGE_PURPOSE_PRODUCTION) {
+                $resolvedProductionMaterialId = $this->resolve_production_material_id($itemId > 0 ? $itemId : null, $materialId > 0 ? $materialId : null);
+                if ($resolvedProductionMaterialId !== null && $resolvedProductionMaterialId > 0) {
+                    $materialId = $resolvedProductionMaterialId;
+                    $lineKind = 'MATERIAL';
+                }
+            }
+
             if ($materialId > 0) {
                 $lineKind = 'MATERIAL';
             } elseif ($lineKind === '') {
@@ -2775,6 +2815,14 @@ class Procurement_model extends CI_Model
                     $itemId = $resolvedOperationalItemId;
                     $lineKind = 'ITEM';
                     $materialId = 0;
+                }
+            }
+
+            if ($usagePurpose === self::USAGE_PURPOSE_PRODUCTION) {
+                $resolvedProductionMaterialId = $this->resolve_production_material_id($itemId > 0 ? $itemId : null, $materialId > 0 ? $materialId : null);
+                if ($resolvedProductionMaterialId !== null && $resolvedProductionMaterialId > 0) {
+                    $materialId = $resolvedProductionMaterialId;
+                    $lineKind = 'MATERIAL';
                 }
             }
 

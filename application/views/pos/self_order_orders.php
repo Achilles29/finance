@@ -309,9 +309,31 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
   const detailModalEl = document.getElementById('selfOrderDetailModal');
   const verifyModalEl = document.getElementById('selfOrderVerifyModal');
   const infoModalEl = document.getElementById('selfOrderInfoModal');
-  const detailModal = detailModalEl && window.bootstrap ? new bootstrap.Modal(detailModalEl) : null;
-  const verifyModal = verifyModalEl && window.bootstrap ? new bootstrap.Modal(verifyModalEl) : null;
-  const infoModal = infoModalEl && window.bootstrap ? new bootstrap.Modal(infoModalEl) : null;
+  const detailModal = (detailModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(detailModalEl) : null;
+  const verifyModal = (verifyModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(verifyModalEl) : null;
+  const infoModal = (infoModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(infoModalEl) : null;
+
+  function showModal(modalEl, modalInstance) {
+    if (modalInstance && typeof modalInstance.show === 'function') {
+      modalInstance.show();
+      return;
+    }
+    if (window.jQuery && modalEl) {
+      window.jQuery(modalEl).modal('show');
+      return;
+    }
+  }
+
+  function hideModal(modalEl, modalInstance) {
+    if (modalInstance && typeof modalInstance.hide === 'function') {
+      modalInstance.hide();
+      return;
+    }
+    if (window.jQuery && modalEl) {
+      window.jQuery(modalEl).modal('hide');
+      return;
+    }
+  }
 
   function money(value) {
     const number = Number(value || 0);
@@ -410,11 +432,11 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
   function showInfoModal(message, title = 'Informasi') {
     document.getElementById('self_order_info_title').textContent = title;
     document.getElementById('self_order_info_message').innerHTML = String(message || '').replace(/\n/g, '<br>');
-    if (infoModal) {
-      infoModal.show();
-    } else {
-      alert(message);
+    if (infoModal || (window.jQuery && infoModalEl)) {
+      showModal(infoModalEl, infoModal);
+      return;
     }
+    alert(message);
   }
 
   function normalizePrintFailureEntry(entry) {
@@ -599,6 +621,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
         ? `<?php echo site_url('pos/orders/paid'); ?>?q=${encodeURIComponent(String(row.order_no || ''))}`
         : `<?php echo site_url('pos/orders/draft'); ?>?q=${encodeURIComponent(String(row.order_no || ''))}`;
       const canVerify = Number(row.can_verify || 0) === 1;
+      const verifyMessage = String(row.verify_message || 'Order self order belum siap diverifikasi.');
       return `
         <tr>
           <td>
@@ -624,7 +647,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
           <td class="text-center">
             <div class="self-order-action-stack">
               <button type="button" class="btn btn-sm btn-outline-info btn-self-order-detail" data-id="${Number(row.id || 0)}">Detail</button>
-              <button type="button" class="btn btn-sm btn-primary btn-self-order-verify" data-id="${Number(row.id || 0)}" ${canVerify ? '' : 'disabled'}>Verifikasi</button>
+              <button type="button" class="btn btn-sm ${canVerify ? 'btn-primary' : 'btn-outline-secondary'} btn-self-order-verify" data-id="${Number(row.id || 0)}" data-can-verify="${canVerify ? '1' : '0'}" data-verify-message="${escapeHtml(verifyMessage)}">${canVerify ? 'Verifikasi' : 'Cek Status'}</button>
               <a class="btn btn-sm btn-outline-secondary" href="${openHref}">Buka</a>
             </div>
           </td>
@@ -638,6 +661,10 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     body.querySelectorAll('.btn-self-order-verify').forEach((btn) => btn.addEventListener('click', () => {
       const row = rows.find((item) => Number(item.id || 0) === Number(btn.dataset.id || 0));
       if (!row) return;
+      if (String(btn.dataset.canVerify || '0') !== '1') {
+        showInfoModal(String(btn.dataset.verifyMessage || row.verify_message || 'Order self order belum siap diverifikasi.'), 'Status Verifikasi');
+        return;
+      }
       openVerify(row);
     }));
   }
@@ -763,7 +790,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
         </div>
       `;
     }).join('') : '<div class="self-order-empty">Belum ada jejak pembayaran.</div>';
-    if (detailModal) detailModal.show();
+    showModal(detailModalEl, detailModal);
   }
 
   function openVerify(row) {
@@ -780,7 +807,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     document.getElementById('self_order_verify_hint').textContent = row.payment_mode === 'QRIS'
       ? 'Order sudah terbayar. Setelah diverifikasi, KOT akan langsung dicetak dan order masuk ke workspace pesanan terbayar.'
       : 'Order akan masuk ke workspace order aktif. Kasir tetap bisa menagih customer di payment panel setelah pesanan diverifikasi.';
-    if (verifyModal) verifyModal.show();
+    showModal(verifyModalEl, verifyModal);
   }
 
   async function submitVerify() {
@@ -792,7 +819,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     btn.innerHTML = '<span class="self-order-btn-spinner" aria-hidden="true"></span> Memproses';
     try {
       const json = await postJson(`<?php echo site_url('pos/self-order/orders/verify'); ?>/${Number(verifyRow.id || 0)}`, {});
-      if (verifyModal) verifyModal.hide();
+      hideModal(verifyModalEl, verifyModal);
 
       let printFailures = [];
       try {

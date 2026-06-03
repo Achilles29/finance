@@ -10,8 +10,6 @@ ini adalah pengembangan dan penyempurnaan dari repo core (C:\xampp\htdocs\core).
 skema bonus dan penilaian
 
 
-
-
 ===================================
 - PENGATURAN TEMPLATE CETAK
 
@@ -35,10 +33,7 @@ yang perlu diperhatikan di POS ini nanti terhubung dengan stok tersedia berdasar
 
 
 
-
-
 ================
-
 
 - Monitor dapur, bar, dan checker seperti surface Pos_order_monitor di core, karena ini masih gap operasional paling nyata.
 - Reprint order dan receipt plus histori order yang lebih matang seperti Pos_orders di core, supaya audit kasir tidak hanya bergantung pada modal/detail report saat ini.
@@ -52,10 +47,9 @@ v cetak ulang printer
 v catatan order
 v update gudang, bahan baku, component
 v update data sif
-- laporan daily sales seperti core /pos-reports/daily-sales , kemudian cetak 
+v laporan daily sales seperti core /pos-reports/daily-sales , kemudian cetak 
 
 - update resep extra nasi
-
 - update menu
 - update hak akses
 - tata ulang sidebar
@@ -77,8 +71,8 @@ v update data sif
 - POS event
 - master bahan baku relasi ke stok
 - superadmin kunci tanggal libur dan PH
-
-
+- skema duplikasi database
+- akses stok (ketiganya) belum memperhatikan scope divisi
 
 
 Langkah paling natural berikutnya:
@@ -105,3 +99,17 @@ halaman apa saja yang harus disesuaikan terkait penambahan identitas bahan baku 
 /self-order/orders kolom detail belum bisa
 /self-order/orders buat bisa di expand masing masing orderan untuk melihat rinciannya, jadi tidak wajib masuk halaman detail
 /self-order/orders verifikasi tidak muncul spinner, dan tidak berhasil (tidak terjadi apapun)
+
+
+
+lakukan penyesuaian /pos/orders/paid:
+- apakah sudah ada di sys_menu dan  sys_page? kalau belum tambahkan! buatkan query sqlnya. (query baru khusus halaman itu dan jangan ubah struktur sidebar halaman lain)
+- gabungkan tab serumpunnya, dan buat semua halam serumpunnya dengan "tab bertingkat" seperti purchase
+- berikan filter range tanggal, default hari ini
+- di modal detailnya tambahkan modul edit metode pembayaran seperti pada /pos/reports/sales
+
+
+
+jangan hanya repair data, tapi juga harus temukan pangkal masalahnya.
+
+kenapa yang 1000 terbaca sebagai item dan yang 70 material?? padahal jelas belanja stok bar, dan itemnya material, pemakaian Persediaan Produksi, dan masuk ke stok divisi bar. dimana letak awal kesalahannya? dan apakah ini berlaku untuk bahan lain juga? seharusnya konsisten kalau mau pakai material ya jadikan semua yang masuk ke stok divisi sebagai material, kalau mau pakai item ya buat semua jadi item. baik dari PO, SR, Adjusment, opening

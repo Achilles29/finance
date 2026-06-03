@@ -273,7 +273,7 @@ $divisions = is_array($filterOptions['divisions'] ?? null) ? $filterOptions['div
         </div>
       </div>
       <div class="mt-2">
-        <div class="pos-stock-live-hero-copy mt-1">Bandingkan cache database dengan kalkulasi live dari recipe dan stok aktual. Halaman ini dipakai untuk menangkap miss lebih cepat saat confirm, void, refund, adjustment, produksi, atau perpindahan stok baru saja terjadi.</div>
+        <div class="pos-stock-live-hero-copy mt-1">Bandingkan cache database dengan kalkulasi live dari recipe dan stok aktual. Halaman ini fokus pada <strong>produk POS per outlet</strong>. Jika ingin audit bahan baku/material divisi, lanjutkan ke halaman reconcile bahan.</div>
         <div class="d-flex gap-2 flex-wrap mt-3">
           <span class="pos-stock-live-chip">Audit cache vs live</span>
           <span class="pos-stock-live-chip">Default outlet aktif</span>
@@ -371,7 +371,7 @@ $divisions = is_array($filterOptions['divisions'] ?? null) ? $filterOptions['div
           <div class="d-flex gap-2 flex-wrap pos-stock-live-tabs">
             <button type="button" class="btn btn-sm btn-outline-secondary btn-compare-tab active" data-tab="all">Semua</button>
             <button type="button" class="btn btn-sm btn-outline-secondary btn-compare-tab" data-tab="match">Match</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary btn-compare-tab" data-tab="mismatch">Mismatch</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary btn-compare-tab" data-tab="mismatch">Mismatch Produk</button>
           </div>
           <div class="d-flex gap-2 flex-wrap">
             <button type="button" class="btn btn-sm btn-dark" id="btn-rebuild-all">Rebuild Total</button>
@@ -388,9 +388,9 @@ $divisions = is_array($filterOptions['divisions'] ?? null) ? $filterOptions['div
           </div>
           <div class="col-md-3">
             <div class="pos-stock-live-metric">
-              <div class="pos-stock-live-metric-label">Mismatch</div>
+              <div class="pos-stock-live-metric-label">Mismatch Produk POS</div>
               <div class="fs-4 fw-bold text-danger mt-1" id="metric-mismatch">0</div>
-              <div class="pos-stock-live-metric-note mt-2">Cache DB berbeda dari hitung live saat ini.</div>
+              <div class="pos-stock-live-metric-note mt-2">Produk dengan cache DB berbeda dari hitung live saat ini.</div>
             </div>
           </div>
           <div class="col-md-3">
@@ -475,8 +475,8 @@ $divisions = is_array($filterOptions['divisions'] ?? null) ? $filterOptions['div
     <div class="modal-content">
       <div class="modal-header">
         <div>
-          <h5 class="modal-title" id="probeModalLabel">Probe Stock Live</h5>
-          <div class="small text-muted">Ringkasan cache database dibandingkan dengan hasil hitung live per source recipe.</div>
+          <h5 class="modal-title" id="probeModalLabel">Probe Stock Live Produk</h5>
+          <div class="small text-muted">Ringkasan cache database dibandingkan dengan hasil hitung live per source recipe produk POS.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
@@ -556,8 +556,18 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   function compareBadge(flag) {
     return flag
-      ? '<span class="pos-stock-live-badge mismatch">Mismatch</span>'
+      ? '<span class="pos-stock-live-badge mismatch">Mismatch Produk</span>'
       : '<span class="pos-stock-live-badge match">Match</span>';
+  }
+  function materialAuditUrl(row) {
+    const bottleneck = String(((row.live && row.live.bottleneck) || (row.cache && row.cache.bottleneck) || '')).trim();
+    if (!bottleneck) return '';
+    const params = new URLSearchParams();
+    params.set('as_of_date', new Date().toISOString().slice(0, 10));
+    params.set('q', bottleneck);
+    const divisionId = Number(row.default_operational_division_id || row.product_division_id || 0);
+    if (divisionId > 0) params.set('division_id', String(divisionId));
+    return '<?php echo site_url('inventory/stock/division/reconcile'); ?>?' + params.toString();
   }
   function runtimeJobBadge(status) {
     const value = String(status || '').toUpperCase();
@@ -663,7 +673,9 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
     emptyState.classList.add('d-none');
-    tableBody.innerHTML = rows.map((row) => `
+    tableBody.innerHTML = rows.map((row) => {
+      const auditUrl = materialAuditUrl(row);
+      return `
       <tr>
         <td>
           <div class="fw-semibold">${escapeHtml(row.product_name || '-')}</div>
@@ -704,16 +716,18 @@ document.addEventListener('DOMContentLoaded', function () {
             <strong>Last rebuild</strong><span>${escapeHtml((row.latest_log && row.latest_log.rebuilt_at) ? fmtDateTime(row.latest_log.rebuilt_at) : '-')}</span>
             <strong>Last source</strong><span>${escapeHtml((row.latest_log && row.latest_log.event_source) ? row.latest_log.event_source : '-')}</span>
             <strong>Last note</strong><span>${escapeHtml((row.latest_log && row.latest_log.mismatch_note) ? row.latest_log.mismatch_note : '-')}</span>
+            <strong>Audit bahan</strong><span>${auditUrl ? `<a href="${auditUrl}" target="_blank" rel="noopener">Buka reconcile bahan</a>` : '-'}</span>
           </div>
         </td>
         <td class="text-end">
           <div class="d-inline-flex gap-1 flex-wrap justify-content-end">
+            ${auditUrl ? `<a href="${auditUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-dark">Audit Bahan</a>` : ''}
             <button type="button" class="btn btn-sm btn-outline-secondary btn-probe" data-product-id="${Number(row.product_id || 0)}">Probe Live</button>
             <button type="button" class="btn btn-sm btn-primary btn-rebuild" data-product-id="${Number(row.product_id || 0)}">Rebuild</button>
           </div>
         </td>
       </tr>
-    `).join('');
+    `; }).join('');
   }
   function renderPagination(meta) {
     const total = Number(meta.total || 0);

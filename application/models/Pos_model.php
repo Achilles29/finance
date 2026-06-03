@@ -921,7 +921,7 @@ class Pos_model extends CI_Model
             return ['ok' => false, 'message' => 'Order self order tidak valid.'];
         }
 
-        $order = $this->find_order_draft($orderId);
+        $order = $this->find_self_order_order($orderId);
         if (!$order) {
             return ['ok' => false, 'message' => 'Order self order tidak ditemukan.'];
         }
@@ -951,6 +951,21 @@ class Pos_model extends CI_Model
             'payment_status' => (string)($flow['payment_status'] ?? 'PENDING'),
             'is_paid' => !empty($flow['is_paid']),
         ];
+    }
+
+    public function find_self_order_order(int $id): ?array
+    {
+        $order = $this->find_order_draft($id);
+        if (!$order) {
+            return null;
+        }
+
+        $header = (array)($order['header'] ?? []);
+        if (strtoupper(trim((string)($header['order_channel'] ?? ''))) !== 'SELF_ORDER') {
+            return null;
+        }
+
+        return $order;
     }
 
     public function finalize_self_order_verification(int $orderId, int $snapshotId, int $actorEmployeeId, array $context = []): array

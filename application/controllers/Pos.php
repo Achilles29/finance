@@ -9,7 +9,10 @@ class Pos extends MY_Controller
         $this->load->model('Pos_model');
         $this->load->model('Pos_report_model');
         $this->load->model('Pos_order_monitor_model');
-        $this->load->library('PosPrinterPreviewService');
+        $this->load->model('Purchase_model');
+        $this->load->model('Production_model');
+        $this->load->library('PosPrinterPreviewService', null, 'posprinterpreviewservice');
+        $this->load->library('PosRuntimeJobService', null, 'posruntimejobservice');
     }
 
     public function members()
@@ -54,6 +57,58 @@ class Pos extends MY_Controller
             'page_title' => 'Payment Method POS',
             'filters' => $this->payment_method_filters(),
             'filter_options' => $this->Pos_model->payment_method_filter_options(),
+        ]);
+    }
+
+    public function stock_commit_audit()
+    {
+        $this->require_permission('pos.stock.live.index', 'view');
+        if (!isset($this->posruntimejobservice) || !is_object($this->posruntimejobservice)) {
+            $this->load->library('PosRuntimeJobService', null, 'posruntimejobservice');
+        }
+
+        $asOfDate = trim((string)$this->input->get('as_of_date', true));
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
+            $asOfDate = date('Y-m-d');
+        }
+        $tab = strtolower(trim((string)$this->input->get('tab', true)));
+        if (!in_array($tab, ['material', 'component'], true)) {
+            $tab = 'material';
+        }
+
+        $materialCompare = $this->Purchase_model->list_division_material_stock_compare(
+            $asOfDate,
+            '',
+            null,
+            20,
+            'ALL'
+        );
+        $domainAudit = $this->Purchase_model->production_domain_root_cause_audit([
+            'limit' => 20,
+            'active_only' => true,
+        ]);
+        $componentCompare = $this->Production_model->component_reconcile_rows([
+            'as_of_date' => $asOfDate,
+            'q' => '',
+            'location_type' => 'ALL',
+            'division_id' => 0,
+            'type' => '',
+        ], 20);
+
+        $failedJobs = $this->posruntimejobservice->failed_jobs(['limit' => 15]);
+        $activeJobs = $this->posruntimejobservice->active_jobs(['limit' => 15]);
+
+        $this->render('pos/stock_commit_audit_index', [
+            'page_title' => 'Audit Commit Stok POS',
+            'active_menu' => 'pos.stock.commit.audit',
+            'pos_master_tab_active' => 'stock-commit-audit',
+            'audit_tab' => $tab,
+            'as_of_date' => $asOfDate,
+            'material_compare' => $materialCompare,
+            'domain_audit' => !empty($domainAudit['ok']) ? (array)($domainAudit['data'] ?? []) : ['summary' => [], 'rows' => []],
+            'component_compare' => $componentCompare,
+            'failed_jobs' => !empty($failedJobs['ok']) ? (array)($failedJobs['rows'] ?? []) : [],
+            'active_jobs' => !empty($activeJobs['ok']) ? (array)($activeJobs['rows'] ?? []) : [],
         ]);
     }
 
@@ -169,14 +224,9 @@ class Pos extends MY_Controller
     public function self_order_order_detail($id)
     {
         $this->require_permission('pos.self_order.index', 'view');
-        $result = $this->Pos_model->find_order_draft((int)$id);
+        $result = $this->Pos_model->find_self_order_order((int)$id);
         if (!$result) {
             $this->json_error('Order self order tidak ditemukan.', 404);
-            return;
-        }
-        $header = (array)($result['header'] ?? []);
-        if (strtoupper(trim((string)($header['order_channel'] ?? ''))) !== 'SELF_ORDER') {
-            $this->json_error('Order ini bukan order self order.', 422);
             return;
         }
         $this->json_ok($result + [
@@ -1171,6 +1221,8 @@ class Pos extends MY_Controller
                 'product_id' => $productId,
                 'product_code' => (string)($row['product_code'] ?? ''),
                 'product_name' => (string)($row['product_name'] ?? ''),
+                'product_division_id' => (int)($row['product_division_id'] ?? 0),
+                'default_operational_division_id' => (int)($row['default_operational_division_id'] ?? 0),
                 'product_division_name' => (string)($row['product_division_name'] ?? ''),
                 'classification_name' => (string)($row['classification_name'] ?? ''),
                 'product_category_name' => (string)($row['product_category_name'] ?? ''),
@@ -1856,6 +1908,91 @@ class Pos extends MY_Controller
             'failed_count' => (int)($processed['failed_count'] ?? 0),
             'jobs' => (array)($processed['jobs'] ?? []),
             'outlet_id' => $outletId,
+        ]);
+    }
+
+    public function order_runtime_failed_jobs_retry_all()
+    {
+        $pageCode = $this->can('pos.stock.live.index', 'edit')
+            ? 'pos.stock.live.index'
+            : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'edit');
+        $this->load->library('PosRuntimeJobService');
+
+        $payload = $this->request_payload();
+        $limit = max(1, min(25, (int)($payload['limit'] ?? 10)));
+        $failed = $this->posruntimejobservice->failed_jobs([
+            'limit' => $limit,
+            'outlet_id' => max(0, (int)($payload['outlet_id'] ?? 0)),
+            'q' => trim((string)($payload['q'] ?? '')),
+        ]);
+        if (!($failed['ok'] ?? false)) {
+            $this->json_error((string)($failed['message'] ?? 'Data job gagal POS belum tersedia.'), 422);
+            return;
+        }
+
+        $rows = array_values((array)($failed['rows'] ?? []));
+        if (empty($rows)) {
+            $this->json_ok([
+                'message' => 'Belum ada job gagal yang bisa di-retry.',
+                'processed_count' => 0,
+                'success_count' => 0,
+                'failed_count' => 0,
+                'jobs' => [],
+            ]);
+            return;
+        }
+
+        $results = [];
+        $successCount = 0;
+        $failedCount = 0;
+
+        foreach ($rows as $job) {
+            $jobId = (int)($job['id'] ?? 0);
+            if ($jobId <= 0) {
+                continue;
+            }
+
+            $retried = $this->posruntimejobservice->retry_job($jobId, $this->current_actor_employee_id());
+            if (!($retried['ok'] ?? false)) {
+                $failedCount++;
+                $results[] = [
+                    'job_id' => $jobId,
+                    'order_no' => (string)($job['order_no'] ?? ''),
+                    'ok' => false,
+                    'message' => (string)($retried['message'] ?? 'Retry job gagal.'),
+                ];
+                continue;
+            }
+
+            $latestJob = (array)($retried['job'] ?? []);
+            $processed = $this->process_runtime_job_now((int)($latestJob['order_id'] ?? 0), (int)($latestJob['id'] ?? $jobId), 1);
+            if (!($processed['ok'] ?? false)) {
+                $failedCount++;
+                $results[] = [
+                    'job_id' => $jobId,
+                    'order_no' => (string)($job['order_no'] ?? ''),
+                    'ok' => false,
+                    'message' => (string)($processed['message'] ?? 'Retry job gagal diproses.'),
+                ];
+                continue;
+            }
+
+            $successCount++;
+            $results[] = [
+                'job_id' => $jobId,
+                'order_no' => (string)($job['order_no'] ?? ''),
+                'ok' => true,
+                'message' => 'Job berhasil diantrekan ulang dan diproses.',
+            ];
+        }
+
+        $this->json_ok([
+            'message' => 'Retry massal job gagal selesai diproses.',
+            'processed_count' => count($results),
+            'success_count' => $successCount,
+            'failed_count' => $failedCount,
+            'jobs' => $results,
         ]);
     }
 

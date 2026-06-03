@@ -9416,6 +9416,221 @@ class Purchase_model extends CI_Model
         ];
     }
 
+    public function production_domain_root_cause_audit(array $filters = []): array
+    {
+        if (
+            !$this->db->table_exists('mst_purchase_catalog') ||
+            !$this->db->table_exists('mst_item') ||
+            !$this->db->field_exists('line_kind', 'mst_purchase_catalog') ||
+            !$this->db->field_exists('material_id', 'mst_item')
+        ) {
+            return [
+                'ok' => false,
+                'message' => 'Schema purchase/item belum lengkap untuk audit akar masalah domain produksi.',
+            ];
+        }
+
+        $q = trim((string)($filters['q'] ?? ''));
+        $limit = (int)($filters['limit'] ?? 25);
+        if ($limit <= 0 || $limit > 200) {
+            $limit = 25;
+        }
+        $activeOnly = array_key_exists('active_only', $filters) ? !empty($filters['active_only']) : true;
+
+        $hasPoLine = $this->db->table_exists('pur_purchase_order_line')
+            && $this->db->field_exists('profile_key', 'pur_purchase_order_line')
+            && $this->db->field_exists('line_kind', 'pur_purchase_order_line');
+        $hasPoUsage = $hasPoLine && $this->db->field_exists('usage_purpose', 'pur_purchase_order_line');
+        $hasReceiptLine = $this->db->table_exists('pur_purchase_receipt_line')
+            && $this->db->field_exists('profile_key', 'pur_purchase_receipt_line')
+            && $this->db->field_exists('line_kind', 'pur_purchase_receipt_line');
+        $hasReceiptUsage = $hasReceiptLine && $this->db->field_exists('usage_purpose', 'pur_purchase_receipt_line');
+        $hasStoreRequestLine = $this->db->table_exists('pur_store_request_line')
+            && $this->db->field_exists('profile_key', 'pur_store_request_line')
+            && $this->db->field_exists('line_kind', 'pur_store_request_line');
+        $hasStoreRequestUsage = $hasStoreRequestLine && $this->db->field_exists('usage_purpose', 'pur_store_request_line');
+        $hasDivisionRequestLine = $this->db->table_exists('pur_division_request_line')
+            && $this->db->field_exists('profile_key', 'pur_division_request_line')
+            && $this->db->field_exists('line_kind', 'pur_division_request_line');
+        $hasDivisionRequestUsage = $hasDivisionRequestLine && $this->db->field_exists('usage_purpose', 'pur_division_request_line');
+        $hasFulfillmentLine = $this->db->table_exists('pur_store_request_fulfillment_line')
+            && $this->db->field_exists('profile_key', 'pur_store_request_fulfillment_line')
+            && $this->db->field_exists('line_kind', 'pur_store_request_fulfillment_line');
+        $hasFulfillmentUsage = $hasFulfillmentLine && $this->db->field_exists('usage_purpose', 'pur_store_request_fulfillment_line');
+        $hasMovementLog = $this->db->table_exists('inv_stock_movement_log')
+            && $this->db->field_exists('profile_key', 'inv_stock_movement_log')
+            && $this->db->field_exists('item_id', 'inv_stock_movement_log')
+            && $this->db->field_exists('material_id', 'inv_stock_movement_log');
+        $hasDivisionMonthly = $this->db->table_exists('inv_division_monthly_stock')
+            && $this->db->field_exists('profile_key', 'inv_division_monthly_stock')
+            && $this->db->field_exists('stock_domain', 'inv_division_monthly_stock');
+        $hasWarehouseMonthly = $this->db->table_exists('inv_warehouse_monthly_stock')
+            && $this->db->field_exists('profile_key', 'inv_warehouse_monthly_stock')
+            && $this->db->field_exists('stock_domain', 'inv_warehouse_monthly_stock');
+        $hasDivisionDaily = $this->db->table_exists('inv_division_daily_rollup')
+            && $this->db->field_exists('profile_key', 'inv_division_daily_rollup')
+            && $this->db->field_exists('stock_domain', 'inv_division_daily_rollup');
+        $hasWarehouseDaily = $this->db->table_exists('inv_warehouse_daily_rollup')
+            && $this->db->field_exists('profile_key', 'inv_warehouse_daily_rollup')
+            && $this->db->field_exists('stock_domain', 'inv_warehouse_daily_rollup');
+
+        $subqueries = [
+            'po_item_rows' => $hasPoUsage
+                ? "(SELECT COUNT(*) FROM pur_purchase_order_line pol WHERE pol.profile_key = c.profile_key AND COALESCE(pol.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(pol.line_kind,'ITEM')) = 'ITEM')"
+                : '0',
+            'receipt_item_rows' => $hasReceiptUsage
+                ? "(SELECT COUNT(*) FROM pur_purchase_receipt_line rl WHERE rl.profile_key = c.profile_key AND COALESCE(rl.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(rl.line_kind,'ITEM')) = 'ITEM')"
+                : '0',
+            'sr_item_rows' => $hasStoreRequestUsage
+                ? "(SELECT COUNT(*) FROM pur_store_request_line srl WHERE srl.profile_key = c.profile_key AND COALESCE(srl.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(srl.line_kind,'ITEM')) = 'ITEM')"
+                : '0',
+            'division_request_item_rows' => $hasDivisionRequestUsage
+                ? "(SELECT COUNT(*) FROM pur_division_request_line drl WHERE drl.profile_key = c.profile_key AND COALESCE(drl.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(drl.line_kind,'ITEM')) = 'ITEM')"
+                : '0',
+            'fulfillment_item_rows' => $hasFulfillmentUsage
+                ? "(SELECT COUNT(*) FROM pur_store_request_fulfillment_line fl WHERE fl.profile_key = c.profile_key AND COALESCE(fl.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(fl.line_kind,'ITEM')) = 'ITEM')"
+                : '0',
+            'movement_rows' => $hasMovementLog
+                ? "(SELECT COUNT(*) FROM inv_stock_movement_log ml WHERE ml.profile_key = c.profile_key)"
+                : '0',
+            'movement_wrong_material_rows' => $hasMovementLog
+                ? "(SELECT COUNT(*) FROM inv_stock_movement_log ml WHERE ml.profile_key = c.profile_key AND COALESCE(ml.item_id,0) = COALESCE(c.item_id,0) AND COALESCE(ml.material_id,0) <> COALESCE(i.material_id,0))"
+                : '0',
+            'division_monthly_item_rows' => $hasDivisionMonthly
+                ? "(SELECT COUNT(*) FROM inv_division_monthly_stock ds WHERE ds.profile_key = c.profile_key AND UPPER(COALESCE(ds.stock_domain,'ITEM')) = 'ITEM')"
+                : '0',
+            'division_monthly_material_rows' => $hasDivisionMonthly
+                ? "(SELECT COUNT(*) FROM inv_division_monthly_stock ds WHERE ds.profile_key = c.profile_key AND UPPER(COALESCE(ds.stock_domain,'ITEM')) = 'MATERIAL')"
+                : '0',
+            'warehouse_monthly_item_rows' => $hasWarehouseMonthly
+                ? "(SELECT COUNT(*) FROM inv_warehouse_monthly_stock ws WHERE ws.profile_key = c.profile_key AND UPPER(COALESCE(ws.stock_domain,'ITEM')) = 'ITEM')"
+                : '0',
+            'warehouse_monthly_material_rows' => $hasWarehouseMonthly
+                ? "(SELECT COUNT(*) FROM inv_warehouse_monthly_stock ws WHERE ws.profile_key = c.profile_key AND UPPER(COALESCE(ws.stock_domain,'ITEM')) = 'MATERIAL')"
+                : '0',
+            'division_daily_item_rows' => $hasDivisionDaily
+                ? "(SELECT COUNT(*) FROM inv_division_daily_rollup dd WHERE dd.profile_key = c.profile_key AND UPPER(COALESCE(dd.stock_domain,'ITEM')) = 'ITEM')"
+                : '0',
+            'division_daily_material_rows' => $hasDivisionDaily
+                ? "(SELECT COUNT(*) FROM inv_division_daily_rollup dd WHERE dd.profile_key = c.profile_key AND UPPER(COALESCE(dd.stock_domain,'ITEM')) = 'MATERIAL')"
+                : '0',
+            'warehouse_daily_item_rows' => $hasWarehouseDaily
+                ? "(SELECT COUNT(*) FROM inv_warehouse_daily_rollup wd WHERE wd.profile_key = c.profile_key AND UPPER(COALESCE(wd.stock_domain,'ITEM')) = 'ITEM')"
+                : '0',
+            'warehouse_daily_material_rows' => $hasWarehouseDaily
+                ? "(SELECT COUNT(*) FROM inv_warehouse_daily_rollup wd WHERE wd.profile_key = c.profile_key AND UPPER(COALESCE(wd.stock_domain,'ITEM')) = 'MATERIAL')"
+                : '0',
+        ];
+
+        $this->db
+            ->from('mst_purchase_catalog c')
+            ->join('mst_item i', 'i.id = c.item_id', 'inner')
+            ->join('mst_material m', 'm.id = i.material_id', 'left')
+            ->select('c.id AS catalog_id, c.profile_key, c.catalog_name, c.brand_name, c.line_kind AS catalog_line_kind, c.item_id, c.material_id AS catalog_material_id, COALESCE(c.is_active,1) AS is_active', false)
+            ->select('i.item_name, i.material_id AS expected_material_id', false)
+            ->select('m.material_code AS expected_material_code, m.material_name AS expected_material_name', false);
+
+        foreach ($subqueries as $alias => $expr) {
+            $this->db->select($expr . ' AS ' . $alias, false);
+        }
+
+        $this->db
+            ->where("UPPER(COALESCE(c.line_kind,'ITEM')) = 'ITEM'", null, false)
+            ->where('COALESCE(i.material_id,0) >', 0, false);
+
+        if ($activeOnly) {
+            $this->db->where('COALESCE(c.is_active,1) = 1', null, false);
+        }
+
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('c.profile_key', $q)
+                ->or_like('c.catalog_name', $q)
+                ->or_like('c.brand_name', $q)
+                ->or_like('i.item_name', $q)
+                ->or_like('m.material_name', $q)
+            ->group_end();
+        }
+
+        $rows = $this->db
+            ->order_by('c.catalog_name', 'ASC')
+            ->order_by('c.brand_name', 'ASC')
+            ->order_by('c.id', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+
+        $filteredRows = [];
+        foreach ($rows as $row) {
+            $impactCount =
+                (int)($row['po_item_rows'] ?? 0)
+                + (int)($row['receipt_item_rows'] ?? 0)
+                + (int)($row['sr_item_rows'] ?? 0)
+                + (int)($row['division_request_item_rows'] ?? 0)
+                + (int)($row['fulfillment_item_rows'] ?? 0)
+                + (int)($row['movement_rows'] ?? 0)
+                + (int)($row['division_monthly_item_rows'] ?? 0)
+                + (int)($row['warehouse_monthly_item_rows'] ?? 0)
+                + (int)($row['division_daily_item_rows'] ?? 0)
+                + (int)($row['warehouse_daily_item_rows'] ?? 0);
+
+            $row['impact_count'] = $impactCount;
+            $row['has_split_snapshot'] =
+                ((int)($row['division_monthly_item_rows'] ?? 0) > 0 && (int)($row['division_monthly_material_rows'] ?? 0) > 0)
+                || ((int)($row['warehouse_monthly_item_rows'] ?? 0) > 0 && (int)($row['warehouse_monthly_material_rows'] ?? 0) > 0)
+                || ((int)($row['division_daily_item_rows'] ?? 0) > 0 && (int)($row['division_daily_material_rows'] ?? 0) > 0)
+                || ((int)($row['warehouse_daily_item_rows'] ?? 0) > 0 && (int)($row['warehouse_daily_material_rows'] ?? 0) > 0);
+
+            if ($impactCount <= 0) {
+                continue;
+            }
+            $filteredRows[] = $row;
+        }
+
+        $summary = [
+            'total_wrong_active_profiles' => count($filteredRows),
+            'profiles_with_transaction_drift' => 0,
+            'profiles_with_snapshot_split' => 0,
+            'total_po_item_rows' => 0,
+            'total_receipt_item_rows' => 0,
+            'total_movement_wrong_rows' => 0,
+            'total_division_item_rows' => 0,
+            'total_warehouse_item_rows' => 0,
+        ];
+
+        foreach ($filteredRows as $row) {
+            if (
+                (int)($row['po_item_rows'] ?? 0) > 0
+                || (int)($row['receipt_item_rows'] ?? 0) > 0
+                || (int)($row['sr_item_rows'] ?? 0) > 0
+                || (int)($row['division_request_item_rows'] ?? 0) > 0
+                || (int)($row['fulfillment_item_rows'] ?? 0) > 0
+            ) {
+                $summary['profiles_with_transaction_drift']++;
+            }
+            if (!empty($row['has_split_snapshot'])) {
+                $summary['profiles_with_snapshot_split']++;
+            }
+
+            $summary['total_po_item_rows'] += (int)($row['po_item_rows'] ?? 0);
+            $summary['total_receipt_item_rows'] += (int)($row['receipt_item_rows'] ?? 0);
+            $summary['total_movement_wrong_rows'] += (int)($row['movement_wrong_material_rows'] ?? 0);
+            $summary['total_division_item_rows'] += (int)($row['division_monthly_item_rows'] ?? 0) + (int)($row['division_daily_item_rows'] ?? 0);
+            $summary['total_warehouse_item_rows'] += (int)($row['warehouse_monthly_item_rows'] ?? 0) + (int)($row['warehouse_daily_item_rows'] ?? 0);
+        }
+
+        return [
+            'ok' => true,
+            'message' => empty($filteredRows)
+                ? 'Belum ditemukan profile aktif salah domain pada jalur Persediaan Produksi.'
+                : 'Audit akar masalah domain produksi selesai.',
+            'data' => [
+                'summary' => $summary,
+                'rows' => $filteredRows,
+            ],
+        ];
+    }
+
     public function get_purchase_order_detail(int $purchaseOrderId): ?array
     {
         if ($purchaseOrderId <= 0 || !$this->db->table_exists('pur_purchase_order')) {
@@ -14917,6 +15132,17 @@ class Purchase_model extends CI_Model
         $contentUomId = $this->nullableInt($line['content_uom_id'] ?? null);
         $lineName = $this->nullableString($line['catalog_name'] ?? ($line['item_name'] ?? null));
 
+        if ($usagePurpose === self::USAGE_PURPOSE_PRODUCTION) {
+            $resolvedProductionMaterialId = $this->resolveProductionMaterialIdFromLine([
+                'item_id' => $itemId,
+                'material_id' => $materialId,
+            ]);
+            if ($resolvedProductionMaterialId !== null) {
+                $materialId = $resolvedProductionMaterialId;
+                $lineKind = 'MATERIAL';
+            }
+        }
+
         if ($buyUomId <= 0) {
             return ['ok' => false, 'message' => 'buy_uom_id wajib diisi.'];
         }
@@ -15126,9 +15352,9 @@ class Purchase_model extends CI_Model
 
         $upsertData = [
             'profile_key' => $effectiveProfileKey,
-            'line_kind' => (string)($lineData['line_kind'] ?? 'ITEM'),
+            'line_kind' => $this->resolveLineStockDomain($lineData),
             'item_id' => $itemId,
-            'material_id' => $materialId,
+            'material_id' => $this->resolveLineMaterialIdForStock($lineData),
             'catalog_name' => $catalogName,
             'brand_name' => $this->nullableString($lineData['brand_name'] ?? null),
             'line_description' => $this->nullableString($lineData['line_description'] ?? null),
@@ -16413,6 +16639,10 @@ class Purchase_model extends CI_Model
             return 'ITEM';
         }
 
+        if ($this->resolveProductionMaterialIdFromLine($line) !== null) {
+            return 'MATERIAL';
+        }
+
         $lineKind = strtoupper(trim((string)($line['line_kind'] ?? '')));
         if (in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
             return $lineKind;
@@ -16424,7 +16654,31 @@ class Purchase_model extends CI_Model
     {
         return $this->resolveLineUsagePurpose($line) === self::USAGE_PURPOSE_OPERATIONAL
             ? null
-            : $this->nullableInt($line['material_id'] ?? null);
+            : $this->resolveProductionMaterialIdFromLine($line);
+    }
+
+    private function resolveProductionMaterialIdFromLine(array $line): ?int
+    {
+        $materialId = $this->nullableInt($line['material_id'] ?? null);
+        if ($materialId !== null && $materialId > 0) {
+            return $materialId;
+        }
+
+        $itemId = $this->nullableInt($line['item_id'] ?? null);
+        if ($itemId === null || $itemId <= 0 || !$this->db->table_exists('mst_item') || !$this->db->field_exists('material_id', 'mst_item')) {
+            return null;
+        }
+
+        $row = $this->db
+            ->select('material_id')
+            ->from('mst_item')
+            ->where('id', $itemId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $resolved = (int)($row['material_id'] ?? 0);
+        return $resolved > 0 ? $resolved : null;
     }
 
     private function positiveDecimal($value, float $fallback): float
