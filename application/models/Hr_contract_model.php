@@ -680,6 +680,85 @@ class Hr_contract_model extends CI_Model
         return ['ok' => true, 'message' => 'Tanda tangan kontrak berhasil disimpan.'];
     }
 
+    public function portal_employee_signoff(int $id, string $employeeName, int $employeeUserId, string $signatureData, string $note = ''): array
+    {
+        $employeeName = trim($employeeName);
+        if ($employeeName === '') {
+            return ['ok' => false, 'message' => 'Nama pegawai untuk tanda tangan tidak valid.'];
+        }
+
+        $signatureData = trim($signatureData);
+        if ($signatureData === '' || strlen($signatureData) < 30 || strpos($signatureData, 'data:image') !== 0) {
+            return ['ok' => false, 'message' => 'Data tanda tangan tidak valid.'];
+        }
+
+        $contract = $this->db->select('id,status')
+            ->from('hr_contract')
+            ->where('id', $id)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$contract) {
+            return ['ok' => false, 'message' => 'Kontrak tidak ditemukan.'];
+        }
+
+        $status = strtoupper(trim((string)($contract['status'] ?? 'DRAFT')));
+        if (!in_array($status, ['GENERATED', 'SIGNED'], true)) {
+            return ['ok' => false, 'message' => 'Kontrak belum siap untuk ditandatangani pegawai.'];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $this->db->trans_begin();
+        try {
+            $sql = "INSERT INTO hr_contract_approval (contract_id, approver_role, approval_status, approver_name, approver_user_id, approval_note, approved_at, revoked_at, ip_address, user_agent, created_at, updated_at)
+                    VALUES (?, 'EMPLOYEE', 'APPROVED', ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        approval_status = VALUES(approval_status),
+                        approver_name = VALUES(approver_name),
+                        approver_user_id = VALUES(approver_user_id),
+                        approval_note = VALUES(approval_note),
+                        approved_at = VALUES(approved_at),
+                        revoked_at = VALUES(revoked_at),
+                        ip_address = VALUES(ip_address),
+                        user_agent = VALUES(user_agent),
+                        updated_at = VALUES(updated_at)";
+            $this->db->query($sql, [
+                $id,
+                $employeeName,
+                $employeeUserId > 0 ? $employeeUserId : null,
+                trim($note),
+                $now,
+                (string)$this->input->ip_address(),
+                substr((string)$this->input->user_agent(), 0, 255),
+                $now,
+                $now,
+            ]);
+
+            $this->db->where('contract_id', $id)->where('signer_role', 'EMPLOYEE')->delete('hr_contract_signature');
+            $this->db->insert('hr_contract_signature', [
+                'contract_id' => $id,
+                'signer_role' => 'EMPLOYEE',
+                'signer_name' => $employeeName,
+                'signer_user_id' => $employeeUserId > 0 ? $employeeUserId : null,
+                'signature_data' => $signatureData,
+                'signed_at' => $now,
+                'ip_address' => (string)$this->input->ip_address(),
+                'user_agent' => substr((string)$this->input->user_agent(), 0, 255),
+            ]);
+
+            $this->sync_signed_status($id);
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan persetujuan dan tanda tangan kontrak.');
+            }
+            $this->db->trans_commit();
+            $this->refresh_document_verification($id);
+            return ['ok' => true, 'message' => 'Persetujuan dan tanda tangan kontrak berhasil disimpan.'];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
     public function transition_status(int $id, string $toStatus): array
     {
         $toStatus = strtoupper(trim($toStatus));

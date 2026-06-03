@@ -25,6 +25,8 @@ class My extends MY_Controller
         $this->load->model('Attendance_model');
         $this->load->model('Payroll_preview_model');
         $this->load->model('Payroll_model');
+        $this->load->model('Hr_contract_model');
+        $this->sync_profile_portal_registry();
     }
 
     private function selected_employee_id(): int
@@ -184,7 +186,158 @@ class My extends MY_Controller
     public function profile()
     {
         $this->require_registered_page_permission(self::PAGE_PROFILE);
-        $this->render_placeholder('my.profile', 'Profil & Data Diri', 'Data pribadi, kontrak kerja, tanda tangan kontrak, dan dokumen pegawai akan dipusatkan di halaman ini.');
+
+        $employeeId = $this->selected_employee_id();
+        $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
+        $sessionEmployeeId = (int)($this->current_user['employee_id'] ?? 0);
+        $contractRows = [];
+        $selectedContractId = max(0, (int)$this->input->get('contract_id', true));
+        $selectedContract = null;
+        $approvalMap = [];
+        $signatureMap = [];
+        $canEmployeeSign = false;
+
+        if ($employee) {
+            $contractRows = $this->My_portal_model->list_my_contracts((int)$employee['id']);
+            if ($selectedContractId <= 0 && !empty($contractRows)) {
+                $selectedContractId = (int)($contractRows[0]['id'] ?? 0);
+            }
+            if ($selectedContractId > 0) {
+                $this->Hr_contract_model->refresh_document_verification($selectedContractId);
+                $selectedContract = $this->My_portal_model->get_my_contract_detail((int)$employee['id'], $selectedContractId);
+                if (!$selectedContract && !empty($contractRows)) {
+                    $selectedContractId = (int)($contractRows[0]['id'] ?? 0);
+                    if ($selectedContractId > 0) {
+                        $this->Hr_contract_model->refresh_document_verification($selectedContractId);
+                        $selectedContract = $this->My_portal_model->get_my_contract_detail((int)$employee['id'], $selectedContractId);
+                    }
+                }
+                if ($selectedContract) {
+                    $contractStatus = strtoupper(trim((string)($selectedContract['status'] ?? 'DRAFT')));
+                    $canEmployeeSign = $sessionEmployeeId > 0
+                        && (int)$employee['id'] === $sessionEmployeeId
+                        && in_array($contractStatus, ['GENERATED', 'SIGNED'], true);
+                    foreach ((array)($selectedContract['approvals'] ?? []) as $approval) {
+                        $approvalMap[(string)($approval['approver_role'] ?? '')] = $approval;
+                    }
+                    foreach ((array)($selectedContract['signatures'] ?? []) as $signature) {
+                        $signatureMap[(string)($signature['signer_role'] ?? '')] = $signature;
+                    }
+                }
+            }
+        }
+
+        $this->render('my/profile', [
+            'title' => 'Kontrak Saya',
+            'active_menu' => 'my.profile',
+            'employee' => $employee,
+            'employee_options' => $this->is_superadmin() ? $this->My_portal_model->get_employee_options() : [],
+            'selected_employee_id' => $employeeId,
+            'contract_rows' => $contractRows,
+            'selected_contract_id' => $selectedContractId,
+            'selected_contract' => $selectedContract,
+            'approval_map' => $approvalMap,
+            'signature_map' => $signatureMap,
+            'can_employee_sign' => $canEmployeeSign,
+        ]);
+    }
+
+    public function profile_contract_sign(int $contractId)
+    {
+        $this->require_registered_page_permission(self::PAGE_PROFILE);
+
+        if ($this->input->method() !== 'post') {
+            redirect('my/profile');
+            return;
+        }
+
+        $sessionEmployeeId = (int)($this->current_user['employee_id'] ?? 0);
+        if ($sessionEmployeeId <= 0) {
+            $this->session->set_flashdata('error', 'Hanya akun pegawai yang terhubung langsung yang dapat menandatangani kontrak.');
+            redirect('my/profile');
+            return;
+        }
+
+        $employee = $this->My_portal_model->get_employee_by_id($sessionEmployeeId);
+        if (!$employee) {
+            $this->session->set_flashdata('error', 'Data pegawai untuk akun ini tidak ditemukan.');
+            redirect('my/profile');
+            return;
+        }
+
+        $contract = $this->My_portal_model->get_my_contract_detail($sessionEmployeeId, $contractId);
+        if (!$contract) {
+            $this->session->set_flashdata('error', 'Kontrak tidak ditemukan atau bukan milik akun ini.');
+            redirect('my/profile');
+            return;
+        }
+
+        if ((string)$this->input->post('agree_contract', true) !== '1') {
+            $this->session->set_flashdata('error', 'Centang persetujuan kontrak sebelum menandatangani.');
+            redirect('my/profile?contract_id=' . (int)$contractId);
+            return;
+        }
+
+        $signerName = trim((string)($employee['employee_name'] ?? ''));
+        if ($signerName === '') {
+            $signerName = trim((string)($contract['employee_name'] ?? ''));
+        }
+
+        $result = $this->Hr_contract_model->portal_employee_signoff(
+            $contractId,
+            $signerName,
+            (int)($this->current_user['id'] ?? 0),
+            trim((string)$this->input->post('signature_data', false)),
+            trim((string)$this->input->post('approval_note', true))
+        );
+
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan persetujuan kontrak.'));
+        redirect('my/profile?contract_id=' . (int)$contractId);
+    }
+
+    public function profile_contract_print(int $contractId)
+    {
+        $this->require_registered_page_permission(self::PAGE_PROFILE);
+
+        $employeeId = $this->selected_employee_id();
+        $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
+        if (!$employee) {
+            show_404();
+            return;
+        }
+
+        $this->Hr_contract_model->refresh_document_verification($contractId);
+        $row = $this->My_portal_model->get_my_contract_detail((int)$employee['id'], $contractId);
+        if (!$row) {
+            show_404();
+            return;
+        }
+
+        $approvalMap = [];
+        foreach ((array)($row['approvals'] ?? []) as $approval) {
+            $approvalMap[(string)($approval['approver_role'] ?? '')] = $approval;
+        }
+
+        $signatureMap = [];
+        foreach ((array)($row['signatures'] ?? []) as $signature) {
+            $signatureMap[(string)($signature['signer_role'] ?? '')] = $signature;
+        }
+
+        $backQuery = [];
+        if ($this->is_superadmin()) {
+            $backQuery['employee_id'] = (int)$employee['id'];
+        }
+        $backQuery['contract_id'] = (int)$contractId;
+        $backUrl = site_url('my/profile' . '?' . http_build_query($backQuery));
+
+        $this->load->view('hr_contract/print', [
+            'row' => $row,
+            'approval_map' => $approvalMap,
+            'signature_map' => $signatureMap,
+            'verify_url' => site_url('hr-contracts/verify/' . (string)($row['verification_token'] ?? '')),
+            'ctx' => 'my',
+            'back_url' => $backUrl,
+        ]);
     }
 
     public function schedule()
@@ -644,6 +797,57 @@ class My extends MY_Controller
     {
         if ($this->is_registered_page($pageCode)) {
             $this->require_permission($pageCode, 'view');
+        }
+    }
+
+    private function sync_profile_portal_registry(): void
+    {
+        if (!$this->db->table_exists('sys_page') || !$this->db->table_exists('sys_menu')) {
+            return;
+        }
+
+        $page = $this->db->select('id, page_name, description, module')
+            ->from('sys_page')
+            ->where('page_code', self::PAGE_PROFILE)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!empty($page)) {
+            $payload = [];
+            if ((string)($page['page_name'] ?? '') !== 'Kontrak Saya') {
+                $payload['page_name'] = 'Kontrak Saya';
+            }
+            if ((string)($page['module'] ?? '') !== 'MY_PORTAL') {
+                $payload['module'] = 'MY_PORTAL';
+            }
+            if ((string)($page['description'] ?? '') !== 'Profil pegawai dan akses kontrak kerja pribadi.') {
+                $payload['description'] = 'Profil pegawai dan akses kontrak kerja pribadi.';
+            }
+            if (!empty($payload)) {
+                $this->db->where('id', (int)$page['id'])->update('sys_page', $payload);
+            }
+        }
+
+        $menu = $this->db->select('id, menu_label, url, sidebar_type')
+            ->from('sys_menu')
+            ->where('menu_code', 'my.profile')
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!empty($menu)) {
+            $payload = [];
+            if ((string)($menu['menu_label'] ?? '') !== 'Kontrak Saya') {
+                $payload['menu_label'] = 'Kontrak Saya';
+            }
+            if ((string)($menu['url'] ?? '') !== '/my/profile') {
+                $payload['url'] = '/my/profile';
+            }
+            if ((string)($menu['sidebar_type'] ?? '') !== 'MY') {
+                $payload['sidebar_type'] = 'MY';
+            }
+            if (!empty($payload)) {
+                $this->db->where('id', (int)$menu['id'])->update('sys_menu', $payload);
+            }
         }
     }
 

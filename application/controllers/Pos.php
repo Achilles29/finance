@@ -1308,6 +1308,20 @@ class Pos extends MY_Controller
         ]);
     }
 
+    public function order_draft_delete($id)
+    {
+        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'edit');
+        $result = $this->Pos_model->delete_order_draft((int)$id, $this->current_actor_employee_id());
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menghapus draft order POS.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)$id,
+        ]);
+    }
+
     public function order_draft_member_search()
     {
         $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
@@ -1478,6 +1492,41 @@ class Pos extends MY_Controller
             $this->json_error((string)($resolved['message'] ?? 'Gagal menyiapkan stock commit order POS.'), 422);
             return;
         }
+        $warningMessage = trim((string)($resolved['warning_message'] ?? ''));
+
+        if (empty($resolved['lines'])) {
+            $finalize = $this->Pos_model->finalize_order_confirmation($orderId, 0, $actorEmployeeId, 'NOT_REQUIRED');
+            if (!($finalize['ok'] ?? false)) {
+                $this->json_error((string)($finalize['message'] ?? 'Order POS gagal difinalkan.'), 422);
+                return;
+            }
+            $this->Pos_order_monitor_model->sync_order_tasks($orderId);
+            $this->json_ok([
+                'id' => $orderId,
+                'snapshot_id' => 0,
+                'commit_no' => '',
+                'resolved_line_count' => 0,
+                'runtime_job_id' => 0,
+                'runtime_job_code' => '',
+                'print_job_count' => 0,
+                'runtime_kickoff' => [
+                    'ok' => false,
+                    'mode' => 'not_required',
+                    'message' => 'Stock commit dilewati karena item yang dikonfirmasi belum memiliki recipe product.',
+                ],
+                'stock_sync' => [
+                    'queued' => false,
+                    'status' => 'NOT_REQUIRED',
+                    'kickoff_ok' => false,
+                ],
+                'stock_commit_status' => 'NOT_REQUIRED',
+                'append_mode' => $appendMode,
+                'appended_line_count' => $appendedLineCount,
+                'header_only_update' => false,
+                'warning_message' => $warningMessage,
+            ]);
+            return;
+        }
 
         $snapshot = $this->posstockcommitservice->create_snapshot($orderId, (array)($resolved['header'] ?? []), (array)($resolved['lines'] ?? []));
         if (!($snapshot['ok'] ?? false)) {
@@ -1543,6 +1592,7 @@ class Pos extends MY_Controller
             'append_mode' => $appendMode,
             'appended_line_count' => $appendedLineCount,
             'header_only_update' => false,
+            'warning_message' => $warningMessage,
         ]);
     }
 
@@ -2829,6 +2879,46 @@ class Pos extends MY_Controller
             $this->json_error((string)($resolved['message'] ?? 'Gagal menyiapkan stock commit order self order.'), 422);
             return;
         }
+        $warningMessage = trim((string)($resolved['warning_message'] ?? ''));
+
+        if (empty($resolved['lines'])) {
+            $finalize = $this->Pos_model->finalize_self_order_verification($orderId, 0, $actorEmployeeId, [
+                'payment_mode' => (string)($context['payment_mode'] ?? 'KASIR'),
+                'payment_status' => (string)($context['payment_status'] ?? 'PENDING'),
+                'is_paid' => !empty($context['is_paid']),
+                'stock_commit_status' => 'NOT_REQUIRED',
+            ]);
+            if (!($finalize['ok'] ?? false)) {
+                $this->json_error((string)($finalize['message'] ?? 'Order self order gagal difinalkan.'), 422);
+                return;
+            }
+            $this->Pos_order_monitor_model->sync_order_tasks($orderId);
+            $this->json_ok([
+                'id' => $orderId,
+                'snapshot_id' => 0,
+                'commit_no' => '',
+                'resolved_line_count' => 0,
+                'runtime_job_id' => 0,
+                'runtime_job_code' => '',
+                'runtime_kickoff' => [
+                    'ok' => false,
+                    'mode' => 'not_required',
+                    'message' => 'Stock commit dilewati karena item self order belum memiliki recipe product.',
+                ],
+                'stock_sync' => [
+                    'queued' => false,
+                    'status' => 'NOT_REQUIRED',
+                    'kickoff_ok' => false,
+                ],
+                'stock_commit_status' => 'NOT_REQUIRED',
+                'workspace_bucket' => (string)($finalize['workspace_bucket'] ?? ''),
+                'target_status' => (string)($finalize['target_status'] ?? ''),
+                'payment_mode' => (string)($context['payment_mode'] ?? 'KASIR'),
+                'direct_print_targets' => [],
+                'warning_message' => $warningMessage,
+            ]);
+            return;
+        }
 
         $snapshot = $this->posstockcommitservice->create_snapshot($orderId, (array)($resolved['header'] ?? []), (array)($resolved['lines'] ?? []));
         if (!($snapshot['ok'] ?? false)) {
@@ -2908,6 +2998,7 @@ class Pos extends MY_Controller
             'target_status' => (string)($finalize['target_status'] ?? ''),
             'payment_mode' => (string)($context['payment_mode'] ?? 'KASIR'),
             'direct_print_targets' => (array)($directPrint['targets'] ?? []),
+            'warning_message' => $warningMessage,
         ]);
     }
 

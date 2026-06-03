@@ -63,7 +63,7 @@ $avatar_bg     = $avatar_colors[ord($initials) % count($avatar_colors)];
         <li>
           <a class="dropdown-item py-2" href="<?= base_url('my/profile') ?>">
             <i class="ri ri-user-3-line me-2 text-muted" style="font-size:.9rem;"></i>
-            <span style="font-size:.875rem;">Profil Saya</span>
+            <span style="font-size:.875rem;">Kontrak Saya</span>
           </a>
         </li>
         <li>

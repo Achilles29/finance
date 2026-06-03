@@ -239,6 +239,96 @@ class My_portal_model extends CI_Model
             ->get()->result_array();
     }
 
+    public function list_my_contracts(int $employeeId): array
+    {
+        if ($employeeId <= 0 || !$this->db->table_exists('hr_contract')) {
+            return [];
+        }
+
+        return $this->db->select('
+                c.id,
+                c.contract_number,
+                c.contract_type,
+                c.status,
+                c.start_date,
+                c.end_date,
+                c.generated_at,
+                c.document_issued_at,
+                c.template_id,
+                c.verification_token,
+                t.template_name,
+                t.template_code
+            ')
+            ->from('hr_contract c')
+            ->join('hr_contract_template t', 't.id = c.template_id', 'left')
+            ->where('c.employee_id', $employeeId)
+            ->order_by('COALESCE(c.start_date, "1900-01-01")', 'DESC', false)
+            ->order_by('c.id', 'DESC')
+            ->get()->result_array();
+    }
+
+    public function get_my_contract_detail(int $employeeId, int $contractId): ?array
+    {
+        if ($employeeId <= 0 || $contractId <= 0 || !$this->db->table_exists('hr_contract')) {
+            return null;
+        }
+
+        $row = $this->db->select('id')
+            ->from('hr_contract')
+            ->where('id', $contractId)
+            ->where('employee_id', $employeeId)
+            ->limit(1)
+            ->get()->row_array();
+
+        if (!$row) {
+            return null;
+        }
+
+        $detail = $this->db->select('c.*, e.employee_code, e.employee_name, e.employee_nip, e.email, e.mobile_phone, d.division_name, p.position_name, t.template_name, t.template_code, uc.username AS created_by_username, ug.username AS generated_by_username')
+            ->from('hr_contract c')
+            ->join('org_employee e', 'e.id = c.employee_id', 'left')
+            ->join('org_division d', 'd.id = e.division_id', 'left')
+            ->join('org_position p', 'p.id = e.position_id', 'left')
+            ->join('hr_contract_template t', 't.id = c.template_id', 'left')
+            ->join('auth_user uc', 'uc.id = c.created_by', 'left')
+            ->join('auth_user ug', 'ug.id = c.generated_by', 'left')
+            ->where('c.id', $contractId)
+            ->where('c.employee_id', $employeeId)
+            ->limit(1)
+            ->get()->row_array();
+
+        if (!$detail) {
+            return null;
+        }
+
+        $detail['approvals'] = $this->db->from('hr_contract_approval')
+            ->where('contract_id', $contractId)
+            ->order_by('approver_role', 'ASC')
+            ->get()->result_array();
+
+        $detail['signatures'] = $this->db->select('id, contract_id, signer_role, signer_name, signer_user_id, signature_data, signed_at, ip_address')
+            ->from('hr_contract_signature')
+            ->where('contract_id', $contractId)
+            ->order_by('signer_role', 'ASC')
+            ->get()->result_array();
+
+        $detail['snapshot'] = $this->db->from('hr_contract_comp_snapshot')
+            ->where('contract_id', $contractId)
+            ->limit(1)
+            ->get()->row_array() ?: null;
+
+        if (!empty($detail['snapshot']['id'])) {
+            $detail['snapshot_lines'] = $this->db->from('hr_contract_comp_snapshot_line')
+                ->where('snapshot_id', (int)$detail['snapshot']['id'])
+                ->order_by('sort_order', 'ASC')
+                ->get()->result_array();
+        } else {
+            $detail['snapshot_lines'] = [];
+        }
+
+        return $detail;
+    }
+
     public function get_active_policy(): array
     {
         $row = $this->db->from('att_attendance_policy')

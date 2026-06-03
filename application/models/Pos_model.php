@@ -964,7 +964,7 @@ class Pos_model extends CI_Model
         $isPaid = !empty($context['is_paid']);
         $targetStatus = $isPaid ? 'PAID' : 'CONFIRMED';
         $stockCommitStatus = strtoupper(trim((string)($context['stock_commit_status'] ?? 'QUEUED')));
-        if (!in_array($stockCommitStatus, ['PENDING', 'QUEUED', 'PROCESSING', 'POSTED', 'FAILED', 'REVERSED'], true)) {
+        if (!in_array($stockCommitStatus, ['PENDING', 'QUEUED', 'PROCESSING', 'POSTED', 'FAILED', 'REVERSED', 'NOT_REQUIRED'], true)) {
             $stockCommitStatus = 'QUEUED';
         }
 
@@ -991,16 +991,21 @@ class Pos_model extends CI_Model
             }
 
             $this->db->where('id', $orderId)->update('pos_order', $this->filter_table_payload('pos_order', $payload));
+            $note = ($isPaid
+                ? 'Self order diverifikasi setelah pembayaran diterima.'
+                : 'Self order diverifikasi untuk dibayar di kasir.');
+            if ($stockCommitStatus === 'NOT_REQUIRED' || $snapshotId <= 0) {
+                $note .= ' Snapshot stock commit dilewati karena recipe product belum tersedia.';
+            } else {
+                $note .= ' Snapshot stock commit #' . $snapshotId . ' dibuat.';
+            }
             $this->insert_order_state_log(
                 $orderId,
                 (string)($row['status'] ?? 'PENDING'),
                 $targetStatus,
                 $isPaid ? 'SELF_ORDER_VERIFY_PAID' : 'SELF_ORDER_VERIFY_CASHIER',
                 $actorEmployeeId,
-                ($isPaid
-                    ? 'Self order diverifikasi setelah pembayaran diterima.'
-                    : 'Self order diverifikasi untuk dibayar di kasir.')
-                . ' Snapshot stock commit #' . $snapshotId . ' dibuat.'
+                $note
             );
             if ($this->db->trans_status() === false) {
                 throw new RuntimeException('Gagal memfinalkan verifikasi order self order.');
@@ -1145,7 +1150,7 @@ class Pos_model extends CI_Model
             || in_array($orderStatus, ['PAID', 'PAID_PARTIAL', 'READY', 'SERVED', 'REFUND_PARTIAL', 'REFUND_FULL', 'REFUNDED_FULL'], true)
             || round((float)($order['paid_total'] ?? 0), 2) >= round((float)($order['grand_total'] ?? 0), 2);
 
-        $verified = in_array($stockCommitStatus, ['QUEUED', 'PROCESSING', 'POSTED', 'FAILED', 'REVERSED'], true);
+        $verified = in_array($stockCommitStatus, ['QUEUED', 'PROCESSING', 'POSTED', 'FAILED', 'REVERSED', 'NOT_REQUIRED'], true);
         $canVerify = !$verified && ($paymentMode === 'KASIR' || ($paymentMode === 'QRIS' && $isPaid));
         $verifyMessage = '';
 
@@ -5753,6 +5758,79 @@ class Pos_model extends CI_Model
         }
     }
 
+    private function missing_recipe_stock_commit_warning(array $productNames): string
+    {
+        $names = [];
+        foreach ($productNames as $name) {
+            $clean = trim((string)$name);
+            if ($clean !== '') {
+                $names[] = $clean;
+            }
+        }
+        $names = array_values(array_unique($names));
+        if (empty($names)) {
+            return '';
+        }
+        return 'Recipe product belum tersedia untuk: ' . implode(', ', $names) . '. Transaksi tetap tersimpan dan pembayaran tetap bisa diproses, tetapi stock commit untuk item tersebut belum dijalankan.';
+    }
+
+    public function delete_order_draft(int $orderId, int $actorEmployeeId): array
+    {
+        if ($orderId <= 0) {
+            return ['ok' => false, 'message' => 'Draft order POS tidak valid.'];
+        }
+
+        $previousDbDebug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        $this->db->trans_begin();
+        try {
+            $row = $this->db->query('SELECT * FROM pos_order WHERE id = ? LIMIT 1 FOR UPDATE', [$orderId])->row_array();
+            if (!$row) {
+                throw new RuntimeException('Draft order POS tidak ditemukan.');
+            }
+
+            $status = strtoupper(trim((string)($row['status'] ?? 'DRAFT')));
+            if (!in_array($status, ['DRAFT', 'PENDING'], true)) {
+                throw new RuntimeException('Hanya draft order POS yang bisa dihapus. Jika order sudah confirmed, gunakan void atau refund sesuai status transaksinya.');
+            }
+
+            $paymentCount = 0;
+            if ($this->db->table_exists('pos_payment')) {
+                $paymentCount = (int)$this->db->from('pos_payment')
+                    ->where('order_id', $orderId)
+                    ->count_all_results();
+            }
+            if ($paymentCount > 0) {
+                throw new RuntimeException('Draft ini sudah memiliki jejak pembayaran, jadi tidak bisa dihapus langsung.');
+            }
+
+            if ($this->db->table_exists('pos_order_monitor_task')) {
+                $this->db->where('order_id', $orderId)->delete('pos_order_monitor_task');
+            }
+            if ($this->db->table_exists('pos_order_state_log')) {
+                $this->db->where('order_id', $orderId)->delete('pos_order_state_log');
+            }
+            if ($this->db->table_exists('pos_order_line_extra')) {
+                $this->db->where('order_id', $orderId)->delete('pos_order_line_extra');
+            }
+            if ($this->db->table_exists('pos_order_line')) {
+                $this->db->where('order_id', $orderId)->delete('pos_order_line');
+            }
+            $this->db->where('id', $orderId)->delete('pos_order');
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menghapus draft order POS.');
+            }
+            $this->db->trans_commit();
+            $this->db->db_debug = $previousDbDebug;
+            return ['ok' => true, 'id' => $orderId];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            $this->db->db_debug = $previousDbDebug;
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
     public function resolve_order_stock_commit_payload(int $orderId, int $actorEmployeeId, array $options = []): array
     {
         if ($orderId <= 0) {
@@ -5793,10 +5871,12 @@ class Pos_model extends CI_Model
 
         $resolvedLines = [];
         $resolvedLineNo = 1;
+        $missingRecipeProducts = [];
         foreach ($lines as $line) {
             $recipeRows = $this->load_order_product_recipe_rows((int)($line['product_id'] ?? 0));
             if (empty($recipeRows)) {
-                return ['ok' => false, 'message' => 'Produk ' . (string)($line['product_name'] ?? '-') . ' belum memiliki recipe product, jadi belum bisa stock commit.'];
+                $missingRecipeProducts[] = (string)($line['product_name'] ?? '-');
+                continue;
             }
             $productResolvedLines = [];
             foreach ($recipeRows as $recipeRow) {
@@ -5851,7 +5931,31 @@ class Pos_model extends CI_Model
             }
         }
 
+        $warningMessage = $this->missing_recipe_stock_commit_warning($missingRecipeProducts);
+
         if (empty($resolvedLines)) {
+            if ($warningMessage !== '') {
+                return [
+                    'ok' => true,
+                    'header' => [
+                        'outlet_id' => !empty($header['outlet_id']) ? (int)$header['outlet_id'] : null,
+                        'terminal_id' => !empty($header['terminal_id']) ? (int)$header['terminal_id'] : null,
+                        'shift_id' => !empty($header['shift_id']) ? (int)$header['shift_id'] : null,
+                        'cashier_session_id' => !empty($header['cashier_session_id']) ? (int)$header['cashier_session_id'] : null,
+                        'actor_employee_id' => $actorEmployeeId > 0 ? $actorEmployeeId : (!empty($header['cashier_employee_id']) ? (int)$header['cashier_employee_id'] : null),
+                        'commit_status' => 'DRAFT',
+                        'commit_reason' => 'ORDER_CONFIRM',
+                        'process_state_snapshot' => 'NONE',
+                        'notes' => empty($targetLineIds)
+                            ? ('Confirm order POS tanpa snapshot stok karena recipe belum tersedia untuk ' . implode(', ', array_unique($missingRecipeProducts)) . '.')
+                            : ('Append transaksi POS tanpa snapshot stok karena recipe belum tersedia untuk ' . implode(', ', array_unique($missingRecipeProducts)) . '.'),
+                    ],
+                    'lines' => [],
+                    'resolved_line_count' => 0,
+                    'warning_message' => $warningMessage,
+                    'missing_recipe_products' => array_values(array_unique($missingRecipeProducts)),
+                ];
+            }
             return ['ok' => false, 'message' => 'Tidak ada konsumsi stok yang berhasil di-resolve dari recipe produk.'];
         }
 
@@ -5872,6 +5976,8 @@ class Pos_model extends CI_Model
             ],
             'lines' => $resolvedLines,
             'resolved_line_count' => count($resolvedLines),
+            'warning_message' => $warningMessage,
+            'missing_recipe_products' => array_values(array_unique($missingRecipeProducts)),
         ];
     }
 
@@ -5883,7 +5989,7 @@ class Pos_model extends CI_Model
         }
 
         $stockCommitStatus = strtoupper(trim($stockCommitStatus));
-        if (!in_array($stockCommitStatus, ['PENDING', 'QUEUED', 'PROCESSING', 'POSTED', 'FAILED', 'REVERSED'], true)) {
+        if (!in_array($stockCommitStatus, ['PENDING', 'QUEUED', 'PROCESSING', 'POSTED', 'FAILED', 'REVERSED', 'NOT_REQUIRED'], true)) {
             $stockCommitStatus = 'POSTED';
         }
 
@@ -5904,11 +6010,19 @@ class Pos_model extends CI_Model
             }
             $this->db->where('id', $orderId)->update('pos_order', $this->filter_table_payload('pos_order', $orderPayload));
 
-            $note = $isAppendConfirm
-                ? ('Order confirmed diappend dari kasir dan snapshot stock commit #' . $snapshotId . ' dibuat.')
-                : ('Draft order dikonfirmasi dan snapshot stock commit #' . $snapshotId . ' dibuat.');
+            if ($stockCommitStatus === 'NOT_REQUIRED' || $snapshotId <= 0) {
+                $note = $isAppendConfirm
+                    ? 'Order confirmed diappend dari kasir tanpa snapshot stock commit.'
+                    : 'Draft order dikonfirmasi tanpa snapshot stock commit.';
+            } else {
+                $note = $isAppendConfirm
+                    ? ('Order confirmed diappend dari kasir dan snapshot stock commit #' . $snapshotId . ' dibuat.')
+                    : ('Draft order dikonfirmasi dan snapshot stock commit #' . $snapshotId . ' dibuat.');
+            }
             if ($stockCommitStatus === 'QUEUED') {
                 $note .= ' Posting stok dipindah ke queue runtime POS.';
+            } elseif ($stockCommitStatus === 'NOT_REQUIRED') {
+                $note .= ' Snapshot stock commit dilewati karena recipe product belum tersedia.';
             }
             $this->insert_order_state_log(
                 $orderId,
@@ -5939,7 +6053,7 @@ class Pos_model extends CI_Model
         }
 
         $stockCommitStatus = strtoupper(trim($stockCommitStatus));
-        if (!in_array($stockCommitStatus, ['PENDING', 'QUEUED', 'PROCESSING', 'POSTED', 'FAILED', 'REVERSED'], true)) {
+        if (!in_array($stockCommitStatus, ['PENDING', 'QUEUED', 'PROCESSING', 'POSTED', 'FAILED', 'REVERSED', 'NOT_REQUIRED'], true)) {
             return ['ok' => false, 'message' => 'Status stock commit POS tidak valid.'];
         }
 

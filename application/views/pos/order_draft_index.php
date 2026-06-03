@@ -137,6 +137,7 @@ $isPaidWorkspace = $workspaceMode === 'PAID';
           <div class="d-flex flex-wrap gap-2">
             <button type="button" class="btn btn-outline-secondary" id="btn-reset-order"><?php echo $isPaidWorkspace ? 'Kosongkan Preview' : 'Reset Draft'; ?></button>
             <button type="button" class="btn btn-outline-dark" id="btn-reversal-preview" disabled><?php echo $isPaidWorkspace ? 'Preview Refund' : 'Preview Void'; ?></button>
+            <button type="button" class="btn btn-outline-danger<?php echo $isPaidWorkspace ? ' d-none' : ''; ?>" id="btn-delete-draft" disabled>Hapus Draft</button>
             <button type="button" class="btn btn-outline-primary<?php echo $isPaidWorkspace ? ' d-none' : ''; ?>" id="btn-save-order" <?php echo empty($outlets) ? 'disabled' : ''; ?>>Simpan Draft</button>
             <button type="button" class="btn btn-primary<?php echo $isPaidWorkspace ? ' d-none' : ''; ?>" id="btn-confirm-order" <?php echo empty($outlets) ? 'disabled' : ''; ?>>Confirm + Stock Commit</button>
           </div>
@@ -407,7 +408,7 @@ document.addEventListener('DOMContentLoaded', function () {
     limit: parseInt(initialFilters.limit || 20, 10) || 20
   };
 
-  const order = { id: null, order_no: '', outlet_id: '', terminal_id: '', service_type: 'DINE_IN', guest_count: 1, member_id: null, member_no: '', member_name: '', member_mobile_phone: '', notes: '', lines: [] };
+  const order = { id: null, order_no: '', status: 'DRAFT', outlet_id: '', terminal_id: '', service_type: 'DINE_IN', guest_count: 1, member_id: null, member_no: '', member_name: '', member_mobile_phone: '', notes: '', lines: [] };
   let reversalPreview = null;
   const reversalModalEl = document.getElementById('reversalModal');
   const reversalModal = reversalModalEl && window.bootstrap ? new bootstrap.Modal(reversalModalEl) : null;
@@ -426,6 +427,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const lineBody = document.getElementById('order_line_body');
   const emptyState = document.getElementById('order_empty_state');
   const reversalButton = document.getElementById('btn-reversal-preview');
+  const deleteDraftButton = document.getElementById('btn-delete-draft');
   const reversalReasonWrap = document.getElementById('reversal_reason_wrap');
   const reversalReasonCode = document.getElementById('reversal_reason_code');
   const reversalReasonOther = document.getElementById('reversal_reason_other');
@@ -479,12 +481,21 @@ document.addEventListener('DOMContentLoaded', function () {
     guestCount.value = order.guest_count || 1;
     notesInput.value = order.notes || '';
     renderMemberSelection();
-    updateReversalButtonState();
+    updateActionButtons();
   }
 
-  function updateReversalButtonState() {
-    if (!reversalButton) return;
-    reversalButton.disabled = !order.id;
+  function canDeleteDraft() {
+    const status = String(order.status || 'DRAFT').toUpperCase();
+    return !!order.id && !isPaidWorkspace && ['DRAFT', 'PENDING'].includes(status);
+  }
+
+  function updateActionButtons() {
+    if (reversalButton) {
+      reversalButton.disabled = !order.id;
+    }
+    if (deleteDraftButton) {
+      deleteDraftButton.disabled = !canDeleteDraft();
+    }
   }
 
   function renderMemberSelection() {
@@ -853,6 +864,7 @@ document.addEventListener('DOMContentLoaded', function () {
       QUEUED: ['commit-queued', 'Sinkron stok antre'],
       PROCESSING: ['commit-processing', 'Sinkron stok diproses'],
       POSTED: ['commit-posted', 'Stok sudah sinkron'],
+      NOT_REQUIRED: ['commit-failed', 'Belum bisa stock commit'],
       FAILED: ['commit-failed', 'Sinkron stok gagal'],
       REVERSED: ['commit-reversed', 'Sinkron stok dibatalkan']
     };
@@ -937,6 +949,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const lines = Array.isArray(json.lines) ? json.lines : [];
     order.id = Number(header.id || 0) || null;
     order.order_no = header.order_no || '';
+    order.status = header.status || 'DRAFT';
     order.outlet_id = String(header.outlet_id || '');
     order.terminal_id = String(header.terminal_id || '');
     order.service_type = header.service_type || 'DINE_IN';
@@ -994,6 +1007,20 @@ document.addEventListener('DOMContentLoaded', function () {
     await loadRecents();
   }
 
+  async function deleteDraft() {
+    if (!canDeleteDraft()) {
+      alert('Pilih draft order dulu sebelum menghapusnya.');
+      return;
+    }
+    if (!window.confirm(`Hapus draft ${order.order_no || 'transaksi ini'}?`)) {
+      return;
+    }
+    await postJson(`<?php echo site_url('pos/orders/draft/delete'); ?>/${Number(order.id || 0)}`, {});
+    resetDraft();
+    await loadRecents();
+    alert('Draft order berhasil dihapus.');
+  }
+
   async function confirmDraft() {
     if (!order.lines.length) {
       alert('Tambahkan minimal 1 produk sebelum confirm.');
@@ -1002,16 +1029,18 @@ document.addEventListener('DOMContentLoaded', function () {
     await saveDraft(true);
     const json = await postJson('<?php echo site_url('pos/orders/draft/confirm'); ?>/' + order.id, {});
     kickoffRuntimeJobSync(order.id, Number(json.runtime_job_id || 0));
-    alert(`Order berhasil dikonfirmasi.
-Commit No: ${json.commit_no || '-'}
-Resolved Line: ${Number(json.resolved_line_count || 0)}
-Print Job: ${Number(json.print_job_count || 0)}`);
+    const warningMessage = String(json.warning_message || '').trim();
+    const stockCommitStatus = String(json.stock_commit_status || '').toUpperCase();
+    const confirmMessage = stockCommitStatus === 'NOT_REQUIRED'
+      ? `Order berhasil dikonfirmasi tanpa stock commit.\nCommit No: -\nResolved Line: 0\nPrint Job: 0`
+      : `Order berhasil dikonfirmasi.\nCommit No: ${json.commit_no || '-'}\nResolved Line: ${Number(json.resolved_line_count || 0)}\nPrint Job: ${Number(json.print_job_count || 0)}`;
+    alert(warningMessage ? `${confirmMessage}\n\nCatatan:\n${warningMessage}` : confirmMessage);
     await loadDraft(order.id);
     await loadRecents();
   }
 
   function resetDraft() {
-    order.id = null; order.order_no = ''; order.outlet_id = ''; order.terminal_id = ''; order.service_type = 'DINE_IN'; order.guest_count = 1; order.member_id = null; order.member_no = ''; order.member_name = ''; order.member_mobile_phone = ''; order.notes = ''; order.lines = [];
+    order.id = null; order.order_no = ''; order.status = 'DRAFT'; order.outlet_id = ''; order.terminal_id = ''; order.service_type = 'DINE_IN'; order.guest_count = 1; order.member_id = null; order.member_no = ''; order.member_name = ''; order.member_mobile_phone = ''; order.notes = ''; order.lines = [];
     reversalPreview = null;
     syncOrderToHeader();
     renderLines();
@@ -1297,6 +1326,9 @@ Print Job: ${Number(json.print_job_count || 0)}`);
 
   document.getElementById('btn-save-order').addEventListener('click', async () => {
     try { await saveDraft(false); } catch (e) { alert(e.message); }
+  });
+  document.getElementById('btn-delete-draft')?.addEventListener('click', async () => {
+    try { await deleteDraft(); } catch (e) { alert(e.message); }
   });
   document.getElementById('btn-confirm-order').addEventListener('click', async () => {
     try { await confirmDraft(); } catch (e) { alert(e.message); }

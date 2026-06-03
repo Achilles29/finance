@@ -1428,6 +1428,7 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
               <div class="cashier-mini-note mb-3" id="cashier_summary_info">Belum ada baris item</div>
               <div class="cashier-action-bar cashier-cart-actions">
                 <button type="button" class="btn btn-outline-dark cashier-action-wide" id="cashier_preview_reversal" disabled>Preview Void</button>
+                <button type="button" class="btn btn-outline-danger cashier-action-wide" id="cashier_delete_draft" disabled>Hapus Draft</button>
                 <button type="button" class="btn btn-success cashier-action-wide" id="cashier_open_payment" disabled>Payment</button>
                 <button type="button" class="btn btn-outline-primary" id="cashier_save_draft" <?php echo empty($activeSession) ? 'disabled' : ''; ?>>Simpan Draft</button>
                 <button type="button" class="btn btn-primary" id="cashier_confirm_order" <?php echo empty($activeSession) ? 'disabled' : ''; ?>>Simpan Transaksi</button>
@@ -2009,6 +2010,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const cartList = document.getElementById('cashier_cart_list');
   const cartEmpty = document.getElementById('cashier_cart_empty');
   const reversalButton = document.getElementById('cashier_preview_reversal');
+  const deleteDraftButton = document.getElementById('cashier_delete_draft');
   const reversalCheckAllButton = document.getElementById('cashier_reversal_check_all');
   const reversalUncheckAllButton = document.getElementById('cashier_reversal_uncheck_all');
   const reversalAdjustmentWrap = document.getElementById('cashier_reversal_adjustment_wrap');
@@ -2467,6 +2469,7 @@ document.addEventListener('DOMContentLoaded', function () {
       QUEUED: ['commit-queued', 'Sinkron stok antre'],
       PROCESSING: ['commit-processing', 'Sinkron stok diproses'],
       POSTED: ['commit-posted', 'Stok sudah sinkron'],
+      NOT_REQUIRED: ['commit-failed', 'Belum bisa stock commit'],
       FAILED: ['commit-failed', 'Sinkron stok gagal'],
       REVERSED: ['commit-reversed', 'Sinkron stok dibatalkan']
     };
@@ -2749,6 +2752,11 @@ document.addEventListener('DOMContentLoaded', function () {
     return !!order.id && ['CONFIRMED', 'PAID_PARTIAL', 'IN_KITCHEN', 'READY', 'SERVED'].includes(normalizedStatus);
   }
 
+  function canDeleteDraft() {
+    const normalizedStatus = String(order.status || '').toUpperCase();
+    return !!order.id && ['DRAFT', 'PENDING'].includes(normalizedStatus);
+  }
+
   function canReprintSelectedOrder() {
     return !!order.id && Array.isArray(order.lines) && order.lines.length > 0 && orderReprintPrinters.length > 0;
   }
@@ -2770,6 +2778,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     if (paymentButton) {
       paymentButton.disabled = !sessionReady || !canOpenPayment() || draftSaveInFlight || confirmInFlight || paymentPrepareInFlight || paymentSubmitInFlight;
+    }
+    if (deleteDraftButton) {
+      deleteDraftButton.disabled = !sessionReady || !canDeleteDraft() || draftSaveInFlight || confirmInFlight || paymentPrepareInFlight || paymentSubmitInFlight;
     }
     if (orderReprintButton) {
       orderReprintButton.disabled = !sessionReady || !canReprintSelectedOrder() || draftSaveInFlight || confirmInFlight || paymentPrepareInFlight || paymentSubmitInFlight;
@@ -4087,6 +4098,19 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  async function deleteDraft() {
+    if (!canDeleteDraft()) {
+      throw new Error('Pilih draft order dulu sebelum menghapusnya.');
+    }
+    if (!window.confirm(`Hapus draft ${order.order_no || 'transaksi ini'}?`)) {
+      return;
+    }
+    await postJson(`<?php echo site_url('pos/orders/draft/delete'); ?>/${Number(order.id || 0)}`, {});
+    resetOrder();
+    await loadRecents();
+    showToast('Draft berhasil dihapus.', 'success', 'Draft', 2400);
+  }
+
   function buildOrderPayload() {
     return {
         id: order.id,
@@ -4226,6 +4250,8 @@ document.addEventListener('DOMContentLoaded', function () {
       const isAppendMode = !!json.append_mode;
       const isHeaderOnlyUpdate = !!json.header_only_update;
       const appendedLineCount = Number(json.appended_line_count || 0);
+      const warningMessage = String(json.warning_message || '').trim();
+      const stockCommitStatus = String(json.stock_commit_status || '').toUpperCase();
 
       if (confirmedOrderId > 0) {
         void loadRecents().catch(() => {});
@@ -4234,6 +4260,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
       if (isHeaderOnlyUpdate) {
         showToast('Perubahan header transaksi tersimpan. Tidak ada item baru yang dicetak.', 'success', 'Transaksi', 2600);
+      } else if (stockCommitStatus === 'NOT_REQUIRED') {
+        showToast('Pesanan tersimpan. Stock commit dilewati karena recipe product belum tersedia.', 'success', 'Transaksi', 3200);
       } else if (isAppendMode) {
         showToast(
           appendedLineCount > 0
@@ -4245,6 +4273,9 @@ document.addEventListener('DOMContentLoaded', function () {
         );
       } else {
         showToast('Pesanan tersimpan. Tiket dicetak, sinkron stok masuk antrean.', 'success', 'Transaksi', 2800);
+      }
+      if (warningMessage) {
+        showInfoModal(warningMessage, 'Resep Belum Ada');
       }
       if (runtimeJobId > 0) {
         showToast('Sinkronisasi stok berjalan di background.', 'info', 'Sinkronisasi Stok', 2600);
@@ -4904,6 +4935,9 @@ document.addEventListener('DOMContentLoaded', function () {
   if (saveDraftButton) saveDraftButton.addEventListener('click', async () => {
     try { openReviewModal('DRAFT'); } catch (e) { alert(e.message); }
   });
+  if (deleteDraftButton) deleteDraftButton.addEventListener('click', async () => {
+    try { await deleteDraft(); } catch (e) { alert(e.message); }
+  });
   if (confirmOrderButton) confirmOrderButton.addEventListener('click', async () => {
     try { openReviewModal('CONFIRM'); } catch (e) { alert(e.message); }
   });
@@ -4986,4 +5020,3 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 });
 </script>
-
