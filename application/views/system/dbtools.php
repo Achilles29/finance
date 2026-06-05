@@ -913,33 +913,54 @@ mysql -u root db_finance < backup.sql</div>
   const BASE = '<?php echo site_url(); ?>';
   let allTables = [];
   let selectedTables = new Set();
-  const modal = document.getElementById('tablePickerModal');
-  const bsModal = modal ? new bootstrap.Modal(modal) : null;
+  const modalEl = document.getElementById('tablePickerModal');
+  const bsModal = modalEl ? new bootstrap.Modal(modalEl) : null;
+
+  function e(v) { const d = document.createElement('div'); d.textContent = String(v??''); return d.innerHTML; }
 
   function initFromHidden() {
     const raw = document.getElementById('b_exclude')?.value || '';
     selectedTables = new Set(raw.split(',').map(s => s.trim()).filter(Boolean));
   }
 
+  function updateCounter() {
+    const cnt = document.getElementById('tpicker-selected-count');
+    if (cnt) cnt.textContent = selectedTables.size;
+  }
+
   function renderChips() {
-    const chips  = document.getElementById('b_exclude_chips');
-    const count  = document.getElementById('b_exclude_count');
+    const chips = document.getElementById('b_exclude_chips');
+    const count = document.getElementById('b_exclude_count');
     if (!chips) return;
-    const arr = [...selectedTables].filter(Boolean);
+    const arr = [...selectedTables].filter(Boolean).sort();
     chips.innerHTML = arr.map(t =>
-      `<span style="display:inline-flex;align-items:center;gap:.3rem;background:#fff0ee;color:#9f2141;border:1px solid #f5c6c6;border-radius:999px;font-size:.75rem;font-weight:700;padding:.15rem .55rem">
-        ${esc(t)}
-        <button type="button" onclick="removeExcludeTable('${esc(t)}')" style="background:none;border:none;padding:0;color:#9f2141;cursor:pointer;line-height:1;font-size:.8rem">✕</button>
+      `<span data-chip="${e(t)}" style="display:inline-flex;align-items:center;gap:.3rem;background:#fff0ee;color:#9f2141;border:1px solid #f5c6c6;border-radius:999px;font-size:.75rem;font-weight:700;padding:.15rem .55rem">
+        ${e(t)}
+        <button type="button" data-remove="${e(t)}" style="background:none;border:none;padding:0;color:#9f2141;cursor:pointer;line-height:1;font-size:.85rem;display:flex;align-items:center">✕</button>
        </span>`
     ).join('');
     if (count) count.textContent = arr.length > 0 ? `${arr.length} tabel dikecualikan` : '';
   }
 
-  window.removeExcludeTable = function(name) {
-    selectedTables.delete(name);
+  // Delegated click untuk chip remove
+  document.getElementById('b_exclude_chips')?.addEventListener('click', function(ev) {
+    const btn = ev.target.closest('[data-remove]');
+    if (!btn) return;
+    selectedTables.delete(btn.dataset.remove);
     document.getElementById('b_exclude').value = [...selectedTables].join(',');
     renderChips();
-  };
+  });
+
+  function syncCardState() {
+    document.querySelectorAll('#tpicker-rows .tpicker-card').forEach(card => {
+      const name    = card.dataset.name;
+      const isSelected = selectedTables.has(name);
+      const cb = card.querySelector('input[type="checkbox"]');
+      card.classList.toggle('selected', isSelected);
+      if (cb) cb.checked = isSelected;
+    });
+    updateCounter();
+  }
 
   function renderGrid(filter, prefix) {
     const rows = document.getElementById('tpicker-rows');
@@ -949,68 +970,86 @@ mysql -u root db_finance < backup.sql</div>
       (!q || t.name.toLowerCase().includes(q)) &&
       (!prefix || t.name.startsWith(prefix + '_'))
     );
-    const selectedCount = document.getElementById('tpicker-selected-count');
-    if (selectedCount) selectedCount.textContent = selectedTables.size;
-
     rows.innerHTML = filtered.map(t => {
-      const checked  = selectedTables.has(t.name) ? 'checked' : '';
-      const sizeWarn = t.size_mb > 50 ? 'tpicker-size-warn' : '';
-      const pref     = t.name.includes('_') ? t.name.split('_')[0] : '';
-      const meta     = [
+      const isSelected = selectedTables.has(t.name);
+      const pref       = t.name.includes('_') ? t.name.split('_')[0] : '';
+      const shortName  = pref ? t.name.slice(pref.length + 1) : t.name;
+      const sizeClass  = t.size_mb > 50 ? 'tpicker-size-warn' : '';
+      const meta = [
         t.est_rows > 0 ? `~${t.est_rows.toLocaleString('id-ID')} baris` : null,
         t.size_mb > 0  ? `${t.size_mb} MB` : null,
       ].filter(Boolean).join(' · ');
-      return `<div class="col-md-4 col-sm-6">
-        <div class="tpicker-card ${checked ? 'selected' : ''}">
-          <label>
-            <input type="checkbox" class="form-check-input tpicker-cb flex-shrink-0 mt-1"
-                   value="${esc(t.name)}" ${checked} onchange="tpickerToggle(this)">
+      return `<div class="col-md-4 col-sm-6 mb-1">
+        <div class="tpicker-card${isSelected ? ' selected' : ''}" data-name="${e(t.name)}" role="checkbox" tabindex="0" aria-checked="${isSelected}">
+          <div style="display:flex;align-items:flex-start;gap:.5rem;pointer-events:none">
+            <input type="checkbox" ${isSelected ? 'checked' : ''} style="margin-top:.18rem;flex-shrink:0;pointer-events:none">
             <div>
-              ${pref ? `<span class="tpicker-prefix">${esc(pref)}_</span>` : ''}
-              <div class="tpicker-tname">${esc(t.name.replace(pref ? pref + '_' : '', ''))}</div>
-              ${meta ? `<div class="tpicker-meta ${sizeWarn}">${meta}${t.size_mb > 50 ? ' ⚠ Besar' : ''}</div>` : ''}
+              ${pref ? `<span class="tpicker-prefix">${e(pref)}_</span>` : ''}
+              <div class="tpicker-tname">${e(shortName)}</div>
+              ${meta ? `<div class="tpicker-meta ${sizeClass}">${meta}${t.size_mb > 50 ? ' ⚠ Besar' : ''}</div>` : ''}
             </div>
-          </label>
+          </div>
         </div>
       </div>`;
     }).join('');
+    updateCounter();
   }
 
-  window.tpickerToggle = function(cb) {
-    const name = cb.value;
-    cb.checked ? selectedTables.add(name) : selectedTables.delete(name);
-    cb.closest('.tpicker-card').classList.toggle('selected', cb.checked);
-    const cnt = document.getElementById('tpicker-selected-count');
-    if (cnt) cnt.textContent = selectedTables.size;
-  };
+  // Delegated click di grid — klik card mana saja toggle
+  document.getElementById('tpicker-rows')?.addEventListener('click', function(ev) {
+    const card = ev.target.closest('.tpicker-card');
+    if (!card) return;
+    const name = card.dataset.name;
+    if (!name) return;
+    if (selectedTables.has(name)) {
+      selectedTables.delete(name);
+      card.classList.remove('selected');
+      card.setAttribute('aria-checked', 'false');
+    } else {
+      selectedTables.add(name);
+      card.classList.add('selected');
+      card.setAttribute('aria-checked', 'true');
+    }
+    const cb = card.querySelector('input[type="checkbox"]');
+    if (cb) cb.checked = selectedTables.has(name);
+    updateCounter();
+  });
+
+  // Keyboard support (Enter/Space)
+  document.getElementById('tpicker-rows')?.addEventListener('keydown', function(ev) {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    const card = ev.target.closest('.tpicker-card');
+    if (card) { ev.preventDefault(); card.click(); }
+  });
 
   function buildPrefixFilter() {
     const prefixes = [...new Set(allTables.map(t => t.name.includes('_') ? t.name.split('_')[0] : '').filter(Boolean))].sort();
     const sel = document.getElementById('tpicker-filter');
     if (!sel) return;
-    sel.innerHTML = '<option value="">Semua prefix</option>' + prefixes.map(p => `<option value="${esc(p)}">${p}_</option>`).join('');
+    sel.innerHTML = '<option value="">Semua prefix</option>' + prefixes.map(p => `<option value="${e(p)}">${e(p)}_</option>`).join('');
   }
 
   async function loadTables() {
     const loading = document.getElementById('tpicker-loading');
     const grid    = document.getElementById('tpicker-grid');
     const errEl   = document.getElementById('tpicker-error');
-    if (loading) loading.style.display = 'block';
-    if (grid)    grid.style.display    = 'none';
-    if (errEl)   errEl.style.display   = 'none';
+    loading && (loading.style.display = 'block');
+    grid    && (grid.style.display    = 'none');
+    errEl   && (errEl.style.display   = 'none');
     try {
-      const r = await fetch(BASE + 'dbtools/action/list-tables', { headers:{'X-Requested-With':'XMLHttpRequest'} });
+      const r = await fetch(BASE + 'dbtools/action/list-tables', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
       const t = await r.text();
-      let j; try { j = JSON.parse(t); } catch(e) { throw new Error('Response error. Cek koneksi DB di tab Backup Otomatis.'); }
-      if (!j.ok) throw new Error(j.message);
-      allTables = j.tables || [];
+      let j;
+      try { j = JSON.parse(t); } catch(_) { throw new Error('Response bukan JSON. Cek koneksi DB di tab Backup Otomatis.'); }
+      if (!j.ok) throw new Error(j.message || 'Gagal memuat tabel');
+      allTables = Array.isArray(j.tables) ? j.tables : [];
       buildPrefixFilter();
-      if (loading) loading.style.display = 'none';
-      if (grid)    grid.style.display    = 'block';
+      loading && (loading.style.display = 'none');
+      grid    && (grid.style.display    = 'block');
       renderGrid('', '');
-    } catch(e) {
-      if (loading) loading.style.display = 'none';
-      if (errEl) { errEl.textContent = e.message; errEl.style.display = 'block'; }
+    } catch (err) {
+      loading && (loading.style.display = 'none');
+      errEl   && (errEl.textContent = err.message, errEl.style.display = 'block');
     }
   }
 
@@ -1019,10 +1058,10 @@ mysql -u root db_finance < backup.sql</div>
     loadTables();
     bsModal?.show();
   });
-  document.getElementById('tpicker-search')?.addEventListener('input', function() {
+  document.getElementById('tpicker-search')?.addEventListener('input', function () {
     renderGrid(this.value, document.getElementById('tpicker-filter')?.value || '');
   });
-  document.getElementById('tpicker-filter')?.addEventListener('change', function() {
+  document.getElementById('tpicker-filter')?.addEventListener('change', function () {
     renderGrid(document.getElementById('tpicker-search')?.value || '', this.value);
   });
   document.getElementById('tpicker-select-all')?.addEventListener('click', () => {
