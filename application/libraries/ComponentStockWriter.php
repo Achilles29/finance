@@ -333,6 +333,8 @@ class ComponentStockWriter
         try {
             $totalInputCost = 0.0;
             $headerRecordedTotalInputCost = round((float)($header['total_input_cost'] ?? 0), 2);
+            $pendingMaterialSyncTargets = [];
+            $pendingMaterialIds = [];
             foreach ($inputs as $line) {
                 $planRole = strtoupper(trim((string)($line['plan_role'] ?? 'INPUT')));
                 $sourceKind = strtoupper(trim((string)($line['source_kind'] ?? '')));
@@ -368,6 +370,17 @@ class ComponentStockWriter
                         throw new RuntimeException((string)($materialUsage['message'] ?? 'Posting material usage gagal.'));
                     }
                     $totalInputCost += round((float)($materialUsage['line_cost'] ?? 0), 2);
+                    foreach ((array)($materialUsage['post_sync_targets'] ?? []) as $targetKey => $target) {
+                        if (is_array($target)) {
+                            $pendingMaterialSyncTargets[(string)$targetKey] = $target;
+                        }
+                    }
+                    foreach ((array)($materialUsage['material_ids'] ?? []) as $materialId) {
+                        $materialId = (int)$materialId;
+                        if ($materialId > 0) {
+                            $pendingMaterialIds[$materialId] = $materialId;
+                        }
+                    }
                     continue;
                 }
                 if ($sourceKind !== 'COMPONENT') {
@@ -451,6 +464,13 @@ class ComponentStockWriter
                     'unit_cost' => $unitCostOutput,
                 ]);
             }
+
+            foreach (array_values($pendingMaterialSyncTargets) as $syncTarget) {
+                $syncMonthly = $this->ci->materialfifomanager->syncDivisionMonthlyStockFromLots($syncTarget);
+                if (!($syncMonthly['ok'] ?? false)) {
+                    throw new RuntimeException('Gagal sinkron saldo bulanan dari FIFO lot setelah posting batch. Detail: ' . (string)($syncMonthly['message'] ?? 'unknown error'));
+                }
+            }
         } catch (RuntimeException $e) {
             $db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
@@ -459,19 +479,51 @@ class ComponentStockWriter
         if ($db->trans_status() === false) {
             return ['ok' => false, 'message' => 'Posting batch gagal.'];
         }
+        $availabilityRefresh = $this->trigger_availability_refresh(
+            array_values(array_unique(array_filter(array_merge(
+                [(int)$componentIdOutput],
+                array_map(static function (array $line): int {
+                    return (int)($line['component_id'] ?? 0);
+                }, $inputs)
+            )))),
+            'COMPONENT_BATCH',
+            $actorEmployeeId,
+            $sourceId
+        );
+
+        $materialAvailabilityRefresh = null;
+        if (!empty($pendingMaterialIds)) {
+            $this->ci->load->library('PosAvailabilityRebuildService');
+            $materialResults = [];
+            $materialSuccess = 0;
+            $materialFailed = 0;
+            foreach (array_values($pendingMaterialIds) as $materialId) {
+                $result = $this->ci->posavailabilityrebuildservice->handle_material_change((int)$materialId, [
+                    'trigger_context' => 'COMPONENT_BATCH',
+                    'event_source' => 'COMPONENT_BATCH_MATERIAL_USAGE',
+                    'event_table' => 'inv_component_batch',
+                    'event_id' => $sourceId,
+                    'actor_employee_id' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+                ]);
+                $materialResults[] = ['material_id' => (int)$materialId] + $result;
+                if ($result['ok'] ?? false) {
+                    $materialSuccess++;
+                } else {
+                    $materialFailed++;
+                }
+            }
+            $materialAvailabilityRefresh = [
+                'material_count' => count($pendingMaterialIds),
+                'success_count' => $materialSuccess,
+                'failed_count' => $materialFailed,
+                'results' => $materialResults,
+            ];
+        }
+
         return [
             'ok' => true,
-            'availability_rebuild' => $this->trigger_availability_refresh(
-                array_values(array_unique(array_filter(array_merge(
-                    [(int)$componentIdOutput],
-                    array_map(static function (array $line): int {
-                        return (int)($line['component_id'] ?? 0);
-                    }, $inputs)
-                )))),
-                'COMPONENT_BATCH',
-                $actorEmployeeId,
-                $sourceId
-            ),
+            'availability_rebuild' => $availabilityRefresh,
+            'material_availability_rebuild' => $materialAvailabilityRefresh,
         ];
     }
 
@@ -851,6 +903,7 @@ class ComponentStockWriter
         $avgUnitCost = round((float)($fifoUsage['data']['avg_unit_cost'] ?? 0), 6);
         $allocations = (array)($fifoUsage['data']['allocations'] ?? []);
         $postSyncProfiles = [];
+        $affectedMaterialIds = [];
 
         foreach ($allocations as $allocation) {
             $snapshot = $this->resolve_inventory_snapshot_for_allocation($allocation, $divisionId, $destinationType);
@@ -885,6 +938,7 @@ class ComponentStockWriter
                 'notes' => 'Batch ' . (string)($header['batch_no'] ?? ('#' . $sourceId)) . ' pakai lot ' . (string)($allocation['source_lot_no'] ?? '-'),
                 'created_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
                 'manage_transaction' => false,
+                'skip_availability_refresh' => true,
             ]);
             if (!($post['ok'] ?? false)) {
                 return [
@@ -914,19 +968,8 @@ class ComponentStockWriter
                 'profile_key' => $snapshot['profile_key'],
                 'sync_note' => 'Synced from FIFO lots after component batch posting',
             ];
-        }
-
-        foreach (array_values($postSyncProfiles) as $syncTarget) {
-            $syncMonthly = $this->ci->materialfifomanager->syncDivisionMonthlyStockFromLots($syncTarget);
-            if (!($syncMonthly['ok'] ?? false)) {
-                return [
-                    'ok' => false,
-                    'message' => $this->format_material_usage_error(
-                        $line,
-                        'Gagal sinkron saldo bulanan dari FIFO lot setelah posting batch.',
-                        ['detail' => (string)($syncMonthly['message'] ?? '')]
-                    ),
-                ];
+            if (!empty($snapshot['material_id'])) {
+                $affectedMaterialIds[(int)$snapshot['material_id']] = (int)$snapshot['material_id'];
             }
         }
 
@@ -950,6 +993,8 @@ class ComponentStockWriter
             'unit_cost' => $avgUnitCost,
             'issue_id' => $issueId,
             'issue_no' => $issueNo,
+            'post_sync_targets' => $postSyncProfiles,
+            'material_ids' => array_values($affectedMaterialIds),
         ];
     }
 

@@ -946,6 +946,24 @@ class Production extends MY_Controller
         $this->json_ok(['id' => $id]);
     }
 
+    public function component_batch_status($id)
+    {
+        $this->require_permission('production.component.batch.index', 'view');
+        $id = (int)$id;
+        $header = $this->Production_model->get_component_batch($id);
+        if (!$header) {
+            $this->json_error('Batch tidak ditemukan.', 404);
+            return;
+        }
+
+        $this->json_ok([
+            'id' => $id,
+            'status' => strtoupper((string)($header['status'] ?? '')),
+            'posted_at' => (string)($header['posted_at'] ?? ''),
+            'updated_at' => (string)($header['updated_at'] ?? ''),
+        ]);
+    }
+
     public function component_batch_delete($id)
     {
         $this->require_permission('production.component.batch.index', 'delete');

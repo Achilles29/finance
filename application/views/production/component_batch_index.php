@@ -384,6 +384,7 @@ $locationGroupLabel = static function ($locationType): string {
   const previewUrl = '<?php echo site_url('production/component-batches/preview'); ?>';
   const saveUrl = '<?php echo site_url('production/component-batches/save'); ?>';
   const postBaseUrl = '<?php echo site_url('production/component-batches/post'); ?>';
+  const statusBaseUrl = '<?php echo site_url('production/component-batches/status'); ?>';
   const usageBaseUrl = '<?php echo site_url('production/component-batches/usage'); ?>';
   const usageDetailBaseUrl = '<?php echo site_url('production/component-batches/detail'); ?>';
   const overlayEl = document.getElementById('componentBatchOverlay');
@@ -471,6 +472,56 @@ $locationGroupLabel = static function ($locationType): string {
       throw new Error(json.message || 'Permintaan gagal diproses.');
     }
     return json;
+  }
+
+  async function getJson(url) {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    });
+    const text = await response.text();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch (error) {
+      throw new Error('Respons server bukan JSON valid.');
+    }
+    if (!response.ok || !json.ok) {
+      throw new Error(json.message || 'Permintaan gagal diproses.');
+    }
+    return json;
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  async function waitForBatchPosted(batchId, options = {}) {
+    const startDelayMs = Math.max(0, Number(options.startDelayMs || 8000));
+    const intervalMs = Math.max(1000, Number(options.intervalMs || 3000));
+    const maxMs = Math.max(intervalMs, Number(options.maxMs || 120000));
+    const startedAt = Date.now();
+
+    if (startDelayMs > 0) {
+      await delay(startDelayMs);
+    }
+
+    while ((Date.now() - startedAt) < maxMs) {
+      try {
+        const statusPayload = await getJson(statusBaseUrl + '/' + encodeURIComponent(String(batchId || '0')));
+        const batchStatus = String(statusPayload.status || '').toUpperCase();
+        if (batchStatus === 'POSTED') {
+          return true;
+        }
+      } catch (error) {
+        // Abaikan error polling sementara. Request utama tetap menjadi sumber truth utama.
+      }
+      await delay(intervalMs);
+    }
+
+    return false;
   }
 
   function uiConfirm(message, options) {
@@ -892,7 +943,21 @@ $locationGroupLabel = static function ($locationType): string {
       setButtonBusy(button, 'Posting...');
       showPostingOverlay('Posting batch produksi...');
       try {
-        await postJson(postBaseUrl + '/' + button.dataset.id, {});
+        const batchId = String(button.dataset.id || '0');
+        const requestPromise = postJson(postBaseUrl + '/' + batchId, {});
+        const postedViaPolling = await Promise.race([
+          requestPromise.then(() => false),
+          waitForBatchPosted(batchId, {
+            startDelayMs: 8000,
+            intervalMs: 3000,
+            maxMs: 90000
+          }),
+        ]);
+        if (postedViaPolling === true) {
+          window.location.reload();
+          return;
+        }
+        await requestPromise;
         window.location.reload();
       } catch (error) {
         hidePostingOverlay();

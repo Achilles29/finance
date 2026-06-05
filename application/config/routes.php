@@ -265,6 +265,7 @@ $route['production/component-batches'] = 'production/component_batches';
 $route['production/component-batches/save'] = 'production/component_batch_save';
 $route['production/component-batches/preview'] = 'production/component_batch_preview';
 $route['production/component-batches/post/(:num)'] = 'production/component_batch_post/$1';
+$route['production/component-batches/status/(:num)'] = 'production/component_batch_status/$1';
 $route['production/component-batches/usage/(:num)'] = 'production/component_batch_usage/$1';
 $route['production/component-batches/detail/(:num)'] = 'production/component_batch_usage_page/$1';
 $route['production/component-batches/void/(:num)'] = 'production/component_batch_void/$1';

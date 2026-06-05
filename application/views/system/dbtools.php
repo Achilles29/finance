@@ -103,6 +103,10 @@ $lastDump   = !empty($recentDumps) ? $recentDumps[0] : null;
     <i class="ri ri-pulse-line"></i>
     <span>Status &amp; Jalankan</span>
   </button>
+  <button class="dbt-tab-btn" data-tab="panduan">
+    <i class="ri ri-book-open-line"></i>
+    <span>Panduan Lengkap</span>
+  </button>
 </div>
 
 <!-- ════════════════════════════════════════════════════════════
@@ -407,6 +411,504 @@ $lastDump   = !empty($recentDumps) ? $recentDumps[0] : null;
     </div>
   </div>
 </div>
+
+<!-- ════════════════════════════════════════════════════════════
+     TAB 4: PANDUAN LENGKAP
+═════════════════════════════════════════════════════════════ -->
+<div class="dbt-pane" id="tab-panduan">
+<style>
+  .guide-chapter { border:0; border-radius:16px; box-shadow:0 4px 16px rgba(58,38,30,.07); margin-bottom:1.2rem; overflow:hidden; }
+  .guide-chapter-header {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:.9rem 1.2rem; cursor:pointer; background:#fffdfb;
+    border-bottom:1px solid rgba(224,209,198,.5);
+    user-select:none;
+  }
+  .guide-chapter-header:hover { background:#fff8f3; }
+  .guide-chapter-header .chap-title { font-weight:800; font-size:.95rem; display:flex; align-items:center; gap:.6rem; }
+  .guide-chapter-header .chap-num { width:28px; height:28px; min-width:28px; border-radius:50%; background:#9f2141; color:#fff; font-size:.75rem; font-weight:800; display:flex; align-items:center; justify-content:center; }
+  .guide-chapter-body { padding:1.2rem; background:#fff; display:none; }
+  .guide-chapter-body.open { display:block; }
+  .guide-toggle-icon { transition:transform .2s; }
+  .guide-toggle-icon.open { transform:rotate(180deg); }
+  .guide-step-list { list-style:none; padding:0; margin:0; }
+  .guide-step-list li { display:flex; gap:.8rem; margin-bottom:.9rem; }
+  .guide-step-list li .snum { width:22px; height:22px; min-width:22px; border-radius:50%; background:#f0ede8; color:#9f2141; font-size:.72rem; font-weight:800; display:flex; align-items:center; justify-content:center; margin-top:.1rem; }
+  .guide-step-list li .sbody { flex:1; }
+  .guide-step-list li .sbody .stitle { font-weight:700; margin-bottom:.2rem; }
+  .guide-step-list li .sbody .sdesc { font-size:.86rem; color:#5a4a42; }
+  .guide-cmd { background:#1e1e2e; color:#a6e3a1; border-radius:8px; padding:.5rem .8rem; font-family:monospace; font-size:.8rem; margin:.4rem 0; overflow-x:auto; white-space:pre; }
+  .guide-note { background:#fff8f2; border-left:3px solid #f59e0b; border-radius:0 8px 8px 0; padding:.6rem .9rem; font-size:.85rem; color:#6b4a2a; margin:.6rem 0; }
+  .guide-danger { background:#fff5f5; border-left:3px solid #c0392b; border-radius:0 8px 8px 0; padding:.6rem .9rem; font-size:.85rem; color:#7a1a1a; margin:.6rem 0; }
+  .guide-ok { background:#f0fdf4; border-left:3px solid #22c55e; border-radius:0 8px 8px 0; padding:.6rem .9rem; font-size:.85rem; color:#14532d; margin:.6rem 0; }
+  .guide-scenario { border:1px solid rgba(224,209,198,.6); border-radius:10px; padding:.8rem 1rem; margin-bottom:.8rem; background:#fffdfb; }
+  .guide-scenario-title { font-weight:800; font-size:.88rem; margin-bottom:.4rem; }
+  .guide-tag { display:inline-flex; align-items:center; gap:.3rem; padding:.15rem .55rem; border-radius:999px; font-size:.72rem; font-weight:700; }
+  .guide-tag.server  { background:#e8f3ef; color:#1a6450; }
+  .guide-tag.laptop  { background:#e0f2fe; color:#075985; }
+  .guide-tag.both    { background:#fef3c7; color:#92400e; }
+  .guide-tag.warning { background:#fee2e2; color:#991b1b; }
+  .guide-checklist { list-style:none; padding:0; margin:0; }
+  .guide-checklist li { display:flex; align-items:flex-start; gap:.6rem; margin-bottom:.5rem; font-size:.88rem; }
+  .guide-checklist li::before { content:'□'; font-size:1rem; color:#9f2141; flex-shrink:0; margin-top:.05rem; }
+</style>
+
+<p class="text-muted small mb-4">Panduan lengkap dari awal sampai situasi darurat. Klik judul bab untuk membuka.</p>
+
+<?php
+$isWin = !empty($is_windows);
+$root  = rtrim(FCPATH, '/\\');
+?>
+
+<!-- BAB 1 -->
+<div class="guide-chapter">
+  <div class="guide-chapter-header" onclick="toggleChap(this)">
+    <div class="chap-title"><span class="chap-num">1</span>Persiapan Sebelum Mulai</div>
+    <i class="ri ri-arrow-down-s-line guide-toggle-icon"></i>
+  </div>
+  <div class="guide-chapter-body">
+    <p class="small text-muted mb-3">Pastikan semua ini sudah siap sebelum mengkonfigurasi backup atau server cadangan.</p>
+    <ul class="guide-checklist">
+      <li>Database berjalan normal dan bisa diakses dari aplikasi ini</li>
+      <li>Akun GitHub sudah punya <strong>repository private</strong> khusus untuk backup (pisah dari repo kode)</li>
+      <li>Di server, sudah ada SSH key yang terhubung ke GitHub (tes: <code>git push origin main</code> dari folder finance)</li>
+      <li>Git sudah dikonfigurasi di server:
+        <div class="dbt-code mt-1">git config --global user.email "email@kamu.com"
+git config --global user.name "Finance Backup"</div>
+      </li>
+      <?php if (!$isWin): ?>
+      <li>Script backup sudah bisa dieksekusi:
+        <div class="dbt-code mt-1">chmod +x <?php echo $root; ?>/scripts/backup/backup_full.sh
+chmod +x <?php echo $root; ?>/scripts/replication/*.sh</div>
+      </li>
+      <?php endif; ?>
+      <li>mysqldump tersedia di server (cek: <code>mysqldump --version</code>)</li>
+    </ul>
+    <div class="guide-note mt-3">
+      <strong>Kalau git push gagal:</strong> Pastikan SSH key server sudah ditambahkan di GitHub → Settings → SSH and GPG keys. Generate key dengan <code>ssh-keygen -t ed25519</code>, lalu tambahkan isi <code>~/.ssh/id_ed25519.pub</code> ke GitHub.
+    </div>
+  </div>
+</div>
+
+<!-- BAB 2 -->
+<div class="guide-chapter">
+  <div class="guide-chapter-header" onclick="toggleChap(this)">
+    <div class="chap-title"><span class="chap-num">2</span>Setup Backup Otomatis ke GitHub</div>
+    <i class="ri ri-arrow-down-s-line guide-toggle-icon"></i>
+  </div>
+  <div class="guide-chapter-body">
+    <p class="small text-muted mb-3">Backup berjalan otomatis setiap 30 menit. File disimpan lokal 3 hari, lalu dikirim ke GitHub sebagai arsip jangka panjang.</p>
+    <ol class="guide-step-list">
+      <li>
+        <div class="snum">1</div>
+        <div class="sbody">
+          <div class="stitle">Buka tab "Backup Otomatis" → isi semua kolom</div>
+          <div class="sdesc">Host biasanya <code>localhost</code>, nama database <code>db_finance</code>. Klik <strong>Tes Koneksi</strong> dulu untuk memastikan berhasil.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">2</div>
+        <div class="sbody">
+          <div class="stitle">Isi GitHub Remote dan Branch</div>
+          <div class="sdesc">Remote biasanya <code>origin</code>, branch <code>main</code>. Pastikan remote sudah mengarah ke repo backup, bukan repo kode aplikasi.</div>
+          <div class="guide-note">Cek remote aktif: <code>git remote -v</code> dari folder finance. Kalau masih ke repo kode, tambahkan remote baru: <code>git remote add backup git@github.com:username/finance-backup.git</code> lalu isi field Remote dengan <code>backup</code>.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">3</div>
+        <div class="sbody">
+          <div class="stitle">Klik "Simpan Pengaturan"</div>
+          <div class="sdesc">File <code>.env</code> dibuat otomatis di <code>scripts/backup/.env</code>. Tidak perlu edit manual.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">4</div>
+        <div class="sbody">
+          <div class="stitle">Uji coba manual di terminal server</div>
+          <?php if ($isWin): ?>
+          <div class="sdesc">Di Windows, jalankan langsung:</div>
+          <div class="dbt-code"><?php echo $root; ?>\scripts\backup\backup_full.bat</div>
+          <?php else: ?>
+          <div class="sdesc">Di server Linux:</div>
+          <div class="dbt-code"><?php echo $root; ?>/scripts/backup/backup_full.sh</div>
+          <?php endif; ?>
+          <div class="sdesc mt-1">Harusnya muncul file <code>.sql.gz</code> di <code>backup/dumps/</code> dan push ke GitHub berhasil.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">5</div>
+        <div class="sbody">
+          <div class="stitle">Jadwalkan agar berjalan otomatis</div>
+          <?php if ($isWin): ?>
+          <div class="sdesc">Buka <strong>Task Scheduler</strong> → Create Task → Trigger: setiap 30 menit → Action: <code><?php echo $root; ?>\scripts\backup\backup_full.bat</code></div>
+          <?php else: ?>
+          <div class="sdesc">Jalankan <code>crontab -e</code> dan tambahkan baris ini:</div>
+          <div class="dbt-code">*/30 * * * * <?php echo $root; ?>/scripts/backup/backup_full.sh</div>
+          <?php endif; ?>
+          <div class="guide-ok mt-1">✓ Setelah ini backup berjalan sendiri. Kamu bisa lihat hasilnya di tab "Status & Jalankan" atau langsung di repository GitHub.</div>
+        </div>
+      </li>
+    </ol>
+  </div>
+</div>
+
+<!-- BAB 3 -->
+<div class="guide-chapter">
+  <div class="guide-chapter-header" onclick="toggleChap(this)">
+    <div class="chap-title"><span class="chap-num">3</span>Setup Server Cadangan — Server ke Server</div>
+    <i class="ri ri-arrow-down-s-line guide-toggle-icon"></i>
+  </div>
+  <div class="guide-chapter-body">
+    <p class="small text-muted mb-3">Cocok jika kamu punya 2 server di hosting yang berbeda. Keduanya punya IP publik.</p>
+
+    <div class="fw-bold small mb-2">Di Server Utama (Server 1):</div>
+    <ol class="guide-step-list">
+      <li>
+        <div class="snum">1</div>
+        <div class="sbody">
+          <div class="stitle">Edit konfigurasi MySQL</div>
+          <div class="sdesc">Buka file <code>/etc/mysql/my.cnf</code> (atau <code>/etc/my.cnf</code>), tambahkan:</div>
+          <div class="dbt-code">[mysqld]
+server-id                = 1
+log_bin                  = mysql-bin
+binlog_format            = ROW
+auto_increment_offset    = 1
+auto_increment_increment = 2</div>
+          <div class="sdesc">Lalu restart: <code>sudo systemctl restart mysql</code></div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">2</div>
+        <div class="sbody">
+          <div class="stitle">Buat user untuk sinkronisasi</div>
+          <div class="dbt-code">mysql -u root -p
+
+CREATE USER 'repl_user'@'%' IDENTIFIED BY 'password_aman_123';
+GRANT REPLICATION SLAVE ON *.* TO 'repl_user'@'%';
+FLUSH PRIVILEGES;
+EXIT;</div>
+          <div class="guide-note">Ganti <code>password_aman_123</code> dengan password yang kuat. Catat password ini — dipakai saat setup Server Cadangan.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">3</div>
+        <div class="sbody">
+          <div class="stitle">Di halaman ini: tab "Server Cadangan" → pilih "Server Utama (1)" → Simpan</div>
+          <div class="sdesc">Ini hanya mencatat peran server di pengaturan aplikasi.</div>
+        </div>
+      </li>
+    </ol>
+
+    <div class="fw-bold small mt-3 mb-2">Di Server Cadangan (Server 2):</div>
+    <ol class="guide-step-list">
+      <li>
+        <div class="snum">1</div>
+        <div class="sbody">
+          <div class="stitle">Edit konfigurasi MySQL di Server 2</div>
+          <div class="dbt-code">[mysqld]
+server-id                = 2
+log_bin                  = mysql-bin
+binlog_format            = ROW
+read_only                = ON
+auto_increment_offset    = 2
+auto_increment_increment = 2</div>
+          <div class="sdesc">Restart: <code>sudo systemctl restart mysql</code></div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">2</div>
+        <div class="sbody">
+          <div class="stitle">Import snapshot database dari Server 1</div>
+          <div class="sdesc">Jalankan di Server 1:</div>
+          <div class="dbt-code">mysqldump -u root -p --single-transaction --master-data=2 db_finance > snapshot.sql
+scp snapshot.sql user@server2:/tmp/</div>
+          <div class="sdesc">Lalu di Server 2:</div>
+          <div class="dbt-code">mysql -u root -p db_finance < /tmp/snapshot.sql</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">3</div>
+        <div class="sbody">
+          <div class="stitle">Di halaman ini: tab "Server Cadangan" → isi koneksi ke Server 1 → Simpan</div>
+          <div class="sdesc">Isi alamat Server 1, port 3306, user <code>repl_user</code>, dan password yang tadi dibuat.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">4</div>
+        <div class="sbody">
+          <div class="stitle">Tab "Status & Jalankan" → klik "Cek Kondisi"</div>
+          <div class="sdesc">Jika muncul <span style="background:#dcfce7;color:#166534;padding:.1rem .4rem;border-radius:4px;font-size:.75rem;font-weight:700">Sinkron</span> — selesai, sinkronisasi berjalan!</div>
+          <div class="guide-ok mt-1">✓ Data dari Server 1 otomatis tersalin ke Server 2 secara real-time.</div>
+        </div>
+      </li>
+    </ol>
+  </div>
+</div>
+
+<!-- BAB 4 -->
+<div class="guide-chapter">
+  <div class="guide-chapter-header" onclick="toggleChap(this)">
+    <div class="chap-title"><span class="chap-num">4</span>Setup Server Cadangan — Laptop Lokal (Tanpa IP Publik)</div>
+    <i class="ri ri-arrow-down-s-line guide-toggle-icon"></i>
+  </div>
+  <div class="guide-chapter-body">
+    <p class="small text-muted mb-3">Laptop bisa jadi server cadangan meski tidak punya IP publik. Laptop <em>menarik</em> data dari server utama via terowongan SSH.</p>
+
+    <div class="guide-note mb-3"><strong>Prinsip kerja:</strong> Laptop buka koneksi ke server, bukan sebaliknya. Selama laptop ada internet dan server bisa diakses, sinkronisasi berjalan.</div>
+
+    <ol class="guide-step-list">
+      <li>
+        <div class="snum">1</div>
+        <div class="sbody">
+          <div class="stitle">Setup Server Utama sama seperti Bab 3 langkah 1 & 2</div>
+          <div class="sdesc">Konfigurasi MySQL dan buat user replication di server utama.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">2</div>
+        <div class="sbody">
+          <div class="stitle">Install MySQL di laptop (jika belum ada)</div>
+          <?php if ($isWin): ?>
+          <div class="sdesc">Download dari mysql.com atau pakai XAMPP yang sudah ada.</div>
+          <?php else: ?>
+          <div class="dbt-code">sudo apt install mysql-server    # Ubuntu/Debian
+sudo brew install mysql          # Mac</div>
+          <?php endif; ?>
+        </div>
+      </li>
+      <li>
+        <div class="snum">3</div>
+        <div class="sbody">
+          <div class="stitle">Import snapshot database ke laptop (sama seperti Bab 3 langkah 2)</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">4</div>
+        <div class="sbody">
+          <div class="stitle">Buat terowongan SSH dari laptop ke server</div>
+          <div class="sdesc">Terowongan ini membuat MySQL di laptop "seolah" terhubung langsung ke MySQL server:</div>
+          <?php if ($isWin): ?>
+          <div class="dbt-code">ssh -N -L 3307:127.0.0.1:3306 user@IP_SERVER_UTAMA</div>
+          <div class="sdesc">Di Windows bisa juga pakai PuTTY: Connection → SSH → Tunnels → Source: 3307, Destination: 127.0.0.1:3306</div>
+          <?php else: ?>
+          <div class="dbt-code"># Jalankan di laptop, biarkan terminal ini terbuka
+ssh -N -L 3307:127.0.0.1:3306 user@IP_SERVER_UTAMA
+
+# Atau background (tetap jalan meski terminal ditutup):
+autossh -M 0 -fN -L 3307:127.0.0.1:3306 user@IP_SERVER_UTAMA</div>
+          <?php endif; ?>
+        </div>
+      </li>
+      <li>
+        <div class="snum">5</div>
+        <div class="sbody">
+          <div class="stitle">Di halaman ini: tab "Server Cadangan" → centang "SSH Tunnel" → isi koneksi → Simpan</div>
+          <div class="sdesc">Isi alamat SSH host (sama dengan alamat server utama), user SSH, port lokal <code>3307</code>.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">6</div>
+        <div class="sbody">
+          <div class="stitle">Nyalakan terowongan otomatis saat laptop menyala</div>
+          <?php if ($isWin): ?>
+          <div class="sdesc">Buka Task Scheduler → buat task → Trigger: At logon → Action: <code>scripts\replication\tunnel_start.bat</code></div>
+          <?php else: ?>
+          <div class="sdesc">Tambahkan ke crontab: <code>@reboot autossh -M 0 -fN -L 3307:127.0.0.1:3306 user@IP_SERVER</code></div>
+          <?php endif; ?>
+          <div class="guide-note mt-1">Saat laptop offline, sinkronisasi berhenti sementara. Saat online kembali, otomatis lanjut dari titik terakhir — tidak ada data yang hilang.</div>
+        </div>
+      </li>
+    </ol>
+  </div>
+</div>
+
+<!-- BAB 5 -->
+<div class="guide-chapter">
+  <div class="guide-chapter-header" onclick="toggleChap(this)">
+    <div class="chap-title"><span class="chap-num">5</span>Penggunaan Sehari-hari</div>
+    <i class="ri ri-arrow-down-s-line guide-toggle-icon"></i>
+  </div>
+  <div class="guide-chapter-body">
+    <p class="small text-muted mb-3">Setelah semuanya disetup, kondisi normal tidak memerlukan tindakan manual apapun.</p>
+
+    <div class="row g-3">
+      <div class="col-md-4">
+        <div class="guide-scenario">
+          <div class="guide-scenario-title">✓ Kondisi Normal</div>
+          <div class="sdesc small">
+            Tidak perlu melakukan apapun. Backup berjalan otomatis setiap 30 menit.
+            Server cadangan menyinkronkan data secara real-time. Semua transparan di balik layar.
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="guide-scenario">
+          <div class="guide-scenario-title">👀 Cek Rutin (Mingguan)</div>
+          <div class="sdesc small">
+            Buka tab "Status & Jalankan" → klik "Cek Kondisi". Pastikan muncul <strong>Sinkron</strong>.
+            Lihat backup terakhir tidak lebih dari 1 jam yang lalu.
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="guide-scenario">
+          <div class="guide-scenario-title">📦 Restore dari Backup</div>
+          <div class="sdesc small">
+            Jika perlu restore: ambil file <code>.sql.gz</code> dari GitHub atau folder <code>backup/dumps/</code>, lalu:
+            <div class="dbt-code mt-1">gunzip backup.sql.gz
+mysql -u root db_finance < backup.sql</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- BAB 6 -->
+<div class="guide-chapter">
+  <div class="guide-chapter-header" onclick="toggleChap(this)">
+    <div class="chap-title"><span class="chap-num">6</span>Prosedur Darurat — Server Utama Mati</div>
+    <i class="ri ri-arrow-down-s-line guide-toggle-icon"></i>
+  </div>
+  <div class="guide-chapter-body">
+    <div class="guide-danger mb-3"><strong>Kapan pakai ini:</strong> Server utama benar-benar tidak bisa diakses (mati listrik, gangguan hosting, dll.) dan operasional harus tetap jalan.</div>
+
+    <ol class="guide-step-list">
+      <li>
+        <div class="snum">1</div>
+        <div class="sbody">
+          <div class="stitle">Pastikan server utama memang benar-benar tidak bisa diakses</div>
+          <div class="sdesc">Coba buka aplikasi dari browser, ping server utama, hubungi provider hosting. Jangan panik dulu — tunggu 5-10 menit, kadang server restart sebentar.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">2</div>
+        <div class="sbody">
+          <div class="stitle">Di server cadangan: buka halaman ini → tab "Status & Jalankan" → klik "Aktifkan Mode Darurat"</div>
+          <div class="sdesc">Centang konfirmasi, klik lanjutkan. Proses hanya beberapa detik.</div>
+          <div class="guide-ok mt-1">Server cadangan sekarang bisa menerima semua transaksi. Data tidak akan tabrakan karena server cadangan pakai ID angka genap (2, 4, 6...) sedangkan server utama pakai angka ganjil (1, 3, 5...).</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">3</div>
+        <div class="sbody">
+          <div class="stitle">Arahkan user ke alamat server cadangan</div>
+          <div class="sdesc">Beritahu tim untuk buka aplikasi dari alamat server cadangan (IP atau domain server cadangan). Operasional berjalan normal.</div>
+        </div>
+      </li>
+    </ol>
+
+    <div class="guide-note">Selama mode darurat aktif, backup otomatis tetap berjalan di server cadangan dan push ke GitHub seperti biasa.</div>
+  </div>
+</div>
+
+<!-- BAB 7 -->
+<div class="guide-chapter">
+  <div class="guide-chapter-header" onclick="toggleChap(this)">
+    <div class="chap-title"><span class="chap-num">7</span>Pemulihan — Setelah Server Utama Kembali Online</div>
+    <i class="ri ri-arrow-down-s-line guide-toggle-icon"></i>
+  </div>
+  <div class="guide-chapter-body">
+    <p class="small text-muted mb-3">Jangan tergesa-gesa. Ikuti langkah ini secara berurutan untuk memastikan tidak ada data yang hilang.</p>
+
+    <ol class="guide-step-list">
+      <li>
+        <div class="snum">1</div>
+        <div class="sbody">
+          <div class="stitle">Pastikan server utama sudah stabil sebelum memulai</div>
+          <div class="sdesc">Coba akses aplikasi via server utama. Pastikan database bisa diquery. Jangan lanjut jika server utama masih tidak stabil.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">2</div>
+        <div class="sbody">
+          <div class="stitle">Hentikan transaksi sementara (opsional, tapi disarankan)</div>
+          <div class="sdesc">Kalau bisa, beritahu tim untuk berhenti transaksi sebentar (5-10 menit) saat proses pemulihan. Ini menghindari data baru masuk saat sedang sinkronisasi.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">3</div>
+        <div class="sbody">
+          <div class="stitle">Jalankan pengecekan perbedaan data (lewat terminal server cadangan)</div>
+          <div class="dbt-code">scripts/replication/recovery_sync.sh</div>
+          <div class="sdesc">Script ini membandingkan data di server cadangan vs server utama. Hasilnya berupa laporan: ada berapa data baru yang perlu dipindahkan.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">4</div>
+        <div class="sbody">
+          <div class="stitle">Periksa laporan perbedaan</div>
+          <div class="sdesc">File laporan ada di <code>backup/sync_TANGGAL/diff_report.txt</code>. Jika 0 perbedaan → langsung ke langkah 6. Jika ada perbedaan → lanjut ke langkah 5.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">5</div>
+        <div class="sbody">
+          <div class="stitle">Jalankan file sinkronisasi ke server utama (jika ada perbedaan)</div>
+          <div class="dbt-code">mysql -h IP_SERVER_UTAMA -u root db_finance < backup/sync_TANGGAL/sync_to_server1.sql</div>
+          <div class="guide-note">Buka file SQL dulu sebelum dijalankan, pastikan isinya masuk akal. File ini hanya berisi INSERT data baru dari server cadangan.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">6</div>
+        <div class="sbody">
+          <div class="stitle">Di halaman ini → tab "Status & Jalankan" → klik "Pulihkan Koneksi"</div>
+          <div class="sdesc">Server cadangan kembali ke mode sinkronisasi dari server utama. Operasional normal kembali.</div>
+          <div class="guide-ok mt-1">✓ Arahkan kembali user ke server utama. Mode darurat selesai.</div>
+        </div>
+      </li>
+    </ol>
+
+    <div class="guide-danger mt-2">
+      <strong>Jangan</strong> hapus file di <code>backup/sync_TANGGAL/</code> sampai kamu yakin semua data sudah aman dan aplikasi berjalan normal minimal 1 hari.
+    </div>
+  </div>
+</div>
+
+<!-- BAB 8 -->
+<div class="guide-chapter">
+  <div class="guide-chapter-header" onclick="toggleChap(this)">
+    <div class="chap-title"><span class="chap-num">8</span>Pertanyaan Umum (FAQ)</div>
+    <i class="ri ri-arrow-down-s-line guide-toggle-icon"></i>
+  </div>
+  <div class="guide-chapter-body">
+    <div class="guide-scenario">
+      <div class="guide-scenario-title">❓ Backup gagal push ke GitHub</div>
+      <div class="sdesc small">Kemungkinan: SSH key belum dikonfigurasi, atau repo sudah terlalu besar. Cek log di <code>backup/logs/</code>. Solusi: cek <code>git push origin main</code> manual di terminal server.</div>
+    </div>
+    <div class="guide-scenario">
+      <div class="guide-scenario-title">❓ "Tes Koneksi" gagal tapi database jelas jalan</div>
+      <div class="sdesc small">PHP di server mungkin tidak punya ekstensi PDO MySQL. Cek: <code>php -m | grep pdo</code>. Solusi: <code>sudo apt install php-mysql</code> lalu restart web server.</div>
+    </div>
+    <div class="guide-scenario">
+      <div class="guide-scenario-title">❓ Status server cadangan "Ada masalah" terus</div>
+      <div class="sdesc small">Kemungkinan: jaringan putus, password berubah, atau server utama restart. Cek detail error di tab Status. Biasanya cukup tunggu beberapa menit — MySQL slave akan reconnect sendiri.</div>
+    </div>
+    <div class="guide-scenario">
+      <div class="guide-scenario-title">❓ Laptop cadangan jarang dinyalakan, apa tetap aman?</div>
+      <div class="sdesc small">Tetap aman. Saat laptop menyala dan terowongan SSH aktif, MySQL slave otomatis catch-up semua data yang tertinggal. Tidak perlu action manual.</div>
+    </div>
+    <div class="guide-scenario">
+      <div class="guide-scenario-title">❓ Berapa lama proses pemulihan setelah darurat?</div>
+      <div class="sdesc small">Tergantung berapa lama mode darurat berlangsung dan berapa banyak transaksi. Untuk pemadaman 1-2 jam dengan ratusan transaksi, proses pemulihan biasanya 5-15 menit.</div>
+    </div>
+    <div class="guide-scenario">
+      <div class="guide-scenario-title">❓ Apakah backup GitHub aman? Tidak bocor?</div>
+      <div class="sdesc small">Selama repository <strong>private</strong>, aman. Pastikan tidak menggunakan public repo. Untuk keamanan ekstra, pertimbangkan encrypt dump sebelum push (tambahan konfigurasi di <code>backup_full.sh</code>).</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /tab-panduan -->
+
+<script>
+function toggleChap(header) {
+  const body = header.nextElementSibling;
+  const icon = header.querySelector('.guide-toggle-icon');
+  body.classList.toggle('open');
+  icon.classList.toggle('open');
+}
+</script>
 
 <!-- Modal konfirmasi darurat -->
 <div class="modal fade" id="failoverModal" tabindex="-1">

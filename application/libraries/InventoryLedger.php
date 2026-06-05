@@ -201,8 +201,9 @@ class InventoryLedger
             $this->ci->db->trans_commit();
         }
 
+        $skipAvailabilityRefresh = !empty($payload['skip_availability_refresh']);
         $availabilityRefresh = null;
-        if ($materialId !== null) {
+        if (!$skipAvailabilityRefresh && $materialId !== null) {
             $this->ci->load->library('PosAvailabilityRebuildService');
             $availabilityRefresh = $this->ci->posavailabilityrebuildservice->handle_material_change((int)$materialId, [
                 'trigger_context' => 'INVENTORY_LEDGER_POST',
