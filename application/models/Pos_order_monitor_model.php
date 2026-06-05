@@ -70,6 +70,39 @@ class Pos_order_monitor_model extends CI_Model
         return array_key_exists($station, $this->station_options()) ? $station : 'ALL';
     }
 
+    private function monitor_scope(array $scope = []): array
+    {
+        $stationRole = strtoupper(trim((string)($scope['station_role'] ?? 'ALL')));
+        if (!in_array($stationRole, ['ALL', 'BAR', 'KITCHEN', 'CHECKER'], true)) {
+            $stationRole = 'ALL';
+        }
+
+        return [
+            'restricted' => !empty($scope['restricted']),
+            'station_role' => $stationRole,
+            'operational_division_id' => max(0, (int)($scope['operational_division_id'] ?? 0)),
+        ];
+    }
+
+    private function apply_monitor_scope(CI_DB_query_builder $db, array $scope = [], string $lineAlias = 'l', string $taskAlias = 't'): void
+    {
+        $scope = $this->monitor_scope($scope);
+        if (empty($scope['restricted'])) {
+            return;
+        }
+
+        $operationalDivisionId = (int)($scope['operational_division_id'] ?? 0);
+        if ($operationalDivisionId > 0 && $this->db->field_exists('operational_division_id', 'pos_order_line')) {
+            $db->where($lineAlias . '.operational_division_id', $operationalDivisionId);
+            return;
+        }
+
+        $stationRole = (string)($scope['station_role'] ?? 'ALL');
+        if ($taskAlias !== '' && in_array($stationRole, ['BAR', 'KITCHEN'], true)) {
+            $db->where($taskAlias . '.station_role', $stationRole);
+        }
+    }
+
     private function active_order_statuses(): array
     {
         return ['CONFIRMED', 'PAID_PARTIAL', 'PAID', 'IN_KITCHEN', 'READY', 'SERVED', 'REFUND_PARTIAL'];
@@ -175,7 +208,65 @@ class Pos_order_monitor_model extends CI_Model
             $this->db->insert_batch('pos_order_monitor_task', $insertRows);
         }
 
+        $this->reconcile_task_state_from_lines($orderId);
         $this->recalculate_order_kitchen_status($orderId);
+    }
+
+    private function reconcile_task_state_from_lines(int $orderId): void
+    {
+        if ($orderId <= 0 || !$this->table_ready()) {
+            return;
+        }
+
+        $rows = $this->db->select('
+                t.id,
+                t.ack_at,
+                t.ready_at,
+                t.checker_done_at,
+                l.line_status,
+                l.process_status,
+                l.processed_at
+            ')
+            ->from('pos_order_monitor_task t')
+            ->join('pos_order_line l', 'l.id = t.order_line_id', 'inner')
+            ->where('t.order_id', $orderId)
+            ->get()
+            ->result_array();
+
+        if (empty($rows)) {
+            return;
+        }
+
+        $now = date('Y-m-d H:i:s');
+        foreach ($rows as $row) {
+            $lineStatus = strtoupper(trim((string)($row['line_status'] ?? 'OPEN')));
+            $processStatus = strtoupper(trim((string)($row['process_status'] ?? 'NOT_PROCESSED')));
+            $processedAt = trim((string)($row['processed_at'] ?? '')) !== '' ? (string)$row['processed_at'] : $now;
+            $update = [];
+
+            if (in_array($lineStatus, ['SENT', 'READY', 'SERVED'], true) || in_array($processStatus, ['PROCESSED', 'SERVED'], true)) {
+                if (empty($row['ack_at'])) {
+                    $update['ack_at'] = $processedAt;
+                }
+            }
+
+            if (in_array($lineStatus, ['READY', 'SERVED'], true)) {
+                if (empty($row['ready_at'])) {
+                    $update['ready_at'] = $processedAt;
+                }
+            }
+
+            if (in_array($lineStatus, ['SERVED'], true) || $processStatus === 'SERVED') {
+                if (empty($row['checker_done_at'])) {
+                    $update['checker_done_at'] = $processedAt;
+                }
+            }
+
+            if (!empty($update)) {
+                $update['updated_at'] = $now;
+                $this->db->where('id', (int)$row['id'])->update('pos_order_monitor_task', $update);
+            }
+        }
     }
 
     public function bootstrap_open_tasks(int $outletId = 0): void
@@ -223,7 +314,7 @@ class Pos_order_monitor_model extends CI_Model
         return $grouped;
     }
 
-    public function board_rows(string $station = 'ALL', int $outletId = 0, string $dateFrom = '', string $dateTo = ''): array
+    public function board_rows(string $station = 'ALL', int $outletId = 0, string $dateFrom = '', string $dateTo = '', array $scope = []): array
     {
         if (!$this->table_ready()) {
             return [];
@@ -283,6 +374,8 @@ class Pos_order_monitor_model extends CI_Model
             ->where_not_in('l.line_status', ['VOID', 'REFUNDED_FULL', 'SERVED'])
             ->where('t.checker_done_at IS NULL', null, false)
             ->where('o.kitchen_status !=', 'VOID');
+
+        $this->apply_monitor_scope($db, $scope, 'l', 't');
 
         if ($outletId > 0) {
             $db->where('o.outlet_id', $outletId);
@@ -356,11 +449,11 @@ class Pos_order_monitor_model extends CI_Model
         return ['class' => 'danger', 'label' => $minutes . ' mnt'];
     }
 
-    public function board_payload(string $station = 'ALL', int $outletId = 0, string $dateFrom = '', string $dateTo = ''): array
+    public function board_payload(string $station = 'ALL', int $outletId = 0, string $dateFrom = '', string $dateTo = '', array $scope = []): array
     {
         $station = $this->normalize_station($station);
-        $rows = $this->board_rows($station, $outletId, $dateFrom, $dateTo);
-        $completedRows = $this->completed_order_rows($station, $outletId, $dateFrom, $dateTo);
+        $rows = $this->board_rows($station, $outletId, $dateFrom, $dateTo, $scope);
+        $completedRows = $this->completed_order_rows($station, $outletId, $dateFrom, $dateTo, $scope);
         $orders = [];
         $stats = [
             'new' => 0,
@@ -453,7 +546,7 @@ class Pos_order_monitor_model extends CI_Model
         ];
     }
 
-    private function completed_order_rows(string $station = 'ALL', int $outletId = 0, string $dateFrom = '', string $dateTo = ''): array
+    private function completed_order_rows(string $station = 'ALL', int $outletId = 0, string $dateFrom = '', string $dateTo = '', array $scope = []): array
     {
         $station = $this->normalize_station($station);
         $hasCustomerName = $this->has_order_customer_name();
@@ -493,6 +586,8 @@ class Pos_order_monitor_model extends CI_Model
             ->where('l.line_status', 'SERVED')
             ->where('o.kitchen_status', 'SERVED')
             ->where('o.status !=', 'VOID');
+
+        $this->apply_monitor_scope($rows, $scope, 'l', '');
 
         if ($outletId > 0) {
             $rows->where('o.outlet_id', $outletId);
@@ -583,13 +678,19 @@ class Pos_order_monitor_model extends CI_Model
         return $orders;
     }
 
-    private function task_row(int $taskId): ?array
+    private function task_row(int $taskId, array $scope = []): ?array
     {
         if ($taskId <= 0 || !$this->table_ready()) {
             return null;
         }
 
-        $row = $this->db->from('pos_order_monitor_task')->where('id', $taskId)->limit(1)->get()->row_array();
+        $db = $this->db->select('t.*')
+            ->from('pos_order_monitor_task t')
+            ->join('pos_order_line l', 'l.id = t.order_line_id', 'inner')
+            ->where('t.id', $taskId)
+            ->limit(1);
+        $this->apply_monitor_scope($db, $scope, 'l', 't');
+        $row = $db->get()->row_array();
         return $row ?: null;
     }
 
@@ -772,52 +873,57 @@ class Pos_order_monitor_model extends CI_Model
         return true;
     }
 
-    public function ack_task(int $taskId, ?int $employeeId = null): bool
+    public function ack_task(int $taskId, ?int $employeeId = null, array $scope = []): bool
     {
-        $task = $this->task_row($taskId);
+        $task = $this->task_row($taskId, $scope);
         if (!$task) {
             return false;
         }
         return $this->process_task_action($task, 'ack', $employeeId);
     }
 
-    public function ready_task(int $taskId, ?int $employeeId = null): bool
+    public function ready_task(int $taskId, ?int $employeeId = null, array $scope = []): bool
     {
-        $task = $this->task_row($taskId);
+        $task = $this->task_row($taskId, $scope);
         if (!$task) {
             return false;
         }
         return $this->process_task_action($task, 'ready', $employeeId);
     }
 
-    public function checker_task(int $taskId, ?int $employeeId = null): bool
+    public function checker_task(int $taskId, ?int $employeeId = null, array $scope = []): bool
     {
-        $task = $this->task_row($taskId);
+        $task = $this->task_row($taskId, $scope);
         if (!$task) {
             return false;
         }
         return $this->process_task_action($task, 'checker', $employeeId);
     }
 
-    private function task_rows_for_station(int $orderId, string $stationRole): array
+    private function task_rows_for_station(int $orderId, string $stationRole, array $scope = []): array
     {
         $stationRole = $this->normalize_station($stationRole);
         if (!in_array($stationRole, ['BAR', 'KITCHEN'], true)) {
             return [];
         }
 
-        return $this->db->from('pos_order_monitor_task')
-            ->where('order_id', $orderId)
-            ->where('station_role', $stationRole)
+        $db = $this->db->select('t.*')
+            ->from('pos_order_monitor_task t')
+            ->join('pos_order_line l', 'l.id = t.order_line_id', 'inner')
+            ->where('t.order_id', $orderId)
+            ->where('t.station_role', $stationRole)
             ->where('checker_done_at IS NULL', null, false)
-            ->order_by('id', 'ASC')
+            ->order_by('t.id', 'ASC');
+        $this->apply_monitor_scope($db, $scope, 'l', 't');
+
+        return $db
             ->get()
             ->result_array();
     }
 
-    public function ack_order_station(int $orderId, string $stationRole, ?int $employeeId = null): bool
+    public function ack_order_station(int $orderId, string $stationRole, ?int $employeeId = null, array $scope = []): bool
     {
-        $tasks = $this->task_rows_for_station($orderId, $stationRole);
+        $tasks = $this->task_rows_for_station($orderId, $stationRole, $scope);
         if (empty($tasks)) {
             return false;
         }
@@ -831,9 +937,9 @@ class Pos_order_monitor_model extends CI_Model
         return true;
     }
 
-    public function ready_order_station(int $orderId, string $stationRole, ?int $employeeId = null): bool
+    public function ready_order_station(int $orderId, string $stationRole, ?int $employeeId = null, array $scope = []): bool
     {
-        $tasks = $this->task_rows_for_station($orderId, $stationRole);
+        $tasks = $this->task_rows_for_station($orderId, $stationRole, $scope);
         if (empty($tasks)) {
             return false;
         }
@@ -847,15 +953,17 @@ class Pos_order_monitor_model extends CI_Model
         return true;
     }
 
-    public function checker_order(int $orderId, ?int $employeeId = null): bool
+    public function checker_order(int $orderId, ?int $employeeId = null, array $scope = []): bool
     {
-        $tasks = $this->db->from('pos_order_monitor_task')
-            ->where('order_id', $orderId)
+        $db = $this->db->select('t.*')
+            ->from('pos_order_monitor_task t')
+            ->join('pos_order_line l', 'l.id = t.order_line_id', 'inner')
+            ->where('t.order_id', $orderId)
             ->where('ready_at IS NOT NULL', null, false)
             ->where('checker_done_at IS NULL', null, false)
-            ->order_by('id', 'ASC')
-            ->get()
-            ->result_array();
+            ->order_by('t.id', 'ASC');
+        $this->apply_monitor_scope($db, $scope, 'l', 't');
+        $tasks = $db->get()->result_array();
         if (empty($tasks)) {
             return false;
         }

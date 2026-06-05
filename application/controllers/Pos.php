@@ -1055,21 +1055,24 @@ class Pos extends MY_Controller
 
     public function order_monitor()
     {
-        $pageCode = $this->order_workspace_page_code('view', 'pos.stock.live.index');
+        $pageCode = 'pos.order.monitor.index';
         $this->require_permission($pageCode, 'view');
         $filters = $this->order_monitor_filters();
+        $monitorScope = $this->current_actor_monitor_scope();
         $this->Pos_order_monitor_model->bootstrap_open_tasks((int)($filters['outlet_id'] ?? 0));
         $this->render('pos/order_monitor_index', [
             'page_title' => 'Monitor Dapur, Bar & Checker',
             'active_menu' => 'pos.order.monitor',
             'filters' => $filters,
+            'monitor_scope' => $monitorScope,
             'station_options' => $this->Pos_order_monitor_model->station_options(),
             'outlet_options' => $this->Pos_order_monitor_model->active_outlets(),
             'payload' => $this->Pos_order_monitor_model->board_payload(
                 (string)($filters['station'] ?? 'ALL'),
                 (int)($filters['outlet_id'] ?? 0),
                 (string)($filters['date_from'] ?? ''),
-                (string)($filters['date_to'] ?? '')
+                (string)($filters['date_to'] ?? ''),
+                $monitorScope
             ),
             'poll_ms' => 12000,
         ]);
@@ -1077,16 +1080,18 @@ class Pos extends MY_Controller
 
     public function order_monitor_data()
     {
-        $pageCode = $this->order_workspace_page_code('view', 'pos.stock.live.index');
+        $pageCode = 'pos.order.monitor.index';
         $this->require_permission($pageCode, 'view');
         $filters = $this->order_monitor_filters();
+        $monitorScope = $this->current_actor_monitor_scope();
         $this->Pos_order_monitor_model->bootstrap_open_tasks((int)($filters['outlet_id'] ?? 0));
         $this->json_ok([
             'payload' => $this->Pos_order_monitor_model->board_payload(
                 (string)($filters['station'] ?? 'ALL'),
                 (int)($filters['outlet_id'] ?? 0),
                 (string)($filters['date_from'] ?? ''),
-                (string)($filters['date_to'] ?? '')
+                (string)($filters['date_to'] ?? ''),
+                $monitorScope
             ),
         ]);
     }
@@ -1108,16 +1113,17 @@ class Pos extends MY_Controller
 
     public function order_monitor_ack_order_station()
     {
-        $pageCode = $this->order_workspace_page_code('edit', 'pos.stock.live.index');
+        $pageCode = 'pos.order.monitor.index';
         $this->require_permission($pageCode, 'edit');
         $payload = $this->request_payload();
+        $monitorScope = $this->current_actor_monitor_scope();
         $orderId = max(0, (int)($payload['order_id'] ?? 0));
         $stationRole = strtoupper(trim((string)($payload['station_role'] ?? '')));
         if ($orderId <= 0 || !in_array($stationRole, ['BAR', 'KITCHEN'], true)) {
             $this->json_error('Order atau stasiun monitor tidak valid.', 422);
             return;
         }
-        if (!$this->Pos_order_monitor_model->ack_order_station($orderId, $stationRole, $this->current_actor_employee_id())) {
+        if (!$this->Pos_order_monitor_model->ack_order_station($orderId, $stationRole, $this->current_actor_employee_id(), $monitorScope)) {
             $this->json_error('Task stasiun gagal diterima.', 422);
             return;
         }
@@ -1126,16 +1132,17 @@ class Pos extends MY_Controller
 
     public function order_monitor_ready_order_station()
     {
-        $pageCode = $this->order_workspace_page_code('edit', 'pos.stock.live.index');
+        $pageCode = 'pos.order.monitor.index';
         $this->require_permission($pageCode, 'edit');
         $payload = $this->request_payload();
+        $monitorScope = $this->current_actor_monitor_scope();
         $orderId = max(0, (int)($payload['order_id'] ?? 0));
         $stationRole = strtoupper(trim((string)($payload['station_role'] ?? '')));
         if ($orderId <= 0 || !in_array($stationRole, ['BAR', 'KITCHEN'], true)) {
             $this->json_error('Order atau stasiun monitor tidak valid.', 422);
             return;
         }
-        if (!$this->Pos_order_monitor_model->ready_order_station($orderId, $stationRole, $this->current_actor_employee_id())) {
+        if (!$this->Pos_order_monitor_model->ready_order_station($orderId, $stationRole, $this->current_actor_employee_id(), $monitorScope)) {
             $this->json_error('Task stasiun gagal ditandai siap.', 422);
             return;
         }
@@ -1144,15 +1151,16 @@ class Pos extends MY_Controller
 
     public function order_monitor_checker_order()
     {
-        $pageCode = $this->order_workspace_page_code('edit', 'pos.stock.live.index');
+        $pageCode = 'pos.order.monitor.index';
         $this->require_permission($pageCode, 'edit');
         $payload = $this->request_payload();
+        $monitorScope = $this->current_actor_monitor_scope();
         $orderId = max(0, (int)($payload['order_id'] ?? 0));
         if ($orderId <= 0) {
             $this->json_error('Order monitor tidak valid.', 422);
             return;
         }
-        if (!$this->Pos_order_monitor_model->checker_order($orderId, $this->current_actor_employee_id())) {
+        if (!$this->Pos_order_monitor_model->checker_order($orderId, $this->current_actor_employee_id(), $monitorScope)) {
             $this->json_error('Task checker gagal diselesaikan.', 422);
             return;
         }
@@ -3158,9 +3166,10 @@ class Pos extends MY_Controller
 
     private function handle_order_monitor_task_action(string $action): void
     {
-        $pageCode = $this->order_workspace_page_code('edit', 'pos.stock.live.index');
+        $pageCode = 'pos.order.monitor.index';
         $this->require_permission($pageCode, 'edit');
         $payload = $this->request_payload();
+        $monitorScope = $this->current_actor_monitor_scope();
         $taskId = max(0, (int)($payload['task_id'] ?? 0));
         if ($taskId <= 0) {
             $this->json_error('Task monitor tidak valid.', 422);
@@ -3168,13 +3177,13 @@ class Pos extends MY_Controller
         }
 
         if ($action === 'ack') {
-            $ok = $this->Pos_order_monitor_model->ack_task($taskId, $this->current_actor_employee_id());
+            $ok = $this->Pos_order_monitor_model->ack_task($taskId, $this->current_actor_employee_id(), $monitorScope);
             $errorMessage = 'Task gagal diterima.';
         } elseif ($action === 'ready') {
-            $ok = $this->Pos_order_monitor_model->ready_task($taskId, $this->current_actor_employee_id());
+            $ok = $this->Pos_order_monitor_model->ready_task($taskId, $this->current_actor_employee_id(), $monitorScope);
             $errorMessage = 'Task gagal ditandai siap.';
         } else {
-            $ok = $this->Pos_order_monitor_model->checker_task($taskId, $this->current_actor_employee_id());
+            $ok = $this->Pos_order_monitor_model->checker_task($taskId, $this->current_actor_employee_id(), $monitorScope);
             $errorMessage = 'Task checker gagal diselesaikan.';
         }
 
@@ -3184,6 +3193,70 @@ class Pos extends MY_Controller
         }
 
         $this->json_ok(['task_id' => $taskId]);
+    }
+
+    private function current_actor_monitor_scope(): array
+    {
+        if ($this->is_superadmin()) {
+            return [
+                'restricted' => false,
+                'station_role' => 'ALL',
+                'operational_division_id' => 0,
+                'division_name' => '',
+            ];
+        }
+
+        $employeeId = $this->current_actor_employee_id();
+        if ($employeeId <= 0 || !$this->db->table_exists('org_employee')) {
+            return [
+                'restricted' => false,
+                'station_role' => 'ALL',
+                'operational_division_id' => 0,
+                'division_name' => '',
+            ];
+        }
+
+        $employee = $this->db->select('e.division_id, d.division_name')
+            ->from('org_employee e')
+            ->join('org_division d', 'd.id = e.division_id', 'left')
+            ->where('e.id', $employeeId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $divisionName = strtoupper(trim((string)($employee['division_name'] ?? '')));
+        if (!in_array($divisionName, ['BAR', 'KITCHEN'], true)) {
+            return [
+                'restricted' => false,
+                'station_role' => 'ALL',
+                'operational_division_id' => 0,
+                'division_name' => $divisionName,
+            ];
+        }
+
+        $operationalDivisionId = 0;
+        if ($this->db->table_exists('mst_operational_division')) {
+            $operational = $this->db->select('id')
+                ->from('mst_operational_division')
+                ->group_start()
+                ->where('UPPER(code)', $divisionName)
+                ->or_where('UPPER(name)', $divisionName)
+                ->group_end()
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $operationalDivisionId = (int)($operational['id'] ?? 0);
+        }
+        if ($operationalDivisionId <= 0) {
+            $operationalDivisionId = max(0, (int)($employee['division_id'] ?? 0));
+        }
+
+        return [
+            'restricted' => $operationalDivisionId > 0,
+            'station_role' => $divisionName,
+            'operational_division_id' => $operationalDivisionId,
+            'division_name' => $divisionName,
+        ];
     }
 
     private function trigger_stock_live_refresh_for_order(int $orderId, string $eventSource, ?int $eventId = null, bool $rebuildNow = true): array
