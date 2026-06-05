@@ -977,7 +977,8 @@ function toggleChap(header) {
   }
   async function get(url) {
     const r = await fetch(BASE + url, { headers:{'X-Requested-With':'XMLHttpRequest'} });
-    const j = await r.json();
+    const t = await r.text();
+    let j; try { j = JSON.parse(t); } catch(e) { throw new Error('Response error. Kemungkinan permission belum ada atau halaman error.'); }
     if (!j.ok) throw new Error(j.message || 'Gagal');
     return j;
   }

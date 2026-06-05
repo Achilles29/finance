@@ -436,6 +436,34 @@ class System_tools extends MY_Controller
         return ['ok' => $code === 0, 'output' => implode("\n", $output), 'code' => $code];
     }
 
+    private function request_payload(): array
+    {
+        $raw = trim((string)$this->input->raw_input_stream);
+        if ($raw !== '') {
+            $json = json_decode($raw, true);
+            if (is_array($json)) return $json;
+        }
+        $post = $this->input->post(null, true);
+        return is_array($post) ? $post : [];
+    }
+
+    private function json_ok(array $data = []): void
+    {
+        while (ob_get_level() > 0) { @ob_end_clean(); }
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode(array_merge(['ok' => true], $data), JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function json_error(string $message, int $status = 422): void
+    {
+        while (ob_get_level() > 0) { @ob_end_clean(); }
+        $this->output
+            ->set_status_header($status)
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => false, 'message' => $message], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
     private function _listRecentFiles(string $dir, string $pattern, int $limit): array
     {
         if (!is_dir($dir)) return [];

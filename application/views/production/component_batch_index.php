@@ -948,9 +948,9 @@ $locationGroupLabel = static function ($locationType): string {
         const postedViaPolling = await Promise.race([
           requestPromise.then(() => false),
           waitForBatchPosted(batchId, {
-            startDelayMs: 8000,
-            intervalMs: 3000,
-            maxMs: 90000
+            startDelayMs: 4000,
+            intervalMs: 2500,
+            maxMs: 60000
           }),
         ]);
         if (postedViaPolling === true) {

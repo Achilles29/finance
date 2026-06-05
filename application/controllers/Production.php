@@ -938,11 +938,6 @@ class Production extends MY_Controller
             $this->json_error((string)($post['message'] ?? 'Posting batch gagal.'), 422);
             return;
         }
-        $this->db->where('id', $id)->update('inv_component_batch', [
-            'status' => 'POSTED',
-            'posted_at' => date('Y-m-d H:i:s'),
-            'posted_by' => !empty($this->current_user['employee_id']) ? (int)$this->current_user['employee_id'] : null,
-        ]);
         $this->json_ok(['id' => $id]);
     }
 

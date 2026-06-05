@@ -479,6 +479,13 @@ class ComponentStockWriter
         if ($db->trans_status() === false) {
             return ['ok' => false, 'message' => 'Posting batch gagal.'];
         }
+        if ($sourceId > 0) {
+            $this->ci->db->where('id', $sourceId)->update('inv_component_batch', [
+                'status' => 'POSTED',
+                'posted_at' => date('Y-m-d H:i:s'),
+                'posted_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+            ]);
+        }
         $availabilityRefresh = $this->trigger_availability_refresh(
             array_values(array_unique(array_filter(array_merge(
                 [(int)$componentIdOutput],
