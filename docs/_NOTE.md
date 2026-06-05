@@ -79,55 +79,25 @@ v laporan daily sales seperti core /pos-reports/daily-sales , kemudian cetak
 
 
 
-/self-order/orders kolom detail belum bisa
-/self-order/orders buat bisa di expand masing masing orderan untuk melihat rinciannya, jadi tidak wajib masuk halaman detail
-/self-order/orders verifikasi tidak muncul spinner, dan tidak berhasil (tidak terjadi apapun)
 
 
 
+Kalau kita lanjut lagi ke tema ini, urutan paling sehat menurut saya:
 
+bersihkan reader layer dulu
+Purchase_model
+Purchase.php
+Inventory_tools.php
+Master_relation.php
+lalu rapikan master/search/UI
+jangan lagi jadikan line_kind keputusan aktif di form dan pencarian
+baru setelah itu desain migrasi unique key storage
+ini langkah besar, tapi baru aman dilakukan kalau read/write layer sudah stabil
+Kalau kamu mau, next saya bisa bantu bikin peta yang lebih tajam lagi:
 
-
-- /procurement/division-po-sr/edit/ saat verifikasi muter2 terus (gambar 1)
-- saya coba PO selain item, coba listrik, tidak berhasil   menabahkan baris "Catalog ini belum terhubung ke item/bahan master yang valid. Pilih ulang dari hasil pencarian catalog.". jika barang bukan item harunya sembunyikan kolom pemakaian (gambar 3)
-- PO setelah di simpan (tapi belum PAID), metode pembayaran tidak bisa diubah. harusnya metode pembayaran tetap bisa diubah, apalagi misal status REVEIVED, barang sudah datang, stok nambah, tapi belum dibayar, saat mau bayar tidak bisa karena dikunci metode pembayarannya.
-- tipe purchase selain STOK, semua form nya dikunci selain harga (gambar 6). HARUSNYA tetap bisa diinput walaupun tidak menambah stok bahan gudang atau divisi, agar tau misal kita beli buku itu berapa pcs
-
-perbaiki diatas dulu baru nanti tawarkan lanjut commit
-
-
-
-sekarang modifikasi /master/material:
-
-1. perbaiki ukuran icon di kolom sesuai coding standar
-2. sembunyikan kolom KODE
-3. Tambahkan kolom HPP live setelah hpp standar (cek rumusnya sesuai /inventory-material-daily atau /inventory/stock/division atau dipenggunaan resep)
-4. tambahkan divisi (sesuai resep, divisi mana yang menggunakan, jika ada 2 divisi  maka buat atas bawah) lalu tambahkan stok tersedia setelah (stok isi dan (enter) stok pack atau stok beli) sesuai divisinya. jika stok belum tercatat berarti tulis 0
-5. tambahkan kategori sebelum nama
-6. tambahkan button yang menuju halaman penggunaan, halaman yang menunjukkan component Base / prepare / produk apa saja yang sesuai resep menggunakannya, sekaligus qty nya
-
-
-
-
-
-
-- pagination ketika di filter masih belum sempurna. ketika saya filter misal divisi BAR, jumlah baris 25, maka data yang ditampilkan adalah bar dengan data pada halaman pertama awal saja bukan 25 baris
-- tambahkan form filter urutan sortir kolom, dengan default kategori (sesuai id) - divisi (sesuai id) - nama
-- perbesar ukuran icon seperti pada halaman purchase
-- rapikan lagi kolom divisi dan stok. dan upah UOM kedua bukan kode satuan tapi ganti fix jadi PACK, jadi contoh oatmilk ini 6.120,00 MILLILITER , 70,95 PACK . perbaiki juga warning kecil tidak ada resep nya itu, faktanya ada, kemungkinan dia hanya mengambil comopnent, seharusnya produk juga. lalu ganti juga warnanya agar lebih jelas
-- sesuaikan data dari hpp live menjadi hiperlink halaman yang menunjukan naik turunya harga barang tersebut berdasarkan data N orderan terakhir. dengan bagian atas menampilkan grafik berdasarkan data yang difilter (jumlah transaksi terakhir, opsional antara hpp atau harga beli), lalu bagian bawah datatabel transaksi x terakhir dari purchase. buatkan dulu halaman globalnya, lalu hiperlinkan per bahan nya
-
-
-
-
-
-- kok saya ngrasa kurang pas ya kalau price-history diambil dari controller master / material. hehe. harusnya lebih ke purchase tapi menarik data dari mst item
-- koreksi juga, data belum tampil, grafik belum tampil
-- untuk pemilihan item pakai search ajax dengan preview, bukan dengan dropdown, dan tidka usah tampilkan kode nya
-
-
-
-
+daftar file yang masih hybrid
+tandai mana yang writer, reader, dan schema
+lalu kita pilih lane mana yang dibersihkan duluan tanpa ganggu operasional.
 
 
 
@@ -148,3 +118,23 @@ saya butuh 2 skema.
 2. backup berkala di 2 device berbeda, misal 1 device utama yang running di server dengan alaman url tertentu (diatur di halaman pengaturan). 2 device backup di server yang berbeda , atau url yang berbeda, atau di localhost laptop sebagai slave. untuk aplikasinya sama identik, yang membedakan di pengaturan yang 1 di seting sebagai Master yang 1 slave. dan database selalu update. mendeteksi jika salah 1 server down atau disconect. jika server utama down maka user menggunakan server kedua / atau laptop lokal, dan putuskan sementara koneksi keduanya, lalu ketika server utama sudah online baru ada pemindahan data dari server kedua / lokal dengan pengecekan data terlebih dahulu untuk mencegah terjadinya bentrok. setelah itu baru koneksi diaktifkan kembali di pengaturan
 
 ada gambaran?
+
+
+oke tambahan skema:
+SKEMA 1:
+1. buatkan folder backup serta folder berisi script terkait (misal cron, service dan lain lain) di directory finance, jangan masukan di luar directory finance, tujuannya agar ketika migrasi nanti file nya ikut semua.
+2. buatkan halaman panduan khusus skema yang kita buat
+3. untuk SQL Dump ya boleh kalau kamu buat partial, tapi saya tetap ingin setiap berapa menit (misal 30 menit)ada scipt push semua tabel dan data di dump karena ini untuk backup db juga, hanya mungkin dengan catatan ada penghapusan file yang sudah lama, misal data yang tersimpan di folder backup hanya data 3 hari terakhir.
+4. tetap pakai github karena saya sudah menjalakan itu dan aman
+
+
+SKEMA :
+1. failover ketika setelah server 1 down jangan otomatis. jadi ketika server 1 down kita tetap pakai server 2, baru setelah server 1 online, kita melakukan pengecekan perbandingan db server 2 dan server 1, jika aman baru di sinkronkan, jika ada perbedaan baru di cek.  karean semua tabel mempunyai kolom id, created_at dan updated_at jadi seharusnya lebih mempermudah kan?
+2. perjelas skemanya itu server 1 push data ke server 2 atau sebaliknya? atau bagaimana?
+
+
+setelah ini langsung bantu implementasi
+
+
+- sql sudah saya jalankan. hasilnya halaman tidak bisa dibuka 404 semua.
+- tambahan catatan : tadi kan kamu bilang alurnya dari server 1 push ke server 2 (CMIIW). nah bagaimana kalau server 2 itu laptop lokal, baik windows ataupun ubuntu, yang tidak punya ip publik dan tidak punya domain. apakah bisa push dari serve 1? atau server 2 yang nge pull? nah saya butuh skema itu juga untuk ditambahkan di opsi

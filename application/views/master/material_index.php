@@ -46,10 +46,8 @@ $matRp = static function(float $v): string {
   .mat-cat-badge { font-size:.72rem; background:#f5ede7; color:#6b4432; border-radius:8px; padding:.15rem .55rem; white-space:nowrap; }
   .mat-warn { display:inline-flex; align-items:center; gap:.25rem; font-size:.72rem; color:#a8561a; background:#fff3e0; border:1px solid #f8c47c; border-radius:6px; padding:.1rem .4rem; }
   .action-cell { white-space:nowrap; text-align:right; width:1%; }
-  /* Override global app.css action-icon-btn (yang pakai !important via var) */
-  .mat-table .action-cell { --fin-btn-icon-sz: 36px; }
-  .mat-table .action-cell .action-icon-btn { border-radius:10px !important; }
-  .mat-table .action-cell .action-icon-btn i { font-size:1.05rem !important; }
+  /* Samakan dengan standar global action-icon-btn */
+  .mat-table .action-cell { --fin-btn-icon-sz: 30px; }
   .mat-diff-up { color:#c0392b; font-size:.75rem; }
   .mat-diff-dn { color:#27ae60; font-size:.75rem; }
 </style>
@@ -209,7 +207,6 @@ $matRp = static function(float $v): string {
             </td>
             <td>
               <div class="fw-semibold"><?php echo html_escape($r['material_name'] ?? '-'); ?></div>
-              <div class="small text-muted"><?php echo html_escape($r['material_code'] ?? ''); ?></div>
             </td>
             <td class="text-muted"><?php echo html_escape($uomName); ?></td>
             <td class="text-end mat-hpp-std small">
@@ -250,22 +247,18 @@ $matRp = static function(float $v): string {
                     $inRecipe  = isset($divUsage[$dId]);
                     $sqContent = $stockInfo !== null ? (float)$stockInfo['stock_qty']     : 0.0;
                     $sqPack    = $stockInfo !== null ? (float)$stockInfo['stock_qty_buy']  : 0.0;
+                    $buyUom    = trim((string)($stockInfo['buy_uom_code'] ?? ''));
+                    $buyLabel  = $buyUom !== '' ? $buyUom : 'BELI';
                   ?>
                   <div class="mat-div-row">
                     <span class="mat-div-badge"><?php echo html_escape($dName); ?></span>
                     <div>
-                      <?php if ($stockInfo !== null): ?>
-                        <div class="mat-stock-isi <?php echo $sqContent <= 0 ? 'mat-stock-zero' : ''; ?>">
-                          <?php echo $matNum($sqContent, 2); ?> <?php echo html_escape($uomName); ?>
-                        </div>
-                        <?php if ($sqPack > 0 && round($sqPack, 2) !== round($sqContent, 2)): ?>
-                          <div class="mat-stock-pack"><?php echo $matNum($sqPack, 2); ?> PACK</div>
-                        <?php elseif ($sqContent <= 0): ?>
-                          <div class="mat-stock-zero">stok 0</div>
-                        <?php endif; ?>
-                      <?php else: ?>
-                        <span class="mat-stock-zero">stok 0</span>
-                      <?php endif; ?>
+                      <div class="mat-stock-isi <?php echo $sqContent <= 0 ? 'mat-stock-zero' : ''; ?>">
+                        <?php echo $matNum($sqContent, 2); ?> <?php echo html_escape($uomName); ?>
+                      </div>
+                      <div class="mat-stock-pack <?php echo $sqPack <= 0 ? 'mat-stock-zero' : ''; ?>">
+                        <?php echo $matNum($sqPack, 2); ?> <?php echo html_escape($buyLabel); ?>
+                      </div>
                     </div>
                     <?php if (!$inRecipe): ?>
                       <span class="mat-warn" title="Ada stok divisi ini tapi tidak terdeteksi di resep aktif">

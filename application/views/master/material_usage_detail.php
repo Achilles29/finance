@@ -35,6 +35,7 @@ $typeLabels = ['BASE' => 'Base', 'PREPARE' => 'Prepare', 'OTHER' => 'Lainnya'];
   .mat-usage-table th { font-size:.76rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
   .mat-usage-table td { vertical-align:middle; font-size:.88rem; }
   .mat-usage-div-badge { font-size:.7rem; font-weight:700; background:#eef3f1; color:#1f5d54; border:1px solid #d6e0dc; border-radius:999px; padding:.1rem .45rem; }
+  .mat-usage-action { width:1%; white-space:nowrap; text-align:right; }
 </style>
 
 <div class="container-xxl py-3">
@@ -84,10 +85,12 @@ $typeLabels = ['BASE' => 'Base', 'PREPARE' => 'Prepare', 'OTHER' => 'Lainnya'];
                 <th>Divisi</th>
                 <th class="text-end">Qty dalam Formula</th>
                 <th>Satuan</th>
+                <th class="mat-usage-action">Buka</th>
               </tr>
             </thead>
             <tbody>
               <?php foreach ($typeRows as $row): ?>
+                <?php $componentId = (int)($row['component_id'] ?? 0); ?>
                 <tr>
                   <td>
                     <div class="fw-semibold"><?php echo html_escape($row['component_name'] ?? '-'); ?></div>
@@ -109,6 +112,19 @@ $typeLabels = ['BASE' => 'Base', 'PREPARE' => 'Prepare', 'OTHER' => 'Lainnya'];
                   </td>
                   <td class="text-muted">
                     <?php echo html_escape($row['uom_code'] ?? $uomName); ?>
+                  </td>
+                  <td class="mat-usage-action">
+                    <?php if ($componentId > 0): ?>
+                      <a class="btn btn-sm btn-outline-info action-icon-btn"
+                         href="<?php echo site_url('production/component-formulas/detail/' . $componentId); ?>"
+                         data-bs-toggle="tooltip"
+                         title="Buka Formula Component"
+                         aria-label="Buka Formula Component">
+                        <i class="ri ri-eye-line"></i>
+                      </a>
+                    <?php else: ?>
+                      <span class="text-muted">-</span>
+                    <?php endif; ?>
                   </td>
                 </tr>
               <?php endforeach; ?>
@@ -135,10 +151,12 @@ $typeLabels = ['BASE' => 'Base', 'PREPARE' => 'Prepare', 'OTHER' => 'Lainnya'];
             <th>Divisi</th>
             <th class="text-end">Qty dalam Resep</th>
             <th>Satuan</th>
+            <th class="mat-usage-action">Buka</th>
           </tr>
         </thead>
         <tbody>
           <?php foreach ($productRows as $row): ?>
+            <?php $productId = (int)($row['product_id'] ?? 0); ?>
             <tr>
               <td>
                 <div class="fw-semibold"><?php echo html_escape($row['product_name'] ?? '-'); ?></div>
@@ -156,6 +174,19 @@ $typeLabels = ['BASE' => 'Base', 'PREPARE' => 'Prepare', 'OTHER' => 'Lainnya'];
               </td>
               <td class="text-muted">
                 <?php echo html_escape($row['uom_code'] ?? $uomName); ?>
+              </td>
+              <td class="mat-usage-action">
+                <?php if ($productId > 0): ?>
+                  <a class="btn btn-sm btn-outline-info action-icon-btn"
+                     href="<?php echo site_url('master/relation/product-recipe/' . $productId); ?>"
+                     data-bs-toggle="tooltip"
+                     title="Buka Resep Produk"
+                     aria-label="Buka Resep Produk">
+                    <i class="ri ri-eye-line"></i>
+                  </a>
+                <?php else: ?>
+                  <span class="text-muted">-</span>
+                <?php endif; ?>
               </td>
             </tr>
           <?php endforeach; ?>

@@ -535,6 +535,11 @@ $route['master/att-holiday/generate-year']      = 'master/att_holiday_generate_y
 
 $route['master/material/usage/(:num)']          = 'master/material_usage/$1';
 
+$route['dbtools/backup-guide']                  = 'system_tools/backup_guide';
+$route['dbtools/backup-status']                 = 'system_tools/backup_status';
+$route['dbtools/replication-guide']             = 'system_tools/replication_guide';
+$route['dbtools/replication-status']            = 'system_tools/replication_status';
+
 $route['purchase/item-price-history']           = 'purchase/item_price_history';
 $route['purchase/item-price-history/item-search'] = 'purchase/item_price_history_item_search';
 $route['purchase/item-price-history/data']      = 'purchase/item_price_history_data';
