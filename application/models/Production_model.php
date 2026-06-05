@@ -4820,6 +4820,28 @@ class Production_model extends CI_Model
 
     private function component_batch_material_stock_state(int $materialId, ?int $itemId, int $uomId, int $divisionId, string $locationType): array
     {
+        if ($materialId > 0 && $divisionId > 0) {
+            $this->load->library('MaterialFifoManager');
+            $fifoReady = $this->materialfifomanager->ensureReady();
+            if (($fifoReady['ok'] ?? false)) {
+                $preview = $this->materialfifomanager->previewDivisionUsageState([
+                    'division_id' => $divisionId,
+                    'destination_type' => $locationType,
+                    'item_id' => $itemId,
+                    'material_id' => $materialId,
+                    'content_uom_id' => $uomId,
+                ]);
+                if (($preview['ok'] ?? false)) {
+                    $data = (array)($preview['data'] ?? []);
+                    return [
+                        'available_qty' => round((float)($data['available_qty'] ?? 0), 4),
+                        'unit_cost' => round((float)($data['avg_unit_cost'] ?? 0), 6),
+                        'stock_key' => (string)($data['stock_key'] ?? ($materialId . '|' . $itemId . '|' . $uomId . '|' . $divisionId . '|' . $locationType)),
+                    ];
+                }
+            }
+        }
+
         $availableQty = 0.0;
         $unitCost = 0.0;
         $stockKey = $materialId . '|' . $itemId . '|' . $uomId . '|' . $divisionId . '|' . $locationType;

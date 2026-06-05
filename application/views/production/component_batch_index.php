@@ -56,6 +56,44 @@ $locationGroupLabel = static function ($locationType): string {
     font-size: 0.76rem;
     color: #5d4636;
   }
+  .component-batch-overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(58, 38, 22, 0.22);
+    backdrop-filter: blur(1px);
+    z-index: 2000;
+  }
+  .component-batch-overlay.is-active {
+    display: flex;
+  }
+  .component-batch-overlay-card {
+    min-width: 280px;
+    max-width: 420px;
+    padding: 1rem 1.2rem;
+    border-radius: 18px;
+    background: #fffdf9;
+    border: 1px solid #eadfce;
+    box-shadow: 0 18px 45px rgba(76, 56, 39, 0.22);
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    color: #5d4636;
+  }
+  .component-batch-overlay-card .spinner-border {
+    width: 1.35rem;
+    height: 1.35rem;
+    color: #8b2f33;
+  }
+  .component-batch-overlay-title {
+    font-weight: 700;
+  }
+  .component-batch-overlay-subtitle {
+    font-size: 0.86rem;
+    color: #806553;
+  }
 </style>
 
 <div class="mb-3">
@@ -66,6 +104,16 @@ $locationGroupLabel = static function ($locationType): string {
 <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'batch']); ?>
 
 <div id="component-batch-alert" class="mb-3"></div>
+
+<div id="componentBatchOverlay" class="component-batch-overlay" aria-hidden="true">
+  <div class="component-batch-overlay-card" role="status" aria-live="polite">
+    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+    <div>
+      <div class="component-batch-overlay-title" id="componentBatchOverlayTitle">Memproses batch...</div>
+      <div class="component-batch-overlay-subtitle">Mohon tunggu, stok dan biaya sedang dihitung.</div>
+    </div>
+  </div>
+</div>
 
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body">
@@ -338,6 +386,8 @@ $locationGroupLabel = static function ($locationType): string {
   const postBaseUrl = '<?php echo site_url('production/component-batches/post'); ?>';
   const usageBaseUrl = '<?php echo site_url('production/component-batches/usage'); ?>';
   const usageDetailBaseUrl = '<?php echo site_url('production/component-batches/detail'); ?>';
+  const overlayEl = document.getElementById('componentBatchOverlay');
+  const overlayTitleEl = document.getElementById('componentBatchOverlayTitle');
   const voidBaseUrl = '<?php echo site_url('production/component-batches/void'); ?>';
   const deleteBaseUrl = '<?php echo site_url('production/component-batches/delete'); ?>';
 
@@ -748,6 +798,25 @@ $locationGroupLabel = static function ($locationType): string {
     button.disabled = false;
   }
 
+  function showPostingOverlay(message) {
+    if (!overlayEl) {
+      return;
+    }
+    if (overlayTitleEl) {
+      overlayTitleEl.textContent = message || 'Memproses batch...';
+    }
+    overlayEl.classList.add('is-active');
+    overlayEl.setAttribute('aria-hidden', 'false');
+  }
+
+  function hidePostingOverlay() {
+    if (!overlayEl) {
+      return;
+    }
+    overlayEl.classList.remove('is-active');
+    overlayEl.setAttribute('aria-hidden', 'true');
+  }
+
   form?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const submitButton = event.submitter || form.querySelector('button[type="submit"]');
@@ -799,10 +868,12 @@ $locationGroupLabel = static function ($locationType): string {
       return;
     }
     setButtonBusy(submitButton, 'Menyimpan batch...');
+    showPostingOverlay('Menyimpan batch...');
     try {
       await postJson(saveUrl, payload);
       window.location.reload();
     } catch (error) {
+      hidePostingOverlay();
       renderAlert('danger', error.message || 'Gagal menyimpan batch.');
       clearButtonBusy(submitButton);
     }
@@ -819,10 +890,12 @@ $locationGroupLabel = static function ($locationType): string {
         return;
       }
       setButtonBusy(button, 'Posting...');
+      showPostingOverlay('Posting batch produksi...');
       try {
         await postJson(postBaseUrl + '/' + button.dataset.id, {});
         window.location.reload();
       } catch (error) {
+        hidePostingOverlay();
         renderAlert('danger', error.message || 'Gagal post batch.');
         clearButtonBusy(button);
       }
@@ -840,10 +913,12 @@ $locationGroupLabel = static function ($locationType): string {
         return;
       }
       setButtonBusy(button, 'Menghapus...');
+      showPostingOverlay('Menghapus draft batch...');
       try {
         await postJson(deleteBaseUrl + '/' + button.dataset.id, {});
         window.location.reload();
       } catch (error) {
+        hidePostingOverlay();
         renderAlert('danger', error.message || 'Gagal menghapus batch.');
         clearButtonBusy(button);
       }
@@ -861,10 +936,12 @@ $locationGroupLabel = static function ($locationType): string {
         return;
       }
       setButtonBusy(button, 'Void...');
+      showPostingOverlay('Melakukan void batch...');
       try {
         await postJson(voidBaseUrl + '/' + button.dataset.id, {});
         window.location.reload();
       } catch (error) {
+        hidePostingOverlay();
         renderAlert('danger', error.message || 'Gagal void batch.');
         clearButtonBusy(button);
       }

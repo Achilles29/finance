@@ -679,6 +679,221 @@ class MaterialFifoManager
         ];
     }
 
+    public function previewDivisionUsageState(array $payload): array
+    {
+        $ensure = $this->ensureSchema();
+        if (!($ensure['ok'] ?? false)) {
+            return $ensure;
+        }
+
+        $identity = $this->normalizeLotIdentity(array_merge($payload, [
+            'location_scope' => 'DIVISION',
+        ]), false);
+        if (!($identity['ok'] ?? false)) {
+            return $identity;
+        }
+
+        $lots = $this->findIssueSourceLots($identity, [
+            'allow_any_item_id' => ($identity['item_id'] ?? null) === null && ($identity['material_id'] ?? null) !== null,
+            'allow_any_buy_uom' => ($identity['buy_uom_id'] ?? null) === null,
+            'allow_any_profile_key' => ($identity['profile_key'] ?? null) === null,
+        ]);
+        $matchedMode = 'EXACT';
+        if (empty($lots) && ($identity['material_id'] ?? null) !== null) {
+            $lots = $this->findIssueSourceLots($identity, [
+                'allow_any_item_id' => true,
+                'allow_any_buy_uom' => true,
+                'allow_any_content_uom' => true,
+                'allow_any_profile_key' => true,
+            ]);
+            $matchedMode = 'BROAD';
+        }
+
+        $availableQty = 0.0;
+        $totalValue = 0.0;
+        $profileKeys = [];
+        foreach ($lots as $lot) {
+            $qtyBalance = round((float)($lot['qty_balance'] ?? 0), 4);
+            if ($qtyBalance <= 0) {
+                continue;
+            }
+            $unitCost = max(0, round((float)($lot['unit_cost'] ?? 0), 6));
+            $availableQty = round($availableQty + $qtyBalance, 4);
+            $totalValue = round($totalValue + round($qtyBalance * $unitCost, 2), 2);
+            $profileKey = trim((string)($lot['profile_key'] ?? ''));
+            if ($profileKey !== '') {
+                $profileKeys[$profileKey] = true;
+            }
+        }
+        $avgUnitCost = $availableQty > 0.0001
+            ? round($totalValue / $availableQty, 6)
+            : 0.0;
+
+        $stockKeyParts = [
+            'DIVISION',
+            (string)($identity['division_id'] ?? 'NULL'),
+            (string)($identity['destination_type'] ?? 'OTHER'),
+            (string)($identity['item_id'] ?? 0),
+            (string)($identity['material_id'] ?? 0),
+            (string)($identity['content_uom_id'] ?? 0),
+            $matchedMode,
+        ];
+        if ($matchedMode === 'EXACT') {
+            $stockKeyParts[] = (string)($identity['buy_uom_id'] ?? 0);
+            $stockKeyParts[] = (string)($identity['profile_key'] ?? '');
+        }
+
+        return [
+            'ok' => true,
+            'data' => [
+                'identity' => $identity,
+                'lots' => $lots,
+                'available_qty' => round($availableQty, 4),
+                'avg_unit_cost' => $avgUnitCost,
+                'total_value' => round($totalValue, 2),
+                'matched_mode' => $matchedMode,
+                'matched_profile_keys' => array_keys($profileKeys),
+                'stock_key' => implode('|', $stockKeyParts),
+            ],
+        ];
+    }
+
+    public function syncDivisionMonthlyStockFromLots(array $payload): array
+    {
+        $ensure = $this->ensureSchema();
+        if (!($ensure['ok'] ?? false)) {
+            return $ensure;
+        }
+        if (!$this->ci->db->table_exists('inv_division_monthly_stock')) {
+            return ['ok' => true, 'data' => ['skipped' => true, 'reason' => 'missing_table']];
+        }
+
+        $identity = $this->normalizeLotIdentity(array_merge($payload, [
+            'location_scope' => 'DIVISION',
+        ]), false);
+        if (!($identity['ok'] ?? false)) {
+            return $identity;
+        }
+
+        $lots = $this->findIssueSourceLots($identity, [
+            'allow_any_item_id' => false,
+            'allow_any_buy_uom' => false,
+            'allow_any_content_uom' => false,
+            'allow_any_profile_key' => false,
+        ]);
+
+        $qtyBalance = 0.0;
+        $totalValue = 0.0;
+        foreach ($lots as $lot) {
+            $lotQty = round((float)($lot['qty_balance'] ?? 0), 4);
+            if ($lotQty <= 0) {
+                continue;
+            }
+            $lotUnitCost = max(0, round((float)($lot['unit_cost'] ?? 0), 6));
+            $qtyBalance = round($qtyBalance + $lotQty, 4);
+            $totalValue = round($totalValue + round($lotQty * $lotUnitCost, 2), 2);
+        }
+        $avgCost = $qtyBalance > 0.0001 ? round($totalValue / $qtyBalance, 6) : 0.0;
+
+        $monthKey = date('Y-m-01', strtotime((string)($payload['movement_date'] ?? $payload['issue_date'] ?? date('Y-m-d'))));
+        $identityKey = $this->buildMonthlyIdentityKeyFromLotIdentity($identity);
+
+        $existing = $this->ci->db->query(
+            'SELECT * FROM inv_division_monthly_stock
+             WHERE month_key = ?
+               AND division_id = ?
+               AND destination_type = ?
+               AND item_id <=> ?
+               AND material_id <=> ?
+               AND buy_uom_id <=> ?
+               AND content_uom_id = ?
+               AND profile_key <=> ?
+             ORDER BY id DESC
+             LIMIT 1 FOR UPDATE',
+            [
+                $monthKey,
+                (int)$identity['division_id'],
+                (string)$identity['destination_type'],
+                $this->nullableInt($identity['item_id'] ?? null),
+                $this->nullableInt($identity['material_id'] ?? null),
+                $this->nullableInt($identity['buy_uom_id'] ?? null),
+                (int)$identity['content_uom_id'],
+                $this->nullableString($identity['profile_key'] ?? null),
+            ]
+        )->row_array();
+
+        $sameUom = ($identity['buy_uom_id'] ?? null) !== null
+            && (int)($identity['buy_uom_id'] ?? 0) === (int)($identity['content_uom_id'] ?? 0);
+        $contentPerBuy = $sameUom
+            ? 1.0
+            : max(0.000001, round((float)($existing['profile_content_per_buy'] ?? 1), 6));
+        $qtyBuyBalance = $qtyBalance > 0.0001 ? round($qtyBalance / $contentPerBuy, 4) : 0.0;
+        $syncNote = 'Synced from FIFO lots before component batch posting';
+
+        if ($existing) {
+            $update = [
+                'identity_key' => $identityKey,
+                'closing_qty_buy' => $qtyBuyBalance,
+                'closing_qty_content' => $qtyBalance,
+                'avg_cost_per_content' => $avgCost,
+                'total_value' => round($totalValue, 2),
+                'last_movement_date' => (string)($payload['movement_date'] ?? $payload['issue_date'] ?? date('Y-m-d')),
+                'last_movement_at' => date('Y-m-d H:i:s'),
+                'notes' => $syncNote,
+            ];
+            if ($this->ci->db->field_exists('stock_domain', 'inv_division_monthly_stock') && array_key_exists('stock_domain', $existing)) {
+                $update['stock_domain'] = $existing['stock_domain'];
+            }
+            $this->ci->db->where('id', (int)$existing['id'])->update('inv_division_monthly_stock', $update);
+        } else {
+            $insert = [
+                'month_key' => $monthKey,
+                'identity_key' => $identityKey,
+                'division_id' => (int)$identity['division_id'],
+                'destination_type' => (string)$identity['destination_type'],
+                'item_id' => $this->nullableInt($identity['item_id'] ?? null),
+                'material_id' => $this->nullableInt($identity['material_id'] ?? null),
+                'buy_uom_id' => $this->nullableInt($identity['buy_uom_id'] ?? null),
+                'content_uom_id' => (int)$identity['content_uom_id'],
+                'profile_key' => $this->nullableString($identity['profile_key'] ?? null),
+                'profile_content_per_buy' => $contentPerBuy,
+                'opening_qty_buy' => $qtyBuyBalance,
+                'opening_qty_content' => $qtyBalance,
+                'opening_total_value' => round($totalValue, 2),
+                'closing_qty_buy' => $qtyBuyBalance,
+                'closing_qty_content' => $qtyBalance,
+                'avg_cost_per_content' => $avgCost,
+                'total_value' => round($totalValue, 2),
+                'movement_day_count' => 0,
+                'mutation_count' => 0,
+                'last_movement_date' => (string)($payload['movement_date'] ?? $payload['issue_date'] ?? date('Y-m-d')),
+                'last_movement_at' => date('Y-m-d H:i:s'),
+                'source_mode' => 'LIVE',
+                'notes' => $syncNote,
+            ];
+            if ($this->ci->db->field_exists('stock_domain', 'inv_division_monthly_stock')) {
+                $insert['stock_domain'] = null;
+            }
+            $this->ci->db->insert('inv_division_monthly_stock', $insert);
+        }
+
+        if ($this->ci->db->trans_status() === false) {
+            return ['ok' => false, 'message' => 'Gagal sinkron saldo bulanan divisi dari FIFO lot.'];
+        }
+
+        return [
+            'ok' => true,
+            'data' => [
+                'qty_balance' => $qtyBalance,
+                'qty_buy_balance' => $qtyBuyBalance,
+                'avg_cost_per_content' => $avgCost,
+                'total_value' => round($totalValue, 2),
+                'month_key' => $monthKey,
+                'identity_key' => $identityKey,
+            ],
+        ];
+    }
+
     public function rollbackReceiptInboundLotsBySource(string $sourceTable, int $sourceId, ?int $sourceLineId = null): array
     {
         $ensure = $this->ensureSchema();
@@ -1532,6 +1747,21 @@ class MaterialFifoManager
     {
         $rows = $this->ci->db->query('SHOW INDEX FROM ' . $table . ' WHERE Key_name = ?', [$indexName])->result_array();
         return !empty($rows);
+    }
+
+    private function buildMonthlyIdentityKeyFromLotIdentity(array $identity): string
+    {
+        $profileKey = $this->nullableString($identity['profile_key'] ?? null);
+        if ($profileKey !== null) {
+            return $profileKey;
+        }
+
+        return hash('sha256', implode('|', [
+            (string)((int)($identity['item_id'] ?? 0)),
+            (string)((int)($identity['material_id'] ?? 0)),
+            (string)((int)($identity['buy_uom_id'] ?? 0)),
+            (string)((int)($identity['content_uom_id'] ?? 0)),
+        ]));
     }
 
     private function generateLotNo(string $date, array $seedParts): string

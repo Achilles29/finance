@@ -5,7 +5,9 @@ class Purchase_model extends CI_Model
 {
     private $uomCodeCache = [];
     private $tableFieldsCache = [];
+    private $columnNullableCache = [];
     private $usagePurposeSchemaEnsured = false;
+    private $itemIdentityResolverInstance;
     private const USAGE_PURPOSE_PRODUCTION = 'BAHAN_BAKU';
     private const USAGE_PURPOSE_OPERATIONAL = 'OPERASIONAL';
 
@@ -1831,7 +1833,11 @@ class Purchase_model extends CI_Model
             ->join('mst_item i', 'i.id = d.item_id', 'left')
             ->join('mst_material m', 'm.id = COALESCE(d.material_id, i.material_id)', 'left')
             ->group_start()
-                ->where('d.stock_domain', 'MATERIAL')
+                ->group_start()
+                    ->where('d.stock_domain IS NULL', null, false)
+                    ->where('COALESCE(d.material_id, i.material_id) IS NOT NULL', null, false)
+                ->group_end()
+                ->or_where('d.stock_domain', 'MATERIAL')
                 ->or_group_start()
                     ->where('d.stock_domain', 'ITEM')
                     ->where('COALESCE(d.material_id, i.material_id) IS NOT NULL', null, false)
@@ -2393,7 +2399,11 @@ class Purchase_model extends CI_Model
             ->join('mst_item i', 'i.id = d.item_id', 'left')
             ->join('mst_material m', 'm.id = COALESCE(d.material_id, i.material_id)', 'left')
             ->group_start()
-                ->where('d.stock_domain', 'MATERIAL')
+                ->group_start()
+                    ->where('d.stock_domain IS NULL', null, false)
+                    ->where('COALESCE(d.material_id, i.material_id) IS NOT NULL', null, false)
+                ->group_end()
+                ->or_where('d.stock_domain', 'MATERIAL')
                 ->or_group_start()
                     ->where('d.stock_domain', 'ITEM')
                     ->where('COALESCE(d.material_id, i.material_id) IS NOT NULL', null, false)
@@ -5976,7 +5986,7 @@ class Purchase_model extends CI_Model
     private function findOpeningSnapshotRowForUpdate(string $table, array $criteria): ?array
     {
         $hasDestinationType = $this->db->field_exists('destination_type', $table);
-        $sql = 'SELECT * FROM ' . $table . ' WHERE snapshot_month = ? AND stock_domain = ? AND item_id = ? AND material_id <=> ? AND buy_uom_id = ? AND content_uom_id = ? AND profile_key <=> ?';
+        $sql = 'SELECT * FROM ' . $table . ' WHERE snapshot_month = ? AND (stock_domain <=> ? OR stock_domain IS NULL) AND item_id = ? AND material_id <=> ? AND buy_uom_id = ? AND content_uom_id = ? AND profile_key <=> ?';
         $params = [
             $criteria['snapshot_month'] ?? null,
             $criteria['stock_domain'] ?? null,
@@ -5996,7 +6006,8 @@ class Purchase_model extends CI_Model
             }
         }
 
-        $sql .= ' LIMIT 1 FOR UPDATE';
+        $sql .= ' ORDER BY CASE WHEN stock_domain IS NULL THEN 0 WHEN stock_domain <=> ? THEN 1 ELSE 2 END LIMIT 1 FOR UPDATE';
+        $params[] = $criteria['stock_domain'] ?? null;
 
         $row = $this->db->query($sql, $params)->row_array();
 
@@ -6007,7 +6018,7 @@ class Purchase_model extends CI_Model
     {
         $hasDestinationType = $this->db->field_exists('destination_type', $table);
         $hasProfileExpiredDate = $this->db->field_exists('profile_expired_date', $table);
-        $sql = 'SELECT * FROM ' . $table . ' WHERE snapshot_month = ? AND stock_domain = ? AND item_id = ? AND material_id <=> ? AND buy_uom_id = ? AND content_uom_id = ?';
+        $sql = 'SELECT * FROM ' . $table . ' WHERE snapshot_month = ? AND (stock_domain <=> ? OR stock_domain IS NULL) AND item_id = ? AND material_id <=> ? AND buy_uom_id = ? AND content_uom_id = ?';
         $params = [
             $criteria['snapshot_month'] ?? null,
             $criteria['stock_domain'] ?? null,
@@ -6046,7 +6057,8 @@ class Purchase_model extends CI_Model
             }
         }
 
-        $sql .= ' ORDER BY id ASC LIMIT 2 FOR UPDATE';
+        $sql .= ' ORDER BY CASE WHEN stock_domain IS NULL THEN 0 WHEN stock_domain <=> ? THEN 1 ELSE 2 END, id ASC LIMIT 2 FOR UPDATE';
+        $params[] = $criteria['stock_domain'] ?? null;
         $rows = $this->db->query($sql, $params)->result_array();
         if (count($rows) !== 1) {
             return null;
@@ -6528,7 +6540,15 @@ class Purchase_model extends CI_Model
 
     private function applyOpeningHistoryIdentityFilter(string $alias, string $stockScope, array $identity): void
     {
-        $this->db->where($alias . '.stock_domain', $identity['stock_domain'] ?? 'ITEM');
+        if (isset($this->listTableFields($this->openingSnapshotTableForScope($stockScope))['stock_domain'])) {
+            $legacyStockDomain = strtoupper(trim((string)($identity['stock_domain'] ?? '')));
+            $this->db->group_start();
+            $this->db->where($alias . '.stock_domain IS NULL', null, false);
+            if (in_array($legacyStockDomain, ['ITEM', 'MATERIAL'], true)) {
+                $this->db->or_where($alias . '.stock_domain', $legacyStockDomain);
+            }
+            $this->db->group_end();
+        }
         $this->db->where($alias . '.item_id', $identity['item_id'] ?? 0);
         $materialId = $identity['material_id'] ?? null;
         if ($materialId !== null) {
@@ -6554,7 +6574,15 @@ class Purchase_model extends CI_Model
 
     private function applyDailyRollupIdentityFilter(string $table, string $stockScope, array $identity): void
     {
-        $this->db->where('stock_domain', $identity['stock_domain'] ?? 'ITEM');
+        if (isset($this->listTableFields($table)['stock_domain'])) {
+            $legacyStockDomain = strtoupper(trim((string)($identity['stock_domain'] ?? '')));
+            $this->db->group_start();
+            $this->db->where('stock_domain IS NULL', null, false);
+            if (in_array($legacyStockDomain, ['ITEM', 'MATERIAL'], true)) {
+                $this->db->or_where('stock_domain', $legacyStockDomain);
+            }
+            $this->db->group_end();
+        }
         $this->db->where('item_id', $identity['item_id'] ?? 0);
         $materialId = $identity['material_id'] ?? null;
         if ($materialId !== null) {
@@ -6954,13 +6982,19 @@ class Purchase_model extends CI_Model
                         return;
                     }
 
-                    if ($startMonth !== null) {
-                        $this->db->where('month_key >=', $startMonth);
-                    }
+                if ($startMonth !== null) {
+                    $this->db->where('month_key >=', $startMonth);
+                }
 
-                    if (isset($this->listTableFields($table)['stock_domain'])) {
-                        $this->db->where('stock_domain', strtoupper((string)($identity['stock_domain'] ?? 'ITEM')));
+                if (isset($this->listTableFields($table)['stock_domain'])) {
+                    $legacyStockDomain = strtoupper((string)($identity['stock_domain'] ?? ''));
+                    $this->db->group_start();
+                    $this->db->where('stock_domain IS NULL', null, false);
+                    if (in_array($legacyStockDomain, ['ITEM', 'MATERIAL'], true)) {
+                        $this->db->or_where('stock_domain', $legacyStockDomain);
                     }
+                    $this->db->group_end();
+                }
 
                     $itemId = $this->nullableInt($identity['item_id'] ?? null);
                     if ($itemId !== null) {
@@ -7009,11 +7043,10 @@ class Purchase_model extends CI_Model
                         return $profileKey;
                     }
 
-                    return hash('sha256', implode('|', [
-                        strtoupper((string)($row['stock_domain'] ?? 'ITEM')),
-                        (string)((int)($row['item_id'] ?? 0)),
-                        (string)((int)($row['material_id'] ?? 0)),
-                        (string)((int)($row['buy_uom_id'] ?? 0)),
+                return hash('sha256', implode('|', [
+                    (string)((int)($row['item_id'] ?? 0)),
+                    (string)((int)($row['material_id'] ?? 0)),
+                    (string)((int)($row['buy_uom_id'] ?? 0)),
                         (string)((int)($row['content_uom_id'] ?? 0)),
                         strtoupper(trim((string)($row['profile_name'] ?? ''))),
                         strtoupper(trim((string)($row['profile_brand'] ?? ''))),
@@ -12689,7 +12722,6 @@ class Purchase_model extends CI_Model
 
         $key = implode('|', [
             $scope,
-            strtoupper((string)($identity['stock_domain'] ?? 'ITEM')),
             (string)($identity['division_id'] ?? 0),
             strtoupper((string)($identity['destination_type'] ?? 'OTHER')),
             (string)($identity['item_id'] ?? 0),
@@ -13539,15 +13571,22 @@ class Purchase_model extends CI_Model
             $qtyContentReceived = round($qtyBuyReceived * $factor, 4);
             $profileExpiredDate = $this->normalizeDate((string)($poLine['expired_date'] ?? ($poLine['snapshot_expired_date'] ?? '')));
             $usagePurpose = $this->resolveLineUsagePurpose($poLine);
-            $stockDomain = $this->resolveLineStockDomain($poLine);
-            $stockMaterialId = $this->resolveLineMaterialIdForStock($poLine);
+            $canonicalIdentity = $this->resolveCanonicalTransactionIdentity($poLine, $usagePurpose);
+            $stockWriteCtx = $this->resolveCanonicalStockWriteContext($poLine, $usagePurpose);
+            $stockItemId = $this->nullableInt($stockWriteCtx['item_id'] ?? null);
+            $stockMaterialId = $this->nullableInt($stockWriteCtx['material_id'] ?? null);
 
             $receiptLineData = [
                 'purchase_receipt_id' => $receiptId,
                 'purchase_order_line_id' => $poLineId,
-                'line_kind' => (string)($poLine['line_kind'] ?? 'ITEM'),
-                'item_id' => $this->nullableInt($poLine['item_id'] ?? null),
-                'material_id' => $this->nullableInt($poLine['material_id'] ?? null),
+                'line_kind' => $this->legacyLineKindForStorage(
+                    'pur_purchase_receipt_line',
+                    (string)($canonicalIdentity['line_kind'] ?? ($poLine['line_kind'] ?? 'ITEM')),
+                    $this->nullableInt($canonicalIdentity['item_id'] ?? ($poLine['item_id'] ?? null)),
+                    $this->nullableInt($canonicalIdentity['material_id'] ?? ($poLine['material_id'] ?? null))
+                ),
+                'item_id' => $this->nullableInt($canonicalIdentity['item_id'] ?? ($poLine['item_id'] ?? null)),
+                'material_id' => $this->nullableInt($canonicalIdentity['material_id'] ?? ($poLine['material_id'] ?? null)),
                 'qty_buy_received' => $qtyBuyReceived,
                 'buy_uom_id' => (int)($poLine['buy_uom_id'] ?? 0),
                 'qty_content_received' => $qtyContentReceived,
@@ -13603,14 +13642,14 @@ class Purchase_model extends CI_Model
             $unitPrice = (float)($poLine['unit_price'] ?? 0);
             $unitCost = $factor > 0 ? round($unitPrice / $factor, 6) : 0;
 
-            if ($stockDomain === 'MATERIAL') {
+            if (!empty($stockWriteCtx['uses_material_fifo'])) {
                 $lotResult = $this->materialfifomanager->registerReceiptInboundLot([
                     'location_scope' => $movementScope,
                     'division_id' => $movementScope === 'DIVISION' ? $destinationDivisionId : null,
                     'destination_type' => $movementScope === 'DIVISION' ? $destinationType : 'GUDANG',
                     'receipt_date' => $receiptDate,
                     'expiry_date' => $profileExpiredDate,
-                    'item_id' => $this->nullableInt($poLine['item_id'] ?? null),
+                    'item_id' => $stockItemId,
                     'material_id' => $stockMaterialId,
                     'buy_uom_id' => $this->nullableInt($poLine['buy_uom_id'] ?? null),
                     'content_uom_id' => $this->nullableInt($poLine['content_uom_id'] ?? null),
@@ -13654,12 +13693,11 @@ class Purchase_model extends CI_Model
                 'division_id' => $movementScope === 'DIVISION' ? $destinationDivisionId : null,
                 'destination_type' => $movementScope === 'DIVISION' ? $destinationType : null,
                 'movement_type' => 'PURCHASE_IN',
-                'stock_domain' => $stockDomain,
                 'ref_table' => 'pur_purchase_receipt',
                 'ref_id' => $receiptId,
                 'receipt_id' => $receiptId,
                 'receipt_line_id' => $receiptLineId,
-                'item_id' => $this->nullableInt($poLine['item_id'] ?? null),
+                'item_id' => $stockItemId,
                 'material_id' => $stockMaterialId,
                 'buy_uom_id' => $this->nullableInt($poLine['buy_uom_id'] ?? null),
                 'content_uom_id' => $this->nullableInt($poLine['content_uom_id'] ?? null),
@@ -14332,13 +14370,6 @@ class Purchase_model extends CI_Model
             ];
         }
 
-        if (empty($lines)) {
-            return [
-                'ok' => false,
-                'message' => 'Baris purchase order wajib diisi.',
-            ];
-        }
-
         $order = $this->db
             ->select('id, po_no, status, approved_by, approved_at, expected_date, currency_code, exchange_rate, external_ref_no, payment_account_id')
             ->from('pur_purchase_order')
@@ -14356,6 +14387,14 @@ class Purchase_model extends CI_Model
         $editability = $this->evaluateOrderDataEditability($order);
         if (!($editability['ok'] ?? false)) {
             return $editability;
+        }
+        $editMode = (string)($editability['data']['mode'] ?? 'full');
+
+        if ($editMode !== 'payment_only' && empty($lines)) {
+            return [
+                'ok' => false,
+                'message' => 'Baris purchase order wajib diisi.',
+            ];
         }
 
         $requestDate = $this->normalizeDate((string)($header['request_date'] ?? ''));
@@ -14412,6 +14451,63 @@ class Purchase_model extends CI_Model
             return [
                 'ok' => false,
                 'message' => 'Status PAID membutuhkan Payment Account yang valid sebelum disimpan.',
+            ];
+        }
+
+        if ($editMode === 'payment_only') {
+            $this->db->trans_begin();
+
+            if ($this->db->field_exists('payment_account_id', 'pur_purchase_order')) {
+                $this->db
+                    ->where('id', $purchaseOrderId)
+                    ->update('pur_purchase_order', [
+                        'payment_account_id' => $paymentAccountId,
+                        'updated_at' => date('Y-m-d H:i:s'),
+                    ]);
+            }
+
+            if ((int)($this->db->error()['code'] ?? 0) !== 0 || $this->db->trans_status() === false) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Gagal memperbarui metode pembayaran PO.',
+                ];
+            }
+
+            $txnLog = $this->writePurchaseTxnLog([
+                'purchase_order_id' => $purchaseOrderId,
+                'action_code' => 'PO_UPDATE_PAYMENT_ACCOUNT',
+                'status_before' => strtoupper((string)($order['status'] ?? '')),
+                'status_after' => strtoupper((string)($order['status'] ?? '')),
+                'transaction_no' => (string)($order['po_no'] ?? ''),
+                'ref_table' => 'pur_purchase_order',
+                'ref_id' => $purchaseOrderId,
+                'amount' => null,
+                'payload' => [
+                    'payment_account_id' => $paymentAccountId,
+                ],
+                'notes' => 'Update metode pembayaran PO unpaid',
+                'created_by' => $userId,
+            ]);
+            if (!($txnLog['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => (string)($txnLog['message'] ?? 'Gagal mencatat log perubahan metode pembayaran.'),
+                ];
+            }
+
+            $this->db->trans_commit();
+
+            return [
+                'ok' => true,
+                'message' => 'Metode pembayaran PO berhasil diperbarui.',
+                'data' => [
+                    'purchase_order_id' => $purchaseOrderId,
+                    'po_no' => (string)($order['po_no'] ?? ''),
+                    'payment_account_id' => $paymentAccountId,
+                    'edit_mode' => $editMode,
+                ],
             ];
         }
 
@@ -14696,26 +14792,15 @@ class Purchase_model extends CI_Model
     {
         $orderId = (int)($order['id'] ?? 0);
         $status = strtoupper(trim((string)($order['status'] ?? 'DRAFT')));
-        $editableStatuses = ['DRAFT', 'APPROVED'];
-
-        if (!in_array($status, $editableStatuses, true)) {
-            return [
-                'ok' => false,
-                'message' => 'PO dengan status ' . $status . ' tidak boleh edit data. Hanya DRAFT/APPROVED yang dapat diedit.',
-            ];
-        }
+        $fullEditableStatuses = ['DRAFT', 'APPROVED'];
+        $receiptHistoryCount = 0;
+        $paidCount = 0;
 
         if ($orderId > 0 && $this->db->table_exists('pur_purchase_receipt')) {
             $receiptHistoryCount = (int)$this->db
                 ->from('pur_purchase_receipt')
                 ->where('purchase_order_id', $orderId)
                 ->count_all_results();
-            if ($receiptHistoryCount > 0) {
-                return [
-                    'ok' => false,
-                    'message' => 'PO tidak bisa diedit karena sudah memiliki riwayat receipt (termasuk VOID) sehingga line referensi harus tetap konsisten.',
-                ];
-            }
         }
 
         if ($orderId > 0 && $this->db->table_exists('pur_purchase_payment_plan')) {
@@ -14724,20 +14809,45 @@ class Purchase_model extends CI_Model
                 ->where('purchase_order_id', $orderId)
                 ->where('status', 'PAID')
                 ->count_all_results();
-            if ($paidCount > 0) {
-                return [
-                    'ok' => false,
-                    'message' => 'PO tidak bisa diedit karena sudah memiliki pembayaran PAID.',
-                ];
-            }
+        }
+
+        if ($paidCount > 0) {
+            return [
+                'ok' => false,
+                'message' => 'PO tidak bisa diedit karena sudah memiliki pembayaran PAID.',
+            ];
+        }
+
+        if (in_array($status, $fullEditableStatuses, true) && $receiptHistoryCount <= 0) {
+            return [
+                'ok' => true,
+                'data' => [
+                    'order_id' => $orderId,
+                    'status' => $status,
+                    'mode' => 'full',
+                    'receipt_history_count' => $receiptHistoryCount,
+                    'paid_count' => $paidCount,
+                ],
+            ];
+        }
+
+        if (in_array($status, ['ORDERED', 'PARTIAL_RECEIVED', 'RECEIVED'], true)) {
+            return [
+                'ok' => true,
+                'data' => [
+                    'order_id' => $orderId,
+                    'status' => $status,
+                    'mode' => 'payment_only',
+                    'receipt_history_count' => $receiptHistoryCount,
+                    'paid_count' => $paidCount,
+                ],
+                'message' => 'PO pada status ini hanya boleh mengubah metode pembayaran sebelum lunas.',
+            ];
         }
 
         return [
-            'ok' => true,
-            'data' => [
-                'order_id' => $orderId,
-                'status' => $status,
-            ],
+            'ok' => false,
+            'message' => 'PO dengan status ' . $status . ' tidak boleh edit data lagi.',
         ];
     }
 
@@ -15132,15 +15242,16 @@ class Purchase_model extends CI_Model
         $contentUomId = $this->nullableInt($line['content_uom_id'] ?? null);
         $lineName = $this->nullableString($line['catalog_name'] ?? ($line['item_name'] ?? null));
 
-        if ($usagePurpose === self::USAGE_PURPOSE_PRODUCTION) {
-            $resolvedProductionMaterialId = $this->resolveProductionMaterialIdFromLine([
+        if (in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
+            $canonicalIdentity = $this->resolveCanonicalTransactionIdentity([
                 'item_id' => $itemId,
                 'material_id' => $materialId,
-            ]);
-            if ($resolvedProductionMaterialId !== null) {
-                $materialId = $resolvedProductionMaterialId;
-                $lineKind = 'MATERIAL';
-            }
+                'profile_key' => $line['profile_key'] ?? null,
+                'usage_purpose' => $usagePurpose,
+            ], $usagePurpose);
+            $itemId = $canonicalIdentity['item_id'] ?? $itemId;
+            $materialId = $canonicalIdentity['material_id'] ?? $materialId;
+            $lineKind = (string)($canonicalIdentity['line_kind'] ?? $lineKind);
         }
 
         if ($buyUomId <= 0) {
@@ -15269,7 +15380,7 @@ class Purchase_model extends CI_Model
         }
 
         $data = [
-            'line_kind' => $lineKind,
+            'line_kind' => $this->legacyLineKindForStorage('pur_purchase_order_line', $lineKind, $itemId, $materialId),
             'item_id' => $itemId,
             'material_id' => $materialId,
             'line_description' => $lineDescription,
@@ -15350,11 +15461,18 @@ class Purchase_model extends CI_Model
             return;
         }
 
+        $canonicalIdentity = $this->resolveCanonicalTransactionIdentity($lineData);
+
         $upsertData = [
             'profile_key' => $effectiveProfileKey,
-            'line_kind' => $this->resolveLineStockDomain($lineData),
-            'item_id' => $itemId,
-            'material_id' => $this->resolveLineMaterialIdForStock($lineData),
+            'line_kind' => $this->legacyLineKindForStorage(
+                'mst_purchase_catalog',
+                (string)($canonicalIdentity['line_kind'] ?? 'ITEM'),
+                $this->nullableInt($canonicalIdentity['item_id'] ?? $itemId),
+                $this->nullableInt($canonicalIdentity['material_id'] ?? $materialId)
+            ),
+            'item_id' => $this->nullableInt($canonicalIdentity['item_id'] ?? $itemId),
+            'material_id' => $this->nullableInt($canonicalIdentity['material_id'] ?? $materialId),
             'catalog_name' => $catalogName,
             'brand_name' => $this->nullableString($lineData['brand_name'] ?? null),
             'line_description' => $this->nullableString($lineData['line_description'] ?? null),
@@ -16553,6 +16671,51 @@ class Purchase_model extends CI_Model
         return $this->tableFieldsCache[$table];
     }
 
+    private function columnAllowsNull(string $table, string $column): bool
+    {
+        $cacheKey = $table . '.' . $column;
+        if (array_key_exists($cacheKey, $this->columnNullableCache)) {
+            return $this->columnNullableCache[$cacheKey];
+        }
+
+        $row = $this->db
+            ->select('IS_NULLABLE')
+            ->from('information_schema.COLUMNS')
+            ->where('TABLE_SCHEMA', $this->db->database)
+            ->where('TABLE_NAME', $table)
+            ->where('COLUMN_NAME', $column)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $this->columnNullableCache[$cacheKey] = strtoupper((string)($row['IS_NULLABLE'] ?? 'NO')) === 'YES';
+        return $this->columnNullableCache[$cacheKey];
+    }
+
+    private function legacyLineKindForStorage(string $table, ?string $lineKind, ?int $itemId, ?int $materialId): ?string
+    {
+        if (!isset($this->listTableFields($table)['line_kind'])) {
+            return null;
+        }
+
+        if ($this->columnAllowsNull($table, 'line_kind')) {
+            return null;
+        }
+
+        $resolved = strtoupper(trim((string)$lineKind));
+        if (!in_array($resolved, ['ITEM', 'MATERIAL', 'SERVICE', 'ASSET'], true)) {
+            if ($itemId !== null) {
+                $resolved = 'ITEM';
+            } elseif ($materialId !== null) {
+                $resolved = 'MATERIAL';
+            } else {
+                $resolved = 'ITEM';
+            }
+        }
+
+        return $resolved;
+    }
+
     private function ensureUsagePurposeSchema(): void
     {
         if ($this->usagePurposeSchemaEnsured) {
@@ -16630,6 +16793,41 @@ class Purchase_model extends CI_Model
             return $this->normalizeUsagePurpose($line['default_usage_purpose']);
         }
         return $this->parseUsagePurposeFromNotes((string)($line['notes'] ?? ''));
+    }
+
+    private function itemIdentityResolver(): ItemIdentityResolver
+    {
+        if (!$this->itemIdentityResolverInstance instanceof ItemIdentityResolver) {
+            $this->load->library('ItemIdentityResolver');
+            $this->itemIdentityResolverInstance = $this->itemidentityresolver;
+        }
+
+        return $this->itemIdentityResolverInstance;
+    }
+
+    private function resolveCanonicalTransactionIdentity(array $line, ?string $usagePurpose = null): array
+    {
+        return $this->itemIdentityResolver()->resolveTransactionIdentity(
+            $line,
+            $usagePurpose ?? $this->resolveLineUsagePurpose($line)
+        );
+    }
+
+    private function resolveCanonicalStockWriteContext(array $line, ?string $usagePurpose = null): array
+    {
+        $usagePurpose = $usagePurpose ?? $this->resolveLineUsagePurpose($line);
+        $identity = $this->resolveCanonicalTransactionIdentity($line, $usagePurpose);
+        $itemId = $this->nullableInt($identity['item_id'] ?? ($line['item_id'] ?? null));
+        $materialId = $this->nullableInt($identity['material_id'] ?? ($line['material_id'] ?? null));
+
+        return [
+            'usage_purpose' => $usagePurpose,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'stock_domain' => $itemId !== null ? 'ITEM' : (($materialId !== null) ? 'MATERIAL' : 'ITEM'),
+            'is_production_flow' => $usagePurpose === self::USAGE_PURPOSE_PRODUCTION,
+            'uses_material_fifo' => $usagePurpose === self::USAGE_PURPOSE_PRODUCTION && $materialId !== null,
+        ];
     }
 
     private function resolveLineStockDomain(array $line): string

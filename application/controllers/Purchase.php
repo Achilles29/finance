@@ -94,6 +94,7 @@ class Purchase extends MY_Controller
             'title' => 'Purchase Order / Detail',
             'active_menu' => 'purchase.order',
             'detail' => $detail,
+            'editability' => $this->Purchase_model->get_order_data_editability($purchaseOrderId),
         ];
 
         $this->render('purchase/order_detail', $data);
@@ -466,6 +467,7 @@ class Purchase extends MY_Controller
             'status_options' => ['DRAFT', 'APPROVED', 'ORDERED', 'REJECTED', 'PARTIAL_RECEIVED', 'RECEIVED', 'PAID', 'VOID'],
             'edit_mode' => true,
             'detail' => $detail,
+            'editability' => $editability,
         ];
 
         $this->render('purchase/order_create', $data);

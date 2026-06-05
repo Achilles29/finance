@@ -752,6 +752,11 @@ class ComponentStockWriter
             return ['ok' => false, 'message' => 'Line MATERIAL batch belum memiliki item/material, UOM, atau qty yang valid.'];
         }
 
+        $structureHealth = $this->validate_material_input_stock_structure($line, $divisionId, $destinationType);
+        if (!($structureHealth['ok'] ?? false)) {
+            return $structureHealth;
+        }
+
         $fifoUsage = $this->ci->materialfifomanager->consumeDivisionUsage([
             'issue_date' => $movementDate,
             'division_id' => $divisionId,
@@ -778,6 +783,28 @@ class ComponentStockWriter
 
         foreach ($allocations as $allocation) {
             $snapshot = $this->resolve_inventory_snapshot_for_allocation($allocation, $divisionId, $destinationType);
+            $syncMonthly = $this->ci->materialfifomanager->syncDivisionMonthlyStockFromLots([
+                'movement_date' => $movementDate,
+                'division_id' => $divisionId,
+                'destination_type' => $destinationType,
+                'item_id' => $snapshot['item_id'],
+                'material_id' => $snapshot['material_id'],
+                'buy_uom_id' => $snapshot['buy_uom_id'],
+                'content_uom_id' => $snapshot['content_uom_id'],
+                'profile_key' => $snapshot['profile_key'],
+            ]);
+            if (!($syncMonthly['ok'] ?? false)) {
+                return [
+                    'ok' => false,
+                    'message' => $this->format_material_usage_error(
+                        $line,
+                        'Gagal sinkron saldo bulanan dari FIFO lot sebelum posting batch.',
+                        [
+                            'detail' => (string)($syncMonthly['message'] ?? ''),
+                        ]
+                    ),
+                ];
+            }
             $contentPerBuy = max(0.000001, round((float)($snapshot['profile_content_per_buy'] ?? 1), 6));
             $qtyContent = round((float)($allocation['qty_content'] ?? 0), 4);
             $qtyBuy = round($qtyContent / $contentPerBuy, 4);
@@ -811,7 +838,20 @@ class ComponentStockWriter
                 'manage_transaction' => false,
             ]);
             if (!($post['ok'] ?? false)) {
-                return ['ok' => false, 'message' => (string)($post['message'] ?? 'Gagal posting usage keluar stok divisi.')];
+                return [
+                    'ok' => false,
+                    'message' => $this->format_material_usage_error(
+                        $line,
+                        (string)($post['message'] ?? 'Gagal posting usage keluar stok divisi.'),
+                        [
+                            'profile_key' => $snapshot['profile_key'] ?? null,
+                            'buy_uom_id' => $snapshot['buy_uom_id'] ?? null,
+                            'content_uom_id' => $snapshot['content_uom_id'] ?? null,
+                            'qty_content' => $qtyContent,
+                            'source_lot_no' => (string)($allocation['source_lot_no'] ?? ''),
+                        ]
+                    ),
+                ];
             }
         }
 
@@ -836,6 +876,154 @@ class ComponentStockWriter
             'issue_id' => $issueId,
             'issue_no' => $issueNo,
         ];
+    }
+
+    private function validate_material_input_stock_structure(array $line, int $divisionId, string $destinationType): array
+    {
+        $itemId = !empty($line['item_id']) ? (int)$line['item_id'] : null;
+        $materialId = !empty($line['material_id']) ? (int)$line['material_id'] : null;
+        if ($materialId === null || $materialId <= 0) {
+            return ['ok' => true];
+        }
+
+        $sameUomDriftRows = $this->ci->db->query(
+            'SELECT id, profile_key, buy_uom_id, content_uom_id, profile_content_per_buy, closing_qty_content
+             FROM inv_division_monthly_stock
+             WHERE division_id = ?
+               AND destination_type = ?
+               AND material_id = ?
+               AND buy_uom_id IS NOT NULL
+               AND buy_uom_id = content_uom_id
+               AND ABS(COALESCE(profile_content_per_buy, 1) - 1) > 0.0001
+             ORDER BY id ASC',
+            [$divisionId, $destinationType, $materialId]
+        )->result_array();
+        if (!empty($sameUomDriftRows)) {
+            $row = $sameUomDriftRows[0];
+            return [
+                'ok' => false,
+                'message' => $this->format_material_usage_error(
+                    $line,
+                    'Struktur stok divisi masih memakai konversi profile lama yang tidak valid.',
+                    [
+                        'monthly_stock_id' => (int)($row['id'] ?? 0),
+                        'profile_key' => (string)($row['profile_key'] ?? ''),
+                        'buy_uom_id' => (int)($row['buy_uom_id'] ?? 0),
+                        'content_uom_id' => (int)($row['content_uom_id'] ?? 0),
+                        'profile_content_per_buy' => round((float)($row['profile_content_per_buy'] ?? 0), 6),
+                        'closing_qty_content' => round((float)($row['closing_qty_content'] ?? 0), 4),
+                        'hint' => 'UOM beli dan UOM isi sama, tetapi profile_content_per_buy bukan 1. Repair data profile ini dulu.',
+                    ]
+                ),
+            ];
+        }
+
+        $negativeRows = $this->ci->db->query(
+            'SELECT
+                s.id,
+                s.profile_key,
+                s.buy_uom_id,
+                s.content_uom_id,
+                s.profile_content_per_buy,
+                s.closing_qty_buy,
+                s.closing_qty_content,
+                COALESCE(l.live_qty, 0) AS fifo_live_qty
+             FROM inv_division_monthly_stock s
+             LEFT JOIN (
+                SELECT division_id, destination_type, item_id, material_id, buy_uom_id, content_uom_id, profile_key,
+                       ROUND(SUM(CASE WHEN qty_balance > 0 THEN qty_balance ELSE 0 END), 4) AS live_qty
+                FROM inv_material_fifo_lot
+                GROUP BY division_id, destination_type, item_id, material_id, buy_uom_id, content_uom_id, profile_key
+             ) l
+               ON l.division_id = s.division_id
+              AND l.destination_type = s.destination_type
+              AND l.item_id <=> s.item_id
+              AND l.material_id <=> s.material_id
+              AND l.buy_uom_id <=> s.buy_uom_id
+              AND l.content_uom_id = s.content_uom_id
+              AND l.profile_key <=> s.profile_key
+             WHERE s.division_id = ?
+               AND s.destination_type = ?
+               AND s.material_id = ?
+               AND s.closing_qty_content < 0
+             ORDER BY s.id ASC',
+            [$divisionId, $destinationType, $materialId]
+        )->result_array();
+        if (!empty($negativeRows)) {
+            $row = $negativeRows[0];
+            return [
+                'ok' => false,
+                'message' => $this->format_material_usage_error(
+                    $line,
+                    'Saldo bulanan profile sudah negatif sebelum batch diposting.',
+                    [
+                        'monthly_stock_id' => (int)($row['id'] ?? 0),
+                        'profile_key' => (string)($row['profile_key'] ?? ''),
+                        'closing_qty_buy' => round((float)($row['closing_qty_buy'] ?? 0), 4),
+                        'closing_qty_content' => round((float)($row['closing_qty_content'] ?? 0), 4),
+                        'fifo_live_qty' => round((float)($row['fifo_live_qty'] ?? 0), 4),
+                        'hint' => 'Ini drift data historis. Repair saldo bulanan exact profile ini dulu sebelum posting ulang.',
+                    ]
+                ),
+            ];
+        }
+
+        return ['ok' => true];
+    }
+
+    private function format_material_usage_error(array $line, string $reason, array $context = []): string
+    {
+        $name = trim((string)($line['material_name'] ?? $line['item_name'] ?? ''));
+        if ($name === '') {
+            $itemId = !empty($line['item_id']) ? (int)$line['item_id'] : 0;
+            $materialId = !empty($line['material_id']) ? (int)$line['material_id'] : 0;
+            if ($itemId > 0) {
+                $row = $this->ci->db->select('item_name')->from('mst_item')->where('id', $itemId)->limit(1)->get()->row_array();
+                $name = trim((string)($row['item_name'] ?? ''));
+            }
+            if ($name === '' && $materialId > 0) {
+                $row = $this->ci->db->select('material_name')->from('mst_material')->where('id', $materialId)->limit(1)->get()->row_array();
+                $name = trim((string)($row['material_name'] ?? ''));
+            }
+        }
+        if ($name === '') {
+            $name = 'item/material #' . (int)($line['item_id'] ?? $line['material_id'] ?? 0);
+        }
+
+        $parts = ['Batch gagal pada bahan ' . $name . ': ' . $reason];
+        if (!empty($context['monthly_stock_id'])) {
+            $parts[] = 'monthly_stock_id=' . (int)$context['monthly_stock_id'];
+        }
+        if (!empty($context['profile_key'])) {
+            $parts[] = 'profile_key=' . (string)$context['profile_key'];
+        }
+        if (isset($context['buy_uom_id']) && isset($context['content_uom_id'])) {
+            $parts[] = 'uom_beli=' . (string)$context['buy_uom_id'] . ', uom_isi=' . (string)$context['content_uom_id'];
+        }
+        if (isset($context['profile_content_per_buy'])) {
+            $parts[] = 'profile_content_per_buy=' . (string)$context['profile_content_per_buy'];
+        }
+        if (isset($context['closing_qty_buy']) || isset($context['closing_qty_content'])) {
+            $parts[] = 'saldo_bulanan=('
+                . (isset($context['closing_qty_buy']) ? (string)$context['closing_qty_buy'] : '-')
+                . ' buy / '
+                . (isset($context['closing_qty_content']) ? (string)$context['closing_qty_content'] : '-')
+                . ' content)';
+        }
+        if (isset($context['fifo_live_qty'])) {
+            $parts[] = 'fifo_live_qty=' . (string)$context['fifo_live_qty'];
+        }
+        if (!empty($context['source_lot_no'])) {
+            $parts[] = 'lot=' . (string)$context['source_lot_no'];
+        }
+        if (!empty($context['detail'])) {
+            $parts[] = 'detail=' . (string)$context['detail'];
+        }
+        if (!empty($context['hint'])) {
+            $parts[] = (string)$context['hint'];
+        }
+
+        return implode(' | ', $parts);
     }
 
     private function resolve_inventory_snapshot_for_allocation(array $allocation, int $divisionId, string $destinationType): array
@@ -891,7 +1079,13 @@ class ComponentStockWriter
             }
         }
 
-        $snapshot['profile_content_per_buy'] = max(0.000001, round((float)($snapshot['profile_content_per_buy'] ?? 1), 6));
+        $sameUom = !empty($snapshot['buy_uom_id']) && !empty($snapshot['content_uom_id'])
+            && (int)$snapshot['buy_uom_id'] === (int)$snapshot['content_uom_id'];
+        if ($sameUom) {
+            $snapshot['profile_content_per_buy'] = 1.0;
+        } else {
+            $snapshot['profile_content_per_buy'] = max(0.000001, round((float)($snapshot['profile_content_per_buy'] ?? 1), 6));
+        }
         return $snapshot;
     }
 

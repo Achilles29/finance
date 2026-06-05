@@ -1,9 +1,15 @@
 <?php
-$filters = is_array($filters ?? null) ? $filters : [];
-$filterOptions = is_array($filter_options ?? null) ? $filter_options : [];
-$outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets'] : [];
+$filters              = is_array($filters ?? null) ? $filters : [];
+$filterOptions        = is_array($filter_options ?? null) ? $filter_options : [];
+$outlets              = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets'] : [];
 $refundPaymentMethods = is_array($filterOptions['refund_payment_methods'] ?? null) ? $filterOptions['refund_payment_methods'] : [];
 $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? null) ? $filterOptions['reversal_reason_options'] : [];
+$paymentMethodOptions = is_array($payment_method_options ?? null) ? $payment_method_options : [];
+$canEditPaymentMethod = !empty($can_edit_payment_method);
+
+$today = date('Y-m-d');
+$initDateFrom = ($filters['date_from'] ?? '') !== '' ? $filters['date_from'] : $today;
+$initDateTo   = ($filters['date_to']   ?? '') !== '' ? $filters['date_to']   : $today;
 ?>
 
 <style>
@@ -87,9 +93,16 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
     width:1rem; height:1rem; border:.15em solid currentColor; border-right-color:transparent;
     border-radius:50%; display:inline-block; animation:posPaidSpin .7s linear infinite;
   }
-  @keyframes posPaidSpin {
-    to { transform:rotate(360deg); }
-  }
+  /* payment line edit */
+  .pos-paid-pay-line-item { padding:.55rem .7rem; border-bottom:1px solid rgba(224,209,198,.5); }
+  .pos-paid-pay-line-item:last-child { border-bottom:0; }
+  .pos-paid-pay-line-head { display:flex; justify-content:space-between; align-items:flex-start; gap:.5rem; }
+  .pos-paid-pay-line-method { font-size:.86rem; font-weight:700; color:#3c2d2d; }
+  .pos-paid-pay-line-account { font-size:.75rem; color:#7a6b62; }
+  .pos-paid-pay-line-meta { font-size:.72rem; color:#8b7a70; }
+  .pos-paid-pay-line-amount { font-size:.86rem; font-weight:800; color:#2f4b3c; white-space:nowrap; }
+  .pos-paid-pay-edit-btn { padding:.2rem .5rem; font-size:.75rem; }
+  @keyframes posPaidSpin { to { transform:rotate(360deg); } }
   @media (max-width: 991.98px) {
     .pos-paid-summary-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
     .pos-paid-detail-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
@@ -102,38 +115,62 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
 </style>
 
 <div class="container-xxl py-3">
+
+  <?php $this->load->view('pos/_order_workspace_tabs', ['order_workspace_active' => 'paid']); ?>
+
   <div class="fin-page-header">
     <div>
       <h4 class="fin-page-title mb-1">Pesanan Terbayar POS</h4>
-      <p class="fin-page-subtitle mb-0">Workspace refund untuk review transaksi lunas, lihat detail order, dan proses refund tanpa membawa form draft/order yang tidak relevan.</p>
+      <p class="fin-page-subtitle mb-0">Review transaksi lunas, proses refund, dan koreksi metode pembayaran.</p>
     </div>
   </div>
 
   <div class="pos-paid-shell">
     <div class="card pos-paid-main">
       <div class="card-body p-4">
-        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
-          <div>
-            <div class="small text-uppercase fw-bold text-muted">Refund Workspace</div>
-            <h5 class="mb-1 mt-2">Daftar Order Terbayar</h5>
-            <p class="mb-0 text-muted">Gunakan aksi di kolom terakhir untuk melihat rincian order atau memulai refund.</p>
-          </div>
-        </div>
 
-        <form class="row g-2 mb-3" onsubmit="return false;">
-          <div class="col-md-8 col-lg-7">
-            <input id="recent_q" class="form-control" placeholder="Cari order no / customer / member / meja">
-          </div>
+        <!-- Filter -->
+        <form class="row g-2 mb-3" id="paid-filter-form" onsubmit="return false;">
+          <!-- Search -->
           <div class="col-md-4 col-lg-3">
-            <select id="recent_outlet_id" class="form-select">
+            <label class="form-label small text-muted mb-1">Cari</label>
+            <input id="recent_q" class="form-control form-control-sm"
+                   placeholder="No order, customer, member, meja"
+                   value="<?php echo html_escape($filters['q'] ?? ''); ?>">
+          </div>
+          <!-- Outlet -->
+          <div class="col-6 col-md-3 col-lg-2">
+            <label class="form-label small text-muted mb-1">Outlet</label>
+            <select id="recent_outlet_id" class="form-select form-select-sm">
               <option value="0">Semua Outlet</option>
               <?php foreach ($outlets as $outlet): ?>
-                <option value="<?php echo (int)$outlet['id']; ?>"><?php echo html_escape((string)$outlet['outlet_name']); ?></option>
+                <option value="<?php echo (int)$outlet['id']; ?>"
+                  <?php echo ((int)($filters['outlet_id'] ?? 0) === (int)$outlet['id']) ? 'selected' : ''; ?>>
+                  <?php echo html_escape((string)$outlet['outlet_name']); ?>
+                </option>
               <?php endforeach; ?>
             </select>
           </div>
-          <div class="col-lg-2 d-grid">
-            <button type="button" id="btn-clear-recent" class="btn btn-outline-danger">Reset Filter</button>
+          <!-- Tanggal Dari -->
+          <div class="col-6 col-md-3 col-lg-2">
+            <label class="form-label small text-muted mb-1">Dari Tanggal</label>
+            <input type="date" id="recent_date_from" class="form-control form-control-sm"
+                   value="<?php echo html_escape($initDateFrom); ?>">
+          </div>
+          <!-- Tanggal Sampai -->
+          <div class="col-6 col-md-3 col-lg-2">
+            <label class="form-label small text-muted mb-1">Sampai Tanggal</label>
+            <input type="date" id="recent_date_to" class="form-control form-control-sm"
+                   value="<?php echo html_escape($initDateTo); ?>">
+          </div>
+          <!-- Actions -->
+          <div class="col-6 col-md-3 col-lg-3 d-flex align-items-end gap-2">
+            <button type="button" id="btn-apply-filter" class="btn btn-sm btn-outline-primary flex-fill">
+              <i class="ri ri-search-line me-1"></i>Filter
+            </button>
+            <button type="button" id="btn-clear-recent" class="btn btn-sm btn-outline-danger">
+              <i class="ri ri-close-line"></i>
+            </button>
           </div>
         </form>
 
@@ -158,11 +195,15 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
           <small id="recent_pagination_info" class="text-muted"></small>
           <div class="d-flex gap-1" id="recent_pagination"></div>
         </div>
+
       </div>
     </div>
   </div>
 </div>
 
+<!-- ============================================================ -->
+<!-- Modal Detail Order                                           -->
+<!-- ============================================================ -->
 <div class="modal fade" id="paidDetailModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content border-0 shadow-lg" style="border-radius:24px;">
@@ -174,6 +215,7 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
+        <div id="paid_detail_alert" class="mb-3"></div>
         <div class="pos-paid-summary-grid mb-3">
           <div class="pos-paid-summary-card">
             <div class="pos-paid-summary-label">Grand Total</div>
@@ -196,7 +238,7 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
           <div class="pos-paid-section-title mb-2">Info Order</div>
           <div class="pos-paid-detail-grid" id="paid_detail_header_grid"></div>
         </div>
-        <div class="table-responsive">
+        <div class="table-responsive mb-3">
           <table class="table table-sm align-middle pos-paid-line-table">
             <thead>
               <tr>
@@ -212,10 +254,12 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
           </table>
         </div>
         <div class="pos-paid-detail-history-grid mt-3">
+          <!-- Riwayat Pembayaran + Edit Metode -->
           <div class="pos-paid-detail-panel">
             <div class="pos-paid-section-title mb-2">Riwayat Pembayaran</div>
-            <div class="pos-paid-history-list" id="paid_detail_payment_history"></div>
+            <div id="paid_detail_payment_history"></div>
           </div>
+          <!-- Riwayat Refund -->
           <div class="pos-paid-detail-panel">
             <div class="pos-paid-section-title mb-2">Riwayat Refund</div>
             <div class="pos-paid-history-list" id="paid_detail_refund_history"></div>
@@ -229,6 +273,58 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
   </div>
 </div>
 
+<!-- ============================================================ -->
+<!-- Modal Edit Metode Pembayaran                                 -->
+<!-- ============================================================ -->
+<?php if ($canEditPaymentMethod): ?>
+<div class="modal fade" id="paymentMethodEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Metode Pembayaran</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="payment_edit_flash" class="mb-3 d-none"></div>
+        <div class="mb-3 p-3 rounded-3" style="background:#f8f5f2;">
+          <div class="fw-semibold mb-1" id="payment_edit_title">-</div>
+          <div class="small text-muted" id="payment_edit_meta">-</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small text-muted mb-1">Metode Saat Ini</label>
+          <div class="form-control bg-light" id="payment_edit_current_method">-</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small text-muted mb-1">Metode Baru <span class="text-danger">*</span></label>
+          <select class="form-select" id="payment_edit_method_id">
+            <option value="">Pilih metode pembayaran...</option>
+            <?php foreach ($paymentMethodOptions as $method): ?>
+              <option value="<?php echo (int)($method['id'] ?? 0); ?>">
+                <?php echo html_escape((string)($method['method_name'] ?? '-')); ?>
+                <?php echo !empty($method['method_type']) ? ' • ' . html_escape((string)$method['method_type']) : ''; ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="mb-0">
+          <label class="form-label small text-muted mb-1">Rekening Tujuan</label>
+          <div class="form-control bg-light" id="payment_edit_account_preview">
+            Pilih metode untuk melihat rekening perusahaan yang terkait.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-primary" id="btn-save-payment-method">Simpan Perubahan</button>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
+
+<!-- ============================================================ -->
+<!-- Modal Refund                                                 -->
+<!-- ============================================================ -->
 <div class="modal fade" id="refundModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content border-0 shadow-lg" style="border-radius:24px;">
@@ -319,36 +415,63 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  const initialFilters = <?php echo json_encode($filters, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+  const initialFilters       = <?php echo json_encode($filters, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const refundPaymentMethods = <?php echo json_encode($refundPaymentMethods, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const reversalReasonOptions = <?php echo json_encode($reversalReasonOptions, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+  const paymentMethodOptions = <?php echo json_encode(array_values($paymentMethodOptions), JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+  const canEditPaymentMethod = <?php echo $canEditPaymentMethod ? 'true' : 'false'; ?>;
+  const paymentMethodMap = Object.fromEntries(paymentMethodOptions.map((row) => [String(row.id || ''), row]));
+
+  const today = new Date().toISOString().slice(0, 10);
   const recentState = {
-    q: initialFilters.q || '',
-    status: initialFilters.status || 'PAID',
+    q:            initialFilters.q            || '',
+    status:       initialFilters.status       || 'PAID',
     workspace_mode: 'PAID',
-    outlet_id: parseInt(initialFilters.outlet_id || 0, 10) || 0,
-    page: parseInt(initialFilters.page || 1, 10) || 1,
-    limit: parseInt(initialFilters.limit || 20, 10) || 20
+    outlet_id:    parseInt(initialFilters.outlet_id  || 0, 10)  || 0,
+    date_from:    initialFilters.date_from    || today,
+    date_to:      initialFilters.date_to      || today,
+    page:         parseInt(initialFilters.page  || 1, 10)  || 1,
+    limit:        parseInt(initialFilters.limit || 20, 10) || 20
   };
   let refundPreview = null;
   let refundSubmitInFlight = false;
 
   const detailModalEl = document.getElementById('paidDetailModal');
-  const detailModal = detailModalEl && window.bootstrap ? new bootstrap.Modal(detailModalEl) : null;
+  const detailModal   = detailModalEl && window.bootstrap ? new bootstrap.Modal(detailModalEl) : null;
   const refundModalEl = document.getElementById('refundModal');
-  const refundModal = refundModalEl && window.bootstrap ? new bootstrap.Modal(refundModalEl) : null;
-  const refundReasonCode = document.getElementById('refund_reason_code');
+  const refundModal   = refundModalEl && window.bootstrap ? new bootstrap.Modal(refundModalEl) : null;
+  const refundReasonCode  = document.getElementById('refund_reason_code');
   const refundReasonOther = document.getElementById('refund_reason_other');
-  const refundReasonWrap = document.getElementById('refund_reason_wrap');
+  const refundReasonWrap  = document.getElementById('refund_reason_wrap');
   const refundAdjustmentWrap = document.getElementById('refund_adjustment_wrap');
-  const refundMethodField = document.getElementById('refund_payment_method_id');
+  const refundMethodField    = document.getElementById('refund_payment_method_id');
   const refundReferenceField = document.getElementById('refund_reference_no');
-  const refundAccountInfo = document.getElementById('refund_account_info');
-  const refundSubmitButton = document.getElementById('btn-save-refund');
+  const refundAccountInfo    = document.getElementById('refund_account_info');
+  const refundSubmitButton   = document.getElementById('btn-save-refund');
 
+  /* Edit payment method fields */
+  const payMethodEditModalEl = document.getElementById('paymentMethodEditModal');
+  const payMethodEditModal   = payMethodEditModalEl && window.bootstrap ? new bootstrap.Modal(payMethodEditModalEl) : null;
+  const payMethodField       = document.getElementById('payment_edit_method_id');
+  const payMethodSaveBtn     = document.getElementById('btn-save-payment-method');
+  const payMethodTitleEl     = document.getElementById('payment_edit_title');
+  const payMethodMetaEl      = document.getElementById('payment_edit_meta');
+  const payMethodCurrentEl   = document.getElementById('payment_edit_current_method');
+  const payMethodAccountEl   = document.getElementById('payment_edit_account_preview');
+  const payMethodFlashEl     = document.getElementById('payment_edit_flash');
+  let activePaymentTrigger   = null;
+
+  /* ── helpers ────────────────────────────────────────────── */
   function escapeHtml(v) { return String(v ?? '').replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
-  function money(v) { return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Number(v || 0)); }
-  function number(v, digits = 2) { return new Intl.NumberFormat('id-ID', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Number(v || 0)); }
+  function money(v) { return new Intl.NumberFormat('id-ID', { style:'currency', currency:'IDR', maximumFractionDigits:0 }).format(Number(v || 0)); }
+  function number(v, d=2) { return new Intl.NumberFormat('id-ID', { minimumFractionDigits:d, maximumFractionDigits:d }).format(Number(v || 0)); }
+
+  function setFlashIn(el, type, msg) {
+    if (!el) return;
+    el.className = 'alert alert-' + type + ' py-2';
+    el.textContent = msg;
+    el.classList.remove('d-none');
+  }
 
   function getRefundMethodMeta() {
     const methodId = Number(refundMethodField?.value || 0);
@@ -356,20 +479,23 @@ document.addEventListener('DOMContentLoaded', function () {
     return (refundPaymentMethods || []).find((row) => Number(row.id || 0) === methodId) || null;
   }
 
+  function accountTextFromMethod(method) {
+    if (!method) return 'Rekening belum dihubungkan';
+    const parts = [];
+    if (String(method.account_name   || '').trim()) parts.push(String(method.account_name));
+    if (String(method.bank_name      || '').trim()) parts.push(String(method.bank_name));
+    if (String(method.account_no     || '').trim()) parts.push(String(method.account_no));
+    if (String(method.account_holder || '').trim()) parts.push('a/n ' + String(method.account_holder));
+    return parts.length ? parts.join(' • ') : 'Rekening belum dihubungkan';
+  }
+
   function orderStatusLabel(status) {
     const value = String(status || '').toUpperCase();
     const map = {
-      DRAFT: 'Draft',
-      PENDING: 'Pending',
-      CONFIRMED: 'Terkonfirmasi',
-      PAID: 'Lunas',
-      PAID_PARTIAL: 'Bayar sebagian',
-      READY: 'Ready',
-      SERVED: 'Served',
-      REFUND_PARTIAL: 'Refund sebagian',
-      REFUND_FULL: 'Refund penuh',
-      REFUNDED_FULL: 'Refund penuh',
-      VOID: 'Void penuh'
+      DRAFT:'Draft', PENDING:'Pending', CONFIRMED:'Terkonfirmasi', PAID:'Lunas',
+      PAID_PARTIAL:'Bayar sebagian', READY:'Ready', SERVED:'Served',
+      REFUND_PARTIAL:'Refund sebagian', REFUND_FULL:'Refund penuh',
+      REFUNDED_FULL:'Refund penuh', VOID:'Void penuh'
     };
     return map[value] || (value ? value.replace(/_/g, ' ') : '-');
   }
@@ -377,13 +503,18 @@ document.addEventListener('DOMContentLoaded', function () {
   function orderStatusChip(status) {
     const value = String(status || '').toUpperCase();
     let klass = 'status-paid';
-    if (value === 'PAID_PARTIAL' || value === 'READY' || value === 'SERVED') {
-      klass = 'status-partial';
-    }
-    if (value.indexOf('REFUND') === 0) {
-      klass = 'status-refund';
-    }
+    if (value === 'PAID_PARTIAL' || value === 'READY' || value === 'SERVED') klass = 'status-partial';
+    if (value.indexOf('REFUND') === 0) klass = 'status-refund';
     return `<span class="pos-paid-status-chip ${klass}">${escapeHtml(orderStatusLabel(value))}</span>`;
+  }
+
+  function lineStatusLabel(status) {
+    const value = String(status || '').toUpperCase();
+    const map = {
+      OPEN:'Aktif', ACTIVE:'Aktif', VOID:'Void penuh', VOID_PARTIAL:'Void sebagian',
+      REFUNDED_FULL:'Refund penuh', REFUNDED_PARTIAL:'Refund sebagian'
+    };
+    return map[value] || (value ? value.replace(/_/g, ' ') : '-');
   }
 
   async function getJson(url) {
@@ -408,75 +539,50 @@ document.addEventListener('DOMContentLoaded', function () {
     return json;
   }
 
+  async function postForm(url, params) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
+      body: new URLSearchParams(params).toString()
+    });
+    const result = await response.json();
+    if (!response.ok || !result || result.ok !== true) throw new Error((result && result.message) ? result.message : 'Gagal menyimpan data');
+    return result;
+  }
+
+  /* ── Print helpers ──────────────────────────────────────── */
   function formatPrintFailureReason(reason) {
     const normalized = String(reason || '').trim();
-    if (normalized === '') {
-      return 'Servis printer lokal menolak permintaan cetak. Cek koneksi printer dan agent desktop.';
-    }
-    if (/^HTTP 500$/i.test(normalized)) {
-      return 'Servis printer lokal mengembalikan error internal (HTTP 500). Cek template runtime, nama device OS, dan status agent printer.';
-    }
-    if (/^HTTP 404$/i.test(normalized)) {
-      return 'Servis printer lokal tidak menemukan endpoint cetak. Pastikan agent printer berjalan di port yang benar.';
-    }
-    if (/failed to fetch|networkerror|load failed/i.test(normalized)) {
-      return 'Browser tidak bisa menjangkau servis printer lokal. Pastikan agent printer aktif dan port tidak diblokir.';
-    }
+    if (!normalized) return 'Servis printer lokal menolak permintaan cetak.';
+    if (/^HTTP 500$/i.test(normalized)) return 'Servis printer lokal error internal (HTTP 500).';
+    if (/^HTTP 404$/i.test(normalized)) return 'Endpoint cetak tidak ditemukan.';
+    if (/failed to fetch|networkerror|load failed/i.test(normalized)) return 'Browser tidak bisa menjangkau servis printer lokal.';
     return normalized;
   }
 
   function normalizePrintFailureEntry(entry) {
     if (entry && typeof entry === 'object') {
-      return {
-        name: String(entry.name || entry.printer_name || 'Printer').trim() || 'Printer',
-        reason: formatPrintFailureReason(entry.reason || entry.message || ''),
-      };
+      return { name: String(entry.name || entry.printer_name || 'Printer').trim() || 'Printer', reason: formatPrintFailureReason(entry.reason || entry.message || '') };
     }
     const raw = String(entry || '').trim();
-    const separatorIndex = raw.indexOf(':');
-    if (separatorIndex > 0) {
-      return {
-        name: raw.slice(0, separatorIndex).trim() || 'Printer',
-        reason: formatPrintFailureReason(raw.slice(separatorIndex + 1).trim()),
-      };
-    }
-    return {
-      name: 'Printer',
-      reason: formatPrintFailureReason(raw),
-    };
+    const sep = raw.indexOf(':');
+    if (sep > 0) return { name: raw.slice(0, sep).trim() || 'Printer', reason: formatPrintFailureReason(raw.slice(sep + 1).trim()) };
+    return { name: 'Printer', reason: formatPrintFailureReason(raw) };
   }
 
   async function directPrintTargets(rows) {
-    if (!Array.isArray(rows) || !rows.length) {
-      return { successCount: 0, failed: [] };
-    }
-    const failed = [];
-    let successCount = 0;
-    const jobs = [];
+    if (!Array.isArray(rows) || !rows.length) return { successCount: 0, failed: [] };
+    const failed = []; let successCount = 0; const jobs = [];
     for (const target of rows) {
       const copies = Math.max(1, Number(target.copies || 1));
       const pythonPort = Number(target.python_port || 0);
-      if (!pythonPort) {
-        failed.push(`${target.printer_name || target.printer_code || 'Printer'}: python port belum valid`);
-        continue;
-      }
-      for (let i = 0; i < copies; i += 1) {
+      if (!pythonPort) { failed.push(`${target.printer_name || target.printer_code || 'Printer'}: python port belum valid`); continue; }
+      for (let i = 0; i < copies; i++) {
         jobs.push(fetch('http://127.0.0.1:' + pythonPort + '/cetak', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text: String(target.text || ''),
-            printer_code: String(target.printer_code || ''),
-            printer_name: String(target.printer_name || ''),
-            paper_width_mm: Number(target.paper_width_mm || 80),
-            chars_per_line: Number(target.chars_per_line || 48)
-          })
-        }).then((res) => {
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          successCount += 1;
-        }).catch((e) => {
-          failed.push(`${target.printer_name || target.printer_code || 'Printer'}: ${e && e.message ? e.message : 'gagal cetak'}`);
-        }));
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: String(target.text || ''), printer_code: String(target.printer_code || ''), printer_name: String(target.printer_name || ''), paper_width_mm: Number(target.paper_width_mm || 80), chars_per_line: Number(target.chars_per_line || 48) })
+        }).then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); successCount++; })
+          .catch((e) => { failed.push(`${target.printer_name || target.printer_code || 'Printer'}: ${e && e.message ? e.message : 'gagal cetak'}`); }));
       }
     }
     await Promise.all(jobs);
@@ -485,9 +591,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   async function triggerRefundDirectPrint(refundId) {
     const safeId = Number(refundId || 0);
-    if (safeId <= 0) {
-      return [];
-    }
+    if (safeId <= 0) return [];
     const payloadJson = await getJson(`<?php echo site_url('pos/orders/refund-print-targets'); ?>/${safeId}`);
     const printResult = await directPrintTargets(payloadJson.direct_print_targets || []);
     return (printResult.failed || []).map(normalizePrintFailureEntry);
@@ -495,44 +599,46 @@ document.addEventListener('DOMContentLoaded', function () {
 
   async function triggerReceiptReprint(orderId) {
     const safeId = Number(orderId || 0);
-    if (safeId <= 0) {
-      throw new Error('Order tidak valid untuk cetak ulang struk.');
-    }
+    if (safeId <= 0) throw new Error('Order tidak valid untuk cetak ulang struk.');
     const payloadJson = await getJson(`<?php echo site_url('pos/orders/receipt-print-targets'); ?>/${safeId}`);
     const printResult = await directPrintTargets(payloadJson.direct_print_targets || []);
-    return {
-      successCount: Number(printResult.successCount || 0),
-      failed: (printResult.failed || []).map(normalizePrintFailureEntry)
-    };
+    return { successCount: Number(printResult.successCount || 0), failed: (printResult.failed || []).map(normalizePrintFailureEntry) };
   }
 
+  /* ── Filter & paging ────────────────────────────────────── */
   function recentQs() {
     const p = new URLSearchParams();
-    p.set('q', recentState.q);
-    p.set('status', recentState.status);
+    p.set('q',              recentState.q);
+    p.set('status',         recentState.status);
     p.set('workspace_mode', recentState.workspace_mode);
-    p.set('outlet_id', recentState.outlet_id);
-    p.set('page', recentState.page);
-    p.set('limit', recentState.limit);
+    p.set('outlet_id',      recentState.outlet_id);
+    p.set('date_from',      recentState.date_from);
+    p.set('date_to',        recentState.date_to);
+    p.set('page',           recentState.page);
+    p.set('limit',          recentState.limit);
     return p.toString();
   }
 
   function syncRecentControls() {
-    document.getElementById('recent_q').value = recentState.q;
+    document.getElementById('recent_q').value         = recentState.q;
     document.getElementById('recent_outlet_id').value = String(recentState.outlet_id || 0);
+    document.getElementById('recent_date_from').value = recentState.date_from;
+    document.getElementById('recent_date_to').value   = recentState.date_to;
   }
 
   function renderRecentPager(meta) {
     const total = Number(meta.total || 0);
-    const page = Number(meta.page || 1);
+    const page  = Number(meta.page  || 1);
     const totalPages = Number(meta.total_pages || 1);
     const limit = Number(meta.limit || recentState.limit || 20);
     const start = total === 0 ? 0 : ((page - 1) * limit) + 1;
-    const end = Math.min(total, page * limit);
-    document.getElementById('recent_pagination_info').textContent = total ? `Menampilkan ${start}-${end} dari ${total} order` : 'Belum ada order';
+    const end   = Math.min(total, page * limit);
+    document.getElementById('recent_pagination_info').textContent = total
+      ? `Menampilkan ${start}-${end} dari ${total} order`
+      : 'Belum ada order';
     document.getElementById('recent_pagination').innerHTML = Array.from({ length: totalPages }, (_, idx) => {
-      const currentPage = idx + 1;
-      return `<button type="button" class="btn btn-sm ${currentPage === page ? 'btn-dark' : 'btn-outline-secondary'}" data-page="${currentPage}">${currentPage}</button>`;
+      const p = idx + 1;
+      return `<button type="button" class="btn btn-sm ${p === page ? 'btn-dark' : 'btn-outline-secondary'}" data-page="${p}">${p}</button>`;
     }).join('');
     document.querySelectorAll('#recent_pagination button').forEach((btn) => btn.addEventListener('click', () => {
       recentState.page = Number(btn.dataset.page || 1);
@@ -540,46 +646,91 @@ document.addEventListener('DOMContentLoaded', function () {
     }));
   }
 
-  function lineStatusLabel(status) {
-    const value = String(status || '').toUpperCase();
-    const map = {
-      OPEN: 'Aktif',
-      ACTIVE: 'Aktif',
-      VOID: 'Void penuh',
-      VOID_PARTIAL: 'Void sebagian',
-      REFUNDED_FULL: 'Refund penuh',
-      REFUNDED_PARTIAL: 'Refund sebagian'
-    };
-    return map[value] || (value ? value.replace(/_/g, ' ') : '-');
-  }
-
-  function renderHistoryList(targetId, rows, emptyText, buildRowHtml) {
-    const target = document.getElementById(targetId);
+  /* ── Payment history (with edit button) ────────────────── */
+  function renderPaymentHistory(payments) {
+    const target = document.getElementById('paid_detail_payment_history');
     if (!target) return;
-    if (!Array.isArray(rows) || !rows.length) {
-      target.innerHTML = `<div class="pos-paid-history-empty">${escapeHtml(emptyText)}</div>`;
+    if (!Array.isArray(payments) || !payments.length) {
+      target.innerHTML = '<div class="pos-paid-history-empty">Belum ada riwayat pembayaran.</div>';
       return;
     }
-    target.innerHTML = rows.map(buildRowHtml).join('');
+    target.innerHTML = payments.map((payment) => {
+      const methodRows = Array.isArray(payment.lines) ? payment.lines : [];
+      const paymentVoid = String(payment.payment_status || '').toUpperCase() === 'VOID';
+      const linesHtml = methodRows.map((line) => {
+        const lineStatus   = String(line.status || '').toUpperCase();
+        const linePaid     = lineStatus === 'PAID';
+        const showEditBtn  = canEditPaymentMethod && !paymentVoid && linePaid;
+        return `
+          <div class="pos-paid-pay-line-item" data-payment-line-row="${Number(line.id || 0)}">
+            <div class="pos-paid-pay-line-head">
+              <div>
+                <div class="pos-paid-pay-line-method" data-method-target>${escapeHtml(line.method_name || '-')}</div>
+                <div class="pos-paid-pay-line-account" data-account-target>${escapeHtml(line.company_account_name || 'Tanpa rekening')}</div>
+                <div class="pos-paid-pay-line-meta">Ref ${escapeHtml(line.reference_no || '-')} • Status ${escapeHtml(line.status || '-')}</div>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <div class="pos-paid-pay-line-amount">${money(line.amount || 0)}</div>
+                ${showEditBtn ? `<button type="button"
+                  class="btn btn-sm btn-outline-primary pos-paid-pay-edit-btn js-edit-payment-line"
+                  data-edit-trigger="1"
+                  data-payment-line-id="${Number(line.id || 0)}"
+                  data-payment-no="${escapeHtml(String(payment.payment_no || '-'))}"
+                  data-line-no="${Number(line.line_no || 0)}"
+                  data-current-method-id="${Number(line.payment_method_id || 0)}"
+                  data-current-method-name="${escapeHtml(String(line.method_name || '-'))}"
+                  data-current-account="${escapeHtml(String(line.company_account_name || 'Tanpa rekening'))}"
+                  data-amount="${Number(line.amount || 0)}"
+                  data-reference-no="${escapeHtml(String(line.reference_no || ''))}"
+                  title="Edit metode pembayaran" aria-label="Edit metode pembayaran">
+                  <i class="ri ri-edit-line"></i>
+                </button>` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      return `
+        <div class="pos-paid-history-item mb-2">
+          <div class="pos-paid-history-head">
+            <div>
+              <div class="pos-paid-history-title">${escapeHtml(payment.payment_no || '-')}</div>
+              <div class="pos-paid-history-meta">${escapeHtml(payment.paid_at || payment.created_at || '-')} • ${escapeHtml(payment.cashier_name || '-')}</div>
+            </div>
+            <div class="pos-paid-history-amount">${money(payment.net_amount || 0)}</div>
+          </div>
+          <div class="mt-2" style="border-top:1px solid rgba(224,209,198,.5)">${linesHtml}</div>
+        </div>
+      `;
+    }).join('');
+
+    target.querySelectorAll('.js-edit-payment-line').forEach((btn) => {
+      btn.addEventListener('click', function () {
+        openPaymentMethodEdit(btn);
+      });
+    });
   }
 
+  /* ── Detail modal ───────────────────────────────────────── */
   async function openDetailModal(orderId) {
     if (orderId <= 0) throw new Error('Order tidak valid.');
     const json = await getJson('<?php echo site_url('pos/orders/draft/load'); ?>/' + orderId);
-    const header = json.header || {};
-    const lines = Array.isArray(json.lines) ? json.lines : [];
+    const header   = json.header  || {};
+    const lines    = Array.isArray(json.lines)    ? json.lines    : [];
     const payments = Array.isArray(json.payments) ? json.payments : [];
-    const refunds = Array.isArray(json.refunds) ? json.refunds : [];
+    const refunds  = Array.isArray(json.refunds)  ? json.refunds  : [];
     const customerName = header.customer_display_name || header.member_name || header.customer_name || 'Walk in';
-    const paidTotal = Number(header.paid_total || 0);
-    const grandTotal = Number(header.grand_total || 0);
-    const refundTotal = refunds.reduce((sum, row) => sum + Number(row.refund_amount || 0), 0);
-    const remaining = Math.max(0, grandTotal - paidTotal);
+    const paidTotal    = Number(header.paid_total  || 0);
+    const grandTotal   = Number(header.grand_total || 0);
+    const refundTotal  = refunds.reduce((sum, row) => sum + Number(row.refund_amount || 0), 0);
+    const remaining    = Math.max(0, grandTotal - paidTotal);
+
     document.getElementById('paid_detail_meta').textContent = `${header.order_no || '-'} • ${customerName} • ${orderStatusLabel(header.status || '')}`;
-    document.getElementById('paid_detail_total').textContent = money(grandTotal);
-    document.getElementById('paid_detail_paid_total').textContent = money(paidTotal);
+    document.getElementById('paid_detail_total').textContent        = money(grandTotal);
+    document.getElementById('paid_detail_paid_total').textContent   = money(paidTotal);
     document.getElementById('paid_detail_change_total').textContent = money(header.change_total || 0);
-    document.getElementById('paid_detail_remaining').textContent = money(remaining);
+    document.getElementById('paid_detail_remaining').textContent    = money(remaining);
+    document.getElementById('paid_detail_alert').innerHTML          = '';
 
     const headerGrid = document.getElementById('paid_detail_header_grid');
     const headerRows = [
@@ -629,41 +780,100 @@ document.addEventListener('DOMContentLoaded', function () {
       `;
     }).join('');
 
-    renderHistoryList('paid_detail_payment_history', payments, 'Belum ada riwayat pembayaran untuk order ini.', (payment) => {
-      const methodRows = Array.isArray(payment.lines) ? payment.lines : [];
-      const methodText = methodRows.length
-        ? methodRows.map((line) => `${escapeHtml(line.method_name || '-')}: ${money(line.amount || 0)}`).join('<br>')
-        : escapeHtml(payment.payment_type || '-');
-      return `
+    renderPaymentHistory(payments);
+
+    const refundHistTarget = document.getElementById('paid_detail_refund_history');
+    if (!Array.isArray(refunds) || !refunds.length) {
+      refundHistTarget.innerHTML = '<div class="pos-paid-history-empty">Belum ada riwayat refund.</div>';
+    } else {
+      refundHistTarget.innerHTML = refunds.map((refund) => `
         <div class="pos-paid-history-item">
           <div class="pos-paid-history-head">
             <div>
-              <div class="pos-paid-history-title">${escapeHtml(payment.payment_no || '-')}</div>
-              <div class="pos-paid-history-meta">${escapeHtml(payment.paid_at || payment.created_at || '-')} • ${escapeHtml(payment.cashier_name || '-')}</div>
+              <div class="pos-paid-history-title">${escapeHtml(refund.refund_no || '-')}</div>
+              <div class="pos-paid-history-meta">${escapeHtml(refund.refunded_at || '-')} • ${escapeHtml(refund.refunded_by_name || '-')}</div>
             </div>
-            <div class="pos-paid-history-amount">${money(payment.net_amount || 0)}</div>
+            <div class="pos-paid-history-amount">${money(refund.refund_amount || 0)}</div>
           </div>
-          <div class="pos-paid-history-lines">${methodText}</div>
+          <div class="pos-paid-history-lines">${escapeHtml(refund.method_name || '-')} • ${escapeHtml(refund.company_account_name || 'Tanpa rekening')}<br>${escapeHtml(refund.reason || '-')}</div>
         </div>
-      `;
-    });
-
-    renderHistoryList('paid_detail_refund_history', refunds, 'Belum ada riwayat refund untuk order ini.', (refund) => `
-      <div class="pos-paid-history-item">
-        <div class="pos-paid-history-head">
-          <div>
-            <div class="pos-paid-history-title">${escapeHtml(refund.refund_no || '-')}</div>
-            <div class="pos-paid-history-meta">${escapeHtml(refund.refunded_at || '-')} • ${escapeHtml(refund.refunded_by_name || '-')}</div>
-          </div>
-          <div class="pos-paid-history-amount">${money(refund.refund_amount || 0)}</div>
-        </div>
-        <div class="pos-paid-history-lines">${escapeHtml(refund.method_name || '-')} • ${escapeHtml(refund.company_account_name || 'Tanpa rekening')}<br>${escapeHtml(refund.reason || '-')}</div>
-      </div>
-    `);
+      `).join('');
+    }
 
     if (detailModal) detailModal.show();
   }
 
+  /* ── Edit payment method ─────────────────────────────────── */
+  function updatePayMethodAccountPreview() {
+    if (!payMethodField || !payMethodAccountEl) return;
+    payMethodAccountEl.textContent = accountTextFromMethod(paymentMethodMap[String(payMethodField.value || '')] || null);
+  }
+
+  function openPaymentMethodEdit(trigger) {
+    if (!payMethodEditModal) return;
+    activePaymentTrigger = trigger;
+    if (payMethodTitleEl) payMethodTitleEl.textContent = (trigger.dataset.paymentNo || '-') + ' • line ' + (trigger.dataset.lineNo || '-');
+    if (payMethodMetaEl)  payMethodMetaEl.textContent  = 'Nominal ' + money(trigger.dataset.amount || 0) + ' • Referensi ' + (trigger.dataset.referenceNo || '-');
+    if (payMethodCurrentEl) payMethodCurrentEl.textContent = (trigger.dataset.currentMethodName || '-') + ' • ' + (trigger.dataset.currentAccount || 'Rekening belum dihubungkan');
+    if (payMethodField) {
+      payMethodField.value = String(trigger.dataset.currentMethodId || '');
+    }
+    if (payMethodFlashEl) payMethodFlashEl.classList.add('d-none');
+    updatePayMethodAccountPreview();
+    payMethodEditModal.show();
+  }
+
+  if (payMethodField) {
+    payMethodField.addEventListener('change', updatePayMethodAccountPreview);
+  }
+
+  if (payMethodSaveBtn) {
+    payMethodSaveBtn.addEventListener('click', async function () {
+      if (!activePaymentTrigger) return;
+      const paymentLineId   = Number(activePaymentTrigger.dataset.paymentLineId || 0);
+      const paymentMethodId = Number(payMethodField?.value || 0);
+      if (paymentLineId <= 0) {
+        setFlashIn(payMethodFlashEl, 'danger', 'Line pembayaran tidak valid.');
+        return;
+      }
+      if (paymentMethodId <= 0) {
+        setFlashIn(payMethodFlashEl, 'warning', 'Pilih metode pembayaran terlebih dahulu.');
+        return;
+      }
+      const origHtml = payMethodSaveBtn.innerHTML;
+      payMethodSaveBtn.disabled = true;
+      payMethodSaveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Menyimpan...';
+      try {
+        const result = await postForm('<?php echo site_url('pos/reports/sales/payment-line/update'); ?>/' + paymentLineId, { payment_method_id: String(paymentMethodId) });
+        const line = result.line || {};
+        /* Update DOM di modal detail */
+        const row = document.querySelector('[data-payment-line-row="' + paymentLineId + '"]');
+        if (row) {
+          const methodTarget  = row.querySelector('[data-method-target]');
+          const accountTarget = row.querySelector('[data-account-target]');
+          const methodName    = String(line.method_name || '-');
+          const accountName   = [line.company_account_name || '', line.company_bank_name || '', line.company_account_code || ''].filter((p) => String(p).trim()).join(' • ') || 'Tanpa rekening';
+          if (methodTarget)  methodTarget.textContent  = methodName;
+          if (accountTarget) accountTarget.textContent = accountName;
+          const editTrigger = row.querySelector('[data-edit-trigger]');
+          if (editTrigger) {
+            editTrigger.dataset.currentMethodId   = String(line.payment_method_id || paymentMethodId);
+            editTrigger.dataset.currentMethodName = methodName;
+            editTrigger.dataset.currentAccount    = accountName;
+          }
+        }
+        setFlashIn(document.getElementById('paid_detail_alert'), 'success', result.message || 'Metode pembayaran berhasil diperbarui.');
+        if (payMethodEditModal) payMethodEditModal.hide();
+      } catch (error) {
+        setFlashIn(payMethodFlashEl, 'danger', error && error.message ? error.message : 'Gagal memperbarui metode pembayaran.');
+      } finally {
+        payMethodSaveBtn.disabled = false;
+        payMethodSaveBtn.innerHTML = origHtml;
+      }
+    });
+  }
+
+  /* ── Refund helpers ─────────────────────────────────────── */
   function fillRefundReasonOptions() {
     const rows = Array.isArray(reversalReasonOptions.REFUND) ? reversalReasonOptions.REFUND : [];
     refundReasonCode.innerHTML = ['<option value="">Pilih alasan...</option>']
@@ -673,20 +883,14 @@ document.addEventListener('DOMContentLoaded', function () {
     refundReasonOther.classList.add('d-none');
   }
 
-  function refundUsesStockReturn() {
-    return !!document.getElementById('refund_policy_return')?.checked;
-  }
+  function refundUsesStockReturn() { return !!document.getElementById('refund_policy_return')?.checked; }
 
   function sanitizeWholeQty(rawValue, maxValue) {
     const parsed = Number(String(rawValue ?? '').replace(',', '.'));
     const roundedMax = Math.max(0, Math.round(Number(maxValue || 0)));
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return 0;
-    }
+    if (!Number.isFinite(parsed) || parsed <= 0) return 0;
     const rounded = Math.round(parsed);
-    if (roundedMax <= 0) {
-      return Math.max(0, rounded);
-    }
+    if (roundedMax <= 0) return Math.max(0, rounded);
     return Math.min(roundedMax, Math.max(0, rounded));
   }
 
@@ -704,9 +908,7 @@ document.addEventListener('DOMContentLoaded', function () {
     refundAdjustmentWrap?.classList.toggle('d-none', usesReturn);
     const adjustmentField = document.getElementById('refund_adjustment_mode');
     if (adjustmentField) {
-      if (usesReturn) {
-        adjustmentField.value = 'NONE';
-      }
+      if (usesReturn) adjustmentField.value = 'NONE';
       adjustmentField.disabled = usesReturn;
     }
   }
@@ -717,27 +919,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function refreshRefundAccountInfo() {
     const method = getRefundMethodMeta();
-    if (!method) {
-      refundAccountInfo.textContent = 'Pilih metode refund untuk melihat rekening perusahaan yang akan dipakai.';
-      return;
-    }
-    const bankName = String(method.bank_name || '').trim();
-    const accountName = String(method.account_name || '').trim();
-    const accountNo = String(method.account_no || '').trim();
-    const accountHolder = String(method.account_holder || '').trim();
-    if (accountName === '' && accountNo === '' && bankName === '') {
-      refundAccountInfo.textContent = 'Metode ini belum menampilkan detail rekening di lookup. Backend tetap akan memvalidasi rekening saat save refund.';
-      return;
-    }
-    const pieces = [accountName, bankName, accountNo].filter(Boolean);
-    const holderText = accountHolder !== '' ? ` a/n ${accountHolder}` : '';
-    refundAccountInfo.textContent = 'Refund akan diposting ke rekening: ' + pieces.join(' • ') + holderText;
+    if (!method) { refundAccountInfo.textContent = 'Pilih metode refund untuk melihat rekening perusahaan yang akan dipakai.'; return; }
+    refundAccountInfo.textContent = 'Refund akan diposting ke rekening: ' + accountTextFromMethod(method);
   }
 
   function updateRefundSubmitState() {
-    if (!refundSubmitButton) {
-      return;
-    }
+    if (!refundSubmitButton) return;
     refundSubmitButton.disabled = refundSubmitInFlight;
     refundSubmitButton.innerHTML = refundSubmitInFlight
       ? '<span class="pos-paid-btn-spinner me-2" aria-hidden="true"></span>Menyimpan...'
@@ -764,12 +951,8 @@ document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.pos-paid-refund-line').forEach((card) => {
       const productToggle = card.querySelector('.refund-product-toggle');
       const extraToggles = card.querySelectorAll('.refund-extra-toggle');
-      if (productToggle) {
-        productToggle.checked = checked;
-      }
-      if (!checked) {
-        extraToggles.forEach((extraToggle) => { extraToggle.checked = false; });
-      }
+      if (productToggle) productToggle.checked = checked;
+      if (!checked) extraToggles.forEach((t) => { t.checked = false; });
     });
     syncRefundSelections();
   }
@@ -777,30 +960,23 @@ document.addEventListener('DOMContentLoaded', function () {
   function syncRefundSelections() {
     document.querySelectorAll('.pos-paid-refund-line').forEach((card) => {
       const productToggle = card.querySelector('.refund-product-toggle');
-      const productQty = card.querySelector('.refund-product-qty');
-      const extraRows = card.querySelectorAll('.pos-paid-refund-extra-row');
+      const productQty    = card.querySelector('.refund-product-qty');
+      const extraRows     = card.querySelectorAll('.pos-paid-refund-extra-row');
       if (!productToggle) return;
       const productSelected = productToggle.checked;
-      if (productQty) {
-        normalizeRefundQtyInput(productQty);
-        productQty.disabled = !productSelected;
-      }
+      if (productQty) { normalizeRefundQtyInput(productQty); productQty.disabled = !productSelected; }
       extraRows.forEach((row) => {
         const extraToggle = row.querySelector('.refund-extra-toggle');
-        const extraQty = row.querySelector('.refund-extra-qty');
-        const autoHint = row.querySelector('.refund-extra-auto-hint');
+        const extraQty    = row.querySelector('.refund-extra-qty');
+        const autoHint    = row.querySelector('.refund-extra-auto-hint');
         if (!extraToggle || !extraQty) return;
         if (productSelected) {
-          extraToggle.checked = true;
-          extraToggle.disabled = true;
-          normalizeRefundQtyInput(extraQty);
-          extraQty.disabled = true;
+          extraToggle.checked = true; extraToggle.disabled = true;
+          normalizeRefundQtyInput(extraQty); extraQty.disabled = true;
           autoHint?.classList.remove('d-none');
         } else {
-          extraToggle.disabled = false;
-          normalizeRefundQtyInput(extraQty);
-          extraQty.disabled = !extraToggle.checked;
-          autoHint?.classList.add('d-none');
+          extraToggle.disabled = false; normalizeRefundQtyInput(extraQty);
+          extraQty.disabled = !extraToggle.checked; autoHint?.classList.add('d-none');
         }
       });
     });
@@ -829,19 +1005,12 @@ document.addEventListener('DOMContentLoaded', function () {
     const list = document.getElementById('refund_line_list');
     const emptyHint = document.getElementById('refund_empty_hint');
     const orderLines = Array.isArray(json.order?.lines) ? json.order.lines : [];
-    if (!orderLines.length) {
-      emptyHint.classList.remove('d-none');
-      list.innerHTML = '';
-      return;
-    }
+    if (!orderLines.length) { emptyHint.classList.remove('d-none'); list.innerHTML = ''; return; }
     emptyHint.classList.add('d-none');
     resetRefundForm();
     list.innerHTML = orderLines.map((line) => {
-      const processed = String(line.process_status || 'NOT_PROCESSED').toUpperCase();
+      const processed  = String(line.process_status || 'NOT_PROCESSED').toUpperCase();
       const isProcessed = processed !== 'NOT_PROCESSED';
-      const flagClass = isProcessed ? 'adjust' : 'return';
-      const flagLabel = isProcessed ? 'Masuk Adjustment' : 'Bisa Kembali ke Stok';
-      const processedLabel = processStatusLabel(processed);
       const extras = Array.isArray(line.extras) ? line.extras : [];
       return `
         <div class="pos-paid-refund-line" data-line-id="${Number(line.id || 0)}">
@@ -854,7 +1023,7 @@ document.addEventListener('DOMContentLoaded', function () {
               <div class="pos-paid-mini-note">${escapeHtml(line.product_code || '-')} | Qty ${number(line.qty || 0, 0)} | Status item ${escapeHtml(lineStatusLabel(line.line_status || '-'))}</div>
               ${extras.length ? '<div class="pos-paid-mini-note mt-2">Pilih produk = extra ikut otomatis. Untuk refund extra saja, kosongkan produk lalu pilih extra di bawah.</div>' : ''}
             </div>
-            <span class="pos-paid-refund-flag ${flagClass}">${escapeHtml(flagLabel)}</span>
+            <span class="pos-paid-refund-flag ${isProcessed ? 'adjust' : 'return'}">${escapeHtml(isProcessed ? 'Masuk Adjustment' : 'Bisa Kembali ke Stok')}</span>
           </div>
           <div class="row g-2 mt-2 align-items-end">
             <div class="col-md-3">
@@ -862,7 +1031,7 @@ document.addEventListener('DOMContentLoaded', function () {
               <input type="number" class="form-control form-control-sm refund-product-qty" min="0" step="1" inputmode="numeric" data-max-qty="${sanitizeWholeQty(line.qty || 0, line.qty || 0)}" value="${sanitizeWholeQty(line.qty || 0, line.qty || 0)}">
             </div>
             <div class="col-md-9">
-              <div class="small text-muted">Status proses: <strong>${escapeHtml(processedLabel)}</strong>${isProcessed ? ' • Stok akan diarahkan ke adjustment.' : ' • Stok boleh dikembalikan.'}</div>
+              <div class="small text-muted">Status proses: <strong>${escapeHtml(processStatusLabel(processed))}</strong>${isProcessed ? ' • Stok akan diarahkan ke adjustment.' : ' • Stok boleh dikembalikan.'}</div>
             </div>
           </div>
           ${extras.length ? `<div class="pos-paid-refund-extra-list">${extras.map((extra) => `
@@ -901,9 +1070,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function buildRefundPayload() {
-    if (!refundPreview || !refundPreview.order || !refundPreview.order.header) {
-      throw new Error('Preview refund belum dimuat.');
-    }
+    if (!refundPreview || !refundPreview.order || !refundPreview.order.header) throw new Error('Preview refund belum dimuat.');
     const orderLineMap = new Map((refundPreview.order.lines || []).map((line) => [Number(line.id || 0), line]));
     const reason = finalRefundReason();
     const returnToStock = refundUsesStockReturn();
@@ -911,16 +1078,16 @@ document.addEventListener('DOMContentLoaded', function () {
     const lines = [];
     document.querySelectorAll('.pos-paid-refund-line').forEach((card) => {
       const orderLineId = Number(card.dataset.lineId || 0);
-      const sourceLine = orderLineMap.get(orderLineId);
+      const sourceLine  = orderLineMap.get(orderLineId);
       if (!sourceLine || orderLineId <= 0) return;
-      const productToggle = card.querySelector('.refund-product-toggle');
-      const productQty = card.querySelector('.refund-product-qty');
+      const productToggle  = card.querySelector('.refund-product-toggle');
+      const productQty     = card.querySelector('.refund-product-qty');
       const productSelected = !!(productToggle && productToggle.checked);
       const qty = productSelected ? sanitizeWholeQty(productQty?.value || 0, sourceLine.qty || 0) : 0;
       const extraSelections = [];
       card.querySelectorAll('.pos-paid-refund-extra-row').forEach((row) => {
-        const extraToggle = row.querySelector('.refund-extra-toggle');
-        const extraQty = row.querySelector('.refund-extra-qty');
+        const extraToggle      = row.querySelector('.refund-extra-toggle');
+        const extraQty         = row.querySelector('.refund-extra-qty');
         const orderLineExtraId = Number(row.dataset.extraId || 0);
         if (!extraToggle || !extraToggle.checked || orderLineExtraId <= 0) return;
         const sourceExtra = (Array.isArray(sourceLine.extras) ? sourceLine.extras : []).find((extra) => Number(extra.id || 0) === orderLineExtraId) || null;
@@ -956,9 +1123,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   async function submitRefund() {
-    if (refundSubmitInFlight) {
-      throw new Error('Refund sedang diproses.');
-    }
+    if (refundSubmitInFlight) throw new Error('Refund sedang diproses.');
     refundSubmitInFlight = true;
     updateRefundSubmitState();
     const payload = buildRefundPayload();
@@ -967,19 +1132,10 @@ document.addEventListener('DOMContentLoaded', function () {
       const json = await postJson('<?php echo site_url('pos/orders/refund/save'); ?>', payload);
       if (refundModal) refundModal.hide();
       let printFailures = [];
-      try {
-        printFailures = await triggerRefundDirectPrint(Number(json.id || 0));
-      } catch (e) {
-        printFailures = [normalizePrintFailureEntry({
-          name: 'Printer',
-          reason: e && e.message ? e.message : 'Gagal menyiapkan direct print refund'
-        })];
-      }
+      try { printFailures = await triggerRefundDirectPrint(Number(json.id || 0)); }
+      catch (e) { printFailures = [normalizePrintFailureEntry({ name: 'Printer', reason: e && e.message ? e.message : 'Gagal menyiapkan direct print refund' })]; }
       let message = `Refund berhasil disimpan.\nNo Refund: ${json.refund_no || '-'}`;
-      if (printFailures.length) {
-        message += '\n\nSebagian printer gagal menerima slip refund:\n';
-        message += printFailures.map((entry) => `- ${entry.name}: ${entry.reason}`).join('\n');
-      }
+      if (printFailures.length) { message += '\n\nSebagian printer gagal menerima slip refund:\n'; message += printFailures.map((entry) => `- ${entry.name}: ${entry.reason}`).join('\n'); }
       alert(message);
       await loadRecents();
     } finally {
@@ -988,11 +1144,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  /* ── Load data ──────────────────────────────────────────── */
   async function loadRecents() {
     syncRecentControls();
     const json = await getJson('<?php echo site_url('pos/orders/draft/data'); ?>?' + recentQs());
-    const rows = Array.isArray(json.rows) ? json.rows : [];
-    const body = document.getElementById('recent_body');
+    const rows  = Array.isArray(json.rows) ? json.rows : [];
+    const body  = document.getElementById('recent_body');
     const empty = document.getElementById('recent_empty_state');
     if (!rows.length) {
       body.innerHTML = '';
@@ -1000,9 +1157,9 @@ document.addEventListener('DOMContentLoaded', function () {
     } else {
       empty.classList.add('d-none');
       body.innerHTML = rows.map((row) => {
-        const rowStatus = String(row.status || '').toUpperCase();
+        const rowStatus    = String(row.status || '').toUpperCase();
         const disableRefund = ['REFUND_FULL', 'REFUNDED_FULL', 'VOID'].includes(rowStatus);
-        const customerName = row.customer_display_name || row.member_name || 'Walk in';
+        const customerName  = row.customer_display_name || row.member_name || 'Walk in';
         return `
           <tr>
             <td>
@@ -1034,24 +1191,14 @@ document.addEventListener('DOMContentLoaded', function () {
     renderRecentPager(json.meta || {});
     document.querySelectorAll('.btn-paid-print').forEach((btn) => btn.addEventListener('click', async () => {
       const originalHtml = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerHTML = '<span class="pos-paid-btn-spinner" aria-hidden="true"></span>';
+      btn.disabled = true; btn.innerHTML = '<span class="pos-paid-btn-spinner" aria-hidden="true"></span>';
       try {
         const result = await triggerReceiptReprint(Number(btn.dataset.id || 0));
-        let message = result.successCount > 0
-          ? `Struk berhasil dikirim ke ${result.successCount} printer.`
-          : 'Tidak ada printer yang menerima struk.';
-        if (result.failed.length) {
-          message += '\n\nSebagian printer gagal menerima struk:\n';
-          message += result.failed.map((entry) => `- ${entry.name}: ${entry.reason}`).join('\n');
-        }
+        let message = result.successCount > 0 ? `Struk berhasil dikirim ke ${result.successCount} printer.` : 'Tidak ada printer yang menerima struk.';
+        if (result.failed.length) { message += '\n\nSebagian printer gagal:\n'; message += result.failed.map((entry) => `- ${entry.name}: ${entry.reason}`).join('\n'); }
         alert(message);
-      } catch (e) {
-        alert(e && e.message ? e.message : 'Gagal menyiapkan cetak ulang struk.');
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = originalHtml;
-      }
+      } catch (e) { alert(e && e.message ? e.message : 'Gagal menyiapkan cetak ulang struk.'); }
+      finally { btn.disabled = false; btn.innerHTML = originalHtml; }
     }));
     document.querySelectorAll('.btn-paid-detail').forEach((btn) => btn.addEventListener('click', async () => {
       try { await openDetailModal(Number(btn.dataset.id || 0)); } catch (e) { alert(e.message); }
@@ -1061,23 +1208,34 @@ document.addEventListener('DOMContentLoaded', function () {
     }));
   }
 
-  document.getElementById('recent_q').addEventListener('input', (e) => {
-    recentState.q = e.target.value;
+  /* ── Event bindings ─────────────────────────────────────── */
+  document.getElementById('btn-apply-filter').addEventListener('click', () => {
+    recentState.q         = document.getElementById('recent_q').value;
+    recentState.outlet_id = Number(document.getElementById('recent_outlet_id').value || 0);
+    recentState.date_from = document.getElementById('recent_date_from').value || today;
+    recentState.date_to   = document.getElementById('recent_date_to').value   || today;
     recentState.page = 1;
     loadRecents().catch((err) => alert(err.message));
   });
-  document.getElementById('recent_outlet_id').addEventListener('change', (e) => {
-    recentState.outlet_id = Number(e.target.value || 0);
-    recentState.page = 1;
-    loadRecents().catch((err) => alert(err.message));
+
+  document.getElementById('recent_q').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      recentState.q = e.target.value;
+      recentState.page = 1;
+      loadRecents().catch((err) => alert(err.message));
+    }
   });
+
   document.getElementById('btn-clear-recent').addEventListener('click', () => {
-    recentState.q = '';
-    recentState.status = 'PAID';
+    recentState.q         = '';
+    recentState.status    = 'PAID';
     recentState.outlet_id = 0;
-    recentState.page = 1;
+    recentState.date_from = today;
+    recentState.date_to   = today;
+    recentState.page      = 1;
     loadRecents().catch((err) => alert(err.message));
   });
+
   document.getElementById('refund_policy_return')?.addEventListener('change', refreshRefundPolicyCards);
   document.getElementById('refund_policy_adjust')?.addEventListener('change', refreshRefundPolicyCards);
   refundReasonCode?.addEventListener('change', refreshRefundReasonOther);
@@ -1088,6 +1246,7 @@ document.addEventListener('DOMContentLoaded', function () {
     try { await submitRefund(); } catch (e) { alert(e.message); }
   });
 
+  /* ── Init ───────────────────────────────────────────────── */
   fillRefundReasonOptions();
   refreshRefundPolicyCards();
   refreshRefundAccountInfo();

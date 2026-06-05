@@ -582,6 +582,9 @@ $(function () {
         document.addEventListener('submit', function (event) {
             var form = event.target;
             if (!(form instanceof HTMLFormElement)) return;
+            if (event.defaultPrevented) {
+                return;
+            }
 
             var confirmMessage = form.getAttribute('data-confirm');
             if (confirmMessage && form.dataset.confirmed !== '1') {

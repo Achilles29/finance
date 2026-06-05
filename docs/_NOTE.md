@@ -73,26 +73,9 @@ v laporan daily sales seperti core /pos-reports/daily-sales , kemudian cetak
 - superadmin kunci tanggal libur dan PH
 - skema duplikasi database
 - akses stok (ketiganya) belum memperhatikan scope divisi
+- metode pembayaran PO tidak bisa diedit padahal belum PAID
+- mst_item / mst_material / purchase catalog yang statusnya tidak aktif harusnya tidak muncul di pencarian PO
 
-
-Langkah paling natural berikutnya:
-
-Buat satu DP untuk member lewat halaman pos/deposits.
-Bayar order POS atas member yang sama untuk memastikan modal payment otomatis memotong DP dan receipt menampilkan PAKAI DP.
-
-
-saya ada sedikit kendala. AIR ISI ULANG GALON selama ini dicatat sebagai item non material. tapi mulai saat ini BAR menggunakan AIR ISI ULANG GALON sebagai BASE TEA. namun permintaan AIR ISI ULANG GALON bukan hanya di BAR, karena AIR ISI ULANG GALON itu untuk air minum pegawai juga yang bukan bahan baku.
-ada saran?
-
-1. cek air isi ulang galon di gudang dan catalog yang uom , qty belum sesuai data di m_material, lakukan konversi
-
-2. saya simpulkan berarti begini:
-purchase melakukan PO dan SR dari gudang mandiri atau verifiikasi pengajian divisi yang menuju ke stok divisi, ada opsi digunakan sebagai bahan baku atau operasional, tapi defaultnya bahan baku. begitu ?
-
-
-
-saya coba SR ke BAR pilih operasioanal, saat simpan masih menambahkan ke stok bahan baku
-halaman apa saja yang harus disesuaikan terkait penambahan identitas bahan baku / operasional ini?
 
 
 
@@ -102,27 +85,36 @@ halaman apa saja yang harus disesuaikan terkait penambahan identitas bahan baku 
 
 
 
-lakukan penyesuaian /pos/orders/paid:
-- apakah sudah ada di sys_menu dan  sys_page? kalau belum tambahkan! buatkan query sqlnya. (query baru khusus halaman itu dan jangan ubah struktur sidebar halaman lain)
-- gabungkan tab serumpunnya, dan buat semua halam serumpunnya dengan "tab bertingkat" seperti purchase
-- berikan filter range tanggal, default hari ini
-- di modal detailnya tambahkan modul edit metode pembayaran seperti pada /pos/reports/sales
 
 
 
-jangan hanya repair data, tapi juga harus temukan pangkal masalahnya.
+- /procurement/division-po-sr/edit/ saat verifikasi muter2 terus (gambar 1)
+- saya coba PO selain item, coba listrik, tidak berhasil   menabahkan baris "Catalog ini belum terhubung ke item/bahan master yang valid. Pilih ulang dari hasil pencarian catalog.". jika barang bukan item harunya sembunyikan kolom pemakaian (gambar 3)
+- PO setelah di simpan (tapi belum PAID), metode pembayaran tidak bisa diubah. harusnya metode pembayaran tetap bisa diubah, apalagi misal status REVEIVED, barang sudah datang, stok nambah, tapi belum dibayar, saat mau bayar tidak bisa karena dikunci metode pembayarannya.
+- tipe purchase selain STOK, semua form nya dikunci selain harga (gambar 6). HARUSNYA tetap bisa diinput walaupun tidak menambah stok bahan gudang atau divisi, agar tau misal kita beli buku itu berapa pcs
 
-kenapa yang 1000 terbaca sebagai item dan yang 70 material?? padahal jelas belanja stok bar, dan itemnya material, pemakaian Persediaan Produksi, dan masuk ke stok divisi bar. dimana letak awal kesalahannya? dan apakah ini berlaku untuk bahan lain juga? seharusnya konsisten kalau mau pakai material ya jadikan semua yang masuk ke stok divisi sebagai material, kalau mau pakai item ya buat semua jadi item. baik dari PO, SR, Adjusment, opening
+perbaiki diatas dulu baru nanti tawarkan lanjut commit
 
 
-========================
-walaupun tanpa variable cost masih tetap beda, hpp live ESPRESSO ARABIKA tanpa variable di relasi resep saja sudah 5.400,00, tapi hpp live americano hot di Monitoring Stok Produk dan Stock Live POS 4.555,03. bagaimana bisa terjadi?
 
-tentang Multi lot fifo, apakah yang diambil hanya bahannya, atau costnya juga mengikuti proporsional bahan lotnya?
+sekarang modifikasi /master/material:
 
-buat SQL audit + repair khusus artefak lot/adjustment VOID dan row monthly legacy
+1. perbaiki ukuran icon di kolom sesuai coding standar
+2. sembunyikan kolom KODE
+3. Tambahkan kolom HPP live setelah hpp standar (cek rumusnya sesuai /inventory-material-daily atau /inventory/stock/division atau dipenggunaan resep)
+4. tambahkan divisi (sesuai resep, divisi mana yang menggunakan, jika ada 2 divisi  maka buat atas bawah) lalu tambahkan stok tersedia setelah (stok isi dan (enter) stok pack atau stok beli) sesuai divisinya. jika stok belum tercatat berarti tulis 0
+5. tambahkan kategori sebelum nama
+6. tambahkan button yang menuju halaman penggunaan, halaman yang menunjukkan component Base / prepare / produk apa saja yang sesuai resep menggunakannya, sekaligus qty nya
 
-product-recipe dan product/availability dan Stock Live POS idealnya sama logikanya mengikuti resep, teramsuk variable cost nya apakah pakai, tidak pakai, atus costum variable
 
-=================
-oke berarti sekarang hpp live suda menggunakan FIFO ya, bukan rata2? 
+
+berikan spinner saat posting
+lanjutkan 1 dan 2.
+
+
+
+- pagination ketika di filter masih belum sempurna. ketika saya filter misal divisi BAR, jumlah baris 25, maka data yang ditampilkan adalah bar dengan data pada halaman pertama awal saja bukan 25 baris
+- tambahkan form filter urutan sortir kolom, dengan default kategori (sesuai id) - divisi (sesuai id) - nama
+- perbesar ukuran icon seperti pada halaman purchase
+- rapikan lagi kolom divisi dan stok. dan upah UOM kedua bukan kode satuan tapi ganti fix jadi PACK, jadi contoh oatmilk ini 6.120,00 MILLILITER , 70,95 PACK . perbaiki juga warning kecil tidak ada resep nya itu, faktanya ada, kemungkinan dia hanya mengambil comopnent, seharusnya produk juga. lalu ganti juga warnanya agar lebih jelas
+- sesuaikan data dari hpp live menjadi hiperlink halaman yang menunjukan naik turunya harga barang tersebut berdasarkan data N orderan terakhir. dengan bagian atas menampilkan grafik berdasarkan data yang difilter (jumlah transaksi terakhir, opsional antara hpp atau harga beli), lalu bagian bawah datatabel transaksi x terakhir dari purchase. buatkan dulu halaman globalnya, lalu hiperlinkan per bahan nya

@@ -165,7 +165,449 @@ class Master extends MY_Controller
             'list_filter_values' => $listFilters['values'],
         ];
 
+        if ($entity === 'material') {
+            $divisionFilter = (int)$this->input->get('division_filter', true);
+            $sortBy         = trim((string)$this->input->get('sort_by', true));
+            if (!in_array($sortBy, ['cat_id', 'cat_name', 'name'], true)) $sortBy = 'cat_id';
+
+            $matParams = [
+                'q'           => $q,
+                'is_active'   => $isActiveFilter,
+                'category_id' => $catFilterId,
+                'division_id' => $divisionFilter,
+                'sort_by'     => $sortBy,
+            ];
+
+            $total      = $this->countMaterialFiltered($matParams);
+            $offset     = ($page - 1) * $perPage;
+            if ($offset >= $total && $total > 0) { $page = 1; $offset = 0; }
+            $matParams['limit']  = $perPage;
+            $matParams['offset'] = $offset;
+            $rows = $this->getMaterialFiltered($matParams);
+
+            $materialIds = array_filter(array_map(function($r) { return (int)($r['id'] ?? 0); }, $rows));
+            $data['rows']           = $rows;
+            $data['total']          = $total;
+            $data['total_pages']    = max(1, (int)ceil($total / $perPage));
+            $data['page']           = $page;
+            $data['material_extended']       = $materialIds ? $this->loadMaterialExtended(array_values($materialIds)) : [];
+            $data['material_division_options'] = $this->Master_model->get_options('mst_operational_division', 'id', 'name', false);
+            $data['division_filter_value']   = $divisionFilter;
+            $data['sort_by_value']           = $sortBy;
+            $catFilterId = (int)($listFilters['values']['item_category_id'] ?? 0);
+            $data['cat_filter_value']        = $catFilterId;
+            $this->render('master/material_index', $data);
+            return;
+        }
+
         $this->render('master/index', $data);
+    }
+
+    public function material_usage(int $id = 0)
+    {
+        $id = max(0, $id);
+        $material = $id > 0 ? $this->db->where('id', $id)->get('mst_material')->row_array() : null;
+        if (!$material) show_404();
+
+        $uomName = '';
+        if (!empty($material['content_uom_id'])) {
+            $uomRow = $this->db->select('name, code')->where('id', (int)$material['content_uom_id'])->get('mst_uom')->row_array();
+            $uomName = (string)($uomRow['code'] ?? $uomRow['name'] ?? '');
+        }
+        $catName = '';
+        if (!empty($material['item_category_id'])) {
+            $catRow = $this->db->select('name')->where('id', (int)$material['item_category_id'])->get('mst_item_category')->row_array();
+            $catName = (string)($catRow['name'] ?? '');
+        }
+
+        $material['uom_name'] = $uomName;
+        $material['category_name'] = $catName;
+
+        $this->render('master/material_usage_detail', [
+            'title'        => 'Penggunaan Bahan: ' . html_escape($material['material_name'] ?? ''),
+            'active_menu'  => 'grp.master',
+            'material'     => $material,
+            'usage_rows'   => $this->fetchMaterialUsageRows($id),
+        ]);
+    }
+
+    public function material_price_history(int $id = 0)
+    {
+        $id = max(0, $id);
+        $materialList = $this->db->select('id, material_name, material_code, content_uom_id')
+            ->from('mst_material')
+            ->where('is_active', 1)
+            ->order_by('material_name', 'ASC')
+            ->get()->result_array();
+
+        $selected = null;
+        if ($id > 0) {
+            foreach ($materialList as $m) {
+                if ((int)$m['id'] === $id) { $selected = $m; break; }
+            }
+        }
+
+        $this->render('master/material_price_history', [
+            'title'         => 'Riwayat Harga Bahan Baku',
+            'active_menu'   => 'purchase.material.price_history',
+            'material_list' => $materialList,
+            'selected_id'   => $id,
+            'selected'      => $selected,
+        ]);
+    }
+
+    public function material_price_history_data()
+    {
+        $materialId = max(0, (int)$this->input->get('material_id', true));
+        $itemId     = max(0, (int)$this->input->get('item_id', true));
+        $limit      = min(200, max(5, (int)($this->input->get('limit', true) ?: 20)));
+        $mode       = in_array($this->input->get('mode', true), ['hpp', 'buy'], true)
+                    ? $this->input->get('mode', true) : 'hpp';
+
+        if ($materialId <= 0 || !$this->db->table_exists('inv_stock_movement_log')) {
+            $this->json_ok(['rows' => [], 'items' => [], 'meta' => ['total' => 0]]);
+            return;
+        }
+
+        $itemFilter = $itemId > 0 ? "AND l.item_id = {$itemId}" : '';
+
+        $rows = $this->db->query("
+            SELECT
+                l.id,
+                l.movement_date,
+                l.item_id,
+                COALESCE(i.item_code, '') AS item_code,
+                COALESCE(l.profile_name, i.item_name, '') AS item_name,
+                COALESCE(l.profile_brand, i.item_name, '') AS brand,
+                l.unit_cost,
+                ROUND(l.unit_cost * COALESCE(l.profile_content_per_buy, 1), 4) AS price_per_buy,
+                l.qty_buy_delta,
+                l.qty_content_delta,
+                COALESCE(l.profile_buy_uom_code, bu.code, 'pack') AS buy_uom,
+                COALESCE(l.profile_content_uom_code, cu.code, '') AS content_uom,
+                COALESCE(l.profile_content_per_buy, 0) AS content_per_buy,
+                d.name AS division_name
+            FROM inv_stock_movement_log l
+            LEFT JOIN mst_item i ON i.id = l.item_id
+            LEFT JOIN mst_operational_division d ON d.id = l.division_id
+            LEFT JOIN mst_uom bu ON bu.id = l.buy_uom_id
+            LEFT JOIN mst_uom cu ON cu.id = l.content_uom_id
+            WHERE COALESCE(l.material_id, i.material_id) = {$materialId}
+              AND l.movement_type = 'PURCHASE_IN'
+              {$itemFilter}
+            ORDER BY l.movement_date DESC, l.id DESC
+            LIMIT {$limit}
+        ")->result_array();
+
+        $total = (int)($this->db->query("
+            SELECT COUNT(*) AS cnt
+            FROM inv_stock_movement_log l
+            LEFT JOIN mst_item i ON i.id = l.item_id
+            WHERE COALESCE(l.material_id, i.material_id) = {$materialId}
+              AND l.movement_type = 'PURCHASE_IN'
+              {$itemFilter}
+        ")->row_array()['cnt'] ?? 0);
+
+        // Distinct items for filter dropdown
+        $items = $this->db->query("
+            SELECT DISTINCT
+                l.item_id,
+                COALESCE(l.profile_name, i.item_name, CONCAT('Item #', l.item_id)) AS item_label,
+                COALESCE(l.profile_brand, '') AS brand
+            FROM inv_stock_movement_log l
+            LEFT JOIN mst_item i ON i.id = l.item_id
+            WHERE COALESCE(l.material_id, i.material_id) = {$materialId}
+              AND l.movement_type = 'PURCHASE_IN'
+              AND l.item_id IS NOT NULL
+            ORDER BY item_label
+        ")->result_array();
+
+        $this->json_ok(['rows' => $rows, 'items' => $items, 'meta' => ['total' => $total, 'limit' => $limit, 'mode' => $mode]]);
+    }
+
+    private function applyMaterialQueryConditions(array $params): void
+    {
+        $q          = trim((string)($params['q'] ?? ''));
+        $isActive   = isset($params['is_active']) && $params['is_active'] !== null ? (int)$params['is_active'] : null;
+        $categoryId = (int)($params['category_id'] ?? 0);
+        $divisionId = (int)($params['division_id'] ?? 0);
+
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('m.material_name', $q)
+                ->or_like('m.material_code', $q)
+                ->group_end();
+        }
+        if ($isActive !== null) {
+            $this->db->where('m.is_active', $isActive);
+        }
+        if ($categoryId > 0) {
+            $this->db->where('m.item_category_id', $categoryId);
+        }
+        if ($divisionId > 0) {
+            $hasDirect  = $this->db->field_exists('material_id', 'mst_component_formula');
+            $matExpr    = $hasDirect ? "COALESCE(cf2.material_id, i2.material_id)" : "i2.material_id";
+            $hasFormula = $this->db->table_exists('mst_component_formula') && $this->db->table_exists('mst_component');
+            $hasRecipe  = $this->db->table_exists('mst_product_recipe') && $this->db->table_exists('mst_product');
+
+            $conditions = [];
+            if ($hasFormula) {
+                $conditions[] = "EXISTS (
+                    SELECT 1 FROM mst_component_formula cf2
+                    LEFT JOIN mst_item i2 ON i2.id = cf2.material_item_id
+                    JOIN mst_component cmp ON cmp.id = cf2.component_id AND cmp.is_active = 1
+                    WHERE {$matExpr} = m.id AND cmp.operational_division_id = {$divisionId}
+                )";
+            }
+            if ($hasRecipe) {
+                $conditions[] = "EXISTS (
+                    SELECT 1 FROM mst_product_recipe rcp
+                    JOIN mst_item i3 ON i3.id = rcp.material_item_id
+                    JOIN mst_product prd ON prd.id = rcp.product_id
+                    WHERE i3.material_id = m.id AND prd.default_operational_division_id = {$divisionId}
+                )";
+            }
+            if (!empty($conditions)) {
+                $this->db->where('(' . implode(' OR ', $conditions) . ')', null, false);
+            }
+        }
+    }
+
+    private function countMaterialFiltered(array $params): int
+    {
+        $this->db->from('mst_material m');
+        $this->applyMaterialQueryConditions($params);
+        return (int)$this->db->count_all_results();
+    }
+
+    private function getMaterialFiltered(array $params): array
+    {
+        $sortBy = (string)($params['sort_by'] ?? 'cat_id');
+        $limit  = (int)($params['limit'] ?? 25);
+        $offset = (int)($params['offset'] ?? 0);
+
+        $this->db->select(
+            'm.id, m.material_code, m.material_name, m.item_category_id,
+             m.content_uom_id, m.hpp_standard, m.is_active,
+             m.shelf_life_days, m.reorder_level_content, m.notes,
+             cat.name AS category_name, cat.id AS category_id,
+             COALESCE(mu.code, mu.name) AS uom_label',
+            false
+        )
+        ->from('mst_material m')
+        ->join('mst_item_category cat', 'cat.id = m.item_category_id', 'left')
+        ->join('mst_uom mu', 'mu.id = m.content_uom_id', 'left');
+
+        $this->applyMaterialQueryConditions($params);
+
+        switch ($sortBy) {
+            case 'name':
+                $this->db->order_by('m.material_name', 'ASC', false);
+                break;
+            case 'cat_name':
+                $this->db->order_by('cat.name', 'ASC', false);
+                $this->db->order_by('m.material_name', 'ASC', false);
+                break;
+            default: // cat_id
+                $this->db->order_by('COALESCE(cat.id, 99999)', 'ASC', false);
+                $this->db->order_by('m.material_name', 'ASC', false);
+        }
+
+        return $this->db->limit($limit, $offset)->get()->result_array();
+    }
+
+    private function loadMaterialExtended(array $ids): array
+    {
+        $result = [];
+        foreach ($ids as $id) {
+            $result[$id] = ['hpp_live' => 0.0, 'divisions' => [], 'stock' => []];
+        }
+
+        $idList = implode(',', $ids);
+        $targetMonth = date('Y-m-01');
+
+        // ── 1) HPP live + stok per divisi ─────────────────────────────
+        if ($this->db->table_exists('inv_division_monthly_stock') && $this->db->field_exists('closing_qty_content', 'inv_division_monthly_stock')) {
+            // Get latest month_key across all materials at once
+            $latestRow = $this->db->select('MAX(month_key) AS max_month', false)
+                ->from('inv_division_monthly_stock')
+                ->where("material_id IN ({$idList})", null, false)
+                ->where('month_key <=', $targetMonth)
+                ->get()->row_array();
+            $latestMonth = (string)($latestRow['max_month'] ?? '');
+
+            if ($latestMonth !== '') {
+                $hasBuyQty = $this->db->field_exists('closing_qty_buy', 'inv_division_monthly_stock');
+                $buyQtyExpr = $hasBuyQty ? 'SUM(COALESCE(s.closing_qty_buy, 0))' : '0';
+                $buyUomExpr = $hasBuyQty ? 'MIN(COALESCE(bu.code, bu.name))' : "''";
+                $buyJoin    = $hasBuyQty ? 'LEFT JOIN mst_uom bu ON bu.id = s.buy_uom_id' : '';
+
+                $stockSql = "
+                    SELECT s.material_id, s.division_id, d.name AS division_name,
+                           SUM(COALESCE(s.closing_qty_content, 0)) AS stock_qty,
+                           AVG(COALESCE(s.avg_cost_per_content, 0)) AS avg_cost,
+                           {$buyQtyExpr} AS stock_qty_buy,
+                           {$buyUomExpr} AS buy_uom_name
+                    FROM inv_division_monthly_stock s
+                    LEFT JOIN mst_operational_division d ON d.id = s.division_id
+                    {$buyJoin}
+                    WHERE s.material_id IN ({$idList})
+                      AND s.month_key = '{$latestMonth}'
+                    GROUP BY s.material_id, s.division_id
+                ";
+                $stockRows = $this->db->query($stockSql)->result_array();
+
+                foreach ($stockRows as $sr) {
+                    $matId = (int)$sr['material_id'];
+                    $divId = (int)$sr['division_id'];
+                    if (!isset($result[$matId])) continue;
+                    $result[$matId]['stock'][$divId] = [
+                        'division_name' => $sr['division_name'] ?? '-',
+                        'stock_qty'     => round((float)$sr['stock_qty'], 2),
+                        'stock_qty_buy' => round((float)$sr['stock_qty_buy'], 2),
+                        'buy_uom_name'  => (string)($sr['buy_uom_name'] ?? ''),
+                        'avg_cost'      => round((float)$sr['avg_cost'], 4),
+                    ];
+                }
+
+                // HPP live = weighted average across divisions that have stock
+                foreach ($result as $matId => &$ext) {
+                    $totalCost = 0.0;
+                    $totalQty  = 0.0;
+                    foreach ($ext['stock'] as $div) {
+                        $totalCost += $div['avg_cost'] * $div['stock_qty'];
+                        $totalQty  += $div['stock_qty'];
+                    }
+                    if ($totalQty > 0) {
+                        $ext['hpp_live'] = round($totalCost / $totalQty, 4);
+                    } elseif (!empty($ext['stock'])) {
+                        $costs = array_column($ext['stock'], 'avg_cost');
+                        $ext['hpp_live'] = $costs ? round(array_sum($costs) / count($costs), 4) : 0.0;
+                    }
+                }
+                unset($ext);
+            }
+        }
+
+        // ── 2) Divisi penggunaan dari component formula ────────────────
+        if ($this->db->table_exists('mst_component_formula') && $this->db->table_exists('mst_component')) {
+            $hasDirect = $this->db->field_exists('material_id', 'mst_component_formula');
+            // mst_item has material_id directly; no separate source-map table needed
+            $materialExpr = $hasDirect
+                ? "COALESCE(cf.material_id, i.material_id)"
+                : "i.material_id";
+
+            $formulaRows = $this->db->query("
+                SELECT DISTINCT
+                    {$materialExpr} AS material_id,
+                    c.operational_division_id AS division_id,
+                    d.name AS division_name
+                FROM mst_component_formula cf
+                LEFT JOIN mst_item i ON i.id = cf.material_item_id
+                JOIN mst_component c ON c.id = cf.component_id AND c.is_active = 1
+                LEFT JOIN mst_operational_division d ON d.id = c.operational_division_id
+                WHERE {$materialExpr} IN ({$idList})
+                  AND c.operational_division_id IS NOT NULL
+            ")->result_array();
+
+            foreach ($formulaRows as $fr) {
+                $matId = (int)$fr['material_id'];
+                $divId = (int)$fr['division_id'];
+                if (!isset($result[$matId])) continue;
+                $result[$matId]['divisions'][$divId] = (string)($fr['division_name'] ?? '-');
+            }
+        }
+
+        // ── 3) Divisi dari resep produk ────────────────────────────────
+        if ($this->db->table_exists('mst_product_recipe') && $this->db->table_exists('mst_product')) {
+            $productDivRows = $this->db->query("
+                SELECT DISTINCT
+                    i.material_id,
+                    d.id   AS division_id,
+                    d.name AS division_name
+                FROM mst_product_recipe r
+                JOIN mst_item i ON i.id = r.material_item_id
+                JOIN mst_product p ON p.id = r.product_id
+                LEFT JOIN mst_operational_division d ON d.id = p.default_operational_division_id
+                WHERE i.material_id IN ({$idList})
+                  AND p.default_operational_division_id IS NOT NULL
+            ")->result_array();
+
+            foreach ($productDivRows as $fr) {
+                $matId = (int)$fr['material_id'];
+                $divId = (int)$fr['division_id'];
+                if (!isset($result[$matId])) continue;
+                $result[$matId]['divisions'][$divId] = (string)($fr['division_name'] ?? '-');
+            }
+        }
+
+        return $result;
+    }
+
+    private function fetchMaterialUsageRows(int $materialId): array
+    {
+        if ($materialId <= 0) return [];
+
+        $rows = [];
+
+        // ── A) Dari formula komponen (BASE / PREPARE) ─────────────────
+        if ($this->db->table_exists('mst_component_formula') && $this->db->table_exists('mst_component')) {
+            $hasDirect   = $this->db->field_exists('material_id', 'mst_component_formula');
+            $materialExpr = $hasDirect ? "COALESCE(cf.material_id, i.material_id)" : "i.material_id";
+
+            $componentRows = $this->db->query("
+                SELECT
+                    {$materialExpr} AS material_id,
+                    c.id            AS component_id,
+                    c.component_name,
+                    c.component_type,
+                    d.name          AS division_name,
+                    cf.qty,
+                    COALESCE(mu.code, mu.name) AS uom_code,
+                    'COMPONENT'     AS usage_type,
+                    NULL            AS product_id,
+                    NULL            AS product_name
+                FROM mst_component_formula cf
+                LEFT JOIN mst_item i ON i.id = cf.material_item_id
+                JOIN mst_component c ON c.id = cf.component_id
+                LEFT JOIN mst_operational_division d ON d.id = c.operational_division_id
+                LEFT JOIN mst_uom mu ON mu.id = c.uom_id
+                WHERE {$materialExpr} = {$materialId}
+                ORDER BY c.component_type, c.component_name
+            ")->result_array();
+
+            $rows = array_merge($rows, $componentRows);
+        }
+
+        // ── B) Dari resep produk langsung (line_type = MATERIAL) ───────
+        if ($this->db->table_exists('mst_product_recipe') && $this->db->table_exists('mst_product')) {
+            $productRows = $this->db->query("
+                SELECT
+                    i.material_id,
+                    p.id            AS product_id,
+                    p.product_name,
+                    p.product_code,
+                    NULL            AS component_id,
+                    NULL            AS component_name,
+                    NULL            AS component_type,
+                    d.name          AS division_name,
+                    r.qty,
+                    COALESCE(mu.code, mu.name) AS uom_code,
+                    'PRODUCT'       AS usage_type
+                FROM mst_product_recipe r
+                JOIN mst_item i ON i.id = r.material_item_id
+                JOIN mst_product p ON p.id = r.product_id
+                LEFT JOIN mst_operational_division d ON d.id = p.default_operational_division_id
+                LEFT JOIN mst_uom mu ON mu.id = p.uom_id
+                WHERE r.line_type = 'MATERIAL'
+                  AND i.material_id = {$materialId}
+                ORDER BY p.product_name
+            ")->result_array();
+
+            $rows = array_merge($rows, $productRows);
+        }
+
+        return $rows;
     }
 
     public function create(string $entity)
@@ -2526,6 +2968,13 @@ class Master extends MY_Controller
                     ['key' => 'content_uom_id_label', 'label' => 'Satuan'],
                     ['key' => 'hpp_standard', 'label' => 'HPP Standar'],
                     ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                ],
+                'list_filters' => [
+                    [
+                        'name'   => 'item_category_id',
+                        'label'  => 'Kategori',
+                        'lookup' => ['table' => 'mst_item_category', 'value' => 'id', 'label' => 'name', 'active_only' => false],
+                    ],
                 ],
             ],
             'item' => [

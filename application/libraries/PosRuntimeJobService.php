@@ -341,6 +341,16 @@ class PosRuntimeJobService
             return $this->fail_job($job, (string)($markProcessing['message'] ?? 'Snapshot stock commit gagal ditandai processing.'));
         }
 
+        $refreshSnapshot = $this->CI->posstockcommitservice->refresh_snapshot_from_order($snapshotId, $actorEmployeeId, [
+            'event_source' => $eventSource,
+            'event_id' => $eventId,
+        ]);
+        if (!($refreshSnapshot['ok'] ?? false)) {
+            return $this->fail_job($job, (string)($refreshSnapshot['message'] ?? 'Snapshot stock commit gagal di-refresh sebelum retry.'), [
+                'refresh_snapshot' => $refreshSnapshot,
+            ]);
+        }
+
         $stockPost = $this->CI->posorderstockservice->post_commit_snapshot($snapshotId, [
             'actor_employee_id' => $actorEmployeeId,
         ]);

@@ -4871,6 +4871,8 @@ class Pos_model extends CI_Model
         $status = strtoupper(trim((string)($filters['status'] ?? 'ALL')));
         $workspaceMode = strtoupper(trim((string)($filters['workspace_mode'] ?? 'MIXED')));
         $outletId = (int)($filters['outlet_id'] ?? 0);
+        $dateFrom = trim((string)($filters['date_from'] ?? ''));
+        $dateTo   = trim((string)($filters['date_to'] ?? ''));
         $page = max(1, (int)($filters['page'] ?? 1));
         $limit = max(1, min(100, (int)($filters['limit'] ?? 20)));
 
@@ -4913,6 +4915,12 @@ class Pos_model extends CI_Model
         }
         if ($outletId > 0) {
             $db->where('o.outlet_id', $outletId);
+        }
+        if ($dateFrom !== '') {
+            $db->where('DATE(o.ordered_at) >=', $dateFrom);
+        }
+        if ($dateTo !== '') {
+            $db->where('DATE(o.ordered_at) <=', $dateTo);
         }
 
         $total = (int)$db->count_all_results('', false);

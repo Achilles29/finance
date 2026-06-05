@@ -13,6 +13,8 @@ class InventoryLedger
 {
     /** @var CI_Controller */
     protected $ci;
+    /** @var array<string, bool> */
+    protected $columnNullableCache = [];
 
     public function __construct()
     {
@@ -106,10 +108,7 @@ class InventoryLedger
             $adjustmentReasonCode = 'other';
         }
 
-        $stockDomain = strtoupper(trim((string)($payload['stock_domain'] ?? ($itemId !== null ? 'ITEM' : 'MATERIAL'))));
-        if (!in_array($stockDomain, ['ITEM', 'MATERIAL'], true)) {
-            $stockDomain = $itemId !== null ? 'ITEM' : 'MATERIAL';
-        }
+        $stockDomain = $this->resolveLegacyStockDomain($payload, $itemId, $materialId);
 
         $manageTransaction = array_key_exists('manage_transaction', $payload) ? (bool)$payload['manage_transaction'] : true;
         if ($manageTransaction) {
@@ -161,6 +160,9 @@ class InventoryLedger
             'notes' => $this->nullableString($payload['notes'] ?? null),
             'created_by' => $this->nullableInt($payload['created_by'] ?? null),
         ];
+        if ($this->ci->db->field_exists('stock_domain', 'inv_stock_movement_log')) {
+            $movementData['stock_domain'] = $this->legacyStockDomainForStorage('inv_stock_movement_log', $stockDomain, $itemId, $materialId);
+        }
         if ($this->ci->db->field_exists('profile_expired_date', 'inv_stock_movement_log')) {
             $movementData['profile_expired_date'] = $this->normalizeDate((string)($payload['profile_expired_date'] ?? ''));
         }
@@ -289,10 +291,7 @@ class InventoryLedger
         $materialId = $this->nullableInt($payload['material_id'] ?? null);
         $buyUomId = $this->nullableInt($payload['buy_uom_id'] ?? null);
         $contentUomId = $this->nullableInt($payload['content_uom_id'] ?? null);
-        $stockDomain = strtoupper(trim((string)($payload['stock_domain'] ?? ($itemId !== null ? 'ITEM' : 'MATERIAL'))));
-        if (!in_array($stockDomain, ['ITEM', 'MATERIAL'], true)) {
-            $stockDomain = $itemId !== null ? 'ITEM' : 'MATERIAL';
-        }
+        $stockDomain = $this->resolveLegacyStockDomain($payload, $itemId, $materialId);
 
         if ($contentUomId === null) {
             return [
@@ -400,7 +399,6 @@ class InventoryLedger
 
         $baseData = [
             'month_key' => $monthKey,
-            'stock_domain' => $stockDomain,
             'identity_key' => $identityKey,
             'item_id' => $itemId,
             'material_id' => $materialId,
@@ -430,6 +428,9 @@ class InventoryLedger
             'source_mode' => 'LIVE',
             'notes' => $this->nullableString($payload['notes'] ?? ($existing['notes'] ?? null)),
         ];
+        if ($this->ci->db->field_exists('stock_domain', $table)) {
+            $baseData['stock_domain'] = $this->legacyStockDomainForStorage($table, $stockDomain, $itemId, $materialId);
+        }
 
         $numericFields = [
             'in_qty_buy', 'in_qty_content', 'in_total_value',
@@ -482,7 +483,6 @@ class InventoryLedger
         }
 
         return hash('sha256', implode('|', [
-            strtoupper(trim((string)($payload['stock_domain'] ?? 'ITEM'))),
             (string)((int)($payload['item_id'] ?? 0)),
             (string)((int)($payload['material_id'] ?? 0)),
             (string)((int)($payload['buy_uom_id'] ?? 0)),
@@ -493,6 +493,62 @@ class InventoryLedger
             number_format((float)($payload['profile_content_per_buy'] ?? 1), 6, '.', ''),
             trim((string)($payload['profile_expired_date'] ?? '')),
         ]));
+    }
+
+    private function resolveLegacyStockDomain(array $payload, ?int $itemId, ?int $materialId): ?string
+    {
+        $stockDomain = strtoupper(trim((string)($payload['stock_domain'] ?? '')));
+        if (in_array($stockDomain, ['ITEM', 'MATERIAL'], true)) {
+            return $stockDomain;
+        }
+
+        if ($itemId !== null) {
+            return 'ITEM';
+        }
+        if ($materialId !== null) {
+            return 'MATERIAL';
+        }
+
+        return null;
+    }
+
+    private function legacyStockDomainForStorage(string $table, ?string $stockDomain, ?int $itemId, ?int $materialId): ?string
+    {
+        if (!$this->ci->db->field_exists('stock_domain', $table)) {
+            return null;
+        }
+
+        if ($this->columnAllowsNull($table, 'stock_domain')) {
+            return null;
+        }
+
+        $resolved = strtoupper(trim((string)$stockDomain));
+        if (!in_array($resolved, ['ITEM', 'MATERIAL'], true)) {
+            $resolved = $itemId !== null ? 'ITEM' : (($materialId !== null) ? 'MATERIAL' : 'ITEM');
+        }
+
+        return $resolved;
+    }
+
+    private function columnAllowsNull(string $table, string $column): bool
+    {
+        $cacheKey = $table . '.' . $column;
+        if (array_key_exists($cacheKey, $this->columnNullableCache)) {
+            return $this->columnNullableCache[$cacheKey];
+        }
+
+        $row = $this->ci->db
+            ->select('IS_NULLABLE')
+            ->from('information_schema.COLUMNS')
+            ->where('TABLE_SCHEMA', $this->ci->db->database)
+            ->where('TABLE_NAME', $table)
+            ->where('COLUMN_NAME', $column)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $this->columnNullableCache[$cacheKey] = strtoupper((string)($row['IS_NULLABLE'] ?? 'NO')) === 'YES';
+        return $this->columnNullableCache[$cacheKey];
     }
 
     private function buildMonthlyMovementDelta(string $movementType, float $qtyBuyDelta, float $qtyContentDelta, float $mutationValue, ?string $adjustmentCategory, bool $isOpeningSnapshotMovement): array

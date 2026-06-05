@@ -108,6 +108,7 @@ $isPaidWorkspace = $workspaceMode === 'PAID';
 </style>
 
 <div class="container-xxl py-3">
+  <?php $this->load->view('pos/_order_workspace_tabs', ['order_workspace_active' => $isPaidWorkspace ? 'paid' : 'draft']); ?>
   <div class="fin-page-header">
     <div>
       <h4 class="fin-page-title mb-1"><?php echo $isPaidWorkspace ? 'Pesanan Terbayar POS' : 'Draft Order POS'; ?></h4>

@@ -55,33 +55,7 @@ class PosStockCommitService
 
             $lineNo = 1;
             foreach ($lines as $line) {
-                $db->insert('pos_stock_commit_line', [
-                    'commit_id' => $commitId,
-                    'line_no' => $lineNo++,
-                    'order_id' => $orderId,
-                    'order_line_id' => !empty($line['order_line_id']) ? (int)$line['order_line_id'] : null,
-                    'order_line_extra_id' => !empty($line['order_line_extra_id']) ? (int)$line['order_line_extra_id'] : null,
-                    'line_type' => $this->normalize_enum((string)($line['line_type'] ?? 'PRODUCT'), $this->allowedLineTypes, 'PRODUCT'),
-                    'product_id' => !empty($line['product_id']) ? (int)$line['product_id'] : null,
-                    'extra_id' => !empty($line['extra_id']) ? (int)$line['extra_id'] : null,
-                    'source_kind' => $this->normalize_enum((string)($line['source_kind'] ?? 'MATERIAL'), $this->allowedSourceKinds, 'MATERIAL'),
-                    'source_role' => $this->normalize_enum((string)($line['source_role'] ?? 'MAIN'), $this->allowedSourceRoles, 'MAIN'),
-                    'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
-                    'component_id' => !empty($line['component_id']) ? (int)$line['component_id'] : null,
-                    'source_name_snapshot' => trim((string)($line['source_name_snapshot'] ?? '')),
-                    'required_qty' => round((float)($line['required_qty'] ?? 0), 4),
-                    'required_uom_id' => !empty($line['required_uom_id']) ? (int)$line['required_uom_id'] : null,
-                    'committed_qty' => round((float)($line['committed_qty'] ?? ($line['required_qty'] ?? 0)), 4),
-                    'reversed_qty' => round((float)($line['reversed_qty'] ?? 0), 4),
-                    'unit_cost_live' => round((float)($line['unit_cost_live'] ?? 0), 6),
-                    'total_cost_live' => round((float)($line['total_cost_live'] ?? 0), 6),
-                    'cost_source' => $this->normalize_enum((string)($line['cost_source'] ?? 'FIFO'), $this->allowedCostSources, 'FIFO'),
-                    'movement_ref_type' => !empty($line['movement_ref_type']) ? strtoupper((string)$line['movement_ref_type']) : null,
-                    'movement_ref_id' => !empty($line['movement_ref_id']) ? (int)$line['movement_ref_id'] : null,
-                    'return_policy' => $this->normalize_enum((string)($line['return_policy'] ?? 'RETURN_TO_STOCK'), $this->allowedReturnPolicies, 'RETURN_TO_STOCK'),
-                    'reversal_status' => $this->normalize_enum((string)($line['reversal_status'] ?? 'NONE'), $this->allowedReversalStatuses, 'NONE'),
-                    'notes' => trim((string)($line['notes'] ?? '')),
-                ]);
+                $db->insert('pos_stock_commit_line', $this->normalize_snapshot_line_payload($commitId, $orderId, $lineNo++, $line));
             }
 
             if ($db->trans_status() === false) {
@@ -89,6 +63,85 @@ class PosStockCommitService
             }
             $db->trans_commit();
             return ['ok' => true, 'id' => $commitId, 'commit_no' => $commitNo];
+        } catch (Throwable $e) {
+            $db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function refresh_snapshot_from_order(int $commitId, int $actorEmployeeId = 0, array $options = []): array
+    {
+        if ($commitId <= 0 || !$this->required_tables_ready()) {
+            return ['ok' => false, 'message' => 'Stock commit snapshot tidak siap untuk direfresh.'];
+        }
+
+        $header = $this->CI->db->from('pos_stock_commit')->where('id', $commitId)->limit(1)->get()->row_array();
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Stock commit snapshot tidak ditemukan.'];
+        }
+
+        $orderId = (int)($header['order_id'] ?? 0);
+        if ($orderId <= 0) {
+            return ['ok' => false, 'message' => 'Order sumber stock commit snapshot tidak valid.'];
+        }
+
+        $existingLines = $this->CI->db
+            ->from('pos_stock_commit_line')
+            ->where('commit_id', $commitId)
+            ->order_by('line_no', 'ASC')
+            ->get()
+            ->result_array();
+
+        $targetLineIds = array_values(array_unique(array_filter(array_map(static function ($row): int {
+            return (int)($row['order_line_id'] ?? 0);
+        }, $existingLines))));
+
+        $resolved = $this->CI->Pos_model->resolve_order_stock_commit_payload($orderId, $actorEmployeeId, [
+            'allowed_statuses' => ['CONFIRMED', 'DRAFT', 'PENDING'],
+            'line_ids' => $targetLineIds,
+        ]);
+        if (!($resolved['ok'] ?? false)) {
+            return ['ok' => false, 'message' => (string)($resolved['message'] ?? 'Gagal resolve ulang stock commit snapshot POS.')];
+        }
+
+        $newHeader = (array)($resolved['header'] ?? []);
+        $newLines = (array)($resolved['lines'] ?? []);
+        if (empty($newLines)) {
+            return ['ok' => false, 'message' => 'Resolve ulang snapshot tidak menghasilkan line konsumsi stok.'];
+        }
+
+        $db = $this->CI->db;
+        $db->trans_begin();
+        try {
+            $headerUpdate = [
+                'outlet_id' => !empty($newHeader['outlet_id']) ? (int)$newHeader['outlet_id'] : null,
+                'terminal_id' => !empty($newHeader['terminal_id']) ? (int)$newHeader['terminal_id'] : null,
+                'shift_id' => !empty($newHeader['shift_id']) ? (int)$newHeader['shift_id'] : null,
+                'cashier_session_id' => !empty($newHeader['cashier_session_id']) ? (int)$newHeader['cashier_session_id'] : null,
+                'actor_employee_id' => !empty($newHeader['actor_employee_id']) ? (int)$newHeader['actor_employee_id'] : null,
+                'process_state_snapshot' => $this->normalize_enum((string)($newHeader['process_state_snapshot'] ?? ($header['process_state_snapshot'] ?? 'NONE')), $this->allowedProcessStates, 'NONE'),
+                'notes' => $this->merge_note((string)($newHeader['notes'] ?? ''), 'Snapshot direfresh dari resolver terbaru sebelum retry queue'),
+            ];
+            $db->where('id', $commitId)->update('pos_stock_commit', $headerUpdate);
+
+            $db->where('commit_id', $commitId)->delete('pos_stock_commit_line');
+
+            $lineNo = 1;
+            foreach ($newLines as $line) {
+                $db->insert('pos_stock_commit_line', $this->normalize_snapshot_line_payload($commitId, $orderId, $lineNo++, $line));
+            }
+
+            if ($db->trans_status() === false) {
+                throw new RuntimeException('Refresh stock commit snapshot POS gagal disimpan.');
+            }
+            $db->trans_commit();
+
+            return [
+                'ok' => true,
+                'id' => $commitId,
+                'order_id' => $orderId,
+                'line_count' => count($newLines),
+            ];
         } catch (Throwable $e) {
             $db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
@@ -311,6 +364,37 @@ class PosStockCommitService
     {
         $value = strtoupper(trim($value));
         return in_array($value, $allowed, true) ? $value : $default;
+    }
+
+    protected function normalize_snapshot_line_payload(int $commitId, int $orderId, int $lineNo, array $line): array
+    {
+        return [
+            'commit_id' => $commitId,
+            'line_no' => $lineNo,
+            'order_id' => $orderId,
+            'order_line_id' => !empty($line['order_line_id']) ? (int)$line['order_line_id'] : null,
+            'order_line_extra_id' => !empty($line['order_line_extra_id']) ? (int)$line['order_line_extra_id'] : null,
+            'line_type' => $this->normalize_enum((string)($line['line_type'] ?? 'PRODUCT'), $this->allowedLineTypes, 'PRODUCT'),
+            'product_id' => !empty($line['product_id']) ? (int)$line['product_id'] : null,
+            'extra_id' => !empty($line['extra_id']) ? (int)$line['extra_id'] : null,
+            'source_kind' => $this->normalize_enum((string)($line['source_kind'] ?? 'MATERIAL'), $this->allowedSourceKinds, 'MATERIAL'),
+            'source_role' => $this->normalize_enum((string)($line['source_role'] ?? 'MAIN'), $this->allowedSourceRoles, 'MAIN'),
+            'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
+            'component_id' => !empty($line['component_id']) ? (int)$line['component_id'] : null,
+            'source_name_snapshot' => trim((string)($line['source_name_snapshot'] ?? '')),
+            'required_qty' => round((float)($line['required_qty'] ?? 0), 4),
+            'required_uom_id' => !empty($line['required_uom_id']) ? (int)$line['required_uom_id'] : null,
+            'committed_qty' => round((float)($line['committed_qty'] ?? ($line['required_qty'] ?? 0)), 4),
+            'reversed_qty' => round((float)($line['reversed_qty'] ?? 0), 4),
+            'unit_cost_live' => round((float)($line['unit_cost_live'] ?? 0), 6),
+            'total_cost_live' => round((float)($line['total_cost_live'] ?? 0), 6),
+            'cost_source' => $this->normalize_enum((string)($line['cost_source'] ?? 'FIFO'), $this->allowedCostSources, 'FIFO'),
+            'movement_ref_type' => !empty($line['movement_ref_type']) ? strtoupper((string)$line['movement_ref_type']) : null,
+            'movement_ref_id' => !empty($line['movement_ref_id']) ? (int)$line['movement_ref_id'] : null,
+            'return_policy' => $this->normalize_enum((string)($line['return_policy'] ?? 'RETURN_TO_STOCK'), $this->allowedReturnPolicies, 'RETURN_TO_STOCK'),
+            'reversal_status' => $this->normalize_enum((string)($line['reversal_status'] ?? 'NONE'), $this->allowedReversalStatuses, 'NONE'),
+            'notes' => trim((string)($line['notes'] ?? '')),
+        ];
     }
 
     protected function merge_note(string $current, string $append): string

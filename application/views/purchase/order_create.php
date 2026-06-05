@@ -3,6 +3,10 @@ $editMode = !empty($edit_mode);
 $detailData = (array)($detail ?? []);
 $detailOrder = (array)($detailData['order'] ?? []);
 $detailLines = (array)($detailData['lines'] ?? []);
+$editability = (array)($editability ?? []);
+$editabilityData = (array)($editability['data'] ?? []);
+$editModeType = (string)($editabilityData['mode'] ?? ($editMode ? 'full' : 'create'));
+$isPaymentOnlyEdit = $editMode && $editModeType === 'payment_only';
 
 if (!function_exists('finance_po_usage_purpose_from_notes')) {
   function finance_po_usage_purpose_from_notes($notes)
@@ -174,6 +178,7 @@ foreach ($detailLines as $ln) {
     display: block;
     margin-top: .35rem;
   }
+  #po-line-table .line-usage-col { min-width: 140px; }
   .po-suggestion-panel {
     margin-top: .45rem;
     padding: .45rem .55rem;
@@ -387,7 +392,7 @@ foreach ($detailLines as $ln) {
   #po-line-table .line-qty,
   #po-line-table .line-content { min-width: 140px; }
   #po-line-table .line-price { min-width: 150px; }
-  #po-line-table.line-mode-noninventory .line-inventory-col {
+  #po-line-table.line-mode-noninventory .line-usage-col {
     display: none;
   }
 </style>
@@ -398,11 +403,11 @@ foreach ($detailLines as $ln) {
     <form id="po-form" class="row g-3" autocomplete="off">
       <div class="col-lg-2 col-md-4">
         <label class="form-label">Tanggal PO</label>
-        <input type="date" class="form-control" id="request_date" value="<?php echo html_escape($initialRequestDate); ?>" required>
+      <input type="date" class="form-control" id="request_date" value="<?php echo html_escape($initialRequestDate); ?>" required <?php echo $isPaymentOnlyEdit ? 'disabled' : ''; ?>>
       </div>
       <div class="col-lg-3 col-md-4">
         <label class="form-label">Purchase Type</label>
-        <select id="purchase_type_id" class="form-select" required>
+        <select id="purchase_type_id" class="form-select" required <?php echo $isPaymentOnlyEdit ? 'disabled' : ''; ?>>
           <option value="">Pilih Purchase Type...</option>
           <?php if ($editMode && $initialPurchaseTypeId > 0 && !$initialPurchaseTypeExists): ?>
             <option value="<?php echo $initialPurchaseTypeId; ?>" selected>
@@ -425,13 +430,13 @@ foreach ($detailLines as $ln) {
       <div class="col-lg-3 col-md-6">
         <label class="form-label">Vendor</label>
         <div class="po-vendor-inline">
-          <select id="vendor_id" class="form-select po-vendor-select" required>
+          <select id="vendor_id" class="form-select po-vendor-select" required <?php echo $isPaymentOnlyEdit ? 'disabled' : ''; ?>>
             <option value="">Pilih Vendor...</option>
             <?php foreach (($vendors ?? []) as $v): ?>
               <option value="<?php echo (int)$v['id']; ?>" <?php echo ((int)$v['id'] === $initialVendorId) ? 'selected' : ''; ?>><?php echo html_escape((string)$v['vendor_code'] . ' - ' . (string)$v['vendor_name']); ?></option>
             <?php endforeach; ?>
           </select>
-          <button type="button" class="btn btn-outline-primary po-vendor-add" id="btn-po-add-vendor">+ Vendor</button>
+          <button type="button" class="btn btn-outline-primary po-vendor-add" id="btn-po-add-vendor" <?php echo $isPaymentOnlyEdit ? 'disabled' : ''; ?>>+ Vendor</button>
         </div>
         <small class="text-muted d-block mt-1">Jika vendor belum ada, tambah cepat dari form ini.</small>
       </div>
@@ -457,7 +462,7 @@ foreach ($detailLines as $ln) {
       </div>
       <div class="col-lg-2 col-md-4">
         <label class="form-label">Status</label>
-        <select id="status" class="form-select po-status-select" <?php echo !$editMode ? 'disabled' : ''; ?>>
+        <select id="status" class="form-select po-status-select" <?php echo (!$editMode || $isPaymentOnlyEdit) ? 'disabled' : ''; ?>>
           <?php foreach (($status_options ?? ['DRAFT']) as $st): ?>
             <?php $stValue = strtoupper((string)$st); ?>
             <option value="<?php echo html_escape($stValue); ?>" <?php echo $stValue === $initialStatus ? 'selected' : ''; ?>><?php echo html_escape($stValue); ?></option>
@@ -489,7 +494,7 @@ foreach ($detailLines as $ln) {
       </div>
       <div class="col-12">
         <label class="form-label">Notes</label>
-        <input type="text" id="po_notes" class="form-control" value="<?php echo html_escape($initialNotes); ?>">
+        <input type="text" id="po_notes" class="form-control" value="<?php echo html_escape($initialNotes); ?>" <?php echo $isPaymentOnlyEdit ? 'disabled' : ''; ?>>
       </div>
     </form>
   </div>
@@ -501,7 +506,7 @@ foreach ($detailLines as $ln) {
     <div class="row g-2">
       <div class="col-md-8 catalog-preview-anchor">
         <label class="form-label">Cari Catalog (Ajax Preview)</label>
-        <input type="text" id="catalog_keyword" class="form-control" placeholder="Ketik nama item/material/merk/keterangan, lalu pilih dari preview...">
+        <input type="text" id="catalog_keyword" class="form-control" placeholder="Ketik nama item/material/merk/keterangan, lalu pilih dari preview..." <?php echo $isPaymentOnlyEdit ? 'disabled' : ''; ?>>
         <div id="catalog-preview-wrap" class="catalog-preview-dropdown" style="display:none;">
           <div id="catalog-preview-list"></div>
         </div>
@@ -514,7 +519,7 @@ foreach ($detailLines as $ln) {
   <div class="card-body">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h6 class="mb-0">Line Purchase Order</h6>
-      <button type="button" class="btn btn-sm btn-outline-primary" id="btn-add-line">Tambah Baris</button>
+      <button type="button" class="btn btn-sm btn-outline-primary" id="btn-add-line" <?php echo $isPaymentOnlyEdit ? 'disabled' : ''; ?>>Tambah Baris</button>
     </div>
     <div class="table-responsive">
       <table class="table table-sm table-striped" id="po-line-table">
@@ -524,7 +529,7 @@ foreach ($detailLines as $ln) {
             <th>Nama</th>
             <th>Merk</th>
             <th>Keterangan</th>
-            <th>Pemakaian</th>
+            <th class="line-usage-col">Pemakaian</th>
             <th class="line-inventory-col">UOM Beli</th>
             <th class="line-inventory-col">UOM Isi</th>
             <th class="text-end line-inventory-col">Qty Beli</th>
@@ -541,7 +546,7 @@ foreach ($detailLines as $ln) {
     </div>
 
     <div class="d-flex justify-content-end mt-3 gap-2">
-      <button class="btn btn-primary" type="button" id="btn-save-po"><?php echo $editMode ? 'Update Purchase Order' : 'Simpan Purchase Order'; ?></button>
+      <button class="btn btn-primary" type="button" id="btn-save-po"><?php echo $isPaymentOnlyEdit ? 'Update Metode Pembayaran' : ($editMode ? 'Update Purchase Order' : 'Simpan Purchase Order'); ?></button>
     </div>
   </div>
 </div>
@@ -644,7 +649,8 @@ foreach ($detailLines as $ln) {
   var orderId = <?php echo (int)($detailOrder['id'] ?? 0); ?>;
   var initialStatus = <?php echo json_encode($initialStatus); ?>;
   var initialExternalRefNo = <?php echo json_encode($initialExternalRefNo); ?>;
-  var skipEditReviewModal = editMode && /^DREQ/i.test(String(initialExternalRefNo || '').trim());
+  var isDivisionRequestPo = editMode && /^DREQ/i.test(String(initialExternalRefNo || '').trim());
+  var skipEditReviewModal = isPaymentOnlyEditMode;
   var detailUrl = <?php echo json_encode(site_url('purchase-orders/detail/' . (int)($detailOrder['id'] ?? 0))); ?>;
   var initialLines = <?php echo json_encode(array_values($initialLines)); ?>;
   var divisions = <?php echo json_encode(array_values((array)($divisions ?? []))); ?>;
@@ -694,6 +700,7 @@ foreach ($detailLines as $ln) {
   var reviewModal = (reviewModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(reviewModalEl) : null;
   var lines = [];
   var isInventoryType = true;
+  var isPaymentOnlyEditMode = <?php echo $isPaymentOnlyEdit ? 'true' : 'false'; ?>;
   var divisionCodeToId = {};
   var uomById = {};
   var previewTimer = null;
@@ -877,6 +884,19 @@ foreach ($detailLines as $ln) {
 
   function lineHasMasterLink(line) {
     return num(line && line.item_id) > 0 || num(line && line.material_id) > 0;
+  }
+
+  function lineIsInventoryTracked(line) {
+    var kind = String(line && line.line_kind || 'ITEM').trim().toUpperCase();
+    return ['ITEM', 'MATERIAL'].indexOf(kind) !== -1;
+  }
+
+  function lineRequiresMasterLink(line) {
+    return isInventoryType && lineIsInventoryTracked(line);
+  }
+
+  function lineUsesUsagePurpose(line) {
+    return isInventoryType && lineIsInventoryTracked(line);
   }
 
   function lineSuggestionKeyword(line) {
@@ -1171,7 +1191,8 @@ foreach ($detailLines as $ln) {
 
     var kind = String(catalogDraftLine.line_kind || 'ITEM').toUpperCase();
     var materialLocked = kind === 'MATERIAL';
-    var inventoryDisabled = !isInventoryType;
+    var lineInputsDisabled = isPaymentOnlyEditMode;
+    var expiryDisabled = !isInventoryType || isPaymentOnlyEditMode;
     var masterText = [];
     if (num(catalogDraftLine.item_id) > 0) {
       masterText.push('Item ID #' + num(catalogDraftLine.item_id));
@@ -1208,26 +1229,26 @@ foreach ($detailLines as $ln) {
     }
     if (catalogDraftBuyUomEl) {
       catalogDraftBuyUomEl.innerHTML = buildUomOptions(num(catalogDraftLine.buy_uom_id || 0));
-      catalogDraftBuyUomEl.disabled = inventoryDisabled;
+      catalogDraftBuyUomEl.disabled = lineInputsDisabled;
     }
     if (catalogDraftContentUomEl) {
       var contentId = materialLocked
         ? num(catalogDraftLine.material_content_uom_id || catalogDraftLine.content_uom_id || 0)
         : num(catalogDraftLine.content_uom_id || 0);
       catalogDraftContentUomEl.innerHTML = buildUomOptions(contentId);
-      catalogDraftContentUomEl.disabled = inventoryDisabled || materialLocked;
+      catalogDraftContentUomEl.disabled = lineInputsDisabled || materialLocked;
     }
     if (catalogDraftQtyEl) {
       catalogDraftQtyEl.value = num(catalogDraftLine.qty_buy || 0).toFixed(2);
-      catalogDraftQtyEl.disabled = inventoryDisabled;
+      catalogDraftQtyEl.disabled = lineInputsDisabled;
     }
     if (catalogDraftContentEl) {
       catalogDraftContentEl.value = num(catalogDraftLine.content_per_buy || 0).toFixed(2);
-      catalogDraftContentEl.disabled = inventoryDisabled;
+      catalogDraftContentEl.disabled = lineInputsDisabled;
     }
     if (catalogDraftExpiredEl) {
       catalogDraftExpiredEl.value = dateVal(catalogDraftLine.expired_date || '');
-      catalogDraftExpiredEl.disabled = inventoryDisabled;
+      catalogDraftExpiredEl.disabled = expiryDisabled;
     }
     if (catalogDraftPriceEl) {
       catalogDraftPriceEl.value = num(catalogDraftLine.unit_price || 0).toFixed(2);
@@ -1263,7 +1284,7 @@ foreach ($detailLines as $ln) {
       alertMsg('danger', 'Tabel line PO tidak ditemukan. Refresh halaman lalu coba lagi.');
       return;
     }
-    if (!lineHasMasterLink(catalogDraftLine)) {
+    if (lineRequiresMasterLink(catalogDraftLine) && !lineHasMasterLink(catalogDraftLine)) {
       alertMsg('warning', 'Catalog ini belum terhubung ke item/bahan master yang valid. Pilih ulang dari hasil pencarian catalog.');
       return;
     }
@@ -1432,7 +1453,7 @@ foreach ($detailLines as $ln) {
       if (num(line.unit_price) <= 0) {
         warnings.push('Baris #' + (idx + 1) + ' ' + lineName + ': harga masih 0.');
       }
-      if (!lineHasMasterLink(line)) {
+      if (lineRequiresMasterLink(line) && !lineHasMasterLink(line)) {
         warnings.push('Baris #' + (idx + 1) + ' ' + lineName + ': belum terhubung ke item/bahan dari catalog.');
       }
     });
@@ -1545,7 +1566,7 @@ foreach ($detailLines as $ln) {
 
   function refreshLines() {
     if (!lines.length) {
-      lineTbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-3">Belum ada line.</td></tr>';
+      lineTbody.innerHTML = '<tr><td colspan="' + (isInventoryType ? 12 : 11) + '" class="text-center text-muted py-3">Belum ada line.</td></tr>';
       return;
     }
 
@@ -1562,7 +1583,11 @@ foreach ($detailLines as $ln) {
       var contentUomId = Number(l.content_uom_id || 0);
       var expiredDate = dateVal(l.expired_date);
       var materialLocked = (kind === 'MATERIAL');
-      var invDisabled = !isInventoryType;
+      var lineInputsDisabled = isPaymentOnlyEditMode;
+      var expiryDisabled = !isInventoryType || isPaymentOnlyEditMode;
+      var usageHtml = lineUsesUsagePurpose(l)
+        ? '<div class="form-control form-control-sm line-usage bg-light">' + esc(String(l.usage_purpose || 'BAHAN_BAKU') === 'OPERASIONAL' ? 'Kebutuhan Operasional' : 'Persediaan Produksi') + '</div>'
+        : '<div class="text-muted small">-</div>';
       var materialNameInput = (l.material_name || '');
       var showMaterialForm = materialLocked || (Number(l.material_id || 0) > 0);
       var suggestionHtml = '';
@@ -1580,18 +1605,18 @@ foreach ($detailLines as $ln) {
       }
       html.push('<tr data-idx="' + idx + '">' +
         '<td>' + (idx + 1) + '</td>' +
-        '<td><div class="d-flex gap-1 align-items-center"><input type="text" class="form-control form-control-sm line-name" value="' + esc(nameInput) + '">' +
+        '<td><div class="d-flex gap-1 align-items-center"><input type="text" class="form-control form-control-sm line-name" value="' + esc(nameInput) + '"' + (lineInputsDisabled ? ' disabled' : '') + '>' +
         '<input type="text" class="form-control form-control-sm line-material-name" value="' + esc(materialNameInput) + '" placeholder="Profil Persediaan Produksi" readonly' + (showMaterialForm ? '' : ' style="display:none;"') + '></div>' + suggestionHtml + '</td>' +
-        '<td><input type="text" class="form-control form-control-sm line-brand" value="' + esc(brand === '-' ? '' : brand) + '"></td>' +
-        '<td><input type="text" class="form-control form-control-sm line-desc" value="' + esc(desc === '-' ? '' : desc) + '"></td>' +
-        '<td><div class="form-control form-control-sm line-usage bg-light">' + esc(String(l.usage_purpose || 'BAHAN_BAKU') === 'OPERASIONAL' ? 'Kebutuhan Operasional' : 'Persediaan Produksi') + '</div></td>' +
-        '<td class="line-inventory-col"><select class="form-select form-select-sm line-buy-uom"' + (invDisabled ? ' disabled' : '') + '>' + buildUomOptions(buyUomId) + '</select></td>' +
-        '<td class="line-inventory-col"><select class="form-select form-select-sm line-content-uom"' + ((materialLocked || invDisabled) ? ' disabled' : '') + '>' + buildUomOptions(contentUomId) + '</select></td>' +
-        '<td class="line-inventory-col"><input type="number" class="form-control form-control-sm line-qty text-end" min="0" step="0.01" value="' + num(l.qty_buy || 0).toFixed(2) + '"' + (invDisabled ? ' disabled' : '') + '></td>' +
-        '<td class="line-inventory-col"><input type="number" class="form-control form-control-sm line-content text-end" min="0" step="0.01" value="' + num(l.content_per_buy || 0).toFixed(2) + '"' + (invDisabled ? ' disabled' : '') + '></td>' +
-        '<td class="line-inventory-col"><input type="date" class="form-control form-control-sm line-expired" value="' + esc(expiredDate) + '"' + (invDisabled ? ' disabled' : '') + '></td>' +
-        '<td><input type="number" class="form-control form-control-sm line-price text-end" min="0" step="0.01" value="' + num(l.unit_price || l.last_unit_price || 0).toFixed(2) + '"></td>' +
-        '<td class="action-cell"><div class="d-flex gap-1 flex-nowrap justify-content-end"><button type="button" class="btn btn-sm btn-outline-danger action-icon-btn btn-remove-line" title="Hapus" aria-label="Hapus"><i class="ri ri-delete-bin-line"></i></button></div></td>' +
+        '<td><input type="text" class="form-control form-control-sm line-brand" value="' + esc(brand === '-' ? '' : brand) + '"' + (lineInputsDisabled ? ' disabled' : '') + '></td>' +
+        '<td><input type="text" class="form-control form-control-sm line-desc" value="' + esc(desc === '-' ? '' : desc) + '"' + (lineInputsDisabled ? ' disabled' : '') + '></td>' +
+        '<td class="line-usage-col">' + usageHtml + '</td>' +
+        '<td class="line-inventory-col"><select class="form-select form-select-sm line-buy-uom"' + (lineInputsDisabled ? ' disabled' : '') + '>' + buildUomOptions(buyUomId) + '</select></td>' +
+        '<td class="line-inventory-col"><select class="form-select form-select-sm line-content-uom"' + ((materialLocked || lineInputsDisabled) ? ' disabled' : '') + '>' + buildUomOptions(contentUomId) + '</select></td>' +
+        '<td class="line-inventory-col"><input type="number" class="form-control form-control-sm line-qty text-end" min="0" step="0.01" value="' + num(l.qty_buy || 0).toFixed(2) + '"' + (lineInputsDisabled ? ' disabled' : '') + '></td>' +
+        '<td class="line-inventory-col"><input type="number" class="form-control form-control-sm line-content text-end" min="0" step="0.01" value="' + num(l.content_per_buy || 0).toFixed(2) + '"' + (lineInputsDisabled ? ' disabled' : '') + '></td>' +
+        '<td class="line-inventory-col"><input type="date" class="form-control form-control-sm line-expired" value="' + esc(expiredDate) + '"' + (expiryDisabled ? ' disabled' : '') + '></td>' +
+        '<td><input type="number" class="form-control form-control-sm line-price text-end" min="0" step="0.01" value="' + num(l.unit_price || l.last_unit_price || 0).toFixed(2) + '"' + (lineInputsDisabled ? ' disabled' : '') + '></td>' +
+        '<td class="action-cell"><div class="d-flex gap-1 flex-nowrap justify-content-end"><button type="button" class="btn btn-sm btn-outline-danger action-icon-btn btn-remove-line" title="Hapus" aria-label="Hapus"' + (isPaymentOnlyEditMode ? ' disabled' : '') + '><i class="ri ri-delete-bin-line"></i></button></div></td>' +
       '</tr>');
     });
 
@@ -1959,7 +1984,7 @@ foreach ($detailLines as $ln) {
     }
 
     if (e.target.classList.contains('line-buy-uom')) {
-      if (!isInventoryType) {
+      if (isPaymentOnlyEditMode) {
         return;
       }
       var prevBuyId = num(lines[idx].buy_uom_id || 0);
@@ -1988,7 +2013,7 @@ foreach ($detailLines as $ln) {
       lines[idx].buy_uom_code = (buyId > 0 && uomById[buyId]) ? (uomById[buyId].code || '') : '';
     }
     if (e.target.classList.contains('line-content-uom')) {
-      if (!isInventoryType) {
+      if (isPaymentOnlyEditMode) {
         return;
       }
       var kind = String(lines[idx].line_kind || '').toUpperCase();

@@ -533,6 +533,11 @@ $route['master/relation/extra-group/(:num)']                    = 'master_relati
 $route['master/relation/extra-group/(:num)/save']               = 'master_relation/extra_group_products_save/$1';
 $route['master/att-holiday/generate-year']      = 'master/att_holiday_generate_year';
 
+$route['master/material/usage/(:num)']         = 'master/material_usage/$1';
+$route['master/material/price-history']        = 'master/material_price_history';
+$route['master/material/price-history/(:num)'] = 'master/material_price_history/$1';
+$route['master/material/price-history-data']   = 'master/material_price_history_data';
+
 $route['master/(:any)']                  = 'master/index/$1';
 $route['master/(:any)/create']           = 'master/create/$1';
 $route['master/(:any)/detail/(:num)']    = 'master/detail/$1/$2';

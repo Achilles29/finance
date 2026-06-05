@@ -8,10 +8,14 @@ $receiptRows = (array)($detail['receipt_rows'] ?? []);
 $outstanding = (float)($detail['outstanding'] ?? 0);
 $txnRows = (array)($detail['txn_rows'] ?? []);
 $auditRows = (array)($detail['audit_rows'] ?? []);
+$editability = (array)($editability ?? []);
+$editabilityData = (array)($editability['data'] ?? []);
+$editMode = (string)($editabilityData['mode'] ?? '');
 
 $currentStatus = strtoupper((string)($order['status'] ?? 'DRAFT'));
 $timelineStatus = $currentStatus === 'CLOSED' ? 'PAID' : $currentStatus;
-$canEditData = in_array($currentStatus, ['DRAFT', 'APPROVED'], true);
+$canEditData = !empty($editability['ok']);
+$isPaymentOnlyEdit = $editMode === 'payment_only';
 $statusOrder = ['DRAFT', 'APPROVED', 'ORDERED', 'PARTIAL_RECEIVED', 'RECEIVED', 'PAID'];
 $statusRank = array_flip($statusOrder);
 $currentRank = $statusRank[$timelineStatus] ?? -1;
@@ -120,7 +124,7 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
         <a href="<?php echo site_url('purchase-orders'); ?>" class="btn btn-outline-secondary">Kembali ke Purchase Orders</a>
         <a href="<?php echo site_url('purchase-orders/logs?q=' . urlencode((string)($order['po_no'] ?? ''))); ?>" class="btn btn-outline-secondary">Log Purchase</a>
         <?php if ($canEditPo && $canEditData): ?>
-            <a href="<?php echo site_url('purchase-orders/edit/' . (int)($order['id'] ?? 0)); ?>" class="btn btn-outline-warning">Edit Data PO</a>
+            <a href="<?php echo site_url('purchase-orders/edit/' . (int)($order['id'] ?? 0)); ?>" class="btn btn-outline-warning"><?php echo $isPaymentOnlyEdit ? 'Ubah Metode Bayar' : 'Edit Data PO'; ?></a>
         <?php endif; ?>
         <a href="<?php echo site_url('purchase-orders/create'); ?>" class="btn btn-primary">Create Order</a>
     </div>

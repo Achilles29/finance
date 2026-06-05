@@ -9,6 +9,7 @@ $poSrTabs = [
   ['key' => 'rebuild-impact', 'label' => 'Rebuild Impact', 'hint' => 'Audit', 'url' => site_url('purchase/rebuild-impact')],
   ['key' => 'receipt-purchase', 'label' => 'Receipt Purchase', 'hint' => 'Inbound', 'url' => site_url('purchase/receipt')],
   ['key' => 'reclassify-profile', 'label' => 'Reclassify Profile', 'hint' => 'Cleanup', 'url' => site_url('purchase/reclassify-profile-domain')],
+  ['key' => 'price-history', 'label' => 'Riwayat Harga', 'hint' => 'Tren Bahan', 'url' => site_url('master/material/price-history')],
 ];
 ?>
 

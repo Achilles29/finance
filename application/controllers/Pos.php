@@ -959,11 +959,13 @@ class Pos extends MY_Controller
         $this->require_permission($pageCode, 'view');
         $filters = $this->order_draft_filters('PAID');
         $this->render('pos/order_paid_index', [
-            'page_title' => 'Pesanan Terbayar POS',
-            'active_menu' => 'pos.order.paid.index',
-            'workspace_mode' => 'PAID',
-            'filters' => $filters,
-            'filter_options' => $this->Pos_model->order_draft_filter_options(),
+            'page_title'               => 'Pesanan Terbayar POS',
+            'active_menu'              => 'pos.order.paid.index',
+            'workspace_mode'           => 'PAID',
+            'filters'                  => $filters,
+            'filter_options'           => $this->Pos_model->order_draft_filter_options(),
+            'payment_method_options'   => $this->Pos_model->deposit_payment_method_options(),
+            'can_edit_payment_method'  => $this->can_edit_sales_transaction_payment(),
         ]);
     }
 
@@ -3255,13 +3257,26 @@ class Pos extends MY_Controller
         if (!in_array($status, $allowedStatuses, true)) {
             $status = $defaultStatus;
         }
+
+        $today = date('Y-m-d');
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo   = trim((string)$this->input->get('date_to', true));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
+            $dateFrom = $workspaceMode === 'PAID' ? $today : '';
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+            $dateTo = $workspaceMode === 'PAID' ? $today : '';
+        }
+
         return [
-            'q' => trim((string)$this->input->get('q', true)),
-            'status' => $status,
+            'q'              => trim((string)$this->input->get('q', true)),
+            'status'         => $status,
             'workspace_mode' => $workspaceMode,
-            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
-            'page' => max(1, (int)$this->input->get('page', true)),
-            'limit' => max(1, min(100, (int)$this->input->get('limit', true) ?: 20)),
+            'outlet_id'      => max(0, (int)$this->input->get('outlet_id', true)),
+            'date_from'      => $dateFrom,
+            'date_to'        => $dateTo,
+            'page'           => max(1, (int)$this->input->get('page', true)),
+            'limit'          => max(1, min(100, (int)$this->input->get('limit', true) ?: 20)),
         ];
     }
 
