@@ -5273,6 +5273,12 @@ class Purchase_model extends CI_Model
             $postedLineIds[] = (int)$line['id'];
         }
 
+        $syncProfiles = $this->syncPostedStockAdjustmentProfiles($header, $lines);
+        if (!($syncProfiles['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return $syncProfiles;
+        }
+
         $this->db->where('id', $id)->update('inv_stock_adjustment', [
             'status' => 'POSTED',
             'posted_at' => date('Y-m-d H:i:s'),
@@ -5733,6 +5739,78 @@ class Purchase_model extends CI_Model
         }
 
         return ['ok' => true, 'data' => ['line_updates' => $lineUpdates]];
+    }
+
+    private function syncPostedStockAdjustmentProfiles(array $header, array $lines): array
+    {
+        $scope = strtoupper((string)($header['stock_scope'] ?? 'WAREHOUSE'));
+        $movementDate = (string)($header['adjustment_date'] ?? date('Y-m-d'));
+        $divisionId = !empty($header['division_id']) ? (int)$header['division_id'] : null;
+        $destinationType = $scope === 'DIVISION'
+            ? $this->normalizeStockAdjustmentDestination((string)($header['destination_type'] ?? ''), true)
+            : 'GUDANG';
+
+        $targets = [];
+        foreach ($lines as $line) {
+            $itemId = !empty($line['item_id']) ? (int)$line['item_id'] : null;
+            $materialId = !empty($line['material_id']) ? (int)$line['material_id'] : null;
+            $contentUomId = !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null;
+            if ($itemId === null && $materialId === null) {
+                continue;
+            }
+            if ($contentUomId === null) {
+                continue;
+            }
+
+            $hasMutation = round((float)($line['qty_waste_content'] ?? 0), 4) > 0
+                || round((float)($line['qty_spoil_content'] ?? 0), 4) > 0
+                || round((float)($line['qty_process_loss_content'] ?? 0), 4) > 0
+                || round((float)($line['qty_variance_content'] ?? 0), 4) > 0
+                || round((float)($line['qty_adjustment_plus_content'] ?? 0), 4) > 0;
+            if (!$hasMutation) {
+                continue;
+            }
+
+            $target = [
+                'movement_date' => $movementDate,
+                'item_id' => $itemId,
+                'material_id' => $materialId,
+                'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
+                'content_uom_id' => $contentUomId,
+                'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+                'sync_note' => 'Synced from FIFO lots after stock adjustment posting',
+            ];
+            if ($scope === 'DIVISION') {
+                $target['division_id'] = $divisionId;
+                $target['destination_type'] = $destinationType;
+            }
+
+            $targetKey = implode('|', [
+                $scope,
+                $scope === 'DIVISION' ? (string)$divisionId : 'NULL',
+                $scope === 'DIVISION' ? (string)$destinationType : 'GUDANG',
+                (string)($itemId ?? 0),
+                (string)($materialId ?? 0),
+                (string)($target['buy_uom_id'] ?? 0),
+                (string)$contentUomId,
+                (string)($target['profile_key'] ?? ''),
+            ]);
+            $targets[$targetKey] = $target;
+        }
+
+        foreach (array_values($targets) as $target) {
+            $sync = $scope === 'DIVISION'
+                ? $this->materialfifomanager->syncDivisionMonthlyStockFromLots($target)
+                : $this->materialfifomanager->syncWarehouseMonthlyStockFromLots($target);
+            if (!($sync['ok'] ?? false)) {
+                return [
+                    'ok' => false,
+                    'message' => (string)($sync['message'] ?? 'Gagal sinkron saldo exact profile setelah posting adjustment.'),
+                ];
+            }
+        }
+
+        return ['ok' => true, 'data' => ['sync_count' => count($targets)]];
     }
 
     private function normalizeStockAdjustmentLine(string $scope, ?int $divisionId, ?string $destinationType, array $line): ?array

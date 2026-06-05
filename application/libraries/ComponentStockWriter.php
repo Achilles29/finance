@@ -139,6 +139,7 @@ class ComponentStockWriter
 
         $db->trans_start();
         try {
+            $rebuildIdentities = [];
             foreach ($lines as $line) {
                 $componentId = (int)($line['component_id'] ?? 0);
                 $uomId = (int)($line['uom_id'] ?? 0);
@@ -147,6 +148,19 @@ class ComponentStockWriter
                 if ($componentId <= 0 || $uomId <= 0) {
                     continue;
                 }
+
+                $rebuildKey = implode('|', [
+                    $locationType,
+                    $divisionId !== null ? (string)$divisionId : 'NULL',
+                    (string)$componentId,
+                    (string)$uomId,
+                ]);
+                $rebuildIdentities[$rebuildKey] = [
+                    'location_type' => $locationType,
+                    'division_id' => $divisionId,
+                    'component_id' => $componentId,
+                    'uom_id' => $uomId,
+                ];
 
                 $outMovements = [
                     'SPOIL' => round((float)($line['qty_spoil'] ?? 0), 4),
@@ -236,6 +250,16 @@ class ComponentStockWriter
                     ]);
                     if (!($lotRegister['ok'] ?? false)) {
                         throw new RuntimeException((string)($lotRegister['message'] ?? 'Registrasi lot adjustment plus gagal.'));
+                    }
+                }
+            }
+
+            if (!empty($rebuildIdentities)) {
+                $this->ci->load->model('Production_model');
+                foreach (array_values($rebuildIdentities) as $identity) {
+                    $rebuild = $this->ci->Production_model->rebuild_component_history_for_identity($identity);
+                    if (!($rebuild['ok'] ?? false)) {
+                        throw new RuntimeException((string)($rebuild['message'] ?? 'Gagal sinkron saldo bulanan component setelah adjustment.'));
                     }
                 }
             }
@@ -757,6 +781,52 @@ class ComponentStockWriter
             return $structureHealth;
         }
 
+        $preflight = $this->ci->materialfifomanager->previewDivisionUsageState([
+            'division_id' => $divisionId,
+            'destination_type' => $destinationType,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'content_uom_id' => $uomId,
+        ]);
+        if (!($preflight['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'message' => $this->format_material_usage_error(
+                    $line,
+                    'Gagal membaca kandidat lot/profile sebelum posting batch.',
+                    ['detail' => (string)($preflight['message'] ?? '')]
+                ),
+            ];
+        }
+
+        $preSyncProfiles = [];
+        foreach ((array)($preflight['data']['lots'] ?? []) as $lot) {
+            $preSyncProfiles[$this->build_material_profile_sync_key($lot)] = [
+                'movement_date' => $movementDate,
+                'division_id' => $divisionId,
+                'destination_type' => $destinationType,
+                'item_id' => !empty($lot['item_id']) ? (int)$lot['item_id'] : null,
+                'material_id' => !empty($lot['material_id']) ? (int)$lot['material_id'] : null,
+                'buy_uom_id' => !empty($lot['buy_uom_id']) ? (int)$lot['buy_uom_id'] : null,
+                'content_uom_id' => !empty($lot['content_uom_id']) ? (int)$lot['content_uom_id'] : $uomId,
+                'profile_key' => !empty($lot['profile_key']) ? (string)$lot['profile_key'] : null,
+                'sync_note' => 'Synced from FIFO lots before component batch posting',
+            ];
+        }
+        foreach (array_values($preSyncProfiles) as $syncTarget) {
+            $syncMonthly = $this->ci->materialfifomanager->syncDivisionMonthlyStockFromLots($syncTarget);
+            if (!($syncMonthly['ok'] ?? false)) {
+                return [
+                    'ok' => false,
+                    'message' => $this->format_material_usage_error(
+                        $line,
+                        'Gagal sinkron saldo bulanan dari FIFO lot sebelum posting batch.',
+                        ['detail' => (string)($syncMonthly['message'] ?? '')]
+                    ),
+                ];
+            }
+        }
+
         $fifoUsage = $this->ci->materialfifomanager->consumeDivisionUsage([
             'issue_date' => $movementDate,
             'division_id' => $divisionId,
@@ -780,31 +850,10 @@ class ComponentStockWriter
         $lineCost = round((float)($fifoUsage['data']['total_cost'] ?? 0), 2);
         $avgUnitCost = round((float)($fifoUsage['data']['avg_unit_cost'] ?? 0), 6);
         $allocations = (array)($fifoUsage['data']['allocations'] ?? []);
+        $postSyncProfiles = [];
 
         foreach ($allocations as $allocation) {
             $snapshot = $this->resolve_inventory_snapshot_for_allocation($allocation, $divisionId, $destinationType);
-            $syncMonthly = $this->ci->materialfifomanager->syncDivisionMonthlyStockFromLots([
-                'movement_date' => $movementDate,
-                'division_id' => $divisionId,
-                'destination_type' => $destinationType,
-                'item_id' => $snapshot['item_id'],
-                'material_id' => $snapshot['material_id'],
-                'buy_uom_id' => $snapshot['buy_uom_id'],
-                'content_uom_id' => $snapshot['content_uom_id'],
-                'profile_key' => $snapshot['profile_key'],
-            ]);
-            if (!($syncMonthly['ok'] ?? false)) {
-                return [
-                    'ok' => false,
-                    'message' => $this->format_material_usage_error(
-                        $line,
-                        'Gagal sinkron saldo bulanan dari FIFO lot sebelum posting batch.',
-                        [
-                            'detail' => (string)($syncMonthly['message'] ?? ''),
-                        ]
-                    ),
-                ];
-            }
             $contentPerBuy = max(0.000001, round((float)($snapshot['profile_content_per_buy'] ?? 1), 6));
             $qtyContent = round((float)($allocation['qty_content'] ?? 0), 4);
             $qtyBuy = round($qtyContent / $contentPerBuy, 4);
@@ -850,6 +899,32 @@ class ComponentStockWriter
                             'qty_content' => $qtyContent,
                             'source_lot_no' => (string)($allocation['source_lot_no'] ?? ''),
                         ]
+                    ),
+                ];
+            }
+
+            $postSyncProfiles[$this->build_material_profile_sync_key($snapshot)] = [
+                'movement_date' => $movementDate,
+                'division_id' => $divisionId,
+                'destination_type' => $destinationType,
+                'item_id' => $snapshot['item_id'],
+                'material_id' => $snapshot['material_id'],
+                'buy_uom_id' => $snapshot['buy_uom_id'],
+                'content_uom_id' => $snapshot['content_uom_id'],
+                'profile_key' => $snapshot['profile_key'],
+                'sync_note' => 'Synced from FIFO lots after component batch posting',
+            ];
+        }
+
+        foreach (array_values($postSyncProfiles) as $syncTarget) {
+            $syncMonthly = $this->ci->materialfifomanager->syncDivisionMonthlyStockFromLots($syncTarget);
+            if (!($syncMonthly['ok'] ?? false)) {
+                return [
+                    'ok' => false,
+                    'message' => $this->format_material_usage_error(
+                        $line,
+                        'Gagal sinkron saldo bulanan dari FIFO lot setelah posting batch.',
+                        ['detail' => (string)($syncMonthly['message'] ?? '')]
                     ),
                 ];
             }
@@ -1024,6 +1099,17 @@ class ComponentStockWriter
         }
 
         return implode(' | ', $parts);
+    }
+
+    private function build_material_profile_sync_key(array $identity): string
+    {
+        return implode('|', [
+            (string)($identity['item_id'] ?? 0),
+            (string)($identity['material_id'] ?? 0),
+            (string)($identity['buy_uom_id'] ?? 0),
+            (string)($identity['content_uom_id'] ?? 0),
+            (string)($identity['profile_key'] ?? ''),
+        ]);
     }
 
     private function resolve_inventory_snapshot_for_allocation(array $allocation, int $divisionId, string $destinationType): array

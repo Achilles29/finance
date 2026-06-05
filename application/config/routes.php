@@ -535,10 +535,18 @@ $route['master/att-holiday/generate-year']      = 'master/att_holiday_generate_y
 
 $route['master/material/usage/(:num)']          = 'master/material_usage/$1';
 
-$route['dbtools/backup-guide']                  = 'system_tools/backup_guide';
+$route['dbtools']                               = 'system_tools/index';
+$route['dbtools/backup-guide']                  = 'system_tools/index';
+$route['dbtools/replication-guide']             = 'system_tools/index';
+$route['dbtools/settings']                      = 'system_tools/index';
 $route['dbtools/backup-status']                 = 'system_tools/backup_status';
-$route['dbtools/replication-guide']             = 'system_tools/replication_guide';
 $route['dbtools/replication-status']            = 'system_tools/replication_status';
+$route['dbtools/settings/save']                 = 'system_tools/settings_save';
+$route['dbtools/action/run-backup']             = 'system_tools/action_run_backup';
+$route['dbtools/action/test-db']                = 'system_tools/action_test_db';
+$route['dbtools/action/check-replication']      = 'system_tools/action_check_replication';
+$route['dbtools/action/failover']               = 'system_tools/action_failover';
+$route['dbtools/action/restart-replication']    = 'system_tools/action_restart_replication';
 
 $route['purchase/item-price-history']           = 'purchase/item_price_history';
 $route['purchase/item-price-history/item-search'] = 'purchase/item_price_history_item_search';
