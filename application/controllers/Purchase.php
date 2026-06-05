@@ -2870,6 +2870,13 @@ class Purchase extends MY_Controller
         return $post;
     }
 
+    private function jsonOk(array $data = []): void
+    {
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode(array_merge(['ok' => true], $data), JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
     private function jsonError(string $message, int $statusCode = 400): void
     {
         $this->output
@@ -2904,5 +2911,128 @@ class Purchase extends MY_Controller
             $desc,
             $expiredDate,
         ]);
+    }
+
+    // ── Riwayat Harga Item / Bahan ────────────────────────────────────
+
+    public function item_price_history(int $itemId = 0)
+    {
+        $this->require_permission(self::PAGE_ORDER, 'view');
+        $itemId     = max(0, $itemId);
+        $materialId = max(0, (int)$this->input->get('material_id', true));
+
+        // Jika datang dari halaman material (material_id), cari item yang paling terakhir
+        // dibeli untuk material tersebut dari inv_stock_movement_log
+        if ($itemId <= 0 && $materialId > 0 && $this->db->table_exists('inv_stock_movement_log')) {
+            $latestRow = $this->db->query("
+                SELECT l.item_id
+                FROM inv_stock_movement_log l
+                LEFT JOIN mst_item i ON i.id = l.item_id
+                WHERE COALESCE(l.material_id, i.material_id) = {$materialId}
+                  AND l.movement_type = 'PURCHASE_IN'
+                  AND l.item_id IS NOT NULL
+                ORDER BY l.movement_date DESC, l.id DESC
+                LIMIT 1
+            ")->row_array();
+            if (!empty($latestRow['item_id'])) {
+                $itemId = (int)$latestRow['item_id'];
+            }
+        }
+
+        $preselected = null;
+        if ($itemId > 0) {
+            $preselected = $this->db
+                ->select('i.id, i.item_name, i.item_code, m.id AS material_id, m.material_name, cat.name AS category_name, COALESCE(cu.code, cu.name) AS content_uom, COALESCE(bu.code, bu.name) AS buy_uom', false)
+                ->from('mst_item i')
+                ->join('mst_material m', 'm.id = i.material_id', 'left')
+                ->join('mst_item_category cat', 'cat.id = i.item_category_id', 'left')
+                ->join('mst_uom cu', 'cu.id = i.content_uom_id', 'left')
+                ->join('mst_uom bu', 'bu.id = i.buy_uom_id', 'left')
+                ->where('i.id', $itemId)
+                ->get()->row_array() ?: null;
+        }
+
+        $this->render('purchase/item_price_history', [
+            'title'          => 'Riwayat Harga Item',
+            'active_menu'    => 'purchase.material.price_history',
+            'preselected'    => $preselected,
+            'preselected_id' => $itemId,
+            'from_material_id' => $materialId,
+        ]);
+    }
+
+    public function item_price_history_item_search()
+    {
+        $this->require_permission(self::PAGE_ORDER, 'view');
+        $q = trim((string)$this->input->get('q', true));
+        if ($q === '') {
+            $this->jsonOk(['rows' => []]);
+            return;
+        }
+
+        $rows = $this->db
+            ->select('i.id, i.item_name, i.item_code, m.material_name, cat.name AS category_name, COALESCE(cu.code, cu.name) AS content_uom, COALESCE(bu.code, bu.name) AS buy_uom', false)
+            ->from('mst_item i')
+            ->join('mst_material m', 'm.id = i.material_id', 'left')
+            ->join('mst_item_category cat', 'cat.id = i.item_category_id', 'left')
+            ->join('mst_uom cu', 'cu.id = i.content_uom_id', 'left')
+            ->join('mst_uom bu', 'bu.id = i.buy_uom_id', 'left')
+            ->group_start()
+                ->like('i.item_name', $q)
+                ->or_like('i.item_code', $q)
+                ->or_like('m.material_name', $q)
+            ->group_end()
+            ->order_by('i.item_name', 'ASC')
+            ->limit(15)
+            ->get()->result_array();
+
+        $this->jsonOk(['rows' => $rows]);
+    }
+
+    public function item_price_history_data()
+    {
+        $this->require_permission(self::PAGE_ORDER, 'view');
+        $itemId = max(0, (int)$this->input->get('item_id', true));
+        $limit  = min(200, max(5, (int)($this->input->get('limit', true) ?: 20)));
+        $mode   = in_array($this->input->get('mode', true), ['hpp', 'buy'], true)
+                ? $this->input->get('mode', true) : 'hpp';
+
+        if ($itemId <= 0 || !$this->db->table_exists('inv_stock_movement_log')) {
+            $this->jsonOk(['rows' => [], 'meta' => ['total' => 0]]);
+            return;
+        }
+
+        $rows = $this->db->query("
+            SELECT
+                l.id,
+                l.movement_date,
+                l.item_id,
+                COALESCE(l.profile_name, i.item_name, '') AS item_name,
+                COALESCE(l.profile_brand, '') AS brand,
+                l.unit_cost,
+                ROUND(l.unit_cost * COALESCE(l.profile_content_per_buy, 1), 4) AS price_per_buy,
+                l.qty_buy_delta,
+                l.qty_content_delta,
+                COALESCE(l.profile_buy_uom_code, bu.code, 'pack') AS buy_uom,
+                COALESCE(l.profile_content_uom_code, cu.code, '') AS content_uom,
+                COALESCE(l.profile_content_per_buy, 0) AS content_per_buy,
+                d.name AS division_name
+            FROM inv_stock_movement_log l
+            LEFT JOIN mst_item i ON i.id = l.item_id
+            LEFT JOIN mst_operational_division d ON d.id = l.division_id
+            LEFT JOIN mst_uom bu ON bu.id = l.buy_uom_id
+            LEFT JOIN mst_uom cu ON cu.id = l.content_uom_id
+            WHERE l.item_id = {$itemId}
+              AND l.movement_type = 'PURCHASE_IN'
+            ORDER BY l.movement_date DESC, l.id DESC
+            LIMIT {$limit}
+        ")->result_array();
+
+        $total = (int)($this->db->query("
+            SELECT COUNT(*) AS cnt FROM inv_stock_movement_log
+            WHERE item_id = {$itemId} AND movement_type = 'PURCHASE_IN'
+        ")->row_array()['cnt'] ?? 0);
+
+        $this->jsonOk(['rows' => $rows, 'meta' => ['total' => $total, 'limit' => $limit, 'mode' => $mode]]);
     }
 }

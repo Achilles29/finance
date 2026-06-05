@@ -108,8 +108,6 @@ sekarang modifikasi /master/material:
 
 
 
-berikan spinner saat posting
-lanjutkan 1 dan 2.
 
 
 
@@ -118,3 +116,23 @@ lanjutkan 1 dan 2.
 - perbesar ukuran icon seperti pada halaman purchase
 - rapikan lagi kolom divisi dan stok. dan upah UOM kedua bukan kode satuan tapi ganti fix jadi PACK, jadi contoh oatmilk ini 6.120,00 MILLILITER , 70,95 PACK . perbaiki juga warning kecil tidak ada resep nya itu, faktanya ada, kemungkinan dia hanya mengambil comopnent, seharusnya produk juga. lalu ganti juga warnanya agar lebih jelas
 - sesuaikan data dari hpp live menjadi hiperlink halaman yang menunjukan naik turunya harga barang tersebut berdasarkan data N orderan terakhir. dengan bagian atas menampilkan grafik berdasarkan data yang difilter (jumlah transaksi terakhir, opsional antara hpp atau harga beli), lalu bagian bawah datatabel transaksi x terakhir dari purchase. buatkan dulu halaman globalnya, lalu hiperlinkan per bahan nya
+
+
+
+
+
+- kok saya ngrasa kurang pas ya kalau price-history diambil dari controller master / material. hehe. harusnya lebih ke purchase tapi menarik data dari mst item
+- koreksi juga, data belum tampil, grafik belum tampil
+- untuk pemilihan item pakai search ajax dengan preview, bukan dengan dropdown, dan tidka usah tampilkan kode nya
+
+
+
+
+
+
+
+
+
+
+- perbaiki adjustmen di daily matrix baik gudang, bahan baku divisi , maupun component. alur adj adalah memilih line sesuai tanggal kemudian di klik adj tombol icon pencil. jadi data yang diubah harusnya data profile line tersebut, baik waste ,spol, maupun plus minus. jadi untuk hpp juga semestinya tidak perlu input manual tapi mengikuti hpp profile tersebut. betul kan? beda lagi kalau kita adj manual misal component melalui production/component-adjustments untuk component yang memang sebelumnya belum ada di stok memang kita perlu input harganya. betul tidak logikaku?
+perbaiki alur adj melalui daily matrix, jangan langsung tampilkan semua opsi, tapi buat guarding pilih salai satu dulu antara spoil / waste / minus / plus, baru tampilkan alasannya

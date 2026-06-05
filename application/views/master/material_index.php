@@ -46,8 +46,10 @@ $matRp = static function(float $v): string {
   .mat-cat-badge { font-size:.72rem; background:#f5ede7; color:#6b4432; border-radius:8px; padding:.15rem .55rem; white-space:nowrap; }
   .mat-warn { display:inline-flex; align-items:center; gap:.25rem; font-size:.72rem; color:#a8561a; background:#fff3e0; border:1px solid #f8c47c; border-radius:6px; padding:.1rem .4rem; }
   .action-cell { white-space:nowrap; text-align:right; width:1%; }
-  .action-icon-btn { width:38px; min-width:38px; height:38px; border-radius:10px; padding:0; display:inline-flex; align-items:center; justify-content:center; }
-  .action-icon-btn i { font-size:1.1rem; }
+  /* Override global app.css action-icon-btn (yang pakai !important via var) */
+  .mat-table .action-cell { --fin-btn-icon-sz: 36px; }
+  .mat-table .action-cell .action-icon-btn { border-radius:10px !important; }
+  .mat-table .action-cell .action-icon-btn i { font-size:1.05rem !important; }
   .mat-diff-up { color:#c0392b; font-size:.75rem; }
   .mat-diff-dn { color:#27ae60; font-size:.75rem; }
 </style>
@@ -59,7 +61,7 @@ $matRp = static function(float $v): string {
     <p class="fin-page-subtitle">HPP live dari stok bulanan divisi · Divisi penggunaan dari resep komponen &amp; produk</p>
   </div>
   <div class="fin-page-actions">
-    <a href="<?php echo site_url('master/material/price-history'); ?>" class="btn btn-outline-info btn-sm">
+    <a href="<?php echo site_url('purchase/item-price-history'); ?>" class="btn btn-outline-info btn-sm">
       <i class="ri ri-line-chart-line me-1"></i>Riwayat Harga
     </a>
     <a href="<?php echo site_url('master/material/create'); ?>" class="btn btn-primary btn-sm">
@@ -214,9 +216,11 @@ $matRp = static function(float $v): string {
               <?php echo $matRp($hppStd); ?>
             </td>
             <td class="text-end">
+              <?php
+                $priceHistUrl = site_url('purchase/item-price-history?material_id=' . $rId);
+              ?>
               <?php if ($hppLive > 0): ?>
-                <a href="<?php echo site_url('master/material/price-history/' . $rId); ?>"
-                   class="mat-hpp-live-link">
+                <a href="<?php echo $priceHistUrl; ?>" class="mat-hpp-live-link">
                   <?php echo $matRp($hppLive); ?>
                 </a>
                 <?php if ($hppStd > 0): ?>
@@ -226,7 +230,7 @@ $matRp = static function(float $v): string {
                   </div>
                 <?php endif; ?>
               <?php else: ?>
-                <a href="<?php echo site_url('master/material/price-history/' . $rId); ?>"
+                <a href="<?php echo $priceHistUrl; ?>"
                    class="text-muted small text-decoration-none">dari std →</a>
               <?php endif; ?>
             </td>
@@ -244,8 +248,8 @@ $matRp = static function(float $v): string {
                     $dName     = $divUsage[$dId] ?? ($stocks[$dId]['division_name'] ?? "Divisi #{$dId}");
                     $stockInfo = $stocks[$dId] ?? null;
                     $inRecipe  = isset($divUsage[$dId]);
-                    $sqContent = $stockInfo !== null ? (float)$stockInfo['stock_qty']    : 0.0;
-                    $sqPack    = $stockInfo !== null ? (float)$stockInfo['stock_qty_buy'] : 0.0;
+                    $sqContent = $stockInfo !== null ? (float)$stockInfo['stock_qty']     : 0.0;
+                    $sqPack    = $stockInfo !== null ? (float)$stockInfo['stock_qty_buy']  : 0.0;
                   ?>
                   <div class="mat-div-row">
                     <span class="mat-div-badge"><?php echo html_escape($dName); ?></span>
@@ -254,10 +258,8 @@ $matRp = static function(float $v): string {
                         <div class="mat-stock-isi <?php echo $sqContent <= 0 ? 'mat-stock-zero' : ''; ?>">
                           <?php echo $matNum($sqContent, 2); ?> <?php echo html_escape($uomName); ?>
                         </div>
-                        <?php if ($sqPack > 0): ?>
-                          <div class="mat-stock-pack">
-                            <?php echo $matNum($sqPack, 2); ?> PACK
-                          </div>
+                        <?php if ($sqPack > 0 && round($sqPack, 2) !== round($sqContent, 2)): ?>
+                          <div class="mat-stock-pack"><?php echo $matNum($sqPack, 2); ?> PACK</div>
                         <?php elseif ($sqContent <= 0): ?>
                           <div class="mat-stock-zero">stok 0</div>
                         <?php endif; ?>
@@ -277,7 +279,7 @@ $matRp = static function(float $v): string {
             </td>
             <td class="action-cell">
               <div class="d-flex gap-1 flex-nowrap justify-content-end">
-                <a href="<?php echo site_url('master/material/price-history/' . $rId); ?>"
+                <a href="<?php echo site_url('purchase/item-price-history?material_id=' . $rId); ?>"
                    class="btn btn-sm btn-outline-secondary action-icon-btn"
                    data-bs-toggle="tooltip" title="Riwayat Harga" aria-label="Riwayat Harga">
                   <i class="ri ri-line-chart-line"></i>

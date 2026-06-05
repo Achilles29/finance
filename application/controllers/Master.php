@@ -168,6 +168,7 @@ class Master extends MY_Controller
         if ($entity === 'material') {
             $divisionFilter = (int)$this->input->get('division_filter', true);
             $sortBy         = trim((string)$this->input->get('sort_by', true));
+            $catFilterId    = (int)($listFilters['values']['item_category_id'] ?? 0);
             if (!in_array($sortBy, ['cat_id', 'cat_name', 'name'], true)) $sortBy = 'cat_id';
 
             $matParams = [
@@ -194,7 +195,6 @@ class Master extends MY_Controller
             $data['material_division_options'] = $this->Master_model->get_options('mst_operational_division', 'id', 'name', false);
             $data['division_filter_value']   = $divisionFilter;
             $data['sort_by_value']           = $sortBy;
-            $catFilterId = (int)($listFilters['values']['item_category_id'] ?? 0);
             $data['cat_filter_value']        = $catFilterId;
             $this->render('master/material_index', $data);
             return;
@@ -229,100 +229,6 @@ class Master extends MY_Controller
             'material'     => $material,
             'usage_rows'   => $this->fetchMaterialUsageRows($id),
         ]);
-    }
-
-    public function material_price_history(int $id = 0)
-    {
-        $id = max(0, $id);
-        $materialList = $this->db->select('id, material_name, material_code, content_uom_id')
-            ->from('mst_material')
-            ->where('is_active', 1)
-            ->order_by('material_name', 'ASC')
-            ->get()->result_array();
-
-        $selected = null;
-        if ($id > 0) {
-            foreach ($materialList as $m) {
-                if ((int)$m['id'] === $id) { $selected = $m; break; }
-            }
-        }
-
-        $this->render('master/material_price_history', [
-            'title'         => 'Riwayat Harga Bahan Baku',
-            'active_menu'   => 'purchase.material.price_history',
-            'material_list' => $materialList,
-            'selected_id'   => $id,
-            'selected'      => $selected,
-        ]);
-    }
-
-    public function material_price_history_data()
-    {
-        $materialId = max(0, (int)$this->input->get('material_id', true));
-        $itemId     = max(0, (int)$this->input->get('item_id', true));
-        $limit      = min(200, max(5, (int)($this->input->get('limit', true) ?: 20)));
-        $mode       = in_array($this->input->get('mode', true), ['hpp', 'buy'], true)
-                    ? $this->input->get('mode', true) : 'hpp';
-
-        if ($materialId <= 0 || !$this->db->table_exists('inv_stock_movement_log')) {
-            $this->json_ok(['rows' => [], 'items' => [], 'meta' => ['total' => 0]]);
-            return;
-        }
-
-        $itemFilter = $itemId > 0 ? "AND l.item_id = {$itemId}" : '';
-
-        $rows = $this->db->query("
-            SELECT
-                l.id,
-                l.movement_date,
-                l.item_id,
-                COALESCE(i.item_code, '') AS item_code,
-                COALESCE(l.profile_name, i.item_name, '') AS item_name,
-                COALESCE(l.profile_brand, i.item_name, '') AS brand,
-                l.unit_cost,
-                ROUND(l.unit_cost * COALESCE(l.profile_content_per_buy, 1), 4) AS price_per_buy,
-                l.qty_buy_delta,
-                l.qty_content_delta,
-                COALESCE(l.profile_buy_uom_code, bu.code, 'pack') AS buy_uom,
-                COALESCE(l.profile_content_uom_code, cu.code, '') AS content_uom,
-                COALESCE(l.profile_content_per_buy, 0) AS content_per_buy,
-                d.name AS division_name
-            FROM inv_stock_movement_log l
-            LEFT JOIN mst_item i ON i.id = l.item_id
-            LEFT JOIN mst_operational_division d ON d.id = l.division_id
-            LEFT JOIN mst_uom bu ON bu.id = l.buy_uom_id
-            LEFT JOIN mst_uom cu ON cu.id = l.content_uom_id
-            WHERE COALESCE(l.material_id, i.material_id) = {$materialId}
-              AND l.movement_type = 'PURCHASE_IN'
-              {$itemFilter}
-            ORDER BY l.movement_date DESC, l.id DESC
-            LIMIT {$limit}
-        ")->result_array();
-
-        $total = (int)($this->db->query("
-            SELECT COUNT(*) AS cnt
-            FROM inv_stock_movement_log l
-            LEFT JOIN mst_item i ON i.id = l.item_id
-            WHERE COALESCE(l.material_id, i.material_id) = {$materialId}
-              AND l.movement_type = 'PURCHASE_IN'
-              {$itemFilter}
-        ")->row_array()['cnt'] ?? 0);
-
-        // Distinct items for filter dropdown
-        $items = $this->db->query("
-            SELECT DISTINCT
-                l.item_id,
-                COALESCE(l.profile_name, i.item_name, CONCAT('Item #', l.item_id)) AS item_label,
-                COALESCE(l.profile_brand, '') AS brand
-            FROM inv_stock_movement_log l
-            LEFT JOIN mst_item i ON i.id = l.item_id
-            WHERE COALESCE(l.material_id, i.material_id) = {$materialId}
-              AND l.movement_type = 'PURCHASE_IN'
-              AND l.item_id IS NOT NULL
-            ORDER BY item_label
-        ")->result_array();
-
-        $this->json_ok(['rows' => $rows, 'items' => $items, 'meta' => ['total' => $total, 'limit' => $limit, 'mode' => $mode]]);
     }
 
     private function applyMaterialQueryConditions(array $params): void
@@ -438,16 +344,16 @@ class Master extends MY_Controller
 
             if ($latestMonth !== '') {
                 $hasBuyQty = $this->db->field_exists('closing_qty_buy', 'inv_division_monthly_stock');
-                $buyQtyExpr = $hasBuyQty ? 'SUM(COALESCE(s.closing_qty_buy, 0))' : '0';
-                $buyUomExpr = $hasBuyQty ? 'MIN(COALESCE(bu.code, bu.name))' : "''";
-                $buyJoin    = $hasBuyQty ? 'LEFT JOIN mst_uom bu ON bu.id = s.buy_uom_id' : '';
+                $buyJoin   = $hasBuyQty ? 'LEFT JOIN mst_uom bu ON bu.id = s.buy_uom_id' : '';
 
                 $stockSql = "
                     SELECT s.material_id, s.division_id, d.name AS division_name,
                            SUM(COALESCE(s.closing_qty_content, 0)) AS stock_qty,
-                           AVG(COALESCE(s.avg_cost_per_content, 0)) AS avg_cost,
-                           {$buyQtyExpr} AS stock_qty_buy,
-                           {$buyUomExpr} AS buy_uom_name
+                           AVG(COALESCE(s.avg_cost_per_content, 0)) AS avg_cost"
+                    . ($hasBuyQty ? ",
+                           SUM(COALESCE(s.closing_qty_buy, 0)) AS stock_qty_buy,
+                           MIN(COALESCE(bu.code, bu.name, '')) AS buy_uom_code" : ",
+                           0 AS stock_qty_buy, '' AS buy_uom_code") . "
                     FROM inv_division_monthly_stock s
                     LEFT JOIN mst_operational_division d ON d.id = s.division_id
                     {$buyJoin}
@@ -465,7 +371,7 @@ class Master extends MY_Controller
                         'division_name' => $sr['division_name'] ?? '-',
                         'stock_qty'     => round((float)$sr['stock_qty'], 2),
                         'stock_qty_buy' => round((float)$sr['stock_qty_buy'], 2),
-                        'buy_uom_name'  => (string)($sr['buy_uom_name'] ?? ''),
+                        'buy_uom_code'  => (string)($sr['buy_uom_code'] ?? ''),
                         'avg_cost'      => round((float)$sr['avg_cost'], 4),
                     ];
                 }

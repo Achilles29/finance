@@ -1020,7 +1020,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         </div>
         <div class="pmd-adjust-help mb-3">
           <div class="fw-semibold mb-1">Pola input divisi</div>
-          <div>Qty diisi dalam satuan isi, biaya diisi per satuan isi. Dokumen akan langsung disimpan dan diposting pada tanggal, divisi, dan tujuan yang dipilih dari row matrix.</div>
+          <div>Pilih satu jenis koreksi untuk profile yang dipilih. Qty diisi dalam satuan isi, dan HPP adjustment akan otomatis mengikuti HPP profile line tersebut.</div>
         </div>
         <form id="pmdAdjustForm" class="row g-2" autocomplete="off">
           <div class="col-md-6">
@@ -1032,56 +1032,39 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
             <input type="text" class="form-control" id="pmdAdjustLineNote" placeholder="Opsional">
           </div>
           <div class="col-md-4">
-            <label class="form-label">Waste (Isi)</label>
-            <input type="number" class="form-control" id="pmdQtyWaste" min="0" step="0.01" value="0">
-          </div>
-          <div class="col-md-8">
-            <label class="form-label">Reason Waste</label>
-            <select class="form-select" id="pmdWasteReason"></select>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Spoil (Isi)</label>
-            <input type="number" class="form-control" id="pmdQtySpoil" min="0" step="0.01" value="0">
-          </div>
-          <div class="col-md-8">
-            <label class="form-label">Reason Spoil</label>
-            <select class="form-select" id="pmdSpoilReason"></select>
+            <label class="form-label">Jenis Koreksi</label>
+            <select class="form-select" id="pmdAdjustAction">
+              <option value="">Pilih salah satu...</option>
+              <option value="SPOIL">Spoil</option>
+              <option value="WASTE">Waste</option>
+              <option value="MINUS">Minus</option>
+              <option value="PLUS">Plus</option>
+            </select>
           </div>
           <div class="col-md-4">
-            <label class="form-label">Process Loss (Isi)</label>
-            <input type="number" class="form-control" id="pmdQtyProcessLoss" min="0" step="0.01" value="0">
-          </div>
-          <div class="col-md-8">
-            <label class="form-label">Reason Process Loss</label>
-            <select class="form-select" id="pmdProcessLossReason"></select>
+            <label class="form-label" id="pmdQtyLabel">Qty</label>
+            <input type="number" class="form-control" id="pmdQtyInput" min="0" step="0.01" value="0">
           </div>
           <div class="col-md-4">
-            <label class="form-label">Variance (Isi)</label>
-            <input type="number" class="form-control" id="pmdQtyVariance" min="0" step="0.01" value="0">
+            <label class="form-label" id="pmdReasonLabel">Alasan</label>
+            <select class="form-select" id="pmdReasonSelect">
+              <option value="">Pilih jenis koreksi dulu</option>
+            </select>
           </div>
-          <div class="col-md-8">
-            <label class="form-label">Reason Variance</label>
-            <select class="form-select" id="pmdVarianceReason"></select>
+          <div class="col-md-4 d-none" id="pmdAutoCostWrap">
+            <label class="form-label">HPP Profile Otomatis</label>
+            <input type="text" class="form-control" id="pmdAutoCostDisplay" readonly value="0">
           </div>
-          <div class="col-md-4">
-            <label class="form-label">Adjustment + (Isi)</label>
-            <input type="number" class="form-control" id="pmdQtyPlus" min="0" step="0.01" value="0">
-          </div>
-          <div class="col-md-8">
-            <label class="form-label">Reason Adjustment +</label>
-            <select class="form-select" id="pmdPlusReason"></select>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Cost / Isi</label>
-            <input type="number" class="form-control" id="pmdUnitCostInput" min="0" step="0.01" value="0">
-          </div>
-          <div class="col-md-4">
+          <div class="col-md-4 d-none pmd-plus-only">
             <label class="form-label">Lot Masuk Manual</label>
             <input type="text" class="form-control" id="pmdInboundLotNo" placeholder="Opsional untuk adjustment +">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-4 d-none pmd-plus-only">
             <label class="form-label">Exp Date Lot Masuk</label>
             <input type="date" class="form-control" id="pmdInboundExpiryDate">
+          </div>
+          <div class="col-12 d-none" id="pmdAutoCostHint">
+            <div class="form-text">Untuk plus, HPP akan mengikuti profile line yang dipilih dari daily matrix. Input harga manual tidak diperlukan.</div>
           </div>
         </form>
       </div>
@@ -1180,6 +1163,12 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   var adjustModal = (adjustModalEl && window.bootstrap && bootstrap.Modal) ? new bootstrap.Modal(adjustModalEl) : null;
   var adjustContext = null;
   var adjustBackdropEl = null;
+  var adjustActionMeta = {
+    SPOIL: { label: 'Spoil', reasonLabel: 'Alasan Spoil', reasonCategory: 'SPOILAGE' },
+    WASTE: { label: 'Waste', reasonLabel: 'Alasan Waste', reasonCategory: 'WASTE' },
+    MINUS: { label: 'Minus', reasonLabel: 'Alasan Minus', reasonCategory: 'VARIANCE' },
+    PLUS: { label: 'Plus', reasonLabel: 'Alasan Plus', reasonCategory: 'ADJUSTMENT_PLUS' }
+  };
 
   function esc(value){
     return String(value == null ? '' : value)
@@ -1435,20 +1424,56 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
 
   function resetAdjustForm(){
-    ['pmdQtyWaste', 'pmdQtySpoil', 'pmdQtyProcessLoss', 'pmdQtyVariance', 'pmdQtyPlus', 'pmdUnitCostInput'].forEach(function(id){
+    ['pmdQtyInput'].forEach(function(id){
       var el = document.getElementById(id);
       if (!el) { return; }
       el.value = '0';
     });
-    ['pmdWasteReason', 'pmdSpoilReason', 'pmdProcessLossReason', 'pmdVarianceReason', 'pmdPlusReason'].forEach(function(id){
-      var el = document.getElementById(id);
-      if (el) { el.value = 'other'; }
-    });
+    var actionEl = document.getElementById('pmdAdjustAction');
+    if (actionEl) { actionEl.value = ''; }
+    document.getElementById('pmdQtyLabel').textContent = 'Qty';
+    document.getElementById('pmdReasonLabel').textContent = 'Alasan';
+    document.getElementById('pmdReasonSelect').innerHTML = '<option value="">Pilih jenis koreksi dulu</option>';
+    document.getElementById('pmdAutoCostDisplay').value = '0';
+    document.getElementById('pmdAutoCostWrap').classList.add('d-none');
+    document.getElementById('pmdAutoCostHint').classList.add('d-none');
+    Array.prototype.forEach.call(document.querySelectorAll('.pmd-plus-only'), function(el){ el.classList.add('d-none'); });
     ['pmdAdjustHeaderNotes', 'pmdAdjustLineNote', 'pmdInboundLotNo', 'pmdInboundExpiryDate'].forEach(function(id){
       var el = document.getElementById(id);
       if (el) { el.value = ''; }
     });
     showAdjustAlert(true, '');
+  }
+
+  function updateAdjustActionUi(){
+    var action = String((document.getElementById('pmdAdjustAction').value || '')).toUpperCase();
+    var meta = adjustActionMeta[action] || null;
+    var reasonEl = document.getElementById('pmdReasonSelect');
+    document.getElementById('pmdQtyInput').value = '0';
+    if (!meta) {
+      document.getElementById('pmdQtyLabel').textContent = 'Qty';
+      document.getElementById('pmdReasonLabel').textContent = 'Alasan';
+      reasonEl.innerHTML = '<option value="">Pilih jenis koreksi dulu</option>';
+      document.getElementById('pmdAutoCostDisplay').value = '0';
+      document.getElementById('pmdAutoCostWrap').classList.add('d-none');
+      document.getElementById('pmdAutoCostHint').classList.add('d-none');
+      Array.prototype.forEach.call(document.querySelectorAll('.pmd-plus-only'), function(el){ el.classList.add('d-none'); });
+      return;
+    }
+    document.getElementById('pmdQtyLabel').textContent = meta.label + ' (Isi)';
+    document.getElementById('pmdReasonLabel').textContent = meta.reasonLabel;
+    fillReasonSelect('pmdReasonSelect', meta.reasonCategory);
+    if (action === 'PLUS') {
+      document.getElementById('pmdAutoCostDisplay').value = String(Number.isFinite(adjustContext && adjustContext.defaultUnitCostInput) ? adjustContext.defaultUnitCostInput : 0);
+      document.getElementById('pmdAutoCostWrap').classList.remove('d-none');
+      document.getElementById('pmdAutoCostHint').classList.remove('d-none');
+      Array.prototype.forEach.call(document.querySelectorAll('.pmd-plus-only'), function(el){ el.classList.remove('d-none'); });
+    } else {
+      document.getElementById('pmdAutoCostDisplay').value = '0';
+      document.getElementById('pmdAutoCostWrap').classList.add('d-none');
+      document.getElementById('pmdAutoCostHint').classList.add('d-none');
+      Array.prototype.forEach.call(document.querySelectorAll('.pmd-plus-only'), function(el){ el.classList.add('d-none'); });
+    }
   }
 
   function openAdjust(groupIndex, profileIndex, dateText){
@@ -1465,7 +1490,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       group: group,
       row: row,
       day: day || { adjustment: 0, closing: 0 },
-      defaultUnitCostInput: Number(resolveReferenceUnitPrice(row) || ((row.metrics && row.metrics.unit_price) || 0))
+      defaultUnitCostInput: Number(resolveReferenceUnitPrice(row, group) || ((row.metrics && row.metrics.unit_price) || 0) || ((group.metrics && group.metrics.last_unit_price) || 0) || ((group.metrics && group.metrics.hpp) || 0))
     };
 
     resetAdjustForm();
@@ -1479,8 +1504,9 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     document.getElementById('pmdAdjustDivisionLabel').textContent = divisionLabel(group) + ' / ' + destinationLabel(group);
     document.getElementById('pmdAdjustExistingLabel').textContent = num(Number(adjustContext.day.adjustment || 0)) + (row.profile_content_uom_code ? (' ' + row.profile_content_uom_code) : '');
     document.getElementById('pmdAdjustClosingLabel').textContent = num(Number(adjustContext.day.closing || 0)) + (row.profile_content_uom_code ? (' ' + row.profile_content_uom_code) : '');
-    document.getElementById('pmdUnitCostInput').value = String(Number.isFinite(adjustContext.defaultUnitCostInput) ? adjustContext.defaultUnitCostInput : 0);
+    document.getElementById('pmdAutoCostDisplay').value = String(Number.isFinite(adjustContext.defaultUnitCostInput) ? adjustContext.defaultUnitCostInput : 0);
     document.getElementById('pmdInboundExpiryDate').value = '';
+    updateAdjustActionUi();
 
     if (adjustModal) {
       adjustModal.show();
@@ -1494,16 +1520,23 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       throw new Error('Konteks adjustment belum siap.');
     }
 
-    var qtyWaste = Number(document.getElementById('pmdQtyWaste').value || 0);
-    var qtySpoil = Number(document.getElementById('pmdQtySpoil').value || 0);
-    var qtyProcessLoss = Number(document.getElementById('pmdQtyProcessLoss').value || 0);
-    var qtyVariance = Number(document.getElementById('pmdQtyVariance').value || 0);
-    var qtyPlus = Number(document.getElementById('pmdQtyPlus').value || 0);
-    var unitCostInput = Number(document.getElementById('pmdUnitCostInput').value || 0);
-
-    if ((qtyWaste + qtySpoil + qtyProcessLoss + qtyVariance + qtyPlus) <= 0) {
-      throw new Error('Isi minimal satu qty adjustment lebih dari nol.');
+    var action = String((document.getElementById('pmdAdjustAction').value || '')).toUpperCase();
+    var qtyInput = Number(document.getElementById('pmdQtyInput').value || 0);
+    var unitCostInput = Number(adjustContext.defaultUnitCostInput || 0);
+    if (!adjustActionMeta[action]) {
+      throw new Error('Pilih dulu salah satu jenis koreksi: spoil, waste, minus, atau plus.');
     }
+    if (!(qtyInput > 0)) {
+      throw new Error('Qty koreksi harus lebih dari nol.');
+    }
+    var qtyWaste = 0;
+    var qtySpoil = 0;
+    var qtyVariance = 0;
+    var qtyPlus = 0;
+    if (action === 'WASTE') { qtyWaste = qtyInput; }
+    if (action === 'SPOIL') { qtySpoil = qtyInput; }
+    if (action === 'MINUS') { qtyVariance = qtyInput; }
+    if (action === 'PLUS') { qtyPlus = qtyInput; }
 
     return {
       stock_scope: 'DIVISION',
@@ -1512,7 +1545,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       destination_type: String(adjustContext.row.destination_type || adjustContext.group.destination_type || 'OTHER'),
       notes: document.getElementById('pmdAdjustHeaderNotes').value || '',
       lines: [{
-        stock_domain: 'MATERIAL',
+        stock_domain: null,
         item_id: Number(adjustContext.row.item_id || adjustContext.group.item_id || 0),
         material_id: Number(adjustContext.row.material_id || adjustContext.group.material_id || 0),
         buy_uom_id: Number(adjustContext.row.buy_uom_id || 0),
@@ -1525,15 +1558,15 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         profile_buy_uom_code: String(adjustContext.row.profile_buy_uom_code || ''),
         profile_content_uom_code: String(adjustContext.row.profile_content_uom_code || ''),
         qty_waste_content: qtyWaste,
-        waste_reason_code: document.getElementById('pmdWasteReason').value || 'other',
+        waste_reason_code: action === 'WASTE' ? (document.getElementById('pmdReasonSelect').value || 'other') : 'other',
         qty_spoil_content: qtySpoil,
-        spoil_reason_code: document.getElementById('pmdSpoilReason').value || 'other',
-        qty_process_loss_content: qtyProcessLoss,
-        process_loss_reason_code: document.getElementById('pmdProcessLossReason').value || 'other',
+        spoil_reason_code: action === 'SPOIL' ? (document.getElementById('pmdReasonSelect').value || 'other') : 'other',
+        qty_process_loss_content: 0,
+        process_loss_reason_code: 'other',
         qty_variance_content: qtyVariance,
-        variance_reason_code: document.getElementById('pmdVarianceReason').value || 'other',
+        variance_reason_code: action === 'MINUS' ? (document.getElementById('pmdReasonSelect').value || 'other') : 'other',
         qty_adjustment_plus_content: qtyPlus,
-        adjustment_plus_reason_code: document.getElementById('pmdPlusReason').value || 'other',
+        adjustment_plus_reason_code: action === 'PLUS' ? (document.getElementById('pmdReasonSelect').value || 'other') : 'other',
         unit_cost: unitCostInput,
         inbound_lot_no: document.getElementById('pmdInboundLotNo').value || '',
         inbound_expiry_date: document.getElementById('pmdInboundExpiryDate').value || '',
@@ -1590,6 +1623,11 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     } catch (err) {
       showAdjustAlert(false, err && err.message ? err.message : 'Payload adjustment tidak valid.');
     }
+  }
+
+  var pmdActionEl = document.getElementById('pmdAdjustAction');
+  if (pmdActionEl) {
+    pmdActionEl.addEventListener('change', updateAdjustActionUi);
   }
 
   function divisionLabel(row){
@@ -2041,7 +2079,10 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     return total / values.length;
   }
 
-  function resolveReferenceUnitPrice(row){
+  function resolveReferenceUnitPrice(row, group){
+    if (Number((row.metrics && row.metrics.hpp) || 0) > 0) {
+      return Number((row.metrics && row.metrics.hpp) || 0);
+    }
     if (Number(row.profile_last_unit_price || 0) > 0) {
       return Number(row.profile_last_unit_price || 0);
     }
@@ -2053,6 +2094,15 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     }
     if (Number((row.metrics && row.metrics.standard_price) || 0) > 0) {
       return Number((row.metrics && row.metrics.standard_price) || 0);
+    }
+    if (group && Number((group.metrics && group.metrics.last_unit_price) || 0) > 0) {
+      return Number((group.metrics && group.metrics.last_unit_price) || 0);
+    }
+    if (group && Number((group.metrics && group.metrics.standard_price) || 0) > 0) {
+      return Number((group.metrics && group.metrics.standard_price) || 0);
+    }
+    if (group && Number((group.metrics && group.metrics.hpp) || 0) > 0) {
+      return Number((group.metrics && group.metrics.hpp) || 0);
     }
     return 0;
   }
@@ -2474,11 +2524,6 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     });
   }
 
-  fillReasonSelect('pmdWasteReason', 'WASTE');
-  fillReasonSelect('pmdSpoilReason', 'SPOILAGE');
-  fillReasonSelect('pmdProcessLossReason', 'PROCESS_LOSS');
-  fillReasonSelect('pmdVarianceReason', 'VARIANCE');
-  fillReasonSelect('pmdPlusReason', 'ADJUSTMENT_PLUS');
   document.getElementById('pmdAdjustSubmit').addEventListener('click', submitAdjust);
 
   window.addEventListener('resize', function(){

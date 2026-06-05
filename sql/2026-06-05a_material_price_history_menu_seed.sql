@@ -17,7 +17,7 @@ VALUES (
   'purchase.material.price_history',
   'Riwayat Harga Bahan Baku',
   'PURCHASE',
-  'Grafik dan tabel riwayat harga beli & HPP per bahan baku dari data purchase receipt, dikelompokkan per item sumber.',
+  'Grafik dan tabel riwayat harga beli & HPP per item dari data purchase receipt.',
   1
 )
 ON DUPLICATE KEY UPDATE
@@ -31,9 +31,9 @@ ON DUPLICATE KEY UPDATE
 INSERT INTO sys_menu (menu_code, menu_label, icon, url, page_id, sort_order, is_active, sidebar_type, parent_id)
 SELECT
   'purchase.material.price_history',
-  'Riwayat Harga Bahan',
+  'Riwayat Harga Item',
   'ri-line-chart-line',
-  '/master/material/price-history',
+  '/purchase/item-price-history',
   p.id,
   85,
   1,

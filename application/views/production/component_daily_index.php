@@ -818,6 +818,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
                                 data-uom-code="<?php echo html_escape((string)($row['uom_code'] ?? '')); ?>"
                                 data-available-qty="<?php echo html_escape(number_format((float)($cell['closing'] ?? 0), 4, '.', '')); ?>"
                                 data-selected-lot-id="<?php echo (int)($singleLot['id'] ?? 0); ?>"
+                                data-unit-cost="<?php echo html_escape(number_format((float)($singleLot['unit_cost'] ?? 0), 6, '.', '')); ?>"
                                 data-lot-label="<?php echo html_escape((string)($singleLot['lot_no'] ?? '')); ?>"
                                 title="Input adjustment cepat"
                                 aria-label="Input adjustment cepat"
@@ -953,6 +954,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
                                   data-uom-code="<?php echo html_escape((string)($row['uom_code'] ?? '')); ?>"
                                   data-available-qty="<?php echo html_escape(number_format((float)($cell['closing'] ?? 0), 4, '.', '')); ?>"
                                   data-selected-lot-id="<?php echo (int)($lotRow['id'] ?? 0); ?>"
+                                  data-unit-cost="<?php echo html_escape(number_format((float)($lotRow['unit_cost'] ?? 0), 6, '.', '')); ?>"
                                   data-lot-label="<?php echo html_escape((string)($lotRow['lot_no'] ?? '')); ?>"
                                   title="Input adjustment cepat lot"
                                   aria-label="Input adjustment cepat lot"
@@ -1018,7 +1020,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
         <div class="component-adjust-modal-titlewrap">
           <span class="component-adjust-modal-kicker">Daily Matrix Adjustment</span>
           <h5 class="modal-title">Adjustment Cepat Komponen</h5>
-          <div class="component-adjust-modal-subtitle">Koreksi spoil, waste, plus, dan minus langsung dari matrix harian.</div>
+          <div class="component-adjust-modal-subtitle">Pilih satu jenis koreksi untuk profile atau lot yang sedang dipilih dari matrix harian.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
@@ -1043,49 +1045,33 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
             </div>
           </div>
           <div class="component-adjust-section">
-            <div class="component-adjust-section-title">Koreksi Keluar</div>
+            <div class="component-adjust-section-title">Pilih Koreksi</div>
             <div class="component-adjust-quick-grid">
               <div class="component-adjust-field">
-                <label class="form-label">Spoil</label>
-                <input type="number" min="0" step="0.01" class="form-control" id="qdaSpoil" value="0">
+                <label class="form-label">Jenis Koreksi</label>
+                <select class="form-select" id="qdaAction" required>
+                  <option value="">Pilih salah satu...</option>
+                  <option value="SPOIL">Spoil</option>
+                  <option value="WASTE">Waste</option>
+                  <option value="MINUS">Minus</option>
+                  <option value="PLUS">Plus</option>
+                </select>
               </div>
               <div class="component-adjust-field">
-                <label class="form-label">Alasan Spoil</label>
-                <select class="form-select" id="qdaSpoilReason"></select>
-              </div>
-              <div class="component-adjust-field">
-                <label class="form-label">Waste</label>
-                <input type="number" min="0" step="0.01" class="form-control" id="qdaWaste" value="0">
-              </div>
-              <div class="component-adjust-field">
-                <label class="form-label">Alasan Waste</label>
-                <select class="form-select" id="qdaWasteReason"></select>
-              </div>
-            </div>
-          </div>
-          <div class="component-adjust-section">
-            <div class="component-adjust-section-title">Koreksi Selisih</div>
-            <div class="component-adjust-quick-grid">
-              <div class="component-adjust-field">
-                <label class="form-label">Plus</label>
-                <input type="number" min="0" step="0.01" class="form-control" id="qdaPlus" value="0">
-              </div>
-              <div class="component-adjust-field">
-                <label class="form-label">Alasan Plus</label>
-                <select class="form-select" id="qdaPlusReason"></select>
-              </div>
-              <div class="component-adjust-field">
-                <label class="form-label">Harga Plus</label>
-                <input type="number" min="0" step="0.0001" class="form-control" id="qdaUnitCost" value="0">
-              </div>
-              <div class="component-adjust-field">
-                <label class="form-label">Minus</label>
-                <input type="number" min="0" step="0.01" class="form-control" id="qdaMinus" value="0">
+                <label class="form-label" id="qdaQtyLabel">Qty</label>
+                <input type="number" min="0" step="0.01" class="form-control" id="qdaQty" value="0">
               </div>
               <div class="component-adjust-field full">
-                <label class="form-label">Alasan Minus</label>
-                <select class="form-select" id="qdaMinusReason"></select>
+                <label class="form-label" id="qdaReasonLabel">Alasan</label>
+                <select class="form-select" id="qdaReason">
+                  <option value="">Pilih jenis koreksi dulu</option>
+                </select>
               </div>
+            </div>
+            <div class="component-adjust-field mt-3 d-none" id="qdaCostWrap">
+              <label class="form-label">HPP Profile Otomatis</label>
+              <input type="text" class="form-control" id="qdaUnitCostDisplay" value="0" readonly>
+              <div class="form-text">Untuk plus, HPP mengikuti profile atau lot yang dipilih dari matrix. Tidak perlu input manual.</div>
             </div>
           </div>
           <div class="component-adjust-section">
@@ -1225,6 +1211,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
     divisionId: 0,
     selectedLotId: 0,
     lotLabel: '',
+    defaultUnitCost: 0,
     uomId: 0,
     uomCode: ''
   };
@@ -1234,16 +1221,21 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
     contextLabel: document.getElementById('qdaContextLabel'),
     date: document.getElementById('qdaDate'),
     available: document.getElementById('qdaAvailable'),
-    spoil: document.getElementById('qdaSpoil'),
-    spoilReason: document.getElementById('qdaSpoilReason'),
-    waste: document.getElementById('qdaWaste'),
-    wasteReason: document.getElementById('qdaWasteReason'),
-    plus: document.getElementById('qdaPlus'),
-    plusReason: document.getElementById('qdaPlusReason'),
-    unitCost: document.getElementById('qdaUnitCost'),
-    minus: document.getElementById('qdaMinus'),
-    minusReason: document.getElementById('qdaMinusReason'),
+    action: document.getElementById('qdaAction'),
+    qty: document.getElementById('qdaQty'),
+    qtyLabel: document.getElementById('qdaQtyLabel'),
+    reason: document.getElementById('qdaReason'),
+    reasonLabel: document.getElementById('qdaReasonLabel'),
+    costWrap: document.getElementById('qdaCostWrap'),
+    unitCostDisplay: document.getElementById('qdaUnitCostDisplay'),
     note: document.getElementById('qdaNote')
+  };
+
+  const actionMeta = {
+    SPOIL: { label: 'Spoil', reasonLabel: 'Alasan Spoil', reasonCategory: 'SPOILAGE' },
+    WASTE: { label: 'Waste', reasonLabel: 'Alasan Waste', reasonCategory: 'WASTE' },
+    MINUS: { label: 'Minus', reasonLabel: 'Alasan Minus', reasonCategory: 'ADJUSTMENT_MINUS' },
+    PLUS: { label: 'Plus', reasonLabel: 'Alasan Plus', reasonCategory: 'ADJUSTMENT_PLUS' }
   };
 
   function escapeHtml(value) {
@@ -1291,17 +1283,39 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
   function resetForm() {
     fields.date.value = '';
     fields.available.value = '';
-    fields.spoil.value = '0';
-    fields.waste.value = '0';
-    fields.plus.value = '0';
-    fields.unitCost.value = '0';
-    fields.minus.value = '0';
+    fields.action.value = '';
+    fields.qty.value = '0';
     fields.note.value = '';
-    fillReasonSelect(fields.spoilReason, 'SPOILAGE', 'other');
-    fillReasonSelect(fields.wasteReason, 'WASTE', 'other');
-    fillReasonSelect(fields.plusReason, 'ADJUSTMENT_PLUS', 'other');
-    fillReasonSelect(fields.minusReason, 'ADJUSTMENT_MINUS', 'other');
+    fields.qtyLabel.textContent = 'Qty';
+    fields.reasonLabel.textContent = 'Alasan';
+    fields.reason.innerHTML = '<option value="">Pilih jenis koreksi dulu</option>';
+    fields.costWrap.classList.add('d-none');
+    fields.unitCostDisplay.value = '0';
     renderAlert('', '');
+  }
+
+  function updateActionFields() {
+    const action = String(fields.action.value || '');
+    const meta = actionMeta[action] || null;
+    fields.qty.value = '0';
+    if (!meta) {
+      fields.qtyLabel.textContent = 'Qty';
+      fields.reasonLabel.textContent = 'Alasan';
+      fields.reason.innerHTML = '<option value="">Pilih jenis koreksi dulu</option>';
+      fields.costWrap.classList.add('d-none');
+      fields.unitCostDisplay.value = '0';
+      return;
+    }
+    fields.qtyLabel.textContent = meta.label + ' (' + (state.uomCode || 'Qty') + ')';
+    fields.reasonLabel.textContent = meta.reasonLabel;
+    fillReasonSelect(fields.reason, meta.reasonCategory, 'other');
+    if (action === 'PLUS') {
+      fields.costWrap.classList.remove('d-none');
+      fields.unitCostDisplay.value = String(Number.isFinite(state.defaultUnitCost) ? state.defaultUnitCost : 0);
+    } else {
+      fields.costWrap.classList.add('d-none');
+      fields.unitCostDisplay.value = '0';
+    }
   }
 
   document.addEventListener('click', (event) => {
@@ -1316,12 +1330,14 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
     state.divisionId = Number(button.dataset.divisionId || 0);
     state.selectedLotId = Number(button.dataset.selectedLotId || 0);
     state.lotLabel = String(button.dataset.lotLabel || '');
+    state.defaultUnitCost = Number(button.dataset.unitCost || 0);
     state.uomId = Number(button.dataset.uomId || 0);
     state.uomCode = String(button.dataset.uomCode || '');
     fields.componentLabel.textContent = state.componentName || '-';
     fields.contextLabel.textContent = [button.dataset.locationLabel || '-', button.dataset.divisionName || '-', state.lotLabel ? ('Lot ' + state.lotLabel) : '', state.uomCode || '-', button.dataset.adjustmentDate || '-'].filter(Boolean).join(' • ');
     fields.date.value = String(button.dataset.adjustmentDate || '');
     fields.available.value = String(button.dataset.availableQty || '0') + ' ' + state.uomCode;
+    updateActionFields();
     const modal = getModalInstance();
     if (!modal) {
       window.alert('Modal adjustment belum siap. Muat ulang halaman lalu coba lagi.');
@@ -1330,10 +1346,59 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
     modal.show();
   });
 
+  fields.action.addEventListener('change', updateActionFields);
+
   submitBtn.addEventListener('click', async () => {
     if (!state.componentId || !state.uomId || !fields.date.value) {
       renderAlert('danger', 'Konteks adjustment belum lengkap.');
       return;
+    }
+
+    const action = String(fields.action.value || '');
+    const qty = parseFloat(fields.qty.value || '0') || 0;
+    const meta = actionMeta[action] || null;
+    if (!meta) {
+      renderAlert('danger', 'Pilih dulu salah satu jenis koreksi: spoil, waste, minus, atau plus.');
+      return;
+    }
+    if (qty <= 0) {
+      renderAlert('danger', 'Qty koreksi harus lebih dari 0.');
+      return;
+    }
+    const derivedUnitCost = Number.isFinite(state.defaultUnitCost) ? state.defaultUnitCost : 0;
+    if (action === 'PLUS' && derivedUnitCost <= 0) {
+      renderAlert('danger', 'HPP profile untuk line ini belum tersedia, jadi plus belum bisa dipost dari daily matrix.');
+      return;
+    }
+
+    const linePayload = {
+      component_id: state.componentId,
+      uom_id: state.uomId,
+      selected_lot_id: state.selectedLotId > 0 ? state.selectedLotId : '',
+      qty_spoil: 0,
+      spoil_reason_code: 'other',
+      qty_waste: 0,
+      waste_reason_code: 'other',
+      qty_adjust_pos: 0,
+      adjustment_plus_reason_code: 'other',
+      unit_cost: 0,
+      qty_adjust_neg: 0,
+      adjustment_minus_reason_code: 'other',
+      note: String(fields.note.value || '')
+    };
+    if (action === 'SPOIL') {
+      linePayload.qty_spoil = qty;
+      linePayload.spoil_reason_code = String(fields.reason.value || 'other');
+    } else if (action === 'WASTE') {
+      linePayload.qty_waste = qty;
+      linePayload.waste_reason_code = String(fields.reason.value || 'other');
+    } else if (action === 'MINUS') {
+      linePayload.qty_adjust_neg = qty;
+      linePayload.adjustment_minus_reason_code = String(fields.reason.value || 'other');
+    } else if (action === 'PLUS') {
+      linePayload.qty_adjust_pos = qty;
+      linePayload.adjustment_plus_reason_code = String(fields.reason.value || 'other');
+      linePayload.unit_cost = derivedUnitCost;
     }
 
     const payload = {
@@ -1341,32 +1406,8 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
       location_type: state.locationType,
       division_id: state.divisionId || '',
       notes: String(fields.note.value || ''),
-      lines: [{
-        component_id: state.componentId,
-        uom_id: state.uomId,
-        selected_lot_id: state.selectedLotId > 0 ? state.selectedLotId : '',
-        qty_spoil: parseFloat(fields.spoil.value || '0') || 0,
-        spoil_reason_code: String(fields.spoilReason.value || 'other'),
-        qty_waste: parseFloat(fields.waste.value || '0') || 0,
-        waste_reason_code: String(fields.wasteReason.value || 'other'),
-        qty_adjust_pos: parseFloat(fields.plus.value || '0') || 0,
-        adjustment_plus_reason_code: String(fields.plusReason.value || 'other'),
-        unit_cost: parseFloat(fields.unitCost.value || '0') || 0,
-        qty_adjust_neg: parseFloat(fields.minus.value || '0') || 0,
-        adjustment_minus_reason_code: String(fields.minusReason.value || 'other'),
-        note: String(fields.note.value || '')
-      }]
+      lines: [linePayload]
     };
-
-    const totalQty = payload.lines[0].qty_spoil + payload.lines[0].qty_waste + payload.lines[0].qty_adjust_pos + payload.lines[0].qty_adjust_neg;
-    if (totalQty <= 0) {
-      renderAlert('danger', 'Isi minimal satu nilai adjustment.');
-      return;
-    }
-    if (payload.lines[0].qty_adjust_pos > 0 && payload.lines[0].unit_cost <= 0) {
-      renderAlert('danger', 'Harga Plus wajib diisi jika qty plus lebih dari 0.');
-      return;
-    }
 
     submitBtn.disabled = true;
     renderAlert('info', 'Menyimpan adjustment...');
@@ -1642,4 +1683,3 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
   });
 })();
 </script>
-
