@@ -10,6 +10,13 @@ class Production extends MY_Controller
         $this->load->library('ComponentStockWriter');
     }
 
+    private function release_session_lock(): void
+    {
+        if (function_exists('session_write_close')) {
+            @session_write_close();
+        }
+    }
+
     public function component_stock()
     {
         $this->require_permission('production.component.stock.index', 'view');
@@ -865,6 +872,7 @@ class Production extends MY_Controller
     public function component_batch_save()
     {
         $this->require_permission('production.component.batch.index', 'create');
+        $this->release_session_lock();
         $payload = $this->request_payload();
         $header = [
             'id' => (int)($payload['id'] ?? 0),
@@ -893,6 +901,7 @@ class Production extends MY_Controller
     public function component_batch_preview()
     {
         $this->require_permission('production.component.batch.index', 'view');
+        $this->release_session_lock();
         $payload = $this->request_payload();
         if (empty($payload)) {
             $payload = [
@@ -922,6 +931,7 @@ class Production extends MY_Controller
     public function component_batch_post($id)
     {
         $this->require_permission('production.component.batch.index', 'edit');
+        $this->release_session_lock();
         $id = (int)$id;
         $header = $this->Production_model->get_component_batch($id);
         if (!$header) {
@@ -944,6 +954,7 @@ class Production extends MY_Controller
     public function component_batch_status($id)
     {
         $this->require_permission('production.component.batch.index', 'view');
+        $this->release_session_lock();
         $id = (int)$id;
         $header = $this->Production_model->get_component_batch($id);
         if (!$header) {

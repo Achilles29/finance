@@ -175,6 +175,49 @@ class System_tools extends MY_Controller
         $this->json_ok(['message' => 'Pengaturan berhasil disimpan dan .env diperbarui.']);
     }
 
+    // ── Aksi: List Tables ─────────────────────────────────────────
+    public function action_list_tables()
+    {
+        $this->require_permission('system.dbtools.settings', 'view');
+
+        // Coba gunakan DB dari config yang tersimpan (bisa beda dari DB app)
+        $host = $this->_cfg('backup.db_host', 'localhost');
+        $port = (int)$this->_cfg('backup.db_port', '3306');
+        $user = $this->_cfg('backup.db_user', 'root');
+        $pass = $this->_cfg('backup.db_pass', '');
+        $name = $this->_cfg('backup.db_name', 'db_finance');
+
+        try {
+            $pdo = new PDO("mysql:host={$host};port={$port};charset=utf8mb4", $user, $pass, [PDO::ATTR_TIMEOUT => 5]);
+            $tables = $pdo->query("SHOW TABLES FROM `{$name}`")->fetchAll(PDO::FETCH_COLUMN);
+
+            // Estimasi ukuran per tabel
+            $sizes = [];
+            $sizeRows = $pdo->query(
+                "SELECT TABLE_NAME, ROUND((DATA_LENGTH + INDEX_LENGTH)/1024/1024, 1) AS size_mb,
+                        TABLE_ROWS AS est_rows
+                 FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = " . $pdo->quote($name) . "
+                 ORDER BY (DATA_LENGTH + INDEX_LENGTH) DESC"
+            )->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($sizeRows as $r) {
+                $sizes[$r['TABLE_NAME']] = ['size_mb' => (float)$r['size_mb'], 'est_rows' => (int)$r['est_rows']];
+            }
+
+            $result = array_map(function($t) use ($sizes) {
+                return [
+                    'name'     => $t,
+                    'size_mb'  => $sizes[$t]['size_mb'] ?? 0,
+                    'est_rows' => $sizes[$t]['est_rows'] ?? 0,
+                ];
+            }, $tables);
+
+            $this->json_ok(['tables' => $result, 'db' => $name]);
+        } catch (Exception $e) {
+            $this->json_error('Gagal memuat tabel: ' . $e->getMessage(), 422);
+        }
+    }
+
     // ── Aksi: Run Backup Now ───────────────────────────────────────
     public function action_run_backup()
     {

@@ -543,6 +543,7 @@ $route['dbtools/settings']                      = 'system_tools/index';
 $route['dbtools/backup-status']                 = 'system_tools/backup_status';
 $route['dbtools/replication-status']            = 'system_tools/replication_status';
 $route['dbtools/settings/save']                 = 'system_tools/settings_save';
+$route['dbtools/action/list-tables']            = 'system_tools/action_list_tables';
 $route['dbtools/action/run-backup']             = 'system_tools/action_run_backup';
 $route['dbtools/action/test-db']                = 'system_tools/action_test_db';
 $route['dbtools/action/check-replication']      = 'system_tools/action_check_replication';

@@ -430,6 +430,8 @@ $locationGroupLabel = static function ($locationType): string {
   let outputDivisionName = '';
   let currentPreview = null;
   let previewTimer = null;
+  let previewRequestController = null;
+  let previewRequestToken = 0;
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -721,6 +723,7 @@ $locationGroupLabel = static function ($locationType): string {
   }
 
   async function loadPreview() {
+    const requestToken = ++previewRequestToken;
     const componentId = String(outputComponentId.value || '');
     const locationType = String(locationTypeInput.value || '');
     const mode = String(scalingMode.value || 'BATCH').toUpperCase();
@@ -749,6 +752,10 @@ $locationGroupLabel = static function ($locationType): string {
     }
 
     try {
+      if (previewRequestController) {
+        previewRequestController.abort();
+      }
+      previewRequestController = new AbortController();
       const query = new URLSearchParams({
         component_id: componentId,
         location_type: locationType,
@@ -758,7 +765,8 @@ $locationGroupLabel = static function ($locationType): string {
         reference_actual_qty: referenceActualQtyValue > 0 ? String(referenceActualQtyValue) : ''
       });
       const response = await fetch(previewUrl + '?' + query.toString(), {
-        headers: {'X-Requested-With': 'XMLHttpRequest'}
+        headers: {'X-Requested-With': 'XMLHttpRequest'},
+        signal: previewRequestController.signal
       });
       const text = await response.text();
       let json;
@@ -770,11 +778,24 @@ $locationGroupLabel = static function ($locationType): string {
       if (!response.ok || !json.ok) {
         throw new Error(json.message || 'Preview batch gagal dimuat.');
       }
+      if (requestToken !== previewRequestToken) {
+        return;
+      }
       renderPreview(json);
       clearAlert();
     } catch (error) {
+      if (error && error.name === 'AbortError') {
+        return;
+      }
+      if (requestToken !== previewRequestToken) {
+        return;
+      }
       resetPreview(error.message || 'Gagal memuat preview batch.');
       renderAlert('danger', error.message || 'Gagal memuat preview batch.');
+    } finally {
+      if (requestToken === previewRequestToken) {
+        previewRequestController = null;
+      }
     }
   }
 
@@ -918,6 +939,11 @@ $locationGroupLabel = static function ($locationType): string {
       renderAlert('warning', 'Batch masih memiliki shortage. Perbaiki ketersediaan bahan atau component terlebih dahulu.');
       return;
     }
+    window.clearTimeout(previewTimer);
+    if (previewRequestController) {
+      previewRequestController.abort();
+      previewRequestController = null;
+    }
     setButtonBusy(submitButton, 'Menyimpan batch...');
     showPostingOverlay('Menyimpan batch...');
     try {
@@ -939,6 +965,11 @@ $locationGroupLabel = static function ($locationType): string {
         cancelText: 'Batal'
       }))) {
         return;
+      }
+      window.clearTimeout(previewTimer);
+      if (previewRequestController) {
+        previewRequestController.abort();
+        previewRequestController = null;
       }
       setButtonBusy(button, 'Posting...');
       showPostingOverlay('Posting batch produksi...');

@@ -150,10 +150,16 @@ $lastDump   = !empty($recentDumps) ? $recentDumps[0] : null;
           <div class="col-md-4"><label class="form-label small mb-1">Branch GitHub</label>
             <input type="text" id="b_branch" class="form-control" value="<?php echo $cfgGet($cfg,'backup.repo_branch','main'); ?>"></div>
           <div class="col-12">
-            <label class="form-label small mb-1">Tabel yang tidak perlu dibackup <span class="text-muted">(opsional, pisah koma)</span></label>
-            <input type="text" id="b_exclude" class="form-control" placeholder="Contoh: sys_audit_log,att_presence"
-                   value="<?php echo $cfgGet($cfg,'backup.exclude_tables',''); ?>">
-            <div class="form-text">Tabel log besar yang tidak dibutuhkan untuk restore.</div>
+            <label class="form-label small mb-1">Tabel yang tidak perlu dibackup</label>
+            <input type="hidden" id="b_exclude" value="<?php echo $cfgGet($cfg,'backup.exclude_tables',''); ?>">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <button type="button" id="btn-pick-tables" class="btn btn-outline-secondary btn-sm">
+                <i class="ri ri-table-line me-1"></i>Pilih Tabel
+              </button>
+              <span class="text-muted small" id="b_exclude_count"></span>
+            </div>
+            <div id="b_exclude_chips" class="d-flex flex-wrap gap-1"></div>
+            <div class="form-text">Tabel log besar yang tidak dibutuhkan untuk restore. Kecuali tabel ini = tetap dibackup semua.</div>
           </div>
         </div>
       </div>
@@ -902,6 +908,147 @@ mysql -u root db_finance < backup.sql</div>
 </div><!-- /tab-panduan -->
 
 <script>
+/* ── Table Picker ─────────────────────────────────────────── */
+(function () {
+  const BASE = '<?php echo site_url(); ?>';
+  let allTables = [];
+  let selectedTables = new Set();
+  const modal = document.getElementById('tablePickerModal');
+  const bsModal = modal ? new bootstrap.Modal(modal) : null;
+
+  function initFromHidden() {
+    const raw = document.getElementById('b_exclude')?.value || '';
+    selectedTables = new Set(raw.split(',').map(s => s.trim()).filter(Boolean));
+  }
+
+  function renderChips() {
+    const chips  = document.getElementById('b_exclude_chips');
+    const count  = document.getElementById('b_exclude_count');
+    if (!chips) return;
+    const arr = [...selectedTables].filter(Boolean);
+    chips.innerHTML = arr.map(t =>
+      `<span style="display:inline-flex;align-items:center;gap:.3rem;background:#fff0ee;color:#9f2141;border:1px solid #f5c6c6;border-radius:999px;font-size:.75rem;font-weight:700;padding:.15rem .55rem">
+        ${esc(t)}
+        <button type="button" onclick="removeExcludeTable('${esc(t)}')" style="background:none;border:none;padding:0;color:#9f2141;cursor:pointer;line-height:1;font-size:.8rem">✕</button>
+       </span>`
+    ).join('');
+    if (count) count.textContent = arr.length > 0 ? `${arr.length} tabel dikecualikan` : '';
+  }
+
+  window.removeExcludeTable = function(name) {
+    selectedTables.delete(name);
+    document.getElementById('b_exclude').value = [...selectedTables].join(',');
+    renderChips();
+  };
+
+  function renderGrid(filter, prefix) {
+    const rows = document.getElementById('tpicker-rows');
+    if (!rows) return;
+    const q = filter.toLowerCase();
+    const filtered = allTables.filter(t =>
+      (!q || t.name.toLowerCase().includes(q)) &&
+      (!prefix || t.name.startsWith(prefix + '_'))
+    );
+    const selectedCount = document.getElementById('tpicker-selected-count');
+    if (selectedCount) selectedCount.textContent = selectedTables.size;
+
+    rows.innerHTML = filtered.map(t => {
+      const checked  = selectedTables.has(t.name) ? 'checked' : '';
+      const sizeWarn = t.size_mb > 50 ? 'tpicker-size-warn' : '';
+      const pref     = t.name.includes('_') ? t.name.split('_')[0] : '';
+      const meta     = [
+        t.est_rows > 0 ? `~${t.est_rows.toLocaleString('id-ID')} baris` : null,
+        t.size_mb > 0  ? `${t.size_mb} MB` : null,
+      ].filter(Boolean).join(' · ');
+      return `<div class="col-md-4 col-sm-6">
+        <div class="tpicker-card ${checked ? 'selected' : ''}">
+          <label>
+            <input type="checkbox" class="form-check-input tpicker-cb flex-shrink-0 mt-1"
+                   value="${esc(t.name)}" ${checked} onchange="tpickerToggle(this)">
+            <div>
+              ${pref ? `<span class="tpicker-prefix">${esc(pref)}_</span>` : ''}
+              <div class="tpicker-tname">${esc(t.name.replace(pref ? pref + '_' : '', ''))}</div>
+              ${meta ? `<div class="tpicker-meta ${sizeWarn}">${meta}${t.size_mb > 50 ? ' ⚠ Besar' : ''}</div>` : ''}
+            </div>
+          </label>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  window.tpickerToggle = function(cb) {
+    const name = cb.value;
+    cb.checked ? selectedTables.add(name) : selectedTables.delete(name);
+    cb.closest('.tpicker-card').classList.toggle('selected', cb.checked);
+    const cnt = document.getElementById('tpicker-selected-count');
+    if (cnt) cnt.textContent = selectedTables.size;
+  };
+
+  function buildPrefixFilter() {
+    const prefixes = [...new Set(allTables.map(t => t.name.includes('_') ? t.name.split('_')[0] : '').filter(Boolean))].sort();
+    const sel = document.getElementById('tpicker-filter');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Semua prefix</option>' + prefixes.map(p => `<option value="${esc(p)}">${p}_</option>`).join('');
+  }
+
+  async function loadTables() {
+    const loading = document.getElementById('tpicker-loading');
+    const grid    = document.getElementById('tpicker-grid');
+    const errEl   = document.getElementById('tpicker-error');
+    if (loading) loading.style.display = 'block';
+    if (grid)    grid.style.display    = 'none';
+    if (errEl)   errEl.style.display   = 'none';
+    try {
+      const r = await fetch(BASE + 'dbtools/action/list-tables', { headers:{'X-Requested-With':'XMLHttpRequest'} });
+      const t = await r.text();
+      let j; try { j = JSON.parse(t); } catch(e) { throw new Error('Response error. Cek koneksi DB di tab Backup Otomatis.'); }
+      if (!j.ok) throw new Error(j.message);
+      allTables = j.tables || [];
+      buildPrefixFilter();
+      if (loading) loading.style.display = 'none';
+      if (grid)    grid.style.display    = 'block';
+      renderGrid('', '');
+    } catch(e) {
+      if (loading) loading.style.display = 'none';
+      if (errEl) { errEl.textContent = e.message; errEl.style.display = 'block'; }
+    }
+  }
+
+  document.getElementById('btn-pick-tables')?.addEventListener('click', () => {
+    initFromHidden();
+    loadTables();
+    bsModal?.show();
+  });
+  document.getElementById('tpicker-search')?.addEventListener('input', function() {
+    renderGrid(this.value, document.getElementById('tpicker-filter')?.value || '');
+  });
+  document.getElementById('tpicker-filter')?.addEventListener('change', function() {
+    renderGrid(document.getElementById('tpicker-search')?.value || '', this.value);
+  });
+  document.getElementById('tpicker-select-all')?.addEventListener('click', () => {
+    allTables.forEach(t => selectedTables.add(t.name));
+    document.querySelectorAll('.tpicker-cb').forEach(cb => { cb.checked = true; cb.closest('.tpicker-card').classList.add('selected'); });
+    const cnt = document.getElementById('tpicker-selected-count');
+    if (cnt) cnt.textContent = selectedTables.size;
+  });
+  document.getElementById('tpicker-clear-all')?.addEventListener('click', () => {
+    selectedTables.clear();
+    document.querySelectorAll('.tpicker-cb').forEach(cb => { cb.checked = false; cb.closest('.tpicker-card').classList.remove('selected'); });
+    const cnt = document.getElementById('tpicker-selected-count');
+    if (cnt) cnt.textContent = 0;
+  });
+  document.getElementById('tpicker-confirm')?.addEventListener('click', () => {
+    document.getElementById('b_exclude').value = [...selectedTables].join(',');
+    renderChips();
+    bsModal?.hide();
+  });
+
+  // Init chips dari nilai tersimpan saat halaman load
+  function esc(v) { const d = document.createElement('div'); d.textContent = String(v??''); return d.innerHTML; }
+  initFromHidden();
+  renderChips();
+})();
+
 function toggleChap(header) {
   const body = header.nextElementSibling;
   const icon = header.querySelector('.guide-toggle-icon');
@@ -909,6 +1056,59 @@ function toggleChap(header) {
   icon.classList.toggle('open');
 }
 </script>
+
+<!-- Modal pilih tabel exclude -->
+<div class="modal fade" id="tablePickerModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title fw-bold"><i class="ri ri-table-line me-1"></i>Pilih Tabel yang Dikecualikan</h5>
+          <div class="small text-muted">Tabel yang dicentang <strong>tidak akan</strong> dimasukkan ke dalam backup.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body py-2">
+        <!-- Search + filter -->
+        <div class="d-flex gap-2 mb-3">
+          <input type="text" id="tpicker-search" class="form-control form-control-sm" placeholder="Cari nama tabel...">
+          <select id="tpicker-filter" class="form-select form-select-sm" style="max-width:160px">
+            <option value="">Semua prefix</option>
+          </select>
+          <button type="button" id="tpicker-select-all" class="btn btn-outline-secondary btn-sm">Pilih Semua</button>
+          <button type="button" id="tpicker-clear-all" class="btn btn-outline-danger btn-sm">Bersihkan</button>
+        </div>
+        <!-- Info ukuran -->
+        <div id="tpicker-loading" class="text-center py-4 text-muted small">
+          <span class="spinner-border spinner-border-sm me-2"></span>Memuat daftar tabel...
+        </div>
+        <div id="tpicker-error" class="alert alert-danger py-2 small" style="display:none"></div>
+        <!-- Grid tabel -->
+        <div id="tpicker-grid" style="display:none">
+          <div class="row g-1" id="tpicker-rows"></div>
+        </div>
+      </div>
+      <div class="modal-footer d-flex justify-content-between align-items-center">
+        <div class="small text-muted"><span id="tpicker-selected-count">0</span> tabel dipilih</div>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+          <button type="button" id="tpicker-confirm" class="btn btn-primary">Terapkan</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .tpicker-card { border:1px solid rgba(224,209,198,.65); border-radius:10px; padding:.5rem .7rem; cursor:pointer; transition:all .12s; background:#fffdfb; }
+  .tpicker-card:hover { background:#fff8f3; border-color:#d9c8bc; }
+  .tpicker-card.selected { background:#fff0ee; border-color:#9f2141; }
+  .tpicker-card label { cursor:pointer; display:flex; align-items:flex-start; gap:.5rem; width:100%; }
+  .tpicker-tname { font-size:.84rem; font-weight:700; color:#2d1f1c; word-break:break-all; }
+  .tpicker-meta  { font-size:.72rem; color:#8a776d; margin-top:.1rem; }
+  .tpicker-prefix { font-size:.7rem; font-weight:700; padding:.08rem .4rem; border-radius:999px; background:#eef3f1; color:#1a6450; margin-bottom:.2rem; display:inline-block; }
+  .tpicker-size-warn { background:#fff3cd; color:#856404; }
+</style>
 
 <!-- Modal konfirmasi darurat -->
 <div class="modal fade" id="failoverModal" tabindex="-1">
