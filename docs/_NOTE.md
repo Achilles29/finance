@@ -136,3 +136,15 @@ sekarang modifikasi /master/material:
 
 - perbaiki adjustmen di daily matrix baik gudang, bahan baku divisi , maupun component. alur adj adalah memilih line sesuai tanggal kemudian di klik adj tombol icon pencil. jadi data yang diubah harusnya data profile line tersebut, baik waste ,spol, maupun plus minus. jadi untuk hpp juga semestinya tidak perlu input manual tapi mengikuti hpp profile tersebut. betul kan? beda lagi kalau kita adj manual misal component melalui production/component-adjustments untuk component yang memang sebelumnya belum ada di stok memang kita perlu input harganya. betul tidak logikaku?
 perbaiki alur adj melalui daily matrix, jangan langsung tampilkan semua opsi, tapi buat guarding pilih salai satu dulu antara spoil / waste / minus / plus, baru tampilkan alasannya
+
+
+
+
+
+
+sekarang saya butuh pengaman database untuk berjaga jaga jika ada listrik mati.
+saya butuh 2 skema.
+1. backup db dan push berkala ke github ketika ada perubahan data dari tabel tabel tertentu, tabel kunci yang penting untuk melakukan update database. misal ketika ada transaksi.
+2. backup berkala di 2 device berbeda, misal 1 device utama yang running di server dengan alaman url tertentu (diatur di halaman pengaturan). 2 device backup di server yang berbeda , atau url yang berbeda, atau di localhost laptop sebagai slave. untuk aplikasinya sama identik, yang membedakan di pengaturan yang 1 di seting sebagai Master yang 1 slave. dan database selalu update. mendeteksi jika salah 1 server down atau disconect. jika server utama down maka user menggunakan server kedua / atau laptop lokal, dan putuskan sementara koneksi keduanya, lalu ketika server utama sudah online baru ada pemindahan data dari server kedua / lokal dengan pengecekan data terlebih dahulu untuk mencegah terjadinya bentrok. setelah itu baru koneksi diaktifkan kembali di pengaturan
+
+ada gambaran?

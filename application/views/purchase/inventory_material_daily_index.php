@@ -2079,27 +2079,37 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     return total / values.length;
   }
 
+  function toContentUnitCost(unitPricePerPack, contentPerBuy){
+    var unitPrice = Number(unitPricePerPack || 0);
+    var factor = Number(contentPerBuy || 0);
+    if (!(unitPrice > 0)) { return 0; }
+    if (!(factor > 0)) { factor = 1; }
+    return unitPrice / factor;
+  }
+
   function resolveReferenceUnitPrice(row, group){
+    var rowContentPerBuy = Number(row.profile_content_per_buy || averageProfileContent(group) || 0);
+    var groupContentPerBuy = Number(averageProfileContent(group) || row.profile_content_per_buy || 0);
     if (Number((row.metrics && row.metrics.hpp) || 0) > 0) {
       return Number((row.metrics && row.metrics.hpp) || 0);
     }
     if (Number(row.profile_last_unit_price || 0) > 0) {
-      return Number(row.profile_last_unit_price || 0);
+      return toContentUnitCost(row.profile_last_unit_price || 0, rowContentPerBuy);
     }
     if (Number(row.profile_standard_price || 0) > 0) {
-      return Number(row.profile_standard_price || 0);
+      return toContentUnitCost(row.profile_standard_price || 0, rowContentPerBuy);
     }
     if (Number((row.metrics && row.metrics.last_unit_price) || 0) > 0) {
-      return Number((row.metrics && row.metrics.last_unit_price) || 0);
+      return toContentUnitCost((row.metrics && row.metrics.last_unit_price) || 0, rowContentPerBuy);
     }
     if (Number((row.metrics && row.metrics.standard_price) || 0) > 0) {
-      return Number((row.metrics && row.metrics.standard_price) || 0);
+      return toContentUnitCost((row.metrics && row.metrics.standard_price) || 0, rowContentPerBuy);
     }
     if (group && Number((group.metrics && group.metrics.last_unit_price) || 0) > 0) {
-      return Number((group.metrics && group.metrics.last_unit_price) || 0);
+      return toContentUnitCost((group.metrics && group.metrics.last_unit_price) || 0, groupContentPerBuy);
     }
     if (group && Number((group.metrics && group.metrics.standard_price) || 0) > 0) {
-      return Number((group.metrics && group.metrics.standard_price) || 0);
+      return toContentUnitCost((group.metrics && group.metrics.standard_price) || 0, groupContentPerBuy);
     }
     if (group && Number((group.metrics && group.metrics.hpp) || 0) > 0) {
       return Number((group.metrics && group.metrics.hpp) || 0);
