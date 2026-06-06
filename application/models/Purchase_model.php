@@ -5116,7 +5116,33 @@ class Purchase_model extends CI_Model
         }
 
         $fallbackRows = $this->search_opening_items($q, $candidateLimit);
+        $stockProfileKeys = [];
+        $stockProfileNames = [];
+        if ($scope === 'DIVISION') {
+            foreach ($rows as $stockRow) {
+                if (($stockRow['source_type'] ?? '') !== 'PROFILE_DIVISION_STOCK') {
+                    continue;
+                }
+                $itemId = (int)($stockRow['id'] ?? $stockRow['item_id'] ?? 0);
+                $profileKey = trim((string)($stockRow['profile_key'] ?? ''));
+                if ($itemId > 0 && $profileKey !== '') {
+                    $stockProfileKeys[$itemId . '|' . strtoupper($profileKey)] = true;
+                }
+                $stockProfileNames[$itemId . '|' . strtoupper(trim((string)($stockRow['profile_name'] ?? ''))) . '|' . strtoupper(trim((string)($stockRow['profile_brand'] ?? ''))) . '|' . strtoupper(trim((string)($stockRow['profile_description'] ?? '')))] = true;
+            }
+        }
         foreach ($fallbackRows as $row) {
+            if ($scope === 'DIVISION') {
+                $itemId = (int)($row['id'] ?? $row['item_id'] ?? 0);
+                $profileKey = trim((string)($row['profile_key'] ?? ''));
+                $nameKey = $itemId . '|' . strtoupper(trim((string)($row['profile_name'] ?? ''))) . '|' . strtoupper(trim((string)($row['profile_brand'] ?? ''))) . '|' . strtoupper(trim((string)($row['profile_description'] ?? '')));
+                if ($itemId > 0 && $profileKey !== '' && isset($stockProfileKeys[$itemId . '|' . strtoupper($profileKey)])) {
+                    continue;
+                }
+                if (isset($stockProfileNames[$nameKey])) {
+                    continue;
+                }
+            }
             $dedupeKey = $this->openingSearchRowKey($row);
             if (isset($seen[$dedupeKey])) {
                 continue;

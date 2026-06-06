@@ -96,6 +96,18 @@ log "Cleanup  : ${DELETED} file lama dihapus (> ${RETENTION_DAYS} hari)"
 REPO_PATH="${BACKUP_REPO_PATH}"
 cd "$REPO_PATH"
 
+# Sync dengan remote dulu agar tidak diverge
+PULL_OUT=$(git pull --rebase "${BACKUP_REPO_REMOTE}" "${BACKUP_REPO_BRANCH}" 2>&1)
+PULL_CODE=$?
+if [ $PULL_CODE -ne 0 ]; then
+  git rebase --abort 2>/dev/null || true
+  log "[WARN] Git pull gagal — skip push, backup lokal tetap tersimpan."
+  log "[WARN] Detail: ${PULL_OUT}"
+  log "====== Backup SELESAI ======"
+  log ""
+  exit 0
+fi
+
 # Tambah hanya folder backup
 git add backup/dumps/ backup/logs/ 2>/dev/null || true
 
@@ -103,7 +115,8 @@ CHANGED=$(git status --porcelain backup/ 2>/dev/null | wc -l)
 if [ "$CHANGED" -gt 0 ]; then
   git commit -m "backup: ${DB_NAME} ${TIMESTAMP}" --quiet
   PUSH_ERR=$(git push "${BACKUP_REPO_REMOTE}" "${BACKUP_REPO_BRANCH}" 2>&1)
-  if [ $? -eq 0 ]; then
+  PUSH_CODE=$?
+  if [ $PUSH_CODE -eq 0 ]; then
     log "Git push : OK → ${BACKUP_REPO_REMOTE}/${BACKUP_REPO_BRANCH}"
   else
     log "[WARN] Git push gagal: ${PUSH_ERR}"

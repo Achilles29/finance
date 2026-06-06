@@ -1113,11 +1113,36 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
     return options;
   };
   const objectLabel = (row) => {
-    const objectCode = row?.material_id ? (row?.material_code || row?.item_code || '-') : (row?.item_code || row?.material_code || '-');
     const objectName = row?.material_id ? (row?.material_name || row?.item_name || '-') : (row?.item_name || row?.material_name || '-');
-    return (objectCode + ' - ' + objectName).trim();
+    return String(objectName || '-').trim();
   };
   const profileLabel = (row) => [row?.profile_name || 'Tanpa profile', row?.profile_brand || ''].filter(Boolean).join(' | ');
+  const sourceBadgeLabel = (row) => {
+    const sourceType = String(row?.source_type || '').toUpperCase();
+    if (sourceType === 'PROFILE_DIVISION_STOCK') {
+      return 'Stok Divisi';
+    }
+    if (sourceType === 'PROFILE_STOCK') {
+      return 'Stok';
+    }
+    if (sourceType === 'PROFILE_CATALOG') {
+      return 'Katalog';
+    }
+    return 'Profil';
+  };
+  const dedupeProfileOptions = (rows) => {
+    const seen = new Set();
+    const deduped = [];
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const key = profileOptionKey(row);
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      deduped.push(row);
+    });
+    return deduped;
+  };
   const syncSelectedProfile = (preferredKey = '') => {
     if (!selectedProfileOptions.length) {
       selectedProfileOptions = selectedItem ? [selectedItem] : [];
@@ -1205,7 +1230,7 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
         + '<button type="button" class="adjustment-profile-choice-card" data-profile-choice-index="' + index + '">'
           + '<div class="adjustment-profile-choice-head">'
             + '<div class="adjustment-profile-choice-title">' + escHtml(profileLabel(option)) + '</div>'
-            + '<span class="adjustment-profile-choice-key">' + escHtml(option.profile_key || 'Tanpa profile_key') + '</span>'
+            + '<span class="adjustment-profile-choice-key">' + escHtml(sourceBadgeLabel(option)) + '</span>'
           + '</div>'
           + '<div class="adjustment-profile-choice-desc">' + escHtml(description || 'Tidak ada deskripsi tambahan.') + '</div>'
           + '<div class="adjustment-profile-choice-meta">Update terakhir: ' + escHtml(updatedLabel) + '</div>'
@@ -1225,7 +1250,7 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
 
   const openProfilePicker = (baseItem, options) => {
     profilePickerBaseItem = baseItem || null;
-    profilePickerOptions = Array.isArray(options) ? options.slice() : [];
+    profilePickerOptions = dedupeProfileOptions(Array.isArray(options) ? options.slice() : []);
     if (!profilePickerBaseItem || !profilePickerOptions.length) {
       showAlert('warning', 'Profil item tidak ditemukan untuk adjustment ini.');
       return;
@@ -1606,12 +1631,13 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
       return;
     }
     searchResults.innerHTML = items.map((item, index) => {
-      const objectCode = item.material_id ? (item.material_code || item.item_code || '-') : (item.item_code || item.material_code || '-');
-      const objectName = item.material_id ? (item.material_name || item.item_name || '-') : (item.item_name || item.material_name || '-');
       const profileText = [item.profile_name, item.profile_brand, item.profile_description].filter(Boolean).join(' | ');
       return ''
         + '<button type="button" class="list-group-item list-group-item-action adjustment-search-result" data-index="' + index + '">'
-        + '<div class="fw-semibold">' + objectCode + ' - ' + objectName + '</div>'
+        + '<div class="d-flex justify-content-between align-items-start gap-2">'
+        +   '<div class="fw-semibold">' + escHtml(objectLabel(item)) + '</div>'
+        +   '<span class="badge bg-light text-dark border">' + escHtml(sourceBadgeLabel(item)) + '</span>'
+        + '</div>'
         + '<div class="small text-muted">' + (profileText || 'Tanpa profile') + '</div>'
         + '<div class="small">Avail: ' + fmt(isWarehouseScope ? item.available_qty_buy : item.available_qty_content) + ' ' + qtyUnitByScope(item) + (isWarehouseScope ? (' | Setara: ' + fmt(item.available_qty_content) + ' ' + (item.default_content_uom_code || '')) : '') + ' | ' + (isWarehouseScope ? 'Harga satuan' : 'Avg cost') + ': ' + fmt6(costByScope(item, Number(item.avg_cost_per_content || 0))) + '</div>'
         + '</button>';
