@@ -1,6 +1,6 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  RewriteBase /finance/
+  RewriteBase /core/
 
   # Jangan rewrite aset/file yang memang ada
   RewriteCond %{REQUEST_FILENAME} !-f

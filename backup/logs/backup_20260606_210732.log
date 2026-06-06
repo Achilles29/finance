@@ -1,0 +1,10 @@
+[2026-06-06 21:07:32] ====== Backup START: 20260606_210732 ======
+[2026-06-06 21:07:32] Database : db_finance@localhost:3306
+[2026-06-06 21:07:32] Output   : /www/wwwroot/finance/backup/dumps/backup_db_finance_20260606_210732.sql.gz
+[2026-06-06 21:07:33] Dump OK  : 1.6M
+[2026-06-06 21:07:33] Cleanup  : 0 file lama dihapus (> 3 hari)
+[2026-06-06 21:07:33] [WARN] Git pull gagal (exit 128): error: cannot pull with rebase: You have unstaged changes.
+error: Please commit or stash them.
+[2026-06-06 21:07:33] [WARN] Skip push. Backup lokal tetap tersimpan.
+[2026-06-06 21:07:33] ====== Backup SELESAI ======
+[2026-06-06 21:07:33] 
