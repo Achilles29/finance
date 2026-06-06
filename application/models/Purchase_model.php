@@ -5118,10 +5118,10 @@ class Purchase_model extends CI_Model
                 'profile_key' => $this->nullableString($row['profile_key'] ?? null),
             ];
             $balance = $this->fetchStockAdjustmentCurrentBalance($identity);
-            $row['stock_domain'] = $this->resolveLegacyIdentityStockDomain(
+            $row['stock_domain'] = (string)($balance['stock_domain'] ?? $this->resolveLegacyIdentityStockDomain(
                 !empty($row['id']) ? (int)$row['id'] : null,
                 !empty($row['material_id']) ? (int)$row['material_id'] : null
-            );
+            ));
             $row['available_qty_buy'] = round((float)($balance['qty_buy_balance'] ?? 0), 4);
             $row['available_qty_content'] = round((float)($balance['qty_content_balance'] ?? 0), 4);
             $row['avg_cost_per_content'] = round((float)($balance['avg_cost_per_content'] ?? 0), 6);
@@ -5604,6 +5604,22 @@ class Purchase_model extends CI_Model
         if ($contentPerBuy <= 0) {
             $contentPerBuy = 1.0;
         }
+        $currentBalance = $this->fetchStockAdjustmentCurrentBalance([
+            'stock_scope' => $scope,
+            'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+            'destination_type' => $scope === 'DIVISION' ? $destinationType : 'GUDANG',
+            'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
+            'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
+            'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
+            'content_uom_id' => !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null,
+            'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+            'profile_name' => $this->nullableString($line['profile_name'] ?? null),
+            'profile_brand' => $this->nullableString($line['profile_brand'] ?? null),
+            'profile_description' => $this->nullableString($line['profile_description'] ?? null),
+            'profile_expired_date' => $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
+            'profile_content_per_buy' => $contentPerBuy,
+            'stock_domain' => $line['stock_domain'] ?? null,
+        ]);
 
         $basePayload = [
             'manage_transaction' => false,
@@ -5630,16 +5646,79 @@ class Purchase_model extends CI_Model
         $basePayload['stock_domain'] = $this->resolveLegacyIdentityStockDomain(
             $basePayload['item_id'],
             $basePayload['material_id'],
-            $line['stock_domain'] ?? null
+            $currentBalance['stock_domain'] ?? ($line['stock_domain'] ?? null)
         );
 
         $lineUpdates = [];
+        if (isset($line['stock_domain']) && strtoupper(trim((string)$line['stock_domain'])) !== $basePayload['stock_domain']) {
+            $lineUpdates['stock_domain'] = $basePayload['stock_domain'];
+        }
         $negativeMoves = [
             'qty_waste_content' => ['movement_type' => 'WASTE_OUT', 'category' => 'WASTE', 'issue_field' => 'waste_issue_id', 'reason_field' => 'waste_reason_code'],
             'qty_spoil_content' => ['movement_type' => 'SPOIL_OUT', 'category' => 'SPOILAGE', 'issue_field' => 'spoil_issue_id', 'reason_field' => 'spoil_reason_code'],
             'qty_process_loss_content' => ['movement_type' => 'PROCESS_LOSS_OUT', 'category' => 'PROCESS_LOSS', 'issue_field' => 'process_loss_issue_id', 'reason_field' => 'process_loss_reason_code'],
             'qty_variance_content' => ['movement_type' => 'VARIANCE_OUT', 'category' => 'VARIANCE', 'issue_field' => 'variance_issue_id', 'reason_field' => 'variance_reason_code'],
         ];
+
+        $hasNegativeMutation = false;
+        foreach (array_keys($negativeMoves) as $negativeColumn) {
+            if (round((float)($line[$negativeColumn] ?? 0), 4) > 0) {
+                $hasNegativeMutation = true;
+                break;
+            }
+        }
+
+        if ($hasNegativeMutation
+            && ($basePayload['item_id'] !== null || $basePayload['material_id'] !== null)
+            && $basePayload['content_uom_id'] !== null
+        ) {
+            $syncPayload = [
+                'movement_date' => $movementDate,
+                'item_id' => $basePayload['item_id'],
+                'material_id' => $basePayload['material_id'],
+                'buy_uom_id' => $basePayload['buy_uom_id'],
+                'content_uom_id' => $basePayload['content_uom_id'],
+                'profile_key' => $basePayload['profile_key'],
+                'sync_note' => 'Pre-synced from FIFO lots before stock adjustment posting',
+            ];
+            if ($scope === 'DIVISION') {
+                $syncPayload['division_id'] = $divisionId;
+                $syncPayload['destination_type'] = $destinationType;
+            }
+
+            $preSync = $scope === 'DIVISION'
+                ? $this->materialfifomanager->syncDivisionMonthlyStockFromLots($syncPayload)
+                : $this->materialfifomanager->syncWarehouseMonthlyStockFromLots($syncPayload);
+            if (!($preSync['ok'] ?? false)) {
+                return [
+                    'ok' => false,
+                    'message' => (string)($preSync['message'] ?? 'Gagal sinkron saldo exact profile sebelum posting adjustment.'),
+                ];
+            }
+
+            $currentBalance = $this->fetchStockAdjustmentCurrentBalance([
+                'stock_scope' => $scope,
+                'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+                'destination_type' => $scope === 'DIVISION' ? $destinationType : 'GUDANG',
+                'item_id' => $basePayload['item_id'],
+                'material_id' => $basePayload['material_id'],
+                'buy_uom_id' => $basePayload['buy_uom_id'],
+                'content_uom_id' => $basePayload['content_uom_id'],
+                'profile_key' => $basePayload['profile_key'],
+                'profile_name' => $basePayload['profile_name'],
+                'profile_brand' => $basePayload['profile_brand'],
+                'profile_description' => $basePayload['profile_description'],
+                'profile_expired_date' => $basePayload['profile_expired_date'],
+                'profile_content_per_buy' => $contentPerBuy,
+                'stock_domain' => $basePayload['stock_domain'],
+            ]);
+            $basePayload['stock_domain'] = $this->resolveLegacyIdentityStockDomain(
+                $basePayload['item_id'],
+                $basePayload['material_id'],
+                $currentBalance['stock_domain'] ?? $basePayload['stock_domain']
+            );
+            $lineUpdates['stock_domain'] = $basePayload['stock_domain'];
+        }
 
         foreach ($negativeMoves as $column => $meta) {
             $qtyContent = round((float)($line[$column] ?? 0), 4);
@@ -5694,17 +5773,7 @@ class Purchase_model extends CI_Model
             $qtyBuyPlus = $this->convertStockAdjustmentQtyBuy($qtyPlus, $contentPerBuy, !empty($line['buy_uom_id']));
             $unitCost = round((float)($line['unit_cost'] ?? 0), 6);
             if ($unitCost <= 0) {
-                $balance = $this->fetchStockAdjustmentCurrentBalance([
-                    'stock_scope' => $scope,
-                    'division_id' => $divisionId,
-                    'destination_type' => $destinationType,
-                    'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
-                    'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
-                    'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
-                    'content_uom_id' => !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null,
-                    'profile_key' => $this->nullableString($line['profile_key'] ?? null),
-                ]);
-                $unitCost = round((float)($balance['avg_cost_per_content'] ?? 0), 6);
+                $unitCost = round((float)($currentBalance['avg_cost_per_content'] ?? 0), 6);
             }
             if ($unitCost <= 0) {
                 return ['ok' => false, 'message' => 'Adjustment plus membutuhkan unit_cost yang valid.'];
@@ -5864,7 +5933,7 @@ class Purchase_model extends CI_Model
         ]);
 
         return [
-            'stock_domain' => $stockDomain,
+            'stock_domain' => (string)($balance['stock_domain'] ?? $stockDomain),
             'item_id' => $itemId,
             'material_id' => $materialId,
             'buy_uom_id' => $buyUomId,
@@ -5925,90 +5994,106 @@ class Purchase_model extends CI_Model
         $itemId = $this->nullableInt($identity['item_id'] ?? null);
         $materialId = $this->nullableInt($identity['material_id'] ?? null);
         $legacyStockDomain = $this->resolveLegacyIdentityStockDomain($itemId, $materialId, $identity['stock_domain'] ?? null);
+        $candidateDomains = [$legacyStockDomain];
+        if ($itemId !== null && $materialId !== null) {
+            $candidateDomains[] = $legacyStockDomain === 'ITEM' ? 'MATERIAL' : 'ITEM';
+        }
+        $candidateDomains = array_values(array_unique(array_filter($candidateDomains, static function ($value): bool {
+            return in_array($value, ['ITEM', 'MATERIAL'], true);
+        })));
+
         if ($scope === 'DIVISION') {
             if ($this->db->table_exists('inv_division_monthly_stock')) {
                 $targetMonth = date('Y-m-01');
-                $identityKey = $this->buildInventoryMonthlyIdentityKey([
-                    'stock_domain' => $legacyStockDomain,
-                    'item_id' => $itemId,
-                    'material_id' => $materialId,
-                    'buy_uom_id' => $identity['buy_uom_id'] ?? null,
-                    'content_uom_id' => $identity['content_uom_id'] ?? null,
-                    'profile_key' => $identity['profile_key'] ?? null,
-                    'profile_name' => $identity['profile_name'] ?? null,
-                    'profile_brand' => $identity['profile_brand'] ?? null,
-                    'profile_description' => $identity['profile_description'] ?? null,
-                    'profile_content_per_buy' => $identity['profile_content_per_buy'] ?? 1,
-                    'profile_expired_date' => $identity['profile_expired_date'] ?? null,
-                ]);
                 $latestMonthSubquery = $this->db
                     ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
                     ->from('inv_division_monthly_stock')
                     ->where('month_key <=', $targetMonth)
                     ->group_by(['division_id', 'destination_type', 'identity_key'])
                     ->get_compiled_select();
-                $row = $this->db
-                    ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content', false)
-                    ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
-                    ->from('inv_division_monthly_stock s')
-                    ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
-                    ->where('s.division_id', $identity['division_id'] ?? null)
-                    ->where('s.destination_type', strtoupper((string)($identity['destination_type'] ?? 'OTHER')))
-                    ->where('s.identity_key', $identityKey)
-                    ->limit(1)
-                    ->get()
-                    ->row_array();
-
-                return [
-                    'qty_buy_balance' => (float)($row['qty_buy_balance'] ?? 0),
-                    'qty_content_balance' => (float)($row['qty_content_balance'] ?? 0),
-                    'avg_cost_per_content' => (float)($row['avg_cost_per_content'] ?? 0),
-                    'updated_at' => $row['updated_at'] ?? null,
-                ];
+                foreach ($candidateDomains as $domain) {
+                    $identityKey = $this->buildInventoryMonthlyIdentityKey([
+                        'stock_domain' => $domain,
+                        'item_id' => $itemId,
+                        'material_id' => $materialId,
+                        'buy_uom_id' => $identity['buy_uom_id'] ?? null,
+                        'content_uom_id' => $identity['content_uom_id'] ?? null,
+                        'profile_key' => $identity['profile_key'] ?? null,
+                        'profile_name' => $identity['profile_name'] ?? null,
+                        'profile_brand' => $identity['profile_brand'] ?? null,
+                        'profile_description' => $identity['profile_description'] ?? null,
+                        'profile_content_per_buy' => $identity['profile_content_per_buy'] ?? 1,
+                        'profile_expired_date' => $identity['profile_expired_date'] ?? null,
+                    ]);
+                    $row = $this->db
+                        ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content', false)
+                        ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
+                        ->from('inv_division_monthly_stock s')
+                        ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                        ->where('s.division_id', $identity['division_id'] ?? null)
+                        ->where('s.destination_type', strtoupper((string)($identity['destination_type'] ?? 'OTHER')))
+                        ->where('s.identity_key', $identityKey)
+                        ->limit(1)
+                        ->get()
+                        ->row_array();
+                    if (!empty($row)) {
+                        return [
+                            'qty_buy_balance' => (float)($row['qty_buy_balance'] ?? 0),
+                            'qty_content_balance' => (float)($row['qty_content_balance'] ?? 0),
+                            'avg_cost_per_content' => (float)($row['avg_cost_per_content'] ?? 0),
+                            'updated_at' => $row['updated_at'] ?? null,
+                            'stock_domain' => $domain,
+                        ];
+                    }
+                }
             }
 
-            return ['qty_buy_balance' => 0.0, 'qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0, 'updated_at' => null];
+            return ['qty_buy_balance' => 0.0, 'qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0, 'updated_at' => null, 'stock_domain' => $legacyStockDomain];
         } else {
             if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
                 $targetMonth = date('Y-m-01');
-                $identityKey = $this->buildInventoryMonthlyIdentityKey([
-                    'stock_domain' => $legacyStockDomain,
-                    'item_id' => $itemId,
-                    'material_id' => $materialId,
-                    'buy_uom_id' => $identity['buy_uom_id'] ?? null,
-                    'content_uom_id' => $identity['content_uom_id'] ?? null,
-                    'profile_key' => $identity['profile_key'] ?? null,
-                    'profile_name' => $identity['profile_name'] ?? null,
-                    'profile_brand' => $identity['profile_brand'] ?? null,
-                    'profile_description' => $identity['profile_description'] ?? null,
-                    'profile_content_per_buy' => $identity['profile_content_per_buy'] ?? 1,
-                    'profile_expired_date' => $identity['profile_expired_date'] ?? null,
-                ]);
                 $latestMonthSubquery = $this->db
                     ->select('identity_key, MAX(month_key) AS month_key', false)
                     ->from('inv_warehouse_monthly_stock')
                     ->where('month_key <=', $targetMonth)
                     ->group_by('identity_key')
                     ->get_compiled_select();
-                $row = $this->db
-                    ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content', false)
-                    ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
-                    ->from('inv_warehouse_monthly_stock s')
-                    ->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
-                    ->where('s.identity_key', $identityKey)
-                    ->limit(1)
-                    ->get()
-                    ->row_array();
-
-                return [
-                    'qty_buy_balance' => (float)($row['qty_buy_balance'] ?? 0),
-                    'qty_content_balance' => (float)($row['qty_content_balance'] ?? 0),
-                    'avg_cost_per_content' => (float)($row['avg_cost_per_content'] ?? 0),
-                    'updated_at' => $row['updated_at'] ?? null,
-                ];
+                foreach ($candidateDomains as $domain) {
+                    $identityKey = $this->buildInventoryMonthlyIdentityKey([
+                        'stock_domain' => $domain,
+                        'item_id' => $itemId,
+                        'material_id' => $materialId,
+                        'buy_uom_id' => $identity['buy_uom_id'] ?? null,
+                        'content_uom_id' => $identity['content_uom_id'] ?? null,
+                        'profile_key' => $identity['profile_key'] ?? null,
+                        'profile_name' => $identity['profile_name'] ?? null,
+                        'profile_brand' => $identity['profile_brand'] ?? null,
+                        'profile_description' => $identity['profile_description'] ?? null,
+                        'profile_content_per_buy' => $identity['profile_content_per_buy'] ?? 1,
+                        'profile_expired_date' => $identity['profile_expired_date'] ?? null,
+                    ]);
+                    $row = $this->db
+                        ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content', false)
+                        ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
+                        ->from('inv_warehouse_monthly_stock s')
+                        ->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                        ->where('s.identity_key', $identityKey)
+                        ->limit(1)
+                        ->get()
+                        ->row_array();
+                    if (!empty($row)) {
+                        return [
+                            'qty_buy_balance' => (float)($row['qty_buy_balance'] ?? 0),
+                            'qty_content_balance' => (float)($row['qty_content_balance'] ?? 0),
+                            'avg_cost_per_content' => (float)($row['avg_cost_per_content'] ?? 0),
+                            'updated_at' => $row['updated_at'] ?? null,
+                            'stock_domain' => $domain,
+                        ];
+                    }
+                }
             }
 
-            return ['qty_buy_balance' => 0.0, 'qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0, 'updated_at' => null];
+            return ['qty_buy_balance' => 0.0, 'qty_content_balance' => 0.0, 'avg_cost_per_content' => 0.0, 'updated_at' => null, 'stock_domain' => $legacyStockDomain];
         }
 
         return [
@@ -6016,6 +6101,7 @@ class Purchase_model extends CI_Model
             'qty_content_balance' => (float)($row['qty_content_balance'] ?? 0),
             'avg_cost_per_content' => (float)($row['avg_cost_per_content'] ?? 0),
             'updated_at' => !empty($row['updated_at']) ? (string)$row['updated_at'] : null,
+            'stock_domain' => $legacyStockDomain,
         ];
     }
 
