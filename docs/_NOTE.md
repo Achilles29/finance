@@ -99,3 +99,12 @@ daftar file yang masih hybrid
 tandai mana yang writer, reader, dan schema
 lalu kita pilih lane mana yang dibersihkan duluan tanpa ganggu operasional.
 
+
+
+nah kan berarti masih ada stock_domain MATERIAL yang digunakan acuan? katanya kemarin sudah semua.
+jadi bagaimana donk? buatkan query untuk semua yang masih pakai stock domain material diganti jadi item? atau dihapus saja penggunaan stock domainnya? bukannya kemarin sudah mengabaikan stock domain ya.
+jadi masalahnya di data atau di scritpnya?
+kalau di scriptnya berarti belum mengabaikan stock domain
+kalau di data berarti masih banya data yang tidak sesuai.
+
+lalu solusinya menurutmu ke arah mana? perubahan script atau perubahan data?

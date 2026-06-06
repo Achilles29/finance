@@ -254,6 +254,98 @@ class System_tools extends MY_Controller
         }
     }
 
+    // ── Aksi: Terapkan konfigurasi MySQL (SET GLOBAL + conf.d) ──
+    public function action_apply_mysql_config()
+    {
+        $this->require_permission('system.dbtools.settings', 'edit');
+        $payload  = $this->request_payload();
+        $role     = strtoupper(trim((string)($payload['role'] ?? 'MASTER')));
+        $serverId = (int)($payload['server_id'] ?? ($role === 'MASTER' ? 1 : 2));
+
+        if (!in_array($role, ['MASTER', 'SLAVE'], true)) {
+            $this->json_error('Role tidak valid.', 422); return;
+        }
+
+        $applied = [];
+        $failed  = [];
+
+        // Terapkan via SET GLOBAL (langsung efektif, tidak butuh restart)
+        $offset  = $role === 'MASTER' ? 1 : 2;
+        $globals = [
+            "SET GLOBAL server_id               = {$serverId}",
+            "SET GLOBAL binlog_format           = 'ROW'",
+            "SET GLOBAL auto_increment_offset   = {$offset}",
+            "SET GLOBAL auto_increment_increment = 2",
+        ];
+        if ($role === 'SLAVE') {
+            $globals[] = "SET GLOBAL read_only       = ON";
+            $globals[] = "SET GLOBAL super_read_only = ON";
+        }
+        foreach ($globals as $sql) {
+            try   { $this->db->query($sql); $applied[] = $sql; }
+            catch (Exception $e) { $failed[] = ['sql' => $sql, 'error' => $e->getMessage()]; }
+        }
+
+        // Cek apakah binary logging sudah aktif
+        $logBinRow = $this->db->query("SHOW VARIABLES LIKE 'log_bin'")->row_array();
+        $binlogOn  = strtoupper($logBinRow['Value'] ?? 'OFF') === 'ON';
+
+        // Snippet konfigurasi untuk my.cnf
+        $readOnly = $role === 'SLAVE' ? "\nread_only                = ON\nsuper_read_only          = ON" : '';
+        $snippet  = "[mysqld]\nserver-id                = {$serverId}\nlog_bin                  = mysql-bin\nbinlog_format            = ROW{$readOnly}\nauto_increment_offset    = {$offset}\nauto_increment_increment = 2";
+
+        // Coba tulis ke conf.d (agar permanen / survive restart)
+        $confDirs    = ['/etc/mysql/conf.d', '/etc/mysql/mysql.conf.d', '/etc/my.cnf.d'];
+        $confWritten = false;
+        $confPath    = '';
+        foreach ($confDirs as $dir) {
+            if (is_dir($dir) && is_writable($dir)) {
+                $confPath    = $dir . '/finance-replication.cnf';
+                $confWritten = file_put_contents($confPath, $snippet . "\n") !== false;
+                break;
+            }
+        }
+
+        $this->json_ok([
+            'applied'      => $applied,
+            'failed'       => $failed,
+            'binlog_on'    => $binlogOn,
+            'conf_written' => $confWritten,
+            'conf_path'    => $confPath,
+            'snippet'      => $snippet,
+            'needs_restart'=> !$binlogOn,
+        ]);
+    }
+
+    // ── Aksi: Setup Master (buat replication user) ───────────────
+    public function action_setup_master()
+    {
+        $this->require_permission('system.dbtools.settings', 'edit');
+        $payload  = $this->request_payload();
+        $replUser = trim((string)($payload['repl_user'] ?? $this->_cfg('repl.repl_user', 'repl_user')));
+        $replPass = (string)($payload['repl_pass'] ?? $this->_cfg('repl.repl_pass', ''));
+
+        if ($replUser === '') { $this->json_error('Username replikasi tidak boleh kosong.', 422); return; }
+        if ($replPass === '') { $this->json_error('Password replikasi tidak boleh kosong.', 422); return; }
+
+        try {
+            $u = $this->db->escape_str($replUser);
+            $p = $this->db->escape_str($replPass);
+            $this->db->query("CREATE USER IF NOT EXISTS '{$u}'@'%' IDENTIFIED BY '{$p}'");
+            $this->db->query("ALTER USER '{$u}'@'%' IDENTIFIED BY '{$p}'");
+            $this->db->query("GRANT REPLICATION SLAVE ON *.* TO '{$u}'@'%'");
+            $this->db->query("FLUSH PRIVILEGES");
+            $master = $this->db->query('SHOW MASTER STATUS')->row_array() ?: [];
+            $this->json_ok([
+                'message'  => "User '{$replUser}'@'%' berhasil dibuat dan diberi hak REPLICATION SLAVE.",
+                'binlog'   => $master['File']     ?? '-',
+                'position' => (int)($master['Position'] ?? 0),
+            ]);
+        } catch (Exception $e) {
+            $this->json_error('Gagal setup master: ' . $e->getMessage(), 500);
+        }
+    }
+
     // ── Aksi: Check Replication Status ────────────────────────────
     public function action_check_replication()
     {

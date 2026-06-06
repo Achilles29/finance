@@ -303,6 +303,65 @@ $lastDump   = !empty($recentDumps) ? $recentDumps[0] : null;
     </div>
   </div>
 
+  <!-- ── Setup Wizard ─────────────────────────────────────── -->
+  <div id="repl-wizard" class="card dbt-card p-4 mb-3 <?php echo $replRole === 'STANDALONE' ? 'd-none' : ''; ?>">
+    <div class="dbt-section">Setup Otomatis</div>
+
+    <!-- MASTER wizard -->
+    <div id="wizard-master" class="<?php echo $replRole !== 'MASTER' ? 'd-none' : ''; ?>">
+      <p class="small text-muted mb-3">
+        Klik tombol di bawah untuk menerapkan konfigurasi MySQL server ini sebagai <strong>Server Utama</strong>.
+        Setting diterapkan via <code>SET GLOBAL</code> (langsung efektif) dan dicoba ditulis ke <code>conf.d</code> agar permanen.
+      </p>
+      <div class="d-flex gap-2 mb-3 flex-wrap">
+        <button type="button" id="btn-apply-master-cfg" class="btn btn-outline-primary btn-sm">
+          <i class="ri ri-settings-3-line me-1"></i>Terapkan Konfigurasi MySQL (Server 1)
+        </button>
+      </div>
+      <div id="out-apply-master" class="dbt-output"></div>
+      <hr class="my-3">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-5">
+          <label class="form-label small mb-1">Username Replikasi</label>
+          <input type="text" id="wm_repl_user" class="form-control" value="<?php echo $cfgGet($cfg,'repl.repl_user','repl_user'); ?>">
+        </div>
+        <div class="col-md-5">
+          <label class="form-label small mb-1">Password Replikasi</label>
+          <input type="password" id="wm_repl_pass" class="form-control" placeholder="Wajib diisi" autocomplete="new-password">
+        </div>
+        <div class="col-md-2">
+          <button type="button" id="btn-setup-master" class="btn btn-primary w-100">
+            <i class="ri ri-user-add-line me-1"></i>Buat User
+          </button>
+        </div>
+      </div>
+      <div id="out-setup-master" class="dbt-output mt-2"></div>
+      <div class="text-muted small mt-2">Tombol Buat User menjalankan <code>CREATE USER</code> + <code>GRANT REPLICATION SLAVE</code>.</div>
+    </div>
+
+    <!-- SLAVE wizard -->
+    <div id="wizard-slave" class="<?php echo $replRole !== 'SLAVE' ? 'd-none' : ''; ?>">
+      <p class="small text-muted mb-3">
+        Klik tombol pertama untuk menerapkan konfigurasi MySQL server ini sebagai <strong>Server Cadangan</strong>.
+        Setelah itu import snapshot awal dari Server 1 (manual sekali), lalu klik tombol kedua.
+      </p>
+      <div class="d-flex gap-2 mb-3 flex-wrap">
+        <button type="button" id="btn-apply-slave-cfg" class="btn btn-outline-primary btn-sm">
+          <i class="ri ri-settings-3-line me-1"></i>Terapkan Konfigurasi MySQL (Server 2)
+        </button>
+        <button type="button" id="btn-init-slave" class="btn btn-success btn-sm">
+          <i class="ri ri-link me-1"></i>Hubungkan ke Server Utama
+        </button>
+      </div>
+      <div id="out-apply-slave" class="dbt-output mb-2"></div>
+      <div id="out-init-slave" class="dbt-output"></div>
+      <div class="alert alert-warning border-0 small py-2 mt-3">
+        <strong>Import snapshot</strong> (hanya sekali, sebelum klik Hubungkan): jalankan di terminal server ini:<br>
+        <code>mysqldump -h IP_SERVER1 -u root -p --single-transaction db_finance | mysql -u root -p db_finance</code>
+      </div>
+    </div>
+  </div>
+
   <!-- Panduan prosedur -->
   <div class="card dbt-card p-4 mb-3">
     <div class="dbt-section">Alur Perlindungan</div>
@@ -566,41 +625,30 @@ chmod +x <?php echo $root; ?>/scripts/replication/*.sh</div>
   </div>
   <div class="guide-chapter-body">
     <p class="small text-muted mb-3">Cocok jika kamu punya 2 server di hosting yang berbeda. Keduanya punya IP publik.</p>
+    <div class="guide-ok mb-3">Sebagian besar langkah sekarang bisa dilakukan via UI — tidak perlu masuk terminal.</div>
 
     <div class="fw-bold small mb-2">Di Server Utama (Server 1):</div>
     <ol class="guide-step-list">
       <li>
         <div class="snum">1</div>
         <div class="sbody">
-          <div class="stitle">Edit konfigurasi MySQL</div>
-          <div class="sdesc">Buka file <code>/etc/mysql/my.cnf</code> (atau <code>/etc/my.cnf</code>), tambahkan:</div>
-          <div class="dbt-code">[mysqld]
-server-id                = 1
-log_bin                  = mysql-bin
-binlog_format            = ROW
-auto_increment_offset    = 1
-auto_increment_increment = 2</div>
-          <div class="sdesc">Lalu restart: <code>sudo systemctl restart mysql</code></div>
+          <div class="stitle">Tab "Server Cadangan" → pilih "Server Utama (1)" → klik <strong>Terapkan Konfigurasi MySQL (Server 1)</strong></div>
+          <div class="sdesc">Tombol ini menjalankan <code>SET GLOBAL server_id=1</code>, <code>binlog_format=ROW</code>, <code>auto_increment_offset=1</code>, dll, dan mencoba menulis konfigurasi permanen ke <code>conf.d</code> otomatis.</div>
+          <div class="guide-note">Jika output menampilkan <em>"MySQL perlu di-restart agar log_bin aktif"</em>, jalankan sekali di terminal: <code>sudo systemctl restart mysql</code> — ini hanya diperlukan jika binary logging belum pernah diaktifkan sebelumnya.</div>
         </div>
       </li>
       <li>
         <div class="snum">2</div>
         <div class="sbody">
-          <div class="stitle">Buat user untuk sinkronisasi</div>
-          <div class="dbt-code">mysql -u root -p
-
-CREATE USER 'repl_user'@'%' IDENTIFIED BY 'password_aman_123';
-GRANT REPLICATION SLAVE ON *.* TO 'repl_user'@'%';
-FLUSH PRIVILEGES;
-EXIT;</div>
-          <div class="guide-note">Ganti <code>password_aman_123</code> dengan password yang kuat. Catat password ini — dipakai saat setup Server Cadangan.</div>
+          <div class="stitle">Isi username &amp; password replikasi → klik <strong>Buat User</strong></div>
+          <div class="sdesc">Tombol ini menjalankan <code>CREATE USER</code> + <code>GRANT REPLICATION SLAVE</code> otomatis. Catat password yang kamu isi — dipakai di Server 2.</div>
         </div>
       </li>
       <li>
         <div class="snum">3</div>
         <div class="sbody">
-          <div class="stitle">Di halaman ini: tab "Server Cadangan" → pilih "Server Utama (1)" → Simpan</div>
-          <div class="sdesc">Ini hanya mencatat peran server di pengaturan aplikasi.</div>
+          <div class="stitle">Klik <strong>Simpan Pengaturan</strong></div>
+          <div class="sdesc">Menyimpan peran server sebagai Server Utama.</div>
         </div>
       </li>
     </ol>
@@ -610,40 +658,37 @@ EXIT;</div>
       <li>
         <div class="snum">1</div>
         <div class="sbody">
-          <div class="stitle">Edit konfigurasi MySQL di Server 2</div>
-          <div class="dbt-code">[mysqld]
-server-id                = 2
-log_bin                  = mysql-bin
-binlog_format            = ROW
-read_only                = ON
-auto_increment_offset    = 2
-auto_increment_increment = 2</div>
-          <div class="sdesc">Restart: <code>sudo systemctl restart mysql</code></div>
+          <div class="stitle">Tab "Server Cadangan" → pilih "Server Cadangan (2)" → klik <strong>Terapkan Konfigurasi MySQL (Server 2)</strong></div>
+          <div class="sdesc">Menerapkan <code>server_id=2</code>, <code>read_only=ON</code>, <code>auto_increment_offset=2</code>, dll. Sama seperti Server 1 — restart MySQL jika diminta.</div>
         </div>
       </li>
       <li>
         <div class="snum">2</div>
         <div class="sbody">
-          <div class="stitle">Import snapshot database dari Server 1</div>
-          <div class="sdesc">Jalankan di Server 1:</div>
-          <div class="dbt-code">mysqldump -u root -p --single-transaction --master-data=2 db_finance > snapshot.sql
-scp snapshot.sql user@server2:/tmp/</div>
-          <div class="sdesc">Lalu di Server 2:</div>
-          <div class="dbt-code">mysql -u root -p db_finance < /tmp/snapshot.sql</div>
+          <div class="stitle">Import snapshot awal dari Server 1 <span class="guide-tag warning ms-1">Sekali saja</span></div>
+          <div class="sdesc">Ini satu-satunya langkah yang perlu terminal. Jalankan di terminal Server 2:</div>
+          <div class="dbt-code">mysqldump -h IP_SERVER1 -u root -p --single-transaction db_finance | mysql -u root -p db_finance</div>
+          <div class="sdesc mt-1">Atau dengan dua langkah (jika koneksi lambat):</div>
+          <div class="dbt-code"># Di Server 1:
+mysqldump -u root -p --single-transaction --master-data=2 db_finance > /tmp/snap.sql
+scp /tmp/snap.sql user@IP_SERVER2:/tmp/
+
+# Di Server 2:
+mysql -u root -p db_finance &lt; /tmp/snap.sql</div>
         </div>
       </li>
       <li>
         <div class="snum">3</div>
         <div class="sbody">
-          <div class="stitle">Di halaman ini: tab "Server Cadangan" → isi koneksi ke Server 1 → Simpan</div>
-          <div class="sdesc">Isi alamat Server 1, port 3306, user <code>repl_user</code>, dan password yang tadi dibuat.</div>
+          <div class="stitle">Isi koneksi ke Server 1 → klik <strong>Hubungkan ke Server Utama</strong></div>
+          <div class="sdesc">Isi alamat Server 1, port, user, dan password replikasi dari langkah Server 1 tadi. Tombol ini menjalankan <code>CHANGE MASTER TO</code> + <code>START SLAVE</code> otomatis.</div>
         </div>
       </li>
       <li>
         <div class="snum">4</div>
         <div class="sbody">
-          <div class="stitle">Tab "Status & Jalankan" → klik "Cek Kondisi"</div>
-          <div class="sdesc">Jika muncul <span style="background:#dcfce7;color:#166534;padding:.1rem .4rem;border-radius:4px;font-size:.75rem;font-weight:700">Sinkron</span> — selesai, sinkronisasi berjalan!</div>
+          <div class="stitle">Klik <strong>Simpan Pengaturan</strong>, lalu tab "Status &amp; Jalankan" → <strong>Cek Kondisi Sekarang</strong></div>
+          <div class="sdesc">Jika muncul <span style="background:#dcfce7;color:#166534;padding:.1rem .4rem;border-radius:4px;font-size:.75rem;font-weight:700">Sinkron</span> — selesai!</div>
           <div class="guide-ok mt-1">✓ Data dari Server 1 otomatis tersalin ke Server 2 secara real-time.</div>
         </div>
       </li>
@@ -666,8 +711,8 @@ scp snapshot.sql user@server2:/tmp/</div>
       <li>
         <div class="snum">1</div>
         <div class="sbody">
-          <div class="stitle">Setup Server Utama sama seperti Bab 3 langkah 1 & 2</div>
-          <div class="sdesc">Konfigurasi MySQL dan buat user replication di server utama.</div>
+          <div class="stitle">Setup Server Utama sama seperti Bab 3 langkah 1 &amp; 2</div>
+          <div class="sdesc">Di server utama: klik <strong>Terapkan Konfigurasi MySQL (Server 1)</strong> dan <strong>Buat User</strong> via tab Server Cadangan.</div>
         </div>
       </li>
       <li>
@@ -685,7 +730,9 @@ sudo brew install mysql          # Mac</div>
       <li>
         <div class="snum">3</div>
         <div class="sbody">
-          <div class="stitle">Import snapshot database ke laptop (sama seperti Bab 3 langkah 2)</div>
+          <div class="stitle">Import snapshot database ke laptop <span class="guide-tag warning ms-1">Sekali saja</span></div>
+          <div class="sdesc">Jalankan di terminal laptop (setelah terowongan SSH aktif di langkah 4):</div>
+          <div class="dbt-code">mysqldump -h 127.0.0.1 -P 3307 -u root -p --single-transaction db_finance | mysql -u root -p db_finance</div>
         </div>
       </li>
       <li>
@@ -708,8 +755,8 @@ autossh -M 0 -fN -L 3307:127.0.0.1:3306 user@IP_SERVER_UTAMA</div>
       <li>
         <div class="snum">5</div>
         <div class="sbody">
-          <div class="stitle">Di halaman ini: tab "Server Cadangan" → centang "SSH Tunnel" → isi koneksi → Simpan</div>
-          <div class="sdesc">Isi alamat SSH host (sama dengan alamat server utama), user SSH, port lokal <code>3307</code>.</div>
+          <div class="stitle">Tab "Server Cadangan" → centang "SSH Tunnel" → isi koneksi → klik <strong>Terapkan Konfigurasi MySQL (Server 2)</strong> → klik <strong>Hubungkan ke Server Utama</strong> → Simpan</div>
+          <div class="sdesc">Isi alamat SSH host, user SSH, port lokal <code>3307</code>. Tombol Hubungkan akan menjalankan <code>CHANGE MASTER TO</code> + <code>START SLAVE</code> via terowongan otomatis.</div>
         </div>
       </li>
       <li>
@@ -1220,10 +1267,14 @@ function toggleChap(header) {
     return j;
   }
 
-  // ── Show/hide slave & tunnel fields ──────────────────────────
+  // ── Show/hide slave, tunnel, & wizard panels ─────────────────
   document.querySelectorAll('input[name="repl_role"]').forEach(el => {
     el.addEventListener('change', () => {
-      document.getElementById('slave-fields')?.classList.toggle('d-none', el.value !== 'SLAVE');
+      const v = el.value;
+      document.getElementById('slave-fields')?.classList.toggle('d-none', v !== 'SLAVE');
+      document.getElementById('repl-wizard')?.classList.toggle('d-none', v === 'STANDALONE');
+      document.getElementById('wizard-master')?.classList.toggle('d-none', v !== 'MASTER');
+      document.getElementById('wizard-slave')?.classList.toggle('d-none', v !== 'SLAVE');
     });
   });
   document.getElementById('t_enabled')?.addEventListener('change', function() {
@@ -1294,6 +1345,64 @@ function toggleChap(header) {
         ? '<span class="status-ok"><i class="ri ri-checkbox-circle-line"></i>Sinkron' + lag + '</span>'
         : '<span class="status-err"><i class="ri ri-close-circle-line"></i>' + esc(j.status) + (j.error ? ': ' + esc(j.error) : '') + '</span>';
     } catch(e) { alert('danger', esc(e.message)); }
+    finally { setLoading(this, false); }
+  });
+
+  // ── Apply MySQL config (SET GLOBAL + conf.d) ─────────────────
+  async function applyMysqlConfig(role, outId, btnEl) {
+    const serverId = role === 'MASTER' ? 1 : 2;
+    setLoading(btnEl, true);
+    output(outId, 'Menerapkan konfigurasi MySQL...', true);
+    try {
+      const j = await post('dbtools/action/apply-mysql-config', { role, server_id: serverId });
+      let msg = '';
+      if (j.applied?.length)  msg += '✓ SET GLOBAL diterapkan:\n  ' + j.applied.join('\n  ');
+      if (j.failed?.length)   msg += '\n✗ Gagal:\n  ' + j.failed.map(f => f.sql + ' → ' + f.error).join('\n  ');
+      msg += '\n\nBinary logging (log_bin): ' + (j.binlog_on ? '✓ AKTIF' : '✗ Belum aktif');
+      if (j.conf_written)     msg += '\n✓ Config disimpan ke: ' + j.conf_path;
+      else                    msg += '\n⚠ Config tidak bisa ditulis otomatis.\n  Tambahkan manual ke /etc/mysql/my.cnf atau conf.d:\n\n' + j.snippet;
+      if (j.needs_restart)    msg += '\n\n⚠ MySQL perlu di-restart agar log_bin aktif:\n  sudo systemctl restart mysql';
+      output(outId, msg, true);
+      if (!j.needs_restart && !j.failed?.length) alert('success', '✓ Konfigurasi MySQL berhasil diterapkan sepenuhnya.');
+      else alert('warning', '⚠ Sebagian konfigurasi diterapkan. Cek detail di output.');
+    } catch(e) { output(outId, e.message, true); alert('danger', esc(e.message)); }
+    finally { setLoading(btnEl, false); }
+  }
+
+  document.getElementById('btn-apply-master-cfg')?.addEventListener('click', function() {
+    applyMysqlConfig('MASTER', 'out-apply-master', this);
+  });
+  document.getElementById('btn-apply-slave-cfg')?.addEventListener('click', function() {
+    applyMysqlConfig('SLAVE', 'out-apply-slave', this);
+  });
+
+  // ── Setup Master (buat replication user) ─────────────────────
+  document.getElementById('btn-setup-master')?.addEventListener('click', async function() {
+    const pass = document.getElementById('wm_repl_pass')?.value || '';
+    if (!pass) { alert('danger', 'Password replikasi wajib diisi.'); return; }
+    setLoading(this, true); output('out-setup-master', 'Membuat user replikasi...', true);
+    try {
+      const j = await post('dbtools/action/setup-master', {
+        repl_user: document.getElementById('wm_repl_user')?.value || 'repl_user',
+        repl_pass: pass,
+      });
+      const msg = j.message + (j.binlog && j.binlog !== '-' ? `\nBinlog: ${j.binlog} pos ${j.position}` : '');
+      output('out-setup-master', msg, true);
+      alert('success', '✓ ' + esc(j.message));
+    } catch(e) { output('out-setup-master', e.message, true); alert('danger', esc(e.message)); }
+    finally { setLoading(this, false); }
+  });
+
+  // ── Init Slave (CHANGE MASTER TO) ────────────────────────────
+  document.getElementById('btn-init-slave')?.addEventListener('click', async function() {
+    setLoading(this, true); output('out-init-slave', 'Menghubungkan ke server utama...', true);
+    try {
+      const j = await post('dbtools/action/restart-replication', {
+        master_host: getVal('r_master_host'), master_port: getVal('r_master_port'),
+        repl_user: getVal('r_repl_user'), repl_pass: document.getElementById('r_repl_pass')?.value || '',
+      });
+      output('out-init-slave', j.message, true); alert('success', '✓ ' + esc(j.message));
+    } catch(e) { output('out-init-slave', e.message, true); alert('danger', esc(e.message)); }
     finally { setLoading(this, false); }
   });
 
