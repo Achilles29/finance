@@ -77,7 +77,7 @@ LEFT JOIN inv_division_monthly_stock i
  AND i.division_id = c.division_id
  AND i.destination_type = c.destination_type
  AND i.identity_key = c.next_identity_key
- AND i.stock_domain = 'ITEM'
+ AND i.id <> c.id
 LEFT JOIN (
   SELECT month_key, division_id, destination_type, next_identity_key, COUNT(*) AS candidate_count
   FROM tmp_division_monthly_material_candidates
@@ -140,7 +140,7 @@ FROM tmp_warehouse_monthly_material_candidates c
 LEFT JOIN inv_warehouse_monthly_stock i
   ON i.month_key = c.month_key
  AND i.identity_key = c.next_identity_key
- AND i.stock_domain = 'ITEM'
+ AND i.id <> c.id
 LEFT JOIN (
   SELECT month_key, next_identity_key, COUNT(*) AS candidate_count
   FROM tmp_warehouse_monthly_material_candidates
@@ -308,7 +308,7 @@ LEFT JOIN inv_division_monthly_stock i
  AND i.division_id = c.division_id
  AND i.destination_type = c.destination_type
  AND i.identity_key = c.next_identity_key
- AND i.stock_domain = 'ITEM'
+ AND i.id <> c.id
 LEFT JOIN (
   SELECT month_key, division_id, destination_type, next_identity_key, COUNT(*) AS candidate_count
   FROM tmp_division_monthly_material_candidates
@@ -328,7 +328,7 @@ FROM tmp_warehouse_monthly_material_candidates c
 LEFT JOIN inv_warehouse_monthly_stock i
   ON i.month_key = c.month_key
  AND i.identity_key = c.next_identity_key
- AND i.stock_domain = 'ITEM'
+ AND i.id <> c.id
 LEFT JOIN (
   SELECT month_key, next_identity_key, COUNT(*) AS candidate_count
   FROM tmp_warehouse_monthly_material_candidates
