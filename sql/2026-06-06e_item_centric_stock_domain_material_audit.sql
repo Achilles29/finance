@@ -38,8 +38,8 @@ SET @sql := IF(
   CONCAT(
     'INSERT INTO tmp_material_domain_audit_summary ',
     "SELECT '", @table_name, "', 1, COUNT(*), ",
-    'SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), ',
-    'SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END) ',
+    'COALESCE(SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), 0), ',
+    'COALESCE(SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END), 0) ',
     'FROM ', @table_name, " WHERE stock_domain = 'MATERIAL'"
   ),
   CONCAT(
@@ -59,8 +59,8 @@ SET @sql := IF(
   CONCAT(
     'INSERT INTO tmp_material_domain_audit_summary ',
     "SELECT '", @table_name, "', 1, COUNT(*), ",
-    'SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), ',
-    'SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END) ',
+    'COALESCE(SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), 0), ',
+    'COALESCE(SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END), 0) ',
     'FROM ', @table_name, " WHERE stock_domain = 'MATERIAL'"
   ),
   CONCAT("INSERT INTO tmp_material_domain_audit_summary VALUES ('", @table_name, "', 0, 0, 0, 0)")
@@ -77,8 +77,8 @@ SET @sql := IF(
   CONCAT(
     'INSERT INTO tmp_material_domain_audit_summary ',
     "SELECT '", @table_name, "', 1, COUNT(*), ",
-    'SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), ',
-    'SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END) ',
+    'COALESCE(SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), 0), ',
+    'COALESCE(SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END), 0) ',
     'FROM ', @table_name, " WHERE stock_domain = 'MATERIAL'"
   ),
   CONCAT("INSERT INTO tmp_material_domain_audit_summary VALUES ('", @table_name, "', 0, 0, 0, 0)")
@@ -95,8 +95,8 @@ SET @sql := IF(
   CONCAT(
     'INSERT INTO tmp_material_domain_audit_summary ',
     "SELECT '", @table_name, "', 1, COUNT(*), ",
-    'SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), ',
-    'SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END) ',
+    'COALESCE(SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), 0), ',
+    'COALESCE(SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END), 0) ',
     'FROM ', @table_name, " WHERE stock_domain = 'MATERIAL'"
   ),
   CONCAT("INSERT INTO tmp_material_domain_audit_summary VALUES ('", @table_name, "', 0, 0, 0, 0)")
@@ -113,8 +113,8 @@ SET @sql := IF(
   CONCAT(
     'INSERT INTO tmp_material_domain_audit_summary ',
     "SELECT '", @table_name, "', 1, COUNT(*), ",
-    'SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), ',
-    'SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END) ',
+    'COALESCE(SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), 0), ',
+    'COALESCE(SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END), 0) ',
     'FROM ', @table_name, " WHERE stock_domain = 'MATERIAL'"
   ),
   CONCAT("INSERT INTO tmp_material_domain_audit_summary VALUES ('", @table_name, "', 0, 0, 0, 0)")
@@ -131,8 +131,8 @@ SET @sql := IF(
   CONCAT(
     'INSERT INTO tmp_material_domain_audit_summary ',
     "SELECT '", @table_name, "', 1, COUNT(*), ",
-    'SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), ',
-    'SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END) ',
+    'COALESCE(SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), 0), ',
+    'COALESCE(SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END), 0) ',
     'FROM ', @table_name, " WHERE stock_domain = 'MATERIAL'"
   ),
   CONCAT("INSERT INTO tmp_material_domain_audit_summary VALUES ('", @table_name, "', 0, 0, 0, 0)")
@@ -149,8 +149,8 @@ SET @sql := IF(
   CONCAT(
     'INSERT INTO tmp_material_domain_audit_summary ',
     "SELECT '", @table_name, "', 1, COUNT(*), ",
-    'SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), ',
-    'SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END) ',
+    'COALESCE(SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), 0), ',
+    'COALESCE(SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END), 0) ',
     'FROM ', @table_name, " WHERE stock_domain = 'MATERIAL'"
   ),
   CONCAT("INSERT INTO tmp_material_domain_audit_summary VALUES ('", @table_name, "', 0, 0, 0, 0)")
@@ -167,8 +167,8 @@ SET @sql := IF(
   CONCAT(
     'INSERT INTO tmp_material_domain_audit_summary ',
     "SELECT '", @table_name, "', 1, COUNT(*), ",
-    'SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), ',
-    'SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END) ',
+    'COALESCE(SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), 0), ',
+    'COALESCE(SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END), 0) ',
     'FROM ', @table_name, " WHERE stock_domain = 'MATERIAL'"
   ),
   CONCAT("INSERT INTO tmp_material_domain_audit_summary VALUES ('", @table_name, "', 0, 0, 0, 0)")
@@ -185,8 +185,8 @@ SET @sql := IF(
   CONCAT(
     'INSERT INTO tmp_material_domain_audit_summary ',
     "SELECT '", @table_name, "', 1, COUNT(*), ",
-    'SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), ',
-    'SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END) ',
+    'COALESCE(SUM(CASE WHEN item_id IS NOT NULL THEN 1 ELSE 0 END), 0), ',
+    'COALESCE(SUM(CASE WHEN item_id IS NULL THEN 1 ELSE 0 END), 0) ',
     'FROM ', @table_name, " WHERE stock_domain = 'MATERIAL'"
   ),
   CONCAT("INSERT INTO tmp_material_domain_audit_summary VALUES ('", @table_name, "', 0, 0, 0, 0)")

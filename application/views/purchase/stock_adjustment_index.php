@@ -93,11 +93,10 @@ $adjustmentReasonOptions = [
   ],
 ];
 $adjustmentKindOptions = [
+  'SPOIL' => 'Spoil',
   'WASTE' => 'Waste',
-  'SPOILAGE' => 'Spoil',
-  'PROCESS_LOSS' => 'Process Loss',
-  'VARIANCE' => 'Variance',
-  'ADJUSTMENT_PLUS' => 'Adjustment +',
+  'MINUS' => 'Minus',
+  'PLUS' => 'Plus',
 ];
 $resolveReasonLabel = static function (string $category, ?string $value) use ($adjustmentReasonOptions): string {
   $key = trim((string)$value);
@@ -154,14 +153,11 @@ $detailReasonSummary = static function (array $row) use ($resolveReasonLabel): s
   if ((float)($row['qty_spoil_content'] ?? 0) > 0) {
     $parts[] = 'Spoil: ' . $resolveReasonLabel('SPOILAGE', $row['spoil_reason_code'] ?? null);
   }
-  if ((float)($row['qty_process_loss_content'] ?? 0) > 0) {
-    $parts[] = 'P.Loss: ' . $resolveReasonLabel('PROCESS_LOSS', $row['process_loss_reason_code'] ?? null);
-  }
   if ((float)($row['qty_variance_content'] ?? 0) > 0) {
-    $parts[] = 'Variance: ' . $resolveReasonLabel('VARIANCE', $row['variance_reason_code'] ?? null);
+    $parts[] = 'Minus: ' . $resolveReasonLabel('VARIANCE', $row['variance_reason_code'] ?? null);
   }
   if ((float)($row['qty_adjustment_plus_content'] ?? 0) > 0) {
-    $parts[] = 'Adj+: ' . $resolveReasonLabel('ADJUSTMENT_PLUS', $row['adjustment_plus_reason_code'] ?? null);
+    $parts[] = 'Plus: ' . $resolveReasonLabel('ADJUSTMENT_PLUS', $row['adjustment_plus_reason_code'] ?? null);
   }
   return !empty($parts) ? implode(' | ', $parts) : '-';
 };
@@ -467,16 +463,16 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
 
           <div class="col-12">
             <div class="alert alert-light border small mb-0">
-              <div class="fw-semibold mb-1">Panduan kategori adjustment</div>
+              <div class="fw-semibold mb-1">Panduan koreksi stok</div>
               <div class="mb-1"><strong>Mode input <?php echo $isWarehouseScope ? 'Gudang' : 'Divisi'; ?></strong>: <?php echo $isWarehouseScope ? 'qty diisi dalam pack atau satuan beli, harga diisi per pack atau per satuan beli.' : 'qty diisi dalam satuan isi, karena stok divisi dipakai dalam bentuk bahan baku terbuka atau isi.'; ?></div>
               <div>Pilih satu jenis adjustment dulu, lalu sistem hanya menampilkan alasan dan input yang relevan untuk jenis itu.</div>
             </div>
           </div>
 
           <div class="col-md-5">
-            <label class="form-label">Jenis Adjustment</label>
+            <label class="form-label">Jenis Koreksi</label>
             <select class="form-select" id="adjustment_kind" required>
-              <option value="">Pilih jenis adjustment...</option>
+              <option value="">Pilih jenis koreksi...</option>
               <?php foreach ($adjustmentKindOptions as $value => $label): ?>
                 <option value="<?php echo html_escape($value); ?>"><?php echo html_escape($label); ?></option>
               <?php endforeach; ?>
@@ -1407,31 +1403,28 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
       qtyField: 'qty_waste_content',
       reasonField: 'waste_reason_code',
       qtyLabel: 'Waste',
-      reasonLabel: 'Reason Waste',
+      reasonLabel: 'Alasan Waste',
     },
-    SPOILAGE: {
+    SPOIL: {
       qtyField: 'qty_spoil_content',
       reasonField: 'spoil_reason_code',
       qtyLabel: 'Spoil',
-      reasonLabel: 'Reason Spoil',
+      reasonLabel: 'Alasan Spoil',
+      reasonCategory: 'SPOILAGE',
     },
-    PROCESS_LOSS: {
-      qtyField: 'qty_process_loss_content',
-      reasonField: 'process_loss_reason_code',
-      qtyLabel: 'Process Loss',
-      reasonLabel: 'Reason Process Loss',
-    },
-    VARIANCE: {
+    MINUS: {
       qtyField: 'qty_variance_content',
       reasonField: 'variance_reason_code',
-      qtyLabel: 'Variance',
-      reasonLabel: 'Reason Variance',
+      qtyLabel: 'Minus',
+      reasonLabel: 'Alasan Minus',
+      reasonCategory: 'VARIANCE',
     },
-    ADJUSTMENT_PLUS: {
+    PLUS: {
       qtyField: 'qty_adjustment_plus_content',
       reasonField: 'adjustment_plus_reason_code',
-      qtyLabel: 'Adjustment +',
-      reasonLabel: 'Reason Adjustment +',
+      qtyLabel: 'Plus',
+      reasonLabel: 'Alasan Plus',
+      reasonCategory: 'ADJUSTMENT_PLUS',
       needsInbound: true,
     },
   };
@@ -1456,7 +1449,8 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
     adjustmentKindPanelEl.classList.remove('d-none');
     adjustmentQtyLabelEl.textContent = config.qtyLabel + ' (<?php echo html_escape($qtyUnitLabel); ?>)';
     adjustmentReasonLabelEl.textContent = config.reasonLabel;
-    const reasonOptions = adjustmentReasonMap[kind] || { other: 'Other' };
+    const reasonCategory = config.reasonCategory || kind;
+    const reasonOptions = reasonLabelMap[reasonCategory] || { other: 'Other' };
     adjustmentReasonInputEl.innerHTML = Object.entries(reasonOptions).map(([value, label]) =>
       '<option value="' + escHtml(value) + '">' + escHtml(label) + '</option>'
     ).join('');
@@ -1550,9 +1544,8 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
       const reasonParts = [];
       if (Number(line.qty_waste_content || 0) > 0) reasonParts.push('Waste: ' + reasonLabel('WASTE', line.waste_reason_code));
       if (Number(line.qty_spoil_content || 0) > 0) reasonParts.push('Spoil: ' + reasonLabel('SPOILAGE', line.spoil_reason_code));
-      if (Number(line.qty_process_loss_content || 0) > 0) reasonParts.push('P.Loss: ' + reasonLabel('PROCESS_LOSS', line.process_loss_reason_code));
-      if (Number(line.qty_variance_content || 0) > 0) reasonParts.push('Variance: ' + reasonLabel('VARIANCE', line.variance_reason_code));
-      if (Number(line.qty_adjustment_plus_content || 0) > 0) reasonParts.push('Adj+: ' + reasonLabel('ADJUSTMENT_PLUS', line.adjustment_plus_reason_code));
+      if (Number(line.qty_variance_content || 0) > 0) reasonParts.push('Minus: ' + reasonLabel('VARIANCE', line.variance_reason_code));
+      if (Number(line.qty_adjustment_plus_content || 0) > 0) reasonParts.push('Plus: ' + reasonLabel('ADJUSTMENT_PLUS', line.adjustment_plus_reason_code));
       return ''
         + '<tr>'
         + '<td><div class="fw-semibold">' + objectText + '</div><small class="text-muted d-block">' + (profileText || '-') + '</small><small class="text-muted">' + (reasonParts.join(' | ') || '-') + '</small></td>'
