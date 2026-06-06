@@ -92,6 +92,13 @@ $adjustmentReasonOptions = [
     'other' => 'Other',
   ],
 ];
+$adjustmentKindOptions = [
+  'WASTE' => 'Waste',
+  'SPOILAGE' => 'Spoil',
+  'PROCESS_LOSS' => 'Process Loss',
+  'VARIANCE' => 'Variance',
+  'ADJUSTMENT_PLUS' => 'Adjustment +',
+];
 $resolveReasonLabel = static function (string $category, ?string $value) use ($adjustmentReasonOptions): string {
   $key = trim((string)$value);
   if ($key === '') {
@@ -366,6 +373,12 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
     color: #111827;
     line-height: 1.2;
   }
+  .adjustment-kind-panel {
+    border: 1px solid rgba(15, 23, 42, .08);
+    border-radius: 1rem;
+    background: rgba(255,255,255,.86);
+    padding: 1rem;
+  }
   @media (max-width: 767.98px) {
     .adjustment-profile-choice-grid {
       grid-template-columns: 1fr;
@@ -456,98 +469,50 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
             <div class="alert alert-light border small mb-0">
               <div class="fw-semibold mb-1">Panduan kategori adjustment</div>
               <div class="mb-1"><strong>Mode input <?php echo $isWarehouseScope ? 'Gudang' : 'Divisi'; ?></strong>: <?php echo $isWarehouseScope ? 'qty diisi dalam pack atau satuan beli, harga diisi per pack atau per satuan beli.' : 'qty diisi dalam satuan isi, karena stok divisi dipakai dalam bentuk bahan baku terbuka atau isi.'; ?></div>
-              <div class="mb-1"><strong>Waste</strong>: barang terbuang atau rusak karena operasional.</div>
-              <div class="mb-1"><strong>Spoil</strong>: barang busuk, expired, atau rusak karena penyimpanan.</div>
-              <div class="mb-1"><strong>Process Loss</strong>: susut yang terjadi saat proses kerja atau proses produksi.</div>
-              <div class="mb-1"><strong>Variance</strong>: selisih antara stok fisik dan stok sistem.</div>
-              <div><strong>Adjustment +</strong>: penambahan stok manual karena koreksi atau stok ditemukan.</div>
+              <div>Pilih satu jenis adjustment dulu, lalu sistem hanya menampilkan alasan dan input yang relevan untuk jenis itu.</div>
             </div>
           </div>
 
-          <div class="col-md-4">
-            <label class="form-label">Waste (<?php echo html_escape($qtyUnitLabel); ?>)</label>
-            <input type="number" class="form-control" id="qty_waste_content" min="0" step="0.01" value="0">
-          </div>
-          <div class="col-md-8">
-            <label class="form-label">Reason Waste</label>
-            <select class="form-select" id="waste_reason_code">
-              <option value="other">Other</option>
-              <?php foreach (($adjustmentReasonOptions['WASTE'] ?? []) as $value => $label): ?>
-                <?php if ($value === 'other') { continue; } ?>
+          <div class="col-md-5">
+            <label class="form-label">Jenis Adjustment</label>
+            <select class="form-select" id="adjustment_kind" required>
+              <option value="">Pilih jenis adjustment...</option>
+              <?php foreach ($adjustmentKindOptions as $value => $label): ?>
                 <option value="<?php echo html_escape($value); ?>"><?php echo html_escape($label); ?></option>
               <?php endforeach; ?>
             </select>
           </div>
-          <div class="col-md-4">
-            <label class="form-label">Spoil (<?php echo html_escape($qtyUnitLabel); ?>)</label>
-            <input type="number" class="form-control" id="qty_spoil_content" min="0" step="0.01" value="0">
-          </div>
-          <div class="col-md-8">
-            <label class="form-label">Reason Spoil</label>
-            <select class="form-select" id="spoil_reason_code">
-              <option value="other">Other</option>
-              <?php foreach (($adjustmentReasonOptions['SPOILAGE'] ?? []) as $value => $label): ?>
-                <?php if ($value === 'other') { continue; } ?>
-                <option value="<?php echo html_escape($value); ?>"><?php echo html_escape($label); ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Process Loss (<?php echo html_escape($qtyUnitLabel); ?>)</label>
-            <input type="number" class="form-control" id="qty_process_loss_content" min="0" step="0.01" value="0">
-          </div>
-          <div class="col-md-8">
-            <label class="form-label">Reason Process Loss</label>
-            <select class="form-select" id="process_loss_reason_code">
-              <option value="other">Other</option>
-              <?php foreach (($adjustmentReasonOptions['PROCESS_LOSS'] ?? []) as $value => $label): ?>
-                <?php if ($value === 'other') { continue; } ?>
-                <option value="<?php echo html_escape($value); ?>"><?php echo html_escape($label); ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Variance (<?php echo html_escape($qtyUnitLabel); ?>)</label>
-            <input type="number" class="form-control" id="qty_variance_content" min="0" step="0.01" value="0">
-          </div>
-          <div class="col-md-8">
-            <label class="form-label">Reason Variance</label>
-            <select class="form-select" id="variance_reason_code">
-              <option value="other">Other</option>
-              <?php foreach (($adjustmentReasonOptions['VARIANCE'] ?? []) as $value => $label): ?>
-                <?php if ($value === 'other') { continue; } ?>
-                <option value="<?php echo html_escape($value); ?>"><?php echo html_escape($label); ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Adjustment + (<?php echo html_escape($qtyUnitLabel); ?>)</label>
-            <input type="number" class="form-control" id="qty_adjustment_plus_content" min="0" step="0.01" value="0">
-          </div>
-          <div class="col-md-8">
-            <label class="form-label">Reason Adjustment +</label>
-            <select class="form-select" id="adjustment_plus_reason_code">
-              <option value="other">Other</option>
-              <?php foreach (($adjustmentReasonOptions['ADJUSTMENT_PLUS'] ?? []) as $value => $label): ?>
-                <?php if ($value === 'other') { continue; } ?>
-                <option value="<?php echo html_escape($value); ?>"><?php echo html_escape($label); ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label"><?php echo html_escape($costInputLabel); ?></label>
-            <input type="number" class="form-control" id="unit_cost" min="0" step="0.01" value="0">
-            <div class="form-text"><?php echo $isWarehouseScope ? 'Untuk gudang, isi harga per pack atau per satuan beli.' : 'Untuk divisi, isi biaya per satuan isi.'; ?></div>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Lot Masuk Manual</label>
-            <input type="text" class="form-control" id="inbound_lot_no" placeholder="Opsional untuk adjustment +">
-            <div class="form-text">Dipakai jika Adjustment + membuat stok masuk baru dan Anda ingin memberi nomor lot sendiri. Jika dikosongkan, sistem akan membuat lot otomatis.</div>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Exp Date Lot Masuk</label>
-            <input type="date" class="form-control" id="inbound_expiry_date">
-            <div class="form-text">Tanggal kedaluwarsa lot inbound untuk stok tambahan dari Adjustment +.</div>
+
+          <div class="col-12">
+            <div class="adjustment-kind-panel d-none" id="adjustment-kind-panel">
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label class="form-label" id="adjustment_qty_label">Qty Adjustment</label>
+                  <input type="number" class="form-control" id="adjustment_qty_input" min="0" step="0.01" value="0">
+                </div>
+                <div class="col-md-8">
+                  <label class="form-label" id="adjustment_reason_label">Alasan</label>
+                  <select class="form-select" id="adjustment_reason_input">
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div class="col-md-4 d-none" id="adjustment-plus-cost-wrap">
+                  <label class="form-label"><?php echo html_escape($costInputLabel); ?></label>
+                  <input type="number" class="form-control" id="unit_cost" min="0" step="0.01" value="0">
+                  <div class="form-text"><?php echo $isWarehouseScope ? 'Untuk gudang, isi harga per pack atau per satuan beli.' : 'Untuk divisi, isi biaya per satuan isi.'; ?></div>
+                </div>
+                <div class="col-md-4 d-none" id="adjustment-plus-lot-wrap">
+                  <label class="form-label">Lot Masuk Manual</label>
+                  <input type="text" class="form-control" id="inbound_lot_no" placeholder="Opsional untuk adjustment +">
+                  <div class="form-text">Jika dikosongkan, sistem akan membuat lot otomatis.</div>
+                </div>
+                <div class="col-md-4 d-none" id="adjustment-plus-exp-wrap">
+                  <label class="form-label">Exp Date Lot Masuk</label>
+                  <input type="date" class="form-control" id="inbound_expiry_date">
+                  <div class="form-text">Tanggal kedaluwarsa lot inbound untuk stok tambahan.</div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="col-12">
             <label class="form-label">Catatan Line</label>
@@ -1425,27 +1390,103 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
     });
   }
 
+  const adjustmentKindEl = document.getElementById('adjustment_kind');
+  const adjustmentKindPanelEl = document.getElementById('adjustment-kind-panel');
+  const adjustmentQtyLabelEl = document.getElementById('adjustment_qty_label');
+  const adjustmentQtyInputEl = document.getElementById('adjustment_qty_input');
+  const adjustmentReasonLabelEl = document.getElementById('adjustment_reason_label');
+  const adjustmentReasonInputEl = document.getElementById('adjustment_reason_input');
+  const adjustmentPlusCostWrapEl = document.getElementById('adjustment-plus-cost-wrap');
+  const adjustmentPlusLotWrapEl = document.getElementById('adjustment-plus-lot-wrap');
+  const adjustmentPlusExpWrapEl = document.getElementById('adjustment-plus-exp-wrap');
+  const unitCostInputEl = document.getElementById('unit_cost');
+  const inboundLotInputEl = document.getElementById('inbound_lot_no');
+  const inboundExpiryInputEl = document.getElementById('inbound_expiry_date');
+  const adjustmentKindConfig = {
+    WASTE: {
+      qtyField: 'qty_waste_content',
+      reasonField: 'waste_reason_code',
+      qtyLabel: 'Waste',
+      reasonLabel: 'Reason Waste',
+    },
+    SPOILAGE: {
+      qtyField: 'qty_spoil_content',
+      reasonField: 'spoil_reason_code',
+      qtyLabel: 'Spoil',
+      reasonLabel: 'Reason Spoil',
+    },
+    PROCESS_LOSS: {
+      qtyField: 'qty_process_loss_content',
+      reasonField: 'process_loss_reason_code',
+      qtyLabel: 'Process Loss',
+      reasonLabel: 'Reason Process Loss',
+    },
+    VARIANCE: {
+      qtyField: 'qty_variance_content',
+      reasonField: 'variance_reason_code',
+      qtyLabel: 'Variance',
+      reasonLabel: 'Reason Variance',
+    },
+    ADJUSTMENT_PLUS: {
+      qtyField: 'qty_adjustment_plus_content',
+      reasonField: 'adjustment_plus_reason_code',
+      qtyLabel: 'Adjustment +',
+      reasonLabel: 'Reason Adjustment +',
+      needsInbound: true,
+    },
+  };
+
+  const renderAdjustmentKindForm = () => {
+    const kind = String(adjustmentKindEl?.value || '').toUpperCase();
+    const config = adjustmentKindConfig[kind] || null;
+    if (!adjustmentKindPanelEl || !adjustmentQtyInputEl || !adjustmentReasonInputEl || !adjustmentQtyLabelEl || !adjustmentReasonLabelEl) {
+      return;
+    }
+    if (!config) {
+      adjustmentKindPanelEl.classList.add('d-none');
+      adjustmentQtyInputEl.value = '0';
+      adjustmentReasonInputEl.innerHTML = '<option value="other">Other</option>';
+      adjustmentReasonInputEl.value = 'other';
+      adjustmentPlusCostWrapEl?.classList.add('d-none');
+      adjustmentPlusLotWrapEl?.classList.add('d-none');
+      adjustmentPlusExpWrapEl?.classList.add('d-none');
+      return;
+    }
+
+    adjustmentKindPanelEl.classList.remove('d-none');
+    adjustmentQtyLabelEl.textContent = config.qtyLabel + ' (<?php echo html_escape($qtyUnitLabel); ?>)';
+    adjustmentReasonLabelEl.textContent = config.reasonLabel;
+    const reasonOptions = adjustmentReasonMap[kind] || { other: 'Other' };
+    adjustmentReasonInputEl.innerHTML = Object.entries(reasonOptions).map(([value, label]) =>
+      '<option value="' + escHtml(value) + '">' + escHtml(label) + '</option>'
+    ).join('');
+    adjustmentReasonInputEl.value = 'other';
+    adjustmentQtyInputEl.value = '0';
+
+    const needsInbound = !!config.needsInbound;
+    adjustmentPlusCostWrapEl?.classList.toggle('d-none', !needsInbound);
+    adjustmentPlusLotWrapEl?.classList.toggle('d-none', !needsInbound);
+    adjustmentPlusExpWrapEl?.classList.toggle('d-none', !needsInbound);
+    if (unitCostInputEl) {
+      unitCostInputEl.value = selectedItem
+        ? String(costByScope(selectedItem, Number(selectedItem.avg_cost_per_content || 0)))
+        : '0';
+    }
+    if (!needsInbound) {
+      if (inboundLotInputEl) inboundLotInputEl.value = '';
+      if (inboundExpiryInputEl) inboundExpiryInputEl.value = '';
+    }
+  };
+
   const clearLineInputs = () => {
-    ['qty_waste_content', 'qty_spoil_content', 'qty_process_loss_content', 'qty_variance_content', 'qty_adjustment_plus_content', 'unit_cost'].forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) {
-        el.value = id === 'unit_cost'
-          ? (selectedItem ? String(costByScope(selectedItem, Number(selectedItem.avg_cost_per_content || 0))) : '0')
-          : '0';
-      }
-    });
-    ['waste_reason_code', 'spoil_reason_code', 'process_loss_reason_code', 'variance_reason_code', 'adjustment_plus_reason_code'].forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) {
-        el.value = 'other';
-      }
-    });
+    if (adjustmentKindEl) {
+      adjustmentKindEl.value = '';
+    }
+    renderAdjustmentKindForm();
     const noteEl = document.getElementById('line_note');
     if (noteEl) noteEl.value = '';
-    const lotEl = document.getElementById('inbound_lot_no');
-    if (lotEl) lotEl.value = '';
-    const expEl = document.getElementById('inbound_expiry_date');
-    if (expEl) expEl.value = '';
+    if (inboundLotInputEl) inboundLotInputEl.value = '';
+    if (inboundExpiryInputEl) inboundExpiryInputEl.value = '';
   };
 
   const renderSelectedItem = () => {
@@ -1474,6 +1515,7 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
         + '<div class="col-md-4"><div class="text-muted">' + (isWarehouseScope ? 'Setara Isi' : 'Setara Pack') + '</div><div class="fw-semibold">' + fmt(isWarehouseScope ? selectedItem.available_qty_content : selectedItem.available_qty_buy) + ' ' + (isWarehouseScope ? (selectedItem.default_content_uom_code || '') : (selectedItem.default_buy_uom_code || '')) + '</div></div>'
         + '<div class="col-md-4"><div class="text-muted">' + costLabelByScope() + '</div><div class="fw-semibold">' + fmt6(costByScope(selectedItem, Number(selectedItem.avg_cost_per_content || 0))) + '</div></div>'
       + '</div>';
+    renderAdjustmentKindForm();
   };
 
   const renderDraftLines = () => {
@@ -1619,6 +1661,11 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
     searchTimer = setTimeout(performSearch, 250);
   });
 
+  adjustmentKindEl?.addEventListener('change', () => {
+    renderAdjustmentKindForm();
+  });
+  renderAdjustmentKindForm();
+
   document.getElementById('btn-add-line')?.addEventListener('click', () => {
     if (!selectedItem) {
       showAlert('warning', 'Pilih item/profile lebih dulu.');
@@ -1657,48 +1704,45 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
       available_qty_buy: Number(selectedItem.available_qty_buy || 0),
       available_qty_content: Number(selectedItem.available_qty_content || 0),
       qty_waste_content: 0,
-      waste_reason_code: String(document.getElementById('waste_reason_code')?.value || 'other').trim(),
+      waste_reason_code: 'other',
       qty_spoil_content: 0,
-      spoil_reason_code: String(document.getElementById('spoil_reason_code')?.value || 'other').trim(),
+      spoil_reason_code: 'other',
       qty_process_loss_content: 0,
-      process_loss_reason_code: String(document.getElementById('process_loss_reason_code')?.value || 'other').trim(),
+      process_loss_reason_code: 'other',
       qty_variance_content: 0,
-      variance_reason_code: String(document.getElementById('variance_reason_code')?.value || 'other').trim(),
+      variance_reason_code: 'other',
       qty_adjustment_plus_content: 0,
-      adjustment_plus_reason_code: String(document.getElementById('adjustment_plus_reason_code')?.value || 'other').trim(),
+      adjustment_plus_reason_code: 'other',
       unit_cost: 0,
-      inbound_lot_no: String(document.getElementById('inbound_lot_no')?.value || '').trim(),
-      inbound_expiry_date: String(document.getElementById('inbound_expiry_date')?.value || '').trim(),
+      inbound_lot_no: String(inboundLotInputEl?.value || '').trim(),
+      inbound_expiry_date: String(inboundExpiryInputEl?.value || '').trim(),
       note: String(document.getElementById('line_note')?.value || '').trim()
     };
 
+    const adjustmentKind = String(adjustmentKindEl?.value || '').toUpperCase();
+    const adjustmentConfig = adjustmentKindConfig[adjustmentKind] || null;
+    if (!adjustmentConfig) {
+      showAlert('warning', 'Pilih jenis adjustment lebih dulu.');
+      return;
+    }
+
     const contentPerBuy = contentPerBuyValue(line);
-    const rawWaste = Number(document.getElementById('qty_waste_content')?.value || 0);
-    const rawSpoil = Number(document.getElementById('qty_spoil_content')?.value || 0);
-    const rawProcessLoss = Number(document.getElementById('qty_process_loss_content')?.value || 0);
-    const rawVariance = Number(document.getElementById('qty_variance_content')?.value || 0);
-    const rawAdjustmentPlus = Number(document.getElementById('qty_adjustment_plus_content')?.value || 0);
-    const rawUnitCost = Number(document.getElementById('unit_cost')?.value || 0);
+    const rawQty = Number(adjustmentQtyInputEl?.value || 0);
+    const rawUnitCost = Number(unitCostInputEl?.value || 0);
+    const selectedReason = String(adjustmentReasonInputEl?.value || 'other').trim() || 'other';
 
     if (isWarehouseScope) {
-      line.qty_waste_content = rawWaste * contentPerBuy;
-      line.qty_spoil_content = rawSpoil * contentPerBuy;
-      line.qty_process_loss_content = rawProcessLoss * contentPerBuy;
-      line.qty_variance_content = rawVariance * contentPerBuy;
-      line.qty_adjustment_plus_content = rawAdjustmentPlus * contentPerBuy;
+      line[adjustmentConfig.qtyField] = rawQty * contentPerBuy;
       line.unit_cost = rawUnitCost > 0 ? (rawUnitCost / contentPerBuy) : 0;
     } else {
-      line.qty_waste_content = rawWaste;
-      line.qty_spoil_content = rawSpoil;
-      line.qty_process_loss_content = rawProcessLoss;
-      line.qty_variance_content = rawVariance;
-      line.qty_adjustment_plus_content = rawAdjustmentPlus;
+      line[adjustmentConfig.qtyField] = rawQty;
       line.unit_cost = rawUnitCost;
     }
+    line[adjustmentConfig.reasonField] = selectedReason;
 
     const totalQty = line.qty_waste_content + line.qty_spoil_content + line.qty_process_loss_content + line.qty_variance_content + line.qty_adjustment_plus_content;
     if (totalQty <= 0) {
-      showAlert('warning', 'Isi minimal satu qty adjustment lebih dari nol.');
+      showAlert('warning', 'Isi qty adjustment lebih dari nol.');
       return;
     }
     if (line.qty_adjustment_plus_content > 0 && line.unit_cost <= 0) {
