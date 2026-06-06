@@ -96,32 +96,39 @@ log "Cleanup  : ${DELETED} file lama dihapus (> ${RETENTION_DAYS} hari)"
 REPO_PATH="${BACKUP_REPO_PATH}"
 cd "$REPO_PATH"
 
-# Sync dengan remote dulu agar tidak diverge.
-# Gunakan || PULL_CODE=$? agar set -e tidak memotong script saat pull gagal.
-PULL_CODE=0
-PULL_OUT=$(git pull --rebase "${BACKUP_REPO_REMOTE}" "${BACKUP_REPO_BRANCH}" 2>&1) || PULL_CODE=$?
+# Stage hanya folder backup
+git add backup/dumps/ backup/logs/ 2>/dev/null || true
 
-if [ "$PULL_CODE" -ne 0 ]; then
-  git rebase --abort 2>/dev/null || true
-  log "[WARN] Git pull gagal (exit ${PULL_CODE}): ${PULL_OUT}"
-  log "[WARN] Skip push. Backup lokal tetap tersimpan."
-else
-  git add backup/dumps/ backup/logs/ 2>/dev/null || true
+CHANGED=$(git status --porcelain backup/ 2>/dev/null | wc -l | tr -d ' ')
+if [ "${CHANGED:-0}" -gt 0 ]; then
+  git commit -m "backup: ${DB_NAME} ${TIMESTAMP}" --quiet 2>/dev/null || true
 
-  CHANGED=$(git status --porcelain backup/ 2>/dev/null | wc -l | tr -d ' ')
-  if [ "${CHANGED:-0}" -gt 0 ]; then
-    git commit -m "backup: ${DB_NAME} ${TIMESTAMP}" --quiet || true
-    PUSH_CODE=0
-    PUSH_ERR=$(git push "${BACKUP_REPO_REMOTE}" "${BACKUP_REPO_BRANCH}" 2>&1) || PUSH_CODE=$?
-    if [ "$PUSH_CODE" -eq 0 ]; then
-      log "Git push : OK → ${BACKUP_REPO_REMOTE}/${BACKUP_REPO_BRANCH}"
-    else
-      log "[WARN] Git push gagal (exit ${PUSH_CODE}): ${PUSH_ERR}"
-      log "[WARN] Backup lokal tetap tersimpan."
-    fi
+  # Fetch + merge (tidak butuh working tree bersih, berbeda dari rebase)
+  FETCH_CODE=0
+  git fetch "${BACKUP_REPO_REMOTE}" "${BACKUP_REPO_BRANCH}" --quiet 2>/dev/null || FETCH_CODE=$?
+
+  if [ "$FETCH_CODE" -ne 0 ]; then
+    log "[WARN] Git fetch gagal. Skip push. Backup lokal tersimpan."
   else
-    log "Git push : Tidak ada perubahan, skip."
+    MERGE_CODE=0
+    MERGE_ERR=$(git merge "${BACKUP_REPO_REMOTE}/${BACKUP_REPO_BRANCH}" --no-edit --quiet 2>&1) || MERGE_CODE=$?
+    if [ "$MERGE_CODE" -ne 0 ]; then
+      git merge --abort 2>/dev/null || true
+      log "[WARN] Git merge gagal: ${MERGE_ERR}"
+      log "[WARN] Backup lokal tersimpan."
+    else
+      PUSH_CODE=0
+      PUSH_ERR=$(git push "${BACKUP_REPO_REMOTE}" "${BACKUP_REPO_BRANCH}" 2>&1) || PUSH_CODE=$?
+      if [ "$PUSH_CODE" -eq 0 ]; then
+        log "Git push : OK → ${BACKUP_REPO_REMOTE}/${BACKUP_REPO_BRANCH}"
+      else
+        log "[WARN] Git push gagal (exit ${PUSH_CODE}): ${PUSH_ERR}"
+        log "[WARN] Backup lokal tetap tersimpan."
+      fi
+    fi
   fi
+else
+  log "Git push : Tidak ada perubahan, skip."
 fi
 
 log "====== Backup SELESAI ======"
