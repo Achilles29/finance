@@ -108,3 +108,7 @@ kalau di scriptnya berarti belum mengabaikan stock domain
 kalau di data berarti masih banya data yang tidak sesuai.
 
 lalu solusinya menurutmu ke arah mana? perubahan script atau perubahan data?
+
+
+
+perbaiki semua model yang masih pakai daily_rollup dan stock_balance, dan hapus penggunaannya (daily_rollup dan stock_balance). karena faktnya sudah tidak ada transaksi masuk ke tabel tabel tersebut. baik di purchase, component, inventory, divisi
