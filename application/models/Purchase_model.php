@@ -5100,7 +5100,30 @@ class Purchase_model extends CI_Model
         $limit = max(1, min(50, $limit));
         $candidateLimit = min(50, max($limit, $limit * 3));
 
-        $rows = $this->search_opening_items($q, $candidateLimit);
+        $rows = [];
+        $seen = [];
+
+        if ($scope === 'DIVISION' && $divisionId !== null && $divisionId > 0 && $destinationType !== null) {
+            $stockRows = $this->search_division_stock_adjustment_items($q, $divisionId, $destinationType, $candidateLimit);
+            foreach ($stockRows as $row) {
+                $dedupeKey = $this->openingSearchRowKey($row);
+                if (isset($seen[$dedupeKey])) {
+                    continue;
+                }
+                $seen[$dedupeKey] = true;
+                $rows[] = $row;
+            }
+        }
+
+        $fallbackRows = $this->search_opening_items($q, $candidateLimit);
+        foreach ($fallbackRows as $row) {
+            $dedupeKey = $this->openingSearchRowKey($row);
+            if (isset($seen[$dedupeKey])) {
+                continue;
+            }
+            $seen[$dedupeKey] = true;
+            $rows[] = $row;
+        }
         foreach ($rows as $index => &$row) {
             $profileContentPerBuy = round((float)($row['default_content_per_buy'] ?? 1), 6);
             if ($profileContentPerBuy <= 0) {
@@ -5154,13 +5177,106 @@ class Purchase_model extends CI_Model
             return (int)($a['_search_order'] ?? 0) <=> (int)($b['_search_order'] ?? 0);
         });
 
-        $rows = array_slice($rows, 0, $limit);
+        if ($scope === 'DIVISION') {
+            $stockRows = [];
+            $catalogRows = [];
+            foreach ($rows as $row) {
+                if (($row['source_type'] ?? '') === 'PROFILE_DIVISION_STOCK') {
+                    $stockRows[] = $row;
+                } else {
+                    $catalogRows[] = $row;
+                }
+            }
+
+            $reservedCatalogSlots = min(5, max(2, (int)floor($limit / 4)));
+            $stockTake = max(0, $limit - min($reservedCatalogSlots, count($catalogRows)));
+            $rows = array_merge(
+                array_slice($stockRows, 0, $stockTake),
+                array_slice($catalogRows, 0, min($reservedCatalogSlots, count($catalogRows)))
+            );
+
+            if (count($rows) < $limit) {
+                $stockLeft = array_slice($stockRows, $stockTake);
+                $catalogLeft = array_slice($catalogRows, min($reservedCatalogSlots, count($catalogRows)));
+                $rows = array_merge($rows, array_slice(array_merge($stockLeft, $catalogLeft), 0, $limit - count($rows)));
+            }
+        } else {
+            $rows = array_slice($rows, 0, $limit);
+        }
         foreach ($rows as &$row) {
             unset($row['_search_order'], $row['_has_positive_stock']);
         }
         unset($row);
 
         return $rows;
+    }
+
+    private function search_division_stock_adjustment_items(string $q, int $divisionId, string $destinationType, int $limit): array
+    {
+        if ($q === '' || !$this->db->table_exists('inv_division_monthly_stock') || !$this->db->table_exists('mst_item')) {
+            return [];
+        }
+
+        $targetMonth = date('Y-m-01');
+        $latestMonthSubquery = $this->db
+            ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
+            ->from('inv_division_monthly_stock')
+            ->where('month_key <=', $targetMonth)
+            ->group_by(['division_id', 'destination_type', 'identity_key'])
+            ->get_compiled_select();
+
+        $hasUom = $this->db->table_exists('mst_uom');
+        $rows = [];
+
+        $this->db
+            ->select("'PROFILE_DIVISION_STOCK' AS source_type", false)
+            ->select('s.item_id AS id, i.item_code, i.item_name')
+            ->select('s.buy_uom_id AS default_buy_uom_id, s.content_uom_id AS default_content_uom_id')
+            ->select('COALESCE(NULLIF(s.profile_content_per_buy, 0), 1) AS default_content_per_buy', false)
+            ->select('CASE WHEN COALESCE(s.material_id, i.material_id, 0) > 0 THEN 1 ELSE 0 END AS is_material', false)
+            ->select('COALESCE(s.material_id, i.material_id, 0) AS material_id', false)
+            ->select('m.material_code, m.material_name')
+            ->select('s.profile_key, s.profile_name, s.profile_brand, s.profile_description')
+            ->select('s.profile_expired_date')
+            ->from('inv_division_monthly_stock s')
+            ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+            ->join('mst_item i', 'i.id = s.item_id', 'inner')
+            ->join('mst_material m', 'm.id = COALESCE(s.material_id, i.material_id)', 'left', false)
+            ->where('s.division_id', $divisionId)
+            ->where('s.destination_type', $destinationType)
+            ->where('i.is_active', 1)
+            ->where('(COALESCE(s.closing_qty_buy, 0) <> 0 OR COALESCE(s.closing_qty_content, 0) <> 0)', null, false);
+
+        if ($hasUom) {
+            $this->db->select('bu.code AS default_buy_uom_code, bu.name AS default_buy_uom_name');
+            $this->db->select('cu.code AS default_content_uom_code, cu.name AS default_content_uom_name');
+            $this->db->join('mst_uom bu', 'bu.id = s.buy_uom_id', 'left');
+            $this->db->join('mst_uom cu', 'cu.id = s.content_uom_id', 'left');
+        } else {
+            $this->db->select('NULL AS default_buy_uom_code, NULL AS default_buy_uom_name', false);
+            $this->db->select('NULL AS default_content_uom_code, NULL AS default_content_uom_name', false);
+        }
+
+        $this->db->group_start()
+            ->like('i.item_code', $q)
+            ->or_like('i.item_name', $q)
+            ->or_like('s.profile_name', $q)
+            ->or_like('s.profile_brand', $q)
+            ->or_like('s.profile_description', $q)
+            ->or_like('m.material_code', $q)
+            ->or_like('m.material_name', $q)
+            ->group_end();
+
+        $rows = $this->db
+            ->order_by('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00"))', 'DESC', false)
+            ->order_by('COALESCE(s.closing_qty_content, 0)', 'DESC', false)
+            ->order_by('i.item_name', 'ASC')
+            ->order_by('s.profile_name', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+
+        return $this->normalizeDivisionProfileKeyRows($rows);
     }
 
     public function save_stock_adjustment(array $header, array $lines, int $userId): array

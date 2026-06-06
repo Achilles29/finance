@@ -102,10 +102,12 @@ git add backup/dumps/ backup/logs/ 2>/dev/null || true
 CHANGED=$(git status --porcelain backup/ 2>/dev/null | wc -l)
 if [ "$CHANGED" -gt 0 ]; then
   git commit -m "backup: ${DB_NAME} ${TIMESTAMP}" --quiet
-  if git push "${BACKUP_REPO_REMOTE}" "${BACKUP_REPO_BRANCH}" --quiet 2>/dev/null; then
+  PUSH_ERR=$(git push "${BACKUP_REPO_REMOTE}" "${BACKUP_REPO_BRANCH}" 2>&1)
+  if [ $? -eq 0 ]; then
     log "Git push : OK → ${BACKUP_REPO_REMOTE}/${BACKUP_REPO_BRANCH}"
   else
-    log "[WARN] Git push gagal. Backup lokal tetap tersimpan."
+    log "[WARN] Git push gagal: ${PUSH_ERR}"
+    log "[WARN] Backup lokal tetap tersimpan."
   fi
 else
   log "Git push : Tidak ada perubahan, skip."

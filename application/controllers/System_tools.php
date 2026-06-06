@@ -152,9 +152,13 @@ class System_tools extends MY_Controller
             'tunnel.' => 'tunnel',
         ];
 
+        // Field password: jika dikirim kosong = "tidak diubah", jangan timpa nilai lama
+        $skipIfEmpty = ['backup.db_pass', 'repl.repl_pass'];
+
         $this->db->trans_begin();
         foreach ($allowed as $key) {
             if (!array_key_exists($key, $payload)) continue;
+            if (in_array($key, $skipIfEmpty, true) && $payload[$key] === '') continue;
             $group = 'general';
             foreach ($group_map as $prefix => $g) {
                 if (str_starts_with($key, $prefix)) { $group = $g; break; }

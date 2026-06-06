@@ -572,7 +572,7 @@ class Purchase extends MY_Controller
         $dateTo = $range['date_to'];
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 500) {
-            $limit = 200;
+            $limit = 500;
         }
 
         $data = [
