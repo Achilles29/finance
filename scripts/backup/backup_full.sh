@@ -68,9 +68,12 @@ MYSQL_OPTS=(
   "--routines"
   "--events"
   "--no-tablespaces"
-  "--set-gtid-purged=OFF"
   "--skip-lock-tables"
 )
+# --set-gtid-purged=OFF hanya tersedia di MySQL 5.6.2+; cek dulu sebelum pakai
+if mysqldump --help 2>/dev/null | grep -q 'set-gtid-purged'; then
+  MYSQL_OPTS+=("--set-gtid-purged=OFF")
+fi
 [ -n "$DB_PASS" ] && MYSQL_OPTS+=("--password=${DB_PASS}")
 [ -n "$IGNORE_ARGS" ] && MYSQL_OPTS+=($IGNORE_ARGS)
 

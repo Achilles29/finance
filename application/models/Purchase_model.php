@@ -3765,11 +3765,21 @@ class Purchase_model extends CI_Model
         }
 
         if ($stockDomain === 'MATERIAL') {
-            if ($materialId > 0) {
-                $this->db->where('l.material_id', $materialId);
-            }
-            if ($itemId > 0) {
-                $this->db->where('l.item_id', $itemId);
+            if ($itemId > 0 && $materialId > 0) {
+                $this->db->group_start()
+                    ->where('l.item_id', $itemId)
+                    ->or_group_start()
+                        ->where('l.material_id', $materialId)
+                        ->where('l.item_id IS NULL', null, false)
+                    ->group_end()
+                    ->group_end();
+            } else {
+                if ($materialId > 0) {
+                    $this->db->where('l.material_id', $materialId);
+                }
+                if ($itemId > 0) {
+                    $this->db->where('l.item_id', $itemId);
+                }
             }
         } elseif ($stockDomain === 'ITEM') {
             if ($itemId > 0) {
@@ -4427,17 +4437,12 @@ class Purchase_model extends CI_Model
             }
         }
 
-        $stockDomain = strtoupper(trim((string)($payload['stock_domain'] ?? '')));
-        if (!in_array($stockDomain, ['ITEM', 'MATERIAL'], true)) {
-            $stockDomain = ($materialId > 0 || $itemHasMaterial) ? 'MATERIAL' : 'ITEM';
-        }
-        if ($stockDomain === 'MATERIAL' && $materialId <= 0) {
-            $stockDomain = 'ITEM';
-        }
         $materialId = $materialId > 0 ? $materialId : null;
-        if ($stockDomain === 'ITEM') {
-            $materialId = null;
-        }
+        $stockDomain = $this->resolveLegacyIdentityStockDomain(
+            $itemId > 0 ? $itemId : null,
+            $materialId,
+            $payload['stock_domain'] ?? ($itemHasMaterial ? 'ITEM' : null)
+        );
 
         $catalogUnitPrice = $profileContentPerBuy > 0
             ? round($avgCost * $profileContentPerBuy, 2)
@@ -5113,7 +5118,10 @@ class Purchase_model extends CI_Model
                 'profile_key' => $this->nullableString($row['profile_key'] ?? null),
             ];
             $balance = $this->fetchStockAdjustmentCurrentBalance($identity);
-            $row['stock_domain'] = !empty($row['material_id']) ? 'MATERIAL' : 'ITEM';
+            $row['stock_domain'] = $this->resolveLegacyIdentityStockDomain(
+                !empty($row['id']) ? (int)$row['id'] : null,
+                !empty($row['material_id']) ? (int)$row['material_id'] : null
+            );
             $row['available_qty_buy'] = round((float)($balance['qty_buy_balance'] ?? 0), 4);
             $row['available_qty_content'] = round((float)($balance['qty_content_balance'] ?? 0), 4);
             $row['avg_cost_per_content'] = round((float)($balance['avg_cost_per_content'] ?? 0), 6);
@@ -5603,7 +5611,6 @@ class Purchase_model extends CI_Model
             'division_id' => $scope === 'DIVISION' ? $divisionId : null,
             'destination_type' => $scope === 'DIVISION' ? $destinationType : 'GUDANG',
             'movement_date' => $movementDate,
-            'stock_domain' => strtoupper(trim((string)($line['stock_domain'] ?? (!empty($line['material_id']) ? 'MATERIAL' : 'ITEM')))),
             'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
             'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
             'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
@@ -5620,6 +5627,11 @@ class Purchase_model extends CI_Model
             'ref_id' => (int)($header['id'] ?? 0),
             'created_by' => $userId > 0 ? $userId : null,
         ];
+        $basePayload['stock_domain'] = $this->resolveLegacyIdentityStockDomain(
+            $basePayload['item_id'],
+            $basePayload['material_id'],
+            $line['stock_domain'] ?? null
+        );
 
         $lineUpdates = [];
         $negativeMoves = [
@@ -5820,10 +5832,7 @@ class Purchase_model extends CI_Model
         $buyUomId = !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null;
         $contentUomId = !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null;
         $profileKey = $this->nullableString($line['profile_key'] ?? null);
-        $stockDomain = strtoupper(trim((string)($line['stock_domain'] ?? ($materialId !== null ? 'MATERIAL' : 'ITEM'))));
-        if (!in_array($stockDomain, ['ITEM', 'MATERIAL'], true)) {
-            $stockDomain = $materialId !== null ? 'MATERIAL' : 'ITEM';
-        }
+        $stockDomain = $this->resolveLegacyIdentityStockDomain($itemId, $materialId, $line['stock_domain'] ?? null);
         if ($itemId === null && $materialId === null) {
             return null;
         }
@@ -5913,13 +5922,16 @@ class Purchase_model extends CI_Model
     private function fetchStockAdjustmentCurrentBalance(array $identity): array
     {
         $scope = strtoupper(trim((string)($identity['stock_scope'] ?? 'WAREHOUSE')));
+        $itemId = $this->nullableInt($identity['item_id'] ?? null);
+        $materialId = $this->nullableInt($identity['material_id'] ?? null);
+        $legacyStockDomain = $this->resolveLegacyIdentityStockDomain($itemId, $materialId, $identity['stock_domain'] ?? null);
         if ($scope === 'DIVISION') {
             if ($this->db->table_exists('inv_division_monthly_stock')) {
                 $targetMonth = date('Y-m-01');
                 $identityKey = $this->buildInventoryMonthlyIdentityKey([
-                    'stock_domain' => $identity['stock_domain'] ?? 'ITEM',
-                    'item_id' => $identity['item_id'] ?? null,
-                    'material_id' => $identity['material_id'] ?? null,
+                    'stock_domain' => $legacyStockDomain,
+                    'item_id' => $itemId,
+                    'material_id' => $materialId,
                     'buy_uom_id' => $identity['buy_uom_id'] ?? null,
                     'content_uom_id' => $identity['content_uom_id'] ?? null,
                     'profile_key' => $identity['profile_key'] ?? null,
@@ -5960,9 +5972,9 @@ class Purchase_model extends CI_Model
             if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
                 $targetMonth = date('Y-m-01');
                 $identityKey = $this->buildInventoryMonthlyIdentityKey([
-                    'stock_domain' => $identity['stock_domain'] ?? 'ITEM',
-                    'item_id' => $identity['item_id'] ?? null,
-                    'material_id' => $identity['material_id'] ?? null,
+                    'stock_domain' => $legacyStockDomain,
+                    'item_id' => $itemId,
+                    'material_id' => $materialId,
                     'buy_uom_id' => $identity['buy_uom_id'] ?? null,
                     'content_uom_id' => $identity['content_uom_id'] ?? null,
                     'profile_key' => $identity['profile_key'] ?? null,
@@ -16912,16 +16924,29 @@ class Purchase_model extends CI_Model
         $itemId = $this->nullableInt($identity['item_id'] ?? ($line['item_id'] ?? null));
         $materialId = $this->nullableInt($identity['material_id'] ?? ($line['material_id'] ?? null));
         $hasMaterialMarker = $usagePurpose === self::USAGE_PURPOSE_PRODUCTION && $materialId !== null;
+        $legacyStockDomain = $this->resolveLegacyIdentityStockDomain($itemId, $materialId, $line['stock_domain'] ?? null);
 
         return [
             'usage_purpose' => $usagePurpose,
             'item_id' => $itemId,
             'material_id' => $materialId,
-            'stock_domain' => $itemId !== null ? 'ITEM' : ($hasMaterialMarker ? 'MATERIAL' : 'ITEM'),
+            'stock_domain' => $legacyStockDomain,
             'is_production_flow' => $usagePurpose === self::USAGE_PURPOSE_PRODUCTION,
             'has_material_marker' => $hasMaterialMarker,
             'uses_material_fifo' => $hasMaterialMarker,
         ];
+    }
+
+    private function resolveLegacyIdentityStockDomain(?int $itemId, ?int $materialId, $currentValue = null): string
+    {
+        $storedDomain = strtoupper(trim((string)$currentValue));
+        if ($itemId !== null) {
+            return 'ITEM';
+        }
+        if ($materialId !== null) {
+            return 'MATERIAL';
+        }
+        return in_array($storedDomain, ['ITEM', 'MATERIAL'], true) ? $storedDomain : 'ITEM';
     }
 
     private function resolveLineStockDomain(array $line): string

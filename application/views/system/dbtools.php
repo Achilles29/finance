@@ -913,8 +913,10 @@ mysql -u root db_finance < backup.sql</div>
   const BASE = '<?php echo site_url(); ?>';
   let allTables = [];
   let selectedTables = new Set();
-  const modalEl = document.getElementById('tablePickerModal');
-  const bsModal = modalEl ? new bootstrap.Modal(modalEl) : null;
+  function getPickerModal() {
+    const el = document.getElementById('tablePickerModal');
+    return el ? bootstrap.Modal.getOrCreateInstance(el) : null;
+  }
 
   function e(v) { const d = document.createElement('div'); d.textContent = String(v??''); return d.innerHTML; }
 
@@ -1056,7 +1058,7 @@ mysql -u root db_finance < backup.sql</div>
   document.getElementById('btn-pick-tables')?.addEventListener('click', () => {
     initFromHidden();
     loadTables();
-    bsModal?.show();
+    getPickerModal()?.show();
   });
   document.getElementById('tpicker-search')?.addEventListener('input', function () {
     renderGrid(this.value, document.getElementById('tpicker-filter')?.value || '');
@@ -1066,20 +1068,16 @@ mysql -u root db_finance < backup.sql</div>
   });
   document.getElementById('tpicker-select-all')?.addEventListener('click', () => {
     allTables.forEach(t => selectedTables.add(t.name));
-    document.querySelectorAll('.tpicker-cb').forEach(cb => { cb.checked = true; cb.closest('.tpicker-card').classList.add('selected'); });
-    const cnt = document.getElementById('tpicker-selected-count');
-    if (cnt) cnt.textContent = selectedTables.size;
+    syncCardState();
   });
   document.getElementById('tpicker-clear-all')?.addEventListener('click', () => {
     selectedTables.clear();
-    document.querySelectorAll('.tpicker-cb').forEach(cb => { cb.checked = false; cb.closest('.tpicker-card').classList.remove('selected'); });
-    const cnt = document.getElementById('tpicker-selected-count');
-    if (cnt) cnt.textContent = 0;
+    syncCardState();
   });
   document.getElementById('tpicker-confirm')?.addEventListener('click', () => {
     document.getElementById('b_exclude').value = [...selectedTables].join(',');
     renderChips();
-    bsModal?.hide();
+    getPickerModal()?.hide();
   });
 
   // Init chips dari nilai tersimpan saat halaman load
