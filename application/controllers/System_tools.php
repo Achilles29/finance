@@ -423,36 +423,43 @@ class System_tools extends MY_Controller
     private function _writeEnvFile(): void
     {
         $envPath = FCPATH . 'scripts/backup/.env';
+
+        // Bungkus nilai dalam single-quote agar karakter spesial aman saat di-source bash.
+        // Escape single-quote dalam nilai dengan cara: ' → '\''
+        $q = static function(string $v): string {
+            return "'" . str_replace("'", "'\\''", $v) . "'";
+        };
+
         $lines = [
             "# Auto-generated oleh Finance App — " . date('Y-m-d H:i:s'),
             "# Jangan edit manual jika menggunakan UI settings",
             "",
             "# Database",
-            "DB_HOST=" . $this->_cfg('backup.db_host', 'localhost'),
-            "DB_PORT=" . $this->_cfg('backup.db_port', '3306'),
-            "DB_USER=" . $this->_cfg('backup.db_user', 'root'),
-            "DB_PASS=" . $this->_cfg('backup.db_pass', ''),
-            "DB_NAME=" . $this->_cfg('backup.db_name', 'db_finance'),
+            "DB_HOST=" . $q($this->_cfg('backup.db_host', 'localhost')),
+            "DB_PORT=" . $q($this->_cfg('backup.db_port', '3306')),
+            "DB_USER=" . $q($this->_cfg('backup.db_user', 'root')),
+            "DB_PASS=" . $q($this->_cfg('backup.db_pass', '')),
+            "DB_NAME=" . $q($this->_cfg('backup.db_name', 'db_finance')),
             "",
             "# Backup",
             "BACKUP_DIR=backup/dumps",
             "LOG_DIR=backup/logs",
-            "RETENTION_DAYS=" . $this->_cfg('backup.retention_days', '3'),
-            "BACKUP_REPO_REMOTE=" . $this->_cfg('backup.repo_remote', 'origin'),
-            "BACKUP_REPO_BRANCH=" . $this->_cfg('backup.repo_branch', 'main'),
-            "EXCLUDE_TABLES=" . $this->_cfg('backup.exclude_tables', ''),
+            "RETENTION_DAYS=" . $q($this->_cfg('backup.retention_days', '3')),
+            "BACKUP_REPO_REMOTE=" . $q($this->_cfg('backup.repo_remote', 'origin')),
+            "BACKUP_REPO_BRANCH=" . $q($this->_cfg('backup.repo_branch', 'main')),
+            "EXCLUDE_TABLES=" . $q($this->_cfg('backup.exclude_tables', '')),
             "",
             "# Replication",
-            "SERVER_ROLE=" . $this->_cfg('repl.server_role', 'STANDALONE'),
-            "MASTER_HOST=" . $this->_cfg('repl.master_host', ''),
-            "MASTER_PORT=" . $this->_cfg('repl.master_port', '3306'),
-            "REPL_USER=" . $this->_cfg('repl.repl_user', 'repl_user'),
-            "REPL_PASS=" . $this->_cfg('repl.repl_pass', ''),
+            "SERVER_ROLE=" . $q($this->_cfg('repl.server_role', 'STANDALONE')),
+            "MASTER_HOST=" . $q($this->_cfg('repl.master_host', '')),
+            "MASTER_PORT=" . $q($this->_cfg('repl.master_port', '3306')),
+            "REPL_USER=" . $q($this->_cfg('repl.repl_user', 'repl_user')),
+            "REPL_PASS=" . $q($this->_cfg('repl.repl_pass', '')),
             "",
             "# SSH Tunnel",
-            "TUNNEL_ENABLED=" . $this->_cfg('tunnel.enabled', '0'),
-            "SSH_USER=" . $this->_cfg('tunnel.ssh_user', 'root'),
-            "TUNNEL_LOCAL_PORT=" . $this->_cfg('tunnel.local_port', '3307'),
+            "TUNNEL_ENABLED=" . $q($this->_cfg('tunnel.enabled', '0')),
+            "SSH_USER=" . $q($this->_cfg('tunnel.ssh_user', 'root')),
+            "TUNNEL_LOCAL_PORT=" . $q($this->_cfg('tunnel.local_port', '3307')),
         ];
         @file_put_contents($envPath, implode("\n", $lines) . "\n");
     }

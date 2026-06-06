@@ -60,6 +60,10 @@ if [ -n "$EXCLUDE_TABLES" ]; then
 fi
 
 # ── Dump ───────────────────────────────────────────────────
+# Gunakan MYSQL_PWD env var agar password tidak muncul di process list
+# dan tidak ada masalah quoting di command line.
+export MYSQL_PWD="${DB_PASS}"
+
 MYSQL_OPTS=(
   "--host=${DB_HOST}"
   "--port=${DB_PORT}"
@@ -74,7 +78,6 @@ MYSQL_OPTS=(
 if mysqldump --help 2>/dev/null | grep -q 'set-gtid-purged'; then
   MYSQL_OPTS+=("--set-gtid-purged=OFF")
 fi
-[ -n "$DB_PASS" ] && MYSQL_OPTS+=("--password=${DB_PASS}")
 [ -n "$IGNORE_ARGS" ] && MYSQL_OPTS+=($IGNORE_ARGS)
 
 if mysqldump "${MYSQL_OPTS[@]}" "$DB_NAME" | gzip -9 > "$DUMPFILE"; then
