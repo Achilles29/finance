@@ -4405,7 +4405,7 @@ class Purchase_model extends CI_Model
 
         $profileName = $this->nullableString($payload['profile_name'] ?? null);
         $profileBrand = $this->nullableString($payload['profile_brand'] ?? null);
-        $profileDescription = $this->nullableString($payload['profile_description'] ?? null);
+        $profileDescription = $this->normalizeProfileDescription($payload['profile_description'] ?? null);
         $profileExpiredDate = $this->normalizeDate((string)($payload['profile_expired_date'] ?? ''));
         $profileContentPerBuy = round(max(0.000001, (float)($payload['profile_content_per_buy'] ?? 1)), 6);
 
@@ -15088,7 +15088,10 @@ class Purchase_model extends CI_Model
         if ($vendorId > 0 && !$useVendorLinkTable && $catalogHasVendorId) {
             $this->db->where('c.vendor_id', $vendorId);
         }
-        if ($lineKind !== '') {
+        if ($lineKind === 'MATERIAL') {
+            $this->db->where('c.material_id IS NOT NULL', null, false);
+            $this->db->where('c.material_id >', 0);
+        } elseif ($lineKind !== '') {
             $this->db->where('c.line_kind', $lineKind);
         }
         if ($itemId > 0) {
@@ -15176,7 +15179,7 @@ class Purchase_model extends CI_Model
     ): array {
         $rows = [];
 
-        if ($lineKind === '' || $lineKind === 'ITEM') {
+        if ($lineKind === '' || $lineKind === 'ITEM' || $lineKind === 'MATERIAL') {
             $rows = array_merge($rows, $this->search_master_item_rows($q, $itemId, $materialId, $limit));
         }
 
@@ -15204,7 +15207,7 @@ class Purchase_model extends CI_Model
         $this->db
             ->select("'MASTER' AS source_type", false)
             ->select('NULL AS catalog_id, NULL AS profile_key', false)
-            ->select("CASE WHEN i.material_id IS NOT NULL AND i.material_id > 0 THEN 'MATERIAL' ELSE 'ITEM' END AS line_kind", false)
+            ->select("'ITEM' AS line_kind", false)
             ->select('i.id AS item_id, i.material_id, NULL AS vendor_id', false)
             ->select('i.item_name AS catalog_name, NULL AS brand_name, NULL AS line_description, i.notes', false)
             ->select('NULL AS expired_date', false)
@@ -15264,7 +15267,8 @@ class Purchase_model extends CI_Model
             ->join('mst_item mi', 'mi.material_id = m.id AND mi.is_active = 1', 'left')
             ->join('mst_uom bu', 'bu.id = IFNULL(mi.buy_uom_id, m.content_uom_id)', 'left', false)
             ->join('mst_uom cu', 'cu.id = m.content_uom_id', 'left')
-            ->where('m.is_active', 1);
+            ->where('m.is_active', 1)
+            ->where('mi.id IS NULL', null, false);
 
         if ($materialId > 0) {
             $this->db->where('m.id', $materialId);
@@ -15330,6 +15334,10 @@ class Purchase_model extends CI_Model
             $itemId = $canonicalIdentity['item_id'] ?? $itemId;
             $materialId = $canonicalIdentity['material_id'] ?? $materialId;
             $lineKind = (string)($canonicalIdentity['line_kind'] ?? $lineKind);
+        }
+
+        if ($lineKind === 'MATERIAL' && $itemId !== null) {
+            $lineKind = 'ITEM';
         }
 
         if ($buyUomId <= 0) {
@@ -15420,7 +15428,7 @@ class Purchase_model extends CI_Model
         $lineSubtotal = round($afterDiscount * (1 + ($taxPercent / 100)), 2);
 
         $brandName = $this->nullableString($line['brand_name'] ?? null);
-        $lineDescription = $this->nullableString($line['line_description'] ?? null);
+        $lineDescription = $this->normalizeProfileDescription($line['line_description'] ?? null);
         $expiryRequirement = $this->extractOrderLineExpiryRequirement($line, 'expired_date');
         $expiredDate = $expiryRequirement['required_expiry_date'];
 
@@ -15529,7 +15537,7 @@ class Purchase_model extends CI_Model
             (int)($lineData['content_uom_id'] ?? ($lineData['buy_uom_id'] ?? 0)),
             $catalogName,
             $this->nullableString($lineData['brand_name'] ?? null),
-            $this->nullableString($lineData['line_description'] ?? null),
+            $this->normalizeProfileDescription($lineData['line_description'] ?? null),
             null,
             (float)($lineData['content_per_buy'] ?? 0),
             (float)($lineData['unit_price'] ?? 0)
@@ -15553,7 +15561,7 @@ class Purchase_model extends CI_Model
             'material_id' => $this->nullableInt($canonicalIdentity['material_id'] ?? $materialId),
             'catalog_name' => $catalogName,
             'brand_name' => $this->nullableString($lineData['brand_name'] ?? null),
-            'line_description' => $this->nullableString($lineData['line_description'] ?? null),
+            'line_description' => $this->normalizeProfileDescription($lineData['line_description'] ?? null),
             'buy_uom_id' => (int)$lineData['buy_uom_id'],
             'content_uom_id' => $this->nullableInt($lineData['content_uom_id'] ?? null),
             'content_per_buy' => (float)$lineData['content_per_buy'],
@@ -16348,7 +16356,7 @@ class Purchase_model extends CI_Model
             'material_id' => $materialId,
             'catalog_name' => $catalogName,
             'brand_name' => $this->nullableString($profileBrand),
-            'line_description' => $this->nullableString($profileDescription),
+            'line_description' => $this->normalizeProfileDescription($profileDescription),
             'buy_uom_id' => $buyUomId,
             'content_uom_id' => $contentUomId,
             'content_per_buy' => $contentPerBuy,
@@ -16791,6 +16799,12 @@ class Purchase_model extends CI_Model
             }
         }
 
+        // In the item-centric flow, raw material is kept as a marker on the
+        // canonical item, not as a separate inventory line domain.
+        if ($resolved === 'MATERIAL' && $itemId !== null) {
+            $resolved = 'ITEM';
+        }
+
         return $resolved;
     }
 
@@ -16897,33 +16911,28 @@ class Purchase_model extends CI_Model
         $identity = $this->resolveCanonicalTransactionIdentity($line, $usagePurpose);
         $itemId = $this->nullableInt($identity['item_id'] ?? ($line['item_id'] ?? null));
         $materialId = $this->nullableInt($identity['material_id'] ?? ($line['material_id'] ?? null));
+        $hasMaterialMarker = $usagePurpose === self::USAGE_PURPOSE_PRODUCTION && $materialId !== null;
 
         return [
             'usage_purpose' => $usagePurpose,
             'item_id' => $itemId,
             'material_id' => $materialId,
-            'stock_domain' => $itemId !== null ? 'ITEM' : (($materialId !== null) ? 'MATERIAL' : 'ITEM'),
+            'stock_domain' => $itemId !== null ? 'ITEM' : ($hasMaterialMarker ? 'MATERIAL' : 'ITEM'),
             'is_production_flow' => $usagePurpose === self::USAGE_PURPOSE_PRODUCTION,
-            'uses_material_fifo' => $usagePurpose === self::USAGE_PURPOSE_PRODUCTION && $materialId !== null,
+            'has_material_marker' => $hasMaterialMarker,
+            'uses_material_fifo' => $hasMaterialMarker,
         ];
     }
 
     private function resolveLineStockDomain(array $line): string
     {
-        $usagePurpose = $this->resolveLineUsagePurpose($line);
-        if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL) {
-            return 'ITEM';
+        $storedDomain = strtoupper(trim((string)($line['stock_domain'] ?? '')));
+        if (in_array($storedDomain, ['ITEM', 'MATERIAL'], true)) {
+            return $storedDomain;
         }
 
-        if ($this->resolveProductionMaterialIdFromLine($line) !== null) {
-            return 'MATERIAL';
-        }
-
-        $lineKind = strtoupper(trim((string)($line['line_kind'] ?? '')));
-        if (in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
-            return $lineKind;
-        }
-        return (int)($line['material_id'] ?? 0) > 0 ? 'MATERIAL' : 'ITEM';
+        $context = $this->resolveCanonicalStockWriteContext($line);
+        return strtoupper(trim((string)($context['stock_domain'] ?? 'ITEM')));
     }
 
     private function resolveLineMaterialIdForStock(array $line): ?int
@@ -16996,6 +17005,23 @@ class Purchase_model extends CI_Model
     {
         $v = trim((string)$value);
         return $v === '' ? null : $v;
+    }
+
+    private function normalizeProfileDescription($value): ?string
+    {
+        $description = $this->nullableString(preg_replace('/\s+/', ' ', trim((string)$value)));
+        if ($description === null) {
+            return null;
+        }
+
+        $normalized = strtoupper($description);
+        if (
+            preg_match('/^(IMPORT\s+DARI|OPENING\b|DARI\s+PENGAJUAN|AUTO[- ]CREATED FROM OPENING IDENTITY)\b/u', $normalized)
+        ) {
+            return null;
+        }
+
+        return $description;
     }
 
     private function normalizeRebuildStatuses($value): array

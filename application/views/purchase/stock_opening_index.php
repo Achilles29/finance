@@ -620,31 +620,34 @@ foreach ($rowsData as $row) {
     var html = '';
     items.forEach(function (it) {
       var id = Number(it.id || 0);
-      var code = (it.item_code || '').toString();
       var name = (it.item_name || '').toString();
       var sourceType = String(it.source_type || 'MASTER').toUpperCase();
-      var material = (it.material_name || '').toString();
+      var brand = (it.profile_brand || '').toString();
       var buyUomCode = (it.default_buy_uom_code || '').toString();
       var contentUomCode = (it.default_content_uom_code || '').toString();
-      var label = code + ' - ' + name;
-      var subtitle = [];
+      var label = name;
       var profileName = (it.profile_name || '').toString();
-      var profileBrand = (it.profile_brand || '').toString();
       var profileDescription = (it.profile_description || '').toString();
       var suggestedUnitPrice = Number(it.suggested_unit_price || 0);
       var suggestedAvgCost = Number(it.suggested_avg_cost_per_content || 0);
-      var sourceLabel = sourceType === 'PROFILE_STOCK'
-        ? 'Sumber: Profil Stok'
-        : (sourceType === 'PROFILE_CATALOG' ? 'Sumber: Purchase Catalog' : 'Sumber: Master Item/Bahan');
-      subtitle.push(sourceLabel);
-      if (material) subtitle.push('Material: ' + material);
-      if (buyUomCode || contentUomCode) subtitle.push('UOM beli/isi: ' + (buyUomCode || '-') + ' / ' + (contentUomCode || '-'));
-      if (suggestedUnitPrice > 0 || suggestedAvgCost > 0) {
-        subtitle.push('Saran harga: ' + (suggestedUnitPrice > 0 ? ('buy Rp ' + formatSuggestedPrice(suggestedUnitPrice, 2)) : '-') + ' | isi Rp ' + (suggestedAvgCost > 0 ? formatSuggestedPrice(suggestedAvgCost, 6) : '-'));
-      }
-      if (profileName || profileBrand || profileDescription) {
-        subtitle.push('Profil: ' + [profileName, profileBrand, profileDescription].filter(Boolean).join(' | '));
-      }
+      var contentPerBuy = Number(it.default_content_per_buy || 0);
+      var unitPrice = stockScope === 'WAREHOUSE' ? suggestedUnitPrice : suggestedAvgCost;
+      var unitPriceText = unitPrice > 0
+        ? ('Rp ' + formatSuggestedPrice(unitPrice, stockScope === 'WAREHOUSE' ? 2 : 6))
+        : '-';
+      var satuanText = buyUomCode || contentUomCode || '-';
+      var isiText = (contentPerBuy > 0 ? formatSuggestedPrice(contentPerBuy, 4) : '-') + (contentUomCode ? ' ' + contentUomCode : '');
+      var detailRows = [
+        ['Nama', name || '-'],
+        ['Merk', brand || '-'],
+        ['Satuan', satuanText],
+        ['Isi', isiText],
+        ['Harga Satuan', unitPriceText],
+        ['Keterangan', profileDescription || '-']
+      ];
+      var detailHtml = detailRows.map(function (pair) {
+        return '<div class="small text-muted"><span class="fw-semibold text-dark">' + escapeHtml(pair[0]) + ':</span> ' + escapeHtml(pair[1]) + '</div>';
+      }).join('');
 
       html += '<button type="button" class="list-group-item list-group-item-action"'
         + ' data-item-id="' + id + '"'
@@ -653,7 +656,7 @@ foreach ($rowsData as $row) {
         + ' data-source-type="' + escapeHtml(sourceType) + '"'
         + ' data-profile-key="' + escapeHtml(it.profile_key || '') + '"'
         + ' data-profile-name="' + escapeHtml(profileName) + '"'
-        + ' data-profile-brand="' + escapeHtml(profileBrand) + '"'
+        + ' data-profile-brand="' + escapeHtml(brand) + '"'
         + ' data-profile-description="' + escapeHtml(profileDescription) + '"'
         + ' data-profile-expired-date="' + escapeHtml(it.profile_expired_date || '') + '"'
         + ' data-buy-uom-id="' + Number(it.default_buy_uom_id || 0) + '"'
@@ -664,8 +667,8 @@ foreach ($rowsData as $row) {
         + ' data-suggested-unit-price="' + Number(it.suggested_unit_price || 0) + '"'
         + ' data-suggested-avg-cost="' + Number(it.suggested_avg_cost_per_content || 0) + '"'
         + ' data-suggested-price-source="' + escapeHtml(it.suggested_price_source || '') + '">'
-        + '<div class="fw-semibold">' + escapeHtml(label) + '</div>'
-        + (subtitle.length ? '<small class="text-muted">' + escapeHtml(subtitle.join(' | ')) + '</small>' : '')
+        + '<div class="fw-semibold mb-1">' + escapeHtml(label || '-') + '</div>'
+        + detailHtml
         + '</button>';
     });
     itemPreviewEl.innerHTML = html;
@@ -784,7 +787,7 @@ foreach ($rowsData as $row) {
     itemIdEl.value = String(id);
     itemSearchEl.value = label;
     itemPreviewEl.innerHTML = '';
-    itemHintEl.textContent = 'Item terpilih: ' + label + ' (' + (sourceType === 'PROFILE_STOCK' ? 'Profil Stok' : (sourceType === 'PROFILE_CATALOG' ? 'Purchase Catalog' : 'Master')) + ')' + (selectedItemMeta.suggested_price_source ? ' | harga saran tersedia' : '');
+    itemHintEl.textContent = 'Item terpilih: ' + label + (selectedItemMeta.suggested_price_source ? ' | harga saran tersedia' : '');
   });
 
   function clearProfileKeyForManualProfileChange() {

@@ -2353,7 +2353,7 @@ class Procurement_model extends CI_Model
                 'profile_key' => (string)($line['profile_key'] ?? ''),
                 'profile_name' => $this->nullable_string($line['profile_name'] ?? null),
                 'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
-                'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
+                'profile_description' => $this->normalize_profile_description($line['profile_description'] ?? null),
                 'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
                 'buy_uom_id' => (int)($line['buy_uom_id'] ?? 0),
                 'content_uom_id' => (int)($line['content_uom_id'] ?? 0),
@@ -2441,7 +2441,7 @@ class Procurement_model extends CI_Model
                 'profile_key' => $this->nullable_string($line['profile_key'] ?? null),
                 'profile_name' => $this->nullable_string($line['profile_name'] ?? null),
                 'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
-                'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
+                'profile_description' => $this->normalize_profile_description($line['profile_description'] ?? null),
                 'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
                 'profile_content_per_buy' => $contentPerBuy,
                 'profile_buy_uom_code' => $this->nullable_string($line['profile_buy_uom_code'] ?? null),
@@ -2818,7 +2818,7 @@ class Procurement_model extends CI_Model
                 'profile_key' => substr($profileKey, 0, 64),
                 'profile_name' => $this->nullable_string($line['profile_name'] ?? null),
                 'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
-                'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
+                'profile_description' => $this->normalize_profile_description($line['profile_description'] ?? null),
                 'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
                 'expiry_policy' => $expiryRequirement['expiry_policy'],
                 'required_expiry_date' => $expiryRequirement['required_expiry_date'],
@@ -2878,7 +2878,7 @@ class Procurement_model extends CI_Model
             $sourceType = strtoupper(trim((string)($line['source_type'] ?? ($line['search_source'] ?? 'WAREHOUSE'))));
             $profileName = $this->nullable_string($line['profile_name'] ?? ($line['catalog_name'] ?? ($line['item_name'] ?? null)));
             $profileBrand = $this->nullable_string($line['profile_brand'] ?? ($line['brand_name'] ?? null));
-            $profileDescription = $this->nullable_string($line['profile_description'] ?? ($line['line_description'] ?? null));
+            $profileDescription = $this->normalize_profile_description($line['profile_description'] ?? ($line['line_description'] ?? null));
             $usagePurpose = $this->normalize_usage_purpose($line['usage_purpose'] ?? ($line['default_usage_purpose'] ?? 'BAHAN_BAKU'));
 
             if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL) {
@@ -3337,7 +3337,7 @@ class Procurement_model extends CI_Model
                 $estimatedUnitPrice = 0;
             }
             $profileBrand = $this->nullable_string($line['profile_brand'] ?? null);
-            $profileDescription = $this->nullable_string($line['profile_description'] ?? null);
+            $profileDescription = $this->normalize_profile_description($line['profile_description'] ?? null);
 
             $srContent = 0.0;
             $poContent = 0.0;
@@ -3375,7 +3375,7 @@ class Procurement_model extends CI_Model
                 'profile_key' => (string)$line['profile_key'],
                 'profile_name' => $this->nullable_string($line['profile_name'] ?? null),
                 'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
-                'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
+                'profile_description' => $this->normalize_profile_description($line['profile_description'] ?? null),
                 'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
                 'buy_uom_id' => (int)$line['buy_uom_id'],
                 'content_uom_id' => (int)$line['content_uom_id'],
@@ -3414,7 +3414,7 @@ class Procurement_model extends CI_Model
                     'profile_key' => (string)$line['profile_key'],
                     'profile_name' => $this->nullable_string($line['profile_name'] ?? null),
                     'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
-                    'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
+                    'profile_description' => $this->normalize_profile_description($line['profile_description'] ?? null),
                     'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
                     'buy_uom_id' => (int)$line['buy_uom_id'],
                     'content_uom_id' => (int)$line['content_uom_id'],
@@ -3564,7 +3564,7 @@ class Procurement_model extends CI_Model
                 'profile_key' => substr($profileKey, 0, 64),
                 'profile_name' => $profileName,
                 'profile_brand' => $this->nullable_string($row['brand_name'] ?? null),
-                'profile_description' => $this->nullable_string($row['line_description'] ?? ($row['notes'] ?? null)),
+                'profile_description' => $this->normalize_profile_description($row['line_description'] ?? null),
                 'profile_expired_date' => $this->normalize_date((string)($row['expired_date'] ?? '')),
                 'expiry_policy' => $expiryRequirement['expiry_policy'],
                 'required_expiry_date' => $expiryRequirement['required_expiry_date'],
@@ -4025,7 +4025,7 @@ class Procurement_model extends CI_Model
                     'profile_key' => $this->nullable_string($line['profile_key'] ?? null),
                     'profile_name' => $this->nullable_string($line['profile_name'] ?? null),
                     'profile_brand' => $this->nullable_string($line['profile_brand'] ?? null),
-                    'profile_description' => $this->nullable_string($line['profile_description'] ?? null),
+                    'profile_description' => $this->normalize_profile_description($line['profile_description'] ?? null),
                     'profile_expired_date' => $this->normalize_date((string)($line['profile_expired_date'] ?? '')),
                     'profile_content_per_buy' => round((float)($line['profile_content_per_buy'] ?? 1), 6),
                     'profile_buy_uom_code' => $this->nullable_string($line['profile_buy_uom_code'] ?? null),
@@ -4253,6 +4253,23 @@ class Procurement_model extends CI_Model
         }
         $v = trim((string)$value);
         return $v === '' ? null : $v;
+    }
+
+    private function normalize_profile_description($value): ?string
+    {
+        $description = $this->nullable_string(preg_replace('/\s+/', ' ', trim((string)$value)));
+        if ($description === null) {
+            return null;
+        }
+
+        $normalized = strtoupper($description);
+        if (
+            preg_match('/^(IMPORT\s+DARI|OPENING\b|DARI\s+PENGAJUAN|AUTO[- ]CREATED FROM OPENING IDENTITY)\b/u', $normalized)
+        ) {
+            return null;
+        }
+
+        return $description;
     }
 
     private function nullable_int($value): ?int

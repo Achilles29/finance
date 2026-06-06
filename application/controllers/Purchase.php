@@ -1045,7 +1045,7 @@ class Purchase extends MY_Controller
 
         $payload = [
             'stock_scope' => 'DIVISION',
-            'stock_domain' => ((int)($item['material_id'] ?? 0) > 0) ? 'MATERIAL' : 'ITEM',
+            'stock_domain' => ((int)($item['id'] ?? 0) > 0) ? 'ITEM' : ((((int)($item['material_id'] ?? 0) > 0) ? 'MATERIAL' : 'ITEM')),
             'division_id' => $divisionId,
             'destination_type' => $destination,
             'snapshot_month' => $month,
@@ -2471,9 +2471,9 @@ class Purchase extends MY_Controller
         if (count($catalogRows) === 0) {
             $fallbackRows = $this->Purchase_model->search_master_fallback(
                 $q,
-                'ITEM',
+                $lineKind !== '' ? $lineKind : 'ITEM',
                 $itemId,
-                0,
+                $materialId,
                 $resultLimit
             );
         }
