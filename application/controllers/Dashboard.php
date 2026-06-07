@@ -23,24 +23,214 @@ class Dashboard extends MY_Controller
         $filters = $this->dashboard_filters();
         $stockCards = $this->dashboard_stock_cards();
         $salesOverview = $this->dashboard_pos_sales_overview($filters);
-        $divisionFilter = (int)$this->input->get('critical_division_id', true);
+        $chartFilters = $this->dashboard_chart_filters();
         $data = [
             'title'       => 'Dashboard',
             'active_menu' => 'dashboard',
             'filters' => $filters,
             'kpi' => $this->dashboard_kpi($filters, $stockCards, $salesOverview),
-            'trend' => $this->dashboard_trend_series($filters),
+            'trend' => $this->dashboard_trend_series($chartFilters),
+            'chart_filters' => $chartFilters,
             'pos_status_rows' => $this->dashboard_pos_status_rows($filters),
             'pos_scope_rows' => $this->dashboard_pos_scope_rows($filters),
-            'stock_cards' => $stockCards,
             'stock_breakdown' => $this->dashboard_stock_breakdown(),
-            'critical_stock_rows' => $this->dashboard_critical_stock_rows($divisionFilter),
-            'critical_divisions' => $this->dashboard_critical_divisions(),
-            'critical_division_filter' => $divisionFilter,
+            'stock_product_live' => $this->dashboard_stock_product_live(),
+            'critical_stock_rows' => $this->dashboard_critical_stock_rows(0),
             'recent_activity' => $this->dashboard_recent_activity($filters),
         ];
 
         $this->render('dashboard/index', $data);
+    }
+
+    public function product_recipe_stock()
+    {
+        $productId = (int)$this->input->get('product_id', true);
+        if ($productId <= 0) {
+            $this->json_error('product_id wajib diisi.', 422);
+            return;
+        }
+
+        if (!$this->dashboard_table_ready('mst_product_recipe')) {
+            $this->json_ok(['recipe' => []]);
+            return;
+        }
+
+        $hasMaterial = $this->dashboard_table_ready('inv_division_monthly_stock');
+        $hasComponent = $this->dashboard_table_ready('inv_component_monthly_stock');
+        $targetMonth = date('Y-m-01');
+
+        $sql = "
+            SELECT
+                r.id,
+                r.line_type,
+                r.ingredient_role,
+                r.qty,
+                COALESCE(u.code, '') AS uom_code,
+                COALESCE(m.material_name, c.component_name, 'Unknown') AS ingredient_name,
+                COALESCE(m.material_code, '') AS material_code,
+                r.material_item_id,
+                r.component_id
+            FROM mst_product_recipe r
+            LEFT JOIN mst_uom u ON u.id = r.uom_id
+            LEFT JOIN mst_item mi ON mi.id = r.material_item_id
+            LEFT JOIN mst_material m ON m.id = mi.material_id
+            LEFT JOIN mst_component c ON c.id = r.component_id
+            WHERE r.product_id = {$productId}
+            ORDER BY r.sort_order, r.line_no
+        ";
+        $recipeRows = $this->dashboard_safe_query($sql);
+        if (!$recipeRows) {
+            $this->json_ok(['recipe' => []]);
+            return;
+        }
+
+        $materialStockMap = [];
+        $componentStockMap = [];
+
+        if ($hasMaterial) {
+            $matSql = "
+                SELECT
+                    COALESCE(s.material_id, mi2.material_id) AS material_id,
+                    ROUND(SUM(s.closing_qty_content), 4) AS total_qty,
+                    COALESCE(s.avg_cost_per_content, 0) AS avg_cost
+                FROM inv_division_monthly_stock s
+                LEFT JOIN mst_item mi2 ON mi2.id = s.item_id
+                INNER JOIN (
+                    SELECT division_id, destination_type, identity_key, MAX(month_key) AS max_month
+                    FROM inv_division_monthly_stock WHERE month_key <= " . $this->db->escape($targetMonth) . "
+                    GROUP BY division_id, destination_type, identity_key
+                ) lm ON lm.division_id = s.division_id AND lm.destination_type = s.destination_type
+                    AND lm.identity_key = s.identity_key AND lm.max_month = s.month_key
+                WHERE COALESCE(s.material_id, mi2.material_id) IS NOT NULL
+                GROUP BY COALESCE(s.material_id, mi2.material_id)
+            ";
+            $matResult = $this->dashboard_safe_query($matSql);
+            if ($matResult) {
+                foreach ($matResult->result_array() as $r) {
+                    $materialStockMap[(int)$r['material_id']] = ['qty' => (float)$r['total_qty'], 'avg_cost' => (float)$r['avg_cost']];
+                }
+            }
+        }
+
+        if ($hasComponent) {
+            $compSql = "
+                SELECT s.component_id, ROUND(SUM(s.closing_qty), 4) AS total_qty
+                FROM inv_component_monthly_stock s
+                INNER JOIN (
+                    SELECT location_type, division_id, component_id, uom_id, MAX(month_key) AS max_month
+                    FROM inv_component_monthly_stock WHERE month_key <= " . $this->db->escape($targetMonth) . "
+                    GROUP BY location_type, division_id, component_id, uom_id
+                ) lm ON lm.location_type = s.location_type AND lm.division_id <=> s.division_id
+                    AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.max_month = s.month_key
+                GROUP BY s.component_id
+            ";
+            $compResult = $this->dashboard_safe_query($compSql);
+            if ($compResult) {
+                foreach ($compResult->result_array() as $r) {
+                    $componentStockMap[(int)$r['component_id']] = (float)$r['total_qty'];
+                }
+            }
+        }
+
+        $recipe = [];
+        foreach ($recipeRows->result_array() as $r) {
+            $stockQty = 0.0;
+            if ($r['line_type'] === 'MATERIAL' && !empty($r['material_item_id'])) {
+                $matId = (int)$this->db->query("SELECT material_id FROM mst_item WHERE id = " . (int)$r['material_item_id'])->row('material_id');
+                $stockQty = (float)($materialStockMap[$matId]['qty'] ?? 0);
+            } elseif ($r['line_type'] === 'COMPONENT' && !empty($r['component_id'])) {
+                $stockQty = (float)($componentStockMap[(int)$r['component_id']] ?? 0);
+            }
+
+            $recipe[] = [
+                'ingredient_name' => (string)$r['ingredient_name'],
+                'line_type' => (string)$r['line_type'],
+                'ingredient_role' => (string)$r['ingredient_role'],
+                'qty_per_serve' => (float)$r['qty'],
+                'uom_code' => (string)$r['uom_code'],
+                'stock_qty' => $stockQty,
+                'is_bottleneck' => $stockQty <= 0,
+            ];
+        }
+
+        $this->json_ok(['recipe' => $recipe]);
+    }
+
+    private function dashboard_chart_filters(): array
+    {
+        return [
+            'date_from' => date('Y-m-01'),
+            'date_to' => date('Y-m-d'),
+            'period_label' => 'Bulan Ini',
+        ];
+    }
+
+    private function dashboard_stock_product_live(): array
+    {
+        if (!$this->dashboard_table_ready('pos_product_availability_cache') || !$this->dashboard_table_ready('mst_product')) {
+            return ['summary' => [], 'rows' => []];
+        }
+
+        $summaryRows = $this->dashboard_safe_query("
+            SELECT
+                pac.availability_status,
+                pd.name AS division_name,
+                COUNT(*) AS total
+            FROM pos_product_availability_cache pac
+            INNER JOIN mst_product p ON p.id = pac.product_id
+            INNER JOIN mst_product_category pc ON pc.id = p.product_category_id
+            INNER JOIN mst_product_division pd ON pd.id = pc.product_division_id
+            GROUP BY pac.availability_status, pd.name
+            ORDER BY pd.name, pac.availability_status
+        ");
+
+        $summary = ['total' => 0, 'out' => 0, 'limited' => 0, 'available' => 0, 'by_division' => []];
+        if ($summaryRows) {
+            foreach ($summaryRows->result_array() as $r) {
+                $div = (string)($r['division_name'] ?? 'LAIN');
+                $status = strtoupper((string)($r['availability_status'] ?? ''));
+                $cnt = (int)$r['total'];
+                $summary['total'] += $cnt;
+                if ($status === 'OUT') {
+                    $summary['out'] += $cnt;
+                } elseif ($status === 'LIMITED') {
+                    $summary['limited'] += $cnt;
+                } elseif ($status === 'AVAILABLE') {
+                    $summary['available'] += $cnt;
+                }
+                if (!isset($summary['by_division'][$div])) {
+                    $summary['by_division'][$div] = ['out' => 0, 'limited' => 0, 'available' => 0];
+                }
+                $summary['by_division'][$div][$status === 'OUT' ? 'out' : ($status === 'LIMITED' ? 'limited' : 'available')] += $cnt;
+            }
+        }
+
+        $productRows = $this->dashboard_safe_query("
+            SELECT
+                pac.product_id,
+                p.product_name,
+                pd.name AS division_name,
+                pac.availability_status,
+                ROUND(pac.estimated_available_qty, 2) AS qty,
+                COALESCE(u.code, '') AS uom_code,
+                pac.bottleneck_name_snapshot,
+                pac.bottleneck_kind,
+                pac.hpp_live_snapshot,
+                pac.is_dirty
+            FROM pos_product_availability_cache pac
+            INNER JOIN mst_product p ON p.id = pac.product_id
+            INNER JOIN mst_product_category pc ON pc.id = p.product_category_id
+            INNER JOIN mst_product_division pd ON pd.id = pc.product_division_id
+            LEFT JOIN mst_uom u ON u.id = p.uom_id
+            ORDER BY
+                FIELD(pac.availability_status, 'OUT', 'LIMITED', 'AVAILABLE'),
+                pd.name,
+                p.product_name
+            LIMIT 200
+        ");
+
+        $rows = $productRows ? $productRows->result_array() : [];
+        return ['summary' => $summary, 'rows' => $rows];
     }
 
     private function require_registered_page_permission(string $pageCode): void
@@ -73,17 +263,17 @@ class Dashboard extends MY_Controller
         $today = date('Y-m-d');
         $period = strtolower(trim((string)$this->input->get('period', true)));
         if (!in_array($period, ['today', 'month', '7', '30', 'custom'], true)) {
-            $period = 'month';
+            $period = 'today';
         }
 
-        $dateFrom = date('Y-m-01');
+        $dateFrom = $today;
         $dateTo = $today;
-        $periodLabel = 'Bulan Ini';
+        $periodLabel = 'Hari Ini';
 
-        if ($period === 'today') {
-            $dateFrom = $today;
+        if ($period === 'month') {
+            $dateFrom = date('Y-m-01');
             $dateTo = $today;
-            $periodLabel = 'Hari Ini';
+            $periodLabel = 'Bulan Ini';
         } elseif ($period === '7') {
             $dateFrom = date('Y-m-d', strtotime('-6 days', strtotime($today)));
             $periodLabel = '7 Hari Terakhir';
@@ -854,6 +1044,21 @@ class Dashboard extends MY_Controller
         $this->dashboardTableReadyCache[$table] = $isReady;
 
         return $isReady;
+    }
+
+    private function json_ok(array $data = []): void
+    {
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => true, 'data' => $data]));
+    }
+
+    private function json_error(string $message, int $statusCode = 400): void
+    {
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => false, 'message' => $message]));
     }
 
     private function dashboard_safe_query(string $sql)

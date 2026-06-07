@@ -6883,15 +6883,8 @@ class Purchase_model extends CI_Model
                     $this->db->where('month_key >=', $startMonth);
                 }
 
-                if (isset($this->listTableFields($table)['stock_domain'])) {
-                    $legacyStockDomain = strtoupper((string)($identity['stock_domain'] ?? ''));
-                    $this->db->group_start();
-                    $this->db->where('stock_domain IS NULL', null, false);
-                    if (in_array($legacyStockDomain, ['ITEM', 'MATERIAL'], true)) {
-                        $this->db->or_where('stock_domain', $legacyStockDomain);
-                    }
-                    $this->db->group_end();
-                }
+                // Item-centric cleanup: purge exact identity lintas domain legacy.
+                // Jangan sisakan sibling MATERIAL/ITEM untuk identity yang sama.
 
                     $itemId = $this->nullableInt($identity['item_id'] ?? null);
                     if ($itemId !== null) {
@@ -7726,6 +7719,21 @@ class Purchase_model extends CI_Model
             ->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
             ->join('mst_item i', 'i.id = s.item_id', 'left');
 
+        if ($this->db->field_exists('stock_domain', 'inv_warehouse_monthly_stock')) {
+            $this->db->where(
+                '(COALESCE(s.item_id, 0) = 0 OR COALESCE(s.stock_domain, "ITEM") <> "MATERIAL" OR NOT EXISTS (
+                    SELECT 1
+                    FROM inv_warehouse_monthly_stock sx
+                    WHERE sx.identity_key = s.identity_key
+                      AND sx.month_key = s.month_key
+                      AND COALESCE(sx.item_id, 0) > 0
+                      AND COALESCE(sx.stock_domain, "ITEM") <> "MATERIAL"
+                ))',
+                null,
+                false
+            );
+        }
+
         if ($from !== null) {
             $this->db->where($activityDateExpr . ' >= ' . $this->db->escape($from), null, false);
         }
@@ -7813,6 +7821,23 @@ class Purchase_model extends CI_Model
             ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
             ->join('mst_item i', 'i.id = s.item_id', 'left')
             ->join('mst_material m', 'm.id = s.material_id', 'left');
+
+        if ($this->db->field_exists('stock_domain', 'inv_division_monthly_stock')) {
+            $this->db->where(
+                '(COALESCE(s.item_id, 0) = 0 OR COALESCE(s.stock_domain, "ITEM") <> "MATERIAL" OR NOT EXISTS (
+                    SELECT 1
+                    FROM inv_division_monthly_stock sx
+                    WHERE sx.division_id = s.division_id
+                      AND COALESCE(sx.destination_type, "OTHER") = COALESCE(s.destination_type, "OTHER")
+                      AND sx.identity_key = s.identity_key
+                      AND sx.month_key = s.month_key
+                      AND COALESCE(sx.item_id, 0) > 0
+                      AND COALESCE(sx.stock_domain, "ITEM") <> "MATERIAL"
+                ))',
+                null,
+                false
+            );
+        }
 
         if ($from !== null) {
             $this->db->where($activityDateExpr . ' >= ' . $this->db->escape($from), null, false);
