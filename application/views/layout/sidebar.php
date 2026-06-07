@@ -90,6 +90,7 @@ if (!function_exists('_get_ri_icon')) {
             'grp.purchase'          => 'ri-shopping-cart-2-line',
             'purchase.stock.adjustment.warehouse' => 'ri-scales-3-line',
             'purchase.stock.adjustment.division' => 'ri-scales-3-line',
+            'purchase.stock.opname.division'     => 'ri-check-double-line',
             'grp.finance'           => 'ri-bank-line',
             'fin.transactions'      => 'ri-exchange-line',
             'fin.income'            => 'ri-arrow-down-circle-line',

@@ -940,7 +940,6 @@ class ComponentStockWriter
                 'profile_content_per_buy' => $snapshot['profile_content_per_buy'],
                 'profile_buy_uom_code' => $snapshot['profile_buy_uom_code'],
                 'profile_content_uom_code' => $snapshot['profile_content_uom_code'],
-                'stock_domain' => $snapshot['stock_domain'],
                 'unit_cost' => round((float)($allocation['unit_cost'] ?? 0), 6),
                 'notes' => 'Batch ' . (string)($header['batch_no'] ?? ('#' . $sourceId)) . ' pakai lot ' . (string)($allocation['source_lot_no'] ?? '-'),
                 'created_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
@@ -1180,14 +1179,10 @@ class ComponentStockWriter
             'profile_content_per_buy' => 1.0,
             'profile_buy_uom_code' => null,
             'profile_content_uom_code' => null,
-            'stock_domain' => !empty($sourceLot['item_id']) ? 'ITEM' : (!empty($sourceLot['material_id']) ? 'MATERIAL' : 'ITEM'),
         ];
 
         if ($this->ci->db->table_exists('inv_stock_movement_log')) {
             $select = 'item_id, material_id, buy_uom_id, content_uom_id, profile_key, profile_name, profile_brand, profile_description, profile_expired_date, profile_content_per_buy, profile_buy_uom_code, profile_content_uom_code';
-            if ($this->ci->db->field_exists('stock_domain', 'inv_stock_movement_log')) {
-                $select .= ', stock_domain';
-            }
             $row = $this->ci->db->query(
                 'SELECT ' . $select . '
                  FROM inv_stock_movement_log

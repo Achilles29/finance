@@ -32,7 +32,7 @@ class ItemIdentityResolver
             'usage_purpose' => $this->normalizeUsagePurpose($usagePurpose ?? ($payload['usage_purpose'] ?? null)),
             'item_id' => $resolvedItemId,
             'material_id' => $resolvedMaterialId,
-            'line_kind' => $resolvedItemId !== null ? 'ITEM' : (($resolvedMaterialId !== null) ? 'MATERIAL' : 'ITEM'),
+            'line_kind' => 'ITEM',
             'is_item_centric' => $resolvedItemId !== null,
         ];
     }

@@ -660,12 +660,7 @@ class Procurement_model extends CI_Model
         $lineCostSql = $this->build_store_request_line_cost_sql();
         $this->db
             ->select('ln.id AS line_id, ln.line_no, ln.line_kind, ln.item_id, ln.material_id')
-            ->select("CASE
-                WHEN COALESCE(ln.material_id, 0) > 0 THEN 'MATERIAL'
-                WHEN UPPER(TRIM(COALESCE(c.line_kind, ''))) IN ('MATERIAL','ITEM') THEN UPPER(TRIM(c.line_kind))
-                WHEN UPPER(TRIM(COALESCE(ln.line_kind, ''))) IN ('MATERIAL','ITEM') THEN UPPER(TRIM(ln.line_kind))
-                ELSE 'ITEM'
-            END AS effective_line_kind", false)
+            ->select("'ITEM' AS effective_line_kind", false)
             ->select('ln.profile_key, ln.profile_name, ln.profile_brand, ln.profile_description')
             ->select('ln.profile_buy_uom_code, ln.profile_content_uom_code')
             ->select('ln.qty_buy_requested, ln.qty_content_requested, ln.qty_buy_fulfilled, ln.qty_content_fulfilled')
@@ -864,7 +859,7 @@ class Procurement_model extends CI_Model
 
         $this->db
             ->select('s.item_id, s.material_id, s.buy_uom_id, s.content_uom_id, s.profile_key', false)
-            ->select('s.stock_domain', false)
+            ->select('"ITEM" AS stock_domain', false)
             ->select('s.profile_name, s.profile_brand, s.profile_description, s.profile_expired_date, s.profile_content_per_buy')
             ->select('s.profile_buy_uom_code, s.profile_content_uom_code, s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content')
             ->select(($hasCatalogVendorPrice || $hasCatalogLastUnitPrice || $hasCatalogStandardPrice)
@@ -934,9 +929,7 @@ class Procurement_model extends CI_Model
             $key = $profileKey !== ''
                 ? ('PK:' . $profileKey . '|B:' . (int)($row['buy_uom_id'] ?? 0) . '|C:' . (int)($row['content_uom_id'] ?? 0))
                 : ('I:' . (int)($row['item_id'] ?? 0) . '|M:' . (int)($row['material_id'] ?? 0) . '|B:' . (int)($row['buy_uom_id'] ?? 0) . '|C:' . (int)($row['content_uom_id'] ?? 0));
-            $preferredLineKind = $this->normalize_usage_purpose($row['default_usage_purpose'] ?? 'BAHAN_BAKU') === self::USAGE_PURPOSE_OPERATIONAL
-                ? 'ITEM'
-                : 'MATERIAL';
+            $preferredLineKind = 'ITEM';
             $score = strtoupper((string)($row['line_kind'] ?? 'ITEM')) === $preferredLineKind ? 2 : 1;
             if (!isset($dedup[$key])) {
                 $dedup[$key] = ['row' => $row, 'score' => $score];
@@ -1286,7 +1279,9 @@ class Procurement_model extends CI_Model
 
             $line['default_usage_purpose'] = $defaultUsagePurpose;
             $line['usage_purpose'] = $usagePurpose;
-            $line['line_kind'] = (string)($canonicalIdentity['line_kind'] ?? ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL ? 'ITEM' : ($resolvedMaterialId > 0 ? 'MATERIAL' : 'ITEM')));
+            $line['line_kind'] = ($resolvedItemId > 0 || $resolvedMaterialId > 0)
+                ? 'ITEM'
+                : (string)($canonicalIdentity['line_kind'] ?? 'ITEM');
             $line['source_type'] = $storedSourceType;
         }
         unset($line);
@@ -2822,7 +2817,9 @@ class Procurement_model extends CI_Model
                 $resolvedProductionMaterialId = $this->resolve_production_material_id($itemId > 0 ? $itemId : null, $materialId > 0 ? $materialId : null);
                 if ($resolvedProductionMaterialId !== null && $resolvedProductionMaterialId > 0) {
                     $materialId = $resolvedProductionMaterialId;
-                    $lineKind = 'MATERIAL';
+                    if ($itemId > 0) {
+                        $lineKind = 'ITEM';
+                    }
                 }
             }
 
@@ -2834,7 +2831,9 @@ class Procurement_model extends CI_Model
             ], $usagePurpose);
             $itemId = (int)($canonicalIdentity['item_id'] ?? 0);
             $materialId = (int)($canonicalIdentity['material_id'] ?? 0);
-            $lineKind = (string)($canonicalIdentity['line_kind'] ?? ($lineKind !== '' ? $lineKind : ($itemId > 0 ? 'ITEM' : '')));
+            $lineKind = $itemId > 0
+                ? 'ITEM'
+                : (string)($canonicalIdentity['line_kind'] ?? ($lineKind !== '' ? $lineKind : ($itemId > 0 ? 'ITEM' : '')));
             if (!in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
                 return ['ok' => false, 'message' => 'Line #' . $lineNo . ' line_kind tidak valid.'];
             }
@@ -2955,12 +2954,27 @@ class Procurement_model extends CI_Model
                 $resolvedProductionMaterialId = $this->resolve_production_material_id($itemId > 0 ? $itemId : null, $materialId > 0 ? $materialId : null);
                 if ($resolvedProductionMaterialId !== null && $resolvedProductionMaterialId > 0) {
                     $materialId = $resolvedProductionMaterialId;
-                    $lineKind = 'MATERIAL';
+                    if ($itemId > 0) {
+                        $lineKind = 'ITEM';
+                    }
                 }
             }
 
-            if ($materialId > 0) {
-                $lineKind = 'MATERIAL';
+            if ($itemId > 0 || $materialId > 0) {
+                $canonicalPreviewIdentity = $this->resolve_canonical_transaction_identity([
+                    'item_id' => $itemId > 0 ? $itemId : null,
+                    'material_id' => $materialId > 0 ? $materialId : null,
+                    'profile_key' => $profileKey,
+                    'usage_purpose' => $usagePurpose,
+                ], $usagePurpose);
+                $previewItemId = (int)($canonicalPreviewIdentity['item_id'] ?? 0);
+                if ($previewItemId > 0) {
+                    $itemId = $previewItemId;
+                    $materialId = (int)($canonicalPreviewIdentity['material_id'] ?? $materialId);
+                    $lineKind = 'ITEM';
+                } else {
+                    $lineKind = $materialId > 0 ? 'MATERIAL' : 'ITEM';
+                }
             } elseif ($lineKind === '') {
                 $lineKind = ($itemId > 0 || $sourceType === 'MANUAL') ? 'ITEM' : '';
             }
@@ -3025,7 +3039,7 @@ class Procurement_model extends CI_Model
             ], $usagePurpose);
             $itemId = (int)($canonicalIdentity['item_id'] ?? 0);
             $materialId = (int)($canonicalIdentity['material_id'] ?? 0);
-            $lineKind = (string)($canonicalIdentity['line_kind'] ?? $lineKind);
+            $lineKind = $itemId > 0 ? 'ITEM' : (string)($canonicalIdentity['line_kind'] ?? $lineKind);
 
             $expiryRequirement = $this->extract_expiry_requirement($line, 'profile_expired_date');
 
@@ -3557,7 +3571,9 @@ class Procurement_model extends CI_Model
             $lineKind = strtoupper(trim((string)($row['line_kind'] ?? 'ITEM')));
             $itemId = $this->nullable_int($row['item_id'] ?? null);
             $materialId = $this->nullable_int($row['material_id'] ?? null);
-            if ($materialId !== null && $materialId > 0) {
+            if ($itemId !== null && $itemId > 0) {
+                $lineKind = 'ITEM';
+            } elseif ($materialId !== null && $materialId > 0) {
                 $lineKind = 'MATERIAL';
             }
             if (!in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
@@ -3599,7 +3615,7 @@ class Procurement_model extends CI_Model
             ]);
             $itemId = (int)($canonicalIdentity['item_id'] ?? 0);
             $materialId = (int)($canonicalIdentity['material_id'] ?? 0);
-            $lineKind = (string)($canonicalIdentity['line_kind'] ?? $lineKind);
+            $lineKind = $itemId > 0 ? 'ITEM' : (string)($canonicalIdentity['line_kind'] ?? $lineKind);
 
             $identity = $this->build_division_request_candidate_identity([
                 'line_kind' => $lineKind,
@@ -3667,7 +3683,7 @@ class Procurement_model extends CI_Model
             return 'ITEM|' . $itemId . $suffix;
         }
         if ($materialId > 0) {
-            return 'MATERIAL|' . $materialId . $suffix;
+            return 'ITEM|MAT:' . $materialId . $suffix;
         }
 
         return 'ITEM|NAME|' . strtoupper(trim((string)($row['profile_name'] ?? ''))) . $suffix;
@@ -3835,10 +3851,7 @@ class Procurement_model extends CI_Model
             return 0.0;
         }
 
-        $stockDomain = strtoupper(trim($stockDomain));
-        if (!in_array($stockDomain, ['ITEM', 'MATERIAL'], true)) {
-            $stockDomain = ($itemId !== null && $itemId > 0) ? 'ITEM' : (($materialId !== null && $materialId > 0) ? 'MATERIAL' : 'ITEM');
-        }
+        $stockDomain = 'ITEM';
 
         if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
             $targetMonth = date('Y-m-01');
@@ -3862,15 +3875,14 @@ class Procurement_model extends CI_Model
                             )
                               AND buy_uom_id = ?
                               AND content_uom_id = ?
-                              AND (stock_domain = ? OR stock_domain IS NULL)
+                              AND (stock_domain = "ITEM" OR stock_domain IS NULL)
                               AND ' . $identityCheck['column'] . ' = ?';
-                    $params = [$targetMonth, $buyUomId, $contentUomId, $stockDomain, $identityCheck['value']];
+                    $params = [$targetMonth, $buyUomId, $contentUomId, $identityCheck['value']];
                     if ($useProfileKey && trim($profileKey) !== '') {
                         $sql .= ' AND profile_key <=> ?';
                         $params[] = $profileKey;
                     }
-                    $sql .= ' ORDER BY CASE WHEN stock_domain IS NULL THEN 0 WHEN stock_domain = ? THEN 1 ELSE 2 END, updated_at DESC, last_movement_at DESC LIMIT 1';
-                    $params[] = $stockDomain;
+                    $sql .= ' ORDER BY CASE WHEN stock_domain IS NULL THEN 0 WHEN stock_domain = "ITEM" THEN 1 ELSE 2 END, updated_at DESC, last_movement_at DESC LIMIT 1';
 
                     $row = $this->db->query($sql, $params)->row_array();
                     $available = round((float)($row['closing_qty_content'] ?? 0), 4);
@@ -3892,12 +3904,7 @@ class Procurement_model extends CI_Model
                     )', null, false)
                     ->where('s.buy_uom_id', $buyUomId)
                     ->where('s.content_uom_id', $contentUomId)
-                    ->group_start()
-                        ->where('s.stock_domain', $stockDomain)
-                        ->or_where('s.stock_domain IS NULL', null, false)
-                    ->group_end()
                     ->where('s.profile_key', trim($profileKey))
-                    ->order_by('CASE WHEN s.stock_domain IS NULL THEN 0 WHEN s.stock_domain = ' . $this->db->escape($stockDomain) . ' THEN 1 ELSE 2 END', '', false)
                     ->order_by('s.updated_at', 'DESC')
                     ->order_by('s.last_movement_at', 'DESC')
                     ->limit(1)

@@ -15,7 +15,7 @@ if ($tabScope === 'DIVISION') {
         ['key' => 'daily_matrix', 'label' => 'Daily Material Matrix', 'url' => site_url('inventory-material-daily')],
         ['key' => 'stock',        'label' => 'Stok Divisi',            'url' => site_url('inventory/stock/division')],
         ['key' => 'opening',      'label' => 'Opening',                'url' => site_url('inventory/stock/opening/division')],
-        ['key' => 'koreksi',      'label' => 'Koreksi',                'url' => site_url('inventory/stock/koreksi/division')],
+        ['key' => 'daily_recon',  'label' => 'Daily Recon',            'url' => site_url('inventory/stock/daily-recon/division')],
         ['key' => 'adjustment',   'label' => 'Adjustment',             'url' => site_url('inventory/stock/adjustment/division')],
         ['key' => 'movement',     'label' => 'Keluar Masuk',           'url' => site_url('inventory/stock/division/movement')],
         ['key' => 'daily',        'label' => 'Stok Bulanan / Daily',   'url' => site_url('inventory/stock/division/daily')],

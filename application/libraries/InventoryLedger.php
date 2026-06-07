@@ -110,8 +110,6 @@ class InventoryLedger
             $adjustmentReasonCode = 'other';
         }
 
-        $stockDomain = $this->resolveLegacyStockDomain($payload, $itemId, $materialId);
-
         $manageTransaction = array_key_exists('manage_transaction', $payload) ? (bool)$payload['manage_transaction'] : true;
         if ($manageTransaction) {
             $this->ci->db->trans_begin();
@@ -163,7 +161,10 @@ class InventoryLedger
             'created_by' => $this->nullableInt($payload['created_by'] ?? null),
         ];
         if ($this->ci->db->field_exists('stock_domain', 'inv_stock_movement_log')) {
-            $movementData['stock_domain'] = $this->legacyStockDomainForStorage('inv_stock_movement_log', $stockDomain, $itemId, $materialId);
+            $legacyStockDomain = $this->legacyStockDomainForStorage('inv_stock_movement_log');
+            if ($legacyStockDomain !== null) {
+                $movementData['stock_domain'] = $legacyStockDomain;
+            }
         }
         if ($this->ci->db->field_exists('profile_expired_date', 'inv_stock_movement_log')) {
             $movementData['profile_expired_date'] = $this->normalizeDate((string)($payload['profile_expired_date'] ?? ''));
@@ -320,7 +321,6 @@ class InventoryLedger
         $profileBuyUomCode = $this->nullableString($payload['profile_buy_uom_code'] ?? null);
         $profileContentUomCode = $this->nullableString($payload['profile_content_uom_code'] ?? null);
         $identityKey = $this->buildInventoryMonthlyIdentityKey([
-            'stock_domain' => $stockDomain,
             'item_id' => $itemId,
             'material_id' => $materialId,
             'buy_uom_id' => $buyUomId,
@@ -434,7 +434,10 @@ class InventoryLedger
             'notes' => $this->nullableString($payload['notes'] ?? ($existing['notes'] ?? null)),
         ];
         if ($this->ci->db->field_exists('stock_domain', $table)) {
-            $baseData['stock_domain'] = $this->legacyStockDomainForStorage($table, $stockDomain, $itemId, $materialId);
+            $legacyStockDomain = $this->legacyStockDomainForStorage($table);
+            if ($legacyStockDomain !== null) {
+                $baseData['stock_domain'] = $legacyStockDomain;
+            }
         }
 
         $numericFields = [
@@ -588,8 +591,6 @@ class InventoryLedger
             }
         }
 
-        $payload['stock_domain'] = 'ITEM';
-
         return $payload;
     }
 
@@ -680,21 +681,7 @@ class InventoryLedger
         return $materialId > 0 ? $materialId : null;
     }
 
-    private function resolveLegacyStockDomain(array $payload, ?int $itemId, ?int $materialId): ?string
-    {
-        $stockDomain = strtoupper(trim((string)($payload['stock_domain'] ?? '')));
-        if (in_array($stockDomain, ['ITEM', 'MATERIAL'], true)) {
-            return 'ITEM';
-        }
-
-        if ($itemId !== null || $materialId !== null) {
-            return 'ITEM';
-        }
-
-        return null;
-    }
-
-    private function legacyStockDomainForStorage(string $table, ?string $stockDomain, ?int $itemId, ?int $materialId): ?string
+    private function legacyStockDomainForStorage(string $table): ?string
     {
         if (!$this->ci->db->field_exists('stock_domain', $table)) {
             return null;
@@ -702,11 +689,6 @@ class InventoryLedger
 
         if ($this->columnAllowsNull($table, 'stock_domain')) {
             return null;
-        }
-
-        $resolved = strtoupper(trim((string)$stockDomain));
-        if (!in_array($resolved, ['ITEM', 'MATERIAL'], true)) {
-            $resolved = 'ITEM';
         }
 
         return 'ITEM';

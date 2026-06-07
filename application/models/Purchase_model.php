@@ -1522,9 +1522,9 @@ class Purchase_model extends CI_Model
             ->where('l.movement_date <=', $dateTo);
 
         if ($hasMovementStockDomain) {
-            $this->db->select('COALESCE(l.stock_domain, CASE WHEN l.item_id IS NOT NULL THEN "ITEM" WHEN COALESCE(l.material_id, i.material_id) IS NOT NULL THEN "MATERIAL" ELSE "ITEM" END) AS stock_domain', false);
+            $this->db->select('"ITEM" AS stock_domain', false);
         } else {
-            $this->db->select('CASE WHEN l.item_id IS NOT NULL THEN "ITEM" WHEN COALESCE(l.material_id, i.material_id) IS NOT NULL THEN "MATERIAL" ELSE "ITEM" END AS stock_domain', false);
+            $this->db->select('"ITEM" AS stock_domain', false);
         }
 
         if ($hasMovementAdjustmentCategory) {
@@ -1738,6 +1738,16 @@ class Purchase_model extends CI_Model
             unset($entry);
         }
 
+        $this->applyInventoryDailyMonthlyClosingGuard(
+            $stockScope,
+            $daily,
+            $dateFrom,
+            $dateTo,
+            $divisionId,
+            $destinationFilter,
+            $materialOnly
+        );
+
         $rows = [];
         foreach ($daily as $dayMap) {
             foreach ($dayMap as $day => $row) {
@@ -1797,6 +1807,160 @@ class Purchase_model extends CI_Model
         });
 
         return $rows;
+    }
+
+    private function applyInventoryDailyMonthlyClosingGuard(string $stockScope, array &$daily, string $dateFrom, string $dateTo, ?int $divisionId = null, ?string $destinationFilter = null, bool $materialOnly = false): void
+    {
+        if (empty($daily)) {
+            return;
+        }
+
+        $monthlyMap = $this->fetchInventoryDailyMonthlyClosingGuardMap(
+            $stockScope,
+            $dateFrom,
+            $dateTo,
+            $divisionId,
+            $destinationFilter,
+            $materialOnly
+        );
+        if (empty($monthlyMap)) {
+            return;
+        }
+
+        foreach ($daily as $identityKey => &$dayMap) {
+            if (empty($dayMap)) {
+                continue;
+            }
+
+            ksort($dayMap);
+            $days = array_keys($dayMap);
+            $latestDay = (string)end($days);
+            if ($latestDay === '') {
+                continue;
+            }
+
+            $latestRow = $dayMap[$latestDay];
+            $monthKey = date('Y-m-01', strtotime($latestDay));
+            $guardKey = $monthKey . '|' . $this->buildInventoryDailyMatrixIdentityKey($stockScope, $latestRow);
+            if (!isset($monthlyMap[$guardKey])) {
+                continue;
+            }
+
+            $guard = $monthlyMap[$guardKey];
+            $nextClosingBuy = round((float)($guard['closing_qty_buy'] ?? 0), 4);
+            $nextClosingContent = round((float)($guard['closing_qty_content'] ?? 0), 4);
+            $latestAvgCost = round((float)($guard['avg_cost_per_content'] ?? 0), 6);
+            $latestTotalValue = round((float)($guard['total_value'] ?? 0), 2);
+
+            for ($index = count($days) - 1; $index >= 0; $index--) {
+                $day = (string)$days[$index];
+                $row = $dayMap[$day];
+                $adjustmentContent = round($this->resolveDailyMatrixAdjustmentQtyContent($row), 4);
+                $adjustmentBuy = round($this->resolveDailyMatrixAdjustmentQtyBuy($row), 4);
+                $deltaContent = round(
+                    (float)($row['in_qty_content'] ?? 0)
+                    - (float)($row['out_qty_content'] ?? 0)
+                    + $adjustmentContent,
+                    4
+                );
+                $deltaBuy = round(
+                    (float)($row['in_qty_buy'] ?? 0)
+                    - (float)($row['out_qty_buy'] ?? 0)
+                    + $adjustmentBuy,
+                    4
+                );
+
+                $row['closing_qty_buy'] = $nextClosingBuy;
+                $row['closing_qty_content'] = $nextClosingContent;
+                $row['opening_qty_buy'] = round($nextClosingBuy - $deltaBuy, 4);
+                $row['opening_qty_content'] = round($nextClosingContent - $deltaContent, 4);
+
+                if ($index === count($days) - 1) {
+                    $row['avg_cost_per_content'] = $latestAvgCost;
+                    $row['total_value'] = $latestTotalValue;
+                } else {
+                    $currentAvg = round((float)($row['avg_cost_per_content'] ?? 0), 6);
+                    $row['total_value'] = round((float)$row['closing_qty_content'] * $currentAvg, 2);
+                }
+
+                $dayMap[$day] = $row;
+                $nextClosingBuy = round((float)$row['opening_qty_buy'], 4);
+                $nextClosingContent = round((float)$row['opening_qty_content'], 4);
+            }
+        }
+        unset($dayMap);
+    }
+
+    private function fetchInventoryDailyMonthlyClosingGuardMap(string $stockScope, string $dateFrom, string $dateTo, ?int $divisionId = null, ?string $destinationFilter = null, bool $materialOnly = false): array
+    {
+        $monthFrom = date('Y-m-01', strtotime($dateFrom));
+        $monthTo = date('Y-m-01', strtotime($dateTo));
+        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+        $rows = [];
+
+        if ($stockScope === 'DIVISION' && $this->db->table_exists('inv_division_monthly_stock')) {
+            $query = $this->db
+                ->select('month_key, division_id, destination_type, item_id, material_id, buy_uom_id, content_uom_id')
+                ->select('profile_key, profile_name, profile_brand, profile_description, profile_expired_date, profile_content_per_buy')
+                ->select('closing_qty_buy, closing_qty_content, avg_cost_per_content, total_value')
+                ->from('inv_division_monthly_stock')
+                ->where('month_key >=', $monthFrom)
+                ->where('month_key <=', $monthTo);
+
+            if ($divisionId !== null && $divisionId > 0) {
+                $query->where('division_id', $divisionId);
+            }
+            if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
+                if ($destinationFilter === 'REGULER') {
+                    $query->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                } elseif ($destinationFilter === 'EVENT') {
+                    $query->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                } else {
+                    $query->where('destination_type', $destinationFilter);
+                }
+            }
+            if ($materialOnly) {
+                $query->where('material_id IS NOT NULL', null, false);
+            }
+
+            $rows = $query->get()->result_array();
+        } elseif ($stockScope === 'WAREHOUSE' && $this->db->table_exists('inv_warehouse_monthly_stock')) {
+            $query = $this->db
+                ->select('month_key, NULL AS division_id, NULL AS destination_type, item_id, material_id, buy_uom_id, content_uom_id', false)
+                ->select('profile_key, profile_name, profile_brand, profile_description, profile_expired_date, profile_content_per_buy')
+                ->select('closing_qty_buy, closing_qty_content, avg_cost_per_content, total_value')
+                ->from('inv_warehouse_monthly_stock')
+                ->where('month_key >=', $monthFrom)
+                ->where('month_key <=', $monthTo);
+
+            if ($materialOnly) {
+                $query->where('material_id IS NOT NULL', null, false);
+            }
+
+            $rows = $query->get()->result_array();
+        }
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        $rows = $stockScope === 'DIVISION' ? $this->normalizeDivisionProfileKeyRows($rows) : $rows;
+        $map = [];
+        foreach ($rows as $row) {
+            $monthKey = (string)($row['month_key'] ?? '');
+            if ($monthKey === '') {
+                continue;
+            }
+            $identityKey = $this->buildInventoryDailyMatrixIdentityKey($stockScope, $row);
+            $map[$monthKey . '|' . $identityKey] = [
+                'closing_qty_buy' => round((float)($row['closing_qty_buy'] ?? 0), 4),
+                'closing_qty_content' => round((float)($row['closing_qty_content'] ?? 0), 4),
+                'avg_cost_per_content' => round((float)($row['avg_cost_per_content'] ?? 0), 6),
+                'total_value' => round((float)($row['total_value'] ?? 0), 2),
+            ];
+        }
+
+        return $map;
     }
 
     private function buildInventoryDailyMatrixIdentityKey(string $stockScope, array $row): string
@@ -2730,7 +2894,7 @@ class Purchase_model extends CI_Model
             $identity = [
                 'division_id' => !empty($row['division_id']) ? (int)$row['division_id'] : null,
                 'destination_type' => !empty($row['destination_type']) ? strtoupper((string)$row['destination_type']) : null,
-                'stock_domain' => (int)($row['item_id'] ?? 0) > 0 ? 'ITEM' : (!empty($row['material_id']) ? 'MATERIAL' : 'ITEM'),
+                'stock_domain' => 'ITEM',
                 'item_id' => (int)($row['item_id'] ?? 0),
                 'material_id' => !empty($row['material_id']) ? (int)$row['material_id'] : null,
                 'buy_uom_id' => (int)($row['buy_uom_id'] ?? 0),
@@ -3291,34 +3455,20 @@ class Purchase_model extends CI_Model
             }
         }
 
-        if ($stockDomain === 'MATERIAL') {
-            if ($itemId > 0 && $materialId > 0) {
-                $this->db->group_start()
-                    ->where('l.item_id', $itemId)
-                    ->or_group_start()
-                        ->where('l.material_id', $materialId)
-                        ->where('l.item_id IS NULL', null, false)
-                    ->group_end()
-                    ->group_end();
-            } else {
-                if ($materialId > 0) {
-                    $this->db->where('l.material_id', $materialId);
-                }
-                if ($itemId > 0) {
-                    $this->db->where('l.item_id', $itemId);
-                }
-            }
-        } elseif ($stockDomain === 'ITEM') {
-            if ($itemId > 0) {
-                $this->db->where('l.item_id', $itemId);
-            }
+        if ($itemId > 0 && $materialId > 0) {
+            $this->db->group_start()
+                ->where('l.item_id', $itemId)
+                ->or_group_start()
+                    ->where('l.material_id', $materialId)
+                    ->where('l.item_id IS NULL', null, false)
+                ->group_end()
+                ->group_end();
+        } elseif ($itemId > 0) {
+            $this->db->where('l.item_id', $itemId);
             if ($materialId > 0) {
                 $this->db->where('l.material_id', $materialId);
             }
         } else {
-            if ($itemId > 0) {
-                $this->db->where('l.item_id', $itemId);
-            }
             if ($materialId > 0) {
                 $this->db->where('l.material_id', $materialId);
             }
@@ -5082,7 +5232,7 @@ class Purchase_model extends CI_Model
             }
 
             $this->registerVoidRollbackRebuildTarget($rebuildTargets, $scope, $adjustmentDate, [
-                'stock_domain' => strtoupper(trim((string)($line['stock_domain'] ?? (!empty($line['item_id']) ? 'ITEM' : 'MATERIAL')))),
+                'stock_domain' => 'ITEM',
                 'division_id' => $scope === 'DIVISION' ? $divisionId : null,
                 'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
                 'item_id' => $this->nullableInt($line['item_id'] ?? null),
@@ -5287,7 +5437,6 @@ class Purchase_model extends CI_Model
             'profile_description' => $this->nullableString($line['profile_description'] ?? null),
             'profile_expired_date' => $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
             'profile_content_per_buy' => $contentPerBuy,
-            'stock_domain' => $line['stock_domain'] ?? null,
         ]);
 
         $basePayload = [
@@ -5312,15 +5461,12 @@ class Purchase_model extends CI_Model
             'ref_id' => (int)($header['id'] ?? 0),
             'created_by' => $userId > 0 ? $userId : null,
         ];
-        $basePayload['stock_domain'] = $this->resolveLegacyIdentityStockDomain(
-            $basePayload['item_id'],
-            $basePayload['material_id'],
-            $currentBalance['stock_domain'] ?? ($line['stock_domain'] ?? null)
-        );
-
         $lineUpdates = [];
-        if (isset($line['stock_domain']) && strtoupper(trim((string)$line['stock_domain'])) !== $basePayload['stock_domain']) {
-            $lineUpdates['stock_domain'] = $basePayload['stock_domain'];
+        if ($this->db->field_exists('stock_domain', 'inv_stock_adjustment_line')
+            && array_key_exists('stock_domain', $line)
+            && $line['stock_domain'] !== null
+        ) {
+            $lineUpdates['stock_domain'] = null;
         }
         $negativeMoves = [
             'qty_waste_content' => ['movement_type' => 'WASTE_OUT', 'category' => 'WASTE', 'issue_field' => 'waste_issue_id', 'reason_field' => 'waste_reason_code'],
@@ -5379,14 +5525,10 @@ class Purchase_model extends CI_Model
                 'profile_description' => $basePayload['profile_description'],
                 'profile_expired_date' => $basePayload['profile_expired_date'],
                 'profile_content_per_buy' => $contentPerBuy,
-                'stock_domain' => $basePayload['stock_domain'],
             ]);
-            $basePayload['stock_domain'] = $this->resolveLegacyIdentityStockDomain(
-                $basePayload['item_id'],
-                $basePayload['material_id'],
-                $currentBalance['stock_domain'] ?? $basePayload['stock_domain']
-            );
-            $lineUpdates['stock_domain'] = $basePayload['stock_domain'];
+            if ($this->db->field_exists('stock_domain', 'inv_stock_adjustment_line')) {
+                $lineUpdates['stock_domain'] = null;
+            }
         }
 
         foreach ($negativeMoves as $column => $meta) {
@@ -5570,7 +5712,6 @@ class Purchase_model extends CI_Model
         $buyUomId = !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null;
         $contentUomId = !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null;
         $profileKey = $this->nullableString($line['profile_key'] ?? null);
-        $stockDomain = $this->resolveLegacyIdentityStockDomain($itemId, $materialId, $line['stock_domain'] ?? null);
         if ($itemId === null && $materialId === null) {
             return null;
         }
@@ -5602,7 +5743,7 @@ class Purchase_model extends CI_Model
         ]);
 
         return [
-            'stock_domain' => (string)($balance['stock_domain'] ?? $stockDomain),
+            'stock_domain' => null,
             'item_id' => $itemId,
             'material_id' => $materialId,
             'buy_uom_id' => $buyUomId,
@@ -5662,14 +5803,7 @@ class Purchase_model extends CI_Model
         $scope = strtoupper(trim((string)($identity['stock_scope'] ?? 'WAREHOUSE')));
         $itemId = $this->nullableInt($identity['item_id'] ?? null);
         $materialId = $this->nullableInt($identity['material_id'] ?? null);
-        $legacyStockDomain = $this->resolveLegacyIdentityStockDomain($itemId, $materialId, $identity['stock_domain'] ?? null);
-        $candidateDomains = [$legacyStockDomain];
-        if ($itemId !== null && $materialId !== null) {
-            $candidateDomains[] = $legacyStockDomain === 'ITEM' ? 'MATERIAL' : 'ITEM';
-        }
-        $candidateDomains = array_values(array_unique(array_filter($candidateDomains, static function ($value): bool {
-            return in_array($value, ['ITEM', 'MATERIAL'], true);
-        })));
+        $legacyStockDomain = 'ITEM';
 
         if ($scope === 'DIVISION') {
             if ($this->db->table_exists('inv_division_monthly_stock')) {
@@ -5680,40 +5814,38 @@ class Purchase_model extends CI_Model
                     ->where('month_key <=', $targetMonth)
                     ->group_by(['division_id', 'destination_type', 'identity_key'])
                     ->get_compiled_select();
-                foreach ($candidateDomains as $domain) {
-                    $identityKey = $this->buildInventoryMonthlyIdentityKey([
-                        'stock_domain' => $domain,
-                        'item_id' => $itemId,
-                        'material_id' => $materialId,
-                        'buy_uom_id' => $identity['buy_uom_id'] ?? null,
-                        'content_uom_id' => $identity['content_uom_id'] ?? null,
-                        'profile_key' => $identity['profile_key'] ?? null,
-                        'profile_name' => $identity['profile_name'] ?? null,
-                        'profile_brand' => $identity['profile_brand'] ?? null,
-                        'profile_description' => $identity['profile_description'] ?? null,
-                        'profile_content_per_buy' => $identity['profile_content_per_buy'] ?? 1,
-                        'profile_expired_date' => $identity['profile_expired_date'] ?? null,
-                    ]);
-                    $row = $this->db
-                        ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content', false)
-                        ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
-                        ->from('inv_division_monthly_stock s')
-                        ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
-                        ->where('s.division_id', $identity['division_id'] ?? null)
-                        ->where('s.destination_type', strtoupper((string)($identity['destination_type'] ?? 'OTHER')))
-                        ->where('s.identity_key', $identityKey)
-                        ->limit(1)
-                        ->get()
-                        ->row_array();
-                    if (!empty($row)) {
-                        return [
-                            'qty_buy_balance' => (float)($row['qty_buy_balance'] ?? 0),
-                            'qty_content_balance' => (float)($row['qty_content_balance'] ?? 0),
-                            'avg_cost_per_content' => (float)($row['avg_cost_per_content'] ?? 0),
-                            'updated_at' => $row['updated_at'] ?? null,
-                            'stock_domain' => $domain,
-                        ];
-                    }
+                $identityKey = $this->buildInventoryMonthlyIdentityKey([
+                    'stock_domain' => 'ITEM',
+                    'item_id' => $itemId,
+                    'material_id' => $materialId,
+                    'buy_uom_id' => $identity['buy_uom_id'] ?? null,
+                    'content_uom_id' => $identity['content_uom_id'] ?? null,
+                    'profile_key' => $identity['profile_key'] ?? null,
+                    'profile_name' => $identity['profile_name'] ?? null,
+                    'profile_brand' => $identity['profile_brand'] ?? null,
+                    'profile_description' => $identity['profile_description'] ?? null,
+                    'profile_content_per_buy' => $identity['profile_content_per_buy'] ?? 1,
+                    'profile_expired_date' => $identity['profile_expired_date'] ?? null,
+                ]);
+                $row = $this->db
+                    ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content', false)
+                    ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
+                    ->from('inv_division_monthly_stock s')
+                    ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                    ->where('s.division_id', $identity['division_id'] ?? null)
+                    ->where('s.destination_type', strtoupper((string)($identity['destination_type'] ?? 'OTHER')))
+                    ->where('s.identity_key', $identityKey)
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                if (!empty($row)) {
+                    return [
+                        'qty_buy_balance' => (float)($row['qty_buy_balance'] ?? 0),
+                        'qty_content_balance' => (float)($row['qty_content_balance'] ?? 0),
+                        'avg_cost_per_content' => (float)($row['avg_cost_per_content'] ?? 0),
+                        'updated_at' => $row['updated_at'] ?? null,
+                        'stock_domain' => 'ITEM',
+                    ];
                 }
             }
 
@@ -5727,38 +5859,36 @@ class Purchase_model extends CI_Model
                     ->where('month_key <=', $targetMonth)
                     ->group_by('identity_key')
                     ->get_compiled_select();
-                foreach ($candidateDomains as $domain) {
-                    $identityKey = $this->buildInventoryMonthlyIdentityKey([
-                        'stock_domain' => $domain,
-                        'item_id' => $itemId,
-                        'material_id' => $materialId,
-                        'buy_uom_id' => $identity['buy_uom_id'] ?? null,
-                        'content_uom_id' => $identity['content_uom_id'] ?? null,
-                        'profile_key' => $identity['profile_key'] ?? null,
-                        'profile_name' => $identity['profile_name'] ?? null,
-                        'profile_brand' => $identity['profile_brand'] ?? null,
-                        'profile_description' => $identity['profile_description'] ?? null,
-                        'profile_content_per_buy' => $identity['profile_content_per_buy'] ?? 1,
-                        'profile_expired_date' => $identity['profile_expired_date'] ?? null,
-                    ]);
-                    $row = $this->db
-                        ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content', false)
-                        ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
-                        ->from('inv_warehouse_monthly_stock s')
-                        ->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
-                        ->where('s.identity_key', $identityKey)
-                        ->limit(1)
-                        ->get()
-                        ->row_array();
-                    if (!empty($row)) {
-                        return [
-                            'qty_buy_balance' => (float)($row['qty_buy_balance'] ?? 0),
-                            'qty_content_balance' => (float)($row['qty_content_balance'] ?? 0),
-                            'avg_cost_per_content' => (float)($row['avg_cost_per_content'] ?? 0),
-                            'updated_at' => $row['updated_at'] ?? null,
-                            'stock_domain' => $domain,
-                        ];
-                    }
+                $identityKey = $this->buildInventoryMonthlyIdentityKey([
+                    'stock_domain' => 'ITEM',
+                    'item_id' => $itemId,
+                    'material_id' => $materialId,
+                    'buy_uom_id' => $identity['buy_uom_id'] ?? null,
+                    'content_uom_id' => $identity['content_uom_id'] ?? null,
+                    'profile_key' => $identity['profile_key'] ?? null,
+                    'profile_name' => $identity['profile_name'] ?? null,
+                    'profile_brand' => $identity['profile_brand'] ?? null,
+                    'profile_description' => $identity['profile_description'] ?? null,
+                    'profile_content_per_buy' => $identity['profile_content_per_buy'] ?? 1,
+                    'profile_expired_date' => $identity['profile_expired_date'] ?? null,
+                ]);
+                $row = $this->db
+                    ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content', false)
+                    ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
+                    ->from('inv_warehouse_monthly_stock s')
+                    ->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                    ->where('s.identity_key', $identityKey)
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                if (!empty($row)) {
+                    return [
+                        'qty_buy_balance' => (float)($row['qty_buy_balance'] ?? 0),
+                        'qty_content_balance' => (float)($row['qty_content_balance'] ?? 0),
+                        'avg_cost_per_content' => (float)($row['avg_cost_per_content'] ?? 0),
+                        'updated_at' => $row['updated_at'] ?? null,
+                        'stock_domain' => 'ITEM',
+                    ];
                 }
             }
 
@@ -5831,16 +5961,16 @@ class Purchase_model extends CI_Model
     private function findOpeningSnapshotRowForUpdate(string $table, array $criteria): ?array
     {
         $hasDestinationType = $this->db->field_exists('destination_type', $table);
-        $sql = 'SELECT * FROM ' . $table . ' WHERE snapshot_month = ? AND (stock_domain <=> ? OR stock_domain IS NULL) AND item_id = ? AND material_id <=> ? AND buy_uom_id = ? AND content_uom_id = ? AND profile_key <=> ?';
+        $sql = 'SELECT * FROM ' . $table . ' WHERE snapshot_month = ?';
+        $sql .= ' AND item_id = ? AND material_id <=> ? AND buy_uom_id = ? AND content_uom_id = ? AND profile_key <=> ?';
         $params = [
             $criteria['snapshot_month'] ?? null,
-            $criteria['stock_domain'] ?? null,
-            $criteria['item_id'] ?? null,
-            $criteria['material_id'] ?? null,
-            $criteria['buy_uom_id'] ?? null,
-            $criteria['content_uom_id'] ?? null,
-            $criteria['profile_key'] ?? null,
         ];
+        $params[] = $criteria['item_id'] ?? null;
+        $params[] = $criteria['material_id'] ?? null;
+        $params[] = $criteria['buy_uom_id'] ?? null;
+        $params[] = $criteria['content_uom_id'] ?? null;
+        $params[] = $criteria['profile_key'] ?? null;
 
         if ($table === 'inv_division_stock_opening_snapshot') {
             $sql .= ' AND division_id = ?';
@@ -5851,8 +5981,8 @@ class Purchase_model extends CI_Model
             }
         }
 
-        $sql .= ' ORDER BY CASE WHEN stock_domain IS NULL THEN 0 WHEN stock_domain <=> ? THEN 1 ELSE 2 END LIMIT 1 FOR UPDATE';
-        $params[] = $criteria['stock_domain'] ?? null;
+        $sql .= ' ORDER BY id DESC';
+        $sql .= ' LIMIT 1 FOR UPDATE';
 
         $row = $this->db->query($sql, $params)->row_array();
 
@@ -5863,15 +5993,15 @@ class Purchase_model extends CI_Model
     {
         $hasDestinationType = $this->db->field_exists('destination_type', $table);
         $hasProfileExpiredDate = $this->db->field_exists('profile_expired_date', $table);
-        $sql = 'SELECT * FROM ' . $table . ' WHERE snapshot_month = ? AND (stock_domain <=> ? OR stock_domain IS NULL) AND item_id = ? AND material_id <=> ? AND buy_uom_id = ? AND content_uom_id = ?';
+        $sql = 'SELECT * FROM ' . $table . ' WHERE snapshot_month = ?';
+        $sql .= ' AND item_id = ? AND material_id <=> ? AND buy_uom_id = ? AND content_uom_id = ?';
         $params = [
             $criteria['snapshot_month'] ?? null,
-            $criteria['stock_domain'] ?? null,
-            $criteria['item_id'] ?? null,
-            $criteria['material_id'] ?? null,
-            $criteria['buy_uom_id'] ?? null,
-            $criteria['content_uom_id'] ?? null,
         ];
+        $params[] = $criteria['item_id'] ?? null;
+        $params[] = $criteria['material_id'] ?? null;
+        $params[] = $criteria['buy_uom_id'] ?? null;
+        $params[] = $criteria['content_uom_id'] ?? null;
 
         $sql .= ' AND UPPER(TRIM(COALESCE(profile_name, \'\'))) = ?';
         $params[] = strtoupper(trim((string)($criteria['profile_name'] ?? '')));
@@ -5902,8 +6032,8 @@ class Purchase_model extends CI_Model
             }
         }
 
-        $sql .= ' ORDER BY CASE WHEN stock_domain IS NULL THEN 0 WHEN stock_domain <=> ? THEN 1 ELSE 2 END, id ASC LIMIT 2 FOR UPDATE';
-        $params[] = $criteria['stock_domain'] ?? null;
+        $sql .= ' ORDER BY id ASC';
+        $sql .= ' LIMIT 2 FOR UPDATE';
         $rows = $this->db->query($sql, $params)->result_array();
         if (count($rows) !== 1) {
             return null;
@@ -5917,7 +6047,7 @@ class Purchase_model extends CI_Model
         return [
             'division_id' => $stockScope === 'DIVISION' && !empty($snapshot['division_id']) ? (int)$snapshot['division_id'] : null,
             'destination_type' => $stockScope === 'DIVISION' ? strtoupper(trim((string)($snapshot['destination_type'] ?? 'OTHER'))) : null,
-            'stock_domain' => strtoupper(trim((string)($snapshot['stock_domain'] ?? 'ITEM'))),
+            'stock_domain' => 'ITEM',
             'item_id' => !empty($snapshot['item_id']) ? (int)$snapshot['item_id'] : null,
             'material_id' => !empty($snapshot['material_id']) ? (int)$snapshot['material_id'] : null,
             'buy_uom_id' => !empty($snapshot['buy_uom_id']) ? (int)$snapshot['buy_uom_id'] : null,
@@ -6385,15 +6515,6 @@ class Purchase_model extends CI_Model
 
     private function applyOpeningHistoryIdentityFilter(string $alias, string $stockScope, array $identity): void
     {
-        if (isset($this->listTableFields($this->openingSnapshotTableForScope($stockScope))['stock_domain'])) {
-            $legacyStockDomain = strtoupper(trim((string)($identity['stock_domain'] ?? '')));
-            $this->db->group_start();
-            $this->db->where($alias . '.stock_domain IS NULL', null, false);
-            if (in_array($legacyStockDomain, ['ITEM', 'MATERIAL'], true)) {
-                $this->db->or_where($alias . '.stock_domain', $legacyStockDomain);
-            }
-            $this->db->group_end();
-        }
         $this->db->where($alias . '.item_id', $identity['item_id'] ?? 0);
         $materialId = $identity['material_id'] ?? null;
         if ($materialId !== null) {
@@ -6419,15 +6540,6 @@ class Purchase_model extends CI_Model
 
     private function applyDailyRollupIdentityFilter(string $table, string $stockScope, array $identity): void
     {
-        if (isset($this->listTableFields($table)['stock_domain'])) {
-            $legacyStockDomain = strtoupper(trim((string)($identity['stock_domain'] ?? '')));
-            $this->db->group_start();
-            $this->db->where('stock_domain IS NULL', null, false);
-            if (in_array($legacyStockDomain, ['ITEM', 'MATERIAL'], true)) {
-                $this->db->or_where('stock_domain', $legacyStockDomain);
-            }
-            $this->db->group_end();
-        }
         $this->db->where('item_id', $identity['item_id'] ?? 0);
         $materialId = $identity['material_id'] ?? null;
         if ($materialId !== null) {
@@ -7658,7 +7770,7 @@ class Purchase_model extends CI_Model
         $activityDateExpr = 'COALESCE(s.last_movement_date, DATE(s.updated_at), s.month_key)';
 
         $this->db
-            ->select('s.id, COALESCE(s.stock_domain, "ITEM") AS stock_domain, s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id, i.item_code, i.item_name, s.profile_key, s.profile_name, s.profile_brand, s.profile_description', false)
+            ->select('s.id, "ITEM" AS stock_domain, s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id, i.item_code, i.item_name, s.profile_key, s.profile_name, s.profile_brand, s.profile_description', false)
             ->select('s.profile_content_per_buy, s.profile_buy_uom_code, s.profile_content_uom_code')
             ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content')
             ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
@@ -7666,21 +7778,6 @@ class Purchase_model extends CI_Model
             ->from('inv_warehouse_monthly_stock s')
             ->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
             ->join('mst_item i', 'i.id = s.item_id', 'left');
-
-        if ($this->db->field_exists('stock_domain', 'inv_warehouse_monthly_stock')) {
-            $this->db->where(
-                '(COALESCE(s.item_id, 0) = 0 OR COALESCE(s.stock_domain, "ITEM") <> "MATERIAL" OR NOT EXISTS (
-                    SELECT 1
-                    FROM inv_warehouse_monthly_stock sx
-                    WHERE sx.identity_key = s.identity_key
-                      AND sx.month_key = s.month_key
-                      AND COALESCE(sx.item_id, 0) > 0
-                      AND COALESCE(sx.stock_domain, "ITEM") <> "MATERIAL"
-                ))',
-                null,
-                false
-            );
-        }
 
         if ($from !== null) {
             $this->db->where($activityDateExpr . ' >= ' . $this->db->escape($from), null, false);
@@ -7725,15 +7822,6 @@ class Purchase_model extends CI_Model
                 continue;
             }
             $current = $best[$identityKey];
-            $currentDomain = strtoupper(trim((string)($current['stock_domain'] ?? 'ITEM')));
-            $nextDomain = strtoupper(trim((string)($row['stock_domain'] ?? 'ITEM')));
-            if ($currentDomain === 'MATERIAL' && $nextDomain !== 'MATERIAL') {
-                $best[$identityKey] = $row;
-                continue;
-            }
-            if ($currentDomain !== 'MATERIAL' && $nextDomain === 'MATERIAL') {
-                continue;
-            }
             $currentUpdated = (string)($current['updated_at'] ?? '');
             $nextUpdated = (string)($row['updated_at'] ?? '');
             if ($nextUpdated > $currentUpdated || ($nextUpdated === $currentUpdated && (int)($row['id'] ?? 0) > (int)($current['id'] ?? 0))) {
@@ -7785,7 +7873,7 @@ class Purchase_model extends CI_Model
         $activityDateExpr = 'COALESCE(s.last_movement_date, DATE(s.updated_at), s.month_key)';
 
         $this->db
-            ->select('s.id, COALESCE(s.stock_domain, "ITEM") AS stock_domain, s.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect . ', s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id', false)
+            ->select('s.id, "ITEM" AS stock_domain, s.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect . ', s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id', false)
             ->select('s.destination_type AS destination_type', false)
             ->select($destinationGroupExpr . ' AS destination_group', false)
             ->select($destinationNameExpr . ' AS destination_name', false)
@@ -7800,23 +7888,6 @@ class Purchase_model extends CI_Model
             ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
             ->join('mst_item i', 'i.id = s.item_id', 'left')
             ->join('mst_material m', 'm.id = s.material_id', 'left');
-
-        if ($this->db->field_exists('stock_domain', 'inv_division_monthly_stock')) {
-            $this->db->where(
-                '(COALESCE(s.item_id, 0) = 0 OR COALESCE(s.stock_domain, "ITEM") <> "MATERIAL" OR NOT EXISTS (
-                    SELECT 1
-                    FROM inv_division_monthly_stock sx
-                    WHERE sx.division_id = s.division_id
-                      AND COALESCE(sx.destination_type, "OTHER") = COALESCE(s.destination_type, "OTHER")
-                      AND sx.identity_key = s.identity_key
-                      AND sx.month_key = s.month_key
-                      AND COALESCE(sx.item_id, 0) > 0
-                      AND COALESCE(sx.stock_domain, "ITEM") <> "MATERIAL"
-                ))',
-                null,
-                false
-            );
-        }
 
         if ($from !== null) {
             $this->db->where($activityDateExpr . ' >= ' . $this->db->escape($from), null, false);
@@ -7899,15 +7970,6 @@ class Purchase_model extends CI_Model
                 continue;
             }
             $current = $best[$identityKey];
-            $currentDomain = strtoupper(trim((string)($current['stock_domain'] ?? 'ITEM')));
-            $nextDomain = strtoupper(trim((string)($row['stock_domain'] ?? 'ITEM')));
-            if ($currentDomain === 'MATERIAL' && $nextDomain !== 'MATERIAL') {
-                $best[$identityKey] = $row;
-                continue;
-            }
-            if ($currentDomain !== 'MATERIAL' && $nextDomain === 'MATERIAL') {
-                continue;
-            }
             $currentUpdated = (string)($current['updated_at'] ?? '');
             $nextUpdated = (string)($row['updated_at'] ?? '');
             if ($nextUpdated > $currentUpdated || ($nextUpdated === $currentUpdated && (int)($row['id'] ?? 0) > (int)($current['id'] ?? 0))) {
@@ -8905,11 +8967,10 @@ class Purchase_model extends CI_Model
             }
 
             $this->db
-                ->select('profile_key, stock_domain, item_id, material_id, profile_name, profile_brand')
+                ->select('profile_key, "ITEM" AS stock_domain, item_id, material_id, profile_name, profile_brand', false)
                 ->from($table)
                 ->where('profile_key IS NOT NULL', null, false)
-                ->where("TRIM(profile_key) <> ''", null, false)
-                ->where_in('stock_domain', ['ITEM', 'MATERIAL']);
+                ->where("TRIM(profile_key) <> ''", null, false);
 
             if ($profileKeyFilter !== '') {
                 $this->db->where('profile_key', $profileKeyFilter);
@@ -9021,15 +9082,7 @@ class Purchase_model extends CI_Model
             if ($itemIdResolved > 0) {
                 $lineKindResolved = 'ITEM';
             } elseif ($lineKindResolved === '') {
-                $hasMaterialDomain = false;
-                foreach ($rows as $rr) {
-                    $dom = strtoupper(trim((string)($rr['stock_domain'] ?? '')));
-                    if ($dom === 'MATERIAL') {
-                        $hasMaterialDomain = true;
-                        break;
-                    }
-                }
-                $lineKindResolved = ($materialIdResolved > 0 || $hasMaterialDomain) ? 'MATERIAL' : 'ITEM';
+                $lineKindResolved = $materialIdResolved > 0 ? 'MATERIAL' : 'ITEM';
             }
             if (!in_array($lineKindResolved, ['ITEM', 'MATERIAL'], true)) {
                 $lineKindResolved = $itemIdResolved > 0 ? 'ITEM' : ($materialIdResolved > 0 ? 'MATERIAL' : 'ITEM');
@@ -9124,7 +9177,6 @@ class Purchase_model extends CI_Model
                 $rows = $this->db
                     ->from($table)
                     ->where('profile_key', $profileKey)
-                    ->where_in('stock_domain', ['ITEM', 'MATERIAL'])
                     ->order_by('id', 'DESC')
                     ->get()
                     ->result_array();
@@ -15087,7 +15139,7 @@ class Purchase_model extends CI_Model
             ], $usagePurpose);
             $itemId = $canonicalIdentity['item_id'] ?? $itemId;
             $materialId = $canonicalIdentity['material_id'] ?? $materialId;
-            $lineKind = (string)($canonicalIdentity['line_kind'] ?? $lineKind);
+            $lineKind = $itemId !== null ? 'ITEM' : (string)($canonicalIdentity['line_kind'] ?? $lineKind);
         }
 
         if ($lineKind === 'MATERIAL' && $itemId !== null) {
@@ -15861,6 +15913,24 @@ class Purchase_model extends CI_Model
         return $adjustmentPlusQty - $negativeWasteQty - $spoilQty - $processLossQty - $varianceQty;
     }
 
+    private function resolveDailyMatrixAdjustmentQtyBuy(array $row): float
+    {
+        $adjustmentQty = round((float)($row['adjustment_qty_buy'] ?? 0), 4);
+        if (abs($adjustmentQty) > 0.0001) {
+            return $adjustmentQty;
+        }
+
+        $discardQty = round((float)($row['discarded_qty_buy'] ?? 0), 4);
+        $wasteQty = round((float)($row['waste_qty_buy'] ?? 0), 4);
+        $spoilQty = round((float)($row['spoil_qty_buy'] ?? 0), 4);
+        $processLossQty = round((float)($row['process_loss_qty_buy'] ?? 0), 4);
+        $varianceQty = round((float)($row['variance_qty_buy'] ?? 0), 4);
+        $adjustmentPlusQty = round((float)($row['adjustment_plus_qty_buy'] ?? 0), 4);
+
+        $negativeWasteQty = $discardQty > 0 ? $discardQty : $wasteQty;
+        return $adjustmentPlusQty - $negativeWasteQty - $spoilQty - $processLossQty - $varianceQty;
+    }
+
     private function filterZeroOpeningClosingDailyRows(array $rows): array
     {
         return array_values(array_filter($rows, static function (array $row): bool {
@@ -16089,7 +16159,7 @@ class Purchase_model extends CI_Model
         }
 
         $contentPerBuy = max(0.000001, (float)$profileContentPerBuy);
-        $lineKind = ($materialId !== null && $materialId > 0) ? 'MATERIAL' : 'ITEM';
+        $lineKind = ($itemId !== null && $itemId > 0) ? 'ITEM' : (($materialId !== null && $materialId > 0) ? 'MATERIAL' : 'ITEM');
         $profileKey = hash('sha256', implode('|', [
             strtoupper(trim($stockDomain)),
             (string)$itemId,

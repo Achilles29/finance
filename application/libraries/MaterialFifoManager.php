@@ -844,9 +844,6 @@ class MaterialFifoManager
                 'last_movement_at' => date('Y-m-d H:i:s'),
                 'notes' => $syncNote,
             ];
-            if ($this->ci->db->field_exists('stock_domain', 'inv_division_monthly_stock') && array_key_exists('stock_domain', $existing)) {
-                $update['stock_domain'] = $existing['stock_domain'];
-            }
             $this->ci->db->where('id', (int)$existing['id'])->update('inv_division_monthly_stock', $update);
         } else {
             $insert = [
@@ -874,9 +871,6 @@ class MaterialFifoManager
                 'source_mode' => 'LIVE',
                 'notes' => $syncNote,
             ];
-            if ($this->ci->db->field_exists('stock_domain', 'inv_division_monthly_stock')) {
-                $insert['stock_domain'] = null;
-            }
             $this->ci->db->insert('inv_division_monthly_stock', $insert);
         }
 
@@ -981,9 +975,6 @@ class MaterialFifoManager
                 'last_movement_at' => date('Y-m-d H:i:s'),
                 'notes' => $syncNote,
             ];
-            if ($this->ci->db->field_exists('stock_domain', 'inv_warehouse_monthly_stock') && array_key_exists('stock_domain', $existing)) {
-                $update['stock_domain'] = $existing['stock_domain'];
-            }
             $this->ci->db->where('id', (int)$existing['id'])->update('inv_warehouse_monthly_stock', $update);
         } else {
             $insert = [
@@ -1009,9 +1000,6 @@ class MaterialFifoManager
                 'source_mode' => 'LIVE',
                 'notes' => $syncNote,
             ];
-            if ($this->ci->db->field_exists('stock_domain', 'inv_warehouse_monthly_stock')) {
-                $insert['stock_domain'] = null;
-            }
             $this->ci->db->insert('inv_warehouse_monthly_stock', $insert);
         }
 

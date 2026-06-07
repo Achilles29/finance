@@ -112,3 +112,10 @@ kayaknya ini harusnya bukan opname deh.. opname itu nanti untuk opname bulanan y
 - kenapa ada data yang ada stok fisiknya? dan baris lainnya tidak muncul jenis dan alasannya
 - data profile tampilkan jumlah Pack dan Jumlah Isisinya, jadi di UOM atas isi , bawah pack (oum beli), misal Air mineral galon  atas ml bawah galon. bukan hanya isinya, paham maksudku kan?
 
+
+
+jangan "koreksi" donk, yang lain kan pakai bahasa inggris. jadi tujuan halaman ini adalah untuk rekon data harian. cari nama yang sesuai dan langsung ganti sidebarnya pakai nama dan link baru. ganti juga icon di sidebar (tidak muncul gambarnya hanya kotak putih)
+
+kamu bilang Soal "kenapa ada data stok fisiknya?" — Itu data yang sebelumnya sudah diisi untuk tanggal itu. maksudnya diisi dimana?? memang kamu ambil dari tabel mana??? data ini diambil dari monthly stock closingnya ya. dan yang kita input itu nanti masuk adjusment, paham maksudku kan??
+
+rapikan dan percantik lagi tampilan khususnya data tabel nya. jenis dan alasan kok tidka muncul 

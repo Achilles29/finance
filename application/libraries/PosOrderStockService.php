@@ -838,9 +838,6 @@ class PosOrderStockService
             if ($profileKey !== '') {
                 $db->where('profile_key', $profileKey);
             }
-            if ($this->ci->db->field_exists('stock_domain', 'inv_division_monthly_stock')) {
-                $db->order_by("CASE WHEN COALESCE(stock_domain, 'ITEM') = 'ITEM' THEN 0 ELSE 1 END", '', false);
-            }
             if ($this->ci->db->field_exists('source_mode', 'inv_division_monthly_stock')) {
                 $db->order_by("CASE WHEN source_mode = 'REBUILD' THEN 0 WHEN source_mode = 'LIVE' THEN 1 ELSE 2 END", '', false);
             }

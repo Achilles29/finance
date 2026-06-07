@@ -8,10 +8,10 @@ $divisions   = is_array($divisions ?? null) ? $divisions : [];
 $isSuperadmin = !empty($current_user['is_superadmin']);
 $canCreate    = $isSuperadmin || !empty($can_create);
 
-$baseUrl      = site_url('inventory/stock/koreksi/division');
-$dataUrl      = site_url('inventory/stock/koreksi/division/data');
-$savePhysUrl  = site_url('inventory/stock/koreksi/division/save-physical');
-$quickAdjUrl  = site_url('inventory/stock/koreksi/division/quick-adjust');
+$baseUrl      = site_url('inventory/stock/daily-recon/division');
+$dataUrl      = site_url('inventory/stock/daily-recon/division/data');
+$savePhysUrl  = site_url('inventory/stock/daily-recon/division/save-physical');
+$quickAdjUrl  = site_url('inventory/stock/daily-recon/division/quick-adjust');
 
 $destOptions = [
     'ALL'           => 'Semua Tujuan',
@@ -74,18 +74,18 @@ $REASONS = [
 <div class="fin-page-header">
     <div>
         <p class="fin-breadcrumb">
-            <a href="<?= base_url('dashboard') ?>">Dashboard</a> / Stok Divisi / Koreksi
+            <a href="<?= base_url('dashboard') ?>">Dashboard</a> / Stok Divisi / Daily Recon
         </p>
         <h4 class="fin-page-title">
-            <i class="ri ri-focus-3-line me-1 text-primary"></i>
-            Koreksi Stok Divisi
+            <i class="ri ri-check-double-line me-1 text-primary"></i>
+            Daily Recon — Stok Divisi
         </h4>
-        <p class="fin-page-subtitle">Input stok fisik · selisih otomatis · posting adjustment langsung</p>
+        <p class="fin-page-subtitle">Input stok fisik harian · selisih vs sistem otomatis · posting adjustment langsung</p>
     </div>
 </div>
 
 <div class="d-flex flex-wrap gap-1 align-items-center mb-3">
-    <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'koreksi']); ?>
+    <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'daily_recon']); ?>
 </div>
 
 <div id="alert-area" class="mb-3"></div>
@@ -243,6 +243,7 @@ const ADJ_TYPES_POS = [
 
 let currentData = [];
 let saveTimers  = {};
+const profileMap = {};
 
 const el   = id => document.getElementById(id);
 const esc  = s  => { const d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; };
@@ -327,7 +328,7 @@ function actionCell(p, iid) {
     if (sel !== null && Math.abs(Number(sel)) >= 0.001) {
         return `<td class="action-cell">
             <button class="btn btn-sm btn-danger w-100" id="adjbtn-${iid}"
-                    onclick="opnPostAdj('${iid}', ${JSON.stringify(p)})">
+                    onclick="opnPostAdj('${iid}')">
                 <i class="ri ri-upload-2-line me-1"></i>Posting
             </button>
         </td>`;
@@ -375,19 +376,22 @@ function renderTable(divisions) {
         div.materials.forEach(function (mat) {
             const multiProf = mat.profiles.length > 1;
 
+            const grpIid = multiProf ? cssid(div.division_id + '_grp_' + mat.material_id) : null;
+
             if (multiProf) {
                 const sysTotal  = mat.system_total;
                 const physTotal = mat.physical_total;
                 const selTotal  = physTotal !== null ? physTotal - sysTotal : null;
-                const grpIid    = cssid(div.division_id + '_grp_' + mat.material_id);
-                html += `<tr class="table-light">
-                    <td class="text-start" style="font-size:.8rem;padding-left:1rem">
+                html += `<tr id="grp-row-${grpIid}" class="table-light opn-grp-header"
+                         style="cursor:pointer" onclick="opnToggleGrp('${grpIid}')">
+                    <td class="text-start" style="font-size:.8rem;padding-left:.75rem">
+                        <i id="grp-icon-${grpIid}" class="ri ri-arrow-right-s-line text-muted me-1" style="font-size:1rem;vertical-align:middle"></i>
                         <span class="fw-semibold">${esc(mat.material_name)}</span>
-                        <span class="text-muted ms-1">(${mat.profiles.length} profil)</span>
+                        <span class="text-muted fw-normal ms-1">(${mat.profiles.length} profil)</span>
                     </td>
                     <td></td>
                     <td class="text-end text-muted" style="font-size:.8rem">${fmt4(sysTotal)}</td>
-                    <td class="text-end text-muted" style="font-size:.8rem">${physTotal !== null ? fmt4(physTotal) : '—'}</td>
+                    <td></td>
                     <td class="text-end" style="font-size:.8rem">${selisihHtml(selTotal, grpIid)}</td>
                     <td></td>
                     <td></td>
@@ -396,6 +400,7 @@ function renderTable(divisions) {
 
             mat.profiles.forEach(function (p) {
                 const iid     = cssid(p.division_id + '_' + p.identity_key);
+                profileMap[iid] = p;
                 const physVal = p.physical_qty_content !== null ? p.physical_qty_content : '';
                 const contentUom = esc(p.profile_content_uom_code || '—');
                 const buyUom     = esc(p.profile_buy_uom_code || '');
@@ -411,7 +416,9 @@ function renderTable(divisions) {
                     : `<td class="text-start text-muted" style="font-size:.8rem">${contentUom}</td>`;
 
                 // Sistem cell: content qty on top, buy qty below
-                const sysBuy = p.system_qty_buy != null ? p.system_qty_buy : (cpb > 0 ? p.system_qty_content / cpb : null);
+                const sysBuy = p.system_qty_buy > 0
+                    ? p.system_qty_buy
+                    : (cpb > 0 ? p.system_qty_content / cpb : null);
                 const sistemCell = showBuy && sysBuy !== null
                     ? `<td class="text-end" style="font-size:.85rem">
                            ${fmt4(p.system_qty_content)}
@@ -427,7 +434,11 @@ function renderTable(divisions) {
                     ? buildLabelSingle(p, contentUom)
                     : buildLabelSub(p);
 
-                html += `<tr id="row-${iid}">
+                const childAttr = multiProf
+                    ? `data-grp="${grpIid}" style="display:none"`
+                    : '';
+
+                html += `<tr id="row-${iid}" ${childAttr}>
                     <td class="text-start">${matLabel}</td>
                     ${uomCell}
                     ${sistemCell}
@@ -441,8 +452,8 @@ function renderTable(divisions) {
                                data-sys="${p.system_qty_content}"
                                data-cpb="${cpb}"
                                data-buyuom="${buyUom}"
-                               oninput="opnLiveCalc(this, '${iid}')"
-                               onchange="opnSavePhys(this, ${JSON.stringify(p)})"
+                               oninput="opnLiveCalc(this,'${iid}')"
+                               onchange="opnSavePhys('${iid}')"
                                ${!CAN_CREATE ? 'disabled' : ''}>
                         <div id="phys-buy-${iid}" class="text-muted text-end" style="font-size:.72rem;min-height:.9rem">${physBuyInit}</div>
                     </td>
@@ -486,31 +497,58 @@ function buildLabelSub(p) {
 }
 
 window.opnLiveCalc = function (inp, iid) {
+    const p    = profileMap[iid];
     const sys  = parseFloat(inp.dataset.sys) || 0;
     const phys = inp.value.trim() !== '' ? parseFloat(inp.value) : null;
     const selEl = el('sel-' + iid);
     if (!selEl) return;
+
+    const buyEl  = el('phys-buy-' + iid);
+    const cpb    = parseFloat(inp.dataset.cpb) || 0;
+    const buyUom = inp.dataset.buyuom || '';
+
     if (phys === null) {
         selEl.textContent = '—'; selEl.className = 'text-muted small';
-        const buyEl = el('phys-buy-' + iid);
         if (buyEl) buyEl.textContent = '';
+        if (p) { p.selisih = null; _liveUpdateAdjRow(iid, p); }
         return;
     }
+
     const v    = phys - sys;
     const sign = v > 0 ? '+' : '';
     selEl.className   = Math.abs(v) < 0.001 ? 'text-success fw-bold' : (v < 0 ? 'text-danger fw-bold' : 'text-warning fw-bold');
     selEl.textContent = Math.abs(v) < 0.001 ? '± 0' : sign + v.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 
-    const buyEl  = el('phys-buy-' + iid);
-    const cpb    = parseFloat(inp.dataset.cpb) || 0;
-    const buyUom = inp.dataset.buyuom || '';
     if (buyEl && cpb > 0 && buyUom) {
         buyEl.textContent = fmt4(phys / cpb) + ' ' + buyUom;
     }
+
+    if (p) {
+        p.selisih = Math.abs(v) >= 0.001 ? v : null;
+        _liveUpdateAdjRow(iid, p);
+    }
 };
 
-window.opnSavePhys = function (inp, p) {
-    const iid = cssid(p.division_id + '_' + p.identity_key);
+function _liveUpdateAdjRow(iid, p) {
+    if (!p || p.adjustment_id) return;
+    const existingType = el('adjtype-' + iid);
+    if (existingType && existingType.value) return;
+
+    const adjColEl = el('adjcol-' + iid);
+    if (adjColEl) adjColEl.outerHTML = adjColHtml(p, iid);
+
+    const row = el('row-' + iid);
+    if (row) {
+        const tdAction = row.querySelector('td.action-cell');
+        if (tdAction) tdAction.outerHTML = actionCell(p, iid);
+    }
+}
+
+window.opnSavePhys = function (iid) {
+    const p   = profileMap[iid];
+    const row = el('row-' + iid);
+    const inp = row ? row.querySelector('input[type="number"]') : null;
+    if (!p || !inp) return;
     clearTimeout(saveTimers[iid]);
     saveTimers[iid] = setTimeout(function () { doSave(inp, p); }, 700);
 };
@@ -563,6 +601,25 @@ function doSave(inp, p) {
     .catch(function (e) { showAlert('danger', 'Error: ' + e.message); });
 }
 
+window.opnToggleGrp = function (grpIid) {
+    const children = document.querySelectorAll('[data-grp="' + grpIid + '"]');
+    const icon     = el('grp-icon-' + grpIid);
+    if (!children.length) return;
+
+    const willExpand = children[0].style.display === 'none';
+    children.forEach(function (row) {
+        row.style.display = willExpand ? '' : 'none';
+    });
+
+    if (icon) {
+        icon.className = willExpand
+            ? 'ri ri-arrow-down-s-line text-primary me-1'
+            : 'ri ri-arrow-right-s-line text-muted me-1';
+        icon.style.fontSize = '1rem';
+        icon.style.verticalAlign = 'middle';
+    }
+};
+
 window.opnTypeChange = function (iid) {
     const typeSel   = el('adjtype-'   + iid);
     const reasonSel = el('adjreason-' + iid);
@@ -583,7 +640,10 @@ window.opnTypeChange = function (iid) {
     if (notesInp) notesInp.classList.remove('d-none');
 };
 
-window.opnPostAdj = function (iid, p) {
+window.opnPostAdj = function (iid) {
+    const p = profileMap[iid];
+    if (!p) return;
+
     const typeVal = el('adjtype-' + iid)?.value;
     if (!typeVal) {
         showAlert('warning', 'Pilih jenis adjustment terlebih dahulu.');

@@ -200,12 +200,11 @@ class Inventory_division extends Purchase
                 'avg_cost_per_content'=> (float)$r['avg_cost_per_content'],
                 'total_value'         => (float)$r['total_value'],
                 'last_movement_date'  => (string)($r['last_movement_date'] ?? ''),
-                'physical_qty_content'=> ($opname && $opname['physical_qty_content'] !== null)
-                    ? (float)$opname['physical_qty_content'] : null,
-                'selisih'             => ($opname && $opname['physical_qty_content'] !== null)
-                    ? round((float)$opname['physical_qty_content'] - (float)$r['system_qty_content'], 4) : null,
-                'opname_notes'        => (string)($opname['notes'] ?? ''),
-                'adjustment_id'       => $opname ? (int)$opname['adjustment_id'] : null,
+                'physical_qty_content'=> null,
+                'selisih'             => null,
+                'opname_notes'        => '',
+                'adjustment_id'       => ($opname && !empty($opname['adjustment_id']))
+                    ? (int)$opname['adjustment_id'] : null,
             ];
 
             if (!isset($divisionGroups[$divId])) {

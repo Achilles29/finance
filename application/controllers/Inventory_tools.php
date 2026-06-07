@@ -474,7 +474,6 @@ class Inventory_tools extends CI_Controller
             $payload = [
                 'stock_scope' => 'WAREHOUSE',
                 'snapshot_month' => (string)$group['snapshot_month'],
-                'stock_domain' => 'ITEM',
                 'item_id' => (int)$group['item_id'],
                 'material_id' => (int)$group['material_id'],
                 'buy_uom_id' => (int)$group['buy_uom_id'],
@@ -649,7 +648,6 @@ class Inventory_tools extends CI_Controller
                 'snapshot_month' => $snapshotMonth,
                 'division_id' => (int)$group['division_id'],
                 'destination_type' => (string)$group['destination_type'],
-                'stock_domain' => 'ITEM',
                 'item_id' => (int)$group['item_id'],
                 'material_id' => (int)$group['material_id'],
                 'buy_uom_id' => (int)$group['buy_uom_id'],
@@ -1035,7 +1033,7 @@ class Inventory_tools extends CI_Controller
         $sql = "
             SELECT
               s.snapshot_month,
-              s.stock_domain,
+              'ITEM' AS stock_domain,
               s.item_id,
               s.material_id,
               s.buy_uom_id,
@@ -1056,7 +1054,6 @@ class Inventory_tools extends CI_Controller
               AND COALESCE(s.source_qty_on_hand, 0) > 0
             GROUP BY
               s.snapshot_month,
-              s.stock_domain,
               s.item_id,
               s.material_id,
               s.buy_uom_id,
