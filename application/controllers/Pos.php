@@ -318,7 +318,9 @@ class Pos extends MY_Controller
         foreach ($rows as $row) {
             $repair = $this->Production_model->repair_component_reconcile([
                 'location_type' => (string)($row['location_type'] ?? ''),
-                'division_id' => (int)($row['division_id'] ?? 0),
+                'division_id' => array_key_exists('division_id', $row) && $row['division_id'] !== null && $row['division_id'] !== ''
+                    ? (int)$row['division_id']
+                    : null,
                 'component_id' => (int)($row['component_id'] ?? 0),
                 'uom_id' => (int)($row['uom_id'] ?? 0),
             ]);
@@ -329,7 +331,9 @@ class Pos extends MY_Controller
                 'label' => trim((string)($row['component_name'] ?? '-')) . ' @ ' . trim((string)($row['division_name'] ?? '-')),
                 'identity' => [
                     'location_type' => (string)($row['location_type'] ?? ''),
-                    'division_id' => (int)($row['division_id'] ?? 0),
+                    'division_id' => array_key_exists('division_id', $row) && $row['division_id'] !== null && $row['division_id'] !== ''
+                        ? (int)$row['division_id']
+                        : null,
                     'component_id' => (int)($row['component_id'] ?? 0),
                     'uom_id' => (int)($row['uom_id'] ?? 0),
                 ],

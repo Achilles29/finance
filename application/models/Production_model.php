@@ -979,6 +979,9 @@ class Production_model extends CI_Model
                     'balance_avg_cost' => round((float)($row['avg_cost'] ?? 0), 6),
                     'balance_total_value' => round((float)($row['total_value'] ?? 0), 2),
                     'balance_last_txn_at' => (string)($row['last_movement_at'] ?? ''),
+                    'seed_month_key' => (string)($row['month_key'] ?? ''),
+                    'opening_qty' => round((float)($row['opening_qty'] ?? 0), 4),
+                    'opening_total_value' => round((float)($row['opening_total_value'] ?? 0), 2),
                 ];
             }
         }
@@ -1010,6 +1013,23 @@ class Production_model extends CI_Model
                     'uom_code' => (string)($row['uom_code'] ?? ''),
                 ];
             }
+        }
+
+        // Untuk bulan audit yang sedang berjalan, row monthly bisa sudah memuat
+        // mutasi masa depan dalam bulan yang sama (mis. adjustment tanggal 30).
+        // Stock live POS dibaca sebagai state "as of tanggal audit", jadi audit
+        // compare juga harus memakai state proyeksi harian pada bulan yang sama.
+        foreach ($liveMap as $key => $row) {
+            if ((string)($row['seed_month_key'] ?? '') !== $asOfMonth) {
+                continue;
+            }
+            if (!isset($dailyMap[$key])) {
+                continue;
+            }
+            $liveMap[$key]['balance_qty'] = round((float)($dailyMap[$key]['daily_qty'] ?? 0), 4);
+            $liveMap[$key]['balance_avg_cost'] = round((float)($dailyMap[$key]['daily_avg_cost'] ?? 0), 6);
+            $liveMap[$key]['balance_total_value'] = round((float)($dailyMap[$key]['daily_total_value'] ?? 0), 2);
+            $liveMap[$key]['balance_last_txn_at'] = (string)($dailyMap[$key]['daily_date'] ?? '');
         }
 
         $movementMap = [];
@@ -1971,7 +1991,7 @@ class Production_model extends CI_Model
             ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
             ->get_compiled_select();
 
-        $this->db->select('s.id, s.month_key, s.location_type, s.division_id, ' . $divisionNameSelect . ', s.component_id, c.component_code, c.component_name, c.component_type, s.uom_id, u.code AS uom_code, s.opening_qty, s.opening_total_value, s.closing_qty, s.avg_cost, s.total_value, s.last_movement_at, COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
+        $this->db->select('s.id, s.month_key, s.location_type, s.division_id, ' . $divisionNameSelect . ', s.component_id, c.component_code, c.component_name, c.component_type, s.uom_id, u.code AS uom_code, s.opening_qty, s.opening_total_value, s.closing_qty, s.avg_cost, s.total_value, s.last_movement_at, s.source_mode, COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
             ->from('inv_component_monthly_stock s')
             ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
             ->join('mst_component c', 'c.id = s.component_id', 'inner')
@@ -2010,6 +2030,15 @@ class Production_model extends CI_Model
                 continue;
             }
             $current = $best[$key];
+            $currentMode = strtoupper(trim((string)($current['source_mode'] ?? '')));
+            $nextMode = strtoupper(trim((string)($row['source_mode'] ?? '')));
+            if ($currentMode !== 'REBUILD' && $nextMode === 'REBUILD') {
+                $best[$key] = $row;
+                continue;
+            }
+            if ($currentMode === 'REBUILD' && $nextMode !== 'REBUILD') {
+                continue;
+            }
             $currentUpdated = (string)($current['updated_at'] ?? '');
             $nextUpdated = (string)($row['updated_at'] ?? '');
             if ($nextUpdated > $currentUpdated || ($nextUpdated === $currentUpdated && (int)($row['id'] ?? 0) > (int)($current['id'] ?? 0))) {

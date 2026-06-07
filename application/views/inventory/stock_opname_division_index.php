@@ -1,515 +1,628 @@
 <?php
-$opnameDate  = (string)($opname_date  ?? date('Y-m-d'));
+$adjustDate  = (string)($opname_date ?? date('Y-m-d'));
 $divisionId  = (int)($division_id    ?? 0);
 $destination = strtoupper((string)($destination ?? 'ALL'));
+$q           = (string)($q ?? '');
 $divisions   = is_array($divisions ?? null) ? $divisions : [];
 
-$baseUrl        = site_url('inventory/stock/opname/division');
-$dataUrl        = site_url('inventory/stock/opname/division/data');
-$savePhysUrl    = site_url('inventory/stock/opname/division/save-physical');
-$quickAdjUrl    = site_url('inventory/stock/opname/division/quick-adjust');
-$adjBaseUrl     = site_url('inventory/stock/adjustment/division');
+$isSuperadmin = !empty($current_user['is_superadmin']);
+$canCreate    = $isSuperadmin || !empty($can_create);
+
+$baseUrl      = site_url('inventory/stock/opname/division');
+$dataUrl      = site_url('inventory/stock/opname/division/data');
+$savePhysUrl  = site_url('inventory/stock/opname/division/save-physical');
+$quickAdjUrl  = site_url('inventory/stock/opname/division/quick-adjust');
 
 $destOptions = [
-    'ALL'         => 'Semua Tujuan',
-    'BAR'         => 'Bar Reguler',
-    'KITCHEN'     => 'Kitchen Reguler',
-    'BAR_EVENT'   => 'Bar Event',
-    'KITCHEN_EVENT'=> 'Kitchen Event',
-    'OFFICE'      => 'Office',
-    'OTHER'       => 'Other',
+    'ALL'           => 'Semua Tujuan',
+    'BAR'           => 'Bar Reguler',
+    'KITCHEN'       => 'Kitchen Reguler',
+    'BAR_EVENT'     => 'Bar Event',
+    'KITCHEN_EVENT' => 'Kitchen Event',
+    'OFFICE'        => 'Office',
+    'OTHER'         => 'Other',
 ];
 
-$divNameCol = null;
-if (!empty($divisions[0])) {
-    $divNameCol = isset($divisions[0]['division_name']) ? 'division_name'
-        : (isset($divisions[0]['name']) ? 'name' : null);
-}
-$divName = static function (array $div) use ($divNameCol): string {
-    return htmlspecialchars((string)($divNameCol ? ($div[$divNameCol] ?? '') : ($div['name'] ?? $div['division_name'] ?? '')));
-};
+$REASONS = [
+    'WASTE' => [
+        'cancel_order'     => 'Cancel Order',
+        'kitchen_error'    => 'Kitchen Error',
+        'overproduction'   => 'Overproduction',
+        'spillage'         => 'Spillage / Tumpah',
+        'prep_trim_excess' => 'Prep Trim Excess',
+        'expired_opened'   => 'Expired Opened',
+        'other'            => 'Other',
+    ],
+    'SPOIL' => [
+        'expired'           => 'Expired',
+        'temperature_abuse' => 'Temperature Abuse',
+        'contamination'     => 'Contamination',
+        'overstock'         => 'Overstock',
+        'improper_storage'  => 'Improper Storage',
+        'other'             => 'Other',
+    ],
+    'PROCESS_LOSS' => [
+        'defrost_loss'                => 'Defrost Loss',
+        'trimming_standard'           => 'Trimming Standard',
+        'cooking_loss'                => 'Cooking Loss',
+        'evaporation'                 => 'Evaporation',
+        'brew_loss'                   => 'Brew Loss',
+        'absorption_loss'             => 'Absorption Loss',
+        'process_residue'             => 'Process Residue',
+        'variable_process_consumable' => 'Variable Process Consumable',
+        'other'                       => 'Other',
+    ],
+    'VARIANCE' => [
+        'over_usage'        => 'Over Usage',
+        'under_usage'       => 'Under Usage',
+        'unrecorded_usage'  => 'Unrecorded Usage',
+        'counting_error'    => 'Counting Error',
+        'system_mismatch'   => 'System Mismatch',
+        'theft_suspected'   => 'Theft Suspected',
+        'unknown_shrinkage' => 'Unknown Shrinkage',
+        'other'             => 'Other',
+    ],
+    'ADJUSTMENT_PLUS' => [
+        'opening_correction' => 'Opening Correction',
+        'stock_found'        => 'Stock Found',
+        'manual_reclass'     => 'Manual Reclass',
+        'other'              => 'Other',
+    ],
+];
 ?>
 
-<style>
-  .opn-filter-bar  { display:flex; flex-wrap:wrap; gap:.6rem; align-items:flex-end; }
-  .opn-filter-item { display:flex; flex-direction:column; gap:.25rem; }
-  .opn-filter-item label { font-size:.78rem; font-weight:700; color:#6f2119; text-transform:uppercase; }
-  .opn-badge-miss { background:#fff0f0; color:#c62828; border:1px solid rgba(198,40,40,.2); border-radius:999px; padding:.2rem .6rem; font-size:.72rem; font-weight:800; }
-  .opn-badge-ok   { background:#f0fff4; color:#2e7d32; border:1px solid rgba(46,125,50,.2); border-radius:999px; padding:.2rem .6rem; font-size:.72rem; font-weight:800; }
-  .opn-badge-plus { background:#fff8e1; color:#e65100; border:1px solid rgba(230,81,0,.2); border-radius:999px; padding:.2rem .6rem; font-size:.72rem; font-weight:800; }
-  .opn-tbl        { width:100%; border-collapse:collapse; font-size:.87rem; }
-  .opn-tbl th     { position:sticky; top:0; background:#fff; z-index:2; padding:.65rem .75rem; text-align:left; font-size:.75rem; font-weight:700; color:#6f2119; text-transform:uppercase; border-bottom:2px solid #f3e3db; white-space:nowrap; }
-  .opn-tbl td     { padding:.55rem .75rem; vertical-align:middle; border-bottom:1px solid #f9f0ec; }
-  .opn-tbl tr.mat-group { background:#fdf7f4; }
-  .opn-tbl tr.mat-group td { font-weight:800; color:#6f2119; padding:.55rem .75rem; border-bottom:1px solid #f3e3db; }
-  .opn-tbl tr.mat-group td:first-child { padding-left:.75rem; }
-  .opn-tbl tr.profile-row td:first-child { padding-left:2rem; color:#6b4e49; }
-  .opn-tbl tr.profile-row:hover { background:#fffaf7; }
-  .opn-input-qty  { width:90px; border:1px solid #e0c8bf; border-radius:8px; padding:.35rem .5rem; font-size:.9rem; text-align:right; background:#fff; }
-  .opn-input-qty:focus { border-color:#8f2d23; outline:none; box-shadow:0 0 0 3px rgba(143,45,35,.12); }
-  .opn-input-qty.changed { border-color:#2e7d32; }
-  .opn-selisih    { font-weight:800; text-align:right; }
-  .opn-selisih.neg { color:#c62828; }
-  .opn-selisih.pos { color:#e65100; }
-  .opn-selisih.zero { color:#2e7d32; }
-  .opn-selisih.empty { color:#bbb; font-weight:400; font-style:italic; }
-  .opn-btn-adj    { padding:.3rem .7rem; border-radius:8px; border:1px solid rgba(143,45,35,.2); background:#fff0ea; color:#8f2d23; font-size:.78rem; font-weight:800; cursor:pointer; white-space:nowrap; }
-  .opn-btn-adj:hover { background:#8f2d23; color:#fff; }
-  .opn-btn-adj:disabled { opacity:.45; cursor:not-allowed; }
-  .opn-btn-save   { padding:.28rem .65rem; border-radius:8px; border:1px solid rgba(46,125,50,.25); background:#f0fff4; color:#2e7d32; font-size:.78rem; font-weight:700; cursor:pointer; }
-  .opn-btn-save:hover { background:#2e7d32; color:#fff; }
-  .opn-status-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:.3rem; }
-  .opn-status-dot.adj { background:#2e7d32; }
-  .opn-status-dot.pending { background:#e65100; }
-  .opn-scroll-wrap { max-height:calc(100vh - 260px); overflow-y:auto; }
-  .opn-notes-input { width:130px; font-size:.8rem; border:1px solid #e0c8bf; border-radius:8px; padding:.3rem .45rem; background:#fff; }
-  .opn-notes-input:focus { border-color:#8f2d23; outline:none; }
-  .opn-summ-bar   { display:flex; gap:1rem; flex-wrap:wrap; align-items:center; font-size:.82rem; color:#8b7772; padding:.6rem 0; border-bottom:1px solid #f3e3db; margin-bottom:.5rem; }
-  .opn-summ-val   { font-weight:800; color:#6f2119; }
-  @media (max-width:768px) { .opn-tbl th, .opn-tbl td { padding:.4rem .4rem; font-size:.8rem; } }
-</style>
-
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div>
-    <h4 class="mb-1"><i class="ri-clipboard-check-line page-title-icon"></i><?= html_escape($title) ?></h4>
-    <small class="text-muted">Kroscek stok bahan baku divisi · input stok fisik · selisih otomatis · penyesuaian langsung</small>
-  </div>
-  <a href="<?= $adjBaseUrl ?>" class="btn btn-outline-secondary btn-sm">Ke Halaman Adjustment</a>
+<div class="fin-page-header">
+    <div>
+        <p class="fin-breadcrumb">
+            <a href="<?= base_url('dashboard') ?>">Dashboard</a> / Stok Divisi / Koreksi
+        </p>
+        <h4 class="fin-page-title">
+            <i class="ri ri-focus-3-line me-1 text-primary"></i>
+            Koreksi Stok Divisi
+        </h4>
+        <p class="fin-page-subtitle">Input stok fisik · selisih otomatis · posting adjustment langsung</p>
+    </div>
 </div>
+
+<div class="d-flex flex-wrap gap-1 align-items-center mb-3">
+    <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'koreksi']); ?>
+</div>
+
+<div id="alert-area" class="mb-3"></div>
 
 <!-- Filter -->
 <div class="card mb-3">
-  <div class="card-body py-3">
-    <div class="opn-filter-bar">
-      <div class="opn-filter-item">
-        <label>Tanggal Opname</label>
-        <input type="date" id="opnDate" class="form-control form-control-sm" value="<?= htmlspecialchars($opnameDate) ?>" style="width:160px">
-      </div>
-      <div class="opn-filter-item">
-        <label>Divisi</label>
-        <select id="opnDivision" class="form-select form-select-sm" style="min-width:180px">
-          <option value="0">-- Pilih Divisi --</option>
-          <?php foreach ($divisions as $div): ?>
-            <option value="<?= (int)($div['id'] ?? 0) ?>" <?= (int)($div['id'] ?? 0) === $divisionId ? 'selected' : '' ?>>
-              <?= $divName($div) ?>
-            </option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="opn-filter-item">
-        <label>Tujuan</label>
-        <select id="opnDestination" class="form-select form-select-sm" style="min-width:160px">
-          <?php foreach ($destOptions as $val => $lbl): ?>
-            <option value="<?= htmlspecialchars($val) ?>" <?= $val === $destination ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="opn-filter-item">
-        <label>Cari Bahan</label>
-        <input type="text" id="opnQ" class="form-control form-control-sm" placeholder="nama / kode..." style="width:180px">
-      </div>
-      <div class="opn-filter-item">
-        <label>&nbsp;</label>
-        <button class="btn btn-primary btn-sm" id="opnLoad">Muat Data</button>
-      </div>
+    <div class="card-body py-2">
+        <form method="get" action="<?= $baseUrl ?>" class="row g-2 align-items-end" id="opnForm">
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-1 small">Tanggal</label>
+                <input type="date" name="opname_date" class="form-control form-control-sm"
+                       value="<?= html_escape($adjustDate) ?>">
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-1 small">Divisi</label>
+                <select name="division_id" class="form-select form-select-sm">
+                    <option value="0">Semua</option>
+                    <?php foreach ($divisions as $div): ?>
+                    <option value="<?= (int)($div['id'] ?? 0) ?>" <?= (int)($div['id'] ?? 0) === $divisionId ? 'selected' : '' ?>>
+                        <?= html_escape((string)($div['name'] ?? $div['division_name'] ?? '')) ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-1 small">Tujuan</label>
+                <select name="destination" class="form-select form-select-sm">
+                    <?php foreach ($destOptions as $val => $lbl): ?>
+                    <option value="<?= html_escape($val) ?>" <?= $val === $destination ? 'selected' : '' ?>>
+                        <?= html_escape($lbl) ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label mb-1 small">Cari Bahan</label>
+                <input type="text" name="q" class="form-control form-control-sm"
+                       placeholder="nama bahan, merek..."
+                       value="<?= html_escape($q) ?>">
+            </div>
+            <div class="col-12 col-md-3 d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-primary flex-fill" id="opnLoad">
+                    <i class="ri ri-search-line me-1"></i>Muat Data
+                </button>
+                <a href="<?= $baseUrl ?>" class="btn btn-sm btn-outline-secondary" title="Reset filter">
+                    <i class="ri ri-close-line"></i>
+                </a>
+            </div>
+        </form>
     </div>
-  </div>
 </div>
 
-<!-- Summary bar -->
-<div id="opnSummBar" class="opn-summ-bar d-none">
-  <span>Material: <span class="opn-summ-val" id="smTotal">0</span></span>
-  <span>Sudah diisi: <span class="opn-summ-val" id="smFilled">0</span></span>
-  <span>Mismatch: <span class="opn-summ-val" id="smMiss">0</span></span>
-  <span>Sudah disesuaikan: <span class="opn-summ-val" id="smAdj">0</span></span>
-  <button class="btn btn-outline-secondary btn-sm ms-auto" id="opnRefresh" title="Refresh data"><i class="ri-refresh-line"></i></button>
+<!-- Summary Cards -->
+<div class="row g-2 mb-3" id="opnSummary" style="display:none">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div><div class="small text-muted">Total Profil</div><div class="h5 mb-0 fw-bold" id="smTotal">0</div></div>
+                    <i class="ri ri-stack-line ri-2x text-primary opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div><div class="small text-muted">Sudah Diisi</div><div class="h5 mb-0 fw-bold text-success" id="smFilled">0</div></div>
+                    <i class="ri ri-checkbox-circle-line ri-2x text-success opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div><div class="small text-muted">Ada Selisih</div><div class="h5 mb-0 fw-bold text-danger" id="smMiss">0</div></div>
+                    <i class="ri ri-alert-line ri-2x text-danger opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div><div class="small text-muted">Disesuaikan</div><div class="h5 mb-0 fw-bold text-info" id="smAdj">0</div></div>
+                    <i class="ri ri-git-commit-line ri-2x text-info opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
-<!-- Table container -->
+<!-- Tabel Data -->
 <div class="card">
-  <div class="card-body p-0">
-    <div id="opnLoading" class="text-center py-5 text-muted d-none"><i class="ri-loader-4-line ri-spin"></i> Memuat data...</div>
-    <div id="opnEmpty" class="text-center py-5 text-muted d-none">Pilih divisi dan klik "Muat Data" untuk memulai.</div>
-    <div id="opnNoResult" class="text-center py-5 text-muted d-none">Tidak ada bahan baku ditemukan untuk filter ini.</div>
-    <div id="opnEmpty2" class="text-center py-5 text-muted">Pilih divisi dan klik "Muat Data" untuk memulai.</div>
-    <div class="opn-scroll-wrap" id="opnScrollWrap" style="display:none">
-      <table class="opn-tbl">
-        <thead>
-          <tr>
-            <th style="min-width:200px">Bahan Baku</th>
-            <th style="min-width:160px">Profil / Lot</th>
-            <th>UOM</th>
-            <th style="text-align:right">Stok Sistem</th>
-            <th style="text-align:right;min-width:110px">Stok Fisik</th>
-            <th style="text-align:right">Selisih</th>
-            <th style="min-width:130px">Catatan</th>
-            <th>Aksi</th>
-          </tr>
-        </thead>
-        <tbody id="opnTbody"></tbody>
-      </table>
+    <div id="opnLoading" class="text-center py-5 text-muted d-none">
+        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Memuat data stok divisi...
     </div>
-  </div>
-</div>
+    <div id="opnEmpty" class="text-center py-5 text-muted">
+        <i class="ri ri-scales-3-line ri-3x d-block mb-2 opacity-25"></i>
+        Klik <strong>Muat Data</strong> untuk memulai koreksi stok.
+    </div>
+    <div id="opnNoResult" class="text-center py-5 text-muted d-none">
+        <i class="ri ri-inbox-line ri-3x d-block mb-2 opacity-25"></i>
+        Tidak ada bahan baku ditemukan untuk filter ini.
+    </div>
 
-<!-- Modal: Quick Adjust -->
-<div class="modal fade" id="opnAdjModal" tabindex="-1" aria-labelledby="opnAdjModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="opnAdjModalLabel">Sesuaikan Stok</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div id="opnAdjInfo" class="mb-3"></div>
-        <div class="mb-3">
-          <label class="form-label fw-bold">Jenis Penyesuaian</label>
-          <select class="form-select" id="opnAdjType">
-            <option value="VARIANCE">Variance (selisih stok)</option>
-            <option value="WASTE">Waste (terbuang)</option>
-            <option value="SPOIL">Spoil (busuk/expired)</option>
-            <option value="PROCESS_LOSS">Process Loss</option>
-            <option value="ADJUSTMENT_MINUS">Adjustment Minus</option>
-            <option value="ADJUSTMENT_PLUS">Adjustment Plus (tambah stok)</option>
-          </select>
-          <small class="text-muted" id="opnAdjTypeHint"></small>
+    <div id="opnTableWrap" style="display:none">
+        <div class="d-flex justify-content-between align-items-center px-3 pt-2 pb-1">
+            <small class="text-muted" id="opnInfo"></small>
+            <button class="btn btn-sm btn-outline-secondary" id="opnRefresh">
+                <i class="ri ri-refresh-line me-1"></i>Refresh
+            </button>
         </div>
-        <div class="mb-3">
-          <label class="form-label fw-bold">Catatan</label>
-          <input type="text" class="form-control" id="opnAdjNotes" placeholder="Alasan penyesuaian...">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0" style="font-size:.85rem">
+                <thead class="table-light">
+                    <tr>
+                        <th style="min-width:210px">Bahan Baku / Profil</th>
+                        <th style="width:65px">UOM</th>
+                        <th class="text-end" style="width:100px">Sistem</th>
+                        <th class="text-end" style="width:105px">Fisik</th>
+                        <th class="text-end" style="width:90px">Selisih</th>
+                        <th style="min-width:240px">Jenis &amp; Alasan</th>
+                        <th style="width:95px">Aksi</th>
+                    </tr>
+                </thead>
+                <tbody id="opnTbody"></tbody>
+            </table>
         </div>
-        <div class="alert alert-warning py-2 small mb-0">
-          Adjustment akan langsung diposting. Tidak bisa di-undo melalui halaman ini.
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
-        <button type="button" class="btn btn-danger" id="opnAdjSubmit">Posting Penyesuaian</button>
-      </div>
     </div>
-  </div>
 </div>
 
 <script>
 (function () {
-  const DATA_URL    = '<?= $dataUrl ?>';
-  const SAVE_URL    = '<?= $savePhysUrl ?>';
-  const ADJ_URL     = '<?= $quickAdjUrl ?>';
-  const BASE_URL    = '<?= base_url() ?>';
 
-  let currentRows   = [];
-  let currentMeta   = {};
-  let pendingRow    = null;
-  let saveTimers    = {};
+const DATA_URL   = '<?= $dataUrl ?>';
+const SAVE_URL   = '<?= $savePhysUrl ?>';
+const ADJ_URL    = '<?= $quickAdjUrl ?>';
+const CAN_CREATE = <?= $canCreate ? 'true' : 'false' ?>;
 
-  const el = id => document.getElementById(id);
+const REASONS = <?= json_encode($REASONS) ?>;
+const ADJ_TYPES_NEG = [
+    { val: 'VARIANCE',     lbl: 'Variance' },
+    { val: 'WASTE',        lbl: 'Waste' },
+    { val: 'SPOIL',        lbl: 'Spoil' },
+    { val: 'PROCESS_LOSS', lbl: 'Process Loss' },
+];
+const ADJ_TYPES_POS = [
+    { val: 'ADJUSTMENT_PLUS', lbl: 'Adjustment Plus' },
+];
 
-  function fmt(v, dec) {
-    if (v === null || v === undefined) return '-';
-    return Number(v).toLocaleString('id-ID', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-  }
+let currentData = [];
+let saveTimers  = {};
 
-  function setLoading(on) {
-    el('opnLoading').classList.toggle('d-none', !on);
-    el('opnScrollWrap').style.display = on ? 'none' : '';
-    if (on) el('opnEmpty2').classList.add('d-none');
-  }
+const el   = id => document.getElementById(id);
+const esc  = s  => { const d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; };
+const fmt4 = v  => v == null ? '—' : Number(v).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+const fmtRp = v => 'Rp ' + Number(v || 0).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+function cssid(s) { return String(s || '').replace(/[^a-zA-Z0-9_-]/g, '_'); }
 
-  function updateSummary() {
-    let total = 0, filled = 0, miss = 0, adj = 0;
-    currentRows.forEach(function (g) {
-      g.profiles.forEach(function (r) {
-        total++;
-        if (r.physical_qty_content !== null) {
-          filled++;
-          if (r.selisih !== null && Math.abs(r.selisih) > 0.001) miss++;
-          if (r.adjustment_id) adj++;
-        }
-      });
+function initTooltips(root) {
+    (root || document).querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+        try { bootstrap.Tooltip.getOrCreateInstance(el); } catch(e) {}
     });
-    el('smTotal').textContent   = total;
-    el('smFilled').textContent  = filled;
-    el('smMiss').textContent    = miss;
-    el('smAdj').textContent     = adj;
-    el('opnSummBar').classList.remove('d-none');
-  }
+}
 
-  function buildSelisihCell(selisih) {
-    if (selisih === null) return '<span class="opn-selisih empty">—</span>';
-    const v = Number(selisih);
-    if (Math.abs(v) < 0.0001) return '<span class="opn-selisih zero">± 0</span>';
-    const cls = v < 0 ? 'neg' : 'pos';
-    const sign = v > 0 ? '+' : '';
-    return `<span class="opn-selisih ${cls}">${sign}${fmt(v, 4)}</span>`;
-  }
+function updateSummary() {
+    let total = 0, filled = 0, miss = 0, adj = 0;
+    currentData.forEach(function (div) {
+        div.materials.forEach(function (mat) {
+            mat.profiles.forEach(function (p) {
+                total++;
+                if (p.physical_qty_content !== null) {
+                    filled++;
+                    if (p.selisih !== null && Math.abs(p.selisih) >= 0.001) miss++;
+                    if (p.adjustment_id) adj++;
+                }
+            });
+        });
+    });
+    el('smTotal').textContent  = total;
+    el('smFilled').textContent = filled;
+    el('smMiss').textContent   = miss;
+    el('smAdj').textContent    = adj;
+}
 
-  function buildAdjButton(r) {
-    const selisih = r.selisih;
-    if (selisih === null) return '<button class="opn-btn-adj" disabled>Sesuaikan</button>';
-    if (Math.abs(Number(selisih)) < 0.0001) return '<span class="opn-badge-ok">✓ Match</span>';
-    if (r.adjustment_id) {
-      return `<span class="opn-badge-miss"><span class="opn-status-dot adj"></span>Adj #${r.adjustment_id}</span>`;
+function selisihHtml(sel, iid) {
+    if (sel === null) return `<span id="sel-${iid}" class="text-muted small">—</span>`;
+    const v = Number(sel);
+    if (Math.abs(v) < 0.001) return `<span id="sel-${iid}" class="text-success fw-bold">± 0</span>`;
+    const cls = v < 0 ? 'text-danger fw-bold' : 'text-warning fw-bold';
+    return `<span id="sel-${iid}" class="${cls}">${(v > 0 ? '+' : '')}${fmt4(v)}</span>`;
+}
+
+function adjColHtml(p, iid) {
+    if (p.adjustment_id) {
+        return `<td id="adjcol-${iid}" class="adj-col">
+            <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">
+                <i class="ri ri-check-double-line me-1"></i>Adj #${p.adjustment_id}
+            </span>
+        </td>`;
     }
-    return `<button class="opn-btn-adj" onclick="opnOpenAdj(${JSON.stringify(r)})">Sesuaikan</button>`;
-  }
 
-  function renderTable(groups) {
+    const sel = p.selisih;
+    if (sel !== null && Math.abs(Number(sel)) >= 0.001) {
+        const isNeg    = Number(sel) < 0;
+        const types    = isNeg ? ADJ_TYPES_NEG : ADJ_TYPES_POS;
+        const typeOpts = types.map(function (t) {
+            return `<option value="${t.val}">${t.lbl}</option>`;
+        }).join('');
+        const firstType  = types[0].val;
+        const reasons    = REASONS[firstType] || { other: 'Other' };
+        const reasonOpts = Object.entries(reasons).map(function ([k, v]) {
+            return `<option value="${k}">${v}</option>`;
+        }).join('');
+
+        return `<td id="adjcol-${iid}" class="adj-col py-2">
+            <div class="d-flex flex-column gap-1">
+                <select id="adjtype-${iid}" class="form-select form-select-sm" onchange="opnTypeChange('${iid}')">
+                    ${typeOpts}
+                </select>
+                <select id="adjreason-${iid}" class="form-select form-select-sm">
+                    ${reasonOpts}
+                </select>
+                <input type="text" id="adjnotes-${iid}" class="form-control form-control-sm"
+                       placeholder="Catatan (opsional)">
+            </div>
+        </td>`;
+    }
+
+    return `<td id="adjcol-${iid}" class="adj-col"></td>`;
+}
+
+function actionCell(p, iid) {
+    if (!CAN_CREATE) return '<td class="action-cell"></td>';
+
+    if (p.adjustment_id) {
+        return `<td class="action-cell"></td>`;
+    }
+
+    const sel = p.selisih;
+    if (sel !== null && Math.abs(Number(sel)) >= 0.001) {
+        return `<td class="action-cell">
+            <button class="btn btn-sm btn-danger w-100" id="adjbtn-${iid}"
+                    onclick="opnPostAdj('${iid}', ${JSON.stringify(p)})">
+                <i class="ri ri-upload-2-line me-1"></i>Posting
+            </button>
+        </td>`;
+    }
+
+    if (sel !== null) {
+        return `<td class="action-cell text-center">
+            <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">
+                <i class="ri ri-check-line me-1"></i>Match
+            </span>
+        </td>`;
+    }
+
+    return '<td class="action-cell"></td>';
+}
+
+function renderTable(divisions) {
     const tbody = el('opnTbody');
-    if (!groups.length) {
-      el('opnScrollWrap').style.display = 'none';
-      el('opnNoResult').classList.remove('d-none');
-      return;
+    if (!divisions.length) {
+        el('opnTableWrap').style.display = 'none';
+        el('opnNoResult').classList.remove('d-none');
+        el('opnSummary').style.display = 'none';
+        return;
     }
     el('opnNoResult').classList.add('d-none');
-    el('opnScrollWrap').style.display = '';
+    el('opnTableWrap').style.display = '';
+    el('opnSummary').style.display = '';
+
+    let totalMat = 0, totalProf = 0;
+    divisions.forEach(function (d) {
+        totalMat += d.materials.length;
+        d.materials.forEach(function (m) { totalProf += m.profiles.length; });
+    });
+    el('opnInfo').textContent = divisions.length + ' divisi · ' + totalMat + ' material · ' + totalProf + ' profil';
 
     let html = '';
-    groups.forEach(function (g) {
-      const multiProfile = g.profiles.length > 1;
-      if (multiProfile) {
-        const sysTotal = g.system_total;
-        const physTotal = g.physical_total;
-        const selisihTotal = physTotal !== null ? (physTotal - sysTotal) : null;
-        html += `<tr class="mat-group">
-          <td colspan="3"><i class="ri-arrow-down-s-line" style="color:#8b7772"></i> ${htmlEsc(g.material_name || g.item_name)} <span style="color:#8b7772;font-weight:400;font-size:.82rem;">(${g.profiles.length} profil)</span></td>
-          <td style="text-align:right">${fmt(sysTotal, 4)}</td>
-          <td style="text-align:right">${physTotal !== null ? fmt(physTotal, 4) : '<span style="color:#bbb">—</span>'}</td>
-          <td style="text-align:right">${buildSelisihCell(selisihTotal)}</td>
-          <td colspan="2"></td>
+    divisions.forEach(function (div) {
+        html += `<tr class="table-secondary">
+            <td colspan="7" class="py-1" style="font-size:.78rem;font-weight:700;letter-spacing:.04em">
+                <i class="ri ri-building-2-line me-1 text-primary"></i>${esc(div.division_name)}
+                <span class="text-muted fw-normal ms-1">(${div.materials.length} material)</span>
+            </td>
         </tr>`;
-      }
 
-      g.profiles.forEach(function (r) {
-        const rowClass = multiProfile ? 'profile-row' : '';
-        const matLabel = !multiProfile ? (htmlEsc(r.material_name || r.item_name)) : '';
-        const profLabel = htmlEsc(r.profile_name || r.profile_key || '-');
-        const physVal   = r.physical_qty_content !== null ? r.physical_qty_content : '';
-        const uomCode   = htmlEsc(r.profile_content_uom_code || '');
+        div.materials.forEach(function (mat) {
+            const multiProf = mat.profiles.length > 1;
 
-        html += `<tr class="${rowClass}" data-ikey="${htmlEsc(r.identity_key)}">
-          <td>${matLabel}</td>
-          <td>${profLabel}${r.profile_expired_date ? ' <small class="text-muted">exp:'+htmlEsc(r.profile_expired_date)+'</small>' : ''}</td>
-          <td>${uomCode}</td>
-          <td style="text-align:right">${fmt(r.system_qty_content, 4)}</td>
-          <td style="text-align:right">
-            <input type="number" class="opn-input-qty"
-              step="0.01" min="0"
-              value="${physVal !== '' ? physVal : ''}"
-              placeholder="—"
-              data-ikey="${htmlEsc(r.identity_key)}"
-              data-sys="${r.system_qty_content}"
-              onchange="opnPhysChanged(this, ${JSON.stringify(r)})"
-              oninput="opnPhysInput(this)">
-          </td>
-          <td id="sel-${cssEsc(r.identity_key)}" style="text-align:right">${buildSelisihCell(r.selisih)}</td>
-          <td>
-            <input type="text" class="opn-notes-input"
-              placeholder="catatan..."
-              value="${htmlEsc(r.opname_notes || '')}"
-              data-ikey="${htmlEsc(r.identity_key)}"
-              onchange="opnNotesChanged(this, ${JSON.stringify(r)})">
-          </td>
-          <td id="adj-${cssEsc(r.identity_key)}">${buildAdjButton(r)}</td>
-        </tr>`;
-      });
+            if (multiProf) {
+                const sysTotal  = mat.system_total;
+                const physTotal = mat.physical_total;
+                const selTotal  = physTotal !== null ? physTotal - sysTotal : null;
+                const grpIid    = cssid(div.division_id + '_grp_' + mat.material_id);
+                html += `<tr class="table-light">
+                    <td colspan="2" style="font-size:.8rem;padding-left:1.5rem">
+                        <span class="fw-semibold">${esc(mat.material_name)}</span>
+                        <span class="text-muted ms-1">(${mat.profiles.length} profil)</span>
+                    </td>
+                    <td class="text-end text-muted" style="font-size:.8rem">${fmt4(sysTotal)}</td>
+                    <td class="text-end text-muted" style="font-size:.8rem">${physTotal !== null ? fmt4(physTotal) : '—'}</td>
+                    <td class="text-end" style="font-size:.8rem">${selisihHtml(selTotal, grpIid)}</td>
+                    <td></td>
+                    <td></td>
+                </tr>`;
+            }
+
+            mat.profiles.forEach(function (p) {
+                const iid     = cssid(p.division_id + '_' + p.identity_key);
+                const physVal = p.physical_qty_content !== null ? p.physical_qty_content : '';
+                const uom     = esc(p.profile_content_uom_code || '—');
+
+                let matLabel;
+                if (!multiProf) {
+                    matLabel = `<div class="fw-semibold">${esc(p.material_name || p.item_name)}</div>`;
+                    const subParts = [p.profile_name, p.profile_brand, p.profile_description].filter(Boolean);
+                    const expBadge = p.profile_expired_date
+                        ? ` <span class="badge bg-danger-subtle text-danger" style="font-size:.63rem">exp ${esc(p.profile_expired_date)}</span>` : '';
+                    matLabel += `<div class="text-muted" style="font-size:.76rem">${esc(subParts.join(' · '))}${expBadge}</div>`;
+                    if (p.avg_cost_per_content > 0) {
+                        matLabel += `<div class="text-muted" style="font-size:.72rem">${fmtRp(p.avg_cost_per_content)}/${uom}</div>`;
+                    }
+                } else {
+                    const expBadge = p.profile_expired_date
+                        ? ` <span class="badge bg-danger-subtle text-danger" style="font-size:.63rem">exp ${esc(p.profile_expired_date)}</span>` : '';
+                    const subParts = [p.profile_brand, p.profile_description].filter(Boolean);
+                    matLabel = `<div style="padding-left:1.5rem">
+                        <span class="fw-semibold" style="font-size:.82rem">${esc(p.profile_name || '')}${expBadge}</span>
+                        ${subParts.length ? `<span class="text-muted" style="font-size:.74rem"> · ${esc(subParts.join(' · '))}</span>` : ''}
+                        ${p.avg_cost_per_content > 0 ? `<span class="text-muted" style="font-size:.72rem"> · ${fmtRp(p.avg_cost_per_content)}</span>` : ''}
+                    </div>`;
+                }
+
+                html += `<tr id="row-${iid}">
+                    <td>${matLabel}</td>
+                    <td class="text-muted" style="font-size:.8rem">${uom}</td>
+                    <td class="text-end">${fmt4(p.system_qty_content)}</td>
+                    <td class="text-end">
+                        <input type="number" class="form-control form-control-sm text-end"
+                               style="width:88px;display:inline-block"
+                               step="0.01" min="0"
+                               value="${esc(physVal)}"
+                               placeholder="—"
+                               data-iid="${iid}"
+                               data-sys="${p.system_qty_content}"
+                               oninput="opnLiveCalc(this, '${iid}')"
+                               onchange="opnSavePhys(this, ${JSON.stringify(p)})"
+                               ${!CAN_CREATE ? 'disabled' : ''}>
+                    </td>
+                    <td class="text-end">${selisihHtml(p.selisih, iid)}</td>
+                    ${adjColHtml(p, iid)}
+                    ${actionCell(p, iid)}
+                </tr>`;
+            });
+        });
     });
     tbody.innerHTML = html;
-  }
+    initTooltips(tbody);
+}
 
-  function htmlEsc(s) {
-    const d = document.createElement('div');
-    d.textContent = String(s || '');
-    return d.innerHTML;
-  }
-  function cssEsc(s) { return String(s || '').replace(/[^a-zA-Z0-9_-]/g, '_'); }
+window.opnLiveCalc = function (inp, iid) {
+    const sys  = parseFloat(inp.dataset.sys) || 0;
+    const phys = inp.value.trim() !== '' ? parseFloat(inp.value) : null;
+    const selEl = el('sel-' + iid);
+    if (!selEl) return;
+    if (phys === null) { selEl.textContent = '—'; selEl.className = 'text-muted small'; return; }
+    const v    = phys - sys;
+    const sign = v > 0 ? '+' : '';
+    selEl.className  = Math.abs(v) < 0.001 ? 'text-success fw-bold' : (v < 0 ? 'text-danger fw-bold' : 'text-warning fw-bold');
+    selEl.textContent = Math.abs(v) < 0.001 ? '± 0' : sign + v.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+};
 
-  function loadData(showLoading) {
-    const date  = el('opnDate').value;
-    const divId = el('opnDivision').value;
-    const dest  = el('opnDestination').value;
-    const q     = el('opnQ').value;
+window.opnSavePhys = function (inp, p) {
+    const iid = cssid(p.division_id + '_' + p.identity_key);
+    clearTimeout(saveTimers[iid]);
+    saveTimers[iid] = setTimeout(function () { doSave(inp, p); }, 700);
+};
 
-    if (!divId || divId === '0') {
-      el('opnEmpty2').classList.remove('d-none');
-      el('opnEmpty2').textContent = 'Pilih divisi terlebih dahulu.';
-      el('opnScrollWrap').style.display = 'none';
-      el('opnSummBar').classList.add('d-none');
-      return;
-    }
-    el('opnEmpty2').classList.add('d-none');
+function doSave(inp, p) {
+    const form    = el('opnForm');
+    const date    = form.querySelector('[name=opname_date]').value;
+    const dest    = form.querySelector('[name=destination]').value;
+    const physRaw = inp ? inp.value.trim() : null;
+    const phys    = physRaw !== null && physRaw !== '' ? parseFloat(physRaw) : null;
 
-    if (showLoading !== false) setLoading(true);
-
-    const url = DATA_URL + '?opname_date=' + encodeURIComponent(date)
-      + '&division_id=' + encodeURIComponent(divId)
-      + '&destination=' + encodeURIComponent(dest)
-      + '&q=' + encodeURIComponent(q);
-
-    fetch(url, { credentials: 'same-origin' })
-      .then(r => r.json())
-      .then(function (data) {
-        setLoading(false);
-        if (!data.ok) { alert('Gagal memuat data: ' + (data.message || '')); return; }
-        currentRows = data.rows || [];
-        currentMeta = data.meta || {};
-        renderTable(currentRows);
-        updateSummary();
-      })
-      .catch(function (e) {
-        setLoading(false);
-        alert('Error memuat data: ' + e.message);
-      });
-  }
-
-  window.opnPhysInput = function (inp) {
-    const sys = parseFloat(inp.dataset.sys) || 0;
-    const val = inp.value.trim();
-    const phys = val !== '' ? parseFloat(val) : null;
-    const ikey = inp.dataset.ikey;
-    const selEl = el('sel-' + cssEsc(ikey));
-    if (selEl) {
-      const sel = phys !== null ? phys - sys : null;
-      selEl.innerHTML = buildSelisihCell(sel);
-    }
-    inp.classList.add('changed');
-  };
-
-  window.opnPhysChanged = function (inp, rowData) {
-    const ikey = inp.dataset.ikey;
-    clearTimeout(saveTimers[ikey]);
-    saveTimers[ikey] = setTimeout(function () { doSavePhysical(inp, rowData); }, 600);
-  };
-
-  window.opnNotesChanged = function (inp, rowData) {
-    const ikey = rowData.identity_key;
-    clearTimeout(saveTimers['notes_' + ikey]);
-    saveTimers['notes_' + ikey] = setTimeout(function () { doSavePhysical(null, rowData, inp.value); }, 800);
-  };
-
-  function doSavePhysical(inp, rowData, notesOverride) {
-    const date  = el('opnDate').value;
-    const divId = el('opnDivision').value;
-    const dest  = el('opnDestination').value;
-    const physVal = inp ? inp.value.trim() : null;
-    const phys  = physVal !== null && physVal !== '' ? parseFloat(physVal) : null;
-
-    const notesEl = document.querySelector('input.opn-notes-input[data-ikey="' + rowData.identity_key + '"]');
-    const notes = notesOverride !== undefined ? notesOverride : (notesEl ? notesEl.value : '');
-
-    const payload = Object.assign({}, rowData, {
-      opname_date:         date,
-      division_id:         parseInt(divId),
-      destination_type:    dest === 'ALL' ? (rowData.destination_type || 'OTHER') : dest,
-      physical_qty_content: phys,
-      notes:               notes,
+    const payload = Object.assign({}, p, {
+        opname_date:          date,
+        physical_qty_content: phys,
+        destination_type:     dest === 'ALL' ? (p.destination_type || 'OTHER') : dest,
+        notes:                '',
     });
 
     fetch(SAVE_URL, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify(payload),
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload),
     })
-      .then(r => r.json())
-      .then(function (data) {
-        if (inp) inp.classList.remove('changed');
-        if (!data.ok) { console.error('Save failed', data.message); return; }
-        const ikey = rowData.identity_key;
-        rowData.physical_qty_content = data.physical_qty_content;
-        rowData.selisih = data.selisih;
-        const selEl = el('sel-' + cssEsc(ikey));
-        if (selEl) selEl.innerHTML = buildSelisihCell(data.selisih);
-        const adjEl = el('adj-' + cssEsc(ikey));
-        if (adjEl && !rowData.adjustment_id) adjEl.innerHTML = buildAdjButton(rowData);
+    .then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
+    .then(function (res) {
+        if (!res.j.ok) { showAlert('danger', res.j.message || 'Gagal menyimpan.'); return; }
+        p.physical_qty_content = res.j.data.physical_qty_content;
+        p.selisih              = res.j.data.selisih;
+        const iid = cssid(p.division_id + '_' + p.identity_key);
+
+        const selEl = el('sel-' + iid);
+        if (selEl) {
+            const v = p.selisih;
+            if (v === null) { selEl.textContent = '—'; selEl.className = 'text-muted small'; }
+            else if (Math.abs(v) < 0.001) { selEl.textContent = '± 0'; selEl.className = 'text-success fw-bold'; }
+            else { const s = v > 0 ? '+' : ''; selEl.className = v < 0 ? 'text-danger fw-bold' : 'text-warning fw-bold'; selEl.textContent = s + fmt4(v); }
+        }
+
+        const row = el('row-' + iid);
+        if (row) {
+            const tdAction = row.querySelector('td.action-cell');
+            if (tdAction) { tdAction.outerHTML = actionCell(p, iid); }
+            const tdAdj = el('adjcol-' + iid);
+            if (tdAdj) { tdAdj.outerHTML = adjColHtml(p, iid); }
+            initTooltips(row);
+        }
         updateSummary();
-      })
-      .catch(function (e) { console.error('Save error', e); });
-  }
+    })
+    .catch(function (e) { showAlert('danger', 'Error: ' + e.message); });
+}
 
-  window.opnOpenAdj = function (rowData) {
-    pendingRow = rowData;
-    const selisih = Number(rowData.selisih || 0);
-    const selisihFmt = (selisih > 0 ? '+' : '') + fmt(selisih, 4);
-    const uom = rowData.profile_content_uom_code || '';
-    const mat = rowData.material_name || rowData.item_name || '';
+window.opnTypeChange = function (iid) {
+    const typeSel   = el('adjtype-'   + iid);
+    const reasonSel = el('adjreason-' + iid);
+    if (!typeSel || !reasonSel) return;
+    const opts = REASONS[typeSel.value] || { other: 'Other' };
+    reasonSel.innerHTML = Object.entries(opts)
+        .map(function ([k, v]) { return `<option value="${k}">${v}</option>`; })
+        .join('');
+};
 
-    el('opnAdjInfo').innerHTML = `
-      <div class="fw-bold mb-1">${htmlEsc(mat)}</div>
-      <div class="small text-muted">Profil: ${htmlEsc(rowData.profile_name || '-')}</div>
-      <div class="mt-2">Selisih: <strong class="${selisih < 0 ? 'text-danger' : 'text-warning'}">${selisihFmt} ${uom}</strong></div>
-      <div class="small text-muted">Sistem: ${fmt(rowData.system_qty_content, 4)} · Fisik: ${fmt(rowData.physical_qty_content, 4)}</div>
-    `;
-
-    const adjSel = el('opnAdjType');
-    if (selisih < 0) {
-      adjSel.innerHTML = `
-        <option value="VARIANCE">Variance (selisih stok)</option>
-        <option value="WASTE">Waste (terbuang)</option>
-        <option value="SPOIL">Spoil (busuk/expired)</option>
-        <option value="PROCESS_LOSS">Process Loss</option>
-        <option value="ADJUSTMENT_MINUS">Adjustment Minus</option>
-      `;
-    } else {
-      adjSel.innerHTML = `<option value="ADJUSTMENT_PLUS">Adjustment Plus (tambah stok)</option>`;
-    }
-    el('opnAdjNotes').value = rowData.opname_notes || '';
-
-    const modal = new bootstrap.Modal(document.getElementById('opnAdjModal'));
-    modal.show();
-  };
-
-  el('opnAdjSubmit').addEventListener('click', function () {
-    if (!pendingRow) return;
-    const btn = el('opnAdjSubmit');
+window.opnPostAdj = function (iid, p) {
+    const btn = el('adjbtn-' + iid);
+    if (!btn) return;
+    const orig = btn.innerHTML;
     btn.disabled = true;
-    btn.textContent = 'Memproses...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
 
-    const date  = el('opnDate').value;
-    const divId = el('opnDivision').value;
-    const dest  = el('opnDestination').value;
+    const form = el('opnForm');
+    const date = form.querySelector('[name=opname_date]').value;
+    const dest = form.querySelector('[name=destination]').value;
 
-    const payload = Object.assign({}, pendingRow, {
-      opname_date:        date,
-      division_id:        parseInt(divId),
-      destination_type:   dest === 'ALL' ? (pendingRow.destination_type || 'OTHER') : dest,
-      adjustment_type:    el('opnAdjType').value,
-      notes:              el('opnAdjNotes').value,
+    const payload = Object.assign({}, p, {
+        opname_date:      date,
+        destination_type: dest === 'ALL' ? (p.destination_type || 'OTHER') : dest,
+        adjustment_type:  el('adjtype-'   + iid)?.value || 'VARIANCE',
+        reason_code:      el('adjreason-' + iid)?.value || 'other',
+        notes:            el('adjnotes-'  + iid)?.value?.trim() || '',
     });
 
     fetch(ADJ_URL, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify(payload),
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload),
     })
-      .then(r => r.json())
-      .then(function (data) {
+    .then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
+    .then(function (res) {
         btn.disabled = false;
-        btn.textContent = 'Posting Penyesuaian';
-        if (!data.ok) { alert('Gagal: ' + (data.message || '')); return; }
+        btn.innerHTML = orig;
+        if (res.s >= 400 || !res.j.ok) {
+            showAlert('danger', res.j.message || 'Terjadi kesalahan.');
+            return;
+        }
+        const adjId = res.j.data?.adjustment_id;
+        showAlert('success', 'Adjustment #' + adjId + ' berhasil diposting.');
+        p.adjustment_id = adjId;
 
-        bootstrap.Modal.getInstance(document.getElementById('opnAdjModal')).hide();
-        const ikey = pendingRow.identity_key;
-        pendingRow.adjustment_id = data.adjustment_id;
-        const adjEl = el('adj-' + cssEsc(ikey));
-        if (adjEl) adjEl.innerHTML = `<span class="opn-badge-miss"><span class="opn-status-dot adj"></span>Adj #${data.adjustment_id}</span>`;
+        const row = el('row-' + iid);
+        if (row) {
+            const tdAction = row.querySelector('td.action-cell');
+            if (tdAction) { tdAction.outerHTML = actionCell(p, iid); }
+            const tdAdj = el('adjcol-' + iid);
+            if (tdAdj) { tdAdj.outerHTML = adjColHtml(p, iid); }
+            initTooltips(row);
+        }
         updateSummary();
-        pendingRow = null;
-      })
-      .catch(function (e) {
+    })
+    .catch(function (e) {
         btn.disabled = false;
-        btn.textContent = 'Posting Penyesuaian';
-        alert('Error: ' + e.message);
-      });
-  });
+        btn.innerHTML = orig;
+        showAlert('danger', 'Error: ' + e.message);
+    });
+};
 
-  el('opnLoad').addEventListener('click', function () { loadData(true); });
-  el('opnRefresh').addEventListener('click', function () { loadData(false); });
-  el('opnQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadData(true); });
+function loadData(showSpinner) {
+    const form  = el('opnForm');
+    const date  = form.querySelector('[name=opname_date]').value;
+    const divId = form.querySelector('[name=division_id]').value;
+    const dest  = form.querySelector('[name=destination]').value;
+    const q     = form.querySelector('[name=q]').value;
 
-  // Auto-load jika divisi sudah dipilih
-  if (el('opnDivision').value && el('opnDivision').value !== '0') {
-    loadData(true);
-  }
+    el('opnEmpty').classList.add('d-none');
+    el('opnNoResult').classList.add('d-none');
+    if (showSpinner !== false) {
+        el('opnLoading').classList.remove('d-none');
+        el('opnTableWrap').style.display = 'none';
+        el('opnSummary').style.display = 'none';
+    }
+
+    fetch(DATA_URL + '?opname_date=' + encodeURIComponent(date)
+        + '&division_id=' + encodeURIComponent(divId)
+        + '&destination=' + encodeURIComponent(dest)
+        + '&q=' + encodeURIComponent(q), { credentials: 'same-origin' })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+        el('opnLoading').classList.add('d-none');
+        if (!data.ok) { showAlert('danger', data.message || 'Gagal memuat data.'); return; }
+        currentData = data.rows || [];
+        renderTable(currentData);
+        updateSummary();
+    })
+    .catch(function (e) {
+        el('opnLoading').classList.add('d-none');
+        showAlert('danger', 'Error memuat data: ' + e.message);
+    });
+}
+
+el('opnLoad').addEventListener('click', function () { loadData(true); });
+el('opnRefresh').addEventListener('click', function () { loadData(false); });
+el('opnForm').querySelector('[name=q]').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); loadData(true); }
+});
+initTooltips();
+loadData(true);
+
 })();
 </script>

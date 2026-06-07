@@ -97,3 +97,10 @@ db replication belum sinkron
 
 
 
+
+
+- rapikan lagi, tidak perlu tampilkan kode, perbesar icon sesuai standar dan overlay teks iconnya juga nggak mucul, sebelum aksi harusnya ada dropdown pilihan jenis dan reason adjustmen
+
+jadi prinsipnya ini adalah halaman adjustment dengan gaya tampilan yang berbeda
+
+tambahkan halaman ini ke tab bertingkat rumpunya, dan cek halaman yang belum masuk tab rumpun nya (untuk divisi atau bahan baku)

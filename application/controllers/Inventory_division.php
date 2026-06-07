@@ -7,62 +7,21 @@ class Inventory_division extends Purchase
 {
     private const PAGE_OPNAME = 'inventory.stock.opname.division.index';
 
-    public function index()
-    {
-        parent::stock_division_index();
-    }
+    public function index()     { parent::stock_division_index(); }
+    public function opening()   { parent::stock_opening_division_index(); }
+    public function adjustment(){ parent::stock_adjustment_division_index(); }
+    public function daily()     { parent::stock_division_daily_index(); }
+    public function compare()   { parent::stock_division_reconcile_index(); }
+    public function reconcile_audit()  { parent::stock_division_reconcile_audit(); }
+    public function reconcile_repair() { parent::stock_division_reconcile_repair(); }
+    public function movement()  { parent::stock_division_movement_index(); }
+    public function material_matrix() { parent::stock_material_daily_matrix(); }
+    public function matrix_view()     { parent::inventory_material_daily_index(); }
+    public function lot()       { parent::division_lot_audit_index(); }
 
-    public function opening()
-    {
-        parent::stock_opening_division_index();
-    }
-
-    public function adjustment()
-    {
-        parent::stock_adjustment_division_index();
-    }
-
-    public function daily()
-    {
-        parent::stock_division_daily_index();
-    }
-
-    public function compare()
-    {
-        parent::stock_division_reconcile_index();
-    }
-
-    public function reconcile_audit()
-    {
-        parent::stock_division_reconcile_audit();
-    }
-
-    public function reconcile_repair()
-    {
-        parent::stock_division_reconcile_repair();
-    }
-
-    public function movement()
-    {
-        parent::stock_division_movement_index();
-    }
-
-    public function material_matrix()
-    {
-        parent::stock_material_daily_matrix();
-    }
-
-    public function matrix_view()
-    {
-        parent::inventory_material_daily_index();
-    }
-
-    public function lot()
-    {
-        parent::division_lot_audit_index();
-    }
-
-    // ─── Opname Stok Bahan Baku Harian ───────────────────────────────────────
+    // =========================================================
+    // Opname Stok Bahan Baku Harian Divisi
+    // =========================================================
 
     public function opname()
     {
@@ -77,16 +36,21 @@ class Inventory_division extends Purchase
         if ($destination === '') {
             $destination = 'ALL';
         }
+        $q = trim((string)$this->input->get('q', true));
 
-        $divisions = $this->Purchase_model->list_active_operational_divisions();
+        $isSuperadmin = !empty($this->current_user['is_superadmin']);
+        $canCreate    = $isSuperadmin || $this->can(self::PAGE_OPNAME, 'create');
+        $divisions    = $this->Purchase_model->list_active_operational_divisions();
 
         $this->render('inventory/stock_opname_division_index', [
-            'title'        => 'Opname Stok Bahan Baku Divisi',
-            'active_menu'  => 'purchase.stock.opname.division',
-            'opname_date'  => $opnameDate,
-            'division_id'  => $divisionId,
-            'destination'  => $destination,
-            'divisions'    => $divisions,
+            'title'       => 'Opname Stok Bahan Baku Divisi',
+            'active_menu' => 'purchase.stock.opname.division',
+            'opname_date' => $opnameDate,
+            'division_id' => $divisionId,
+            'destination' => $destination,
+            'q'           => $q,
+            'divisions'   => $divisions,
+            'can_create'  => $canCreate,
         ]);
     }
 
@@ -102,23 +66,20 @@ class Inventory_division extends Purchase
         $destination = strtoupper(trim((string)$this->input->get('destination', true)));
         $q           = trim((string)$this->input->get('q', true));
 
-        if ($divisionId <= 0) {
-            $this->output->set_content_type('application/json')
-                ->set_output(json_encode(['ok' => true, 'rows' => [], 'meta' => ['info' => 'Pilih divisi terlebih dahulu.']]));
-            return;
-        }
-
         $targetMonth = date('Y-m-01', strtotime($opnameDate));
 
-        // ── Ambil stok sistem (monthly closing) ──
-        $divNameCol = $this->db->field_exists('division_name', 'mst_operational_division') ? 'division_name'
+        $divNameCol  = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
             : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
         $divNameExpr = $divNameCol ? ('dv.' . $divNameCol) : 'CAST(dms.division_id AS CHAR)';
+
+        // Subquery tidak pakai alias -- gunakan column name langsung
+        $subDivWhere = $divisionId > 0 ? 'AND division_id = ' . (int)$divisionId : '';
 
         $latestSub = "SELECT division_id, destination_type, identity_key, MAX(month_key) AS max_month
                       FROM inv_division_monthly_stock
                       WHERE month_key <= " . $this->db->escape($targetMonth) . "
-                        AND division_id = " . $divisionId . "
+                      {$subDivWhere}
                       GROUP BY division_id, destination_type, identity_key";
 
         $destWhere = '';
@@ -140,132 +101,159 @@ class Inventory_division extends Purchase
                           OR dms.profile_name LIKE {$qLike})";
         }
 
+        $divWhereMain = $divisionId > 0 ? 'AND dms.division_id = ' . (int)$divisionId : '';
+
         $sql = "
             SELECT
-                dms.id,
                 dms.division_id,
-                {$divNameExpr} AS division_name,
+                {$divNameExpr}                                AS division_name,
                 dms.destination_type,
                 dms.item_id,
                 dms.material_id,
                 dms.buy_uom_id,
                 dms.content_uom_id,
-                COALESCE(dms.profile_key, '')            AS profile_key,
+                COALESCE(dms.profile_key, '')                 AS profile_key,
                 COALESCE(dms.identity_key, dms.profile_key, '') AS identity_key,
                 COALESCE(dms.profile_name, m.material_name, i.item_name, '') AS profile_name,
-                COALESCE(dms.profile_brand, '')          AS profile_brand,
-                COALESCE(dms.profile_description, '')    AS profile_description,
+                COALESCE(dms.profile_brand, '')               AS profile_brand,
+                COALESCE(dms.profile_description, '')         AS profile_description,
                 dms.profile_expired_date,
-                COALESCE(dms.profile_content_per_buy, 1) AS profile_content_per_buy,
-                COALESCE(dms.profile_buy_uom_code, '')   AS profile_buy_uom_code,
-                COALESCE(dms.profile_content_uom_code, '') AS profile_content_uom_code,
-                COALESCE(i.item_code, '')                AS item_code,
-                COALESCE(i.item_name, '')                AS item_name,
-                COALESCE(m.material_code, '')            AS material_code,
-                COALESCE(m.material_name, '')            AS material_name,
-                dms.closing_qty_content                  AS system_qty_content,
-                dms.closing_qty_buy                      AS system_qty_buy,
+                COALESCE(dms.profile_content_per_buy, 1)      AS profile_content_per_buy,
+                COALESCE(dms.profile_buy_uom_code, '')        AS profile_buy_uom_code,
+                COALESCE(dms.profile_content_uom_code, '')    AS profile_content_uom_code,
+                COALESCE(i.item_code, '')                     AS item_code,
+                COALESCE(i.item_name, '')                     AS item_name,
+                COALESCE(m.material_code, '')                 AS material_code,
+                COALESCE(m.material_name, '')                 AS material_name,
+                dms.closing_qty_content                       AS system_qty_content,
+                dms.closing_qty_buy                           AS system_qty_buy,
                 dms.avg_cost_per_content,
-                dms.total_value
+                dms.total_value,
+                dms.last_movement_date
             FROM inv_division_monthly_stock dms
             INNER JOIN ({$latestSub}) lm
                 ON  lm.division_id      = dms.division_id
                 AND lm.destination_type = dms.destination_type
                 AND lm.identity_key     = dms.identity_key
                 AND lm.max_month        = dms.month_key
-            LEFT JOIN mst_item     i  ON i.id  = dms.item_id
-            LEFT JOIN mst_material m  ON m.id  = COALESCE(dms.material_id, i.material_id)
+            LEFT JOIN mst_item     i  ON i.id = dms.item_id
+            LEFT JOIN mst_material m  ON m.id = COALESCE(dms.material_id, i.material_id)
             LEFT JOIN mst_operational_division dv ON dv.id = dms.division_id
-            WHERE dms.division_id = {$divisionId}
-              AND dms.material_id IS NOT NULL
+            WHERE dms.material_id IS NOT NULL
+              {$divWhereMain}
               {$destWhere}
               {$qWhere}
-            ORDER BY COALESCE(m.material_name, i.item_name), dms.profile_name
+            ORDER BY {$divNameExpr},
+                     COALESCE(m.material_name, i.item_name),
+                     dms.profile_name
         ";
 
-        $stockResult = $this->db->query($sql);
-        $stockRows   = $stockResult ? $stockResult->result_array() : [];
+        $stockRows = ($r = $this->db->query($sql)) ? $r->result_array() : [];
 
-        // ── Ambil opname hari ini ──
-        $opnameRows = $this->db->table_exists('inv_division_stock_opname')
-            ? $this->db->select('identity_key, physical_qty_content, notes, adjustment_id')
+        // Load opname records for this date (all or specific division)
+        $opnameQuery = $this->db->table_exists('inv_division_stock_opname')
+            ? $this->db->select('division_id, identity_key, physical_qty_content, notes, adjustment_id')
                 ->from('inv_division_stock_opname')
                 ->where('opname_date', $opnameDate)
-                ->where('division_id', $divisionId)
-                ->get()->result_array()
-            : [];
+            : null;
+        if ($opnameQuery && $divisionId > 0) {
+            $opnameQuery->where('division_id', $divisionId);
+        }
+        $opnameRows = $opnameQuery ? $opnameQuery->get()->result_array() : [];
 
         $opnameMap = [];
-        foreach ($opnameRows as $r) {
-            $opnameMap[(string)$r['identity_key']] = $r;
+        foreach ($opnameRows as $row) {
+            $opnameMap[$row['division_id'] . '|' . $row['identity_key']] = $row;
         }
 
-        // ── Merge dan group by material ──
-        $materialGroups = [];
+        // Group: division -> material -> profiles
+        $divisionGroups = [];
         foreach ($stockRows as $r) {
-            $matKey = (string)($r['material_id'] ?: ('item_' . $r['item_id']));
-            $identKey = (string)$r['identity_key'];
-            $opname = $opnameMap[$identKey] ?? null;
+            $divId   = (int)$r['division_id'];
+            $divName = (string)$r['division_name'];
+            $matKey  = $divId . '|' . ($r['material_id'] ?: ('item_' . $r['item_id']));
+            $ikey    = (string)$r['identity_key'];
+            $opname  = $opnameMap[$divId . '|' . $ikey] ?? null;
 
-            $row = [
-                'item_id'            => (int)$r['item_id'],
-                'material_id'        => (int)$r['material_id'],
-                'buy_uom_id'         => (int)$r['buy_uom_id'],
-                'content_uom_id'     => (int)$r['content_uom_id'],
-                'profile_key'        => $r['profile_key'],
-                'identity_key'       => $identKey,
-                'profile_name'       => $r['profile_name'],
-                'profile_brand'      => $r['profile_brand'],
-                'profile_description'=> $r['profile_description'],
+            $profile = [
+                'division_id'         => $divId,
+                'destination_type'    => $r['destination_type'],
+                'item_id'             => (int)$r['item_id'],
+                'material_id'         => (int)$r['material_id'],
+                'buy_uom_id'          => (int)$r['buy_uom_id'],
+                'content_uom_id'      => (int)$r['content_uom_id'],
+                'profile_key'         => $r['profile_key'],
+                'identity_key'        => $ikey,
+                'profile_name'        => $r['profile_name'],
+                'profile_brand'       => $r['profile_brand'],
+                'profile_description' => $r['profile_description'],
                 'profile_expired_date'=> $r['profile_expired_date'],
-                'profile_content_per_buy' => (float)$r['profile_content_per_buy'],
-                'profile_buy_uom_code'    => $r['profile_buy_uom_code'],
-                'profile_content_uom_code'=> $r['profile_content_uom_code'],
-                'item_code'          => $r['item_code'],
-                'item_name'          => $r['item_name'],
-                'material_code'      => $r['material_code'],
-                'material_name'      => $r['material_name'],
-                'system_qty_content' => (float)$r['system_qty_content'],
-                'system_qty_buy'     => (float)$r['system_qty_buy'],
+                'profile_content_per_buy'  => (float)$r['profile_content_per_buy'],
+                'profile_buy_uom_code'     => $r['profile_buy_uom_code'],
+                'profile_content_uom_code' => $r['profile_content_uom_code'],
+                'item_code'           => $r['item_code'],
+                'item_name'           => $r['item_name'],
+                'material_code'       => $r['material_code'],
+                'material_name'       => $r['material_name'],
+                'system_qty_content'  => (float)$r['system_qty_content'],
+                'system_qty_buy'      => (float)$r['system_qty_buy'],
                 'avg_cost_per_content'=> (float)$r['avg_cost_per_content'],
-                'total_value'        => (float)$r['total_value'],
-                'physical_qty_content'=> $opname !== null && $opname['physical_qty_content'] !== null
+                'total_value'         => (float)$r['total_value'],
+                'last_movement_date'  => (string)($r['last_movement_date'] ?? ''),
+                'physical_qty_content'=> ($opname && $opname['physical_qty_content'] !== null)
                     ? (float)$opname['physical_qty_content'] : null,
-                'selisih'            => $opname !== null && $opname['physical_qty_content'] !== null
+                'selisih'             => ($opname && $opname['physical_qty_content'] !== null)
                     ? round((float)$opname['physical_qty_content'] - (float)$r['system_qty_content'], 4) : null,
-                'opname_notes'       => (string)($opname['notes'] ?? ''),
-                'adjustment_id'      => $opname ? (int)$opname['adjustment_id'] : null,
+                'opname_notes'        => (string)($opname['notes'] ?? ''),
+                'adjustment_id'       => $opname ? (int)$opname['adjustment_id'] : null,
             ];
 
-            if (!isset($materialGroups[$matKey])) {
-                $materialGroups[$matKey] = [
+            if (!isset($divisionGroups[$divId])) {
+                $divisionGroups[$divId] = [
+                    'division_id'   => $divId,
+                    'division_name' => $divName,
+                    'materials'     => [],
+                ];
+            }
+            if (!isset($divisionGroups[$divId]['materials'][$matKey])) {
+                $divisionGroups[$divId]['materials'][$matKey] = [
                     'material_id'   => (int)$r['material_id'],
                     'material_code' => $r['material_code'],
                     'material_name' => $r['material_name'] ?: $r['item_name'],
                     'item_id'       => (int)$r['item_id'],
-                    'item_code'     => $r['item_code'],
                     'content_uom_code' => $r['profile_content_uom_code'],
                     'profiles'      => [],
                     'system_total'  => 0.0,
                     'physical_total'=> null,
                 ];
             }
-            $materialGroups[$matKey]['profiles'][] = $row;
-            $materialGroups[$matKey]['system_total'] += $row['system_qty_content'];
-            if ($row['physical_qty_content'] !== null) {
-                $materialGroups[$matKey]['physical_total'] = ($materialGroups[$matKey]['physical_total'] ?? 0) + $row['physical_qty_content'];
+            $divisionGroups[$divId]['materials'][$matKey]['profiles'][] = $profile;
+            $divisionGroups[$divId]['materials'][$matKey]['system_total'] += $profile['system_qty_content'];
+            if ($profile['physical_qty_content'] !== null) {
+                $divisionGroups[$divId]['materials'][$matKey]['physical_total'] =
+                    (($divisionGroups[$divId]['materials'][$matKey]['physical_total'] ?? 0) + $profile['physical_qty_content']);
             }
         }
+
+        // Flatten materials for each division
+        $result = [];
+        foreach ($divisionGroups as $divRow) {
+            $divRow['materials'] = array_values($divRow['materials']);
+            $result[] = $divRow;
+        }
+
+        $totalMaterials = array_sum(array_map(fn($d) => count($d['materials']), $result));
+        $totalProfiles  = count($stockRows);
 
         $this->output->set_content_type('application/json')
             ->set_output(json_encode([
                 'ok'   => true,
-                'rows' => array_values($materialGroups),
+                'rows' => $result,
                 'meta' => [
-                    'opname_date' => $opnameDate,
-                    'division_id' => $divisionId,
-                    'total_materials' => count($materialGroups),
-                    'total_profiles'  => count($stockRows),
+                    'opname_date'      => $opnameDate,
+                    'total_divisions'  => count($result),
+                    'total_materials'  => $totalMaterials,
+                    'total_profiles'   => $totalProfiles,
                 ],
             ]));
     }
@@ -279,70 +267,60 @@ class Inventory_division extends Purchase
         $divisionId  = (int)($payload['division_id'] ?? 0);
         $destination = strtoupper(trim((string)($payload['destination_type'] ?? 'OTHER')));
         $identKey    = trim((string)($payload['identity_key'] ?? ''));
-        $physicalQty = $payload['physical_qty_content'] !== '' && $payload['physical_qty_content'] !== null
-            ? round((float)$payload['physical_qty_content'], 4)
-            : null;
+        $physQty     = isset($payload['physical_qty_content']) && $payload['physical_qty_content'] !== ''
+            ? round((float)$payload['physical_qty_content'], 4) : null;
         $notes       = trim((string)($payload['notes'] ?? ''));
         $userId      = (int)($this->current_user['id'] ?? 0);
 
         if ($divisionId <= 0 || $identKey === '') {
-            $this->output->set_content_type('application/json')->set_status_header(422)
-                ->set_output(json_encode(['ok' => false, 'message' => 'division_id dan identity_key wajib diisi.']));
+            $this->jsonError('division_id dan identity_key wajib diisi.', 422);
             return;
         }
-
         if (!$this->db->table_exists('inv_division_stock_opname')) {
-            $this->output->set_content_type('application/json')->set_status_header(500)
-                ->set_output(json_encode(['ok' => false, 'message' => 'Tabel opname belum ada. Jalankan SQL setup terlebih dahulu.']));
+            $this->jsonError('Tabel opname belum ada. Jalankan SQL setup terlebih dahulu.', 500);
             return;
         }
 
         $systemQty = (float)($payload['system_qty_content'] ?? 0);
+        $selisih   = $physQty !== null ? round($physQty - $systemQty, 4) : null;
 
         $existing = $this->db
-            ->where('opname_date', $opnameDate)
-            ->where('division_id', $divisionId)
-            ->where('destination_type', $destination)
-            ->where('identity_key', $identKey)
+            ->where('opname_date',     $opnameDate)
+            ->where('division_id',     $divisionId)
+            ->where('destination_type',$destination)
+            ->where('identity_key',    $identKey)
             ->get('inv_division_stock_opname')->row_array();
-
-        $selisih = $physicalQty !== null ? round($physicalQty - $systemQty, 4) : null;
 
         if ($existing) {
             $this->db->where('id', (int)$existing['id'])->update('inv_division_stock_opname', [
-                'physical_qty_content' => $physicalQty,
+                'physical_qty_content' => $physQty,
                 'system_qty_content'   => $systemQty,
                 'notes'                => $notes !== '' ? $notes : null,
                 'updated_at'           => date('Y-m-d H:i:s'),
             ]);
         } else {
             $this->db->insert('inv_division_stock_opname', [
-                'opname_date'          => $opnameDate,
-                'division_id'          => $divisionId,
-                'destination_type'     => $destination,
-                'item_id'              => !empty($payload['item_id']) ? (int)$payload['item_id'] : null,
-                'material_id'          => !empty($payload['material_id']) ? (int)$payload['material_id'] : null,
-                'buy_uom_id'           => !empty($payload['buy_uom_id']) ? (int)$payload['buy_uom_id'] : null,
-                'content_uom_id'       => (int)($payload['content_uom_id'] ?? 0),
-                'profile_key'          => (string)($payload['profile_key'] ?? ''),
-                'identity_key'         => $identKey,
-                'profile_name'         => $this->nullableString($payload['profile_name'] ?? null),
+                'opname_date'             => $opnameDate,
+                'division_id'             => $divisionId,
+                'destination_type'        => $destination,
+                'item_id'                 => !empty($payload['item_id'])     ? (int)$payload['item_id']     : null,
+                'material_id'             => !empty($payload['material_id']) ? (int)$payload['material_id'] : null,
+                'buy_uom_id'              => !empty($payload['buy_uom_id'])  ? (int)$payload['buy_uom_id']  : null,
+                'content_uom_id'          => (int)($payload['content_uom_id'] ?? 0),
+                'profile_key'             => (string)($payload['profile_key'] ?? ''),
+                'identity_key'            => $identKey,
+                'profile_name'            => $this->ns($payload['profile_name'] ?? null),
                 'profile_content_per_buy' => max(0.000001, (float)($payload['profile_content_per_buy'] ?? 1)),
-                'profile_buy_uom_code'    => $this->nullableString($payload['profile_buy_uom_code'] ?? null),
-                'profile_content_uom_code'=> $this->nullableString($payload['profile_content_uom_code'] ?? null),
-                'system_qty_content'   => $systemQty,
-                'physical_qty_content' => $physicalQty,
-                'notes'                => $notes !== '' ? $notes : null,
-                'created_by'           => $userId > 0 ? $userId : null,
+                'profile_buy_uom_code'    => $this->ns($payload['profile_buy_uom_code']    ?? null),
+                'profile_content_uom_code'=> $this->ns($payload['profile_content_uom_code'] ?? null),
+                'system_qty_content'      => $systemQty,
+                'physical_qty_content'    => $physQty,
+                'notes'                   => $notes !== '' ? $notes : null,
+                'created_by'              => $userId > 0 ? $userId : null,
             ]);
         }
 
-        $this->output->set_content_type('application/json')
-            ->set_output(json_encode([
-                'ok'      => true,
-                'selisih' => $selisih,
-                'physical_qty_content' => $physicalQty,
-            ]));
+        $this->jsonOk(['selisih' => $selisih, 'physical_qty_content' => $physQty]);
     }
 
     public function opname_quick_adjust()
@@ -355,20 +333,21 @@ class Inventory_division extends Purchase
         $divisionId  = (int)($payload['division_id'] ?? 0);
         $destination = strtoupper(trim((string)($payload['destination_type'] ?? 'OTHER')));
         $identKey    = trim((string)($payload['identity_key'] ?? ''));
-        $physicalQty = (float)($payload['physical_qty_content'] ?? 0);
+        $physQty     = (float)($payload['physical_qty_content'] ?? 0);
         $systemQty   = (float)($payload['system_qty_content'] ?? 0);
-        $selisih     = round($physicalQty - $systemQty, 4);
+        $selisih     = round($physQty - $systemQty, 4);
         $adjType     = strtoupper(trim((string)($payload['adjustment_type'] ?? '')));
+        $reasonCode  = strtolower(trim((string)($payload['reason_code'] ?? 'other')));
         $notes       = trim((string)($payload['notes'] ?? ''));
         $userId      = (int)($this->current_user['id'] ?? 0);
 
         if ($divisionId <= 0 || $identKey === '' || $selisih == 0) {
-            $this->output->set_content_type('application/json')->set_status_header(422)
-                ->set_output(json_encode(['ok' => false, 'message' => 'Selisih 0 atau parameter tidak lengkap.']));
+            $this->jsonError('Selisih 0 atau parameter tidak lengkap.', 422);
             return;
         }
 
-        $validNeg = ['WASTE', 'SPOIL', 'PROCESS_LOSS', 'VARIANCE', 'ADJUSTMENT_MINUS'];
+        // Jenis penyesuaian harus sesuai sistem adjustment divisi yang ada
+        $validNeg = ['WASTE', 'SPOIL', 'PROCESS_LOSS', 'VARIANCE'];
         $validPos = ['ADJUSTMENT_PLUS'];
 
         if ($selisih < 0 && !in_array($adjType, $validNeg, true)) {
@@ -378,40 +357,39 @@ class Inventory_division extends Purchase
             $adjType = 'ADJUSTMENT_PLUS';
         }
 
-        $adjNo = 'OPN-' . $opnameDate . '-' . strtoupper(substr($identKey, 0, 8));
+        $rc     = $reasonCode !== '' ? $reasonCode : 'other';
+        $adjNo  = 'OPN-' . date('Ymd', strtotime($opnameDate)) . '-' . strtoupper(substr(md5($identKey . $opnameDate), 0, 6));
+        $absQty = round(abs($selisih), 4);
 
         $line = [
-            'item_id'            => !empty($payload['item_id'])        ? (int)$payload['item_id']        : null,
-            'material_id'        => !empty($payload['material_id'])     ? (int)$payload['material_id']     : null,
-            'buy_uom_id'         => !empty($payload['buy_uom_id'])      ? (int)$payload['buy_uom_id']      : null,
-            'content_uom_id'     => (int)($payload['content_uom_id'] ?? 0),
-            'profile_key'        => $this->nullableString($payload['profile_key'] ?? null),
-            'profile_name'       => $this->nullableString($payload['profile_name'] ?? null),
-            'profile_brand'      => $this->nullableString($payload['profile_brand'] ?? null),
-            'profile_description'=> $this->nullableString($payload['profile_description'] ?? null),
-            'profile_expired_date'=> $this->normalizeDate((string)($payload['profile_expired_date'] ?? '')),
-            'profile_content_per_buy' => max(0.000001, (float)($payload['profile_content_per_buy'] ?? 1)),
-            'profile_buy_uom_code'    => $this->nullableString($payload['profile_buy_uom_code'] ?? null),
-            'profile_content_uom_code'=> $this->nullableString($payload['profile_content_uom_code'] ?? null),
-            'note'               => $notes,
+            'item_id'              => !empty($payload['item_id'])     ? (int)$payload['item_id']     : null,
+            'material_id'          => !empty($payload['material_id']) ? (int)$payload['material_id'] : null,
+            'buy_uom_id'           => !empty($payload['buy_uom_id'])  ? (int)$payload['buy_uom_id']  : null,
+            'content_uom_id'       => (int)($payload['content_uom_id'] ?? 0),
+            'profile_key'          => $this->ns($payload['profile_key']          ?? null),
+            'profile_name'         => $this->ns($payload['profile_name']         ?? null),
+            'profile_brand'        => $this->ns($payload['profile_brand']        ?? null),
+            'profile_description'  => $this->ns($payload['profile_description']  ?? null),
+            'profile_expired_date' => $this->nd((string)($payload['profile_expired_date'] ?? '')),
+            'profile_content_per_buy'  => max(0.000001, (float)($payload['profile_content_per_buy'] ?? 1)),
+            'profile_buy_uom_code'     => $this->ns($payload['profile_buy_uom_code']     ?? null),
+            'profile_content_uom_code' => $this->ns($payload['profile_content_uom_code'] ?? null),
+            'note'                 => $notes,
         ];
-
-        $absQty = round(abs($selisih), 4);
 
         if ($selisih < 0) {
             $reasonMap = [
-                'WASTE'            => ['qty_waste_content'        => $absQty, 'waste_reason_code'        => 'other'],
-                'SPOIL'            => ['qty_spoil_content'        => $absQty, 'spoil_reason_code'        => 'other'],
-                'PROCESS_LOSS'     => ['qty_process_loss_content' => $absQty, 'process_loss_reason_code' => 'other'],
-                'VARIANCE'         => ['qty_variance_content'     => $absQty, 'variance_reason_code'     => 'other'],
-                'ADJUSTMENT_MINUS' => ['qty_variance_content'     => $absQty, 'variance_reason_code'     => 'adjustment'],
+                'WASTE'        => ['qty_waste_content'        => $absQty, 'waste_reason_code'        => $rc],
+                'SPOIL'        => ['qty_spoil_content'        => $absQty, 'spoil_reason_code'        => $rc],
+                'PROCESS_LOSS' => ['qty_process_loss_content' => $absQty, 'process_loss_reason_code' => $rc],
+                'VARIANCE'     => ['qty_variance_content'     => $absQty, 'variance_reason_code'     => $rc],
             ];
-            $line = array_merge($line, $reasonMap[$adjType] ?? ['qty_variance_content' => $absQty, 'variance_reason_code' => 'other']);
+            $line = array_merge($line, $reasonMap[$adjType] ?? ['qty_variance_content' => $absQty, 'variance_reason_code' => $rc]);
         } else {
             $unitCost = (float)($payload['avg_cost_per_content'] ?? 0);
             $line['qty_adjustment_plus_content'] = $absQty;
-            $line['adjustment_plus_reason_code'] = 'other';
-            $line['unit_cost'] = $unitCost > 0 ? $unitCost : null;
+            $line['adjustment_plus_reason_code'] = $rc;
+            $line['unit_cost']                   = $unitCost > 0 ? $unitCost : null;
         }
 
         $result = $this->Purchase_model->save_stock_adjustment([
@@ -421,12 +399,11 @@ class Inventory_division extends Purchase
             'stock_scope'      => 'DIVISION',
             'division_id'      => $divisionId,
             'destination_type' => $destination,
-            'notes'            => 'Quick adjust dari opname stok: ' . $notes,
+            'notes'            => 'Dari opname stok harian' . ($notes !== '' ? ': ' . $notes : ''),
         ], [$line], $userId);
 
         if (!($result['ok'] ?? false)) {
-            $this->output->set_content_type('application/json')->set_status_header(422)
-                ->set_output(json_encode(['ok' => false, 'message' => (string)($result['message'] ?? 'Gagal menyimpan adjustment.')]));
+            $this->jsonError((string)($result['message'] ?? 'Gagal menyimpan adjustment.'), 422);
             return;
         }
 
@@ -434,31 +411,42 @@ class Inventory_division extends Purchase
         $post  = $this->Purchase_model->post_stock_adjustment($adjId, $userId);
 
         if (!($post['ok'] ?? false)) {
-            $this->output->set_content_type('application/json')->set_status_header(422)
-                ->set_output(json_encode(['ok' => false, 'message' => 'Tersimpan tapi gagal posting: ' . (string)($post['message'] ?? '')]));
+            $this->jsonError('Tersimpan tapi gagal posting: ' . (string)($post['message'] ?? ''), 422);
             return;
         }
 
-        // Update opname record dengan adjustment_id
         if ($this->db->table_exists('inv_division_stock_opname') && $adjId > 0) {
             $this->db
-                ->where('opname_date',     $opnameDate)
-                ->where('division_id',     $divisionId)
-                ->where('destination_type',$destination)
-                ->where('identity_key',    $identKey)
+                ->where('opname_date',      $opnameDate)
+                ->where('division_id',      $divisionId)
+                ->where('destination_type', $destination)
+                ->where('identity_key',     $identKey)
                 ->update('inv_division_stock_opname', ['adjustment_id' => $adjId]);
         }
 
-        $this->output->set_content_type('application/json')
-            ->set_output(json_encode(['ok' => true, 'adjustment_id' => $adjId, 'message' => 'Adjustment berhasil diposting.']));
+        $this->jsonOk(['adjustment_id' => $adjId], 'Adjustment berhasil diposting.');
+    }
+
+    private function jsonOk(array $data = [], string $message = ''): void
+    {
+        $payload = ['ok' => true];
+        if ($message !== '') {
+            $payload['message'] = $message;
+        }
+        $payload['data'] = $data;
+        $this->output->set_content_type('application/json')->set_output(json_encode($payload));
+    }
+
+    private function jsonError(string $message, int $status = 400): void
+    {
+        $this->output->set_status_header($status)
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => false, 'message' => $message]));
     }
 
     private function request_payload(): array
     {
-        $raw = $this->input->raw_input_stream ?? null;
-        if ($raw === null) {
-            $raw = file_get_contents('php://input');
-        }
+        $raw = file_get_contents('php://input');
         if (!empty($raw)) {
             $json = json_decode($raw, true);
             if (is_array($json)) {
@@ -467,5 +455,21 @@ class Inventory_division extends Purchase
         }
         $post = $this->input->post(null, false);
         return is_array($post) ? $post : [];
+    }
+
+    private function ns($value): ?string
+    {
+        $v = trim((string)($value ?? ''));
+        return $v === '' ? null : $v;
+    }
+
+    private function nd(string $value): ?string
+    {
+        $v = trim($value);
+        if ($v === '') {
+            return null;
+        }
+        $d = date_create_from_format('Y-m-d', $v);
+        return ($d && $d->format('Y-m-d') === $v) ? $v : null;
     }
 }

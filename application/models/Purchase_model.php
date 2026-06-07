@@ -2971,140 +2971,16 @@ class Purchase_model extends CI_Model
 
     private function list_division_material_movement_closing(string $asOfDate, string $q, ?int $divisionId, ?string $destinationFilter = null): array
     {
-        if (!$this->db->table_exists('inv_stock_movement_log')) {
-            return [];
+        // Item-centric audit: jangan percaya qty_after legacy yang tersimpan bila
+        // sudah tersedia rekonstruksi closing dari delta movement yang lebih sehat.
+        // Namun bentuk row yang dikembalikan tetap harus mengikuti kontrak
+        // source `movement`, yaitu memakai `qty_buy_after` / `qty_content_after`.
+        $rows = $this->list_division_daily_snapshot_latest_closing($asOfDate, $q, $divisionId, $destinationFilter);
+        foreach ($rows as &$row) {
+            $row['qty_buy_after'] = round((float)($row['closing_qty_pack'] ?? 0), 4);
+            $row['qty_content_after'] = round((float)($row['closing_qty_content'] ?? 0), 4);
         }
-
-        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
-        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
-        $destinationTypeExpr = $hasDestinationType ? 'COALESCE(l.destination_type, \'OTHER\')' : "'OTHER'";
-        $subDestinationTypeExpr = $hasDestinationType ? 'COALESCE(x.destination_type, \'OTHER\')' : "'OTHER'";
-        $destinationGroupExpr = "CASE WHEN {$destinationTypeExpr} IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
-
-        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
-            ? 'division_code'
-            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
-        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
-            ? 'division_name'
-            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
-        $divisionCodeSelect = $divisionCodeColumn ? ('dv.' . $divisionCodeColumn . ' AS division_code') : 'CAST(l.division_id AS CHAR) AS division_code';
-        $divisionNameSelect = $divisionNameColumn ? ('dv.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
-
-        $sql = "
-            SELECT
-                l.id,
-                l.division_id,
-                {$divisionCodeSelect},
-                {$divisionNameSelect},
-                l.movement_date,
-                {$destinationTypeExpr} AS destination_type,
-                {$destinationGroupExpr} AS destination_group,
-                CASE WHEN {$destinationTypeExpr} IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'Event' ELSE 'Reguler' END AS destination_name,
-                l.item_id,
-                COALESCE(l.material_id, i.material_id) AS material_id,
-                l.buy_uom_id,
-                l.content_uom_id,
-                l.profile_key,
-                l.profile_name,
-                l.profile_brand,
-                l.profile_description,
-                l.profile_expired_date,
-                l.profile_content_per_buy,
-                i.item_code,
-                i.item_name,
-                m.material_code,
-                m.material_name,
-                l.qty_buy_after,
-                l.qty_content_after
-            FROM inv_stock_movement_log l
-            LEFT JOIN mst_item i ON i.id = l.item_id
-            LEFT JOIN mst_material m ON m.id = COALESCE(l.material_id, i.material_id)
-            LEFT JOIN mst_operational_division dv ON dv.id = l.division_id
-            INNER JOIN (
-                SELECT MAX(x.id) AS last_id
-                FROM inv_stock_movement_log x
-                LEFT JOIN mst_item xi ON xi.id = x.item_id
-                WHERE x.movement_scope = 'DIVISION'
-                  AND x.movement_date <= ?
-                  AND COALESCE(x.material_id, xi.material_id) IS NOT NULL
-        ";
-
-        $params = [$asOfDate];
-
-        if ($divisionId !== null && $divisionId > 0) {
-            $sql .= " AND x.division_id = ? ";
-            $params[] = $divisionId;
-        }
-        if ($hasDestinationType && $destinationFilter !== null && $destinationFilter !== 'ALL') {
-            if ($destinationFilter === 'REGULER') {
-                $sql .= " AND {$subDestinationTypeExpr} NOT IN ('BAR_EVENT','KITCHEN_EVENT') ";
-            } elseif ($destinationFilter === 'EVENT') {
-                $sql .= " AND {$subDestinationTypeExpr} IN ('BAR_EVENT','KITCHEN_EVENT') ";
-            } else {
-                $sql .= " AND {$subDestinationTypeExpr} = ? ";
-                $params[] = $destinationFilter;
-            }
-        }
-
-        $sql .= "
-                GROUP BY
-                    x.division_id,
-                    {$subDestinationTypeExpr},
-                    x.item_id,
-                    COALESCE(x.material_id, xi.material_id),
-                    x.buy_uom_id,
-                    x.content_uom_id,
-                    x.profile_key
-            ) latest ON latest.last_id = l.id
-            WHERE COALESCE(l.material_id, i.material_id) IS NOT NULL
-        ";
-
-        if ($q !== '') {
-            $sql .= " AND (
-                i.item_code LIKE ?
-                OR i.item_name LIKE ?
-                OR m.material_code LIKE ?
-                OR m.material_name LIKE ?
-            )";
-            $like = '%' . $q . '%';
-            array_push($params, $like, $like, $like, $like);
-        }
-
-        $sql .= " ORDER BY division_name ASC, destination_group ASC, COALESCE(m.material_name, i.item_name) ASC";
-
-        $rows = $this->db->query($sql, $params)->result_array();
-        $rows = $this->normalizeDivisionProfileKeyRows($rows);
-
-        $latestRows = [];
-        foreach ($rows as $row) {
-            $identityKey = implode('|', [
-                (int)($row['division_id'] ?? 0),
-                strtoupper((string)($row['destination_type'] ?? 'OTHER')),
-                (int)($row['item_id'] ?? 0),
-                (int)($row['material_id'] ?? 0),
-                (int)($row['buy_uom_id'] ?? 0),
-                (int)($row['content_uom_id'] ?? 0),
-                strtoupper(trim((string)($row['profile_key'] ?? ''))),
-            ]);
-            $latestRows[$identityKey] = $row;
-        }
-
-        $rows = array_values($latestRows);
-        usort($rows, static function (array $a, array $b): int {
-            $cmp = strcasecmp((string)($a['division_name'] ?? ''), (string)($b['division_name'] ?? ''));
-            if ($cmp !== 0) {
-                return $cmp;
-            }
-            $cmp = strcasecmp((string)($a['destination_group'] ?? ''), (string)($b['destination_group'] ?? ''));
-            if ($cmp !== 0) {
-                return $cmp;
-            }
-            $cmp = strcasecmp((string)($a['material_name'] ?? ($a['item_name'] ?? '')), (string)($b['material_name'] ?? ($b['item_name'] ?? '')));
-            if ($cmp !== 0) {
-                return $cmp;
-            }
-            return ((int)($a['id'] ?? 0) <=> (int)($b['id'] ?? 0));
-        });
+        unset($row);
 
         return $rows;
     }

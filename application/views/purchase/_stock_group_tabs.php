@@ -13,13 +13,14 @@ $buttonClass = static function (string $tabKey) use ($activeTab): string {
 if ($tabScope === 'DIVISION') {
     $links = [
         ['key' => 'daily_matrix', 'label' => 'Daily Material Matrix', 'url' => site_url('inventory-material-daily')],
-        ['key' => 'stock', 'label' => 'Stok Divisi', 'url' => site_url('inventory/stock/division')],
-        ['key' => 'opening', 'label' => 'Opening Divisi', 'url' => site_url('inventory/stock/opening/division')],
-        ['key' => 'adjustment', 'label' => 'Adjustment Divisi', 'url' => site_url('inventory/stock/adjustment/division')],
-        ['key' => 'movement', 'label' => 'Keluar Masuk Divisi', 'url' => site_url('inventory/stock/division/movement')],
-        ['key' => 'daily', 'label' => 'Stok Bulanan/Snapshot Harian Divisi', 'url' => site_url('inventory/stock/division/daily')],
-        ['key' => 'compare', 'label' => 'Banding Stok Akhir', 'url' => site_url('inventory/stock/division/reconcile')],
-        ['key' => 'lot', 'label' => 'Lot Divisi', 'url' => site_url('inventory/stock/division/lot')],
+        ['key' => 'stock',        'label' => 'Stok Divisi',            'url' => site_url('inventory/stock/division')],
+        ['key' => 'opening',      'label' => 'Opening',                'url' => site_url('inventory/stock/opening/division')],
+        ['key' => 'koreksi',      'label' => 'Koreksi',                'url' => site_url('inventory/stock/opname/division')],
+        ['key' => 'adjustment',   'label' => 'Adjustment',             'url' => site_url('inventory/stock/adjustment/division')],
+        ['key' => 'movement',     'label' => 'Keluar Masuk',           'url' => site_url('inventory/stock/division/movement')],
+        ['key' => 'daily',        'label' => 'Stok Bulanan / Daily',   'url' => site_url('inventory/stock/division/daily')],
+        ['key' => 'compare',      'label' => 'Banding Stok Akhir',     'url' => site_url('inventory/stock/division/reconcile')],
+        ['key' => 'lot',          'label' => 'Lot',                    'url' => site_url('inventory/stock/division/lot')],
     ];
 } else {
     $links = [
