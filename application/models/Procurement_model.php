@@ -267,6 +267,43 @@ class Procurement_model extends CI_Model
         return null;
     }
 
+    private function resolve_item_default_usage_purpose(?int $itemId, ?int $materialId, string $profileKey, ?string $profileName = null): string
+    {
+        if (!$this->db->table_exists('mst_item') || !$this->db->field_exists('default_usage_purpose', 'mst_item')) {
+            return self::USAGE_PURPOSE_PRODUCTION;
+        }
+
+        $resolvedItemId = $this->nullable_int($itemId);
+        if ($resolvedItemId === null || $resolvedItemId <= 0) {
+            $resolvedItemId = $this->resolve_operational_item_id($itemId, $materialId, $profileKey);
+        }
+
+        if (($resolvedItemId === null || $resolvedItemId <= 0) && $profileName !== null && trim($profileName) !== '') {
+            $row = $this->db
+                ->select('id')
+                ->from('mst_item')
+                ->where('UPPER(TRIM(item_name)) =', strtoupper(trim($profileName)))
+                ->order_by('id', 'ASC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $resolvedItemId = (int)($row['id'] ?? 0);
+        }
+
+        if ($resolvedItemId !== null && $resolvedItemId > 0) {
+            $row = $this->db
+                ->select('default_usage_purpose')
+                ->from('mst_item')
+                ->where('id', $resolvedItemId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            return $this->normalize_usage_purpose($row['default_usage_purpose'] ?? self::USAGE_PURPOSE_PRODUCTION);
+        }
+
+        return self::USAGE_PURPOSE_PRODUCTION;
+    }
+
     private function resolve_material_id_from_item(?int $itemId, ?int $materialId, string $profileKey): ?int
     {
         if ($materialId !== null && $materialId > 0) {
@@ -1224,6 +1261,52 @@ class Procurement_model extends CI_Model
                 ->join('mst_vendor v', 'v.id = l.vendor_id', 'left');
         }
         $lines = $this->db->get()->result_array();
+        foreach ($lines as &$line) {
+            $itemId = (int)($line['item_id'] ?? 0);
+            $materialId = (int)($line['material_id'] ?? 0);
+            $profileKey = trim((string)($line['profile_key'] ?? ''));
+            $profileName = trim((string)($line['profile_name'] ?? ''));
+            $storedSourceType = strtoupper(trim((string)($line['source_type'] ?? '')));
+            if ($storedSourceType === '') {
+                if ($itemId <= 0 && $materialId <= 0 && $profileName !== '') {
+                    $storedSourceType = 'MANUAL';
+                } else {
+                    $storedSourceType = 'CATALOG';
+                }
+            }
+
+            $defaultUsagePurpose = $this->resolve_item_default_usage_purpose(
+                $itemId > 0 ? $itemId : null,
+                $materialId > 0 ? $materialId : null,
+                $profileKey,
+                $profileName !== '' ? $profileName : null
+            );
+            $usagePurpose = trim((string)($line['usage_purpose'] ?? '')) !== ''
+                ? $this->normalize_usage_purpose($line['usage_purpose'])
+                : $defaultUsagePurpose;
+
+            $canonicalIdentity = $this->resolve_canonical_transaction_identity([
+                'item_id' => $itemId > 0 ? $itemId : null,
+                'material_id' => $materialId > 0 ? $materialId : null,
+                'profile_key' => $profileKey,
+                'usage_purpose' => $usagePurpose,
+            ], $usagePurpose);
+
+            $resolvedItemId = (int)($canonicalIdentity['item_id'] ?? 0);
+            $resolvedMaterialId = (int)($canonicalIdentity['material_id'] ?? 0);
+            if ($itemId <= 0 && $resolvedItemId > 0) {
+                $line['item_id'] = $resolvedItemId;
+            }
+            if ($materialId <= 0 && $resolvedMaterialId > 0) {
+                $line['material_id'] = $resolvedMaterialId;
+            }
+
+            $line['default_usage_purpose'] = $defaultUsagePurpose;
+            $line['usage_purpose'] = $usagePurpose;
+            $line['line_kind'] = (string)($canonicalIdentity['line_kind'] ?? ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL ? 'ITEM' : ($resolvedMaterialId > 0 ? 'MATERIAL' : 'ITEM')));
+            $line['source_type'] = $storedSourceType;
+        }
+        unset($line);
 
         $linksMap = $this->list_division_request_links_map([$requestId]);
 

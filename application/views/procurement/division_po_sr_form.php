@@ -49,10 +49,23 @@ foreach ((array)$lines as $line) {
   $buyUomCode = (string)($line['profile_buy_uom_code'] ?? '');
   $contentUomCode = (string)($line['profile_content_uom_code'] ?? '');
   $storedRequestMode = strtoupper(trim((string)($line['request_uom_mode'] ?? '')));
+  $itemId = !empty($line['item_id']) ? (int)$line['item_id'] : null;
+  $materialId = !empty($line['material_id']) ? (int)$line['material_id'] : null;
+  $profileName = (string)($line['profile_name'] ?? '');
+  $storedSourceType = strtoupper(trim((string)($line['source_type'] ?? '')));
+  if ($storedSourceType === '') {
+    $storedSourceType = ($itemId === null && $materialId === null && trim($profileName) !== '')
+      ? 'MANUAL'
+      : ($qtyContentBalance > 0 ? 'WAREHOUSE' : 'CATALOG');
+  }
+  $storedLineKind = strtoupper(trim((string)($line['line_kind'] ?? '')));
+  if ($storedLineKind === '') {
+    $storedLineKind = $materialId !== null ? 'MATERIAL' : 'ITEM';
+  }
     $initialLines[] = [
-        'line_kind' => (string)($line['line_kind'] ?? 'ITEM'),
-        'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
-        'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
+        'line_kind' => $storedLineKind,
+        'item_id' => $itemId,
+        'material_id' => $materialId,
         'profile_key' => (string)($line['profile_key'] ?? ''),
         'profile_name' => (string)($line['profile_name'] ?? ''),
         'profile_brand' => (string)($line['profile_brand'] ?? ''),
@@ -78,7 +91,7 @@ foreach ((array)$lines as $line) {
         'estimated_unit_price' => (float)($line['estimated_unit_price'] ?? 0),
         'default_usage_purpose' => (string)($line['default_usage_purpose'] ?? ($line['usage_purpose'] ?? 'BAHAN_BAKU')),
         'usage_purpose' => (string)($line['usage_purpose'] ?? ($line['default_usage_purpose'] ?? 'BAHAN_BAKU')),
-        'source_type' => (string)($line['source_type'] ?? ($qtyContentBalance > 0 ? 'WAREHOUSE' : 'CATALOG')),
+        'source_type' => $storedSourceType,
         'notes' => (string)($line['notes'] ?? ''),
         'line_reviewed' => !$canVerify || !empty($line['line_reviewed']),
     ];
@@ -569,7 +582,7 @@ if (!function_exists('finance_dreq_location_label')) {
         <div id="dreqDraftAlert"></div>
         <div class="row g-3">
           <div class="col-md-3">
-            <label class="form-label mb-1">Jenis Line</label>
+            <label class="form-label mb-1">Arah Stok</label>
             <input type="text" class="form-control" id="dreqDraftKind" readonly>
           </div>
           <div class="col-md-3">
@@ -668,7 +681,7 @@ if (!function_exists('finance_dreq_location_label')) {
         </div>
         <div class="row g-3">
           <div class="col-md-3">
-            <label class="form-label mb-1">Jenis Line</label>
+            <label class="form-label mb-1">Arah Stok</label>
             <input type="text" class="form-control" id="dreqVerifyKind" readonly>
           </div>
           <div class="col-md-3">
@@ -849,6 +862,25 @@ if (!function_exists('finance_dreq_location_label')) {
     return normalizeUsagePurpose(value) === 'OPERASIONAL' ? 'Kebutuhan Operasional' : 'Persediaan Produksi';
   }
 
+  function effectiveLineKind(row) {
+    var usagePurpose = normalizeUsagePurpose(row && (row.usage_purpose || row.default_usage_purpose));
+    if (usagePurpose === 'OPERASIONAL') {
+      return 'ITEM';
+    }
+    if (num(row && row.material_id) > 0) {
+      return 'MATERIAL';
+    }
+    if (num(row && row.item_id) > 0) {
+      return 'ITEM';
+    }
+    var legacyKind = String(row && row.line_kind || '').toUpperCase().trim();
+    return legacyKind === 'MATERIAL' ? 'MATERIAL' : 'ITEM';
+  }
+
+  function effectiveLineKindLabel(row) {
+    return effectiveLineKind(row) === 'MATERIAL' ? 'Stok Material' : 'Stok Item';
+  }
+
   function renderUsagePurposeOptions(selectedValue) {
     var normalized = normalizeUsagePurpose(selectedValue);
     var html = '';
@@ -937,7 +969,7 @@ if (!function_exists('finance_dreq_location_label')) {
       qtyBuyBalance = qtyContentBalance / contentPerBuy;
     }
     var normalized = {
-      line_kind: row.line_kind || (num(row.material_id) > 0 ? 'MATERIAL' : 'ITEM'),
+      line_kind: effectiveLineKind(row),
       item_id: num(row.item_id) > 0 ? num(row.item_id) : null,
       material_id: num(row.material_id) > 0 ? num(row.material_id) : null,
       profile_key: row.profile_key || '',
@@ -1550,7 +1582,7 @@ if (!function_exists('finance_dreq_location_label')) {
       verifyNoteEl.textContent = row.line_reviewed ? 'Line sudah pernah direview. Anda bisa cek ulang sebelum simpan akhir.' : 'Line belum direview. Simpan hasil review line ini dulu.';
     }
     if (verifyKindEl) {
-      verifyKindEl.value = row.line_kind || '-';
+      verifyKindEl.value = effectiveLineKindLabel(row);
     }
     if (verifyBrandEl) {
       verifyBrandEl.value = row.profile_brand || '';
@@ -1677,7 +1709,7 @@ if (!function_exists('finance_dreq_location_label')) {
         : 'Fallback katalog/master. Line ini akan cenderung masuk PO jika stok gudang tidak ada saat proses.';
     }
     if (draftKindEl) {
-      draftKindEl.value = normalized.line_kind || '-';
+      draftKindEl.value = effectiveLineKindLabel(normalized);
     }
     if (draftBrandEl) {
       draftBrandEl.value = normalized.profile_brand || '';
@@ -1976,7 +2008,7 @@ if (!function_exists('finance_dreq_location_label')) {
     var queryKey = [
       keyword.toUpperCase(),
       String(num(row.vendor_id) || ''),
-      String(row.line_kind || '').toUpperCase(),
+      effectiveLineKind(row),
       normalizeToken(row.profile_brand),
       normalizeToken(row.profile_description)
     ].join('|');
@@ -1986,7 +2018,7 @@ if (!function_exists('finance_dreq_location_label')) {
     renderLines();
 
     var url = catalogSearchUrl + '?q=' + encodeURIComponent(keyword)
-      + '&line_kind=' + encodeURIComponent(String(row.line_kind || '').toUpperCase())
+      + '&line_kind=' + encodeURIComponent(effectiveLineKind(row))
       + '&limit=8';
     if (num(row.vendor_id) > 0) {
       url += '&vendor_id=' + encodeURIComponent(String(num(row.vendor_id)));
@@ -2001,7 +2033,7 @@ if (!function_exists('finance_dreq_location_label')) {
           throw new Error((response && response.message) ? response.message : 'Gagal memuat saran profile.');
         }
 
-        var kind = String(row.line_kind || '').toUpperCase();
+        var kind = effectiveLineKind(row);
         var items = Array.isArray(response.items) ? response.items : [];
         var filtered = items.filter(function (it) {
           var itemKind = String(it.line_kind || 'ITEM').toUpperCase();
@@ -2053,7 +2085,7 @@ if (!function_exists('finance_dreq_location_label')) {
     var poPrimaryQty = hasRequestModeSelection(row) ? requestPoQtyValue(row) : 0;
     var currentMode = requestMode(row && row.request_uom_mode);
 
-    row.line_kind = String(suggestion.line_kind || row.line_kind || 'ITEM').toUpperCase();
+    row.line_kind = String(suggestion.line_kind || effectiveLineKind(row) || 'ITEM').toUpperCase();
     row.item_id = num(suggestion.item_id) > 0 ? num(suggestion.item_id) : null;
     row.material_id = num(suggestion.material_id) > 0 ? num(suggestion.material_id) : null;
     row.profile_key = String(suggestion.profile_key || row.profile_key || '');
@@ -2207,7 +2239,7 @@ if (!function_exists('finance_dreq_location_label')) {
       if (isVerifyMode) {
         html += '<tr>'
           + profileCellHtml
-          + '<td>' + esc(row.line_kind || '-') + '</td>'
+          + '<td>' + esc(effectiveLineKind(row)) + '</td>'
           + '<td><span class="badge bg-' + routeClass + '">' + esc(routeLabel(row)) + '</span></td>'
           + vendorCellHtml
           + '<td class="dreq-uom-cell"><div class="fw-semibold">' + esc(row.profile_buy_uom_code || '-') + ' -> ' + esc(row.profile_content_uom_code || '-') + '</div><div class="small text-muted">' + esc(packSummary(row)) + '</div></td>'
@@ -2220,7 +2252,7 @@ if (!function_exists('finance_dreq_location_label')) {
       } else {
         html += '<tr>'
           + profileCellHtml
-          + '<td>' + esc(row.line_kind || '-') + '</td>'
+          + '<td>' + esc(effectiveLineKind(row)) + '</td>'
           + '<td><span class="badge bg-' + routeClass + '">' + esc(routeLabel(row)) + '</span></td>'
           + vendorCellHtml
           + '<td class="dreq-uom-cell"><div class="fw-semibold">' + esc(row.profile_buy_uom_code || '-') + ' -> ' + esc(row.profile_content_uom_code || '-') + '</div><div class="small text-muted">' + esc(packSummary(row)) + '</div></td>'
