@@ -7782,7 +7782,7 @@ class Purchase_model extends CI_Model
         $activityDateExpr = 'COALESCE(s.last_movement_date, DATE(s.updated_at), s.month_key)';
 
         $this->db
-            ->select('s.id, s.item_id, i.item_code, i.item_name, s.profile_key, s.profile_name, s.profile_brand, s.profile_description')
+            ->select('s.id, COALESCE(s.stock_domain, "ITEM") AS stock_domain, s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id, i.item_code, i.item_name, s.profile_key, s.profile_name, s.profile_brand, s.profile_description', false)
             ->select('s.profile_content_per_buy, s.profile_buy_uom_code, s.profile_content_uom_code')
             ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content')
             ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
@@ -7834,7 +7834,38 @@ class Purchase_model extends CI_Model
             return [];
         }
 
-        return $query->result_array();
+        $rows = $query->result_array();
+        $best = [];
+        foreach ($rows as $row) {
+            $identityKey = implode('|', [
+                (int)($row['item_id'] ?? 0),
+                (int)($row['material_id'] ?? 0),
+                (int)($row['buy_uom_id'] ?? 0),
+                (int)($row['content_uom_id'] ?? 0),
+                strtoupper(trim((string)($row['profile_key'] ?? ''))),
+            ]);
+            if (!isset($best[$identityKey])) {
+                $best[$identityKey] = $row;
+                continue;
+            }
+            $current = $best[$identityKey];
+            $currentDomain = strtoupper(trim((string)($current['stock_domain'] ?? 'ITEM')));
+            $nextDomain = strtoupper(trim((string)($row['stock_domain'] ?? 'ITEM')));
+            if ($currentDomain === 'MATERIAL' && $nextDomain !== 'MATERIAL') {
+                $best[$identityKey] = $row;
+                continue;
+            }
+            if ($currentDomain !== 'MATERIAL' && $nextDomain === 'MATERIAL') {
+                continue;
+            }
+            $currentUpdated = (string)($current['updated_at'] ?? '');
+            $nextUpdated = (string)($row['updated_at'] ?? '');
+            if ($nextUpdated > $currentUpdated || ($nextUpdated === $currentUpdated && (int)($row['id'] ?? 0) > (int)($current['id'] ?? 0))) {
+                $best[$identityKey] = $row;
+            }
+        }
+
+        return array_values($best);
     }
 
     private function list_division_stock_monthly(string $q, int $limit, ?string $destinationFilter = null, string $dateFrom = '', string $dateTo = '', ?int $divisionId = null): array
@@ -7878,7 +7909,7 @@ class Purchase_model extends CI_Model
         $activityDateExpr = 'COALESCE(s.last_movement_date, DATE(s.updated_at), s.month_key)';
 
         $this->db
-            ->select('s.id, s.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect . ', s.item_id, COALESCE(s.material_id, i.material_id) AS material_id', false)
+            ->select('s.id, COALESCE(s.stock_domain, "ITEM") AS stock_domain, s.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect . ', s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id', false)
             ->select('s.destination_type AS destination_type', false)
             ->select($destinationGroupExpr . ' AS destination_group', false)
             ->select($destinationNameExpr . ' AS destination_name', false)
@@ -7975,7 +8006,40 @@ class Purchase_model extends CI_Model
             return [];
         }
 
-        return $query->result_array();
+        $rows = $query->result_array();
+        $best = [];
+        foreach ($rows as $row) {
+            $identityKey = implode('|', [
+                (int)($row['division_id'] ?? 0),
+                strtoupper((string)($row['destination_type'] ?? 'OTHER')),
+                (int)($row['item_id'] ?? 0),
+                (int)($row['material_id'] ?? 0),
+                (int)($row['buy_uom_id'] ?? 0),
+                (int)($row['content_uom_id'] ?? 0),
+                strtoupper(trim((string)($row['profile_key'] ?? ''))),
+            ]);
+            if (!isset($best[$identityKey])) {
+                $best[$identityKey] = $row;
+                continue;
+            }
+            $current = $best[$identityKey];
+            $currentDomain = strtoupper(trim((string)($current['stock_domain'] ?? 'ITEM')));
+            $nextDomain = strtoupper(trim((string)($row['stock_domain'] ?? 'ITEM')));
+            if ($currentDomain === 'MATERIAL' && $nextDomain !== 'MATERIAL') {
+                $best[$identityKey] = $row;
+                continue;
+            }
+            if ($currentDomain !== 'MATERIAL' && $nextDomain === 'MATERIAL') {
+                continue;
+            }
+            $currentUpdated = (string)($current['updated_at'] ?? '');
+            $nextUpdated = (string)($row['updated_at'] ?? '');
+            if ($nextUpdated > $currentUpdated || ($nextUpdated === $currentUpdated && (int)($row['id'] ?? 0) > (int)($current['id'] ?? 0))) {
+                $best[$identityKey] = $row;
+            }
+        }
+
+        return array_values($best);
     }
 
     public function list_purchase_orders_for_receipt(string $q = '', int $limit = 100): array

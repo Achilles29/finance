@@ -1971,7 +1971,7 @@ class Production_model extends CI_Model
             ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
             ->get_compiled_select();
 
-        $this->db->select('s.month_key, s.location_type, s.division_id, ' . $divisionNameSelect . ', s.component_id, c.component_code, c.component_name, c.component_type, s.uom_id, u.code AS uom_code, s.opening_qty, s.opening_total_value, s.closing_qty, s.avg_cost, s.total_value, s.last_movement_at', false)
+        $this->db->select('s.id, s.month_key, s.location_type, s.division_id, ' . $divisionNameSelect . ', s.component_id, c.component_code, c.component_name, c.component_type, s.uom_id, u.code AS uom_code, s.opening_qty, s.opening_total_value, s.closing_qty, s.avg_cost, s.total_value, s.last_movement_at, COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
             ->from('inv_component_monthly_stock s')
             ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
             ->join('mst_component c', 'c.id = s.component_id', 'inner')
@@ -2001,7 +2001,23 @@ class Production_model extends CI_Model
             $this->db->group_end();
         }
 
-        return $this->db->get()->result_array();
+        $rows = $this->db->get()->result_array();
+        $best = [];
+        foreach ($rows as $row) {
+            $key = $this->component_identity_key((string)($row['location_type'] ?? ''), $row['division_id'] ?? null, (int)($row['component_id'] ?? 0), (int)($row['uom_id'] ?? 0));
+            if (!isset($best[$key])) {
+                $best[$key] = $row;
+                continue;
+            }
+            $current = $best[$key];
+            $currentUpdated = (string)($current['updated_at'] ?? '');
+            $nextUpdated = (string)($row['updated_at'] ?? '');
+            if ($nextUpdated > $currentUpdated || ($nextUpdated === $currentUpdated && (int)($row['id'] ?? 0) > (int)($current['id'] ?? 0))) {
+                $best[$key] = $row;
+            }
+        }
+
+        return array_values($best);
     }
 
     private function fetch_component_daily_projection_rows(array $filters, string $startDate, string $endDate): ?array

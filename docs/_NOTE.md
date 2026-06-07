@@ -79,10 +79,11 @@ v laporan daily sales seperti core /pos-reports/daily-sales , kemudian cetak
 
 
 
+sekarang saya ingin buatkan halaman mirip /master/material
 
 buatkan halaman untuk kroscek / rekin data stok bahan baku harian.
 halamannya mirip stok bahan baku divisi dengan tampilan yang lebih simple dan efisien.
-halaman menampilkan stok bahan per divisi yang bisa di breakdown per profil child nya untuk yang punya child. lalu di kolom sebelahnya adalah kolom form input data stok fisik (ajax). kolom sebelahnya lagi otomatis muncul selisih stok nya. lalu ada aksi langsung penyesuaian untuk stok yang miss, dengan opsi sesuai stok adjusment
+halaman menampilkan stok bahan per divisi yang bisa di breakdown per profil child nya untuk yang punya child. lalu di kolom sebelahnya adalah kolom form input data stok fisik (ajax). kolom sebelahnya lagi otomatis muncul selisih stok nya. lalu ada aksi langsung penyesuaian untuk stok yang miss, dengan opsi sesuai stok adjusment. taruh di sidebar rumupun inv divisi (masukkan databasenya)
 
 
 
@@ -96,11 +97,3 @@ db replication belum sinkron
 
 
 
-
-- defautl tampilan data hari ini. khusus grafik bulan ini. grafik masih belum muncul
-- Komposisi status pos  belum muncul
-- kesehatan stok hapus saja , sudah diwakili stok minus dan kritis, ganti dengan stok produk berdasarkan live pos, yang bisa di berakdown / expand per resep dan stok bahan baku live jadi kelihatan bottlenecknya
-
-- Stok Minus & Kritis di Divisi dan Base Prepare tambahkan tab lagi untuk divisnya. dan tampilannya jangan panjang begitu, tapi berikan form sekitar 10 item dan sisanya scrollabel agar tidak kepanjangan untuk row itu
-
-- Stok Kritis Detail saat pindah tab jangn refresh
