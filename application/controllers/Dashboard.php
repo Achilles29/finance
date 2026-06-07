@@ -23,6 +23,7 @@ class Dashboard extends MY_Controller
         $filters = $this->dashboard_filters();
         $stockCards = $this->dashboard_stock_cards();
         $salesOverview = $this->dashboard_pos_sales_overview($filters);
+        $divisionFilter = (int)$this->input->get('critical_division_id', true);
         $data = [
             'title'       => 'Dashboard',
             'active_menu' => 'dashboard',
@@ -31,10 +32,11 @@ class Dashboard extends MY_Controller
             'trend' => $this->dashboard_trend_series($filters),
             'pos_status_rows' => $this->dashboard_pos_status_rows($filters),
             'pos_scope_rows' => $this->dashboard_pos_scope_rows($filters),
-            'purchase_status_rows' => $this->dashboard_purchase_status_rows($filters),
-            'store_request_status_rows' => $this->dashboard_store_request_status_rows($filters),
             'stock_cards' => $stockCards,
-            'critical_stock_rows' => $this->dashboard_critical_stock_rows(),
+            'stock_breakdown' => $this->dashboard_stock_breakdown(),
+            'critical_stock_rows' => $this->dashboard_critical_stock_rows($divisionFilter),
+            'critical_divisions' => $this->dashboard_critical_divisions(),
+            'critical_division_filter' => $divisionFilter,
             'recent_activity' => $this->dashboard_recent_activity($filters),
         ];
 
@@ -70,15 +72,19 @@ class Dashboard extends MY_Controller
     {
         $today = date('Y-m-d');
         $period = strtolower(trim((string)$this->input->get('period', true)));
-        if (!in_array($period, ['today', '7', '30', 'custom'], true)) {
-            $period = 'today';
+        if (!in_array($period, ['today', 'month', '7', '30', 'custom'], true)) {
+            $period = 'month';
         }
 
-        $dateFrom = $today;
+        $dateFrom = date('Y-m-01');
         $dateTo = $today;
-        $periodLabel = 'Hari Ini';
+        $periodLabel = 'Bulan Ini';
 
-        if ($period === '7') {
+        if ($period === 'today') {
+            $dateFrom = $today;
+            $dateTo = $today;
+            $periodLabel = 'Hari Ini';
+        } elseif ($period === '7') {
             $dateFrom = date('Y-m-d', strtotime('-6 days', strtotime($today)));
             $periodLabel = '7 Hari Terakhir';
         } elseif ($period === '30') {
@@ -147,8 +153,8 @@ class Dashboard extends MY_Controller
             'refund_total' => 0.0,
             'critical_stock_total' => 0,
             'present_employee_count' => 0,
-            'open_purchase_order_count' => 0,
-            'pending_store_request_count' => 0,
+            'total_nilai_po' => 0.0,
+            'total_nilai_sr' => 0.0,
         ];
 
         $kpi['transaction_count'] = (int)($salesOverview['transaction_count'] ?? 0);
@@ -167,23 +173,17 @@ class Dashboard extends MY_Controller
         }
 
         if ($this->dashboard_table_ready('pur_purchase_order')) {
-            $kpi['open_purchase_order_count'] = (int)$this->db
-                ->select('COUNT(*) AS total', false)
+            $kpi['total_nilai_po'] = (float)$this->db
+                ->select('COALESCE(SUM(grand_total), 0) AS total', false)
                 ->from('pur_purchase_order')
                 ->where('request_date >=', $filters['date_from'])
                 ->where('request_date <=', $filters['date_to'])
-                ->where_in('status', $this->dashboard_active_po_statuses())
+                ->where('status !=', 'VOID')
                 ->get()->row('total');
         }
 
-        if ($this->dashboard_table_ready('pur_store_request')) {
-            $kpi['pending_store_request_count'] = (int)$this->db
-                ->select('COUNT(*) AS total', false)
-                ->from('pur_store_request')
-                ->where('request_date >=', $filters['date_from'])
-                ->where('request_date <=', $filters['date_to'])
-                ->where_in('status', $this->dashboard_pending_sr_statuses())
-                ->get()->row('total');
+        if ($this->dashboard_table_ready('pur_store_request') && $this->dashboard_table_ready('pur_store_request_line')) {
+            $kpi['total_nilai_sr'] = $this->dashboard_total_nilai_sr($filters);
         }
         foreach ($stockCards as $stockCard) {
             $kpi['critical_stock_total'] += (int)($stockCard['critical_count'] ?? 0);
@@ -198,6 +198,8 @@ class Dashboard extends MY_Controller
         $sales = [];
         $refunds = [];
         $orders = [];
+        $poMap = [];
+        $srMap = [];
         $statusMap = [];
 
         if ($this->dashboard_table_ready('pos_order')) {
@@ -208,8 +210,8 @@ class Dashboard extends MY_Controller
                 ->select('COALESCE(SUM(o.paid_total),0) AS gross_sales_total', false)
                 ->from('pos_order o')
                 ->where_not_in('o.status', $this->dashboard_pos_excluded_statuses())
-                ->where($eventDateExpr . ' >=', $filters['date_from'], false)
-                ->where($eventDateExpr . ' <=', $filters['date_to'], false);
+                ->where($eventDateExpr . " >= '" . $filters['date_from'] . "'", null, false)
+                ->where($eventDateExpr . " <= '" . $filters['date_to'] . "'", null, false);
 
             if ($this->dashboard_pos_refund_available()) {
                 $this->db
@@ -234,17 +236,49 @@ class Dashboard extends MY_Controller
             }
         }
 
+        if ($this->dashboard_table_ready('pur_purchase_order')) {
+            $poRows = $this->db
+                ->select('request_date AS day_key, COALESCE(SUM(grand_total), 0) AS po_total', false)
+                ->from('pur_purchase_order')
+                ->where('request_date >=', $filters['date_from'])
+                ->where('request_date <=', $filters['date_to'])
+                ->where('status !=', 'VOID')
+                ->group_by('request_date')
+                ->get()->result_array();
+            foreach ($poRows as $row) {
+                $poMap[(string)($row['day_key'] ?? '')] = (float)($row['po_total'] ?? 0);
+            }
+        }
+
+        if ($this->dashboard_table_ready('pur_store_request')) {
+            $srRows = $this->db
+                ->select('request_date AS day_key, COUNT(*) AS sr_count', false)
+                ->from('pur_store_request')
+                ->where('request_date >=', $filters['date_from'])
+                ->where('request_date <=', $filters['date_to'])
+                ->where('status !=', 'VOID')
+                ->group_by('request_date')
+                ->get()->result_array();
+            foreach ($srRows as $row) {
+                $srMap[(string)($row['day_key'] ?? '')] = (int)($row['sr_count'] ?? 0);
+            }
+        }
+
         $period = new DatePeriod(
             new DateTime($filters['date_from']),
             new DateInterval('P1D'),
             (new DateTime($filters['date_to']))->modify('+1 day')
         );
+        $po = [];
+        $sr = [];
         foreach ($period as $dateObj) {
             $key = $dateObj->format('Y-m-d');
             $labels[] = $dateObj->format('d M');
             $sales[] = (float)($statusMap[$key]['sales'] ?? 0);
             $refunds[] = (float)($statusMap[$key]['refunds'] ?? 0);
             $orders[] = (int)($statusMap[$key]['orders'] ?? 0);
+            $po[] = (float)($poMap[$key] ?? 0);
+            $sr[] = (int)($srMap[$key] ?? 0);
         }
 
         return [
@@ -252,6 +286,8 @@ class Dashboard extends MY_Controller
             'sales' => $sales,
             'refunds' => $refunds,
             'orders' => $orders,
+            'po' => $po,
+            'sr' => $sr,
         ];
     }
 
@@ -267,8 +303,8 @@ class Dashboard extends MY_Controller
             ->select('status, COUNT(*) AS total', false)
             ->from('pos_order')
             ->where_not_in('status', $this->dashboard_pos_excluded_statuses())
-            ->where($eventDateExpr . ' >=', $filters['date_from'], false)
-            ->where($eventDateExpr . ' <=', $filters['date_to'], false)
+            ->where($eventDateExpr . " >= '" . $filters['date_from'] . "'", null, false)
+            ->where($eventDateExpr . " <= '" . $filters['date_to'] . "'", null, false)
             ->group_by('status')
             ->order_by('total', 'DESC')
             ->get()->result_array();
@@ -292,8 +328,8 @@ class Dashboard extends MY_Controller
             ->select('COALESCE(SUM(o.paid_total),0) AS gross_sales_total', false)
             ->from('pos_order o')
             ->where_not_in('o.status', $this->dashboard_pos_excluded_statuses())
-            ->where($eventDateExpr . ' >=', $filters['date_from'], false)
-            ->where($eventDateExpr . ' <=', $filters['date_to'], false);
+            ->where($eventDateExpr . " >= '" . $filters['date_from'] . "'", null, false)
+            ->where($eventDateExpr . " <= '" . $filters['date_to'] . "'", null, false);
 
         if ($scope !== null && $scope !== '') {
             $this->db->where('o.order_scope', strtoupper($scope));
@@ -370,8 +406,6 @@ class Dashboard extends MY_Controller
         return $this->db
             ->select('status, COUNT(*) AS total, COALESCE(SUM(grand_total),0) AS grand_total', false)
             ->from('pur_purchase_order')
-            ->where('request_date >=', $filters['date_from'])
-            ->where('request_date <=', $filters['date_to'])
             ->group_by('status')
             ->order_by('total', 'DESC')
             ->get()->result_array();
@@ -386,11 +420,132 @@ class Dashboard extends MY_Controller
         return $this->db
             ->select('status, COUNT(*) AS total', false)
             ->from('pur_store_request')
-            ->where('request_date >=', $filters['date_from'])
-            ->where('request_date <=', $filters['date_to'])
             ->group_by('status')
             ->order_by('total', 'DESC')
             ->get()->result_array();
+    }
+
+    private function dashboard_total_nilai_sr(array $filters): float
+    {
+        if (!$this->dashboard_table_ready('pur_store_request') || !$this->dashboard_table_ready('pur_store_request_line')) {
+            return 0.0;
+        }
+
+        $sql = "SELECT COALESCE(SUM(srl.qty_buy_requested * COALESCE(pc.last_unit_price, 0)), 0) AS total
+                FROM pur_store_request sr
+                INNER JOIN pur_store_request_line srl ON srl.store_request_id = sr.id
+                LEFT JOIN (
+                    SELECT profile_key, MAX(last_unit_price) AS last_unit_price
+                    FROM mst_purchase_catalog
+                    WHERE is_active = 1
+                    GROUP BY profile_key
+                ) pc ON pc.profile_key = srl.profile_key
+                WHERE sr.request_date >= " . $this->db->escape($filters['date_from']) . "
+                  AND sr.request_date <= " . $this->db->escape($filters['date_to']) . "
+                  AND sr.status != 'VOID'";
+
+        $result = $this->dashboard_safe_query($sql);
+        return $result ? (float)$result->row('total') : 0.0;
+    }
+
+    private function dashboard_stock_breakdown(): array
+    {
+        $divisionNameColumn = $this->dashboard_division_name_column();
+        return [
+            'warehouse' => $this->dashboard_stock_breakdown_warehouse(),
+            'division' => $this->dashboard_stock_breakdown_division($divisionNameColumn),
+            'component' => $this->dashboard_stock_breakdown_component($divisionNameColumn),
+        ];
+    }
+
+    private function dashboard_stock_breakdown_warehouse(): array
+    {
+        $query = $this->dashboard_warehouse_monthly_query(
+            "SELECT
+                COALESCE(s.profile_name, m.material_name, i.item_name, CONCAT('Item #', s.item_id)) AS item_name,
+                s.closing_qty_content AS qty,
+                GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) AS threshold,
+                COALESCE(s.total_value, 0) AS total_value,
+                CASE WHEN s.closing_qty_content < 0 THEN 'minus' ELSE 'kritis' END AS severity
+             FROM inv_warehouse_monthly_stock s
+             INNER JOIN ({latest_month_subquery}) lm
+                ON lm.identity_key = s.identity_key AND lm.month_key = s.month_key
+             LEFT JOIN mst_item i ON i.id = s.item_id
+             LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
+             WHERE s.closing_qty_content <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
+             ORDER BY s.closing_qty_content ASC
+             LIMIT 20"
+        );
+        return $query ? $query->result_array() : [];
+    }
+
+    private function dashboard_stock_breakdown_division(?string $divisionNameColumn): array
+    {
+        $locationSelect = $divisionNameColumn
+            ? ('COALESCE(d.' . $divisionNameColumn . ', CONCAT(\'Divisi #\', s.division_id))')
+            : "CONCAT('Divisi #', s.division_id)";
+
+        $query = $this->dashboard_division_monthly_query(
+            "SELECT
+                COALESCE(s.profile_name, m.material_name, i.item_name, CONCAT('Item #', s.item_id)) AS item_name,
+                {$locationSelect} AS location_name,
+                s.closing_qty_content AS qty,
+                GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) AS threshold,
+                COALESCE(s.total_value, 0) AS total_value,
+                CASE WHEN s.closing_qty_content < 0 THEN 'minus' ELSE 'kritis' END AS severity
+             FROM inv_division_monthly_stock s
+             INNER JOIN ({latest_month_subquery}) lm
+                ON lm.division_id = s.division_id AND lm.destination_type = s.destination_type
+               AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key
+             LEFT JOIN mst_item i ON i.id = s.item_id
+             LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
+             LEFT JOIN mst_operational_division d ON d.id = s.division_id
+             WHERE s.closing_qty_content <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
+             ORDER BY s.closing_qty_content ASC
+             LIMIT 20"
+        );
+        return $query ? $query->result_array() : [];
+    }
+
+    private function dashboard_stock_breakdown_component(?string $divisionNameColumn): array
+    {
+        $locationSelect = $divisionNameColumn
+            ? ('COALESCE(d.' . $divisionNameColumn . ', s.location_type)')
+            : 's.location_type';
+
+        $query = $this->dashboard_component_monthly_query(
+            "SELECT
+                COALESCE(c.component_name, CONCAT('Component #', s.component_id)) AS item_name,
+                {$locationSelect} AS location_name,
+                s.closing_qty AS qty,
+                GREATEST(COALESCE(c.min_stock, 0), 0) AS threshold,
+                COALESCE(s.total_value, 0) AS total_value,
+                CASE WHEN s.closing_qty < 0 THEN 'minus' ELSE 'kritis' END AS severity
+             FROM inv_component_monthly_stock s
+             INNER JOIN ({latest_month_subquery}) lm
+                ON lm.location_type = s.location_type AND lm.division_id <=> s.division_id
+               AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key
+             LEFT JOIN mst_component c ON c.id = s.component_id
+             LEFT JOIN mst_operational_division d ON d.id = s.division_id
+             WHERE s.closing_qty <= GREATEST(COALESCE(c.min_stock, 0), 0)
+             ORDER BY s.closing_qty ASC
+             LIMIT 20"
+        );
+        return $query ? $query->result_array() : [];
+    }
+
+    private function dashboard_critical_divisions(): array
+    {
+        if (!$this->dashboard_table_ready('mst_operational_division')) {
+            return [];
+        }
+        $nameCol = $this->db->field_exists('division_name', 'mst_operational_division') ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        if ($nameCol === null) {
+            return [];
+        }
+        return $this->db->select('id, ' . $nameCol . ' AS name')->from('mst_operational_division')
+            ->where('is_active', 1)->order_by($nameCol, 'ASC')->get()->result_array();
     }
 
     private function dashboard_stock_cards(): array
@@ -433,22 +588,26 @@ class Dashboard extends MY_Controller
         return $cards;
     }
 
-    private function dashboard_critical_stock_rows(): array
+    private function dashboard_critical_stock_rows(int $divisionFilter = 0): array
     {
         $rows = [];
         $divisionNameColumn = $this->dashboard_division_name_column();
 
-        $warehouseRows = $this->dashboard_warehouse_critical_rows();
-        if (!empty($warehouseRows)) {
-            $rows = array_merge($rows, $warehouseRows);
+        if ($divisionFilter <= 0) {
+            $warehouseRows = $this->dashboard_warehouse_critical_rows();
+            if (!empty($warehouseRows)) {
+                $rows = array_merge($rows, $warehouseRows);
+            }
         }
 
-        $divisionRows = $this->dashboard_division_critical_rows($divisionNameColumn);
+        $divisionRows = $this->dashboard_division_critical_rows($divisionNameColumn, $divisionFilter > 0 ? $divisionFilter : null);
         if (!empty($divisionRows)) {
             $rows = array_merge($rows, $divisionRows);
         }
 
-        $rows = array_merge($rows, $this->dashboard_component_critical_rows($divisionNameColumn));
+        if ($divisionFilter <= 0) {
+            $rows = array_merge($rows, $this->dashboard_component_critical_rows($divisionNameColumn));
+        }
 
         usort($rows, static function (array $left, array $right): int {
             $leftGap = (float)($left['threshold_qty'] ?? 0) - (float)($left['qty_balance'] ?? 0);
@@ -526,11 +685,13 @@ class Dashboard extends MY_Controller
         return $query !== null ? $query->result_array() : [];
     }
 
-    private function dashboard_division_critical_rows(?string $divisionNameColumn): array
+    private function dashboard_division_critical_rows(?string $divisionNameColumn, ?int $divisionId = null): array
     {
         $divisionLocationSelect = $divisionNameColumn !== null
             ? ('COALESCE(d.' . $divisionNameColumn . ', s.destination_type, CONCAT(\'Divisi #\', s.division_id))')
             : "COALESCE(s.destination_type, CONCAT('Divisi #', s.division_id))";
+
+        $divisionWhere = $divisionId !== null ? ' AND s.division_id = ' . (int)$divisionId : '';
 
         $query = $this->dashboard_division_monthly_query(
             "SELECT 'Divisi' AS stock_scope,
@@ -549,9 +710,10 @@ class Dashboard extends MY_Controller
              LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
              LEFT JOIN mst_operational_division d ON d.id = s.division_id
              WHERE s.closing_qty_content <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
+               {$divisionWhere}
              ORDER BY (GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) - s.closing_qty_content) DESC,
                       s.closing_qty_content ASC
-             LIMIT 5"
+             LIMIT 15"
         );
 
         return $query !== null ? $query->result_array() : [];

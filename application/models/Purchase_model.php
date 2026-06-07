@@ -1801,6 +1801,20 @@ class Purchase_model extends CI_Model
 
     private function buildInventoryDailyMatrixIdentityKey(string $stockScope, array $row): string
     {
+        $profileKey = strtoupper(trim((string)($row['profile_key'] ?? '')));
+        if ($profileKey !== '') {
+            return implode('|', [
+                $stockScope,
+                $stockScope === 'DIVISION' ? (string)($row['division_id'] ?? '') : '',
+                $stockScope === 'DIVISION' ? strtoupper((string)($row['destination_type'] ?? 'OTHER')) : '',
+                (int)($row['item_id'] ?? 0),
+                (int)($row['material_id'] ?? 0),
+                (int)($row['buy_uom_id'] ?? 0),
+                (int)($row['content_uom_id'] ?? 0),
+                $profileKey,
+            ]);
+        }
+
         return implode('|', [
             $stockScope,
             $stockScope === 'DIVISION' ? (string)($row['division_id'] ?? '') : '',
@@ -2565,7 +2579,7 @@ class Purchase_model extends CI_Model
 
     private function list_division_material_reconcile_identities(string $asOfDate, array $filters): array
     {
-        if (!$this->db->table_exists('inv_stock_movement_log')) {
+        if (!$this->db->table_exists('inv_stock_movement_log') && !$this->db->table_exists('inv_division_monthly_stock')) {
             return [];
         }
 
@@ -2573,37 +2587,73 @@ class Purchase_model extends CI_Model
         $itemId = (int)($filters['item_id'] ?? 0);
         $materialId = (int)($filters['material_id'] ?? 0);
         $destinationFilter = $this->normalizeDestinationFilter((string)($filters['destination'] ?? 'ALL'));
-        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
+        $rows = [];
 
-        $this->db
-            ->distinct()
-            ->select('l.division_id, l.destination_type, l.item_id, COALESCE(l.material_id, i.material_id) AS material_id, l.buy_uom_id, l.content_uom_id, l.profile_key, l.profile_name, l.profile_brand, l.profile_description, l.profile_expired_date, l.profile_content_per_buy, l.profile_buy_uom_code, l.profile_content_uom_code', false)
-            ->from('inv_stock_movement_log l')
-            ->join('mst_item i', 'i.id = l.item_id', 'left')
-            ->where('l.movement_scope', 'DIVISION')
-            ->where('l.movement_date <=', $asOfDate);
+        if ($this->db->table_exists('inv_stock_movement_log')) {
+            $hasDestinationType = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
+            $this->db
+                ->distinct()
+                ->select('l.division_id, l.destination_type, l.item_id, COALESCE(l.material_id, i.material_id) AS material_id, l.buy_uom_id, l.content_uom_id, l.profile_key, l.profile_name, l.profile_brand, l.profile_description, l.profile_expired_date, l.profile_content_per_buy, l.profile_buy_uom_code, l.profile_content_uom_code', false)
+                ->from('inv_stock_movement_log l')
+                ->join('mst_item i', 'i.id = l.item_id', 'left')
+                ->where('l.movement_scope', 'DIVISION')
+                ->where('l.movement_date <=', $asOfDate);
 
-        if ($divisionId > 0) {
-            $this->db->where('l.division_id', $divisionId);
-        }
-        if ($itemId > 0) {
-            $this->db->where('l.item_id', $itemId);
-        }
-        if ($materialId > 0) {
-            $this->db->where('COALESCE(l.material_id, i.material_id) = ' . (int)$materialId, null, false);
-        }
-        if ($hasDestinationType && $destinationFilter !== null && $destinationFilter !== 'ALL') {
-            if ($destinationFilter === 'REGULER') {
-                $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } else {
-                $this->db->where('l.destination_type', $destinationFilter);
+            if ($divisionId > 0) {
+                $this->db->where('l.division_id', $divisionId);
             }
+            if ($itemId > 0) {
+                $this->db->where('l.item_id', $itemId);
+            }
+            if ($materialId > 0) {
+                $this->db->where('COALESCE(l.material_id, i.material_id) = ' . (int)$materialId, null, false);
+            }
+            if ($hasDestinationType && $destinationFilter !== null && $destinationFilter !== 'ALL') {
+                if ($destinationFilter === 'REGULER') {
+                    $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                } elseif ($destinationFilter === 'EVENT') {
+                    $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                } else {
+                    $this->db->where('l.destination_type', $destinationFilter);
+                }
+            }
+
+            $rows = array_merge($rows, $this->db->get()->result_array());
         }
 
-        $rows = $this->db->get()->result_array();
+        if ($this->db->table_exists('inv_division_monthly_stock')) {
+            $targetMonth = date('Y-m-01', strtotime($asOfDate));
+            $this->db
+                ->distinct()
+                ->select('s.division_id, s.destination_type, s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id, s.profile_key, s.profile_name, s.profile_brand, s.profile_description, s.profile_expired_date, s.profile_content_per_buy, s.profile_buy_uom_code, s.profile_content_uom_code', false)
+                ->from('inv_division_monthly_stock s')
+                ->join('mst_item i', 'i.id = s.item_id', 'left')
+                ->where('s.month_key <=', $targetMonth);
+
+            if ($divisionId > 0) {
+                $this->db->where('s.division_id', $divisionId);
+            }
+            if ($itemId > 0) {
+                $this->db->where('s.item_id', $itemId);
+            }
+            if ($materialId > 0) {
+                $this->db->where('COALESCE(s.material_id, i.material_id) = ' . (int)$materialId, null, false);
+            }
+            if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
+                if ($destinationFilter === 'REGULER') {
+                    $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                } elseif ($destinationFilter === 'EVENT') {
+                    $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                } else {
+                    $this->db->where('s.destination_type', $destinationFilter);
+                }
+            }
+
+            $rows = array_merge($rows, $this->db->get()->result_array());
+        }
+
         $results = [];
+        $seen = [];
         foreach ($rows as $row) {
             $identity = [
                 'division_id' => !empty($row['division_id']) ? (int)$row['division_id'] : null,
@@ -2622,6 +2672,21 @@ class Purchase_model extends CI_Model
                 'profile_buy_uom_code' => $this->nullableString($row['profile_buy_uom_code'] ?? null),
                 'profile_content_uom_code' => $this->nullableString($row['profile_content_uom_code'] ?? null),
             ];
+
+            $seenKey = implode('|', [
+                (string)($identity['division_id'] ?? 0),
+                strtoupper((string)($identity['destination_type'] ?? 'OTHER')),
+                (string)($identity['item_id'] ?? 0),
+                (string)($identity['material_id'] ?? 0),
+                (string)($identity['buy_uom_id'] ?? 0),
+                (string)($identity['content_uom_id'] ?? 0),
+                trim((string)($identity['profile_key'] ?? '')),
+            ]);
+            if (isset($seen[$seenKey])) {
+                continue;
+            }
+            $seen[$seenKey] = true;
+
             $identity['_start_date'] = $this->resolve_division_material_reconcile_identity_start_date($asOfDate, $identity);
             $results[] = $identity;
         }

@@ -93,3 +93,14 @@ dan tidak ada lagi missmatch di pos/stock-commit-audit dan /pos/stock-live, dan 
 
 
 db replication belum sinkron
+
+
+
+
+- defautl tampilan data hari ini. khusus grafik bulan ini. grafik masih belum muncul
+- Komposisi status pos  belum muncul
+- kesehatan stok hapus saja , sudah diwakili stok minus dan kritis, ganti dengan stok produk berdasarkan live pos, yang bisa di berakdown / expand per resep dan stok bahan baku live jadi kelihatan bottlenecknya
+
+- Stok Minus & Kritis di Divisi dan Base Prepare tambahkan tab lagi untuk divisnya. dan tampilannya jangan panjang begitu, tapi berikan form sekitar 10 item dan sisanya scrollabel agar tidak kepanjangan untuk row itu
+
+- Stok Kritis Detail saat pindah tab jangn refresh

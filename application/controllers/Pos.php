@@ -76,24 +76,105 @@ class Pos extends MY_Controller
             $tab = 'material';
         }
 
-        $materialCompare = $this->Purchase_model->list_division_material_stock_compare(
+        $q = trim((string)$this->input->get('q', true));
+        $divisionId = max(0, (int)$this->input->get('division_id', true));
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['MATCH', 'MISMATCH'], true)) {
+            $status = 'ALL';
+        }
+        $limit = max(10, min(200, (int)$this->input->get('limit', true)));
+        if ($limit <= 0) {
+            $limit = 25;
+        }
+        $page = max(1, (int)$this->input->get('page', true));
+        $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destinationFilter === '') {
+            $destinationFilter = 'ALL';
+        }
+        $suspectFilter = strtoupper(trim((string)$this->input->get('suspect', true)));
+        if ($suspectFilter === '') {
+            $suspectFilter = 'ALL';
+        }
+        $locationType = strtoupper(trim((string)$this->input->get('location_type', true)));
+        if ($locationType === '') {
+            $locationType = 'ALL';
+        }
+        $componentType = strtoupper(trim((string)$this->input->get('type', true)));
+        if ($componentType === '') {
+            $componentType = 'ALL';
+        }
+
+        $divisionOptions = $this->Purchase_model->list_active_operational_divisions();
+
+        $materialCompareRaw = $this->Purchase_model->list_division_material_stock_compare(
             $asOfDate,
-            '',
-            null,
-            20,
-            'ALL'
+            $q,
+            $divisionId > 0 ? $divisionId : null,
+            5000,
+            $destinationFilter
         );
+        $materialRowsAll = is_array($materialCompareRaw['rows'] ?? null) ? $materialCompareRaw['rows'] : [];
+        $materialRowsAll = $this->sort_material_compare_rows($materialRowsAll);
+        $materialOptions = $this->build_material_compare_options($materialRowsAll);
+        $materialRowsFiltered = $this->filter_material_compare_rows($materialRowsAll, [
+            'status' => $status,
+            'suspect' => $suspectFilter,
+        ]);
+        $materialFilteredSummary = $this->build_material_compare_summary($materialRowsFiltered);
+        $materialPagination = $this->paginate_rows($materialRowsFiltered, $page, $limit);
+        $materialCompare = [
+            'as_of_date' => $materialCompareRaw['as_of_date'] ?? $asOfDate,
+            'rows' => $materialPagination['rows'],
+            'summary' => $materialFilteredSummary,
+            'summary_all' => is_array($materialCompareRaw['summary'] ?? null) ? $materialCompareRaw['summary'] : $materialFilteredSummary,
+            'options' => $materialOptions,
+            'pagination' => $materialPagination['pagination'],
+            'filters' => [
+                'q' => $q,
+                'division_id' => $divisionId,
+                'destination' => $destinationFilter,
+                'status' => $status,
+                'suspect' => $suspectFilter,
+                'limit' => $limit,
+                'page' => $materialPagination['pagination']['current_page'],
+            ],
+        ];
         $domainAudit = $this->Purchase_model->production_domain_root_cause_audit([
             'limit' => 20,
             'active_only' => true,
         ]);
-        $componentCompare = $this->Production_model->component_reconcile_rows([
+        $componentCompareRaw = $this->Production_model->component_reconcile_rows([
             'as_of_date' => $asOfDate,
-            'q' => '',
-            'location_type' => 'ALL',
-            'division_id' => 0,
-            'type' => '',
-        ], 20);
+            'q' => $q,
+            'location_type' => $locationType,
+            'division_id' => $divisionId,
+            'type' => $componentType === 'ALL' ? '' : $componentType,
+        ], 5000);
+        $componentRowsAll = is_array($componentCompareRaw['rows'] ?? null) ? $componentCompareRaw['rows'] : [];
+        $componentRowsAll = $this->sort_component_compare_rows($componentRowsAll);
+        $componentOptions = $this->build_component_compare_options($componentRowsAll);
+        $componentRowsFiltered = $this->filter_component_compare_rows($componentRowsAll, [
+            'status' => $status,
+        ]);
+        $componentFilteredSummary = $this->build_component_compare_summary($componentRowsFiltered);
+        $componentPagination = $this->paginate_rows($componentRowsFiltered, $page, $limit);
+        $componentCompare = [
+            'as_of_date' => $componentCompareRaw['as_of_date'] ?? $asOfDate,
+            'rows' => $componentPagination['rows'],
+            'summary' => $componentFilteredSummary,
+            'summary_all' => $this->build_component_compare_summary($componentRowsAll),
+            'options' => $componentOptions,
+            'pagination' => $componentPagination['pagination'],
+            'filters' => [
+                'q' => $q,
+                'division_id' => $divisionId,
+                'location_type' => $locationType,
+                'type' => $componentType,
+                'status' => $status,
+                'limit' => $limit,
+                'page' => $componentPagination['pagination']['current_page'],
+            ],
+        ];
 
         $failedJobs = $this->posruntimejobservice->failed_jobs(['limit' => 15]);
         $activeJobs = $this->posruntimejobservice->active_jobs(['limit' => 15]);
@@ -107,9 +188,375 @@ class Pos extends MY_Controller
             'material_compare' => $materialCompare,
             'domain_audit' => !empty($domainAudit['ok']) ? (array)($domainAudit['data'] ?? []) : ['summary' => [], 'rows' => []],
             'component_compare' => $componentCompare,
+            'division_options' => $divisionOptions,
             'failed_jobs' => !empty($failedJobs['ok']) ? (array)($failedJobs['rows'] ?? []) : [],
             'active_jobs' => !empty($activeJobs['ok']) ? (array)($activeJobs['rows'] ?? []) : [],
         ]);
+    }
+
+    public function stock_commit_audit_repair_material_mismatches()
+    {
+        $this->require_permission('pos.stock.live.index', 'edit');
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $asOfDate = trim((string)($payload['as_of_date'] ?? ''));
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
+            $asOfDate = date('Y-m-d');
+        }
+        $q = trim((string)($payload['q'] ?? ''));
+        $divisionId = max(0, (int)($payload['division_id'] ?? 0));
+        $destination = strtoupper(trim((string)($payload['destination'] ?? 'ALL')));
+        if ($destination === '') {
+            $destination = 'ALL';
+        }
+        $suspect = strtoupper(trim((string)($payload['suspect'] ?? 'ALL')));
+
+        $compare = $this->Purchase_model->list_division_material_stock_compare(
+            $asOfDate,
+            $q,
+            $divisionId > 0 ? $divisionId : null,
+            5000,
+            $destination
+        );
+        $rows = $this->filter_material_compare_rows((array)($compare['rows'] ?? []), [
+            'status' => 'MISMATCH',
+            'suspect' => $suspect,
+        ]);
+        if (empty($rows)) {
+            $this->json_ok([
+                'message' => 'Tidak ada mismatch bahan baku yang perlu direpair.',
+                'processed_count' => 0,
+                'success_count' => 0,
+                'failed_count' => 0,
+                'results' => [],
+            ]);
+            return;
+        }
+
+        $results = [];
+        $successCount = 0;
+        foreach ($rows as $row) {
+            $repair = $this->Purchase_model->repair_division_material_reconcile($asOfDate, [
+                'division_id' => (int)($row['division_id'] ?? 0),
+                'item_id' => (int)($row['item_id'] ?? 0),
+                'material_id' => (int)($row['material_id'] ?? 0),
+                'destination' => (string)($row['destination_group'] ?? 'ALL'),
+            ]);
+            if (!empty($repair['ok'])) {
+                $successCount++;
+            }
+            $results[] = [
+                'label' => trim((string)($row['material_name'] ?? '-')) . ' @ ' . trim((string)($row['division_name'] ?? '-')),
+                'identity' => [
+                    'division_id' => (int)($row['division_id'] ?? 0),
+                    'item_id' => (int)($row['item_id'] ?? 0),
+                    'material_id' => (int)($row['material_id'] ?? 0),
+                    'destination' => (string)($row['destination_group'] ?? 'ALL'),
+                ],
+                'result' => $repair,
+            ];
+        }
+
+        $this->json_ok([
+            'message' => 'Batch repair mismatch bahan baku selesai dijalankan.',
+            'processed_count' => count($rows),
+            'success_count' => $successCount,
+            'failed_count' => count($rows) - $successCount,
+            'results' => $results,
+        ]);
+    }
+
+    public function stock_commit_audit_repair_component_mismatches()
+    {
+        $this->require_permission('pos.stock.live.index', 'edit');
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $asOfDate = trim((string)($payload['as_of_date'] ?? ''));
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
+            $asOfDate = date('Y-m-d');
+        }
+        $q = trim((string)($payload['q'] ?? ''));
+        $divisionId = max(0, (int)($payload['division_id'] ?? 0));
+        $locationType = strtoupper(trim((string)($payload['location_type'] ?? 'ALL')));
+        if ($locationType === '') {
+            $locationType = 'ALL';
+        }
+        $componentType = strtoupper(trim((string)($payload['type'] ?? 'ALL')));
+        if ($componentType === '') {
+            $componentType = 'ALL';
+        }
+
+        $compare = $this->Production_model->component_reconcile_rows([
+            'as_of_date' => $asOfDate,
+            'q' => $q,
+            'location_type' => $locationType,
+            'division_id' => $divisionId,
+            'type' => $componentType === 'ALL' ? '' : $componentType,
+        ], 5000);
+        $rows = $this->filter_component_compare_rows((array)($compare['rows'] ?? []), [
+            'status' => 'MISMATCH',
+        ]);
+        if (empty($rows)) {
+            $this->json_ok([
+                'message' => 'Tidak ada mismatch base/prepare yang perlu direpair.',
+                'processed_count' => 0,
+                'success_count' => 0,
+                'failed_count' => 0,
+                'results' => [],
+            ]);
+            return;
+        }
+
+        $results = [];
+        $successCount = 0;
+        foreach ($rows as $row) {
+            $repair = $this->Production_model->repair_component_reconcile([
+                'location_type' => (string)($row['location_type'] ?? ''),
+                'division_id' => (int)($row['division_id'] ?? 0),
+                'component_id' => (int)($row['component_id'] ?? 0),
+                'uom_id' => (int)($row['uom_id'] ?? 0),
+            ]);
+            if (!empty($repair['ok'])) {
+                $successCount++;
+            }
+            $results[] = [
+                'label' => trim((string)($row['component_name'] ?? '-')) . ' @ ' . trim((string)($row['division_name'] ?? '-')),
+                'identity' => [
+                    'location_type' => (string)($row['location_type'] ?? ''),
+                    'division_id' => (int)($row['division_id'] ?? 0),
+                    'component_id' => (int)($row['component_id'] ?? 0),
+                    'uom_id' => (int)($row['uom_id'] ?? 0),
+                ],
+                'result' => $repair,
+            ];
+        }
+
+        $this->json_ok([
+            'message' => 'Batch repair mismatch base/prepare selesai dijalankan.',
+            'processed_count' => count($rows),
+            'success_count' => $successCount,
+            'failed_count' => count($rows) - $successCount,
+            'results' => $results,
+        ]);
+    }
+
+    private function sort_material_compare_rows(array $rows): array
+    {
+        usort($rows, static function (array $left, array $right): int {
+            $leftMismatch = empty($left['is_match']) ? 1 : 0;
+            $rightMismatch = empty($right['is_match']) ? 1 : 0;
+            if ($leftMismatch !== $rightMismatch) {
+                return $rightMismatch <=> $leftMismatch;
+            }
+
+            $leftDelta = max(
+                abs((float)($left['delta_balance_vs_movement'] ?? 0)),
+                abs((float)($left['delta_daily_vs_movement'] ?? 0)),
+                abs((float)($left['delta_matrix_vs_movement'] ?? 0))
+            );
+            $rightDelta = max(
+                abs((float)($right['delta_balance_vs_movement'] ?? 0)),
+                abs((float)($right['delta_daily_vs_movement'] ?? 0)),
+                abs((float)($right['delta_matrix_vs_movement'] ?? 0))
+            );
+            if (abs($leftDelta - $rightDelta) > 0.0001) {
+                return $rightDelta <=> $leftDelta;
+            }
+
+            $cmp = strcasecmp((string)($left['division_name'] ?? ''), (string)($right['division_name'] ?? ''));
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+
+            return strcasecmp((string)($left['material_name'] ?? ''), (string)($right['material_name'] ?? ''));
+        });
+
+        return $rows;
+    }
+
+    private function filter_material_compare_rows(array $rows, array $filters): array
+    {
+        $status = strtoupper(trim((string)($filters['status'] ?? 'ALL')));
+        $suspect = strtoupper(trim((string)($filters['suspect'] ?? 'ALL')));
+
+        return array_values(array_filter($rows, static function (array $row) use ($status, $suspect): bool {
+            if ($status === 'MATCH' && empty($row['is_match'])) {
+                return false;
+            }
+            if ($status === 'MISMATCH' && !empty($row['is_match'])) {
+                return false;
+            }
+            if ($suspect !== 'ALL' && strtoupper((string)($row['suspect_table'] ?? '')) !== $suspect) {
+                return false;
+            }
+            return true;
+        }));
+    }
+
+    private function build_material_compare_summary(array $rows): array
+    {
+        $summary = [
+            'total_rows' => count($rows),
+            'match_rows' => 0,
+            'mismatch_rows' => 0,
+        ];
+        foreach ($rows as $row) {
+            if (!empty($row['is_match'])) {
+                $summary['match_rows']++;
+            } else {
+                $summary['mismatch_rows']++;
+            }
+        }
+
+        return $summary;
+    }
+
+    private function build_material_compare_options(array $rows): array
+    {
+        $destinations = ['ALL' => 'Semua Tujuan'];
+        $suspects = ['ALL' => 'Semua Status Audit'];
+        foreach ($rows as $row) {
+            $destinationGroup = strtoupper(trim((string)($row['destination_group'] ?? 'REGULER')));
+            if ($destinationGroup !== '' && !isset($destinations[$destinationGroup])) {
+                $destinations[$destinationGroup] = (string)($row['destination_name'] ?? $destinationGroup);
+            }
+
+            $suspect = strtoupper(trim((string)($row['suspect_table'] ?? 'MATCH')));
+            if ($suspect !== '' && !isset($suspects[$suspect])) {
+                $suspects[$suspect] = $this->format_material_suspect_label($suspect);
+            }
+        }
+
+        return [
+            'destinations' => $destinations,
+            'suspects' => $suspects,
+        ];
+    }
+
+    private function format_material_suspect_label(string $suspect): string
+    {
+        $map = [
+            'MATCH' => 'Sinkron',
+            'BALANCE' => 'Stok Divisi Drift',
+            'DAILY' => 'Snapshot Harian Drift',
+            'MOVEMENT_OR_SOURCE' => 'Movement / Sumber Drift',
+            'MULTIPLE' => 'Multiple Drift',
+        ];
+
+        return $map[$suspect] ?? $suspect;
+    }
+
+    private function sort_component_compare_rows(array $rows): array
+    {
+        usort($rows, static function (array $left, array $right): int {
+            $leftMismatch = empty($left['is_match']) ? 1 : 0;
+            $rightMismatch = empty($right['is_match']) ? 1 : 0;
+            if ($leftMismatch !== $rightMismatch) {
+                return $rightMismatch <=> $leftMismatch;
+            }
+
+            $leftDelta = max(
+                abs((float)($left['delta_balance_daily'] ?? 0)),
+                abs((float)($left['delta_balance_movement'] ?? 0)),
+                abs((float)($left['delta_daily_movement'] ?? 0))
+            );
+            $rightDelta = max(
+                abs((float)($right['delta_balance_daily'] ?? 0)),
+                abs((float)($right['delta_balance_movement'] ?? 0)),
+                abs((float)($right['delta_daily_movement'] ?? 0))
+            );
+            if (abs($leftDelta - $rightDelta) > 0.0001) {
+                return $rightDelta <=> $leftDelta;
+            }
+
+            $cmp = strcasecmp((string)($left['division_name'] ?? ''), (string)($right['division_name'] ?? ''));
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+
+            return strcasecmp((string)($left['component_name'] ?? ''), (string)($right['component_name'] ?? ''));
+        });
+
+        return $rows;
+    }
+
+    private function filter_component_compare_rows(array $rows, array $filters): array
+    {
+        $status = strtoupper(trim((string)($filters['status'] ?? 'ALL')));
+
+        return array_values(array_filter($rows, static function (array $row) use ($status): bool {
+            if ($status === 'MATCH' && empty($row['is_match'])) {
+                return false;
+            }
+            if ($status === 'MISMATCH' && !empty($row['is_match'])) {
+                return false;
+            }
+            return true;
+        }));
+    }
+
+    private function build_component_compare_summary(array $rows): array
+    {
+        $matched = 0;
+        foreach ($rows as $row) {
+            if (!empty($row['is_match'])) {
+                $matched++;
+            }
+        }
+
+        return [
+            'total' => count($rows),
+            'matched' => $matched,
+            'mismatched' => count($rows) - $matched,
+        ];
+    }
+
+    private function build_component_compare_options(array $rows): array
+    {
+        $locations = ['ALL' => 'Semua Lokasi'];
+        $types = ['ALL' => 'Semua Tipe'];
+        foreach ($rows as $row) {
+            $locationType = strtoupper(trim((string)($row['location_type'] ?? '')));
+            if ($locationType !== '' && !isset($locations[$locationType])) {
+                $locations[$locationType] = $locationType;
+            }
+
+            $componentType = strtoupper(trim((string)($row['component_type'] ?? '')));
+            if ($componentType !== '' && !isset($types[$componentType])) {
+                $types[$componentType] = $componentType;
+            }
+        }
+
+        return [
+            'locations' => $locations,
+            'types' => $types,
+        ];
+    }
+
+    private function paginate_rows(array $rows, int $page, int $limit): array
+    {
+        $totalRows = count($rows);
+        $totalPages = max(1, (int)ceil($totalRows / max(1, $limit)));
+        $currentPage = min(max(1, $page), $totalPages);
+        $offset = ($currentPage - 1) * $limit;
+
+        return [
+            'rows' => array_slice($rows, $offset, $limit),
+            'pagination' => [
+                'current_page' => $currentPage,
+                'per_page' => $limit,
+                'total_rows' => $totalRows,
+                'total_pages' => $totalPages,
+                'from' => $totalRows > 0 ? ($offset + 1) : 0,
+                'to' => min($offset + $limit, $totalRows),
+            ],
+        ];
     }
 
     public function deposits()

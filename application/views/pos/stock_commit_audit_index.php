@@ -8,17 +8,62 @@ $materialCompare = is_array($material_compare ?? null) ? $material_compare : [];
 $componentCompare = is_array($component_compare ?? null) ? $component_compare : [];
 $materialRows = is_array($materialCompare['rows'] ?? null) ? $materialCompare['rows'] : [];
 $materialSummary = is_array($materialCompare['summary'] ?? null) ? $materialCompare['summary'] : [];
+$materialSummaryAll = is_array($materialCompare['summary_all'] ?? null) ? $materialCompare['summary_all'] : $materialSummary;
+$materialOptions = is_array($materialCompare['options'] ?? null) ? $materialCompare['options'] : [];
+$materialPagination = is_array($materialCompare['pagination'] ?? null) ? $materialCompare['pagination'] : [];
+$materialFilters = is_array($materialCompare['filters'] ?? null) ? $materialCompare['filters'] : [];
 $componentRows = is_array($componentCompare['rows'] ?? null) ? $componentCompare['rows'] : [];
 $componentSummary = is_array($componentCompare['summary'] ?? null) ? $componentCompare['summary'] : [];
+$componentSummaryAll = is_array($componentCompare['summary_all'] ?? null) ? $componentCompare['summary_all'] : $componentSummary;
+$componentOptions = is_array($componentCompare['options'] ?? null) ? $componentCompare['options'] : [];
+$componentPagination = is_array($componentCompare['pagination'] ?? null) ? $componentCompare['pagination'] : [];
+$componentFilters = is_array($componentCompare['filters'] ?? null) ? $componentCompare['filters'] : [];
 $domainAudit = is_array($domain_audit ?? null) ? $domain_audit : [];
 $domainAuditRows = is_array($domainAudit['rows'] ?? null) ? $domainAudit['rows'] : [];
 $domainAuditSummary = is_array($domainAudit['summary'] ?? null) ? $domainAudit['summary'] : [];
 $failedJobs = is_array($failed_jobs ?? null) ? $failed_jobs : [];
 $activeJobs = is_array($active_jobs ?? null) ? $active_jobs : [];
+$divisionOptions = is_array($division_options ?? null) ? $division_options : [];
 
 $fmtQty = static function ($value): string {
     return number_format((float)$value, 2, ',', '.');
 };
+$buildAuditUrl = static function (array $params = []): string {
+    $base = [
+        'as_of_date' => (string)($GLOBALS['asOfDate'] ?? ''),
+        'tab' => (string)($GLOBALS['auditTab'] ?? 'material'),
+    ];
+    $query = array_merge($base, $params);
+    foreach ($query as $key => $value) {
+        if ($value === null || $value === '') {
+            unset($query[$key]);
+        }
+    }
+    return site_url('pos/stock-commit-audit') . (!empty($query) ? ('?' . http_build_query($query)) : '');
+};
+$renderPagination = static function (array $pagination, callable $urlBuilder): string {
+    $totalPages = (int)($pagination['total_pages'] ?? 1);
+    $currentPage = (int)($pagination['current_page'] ?? 1);
+    if ($totalPages <= 1) {
+        return '';
+    }
+
+    $start = max(1, $currentPage - 2);
+    $end = min($totalPages, $currentPage + 2);
+    $html = '<nav aria-label="Pagination audit"><ul class="pagination pagination-sm mb-0">';
+    $prevClass = $currentPage <= 1 ? ' disabled' : '';
+    $html .= '<li class="page-item' . $prevClass . '"><a class="page-link" href="' . html_escape($urlBuilder(max(1, $currentPage - 1))) . '">Prev</a></li>';
+    for ($pageNo = $start; $pageNo <= $end; $pageNo++) {
+        $activeClass = $pageNo === $currentPage ? ' active' : '';
+        $html .= '<li class="page-item' . $activeClass . '"><a class="page-link" href="' . html_escape($urlBuilder($pageNo)) . '">' . $pageNo . '</a></li>';
+    }
+    $nextClass = $currentPage >= $totalPages ? ' disabled' : '';
+    $html .= '<li class="page-item' . $nextClass . '"><a class="page-link" href="' . html_escape($urlBuilder(min($totalPages, $currentPage + 1))) . '">Next</a></li>';
+    $html .= '</ul></nav>';
+    return $html;
+};
+$GLOBALS['asOfDate'] = $asOfDate;
+$GLOBALS['auditTab'] = $auditTab;
 ?>
 
 <style>
@@ -55,14 +100,26 @@ $fmtQty = static function ($value): string {
   .sca-tab.is-active { background:#34325e; border-color:#34325e; color:#fff; }
   .sca-tab-count { font-size:.74rem; opacity:.9; }
   .sca-summary-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.8rem; }
+  .sca-toolbar-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; align-items:end; }
   .sca-summary-box {
     border:1px solid rgba(225,210,199,.82); border-radius:18px; background:#fffdfb; padding:.85rem .95rem;
   }
   .sca-summary-box .label { display:block; font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; color:#8a776f; font-weight:800; margin-bottom:.18rem; }
   .sca-summary-box .value { font-size:1.18rem; font-weight:900; color:#2f2628; }
+  .sca-toolbar-note { color:#8a776f; font-size:.78rem; }
+  .sca-pagination-bar { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; }
   .sca-table-wrap { overflow:auto; }
   .sca-table th { white-space:nowrap; font-size:.78rem; background:#fff8f4; position:sticky; top:0; z-index:1; }
   .sca-table td { font-size:.82rem; vertical-align:top; }
+  .sca-status-cell { min-width:280px; max-width:340px; }
+  .sca-status-reason {
+    display:block;
+    max-width:320px;
+    white-space:normal;
+    line-height:1.35;
+    word-break:break-word;
+  }
+  .sca-action-cell { width:110px; white-space:nowrap; }
   .sca-chip {
     display:inline-flex; align-items:center; padding:.22rem .58rem; border-radius:999px; font-size:.68rem; font-weight:900;
   }
@@ -88,8 +145,12 @@ $fmtQty = static function ($value): string {
   .sca-job-badge.processing { background:#ede9fe; color:#5b21b6; }
   .sca-job-badge.queued { background:#e0f2fe; color:#075985; }
   .sca-job-badge.order { background:#f1f5f9; color:#334155; }
+  @media (max-width: 1199.98px) {
+    .sca-toolbar-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  }
   @media (max-width: 991.98px) {
-    .sca-filter-grid, .sca-kpis, .sca-summary-grid { grid-template-columns:1fr; }
+    .sca-filter-grid, .sca-kpis, .sca-summary-grid, .sca-toolbar-grid { grid-template-columns:1fr; }
+    .sca-status-cell, .sca-status-reason { min-width:0; max-width:none; }
   }
 </style>
 
@@ -130,8 +191,8 @@ $fmtQty = static function ($value): string {
     <div class="sca-kpis">
       <div class="sca-kpi"><span class="label">Job Aktif</span><div class="value" id="sca_active_job_count"><?php echo number_format(count($activeJobs)); ?></div></div>
       <div class="sca-kpi"><span class="label">Job Gagal</span><div class="value" id="sca_failed_job_count"><?php echo number_format(count($failedJobs)); ?></div></div>
-      <div class="sca-kpi"><span class="label">Mismatch Bahan Baku</span><div class="value"><?php echo number_format((int)($materialSummary['mismatch_rows'] ?? 0)); ?></div></div>
-      <div class="sca-kpi"><span class="label">Mismatch Base/Prepare</span><div class="value"><?php echo number_format((int)($componentSummary['mismatched'] ?? 0)); ?></div></div>
+      <div class="sca-kpi"><span class="label">Mismatch Bahan Baku</span><div class="value"><?php echo number_format((int)($materialSummaryAll['mismatch_rows'] ?? 0)); ?></div></div>
+      <div class="sca-kpi"><span class="label">Mismatch Base/Prepare</span><div class="value"><?php echo number_format((int)($componentSummaryAll['mismatched'] ?? 0)); ?></div></div>
     </div>
 
     <div class="sca-card">
@@ -223,22 +284,98 @@ $fmtQty = static function ($value): string {
             <div class="text-muted small">Tab ini bersifat umum untuk POS, bukan khusus self-order. Saat ada stock failed, biasanya mismatch bahan atau component akan lebih cepat terlihat di sini.</div>
           </div>
           <div class="sca-tabs">
-            <a href="<?php echo html_escape(site_url('pos/stock-commit-audit?tab=material&as_of_date=' . rawurlencode($asOfDate))); ?>" class="sca-tab <?php echo $auditTab === 'material' ? 'is-active' : ''; ?>">
+            <a href="<?php echo html_escape($buildAuditUrl(['tab' => 'material', 'page' => 1])); ?>" class="sca-tab <?php echo $auditTab === 'material' ? 'is-active' : ''; ?>">
               <span>Bahan Baku</span>
-              <span class="sca-tab-count"><?php echo number_format((int)($materialSummary['mismatch_rows'] ?? 0)); ?></span>
+              <span class="sca-tab-count"><?php echo number_format((int)($materialSummaryAll['mismatch_rows'] ?? 0)); ?></span>
             </a>
-            <a href="<?php echo html_escape(site_url('pos/stock-commit-audit?tab=component&as_of_date=' . rawurlencode($asOfDate))); ?>" class="sca-tab <?php echo $auditTab === 'component' ? 'is-active' : ''; ?>">
+            <a href="<?php echo html_escape($buildAuditUrl(['tab' => 'component', 'page' => 1])); ?>" class="sca-tab <?php echo $auditTab === 'component' ? 'is-active' : ''; ?>">
               <span>Base/Prepare</span>
-              <span class="sca-tab-count"><?php echo number_format((int)($componentSummary['mismatched'] ?? 0)); ?></span>
+              <span class="sca-tab-count"><?php echo number_format((int)($componentSummaryAll['mismatched'] ?? 0)); ?></span>
             </a>
           </div>
         </div>
 
         <?php if ($auditTab === 'material'): ?>
+          <form method="get" class="sca-toolbar-grid mb-3">
+            <input type="hidden" name="as_of_date" value="<?php echo html_escape($asOfDate); ?>">
+            <input type="hidden" name="tab" value="material">
+            <div>
+              <label class="form-label small text-muted mb-1">Cari</label>
+              <input type="text" name="q" value="<?php echo html_escape((string)($materialFilters['q'] ?? '')); ?>" class="form-control" placeholder="Material / kode / divisi">
+            </div>
+            <div>
+              <label class="form-label small text-muted mb-1">Divisi</label>
+              <select name="division_id" class="form-select">
+                <option value="0">Semua Divisi</option>
+                <?php foreach ($divisionOptions as $division): ?>
+                  <option value="<?php echo (int)($division['id'] ?? 0); ?>" <?php echo (int)($materialFilters['division_id'] ?? 0) === (int)($division['id'] ?? 0) ? 'selected' : ''; ?>>
+                    <?php echo html_escape(trim((string)($division['name'] ?? 'Divisi'))); ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div>
+              <label class="form-label small text-muted mb-1">Tujuan</label>
+              <select name="destination" class="form-select">
+                <?php foreach ((array)($materialOptions['destinations'] ?? ['ALL' => 'Semua Tujuan']) as $value => $label): ?>
+                  <option value="<?php echo html_escape((string)$value); ?>" <?php echo strtoupper((string)($materialFilters['destination'] ?? 'ALL')) === strtoupper((string)$value) ? 'selected' : ''; ?>>
+                    <?php echo html_escape((string)$label); ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div>
+              <label class="form-label small text-muted mb-1">Status</label>
+              <select name="status" class="form-select">
+                <option value="ALL" <?php echo strtoupper((string)($materialFilters['status'] ?? 'ALL')) === 'ALL' ? 'selected' : ''; ?>>Semua</option>
+                <option value="MISMATCH" <?php echo strtoupper((string)($materialFilters['status'] ?? 'ALL')) === 'MISMATCH' ? 'selected' : ''; ?>>Mismatch</option>
+                <option value="MATCH" <?php echo strtoupper((string)($materialFilters['status'] ?? 'ALL')) === 'MATCH' ? 'selected' : ''; ?>>Match</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label small text-muted mb-1">Sumber Drift</label>
+              <select name="suspect" class="form-select">
+                <?php foreach ((array)($materialOptions['suspects'] ?? ['ALL' => 'Semua Status Audit']) as $value => $label): ?>
+                  <option value="<?php echo html_escape((string)$value); ?>" <?php echo strtoupper((string)($materialFilters['suspect'] ?? 'ALL')) === strtoupper((string)$value) ? 'selected' : ''; ?>>
+                    <?php echo html_escape((string)$label); ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div>
+              <label class="form-label small text-muted mb-1">Per Halaman</label>
+              <div class="d-flex gap-2">
+                <select name="limit" class="form-select">
+                  <?php foreach ([10, 25, 50, 100, 200] as $perPage): ?>
+                    <option value="<?php echo $perPage; ?>" <?php echo (int)($materialFilters['limit'] ?? 25) === $perPage ? 'selected' : ''; ?>><?php echo $perPage; ?></option>
+                  <?php endforeach; ?>
+                </select>
+                <button type="submit" class="btn btn-primary">Filter</button>
+              </div>
+            </div>
+          </form>
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <div class="sca-toolbar-note">Gunakan batch repair ini untuk rebuild mismatch bahan baku langsung dari movement log per identity.</div>
+            <button type="button" class="btn btn-outline-danger" id="sca_repair_material_btn">Repair Semua Mismatch Bahan Baku</button>
+          </div>
           <div class="sca-summary-grid mb-3">
-            <div class="sca-summary-box"><span class="label">Total Baris</span><div class="value"><?php echo number_format((int)($materialSummary['total_rows'] ?? 0)); ?></div></div>
-            <div class="sca-summary-box"><span class="label">Match</span><div class="value"><?php echo number_format((int)($materialSummary['match_rows'] ?? 0)); ?></div></div>
-            <div class="sca-summary-box"><span class="label">Mismatch</span><div class="value"><?php echo number_format((int)($materialSummary['mismatch_rows'] ?? 0)); ?></div></div>
+            <div class="sca-summary-box"><span class="label">Total Filter</span><div class="value"><?php echo number_format((int)($materialSummary['total_rows'] ?? 0)); ?></div></div>
+            <div class="sca-summary-box"><span class="label">Match Filter</span><div class="value"><?php echo number_format((int)($materialSummary['match_rows'] ?? 0)); ?></div></div>
+            <div class="sca-summary-box"><span class="label">Mismatch Filter</span><div class="value"><?php echo number_format((int)($materialSummary['mismatch_rows'] ?? 0)); ?></div></div>
+          </div>
+          <div class="sca-pagination-bar mb-3">
+            <div class="sca-toolbar-note">
+              Menampilkan <?php echo number_format((int)($materialPagination['from'] ?? 0)); ?>-<?php echo number_format((int)($materialPagination['to'] ?? 0)); ?>
+              dari <?php echo number_format((int)($materialPagination['total_rows'] ?? 0)); ?> baris hasil filter.
+              Total keseluruhan audit: <?php echo number_format((int)($materialSummaryAll['total_rows'] ?? 0)); ?> baris, mismatch <?php echo number_format((int)($materialSummaryAll['mismatch_rows'] ?? 0)); ?>.
+            </div>
+            <div>
+              <?php
+                echo $renderPagination($materialPagination, static function (int $pageNo) use ($buildAuditUrl, $materialFilters) {
+                    return $buildAuditUrl(array_merge($materialFilters, ['tab' => 'material', 'page' => $pageNo]));
+                });
+              ?>
+            </div>
           </div>
           <div class="table-responsive sca-table-wrap">
             <table class="table table-sm align-middle sca-table mb-0">
@@ -267,8 +404,13 @@ $fmtQty = static function ($value): string {
                       <td class="text-end"><?php echo $fmtQty($row['matrix_qty_content'] ?? 0); ?></td>
                       <td class="text-end"><?php echo $fmtQty($row['daily_qty_content'] ?? 0); ?></td>
                       <td class="text-end"><?php echo $fmtQty($row['movement_qty_content'] ?? 0); ?></td>
-                      <td><span class="sca-chip <?php echo $isMatch ? 'ok' : 'bad'; ?>"><?php echo $isMatch ? 'Match' : 'Mismatch'; ?></span></td>
-                      <td class="text-end"><a href="<?php echo html_escape(site_url('inventory/stock/division/reconcile?as_of_date=' . rawurlencode($asOfDate) . '&division_id=' . (int)($row['division_id'] ?? 0) . '&q=' . rawurlencode((string)($row['material_name'] ?? '')))); ?>" class="btn btn-sm btn-outline-primary">Buka Audit</a></td>
+                      <td class="sca-status-cell">
+                        <span class="sca-chip <?php echo $isMatch ? 'ok' : 'bad'; ?>"><?php echo $isMatch ? 'Match' : 'Mismatch'; ?></span>
+                        <?php if (!$isMatch): ?>
+                          <div class="text-muted small mt-1 sca-status-reason"><?php echo html_escape((string)($row['suspect_reason'] ?? '')); ?></div>
+                        <?php endif; ?>
+                      </td>
+                      <td class="text-end sca-action-cell"><a href="<?php echo html_escape(site_url('inventory/stock/division/reconcile?as_of_date=' . rawurlencode($asOfDate) . '&division_id=' . (int)($row['division_id'] ?? 0) . '&q=' . rawurlencode((string)($row['material_name'] ?? '')))); ?>" class="btn btn-sm btn-outline-primary">Buka Audit</a></td>
                     </tr>
                   <?php endforeach; ?>
                 <?php endif; ?>
@@ -276,10 +418,86 @@ $fmtQty = static function ($value): string {
             </table>
           </div>
         <?php else: ?>
+          <form method="get" class="sca-toolbar-grid mb-3">
+            <input type="hidden" name="as_of_date" value="<?php echo html_escape($asOfDate); ?>">
+            <input type="hidden" name="tab" value="component">
+            <div>
+              <label class="form-label small text-muted mb-1">Cari</label>
+              <input type="text" name="q" value="<?php echo html_escape((string)($componentFilters['q'] ?? '')); ?>" class="form-control" placeholder="Component / kode / divisi">
+            </div>
+            <div>
+              <label class="form-label small text-muted mb-1">Divisi</label>
+              <select name="division_id" class="form-select">
+                <option value="0">Semua Divisi</option>
+                <?php foreach ($divisionOptions as $division): ?>
+                  <option value="<?php echo (int)($division['id'] ?? 0); ?>" <?php echo (int)($componentFilters['division_id'] ?? 0) === (int)($division['id'] ?? 0) ? 'selected' : ''; ?>>
+                    <?php echo html_escape(trim((string)($division['name'] ?? 'Divisi'))); ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div>
+              <label class="form-label small text-muted mb-1">Lokasi</label>
+              <select name="location_type" class="form-select">
+                <?php foreach ((array)($componentOptions['locations'] ?? ['ALL' => 'Semua Lokasi']) as $value => $label): ?>
+                  <option value="<?php echo html_escape((string)$value); ?>" <?php echo strtoupper((string)($componentFilters['location_type'] ?? 'ALL')) === strtoupper((string)$value) ? 'selected' : ''; ?>>
+                    <?php echo html_escape((string)$label); ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div>
+              <label class="form-label small text-muted mb-1">Tipe</label>
+              <select name="type" class="form-select">
+                <?php foreach ((array)($componentOptions['types'] ?? ['ALL' => 'Semua Tipe']) as $value => $label): ?>
+                  <option value="<?php echo html_escape((string)$value); ?>" <?php echo strtoupper((string)($componentFilters['type'] ?? 'ALL')) === strtoupper((string)$value) ? 'selected' : ''; ?>>
+                    <?php echo html_escape((string)$label); ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div>
+              <label class="form-label small text-muted mb-1">Status</label>
+              <select name="status" class="form-select">
+                <option value="ALL" <?php echo strtoupper((string)($componentFilters['status'] ?? 'ALL')) === 'ALL' ? 'selected' : ''; ?>>Semua</option>
+                <option value="MISMATCH" <?php echo strtoupper((string)($componentFilters['status'] ?? 'ALL')) === 'MISMATCH' ? 'selected' : ''; ?>>Mismatch</option>
+                <option value="MATCH" <?php echo strtoupper((string)($componentFilters['status'] ?? 'ALL')) === 'MATCH' ? 'selected' : ''; ?>>Match</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label small text-muted mb-1">Per Halaman</label>
+              <div class="d-flex gap-2">
+                <select name="limit" class="form-select">
+                  <?php foreach ([10, 25, 50, 100, 200] as $perPage): ?>
+                    <option value="<?php echo $perPage; ?>" <?php echo (int)($componentFilters['limit'] ?? 25) === $perPage ? 'selected' : ''; ?>><?php echo $perPage; ?></option>
+                  <?php endforeach; ?>
+                </select>
+                <button type="submit" class="btn btn-primary">Filter</button>
+              </div>
+            </div>
+          </form>
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <div class="sca-toolbar-note">Untuk base/prepare, repair akan memakai rebuild histori component yang sama dengan tool reconcile produksi.</div>
+            <button type="button" class="btn btn-outline-danger" id="sca_repair_component_btn">Repair Semua Mismatch Base/Prepare</button>
+          </div>
           <div class="sca-summary-grid mb-3">
-            <div class="sca-summary-box"><span class="label">Total Baris</span><div class="value"><?php echo number_format((int)($componentSummary['total'] ?? 0)); ?></div></div>
-            <div class="sca-summary-box"><span class="label">Match</span><div class="value"><?php echo number_format((int)($componentSummary['matched'] ?? 0)); ?></div></div>
-            <div class="sca-summary-box"><span class="label">Mismatch</span><div class="value"><?php echo number_format((int)($componentSummary['mismatched'] ?? 0)); ?></div></div>
+            <div class="sca-summary-box"><span class="label">Total Filter</span><div class="value"><?php echo number_format((int)($componentSummary['total'] ?? 0)); ?></div></div>
+            <div class="sca-summary-box"><span class="label">Match Filter</span><div class="value"><?php echo number_format((int)($componentSummary['matched'] ?? 0)); ?></div></div>
+            <div class="sca-summary-box"><span class="label">Mismatch Filter</span><div class="value"><?php echo number_format((int)($componentSummary['mismatched'] ?? 0)); ?></div></div>
+          </div>
+          <div class="sca-pagination-bar mb-3">
+            <div class="sca-toolbar-note">
+              Menampilkan <?php echo number_format((int)($componentPagination['from'] ?? 0)); ?>-<?php echo number_format((int)($componentPagination['to'] ?? 0)); ?>
+              dari <?php echo number_format((int)($componentPagination['total_rows'] ?? 0)); ?> baris hasil filter.
+              Total keseluruhan audit: <?php echo number_format((int)($componentSummaryAll['total'] ?? 0)); ?> baris, mismatch <?php echo number_format((int)($componentSummaryAll['mismatched'] ?? 0)); ?>.
+            </div>
+            <div>
+              <?php
+                echo $renderPagination($componentPagination, static function (int $pageNo) use ($buildAuditUrl, $componentFilters) {
+                    return $buildAuditUrl(array_merge($componentFilters, ['tab' => 'component', 'page' => $pageNo]));
+                });
+              ?>
+            </div>
           </div>
           <div class="table-responsive sca-table-wrap">
             <table class="table table-sm align-middle sca-table mb-0">
@@ -310,8 +528,13 @@ $fmtQty = static function ($value): string {
                       <td class="text-end"><?php echo $fmtQty($row['movement_qty'] ?? 0); ?></td>
                       <td class="text-end"><?php echo $fmtQty($row['delta_balance_daily'] ?? 0); ?></td>
                       <td class="text-end"><?php echo $fmtQty($row['delta_balance_movement'] ?? 0); ?></td>
-                      <td><span class="sca-chip <?php echo $isMatch ? 'ok' : 'bad'; ?>"><?php echo $isMatch ? 'Match' : 'Mismatch'; ?></span></td>
-                      <td class="text-end"><a href="<?php echo html_escape(site_url('production/component-reconcile?as_of_date=' . rawurlencode($asOfDate) . '&division_id=' . (int)($row['division_id'] ?? 0) . '&q=' . rawurlencode((string)($row['component_name'] ?? '')))); ?>" class="btn btn-sm btn-outline-primary">Buka Audit</a></td>
+                      <td class="sca-status-cell">
+                        <span class="sca-chip <?php echo $isMatch ? 'ok' : 'bad'; ?>"><?php echo $isMatch ? 'Match' : 'Mismatch'; ?></span>
+                        <?php if (!$isMatch): ?>
+                          <div class="text-muted small mt-1 sca-status-reason"><?php echo html_escape((string)($row['suspect_reason'] ?? '')); ?></div>
+                        <?php endif; ?>
+                      </td>
+                      <td class="text-end sca-action-cell"><a href="<?php echo html_escape(site_url('production/component-reconcile?as_of_date=' . rawurlencode($asOfDate) . '&division_id=' . (int)($row['division_id'] ?? 0) . '&q=' . rawurlencode((string)($row['component_name'] ?? '')))); ?>" class="btn btn-sm btn-outline-primary">Buka Audit</a></td>
                     </tr>
                   <?php endforeach; ?>
                 <?php endif; ?>
@@ -508,6 +731,66 @@ document.addEventListener('DOMContentLoaded', function () {
   if (reloadBtn) {
     reloadBtn.addEventListener('click', function () {
       window.location.reload();
+    });
+  }
+
+  const repairMaterialBtn = document.getElementById('sca_repair_material_btn');
+  if (repairMaterialBtn) {
+    repairMaterialBtn.addEventListener('click', async function () {
+      const confirmed = await askConfirm('Repair semua mismatch bahan baku yang sedang sesuai filter aktif?', { title: 'Batch Repair Bahan Baku POS' });
+      if (!confirmed) return;
+      setButtonLoading(this, 'Repair bahan...');
+      try {
+        const payload = <?php echo json_encode([
+            'as_of_date' => $asOfDate,
+            'q' => (string)($materialFilters['q'] ?? ''),
+            'division_id' => (int)($materialFilters['division_id'] ?? 0),
+            'destination' => (string)($materialFilters['destination'] ?? 'ALL'),
+            'suspect' => (string)($materialFilters['suspect'] ?? 'ALL'),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+        const json = await postJson('<?php echo site_url('pos/stock-commit-audit/repair-material-mismatches'); ?>', payload);
+        await showAlert(
+          'Processed: ' + Number((json.processed_count || 0)) + '\n'
+          + 'Success: ' + Number((json.success_count || 0)) + '\n'
+          + 'Failed: ' + Number((json.failed_count || 0)),
+          'Batch Repair Bahan Baku POS'
+        );
+        window.location.reload();
+      } catch (e) {
+        await showAlert(e.message || 'Gagal repair batch mismatch bahan baku.', 'Batch Repair Bahan Baku POS');
+      } finally {
+        clearButtonLoading(this);
+      }
+    });
+  }
+
+  const repairComponentBtn = document.getElementById('sca_repair_component_btn');
+  if (repairComponentBtn) {
+    repairComponentBtn.addEventListener('click', async function () {
+      const confirmed = await askConfirm('Repair semua mismatch base/prepare yang sedang sesuai filter aktif?', { title: 'Batch Repair Base/Prepare POS' });
+      if (!confirmed) return;
+      setButtonLoading(this, 'Repair component...');
+      try {
+        const payload = <?php echo json_encode([
+            'as_of_date' => $asOfDate,
+            'q' => (string)($componentFilters['q'] ?? ''),
+            'division_id' => (int)($componentFilters['division_id'] ?? 0),
+            'location_type' => (string)($componentFilters['location_type'] ?? 'ALL'),
+            'type' => (string)($componentFilters['type'] ?? 'ALL'),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+        const json = await postJson('<?php echo site_url('pos/stock-commit-audit/repair-component-mismatches'); ?>', payload);
+        await showAlert(
+          'Processed: ' + Number((json.processed_count || 0)) + '\n'
+          + 'Success: ' + Number((json.success_count || 0)) + '\n'
+          + 'Failed: ' + Number((json.failed_count || 0)),
+          'Batch Repair Base/Prepare POS'
+        );
+        window.location.reload();
+      } catch (e) {
+        await showAlert(e.message || 'Gagal repair batch mismatch base/prepare.', 'Batch Repair Base/Prepare POS');
+      } finally {
+        clearButtonLoading(this);
+      }
     });
   }
 });

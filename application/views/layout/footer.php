@@ -1,3 +1,5 @@
+<!-- ApexCharts -->
+<script src="<?= base_url('assets/vendor/libs/apex-charts/apexcharts.js') ?>"></script>
 <!-- jQuery (Materio bundled) -->
 <script src="<?= base_url('assets/vendor/libs/jquery/jquery.min.js?v=20260510a') ?>"></script>
 <!-- Bootstrap JS (Materio) -->
