@@ -99,8 +99,16 @@ db replication belum sinkron
 
 
 
-- rapikan lagi, tidak perlu tampilkan kode, perbesar icon sesuai standar dan overlay teks iconnya juga nggak mucul, sebelum aksi harusnya ada dropdown pilihan jenis dan reason adjustmen
+- rapikan lagi, tidak perlu tampilkan kode, perbesar icon sesuai standar dan overlay teks iconnya juga nggak mucul, sebelum aksi harusnya ada dropdown pilihan jenis dan reason adjustment, di kolom setelah selisih bukan dibawah
 
 jadi prinsipnya ini adalah halaman adjustment dengan gaya tampilan yang berbeda
 
-tambahkan halaman ini ke tab bertingkat rumpunya, dan cek halaman yang belum masuk tab rumpun nya (untuk divisi atau bahan baku)
+kayaknya ini harusnya bukan opname deh.. opname itu nanti untuk opname bulanan yang digenerate dari stok divisi akhir bulan. ganti namanya yaaaa
+
+
+
+- hiperlinknya masih /inventory/stock/opname/division, apakah bisa diganti? jangan pakai opname donk
+
+- kenapa ada data yang ada stok fisiknya? dan baris lainnya tidak muncul jenis dan alasannya
+- data profile tampilkan jumlah Pack dan Jumlah Isisinya, jadi di UOM atas isi , bawah pack (oum beli), misal Air mineral galon  atas ml bawah galon. bukan hanya isinya, paham maksudku kan?
+

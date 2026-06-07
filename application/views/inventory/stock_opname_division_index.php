@@ -8,10 +8,10 @@ $divisions   = is_array($divisions ?? null) ? $divisions : [];
 $isSuperadmin = !empty($current_user['is_superadmin']);
 $canCreate    = $isSuperadmin || !empty($can_create);
 
-$baseUrl      = site_url('inventory/stock/opname/division');
-$dataUrl      = site_url('inventory/stock/opname/division/data');
-$savePhysUrl  = site_url('inventory/stock/opname/division/save-physical');
-$quickAdjUrl  = site_url('inventory/stock/opname/division/quick-adjust');
+$baseUrl      = site_url('inventory/stock/koreksi/division');
+$dataUrl      = site_url('inventory/stock/koreksi/division/data');
+$savePhysUrl  = site_url('inventory/stock/koreksi/division/save-physical');
+$quickAdjUrl  = site_url('inventory/stock/koreksi/division/quick-adjust');
 
 $destOptions = [
     'ALL'           => 'Semua Tujuan',
@@ -207,7 +207,7 @@ $REASONS = [
             <table class="table table-hover align-middle mb-0" style="font-size:.85rem">
                 <thead class="table-light">
                     <tr>
-                        <th style="min-width:210px">Bahan Baku / Profil</th>
+                        <th class="text-start" style="min-width:210px">Bahan Baku / Profil</th>
                         <th style="width:65px">UOM</th>
                         <th class="text-end" style="width:100px">Sistem</th>
                         <th class="text-end" style="width:105px">Fisik</th>
@@ -297,13 +297,8 @@ function adjColHtml(p, iid) {
     if (sel !== null && Math.abs(Number(sel)) >= 0.001) {
         const isNeg    = Number(sel) < 0;
         const types    = isNeg ? ADJ_TYPES_NEG : ADJ_TYPES_POS;
-        const typeOpts = types.map(function (t) {
+        const typeOpts = `<option value="">— pilih jenis —</option>` + types.map(function (t) {
             return `<option value="${t.val}">${t.lbl}</option>`;
-        }).join('');
-        const firstType  = types[0].val;
-        const reasons    = REASONS[firstType] || { other: 'Other' };
-        const reasonOpts = Object.entries(reasons).map(function ([k, v]) {
-            return `<option value="${k}">${v}</option>`;
         }).join('');
 
         return `<td id="adjcol-${iid}" class="adj-col py-2">
@@ -311,10 +306,8 @@ function adjColHtml(p, iid) {
                 <select id="adjtype-${iid}" class="form-select form-select-sm" onchange="opnTypeChange('${iid}')">
                     ${typeOpts}
                 </select>
-                <select id="adjreason-${iid}" class="form-select form-select-sm">
-                    ${reasonOpts}
-                </select>
-                <input type="text" id="adjnotes-${iid}" class="form-control form-control-sm"
+                <select id="adjreason-${iid}" class="form-select form-select-sm d-none"></select>
+                <input type="text" id="adjnotes-${iid}" class="form-control form-control-sm d-none"
                        placeholder="Catatan (opsional)">
             </div>
         </td>`;
@@ -373,7 +366,7 @@ function renderTable(divisions) {
     let html = '';
     divisions.forEach(function (div) {
         html += `<tr class="table-secondary">
-            <td colspan="7" class="py-1" style="font-size:.78rem;font-weight:700;letter-spacing:.04em">
+            <td colspan="7" class="py-1 text-start" style="font-size:.78rem;font-weight:700;letter-spacing:.04em">
                 <i class="ri ri-building-2-line me-1 text-primary"></i>${esc(div.division_name)}
                 <span class="text-muted fw-normal ms-1">(${div.materials.length} material)</span>
             </td>
@@ -388,10 +381,11 @@ function renderTable(divisions) {
                 const selTotal  = physTotal !== null ? physTotal - sysTotal : null;
                 const grpIid    = cssid(div.division_id + '_grp_' + mat.material_id);
                 html += `<tr class="table-light">
-                    <td colspan="2" style="font-size:.8rem;padding-left:1.5rem">
+                    <td class="text-start" style="font-size:.8rem;padding-left:1rem">
                         <span class="fw-semibold">${esc(mat.material_name)}</span>
                         <span class="text-muted ms-1">(${mat.profiles.length} profil)</span>
                     </td>
+                    <td></td>
                     <td class="text-end text-muted" style="font-size:.8rem">${fmt4(sysTotal)}</td>
                     <td class="text-end text-muted" style="font-size:.8rem">${physTotal !== null ? fmt4(physTotal) : '—'}</td>
                     <td class="text-end" style="font-size:.8rem">${selisihHtml(selTotal, grpIid)}</td>
@@ -403,33 +397,40 @@ function renderTable(divisions) {
             mat.profiles.forEach(function (p) {
                 const iid     = cssid(p.division_id + '_' + p.identity_key);
                 const physVal = p.physical_qty_content !== null ? p.physical_qty_content : '';
-                const uom     = esc(p.profile_content_uom_code || '—');
+                const contentUom = esc(p.profile_content_uom_code || '—');
+                const buyUom     = esc(p.profile_buy_uom_code || '');
+                const cpb        = parseFloat(p.profile_content_per_buy) || 0;
+                const showBuy    = buyUom && buyUom !== contentUom;
 
-                let matLabel;
-                if (!multiProf) {
-                    matLabel = `<div class="fw-semibold">${esc(p.material_name || p.item_name)}</div>`;
-                    const subParts = [p.profile_name, p.profile_brand, p.profile_description].filter(Boolean);
-                    const expBadge = p.profile_expired_date
-                        ? ` <span class="badge bg-danger-subtle text-danger" style="font-size:.63rem">exp ${esc(p.profile_expired_date)}</span>` : '';
-                    matLabel += `<div class="text-muted" style="font-size:.76rem">${esc(subParts.join(' · '))}${expBadge}</div>`;
-                    if (p.avg_cost_per_content > 0) {
-                        matLabel += `<div class="text-muted" style="font-size:.72rem">${fmtRp(p.avg_cost_per_content)}/${uom}</div>`;
-                    }
-                } else {
-                    const expBadge = p.profile_expired_date
-                        ? ` <span class="badge bg-danger-subtle text-danger" style="font-size:.63rem">exp ${esc(p.profile_expired_date)}</span>` : '';
-                    const subParts = [p.profile_brand, p.profile_description].filter(Boolean);
-                    matLabel = `<div style="padding-left:1.5rem">
-                        <span class="fw-semibold" style="font-size:.82rem">${esc(p.profile_name || '')}${expBadge}</span>
-                        ${subParts.length ? `<span class="text-muted" style="font-size:.74rem"> · ${esc(subParts.join(' · '))}</span>` : ''}
-                        ${p.avg_cost_per_content > 0 ? `<span class="text-muted" style="font-size:.72rem"> · ${fmtRp(p.avg_cost_per_content)}</span>` : ''}
-                    </div>`;
-                }
+                // UOM cell: content UOM on top, buy UOM below
+                const uomCell = showBuy
+                    ? `<td class="text-start" style="font-size:.8rem">
+                           ${contentUom}
+                           <div class="text-muted" style="font-size:.72rem">${buyUom}</div>
+                       </td>`
+                    : `<td class="text-start text-muted" style="font-size:.8rem">${contentUom}</td>`;
+
+                // Sistem cell: content qty on top, buy qty below
+                const sysBuy = p.system_qty_buy != null ? p.system_qty_buy : (cpb > 0 ? p.system_qty_content / cpb : null);
+                const sistemCell = showBuy && sysBuy !== null
+                    ? `<td class="text-end" style="font-size:.85rem">
+                           ${fmt4(p.system_qty_content)}
+                           <div class="text-muted" style="font-size:.72rem">${fmt4(sysBuy)} ${buyUom}</div>
+                       </td>`
+                    : `<td class="text-end">${fmt4(p.system_qty_content)}</td>`;
+
+                // Fisik input + live buy equivalent
+                const physBuyInit = physVal !== '' && cpb > 0 && showBuy
+                    ? fmt4(parseFloat(physVal) / cpb) + ' ' + buyUom : '';
+
+                const matLabel = !multiProf
+                    ? buildLabelSingle(p, contentUom)
+                    : buildLabelSub(p);
 
                 html += `<tr id="row-${iid}">
-                    <td>${matLabel}</td>
-                    <td class="text-muted" style="font-size:.8rem">${uom}</td>
-                    <td class="text-end">${fmt4(p.system_qty_content)}</td>
+                    <td class="text-start">${matLabel}</td>
+                    ${uomCell}
+                    ${sistemCell}
                     <td class="text-end">
                         <input type="number" class="form-control form-control-sm text-end"
                                style="width:88px;display:inline-block"
@@ -438,9 +439,12 @@ function renderTable(divisions) {
                                placeholder="—"
                                data-iid="${iid}"
                                data-sys="${p.system_qty_content}"
+                               data-cpb="${cpb}"
+                               data-buyuom="${buyUom}"
                                oninput="opnLiveCalc(this, '${iid}')"
                                onchange="opnSavePhys(this, ${JSON.stringify(p)})"
                                ${!CAN_CREATE ? 'disabled' : ''}>
+                        <div id="phys-buy-${iid}" class="text-muted text-end" style="font-size:.72rem;min-height:.9rem">${physBuyInit}</div>
                     </td>
                     <td class="text-end">${selisihHtml(p.selisih, iid)}</td>
                     ${adjColHtml(p, iid)}
@@ -451,6 +455,34 @@ function renderTable(divisions) {
     });
     tbody.innerHTML = html;
     initTooltips(tbody);
+
+function buildLabelSingle(p, contentUom) {
+    let h = `<div class="fw-semibold">${esc(p.material_name || p.item_name)}</div>`;
+    const subParts = [p.profile_name, p.profile_brand, p.profile_description].filter(Boolean);
+    const expBadge = p.profile_expired_date
+        ? ` <span class="badge bg-danger-subtle text-danger" style="font-size:.62rem">exp ${esc(p.profile_expired_date)}</span>` : '';
+    if (subParts.length) {
+        h += `<div class="text-muted" style="font-size:.76rem">${esc(subParts.join(' · '))}${expBadge}</div>`;
+    } else if (expBadge) {
+        h += `<div>${expBadge}</div>`;
+    }
+    if (p.avg_cost_per_content > 0) {
+        h += `<div class="text-muted" style="font-size:.72rem">${fmtRp(p.avg_cost_per_content)}/${contentUom}</div>`;
+    }
+    return h;
+}
+
+function buildLabelSub(p) {
+    const expBadge = p.profile_expired_date
+        ? ` <span class="badge bg-danger-subtle text-danger" style="font-size:.62rem">exp ${esc(p.profile_expired_date)}</span>` : '';
+    const subParts = [p.profile_brand, p.profile_description].filter(Boolean);
+    let h = `<div style="padding-left:1.25rem">`;
+    h += `<span class="fw-semibold" style="font-size:.82rem">${esc(p.profile_name || '')}${expBadge}</span>`;
+    if (subParts.length) h += ` <span class="text-muted" style="font-size:.74rem">· ${esc(subParts.join(' · '))}</span>`;
+    if (p.avg_cost_per_content > 0) h += ` <span class="text-muted" style="font-size:.72rem">· ${fmtRp(p.avg_cost_per_content)}</span>`;
+    h += `</div>`;
+    return h;
+}
 }
 
 window.opnLiveCalc = function (inp, iid) {
@@ -458,11 +490,23 @@ window.opnLiveCalc = function (inp, iid) {
     const phys = inp.value.trim() !== '' ? parseFloat(inp.value) : null;
     const selEl = el('sel-' + iid);
     if (!selEl) return;
-    if (phys === null) { selEl.textContent = '—'; selEl.className = 'text-muted small'; return; }
+    if (phys === null) {
+        selEl.textContent = '—'; selEl.className = 'text-muted small';
+        const buyEl = el('phys-buy-' + iid);
+        if (buyEl) buyEl.textContent = '';
+        return;
+    }
     const v    = phys - sys;
     const sign = v > 0 ? '+' : '';
-    selEl.className  = Math.abs(v) < 0.001 ? 'text-success fw-bold' : (v < 0 ? 'text-danger fw-bold' : 'text-warning fw-bold');
+    selEl.className   = Math.abs(v) < 0.001 ? 'text-success fw-bold' : (v < 0 ? 'text-danger fw-bold' : 'text-warning fw-bold');
     selEl.textContent = Math.abs(v) < 0.001 ? '± 0' : sign + v.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
+    const buyEl  = el('phys-buy-' + iid);
+    const cpb    = parseFloat(inp.dataset.cpb) || 0;
+    const buyUom = inp.dataset.buyuom || '';
+    if (buyEl && cpb > 0 && buyUom) {
+        buyEl.textContent = fmt4(phys / cpb) + ' ' + buyUom;
+    }
 };
 
 window.opnSavePhys = function (inp, p) {
@@ -522,14 +566,31 @@ function doSave(inp, p) {
 window.opnTypeChange = function (iid) {
     const typeSel   = el('adjtype-'   + iid);
     const reasonSel = el('adjreason-' + iid);
+    const notesInp  = el('adjnotes-'  + iid);
     if (!typeSel || !reasonSel) return;
+
+    if (!typeSel.value) {
+        reasonSel.classList.add('d-none');
+        if (notesInp) notesInp.classList.add('d-none');
+        return;
+    }
+
     const opts = REASONS[typeSel.value] || { other: 'Other' };
     reasonSel.innerHTML = Object.entries(opts)
         .map(function ([k, v]) { return `<option value="${k}">${v}</option>`; })
         .join('');
+    reasonSel.classList.remove('d-none');
+    if (notesInp) notesInp.classList.remove('d-none');
 };
 
 window.opnPostAdj = function (iid, p) {
+    const typeVal = el('adjtype-' + iid)?.value;
+    if (!typeVal) {
+        showAlert('warning', 'Pilih jenis adjustment terlebih dahulu.');
+        el('adjtype-' + iid)?.focus();
+        return;
+    }
+
     const btn = el('adjbtn-' + iid);
     if (!btn) return;
     const orig = btn.innerHTML;
@@ -543,7 +604,7 @@ window.opnPostAdj = function (iid, p) {
     const payload = Object.assign({}, p, {
         opname_date:      date,
         destination_type: dest === 'ALL' ? (p.destination_type || 'OTHER') : dest,
-        adjustment_type:  el('adjtype-'   + iid)?.value || 'VARIANCE',
+        adjustment_type:  typeVal,
         reason_code:      el('adjreason-' + iid)?.value || 'other',
         notes:            el('adjnotes-'  + iid)?.value?.trim() || '',
     });

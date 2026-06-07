@@ -95,16 +95,15 @@ class Procurement_model extends CI_Model
 
         $resolved = strtoupper(trim((string)$lineKind));
         if (!in_array($resolved, ['ITEM', 'MATERIAL'], true)) {
-            if ($itemId !== null) {
-                $resolved = 'ITEM';
-            } elseif ($materialId !== null) {
-                $resolved = 'MATERIAL';
-            } else {
-                $resolved = 'ITEM';
-            }
+            $resolved = 'ITEM';
         }
 
-        return $resolved;
+        // Transitional bridge only: do not create fresh MATERIAL line rows anymore.
+        if ($resolved === 'MATERIAL') {
+            $resolved = 'ITEM';
+        }
+
+        return 'ITEM';
     }
 
     private function resolve_canonical_transaction_identity(array $line, ?string $usagePurpose = null): array
@@ -126,7 +125,8 @@ class Procurement_model extends CI_Model
             'usage_purpose' => $usagePurpose,
             'item_id' => $itemId,
             'material_id' => $materialId,
-            'stock_domain' => $itemId !== null ? 'ITEM' : (($materialId !== null) ? 'MATERIAL' : 'ITEM'),
+            // Write path canonical: item-centric identity, material only acts as marker/FIFO bridge.
+            'stock_domain' => 'ITEM',
             'is_production_flow' => $usagePurpose === self::USAGE_PURPOSE_PRODUCTION,
             'uses_material_fifo' => $usagePurpose === self::USAGE_PURPOSE_PRODUCTION && $materialId !== null,
         ];
@@ -152,28 +152,8 @@ class Procurement_model extends CI_Model
 
     private function resolve_usage_stock_domain($usagePurpose, array $line = []): string
     {
-        if ($this->resolve_operational_item_id(
-            $this->nullable_int($line['item_id'] ?? null),
-            $this->nullable_int($line['material_id'] ?? null),
-            (string)($line['profile_key'] ?? '')
-        ) !== null) {
-            return 'ITEM';
-        }
-
-        if ($this->normalize_usage_purpose($usagePurpose) === self::USAGE_PURPOSE_OPERATIONAL) {
-            return 'ITEM';
-        }
-
-        if ($this->resolve_production_material_id($line['item_id'] ?? null, $line['material_id'] ?? null) !== null) {
-            return 'MATERIAL';
-        }
-
-        $lineKind = strtoupper(trim((string)($line['line_kind'] ?? '')));
-        if (in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
-            return $lineKind;
-        }
-
-        return (int)($line['material_id'] ?? 0) > 0 && (int)($line['item_id'] ?? 0) <= 0 ? 'MATERIAL' : 'ITEM';
+        // Usage purpose may still drive FIFO/read behavior, but not the write domain anymore.
+        return 'ITEM';
     }
 
     private function resolve_usage_material_id_for_stock($usagePurpose, array $line): ?int
@@ -932,16 +912,16 @@ class Procurement_model extends CI_Model
             if ($defaultUsagePurpose === self::USAGE_PURPOSE_OPERATIONAL && (int)($row['item_id'] ?? 0) > 0) {
                 $row['line_kind'] = 'ITEM';
             } elseif ($defaultUsagePurpose === self::USAGE_PURPOSE_PRODUCTION && $resolvedProductionMaterialId !== null && $resolvedProductionMaterialId > 0) {
-                $row['line_kind'] = 'MATERIAL';
+                $row['line_kind'] = 'ITEM';
                 $row['material_id'] = $resolvedProductionMaterialId;
             } elseif ((int)($row['item_id'] ?? 0) > 0) {
                 $row['line_kind'] = 'ITEM';
             } elseif ((int)($row['material_id'] ?? 0) > 0) {
-                $row['line_kind'] = 'MATERIAL';
+                $row['line_kind'] = 'ITEM';
             } elseif (in_array($catalogLineKind, ['MATERIAL', 'ITEM'], true)) {
-                $row['line_kind'] = $catalogLineKind;
+                $row['line_kind'] = 'ITEM';
             } else {
-                $row['line_kind'] = (int)($row['material_id'] ?? 0) > 0 ? 'MATERIAL' : 'ITEM';
+                $row['line_kind'] = 'ITEM';
             }
             $row['default_usage_purpose'] = $defaultUsagePurpose;
             $row['usage_purpose'] = $this->normalize_usage_purpose($row['usage_purpose'] ?? $row['default_usage_purpose']);
@@ -2276,12 +2256,7 @@ class Procurement_model extends CI_Model
             $sourceCtx = $this->resolve_fulfillment_source_context($ln, $usagePurpose);
             $effectiveItemId = $sourceCtx['item_id'] ?? $this->nullable_int($ln['item_id'] ?? null);
             $effectiveMaterialId = $sourceCtx['material_id'] ?? $this->nullable_int($ln['material_id'] ?? null);
-            $effectiveLineKind = strtoupper(trim((string)($ln['line_kind'] ?? '')));
-            if (strtoupper((string)($sourceCtx['stock_domain'] ?? '')) === 'ITEM') {
-                $effectiveLineKind = 'ITEM';
-            } elseif (strtoupper((string)($sourceCtx['stock_domain'] ?? '')) === 'MATERIAL') {
-                $effectiveLineKind = 'MATERIAL';
-            }
+            $effectiveLineKind = 'ITEM';
             $available = round((float)($sourceCtx['available_content'] ?? 0), 4);
             $fulfillable = min($requestRemain, $available);
             $shortage = max(0, $requestRemain - $fulfillable);
@@ -2294,7 +2269,7 @@ class Procurement_model extends CI_Model
             $resultRows[] = [
                 'line_id' => (int)$ln['id'],
                 'line_no' => (int)$ln['line_no'],
-                'line_kind' => $effectiveLineKind !== '' ? $effectiveLineKind : (string)$ln['line_kind'],
+                'line_kind' => $effectiveLineKind,
                 'item_id' => (int)($effectiveItemId ?? 0),
                 'material_id' => (int)($effectiveMaterialId ?? 0),
                 'profile_key' => (string)($ln['profile_key'] ?? ''),
@@ -2416,11 +2391,7 @@ class Procurement_model extends CI_Model
             $sourceCtx = $this->resolve_fulfillment_source_context($line, $usagePurpose);
             $line['item_id'] = $sourceCtx['item_id'] ?? $this->nullable_int($line['item_id'] ?? null);
             $line['material_id'] = $sourceCtx['material_id'] ?? $this->nullable_int($line['material_id'] ?? null);
-            if (strtoupper((string)($sourceCtx['stock_domain'] ?? '')) === 'ITEM') {
-                $line['line_kind'] = 'ITEM';
-            } elseif (strtoupper((string)($sourceCtx['stock_domain'] ?? '')) === 'MATERIAL') {
-                $line['line_kind'] = 'MATERIAL';
-            }
+            $line['line_kind'] = 'ITEM';
             $available = round((float)($sourceCtx['available_content'] ?? 0), 4);
 
             $qtyContent = min($remaining, $available, round((float)($row['fulfillable_content'] ?? 0), 4));
@@ -3830,19 +3801,32 @@ class Procurement_model extends CI_Model
 
     private function get_warehouse_available_content(?int $itemId, ?int $materialId, ?int $buyUomId, ?int $contentUomId, string $profileKey, ?string $usagePurpose = null): float
     {
-        $stockDomain = $this->resolve_usage_stock_domain($usagePurpose ?? self::USAGE_PURPOSE_PRODUCTION, [
-            'item_id' => $itemId,
-            'material_id' => $materialId,
-        ]);
-
-        return $this->get_warehouse_available_content_for_domain(
+        $available = $this->get_warehouse_available_content_for_domain(
             $itemId,
             $materialId,
             $buyUomId,
             $contentUomId,
             $profileKey,
-            $stockDomain
+            'ITEM'
         );
+
+        if ($available > 0) {
+            return $available;
+        }
+
+        // Legacy fallback read-only: still inspect MATERIAL rows if they are all that remains.
+        if ($materialId !== null && $materialId > 0) {
+            return $this->get_warehouse_available_content_for_domain(
+                null,
+                $materialId,
+                $buyUomId,
+                $contentUomId,
+                $profileKey,
+                'MATERIAL'
+            );
+        }
+
+        return 0.0;
     }
 
     private function get_warehouse_available_content_for_domain(?int $itemId, ?int $materialId, ?int $buyUomId, ?int $contentUomId, string $profileKey, string $stockDomain): float
@@ -3975,7 +3959,7 @@ class Procurement_model extends CI_Model
                 return [
                     'item_id' => $resolvedItemId,
                     'material_id' => $resolvedMaterialId,
-                    'stock_domain' => $resolvedItemId !== null && $resolvedItemId > 0 ? 'ITEM' : 'MATERIAL',
+                    'stock_domain' => 'ITEM',
                     'available_content' => $materialAvailable,
                 ];
             }
@@ -3984,7 +3968,7 @@ class Procurement_model extends CI_Model
         return [
             'item_id' => $resolvedItemId,
             'material_id' => $resolvedMaterialId,
-            'stock_domain' => $resolvedItemId !== null && $resolvedItemId > 0 ? 'ITEM' : (($resolvedMaterialId !== null && $resolvedMaterialId > 0) ? 'MATERIAL' : 'ITEM'),
+            'stock_domain' => 'ITEM',
             'available_content' => 0.0,
         ];
     }

@@ -72,6 +72,8 @@ class InventoryLedger
             }
         }
 
+        $payload = $this->normalizeCanonicalPayload($payload);
+
         $itemId = $this->nullableInt($payload['item_id'] ?? null);
         $materialId = $this->nullableInt($payload['material_id'] ?? null);
         if ($itemId === null && $materialId === null) {
@@ -273,6 +275,8 @@ class InventoryLedger
                 'message' => 'Tabel monthly stock belum tersedia: ' . $table,
             ];
         }
+
+        $payload = $this->normalizeCanonicalPayload($payload);
 
         $movementDate = $this->normalizeDate((string)($payload['movement_date'] ?? date('Y-m-d')));
         if ($movementDate === null) {
@@ -500,18 +504,191 @@ class InventoryLedger
         ]));
     }
 
+    private function normalizeCanonicalPayload(array $payload): array
+    {
+        $itemId = $this->nullableInt($payload['item_id'] ?? null);
+        $materialId = $this->nullableInt($payload['material_id'] ?? null);
+        $buyUomId = $this->nullableInt($payload['buy_uom_id'] ?? null);
+        $contentUomId = $this->nullableInt($payload['content_uom_id'] ?? null);
+        $profileKey = $this->nullableString($payload['profile_key'] ?? null);
+
+        $catalog = $this->resolveCanonicalCatalogRow($profileKey, $itemId, $materialId, $buyUomId, $contentUomId);
+        if ($itemId === null) {
+            $catalogItemId = (int)($catalog['item_id'] ?? 0);
+            if ($catalogItemId > 0) {
+                $itemId = $catalogItemId;
+            } else {
+                $itemId = $this->resolveCanonicalItemIdFromMaterial($materialId, $buyUomId, $contentUomId, $profileKey);
+            }
+        }
+
+        if ($materialId === null) {
+            $catalogMaterialId = (int)($catalog['material_id'] ?? 0);
+            if ($catalogMaterialId > 0) {
+                $materialId = $catalogMaterialId;
+            } else {
+                $materialId = $this->resolveMaterialIdFromItemId($itemId);
+            }
+        }
+
+        if ($itemId !== null && $itemId > 0 && ($buyUomId === null || $contentUomId === null || empty($payload['profile_name']))) {
+            $itemRow = $this->ci->db
+                ->select('buy_uom_id, content_uom_id, item_name')
+                ->from('mst_item')
+                ->where('id', $itemId)
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+            if ($buyUomId === null && !empty($itemRow['buy_uom_id'])) {
+                $buyUomId = (int)$itemRow['buy_uom_id'];
+            }
+            if ($contentUomId === null && !empty($itemRow['content_uom_id'])) {
+                $contentUomId = (int)$itemRow['content_uom_id'];
+            }
+            if (empty($payload['profile_name']) && !empty($itemRow['item_name'])) {
+                $payload['profile_name'] = (string)$itemRow['item_name'];
+            }
+        }
+
+        $payload['item_id'] = $itemId;
+        $payload['material_id'] = $materialId;
+        $payload['buy_uom_id'] = $buyUomId;
+        $payload['content_uom_id'] = $contentUomId;
+
+        if (!empty($catalog)) {
+            if ($profileKey === null && !empty($catalog['profile_key'])) {
+                $payload['profile_key'] = $catalog['profile_key'];
+            }
+            $catalogFields = [
+                'profile_name' => 'catalog_name',
+                'profile_brand' => 'brand_name',
+                'profile_description' => 'line_description',
+                'profile_buy_uom_code' => 'buy_uom_code',
+                'profile_content_uom_code' => 'content_uom_code',
+            ];
+            foreach ($catalogFields as $target => $source) {
+                $current = $this->nullableString($payload[$target] ?? null);
+                $sourceValue = $this->nullableString($catalog[$source] ?? null);
+                if ($current === null && $sourceValue !== null) {
+                    $payload[$target] = $sourceValue;
+                }
+            }
+
+            $currentContentPerBuy = $payload['profile_content_per_buy'] ?? null;
+            $catalogContentPerBuy = isset($catalog['content_per_buy']) ? round((float)$catalog['content_per_buy'], 6) : null;
+            if (($currentContentPerBuy === null || (float)$currentContentPerBuy <= 0) && $catalogContentPerBuy !== null && $catalogContentPerBuy > 0) {
+                $payload['profile_content_per_buy'] = $catalogContentPerBuy;
+            }
+
+            if ($buyUomId === null && !empty($catalog['buy_uom_id'])) {
+                $payload['buy_uom_id'] = (int)$catalog['buy_uom_id'];
+            }
+            if ($contentUomId === null && !empty($catalog['content_uom_id'])) {
+                $payload['content_uom_id'] = (int)$catalog['content_uom_id'];
+            }
+        }
+
+        $payload['stock_domain'] = 'ITEM';
+
+        return $payload;
+    }
+
+    private function resolveCanonicalCatalogRow(?string $profileKey, ?int $itemId, ?int $materialId, ?int $buyUomId, ?int $contentUomId): array
+    {
+        if (!$this->ci->db->table_exists('mst_purchase_catalog')) {
+            return [];
+        }
+
+        $profileKey = $this->nullableString($profileKey);
+        $qb = $this->ci->db
+            ->select('c.profile_key, c.item_id, c.material_id, c.buy_uom_id, c.content_uom_id, c.catalog_name, c.brand_name, c.line_description, c.content_per_buy, bu.code AS buy_uom_code, cu.code AS content_uom_code, c.is_active, c.id', false)
+            ->from('mst_purchase_catalog c')
+            ->join('mst_uom bu', 'bu.id = c.buy_uom_id', 'left')
+            ->join('mst_uom cu', 'cu.id = c.content_uom_id', 'left');
+
+        $applied = false;
+        if ($profileKey !== null) {
+            $qb->where('c.profile_key', $profileKey);
+            $applied = true;
+        } elseif ($itemId !== null && $itemId > 0) {
+            $qb->where('c.item_id', $itemId);
+            $applied = true;
+        } elseif ($materialId !== null && $materialId > 0) {
+            $qb->where('c.material_id', $materialId);
+            if ($buyUomId !== null && $buyUomId > 0) {
+                $qb->where('c.buy_uom_id', $buyUomId);
+            }
+            if ($contentUomId !== null && $contentUomId > 0) {
+                $qb->where('c.content_uom_id', $contentUomId);
+            }
+            $applied = true;
+        }
+
+        if (!$applied) {
+            return [];
+        }
+
+        return $qb
+            ->order_by('c.is_active', 'DESC')
+            ->order_by('c.id', 'DESC')
+            ->limit(1)
+            ->get()
+            ->row_array() ?: [];
+    }
+
+    private function resolveCanonicalItemIdFromMaterial(?int $materialId, ?int $buyUomId, ?int $contentUomId, ?string $profileKey): ?int
+    {
+        $catalog = $this->resolveCanonicalCatalogRow($profileKey, null, $materialId, $buyUomId, $contentUomId);
+        $catalogItemId = (int)($catalog['item_id'] ?? 0);
+        if ($catalogItemId > 0) {
+            return $catalogItemId;
+        }
+
+        if ($materialId === null || $materialId <= 0 || !$this->ci->db->table_exists('mst_item')) {
+            return null;
+        }
+
+        $row = $this->ci->db
+            ->select('id')
+            ->from('mst_item')
+            ->where('material_id', $materialId)
+            ->where('is_active', 1)
+            ->order_by('id', 'ASC')
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $itemId = (int)($row['id'] ?? 0);
+        return $itemId > 0 ? $itemId : null;
+    }
+
+    private function resolveMaterialIdFromItemId(?int $itemId): ?int
+    {
+        if ($itemId === null || $itemId <= 0 || !$this->ci->db->table_exists('mst_item')) {
+            return null;
+        }
+
+        $row = $this->ci->db
+            ->select('material_id')
+            ->from('mst_item')
+            ->where('id', $itemId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $materialId = (int)($row['material_id'] ?? 0);
+        return $materialId > 0 ? $materialId : null;
+    }
+
     private function resolveLegacyStockDomain(array $payload, ?int $itemId, ?int $materialId): ?string
     {
         $stockDomain = strtoupper(trim((string)($payload['stock_domain'] ?? '')));
         if (in_array($stockDomain, ['ITEM', 'MATERIAL'], true)) {
-            return $stockDomain;
-        }
-
-        if ($itemId !== null) {
             return 'ITEM';
         }
-        if ($materialId !== null) {
-            return 'MATERIAL';
+
+        if ($itemId !== null || $materialId !== null) {
+            return 'ITEM';
         }
 
         return null;
@@ -529,10 +706,10 @@ class InventoryLedger
 
         $resolved = strtoupper(trim((string)$stockDomain));
         if (!in_array($resolved, ['ITEM', 'MATERIAL'], true)) {
-            $resolved = $itemId !== null ? 'ITEM' : (($materialId !== null) ? 'MATERIAL' : 'ITEM');
+            $resolved = 'ITEM';
         }
 
-        return $resolved;
+        return 'ITEM';
     }
 
     private function columnAllowsNull(string $table, string $column): bool

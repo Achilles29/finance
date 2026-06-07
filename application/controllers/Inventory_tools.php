@@ -1637,10 +1637,7 @@ class Inventory_tools extends CI_Controller
             return null;
         }
 
-        $lineKind = strtoupper(trim((string)($row['line_kind'] ?? '')));
-        if (!in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
-            $lineKind = $itemId > 0 ? 'ITEM' : 'MATERIAL';
-        }
+        $lineKind = 'ITEM';
 
         $contentPerBuy = round((float)($row['profile_content_per_buy'] ?? 1), 6);
         if ($contentPerBuy <= 0) {
@@ -1779,7 +1776,7 @@ class Inventory_tools extends CI_Controller
         }
 
         return [
-            'line_kind' => strtoupper((string)($profile['line_kind'] ?? (((int)($profile['item_id'] ?? 0) > 0) ? 'ITEM' : 'MATERIAL'))),
+            'line_kind' => 'ITEM',
             'item_id' => (int)($profile['item_id'] ?? 0) > 0 ? (int)$profile['item_id'] : null,
             'material_id' => (int)($profile['material_id'] ?? 0) > 0 ? (int)$profile['material_id'] : null,
             'buy_uom_id' => (int)($profile['buy_uom_id'] ?? 0),
@@ -1802,7 +1799,7 @@ class Inventory_tools extends CI_Controller
         }
 
         return [
-            'line_kind' => strtoupper((string)($profile['line_kind'] ?? (((int)($profile['item_id'] ?? 0) > 0) ? 'ITEM' : 'MATERIAL'))),
+            'line_kind' => 'ITEM',
             'item_id' => (int)($profile['item_id'] ?? 0) > 0 ? (int)$profile['item_id'] : null,
             'material_id' => (int)($profile['material_id'] ?? 0) > 0 ? (int)$profile['material_id'] : null,
             'profile_key' => (string)($profile['profile_key'] ?? ''),

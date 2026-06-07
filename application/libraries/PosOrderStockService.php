@@ -717,6 +717,7 @@ class PosOrderStockService
     {
         $materialId = !empty($line['material_id']) ? (int)$line['material_id'] : 0;
         $uomId = !empty($line['required_uom_id']) ? (int)$line['required_uom_id'] : 0;
+        $requestedProfileKey = !empty($line['profile_key']) ? (string)$line['profile_key'] : null;
         $identity = [
             'item_id' => null,
             'buy_uom_id' => null,
@@ -731,44 +732,32 @@ class PosOrderStockService
             'profile_content_uom_code' => null,
         ];
 
+        $preferred = $materialId > 0
+            ? $this->resolve_preferred_item_identity_for_material($materialId, null, $uomId > 0 ? $uomId : null, $requestedProfileKey)
+            : [];
+
         if ($materialId > 0) {
-            $balance = $this->load_division_material_profile_snapshot($materialId, $divisionId, $destinationType, $uomId);
+            $balance = $this->load_division_material_profile_snapshot($materialId, $divisionId, $destinationType, $uomId, $requestedProfileKey);
             if (!empty($balance)) {
                 $identity = array_merge($identity, [
-                    'item_id' => !empty($balance['item_id']) ? (int)$balance['item_id'] : null,
-                    'buy_uom_id' => !empty($balance['buy_uom_id']) ? (int)$balance['buy_uom_id'] : null,
+                    'item_id' => !empty($preferred['item_id']) ? (int)$preferred['item_id'] : (!empty($balance['item_id']) ? (int)$balance['item_id'] : null),
+                    'buy_uom_id' => !empty($preferred['buy_uom_id']) ? (int)$preferred['buy_uom_id'] : (!empty($balance['buy_uom_id']) ? (int)$balance['buy_uom_id'] : null),
                     'content_uom_id' => !empty($balance['content_uom_id']) ? (int)$balance['content_uom_id'] : $identity['content_uom_id'],
-                    'profile_key' => $balance['profile_key'] ?? null,
-                    'profile_name' => $balance['profile_name'] ?? null,
-                    'profile_brand' => $balance['profile_brand'] ?? null,
-                    'profile_description' => $balance['profile_description'] ?? null,
+                    'profile_key' => $preferred['profile_key'] ?? ($balance['profile_key'] ?? null),
+                    'profile_name' => $preferred['profile_name'] ?? ($balance['profile_name'] ?? null),
+                    'profile_brand' => $preferred['profile_brand'] ?? ($balance['profile_brand'] ?? null),
+                    'profile_description' => $preferred['profile_description'] ?? ($balance['profile_description'] ?? null),
                     'profile_expired_date' => $balance['profile_expired_date'] ?? null,
-                    'profile_content_per_buy' => !empty($balance['profile_content_per_buy']) ? (float)$balance['profile_content_per_buy'] : null,
-                    'profile_buy_uom_code' => $balance['profile_buy_uom_code'] ?? null,
-                    'profile_content_uom_code' => $balance['profile_content_uom_code'] ?? null,
+                    'profile_content_per_buy' => !empty($preferred['profile_content_per_buy']) ? (float)$preferred['profile_content_per_buy'] : (!empty($balance['profile_content_per_buy']) ? (float)$balance['profile_content_per_buy'] : null),
+                    'profile_buy_uom_code' => $preferred['profile_buy_uom_code'] ?? ($balance['profile_buy_uom_code'] ?? null),
+                    'profile_content_uom_code' => $preferred['profile_content_uom_code'] ?? ($balance['profile_content_uom_code'] ?? null),
                 ]);
                 return $identity;
             }
         }
 
-        if ($materialId > 0 && $this->ci->db->table_exists('mst_item')) {
-            $item = $this->ci->db
-                ->select('id, buy_uom_id, content_uom_id, item_name')
-                ->from('mst_item')
-                ->where('material_id', $materialId)
-                ->where('is_active', 1)
-                ->order_by('id', 'ASC')
-                ->limit(1)
-                ->get()
-                ->row_array() ?: [];
-            if (!empty($item)) {
-                $identity['item_id'] = !empty($item['id']) ? (int)$item['id'] : null;
-                $identity['buy_uom_id'] = !empty($item['buy_uom_id']) ? (int)$item['buy_uom_id'] : null;
-                if (!empty($item['content_uom_id'])) {
-                    $identity['content_uom_id'] = (int)$item['content_uom_id'];
-                }
-                $identity['profile_name'] = (string)($item['item_name'] ?? '');
-            }
+        if (!empty($preferred)) {
+            $identity = array_merge($identity, $preferred);
         }
 
         return $identity;
@@ -849,7 +838,15 @@ class PosOrderStockService
             if ($profileKey !== '') {
                 $db->where('profile_key', $profileKey);
             }
+            if ($this->ci->db->field_exists('stock_domain', 'inv_division_monthly_stock')) {
+                $db->order_by("CASE WHEN COALESCE(stock_domain, 'ITEM') = 'ITEM' THEN 0 ELSE 1 END", '', false);
+            }
+            if ($this->ci->db->field_exists('source_mode', 'inv_division_monthly_stock')) {
+                $db->order_by("CASE WHEN source_mode = 'REBUILD' THEN 0 WHEN source_mode = 'LIVE' THEN 1 ELSE 2 END", '', false);
+            }
             $row = $db
+                ->order_by("CASE WHEN COALESCE(profile_key, '') <> '' THEN 0 ELSE 1 END", '', false)
+                ->order_by("CASE WHEN COALESCE(item_id, 0) > 0 THEN 0 ELSE 1 END", '', false)
                 ->order_by('month_key', 'DESC')
                 ->order_by('updated_at', 'DESC')
                 ->order_by('last_movement_at', 'DESC')
@@ -858,6 +855,88 @@ class PosOrderStockService
                 ->row_array() ?: [];
             if (!empty($row)) {
                 return $row;
+            }
+        }
+
+        return [];
+    }
+
+    private function resolve_preferred_item_identity_for_material(int $materialId, ?int $buyUomId, ?int $contentUomId, ?string $profileKey = null): array
+    {
+        if ($materialId <= 0) {
+            return [];
+        }
+
+        if ($this->ci->db->table_exists('mst_purchase_catalog')) {
+            $db = $this->ci->db
+                ->select('c.item_id, c.buy_uom_id, c.content_uom_id, c.profile_key, c.catalog_name AS profile_name, c.brand_name AS profile_brand, c.line_description AS profile_description, c.content_per_buy AS profile_content_per_buy, bu.code AS profile_buy_uom_code, cu.code AS profile_content_uom_code', false)
+                ->from('mst_purchase_catalog c')
+                ->join('mst_uom bu', 'bu.id = c.buy_uom_id', 'left')
+                ->join('mst_uom cu', 'cu.id = c.content_uom_id', 'left')
+                ->where('c.material_id', $materialId)
+                ->where('c.item_id >', 0);
+            $profileKey = trim((string)$profileKey);
+            if ($profileKey !== '') {
+                $db->group_start()
+                    ->where('c.profile_key', $profileKey)
+                    ->or_where('c.profile_key', '')
+                    ->or_where('c.profile_key IS NULL', null, false)
+                ->group_end()
+                ->order_by("CASE WHEN c.profile_key = " . $this->ci->db->escape($profileKey) . " THEN 0 WHEN COALESCE(c.profile_key, '') = '' THEN 1 ELSE 2 END", '', false);
+            }
+            if ($buyUomId !== null && $buyUomId > 0) {
+                $db->order_by("CASE WHEN c.buy_uom_id = " . (int)$buyUomId . " THEN 0 ELSE 1 END", '', false);
+            }
+            if ($contentUomId !== null && $contentUomId > 0) {
+                $db->order_by("CASE WHEN c.content_uom_id = " . (int)$contentUomId . " THEN 0 ELSE 1 END", '', false);
+            }
+            $row = $db
+                ->order_by('c.is_active', 'DESC')
+                ->order_by('c.id', 'DESC')
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+            if (!empty($row)) {
+                return [
+                    'item_id' => !empty($row['item_id']) ? (int)$row['item_id'] : null,
+                    'buy_uom_id' => !empty($row['buy_uom_id']) ? (int)$row['buy_uom_id'] : null,
+                    'content_uom_id' => !empty($row['content_uom_id']) ? (int)$row['content_uom_id'] : $contentUomId,
+                    'profile_key' => $row['profile_key'] ?? null,
+                    'profile_name' => $row['profile_name'] ?? null,
+                    'profile_brand' => $row['profile_brand'] ?? null,
+                    'profile_description' => $row['profile_description'] ?? null,
+                    'profile_expired_date' => null,
+                    'profile_content_per_buy' => !empty($row['profile_content_per_buy']) ? (float)$row['profile_content_per_buy'] : null,
+                    'profile_buy_uom_code' => $row['profile_buy_uom_code'] ?? null,
+                    'profile_content_uom_code' => $row['profile_content_uom_code'] ?? null,
+                ];
+            }
+        }
+
+        if ($this->ci->db->table_exists('mst_item')) {
+            $row = $this->ci->db
+                ->select('id, buy_uom_id, content_uom_id, item_name')
+                ->from('mst_item')
+                ->where('material_id', $materialId)
+                ->where('is_active', 1)
+                ->order_by('id', 'ASC')
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+            if (!empty($row)) {
+                return [
+                    'item_id' => !empty($row['id']) ? (int)$row['id'] : null,
+                    'buy_uom_id' => !empty($row['buy_uom_id']) ? (int)$row['buy_uom_id'] : null,
+                    'content_uom_id' => !empty($row['content_uom_id']) ? (int)$row['content_uom_id'] : $contentUomId,
+                    'profile_key' => null,
+                    'profile_name' => $row['item_name'] ?? null,
+                    'profile_brand' => null,
+                    'profile_description' => null,
+                    'profile_expired_date' => null,
+                    'profile_content_per_buy' => null,
+                    'profile_buy_uom_code' => null,
+                    'profile_content_uom_code' => null,
+                ];
             }
         }
 

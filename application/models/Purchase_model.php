@@ -9018,7 +9018,9 @@ class Purchase_model extends CI_Model
                 }
             }
 
-            if ($lineKindResolved === '') {
+            if ($itemIdResolved > 0) {
+                $lineKindResolved = 'ITEM';
+            } elseif ($lineKindResolved === '') {
                 $hasMaterialDomain = false;
                 foreach ($rows as $rr) {
                     $dom = strtoupper(trim((string)($rr['stock_domain'] ?? '')));
@@ -9030,7 +9032,7 @@ class Purchase_model extends CI_Model
                 $lineKindResolved = ($materialIdResolved > 0 || $hasMaterialDomain) ? 'MATERIAL' : 'ITEM';
             }
             if (!in_array($lineKindResolved, ['ITEM', 'MATERIAL'], true)) {
-                $lineKindResolved = $materialIdResolved > 0 ? 'MATERIAL' : 'ITEM';
+                $lineKindResolved = $itemIdResolved > 0 ? 'ITEM' : ($materialIdResolved > 0 ? 'MATERIAL' : 'ITEM');
             }
 
             if ($lineKind !== 'ALL' && $lineKindResolved !== $lineKind) {
@@ -9100,7 +9102,9 @@ class Purchase_model extends CI_Model
                 continue;
             }
 
-            $targetDomain = strtoupper(trim((string)($profile['line_kind'] ?? 'ITEM'))) === 'MATERIAL' ? 'MATERIAL' : 'ITEM';
+            $targetDomain = (int)($profile['item_id'] ?? 0) > 0
+                ? 'ITEM'
+                : (strtoupper(trim((string)($profile['line_kind'] ?? 'ITEM'))) === 'MATERIAL' ? 'MATERIAL' : 'ITEM');
             $targetItemId = (int)($profile['item_id'] ?? 0);
             $targetMaterialId = (int)($profile['material_id'] ?? 0);
 
@@ -12330,7 +12334,7 @@ class Purchase_model extends CI_Model
                 $stockDomain = $this->resolveLineStockDomain($line);
                 $stockMaterialId = $this->resolveLineMaterialIdForStock($line);
 
-                if ($stockDomain === 'MATERIAL') {
+                if ($stockMaterialId !== null && $stockMaterialId > 0) {
                     $lotRollback = $this->materialfifomanager->rollbackReceiptInboundLotsBySource(
                         'pur_purchase_receipt',
                         $receiptId,
@@ -16540,18 +16544,12 @@ class Purchase_model extends CI_Model
 
         $resolved = strtoupper(trim((string)$lineKind));
         if (!in_array($resolved, ['ITEM', 'MATERIAL', 'SERVICE', 'ASSET'], true)) {
-            if ($itemId !== null) {
-                $resolved = 'ITEM';
-            } elseif ($materialId !== null) {
-                $resolved = 'MATERIAL';
-            } else {
-                $resolved = 'ITEM';
-            }
+            $resolved = 'ITEM';
         }
 
         // In the item-centric flow, raw material is kept as a marker on the
         // canonical item, not as a separate inventory line domain.
-        if ($resolved === 'MATERIAL' && $itemId !== null) {
+        if ($resolved === 'MATERIAL') {
             $resolved = 'ITEM';
         }
 
@@ -16668,7 +16666,7 @@ class Purchase_model extends CI_Model
             'usage_purpose' => $usagePurpose,
             'item_id' => $itemId,
             'material_id' => $materialId,
-            'stock_domain' => $legacyStockDomain,
+            'stock_domain' => 'ITEM',
             'is_production_flow' => $usagePurpose === self::USAGE_PURPOSE_PRODUCTION,
             'has_material_marker' => $hasMaterialMarker,
             'uses_material_fifo' => $hasMaterialMarker,
@@ -16677,25 +16675,15 @@ class Purchase_model extends CI_Model
 
     private function resolveLegacyIdentityStockDomain(?int $itemId, ?int $materialId, $currentValue = null): string
     {
-        $storedDomain = strtoupper(trim((string)$currentValue));
-        if ($itemId !== null) {
+        if ($itemId !== null || $materialId !== null) {
             return 'ITEM';
         }
-        if ($materialId !== null) {
-            return 'MATERIAL';
-        }
-        return in_array($storedDomain, ['ITEM', 'MATERIAL'], true) ? $storedDomain : 'ITEM';
+        return 'ITEM';
     }
 
     private function resolveLineStockDomain(array $line): string
     {
-        $storedDomain = strtoupper(trim((string)($line['stock_domain'] ?? '')));
-        if (in_array($storedDomain, ['ITEM', 'MATERIAL'], true)) {
-            return $storedDomain;
-        }
-
-        $context = $this->resolveCanonicalStockWriteContext($line);
-        return strtoupper(trim((string)($context['stock_domain'] ?? 'ITEM')));
+        return 'ITEM';
     }
 
     private function resolveLineMaterialIdForStock(array $line): ?int
