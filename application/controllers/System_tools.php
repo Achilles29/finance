@@ -270,8 +270,12 @@ class System_tools extends MY_Controller
         $failed  = [];
 
         // Nonaktifkan db_debug agar error SQL tidak di-output sebagai HTML (CI3 quirk)
-        $origDebug        = $this->db->db_debug;
+        $origDebug          = $this->db->db_debug;
         $this->db->db_debug = FALSE;
+
+        // Deteksi MariaDB — beberapa variabel/perintah MySQL tidak tersedia di MariaDB
+        $verRow    = $this->db->query("SELECT VERSION() AS v")->row_array();
+        $isMariaDB = stripos($verRow['v'] ?? '', 'mariadb') !== false;
 
         // Terapkan via SET GLOBAL (langsung efektif, tidak butuh restart)
         $offset  = $role === 'MASTER' ? 1 : 2;
@@ -282,8 +286,11 @@ class System_tools extends MY_Controller
             "SET GLOBAL auto_increment_increment = 2",
         ];
         if ($role === 'SLAVE') {
-            $globals[] = "SET GLOBAL read_only       = ON";
-            $globals[] = "SET GLOBAL super_read_only = ON";
+            $globals[] = "SET GLOBAL read_only = ON";
+            // super_read_only hanya ada di MySQL 5.7+ — tidak ada di MariaDB
+            if (!$isMariaDB) {
+                $globals[] = "SET GLOBAL super_read_only = ON";
+            }
         }
         foreach ($globals as $sql) {
             $r = $this->db->query($sql);
@@ -299,14 +306,14 @@ class System_tools extends MY_Controller
         $logBinRow = $this->db->query("SHOW VARIABLES LIKE 'log_bin'")->row_array();
         $binlogOn  = strtoupper($logBinRow['Value'] ?? 'OFF') === 'ON';
 
-        // Khusus SLAVE: coba exclude sys_app_config (butuh SUPER/BINLOG MONITOR — opsional)
-        if ($role === 'SLAVE') {
-            $dbName = $this->db->database;
+        // Khusus SLAVE MySQL: coba exclude sys_app_config (tidak didukung MariaDB)
+        if ($role === 'SLAVE' && !$isMariaDB) {
+            $dbName    = $this->db->database;
             $sqlFilter = "CHANGE REPLICATION FILTER REPLICATE_IGNORE_TABLE = (`{$dbName}`.`sys_app_config`)";
-            $r = $this->db->query($sqlFilter);
+            $r         = $this->db->query($sqlFilter);
             if ($r === FALSE) {
-                $err = $this->db->error();
-                $failed[] = ['sql' => 'CHANGE REPLICATION FILTER (opsional)', 'error' => ($err['message'] ?? 'Butuh SUPER/BINLOG MONITOR — abaikan, sudah ditulis ke conf.d')];
+                $err      = $this->db->error();
+                $failed[] = ['sql' => 'CHANGE REPLICATION FILTER (opsional)', 'error' => $err['message'] ?? 'Butuh SUPER/BINLOG MONITOR — sudah ditulis ke conf.d'];
             } else {
                 $applied[] = $sqlFilter;
             }
@@ -315,9 +322,9 @@ class System_tools extends MY_Controller
         $this->db->db_debug = $origDebug;
 
         // Snippet konfigurasi untuk my.cnf
-        $readOnly     = $role === 'SLAVE' ? "\nread_only                = ON\nsuper_read_only          = ON" : '';
-        $ignoreTable  = $role === 'SLAVE' ? "\nreplicate-ignore-table   = " . $this->db->database . ".sys_app_config" : '';
-        $snippet  = "[mysqld]\nserver-id                = {$serverId}\nlog_bin                  = mysql-bin\nbinlog_format            = ROW{$readOnly}\nauto_increment_offset    = {$offset}\nauto_increment_increment = 2{$ignoreTable}";
+        $readOnly    = $role === 'SLAVE' ? "\nread_only                = ON" . (!$isMariaDB ? "\nsuper_read_only          = ON" : '') : '';
+        $ignoreTable = ($role === 'SLAVE' && !$isMariaDB) ? "\nreplicate-ignore-table   = " . $this->db->database . ".sys_app_config" : '';
+        $snippet     = "[mysqld]\nserver-id                = {$serverId}\nlog_bin                  = mysql-bin\nbinlog_format            = ROW{$readOnly}\nauto_increment_offset    = {$offset}\nauto_increment_increment = 2{$ignoreTable}";
 
         // Coba tulis ke conf.d (agar permanen / survive restart)
         $confDirs    = ['/etc/mysql/conf.d', '/etc/mysql/mysql.conf.d', '/etc/my.cnf.d'];
