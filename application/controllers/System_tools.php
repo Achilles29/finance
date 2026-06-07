@@ -142,7 +142,7 @@ class System_tools extends MY_Controller
             'backup.repo_branch', 'backup.exclude_tables',
             'repl.server_role', 'repl.master_host', 'repl.master_port',
             'repl.repl_user', 'repl.repl_pass',
-            'tunnel.enabled', 'tunnel.ssh_host', 'tunnel.ssh_user',
+            'tunnel.enabled', 'tunnel.ssh_host', 'tunnel.ssh_port', 'tunnel.ssh_user',
             'tunnel.local_port', 'tunnel.remote_port',
         ];
 
@@ -269,6 +269,10 @@ class System_tools extends MY_Controller
         $applied = [];
         $failed  = [];
 
+        // Nonaktifkan db_debug agar error SQL tidak di-output sebagai HTML (CI3 quirk)
+        $origDebug        = $this->db->db_debug;
+        $this->db->db_debug = FALSE;
+
         // Terapkan via SET GLOBAL (langsung efektif, tidak butuh restart)
         $offset  = $role === 'MASTER' ? 1 : 2;
         $globals = [
@@ -282,17 +286,38 @@ class System_tools extends MY_Controller
             $globals[] = "SET GLOBAL super_read_only = ON";
         }
         foreach ($globals as $sql) {
-            try   { $this->db->query($sql); $applied[] = $sql; }
-            catch (Exception $e) { $failed[] = ['sql' => $sql, 'error' => $e->getMessage()]; }
+            $r = $this->db->query($sql);
+            if ($r === FALSE) {
+                $err      = $this->db->error();
+                $failed[] = ['sql' => $sql, 'error' => $err['message'] ?? 'unknown'];
+            } else {
+                $applied[] = $sql;
+            }
         }
 
         // Cek apakah binary logging sudah aktif
         $logBinRow = $this->db->query("SHOW VARIABLES LIKE 'log_bin'")->row_array();
         $binlogOn  = strtoupper($logBinRow['Value'] ?? 'OFF') === 'ON';
 
+        // Khusus SLAVE: coba exclude sys_app_config (butuh SUPER/BINLOG MONITOR — opsional)
+        if ($role === 'SLAVE') {
+            $dbName = $this->db->database;
+            $sqlFilter = "CHANGE REPLICATION FILTER REPLICATE_IGNORE_TABLE = (`{$dbName}`.`sys_app_config`)";
+            $r = $this->db->query($sqlFilter);
+            if ($r === FALSE) {
+                $err = $this->db->error();
+                $failed[] = ['sql' => 'CHANGE REPLICATION FILTER (opsional)', 'error' => ($err['message'] ?? 'Butuh SUPER/BINLOG MONITOR — abaikan, sudah ditulis ke conf.d')];
+            } else {
+                $applied[] = $sqlFilter;
+            }
+        }
+
+        $this->db->db_debug = $origDebug;
+
         // Snippet konfigurasi untuk my.cnf
-        $readOnly = $role === 'SLAVE' ? "\nread_only                = ON\nsuper_read_only          = ON" : '';
-        $snippet  = "[mysqld]\nserver-id                = {$serverId}\nlog_bin                  = mysql-bin\nbinlog_format            = ROW{$readOnly}\nauto_increment_offset    = {$offset}\nauto_increment_increment = 2";
+        $readOnly     = $role === 'SLAVE' ? "\nread_only                = ON\nsuper_read_only          = ON" : '';
+        $ignoreTable  = $role === 'SLAVE' ? "\nreplicate-ignore-table   = " . $this->db->database . ".sys_app_config" : '';
+        $snippet  = "[mysqld]\nserver-id                = {$serverId}\nlog_bin                  = mysql-bin\nbinlog_format            = ROW{$readOnly}\nauto_increment_offset    = {$offset}\nauto_increment_increment = 2{$ignoreTable}";
 
         // Coba tulis ke conf.d (agar permanen / survive restart)
         $confDirs    = ['/etc/mysql/conf.d', '/etc/mysql/mysql.conf.d', '/etc/my.cnf.d'];
@@ -333,7 +358,8 @@ class System_tools extends MY_Controller
             $p = $this->db->escape_str($replPass);
             $this->db->query("CREATE USER IF NOT EXISTS '{$u}'@'%' IDENTIFIED BY '{$p}'");
             $this->db->query("ALTER USER '{$u}'@'%' IDENTIFIED BY '{$p}'");
-            $this->db->query("GRANT REPLICATION SLAVE ON *.* TO '{$u}'@'%'");
+            // REPLICATION CLIENT diperlukan untuk SHOW MASTER STATUS dari sisi slave
+            $this->db->query("GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO '{$u}'@'%'");
             $this->db->query("FLUSH PRIVILEGES");
             $master = $this->db->query('SHOW MASTER STATUS')->row_array() ?: [];
             $this->json_ok([
@@ -433,7 +459,9 @@ class System_tools extends MY_Controller
         $masterHost  = (string)($payload['master_host']  ?? $this->_cfg('repl.master_host', ''));
         $masterPort  = (int)($payload['master_port']     ?? $this->_cfg('repl.master_port', '3306'));
         $replUser    = (string)($payload['repl_user']    ?? $this->_cfg('repl.repl_user', 'repl_user'));
-        $replPass    = (string)($payload['repl_pass']    ?? $this->_cfg('repl.repl_pass', ''));
+        // Jika dikirim kosong ("tidak diubah"), gunakan nilai tersimpan di DB
+        $rawPass     = (string)($payload['repl_pass']    ?? '');
+        $replPass    = $rawPass !== '' ? $rawPass : $this->_cfg('repl.repl_pass', '');
         $tunnelOn    = $this->_cfg('tunnel.enabled', '0') === '1';
         $connHost    = $tunnelOn ? '127.0.0.1' : $masterHost;
         $connPort    = $tunnelOn ? (int)$this->_cfg('tunnel.local_port', '3307') : $masterPort;
@@ -554,8 +582,11 @@ class System_tools extends MY_Controller
             "",
             "# SSH Tunnel",
             "TUNNEL_ENABLED=" . $q($this->_cfg('tunnel.enabled', '0')),
+            "SSH_HOST=" . $q($this->_cfg('tunnel.ssh_host', '')),
+            "SSH_PORT=" . $q($this->_cfg('tunnel.ssh_port', '22')),
             "SSH_USER=" . $q($this->_cfg('tunnel.ssh_user', 'root')),
             "TUNNEL_LOCAL_PORT=" . $q($this->_cfg('tunnel.local_port', '3307')),
+            "TUNNEL_REMOTE_PORT=" . $q($this->_cfg('tunnel.remote_port', '3306')),
         ];
         @file_put_contents($envPath, implode("\n", $lines) . "\n");
     }

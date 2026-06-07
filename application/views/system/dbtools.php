@@ -288,7 +288,10 @@ $lastDump   = !empty($recentDumps) ? $recentDumps[0] : null;
             <div class="col-md-8"><label class="form-label small mb-1">Alamat SSH Server Utama</label>
               <input type="text" id="t_ssh_host" class="form-control form-control-sm" placeholder="IP/domain (sama dengan server utama)"
                      value="<?php echo $cfgGet($cfg,'tunnel.ssh_host',''); ?>"></div>
-            <div class="col-md-4"><label class="form-label small mb-1">User SSH</label>
+            <div class="col-md-2"><label class="form-label small mb-1">Port SSH</label>
+              <input type="number" id="t_ssh_port" class="form-control form-control-sm" value="<?php echo $cfgGet($cfg,'tunnel.ssh_port','22'); ?>">
+              <div class="form-text" style="font-size:.68rem">Cek di Bitvise</div></div>
+            <div class="col-md-2"><label class="form-label small mb-1">User SSH</label>
               <input type="text" id="t_ssh_user" class="form-control form-control-sm" value="<?php echo $cfgGet($cfg,'tunnel.ssh_user','root'); ?>"></div>
             <div class="col-md-6"><label class="form-label small mb-1">Port lokal terowongan</label>
               <input type="number" id="t_local_port" class="form-control form-control-sm" value="<?php echo $cfgGet($cfg,'tunnel.local_port','3307'); ?>"></div>
@@ -1295,7 +1298,8 @@ function toggleChap(header) {
              'repl.master_host': getVal('r_master_host'), 'repl.master_port': getVal('r_master_port'),
              'repl.repl_user': getVal('r_repl_user'), 'repl.repl_pass': document.getElementById('r_repl_pass')?.value || '',
              'tunnel.enabled': document.getElementById('t_enabled')?.checked ? '1' : '0',
-             'tunnel.ssh_host': getVal('t_ssh_host'), 'tunnel.ssh_user': getVal('t_ssh_user'),
+             'tunnel.ssh_host': getVal('t_ssh_host'), 'tunnel.ssh_port': getVal('t_ssh_port'),
+             'tunnel.ssh_user': getVal('t_ssh_user'),
              'tunnel.local_port': getVal('t_local_port'), 'tunnel.remote_port': getVal('t_remote_port') };
   }
 
