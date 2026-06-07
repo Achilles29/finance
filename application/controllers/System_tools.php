@@ -569,6 +569,10 @@ class System_tools extends MY_Controller
                            . "gunzip -c sync_partial.sql.gz | \"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root -p {$dbName}";
             }
 
+            // Safeguard: remaining hanya boleh berisi tabel dari request ini (cegah infinite loop)
+            $inputSet  = array_flip(array_values($tables));
+            $remaining = array_values(array_filter($remaining, fn($t) => isset($inputSet[$t])));
+
             $this->json_ok([
                 'message'    => count($remaining) > 0
                     ? count($synced) . ' tabel selesai, ' . count($remaining) . ' dilanjutkan...'
@@ -576,7 +580,7 @@ class System_tools extends MY_Controller
                 'synced'     => $synced,
                 'skipped'    => $skipped,
                 'errors'     => $errors,
-                'remaining'  => $remaining,  // JS panggil ulang dengan ini
+                'remaining'  => $remaining,
                 'server_cmd' => $serverCmd,
             ]);
         } catch (Exception $e) {
@@ -590,14 +594,18 @@ class System_tools extends MY_Controller
     // ── Helper: incremental sync — hanya baris yang kurang (via PK) ─
     private function _syncIncremental(string $table, PDO $pdo, string $dbName): ?int
     {
-        // Cari primary key tunggal (auto-increment)
+        // Cari primary key via INFORMATION_SCHEMA (kompatibel MySQL & MariaDB)
         $pkRows = $pdo->query(
-            "SHOW KEYS FROM `{$dbName}`.`{$table}` WHERE Key_name='PRIMARY' ORDER BY Seq_in_index"
-        )->fetchAll(PDO::FETCH_ASSOC);
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+             WHERE TABLE_SCHEMA = " . $pdo->quote($dbName) . "
+               AND TABLE_NAME   = " . $pdo->quote($table)  . "
+               AND CONSTRAINT_NAME = 'PRIMARY'
+             ORDER BY ORDINAL_POSITION"
+        )->fetchAll(PDO::FETCH_COLUMN);
 
         if (count($pkRows) !== 1) return null; // composite PK → fallback full sync
 
-        $pkCol   = $pkRows[0]['Column_name'];
+        $pkCol = $pkRows[0];
         $slaveMaxRow = $this->db->query("SELECT MAX(`{$pkCol}`) AS m FROM `{$table}`")->row_array();
         $slaveMax    = $slaveMaxRow['m'] ?? null;
 

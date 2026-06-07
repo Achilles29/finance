@@ -1450,11 +1450,16 @@ function toggleChap(header) {
 
         // Update hasil
         (j.synced || []).forEach(s => { const t = s.split(' (')[0]; synced.push(t); outEl.textContent += `  ✓ ${s}\n`; });
-        (j.errors || []).forEach(e => { const t = e.split(':')[0].trim(); failed.push(t); outEl.textContent += `  ✗ ${e}\n`; });
+        (j.errors || []).forEach(e => {
+          const t = e.split(':')[0].trim();
+          if (!failed.includes(t)) failed.push(t);
+          outEl.textContent += `  ✗ ${e}\n`;
+        });
 
-        // Sisa yang belum diproses (time limit)
-        pending = j.remaining || [];
-        if (pending.length > 0) outEl.textContent += `  → ${pending.length} tabel dilanjutkan batch berikutnya...\n`;
+        // Cegah infinite loop: tabel gagal TIDAK boleh diretry
+        const doneSet = new Set([...synced, ...failed]);
+        pending = (j.remaining || []).filter(t => !doneSet.has(t));
+        if (pending.length > 0) outEl.textContent += `  → ${pending.length} tabel dilanjutkan...\n`;
 
       } catch(e) {
         outEl.textContent += `  ✗ Error: ${e.message}\n`;
