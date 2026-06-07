@@ -24,8 +24,15 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 |
 */
 //$config['base_url'] = 'https://core.namuacoffee.com/';
-$config['base_url'] = 'http://localhost/finance/';
+// $config['base_url'] = 'http://localhost/finance/';
 
+$script_name = str_replace(basename($_SERVER['SCRIPT_NAME']), '', $_SERVER['SCRIPT_NAME']);
+$config['base_url'] = ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? "https" : "http")
+    . "://" . $_SERVER['HTTP_HOST'] . rtrim($script_name, '/') . '/';
+
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
 
 /*

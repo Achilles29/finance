@@ -1371,84 +1371,6 @@ class Purchase_model extends CI_Model
         }
 
         return [];
-
-        if (!$this->db->table_exists('inv_warehouse_daily_rollup')) {
-            return [];
-        }
-
-        $monthKey = $this->normalizeMonth($month);
-        $from = $this->normalizeDate($dateFrom);
-        $to = $this->normalizeDate($dateTo);
-        $hasProcessLossQtyBuy = $this->db->field_exists('process_loss_qty_buy', 'inv_warehouse_daily_rollup');
-        $hasProcessLossQtyContent = $this->db->field_exists('process_loss_qty_content', 'inv_warehouse_daily_rollup');
-        $hasVarianceQtyBuy = $this->db->field_exists('variance_qty_buy', 'inv_warehouse_daily_rollup');
-        $hasVarianceQtyContent = $this->db->field_exists('variance_qty_content', 'inv_warehouse_daily_rollup');
-        $hasAdjustmentPlusQtyBuy = $this->db->field_exists('adjustment_plus_qty_buy', 'inv_warehouse_daily_rollup');
-        $hasAdjustmentPlusQtyContent = $this->db->field_exists('adjustment_plus_qty_content', 'inv_warehouse_daily_rollup');
-        $hasWasteValue = $this->db->field_exists('waste_total_value', 'inv_warehouse_daily_rollup');
-        $hasSpoilageValue = $this->db->field_exists('spoilage_total_value', 'inv_warehouse_daily_rollup');
-        $hasProcessLossValue = $this->db->field_exists('process_loss_total_value', 'inv_warehouse_daily_rollup');
-        $hasVarianceValue = $this->db->field_exists('variance_total_value', 'inv_warehouse_daily_rollup');
-        $hasAdjustmentPlusValue = $this->db->field_exists('adjustment_plus_total_value', 'inv_warehouse_daily_rollup');
-
-        $this->db
-            ->select('d.id, d.movement_date, d.stock_domain, d.item_id, d.material_id, d.buy_uom_id, d.content_uom_id')
-            ->select('d.profile_key, d.profile_name, d.profile_brand, d.profile_description')
-            ->select('d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
-            ->select('d.opening_qty_content, d.in_qty_content, d.out_qty_content, d.adjustment_qty_content, d.closing_qty_content')
-            ->select('d.discarded_qty_buy AS discard_qty_buy, d.discarded_qty_content AS discard_qty_content, d.spoil_qty_buy, d.spoil_qty_content, d.waste_qty_buy, d.waste_qty_content')
-            ->select(($hasProcessLossQtyBuy ? 'd.process_loss_qty_buy' : '0') . ' AS process_loss_qty_buy', false)
-            ->select(($hasProcessLossQtyContent ? 'd.process_loss_qty_content' : '0') . ' AS process_loss_qty_content', false)
-            ->select(($hasVarianceQtyBuy ? 'd.variance_qty_buy' : '0') . ' AS variance_qty_buy', false)
-            ->select(($hasVarianceQtyContent ? 'd.variance_qty_content' : '0') . ' AS variance_qty_content', false)
-            ->select(($hasAdjustmentPlusQtyBuy ? 'd.adjustment_plus_qty_buy' : '0') . ' AS adjustment_plus_qty_buy', false)
-            ->select(($hasAdjustmentPlusQtyContent ? 'd.adjustment_plus_qty_content' : '0') . ' AS adjustment_plus_qty_content', false)
-            ->select(($hasWasteValue ? 'd.waste_total_value' : '(COALESCE(d.waste_qty_content,0) + COALESCE(d.discarded_qty_content,0)) * COALESCE(d.avg_cost_per_content,0)') . ' AS waste_total_value', false)
-            ->select(($hasSpoilageValue ? 'd.spoilage_total_value' : 'COALESCE(d.spoil_qty_content,0) * COALESCE(d.avg_cost_per_content,0)') . ' AS spoilage_total_value', false)
-            ->select(($hasProcessLossValue ? 'd.process_loss_total_value' : '0') . ' AS process_loss_total_value', false)
-            ->select(($hasVarianceValue ? 'd.variance_total_value' : 'GREATEST(-COALESCE(d.adjustment_qty_content,0),0) * COALESCE(d.avg_cost_per_content,0)') . ' AS variance_total_value', false)
-            ->select(($hasAdjustmentPlusValue ? 'd.adjustment_plus_total_value' : 'GREATEST(COALESCE(d.adjustment_qty_content,0),0) * COALESCE(d.avg_cost_per_content,0)') . ' AS adjustment_plus_total_value', false)
-            ->select('d.avg_cost_per_content, d.total_value, d.mutation_count')
-            ->select('i.item_code, i.item_name, m.material_code, m.material_name')
-            ->from('inv_warehouse_daily_rollup d')
-            ->join('mst_item i', 'i.id = d.item_id', 'left')
-            ->join('mst_material m', 'm.id = d.material_id', 'left');
-        if ($this->db->field_exists('profile_expired_date', 'inv_warehouse_daily_rollup')) {
-            $this->db->select('d.profile_expired_date');
-        } else {
-            $this->db->select('NULL AS profile_expired_date', false);
-        }
-
-        if ($monthKey !== null) {
-            $this->db->where('d.month_key', $monthKey);
-        }
-        if ($from !== null) {
-            $this->db->where('d.movement_date >=', $from);
-        }
-        if ($to !== null) {
-            $this->db->where('d.movement_date <=', $to);
-        }
-
-        if ($q !== '') {
-            $this->db->group_start()
-                ->like('i.item_code', $q)
-                ->or_like('i.item_name', $q)
-                ->or_like('m.material_code', $q)
-                ->or_like('m.material_name', $q)
-                ->or_like('d.profile_name', $q)
-                ->or_like('d.profile_brand', $q)
-                ->or_like('d.profile_description', $q)
-                ->group_end();
-        }
-
-        $rows = $this->db
-            ->order_by('COALESCE(i.item_name, m.material_name)', 'ASC', false)
-            ->order_by('d.profile_name', 'ASC')
-            ->order_by('d.movement_date', 'ASC')
-            ->get()
-            ->result_array();
-
-        return $this->limitRowsByProfile($rows, $limit);
     }
 
     public function get_stock_opening_snapshot(string $scope, int $id): ?array
@@ -1500,77 +1422,6 @@ class Purchase_model extends CI_Model
             'dates' => [],
             'rows' => [],
         ];
-
-        if (!$this->db->table_exists('inv_warehouse_daily_rollup')) {
-            return [
-                'window' => [
-                    'month_key' => null,
-                    'date_from' => null,
-                    'date_to' => null,
-                ],
-                'dates' => [],
-                'rows' => [],
-            ];
-        }
-
-        $hasDiscardQtyContent = $this->db->field_exists('discarded_qty_content', 'inv_warehouse_daily_rollup');
-        $hasSpoilQtyContent = $this->db->field_exists('spoil_qty_content', 'inv_warehouse_daily_rollup');
-        $hasWasteQtyContent = $this->db->field_exists('waste_qty_content', 'inv_warehouse_daily_rollup');
-        $hasProcessLossQtyContent = $this->db->field_exists('process_loss_qty_content', 'inv_warehouse_daily_rollup');
-        $hasVarianceQtyContent = $this->db->field_exists('variance_qty_content', 'inv_warehouse_daily_rollup');
-        $hasAdjustmentPlusQtyContent = $this->db->field_exists('adjustment_plus_qty_content', 'inv_warehouse_daily_rollup');
-
-        $this->db
-            ->select('d.movement_date, d.stock_domain, d.item_id, d.material_id, d.buy_uom_id, d.content_uom_id')
-            ->select('d.profile_key, d.profile_name, d.profile_brand, d.profile_description')
-            ->select('d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
-            ->select('d.opening_qty_content, d.in_qty_content, d.out_qty_content, d.adjustment_qty_content, d.closing_qty_content')
-            ->select(($hasDiscardQtyContent ? 'd.discarded_qty_content' : '0') . ' AS discarded_qty_content', false)
-            ->select(($hasSpoilQtyContent ? 'd.spoil_qty_content' : '0') . ' AS spoil_qty_content', false)
-            ->select(($hasWasteQtyContent ? 'd.waste_qty_content' : '0') . ' AS waste_qty_content', false)
-            ->select(($hasProcessLossQtyContent ? 'd.process_loss_qty_content' : '0') . ' AS process_loss_qty_content', false)
-            ->select(($hasVarianceQtyContent ? 'd.variance_qty_content' : '0') . ' AS variance_qty_content', false)
-            ->select(($hasAdjustmentPlusQtyContent ? 'd.adjustment_plus_qty_content' : '0') . ' AS adjustment_plus_qty_content', false)
-            ->select('d.total_value, d.mutation_count')
-            ->select('i.item_code, i.item_name, m.material_code, m.material_name')
-            ->from('inv_warehouse_daily_rollup d')
-            ->join('mst_item i', 'i.id = d.item_id', 'left')
-            ->join('mst_material m', 'm.id = d.material_id', 'left')
-            ->where('d.movement_date >=', $window['date_from'])
-            ->where('d.movement_date <=', $window['date_to']);
-        if ($this->db->field_exists('profile_expired_date', 'inv_warehouse_daily_rollup')) {
-            $this->db->select('d.profile_expired_date');
-        } else {
-            $this->db->select('NULL AS profile_expired_date', false);
-        }
-
-        if ($q !== '') {
-            $this->db
-                ->group_start()
-                    ->like('i.item_code', $q)
-                    ->or_like('i.item_name', $q)
-                    ->or_like('m.material_code', $q)
-                    ->or_like('m.material_name', $q)
-                    ->or_like('d.profile_name', $q)
-                    ->or_like('d.profile_brand', $q)
-                    ->or_like('d.profile_description', $q)
-                ->group_end();
-        }
-
-        $rows = $this->db
-            ->order_by('COALESCE(i.item_name, m.material_name)', 'ASC', false)
-            ->order_by('d.profile_name', 'ASC')
-            ->order_by('d.movement_date', 'ASC')
-            ->get()
-            ->result_array();
-
-        $rows = $this->filterZeroOpeningClosingDailyRows($rows);
-
-        return [
-            'window' => $window,
-            'dates' => $dates,
-            'rows' => $this->pivotDailyRows($rows, $limit),
-        ];
     }
 
     public function list_division_daily_rollup(string $month, string $q, ?int $divisionId, string $dateFrom, string $dateTo, int $limit, ?string $destinationFilter = null): array
@@ -1593,132 +1444,6 @@ class Purchase_model extends CI_Model
         }
 
         return [];
-
-        if (!$this->db->table_exists('inv_division_daily_rollup')) {
-            return [];
-        }
-
-        $monthKey = $this->normalizeMonth($month);
-        $from = $this->normalizeDate($dateFrom);
-        $to = $this->normalizeDate($dateTo);
-        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
-        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_division_daily_rollup');
-        $hasProcessLossQtyBuy = $this->db->field_exists('process_loss_qty_buy', 'inv_division_daily_rollup');
-        $hasProcessLossQtyContent = $this->db->field_exists('process_loss_qty_content', 'inv_division_daily_rollup');
-        $hasVarianceQtyBuy = $this->db->field_exists('variance_qty_buy', 'inv_division_daily_rollup');
-        $hasVarianceQtyContent = $this->db->field_exists('variance_qty_content', 'inv_division_daily_rollup');
-        $hasAdjustmentPlusQtyBuy = $this->db->field_exists('adjustment_plus_qty_buy', 'inv_division_daily_rollup');
-        $hasAdjustmentPlusQtyContent = $this->db->field_exists('adjustment_plus_qty_content', 'inv_division_daily_rollup');
-        $hasWasteValue = $this->db->field_exists('waste_total_value', 'inv_division_daily_rollup');
-        $hasSpoilageValue = $this->db->field_exists('spoilage_total_value', 'inv_division_daily_rollup');
-        $hasProcessLossValue = $this->db->field_exists('process_loss_total_value', 'inv_division_daily_rollup');
-        $hasVarianceValue = $this->db->field_exists('variance_total_value', 'inv_division_daily_rollup');
-        $hasAdjustmentPlusValue = $this->db->field_exists('adjustment_plus_total_value', 'inv_division_daily_rollup');
-        $destinationTypeSource = $hasDestinationType ? 'd.destination_type' : "'OTHER'";
-
-        $destinationGroupExpr = "CASE\n                WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'\n                ELSE 'REGULER'\n            END";
-        $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
-
-        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
-            ? 'division_code'
-            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
-        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
-            ? 'division_name'
-            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
-        $hasDivisionCode = $divisionCodeColumn !== null;
-        $hasDivisionName = $divisionNameColumn !== null;
-        $divisionCodeSelect = $hasDivisionCode ? ('dv.' . $divisionCodeColumn . ' AS division_code') : 'CAST(d.division_id AS CHAR) AS division_code';
-        $divisionNameSelect = $hasDivisionName ? ('dv.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
-
-        $this->db
-            ->select('d.id, d.month_key, d.movement_date, d.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect, false)
-            ->select($destinationTypeSource . ' AS destination_type', false)
-            ->select($destinationGroupExpr . ' AS destination_group', false)
-            ->select($destinationNameExpr . ' AS destination_name', false)
-            ->select('d.stock_domain, d.item_id, COALESCE(d.material_id, i.material_id) AS material_id, d.buy_uom_id, d.content_uom_id', false)
-            ->select('d.profile_key, d.profile_name, d.profile_brand, d.profile_description')
-            ->select('d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
-            ->select('d.opening_qty_content, d.in_qty_content, d.out_qty_content, d.adjustment_qty_content, d.closing_qty_content')
-            ->select('d.discarded_qty_buy AS discard_qty_buy, d.discarded_qty_content AS discard_qty_content, d.spoil_qty_buy, d.spoil_qty_content, d.waste_qty_buy, d.waste_qty_content')
-            ->select(($hasProcessLossQtyBuy ? 'd.process_loss_qty_buy' : '0') . ' AS process_loss_qty_buy', false)
-            ->select(($hasProcessLossQtyContent ? 'd.process_loss_qty_content' : '0') . ' AS process_loss_qty_content', false)
-            ->select(($hasVarianceQtyBuy ? 'd.variance_qty_buy' : '0') . ' AS variance_qty_buy', false)
-            ->select(($hasVarianceQtyContent ? 'd.variance_qty_content' : '0') . ' AS variance_qty_content', false)
-            ->select(($hasAdjustmentPlusQtyBuy ? 'd.adjustment_plus_qty_buy' : '0') . ' AS adjustment_plus_qty_buy', false)
-            ->select(($hasAdjustmentPlusQtyContent ? 'd.adjustment_plus_qty_content' : '0') . ' AS adjustment_plus_qty_content', false)
-            ->select(($hasWasteValue ? 'd.waste_total_value' : '(COALESCE(d.waste_qty_content,0) + COALESCE(d.discarded_qty_content,0)) * COALESCE(d.avg_cost_per_content,0)') . ' AS waste_total_value', false)
-            ->select(($hasSpoilageValue ? 'd.spoilage_total_value' : 'COALESCE(d.spoil_qty_content,0) * COALESCE(d.avg_cost_per_content,0)') . ' AS spoilage_total_value', false)
-            ->select(($hasProcessLossValue ? 'd.process_loss_total_value' : '0') . ' AS process_loss_total_value', false)
-            ->select(($hasVarianceValue ? 'd.variance_total_value' : 'GREATEST(-COALESCE(d.adjustment_qty_content,0),0) * COALESCE(d.avg_cost_per_content,0)') . ' AS variance_total_value', false)
-            ->select(($hasAdjustmentPlusValue ? 'd.adjustment_plus_total_value' : 'GREATEST(COALESCE(d.adjustment_qty_content,0),0) * COALESCE(d.avg_cost_per_content,0)') . ' AS adjustment_plus_total_value', false)
-            ->select('d.avg_cost_per_content, d.total_value, d.mutation_count')
-            ->select('i.item_code, i.item_name, m.material_code, m.material_name')
-            ->from('inv_division_daily_rollup d')
-            ->join('mst_operational_division dv', 'dv.id = d.division_id', 'left')
-            ->join('mst_item i', 'i.id = d.item_id', 'left')
-            ->join('mst_material m', 'm.id = d.material_id', 'left');
-        if ($this->db->field_exists('profile_expired_date', 'inv_division_daily_rollup')) {
-            $this->db->select('d.profile_expired_date');
-        } else {
-            $this->db->select('NULL AS profile_expired_date', false);
-        }
-
-        if ($monthKey !== null) {
-            $this->db->where('d.month_key', $monthKey);
-        }
-        if ($divisionId !== null && $divisionId > 0) {
-            $this->db->where('d.division_id', $divisionId);
-        }
-        if ($from !== null) {
-            $this->db->where('d.movement_date >=', $from);
-        }
-        if ($to !== null) {
-            $this->db->where('d.movement_date <=', $to);
-        }
-        if ($destinationFilter !== null && $destinationFilter !== 'ALL' && $hasDestinationType) {
-            if ($destinationFilter === 'REGULER') {
-                $this->db->where_not_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } else {
-                $this->db->where('d.destination_type', $destinationFilter);
-            }
-        }
-
-        if ($q !== '') {
-            $this->db->group_start();
-            if ($hasDivisionCode) {
-                $this->db->like('dv.' . $divisionCodeColumn, $q);
-                if ($hasDivisionName) {
-                    $this->db->or_like('dv.' . $divisionNameColumn, $q);
-                }
-            } elseif ($hasDivisionName) {
-                $this->db->like('dv.' . $divisionNameColumn, $q);
-            }
-            $this->db->or_like('i.item_code', $q)
-                ->or_like('i.item_name', $q)
-                ->or_like('m.material_code', $q)
-                ->or_like('m.material_name', $q)
-                ->or_like('d.profile_name', $q)
-                ->or_like('d.profile_brand', $q)
-                ->or_like('d.profile_description', $q)
-                ->or_like($destinationGroupExpr, $q, 'both', false)
-                ->or_like($destinationNameExpr, $q, 'both', false)
-                ->group_end();
-        }
-
-        $rows = $this->db
-            ->order_by($hasDivisionName ? ('dv.' . $divisionNameColumn) : 'd.division_id', 'ASC')
-            ->order_by($destinationGroupExpr, 'ASC', false)
-            ->order_by('COALESCE(m.material_name, i.item_name)', 'ASC', false)
-            ->order_by('d.profile_name', 'ASC')
-            ->order_by('d.movement_date', 'ASC')
-            ->get()
-            ->result_array();
-
-        $rows = $this->normalizeDivisionProfileKeyRows($rows);
-
-        return $this->limitRowsByProfile($rows, $limit);
     }
 
     public function list_material_daily_matrix(string $month, string $q, ?int $divisionId, string $dateFrom, string $dateTo, int $limit, ?string $destinationFilter = null): array
@@ -1756,29 +1481,6 @@ class Purchase_model extends CI_Model
             'dates' => [],
             'rows' => [],
         ];
-
-        if (!$this->db->table_exists('inv_division_daily_rollup')) {
-            return [
-                'window' => [
-                    'month_key' => null,
-                    'date_from' => null,
-                    'date_to' => null,
-                ],
-                'dates' => [],
-                'rows' => [],
-            ];
-        }
-
-        $rows = $this->fetchMaterialDailySourceRows($q, $divisionId, $window['date_from'], $window['date_to'], $destinationFilter);
-        $rows = $this->normalizeDivisionProfileKeyRows($rows);
-        $rows = $this->filterZeroOpeningClosingDailyRows($rows);
-        $rows = $this->attachMaterialDailyProfilePrices($rows);
-
-        return [
-            'window' => $window,
-            'dates' => $dates,
-            'rows' => $this->pivotDailyRows($rows, $limit),
-        ];
     }
 
     private function fetchMaterialDailySourceRows(string $q, ?int $divisionId, string $dateFrom, string $dateTo, ?string $destinationFilter = null): array
@@ -1787,113 +1489,7 @@ class Purchase_model extends CI_Model
             return $this->fetchInventoryDailyMatrixSourceRowsFromMovement('DIVISION', $q, $divisionId, $dateFrom, $dateTo, $destinationFilter, true);
         }
 
-        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
-        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_division_daily_rollup');
-        $hasDiscardQtyContent = $this->db->field_exists('discarded_qty_content', 'inv_division_daily_rollup');
-        $hasSpoilQtyContent = $this->db->field_exists('spoil_qty_content', 'inv_division_daily_rollup');
-        $hasWasteQtyContent = $this->db->field_exists('waste_qty_content', 'inv_division_daily_rollup');
-        $hasProcessLossQtyContent = $this->db->field_exists('process_loss_qty_content', 'inv_division_daily_rollup');
-        $hasVarianceQtyContent = $this->db->field_exists('variance_qty_content', 'inv_division_daily_rollup');
-        $hasAdjustmentPlusQtyContent = $this->db->field_exists('adjustment_plus_qty_content', 'inv_division_daily_rollup');
-        $destinationTypeSource = $hasDestinationType ? 'd.destination_type' : "'OTHER'";
-
-        $destinationGroupExpr = "CASE\n                WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'\n                ELSE 'REGULER'\n            END";
-        $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
-
-        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
-            ? 'division_code'
-            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
-        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
-            ? 'division_name'
-            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
-        $hasDivisionCode = $divisionCodeColumn !== null;
-        $hasDivisionName = $divisionNameColumn !== null;
-        $divisionCodeSelect = $hasDivisionCode ? ('dv.' . $divisionCodeColumn . ' AS division_code') : 'CAST(d.division_id AS CHAR) AS division_code';
-        $divisionNameSelect = $hasDivisionName ? ('dv.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
-
-        $this->db
-            ->select('d.movement_date, d.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect, false)
-            ->select($destinationTypeSource . ' AS destination_type', false)
-            ->select($destinationGroupExpr . ' AS destination_group', false)
-            ->select($destinationNameExpr . ' AS destination_name', false)
-            ->select('d.stock_domain, d.item_id, COALESCE(d.material_id, i.material_id) AS material_id, d.buy_uom_id, d.content_uom_id', false)
-            ->select('d.profile_key, d.profile_name, d.profile_brand, d.profile_description')
-            ->select('d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
-            ->select('d.opening_qty_content, d.in_qty_content, d.out_qty_content, d.adjustment_qty_content, d.closing_qty_content')
-            ->select(($hasDiscardQtyContent ? 'd.discarded_qty_content' : '0') . ' AS discarded_qty_content', false)
-            ->select(($hasSpoilQtyContent ? 'd.spoil_qty_content' : '0') . ' AS spoil_qty_content', false)
-            ->select(($hasWasteQtyContent ? 'd.waste_qty_content' : '0') . ' AS waste_qty_content', false)
-            ->select(($hasProcessLossQtyContent ? 'd.process_loss_qty_content' : '0') . ' AS process_loss_qty_content', false)
-            ->select(($hasVarianceQtyContent ? 'd.variance_qty_content' : '0') . ' AS variance_qty_content', false)
-            ->select(($hasAdjustmentPlusQtyContent ? 'd.adjustment_plus_qty_content' : '0') . ' AS adjustment_plus_qty_content', false)
-            ->select('d.total_value, d.mutation_count')
-            ->select('i.item_code, i.item_name, m.material_code, m.material_name')
-            ->from('inv_division_daily_rollup d')
-            ->join('mst_operational_division dv', 'dv.id = d.division_id', 'left')
-            ->join('mst_item i', 'i.id = d.item_id', 'left')
-            ->join('mst_material m', 'm.id = COALESCE(d.material_id, i.material_id)', 'left')
-            ->group_start()
-                ->group_start()
-                    ->where('d.stock_domain IS NULL', null, false)
-                    ->where('COALESCE(d.material_id, i.material_id) IS NOT NULL', null, false)
-                ->group_end()
-                ->or_where('d.stock_domain', 'MATERIAL')
-                ->or_group_start()
-                    ->where('d.stock_domain', 'ITEM')
-                    ->where('COALESCE(d.material_id, i.material_id) IS NOT NULL', null, false)
-                ->group_end()
-            ->group_end()
-            ->where('d.movement_date >=', $dateFrom)
-            ->where('d.movement_date <=', $dateTo);
-        if ($this->db->field_exists('profile_expired_date', 'inv_division_daily_rollup')) {
-            $this->db->select('d.profile_expired_date');
-        } else {
-            $this->db->select('NULL AS profile_expired_date', false);
-        }
-
-        if ($divisionId !== null && $divisionId > 0) {
-            $this->db->where('d.division_id', $divisionId);
-        }
-        if ($destinationFilter !== null && $destinationFilter !== 'ALL' && $hasDestinationType) {
-            if ($destinationFilter === 'REGULER') {
-                $this->db->where_not_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } else {
-                $this->db->where('d.destination_type', $destinationFilter);
-            }
-        }
-
-        if ($q !== '') {
-            $this->db->group_start();
-            if ($hasDivisionCode) {
-                $this->db->like('dv.' . $divisionCodeColumn, $q);
-                if ($hasDivisionName) {
-                    $this->db->or_like('dv.' . $divisionNameColumn, $q);
-                }
-            } elseif ($hasDivisionName) {
-                $this->db->like('dv.' . $divisionNameColumn, $q);
-            }
-            $this->db
-                ->or_like('i.item_code', $q)
-                ->or_like('i.item_name', $q)
-                ->or_like('m.material_code', $q)
-                ->or_like('m.material_name', $q)
-                ->or_like('d.profile_name', $q)
-                ->or_like('d.profile_brand', $q)
-                ->or_like('d.profile_description', $q)
-                ->or_like($destinationGroupExpr, $q, 'both', false)
-                ->or_like($destinationNameExpr, $q, 'both', false)
-                ->group_end();
-        }
-
-        return $this->db
-            ->order_by($hasDivisionName ? ('dv.' . $divisionNameColumn) : 'd.division_id', 'ASC')
-            ->order_by('COALESCE(m.material_name, i.item_name)', 'ASC', false)
-            ->order_by('d.profile_name', 'ASC')
-            ->order_by('d.movement_date', 'ASC')
-            ->get()
-            ->result_array();
+        return [];
     }
 
     private function fetchInventoryDailyMatrixSourceRowsFromMovement(string $stockScope, string $q, ?int $divisionId, string $dateFrom, string $dateTo, ?string $destinationFilter = null, bool $materialOnly = false): array
@@ -2041,17 +1637,28 @@ class Purchase_model extends CI_Model
                     'profile_content_per_buy' => round((float)($movementRow['profile_content_per_buy'] ?? 0), 6),
                     'profile_buy_uom_code' => (string)($movementRow['profile_buy_uom_code'] ?? ''),
                     'profile_content_uom_code' => (string)($movementRow['profile_content_uom_code'] ?? ''),
+                    'opening_qty_buy' => round((float)$state['qty_buy'], 4),
                     'opening_qty_content' => round((float)$state['qty_content'], 4),
+                    'in_qty_buy' => 0.0,
                     'in_qty_content' => 0.0,
+                    'out_qty_buy' => 0.0,
                     'out_qty_content' => 0.0,
+                    'adjustment_qty_buy' => 0.0,
                     'adjustment_qty_content' => 0.0,
+                    'discarded_qty_buy' => 0.0,
                     'discarded_qty_content' => 0.0,
+                    'spoil_qty_buy' => 0.0,
                     'spoil_qty_content' => 0.0,
+                    'waste_qty_buy' => 0.0,
                     'waste_qty_content' => 0.0,
+                    'process_loss_qty_buy' => 0.0,
                     'process_loss_qty_content' => 0.0,
+                    'variance_qty_buy' => 0.0,
                     'variance_qty_content' => 0.0,
+                    'adjustment_plus_qty_buy' => 0.0,
                     'adjustment_plus_qty_content' => 0.0,
                     'avg_cost_per_content' => round((float)$state['avg_cost_per_content'], 6),
+                    'closing_qty_buy' => round((float)$state['qty_buy'], 4),
                     'closing_qty_content' => round((float)$state['qty_content'], 4),
                     'waste_total_value' => 0.0,
                     'spoilage_total_value' => 0.0,
@@ -2073,17 +1680,27 @@ class Purchase_model extends CI_Model
             }
             $isOpeningSnapshotMovement = in_array((string)($movementRow['ref_table'] ?? ''), ['inv_warehouse_stock_opening_snapshot', 'inv_division_stock_opening_snapshot'], true);
             if ($isOpeningSnapshotMovement) {
+                $entry['opening_qty_buy'] = round((float)$entry['opening_qty_buy'] + max(0, $qtyBuyDelta), 4);
                 $entry['opening_qty_content'] = round((float)$entry['opening_qty_content'] + max(0, $qtyContentDelta), 4);
             } else {
                 $deltaPack = $this->buildInventoryDailyDeltaPack($movementType, $qtyBuyDelta, $qtyContentDelta, $adjustmentCategory, (float)$state['avg_cost_per_content']);
+                $entry['in_qty_buy'] = round((float)$entry['in_qty_buy'] + (float)$deltaPack['delta']['in_qty_buy'], 4);
                 $entry['in_qty_content'] = round((float)$entry['in_qty_content'] + (float)$deltaPack['delta']['in_qty_content'], 4);
+                $entry['out_qty_buy'] = round((float)$entry['out_qty_buy'] + (float)$deltaPack['delta']['out_qty_buy'], 4);
                 $entry['out_qty_content'] = round((float)$entry['out_qty_content'] + (float)$deltaPack['delta']['out_qty_content'], 4);
+                $entry['adjustment_qty_buy'] = round((float)$entry['adjustment_qty_buy'] + (float)$deltaPack['delta']['adjustment_qty_buy'], 4);
                 $entry['adjustment_qty_content'] = round((float)$entry['adjustment_qty_content'] + (float)$deltaPack['delta']['adjustment_qty_content'], 4);
+                $entry['discarded_qty_buy'] = round((float)$entry['discarded_qty_buy'] + (float)$deltaPack['delta']['discarded_qty_buy'], 4);
                 $entry['discarded_qty_content'] = round((float)$entry['discarded_qty_content'] + (float)$deltaPack['delta']['discarded_qty_content'], 4);
+                $entry['spoil_qty_buy'] = round((float)$entry['spoil_qty_buy'] + (float)$deltaPack['delta']['spoil_qty_buy'], 4);
                 $entry['spoil_qty_content'] = round((float)$entry['spoil_qty_content'] + (float)$deltaPack['delta']['spoil_qty_content'], 4);
+                $entry['waste_qty_buy'] = round((float)$entry['waste_qty_buy'] + (float)$deltaPack['delta']['waste_qty_buy'], 4);
                 $entry['waste_qty_content'] = round((float)$entry['waste_qty_content'] + (float)$deltaPack['delta']['waste_qty_content'], 4);
+                $entry['process_loss_qty_buy'] = round((float)$entry['process_loss_qty_buy'] + (float)$deltaPack['delta']['process_loss_qty_buy'], 4);
                 $entry['process_loss_qty_content'] = round((float)$entry['process_loss_qty_content'] + (float)$deltaPack['delta']['process_loss_qty_content'], 4);
+                $entry['variance_qty_buy'] = round((float)$entry['variance_qty_buy'] + (float)$deltaPack['delta']['variance_qty_buy'], 4);
                 $entry['variance_qty_content'] = round((float)$entry['variance_qty_content'] + (float)$deltaPack['delta']['variance_qty_content'], 4);
+                $entry['adjustment_plus_qty_buy'] = round((float)$entry['adjustment_plus_qty_buy'] + (float)$deltaPack['delta']['adjustment_plus_qty_buy'], 4);
                 $entry['adjustment_plus_qty_content'] = round((float)$entry['adjustment_plus_qty_content'] + (float)$deltaPack['delta']['adjustment_plus_qty_content'], 4);
                 $entry['waste_total_value'] = round((float)$entry['waste_total_value'] + (float)$deltaPack['value']['waste_total_value'], 2);
                 $entry['spoilage_total_value'] = round((float)$entry['spoilage_total_value'] + (float)$deltaPack['value']['spoilage_total_value'], 2);
@@ -2102,6 +1719,7 @@ class Purchase_model extends CI_Model
             );
             $states[$identityKey] = $state;
 
+            $entry['closing_qty_buy'] = round((float)$state['qty_buy'], 4);
             $entry['closing_qty_content'] = round((float)$state['qty_content'], 4);
             $entry['avg_cost_per_content'] = round((float)$state['avg_cost_per_content'], 6);
             $entry['total_value'] = round((float)$state['qty_content'] * (float)$state['avg_cost_per_content'], 2);
@@ -2364,108 +1982,6 @@ class Purchase_model extends CI_Model
         }
 
         return [];
-
-        if (!$this->db->table_exists('inv_division_daily_rollup')) {
-            return [];
-        }
-
-        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
-        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_division_daily_rollup');
-        $destinationTypeSource = $hasDestinationType ? 'd.destination_type' : "'OTHER'";
-        $destinationGroupExpr = "CASE WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
-        $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
-        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
-            ? 'division_code'
-            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
-        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
-            ? 'division_name'
-            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
-        $hasDivisionCode = $divisionCodeColumn !== null;
-        $hasDivisionName = $divisionNameColumn !== null;
-        $divisionCodeSelect = $hasDivisionCode ? ('dv.' . $divisionCodeColumn . ' AS division_code') : 'CAST(d.division_id AS CHAR) AS division_code';
-        $divisionNameSelect = $hasDivisionName ? ('dv.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
-
-        $this->db
-            ->select('d.id, d.movement_date, d.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect, false)
-            ->select($destinationTypeSource . ' AS destination_type', false)
-            ->select($destinationGroupExpr . ' AS destination_group', false)
-            ->select($destinationNameExpr . ' AS destination_name', false)
-            ->select('d.item_id, COALESCE(d.material_id, i.material_id) AS material_id, d.buy_uom_id, d.content_uom_id', false)
-            ->select('d.profile_key, d.profile_name, d.profile_brand, d.profile_description, d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
-            ->select('d.closing_qty_buy AS closing_qty_pack, d.closing_qty_content', false)
-            ->select('i.item_code, i.item_name, m.material_code, m.material_name')
-            ->from('inv_division_daily_rollup d')
-            ->join('mst_operational_division dv', 'dv.id = d.division_id', 'left')
-            ->join('mst_item i', 'i.id = d.item_id', 'left')
-            ->join('mst_material m', 'm.id = COALESCE(d.material_id, i.material_id)', 'left')
-            ->group_start()
-                ->group_start()
-                    ->where('d.stock_domain IS NULL', null, false)
-                    ->where('COALESCE(d.material_id, i.material_id) IS NOT NULL', null, false)
-                ->group_end()
-                ->or_where('d.stock_domain', 'MATERIAL')
-                ->or_group_start()
-                    ->where('d.stock_domain', 'ITEM')
-                    ->where('COALESCE(d.material_id, i.material_id) IS NOT NULL', null, false)
-                ->group_end()
-            ->group_end()
-            ->where('d.movement_date <=', $asOfDate);
-
-        if ($divisionId !== null && $divisionId > 0) {
-            $this->db->where('d.division_id', $divisionId);
-        }
-        if ($destinationFilter !== null && $destinationFilter !== 'ALL' && $hasDestinationType) {
-            if ($destinationFilter === 'REGULER') {
-                $this->db->where_not_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } else {
-                $this->db->where('d.destination_type', $destinationFilter);
-            }
-        }
-        if ($q !== '') {
-            $this->db->group_start();
-            if ($hasDivisionCode) {
-                $this->db->like('dv.' . $divisionCodeColumn, $q);
-                if ($hasDivisionName) {
-                    $this->db->or_like('dv.' . $divisionNameColumn, $q);
-                }
-            } elseif ($hasDivisionName) {
-                $this->db->like('dv.' . $divisionNameColumn, $q);
-            }
-            $this->db->or_like('i.item_code', $q)
-                ->or_like('i.item_name', $q)
-                ->or_like('m.material_code', $q)
-                ->or_like('m.material_name', $q)
-                ->or_like('d.profile_name', $q)
-                ->or_like('d.profile_brand', $q)
-                ->or_like('d.profile_description', $q)
-                ->group_end();
-        }
-
-        $rows = $this->db
-            ->order_by('d.movement_date', 'ASC')
-            ->order_by('d.id', 'ASC')
-            ->get()
-            ->result_array();
-
-        $rows = $this->normalizeDivisionProfileKeyRows($rows);
-
-        $latestRows = [];
-        foreach ($rows as $row) {
-            $identityKey = implode('|', [
-                (int)($row['division_id'] ?? 0),
-                strtoupper((string)($row['destination_type'] ?? 'OTHER')),
-                (int)($row['item_id'] ?? 0),
-                (int)($row['material_id'] ?? 0),
-                (int)($row['buy_uom_id'] ?? 0),
-                (int)($row['content_uom_id'] ?? 0),
-                strtoupper(trim((string)($row['profile_key'] ?? ''))),
-            ]);
-            $latestRows[$identityKey] = $row;
-        }
-
-        return array_values($latestRows);
     }
 
     private function normalizeDivisionProfileKeyRows(array $rows): array
@@ -7401,13 +6917,12 @@ class Purchase_model extends CI_Model
             $destinationFilter = $this->normalizeDestinationFilter($payload['destination_type'] ?? $payload['destination'] ?? null);
         }
 
-        $rollupTable = $stockScope === 'DIVISION' ? 'inv_division_daily_rollup' : 'inv_warehouse_daily_rollup';
         $opnameTable = $stockScope === 'DIVISION' ? 'inv_division_monthly_opname' : 'inv_warehouse_monthly_opname';
         $openingTable = $this->openingSnapshotTableForScope($stockScope);
-        if (!$this->db->table_exists($rollupTable)) {
+        if (!$this->db->table_exists('inv_stock_movement_log')) {
             return [
                 'ok' => false,
-                'message' => 'Tabel rollup harian tidak ditemukan: ' . $rollupTable,
+                'message' => 'Tabel movement log inventory tidak ditemukan. Generator bulanan sekarang memakai movement log aktif.',
             ];
         }
         if (!$this->db->table_exists($opnameTable)) {
@@ -7423,93 +6938,20 @@ class Purchase_model extends CI_Model
             ];
         }
 
-        $hasDestinationRollup = $stockScope === 'DIVISION' && $this->db->field_exists('destination_type', $rollupTable);
-        $destinationExpr = $hasDestinationRollup ? 'd.destination_type' : "'OTHER'";
-        $hasProfileExpiredDate = $this->db->field_exists('profile_expired_date', $rollupTable);
-        $hasProcessLossQtyBuy = $this->db->field_exists('process_loss_qty_buy', $rollupTable);
-        $hasProcessLossQtyContent = $this->db->field_exists('process_loss_qty_content', $rollupTable);
-        $hasVarianceQtyBuy = $this->db->field_exists('variance_qty_buy', $rollupTable);
-        $hasVarianceQtyContent = $this->db->field_exists('variance_qty_content', $rollupTable);
-        $hasAdjustmentPlusQtyBuy = $this->db->field_exists('adjustment_plus_qty_buy', $rollupTable);
-        $hasAdjustmentPlusQtyContent = $this->db->field_exists('adjustment_plus_qty_content', $rollupTable);
-        $hasWasteValue = $this->db->field_exists('waste_total_value', $rollupTable);
-        $hasSpoilageValue = $this->db->field_exists('spoilage_total_value', $rollupTable);
-        $hasProcessLossValue = $this->db->field_exists('process_loss_total_value', $rollupTable);
-        $hasVarianceValue = $this->db->field_exists('variance_total_value', $rollupTable);
-        $hasAdjustmentPlusValue = $this->db->field_exists('adjustment_plus_total_value', $rollupTable);
-
-        $this->db
-            ->select('d.movement_date, d.stock_domain, d.item_id, d.material_id, d.buy_uom_id, d.content_uom_id')
-            ->select('d.profile_key, d.profile_name, d.profile_brand, d.profile_description')
-            ->select('d.profile_content_per_buy, d.profile_buy_uom_code, d.profile_content_uom_code')
-            ->select('d.opening_qty_buy, d.opening_qty_content, d.in_qty_buy, d.in_qty_content, d.out_qty_buy, d.out_qty_content')
-            ->select('d.discarded_qty_buy, d.discarded_qty_content, d.spoil_qty_buy, d.spoil_qty_content, d.waste_qty_buy, d.waste_qty_content')
-            ->select(($hasProcessLossQtyBuy ? 'd.process_loss_qty_buy' : '0') . ' AS process_loss_qty_buy', false)
-            ->select(($hasProcessLossQtyContent ? 'd.process_loss_qty_content' : '0') . ' AS process_loss_qty_content', false)
-            ->select(($hasVarianceQtyBuy ? 'd.variance_qty_buy' : '0') . ' AS variance_qty_buy', false)
-            ->select(($hasVarianceQtyContent ? 'd.variance_qty_content' : '0') . ' AS variance_qty_content', false)
-            ->select(($hasAdjustmentPlusQtyBuy ? 'd.adjustment_plus_qty_buy' : '0') . ' AS adjustment_plus_qty_buy', false)
-            ->select(($hasAdjustmentPlusQtyContent ? 'd.adjustment_plus_qty_content' : '0') . ' AS adjustment_plus_qty_content', false)
-            ->select('d.adjustment_qty_buy, d.adjustment_qty_content, d.closing_qty_buy, d.closing_qty_content')
-            ->select('d.avg_cost_per_content, d.total_value, d.mutation_count')
-            ->select(($hasWasteValue ? 'd.waste_total_value' : '(COALESCE(d.waste_qty_content,0) + COALESCE(d.discarded_qty_content,0)) * COALESCE(d.avg_cost_per_content,0)') . ' AS waste_total_value', false)
-            ->select(($hasSpoilageValue ? 'd.spoilage_total_value' : 'COALESCE(d.spoil_qty_content,0) * COALESCE(d.avg_cost_per_content,0)') . ' AS spoilage_total_value', false)
-            ->select(($hasProcessLossValue ? 'd.process_loss_total_value' : '0') . ' AS process_loss_total_value', false)
-            ->select(($hasVarianceValue ? 'd.variance_total_value' : 'GREATEST(-COALESCE(d.adjustment_qty_content,0),0) * COALESCE(d.avg_cost_per_content,0)') . ' AS variance_total_value', false)
-            ->select(($hasAdjustmentPlusValue ? 'd.adjustment_plus_total_value' : 'GREATEST(COALESCE(d.adjustment_qty_content,0),0) * COALESCE(d.avg_cost_per_content,0)') . ' AS adjustment_plus_total_value', false)
-            ->from($rollupTable . ' d')
-            ->where('d.movement_date >=', $dateFrom)
-            ->where('d.movement_date <=', $dateTo);
-
-        if ($stockScope === 'DIVISION') {
-            $this->db->select('d.division_id');
-            $this->db->select($destinationExpr . ' AS destination_type', false);
-            if ($divisionId !== null) {
-                $this->db->where('d.division_id', $divisionId);
-            }
-            if ($destinationFilter !== null) {
-                if ($destinationFilter === 'REGULER') {
-                    if ($hasDestinationRollup) {
-                        $this->db->where_not_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-                    } else {
-                        $this->db->where("{$destinationExpr} NOT IN ('BAR_EVENT','KITCHEN_EVENT')", null, false);
-                    }
-                } elseif ($destinationFilter === 'EVENT') {
-                    if ($hasDestinationRollup) {
-                        $this->db->where_in('d.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-                    } else {
-                        $this->db->where("{$destinationExpr} IN ('BAR_EVENT','KITCHEN_EVENT')", null, false);
-                    }
-                } else {
-                    if ($hasDestinationRollup) {
-                        $this->db->where('d.destination_type', $destinationFilter);
-                    } else {
-                        $this->db->where($destinationExpr . ' = ' . $this->db->escape($destinationFilter), null, false);
-                    }
-                }
-            }
-        } else {
-            $this->db->select('NULL AS division_id', false);
-            $this->db->select('NULL AS destination_type', false);
-        }
-
-        if ($hasProfileExpiredDate) {
-            $this->db->select('d.profile_expired_date');
-        } else {
-            $this->db->select('NULL AS profile_expired_date', false);
-        }
-
-        $rows = $this->db
-            ->order_by('d.movement_date', 'ASC')
-            ->order_by('d.item_id', 'ASC')
-            ->order_by('d.material_id', 'ASC')
-            ->get()
-            ->result_array();
+        $rows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
+            $stockScope,
+            '',
+            $divisionId,
+            $dateFrom,
+            $dateTo,
+            $destinationFilter,
+            false
+        );
 
         if (empty($rows)) {
             return [
                 'ok' => false,
-                'message' => 'Data rollup bulan ' . date('Y-m', strtotime($monthKey)) . ' tidak ditemukan untuk digenerate.',
+                'message' => 'Data movement bulan ' . date('Y-m', strtotime($monthKey)) . ' tidak ditemukan untuk digenerate.',
             ];
         }
 
@@ -9818,13 +9260,6 @@ class Purchase_model extends CI_Model
         $hasWarehouseMonthly = $this->db->table_exists('inv_warehouse_monthly_stock')
             && $this->db->field_exists('profile_key', 'inv_warehouse_monthly_stock')
             && $this->db->field_exists('stock_domain', 'inv_warehouse_monthly_stock');
-        $hasDivisionDaily = $this->db->table_exists('inv_division_daily_rollup')
-            && $this->db->field_exists('profile_key', 'inv_division_daily_rollup')
-            && $this->db->field_exists('stock_domain', 'inv_division_daily_rollup');
-        $hasWarehouseDaily = $this->db->table_exists('inv_warehouse_daily_rollup')
-            && $this->db->field_exists('profile_key', 'inv_warehouse_daily_rollup')
-            && $this->db->field_exists('stock_domain', 'inv_warehouse_daily_rollup');
-
         $subqueries = [
             'po_item_rows' => $hasPoUsage
                 ? "(SELECT COUNT(*) FROM pur_purchase_order_line pol WHERE pol.profile_key = c.profile_key AND COALESCE(pol.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(pol.line_kind,'ITEM')) = 'ITEM')"
@@ -9858,18 +9293,6 @@ class Purchase_model extends CI_Model
                 : '0',
             'warehouse_monthly_material_rows' => $hasWarehouseMonthly
                 ? "(SELECT COUNT(*) FROM inv_warehouse_monthly_stock ws WHERE ws.profile_key = c.profile_key AND UPPER(COALESCE(ws.stock_domain,'ITEM')) = 'MATERIAL')"
-                : '0',
-            'division_daily_item_rows' => $hasDivisionDaily
-                ? "(SELECT COUNT(*) FROM inv_division_daily_rollup dd WHERE dd.profile_key = c.profile_key AND UPPER(COALESCE(dd.stock_domain,'ITEM')) = 'ITEM')"
-                : '0',
-            'division_daily_material_rows' => $hasDivisionDaily
-                ? "(SELECT COUNT(*) FROM inv_division_daily_rollup dd WHERE dd.profile_key = c.profile_key AND UPPER(COALESCE(dd.stock_domain,'ITEM')) = 'MATERIAL')"
-                : '0',
-            'warehouse_daily_item_rows' => $hasWarehouseDaily
-                ? "(SELECT COUNT(*) FROM inv_warehouse_daily_rollup wd WHERE wd.profile_key = c.profile_key AND UPPER(COALESCE(wd.stock_domain,'ITEM')) = 'ITEM')"
-                : '0',
-            'warehouse_daily_material_rows' => $hasWarehouseDaily
-                ? "(SELECT COUNT(*) FROM inv_warehouse_daily_rollup wd WHERE wd.profile_key = c.profile_key AND UPPER(COALESCE(wd.stock_domain,'ITEM')) = 'MATERIAL')"
                 : '0',
         ];
 
@@ -9921,16 +9344,12 @@ class Purchase_model extends CI_Model
                 + (int)($row['fulfillment_item_rows'] ?? 0)
                 + (int)($row['movement_rows'] ?? 0)
                 + (int)($row['division_monthly_item_rows'] ?? 0)
-                + (int)($row['warehouse_monthly_item_rows'] ?? 0)
-                + (int)($row['division_daily_item_rows'] ?? 0)
-                + (int)($row['warehouse_daily_item_rows'] ?? 0);
+                + (int)($row['warehouse_monthly_item_rows'] ?? 0);
 
             $row['impact_count'] = $impactCount;
             $row['has_split_snapshot'] =
                 ((int)($row['division_monthly_item_rows'] ?? 0) > 0 && (int)($row['division_monthly_material_rows'] ?? 0) > 0)
-                || ((int)($row['warehouse_monthly_item_rows'] ?? 0) > 0 && (int)($row['warehouse_monthly_material_rows'] ?? 0) > 0)
-                || ((int)($row['division_daily_item_rows'] ?? 0) > 0 && (int)($row['division_daily_material_rows'] ?? 0) > 0)
-                || ((int)($row['warehouse_daily_item_rows'] ?? 0) > 0 && (int)($row['warehouse_daily_material_rows'] ?? 0) > 0);
+                || ((int)($row['warehouse_monthly_item_rows'] ?? 0) > 0 && (int)($row['warehouse_monthly_material_rows'] ?? 0) > 0);
 
             if ($impactCount <= 0) {
                 continue;
@@ -10196,14 +9615,6 @@ class Purchase_model extends CI_Model
     private function reclassify_target_tables(): array
     {
         $targets = [
-            [
-                'table' => 'inv_warehouse_daily_rollup',
-                'unique' => ['movement_date', 'stock_domain', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'],
-            ],
-            [
-                'table' => 'inv_division_daily_rollup',
-                'unique' => ['movement_date', 'division_id', 'destination_type', 'stock_domain', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'],
-            ],
             [
                 'table' => 'inv_warehouse_monthly_opname',
                 'unique' => ['month_key', 'stock_domain', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'],

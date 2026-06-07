@@ -397,43 +397,25 @@ class Dashboard extends MY_Controller
     {
         $cards = [];
 
-        if ($this->dashboard_table_ready('inv_warehouse_stock_balance_')) {
-            $summary = $this->db->query(
-                "SELECT COUNT(*) AS total_rows,
-                        COALESCE(SUM(CASE
-                            WHEN b.qty_content_balance <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
-                            THEN 1 ELSE 0 END), 0) AS critical_count,
-                        COALESCE(SUM(b.qty_content_balance * b.avg_cost_per_content), 0) AS total_value
-                 FROM inv_warehouse_stock_balance_ b
-                 LEFT JOIN mst_item i ON i.id = b.item_id
-                  LEFT JOIN mst_material m ON m.id = i.material_id"
-            )->row_array();
+        $warehouseSummary = $this->dashboard_warehouse_stock_summary();
+        if ($warehouseSummary !== null) {
             $cards[] = [
                 'code' => 'warehouse',
                 'label' => 'Stok Gudang',
-                'total_rows' => (int)($summary['total_rows'] ?? 0),
-                'critical_count' => (int)($summary['critical_count'] ?? 0),
-                'total_value' => (float)($summary['total_value'] ?? 0),
+                'total_rows' => (int)($warehouseSummary['total_rows'] ?? 0),
+                'critical_count' => (int)($warehouseSummary['critical_count'] ?? 0),
+                'total_value' => (float)($warehouseSummary['total_value'] ?? 0),
             ];
         }
 
-        if ($this->dashboard_table_ready('inv_division_stock_balance_')) {
-            $summary = $this->db->query(
-                "SELECT COUNT(*) AS total_rows,
-                        COALESCE(SUM(CASE
-                            WHEN b.qty_content_balance <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
-                            THEN 1 ELSE 0 END), 0) AS critical_count,
-                        COALESCE(SUM(b.qty_content_balance * b.avg_cost_per_content), 0) AS total_value
-                 FROM inv_division_stock_balance_ b
-                 LEFT JOIN mst_item i ON i.id = b.item_id
-                 LEFT JOIN mst_material m ON m.id = COALESCE(b.material_id, i.material_id)"
-            )->row_array();
+        $divisionSummary = $this->dashboard_division_stock_summary();
+        if ($divisionSummary !== null) {
             $cards[] = [
                 'code' => 'division',
                 'label' => 'Stok Divisi',
-                'total_rows' => (int)($summary['total_rows'] ?? 0),
-                'critical_count' => (int)($summary['critical_count'] ?? 0),
-                'total_value' => (float)($summary['total_value'] ?? 0),
+                'total_rows' => (int)($divisionSummary['total_rows'] ?? 0),
+                'critical_count' => (int)($divisionSummary['critical_count'] ?? 0),
+                'total_value' => (float)($divisionSummary['total_value'] ?? 0),
             ];
         }
 
@@ -456,45 +438,13 @@ class Dashboard extends MY_Controller
         $rows = [];
         $divisionNameColumn = $this->dashboard_division_name_column();
 
-        if ($this->dashboard_table_ready('inv_warehouse_stock_balance_')) {
-            $warehouseRows = $this->db->query(
-                "SELECT 'Gudang' AS stock_scope,
-                        COALESCE(b.profile_name, m.material_name, i.item_name, CONCAT('Item #', b.item_id)) AS item_name,
-                        'Gudang Pusat' AS location_name,
-                        b.qty_content_balance AS qty_balance,
-                        GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) AS threshold_qty,
-                        COALESCE(b.qty_content_balance * b.avg_cost_per_content, 0) AS total_value
-                 FROM inv_warehouse_stock_balance_ b
-                 LEFT JOIN mst_item i ON i.id = b.item_id
-                  LEFT JOIN mst_material m ON m.id = i.material_id
-                 WHERE b.qty_content_balance <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
-                 ORDER BY (GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) - b.qty_content_balance) DESC,
-                          b.qty_content_balance ASC
-                 LIMIT 5"
-            )->result_array();
+        $warehouseRows = $this->dashboard_warehouse_critical_rows();
+        if (!empty($warehouseRows)) {
             $rows = array_merge($rows, $warehouseRows);
         }
 
-        if ($this->dashboard_table_ready('inv_division_stock_balance_')) {
-            $divisionLocationSelect = $divisionNameColumn !== null
-                ? ('COALESCE(d.' . $divisionNameColumn . ', b.destination_type, CONCAT(\'Divisi #\', b.division_id))')
-                : "COALESCE(b.destination_type, CONCAT('Divisi #', b.division_id))";
-            $divisionRows = $this->db->query(
-                "SELECT 'Divisi' AS stock_scope,
-                        COALESCE(b.profile_name, m.material_name, i.item_name, CONCAT('Item #', b.item_id)) AS item_name,
-                        {$divisionLocationSelect} AS location_name,
-                        b.qty_content_balance AS qty_balance,
-                        GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) AS threshold_qty,
-                        COALESCE(b.qty_content_balance * b.avg_cost_per_content, 0) AS total_value
-                 FROM inv_division_stock_balance_ b
-                 LEFT JOIN mst_item i ON i.id = b.item_id
-                 LEFT JOIN mst_material m ON m.id = COALESCE(b.material_id, i.material_id)
-                 LEFT JOIN mst_operational_division d ON d.id = b.division_id
-                 WHERE b.qty_content_balance <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
-                 ORDER BY (GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) - b.qty_content_balance) DESC,
-                          b.qty_content_balance ASC
-                 LIMIT 5"
-            )->result_array();
+        $divisionRows = $this->dashboard_division_critical_rows($divisionNameColumn);
+        if (!empty($divisionRows)) {
             $rows = array_merge($rows, $divisionRows);
         }
 
@@ -510,6 +460,101 @@ class Dashboard extends MY_Controller
         });
 
         return array_slice($rows, 0, 10);
+    }
+
+    private function dashboard_warehouse_stock_summary(): ?array
+    {
+        $query = $this->dashboard_warehouse_monthly_query(
+            "SELECT COUNT(*) AS total_rows,
+                    COALESCE(SUM(CASE
+                        WHEN s.closing_qty_content <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
+                        THEN 1 ELSE 0 END), 0) AS critical_count,
+                    COALESCE(SUM(s.total_value), 0) AS total_value
+             FROM inv_warehouse_monthly_stock s
+             INNER JOIN ({latest_month_subquery}) lm
+                ON lm.identity_key = s.identity_key
+               AND lm.month_key = s.month_key
+             LEFT JOIN mst_item i ON i.id = s.item_id
+             LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)"
+        );
+
+        return $query !== null ? $query->row_array() : null;
+    }
+
+    private function dashboard_division_stock_summary(): ?array
+    {
+        $query = $this->dashboard_division_monthly_query(
+            "SELECT COUNT(*) AS total_rows,
+                    COALESCE(SUM(CASE
+                        WHEN s.closing_qty_content <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
+                        THEN 1 ELSE 0 END), 0) AS critical_count,
+                    COALESCE(SUM(s.total_value), 0) AS total_value
+             FROM inv_division_monthly_stock s
+             INNER JOIN ({latest_month_subquery}) lm
+                ON lm.division_id = s.division_id
+               AND lm.destination_type = s.destination_type
+               AND lm.identity_key = s.identity_key
+               AND lm.month_key = s.month_key
+             LEFT JOIN mst_item i ON i.id = s.item_id
+             LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)"
+        );
+
+        return $query !== null ? $query->row_array() : null;
+    }
+
+    private function dashboard_warehouse_critical_rows(): array
+    {
+        $query = $this->dashboard_warehouse_monthly_query(
+            "SELECT 'Gudang' AS stock_scope,
+                    COALESCE(s.profile_name, m.material_name, i.item_name, CONCAT('Item #', s.item_id)) AS item_name,
+                    'Gudang Pusat' AS location_name,
+                    s.closing_qty_content AS qty_balance,
+                    GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) AS threshold_qty,
+                    COALESCE(s.total_value, 0) AS total_value
+             FROM inv_warehouse_monthly_stock s
+             INNER JOIN ({latest_month_subquery}) lm
+                ON lm.identity_key = s.identity_key
+               AND lm.month_key = s.month_key
+             LEFT JOIN mst_item i ON i.id = s.item_id
+             LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
+             WHERE s.closing_qty_content <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
+             ORDER BY (GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) - s.closing_qty_content) DESC,
+                      s.closing_qty_content ASC
+             LIMIT 5"
+        );
+
+        return $query !== null ? $query->result_array() : [];
+    }
+
+    private function dashboard_division_critical_rows(?string $divisionNameColumn): array
+    {
+        $divisionLocationSelect = $divisionNameColumn !== null
+            ? ('COALESCE(d.' . $divisionNameColumn . ', s.destination_type, CONCAT(\'Divisi #\', s.division_id))')
+            : "COALESCE(s.destination_type, CONCAT('Divisi #', s.division_id))";
+
+        $query = $this->dashboard_division_monthly_query(
+            "SELECT 'Divisi' AS stock_scope,
+                    COALESCE(s.profile_name, m.material_name, i.item_name, CONCAT('Item #', s.item_id)) AS item_name,
+                    {$divisionLocationSelect} AS location_name,
+                    s.closing_qty_content AS qty_balance,
+                    GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) AS threshold_qty,
+                    COALESCE(s.total_value, 0) AS total_value
+             FROM inv_division_monthly_stock s
+             INNER JOIN ({latest_month_subquery}) lm
+                ON lm.division_id = s.division_id
+               AND lm.destination_type = s.destination_type
+               AND lm.identity_key = s.identity_key
+               AND lm.month_key = s.month_key
+             LEFT JOIN mst_item i ON i.id = s.item_id
+             LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
+             LEFT JOIN mst_operational_division d ON d.id = s.division_id
+             WHERE s.closing_qty_content <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
+             ORDER BY (GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) - s.closing_qty_content) DESC,
+                      s.closing_qty_content ASC
+             LIMIT 5"
+        );
+
+        return $query !== null ? $query->result_array() : [];
     }
 
     private function dashboard_division_name_column(): ?string
@@ -596,6 +641,36 @@ class Dashboard extends MY_Controller
                                 FROM inv_component_monthly_stock
                                 WHERE month_key <= {$targetMonth}
                                 GROUP BY location_type, division_id, component_id, uom_id";
+
+        return $this->dashboard_safe_query(str_replace('{latest_month_subquery}', $latestMonthSubquery, $sql));
+    }
+
+    private function dashboard_warehouse_monthly_query(string $sql)
+    {
+        if (!$this->dashboard_table_ready('inv_warehouse_monthly_stock')) {
+            return null;
+        }
+
+        $targetMonth = $this->db->escape(date('Y-m-01'));
+        $latestMonthSubquery = "SELECT identity_key, MAX(month_key) AS month_key
+                                FROM inv_warehouse_monthly_stock
+                                WHERE month_key <= {$targetMonth}
+                                GROUP BY identity_key";
+
+        return $this->dashboard_safe_query(str_replace('{latest_month_subquery}', $latestMonthSubquery, $sql));
+    }
+
+    private function dashboard_division_monthly_query(string $sql)
+    {
+        if (!$this->dashboard_table_ready('inv_division_monthly_stock')) {
+            return null;
+        }
+
+        $targetMonth = $this->db->escape(date('Y-m-01'));
+        $latestMonthSubquery = "SELECT division_id, destination_type, identity_key, MAX(month_key) AS month_key
+                                FROM inv_division_monthly_stock
+                                WHERE month_key <= {$targetMonth}
+                                GROUP BY division_id, destination_type, identity_key";
 
         return $this->dashboard_safe_query(str_replace('{latest_month_subquery}', $latestMonthSubquery, $sql));
     }
