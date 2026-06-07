@@ -150,7 +150,7 @@ $fmtQty = static function ($value): string {
         </div>
 
         <div class="sca-summary-grid mb-3">
-          <div class="sca-summary-box"><span class="label">Profile Salah Domain</span><div class="value"><?php echo number_format((int)($domainAuditSummary['total_wrong_active_profiles'] ?? 0)); ?></div></div>
+          <div class="sca-summary-box"><span class="label">Profile Legacy Produksi</span><div class="value"><?php echo number_format((int)($domainAuditSummary['total_wrong_active_profiles'] ?? 0)); ?></div></div>
           <div class="sca-summary-box"><span class="label">Drift Transaksi</span><div class="value"><?php echo number_format((int)($domainAuditSummary['profiles_with_transaction_drift'] ?? 0)); ?></div></div>
           <div class="sca-summary-box"><span class="label">Snapshot Pecah</span><div class="value"><?php echo number_format((int)($domainAuditSummary['profiles_with_snapshot_split'] ?? 0)); ?></div></div>
         </div>
@@ -159,10 +159,10 @@ $fmtQty = static function ($value): string {
           <table class="table table-sm align-middle sca-table mb-0">
             <thead>
               <tr>
-                <th>Profile Salah Domain</th>
+                <th>Profile Legacy Produksi</th>
                 <th>Marker Produksi</th>
-                <th class="text-end">PO Item</th>
-                <th class="text-end">Receipt Item</th>
+                <th class="text-end">PO Legacy</th>
+                <th class="text-end">Receipt Legacy</th>
                 <th class="text-end">Movement Drift</th>
                 <th class="text-end">Snapshot ITEM</th>
                 <th class="text-end">Snapshot Legacy</th>
@@ -177,6 +177,18 @@ $fmtQty = static function ($value): string {
                   <?php
                     $snapshotItem = (int)($row['division_monthly_item_rows'] ?? 0) + (int)($row['warehouse_monthly_item_rows'] ?? 0);
                     $snapshotMaterial = (int)($row['division_monthly_material_rows'] ?? 0) + (int)($row['warehouse_monthly_material_rows'] ?? 0);
+                    $statusLabel = 'Perlu normalisasi tagging';
+                    $statusClass = 'ok';
+                    if (!empty($row['has_split_snapshot'])) {
+                      $statusLabel = 'Legacy split snapshot';
+                      $statusClass = 'bad';
+                    } elseif (!empty($row['has_transaction_drift'])) {
+                      $statusLabel = 'Legacy transaction tagging';
+                      $statusClass = 'bad';
+                    } elseif (!empty($row['has_movement_drift'])) {
+                      $statusLabel = 'Movement marker drift';
+                      $statusClass = 'bad';
+                    }
                   ?>
                   <tr>
                     <td>
@@ -192,7 +204,7 @@ $fmtQty = static function ($value): string {
                     <td class="text-end"><?php echo number_format((int)($row['movement_wrong_material_rows'] ?? 0)); ?></td>
                     <td class="text-end"><?php echo number_format($snapshotItem); ?></td>
                     <td class="text-end"><?php echo number_format($snapshotMaterial); ?></td>
-                    <td><span class="sca-chip <?php echo !empty($row['has_split_snapshot']) ? 'bad' : 'ok'; ?>"><?php echo !empty($row['has_split_snapshot']) ? 'Legacy split snapshot' : 'Perlu normalisasi tagging'; ?></span></td>
+                    <td><span class="sca-chip <?php echo $statusClass; ?>"><?php echo html_escape($statusLabel); ?></span></td>
                   </tr>
                 <?php endforeach; ?>
               <?php endif; ?>

@@ -201,6 +201,8 @@ class PosOrderStockService
                         'qty_buy_delta' => -1 * (float)$snapshot['qty_buy_delta_abs'],
                         'qty_content_delta' => -1 * (float)$snapshot['qty_content_delta_abs'],
                         'unit_cost' => round((float)($issueLine['unit_cost'] ?? ($line['unit_cost_live'] ?? 0)), 6),
+                        'force_avg_cost_per_content' => round((float)($issueLine['unit_cost'] ?? ($line['unit_cost_live'] ?? 0)), 6),
+                        'allow_negative_balance' => true,
                         'notes' => 'POS usage FIFO lot ' . (string)($snapshot['profile_name'] ?? ($issueLine['source_lot_no'] ?? '-')),
                         'created_by' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : null,
                         'manage_transaction' => false,

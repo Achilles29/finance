@@ -459,28 +459,29 @@ class System_tools extends MY_Controller
         $excludeSet  = array_unique(array_merge($cfgExclude, ['sys_app_config']));
 
         try {
+            // Satu koneksi PDO untuk semua tabel — hindari overhead SSH handshake per tabel
             $pdo = new PDO(
                 "mysql:host={$masterHost};port={$masterPort};dbname={$dbName};charset=utf8mb4",
                 $syncUser, $syncPass,
                 [PDO::ATTR_TIMEOUT => 30, PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
             );
 
-            // Jika payload berisi daftar tabel spesifik, hanya sync tabel itu
             $requestedTables = array_filter(array_map('trim', (array)($payload['tables'] ?? [])));
             $tables = !empty($requestedTables)
-                ? $requestedTables
+                ? array_values($requestedTables)
                 : $pdo->query("SHOW TABLES FROM `{$dbName}`")->fetchAll(PDO::FETCH_COLUMN);
 
-            $synced  = $skipped = $errors = [];
+            $synced  = $skipped = $errors = $remaining = [];
+            $timeLimit  = 25; // detik per request — JS akan panggil ulang untuk sisa
+            $startedAt  = time();
 
-            // Hentikan replikasi + nonaktifkan read_only sementara
+            // Nonaktifkan read_only sementara (STOP SLAVE tidak diperlukan untuk INSERT IGNORE incremental)
             $this->db->db_debug = FALSE;
-            $this->db->query("STOP SLAVE");
-            // Simpan status read_only dan matikan sementara agar bisa write
             $roRow = $this->db->query("SELECT @@global.read_only AS ro")->row_array();
             $wasReadOnly = !empty($roRow['ro']);
             if ($wasReadOnly) { $this->db->query("SET GLOBAL read_only = OFF"); }
             $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
+            $this->db->db_debug = TRUE;
 
             $isWin     = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
             // Test exec() benar-benar bisa jalan (bukan hanya function_exists)
@@ -497,26 +498,41 @@ class System_tools extends MY_Controller
                 if (in_array($table, $excludeSet, true)) {
                     $skipped[] = $table; continue;
                 }
+                // Waktu habis → simpan sisanya, return partial (JS panggil ulang)
+                if ((time() - $startedAt) >= $timeLimit) {
+                    $remaining[] = $table; continue;
+                }
 
                 $count = (int)$pdo->query("SELECT COUNT(*) FROM `{$dbName}`.`{$table}`")->fetchColumn();
 
+                $slaveCount = (int)($this->db->query("SELECT COUNT(*) FROM `{$table}`")->row_array()['COUNT(*)'] ?? 0);
+                $diff       = $count - $slaveCount;
+
+                if ($diff === 0) { $skipped[] = "{$table} (sudah sama)"; continue; }
+
                 try {
-                    if ($execAvail) {
-                        // ── Fast path: mysqldump langsung ke mysql (bypass PHP) ──
-                        $err = $this->_syncViaDump(
-                            $table, $masterHost, $masterPort, $syncUser, $syncPass,
-                            $localUser, $localPass, $dbName, $isWin
-                        );
-                        if ($err !== '') { $errors[] = "{$table}: {$err}"; }
-                        else             { $synced[] = "{$table} ({$count} baris)"; }
-                    } else {
-                        // ── Fallback: PHP PDO (chunk 1000 + transaction) ──────
-                        if ($count > 100000) {
-                            $errors[] = "{$table}: terlalu besar ({$count} baris) — exec() tidak tersedia, sync manual";
+                    // ── Coba incremental: hanya tarik baris yang kurang via PK ──
+                    if ($diff > 0 && $slaveCount > 0) {
+                        $inc = $this->_syncIncremental($table, $pdo, $dbName);
+                        if ($inc !== null) {
+                            $synced[] = "{$table} (+{$inc} baris, incremental)";
                             continue;
                         }
+                    }
+
+                    // ── Full sync: slave kosong atau diff terlalu besar ──────
+                    $bigDiff = $slaveCount === 0 || abs($diff) > ($count * 0.5);
+                    if ($execAvail) {
+                        $err = $this->_syncViaDump(
+                            $table, $masterHost, $masterPort, $syncUser, $syncPass,
+                            $localUser, $localPass, $dbName, $isWin, $bigDiff
+                        );
+                        if ($err !== '') { $errors[] = "{$table}: {$err}"; }
+                        else             { $synced[] = "{$table} ({$count} baris, full)"; }
+                    } else {
+                        if ($count > 50000) { $errors[] = "{$table}: {$count} baris — sync manual"; continue; }
                         $rows = $pdo->query("SELECT * FROM `{$dbName}`.`{$table}`")->fetchAll(PDO::FETCH_ASSOC);
-                        $this->db->query("TRUNCATE TABLE `{$table}`");
+                        if ($bigDiff) { $this->db->query("TRUNCATE TABLE `{$table}`"); }
                         if (!empty($rows)) {
                             $cols = implode(', ', array_map(fn($c) => "`{$c}`", array_keys($rows[0])));
                             $this->db->trans_begin();
@@ -525,11 +541,11 @@ class System_tools extends MY_Controller
                                     '(' . implode(', ', array_map(
                                         fn($v) => $v === null ? 'NULL' : $this->db->escape($v), $row
                                     )) . ')', $chunk);
-                                $this->db->query("INSERT INTO `{$table}` ({$cols}) VALUES " . implode(',', $vals));
+                                $this->db->query("REPLACE INTO `{$table}` ({$cols}) VALUES " . implode(',', $vals));
                             }
                             $this->db->trans_commit();
                         }
-                        $synced[] = "{$table} ({$count} baris)";
+                        $synced[] = "{$table} ({$count} baris, full)";
                     }
                 } catch (Exception $e) {
                     $errors[] = "{$table}: " . $e->getMessage();
@@ -538,8 +554,6 @@ class System_tools extends MY_Controller
 
             $this->db->query("SET FOREIGN_KEY_CHECKS = 1");
             if ($wasReadOnly) { $this->db->query("SET GLOBAL read_only = ON"); }
-            $this->db->query("START SLAVE");
-            $this->db->db_debug = TRUE;
 
             // Buat perintah alternatif di server (tanpa tunnel — jauh lebih cepat untuk tabel besar)
             $unsyncedTables = array_filter($tables, function($t) use ($synced, $skipped) {
@@ -556,10 +570,13 @@ class System_tools extends MY_Controller
             }
 
             $this->json_ok([
-                'message' => 'Sinkronisasi selesai: ' . count($synced) . ' tabel disalin. (metode: ' . $method . ')',
-                'synced'  => $synced,
-                'skipped' => $skipped,
-                'errors'  => $errors,
+                'message'    => count($remaining) > 0
+                    ? count($synced) . ' tabel selesai, ' . count($remaining) . ' dilanjutkan...'
+                    : 'Sinkronisasi selesai: ' . count($synced) . ' tabel. (metode: ' . $method . ')',
+                'synced'     => $synced,
+                'skipped'    => $skipped,
+                'errors'     => $errors,
+                'remaining'  => $remaining,  // JS panggil ulang dengan ini
                 'server_cmd' => $serverCmd,
             ]);
         } catch (Exception $e) {
@@ -570,19 +587,59 @@ class System_tools extends MY_Controller
         }
     }
 
+    // ── Helper: incremental sync — hanya baris yang kurang (via PK) ─
+    private function _syncIncremental(string $table, PDO $pdo, string $dbName): ?int
+    {
+        // Cari primary key tunggal (auto-increment)
+        $pkRows = $pdo->query(
+            "SHOW KEYS FROM `{$dbName}`.`{$table}` WHERE Key_name='PRIMARY' ORDER BY Seq_in_index"
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        if (count($pkRows) !== 1) return null; // composite PK → fallback full sync
+
+        $pkCol   = $pkRows[0]['Column_name'];
+        $slaveMaxRow = $this->db->query("SELECT MAX(`{$pkCol}`) AS m FROM `{$table}`")->row_array();
+        $slaveMax    = $slaveMaxRow['m'] ?? null;
+
+        if ($slaveMax === null) return null; // slave kosong → perlu full sync
+
+        // Ambil hanya baris yang belum ada di slave (PK > max slave)
+        $stmt = $pdo->prepare("SELECT * FROM `{$dbName}`.`{$table}` WHERE `{$pkCol}` > ? ORDER BY `{$pkCol}`");
+        $stmt->execute([$slaveMax]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($rows)) return 0; // tidak ada yang kurang dari sisi PK
+
+        $cols = implode(', ', array_map(fn($c) => "`{$c}`", array_keys($rows[0])));
+        $origDebug = $this->db->db_debug;
+        $this->db->db_debug = FALSE;
+        $this->db->trans_begin();
+        foreach (array_chunk($rows, 500) as $chunk) {
+            $vals = array_map(fn($row) =>
+                '(' . implode(', ', array_map(fn($v) => $v === null ? 'NULL' : $this->db->escape($v), $row)) . ')',
+                $chunk
+            );
+            $this->db->query("INSERT IGNORE INTO `{$table}` ({$cols}) VALUES " . implode(',', $vals));
+        }
+        $this->db->trans_commit();
+        $this->db->db_debug = $origDebug;
+
+        return count($rows);
+    }
+
     // ── Helper: sync satu tabel via mysqldump ────────────────────
     private function _syncViaDump(
         string $table, string $host, int $port,
         string $remoteUser, string $remotePass,
         string $localUser,  string $localPass,
-        string $db, bool $isWin
+        string $db, bool $isWin, bool $truncate = true
     ): string {
-        // Cari binary mysqldump/mysql
         $dumpBin  = $isWin ? $this->_findMysqlBin('mysqldump', $isWin) : 'mysqldump';
         $mysqlBin = $isWin ? $this->_findMysqlBin('mysql',     $isWin) : 'mysql';
 
-        // Opsi dump: data only, no CREATE TABLE, pakai REPLACE agar idempoten
-        $dumpOpts = "--no-create-info --replace --single-transaction --no-tablespaces --skip-lock-tables";
+        // --replace: REPLACE INTO (update baris yg ada + insert yg baru)
+        // --no-create-info: jangan drop/recreate tabel
+        $dumpOpts = "--no-create-info --replace --single-transaction --no-tablespaces --skip-lock-tables --compress";
 
         if ($isWin) {
             // Windows: dump ke temp file dulu (pipe antar process bermasalah)
@@ -591,8 +648,7 @@ class System_tools extends MY_Controller
             exec("\"{$dumpBin}\" {$dumpOpts} -h {$host} -P {$port} -u {$remoteUser} {$db} {$table} > \"{$tmp}\" 2>&1", $o, $c1);
             putenv("MYSQL_PWD=");
             if ($c1 !== 0) { @unlink($tmp); return "dump gagal: " . implode(' ', $o); }
-            // Truncate dulu agar tidak ada baris sisa
-            $this->db->query("TRUNCATE TABLE `{$table}`");
+            if ($truncate) { $this->db->query("TRUNCATE TABLE `{$table}`"); }
             putenv("MYSQL_PWD={$localPass}");
             exec("\"{$mysqlBin}\" -u {$localUser} {$db} < \"{$tmp}\" 2>&1", $o2, $c2);
             putenv("MYSQL_PWD=");
@@ -600,7 +656,7 @@ class System_tools extends MY_Controller
             return $c2 === 0 ? '' : "import gagal: " . implode(' ', $o2);
         } else {
             // Linux/Mac: pipe langsung
-            $this->db->query("TRUNCATE TABLE `{$table}`");
+            if ($truncate) { $this->db->query("TRUNCATE TABLE `{$table}`"); }
             $cmd = sprintf(
                 'MYSQL_PWD=%s %s %s -h %s -P %d -u %s %s %s | MYSQL_PWD=%s %s -u %s %s 2>&1',
                 escapeshellarg($remotePass), $dumpBin, $dumpOpts,

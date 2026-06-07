@@ -1431,22 +1431,48 @@ function toggleChap(header) {
 
   async function resyncDiffTables() {
     if (!_diffTables.length) return;
-    const btn = document.getElementById('btn-resync-diff');
+    const btn   = document.getElementById('btn-resync-diff');
+    const outEl = document.getElementById('out-resync');
     setLoading(btn, true);
-    output('out-resync', `Menyinkronkan ${_diffTables.length} tabel: ${_diffTables.join(', ')}...`, true);
-    try {
-      const j = await post('dbtools/action/initial-sync', { tables: _diffTables });
-      let msg = '✓ ' + j.message;
-      if (j.synced?.length)     msg += '\n\nBerhasil:\n  '    + j.synced.join('\n  ');
-      if (j.skipped?.length)    msg += '\n\nDikecualikan: '   + j.skipped.join(', ');
-      if (j.errors?.length)     msg += '\n\nGagal:\n  '       + j.errors.join('\n  ');
-      if (j.server_cmd)         msg += '\n\n──────────────────\nAlternatif lebih cepat (tanpa tunnel):\n' + j.server_cmd;
-      output('out-resync', msg, true);
-      const done = !j.errors?.length;
-      if (done) alert('success', '✓ Resync selesai! Klik Bandingkan Data lagi untuk verifikasi.');
-      else      alert('warning', '⚠ Sebagian tabel gagal. Gunakan perintah server di output untuk tabel tersebut.');
-    } catch(e) { output('out-resync', e.message, true); alert('danger', esc(e.message)); }
-    finally { setLoading(btn, false); }
+    outEl.textContent = ''; outEl.style.display = 'block';
+
+    const total  = _diffTables.length;
+    const synced = [], failed = [];
+    let   pending = [..._diffTables];
+
+    // Kirim semua tabel sekaligus — server proses 25 detik lalu return sisa
+    // JS panggil ulang dengan sisa tabel sampai habis
+    while (pending.length > 0) {
+      outEl.textContent += `Menyinkronkan ${pending.length} tabel (${synced.length + failed.length}/${total} selesai)...\n`;
+      outEl.scrollTop = outEl.scrollHeight;
+      try {
+        const j = await post('dbtools/action/initial-sync', { tables: pending });
+
+        // Update hasil
+        (j.synced || []).forEach(s => { const t = s.split(' (')[0]; synced.push(t); outEl.textContent += `  ✓ ${s}\n`; });
+        (j.errors || []).forEach(e => { const t = e.split(':')[0].trim(); failed.push(t); outEl.textContent += `  ✗ ${e}\n`; });
+
+        // Sisa yang belum diproses (time limit)
+        pending = j.remaining || [];
+        if (pending.length > 0) outEl.textContent += `  → ${pending.length} tabel dilanjutkan batch berikutnya...\n`;
+
+      } catch(e) {
+        outEl.textContent += `  ✗ Error: ${e.message}\n`;
+        break; // stop jika koneksi benar-benar putus
+      }
+      outEl.scrollTop = outEl.scrollHeight;
+    }
+
+    outEl.textContent += `\n─── ${synced.length}/${total} tabel berhasil ───\n`;
+    if (failed.length) {
+      outEl.textContent += `Tabel gagal: ${failed.join(', ')}\n`;
+      outEl.textContent += `\nAlternatif di terminal server:\n`;
+      outEl.textContent += `mysqldump -u root -p --single-transaction db_finance ${failed.join(' ')} | gzip > /tmp/sync.sql.gz\n`;
+    }
+    outEl.scrollTop = outEl.scrollHeight;
+    setLoading(btn, false);
+    if (!failed.length) alert('success', `✓ Semua ${total} tabel berhasil!`);
+    else alert('warning', `⚠ ${synced.length} berhasil, ${failed.length} gagal.`);
   }
 
   // ── Apply MySQL config (SET GLOBAL + conf.d) ─────────────────

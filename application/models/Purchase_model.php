@@ -1805,7 +1805,6 @@ class Purchase_model extends CI_Model
             $stockScope,
             $stockScope === 'DIVISION' ? (string)($row['division_id'] ?? '') : '',
             $stockScope === 'DIVISION' ? strtoupper((string)($row['destination_type'] ?? 'OTHER')) : '',
-            strtoupper((string)($row['stock_domain'] ?? 'ITEM')),
             (int)($row['item_id'] ?? 0),
             (int)($row['material_id'] ?? 0),
             (int)($row['buy_uom_id'] ?? 0),
@@ -1827,15 +1826,14 @@ class Purchase_model extends CI_Model
 
         $balanceRows = $this->list_division_stock($q, 5000, $destinationFilter, '', '', $divisionId);
         $dailyRows = $this->list_division_daily_snapshot_latest_closing($asOfDate, $q, $divisionId, $destinationFilter);
-        $matrixDateFrom = date('Y-m-01', strtotime($asOfDate));
-        $matrixRows = $this->fetchMaterialDailySourceRows($q, $divisionId, $matrixDateFrom, $asOfDate, $destinationFilter);
-        $matrixRows = $this->normalizeDivisionProfileKeyRows($matrixRows);
-        $matrixRows = $this->filterZeroOpeningClosingDailyRows($matrixRows);
         $movementRows = $this->list_division_material_movement_closing($asOfDate, $q, $divisionId, $destinationFilter);
 
         $balanceMap = $this->aggregateDivisionMaterialCompareSource($balanceRows, 'balance');
         $dailyMap = $this->aggregateDivisionMaterialCompareSource($dailyRows, 'daily');
-        $matrixMap = $this->aggregateDivisionMaterialCompareRawDaily($matrixRows);
+        // Daily rollup/material matrix sudah dipensiunkan. Untuk audit item-centric,
+        // gunakan snapshot harian berbasis movement log yang sama agar tidak muncul
+        // mismatch palsu dari source legacy yang sudah tidak diisi lagi.
+        $matrixMap = $dailyMap;
         $movementMap = $this->aggregateDivisionMaterialCompareSource($movementRows, 'movement');
 
         $allKeys = array_fill_keys(array_merge(
@@ -9262,19 +9260,19 @@ class Purchase_model extends CI_Model
             && $this->db->field_exists('stock_domain', 'inv_warehouse_monthly_stock');
         $subqueries = [
             'po_item_rows' => $hasPoUsage
-                ? "(SELECT COUNT(*) FROM pur_purchase_order_line pol WHERE pol.profile_key = c.profile_key AND COALESCE(pol.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(pol.line_kind,'ITEM')) = 'ITEM')"
+                ? "(SELECT COUNT(*) FROM pur_purchase_order_line pol WHERE pol.profile_key = c.profile_key AND COALESCE(pol.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(pol.line_kind,'ITEM')) = 'MATERIAL')"
                 : '0',
             'receipt_item_rows' => $hasReceiptUsage
-                ? "(SELECT COUNT(*) FROM pur_purchase_receipt_line rl WHERE rl.profile_key = c.profile_key AND COALESCE(rl.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(rl.line_kind,'ITEM')) = 'ITEM')"
+                ? "(SELECT COUNT(*) FROM pur_purchase_receipt_line rl WHERE rl.profile_key = c.profile_key AND COALESCE(rl.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(rl.line_kind,'ITEM')) = 'MATERIAL')"
                 : '0',
             'sr_item_rows' => $hasStoreRequestUsage
-                ? "(SELECT COUNT(*) FROM pur_store_request_line srl WHERE srl.profile_key = c.profile_key AND COALESCE(srl.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(srl.line_kind,'ITEM')) = 'ITEM')"
+                ? "(SELECT COUNT(*) FROM pur_store_request_line srl WHERE srl.profile_key = c.profile_key AND COALESCE(srl.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(srl.line_kind,'ITEM')) = 'MATERIAL')"
                 : '0',
             'division_request_item_rows' => $hasDivisionRequestUsage
-                ? "(SELECT COUNT(*) FROM pur_division_request_line drl WHERE drl.profile_key = c.profile_key AND COALESCE(drl.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(drl.line_kind,'ITEM')) = 'ITEM')"
+                ? "(SELECT COUNT(*) FROM pur_division_request_line drl WHERE drl.profile_key = c.profile_key AND COALESCE(drl.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(drl.line_kind,'ITEM')) = 'MATERIAL')"
                 : '0',
             'fulfillment_item_rows' => $hasFulfillmentUsage
-                ? "(SELECT COUNT(*) FROM pur_store_request_fulfillment_line fl WHERE fl.profile_key = c.profile_key AND COALESCE(fl.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(fl.line_kind,'ITEM')) = 'ITEM')"
+                ? "(SELECT COUNT(*) FROM pur_store_request_fulfillment_line fl WHERE fl.profile_key = c.profile_key AND COALESCE(fl.usage_purpose,'BAHAN_BAKU') = 'BAHAN_BAKU' AND UPPER(COALESCE(fl.line_kind,'ITEM')) = 'MATERIAL')"
                 : '0',
             'movement_rows' => $hasMovementLog
                 ? "(SELECT COUNT(*) FROM inv_stock_movement_log ml WHERE ml.profile_key = c.profile_key)"
@@ -9336,22 +9334,26 @@ class Purchase_model extends CI_Model
 
         $filteredRows = [];
         foreach ($rows as $row) {
-            $impactCount =
+            $transactionLegacyCount =
                 (int)($row['po_item_rows'] ?? 0)
                 + (int)($row['receipt_item_rows'] ?? 0)
                 + (int)($row['sr_item_rows'] ?? 0)
                 + (int)($row['division_request_item_rows'] ?? 0)
-                + (int)($row['fulfillment_item_rows'] ?? 0)
-                + (int)($row['movement_rows'] ?? 0)
-                + (int)($row['division_monthly_item_rows'] ?? 0)
-                + (int)($row['warehouse_monthly_item_rows'] ?? 0);
-
-            $row['impact_count'] = $impactCount;
+                + (int)($row['fulfillment_item_rows'] ?? 0);
             $row['has_split_snapshot'] =
                 ((int)($row['division_monthly_item_rows'] ?? 0) > 0 && (int)($row['division_monthly_material_rows'] ?? 0) > 0)
                 || ((int)($row['warehouse_monthly_item_rows'] ?? 0) > 0 && (int)($row['warehouse_monthly_material_rows'] ?? 0) > 0);
+            $row['impact_count'] = $transactionLegacyCount
+                + (int)($row['movement_wrong_material_rows'] ?? 0)
+                + (int)($row['division_monthly_material_rows'] ?? 0)
+                + (int)($row['warehouse_monthly_material_rows'] ?? 0);
+            $row['has_transaction_drift'] = $transactionLegacyCount > 0;
+            $row['has_snapshot_legacy'] =
+                (int)($row['division_monthly_material_rows'] ?? 0) > 0
+                || (int)($row['warehouse_monthly_material_rows'] ?? 0) > 0;
+            $row['has_movement_drift'] = (int)($row['movement_wrong_material_rows'] ?? 0) > 0;
 
-            if ($impactCount <= 0) {
+            if (!$row['has_transaction_drift'] && !$row['has_snapshot_legacy'] && !$row['has_movement_drift'] && empty($row['has_split_snapshot'])) {
                 continue;
             }
             $filteredRows[] = $row;
@@ -9369,13 +9371,7 @@ class Purchase_model extends CI_Model
         ];
 
         foreach ($filteredRows as $row) {
-            if (
-                (int)($row['po_item_rows'] ?? 0) > 0
-                || (int)($row['receipt_item_rows'] ?? 0) > 0
-                || (int)($row['sr_item_rows'] ?? 0) > 0
-                || (int)($row['division_request_item_rows'] ?? 0) > 0
-                || (int)($row['fulfillment_item_rows'] ?? 0) > 0
-            ) {
+            if (!empty($row['has_transaction_drift'])) {
                 $summary['profiles_with_transaction_drift']++;
             }
             if (!empty($row['has_split_snapshot'])) {
