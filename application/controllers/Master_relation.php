@@ -2146,10 +2146,7 @@ class Master_relation extends MY_Controller
                 ->where('s.division_id', $divisionId)
                 ->group_start()
                     ->where('s.material_id', $materialId)
-                    ->or_group_start()
-                        ->where('s.stock_domain', 'ITEM')
-                        ->where('mi.material_id', $materialId)
-                    ->group_end()
+                    ->or_where('mi.material_id', $materialId)
                 ->group_end()
                 ->get()
                 ->row_array();
@@ -2160,10 +2157,7 @@ class Master_relation extends MY_Controller
                 ->where('s.division_id', $divisionId)
                 ->group_start()
                     ->where('s.material_id', $materialId)
-                    ->or_group_start()
-                        ->where('s.stock_domain', 'ITEM')
-                        ->where('mi.material_id', $materialId)
-                    ->group_end()
+                    ->or_where('mi.material_id', $materialId)
                 ->group_end()
                 ->get()
                 ->row_array();

@@ -1180,7 +1180,7 @@ class ComponentStockWriter
             'profile_content_per_buy' => 1.0,
             'profile_buy_uom_code' => null,
             'profile_content_uom_code' => null,
-            'stock_domain' => !empty($sourceLot['material_id']) ? 'MATERIAL' : 'ITEM',
+            'stock_domain' => !empty($sourceLot['item_id']) ? 'ITEM' : (!empty($sourceLot['material_id']) ? 'MATERIAL' : 'ITEM'),
         ];
 
         if ($this->ci->db->table_exists('inv_stock_movement_log')) {

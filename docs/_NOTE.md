@@ -90,3 +90,6 @@ halaman menampilkan stok bahan per divisi yang bisa di breakdown per profil chil
 oke sekarng lanjutkan.
 ingat ya, tujuan akhir kita tidak ada lagi Kolom berisi MATERIAL / TABEL
 dan tidak ada lagi missmatch di pos/stock-commit-audit dan /pos/stock-live, dan semua data terkait stok gudang, stok bahan baku, stok komponent, dan stok produk , termasuk hpp live nya, sinkron rumusnya satu sama lain
+
+
+db replication belum sinkron

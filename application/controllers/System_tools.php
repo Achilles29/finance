@@ -458,6 +458,8 @@ class System_tools extends MY_Controller
         $cfgExclude  = array_filter(array_map('trim', explode(',', $this->_cfg('backup.exclude_tables', ''))));
         $excludeSet  = array_unique(array_merge($cfgExclude, ['sys_app_config']));
 
+        $payload = $this->request_payload();
+
         try {
             // Satu koneksi PDO untuk semua tabel — hindari overhead SSH handshake per tabel
             $pdo = new PDO(
@@ -466,10 +468,11 @@ class System_tools extends MY_Controller
                 [PDO::ATTR_TIMEOUT => 30, PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
             );
 
-            $requestedTables = array_filter(array_map('trim', (array)($payload['tables'] ?? [])));
-            $tables = !empty($requestedTables)
-                ? array_values($requestedTables)
-                : $pdo->query("SHOW TABLES FROM `{$dbName}`")->fetchAll(PDO::FETCH_COLUMN);
+            $requestedTables = array_values(array_filter(array_map('trim', (array)($payload['tables'] ?? []))));
+            $isFullSync      = empty($requestedTables);
+            $tables          = $isFullSync
+                ? $pdo->query("SHOW TABLES FROM `{$dbName}`")->fetchAll(PDO::FETCH_COLUMN)
+                : $requestedTables;
 
             $synced  = $skipped = $errors = $remaining = [];
             $timeLimit  = 25; // detik per request — JS akan panggil ulang untuk sisa

@@ -97,7 +97,7 @@ class PosStockCommitService
         }, $existingLines))));
 
         $resolved = $this->CI->Pos_model->resolve_order_stock_commit_payload($orderId, $actorEmployeeId, [
-            'allowed_statuses' => ['CONFIRMED', 'DRAFT', 'PENDING'],
+            'allowed_statuses' => ['CONFIRMED', 'DRAFT', 'PAID', 'PENDING'],
             'line_ids' => $targetLineIds,
         ]);
         if (!($resolved['ok'] ?? false)) {

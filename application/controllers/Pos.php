@@ -1923,6 +1923,7 @@ class Pos extends MY_Controller
 
     public function order_runtime_failed_jobs_retry_all()
     {
+        @set_time_limit(0);
         $pageCode = $this->can('pos.stock.live.index', 'edit')
             ? 'pos.stock.live.index'
             : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');

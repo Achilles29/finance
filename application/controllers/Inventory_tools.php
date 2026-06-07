@@ -474,7 +474,7 @@ class Inventory_tools extends CI_Controller
             $payload = [
                 'stock_scope' => 'WAREHOUSE',
                 'snapshot_month' => (string)$group['snapshot_month'],
-                'stock_domain' => (string)$group['stock_domain'],
+                'stock_domain' => 'ITEM',
                 'item_id' => (int)$group['item_id'],
                 'material_id' => (int)$group['material_id'],
                 'buy_uom_id' => (int)$group['buy_uom_id'],
@@ -649,7 +649,7 @@ class Inventory_tools extends CI_Controller
                 'snapshot_month' => $snapshotMonth,
                 'division_id' => (int)$group['division_id'],
                 'destination_type' => (string)$group['destination_type'],
-                'stock_domain' => 'MATERIAL',
+                'stock_domain' => 'ITEM',
                 'item_id' => (int)$group['item_id'],
                 'material_id' => (int)$group['material_id'],
                 'buy_uom_id' => (int)$group['buy_uom_id'],
@@ -1639,7 +1639,7 @@ class Inventory_tools extends CI_Controller
 
         $lineKind = strtoupper(trim((string)($row['line_kind'] ?? '')));
         if (!in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
-            $lineKind = $materialId > 0 ? 'MATERIAL' : 'ITEM';
+            $lineKind = $itemId > 0 ? 'ITEM' : 'MATERIAL';
         }
 
         $contentPerBuy = round((float)($row['profile_content_per_buy'] ?? 1), 6);
@@ -1779,7 +1779,7 @@ class Inventory_tools extends CI_Controller
         }
 
         return [
-            'line_kind' => strtoupper((string)($profile['line_kind'] ?? (((int)($profile['material_id'] ?? 0) > 0) ? 'MATERIAL' : 'ITEM'))),
+            'line_kind' => strtoupper((string)($profile['line_kind'] ?? (((int)($profile['item_id'] ?? 0) > 0) ? 'ITEM' : 'MATERIAL'))),
             'item_id' => (int)($profile['item_id'] ?? 0) > 0 ? (int)$profile['item_id'] : null,
             'material_id' => (int)($profile['material_id'] ?? 0) > 0 ? (int)$profile['material_id'] : null,
             'buy_uom_id' => (int)($profile['buy_uom_id'] ?? 0),
@@ -1802,7 +1802,7 @@ class Inventory_tools extends CI_Controller
         }
 
         return [
-            'line_kind' => strtoupper((string)($profile['line_kind'] ?? (((int)($profile['material_id'] ?? 0) > 0) ? 'MATERIAL' : 'ITEM'))),
+            'line_kind' => strtoupper((string)($profile['line_kind'] ?? (((int)($profile['item_id'] ?? 0) > 0) ? 'ITEM' : 'MATERIAL'))),
             'item_id' => (int)($profile['item_id'] ?? 0) > 0 ? (int)$profile['item_id'] : null,
             'material_id' => (int)($profile['material_id'] ?? 0) > 0 ? (int)$profile['material_id'] : null,
             'profile_key' => (string)($profile['profile_key'] ?? ''),

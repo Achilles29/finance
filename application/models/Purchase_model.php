@@ -1522,9 +1522,9 @@ class Purchase_model extends CI_Model
             ->where('l.movement_date <=', $dateTo);
 
         if ($hasMovementStockDomain) {
-            $this->db->select('COALESCE(l.stock_domain, CASE WHEN COALESCE(l.material_id, i.material_id) IS NOT NULL THEN "MATERIAL" ELSE "ITEM" END) AS stock_domain', false);
+            $this->db->select('COALESCE(l.stock_domain, CASE WHEN l.item_id IS NOT NULL THEN "ITEM" WHEN COALESCE(l.material_id, i.material_id) IS NOT NULL THEN "MATERIAL" ELSE "ITEM" END) AS stock_domain', false);
         } else {
-            $this->db->select('CASE WHEN COALESCE(l.material_id, i.material_id) IS NOT NULL THEN "MATERIAL" ELSE "ITEM" END AS stock_domain', false);
+            $this->db->select('CASE WHEN l.item_id IS NOT NULL THEN "ITEM" WHEN COALESCE(l.material_id, i.material_id) IS NOT NULL THEN "MATERIAL" ELSE "ITEM" END AS stock_domain', false);
         }
 
         if ($hasMovementAdjustmentCategory) {
@@ -2608,7 +2608,7 @@ class Purchase_model extends CI_Model
             $identity = [
                 'division_id' => !empty($row['division_id']) ? (int)$row['division_id'] : null,
                 'destination_type' => !empty($row['destination_type']) ? strtoupper((string)$row['destination_type']) : null,
-                'stock_domain' => !empty($row['material_id']) ? 'MATERIAL' : 'ITEM',
+                'stock_domain' => (int)($row['item_id'] ?? 0) > 0 ? 'ITEM' : (!empty($row['material_id']) ? 'MATERIAL' : 'ITEM'),
                 'item_id' => (int)($row['item_id'] ?? 0),
                 'material_id' => !empty($row['material_id']) ? (int)$row['material_id'] : null,
                 'buy_uom_id' => (int)($row['buy_uom_id'] ?? 0),
@@ -5069,7 +5069,7 @@ class Purchase_model extends CI_Model
             }
 
             $this->registerVoidRollbackRebuildTarget($rebuildTargets, $scope, $adjustmentDate, [
-                'stock_domain' => strtoupper(trim((string)($line['stock_domain'] ?? (!empty($line['material_id']) ? 'MATERIAL' : 'ITEM')))),
+                'stock_domain' => strtoupper(trim((string)($line['stock_domain'] ?? (!empty($line['item_id']) ? 'ITEM' : 'MATERIAL')))),
                 'division_id' => $scope === 'DIVISION' ? $divisionId : null,
                 'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
                 'item_id' => $this->nullableInt($line['item_id'] ?? null),
@@ -7400,9 +7400,10 @@ class Purchase_model extends CI_Model
         $selectColumns = [
             'LEFT(c.profile_key, 64) AS profile_key',
             "CASE
-                WHEN COALESCE(NULLIF(COALESCE(i_code.material_id, i_name.material_id), 0), m_code.id, m_name.id) IS NOT NULL THEN 'MATERIAL'
                 WHEN UPPER(TRIM(COALESCE(c.line_type, 'ITEM'))) = 'ASSET' THEN 'ASSET'
                 WHEN UPPER(TRIM(COALESCE(c.line_type, 'ITEM'))) IN ('SERVICE', 'PAYROLL_COMPONENT') THEN 'SERVICE'
+                WHEN COALESCE(i_code.id, i_name.id) IS NOT NULL THEN 'ITEM'
+                WHEN COALESCE(m_code.id, m_name.id) IS NOT NULL THEN 'MATERIAL'
                 ELSE 'ITEM'
             END AS line_kind",
             'COALESCE(i_code.id, i_name.id) AS item_id',
