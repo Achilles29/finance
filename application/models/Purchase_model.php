@@ -2236,7 +2236,14 @@ class Purchase_model extends CI_Model
         $successCount = 0;
         foreach ($identities as $identity) {
             unset($identity['_start_date']);
+            $movementRefresh = $this->refresh_division_material_movement_after_balances($asOfDate, $identity);
             $repair = $this->rebuild_division_material_history_from_movements($asOfDate, $identity);
+            if (!empty($movementRefresh['ok'])) {
+                $repair['data']['movement_after_rows_refreshed'] = (int)($movementRefresh['data']['rows_refreshed'] ?? 0);
+            }
+            if (empty($movementRefresh['ok'])) {
+                $repair['data']['movement_after_refresh_error'] = (string)($movementRefresh['message'] ?? '');
+            }
             if (($repair['ok'] ?? false)) {
                 $successCount++;
             }
@@ -2263,6 +2270,71 @@ class Purchase_model extends CI_Model
                 'results' => $results,
             ],
         ];
+    }
+
+    private function refresh_division_material_movement_after_balances(string $asOfDate, array $identity): array
+    {
+        if (!$this->db->table_exists('inv_stock_movement_log')) {
+            return ['ok' => true, 'data' => ['rows_refreshed' => 0]];
+        }
+
+        $hasDestinationType = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
+        $this->db
+            ->select('l.id, l.qty_buy_delta, l.qty_content_delta, l.unit_cost', false)
+            ->from('inv_stock_movement_log l')
+            ->where('l.movement_scope', 'DIVISION')
+            ->where('l.movement_date <=', $asOfDate);
+        $this->applyInventoryHistoryIdentityFilter('l', 'DIVISION', $identity, $hasDestinationType);
+        $rows = $this->db
+            ->order_by('l.movement_date', 'ASC')
+            ->order_by('l.id', 'ASC')
+            ->get()
+            ->result_array();
+
+        if (empty($rows)) {
+            return ['ok' => true, 'data' => ['rows_refreshed' => 0]];
+        }
+
+        $currentBuy = 0.0;
+        $currentContent = 0.0;
+        $currentAvg = 0.0;
+        $updates = [];
+        foreach ($rows as $row) {
+            $state = $this->applyInventoryHistoryMovement(
+                $currentBuy,
+                $currentContent,
+                $currentAvg,
+                (float)($row['qty_buy_delta'] ?? 0),
+                (float)($row['qty_content_delta'] ?? 0),
+                (float)($row['unit_cost'] ?? 0)
+            );
+            $currentBuy = round((float)($state['qty_buy'] ?? 0), 4);
+            $currentContent = round((float)($state['qty_content'] ?? 0), 4);
+            $currentAvg = round((float)($state['avg_cost_per_content'] ?? 0), 6);
+            $updates[] = [
+                'id' => (int)($row['id'] ?? 0),
+                'qty_buy_after' => $currentBuy,
+                'qty_content_after' => $currentContent,
+            ];
+        }
+
+        $this->db->trans_begin();
+        foreach ($updates as $update) {
+            $this->db
+                ->where('id', (int)$update['id'])
+                ->update('inv_stock_movement_log', [
+                    'qty_buy_after' => $update['qty_buy_after'],
+                    'qty_content_after' => $update['qty_content_after'],
+                ]);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal refresh saldo after movement log bahan.'];
+        }
+
+        $this->db->trans_commit();
+        return ['ok' => true, 'data' => ['rows_refreshed' => count($updates)]];
     }
 
     private function rebuild_division_material_history_from_movements(string $asOfDate, array $identity): array
