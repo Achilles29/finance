@@ -1373,40 +1373,78 @@ function toggleChap(header) {
   });
 
   // ── Bandingkan Data ───────────────────────────────────────────
+  let _diffTables = [];
+
   document.getElementById('btn-compare-data')?.addEventListener('click', async function() {
     const wrap = document.getElementById('out-compare');
     setLoading(this, true);
     wrap.style.display = 'none'; wrap.innerHTML = '';
+    _diffTables = [];
     try {
       const j = await get('dbtools/action/compare-data');
+      _diffTables = (j.results || []).filter(r => !r.match).map(r => r.table);
+
       const rows = (j.results || []).map(r => {
-        const cls  = r.match ? 'text-success' : 'text-danger fw-bold';
-        const icon = r.match ? '✓' : '✗';
+        const cls      = r.match ? 'text-success' : 'text-danger fw-bold';
+        const icon     = r.match ? '✓' : '✗';
         const slaveVal = r.slave === null ? '(tabel tidak ada)' : r.slave;
+        const selisih  = r.match ? '' : Math.abs(r.master - (r.slave ?? 0)).toLocaleString('id-ID') + ' beda';
         return `<tr class="${r.match ? '' : 'table-danger'}">
           <td class="${cls}">${icon}</td>
           <td>${esc(r.table)}</td>
           <td class="text-end">${r.master.toLocaleString('id-ID')}</td>
-          <td class="text-end ${cls}">${typeof slaveVal === 'number' ? slaveVal.toLocaleString('id-ID') : slaveVal}</td>
-          <td class="text-end text-muted" style="font-size:.78rem">${r.match ? '' : (r.master - (r.slave??0)).toLocaleString('id-ID') + ' beda'}</td>
+          <td class="text-end ${cls}">${typeof slaveVal === 'number' ? slaveVal.toLocaleString('id-ID') : esc(String(slaveVal))}</td>
+          <td class="text-end text-muted" style="font-size:.78rem">${selisih}</td>
         </tr>`;
       }).join('');
+
+      const resyncBtn = _diffTables.length > 0
+        ? `<button type="button" id="btn-resync-diff" class="btn btn-warning btn-sm mt-2">
+             <i class="ri ri-refresh-line me-1"></i>Resync ${_diffTables.length} Tabel yang Berbeda
+           </button>
+           <div id="out-resync" class="dbt-output mt-2"></div>`
+        : `<div class="text-success small mt-2 fw-semibold"><i class="ri ri-checkbox-circle-line me-1"></i>Semua tabel sinkron!</div>`;
+
       wrap.innerHTML = `
         <div class="small fw-semibold mb-2">
-          ${j.ok} / ${j.total} tabel sama · <span class="text-danger">${j.diff} berbeda</span>
+          ${j.ok} / ${j.total} tabel sama
+          ${j.diff > 0 ? `· <span class="text-danger">${j.diff} tabel berbeda</span>` : ''}
         </div>
-        <div style="max-height:300px;overflow-y:auto">
-          <table class="table table-sm table-bordered" style="font-size:.8rem">
-            <thead class="table-light"><tr><th></th><th>Tabel</th><th class="text-end">Master</th><th class="text-end">Slave (laptop)</th><th class="text-end">Selisih</th></tr></thead>
+        <div style="max-height:280px;overflow-y:auto">
+          <table class="table table-sm table-bordered mb-0" style="font-size:.8rem">
+            <thead class="table-light">
+              <tr><th></th><th>Tabel</th><th class="text-end">Master</th><th class="text-end">Slave (Laptop)</th><th class="text-end">Selisih</th></tr>
+            </thead>
             <tbody>${rows}</tbody>
           </table>
-        </div>`;
+        </div>
+        ${resyncBtn}`;
       wrap.style.display = 'block';
-      if (j.diff > 0) alert('warning', `⚠ ${j.diff} tabel berbeda. Klik Sinkronisasi Data Awal di tab Server Cadangan.`);
-      else alert('success', '✓ Semua tabel sinkron!');
+
+      document.getElementById('btn-resync-diff')?.addEventListener('click', resyncDiffTables);
+
+      if (j.diff > 0) alert('warning', `⚠ ${j.diff} tabel berbeda. Klik "Resync Tabel yang Berbeda".`);
+      else alert('success', '✓ Semua tabel sudah sinkron!');
     } catch(e) { alert('danger', esc(e.message)); }
     finally { setLoading(this, false); }
   });
+
+  async function resyncDiffTables() {
+    if (!_diffTables.length) return;
+    const btn = document.getElementById('btn-resync-diff');
+    setLoading(btn, true);
+    output('out-resync', `Menyinkronkan ${_diffTables.length} tabel: ${_diffTables.join(', ')}...`, true);
+    try {
+      const j = await post('dbtools/action/initial-sync', { tables: _diffTables });
+      let msg = '✓ ' + j.message;
+      if (j.synced?.length)  msg += '\n\nBerhasil:\n  '    + j.synced.join('\n  ');
+      if (j.skipped?.length) msg += '\n\nDikecualikan: '   + j.skipped.join(', ');
+      if (j.errors?.length)  msg += '\n\nGagal:\n  '       + j.errors.join('\n  ');
+      output('out-resync', msg, true);
+      alert('success', '✓ Resync selesai! Klik Bandingkan Data lagi untuk verifikasi.');
+    } catch(e) { output('out-resync', e.message, true); alert('danger', esc(e.message)); }
+    finally { setLoading(btn, false); }
+  }
 
   // ── Apply MySQL config (SET GLOBAL + conf.d) ─────────────────
   async function applyMysqlConfig(role, outId, btnEl) {

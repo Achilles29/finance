@@ -465,7 +465,12 @@ class System_tools extends MY_Controller
                 [PDO::ATTR_TIMEOUT => 30, PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
             );
 
-            $tables  = $pdo->query("SHOW TABLES FROM `{$dbName}`")->fetchAll(PDO::FETCH_COLUMN);
+            // Jika payload berisi daftar tabel spesifik, hanya sync tabel itu
+            $requestedTables = array_filter(array_map('trim', (array)($payload['tables'] ?? [])));
+            $tables = !empty($requestedTables)
+                ? $requestedTables
+                : $pdo->query("SHOW TABLES FROM `{$dbName}`")->fetchAll(PDO::FETCH_COLUMN);
+
             $synced  = $skipped = $errors = [];
 
             // Hentikan replikasi sementara selama sync
