@@ -8933,15 +8933,31 @@ class Pos_model extends CI_Model
                 ->group_by(['division_id', 'destination_type', 'identity_key'])
                 ->get_compiled_select();
 
-            $this->db->select('avg_cost_per_content')
+            $select = "
+                COALESCE(
+                    CASE WHEN ABS(SUM(s.closing_qty_content)) > 0.000001
+                        THEN SUM(s.closing_qty_content * s.avg_cost_per_content) / SUM(s.closing_qty_content)
+                        ELSE MAX(s.avg_cost_per_content)
+                    END,
+                    0
+                ) AS avg_cost_per_content
+            ";
+            $this->db->select($select, false)
                 ->from('inv_division_monthly_stock s')
+                ->join('mst_item mi', 'mi.id = s.item_id', 'left')
                 ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
                 ->where('s.division_id', $divisionId)
-                ->where('s.material_id', $materialId);
+                ->group_start()
+                    ->where('s.material_id', $materialId)
+                    ->or_group_start()
+                        ->where('s.item_id IS NOT NULL', null, false)
+                        ->where('mi.material_id', $materialId)
+                    ->group_end()
+                ->group_end();
             if ($uomId > 0) {
                 $this->db->where('s.content_uom_id', $uomId);
             }
-            $liveRow = $this->db->order_by('s.updated_at', 'DESC')->order_by('s.last_movement_at', 'DESC')->limit(1)->get()->row_array() ?: [];
+            $liveRow = $this->db->get()->row_array() ?: [];
             $live = round((float)($liveRow['avg_cost_per_content'] ?? 0), 6);
             if ($live > 0) {
                 return ['unit_cost' => $live, 'cost_source' => 'LAST_LIVE'];
@@ -8974,14 +8990,23 @@ class Pos_model extends CI_Model
                 ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
                 ->get_compiled_select();
 
-            $this->db->select('avg_cost')
+            $select = "
+                COALESCE(
+                    CASE WHEN ABS(SUM(s.closing_qty)) > 0.000001
+                        THEN SUM(s.closing_qty * s.avg_cost) / SUM(s.closing_qty)
+                        ELSE MAX(s.avg_cost)
+                    END,
+                    0
+                ) AS avg_cost
+            ";
+            $this->db->select($select, false)
                 ->from('inv_component_monthly_stock s')
                 ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
                 ->where('s.component_id', $componentId);
             if ($divisionId > 0) {
                 $this->db->where('s.division_id', $divisionId);
             }
-            $liveRow = $this->db->order_by('s.updated_at', 'DESC')->order_by('s.last_movement_at', 'DESC')->limit(1)->get()->row_array() ?: [];
+            $liveRow = $this->db->get()->row_array() ?: [];
             $live = round((float)($liveRow['avg_cost'] ?? 0), 6);
             if ($live > 0) {
                 return ['unit_cost' => $live, 'cost_source' => 'LAST_LIVE'];

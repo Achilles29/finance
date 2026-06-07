@@ -139,8 +139,8 @@ $fmtQty = static function ($value): string {
         <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
           <div>
             <div class="small text-uppercase fw-bold text-muted">Akar Masalah</div>
-            <h5 class="mb-1 mt-2">Profile Produksi Salah Domain</h5>
-            <div class="text-muted small">Kalau item punya <code>material_id</code> tetapi profile aktifnya masih <code>ITEM</code>, transaksi produksi bisa pecah antara domain <code>ITEM</code> dan <code>MATERIAL</code>. Ini pangkal mismatch yang harus kita bereskan sebelum retry job commit.</div>
+            <h5 class="mb-1 mt-2">Legacy Snapshot dan Tagging Produksi</h5>
+            <div class="text-muted small">Kalau item produksi punya <code>material_id</code> tetapi snapshot/tagging lama masih pecah, stok live dan audit commit bisa membaca bucket yang berbeda. Fokus kita sekarang bukan menghidupkan dual domain lagi, tetapi membersihkan jejak legacy supaya pembacaan tetap item-centric.</div>
           </div>
           <div class="d-flex gap-2 flex-wrap">
             <a href="<?php echo html_escape(site_url('purchase/reclassify-profile-domain')); ?>" class="btn btn-outline-secondary">Tool Snapshot Lama</a>
@@ -160,12 +160,12 @@ $fmtQty = static function ($value): string {
             <thead>
               <tr>
                 <th>Profile Salah Domain</th>
-                <th>Target Benar</th>
+                <th>Marker Produksi</th>
                 <th class="text-end">PO Item</th>
                 <th class="text-end">Receipt Item</th>
                 <th class="text-end">Movement Drift</th>
                 <th class="text-end">Snapshot ITEM</th>
-                <th class="text-end">Snapshot MATERIAL</th>
+                <th class="text-end">Snapshot Legacy</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -184,7 +184,7 @@ $fmtQty = static function ($value): string {
                       <div class="text-muted small"><?php echo html_escape((string)($row['brand_name'] ?? '-')); ?> | profile <code><?php echo html_escape((string)($row['profile_key'] ?? '-')); ?></code></div>
                     </td>
                     <td>
-                      <strong>MATERIAL</strong>
+                      <strong>material_id</strong>
                       <div class="text-muted small"><?php echo html_escape((string)($row['expected_material_name'] ?? '-')); ?><?php if (!empty($row['expected_material_code'])): ?> | <?php echo html_escape((string)$row['expected_material_code']); ?><?php endif; ?></div>
                     </td>
                     <td class="text-end"><?php echo number_format((int)($row['po_item_rows'] ?? 0)); ?></td>
@@ -192,7 +192,7 @@ $fmtQty = static function ($value): string {
                     <td class="text-end"><?php echo number_format((int)($row['movement_wrong_material_rows'] ?? 0)); ?></td>
                     <td class="text-end"><?php echo number_format($snapshotItem); ?></td>
                     <td class="text-end"><?php echo number_format($snapshotMaterial); ?></td>
-                    <td><span class="sca-chip <?php echo !empty($row['has_split_snapshot']) ? 'bad' : 'ok'; ?>"><?php echo !empty($row['has_split_snapshot']) ? 'Split ITEM + MATERIAL' : 'ITEM padahal produksi'; ?></span></td>
+                    <td><span class="sca-chip <?php echo !empty($row['has_split_snapshot']) ? 'bad' : 'ok'; ?>"><?php echo !empty($row['has_split_snapshot']) ? 'Legacy split snapshot' : 'Perlu normalisasi tagging'; ?></span></td>
                   </tr>
                 <?php endforeach; ?>
               <?php endif; ?>
@@ -235,8 +235,8 @@ $fmtQty = static function ($value): string {
                   <th>Material</th>
                   <th>Divisi</th>
                   <th class="text-end">Stok Divisi</th>
-                  <th class="text-end">Material Daily</th>
-                  <th class="text-end">Daily Divisi</th>
+                  <th class="text-end">Snapshot Harian Material</th>
+                  <th class="text-end">Snapshot Harian Divisi</th>
                   <th class="text-end">Movement</th>
                   <th>Status</th>
                   <th class="text-end">Aksi</th>

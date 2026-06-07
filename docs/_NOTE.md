@@ -83,3 +83,10 @@ v laporan daily sales seperti core /pos-reports/daily-sales , kemudian cetak
 buatkan halaman untuk kroscek / rekin data stok bahan baku harian.
 halamannya mirip stok bahan baku divisi dengan tampilan yang lebih simple dan efisien.
 halaman menampilkan stok bahan per divisi yang bisa di breakdown per profil child nya untuk yang punya child. lalu di kolom sebelahnya adalah kolom form input data stok fisik (ajax). kolom sebelahnya lagi otomatis muncul selisih stok nya. lalu ada aksi langsung penyesuaian untuk stok yang miss, dengan opsi sesuai stok adjusment
+
+
+
+
+oke sekarng lanjutkan.
+ingat ya, tujuan akhir kita tidak ada lagi Kolom berisi MATERIAL / TABEL
+dan tidak ada lagi missmatch di pos/stock-commit-audit dan /pos/stock-live, dan semua data terkait stok gudang, stok bahan baku, stok komponent, dan stok produk , termasuk hpp live nya, sinkron rumusnya satu sama lain

@@ -658,7 +658,7 @@ class PosAvailabilityRebuildService
                 ->group_start()
                     ->where('s.material_id', $materialId)
                     ->or_group_start()
-                        ->where('s.stock_domain', 'ITEM')
+                        ->where('s.item_id IS NOT NULL', null, false)
                         ->where('mi.material_id', $materialId)
                     ->group_end()
                 ->group_end();
