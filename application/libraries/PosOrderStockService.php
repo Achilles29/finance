@@ -225,6 +225,12 @@ class PosOrderStockService
             $fifoError = (string)($fifo['message'] ?? 'FIFO usage gagal.');
         }
 
+        if ($destinationType === 'OTHER') {
+            return ['ok' => true, 'movement_ref_type' => 'SKIPPED', 'movement_ref_id' => 0,
+                'unit_cost_live' => 0.0, 'total_cost_live' => 0.0, 'cost_source' => 'SKIP_OTHER',
+                'notes' => 'Divisi destination OTHER dilewati untuk konsumsi bahan baku.'];
+        }
+
         $identity = $this->infer_material_identity($line, $divisionId, $destinationType);
         $qtyBuyAbs = $this->resolve_buy_qty_from_profile($requiredQty, (float)($identity['profile_content_per_buy'] ?? 0));
         $post = $this->ci->inventoryledger->post([
