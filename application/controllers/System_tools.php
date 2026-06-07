@@ -395,12 +395,17 @@ class System_tools extends MY_Controller
             try {
                 $slaveStatus = $this->db->query('SHOW SLAVE STATUS')->row_array();
                 if ($slaveStatus) {
-                    $data['status']       = ($slaveStatus['Slave_IO_Running'] === 'Yes' && $slaveStatus['Slave_SQL_Running'] === 'Yes') ? 'OK' : 'ERROR';
-                    $data['io_running']   = $slaveStatus['Slave_IO_Running'];
-                    $data['sql_running']  = $slaveStatus['Slave_SQL_Running'];
-                    $data['lag_seconds']  = (int)($slaveStatus['Seconds_Behind_Master'] ?? 0);
-                    $data['master_host']  = $slaveStatus['Master_Host'] ?? '';
-                    $data['last_error']   = $slaveStatus['Last_SQL_Error'] ?? '';
+                    $ioOk  = $slaveStatus['Slave_IO_Running']  === 'Yes';
+                    $sqlOk = $slaveStatus['Slave_SQL_Running'] === 'Yes';
+                    $data['status']         = ($ioOk && $sqlOk) ? 'OK' : 'ERROR';
+                    $data['io_running']     = $slaveStatus['Slave_IO_Running'];
+                    $data['sql_running']    = $slaveStatus['Slave_SQL_Running'];
+                    $data['lag_seconds']    = (int)($slaveStatus['Seconds_Behind_Master'] ?? 0);
+                    $data['master_host']    = $slaveStatus['Master_Host'] ?? '';
+                    $data['last_error']     = $slaveStatus['Last_SQL_Error']  ?? '';
+                    $data['last_io_error']  = $slaveStatus['Last_IO_Error']   ?? '';
+                    // error = pesan utama untuk ditampilkan di UI
+                    $data['error'] = $data['last_io_error'] ?: $data['last_error'];
                 } else {
                     $data['status'] = 'NOT_CONFIGURED';
                 }
@@ -515,6 +520,62 @@ class System_tools extends MY_Controller
             @$this->db->query("SET FOREIGN_KEY_CHECKS = 1");
             @$this->db->query("START SLAVE");
             $this->json_error('Gagal sinkronisasi: ' . $e->getMessage(), 500);
+        }
+    }
+
+    // ── Aksi: Bandingkan data master vs slave ────────────────────
+    public function action_compare_data()
+    {
+        @set_time_limit(120);
+        $this->require_permission('system.dbtools.settings', 'view');
+
+        $tunnelOn   = $this->_cfg('tunnel.enabled', '0') === '1';
+        $masterHost = $tunnelOn ? '127.0.0.1' : $this->_cfg('repl.master_host', '');
+        $masterPort = $tunnelOn
+            ? (int)$this->_cfg('tunnel.local_port', '3308')
+            : (int)$this->_cfg('repl.master_port', '3306');
+        $syncUser   = $this->_cfg('backup.db_user', 'root');
+        $syncPass   = $this->_cfg('backup.db_pass', '');
+        $dbName     = $this->db->database;
+
+        $cfgExclude = array_filter(array_map('trim', explode(',', $this->_cfg('backup.exclude_tables', ''))));
+        $excludeSet = array_unique(array_merge($cfgExclude, ['sys_app_config']));
+
+        if (empty($masterHost)) {
+            $this->json_error('Alamat server utama belum dikonfigurasi.', 422); return;
+        }
+
+        try {
+            $pdo = new PDO(
+                "mysql:host={$masterHost};port={$masterPort};dbname={$dbName};charset=utf8mb4",
+                $syncUser, $syncPass,
+                [PDO::ATTR_TIMEOUT => 30, PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+            );
+
+            $masterTables = $pdo->query("SHOW TABLES FROM `{$dbName}`")->fetchAll(PDO::FETCH_COLUMN);
+            $slaveRows    = $this->db->query("SHOW TABLES FROM `{$dbName}`")->result_array();
+            $slaveTables  = array_column($slaveRows, 'Tables_in_' . $dbName);
+
+            $results = [];
+            foreach ($masterTables as $table) {
+                if (in_array($table, $excludeSet, true)) continue;
+                $masterCount = (int)$pdo->query("SELECT COUNT(*) FROM `{$dbName}`.`{$table}`")->fetchColumn();
+                if (in_array($table, $slaveTables, true)) {
+                    $slaveCount = (int)($this->db->query("SELECT COUNT(*) FROM `{$table}`")->row_array()['COUNT(*)'] ?? 0);
+                    $match      = $masterCount === $slaveCount;
+                } else {
+                    $slaveCount = null;
+                    $match      = false;
+                }
+                $results[] = ['table' => $table, 'master' => $masterCount, 'slave' => $slaveCount, 'match' => $match];
+            }
+
+            $ok   = count(array_filter($results, fn($r) => $r['match']));
+            $diff = count($results) - $ok;
+
+            $this->json_ok(['results' => $results, 'ok' => $ok, 'diff' => $diff, 'total' => count($results)]);
+        } catch (Exception $e) {
+            $this->json_error('Gagal membandingkan data: ' . $e->getMessage(), 500);
         }
     }
 

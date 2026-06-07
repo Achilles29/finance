@@ -441,11 +441,17 @@ $lastDump   = !empty($recentDumps) ? $recentDumps[0] : null;
             <span class="status-warn"><i class="ri ri-question-line"></i>Belum dicek</span>
           <?php endif; ?>
         </div>
-        <button type="button" id="btn-check-repl" class="btn btn-outline-info btn-sm mb-1">
-          <i class="ri ri-refresh-line me-1"></i>Cek Kondisi Sekarang
-        </button>
+        <div class="d-flex gap-2 flex-wrap mb-1">
+          <button type="button" id="btn-check-repl" class="btn btn-outline-info btn-sm">
+            <i class="ri ri-refresh-line me-1"></i>Cek Kondisi Sekarang
+          </button>
+          <button type="button" id="btn-compare-data" class="btn btn-outline-secondary btn-sm">
+            <i class="ri ri-git-diff-line me-1"></i>Bandingkan Data
+          </button>
+        </div>
         <div class="text-muted" style="font-size:.75rem">Cek apakah sinkronisasi berjalan normal.</div>
-        <div id="out-repl" class="dbt-output"></div>
+        <div id="out-repl" class="dbt-output mt-2"></div>
+        <div id="out-compare" class="mt-2" style="display:none"></div>
       </div>
     </div>
   </div>
@@ -1344,15 +1350,60 @@ function toggleChap(header) {
 
   // ── Cek replication ───────────────────────────────────────────
   document.getElementById('btn-check-repl')?.addEventListener('click', async function() {
-    setLoading(this, true);
+    setLoading(this, true); output('out-repl', '', false);
     try {
       const j = await get('dbtools/action/check-replication');
       const el = document.getElementById('repl-status-display');
-      const ok = j.status === 'OK';
-      const lag = j.lag_seconds !== undefined ? ' · keterlambatan ' + j.lag_seconds + ' detik' : '';
+      const ok  = j.status === 'OK';
+      const lag = j.lag_seconds !== undefined ? ' · keterlambatan ' + j.lag_seconds + 's' : '';
       el.innerHTML = ok
         ? '<span class="status-ok"><i class="ri ri-checkbox-circle-line"></i>Sinkron' + lag + '</span>'
-        : '<span class="status-err"><i class="ri ri-close-circle-line"></i>' + esc(j.status) + (j.error ? ': ' + esc(j.error) : '') + '</span>';
+        : '<span class="status-err"><i class="ri ri-close-circle-line"></i>ERROR</span>';
+      if (!ok) {
+        let detail = '';
+        if (j.io_running)  detail += 'IO Thread: '  + esc(j.io_running)  + '\n';
+        if (j.sql_running) detail += 'SQL Thread: ' + esc(j.sql_running) + '\n';
+        if (j.last_io_error)  detail += 'IO Error: '  + esc(j.last_io_error)  + '\n';
+        if (j.last_error)     detail += 'SQL Error: ' + esc(j.last_error) + '\n';
+        if (!detail) detail = 'Tidak ada detail error. Cek tunnel SSH masih berjalan.';
+        output('out-repl', detail.trim(), true);
+      }
+    } catch(e) { alert('danger', esc(e.message)); }
+    finally { setLoading(this, false); }
+  });
+
+  // ── Bandingkan Data ───────────────────────────────────────────
+  document.getElementById('btn-compare-data')?.addEventListener('click', async function() {
+    const wrap = document.getElementById('out-compare');
+    setLoading(this, true);
+    wrap.style.display = 'none'; wrap.innerHTML = '';
+    try {
+      const j = await get('dbtools/action/compare-data');
+      const rows = (j.results || []).map(r => {
+        const cls  = r.match ? 'text-success' : 'text-danger fw-bold';
+        const icon = r.match ? '✓' : '✗';
+        const slaveVal = r.slave === null ? '(tabel tidak ada)' : r.slave;
+        return `<tr class="${r.match ? '' : 'table-danger'}">
+          <td class="${cls}">${icon}</td>
+          <td>${esc(r.table)}</td>
+          <td class="text-end">${r.master.toLocaleString('id-ID')}</td>
+          <td class="text-end ${cls}">${typeof slaveVal === 'number' ? slaveVal.toLocaleString('id-ID') : slaveVal}</td>
+          <td class="text-end text-muted" style="font-size:.78rem">${r.match ? '' : (r.master - (r.slave??0)).toLocaleString('id-ID') + ' beda'}</td>
+        </tr>`;
+      }).join('');
+      wrap.innerHTML = `
+        <div class="small fw-semibold mb-2">
+          ${j.ok} / ${j.total} tabel sama · <span class="text-danger">${j.diff} berbeda</span>
+        </div>
+        <div style="max-height:300px;overflow-y:auto">
+          <table class="table table-sm table-bordered" style="font-size:.8rem">
+            <thead class="table-light"><tr><th></th><th>Tabel</th><th class="text-end">Master</th><th class="text-end">Slave (laptop)</th><th class="text-end">Selisih</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+      wrap.style.display = 'block';
+      if (j.diff > 0) alert('warning', `⚠ ${j.diff} tabel berbeda. Klik Sinkronisasi Data Awal di tab Server Cadangan.`);
+      else alert('success', '✓ Semua tabel sinkron!');
     } catch(e) { alert('danger', esc(e.message)); }
     finally { setLoading(this, false); }
   });

@@ -1,1 +1,1 @@
-{"role":"SLAVE","timestamp":"2026-06-07 10:25:03","status":"OK","io_running":"Yes","sql_running":"Yes","lag_seconds":0,"master_host":"127.0.0.1","last_error":""}
+{"role":"SLAVE","timestamp":"2026-06-07 11:04:20","status":"OK","io_running":"Yes","sql_running":"Yes","lag_seconds":0,"master_host":"127.0.0.1","last_error":"","last_io_error":"","error":""}
