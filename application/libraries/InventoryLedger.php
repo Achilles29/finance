@@ -453,16 +453,20 @@ class InventoryLedger
             $baseData['destination_type'] = $destinationType;
         }
 
+        $origDbDebug = $this->ci->db->db_debug;
+        $this->ci->db->db_debug = false;
         if ($existing && !empty($existing['id'])) {
             $this->ci->db->where('id', (int)$existing['id'])->update($table, $baseData);
         } else {
             $this->ci->db->insert($table, $baseData);
         }
+        $this->ci->db->db_debug = $origDbDebug;
 
         if ($this->ci->db->trans_status() === false) {
+            $dbErr = $this->ci->db->error();
             return [
                 'ok' => false,
-                'message' => 'Gagal update monthly stock.',
+                'message' => 'Gagal update monthly stock: ' . (string)($dbErr['message'] ?? 'unknown DB error'),
             ];
         }
 
