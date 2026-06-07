@@ -548,6 +548,7 @@ $route['dbtools/action/run-backup']             = 'system_tools/action_run_backu
 $route['dbtools/action/test-db']                = 'system_tools/action_test_db';
 $route['dbtools/action/check-replication']      = 'system_tools/action_check_replication';
 $route['dbtools/action/apply-mysql-config']      = 'system_tools/action_apply_mysql_config';
+$route['dbtools/action/initial-sync']            = 'system_tools/action_initial_sync';
 $route['dbtools/action/setup-master']            = 'system_tools/action_setup_master';
 $route['dbtools/action/failover']               = 'system_tools/action_failover';
 $route['dbtools/action/restart-replication']    = 'system_tools/action_restart_replication';

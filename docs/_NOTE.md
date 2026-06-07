@@ -80,49 +80,6 @@ v laporan daily sales seperti core /pos-reports/daily-sales , kemudian cetak
 
 
 
-
-
-Kalau kita lanjut lagi ke tema ini, urutan paling sehat menurut saya:
-
-bersihkan reader layer dulu
-Purchase_model
-Purchase.php
-Inventory_tools.php
-Master_relation.php
-lalu rapikan master/search/UI
-jangan lagi jadikan line_kind keputusan aktif di form dan pencarian
-baru setelah itu desain migrasi unique key storage
-ini langkah besar, tapi baru aman dilakukan kalau read/write layer sudah stabil
-Kalau kamu mau, next saya bisa bantu bikin peta yang lebih tajam lagi:
-
-daftar file yang masih hybrid
-tandai mana yang writer, reader, dan schema
-lalu kita pilih lane mana yang dibersihkan duluan tanpa ganggu operasional.
-
-
-
-nah kan berarti masih ada stock_domain MATERIAL yang digunakan acuan? katanya kemarin sudah semua.
-jadi bagaimana donk? buatkan query untuk semua yang masih pakai stock domain material diganti jadi item? atau dihapus saja penggunaan stock domainnya? bukannya kemarin sudah mengabaikan stock domain ya.
-jadi masalahnya di data atau di scritpnya?
-kalau di scriptnya berarti belum mengabaikan stock domain
-kalau di data berarti masih banya data yang tidak sesuai.
-
-lalu solusinya menurutmu ke arah mana? perubahan script atau perubahan data?
-
-
-
-perbaiki semua model yang masih pakai daily_rollup dan stock_balance, dan hapus penggunaannya (daily_rollup dan stock_balance). karena faktnya sudah tidak ada transaksi masuk ke tabel tabel tersebut. baik di purchase, component, inventory, divisi
-
-
-OPERASIONAL diarahkan ke ITEM
-BAHAN_BAKU masih bisa diarahkan ke MATERIAL
-
-itu tidak masalah kalau hanya tagging pembacaan di UI, tapi untuk create data semestinya tidak dibedakaan. artinya tidak perlu ada create snapshot data ITEM atau MATERIAL lagi, dimanapun itu. baik PO, SR, procurement, GUDANG, DIVISI, COMPONENT, POS dan lainnya. ITEM dan MATERIAL hanya dibaca dari snaphsot item_id / material_id untuk tampilan UI saja.
-jadi kalau  UI masih mendorong user melihatnya sebagai lane MATERIAL itu bagus untuk pembedaan, asal bukan baca dari kolom snapshot MATERIAL, tapi baca dari material_id saja. paham maksud saya kan?
-jadi BAHAN_BAKU defaultnya Persediaan Produksi hanya saja user bisa merubah jadi Kebutuhan Operasional ketika itu bukan untuk produksi, dan tidak masuk ke stok bahan baku divisi
-
-
-
 buatkan halaman untuk kroscek / rekin data stok bahan baku harian.
 halamannya mirip stok bahan baku divisi dengan tampilan yang lebih simple dan efisien.
 halaman menampilkan stok bahan per divisi yang bisa di breakdown per profil child nya untuk yang punya child. lalu di kolom sebelahnya adalah kolom form input data stok fisik (ajax). kolom sebelahnya lagi otomatis muncul selisih stok nya. lalu ada aksi langsung penyesuaian untuk stok yang miss, dengan opsi sesuai stok adjusment

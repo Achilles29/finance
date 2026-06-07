@@ -430,6 +430,94 @@ class System_tools extends MY_Controller
         $this->json_ok($data);
     }
 
+    // ── Aksi: Sinkronisasi Data Awal (slave ← master) ────────────
+    public function action_initial_sync()
+    {
+        @set_time_limit(300);
+        $this->require_permission('system.dbtools.settings', 'edit');
+
+        $tunnelOn   = $this->_cfg('tunnel.enabled', '0') === '1';
+        $masterHost = $tunnelOn ? '127.0.0.1' : $this->_cfg('repl.master_host', '');
+        $masterPort = $tunnelOn
+            ? (int)$this->_cfg('tunnel.local_port', '3308')
+            : (int)$this->_cfg('repl.master_port', '3306');
+        $syncUser   = $this->_cfg('backup.db_user', 'root');
+        $syncPass   = $this->_cfg('backup.db_pass', '');
+        $dbName     = $this->db->database;
+
+        if (empty($masterHost)) {
+            $this->json_error('Alamat server utama belum dikonfigurasi.', 422); return;
+        }
+
+        // Tabel yang dikecualikan: dari config + sys_app_config selalu dikecualikan
+        $cfgExclude  = array_filter(array_map('trim', explode(',', $this->_cfg('backup.exclude_tables', ''))));
+        $excludeSet  = array_unique(array_merge($cfgExclude, ['sys_app_config']));
+
+        try {
+            $pdo = new PDO(
+                "mysql:host={$masterHost};port={$masterPort};dbname={$dbName};charset=utf8mb4",
+                $syncUser, $syncPass,
+                [PDO::ATTR_TIMEOUT => 30, PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+            );
+
+            $tables  = $pdo->query("SHOW TABLES FROM `{$dbName}`")->fetchAll(PDO::FETCH_COLUMN);
+            $synced  = $skipped = $errors = [];
+
+            // Hentikan replikasi sementara selama sync
+            $this->db->db_debug = FALSE;
+            $this->db->query("STOP SLAVE");
+            $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
+
+            foreach ($tables as $table) {
+                if (in_array($table, $excludeSet, true)) {
+                    $skipped[] = $table; continue;
+                }
+
+                $count = (int)$pdo->query("SELECT COUNT(*) FROM `{$dbName}`.`{$table}`")->fetchColumn();
+
+                if ($count > 100000) {
+                    $errors[] = "{$table}: terlalu besar ({$count} baris) — lewati, sync manual";
+                    continue;
+                }
+
+                try {
+                    $rows = $pdo->query("SELECT * FROM `{$dbName}`.`{$table}`")->fetchAll(PDO::FETCH_ASSOC);
+                    $this->db->query("TRUNCATE TABLE `{$table}`");
+
+                    if (!empty($rows)) {
+                        $cols = implode(', ', array_map(fn($c) => "`{$c}`", array_keys($rows[0])));
+                        foreach (array_chunk($rows, 200) as $chunk) {
+                            $vals = array_map(function($row) {
+                                return '(' . implode(', ', array_map(
+                                    fn($v) => $v === null ? 'NULL' : $this->db->escape($v), $row
+                                )) . ')';
+                            }, $chunk);
+                            $this->db->query("INSERT INTO `{$table}` ({$cols}) VALUES " . implode(',', $vals));
+                        }
+                    }
+                    $synced[] = "{$table} ({$count} baris)";
+                } catch (Exception $e) {
+                    $errors[] = "{$table}: " . $e->getMessage();
+                }
+            }
+
+            $this->db->query("SET FOREIGN_KEY_CHECKS = 1");
+            $this->db->query("START SLAVE");
+            $this->db->db_debug = TRUE;
+
+            $this->json_ok([
+                'message' => 'Sinkronisasi selesai: ' . count($synced) . ' tabel disalin.',
+                'synced'  => $synced,
+                'skipped' => $skipped,
+                'errors'  => $errors,
+            ]);
+        } catch (Exception $e) {
+            @$this->db->query("SET FOREIGN_KEY_CHECKS = 1");
+            @$this->db->query("START SLAVE");
+            $this->json_error('Gagal sinkronisasi: ' . $e->getMessage(), 500);
+        }
+    }
+
     // ── Aksi: Failover ────────────────────────────────────────────
     public function action_failover()
     {

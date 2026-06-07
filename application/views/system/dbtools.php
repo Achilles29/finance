@@ -345,22 +345,27 @@ $lastDump   = !empty($recentDumps) ? $recentDumps[0] : null;
     <!-- SLAVE wizard -->
     <div id="wizard-slave" class="<?php echo $replRole !== 'SLAVE' ? 'd-none' : ''; ?>">
       <p class="small text-muted mb-3">
-        Klik tombol pertama untuk menerapkan konfigurasi MySQL server ini sebagai <strong>Server Cadangan</strong>.
-        Setelah itu import snapshot awal dari Server 1 (manual sekali), lalu klik tombol kedua.
+        Ikuti urutan tombol di bawah. Import data awal <strong>bisa dilakukan setelah terhubung</strong> — tombol Sinkronisasi akan menyalin data dari server sambil mengecualikan tabel yang sudah dikonfigurasi.
       </p>
-      <div class="d-flex gap-2 mb-3 flex-wrap">
+      <div class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+        <span class="badge bg-secondary" style="font-size:.7rem">1</span>
         <button type="button" id="btn-apply-slave-cfg" class="btn btn-outline-primary btn-sm">
-          <i class="ri ri-settings-3-line me-1"></i>Terapkan Konfigurasi MySQL (Server 2)
+          <i class="ri ri-settings-3-line me-1"></i>Terapkan Konfigurasi MySQL
         </button>
+        <span class="badge bg-secondary" style="font-size:.7rem">2</span>
         <button type="button" id="btn-init-slave" class="btn btn-success btn-sm">
           <i class="ri ri-link me-1"></i>Hubungkan ke Server Utama
         </button>
+        <span class="badge bg-secondary" style="font-size:.7rem">3</span>
+        <button type="button" id="btn-initial-sync" class="btn btn-outline-info btn-sm">
+          <i class="ri ri-refresh-line me-1"></i>Sinkronisasi Data Awal
+        </button>
       </div>
       <div id="out-apply-slave" class="dbt-output mb-2"></div>
-      <div id="out-init-slave" class="dbt-output"></div>
-      <div class="alert alert-warning border-0 small py-2 mt-3">
-        <strong>Import snapshot</strong> (hanya sekali, sebelum klik Hubungkan): jalankan di terminal server ini:<br>
-        <code>mysqldump -h IP_SERVER1 -u root -p --single-transaction db_finance | mysql -u root -p db_finance</code>
+      <div id="out-init-slave" class="dbt-output mb-2"></div>
+      <div id="out-initial-sync" class="dbt-output"></div>
+      <div class="text-muted small mt-2">
+        Tombol Sinkronisasi menyalin semua tabel dari server utama ke server cadangan ini, mengecualikan <code>sys_app_config</code> dan tabel yang dikonfigurasi di tab Backup.
       </div>
     </div>
   </div>
@@ -1395,6 +1400,21 @@ function toggleChap(header) {
       output('out-setup-master', msg, true);
       alert('success', '✓ ' + esc(j.message));
     } catch(e) { output('out-setup-master', e.message, true); alert('danger', esc(e.message)); }
+    finally { setLoading(this, false); }
+  });
+
+  // ── Sinkronisasi Data Awal ────────────────────────────────────
+  document.getElementById('btn-initial-sync')?.addEventListener('click', async function() {
+    setLoading(this, true); output('out-initial-sync', 'Menyinkronkan data dari server utama... (mungkin beberapa menit)', true);
+    try {
+      const j = await post('dbtools/action/initial-sync', {});
+      let msg = '✓ ' + j.message;
+      if (j.synced?.length)  msg += '\n\nTabel disalin:\n  ' + j.synced.join('\n  ');
+      if (j.skipped?.length) msg += '\n\nDikecualikan:\n  ' + j.skipped.join(', ');
+      if (j.errors?.length)  msg += '\n\nPerlu sync manual:\n  ' + j.errors.join('\n  ');
+      output('out-initial-sync', msg, true);
+      alert('success', '✓ Sinkronisasi selesai!');
+    } catch(e) { output('out-initial-sync', e.message, true); alert('danger', esc(e.message)); }
     finally { setLoading(this, false); }
   });
 
