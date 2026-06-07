@@ -338,6 +338,9 @@ class System_tools extends MY_Controller
             }
         }
 
+        // Slave tidak butuh log_bin untuk replikasi dasar — hanya master yang wajib
+        $needsRestart = !$binlogOn && $role === 'MASTER';
+
         $this->json_ok([
             'applied'      => $applied,
             'failed'       => $failed,
@@ -345,7 +348,8 @@ class System_tools extends MY_Controller
             'conf_written' => $confWritten,
             'conf_path'    => $confPath,
             'snippet'      => $snippet,
-            'needs_restart'=> !$binlogOn,
+            'role'         => $role,
+            'needs_restart'=> $needsRestart,
         ]);
     }
 

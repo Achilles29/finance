@@ -1362,10 +1362,11 @@ function toggleChap(header) {
       let msg = '';
       if (j.applied?.length)  msg += '✓ SET GLOBAL diterapkan:\n  ' + j.applied.join('\n  ');
       if (j.failed?.length)   msg += '\n✗ Gagal:\n  ' + j.failed.map(f => f.sql + ' → ' + f.error).join('\n  ');
-      msg += '\n\nBinary logging (log_bin): ' + (j.binlog_on ? '✓ AKTIF' : '✗ Belum aktif');
+      const binlogInfo = j.binlog_on ? '✓ AKTIF' : (j.role === 'SLAVE' ? '— Tidak wajib untuk slave' : '✗ Belum aktif — perlu aktifkan di master');
+      msg += '\n\nBinary logging (log_bin): ' + binlogInfo;
       if (j.conf_written)     msg += '\n✓ Config disimpan ke: ' + j.conf_path;
       else                    msg += '\n⚠ Config tidak bisa ditulis otomatis.\n  Tambahkan manual ke /etc/mysql/my.cnf atau conf.d:\n\n' + j.snippet;
-      if (j.needs_restart)    msg += '\n\n⚠ MySQL perlu di-restart agar log_bin aktif:\n  sudo systemctl restart mysql';
+      if (j.needs_restart)    msg += '\n\n⚠ MySQL master perlu di-restart agar log_bin aktif:\n  sudo systemctl restart mysql';
       output(outId, msg, true);
       if (!j.needs_restart && !j.failed?.length) alert('success', '✓ Konfigurasi MySQL berhasil diterapkan sepenuhnya.');
       else alert('warning', '⚠ Sebagian konfigurasi diterapkan. Cek detail di output.');
