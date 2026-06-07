@@ -483,8 +483,13 @@ class System_tools extends MY_Controller
             $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
 
             $isWin     = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
-            $execAvail = function_exists('exec') &&
-                         stripos(ini_get('disable_functions') . ',', 'exec,') === false;
+            // Test exec() benar-benar bisa jalan (bukan hanya function_exists)
+            $execAvail = false;
+            if (function_exists('exec') && stripos(ini_get('disable_functions') . ',', 'exec,') === false) {
+                @exec('echo test', $testOut, $testCode);
+                $execAvail = ($testCode === 0 && !empty($testOut));
+            }
+            $method = $execAvail ? 'mysqldump (fast)' : 'PHP PDO (slow — exec() disabled)';
             $localUser = $this->db->username;
             $localPass = $this->db->password;
 
@@ -536,11 +541,26 @@ class System_tools extends MY_Controller
             $this->db->query("START SLAVE");
             $this->db->db_debug = TRUE;
 
+            // Buat perintah alternatif di server (tanpa tunnel — jauh lebih cepat untuk tabel besar)
+            $unsyncedTables = array_filter($tables, function($t) use ($synced, $skipped) {
+                foreach ($synced as $s) { if (str_starts_with($s, $t . ' ')) return false; }
+                return !in_array($t, $skipped);
+            });
+            $serverCmd = '';
+            if (!empty($unsyncedTables)) {
+                $tblList   = implode(' ', array_values($unsyncedTables));
+                $serverCmd = "# Jalankan di SERVER (lebih cepat, tanpa tunnel):\n"
+                           . "mysqldump -u root -p --single-transaction --no-tablespaces {$dbName} {$tblList} | gzip > /tmp/sync_partial.sql.gz\n\n"
+                           . "# Download file lalu import di laptop:\n"
+                           . "gunzip -c sync_partial.sql.gz | \"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root -p {$dbName}";
+            }
+
             $this->json_ok([
-                'message' => 'Sinkronisasi selesai: ' . count($synced) . ' tabel disalin.',
+                'message' => 'Sinkronisasi selesai: ' . count($synced) . ' tabel disalin. (metode: ' . $method . ')',
                 'synced'  => $synced,
                 'skipped' => $skipped,
                 'errors'  => $errors,
+                'server_cmd' => $serverCmd,
             ]);
         } catch (Exception $e) {
             @$this->db->query("SET FOREIGN_KEY_CHECKS = 1");

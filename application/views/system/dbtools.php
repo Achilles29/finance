@@ -1437,11 +1437,14 @@ function toggleChap(header) {
     try {
       const j = await post('dbtools/action/initial-sync', { tables: _diffTables });
       let msg = '✓ ' + j.message;
-      if (j.synced?.length)  msg += '\n\nBerhasil:\n  '    + j.synced.join('\n  ');
-      if (j.skipped?.length) msg += '\n\nDikecualikan: '   + j.skipped.join(', ');
-      if (j.errors?.length)  msg += '\n\nGagal:\n  '       + j.errors.join('\n  ');
+      if (j.synced?.length)     msg += '\n\nBerhasil:\n  '    + j.synced.join('\n  ');
+      if (j.skipped?.length)    msg += '\n\nDikecualikan: '   + j.skipped.join(', ');
+      if (j.errors?.length)     msg += '\n\nGagal:\n  '       + j.errors.join('\n  ');
+      if (j.server_cmd)         msg += '\n\n──────────────────\nAlternatif lebih cepat (tanpa tunnel):\n' + j.server_cmd;
       output('out-resync', msg, true);
-      alert('success', '✓ Resync selesai! Klik Bandingkan Data lagi untuk verifikasi.');
+      const done = !j.errors?.length;
+      if (done) alert('success', '✓ Resync selesai! Klik Bandingkan Data lagi untuk verifikasi.');
+      else      alert('warning', '⚠ Sebagian tabel gagal. Gunakan perintah server di output untuk tabel tersebut.');
     } catch(e) { output('out-resync', e.message, true); alert('danger', esc(e.message)); }
     finally { setLoading(btn, false); }
   }
