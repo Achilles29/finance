@@ -1607,14 +1607,14 @@ class Purchase extends MY_Controller
         }
 
         $data = [
-            'title' => 'Stok Bulanan / Daily Gudang',
+            'title' => 'Stok Bulanan / Snapshot Harian Gudang',
             'active_menu' => 'purchase.stock.warehouse',
             'month' => $month,
             'q' => $q,
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
             'limit' => $limit,
-            'rows' => $this->Purchase_model->list_warehouse_daily_rollup($month, $q, $dateFrom, $dateTo, $limit),
+            'rows' => $this->Purchase_model->list_warehouse_daily_snapshot($month, $q, $dateFrom, $dateTo, $limit),
         ];
 
         $this->render('purchase/stock_warehouse_daily_index', $data);
@@ -1787,7 +1787,7 @@ class Purchase extends MY_Controller
         }
 
         $data = [
-            'title' => 'Stok Bulanan / Daily Divisi',
+            'title' => 'Stok Bulanan / Snapshot Harian Divisi',
             'active_menu' => 'purchase.stock.division',
             'month' => $month,
             'q' => $q,
@@ -1798,7 +1798,7 @@ class Purchase extends MY_Controller
             'limit' => $limit,
             'divisions' => $divisions,
             'destination_guard_map' => $destinationGuardMap,
-            'rows' => $this->Purchase_model->list_division_daily_rollup($month, $q, $divisionId > 0 ? $divisionId : null, $dateFrom, $dateTo, $limit, $destinationFilter),
+            'rows' => $this->Purchase_model->list_division_daily_snapshot($month, $q, $divisionId > 0 ? $divisionId : null, $dateFrom, $dateTo, $limit, $destinationFilter),
         ];
 
         $this->render('purchase/stock_division_daily_index', $data);

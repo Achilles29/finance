@@ -862,19 +862,23 @@ if (!function_exists('finance_dreq_location_label')) {
     return normalizeUsagePurpose(value) === 'OPERASIONAL' ? 'Kebutuhan Operasional' : 'Persediaan Produksi';
   }
 
-  function effectiveLineKind(row) {
-    var usagePurpose = normalizeUsagePurpose(row && (row.usage_purpose || row.default_usage_purpose));
-    if (usagePurpose === 'OPERASIONAL') {
+  function canonicalLineKind(row) {
+    if (num(row && row.item_id) > 0) {
       return 'ITEM';
     }
     if (num(row && row.material_id) > 0) {
       return 'MATERIAL';
     }
-    if (num(row && row.item_id) > 0) {
-      return 'ITEM';
-    }
     var legacyKind = String(row && row.line_kind || '').toUpperCase().trim();
     return legacyKind === 'MATERIAL' ? 'MATERIAL' : 'ITEM';
+  }
+
+  function effectiveLineKind(row) {
+    var usagePurpose = normalizeUsagePurpose(row && (row.usage_purpose || row.default_usage_purpose));
+    if (usagePurpose !== 'OPERASIONAL' && num(row && row.material_id) > 0) {
+      return 'MATERIAL';
+    }
+    return canonicalLineKind(row);
   }
 
   function effectiveLineKindLabel(row) {
@@ -969,7 +973,7 @@ if (!function_exists('finance_dreq_location_label')) {
       qtyBuyBalance = qtyContentBalance / contentPerBuy;
     }
     var normalized = {
-      line_kind: effectiveLineKind(row),
+      line_kind: canonicalLineKind(row),
       item_id: num(row.item_id) > 0 ? num(row.item_id) : null,
       material_id: num(row.material_id) > 0 ? num(row.material_id) : null,
       profile_key: row.profile_key || '',
@@ -2085,9 +2089,9 @@ if (!function_exists('finance_dreq_location_label')) {
     var poPrimaryQty = hasRequestModeSelection(row) ? requestPoQtyValue(row) : 0;
     var currentMode = requestMode(row && row.request_uom_mode);
 
-    row.line_kind = String(suggestion.line_kind || effectiveLineKind(row) || 'ITEM').toUpperCase();
     row.item_id = num(suggestion.item_id) > 0 ? num(suggestion.item_id) : null;
     row.material_id = num(suggestion.material_id) > 0 ? num(suggestion.material_id) : null;
+    row.line_kind = canonicalLineKind(row);
     row.profile_key = String(suggestion.profile_key || row.profile_key || '');
     row.profile_name = String(suggestion.catalog_name || suggestion.item_name || suggestion.material_name || row.profile_name || '');
     row.profile_brand = String(suggestion.brand_name || '');

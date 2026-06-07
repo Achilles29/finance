@@ -1352,7 +1352,7 @@ class Purchase_model extends CI_Model
         return $this->list_stock_opening_snapshots('WAREHOUSE', $month, $q, $limit, null, null);
     }
 
-    public function list_warehouse_daily_rollup(string $month, string $q, string $dateFrom, string $dateTo, int $limit): array
+    public function list_warehouse_daily_snapshot(string $month, string $q, string $dateFrom, string $dateTo, int $limit): array
     {
         if ($this->db->table_exists('inv_stock_movement_log')) {
             $window = $this->resolveDailyWindow($month, $dateFrom, $dateTo);
@@ -1424,7 +1424,7 @@ class Purchase_model extends CI_Model
         ];
     }
 
-    public function list_division_daily_rollup(string $month, string $q, ?int $divisionId, string $dateFrom, string $dateTo, int $limit, ?string $destinationFilter = null): array
+    public function list_division_daily_snapshot(string $month, string $q, ?int $divisionId, string $dateFrom, string $dateTo, int $limit, ?string $destinationFilter = null): array
     {
         if ($this->db->table_exists('inv_stock_movement_log')) {
             $window = $this->resolveDailyWindow($month, $dateFrom, $dateTo);
@@ -1826,7 +1826,7 @@ class Purchase_model extends CI_Model
         }
 
         $balanceRows = $this->list_division_stock($q, 5000, $destinationFilter, '', '', $divisionId);
-        $dailyRows = $this->list_division_daily_rollup_latest_closing($asOfDate, $q, $divisionId, $destinationFilter);
+        $dailyRows = $this->list_division_daily_snapshot_latest_closing($asOfDate, $q, $divisionId, $destinationFilter);
         $matrixDateFrom = date('Y-m-01', strtotime($asOfDate));
         $matrixRows = $this->fetchMaterialDailySourceRows($q, $divisionId, $matrixDateFrom, $asOfDate, $destinationFilter);
         $matrixRows = $this->normalizeDivisionProfileKeyRows($matrixRows);
@@ -1946,7 +1946,7 @@ class Purchase_model extends CI_Model
         ];
     }
 
-    private function list_division_daily_rollup_latest_closing(string $asOfDate, string $q, ?int $divisionId, ?string $destinationFilter = null): array
+    private function list_division_daily_snapshot_latest_closing(string $asOfDate, string $q, ?int $divisionId, ?string $destinationFilter = null): array
     {
         if ($this->db->table_exists('inv_stock_movement_log')) {
             $rows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(

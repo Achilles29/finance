@@ -998,8 +998,9 @@ foreach ($lineRows as $lineRow) {
       if(xk===key){ flashCreate('warning','Line dengan profile dan UOM yang sama sudah ada.'); return; }
     }
     var cpb=num(row.profile_content_per_buy); if(cpb<=0){ cpb=1; }
+    var canonicalKind = num(row.item_id) > 0 ? 'ITEM' : ((num(row.material_id)>0)?'MATERIAL':String(row.line_kind || 'ITEM').toUpperCase());
     createLines.push({
-      line_kind: row.line_kind || ((num(row.material_id)>0)?'MATERIAL':'ITEM'),
+      line_kind: canonicalKind,
       item_id: num(row.item_id)||null,
       material_id: num(row.material_id)||null,
       profile_key: row.profile_key || '',

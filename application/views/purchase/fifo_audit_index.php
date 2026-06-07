@@ -73,7 +73,7 @@ foreach ($issues as $issueRow) {
     <small class="text-muted">Audit khusus lot FIFO material untuk transfer gudang ke divisi dan pemakaian FIFO di divisi.</small>
   </div>
   <div class="d-flex gap-2 flex-wrap">
-    <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-outline-secondary">Daily Gudang Matrix</a>
+    <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-outline-secondary">Snapshot Harian Gudang</a>
     <a href="<?php echo site_url('inventory-material-daily'); ?>" class="btn btn-outline-secondary">Daily Material Matrix</a>
     <a href="<?php echo site_url('inventory/stock/warehouse/movement'); ?>" class="btn btn-outline-secondary">Mutasi Gudang</a>
     <a href="<?php echo site_url('inventory/stock/division/movement'); ?>" class="btn btn-outline-secondary">Mutasi Divisi</a>

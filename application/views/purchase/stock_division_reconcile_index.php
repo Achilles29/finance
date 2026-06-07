@@ -314,11 +314,11 @@ $statusChip = static function (array $row): array {
             <th style="min-width:250px;">Material</th>
             <th>Stok Divisi</th>
             <th>Material Daily</th>
-            <th>Daily Divisi</th>
+            <th>Snapshot Harian Divisi</th>
             <th>Movement</th>
             <th>Selisih Stok vs Movement</th>
             <th>Selisih Material Daily</th>
-            <th>Selisih Daily Divisi</th>
+            <th>Selisih Snapshot Harian Divisi</th>
             <th>Status</th>
             <th>Aksi</th>
           </tr>

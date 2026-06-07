@@ -52,7 +52,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     <a href="<?php echo site_url('inventory/stock/division'); ?>" class="btn btn-outline-secondary">Stok Divisi</a>
     <a href="<?php echo site_url('inventory/stock/opening/division'); ?>" class="btn btn-outline-secondary">Opening Divisi</a>
     <a href="<?php echo site_url('inventory/stock/division/movement'); ?>" class="btn btn-outline-secondary">Keluar Masuk Divisi</a>
-    <a href="<?php echo site_url('inventory/stock/division/daily'); ?>" class="btn btn-outline-secondary">Stok Bulanan/Daily Divisi</a>
+    <a href="<?php echo site_url('inventory/stock/division/daily'); ?>" class="btn btn-outline-secondary">Stok Bulanan/Snapshot Harian Divisi</a>
     <a href="<?php echo $lotAuditBaseUrl; ?>" class="btn btn-outline-secondary">Halaman Lot</a>
     <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-outline-secondary">Audit FIFO</a>
   </div>

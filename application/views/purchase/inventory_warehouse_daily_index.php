@@ -24,7 +24,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     <input type="hidden" name="back_url" value="inventory-warehouse-daily?month=<?php echo rawurlencode(substr($initialMonth, 0, 7)); ?>">
     <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal</button>
   </form>
-  <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-sm btn-dark">Daily Gudang Matrix</a>
+  <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-sm btn-dark">Snapshot Harian Gudang</a>
   <a href="<?php echo site_url('inventory/stock/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Stok Gudang</a>
   <a href="<?php echo site_url('inventory/stock/opening/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Opening Gudang</a>
   <a href="<?php echo site_url('inventory/stock/warehouse/movement'); ?>" class="btn btn-sm btn-outline-secondary">Keluar Masuk Gudang</a>

@@ -2258,7 +2258,7 @@ class Production_model extends CI_Model
         return $rows;
     }
 
-    public function ensure_component_daily_rollup_seeded(): array
+    public function ensure_component_daily_snapshot_seeded(): array
     {
         return [
             'ok' => true,
@@ -2268,17 +2268,17 @@ class Production_model extends CI_Model
         ];
     }
 
-    private function component_daily_rollup_needs_rebuild_for_void_openings(): bool
+    private function component_daily_snapshot_needs_rebuild_for_void_openings(): bool
     {
         return false;
     }
 
-    private function component_daily_rollup_needs_rebuild_for_negative_balances(): bool
+    private function component_daily_snapshot_needs_rebuild_for_negative_balances(): bool
     {
         return false;
     }
 
-    public function rebuild_component_daily_rollup_from_logs(): array
+    public function rebuild_component_daily_snapshot_from_logs(): array
     {
         return [
             'ok' => true,

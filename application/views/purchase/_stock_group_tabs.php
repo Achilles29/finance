@@ -17,13 +17,13 @@ if ($tabScope === 'DIVISION') {
         ['key' => 'opening', 'label' => 'Opening Divisi', 'url' => site_url('inventory/stock/opening/division')],
         ['key' => 'adjustment', 'label' => 'Adjustment Divisi', 'url' => site_url('inventory/stock/adjustment/division')],
         ['key' => 'movement', 'label' => 'Keluar Masuk Divisi', 'url' => site_url('inventory/stock/division/movement')],
-        ['key' => 'daily', 'label' => 'Stok Bulanan/Daily Divisi', 'url' => site_url('inventory/stock/division/daily')],
+        ['key' => 'daily', 'label' => 'Stok Bulanan/Snapshot Harian Divisi', 'url' => site_url('inventory/stock/division/daily')],
         ['key' => 'compare', 'label' => 'Banding Stok Akhir', 'url' => site_url('inventory/stock/division/reconcile')],
         ['key' => 'lot', 'label' => 'Lot Divisi', 'url' => site_url('inventory/stock/division/lot')],
     ];
 } else {
     $links = [
-        ['key' => 'daily_matrix', 'label' => 'Daily Gudang Matrix', 'url' => site_url('inventory-warehouse-daily')],
+        ['key' => 'daily_matrix', 'label' => 'Snapshot Harian Gudang', 'url' => site_url('inventory-warehouse-daily')],
         ['key' => 'stock', 'label' => 'Stok Gudang', 'url' => site_url('inventory/stock/warehouse')],
         ['key' => 'opening', 'label' => 'Opening Gudang', 'url' => site_url('inventory/stock/opening/warehouse')],
         ['key' => 'adjustment', 'label' => 'Adjustment Gudang', 'url' => site_url('inventory/stock/adjustment/warehouse')],

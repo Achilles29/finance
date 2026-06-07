@@ -152,6 +152,14 @@ class Procurement_model extends CI_Model
 
     private function resolve_usage_stock_domain($usagePurpose, array $line = []): string
     {
+        if ($this->resolve_operational_item_id(
+            $this->nullable_int($line['item_id'] ?? null),
+            $this->nullable_int($line['material_id'] ?? null),
+            (string)($line['profile_key'] ?? '')
+        ) !== null) {
+            return 'ITEM';
+        }
+
         if ($this->normalize_usage_purpose($usagePurpose) === self::USAGE_PURPOSE_OPERATIONAL) {
             return 'ITEM';
         }
@@ -165,7 +173,7 @@ class Procurement_model extends CI_Model
             return $lineKind;
         }
 
-        return (int)($line['material_id'] ?? 0) > 0 ? 'MATERIAL' : 'ITEM';
+        return (int)($line['material_id'] ?? 0) > 0 && (int)($line['item_id'] ?? 0) <= 0 ? 'MATERIAL' : 'ITEM';
     }
 
     private function resolve_usage_material_id_for_stock($usagePurpose, array $line): ?int
@@ -918,7 +926,6 @@ class Procurement_model extends CI_Model
             ->result_array();
 
         foreach ($rows as &$row) {
-            $stockDomain = strtoupper(trim((string)($row['stock_domain'] ?? '')));
             $catalogLineKind = strtoupper(trim((string)($row['catalog_line_kind'] ?? '')));
             $defaultUsagePurpose = $this->normalize_usage_purpose($row['default_usage_purpose'] ?? 'BAHAN_BAKU');
             $resolvedProductionMaterialId = $this->resolve_production_material_id($row['item_id'] ?? null, $row['material_id'] ?? null);
@@ -927,18 +934,14 @@ class Procurement_model extends CI_Model
             } elseif ($defaultUsagePurpose === self::USAGE_PURPOSE_PRODUCTION && $resolvedProductionMaterialId !== null && $resolvedProductionMaterialId > 0) {
                 $row['line_kind'] = 'MATERIAL';
                 $row['material_id'] = $resolvedProductionMaterialId;
-            } elseif (in_array($stockDomain, ['MATERIAL', 'ITEM'], true)) {
-                $row['line_kind'] = $stockDomain;
+            } elseif ((int)($row['item_id'] ?? 0) > 0) {
+                $row['line_kind'] = 'ITEM';
             } elseif ((int)($row['material_id'] ?? 0) > 0) {
                 $row['line_kind'] = 'MATERIAL';
             } elseif (in_array($catalogLineKind, ['MATERIAL', 'ITEM'], true)) {
                 $row['line_kind'] = $catalogLineKind;
             } else {
                 $row['line_kind'] = (int)($row['material_id'] ?? 0) > 0 ? 'MATERIAL' : 'ITEM';
-            }
-
-            if ($row['line_kind'] === 'ITEM') {
-                $row['material_id'] = null;
             }
             $row['default_usage_purpose'] = $defaultUsagePurpose;
             $row['usage_purpose'] = $this->normalize_usage_purpose($row['usage_purpose'] ?? $row['default_usage_purpose']);
@@ -3668,9 +3671,8 @@ class Procurement_model extends CI_Model
                 'search_source' => 'CATALOG',
             ];
 
-            if ($candidate['default_usage_purpose'] === self::USAGE_PURPOSE_OPERATIONAL && $itemId !== null && $itemId > 0) {
+            if ($itemId !== null && $itemId > 0) {
                 $candidate['line_kind'] = 'ITEM';
-                $candidate['material_id'] = null;
             }
 
             if (!isset($normalized[$identity]) || $this->should_prefer_division_request_candidate($normalized[$identity], $candidate, false)) {
@@ -3683,7 +3685,6 @@ class Procurement_model extends CI_Model
 
     private function build_division_request_candidate_identity(array $row): string
     {
-        $lineKind = strtoupper(trim((string)($row['line_kind'] ?? 'ITEM')));
         $itemId = (int)($row['item_id'] ?? 0);
         $materialId = (int)($row['material_id'] ?? 0);
         $profileKey = strtoupper(trim((string)($row['profile_key'] ?? '')));
@@ -3691,14 +3692,14 @@ class Procurement_model extends CI_Model
         $contentUomId = (int)($row['content_uom_id'] ?? 0);
         $contentPerBuy = round((float)($row['profile_content_per_buy'] ?? 1), 6);
         $suffix = '|PK:' . $profileKey . '|B:' . $buyUomId . '|C:' . $contentUomId . '|CPB:' . $contentPerBuy;
+        if ($itemId > 0) {
+            return 'ITEM|' . $itemId . $suffix;
+        }
         if ($materialId > 0) {
             return 'MATERIAL|' . $materialId . $suffix;
         }
-        if ($itemId > 0) {
-            return $lineKind . '|' . $itemId . $suffix;
-        }
 
-        return $lineKind . '|NAME|' . strtoupper(trim((string)($row['profile_name'] ?? ''))) . $suffix;
+        return 'ITEM|NAME|' . strtoupper(trim((string)($row['profile_name'] ?? ''))) . $suffix;
     }
 
     private function should_prefer_division_request_candidate(array $currentRow, array $candidateRow, bool $preferHigherStock): bool
@@ -3852,7 +3853,7 @@ class Procurement_model extends CI_Model
 
         $stockDomain = strtoupper(trim($stockDomain));
         if (!in_array($stockDomain, ['ITEM', 'MATERIAL'], true)) {
-            $stockDomain = ($materialId !== null && $materialId > 0) ? 'MATERIAL' : 'ITEM';
+            $stockDomain = ($itemId !== null && $itemId > 0) ? 'ITEM' : (($materialId !== null && $materialId > 0) ? 'MATERIAL' : 'ITEM');
         }
 
         if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
@@ -3935,69 +3936,56 @@ class Procurement_model extends CI_Model
         $buyUomId = $this->nullable_int($line['buy_uom_id'] ?? null);
         $contentUomId = $this->nullable_int($line['content_uom_id'] ?? null);
         $profileKey = (string)($line['profile_key'] ?? '');
+        $resolvedItemId = $this->resolve_operational_item_id($itemId, $materialId, $profileKey);
+        $resolvedMaterialId = $this->resolve_material_id_from_item(
+            $resolvedItemId,
+            $this->resolve_usage_material_id_for_stock($usagePurpose, $line),
+            $profileKey
+        );
 
-        if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL) {
-            $resolvedOperationalItemId = $this->resolve_operational_item_id($itemId, $materialId, $profileKey);
-            $resolvedMaterialId = $this->resolve_material_id_from_item($resolvedOperationalItemId, $materialId, $profileKey);
-            if ($resolvedOperationalItemId !== null && $resolvedOperationalItemId > 0) {
-                $itemAvailable = $this->get_warehouse_available_content_for_domain(
-                    $resolvedOperationalItemId,
-                    null,
-                    $buyUomId,
-                    $contentUomId,
-                    $profileKey,
-                    'ITEM'
-                );
-                if ($itemAvailable > 0) {
-                    return [
-                        'item_id' => $resolvedOperationalItemId,
-                        'material_id' => null,
-                        'stock_domain' => 'ITEM',
-                        'available_content' => $itemAvailable,
-                    ];
-                }
-            }
-
-            if ($resolvedMaterialId !== null && $resolvedMaterialId > 0) {
-                $materialAvailable = $this->get_warehouse_available_content_for_domain(
-                    null,
-                    $resolvedMaterialId,
-                    $buyUomId,
-                    $contentUomId,
-                    $profileKey,
-                    'MATERIAL'
-                );
-                if ($materialAvailable > 0) {
-                    return [
-                        'item_id' => null,
-                        'material_id' => $resolvedMaterialId,
-                        'stock_domain' => 'MATERIAL',
-                        'available_content' => $materialAvailable,
-                    ];
-                }
-            }
-
-            return [
-                'item_id' => $resolvedOperationalItemId,
-                'material_id' => $resolvedMaterialId,
-                'stock_domain' => $resolvedOperationalItemId !== null && $resolvedOperationalItemId > 0 ? 'ITEM' : 'MATERIAL',
-                'available_content' => 0.0,
-            ];
-        }
-
-        $stockDomain = $this->resolve_usage_stock_domain($usagePurpose, $line);
-        return [
-            'item_id' => $itemId,
-            'material_id' => $this->resolve_usage_material_id_for_stock($usagePurpose, $line),
-            'stock_domain' => $stockDomain,
-            'available_content' => $this->get_warehouse_available_content_for_domain(
-                $itemId,
-                $this->resolve_usage_material_id_for_stock($usagePurpose, $line),
+        if ($resolvedItemId !== null && $resolvedItemId > 0) {
+            $itemAvailable = $this->get_warehouse_available_content_for_domain(
+                $resolvedItemId,
+                $resolvedMaterialId,
                 $buyUomId,
                 $contentUomId,
                 $profileKey,
-                $stockDomain
-            ),
+                'ITEM'
+            );
+            if ($itemAvailable > 0) {
+                return [
+                    'item_id' => $resolvedItemId,
+                    'material_id' => $resolvedMaterialId,
+                    'stock_domain' => 'ITEM',
+                    'available_content' => $itemAvailable,
+                ];
+            }
+        }
+
+        if ($resolvedMaterialId !== null && $resolvedMaterialId > 0) {
+            $materialAvailable = $this->get_warehouse_available_content_for_domain(
+                null,
+                $resolvedMaterialId,
+                $buyUomId,
+                $contentUomId,
+                $profileKey,
+                'MATERIAL'
+            );
+            if ($materialAvailable > 0) {
+                return [
+                    'item_id' => $resolvedItemId,
+                    'material_id' => $resolvedMaterialId,
+                    'stock_domain' => $resolvedItemId !== null && $resolvedItemId > 0 ? 'ITEM' : 'MATERIAL',
+                    'available_content' => $materialAvailable,
+                ];
+            }
+        }
+
+        return [
+            'item_id' => $resolvedItemId,
+            'material_id' => $resolvedMaterialId,
+            'stock_domain' => $resolvedItemId !== null && $resolvedItemId > 0 ? 'ITEM' : (($resolvedMaterialId !== null && $resolvedMaterialId > 0) ? 'MATERIAL' : 'ITEM'),
+            'available_content' => 0.0,
         ];
     }
 
