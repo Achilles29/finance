@@ -2697,7 +2697,10 @@ class Purchase_model extends CI_Model
             $latestRows = [];
             foreach ($rows as $row) {
                 $identityKey = $this->buildInventoryDailyMatrixIdentityKey('DIVISION', $row);
-                $latestRows[$identityKey] = $row;
+                // rows are ordered newest-first (backward loop); keep first encounter = as_of_date row
+                if (!isset($latestRows[$identityKey])) {
+                    $latestRows[$identityKey] = $row;
+                }
             }
 
             return array_values($latestRows);
