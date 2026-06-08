@@ -124,3 +124,12 @@ rapikan dan percantik lagi tampilan khususnya data tabel nya. jenis dan alasan k
 masih banyak data kotor
 - OREO CRUMB tidak sinkron antara dashboard, daily matrix dan database. cek juga data lain
 - banyak bahan baku yang tidak punya profile dan lot
+
+
+
+- /inventory-material-daily cek OREO CRUMB kenapa ada -280 dari mana
+
+- SETIAP buat sql kasih tau urutannya ya karena saya harus jalankan di server juga
+- cek inventory-material-daily itu ambil data dari mana? saya cek OREO CRUMB kok ada 2 baris, padahal di inv_division_monthly_stock hanya ada 1 baris. bukankah harusnya ambil data dari inv_division_monthly_stock berdasarkan filter bulannya?? CMIIW
+- berikan guarding PO / SR / Opening yang bisa masuk inv_division_monthly_stock harusnya hanya yang punya material_id (bahan baku)
+

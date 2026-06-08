@@ -693,6 +693,34 @@ class InventoryLedger
         return 'ITEM';
     }
 
+    /**
+     * Compatibility shim for older call sites that still reference the
+     * previous helper name/signature.
+     */
+    private function resolveLegacyStockDomain(...$args): ?string
+    {
+        if (!empty($args) && is_string($args[0]) && $args[0] !== '') {
+            return $this->legacyStockDomainForStorage((string)$args[0]);
+        }
+
+        $payload = (isset($args[0]) && is_array($args[0])) ? $args[0] : [];
+        $explicit = strtoupper(trim((string)($payload['stock_domain'] ?? '')));
+        if (in_array($explicit, ['ITEM', 'MATERIAL'], true)) {
+            return $explicit;
+        }
+
+        $itemId = $this->nullableInt($args[1] ?? ($payload['item_id'] ?? null));
+        $materialId = $this->nullableInt($args[2] ?? ($payload['material_id'] ?? null));
+        if ($itemId !== null) {
+            return 'ITEM';
+        }
+        if ($materialId !== null) {
+            return 'MATERIAL';
+        }
+
+        return null;
+    }
+
     private function columnAllowsNull(string $table, string $column): bool
     {
         $cacheKey = $table . '.' . $column;

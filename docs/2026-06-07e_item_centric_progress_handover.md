@@ -382,6 +382,10 @@ File-file ini paling penting untuk dilihat bila lanjut task:
 
 1. `sql/2026-06-06g_item_centric_safe_material_to_item_candidates.sql`
 2. `sql/2026-06-07d_deprecate_legacy_daily_rollup_stock_balance_tables.sql`
+3. `sql/2026-06-08g_audit_division_monthly_fifo_profile_gaps.sql`
+4. `sql/2026-06-08h_cleanup_division_monthly_fifo_targeted.sql`
+5. `sql/2026-06-08i_cleanup_null_profile_safe_subset.sql`
+6. `sql/2026-06-08j_balance_remaining_division_movement_mismatch.sql`
 
 ### Repair kasus spesifik yang relevan secara historis
 
@@ -421,6 +425,64 @@ Walau banyak sudah dibersihkan, grep terakhir masih menunjukkan:
 ### 3. Masih ada query yang menganggap `material_id` berarti `MATERIAL`
 
 Ini harus terus dicurigai dan dihapus bertahap.
+
+### 4. Audit data division monthly/FIFO/profile masih menyisakan gap riil
+
+Snapshot audit lokal 2026-06-08 menunjukkan:
+
+1. `inv_division_monthly_stock` berisi `10` row material tanpa `profile_key`
+2. `inv_material_fifo_lot` tidak punya `lot_no` kosong, tetapi masih ada `1` open lot tanpa `profile_key`
+3. `inv_stock_movement_log` masih punya `81` movement divisi material tanpa `profile_key`
+4. ada `3` identity monthly material dengan saldo positif tetapi tidak punya open lot pasangan
+5. ada `3` open lot material yang tidak punya monthly positif pasangan
+6. masih ada `15` mismatch latest monthly vs cumulative movement dengan total selisih absolut `1517`
+
+Contoh identity yang muncul dalam audit:
+
+1. `AIR MINERAL GALON` BAR memiliki monthly `(profile_key null)` `5685`, movement `4925`, FIFO `5850`
+2. `OREO CRUMB` BAR dan `SINGLE ORIGIN` BAR memiliki monthly positif tetapi tidak punya open lot pasangan
+3. `SEREH`, `CARAMEL CRUMB`, dan `KANI STICK` punya open lot, tetapi latest monthly tidak punya saldo positif pasangan
+
+Makna operasional:
+
+1. problem lot saat ini lebih dominan berupa `saldo monthly tanpa pasangan lot` atau `lot stale tanpa saldo monthly`, bukan `lot_no` kosong
+2. `profile_key` kosong pada material masih berisiko membuat exact identity FIFO tidak ketemu
+3. fallback aggregate bisa tetap berjalan di beberapa kasus, tetapi exact FIFO issue/retry bisa meleset atau gagal bila identitas profile tidak sinkron
+
+Eksekusi targeted cleanup 2026-06-08:
+
+1. dibuat `3` open lot exact baru dari latest monthly positif yang sebelumnya belum punya pasangan lot:
+   - `LEMON` BAR
+   - `OREO CRUMB` BAR
+   - `SINGLE ORIGIN` BAR
+2. ditutup `3` stale open lot yang tidak punya latest monthly positif pasangan:
+   - `CARAMEL CRUMB` BAR
+   - `SEREH` BAR
+   - `KANI STICK` KITCHEN
+3. lot `AIR MINERAL GALON` BAR `id=839` disinkronkan dari `5850` menjadi `5685` agar sama dengan latest monthly
+4. hasil setelah cleanup:
+   - `positive monthly without open lot` = `0`
+   - `open lot without positive monthly` = `0`
+5. mismatch audit `latest monthly vs cumulative movement` tetap `15` row dengan total selisih absolut `1517`
+
+Catatan penting:
+
+1. mismatch `latest monthly vs cumulative movement` tidak dibersihkan paksa karena ada indikasi sebagian row adalah efek reset/repair historis dan aggregate fallback, sehingga `SUM movement` tidak selalu mewakili saldo runtime yang paling aman
+2. `profile_key` kosong masih tersisa:
+   - sebelum cleanup subset aman: `10` row monthly material, `1` open lot, `81` movement divisi material
+   - setelah cleanup subset aman: `0` row monthly material, `0` open lot, `54` movement divisi material
+3. cluster `AIR MINERAL GALON` BAR null-profile sudah di-canonical-kan ke `profile_key=13d3bbf64f3dcb772b1924e4f8938c3766cd9460`
+4. placeholder `REBUILD` qty `0` dengan `profile_key null` yang tidak punya open lot pasangan sudah dihapus `9` row dari `inv_division_monthly_stock`
+5. balancing movement targeted untuk `6` mismatch terakhir sudah diinsert dan hasil akhirnya:
+   - mismatch `latest monthly vs cumulative movement` = `0`
+   - gap `monthly positif tanpa lot` = `0`
+   - gap `open lot tanpa monthly positif` = `0`
+
+Status pasca cleanup 2026-06-08:
+
+1. saldo aktif `monthly` dan `FIFO lot` untuk material divisi sudah jauh lebih sehat untuk exact identity
+2. mismatch yang tersisa bukan lagi di saldo aktif, tetapi di histori movement null-profile yang belum semuanya punya canonical profile aman
+3. movement history null-profile yang masih tersisa `54` row perlu dibersihkan bertahap hanya bila kandidat profile canonical-nya tidak ambigu
 
 ## Runbook Diagnosis
 
