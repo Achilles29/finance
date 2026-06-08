@@ -297,7 +297,6 @@ class InventoryLedger
         $materialId = $this->nullableInt($payload['material_id'] ?? null);
         $buyUomId = $this->nullableInt($payload['buy_uom_id'] ?? null);
         $contentUomId = $this->nullableInt($payload['content_uom_id'] ?? null);
-        $stockDomain = $this->resolveLegacyStockDomain($payload, $itemId, $materialId);
 
         if ($contentUomId === null) {
             return [
