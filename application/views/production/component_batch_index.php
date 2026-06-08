@@ -454,6 +454,48 @@ $locationGroupLabel = static function ($locationType): string {
     }
   }
 
+  // ─── Tampilkan notifikasi post-reload dari sessionStorage ──────────────────
+  (function showPostReloadNotif() {
+    let notif = null;
+    try {
+      const raw = sessionStorage.getItem('batchPostNotif');
+      if (raw) {
+        notif = JSON.parse(raw);
+        sessionStorage.removeItem('batchPostNotif');
+      }
+    } catch(e) { return; }
+    if (!notif || !alertHost) return;
+
+    // Scroll ke atas dulu
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (notif.type === 'success' || !notif.warnings || notif.warnings.length === 0) {
+      alertHost.innerHTML = '<div class="alert alert-success alert-dismissible fade show mb-0" role="alert">' +
+        '<i class="ri-checkbox-circle-line"></i> <strong>Batch berhasil diposting.</strong>' +
+        '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+      return;
+    }
+
+    // Warning: ada stok negatif yang dipulihkan
+    const lines = notif.warnings.map(function(w) {
+      const before = Number(w.qty_before || 0).toLocaleString('id-ID', {minimumFractionDigits:2, maximumFractionDigits:2});
+      const after  = Number(w.qty_after  || 0).toLocaleString('id-ID', {minimumFractionDigits:2, maximumFractionDigits:2});
+      const prod   = Number(w.qty_produced|| 0).toLocaleString('id-ID', {minimumFractionDigits:2, maximumFractionDigits:2});
+      const uom    = escapeHtml(String(w.uom_code || ''));
+      const name   = escapeHtml(String(w.component_name || ''));
+      const still  = parseFloat(w.qty_after) < 0;
+      return '<li><strong>' + name + '</strong>: sebelum <span style="color:#c62828;font-weight:700">' +
+             before + ' ' + uom + '</span> &rarr; +' + prod + ' ' + uom + ' = <strong>' + after + ' ' + uom + '</strong> ' +
+             (still ? '<span class="badge bg-danger">Masih minus</span>'
+                    : '<span class="badge bg-success">Deficit terpulihkan</span>') + '</li>';
+    });
+    alertHost.innerHTML = '<div class="alert alert-warning alert-dismissible fade show mb-0" role="alert">' +
+      '<i class="ri-error-warning-line"></i> <strong>Batch berhasil diposting.</strong> ' +
+      'Ada komponen yang sebelumnya minus dan kini dipulihkan:' +
+      '<ul class="mt-2 mb-1 ps-3">' + lines.join('') + '</ul>' +
+      '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+  })();
+
   async function postJson(url, payload) {
     const response = await fetch(url, {
       method: 'POST',
@@ -984,11 +1026,29 @@ $locationGroupLabel = static function ($locationType): string {
             maxMs: 60000
           }),
         ]);
+        // Ambil hasil HTTP — baik dari polling path maupun normal path.
+        // Polling bisa "menang" race sebelum response HTTP tiba; tetap tunggu
+        // response agar recovery_warnings bisa diambil.
+        let postResult = null;
         if (postedViaPolling === true) {
-          window.location.reload();
-          return;
+          try {
+            postResult = await Promise.race([
+              requestPromise,
+              new Promise(function(resolve) { setTimeout(function() { resolve(null); }, 8000); })
+            ]);
+          } catch(e) { postResult = null; }
+        } else {
+          postResult = await requestPromise;
         }
-        await requestPromise;
+        const recoveryWarnings = (postResult && postResult.data && Array.isArray(postResult.data.recovery_warnings))
+          ? postResult.data.recovery_warnings : [];
+        // Simpan notifikasi ke sessionStorage — akan ditampilkan setelah reload
+        try {
+          sessionStorage.setItem('batchPostNotif', JSON.stringify({
+            type: recoveryWarnings.length > 0 ? 'warning' : 'success',
+            warnings: recoveryWarnings
+          }));
+        } catch(e) { /* ignore storage error */ }
         window.location.reload();
       } catch (error) {
         hidePostingOverlay();

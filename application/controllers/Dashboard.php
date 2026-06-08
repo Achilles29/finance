@@ -36,6 +36,7 @@ class Dashboard extends MY_Controller
             'stock_breakdown' => $this->dashboard_stock_breakdown(),
             'stock_product_live' => $this->dashboard_stock_product_live(),
             'critical_stock_rows' => $this->dashboard_critical_stock_rows(0),
+            'negative_stock_rows' => $this->dashboard_negative_stock_rows(),
             'recent_activity' => $this->dashboard_recent_activity($filters),
         ];
 
@@ -980,6 +981,98 @@ class Dashboard extends MY_Controller
         );
 
         return $componentQuery !== null ? $componentQuery->result_array() : [];
+    }
+
+    private function dashboard_negative_stock_rows(): array
+    {
+        $divisionNameColumn = $this->dashboard_division_name_column();
+        $rows = [];
+
+        // Material divisi dengan closing_qty_content < 0
+        $divLocSelect = $divisionNameColumn !== null
+            ? ('COALESCE(d.' . $divisionNameColumn . ', s.destination_type, CONCAT(\'Divisi #\', s.division_id))')
+            : "COALESCE(s.destination_type, CONCAT('Divisi #', s.division_id))";
+
+        $matQuery = $this->dashboard_division_monthly_query(
+            "SELECT 'material' AS stock_type,
+                    COALESCE(s.profile_name, m.material_name, i.item_name, CONCAT('Item #', s.item_id)) AS item_name,
+                    {$divLocSelect} AS location_name,
+                    s.closing_qty_content AS qty_balance,
+                    COALESCE(cu.code, '') AS uom_code
+             FROM inv_division_monthly_stock s
+             INNER JOIN ({latest_month_subquery}) lm
+                ON lm.division_id      = s.division_id
+               AND lm.destination_type = s.destination_type
+               AND lm.identity_key     = s.identity_key
+               AND lm.month_key        = s.month_key
+             LEFT JOIN mst_item i ON i.id = s.item_id
+             LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
+             LEFT JOIN mst_uom cu ON cu.id = s.content_uom_id
+             LEFT JOIN mst_operational_division d ON d.id = s.division_id
+             WHERE s.closing_qty_content < -0.0001
+             ORDER BY s.closing_qty_content ASC
+             LIMIT 20"
+        );
+        if ($matQuery) {
+            $rows = array_merge($rows, $matQuery->result_array());
+        }
+
+        // Component dengan closing_qty < 0
+        $compLocSelect = $divisionNameColumn !== null
+            ? ('COALESCE(d.' . $divisionNameColumn . ', s.location_type, CONCAT(\'Divisi #\', s.division_id))')
+            : "COALESCE(s.location_type, CONCAT('Divisi #', s.division_id))";
+
+        $compQuery = $this->dashboard_component_monthly_query(
+            "SELECT 'component' AS stock_type,
+                    COALESCE(c.component_name, CONCAT('Component #', s.component_id)) AS item_name,
+                    {$compLocSelect} AS location_name,
+                    s.closing_qty AS qty_balance,
+                    COALESCE(u.code, '') AS uom_code
+             FROM inv_component_monthly_stock s
+             INNER JOIN ({latest_month_subquery}) lm
+                ON lm.location_type = s.location_type
+               AND lm.division_id <=> s.division_id
+               AND lm.component_id = s.component_id
+               AND lm.uom_id       = s.uom_id
+               AND lm.month_key    = s.month_key
+             LEFT JOIN mst_component c ON c.id = s.component_id
+             LEFT JOIN mst_uom u ON u.id = s.uom_id
+             LEFT JOIN mst_operational_division d ON d.id = s.division_id
+             WHERE s.closing_qty < -0.0001
+             ORDER BY s.closing_qty ASC
+             LIMIT 20"
+        );
+        if ($compQuery) {
+            $rows = array_merge($rows, $compQuery->result_array());
+        }
+
+        // Warehouse dengan closing_qty_content < 0
+        $whQuery = $this->dashboard_warehouse_monthly_query(
+            "SELECT 'warehouse' AS stock_type,
+                    COALESCE(s.profile_name, m.material_name, i.item_name, CONCAT('Item #', s.item_id)) AS item_name,
+                    'Gudang Pusat' AS location_name,
+                    s.closing_qty_content AS qty_balance,
+                    COALESCE(cu.code, '') AS uom_code
+             FROM inv_warehouse_monthly_stock s
+             INNER JOIN ({latest_month_subquery}) lm
+                ON lm.identity_key = s.identity_key
+               AND lm.month_key    = s.month_key
+             LEFT JOIN mst_item i ON i.id = s.item_id
+             LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
+             LEFT JOIN mst_uom cu ON cu.id = s.content_uom_id
+             WHERE s.closing_qty_content < -0.0001
+             ORDER BY s.closing_qty_content ASC
+             LIMIT 10"
+        );
+        if ($whQuery) {
+            $rows = array_merge($rows, $whQuery->result_array());
+        }
+
+        usort($rows, static function (array $a, array $b): int {
+            return (float)$a['qty_balance'] <=> (float)$b['qty_balance'];
+        });
+
+        return array_slice($rows, 0, 30);
     }
 
     private function dashboard_component_monthly_query(string $sql)

@@ -77,6 +77,41 @@ $resolveMonthValue = static function (array $row, string $fallback = ''): string
     return date('Y-m');
 };
 
+$resolveLotDisplayMeta = static function (array $row): array {
+    $qtyInRaw = round((float)($row['qty_in'] ?? 0), 4);
+    $qtyOutRaw = round((float)($row['qty_out'] ?? 0), 4);
+    $qtyBalanceRaw = round((float)($row['qty_balance'] ?? 0), 4);
+    $factor = round(max(0.000001, (float)($row['identity_content_per_buy'] ?? 1)), 6);
+    $identityLotBalance = round((float)($row['identity_lot_qty_balance'] ?? 0), 4);
+    $identityClosingBuy = round((float)($row['identity_closing_qty_buy'] ?? 0), 4);
+    $identityClosingContent = round((float)($row['identity_closing_qty_content'] ?? 0), 4);
+    $buyUomId = (int)($row['buy_uom_id'] ?? 0);
+    $contentUomId = (int)($row['content_uom_id'] ?? 0);
+    $isDivision = strtoupper(trim((string)($row['location_scope'] ?? ''))) === 'DIVISION';
+
+    $legacyBuyBased = false;
+    if ($isDivision && $buyUomId > 0 && $contentUomId > 0 && $buyUomId !== $contentUomId) {
+        $matchesBuy = abs($identityLotBalance - $identityClosingBuy) < 0.0001;
+        $differsFromContent = abs($identityLotBalance - $identityClosingContent) >= 0.0001;
+        $legacyBuyBased = $matchesBuy && $differsFromContent;
+    }
+
+    $qtyInDisplay = $legacyBuyBased ? round($qtyInRaw * $factor, 4) : $qtyInRaw;
+    $qtyOutDisplay = $legacyBuyBased ? round($qtyOutRaw * $factor, 4) : $qtyOutRaw;
+    $qtyBalanceDisplay = $legacyBuyBased ? round($qtyBalanceRaw * $factor, 4) : $qtyBalanceRaw;
+
+    return [
+        'legacy_buy_based' => $legacyBuyBased,
+        'qty_in_display' => $qtyInDisplay,
+        'qty_out_display' => $qtyOutDisplay,
+        'qty_balance_display' => $qtyBalanceDisplay,
+        'content_uom_code' => trim((string)($row['content_uom_code'] ?? '')),
+        'buy_uom_code' => trim((string)($row['buy_uom_code'] ?? '')),
+        'factor' => $factor,
+        'qty_balance_raw' => $qtyBalanceRaw,
+    ];
+};
+
 $buildStockLinks = static function (array $row) use ($buildQueryUrl, $resolveSearchToken, $resolveMonthValue, $date_from, $date_to): array {
     $links = [];
     $searchToken = $resolveSearchToken($row);
@@ -175,8 +210,9 @@ $summaryLotCount = count($rows);
 $summaryBalance = 0.0;
 $summaryValue = 0.0;
 foreach ($rows as $row) {
-    $summaryBalance += (float)($row['qty_balance'] ?? 0);
-    $summaryValue += (float)($row['qty_balance'] ?? 0) * (float)($row['unit_cost'] ?? 0);
+    $displayMeta = $resolveLotDisplayMeta($row);
+    $summaryBalance += (float)($displayMeta['qty_balance_display'] ?? 0);
+    $summaryValue += (float)($displayMeta['qty_balance_display'] ?? 0) * (float)($row['unit_cost'] ?? 0);
 }
 ?>
 
@@ -363,6 +399,7 @@ foreach ($rows as $row) {
               }
               $sourceLink = $buildSourceLink($row);
               $stockLinks = $buildStockLinks($row);
+              $displayMeta = $resolveLotDisplayMeta($row);
             ?>
             <tr>
               <td>
@@ -380,14 +417,29 @@ foreach ($rows as $row) {
               <td>
                 <div class="small text-break"><?php echo html_escape($profileText); ?></div>
                 <div class="small text-muted"><?php echo html_escape((string)($row['buy_uom_code'] ?? '-')); ?> -> <?php echo html_escape((string)($row['content_uom_code'] ?? '-')); ?></div>
+                <?php if (!empty($displayMeta['legacy_buy_based'])): ?>
+                  <div class="small text-warning">Lot legacy berbasis buy qty, ditampilkan sebagai ekuivalen isi.</div>
+                <?php endif; ?>
               </td>
               <td>
                 <div><?php echo html_escape((string)($row['receipt_date'] ?? '-')); ?></div>
                 <div class="small text-muted"><?php echo !empty($row['expiry_date']) ? 'Exp ' . html_escape((string)$row['expiry_date']) : 'Tanpa expiry'; ?></div>
               </td>
-              <td class="text-end col-balance"><?php echo number_format((float)($row['qty_in'] ?? 0), 2, ',', '.'); ?></td>
-              <td class="text-end col-delta fin-audit-delta-negative"><?php echo number_format((float)($row['qty_out'] ?? 0) * -1, 2, ',', '.'); ?></td>
-              <td class="text-end col-balance fw-semibold"><?php echo number_format((float)($row['qty_balance'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end col-balance">
+                <?php echo number_format((float)($displayMeta['qty_in_display'] ?? 0), 2, ',', '.'); ?>
+                <?php if (!empty($displayMeta['content_uom_code'])): ?><div class="small text-muted"><?php echo html_escape($displayMeta['content_uom_code']); ?></div><?php endif; ?>
+              </td>
+              <td class="text-end col-delta fin-audit-delta-negative">
+                <?php echo number_format((float)($displayMeta['qty_out_display'] ?? 0) * -1, 2, ',', '.'); ?>
+                <?php if (!empty($displayMeta['content_uom_code'])): ?><div class="small text-muted"><?php echo html_escape($displayMeta['content_uom_code']); ?></div><?php endif; ?>
+              </td>
+              <td class="text-end col-balance fw-semibold">
+                <?php echo number_format((float)($displayMeta['qty_balance_display'] ?? 0), 2, ',', '.'); ?>
+                <?php if (!empty($displayMeta['content_uom_code'])): ?><div class="small text-muted"><?php echo html_escape($displayMeta['content_uom_code']); ?></div><?php endif; ?>
+                <?php if (!empty($displayMeta['legacy_buy_based'])): ?>
+                  <div class="small text-muted">raw <?php echo number_format((float)($displayMeta['qty_balance_raw'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape($displayMeta['buy_uom_code'] !== '' ? $displayMeta['buy_uom_code'] : '-'); ?></div>
+                <?php endif; ?>
+              </td>
               <td class="text-end col-amount">Rp <?php echo number_format((float)($row['unit_cost'] ?? 0), 2, ',', '.'); ?></td>
               <td>
                 <div class="small"><?php echo html_escape((string)($row['source_table'] ?? '-')); ?><?php echo !empty($row['source_id']) ? ' #' . (int)$row['source_id'] : ''; ?></div>

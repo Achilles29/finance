@@ -932,23 +932,31 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.batch.index', 'edit');
         $this->release_session_lock();
-        $id = (int)$id;
-        $header = $this->Production_model->get_component_batch($id);
-        if (!$header) {
-            $this->json_error('Batch tidak ditemukan.', 404);
-            return;
+        try {
+            $id = (int)$id;
+            $header = $this->Production_model->get_component_batch($id);
+            if (!$header) {
+                $this->json_error('Batch tidak ditemukan.', 404);
+                return;
+            }
+            if (strtoupper((string)$header['status']) !== 'DRAFT') {
+                $this->json_error('Hanya batch DRAFT yang bisa diposting.', 422);
+                return;
+            }
+            $inputs = $this->Production_model->get_component_batch_inputs($id);
+            $post = $this->componentstockwriter->post_batch($header, $inputs, (int)($this->current_user['employee_id'] ?? 0));
+            if (!($post['ok'] ?? false)) {
+                $this->json_error((string)($post['message'] ?? 'Posting batch gagal.'), 422);
+                return;
+            }
+            $this->json_ok([
+                'id' => $id,
+                'recovery_warnings' => $post['recovery_warnings'] ?? [],
+            ]);
+        } catch (Throwable $e) {
+            log_message('error', 'component_batch_post fatal: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+            $this->json_error('Posting batch gagal. ' . $e->getMessage(), 500);
         }
-        if (strtoupper((string)$header['status']) !== 'DRAFT') {
-            $this->json_error('Hanya batch DRAFT yang bisa diposting.', 422);
-            return;
-        }
-        $inputs = $this->Production_model->get_component_batch_inputs($id);
-        $post = $this->componentstockwriter->post_batch($header, $inputs, (int)($this->current_user['employee_id'] ?? 0));
-        if (!($post['ok'] ?? false)) {
-            $this->json_error((string)($post['message'] ?? 'Posting batch gagal.'), 422);
-            return;
-        }
-        $this->json_ok(['id' => $id]);
     }
 
     public function component_batch_status($id)
@@ -1870,6 +1878,7 @@ class Production extends MY_Controller
 
     private function json_ok(array $data = []): void
     {
+        $this->clear_output_buffers();
         $payload = ['ok' => true] + $data;
         $this->output
             ->set_content_type('application/json')
@@ -1878,6 +1887,7 @@ class Production extends MY_Controller
 
     private function json_error(string $message, int $statusCode = 400, array $data = []): void
     {
+        $this->clear_output_buffers();
         $this->output
             ->set_status_header($statusCode)
             ->set_content_type('application/json')
@@ -1885,5 +1895,12 @@ class Production extends MY_Controller
                 'ok' => false,
                 'message' => $message,
             ] + $data, JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function clear_output_buffers(): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
     }
 }

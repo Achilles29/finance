@@ -4137,6 +4137,83 @@ class Purchase_model extends CI_Model
         $hasReceiptTable = $this->db->table_exists('pur_purchase_receipt');
         $hasFulfillmentTable = $this->db->table_exists('pur_store_request_fulfillment');
         $hasComponentBatchTable = $this->db->table_exists('inv_component_batch');
+        $hasDivisionMonthlyStock = $this->db->table_exists('inv_division_monthly_stock');
+
+        $divisionMonthlySubquery = '';
+        $divisionLotAggregateSubquery = '';
+        $divisionMonthlyOn = '';
+        $divisionLotAggregateOn = '';
+        if ($hasDivisionMonthlyStock) {
+            $divisionMonthlySubquery = "
+                (
+                    SELECT
+                        s.division_id,
+                        COALESCE(s.destination_type, 'OTHER') AS destination_type,
+                        s.item_id,
+                        COALESCE(s.material_id, i.material_id) AS material_id,
+                        s.buy_uom_id,
+                        s.content_uom_id,
+                        COALESCE(s.profile_key, '') AS profile_key,
+                        ROUND(SUM(COALESCE(s.closing_qty_buy, 0)), 4) AS closing_qty_buy,
+                        ROUND(SUM(COALESCE(s.closing_qty_content, 0)), 4) AS closing_qty_content,
+                        MAX(ROUND(COALESCE(NULLIF(s.profile_content_per_buy, 0), 1), 6)) AS profile_content_per_buy
+                    FROM inv_division_monthly_stock s
+                    LEFT JOIN mst_item i ON i.id = s.item_id
+                    WHERE COALESCE(s.material_id, i.material_id, 0) > 0
+                    GROUP BY
+                        s.division_id,
+                        COALESCE(s.destination_type, 'OTHER'),
+                        s.item_id,
+                        COALESCE(s.material_id, i.material_id),
+                        s.buy_uom_id,
+                        s.content_uom_id,
+                        COALESCE(s.profile_key, '')
+                ) dms
+            ";
+            $divisionLotAggregateSubquery = "
+                (
+                    SELECT
+                        x.division_id,
+                        COALESCE(x.destination_type, 'OTHER') AS destination_type,
+                        x.item_id,
+                        COALESCE(x.material_id, ix.material_id) AS material_id,
+                        x.buy_uom_id,
+                        x.content_uom_id,
+                        COALESCE(x.profile_key, '') AS profile_key,
+                        ROUND(SUM(COALESCE(x.qty_balance, 0)), 4) AS identity_lot_qty_balance
+                    FROM inv_material_fifo_lot x
+                    LEFT JOIN mst_item ix ON ix.id = x.item_id
+                    WHERE x.location_scope = 'DIVISION'
+                      AND COALESCE(x.material_id, ix.material_id, 0) > 0
+                    GROUP BY
+                        x.division_id,
+                        COALESCE(x.destination_type, 'OTHER'),
+                        x.item_id,
+                        COALESCE(x.material_id, ix.material_id),
+                        x.buy_uom_id,
+                        x.content_uom_id,
+                        COALESCE(x.profile_key, '')
+                ) dlg
+            ";
+            $divisionMonthlyOn = "
+                dms.division_id = l.division_id
+                AND dms.destination_type = " . $destinationExpr . "
+                AND dms.item_id <=> l.item_id
+                AND dms.material_id <=> COALESCE(l.material_id, i.material_id)
+                AND dms.buy_uom_id <=> l.buy_uom_id
+                AND dms.content_uom_id <=> l.content_uom_id
+                AND dms.profile_key <=> COALESCE(l.profile_key, '')
+            ";
+            $divisionLotAggregateOn = "
+                dlg.division_id = l.division_id
+                AND dlg.destination_type = " . $destinationExpr . "
+                AND dlg.item_id <=> l.item_id
+                AND dlg.material_id <=> COALESCE(l.material_id, i.material_id)
+                AND dlg.buy_uom_id <=> l.buy_uom_id
+                AND dlg.content_uom_id <=> l.content_uom_id
+                AND dlg.profile_key <=> COALESCE(l.profile_key, '')
+            ";
+        }
 
         $this->db
             ->select('l.id, l.lot_no, l.location_scope, l.receipt_date, l.expiry_date, l.division_id, l.item_id, l.material_id, l.buy_uom_id, l.content_uom_id, l.profile_key')
@@ -4155,6 +4232,20 @@ class Purchase_model extends CI_Model
             ->join('mst_uom cu', 'cu.id = l.content_uom_id', 'left')
             ->join('inv_material_fifo_lot pl', 'pl.id = l.parent_lot_id', 'left')
             ->join('inv_material_fifo_issue_line il', 'il.lot_id = l.id', 'left');
+
+        if ($hasDivisionMonthlyStock) {
+            $this->db
+                ->select('COALESCE(dms.profile_content_per_buy, 1) AS identity_content_per_buy', false)
+                ->select('COALESCE(dms.closing_qty_buy, 0) AS identity_closing_qty_buy', false)
+                ->select('COALESCE(dms.closing_qty_content, 0) AS identity_closing_qty_content', false)
+                ->select('COALESCE(dlg.identity_lot_qty_balance, 0) AS identity_lot_qty_balance', false)
+                ->join($divisionMonthlySubquery, $divisionMonthlyOn, 'left', false)
+                ->join($divisionLotAggregateSubquery, $divisionLotAggregateOn, 'left', false);
+        } else {
+            $this->db
+                ->select('1 AS identity_content_per_buy', false)
+                ->select('0 AS identity_closing_qty_buy, 0 AS identity_closing_qty_content, 0 AS identity_lot_qty_balance', false);
+        }
 
         if ($hasReceiptTable) {
             $this->db
@@ -6226,6 +6317,23 @@ class Purchase_model extends CI_Model
             ]);
             if (!($lot['ok'] ?? false)) {
                 return ['ok' => false, 'message' => (string)($lot['message'] ?? 'Gagal membuat lot inbound adjustment.')];
+            }
+
+            // Rekonsiliasi: jika saldo bulanan sebelum adjustment negatif, lot hanya boleh
+            // ada sebesar saldo positif baru. Sisa mengisi "hutang" stok, tidak jadi lot fisik.
+            $preBalance = round((float)($currentBalance['qty_content_balance'] ?? 0), 4);
+            if ($preBalance < -0.0001) {
+                $newBalance    = round($preBalance + $qtyPlus, 4);
+                $effectiveQty  = max(0.0, $newBalance);
+                $lotId         = (int)($lot['data']['lot_id'] ?? 0);
+                if ($lotId > 0 && $effectiveQty < $qtyPlus - 0.0001) {
+                    $this->db->where('id', $lotId)->update('inv_material_fifo_lot', [
+                        'qty_out'     => round($qtyPlus - $effectiveQty, 4),
+                        'qty_balance' => round($effectiveQty, 4),
+                        'status'      => $effectiveQty < 0.0001 ? 'CLOSED' : 'OPEN',
+                        'updated_at'  => date('Y-m-d H:i:s'),
+                    ]);
+                }
             }
 
             $ledger = $this->postInventoryLedgerEntry($basePayload + [

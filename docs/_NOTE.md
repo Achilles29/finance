@@ -152,10 +152,5 @@ pastikan sudah mengabaikan line_kind dan stock_domain
 
 
 
-
-SAYA barusan PO INDOMIE AYAM SPESIAL dan INDOMIE GORENG
-saya ambil contoh INDOMIE AYAM SPESIAL profile nya sama persi dengn id 704 di mst_purchase_catalog. tapi justru malah membuat profile baru di 1757.
-apakah itu karena di 704 ada LINE_KIND nya ITEM dan sekarang tidak membentuk line_kind???
-
-kalau iya berarti kemungkinan terbentu banyak profile baru hanya karena line_kind itu?
-
+buatkan halaman koreksi untuk component
+LEMON SLICE

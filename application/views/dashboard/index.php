@@ -7,8 +7,9 @@ $posStatusRows    = is_array($pos_status_rows  ?? null) ? $pos_status_rows  : []
 $posScopeRows     = is_array($pos_scope_rows   ?? null) ? $pos_scope_rows   : [];
 $stockBreakdown   = is_array($stock_breakdown  ?? null) ? $stock_breakdown  : ['warehouse' => [], 'division' => [], 'component' => []];
 $stockProductLive = is_array($stock_product_live ?? null) ? $stock_product_live : ['summary' => [], 'rows' => []];
-$criticalStockRows = is_array($critical_stock_rows ?? null) ? $critical_stock_rows : [];
-$recentActivity   = is_array($recent_activity  ?? null) ? $recent_activity  : [];
+$criticalStockRows  = is_array($critical_stock_rows   ?? null) ? $critical_stock_rows   : [];
+$negativeStockRows  = is_array($negative_stock_rows   ?? null) ? $negative_stock_rows   : [];
+$recentActivity     = is_array($recent_activity       ?? null) ? $recent_activity       : [];
 
 $cur = static fn($v): string => 'Rp ' . number_format((float)$v, 0, ',', '.');
 
@@ -208,6 +209,49 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
       <div class="fd-kpi-note">Estimasi nilai store request (harga katalog) dalam periode.</div>
     </div>
   </section>
+
+  <!-- ===== ALERT: Stok Negatif ===== -->
+  <?php if (!empty($negativeStockRows)): ?>
+  <section id="negativeStockAlert" style="border-radius:20px;border:1.5px solid rgba(198,40,40,.35);background:linear-gradient(135deg,#fff5f5 0%,#fff9f9 100%);padding:1.15rem 1.3rem;box-shadow:0 8px 24px rgba(198,40,40,.10);">
+    <div class="fd-sec-head" style="margin-bottom:.75rem;">
+      <div>
+        <h2 class="fd-sec-title" style="color:#c62828;display:flex;align-items:center;gap:.5rem;">
+          <i class="ri-error-warning-fill" style="color:#c62828;"></i>
+          Hutang Stok Negatif — <?= count($negativeStockRows) ?> Item
+        </h2>
+        <p class="fd-sec-sub" style="color:#8b2020;">Stok di bawah nol akibat penggunaan POS sebelum batch diproduksi. Segera lakukan batch produksi atau penyesuaian stok.</p>
+      </div>
+      <button onclick="document.getElementById('negStockBody').classList.toggle('d-none')" class="btn btn-sm btn-outline-danger" style="border-radius:12px;white-space:nowrap;">
+        Lihat Detail
+      </button>
+    </div>
+    <div id="negStockBody" class="d-none">
+      <div class="fd-scroll" style="max-height:300px;">
+        <?php foreach ($negativeStockRows as $r):
+          $typeLabel = ['material' => 'Bahan Baku', 'component' => 'Base/Prepare', 'warehouse' => 'Gudang'][(string)($r['stock_type'] ?? '')] ?? (string)($r['stock_type'] ?? '-');
+          $qty = (float)($r['qty_balance'] ?? 0);
+          $uom = (string)($r['uom_code'] ?? '');
+        ?>
+          <div class="fd-item minus" style="align-items:center;">
+            <div>
+              <div class="fd-item-title" style="color:#c62828;"><?= htmlspecialchars((string)($r['item_name'] ?? '-')) ?></div>
+              <div class="fd-item-meta"><?= htmlspecialchars($typeLabel) ?> · <?= htmlspecialchars((string)($r['location_name'] ?? '-')) ?></div>
+            </div>
+            <div class="text-end flex-shrink-0">
+              <span class="fd-pill minus"><?= number_format($qty, 2, ',', '.') ?> <?= htmlspecialchars($uom) ?></span>
+            </div>
+          </div>
+        <?php endforeach; ?>
+      </div>
+      <div class="mt-2" style="font-size:.82rem;color:#8b2020;">
+        <i class="ri-information-line"></i>
+        Stok negatif = kasir sudah input order POS sebelum batch tersedia.
+        Ini <strong>by design</strong> untuk flexibilitas kasir.
+        Lot fisik sudah 0; saldo ini perlu dikompensasi oleh batch produksi atau adjustment stok.
+      </div>
+    </div>
+  </section>
+  <?php endif; ?>
 
   <!-- Scope -->
   <section class="fd-2scope">

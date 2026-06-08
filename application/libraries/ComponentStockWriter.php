@@ -261,6 +261,14 @@ class ComponentStockWriter
                     if (!($rebuild['ok'] ?? false)) {
                         throw new RuntimeException((string)($rebuild['message'] ?? 'Gagal sinkron saldo bulanan component setelah adjustment.'));
                     }
+                    // Setelah rebuild: rekonsiliasi lot ke saldo bulanan.
+                    // Lot tidak bisa negatif; jika monthly < 0 (karena POS flexibilitas), lot harus 0.
+                    $this->trim_component_lots_to_monthly(
+                        (string)$identity['location_type'],
+                        isset($identity['division_id']) ? (int)$identity['division_id'] : null,
+                        (int)$identity['component_id'],
+                        (int)$identity['uom_id']
+                    );
                 }
             }
         } catch (RuntimeException $e) {
@@ -288,6 +296,8 @@ class ComponentStockWriter
     public function post_batch(array $header, array $inputs, int $actorEmployeeId = 0): array
     {
         $db = $this->ci->db;
+        $originalDbDebug = isset($db->db_debug) ? (bool)$db->db_debug : false;
+        $db->db_debug = false;
         $locationType = strtoupper(trim((string)($header['location_type'] ?? '')));
         $divisionId = isset($header['division_id']) ? (int)$header['division_id'] : null;
         $movementDate = (string)($header['batch_date'] ?? date('Y-m-d'));
@@ -335,6 +345,7 @@ class ComponentStockWriter
             $headerRecordedTotalInputCost = round((float)($header['total_input_cost'] ?? 0), 2);
             $pendingMaterialSyncTargets = [];
             $pendingMaterialIds = [];
+            $recoveryWarnings = [];  // notifikasi pemulihan stok negatif
             foreach ($inputs as $line) {
                 $planRole = strtoupper(trim((string)($line['plan_role'] ?? 'INPUT')));
                 $sourceKind = strtoupper(trim((string)($line['source_kind'] ?? '')));
@@ -344,6 +355,13 @@ class ComponentStockWriter
                     $qty = round((float)($line['qty'] ?? 0), 4);
                     if ($componentId <= 0 || $uomId <= 0 || $qty <= 0) {
                         continue;
+                    }
+
+                    // Catat jika inline output memulihkan stok dari kondisi negatif
+                    $inlineBalState = $this->load_balance_state($locationType, $divisionId, $componentId, $uomId, $movementDate);
+                    $inlineQtyBefore = round((float)($inlineBalState['qty_on_hand'] ?? 0), 4);
+                    if ($inlineQtyBefore < -0.0001) {
+                        $recoveryWarnings[] = $this->build_recovery_warning($db, $componentId, $uomId, $inlineQtyBefore, $qty);
                     }
 
                     $this->post_single_movement([
@@ -421,6 +439,14 @@ class ComponentStockWriter
             $finalTotalInputCost = round($totalInputCost + $extraCost, 2);
             $unitCostOutput = $outputQty > 0 ? round($finalTotalInputCost / $outputQty, 6) : 0.0;
             $outputLotNo = $this->generate_component_output_lot_no($movementDate, $componentIdOutput, $sourceId);
+
+            // Catat jika main output memulihkan stok dari kondisi negatif
+            $mainBalState = $this->load_balance_state($locationType, $divisionId, $componentIdOutput, $uomIdOutput, $movementDate);
+            $mainQtyBefore = round((float)($mainBalState['qty_on_hand'] ?? 0), 4);
+            if ($mainQtyBefore < -0.0001) {
+                $recoveryWarnings[] = $this->build_recovery_warning($db, $componentIdOutput, $uomIdOutput, $mainQtyBefore, $outputQty);
+            }
+
             $this->post_single_movement([
                 'movement_date' => $movementDate,
                 'location_type' => $locationType,
@@ -474,6 +500,12 @@ class ComponentStockWriter
         } catch (RuntimeException $e) {
             $db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
+        } catch (Throwable $e) {
+            $db->trans_rollback();
+            log_message('error', 'ComponentStockWriter::post_batch fatal: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+            return ['ok' => false, 'message' => 'Posting batch gagal di backend. ' . $e->getMessage()];
+        } finally {
+            $db->db_debug = $originalDbDebug;
         }
         $db->trans_complete();
         if ($db->trans_status() === false) {
@@ -531,6 +563,21 @@ class ComponentStockWriter
             'ok' => true,
             'availability_rebuild' => $availabilityRefresh,
             'material_availability_rebuild' => $materialAvailabilityRefresh,
+            'recovery_warnings' => $recoveryWarnings,
+        ];
+    }
+
+    private function build_recovery_warning($db, int $componentId, int $uomId, float $qtyBefore, float $qtyProduced): array
+    {
+        $nameRow = $db->select('component_name')->from('mst_component')->where('id', $componentId)->limit(1)->get()->row_array();
+        $uomRow  = $db->select('code')->from('mst_uom')->where('id', $uomId)->limit(1)->get()->row_array();
+        return [
+            'component_id'   => $componentId,
+            'component_name' => (string)($nameRow['component_name'] ?? 'Component #' . $componentId),
+            'uom_code'       => (string)($uomRow['code'] ?? ''),
+            'qty_before'     => $qtyBefore,
+            'qty_produced'   => $qtyProduced,
+            'qty_after'      => round($qtyBefore + $qtyProduced, 4),
         ];
     }
 
@@ -655,8 +702,12 @@ class ComponentStockWriter
         $avgBefore = (float)($authoritativeBalance['avg_cost'] ?? 0);
         $valueBefore = round((float)($authoritativeBalance['total_value'] ?? ($qtyBefore * $avgBefore)), 2);
         $qtyAfter = round($qtyBefore + $qtyIn - $qtyOut, 4);
-        if ($qtyAfter < -0.0001) {
-            throw new RuntimeException('Stok komponen tidak cukup untuk movement ' . $movementType . '.');
+        if (!$isIn && $qtyAfter < -0.0001) {
+            throw new RuntimeException(
+                'Stok komponen tidak cukup untuk movement ' . $movementType . '. '
+                . 'Stok saat ini: ' . number_format($qtyBefore, 2) . ', dibutuhkan: ' . number_format($qtyOut, 2) . '. '
+                . 'Lakukan produksi batch atau adjustment plus terlebih dahulu untuk menutup deficit.'
+            );
         }
         if (abs($qtyAfter) < 0.0001) {
             $qtyAfter = 0.0;
@@ -1238,6 +1289,83 @@ class ComponentStockWriter
     {
         $datePart = date('Ymd', strtotime($movementDate));
         return 'ICA' . $datePart . str_pad((string)$componentId, 5, '0', STR_PAD_LEFT) . str_pad((string)max(0, $sourceId), 5, '0', STR_PAD_LEFT) . str_pad((string)max(0, $sourceLineId), 4, '0', STR_PAD_LEFT) . strtoupper(substr($suffix, 0, 1));
+    }
+
+    /**
+     * Setelah adjustment, rekonsiliasi lot ke saldo bulanan.
+     * Aturan: total lot = max(0, closing_qty).
+     * Jika closing_qty negatif (akibat POS flexibilitas), semua lot OPEN ditutup.
+     * Jika closing_qty < lot total, trim lot terbaru (LIFO) sejumlah selisihnya.
+     */
+    private function trim_component_lots_to_monthly(
+        string $locationType,
+        ?int $divisionId,
+        int $componentId,
+        int $uomId
+    ): void {
+        $db = $this->ci->db;
+
+        if (!$db->table_exists('inv_component_monthly_stock') || !$db->table_exists('inv_component_lot')) {
+            return;
+        }
+
+        $divSql    = $divisionId !== null ? 'ms.division_id = ' . $divisionId : 'ms.division_id IS NULL';
+        $divLotSql = $divisionId !== null ? 'l.division_id = ' . $divisionId  : 'l.division_id IS NULL';
+
+        $monthRow = $db->query(
+            "SELECT COALESCE(ms.closing_qty, 0) AS closing_qty
+               FROM inv_component_monthly_stock ms
+              WHERE ms.location_type = ?
+                AND {$divSql}
+                AND ms.component_id  = ?
+                AND ms.uom_id        = ?
+              ORDER BY ms.month_key DESC
+              LIMIT 1",
+            [$locationType, $componentId, $uomId]
+        )->row_array();
+
+        $closingQty = round((float)($monthRow['closing_qty'] ?? 0), 4);
+        $targetLot  = max(0.0, $closingQty);
+
+        $openLots = $db->query(
+            "SELECT id, qty_balance
+               FROM inv_component_lot l
+              WHERE l.location_type = ?
+                AND {$divLotSql}
+                AND l.component_id  = ?
+                AND l.uom_id        = ?
+                AND l.status        = 'OPEN'
+                AND l.qty_balance   > 0.0001
+              ORDER BY l.receipt_date DESC, l.id DESC",
+            [$locationType, $componentId, $uomId]
+        )->result_array();
+
+        if (empty($openLots)) {
+            return;
+        }
+
+        $totalBalance = round(array_sum(array_column($openLots, 'qty_balance')), 4);
+        if ($totalBalance <= $targetLot + 0.0001) {
+            return;
+        }
+
+        $remaining = round($totalBalance - $targetLot, 4);
+        $now       = date('Y-m-d H:i:s');
+
+        foreach ($openLots as $lot) {
+            if ($remaining <= 0.0001) {
+                break;
+            }
+            $lotQty  = round((float)($lot['qty_balance'] ?? 0), 4);
+            $trim    = min($lotQty, $remaining);
+            $newQty  = round($lotQty - $trim, 4);
+            $db->where('id', (int)$lot['id'])->update('inv_component_lot', [
+                'qty_balance' => $newQty,
+                'status'      => $newQty < 0.0001 ? 'CLOSED' : 'OPEN',
+                'updated_at'  => $now,
+            ]);
+            $remaining = round($remaining - $trim, 4);
+        }
     }
 
     private function load_balance_state(string $locationType, ?int $divisionId, int $componentId, int $uomId, string $movementDate): array
