@@ -2844,17 +2844,9 @@ class Procurement_model extends CI_Model
             ], $usagePurpose);
             $itemId = (int)($canonicalIdentity['item_id'] ?? 0);
             $materialId = (int)($canonicalIdentity['material_id'] ?? 0);
-            $lineKind = $itemId > 0
-                ? 'ITEM'
-                : (string)($canonicalIdentity['line_kind'] ?? ($lineKind !== '' ? $lineKind : ($itemId > 0 ? 'ITEM' : '')));
-            if (!in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
-                return ['ok' => false, 'message' => 'Line #' . $lineNo . ' line_kind tidak valid.'];
-            }
-            if ($lineKind === 'ITEM' && $itemId <= 0) {
-                return ['ok' => false, 'message' => 'Line #' . $lineNo . ' wajib pilih item untuk line ITEM.'];
-            }
-            if ($lineKind === 'MATERIAL' && $materialId <= 0) {
-                return ['ok' => false, 'message' => 'Line #' . $lineNo . ' wajib pilih material untuk line MATERIAL.'];
+            $lineKind = 'ITEM';
+            if ($itemId <= 0) {
+                return ['ok' => false, 'message' => 'Line #' . $lineNo . ' wajib punya item canonical. Pilih ulang profile/item yang sudah terhubung ke master item.'];
             }
             if ($profileKey === '' || $buyUomId <= 0 || $contentUomId <= 0) {
                 return ['ok' => false, 'message' => 'Line #' . $lineNo . ' profile/UOM belum lengkap.'];
@@ -2878,7 +2870,7 @@ class Procurement_model extends CI_Model
                 'line_no' => $lineNo,
                 'line_kind' => $this->legacy_line_kind_for_storage(
                     'pur_store_request_line',
-                    $lineKind,
+                    'ITEM',
                     $itemId > 0 ? $itemId : null,
                     $materialId > 0 ? $materialId : null
                 ),
@@ -2986,7 +2978,7 @@ class Procurement_model extends CI_Model
                     $materialId = (int)($canonicalPreviewIdentity['material_id'] ?? $materialId);
                     $lineKind = 'ITEM';
                 } else {
-                    $lineKind = $materialId > 0 ? 'MATERIAL' : 'ITEM';
+                    $lineKind = 'ITEM';
                 }
             } elseif ($lineKind === '') {
                 $lineKind = ($itemId > 0 || $sourceType === 'MANUAL') ? 'ITEM' : '';
@@ -2994,14 +2986,8 @@ class Procurement_model extends CI_Model
             if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL && $itemId > 0) {
                 $lineKind = 'ITEM';
             }
-            if (!in_array($lineKind, ['ITEM', 'MATERIAL'], true)) {
-                return ['ok' => false, 'message' => 'Line #' . $lineNo . ' jenis line tidak valid.'];
-            }
-            if ($lineKind === 'ITEM' && $itemId <= 0 && $sourceType !== 'MANUAL') {
-                return ['ok' => false, 'message' => 'Line #' . $lineNo . ' wajib item.'];
-            }
-            if ($lineKind === 'MATERIAL' && $materialId <= 0) {
-                return ['ok' => false, 'message' => 'Line #' . $lineNo . ' wajib material.'];
+            if ($lineKind !== '' && $lineKind !== 'ITEM') {
+                return ['ok' => false, 'message' => 'Line #' . $lineNo . ' hanya menerima identity item canonical.'];
             }
             if ($sourceType === 'MANUAL') {
                 if ($profileName === null) {
@@ -3052,14 +3038,17 @@ class Procurement_model extends CI_Model
             ], $usagePurpose);
             $itemId = (int)($canonicalIdentity['item_id'] ?? 0);
             $materialId = (int)($canonicalIdentity['material_id'] ?? 0);
-            $lineKind = $itemId > 0 ? 'ITEM' : (string)($canonicalIdentity['line_kind'] ?? $lineKind);
+            $lineKind = 'ITEM';
+            if ($itemId <= 0 && $sourceType !== 'MANUAL') {
+                return ['ok' => false, 'message' => 'Line #' . $lineNo . ' wajib punya item canonical. Profile/material yang dipilih belum punya mapping item aktif.'];
+            }
 
             $expiryRequirement = $this->extract_expiry_requirement($line, 'profile_expired_date');
 
             $normalizedLine = [
                 'line_kind' => $this->legacy_line_kind_for_storage(
                     'pur_division_request_line',
-                    $lineKind,
+                    'ITEM',
                     $itemId > 0 ? $itemId : null,
                     $materialId > 0 ? $materialId : null
                 ),

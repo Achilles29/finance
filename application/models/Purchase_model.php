@@ -1568,6 +1568,7 @@ class Purchase_model extends CI_Model
                 $baseGroupKeys[$groupKey] = true;
             }
         }
+        $movementByIdentity = array_intersect_key($movementByIdentity, $baseIdentitySet);
 
         $mismatchByGroup = [];
         foreach ($movementRows as $movementRow) {
@@ -1778,6 +1779,7 @@ class Purchase_model extends CI_Model
                 ];
             }
         }
+        $movementByIdentity = array_intersect_key($movementByIdentity, $baseIdentitySet);
 
         $mismatchByGroup = [];
         foreach ($movementRows as $movementRow) {
@@ -1911,7 +1913,7 @@ class Purchase_model extends CI_Model
             END";
 
         $this->db
-            ->select('s.id, "MATERIAL" AS stock_domain, s.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect . ', s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id', false)
+            ->select('s.id, "ITEM" AS stock_domain, s.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect . ', s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id', false)
             ->select('s.destination_type AS destination_type', false)
             ->select($destinationGroupExpr . ' AS destination_group', false)
             ->select($destinationNameExpr . ' AS destination_name', false)
@@ -1972,7 +1974,7 @@ class Purchase_model extends CI_Model
         $row['destination_type'] = (string)($baseRow['destination_type'] ?? 'OTHER');
         $row['destination_group'] = (string)($baseRow['destination_group'] ?? 'REGULER');
         $row['destination_name'] = (string)($baseRow['destination_name'] ?? 'Reguler');
-        $row['stock_domain'] = 'MATERIAL';
+        $row['stock_domain'] = 'ITEM';
         $row['item_id'] = (int)($baseRow['item_id'] ?? 0);
         $row['material_id'] = (int)($baseRow['material_id'] ?? 0);
         $row['buy_uom_id'] = (int)($baseRow['buy_uom_id'] ?? 0);
@@ -15490,6 +15492,24 @@ class Purchase_model extends CI_Model
             ->join('mst_material m', 'm.id = c.material_id', 'left')
             ->where('c.is_active', 1);
 
+        $invalidSameUomExpr = 'COALESCE(c.buy_uom_id, 0) = COALESCE(c.content_uom_id, 0)'
+            . ' AND COALESCE(c.buy_uom_id, 0) > 0'
+            . ' AND ROUND(COALESCE(NULLIF(c.content_per_buy, 0), NULLIF(c.conversion_factor_to_content, 0), 1), 6) <> 1';
+        $hasValidSiblingExpr = "EXISTS (
+                SELECT 1
+                FROM mst_purchase_catalog alt
+                WHERE alt.id <> c.id
+                  AND COALESCE(alt.item_id, 0) = COALESCE(c.item_id, 0)
+                  AND COALESCE(alt.material_id, 0) = COALESCE(c.material_id, 0)
+                  AND UPPER(TRIM(COALESCE(alt.catalog_name, ''))) = UPPER(TRIM(COALESCE(c.catalog_name, '')))
+                  AND UPPER(TRIM(COALESCE(alt.brand_name, ''))) = UPPER(TRIM(COALESCE(c.brand_name, '')))
+                  AND UPPER(TRIM(COALESCE(alt.line_description, ''))) = UPPER(TRIM(COALESCE(c.line_description, '')))
+                  AND ROUND(COALESCE(NULLIF(alt.content_per_buy, 0), NULLIF(alt.conversion_factor_to_content, 0), 1), 6)
+                      = ROUND(COALESCE(NULLIF(c.content_per_buy, 0), NULLIF(c.conversion_factor_to_content, 0), 1), 6)
+                  AND COALESCE(alt.buy_uom_id, 0) <> COALESCE(alt.content_uom_id, 0)
+            )";
+        $this->db->where('NOT ((' . $invalidSameUomExpr . ') AND ' . $hasValidSiblingExpr . ')', null, false);
+
         if ($useVendorLinkTable && $vendorId > 0) {
             $this->db->join(
                 'mst_purchase_catalog_vendor cv',
@@ -15673,7 +15693,7 @@ class Purchase_model extends CI_Model
         $this->db
             ->select("'MASTER' AS source_type", false)
             ->select('NULL AS catalog_id, NULL AS profile_key', false)
-            ->select("'MATERIAL' AS line_kind", false)
+            ->select("'ITEM' AS line_kind", false)
             ->select('mi.id AS item_id, m.id AS material_id, NULL AS vendor_id', false)
             ->select('m.material_name AS catalog_name, NULL AS brand_name, NULL AS line_description, m.notes', false)
             ->select('NULL AS expired_date', false)
@@ -15755,10 +15775,10 @@ class Purchase_model extends CI_Model
             ], $usagePurpose);
             $itemId = $canonicalIdentity['item_id'] ?? $itemId;
             $materialId = $canonicalIdentity['material_id'] ?? $materialId;
-            $lineKind = $itemId !== null ? 'ITEM' : (string)($canonicalIdentity['line_kind'] ?? $lineKind);
+            $lineKind = 'ITEM';
         }
 
-        if ($lineKind === 'MATERIAL' && $itemId !== null) {
+        if ($lineKind === 'MATERIAL') {
             $lineKind = 'ITEM';
         }
 
@@ -15810,9 +15830,6 @@ class Purchase_model extends CI_Model
         if ($lineKind === 'ITEM' && $itemId === null) {
             return ['ok' => false, 'message' => 'Line ITEM wajib memiliki item_id atau nama item untuk auto create.'];
         }
-        if ($lineKind === 'MATERIAL' && $materialId === null) {
-            return ['ok' => false, 'message' => 'Line MATERIAL wajib memiliki material_id.'];
-        }
 
         $qtyBuy = $this->positiveDecimal($line['qty_buy'] ?? 0, 0);
         if ($qtyBuy <= 0) {
@@ -15833,14 +15850,6 @@ class Purchase_model extends CI_Model
             $contentUomId = $buyUomId;
         }
 
-        if ($lineKind === 'MATERIAL') {
-            $materialContentUomId = $entity['content_uom_id'];
-            if ($materialContentUomId === null || $materialContentUomId <= 0) {
-                return ['ok' => false, 'message' => 'UOM isi MATERIAL tidak ditemukan di master material.'];
-            }
-            $contentUomId = $materialContentUomId;
-        }
-
         $unitPrice = $this->positiveDecimal($line['unit_price'] ?? 0, 0);
         $discountPercent = $this->boundedPercent($line['discount_percent'] ?? 0);
         $taxPercent = $this->boundedPercent($line['tax_percent'] ?? 0);
@@ -15853,9 +15862,35 @@ class Purchase_model extends CI_Model
         $lineDescription = $this->normalizeProfileDescription($line['line_description'] ?? null);
         $expiryRequirement = $this->extractOrderLineExpiryRequirement($line, 'expired_date');
         $expiredDate = $expiryRequirement['required_expiry_date'];
+        $lineName = trim((string)($line['catalog_name'] ?? ($entity['item_name'] ?? ($entity['material_name'] ?? ($lineDescription ?? '')))));
+
+        if (
+            $lineKind === 'ITEM'
+            && $itemId !== null
+            && $buyUomId > 0
+            && $contentUomId !== null
+            && $this->isImpossibleSameUomProfileStructure($buyUomId, (int)$contentUomId, $contentPerBuy)
+        ) {
+            $legacyStructure = $this->resolveLegacyMixedUomProfileStructure(
+                (int)$itemId,
+                $materialId,
+                $lineName ?: null,
+                $brandName,
+                $lineDescription,
+                $contentPerBuy
+            );
+            if ($legacyStructure !== null) {
+                $buyUomId = (int)$legacyStructure['buy_uom_id'];
+                $contentUomId = (int)$legacyStructure['content_uom_id'];
+            } else {
+                return [
+                    'ok' => false,
+                    'message' => 'Struktur profile beli tidak valid. UOM beli dan UOM isi sama, tetapi content_per_buy bukan 1. Repair master item/katalog profile ini dulu sebelum membuat PO baru.',
+                ];
+            }
+        }
 
         // Resolve profile_key against catalog signature including buyer-edited price.
-        $lineName = trim((string)($line['catalog_name'] ?? ($entity['item_name'] ?? ($entity['material_name'] ?? ($lineDescription ?? '')))));
         $profileKey = ($itemId !== null || $materialId !== null)
             ? $this->resolveCatalogProfileKeyByIdentity(
                 (int)($itemId ?? 0),
@@ -16724,6 +16759,73 @@ class Purchase_model extends CI_Model
 
         $profileKey = trim((string)($candidateRows[0]['profile_key'] ?? ''));
         return $profileKey !== '' ? $profileKey : null;
+    }
+
+    private function isImpossibleSameUomProfileStructure(int $buyUomId, int $contentUomId, float $contentPerBuy): bool
+    {
+        return $buyUomId > 0
+            && $contentUomId > 0
+            && $buyUomId === $contentUomId
+            && abs(round($contentPerBuy, 6) - 1.0) > 0.000001;
+    }
+
+    private function resolveLegacyMixedUomProfileStructure(
+        int $itemId,
+        ?int $materialId,
+        ?string $profileName,
+        ?string $profileBrand,
+        ?string $profileDescription,
+        float $profileContentPerBuy
+    ): ?array {
+        if (
+            $itemId <= 0
+            || !$this->db->table_exists('mst_purchase_catalog')
+            || !$this->db->field_exists('profile_key', 'mst_purchase_catalog')
+        ) {
+            return null;
+        }
+
+        $nameNorm = strtoupper(trim((string)$profileName));
+        $brandNorm = strtoupper(trim((string)$profileBrand));
+        $descNorm = strtoupper(trim((string)$profileDescription));
+        $cpbNorm = number_format(max(0.000001, (float)$profileContentPerBuy), 6, '.', '');
+
+        $hasCatalogMaterial = $this->db->field_exists('material_id', 'mst_purchase_catalog');
+        $hasCatalogIsActive = $this->db->field_exists('is_active', 'mst_purchase_catalog');
+        $hasCatalogLastPurchaseDate = $this->db->field_exists('last_purchase_date', 'mst_purchase_catalog');
+
+        $this->db
+            ->select('c.id, c.profile_key, c.buy_uom_id, c.content_uom_id' . ($hasCatalogIsActive ? ', c.is_active' : '') . ($hasCatalogLastPurchaseDate ? ', c.last_purchase_date' : ''), false)
+            ->from('mst_purchase_catalog c')
+            ->where('c.item_id', $itemId)
+            ->where('c.profile_key IS NOT NULL', null, false)
+            ->where("TRIM(c.profile_key) <> ''", null, false)
+            ->where("UPPER(TRIM(COALESCE(c.catalog_name,''))) = " . $this->db->escape($nameNorm), null, false)
+            ->where("UPPER(TRIM(COALESCE(c.brand_name,''))) = " . $this->db->escape($brandNorm), null, false)
+            ->where("UPPER(TRIM(COALESCE(c.line_description,''))) = " . $this->db->escape($descNorm), null, false)
+            ->where('ROUND(COALESCE(c.content_per_buy, 0), 6) = ' . $this->db->escape($cpbNorm), null, false)
+            ->where('COALESCE(c.buy_uom_id, 0) > 0', null, false)
+            ->where('COALESCE(c.content_uom_id, 0) > 0', null, false)
+            ->where('COALESCE(c.buy_uom_id, 0) <> COALESCE(c.content_uom_id, 0)', null, false);
+
+        if ($hasCatalogMaterial && $materialId !== null && $materialId > 0) {
+            $this->db->where('c.material_id', $materialId);
+        }
+
+        if ($hasCatalogIsActive) {
+            $this->db->order_by('COALESCE(c.is_active, 1)', 'DESC', false);
+        }
+        if ($hasCatalogLastPurchaseDate) {
+            $this->db->order_by('c.last_purchase_date', 'DESC');
+        }
+
+        $row = $this->db
+            ->order_by('c.id', 'ASC')
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        return !empty($row) ? $row : null;
     }
 
     private function ensureCatalogProfileFromOpeningIdentity(

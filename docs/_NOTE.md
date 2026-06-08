@@ -121,21 +121,6 @@ kamu bilang Soal "kenapa ada data stok fisiknya?" — Itu data yang sebelumnya s
 rapikan dan percantik lagi tampilan khususnya data tabel nya. jenis dan alasan kok tidka muncul 
 
 
-masih banyak data kotor
-- OREO CRUMB tidak sinkron antara dashboard, daily matrix dan database. cek juga data lain
-- banyak bahan baku yang tidak punya profile dan lot
-
-
-
-- /inventory-material-daily cek OREO CRUMB kenapa ada -280 dari mana
-
-- SETIAP buat sql kasih tau urutannya ya karena saya harus jalankan di server juga
-- cek inventory-material-daily itu ambil data dari mana? saya cek OREO CRUMB kok ada 2 baris, padahal di inv_division_monthly_stock hanya ada 1 baris. bukankah harusnya ambil data dari inv_division_monthly_stock berdasarkan filter bulannya?? CMIIW
-- berikan guarding PO / SR / Opening yang bisa masuk inv_division_monthly_stock harusnya hanya yang punya material_id (bahan baku)
-
-
-
-
 sql sudah saya jalankan.
 pertama kamu perlu cek perbaiki dulu
 /inventory-material-daily, inventory/stock/division  dan  inventory/stock/division/daily , bahwa sumber kebenaran utama stok bahan baku divisi ada di inv_warehouse_monthly_stock dengan material_id tidak null. artinya meskipun ada movement log tapi tidak ada di inv_warehouse_monthly_stock harusnya tidak masuk di 3 halaman tersebut, tapi hal ini yang perlu kita audit di pos/stock-commit-audit.
@@ -145,7 +130,32 @@ sesuaikan juga ketiga halaman stok tadi untuk profil line stok yang habis atau 0
 bulan ini kita tidak masalah jika harus menghilangkan log yang tidak sesuai dengan stok karena juga masih trial, yang penting secara alur UI sudah diperbaiki sehingga bulan depan ketika generate stok opname dan stok awal bisa dimulai dari data yang bersih 
 
 
+/inventory/stock/daily-recon/division sembunyikan line child stok 0. tambahkan tanggal  masuk stok di setiap child
 
-perbaiki logika adj nya. tadi saya adj OREO CRUMB stok sebelumya -2, saya tambah 2, harusnya closingnya kan jadi 0, ini malah jadi 2. log nya di /inventory/stock/division/movement saya cek sudah benar, tapi di stok masih salah jadi 2 harusnya 0. lalu ketika saya void jadi 0, harusnya kan balik -2 (bener sih karena tadi stoknya jadi 2).
+POS dan component pakai FIFO bahan baku?
 
-saya tadi adj lewat /inventory-material-daily , saya belum cb lewat /inventory/stock/adjustment/ dan /inventory/stock/daily-recon/division. tapi seharusnya logikanya sama kan? perbaiki dulu nanti akan saya coba ulang
+
+saya sudah menemukan beberapa bug nya dan tadi sudah kita perbaiki.
+
+bahwa sumber kebenaran utama stok bahan baku divisi ada di inv_division_monthly_stock dengan material_id tidak null. artinya meskipun ada movement log tapi tidak ada di inv_division_monthly_stock harusnya tidak masuk di 3 halaman tersebut, tapi hal ini yang perlu kita audit di pos/stock-commit-audit.
+
+jadi data stok yang tampil di /inventory-material-daily, inventory/stock/division  dan  inventory/stock/division/daily, pos/stock-commit-audit dan inventory/stock/daily-recon/division diambil dari
+
+nah sekarang perlu kita track ulang 1 per 1.
+
+dari Procurement ke divisi
+PO ke divisi
+SR ke divisi
+
+pastikan sudah mengabaikan line_kind dan stock_domain
+
+
+
+
+
+SAYA barusan PO INDOMIE AYAM SPESIAL dan INDOMIE GORENG
+saya ambil contoh INDOMIE AYAM SPESIAL profile nya sama persi dengn id 704 di mst_purchase_catalog. tapi justru malah membuat profile baru di 1757.
+apakah itu karena di 704 ada LINE_KIND nya ITEM dan sekarang tidak membentuk line_kind???
+
+kalau iya berarti kemungkinan terbentu banyak profile baru hanya karena line_kind itu?
+
