@@ -33,6 +33,12 @@ class Procurement_model extends CI_Model
         return $this->db->field_exists('usage_purpose', 'pur_division_request_line');
     }
 
+    private function warehouse_monthly_has_stock_domain_column(): bool
+    {
+        return $this->db->table_exists('inv_warehouse_monthly_stock')
+            && $this->db->field_exists('stock_domain', 'inv_warehouse_monthly_stock');
+    }
+
     private function normalize_division_request_uom_mode($value): string
     {
         return strtoupper(trim((string)$value)) === 'CONTENT' ? 'CONTENT' : 'BUY';
@@ -215,14 +221,17 @@ class Procurement_model extends CI_Model
 
         if ($profileKey !== '' && $this->db->table_exists('inv_warehouse_monthly_stock')) {
             $targetMonth = date('Y-m-01');
-            $row = $this->db
+            $query = $this->db
                 ->select('item_id')
                 ->from('inv_warehouse_monthly_stock')
                 ->where('profile_key', $profileKey)
-                ->where('stock_domain', 'ITEM')
                 ->where('month_key <=', $targetMonth)
                 ->where('item_id IS NOT NULL', null, false)
-                ->where('item_id >', 0)
+                ->where('item_id >', 0);
+            if ($this->warehouse_monthly_has_stock_domain_column()) {
+                $query->where('stock_domain', 'ITEM');
+            }
+            $row = $query
                 ->order_by('month_key', 'DESC')
                 ->order_by('updated_at', 'DESC')
                 ->limit(1)
@@ -3856,6 +3865,7 @@ class Procurement_model extends CI_Model
         if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
             $targetMonth = date('Y-m-01');
             $identityChecks = [];
+            $hasStockDomain = $this->warehouse_monthly_has_stock_domain_column();
             if ($itemId !== null && $itemId > 0) {
                 $identityChecks[] = ['column' => 'item_id', 'value' => $itemId];
             }
@@ -3875,14 +3885,22 @@ class Procurement_model extends CI_Model
                             )
                               AND buy_uom_id = ?
                               AND content_uom_id = ?
-                              AND (stock_domain = "ITEM" OR stock_domain IS NULL)
                               AND ' . $identityCheck['column'] . ' = ?';
                     $params = [$targetMonth, $buyUomId, $contentUomId, $identityCheck['value']];
+                    if ($hasStockDomain) {
+                        $sql .= ' AND (stock_domain = ? OR stock_domain IS NULL)';
+                        $params[] = $stockDomain;
+                    }
                     if ($useProfileKey && trim($profileKey) !== '') {
                         $sql .= ' AND profile_key <=> ?';
                         $params[] = $profileKey;
                     }
-                    $sql .= ' ORDER BY CASE WHEN stock_domain IS NULL THEN 0 WHEN stock_domain = "ITEM" THEN 1 ELSE 2 END, updated_at DESC, last_movement_at DESC LIMIT 1';
+                    if ($hasStockDomain) {
+                        $sql .= ' ORDER BY CASE WHEN stock_domain IS NULL THEN 0 WHEN stock_domain = ? THEN 1 ELSE 2 END, updated_at DESC, last_movement_at DESC LIMIT 1';
+                        $params[] = $stockDomain;
+                    } else {
+                        $sql .= ' ORDER BY updated_at DESC, last_movement_at DESC LIMIT 1';
+                    }
 
                     $row = $this->db->query($sql, $params)->row_array();
                     $available = round((float)($row['closing_qty_content'] ?? 0), 4);
