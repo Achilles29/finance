@@ -29,6 +29,9 @@ $formatDivisionLabel = static function (string $code, string $name, $fallbackId 
 $formatDestination = static function (string $group): string {
   return strtoupper(trim($group)) === 'EVENT' ? 'Event' : 'Reguler';
 };
+$isChildNonPositive = static function (array $row): bool {
+  return round((float)($row['qty_content_balance'] ?? 0), 4) <= 0.0001;
+};
 
 $parentMap = [];
 foreach ($rowsData as $row) {
@@ -118,7 +121,12 @@ foreach ($rowsData as $row) {
 $parentRows = array_values($parentMap);
 foreach ($parentRows as &$parentRow) {
   $children = array_values($parentRow['children']);
-  usort($children, static function (array $a, array $b): int {
+  usort($children, static function (array $a, array $b) use ($isChildNonPositive): int {
+    $aNonPositive = $isChildNonPositive($a);
+    $bNonPositive = $isChildNonPositive($b);
+    if ($aNonPositive !== $bNonPositive) {
+      return $aNonPositive ? 1 : -1;
+    }
     $cmp = strcasecmp((string)($a['profile_name'] ?? ''), (string)($b['profile_name'] ?? ''));
     if ($cmp !== 0) {
       return $cmp;
@@ -221,6 +229,24 @@ $summaryDivisionCount = count($summaryDivisions);
   }
   .dv-child-row td {
     background: #fff;
+  }
+  .dv-stock-row-alert td {
+    background: linear-gradient(180deg, #fff1ef 0%, #fff8f7 100%) !important;
+    color: #8a2f2a;
+  }
+  .dv-stock-row-alert .dv-item-name,
+  .dv-stock-row-alert .fw-semibold {
+    color: #8a2f2a !important;
+  }
+  .dv-alert-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.16rem 0.48rem;
+    border-radius: 999px;
+    background: #c0392b;
+    color: #fff;
+    font-size: 0.64rem;
+    font-weight: 800;
   }
   .dv-name-cell {
     display: flex;
@@ -492,6 +518,7 @@ $summaryDivisionCount = count($summaryDivisions);
               $collapseClass = 'dv-parent-' . ($idx + 1);
               $isExpandable = ((int)($parent['profile_count'] ?? 0) > 1);
               $singleChild = (!$isExpandable && !empty($parent['children'])) ? $parent['children'][0] : null;
+              $singleChildNonPositive = is_array($singleChild) ? $isChildNonPositive($singleChild) : false;
 
               $profileCol = '<strong>' . (int)($parent['profile_count'] ?? 0) . ' profil</strong>';
               $brandCol = '-';
@@ -512,7 +539,7 @@ $summaryDivisionCount = count($summaryDivisions);
                   . ' / ' . html_escape((string)($singleChild['profile_buy_uom_code'] ?? ''));
               }
             ?>
-            <tr class="dv-parent-row">
+            <tr class="dv-parent-row<?php echo $singleChildNonPositive ? ' dv-stock-row-alert' : ''; ?>">
               <td><?php echo html_escape($divisionText); ?></td>
               <td><?php echo html_escape($destinationText); ?></td>
               <td>
@@ -531,6 +558,8 @@ $summaryDivisionCount = count($summaryDivisions);
                       <span class="dv-name-chip is-parent"><?php echo html_escape($objectKind); ?></span>
                       <?php if ($isExpandable): ?>
                         <span class="dv-name-chip is-parent"><?php echo (int)($parent['profile_count'] ?? 0); ?> profil</span>
+                      <?php elseif ($singleChildNonPositive): ?>
+                        <span class="dv-alert-chip">Stok Habis / Minus</span>
                       <?php endif; ?>
                     </div>
                   </div>
@@ -559,8 +588,9 @@ $summaryDivisionCount = count($summaryDivisions);
                   ? ((float)($child['total_value'] ?? 0) / (float)($child['qty_content_balance'] ?? 0))
                   : 0.0;
                 $childClass = 'collapse ' . $collapseClass;
+                $childNonPositive = $isChildNonPositive($child);
               ?>
-              <tr class="dv-child-row <?php echo html_escape($childClass); ?>">
+              <tr class="dv-child-row <?php echo html_escape($childClass); ?><?php echo $childNonPositive ? ' dv-stock-row-alert' : ''; ?>">
                 <td></td>
                 <td></td>
                 <td>
@@ -573,6 +603,9 @@ $summaryDivisionCount = count($summaryDivisions);
                           <span class="dv-name-chip is-child"><?php echo html_escape($objectCode); ?></span>
                         <?php endif; ?>
                         <span class="dv-name-chip is-child">Child</span>
+                        <?php if ($childNonPositive): ?>
+                          <span class="dv-alert-chip">Stok Habis / Minus</span>
+                        <?php endif; ?>
                       </div>
                     </div>
                   </div>

@@ -7,6 +7,9 @@ if (!empty($date_from ?? '')) {
   $genMonth = date('Y-m', strtotime((string)$date_from));
 }
 $rowsData = is_array($rows ?? null) ? $rows : [];
+$isChildNonPositive = static function (array $row): bool {
+  return round((float)($row['qty_content_balance'] ?? 0), 4) <= 0.0001;
+};
 
 $parentMap = [];
 foreach ($rowsData as $row) {
@@ -83,7 +86,12 @@ foreach ($rowsData as $row) {
 $parentRows = array_values($parentMap);
 foreach ($parentRows as &$parentRow) {
   $children = array_values($parentRow['children']);
-  usort($children, static function (array $a, array $b): int {
+  usort($children, static function (array $a, array $b) use ($isChildNonPositive): int {
+    $aNonPositive = $isChildNonPositive($a);
+    $bNonPositive = $isChildNonPositive($b);
+    if ($aNonPositive !== $bNonPositive) {
+      return $aNonPositive ? 1 : -1;
+    }
     $cmp = strcasecmp((string)($a['profile_name'] ?? ''), (string)($b['profile_name'] ?? ''));
     if ($cmp !== 0) {
       return $cmp;
@@ -170,6 +178,24 @@ $summaryItemCount = count($parentRows);
   }
   .wh-child-row td {
     background: #fff;
+  }
+  .wh-stock-row-alert td {
+    background: linear-gradient(180deg, #fff2f0 0%, #fff8f7 100%) !important;
+    color: #8a2f2a;
+  }
+  .wh-stock-row-alert .wh-item-name,
+  .wh-stock-row-alert .fw-semibold {
+    color: #8a2f2a !important;
+  }
+  .wh-alert-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.16rem 0.48rem;
+    border-radius: 999px;
+    background: #c0392b;
+    color: #fff;
+    font-size: 0.64rem;
+    font-weight: 800;
   }
   .wh-name-cell {
     display: flex;
@@ -348,6 +374,7 @@ $summaryItemCount = count($parentRows);
               $collapseClass = 'wh-parent-' . ($idx + 1);
               $isExpandable = ((int)($parent['profile_count'] ?? 0) > 1);
               $singleChild = (!$isExpandable && !empty($parent['children'])) ? $parent['children'][0] : null;
+              $singleChildNonPositive = is_array($singleChild) ? $isChildNonPositive($singleChild) : false;
               $parentAvgCost = (float)($parent['avg_cost_per_content'] ?? 0);
               $parentCPB = is_array($singleChild) ? (float)($singleChild['profile_content_per_buy'] ?? 0) : 0.0;
               $parentAvgCostPerPack = $parentCPB > 0 ? $parentAvgCost * $parentCPB : null;
@@ -369,7 +396,7 @@ $summaryItemCount = count($parentRows);
                   . ' / ' . html_escape((string)($singleChild['profile_buy_uom_code'] ?? ''));
               }
             ?>
-            <tr class="wh-parent-row">
+            <tr class="wh-parent-row<?php echo $singleChildNonPositive ? ' wh-stock-row-alert' : ''; ?>">
               <td>
                 <div class="wh-name-cell">
                   <?php if ($isExpandable): ?>
@@ -386,6 +413,8 @@ $summaryItemCount = count($parentRows);
                       <span class="wh-name-chip is-parent">Item Gudang</span>
                       <?php if ($isExpandable): ?>
                         <span class="wh-name-chip is-parent"><?php echo (int)($parent['profile_count'] ?? 0); ?> profil</span>
+                      <?php elseif ($singleChildNonPositive): ?>
+                        <span class="wh-alert-chip">Stok Habis / Minus</span>
                       <?php endif; ?>
                     </div>
                   </div>
@@ -415,8 +444,9 @@ $summaryItemCount = count($parentRows);
                 $childCPB = (float)($child['profile_content_per_buy'] ?? 0);
                 $childAvgCostPerPack = $childCPB > 0 ? $childAvgCost * $childCPB : 0.0;
                 $childClass = 'collapse ' . $collapseClass;
+                $childNonPositive = $isChildNonPositive($child);
               ?>
-              <tr class="wh-child-row <?php echo html_escape($childClass); ?>">
+              <tr class="wh-child-row <?php echo html_escape($childClass); ?><?php echo $childNonPositive ? ' wh-stock-row-alert' : ''; ?>">
                 <td>
                   <div class="wh-name-cell wh-name-cell-child">
                     <div class="wh-name-body">
@@ -427,6 +457,9 @@ $summaryItemCount = count($parentRows);
                           <span class="wh-name-chip is-child"><?php echo html_escape($objectCode); ?></span>
                         <?php endif; ?>
                         <span class="wh-name-chip is-child">Child</span>
+                        <?php if ($childNonPositive): ?>
+                          <span class="wh-alert-chip">Stok Habis / Minus</span>
+                        <?php endif; ?>
                       </div>
                     </div>
                   </div>

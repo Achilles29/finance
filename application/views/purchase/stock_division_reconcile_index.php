@@ -3,6 +3,10 @@ $baseUrl = site_url('inventory/stock/division/reconcile');
 $auditUrl = site_url('inventory/stock/division/reconcile/audit');
 $repairUrl = site_url('inventory/stock/division/reconcile/repair');
 $rows = is_array($rows ?? null) ? $rows : [];
+$rows = array_values(array_filter($rows, static function (array $row): bool {
+    $roundedBalance = round((float)($row['balance_qty_content'] ?? 0), 2);
+    return abs($roundedBalance) >= 0.01;
+}));
 $divisions = is_array($divisions ?? null) ? $divisions : [];
 $summary = is_array($summary ?? null) ? $summary : [];
 
@@ -22,15 +26,53 @@ $statusChip = static function (array $row): array {
 ?>
 
 <style>
+  .src-page {
+    width:100%;
+    max-width:1520px;
+    margin:0 auto;
+    padding:1rem 0;
+    box-sizing:border-box;
+  }
+  .src-section-title {
+    display:flex;
+    align-items:center;
+    gap:.65rem;
+    font-size:1.6rem;
+    font-weight:900;
+    color:#2f2628;
+    letter-spacing:-.02em;
+  }
+  .src-section-title .badge-mark {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:2rem;
+    height:2rem;
+    border-radius:14px;
+    background:linear-gradient(135deg,#fff0e9 0%,#ffe4d6 100%);
+    color:#bb3d1f;
+    box-shadow:inset 0 0 0 1px rgba(201,102,67,.18);
+    font-size:1rem;
+  }
   .src-card {
     border:1px solid rgba(225,210,199,.82);
     border-radius:22px;
     background:#fff;
     box-shadow:0 16px 34px rgba(58,38,30,.06);
   }
+  .src-hero {
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:1rem;
+    flex-wrap:wrap;
+  }
+  .src-hero-main {
+    max-width:920px;
+  }
   .src-filter-grid {
     display:grid;
-    grid-template-columns:160px minmax(0, 1fr) 180px 130px auto;
+    grid-template-columns:160px minmax(260px, 1fr) 220px 140px auto;
     gap:.75rem;
     align-items:end;
   }
@@ -60,17 +102,39 @@ $statusChip = static function (array $row): array {
     color:#2f2628;
   }
   .src-table-wrap { overflow:auto; }
+  .src-table-stage {
+    max-height:74vh;
+    overflow:auto;
+    border-top:1px solid rgba(225,210,199,.82);
+  }
+  .src-table {
+    border-collapse:separate;
+    border-spacing:0;
+    min-width:1280px;
+    margin-bottom:0;
+  }
   .src-table th {
     position:sticky;
     top:0;
     z-index:1;
     background:#fff8f4;
     white-space:nowrap;
+    border-bottom:1px solid rgba(225,210,199,.9);
   }
   .src-table td,
   .src-table th {
     vertical-align:top;
     font-size:.82rem;
+    padding:.85rem .85rem;
+  }
+  .src-table tbody tr:nth-child(even) td {
+    background:rgba(255,249,244,.72);
+  }
+  .src-table tbody tr:hover td {
+    background:#fff3ec;
+  }
+  .src-row-negative td {
+    background:#fff0f0 !important;
   }
   .src-obj-name {
     font-weight:900;
@@ -115,6 +179,14 @@ $statusChip = static function (array $row): array {
   }
   .src-chip.ok { background:#e8f8ee; color:#1f7a49; }
   .src-chip.bad { background:#fde9e8; color:#b42318; }
+  .src-chip.warn { background:#fff1f0; color:#c2410c; }
+  .src-filter-actions {
+    display:flex;
+    gap:.7rem;
+    align-items:end;
+    justify-content:flex-end;
+    flex-wrap:wrap;
+  }
   .src-pos-job-shell {
     border:1px solid rgba(225,210,199,.78);
     border-radius:20px;
@@ -216,18 +288,32 @@ $statusChip = static function (array $row): array {
     font-size:.78rem;
     vertical-align:top;
   }
+  .src-empty-note {
+    padding:1.1rem 1.15rem;
+    border:1px dashed rgba(201,176,159,.88);
+    border-radius:16px;
+    background:linear-gradient(135deg,#fffaf7 0%,#fff 100%);
+    color:#8a776f;
+    font-size:.82rem;
+  }
   @media (max-width: 991.98px) {
     .src-filter-grid { grid-template-columns:1fr 1fr; }
     .src-kpi-grid { grid-template-columns:1fr; }
     .src-audit-summary { grid-template-columns:1fr 1fr; }
+    .src-filter-actions { justify-content:flex-start; }
+  }
+  @media (max-width: 767.98px) {
+    .src-filter-grid { grid-template-columns:1fr; }
+    .src-audit-summary { grid-template-columns:1fr; }
   }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div>
-    <h3 class="mb-1">Rekonsiliasi Stok Akhir Divisi</h3>
-    <div class="text-muted small">Bandingkan stok bahan baku per divisi antara stok saat ini, material daily, daily divisi, dan closing dari movement mentah. Halaman ini fokus pada <strong>material/profile divisi</strong>, bukan mismatch produk POS.</div>
-  </div>
+<div class="src-page">
+<div class="src-hero mb-3">
+    <div class="src-hero-main">
+      <div class="src-section-title mb-1"><span class="badge-mark">#</span><span>Rekonsiliasi Stok Akhir Divisi</span></div>
+      <div class="text-muted small">Patokan stok akhir mengikuti snapshot monthly divisi. Material daily dan snapshot harian diperlakukan sebagai turunan tampilan, sedangkan movement mentah dipakai untuk menandai mismatch log yang belum sejalan dengan stok aktif.</div>
+    </div>
   <div class="text-muted small">Tanggal acuan: <strong><?php echo html_escape((string)($as_of_date ?? date('Y-m-d'))); ?></strong></div>
 </div>
 
@@ -261,7 +347,7 @@ $statusChip = static function (array $row): array {
         <label class="form-label small text-muted mb-1">Baris</label>
         <input type="number" min="1" max="2000" name="limit" value="<?php echo (int)($limit ?? 300); ?>" class="form-control">
       </div>
-      <div class="d-flex gap-2">
+      <div class="src-filter-actions">
         <button type="submit" class="btn btn-primary">Terapkan</button>
         <a href="<?php echo html_escape($baseUrl); ?>" class="btn btn-outline-secondary">Reset</a>
       </div>
@@ -307,8 +393,9 @@ $statusChip = static function (array $row): array {
 
 <div class="card src-card">
   <div class="card-body p-0">
-    <div class="src-table-wrap">
-      <table class="table table-hover align-middle mb-0 src-table">
+    <div class="src-table-stage">
+      <div class="src-table-wrap">
+        <table class="table table-hover align-middle mb-0 src-table">
         <thead>
           <tr>
             <th style="min-width:250px;">Material</th>
@@ -325,11 +412,12 @@ $statusChip = static function (array $row): array {
         </thead>
         <tbody>
           <?php if (empty($rows)): ?>
-            <tr><td colspan="10" class="text-center text-muted py-4">Belum ada data untuk filter ini.</td></tr>
+            <tr><td colspan="10"><div class="src-empty-note">Tidak ada baris yang tersisa untuk filter ini. Row dengan stok akhir `0` sekarang disembunyikan agar fokus audit tetap ke stok aktif dan minus.</div></td></tr>
           <?php else: ?>
             <?php foreach ($rows as $row): ?>
               <?php $chip = $statusChip($row); ?>
-              <tr>
+              <?php $isNegative = (float)($row['balance_qty_content'] ?? 0) < 0; ?>
+              <tr class="<?php echo $isNegative ? 'src-row-negative' : ''; ?>">
                 <td>
                   <div class="src-obj-name"><?php echo html_escape($fmtText($row['material_name'] ?? '')); ?></div>
                   <div class="src-obj-sub">
@@ -340,14 +428,35 @@ $statusChip = static function (array $row): array {
                     <?php echo html_escape($fmtText($row['destination_name'] ?? 'Reguler')); ?>
                   </div>
                 </td>
-                <td><div class="src-metric"><span class="primary"><?php echo $fmtQty($row['balance_qty_content'] ?? 0); ?></span><span class="secondary"><?php echo $fmtQty($row['balance_qty_pack'] ?? 0); ?> pack</span></div></td>
+                <td>
+                  <div class="src-metric">
+                    <span class="primary <?php echo $isNegative ? 'text-danger' : ''; ?>"><?php echo $fmtQty($row['balance_qty_content'] ?? 0); ?></span>
+                    <span class="secondary <?php echo $isNegative ? 'text-danger' : ''; ?>"><?php echo $fmtQty($row['balance_qty_pack'] ?? 0); ?> pack</span>
+                    <?php if ($isNegative): ?>
+                      <span class="src-chip warn mt-1">Stok Minus</span>
+                    <?php endif; ?>
+                  </div>
+                </td>
                 <td><div class="src-metric"><span class="primary"><?php echo $fmtQty($row['matrix_qty_content'] ?? 0); ?></span><span class="secondary"><?php echo $fmtQty($row['matrix_qty_pack'] ?? 0); ?> pack</span></div></td>
-                <td><div class="src-metric"><span class="primary"><?php echo $fmtQty($row['daily_qty_content'] ?? 0); ?></span><span class="secondary"><?php echo $fmtQty($row['daily_qty_pack'] ?? 0); ?> pack</span></div></td>
+                <td>
+                  <div class="src-metric">
+                    <span class="primary"><?php echo $fmtQty($row['daily_qty_content'] ?? 0); ?></span>
+                    <span class="secondary"><?php echo $fmtQty($row['daily_qty_pack'] ?? 0); ?> pack</span>
+                    <?php if (!empty($row['daily_audit_has_mismatch'])): ?>
+                      <span class="secondary text-danger">Mismatch log <?php echo $fmtQty($row['daily_audit_mismatch_qty_content'] ?? 0); ?></span>
+                    <?php endif; ?>
+                  </div>
+                </td>
                 <td><div class="src-metric"><span class="primary"><?php echo $fmtQty($row['movement_qty_content'] ?? 0); ?></span><span class="secondary"><?php echo $fmtQty($row['movement_qty_pack'] ?? 0); ?> pack</span></div></td>
                 <td class="src-delta <?php echo abs((float)($row['delta_balance_vs_movement'] ?? 0)) < 0.0001 ? 'ok' : 'bad'; ?>"><?php echo $fmtQty($row['delta_balance_vs_movement'] ?? 0); ?></td>
                 <td class="src-delta <?php echo abs((float)($row['delta_matrix_vs_movement'] ?? 0)) < 0.0001 ? 'ok' : 'bad'; ?>"><?php echo $fmtQty($row['delta_matrix_vs_movement'] ?? 0); ?></td>
                 <td class="src-delta <?php echo abs((float)($row['delta_daily_vs_movement'] ?? 0)) < 0.0001 ? 'ok' : 'bad'; ?>"><?php echo $fmtQty($row['delta_daily_vs_movement'] ?? 0); ?></td>
-                <td><span class="src-chip <?php echo html_escape($chip['class']); ?>"><?php echo html_escape($chip['label']); ?></span></td>
+                <td>
+                  <span class="src-chip <?php echo html_escape($chip['class']); ?>"><?php echo html_escape($chip['label']); ?></span>
+                  <?php if (!empty($row['daily_audit_has_mismatch'])): ?>
+                    <div class="src-obj-sub mt-1">Log liar: <?php echo html_escape((string)($row['daily_audit_mismatch_notes'] ?? 'fallback identity')); ?></div>
+                  <?php endif; ?>
+                </td>
                 <td class="src-action-cell text-end">
                   <div class="d-flex gap-2 justify-content-end">
                     <button
@@ -375,6 +484,7 @@ $statusChip = static function (array $row): array {
           <?php endif; ?>
         </tbody>
       </table>
+      </div>
     </div>
   </div>
 </div>
@@ -434,6 +544,7 @@ $statusChip = static function (array $row): array {
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  document.title = 'Rekonsiliasi Stok Akhir Divisi - Finance App';
   const listEl = document.getElementById('src_pos_job_list');
   const emptyEl = document.getElementById('src_pos_job_empty');
   const searchEl = document.getElementById('src_pos_job_q');
@@ -720,3 +831,4 @@ document.addEventListener('DOMContentLoaded', function () {
   loadFailedJobs().catch((e) => showAlert(e.message, 'Audit POS Queue'));
 });
 </script>
+</div>

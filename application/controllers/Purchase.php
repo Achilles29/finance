@@ -1399,6 +1399,7 @@ class Purchase extends MY_Controller
     {
         $payload = $this->requestPayload();
         $scope = strtoupper(trim((string)($payload['stock_scope'] ?? 'WAREHOUSE')));
+        $autoPost = !empty($payload['auto_post']);
         if ($scope === 'DIVISION') {
             $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'create');
         } else {
@@ -1424,6 +1425,34 @@ class Purchase extends MY_Controller
         if (!($result['ok'] ?? false)) {
             $this->jsonError((string)($result['message'] ?? 'Gagal menyimpan adjustment stok.'), 422);
             return;
+        }
+
+        if ($autoPost) {
+            if ($scope === 'DIVISION') {
+                $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'edit');
+            } else {
+                $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE, 'edit');
+            }
+
+            $adjustmentId = (int)($result['id'] ?? 0);
+            $posted = null;
+            $dbDebugBefore = (bool)$this->db->db_debug;
+            $this->db->db_debug = false;
+            try {
+                $posted = $this->Purchase_model->post_stock_adjustment($adjustmentId, (int)($this->current_user['id'] ?? 0), (string)$this->input->ip_address());
+                if (!($posted['ok'] ?? false) && $adjustmentId > 0) {
+                    $this->Purchase_model->delete_draft_stock_adjustment($adjustmentId);
+                }
+            } finally {
+                $this->db->db_debug = $dbDebugBefore;
+            }
+
+            if (!($posted['ok'] ?? false)) {
+                $this->jsonError((string)($posted['message'] ?? 'Gagal posting adjustment stok.'), 422);
+                return;
+            }
+
+            $result['posted'] = true;
         }
 
         $this->output
@@ -1838,6 +1867,7 @@ class Purchase extends MY_Controller
 
         $data = [
             'title' => 'Rekonsiliasi Stok Akhir Divisi',
+            'page_title' => 'Rekonsiliasi Stok Akhir Divisi',
             'active_menu' => 'purchase.stock.division',
             'as_of_date' => $compare['as_of_date'] ?? $asOfDate,
             'q' => $q,

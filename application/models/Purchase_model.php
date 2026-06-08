@@ -1426,6 +1426,17 @@ class Purchase_model extends CI_Model
 
     public function list_division_daily_snapshot(string $month, string $q, ?int $divisionId, string $dateFrom, string $dateTo, int $limit, ?string $destinationFilter = null): array
     {
+        if ($this->db->table_exists('inv_division_monthly_stock')) {
+            return $this->build_division_daily_rows_from_monthly_base(
+                $q,
+                $divisionId,
+                $dateFrom,
+                $dateTo,
+                $limit,
+                $destinationFilter
+            );
+        }
+
         if ($this->db->table_exists('inv_stock_movement_log')) {
             $window = $this->resolveDailyWindow($month, $dateFrom, $dateTo);
             $rows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
@@ -1450,6 +1461,25 @@ class Purchase_model extends CI_Model
     {
         $window = $this->resolveDailyWindow($month, $dateFrom, $dateTo);
         $dates = $this->buildDateSeries($window['date_from'], $window['date_to']);
+
+        if ($this->db->table_exists('inv_division_monthly_stock')) {
+            $rows = $this->build_material_daily_rows_from_monthly_base(
+                $q,
+                $divisionId,
+                $window['date_from'],
+                $window['date_to'],
+                $dates,
+                $limit,
+                $destinationFilter
+            );
+            $rows = $this->attachMaterialDailyProfilePrices($rows);
+
+            return [
+                'window' => $window,
+                'dates' => $dates,
+                'rows' => $rows,
+            ];
+        }
 
         if ($this->db->table_exists('inv_stock_movement_log')) {
             $rows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
@@ -1481,6 +1511,527 @@ class Purchase_model extends CI_Model
             'dates' => [],
             'rows' => [],
         ];
+    }
+
+    private function build_division_daily_rows_from_monthly_base(
+        string $q,
+        ?int $divisionId,
+        string $dateFrom,
+        string $dateTo,
+        int $limit,
+        ?string $destinationFilter = null
+    ): array {
+        $dates = $this->buildDateSeries($dateFrom, $dateTo);
+        if (empty($dates)) {
+            return [];
+        }
+
+        $baseRows = $this->list_division_stock_monthly($q, $limit, $destinationFilter, '', $dateTo, $divisionId);
+        if (empty($baseRows)) {
+            return [];
+        }
+
+        $movementRows = [];
+        if ($this->db->table_exists('inv_stock_movement_log')) {
+            $movementRows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
+                'DIVISION',
+                '',
+                $divisionId,
+                $dateFrom,
+                $dateTo,
+                $destinationFilter,
+                false
+            );
+            $movementRows = $this->normalizeDivisionProfileKeyRows($movementRows);
+        }
+
+        $movementByIdentity = [];
+        foreach ($movementRows as $movementRow) {
+            $identityKey = $this->buildInventoryDailyMatrixIdentityKey('DIVISION', $movementRow);
+            if (!isset($movementByIdentity[$identityKey])) {
+                $movementByIdentity[$identityKey] = [];
+            }
+            $movementDate = (string)($movementRow['movement_date'] ?? '');
+            if ($movementDate === '') {
+                continue;
+            }
+            $movementByIdentity[$identityKey][$movementDate] = $movementRow;
+        }
+
+        $baseIdentitySet = [];
+        $baseGroupKeys = [];
+        foreach ($baseRows as $baseRow) {
+            $identityKey = $this->buildInventoryDailyMatrixIdentityKey('DIVISION', $baseRow);
+            $baseIdentitySet[$identityKey] = true;
+            $groupKey = $this->build_material_daily_group_key($baseRow);
+            if (!isset($baseGroupKeys[$groupKey])) {
+                $baseGroupKeys[$groupKey] = true;
+            }
+        }
+
+        $mismatchByGroup = [];
+        foreach ($movementRows as $movementRow) {
+            $identityKey = $this->buildInventoryDailyMatrixIdentityKey('DIVISION', $movementRow);
+            if (isset($baseIdentitySet[$identityKey])) {
+                continue;
+            }
+            $groupKey = $this->build_material_daily_group_key($movementRow);
+            if (!isset($baseGroupKeys[$groupKey])) {
+                continue;
+            }
+            if (!isset($mismatchByGroup[$groupKey])) {
+                $mismatchByGroup[$groupKey] = [
+                    'audit_has_mismatch' => 0,
+                    'audit_mismatch_row_count' => 0,
+                    'audit_mismatch_qty_content' => 0.0,
+                    'audit_mismatch_notes' => [],
+                ];
+            }
+            $mismatchByGroup[$groupKey]['audit_has_mismatch'] = 1;
+            $mismatchByGroup[$groupKey]['audit_mismatch_row_count'] += 1;
+            $mismatchByGroup[$groupKey]['audit_mismatch_qty_content'] = round(
+                (float)$mismatchByGroup[$groupKey]['audit_mismatch_qty_content'] + (float)($movementRow['closing_qty_content'] ?? 0),
+                4
+            );
+            $note = trim((string)($movementRow['profile_name'] ?? ''));
+            if ($note === '') {
+                $note = 'fallback ' . (string)($movementRow['buy_uom_id'] ?? 0) . '->' . (string)($movementRow['content_uom_id'] ?? 0);
+            }
+            $mismatchByGroup[$groupKey]['audit_mismatch_notes'][$note] = true;
+        }
+
+        $dailyRows = [];
+        foreach ($baseRows as $baseRow) {
+            $identityKey = $this->buildInventoryDailyMatrixIdentityKey('DIVISION', $baseRow);
+            $dayMap = $movementByIdentity[$identityKey] ?? [];
+            $groupKey = $this->build_material_daily_group_key($baseRow);
+            $mismatchMeta = $mismatchByGroup[$groupKey] ?? [
+                'audit_has_mismatch' => 0,
+                'audit_mismatch_row_count' => 0,
+                'audit_mismatch_qty_content' => 0.0,
+                'audit_mismatch_notes' => [],
+            ];
+
+            $nextClosingBuy = round((float)($baseRow['qty_buy_balance'] ?? 0), 4);
+            $nextClosingContent = round((float)($baseRow['qty_content_balance'] ?? 0), 4);
+            $avgCost = round((float)($baseRow['avg_cost_per_content'] ?? 0), 6);
+            $totalValue = round((float)($baseRow['qty_content_balance'] ?? 0) * $avgCost, 2);
+
+            for ($i = count($dates) - 1; $i >= 0; $i--) {
+                $day = (string)$dates[$i];
+                $existingRow = $dayMap[$day] ?? null;
+                $row = $this->build_division_daily_base_day_row($baseRow, $day, $existingRow);
+                $adjustmentContent = round($this->resolveDailyMatrixAdjustmentQtyContent($row), 4);
+                $adjustmentBuy = round($this->resolveDailyMatrixAdjustmentQtyBuy($row), 4);
+                $deltaContent = round(
+                    (float)($row['in_qty_content'] ?? 0)
+                    - (float)($row['out_qty_content'] ?? 0)
+                    + $adjustmentContent,
+                    4
+                );
+                $deltaBuy = round(
+                    (float)($row['in_qty_buy'] ?? 0)
+                    - (float)($row['out_qty_buy'] ?? 0)
+                    + $adjustmentBuy,
+                    4
+                );
+
+                $row['closing_qty_buy'] = $nextClosingBuy;
+                $row['closing_qty_content'] = $nextClosingContent;
+                $row['opening_qty_buy'] = round($nextClosingBuy - $deltaBuy, 4);
+                $row['opening_qty_content'] = round($nextClosingContent - $deltaContent, 4);
+                $row['closing_qty_pack'] = round((float)$row['closing_qty_buy'], 4);
+                $row['opening_qty_pack'] = round((float)$row['opening_qty_buy'], 4);
+                $row['adjustment_qty_pack'] = round((float)$adjustmentBuy, 4);
+                $row['avg_cost_per_content'] = $avgCost;
+                $row['total_value'] = $i === count($dates) - 1
+                    ? $totalValue
+                    : round((float)$row['closing_qty_content'] * $avgCost, 2);
+                $row['audit_has_mismatch'] = (int)$mismatchMeta['audit_has_mismatch'];
+                $row['audit_mismatch_row_count'] = (int)$mismatchMeta['audit_mismatch_row_count'];
+                $row['audit_mismatch_qty_content'] = round((float)$mismatchMeta['audit_mismatch_qty_content'], 4);
+                $row['audit_mismatch_notes'] = implode(', ', array_keys((array)$mismatchMeta['audit_mismatch_notes']));
+
+                $dailyRows[] = $row;
+                $nextClosingBuy = round((float)$row['opening_qty_buy'], 4);
+                $nextClosingContent = round((float)$row['opening_qty_content'], 4);
+            }
+        }
+
+        return $dailyRows;
+    }
+
+    private function build_division_daily_base_day_row(array $baseRow, string $day, ?array $existingRow = null): array
+    {
+        $row = $existingRow ?? [];
+        $row['movement_date'] = $day;
+        $row['division_id'] = isset($baseRow['division_id']) ? (int)$baseRow['division_id'] : null;
+        $row['division_code'] = (string)($baseRow['division_code'] ?? '');
+        $row['division_name'] = (string)($baseRow['division_name'] ?? '');
+        $row['destination_type'] = (string)($baseRow['destination_type'] ?? 'OTHER');
+        $row['destination_group'] = (string)($baseRow['destination_group'] ?? 'REGULER');
+        $row['destination_name'] = (string)($baseRow['destination_name'] ?? 'Reguler');
+        $row['stock_domain'] = 'ITEM';
+        $row['item_id'] = (int)($baseRow['item_id'] ?? 0);
+        $row['material_id'] = (int)($baseRow['material_id'] ?? 0);
+        $row['buy_uom_id'] = (int)($baseRow['buy_uom_id'] ?? 0);
+        $row['content_uom_id'] = (int)($baseRow['content_uom_id'] ?? 0);
+        $row['item_code'] = (string)($baseRow['item_code'] ?? '');
+        $row['item_name'] = (string)($baseRow['item_name'] ?? '');
+        $row['material_code'] = (string)($baseRow['material_code'] ?? '');
+        $row['material_name'] = (string)($baseRow['material_name'] ?? '');
+        $row['profile_key'] = (string)($baseRow['profile_key'] ?? '');
+        $row['profile_name'] = (string)($baseRow['profile_name'] ?? '');
+        $row['profile_brand'] = (string)($baseRow['profile_brand'] ?? '');
+        $row['profile_description'] = (string)($baseRow['profile_description'] ?? '');
+        $row['profile_expired_date'] = (string)($baseRow['profile_expired_date'] ?? '');
+        $row['profile_content_per_buy'] = round((float)($baseRow['profile_content_per_buy'] ?? 0), 6);
+        $row['profile_buy_uom_code'] = (string)($baseRow['profile_buy_uom_code'] ?? '');
+        $row['profile_content_uom_code'] = (string)($baseRow['profile_content_uom_code'] ?? '');
+        foreach ([
+            'in_qty_buy',
+            'in_qty_content',
+            'out_qty_buy',
+            'out_qty_content',
+            'adjustment_qty_buy',
+            'adjustment_qty_content',
+            'discarded_qty_buy',
+            'discarded_qty_content',
+            'spoil_qty_buy',
+            'spoil_qty_content',
+            'waste_qty_buy',
+            'waste_qty_content',
+            'process_loss_qty_buy',
+            'process_loss_qty_content',
+            'variance_qty_buy',
+            'variance_qty_content',
+            'adjustment_plus_qty_buy',
+            'adjustment_plus_qty_content',
+            'waste_total_value',
+            'spoilage_total_value',
+            'process_loss_total_value',
+            'variance_total_value',
+            'adjustment_plus_total_value',
+            'mutation_count',
+        ] as $field) {
+            if (!isset($row[$field])) {
+                $row[$field] = 0;
+            }
+        }
+
+        return $row;
+    }
+
+    private function build_material_daily_rows_from_monthly_base(
+        string $q,
+        ?int $divisionId,
+        string $dateFrom,
+        string $dateTo,
+        array $dates,
+        int $limit,
+        ?string $destinationFilter = null
+    ): array {
+        $baseRows = $this->fetch_material_daily_monthly_base_rows($q, $divisionId, $dateTo, $limit, $destinationFilter);
+        if (empty($baseRows)) {
+            return [];
+        }
+
+        $movementRows = [];
+        if ($this->db->table_exists('inv_stock_movement_log')) {
+            $movementRows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
+                'DIVISION',
+                '',
+                $divisionId,
+                $dateFrom,
+                $dateTo,
+                $destinationFilter,
+                true
+            );
+            $movementRows = $this->normalizeDivisionProfileKeyRows($movementRows);
+        }
+
+        $movementByIdentity = [];
+        foreach ($movementRows as $movementRow) {
+            $identityKey = $this->buildInventoryDailyMatrixIdentityKey('DIVISION', $movementRow);
+            if (!isset($movementByIdentity[$identityKey])) {
+                $movementByIdentity[$identityKey] = [];
+            }
+            $movementDate = (string)($movementRow['movement_date'] ?? '');
+            if ($movementDate === '') {
+                continue;
+            }
+            $movementByIdentity[$identityKey][$movementDate] = $movementRow;
+        }
+
+        $baseIdentitySet = [];
+        $baseGroupKeys = [];
+        foreach ($baseRows as $baseRow) {
+            $identityKey = $this->buildInventoryDailyMatrixIdentityKey('DIVISION', $baseRow);
+            $baseIdentitySet[$identityKey] = true;
+            $groupKey = $this->build_material_daily_group_key($baseRow);
+            if (!isset($baseGroupKeys[$groupKey])) {
+                $baseGroupKeys[$groupKey] = [
+                    'division_id' => (int)($baseRow['division_id'] ?? 0),
+                    'destination_group' => strtoupper(trim((string)($baseRow['destination_group'] ?? 'REGULER'))),
+                    'item_id' => (int)($baseRow['item_id'] ?? 0),
+                    'material_id' => (int)($baseRow['material_id'] ?? 0),
+                ];
+            }
+        }
+
+        $mismatchByGroup = [];
+        foreach ($movementRows as $movementRow) {
+            $identityKey = $this->buildInventoryDailyMatrixIdentityKey('DIVISION', $movementRow);
+            if (isset($baseIdentitySet[$identityKey])) {
+                continue;
+            }
+            $groupKey = $this->build_material_daily_group_key($movementRow);
+            if (!isset($baseGroupKeys[$groupKey])) {
+                continue;
+            }
+            if (!isset($mismatchByGroup[$groupKey])) {
+                $mismatchByGroup[$groupKey] = [
+                    'audit_has_mismatch' => 0,
+                    'audit_mismatch_row_count' => 0,
+                    'audit_mismatch_qty_content' => 0.0,
+                    'audit_mismatch_notes' => [],
+                ];
+            }
+            $mismatchByGroup[$groupKey]['audit_has_mismatch'] = 1;
+            $mismatchByGroup[$groupKey]['audit_mismatch_row_count'] += 1;
+            $mismatchByGroup[$groupKey]['audit_mismatch_qty_content'] = round(
+                (float)$mismatchByGroup[$groupKey]['audit_mismatch_qty_content'] + (float)($movementRow['closing_qty_content'] ?? 0),
+                4
+            );
+            $note = trim((string)($movementRow['profile_name'] ?? ''));
+            if ($note === '') {
+                $note = 'fallback ' . (string)($movementRow['buy_uom_id'] ?? 0) . '->' . (string)($movementRow['content_uom_id'] ?? 0);
+            }
+            $mismatchByGroup[$groupKey]['audit_mismatch_notes'][$note] = true;
+        }
+
+        $dailyRows = [];
+        foreach ($baseRows as $baseRow) {
+            $identityKey = $this->buildInventoryDailyMatrixIdentityKey('DIVISION', $baseRow);
+            $dayMap = $movementByIdentity[$identityKey] ?? [];
+            $groupKey = $this->build_material_daily_group_key($baseRow);
+            $mismatchMeta = $mismatchByGroup[$groupKey] ?? [
+                'audit_has_mismatch' => 0,
+                'audit_mismatch_row_count' => 0,
+                'audit_mismatch_qty_content' => 0.0,
+                'audit_mismatch_notes' => [],
+            ];
+
+            $nextClosingBuy = round((float)($baseRow['qty_buy_balance'] ?? 0), 4);
+            $nextClosingContent = round((float)($baseRow['qty_content_balance'] ?? 0), 4);
+            $avgCost = round((float)($baseRow['avg_cost_per_content'] ?? 0), 6);
+            $totalValue = round((float)($baseRow['total_value'] ?? ($nextClosingContent * $avgCost)), 2);
+
+            for ($i = count($dates) - 1; $i >= 0; $i--) {
+                $day = (string)$dates[$i];
+                $existingRow = $dayMap[$day] ?? null;
+                $row = $this->build_material_daily_base_day_row($baseRow, $day, $existingRow);
+                $adjustmentContent = round($this->resolveDailyMatrixAdjustmentQtyContent($row), 4);
+                $adjustmentBuy = round($this->resolveDailyMatrixAdjustmentQtyBuy($row), 4);
+                $deltaContent = round(
+                    (float)($row['in_qty_content'] ?? 0)
+                    - (float)($row['out_qty_content'] ?? 0)
+                    + $adjustmentContent,
+                    4
+                );
+                $deltaBuy = round(
+                    (float)($row['in_qty_buy'] ?? 0)
+                    - (float)($row['out_qty_buy'] ?? 0)
+                    + $adjustmentBuy,
+                    4
+                );
+
+                $row['closing_qty_buy'] = $nextClosingBuy;
+                $row['closing_qty_content'] = $nextClosingContent;
+                $row['opening_qty_buy'] = round($nextClosingBuy - $deltaBuy, 4);
+                $row['opening_qty_content'] = round($nextClosingContent - $deltaContent, 4);
+                $row['avg_cost_per_content'] = $avgCost;
+                $row['total_value'] = $i === count($dates) - 1
+                    ? $totalValue
+                    : round((float)$row['closing_qty_content'] * $avgCost, 2);
+                $row['audit_has_mismatch'] = (int)$mismatchMeta['audit_has_mismatch'];
+                $row['audit_mismatch_row_count'] = (int)$mismatchMeta['audit_mismatch_row_count'];
+                $row['audit_mismatch_qty_content'] = round((float)$mismatchMeta['audit_mismatch_qty_content'], 4);
+                $row['audit_mismatch_notes'] = implode(', ', array_keys((array)$mismatchMeta['audit_mismatch_notes']));
+
+                $dailyRows[] = $row;
+                $nextClosingBuy = round((float)$row['opening_qty_buy'], 4);
+                $nextClosingContent = round((float)$row['opening_qty_content'], 4);
+            }
+        }
+
+        return $this->pivotDailyRows($dailyRows, $limit);
+    }
+
+    private function fetch_material_daily_monthly_base_rows(
+        string $q,
+        ?int $divisionId,
+        string $dateTo,
+        int $limit,
+        ?string $destinationFilter = null
+    ): array {
+        if (!$this->db->table_exists('inv_division_monthly_stock')) {
+            return [];
+        }
+
+        $targetMonth = date('Y-m-01', strtotime($dateTo ?: date('Y-m-d')));
+        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+        $limit = max(1, min(1000, $limit));
+        $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+            ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $divisionCodeSelect = $divisionCodeColumn !== null ? ('d.' . $divisionCodeColumn . ' AS division_code') : 'CAST(s.division_id AS CHAR) AS division_code';
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+        $latestMonthSubquery = $this->db
+            ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
+            ->from('inv_division_monthly_stock')
+            ->where('month_key <=', $targetMonth)
+            ->group_by(['division_id', 'destination_type', 'identity_key'])
+            ->get_compiled_select();
+        $destinationGroupExpr = "CASE
+                WHEN COALESCE(s.destination_type, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'
+                ELSE 'REGULER'
+            END";
+        $destinationNameExpr = "CASE COALESCE(s.destination_type, 'OTHER')
+                WHEN 'BAR' THEN 'Bar Reguler'
+                WHEN 'KITCHEN' THEN 'Kitchen Reguler'
+                WHEN 'BAR_EVENT' THEN 'Bar Event'
+                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'
+                WHEN 'OFFICE' THEN 'Office Reguler'
+                WHEN 'GUDANG' THEN 'Gudang'
+                ELSE 'Reguler'
+            END";
+
+        $this->db
+            ->select('s.id, "MATERIAL" AS stock_domain, s.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect . ', s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id', false)
+            ->select('s.destination_type AS destination_type', false)
+            ->select($destinationGroupExpr . ' AS destination_group', false)
+            ->select($destinationNameExpr . ' AS destination_name', false)
+            ->select('i.item_code, i.item_name, m.material_code, m.material_name')
+            ->select('s.profile_key, s.profile_name, s.profile_brand, s.profile_description, s.profile_expired_date')
+            ->select('s.profile_content_per_buy, s.profile_buy_uom_code, s.profile_content_uom_code')
+            ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content, s.total_value')
+            ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
+            ->from('inv_division_monthly_stock s')
+            ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+            ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
+            ->join('mst_item i', 'i.id = s.item_id', 'left')
+            ->join('mst_material m', 'm.id = COALESCE(s.material_id, i.material_id)', 'left')
+            ->where('COALESCE(s.material_id, i.material_id) IS NOT NULL', null, false);
+
+        if ($divisionId !== null && $divisionId > 0) {
+            $this->db->where('s.division_id', $divisionId);
+        }
+        if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
+            if ($destinationFilter === 'REGULER') {
+                $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } elseif ($destinationFilter === 'EVENT') {
+                $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } else {
+                $this->db->where('s.destination_type', $destinationFilter);
+            }
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('i.item_code', $q)
+                ->or_like('i.item_name', $q)
+                ->or_like('m.material_code', $q)
+                ->or_like('m.material_name', $q)
+                ->or_like('s.profile_name', $q)
+                ->or_like('s.profile_brand', $q)
+                ->or_like('s.profile_description', $q)
+                ->or_like('s.profile_key', $q)
+                ->group_end();
+        }
+
+        return $this->db
+            ->order_by($divisionNameColumn !== null ? ('d.' . $divisionNameColumn) : 's.division_id', 'ASC')
+            ->order_by($destinationGroupExpr, 'ASC', false)
+            ->order_by('m.material_name', 'ASC')
+            ->order_by('s.profile_name', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+    }
+
+    private function build_material_daily_base_day_row(array $baseRow, string $day, ?array $existingRow = null): array
+    {
+        $row = $existingRow ?? [];
+        $row['movement_date'] = $day;
+        $row['division_id'] = isset($baseRow['division_id']) ? (int)$baseRow['division_id'] : null;
+        $row['division_code'] = (string)($baseRow['division_code'] ?? '');
+        $row['division_name'] = (string)($baseRow['division_name'] ?? '');
+        $row['destination_type'] = (string)($baseRow['destination_type'] ?? 'OTHER');
+        $row['destination_group'] = (string)($baseRow['destination_group'] ?? 'REGULER');
+        $row['destination_name'] = (string)($baseRow['destination_name'] ?? 'Reguler');
+        $row['stock_domain'] = 'MATERIAL';
+        $row['item_id'] = (int)($baseRow['item_id'] ?? 0);
+        $row['material_id'] = (int)($baseRow['material_id'] ?? 0);
+        $row['buy_uom_id'] = (int)($baseRow['buy_uom_id'] ?? 0);
+        $row['content_uom_id'] = (int)($baseRow['content_uom_id'] ?? 0);
+        $row['item_code'] = (string)($baseRow['item_code'] ?? '');
+        $row['item_name'] = (string)($baseRow['item_name'] ?? '');
+        $row['material_code'] = (string)($baseRow['material_code'] ?? '');
+        $row['material_name'] = (string)($baseRow['material_name'] ?? '');
+        $row['profile_key'] = (string)($baseRow['profile_key'] ?? '');
+        $row['profile_name'] = (string)($baseRow['profile_name'] ?? '');
+        $row['profile_brand'] = (string)($baseRow['profile_brand'] ?? '');
+        $row['profile_description'] = (string)($baseRow['profile_description'] ?? '');
+        $row['profile_expired_date'] = (string)($baseRow['profile_expired_date'] ?? '');
+        $row['profile_content_per_buy'] = round((float)($baseRow['profile_content_per_buy'] ?? 0), 6);
+        $row['profile_buy_uom_code'] = (string)($baseRow['profile_buy_uom_code'] ?? '');
+        $row['profile_content_uom_code'] = (string)($baseRow['profile_content_uom_code'] ?? '');
+        foreach ([
+            'in_qty_buy',
+            'in_qty_content',
+            'out_qty_buy',
+            'out_qty_content',
+            'adjustment_qty_buy',
+            'adjustment_qty_content',
+            'discarded_qty_buy',
+            'discarded_qty_content',
+            'spoil_qty_buy',
+            'spoil_qty_content',
+            'waste_qty_buy',
+            'waste_qty_content',
+            'process_loss_qty_buy',
+            'process_loss_qty_content',
+            'variance_qty_buy',
+            'variance_qty_content',
+            'adjustment_plus_qty_buy',
+            'adjustment_plus_qty_content',
+            'waste_total_value',
+            'spoilage_total_value',
+            'process_loss_total_value',
+            'variance_total_value',
+            'adjustment_plus_total_value',
+            'mutation_count',
+        ] as $field) {
+            if (!isset($row[$field])) {
+                $row[$field] = 0;
+            }
+        }
+
+        return $row;
+    }
+
+    private function build_material_daily_group_key(array $row): string
+    {
+        $destinationGroup = strtoupper(trim((string)($row['destination_group'] ?? 'REGULER')));
+        return implode('|', [
+            (int)($row['division_id'] ?? 0),
+            $destinationGroup,
+            (int)($row['material_id'] ?? 0),
+            (int)($row['item_id'] ?? 0),
+        ]);
     }
 
     private function fetchMaterialDailySourceRows(string $q, ?int $divisionId, string $dateFrom, string $dateTo, ?string $destinationFilter = null): array
@@ -2036,6 +2587,9 @@ class Purchase_model extends CI_Model
             $dailyContent = (float)($daily['qty_content'] ?? 0);
             $matrixContent = (float)($matrix['qty_content'] ?? 0);
             $movementContent = (float)($movement['qty_content'] ?? 0);
+            if (abs($balanceContent) < 0.0001) {
+                continue;
+            }
 
             $deltaBalanceVsMovement = round($balanceContent - $movementContent, 4);
             $deltaDailyVsMovement = round($dailyContent - $movementContent, 4);
@@ -2080,6 +2634,9 @@ class Purchase_model extends CI_Model
                 'delta_matrix_vs_movement' => $deltaMatrixVsMovement,
                 'daily_date' => (string)($daily['_meta']['latest_date'] ?? ''),
                 'movement_date' => (string)($movement['_meta']['latest_date'] ?? ''),
+                'daily_audit_has_mismatch' => (int)($daily['_meta']['audit_has_mismatch'] ?? 0),
+                'daily_audit_mismatch_qty_content' => (float)($daily['_meta']['audit_mismatch_qty_content'] ?? 0),
+                'daily_audit_mismatch_notes' => (string)($daily['_meta']['audit_mismatch_notes'] ?? ''),
                 'suspect_table' => (string)($verdict['suspect_table'] ?? 'MATCH'),
                 'suspect_reason' => (string)($verdict['reason'] ?? ''),
                 'is_match' => $matches ? 1 : 0,
@@ -2124,40 +2681,65 @@ class Purchase_model extends CI_Model
 
     private function list_division_daily_snapshot_latest_closing(string $asOfDate, string $q, ?int $divisionId, ?string $destinationFilter = null): array
     {
-        if ($this->db->table_exists('inv_stock_movement_log')) {
-            $rows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
-                'DIVISION',
+        if ($this->db->table_exists('inv_division_monthly_stock')) {
+            $monthStart = date('Y-m-01', strtotime($asOfDate));
+            $rows = $this->build_division_daily_rows_from_monthly_base(
                 $q,
                 $divisionId,
-                '2000-01-01',
+                $monthStart,
                 $asOfDate,
-                $destinationFilter,
-                true
+                5000,
+                $destinationFilter
             );
-            $rows = $this->normalizeDivisionProfileKeyRows($rows);
 
             $latestRows = [];
             foreach ($rows as $row) {
-                $identityKey = implode('|', [
-                    (int)($row['division_id'] ?? 0),
-                    strtoupper((string)($row['destination_type'] ?? 'OTHER')),
-                    (int)($row['item_id'] ?? 0),
-                    (int)($row['material_id'] ?? 0),
-                    (int)($row['buy_uom_id'] ?? 0),
-                    (int)($row['content_uom_id'] ?? 0),
-                    strtoupper(trim((string)($row['profile_key'] ?? ''))),
-                ]);
-                $packSize = (float)($row['profile_content_per_buy'] ?? 0);
-                $row['closing_qty_pack'] = $packSize > 0
-                    ? round((float)($row['closing_qty_content'] ?? 0) / $packSize, 4)
-                    : 0.0;
+                $identityKey = $this->buildInventoryDailyMatrixIdentityKey('DIVISION', $row);
                 $latestRows[$identityKey] = $row;
             }
 
             return array_values($latestRows);
         }
 
-        return [];
+        return $this->list_division_daily_snapshot_latest_closing_raw_movement($asOfDate, $q, $divisionId, $destinationFilter);
+    }
+
+    private function list_division_daily_snapshot_latest_closing_raw_movement(string $asOfDate, string $q, ?int $divisionId, ?string $destinationFilter = null): array
+    {
+        if (!$this->db->table_exists('inv_stock_movement_log')) {
+            return [];
+        }
+
+        $rows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
+            'DIVISION',
+            $q,
+            $divisionId,
+            '2000-01-01',
+            $asOfDate,
+            $destinationFilter,
+            true
+        );
+        $rows = $this->normalizeDivisionProfileKeyRows($rows);
+
+        $latestRows = [];
+        foreach ($rows as $row) {
+            $identityKey = implode('|', [
+                (int)($row['division_id'] ?? 0),
+                strtoupper((string)($row['destination_type'] ?? 'OTHER')),
+                (int)($row['item_id'] ?? 0),
+                (int)($row['material_id'] ?? 0),
+                (int)($row['buy_uom_id'] ?? 0),
+                (int)($row['content_uom_id'] ?? 0),
+                strtoupper(trim((string)($row['profile_key'] ?? ''))),
+            ]);
+            $packSize = (float)($row['profile_content_per_buy'] ?? 0);
+            $row['closing_qty_pack'] = $packSize > 0
+                ? round((float)($row['closing_qty_content'] ?? 0) / $packSize, 4)
+                : 0.0;
+            $latestRows[$identityKey] = $row;
+        }
+
+        return array_values($latestRows);
     }
 
     private function normalizeDivisionProfileKeyRows(array $rows): array
@@ -3040,6 +3622,9 @@ class Purchase_model extends CI_Model
                         'material_code' => (string)($row['material_code'] ?? ''),
                         'material_name' => (string)($row['material_name'] ?? ($row['item_name'] ?? '')),
                         'latest_date' => (string)($row['movement_date'] ?? ''),
+                        'audit_has_mismatch' => 0,
+                        'audit_mismatch_qty_content' => 0.0,
+                        'audit_mismatch_notes' => '',
                     ],
                 ];
             }
@@ -3047,6 +3632,16 @@ class Purchase_model extends CI_Model
             $rowDate = (string)($row['movement_date'] ?? '');
             if ($rowDate !== '' && $rowDate >= (string)($map[$key]['_meta']['latest_date'] ?? '')) {
                 $map[$key]['_meta']['latest_date'] = $rowDate;
+            }
+            if (!empty($row['audit_has_mismatch'])) {
+                $map[$key]['_meta']['audit_has_mismatch'] = 1;
+                $map[$key]['_meta']['audit_mismatch_qty_content'] = round(
+                    (float)($map[$key]['_meta']['audit_mismatch_qty_content'] ?? 0) + (float)($row['audit_mismatch_qty_content'] ?? 0),
+                    4
+                );
+                $noteParts = array_filter(array_map('trim', explode(',', (string)($row['audit_mismatch_notes'] ?? ''))));
+                $existingParts = array_filter(array_map('trim', explode(',', (string)($map[$key]['_meta']['audit_mismatch_notes'] ?? ''))));
+                $map[$key]['_meta']['audit_mismatch_notes'] = implode(', ', array_values(array_unique(array_merge($existingParts, $noteParts))));
             }
 
             if ($source === 'balance') {
@@ -3139,7 +3734,7 @@ class Purchase_model extends CI_Model
         // sudah tersedia rekonstruksi closing dari delta movement yang lebih sehat.
         // Namun bentuk row yang dikembalikan tetap harus mengikuti kontrak
         // source `movement`, yaitu memakai `qty_buy_after` / `qty_content_after`.
-        $rows = $this->list_division_daily_snapshot_latest_closing($asOfDate, $q, $divisionId, $destinationFilter);
+        $rows = $this->list_division_daily_snapshot_latest_closing_raw_movement($asOfDate, $q, $divisionId, $destinationFilter);
         foreach ($rows as &$row) {
             $row['qty_buy_after'] = round((float)($row['closing_qty_pack'] ?? 0), 4);
             $row['qty_content_after'] = round((float)($row['closing_qty_content'] ?? 0), 4);
@@ -4115,6 +4710,12 @@ class Purchase_model extends CI_Model
         }
 
         $materialId = $materialId > 0 ? $materialId : null;
+        if ($stockScope === 'DIVISION' && $materialId === null) {
+            return [
+                'ok' => false,
+                'message' => 'Opening stok divisi wajib punya material_id. Gunakan item/profile bahan baku yang terhubung ke master material.',
+            ];
+        }
         $stockDomain = $this->resolveLegacyIdentityStockDomain(
             $itemId > 0 ? $itemId : null,
             $materialId,
@@ -5042,15 +5643,26 @@ class Purchase_model extends CI_Model
         } else {
             $payload['status'] = 'DRAFT';
             $payload['created_by'] = $userId > 0 ? $userId : null;
-            $this->db->insert('inv_stock_adjustment', $payload);
+            $inserted = $this->db->insert('inv_stock_adjustment', $payload);
+            if (!$inserted) {
+                $dbError = $this->db->error();
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Gagal menyimpan header adjustment: ' . (string)($dbError['message'] ?? 'unknown error')];
+            }
             $id = (int)$this->db->insert_id();
         }
 
         $lineNo = 1;
         foreach ($preparedLines as $preparedLine) {
+            unset($preparedLine['stock_domain']);
             $preparedLine['adjustment_id'] = $id;
             $preparedLine['line_no'] = $lineNo++;
-            $this->db->insert('inv_stock_adjustment_line', $preparedLine);
+            $inserted = $this->db->insert('inv_stock_adjustment_line', $preparedLine);
+            if (!$inserted) {
+                $dbError = $this->db->error();
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Gagal menyimpan line adjustment: ' . (string)($dbError['message'] ?? 'unknown error')];
+            }
         }
 
         if ($this->db->trans_status() === false) {
@@ -5654,12 +6266,11 @@ class Purchase_model extends CI_Model
                 continue;
             }
 
-            $hasMutation = round((float)($line['qty_waste_content'] ?? 0), 4) > 0
+            $hasNegativeMutation = round((float)($line['qty_waste_content'] ?? 0), 4) > 0
                 || round((float)($line['qty_spoil_content'] ?? 0), 4) > 0
                 || round((float)($line['qty_process_loss_content'] ?? 0), 4) > 0
-                || round((float)($line['qty_variance_content'] ?? 0), 4) > 0
-                || round((float)($line['qty_adjustment_plus_content'] ?? 0), 4) > 0;
-            if (!$hasMutation) {
+                || round((float)($line['qty_variance_content'] ?? 0), 4) > 0;
+            if (!$hasNegativeMutation) {
                 continue;
             }
 
@@ -7898,8 +8509,6 @@ class Purchase_model extends CI_Model
         if ($divisionId !== null && $divisionId > 0) {
             $this->db->where('s.division_id', $divisionId);
         }
-
-        $this->db->where('(COALESCE(s.closing_qty_buy, 0) <> 0 OR COALESCE(s.closing_qty_content, 0) <> 0)', null, false);
 
         if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
             if ($destinationFilter === 'REGULER') {
@@ -13459,6 +14068,14 @@ class Purchase_model extends CI_Model
             $stockWriteCtx = $this->resolveCanonicalStockWriteContext($poLine, $usagePurpose);
             $stockItemId = $this->nullableInt($stockWriteCtx['item_id'] ?? null);
             $stockMaterialId = $this->nullableInt($stockWriteCtx['material_id'] ?? null);
+            $movementScope = $destinationType === 'GUDANG' ? 'WAREHOUSE' : 'DIVISION';
+            if ($movementScope === 'DIVISION' && $stockMaterialId === null) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Receipt ke stok divisi wajib punya material_id canonical. Pilih profile bahan baku yang terhubung ke material sebelum terima barang.',
+                ];
+            }
 
             $receiptLineData = [
                 'purchase_receipt_id' => $receiptId,
@@ -13522,7 +14139,6 @@ class Purchase_model extends CI_Model
                 ];
             }
 
-            $movementScope = $destinationType === 'GUDANG' ? 'WAREHOUSE' : 'DIVISION';
             $unitPrice = (float)($poLine['unit_price'] ?? 0);
             $unitCost = $factor > 0 ? round($unitPrice / $factor, 6) : 0;
 
@@ -15848,6 +16464,10 @@ class Purchase_model extends CI_Model
                     'profile_content_uom_code' => (string)($row['profile_content_uom_code'] ?? ''),
                     'profile_standard_price' => round((float)($row['profile_standard_price'] ?? 0), 2),
                     'profile_last_unit_price' => round((float)($row['profile_last_unit_price'] ?? 0), 2),
+                    'audit_has_mismatch' => (int)($row['audit_has_mismatch'] ?? 0),
+                    'audit_mismatch_row_count' => (int)($row['audit_mismatch_row_count'] ?? 0),
+                    'audit_mismatch_qty_content' => round((float)($row['audit_mismatch_qty_content'] ?? 0), 4),
+                    'audit_mismatch_notes' => (string)($row['audit_mismatch_notes'] ?? ''),
                     'daily' => [],
                     'summary' => [
                         'in_total' => 0.0,
@@ -15890,6 +16510,17 @@ class Purchase_model extends CI_Model
             $pivot[$profileKey]['summary']['adjustment_total'] = round($pivot[$profileKey]['summary']['adjustment_total'] + $entry['adjustment'], 2);
             $pivot[$profileKey]['summary']['closing_last'] = $entry['closing'];
             $pivot[$profileKey]['summary']['total_value_last'] = $entry['total_value'];
+            if ((int)($row['audit_has_mismatch'] ?? 0) > 0) {
+                $pivot[$profileKey]['audit_has_mismatch'] = 1;
+                $pivot[$profileKey]['audit_mismatch_row_count'] = max(
+                    (int)$pivot[$profileKey]['audit_mismatch_row_count'],
+                    (int)($row['audit_mismatch_row_count'] ?? 0)
+                );
+                $pivot[$profileKey]['audit_mismatch_qty_content'] = round((float)($row['audit_mismatch_qty_content'] ?? 0), 4);
+                if (trim((string)($row['audit_mismatch_notes'] ?? '')) !== '') {
+                    $pivot[$profileKey]['audit_mismatch_notes'] = (string)$row['audit_mismatch_notes'];
+                }
+            }
         }
 
         return array_values($pivot);

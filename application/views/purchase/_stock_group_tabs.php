@@ -15,11 +15,11 @@ if ($tabScope === 'DIVISION') {
         ['key' => 'daily_matrix', 'label' => 'Daily Material Matrix', 'url' => site_url('inventory-material-daily')],
         ['key' => 'stock',        'label' => 'Stok Divisi',            'url' => site_url('inventory/stock/division')],
         ['key' => 'opening',      'label' => 'Opening',                'url' => site_url('inventory/stock/opening/division')],
-        ['key' => 'daily_recon',  'label' => 'Daily Recon',            'url' => site_url('inventory/stock/daily-recon/division')],
+        ['key' => 'daily_recon',  'label' => 'Daily Recon Divisi',     'url' => site_url('inventory/stock/daily-recon/division')],
         ['key' => 'adjustment',   'label' => 'Adjustment',             'url' => site_url('inventory/stock/adjustment/division')],
         ['key' => 'movement',     'label' => 'Keluar Masuk',           'url' => site_url('inventory/stock/division/movement')],
-        ['key' => 'daily',        'label' => 'Stok Bulanan / Daily',   'url' => site_url('inventory/stock/division/daily')],
-        ['key' => 'compare',      'label' => 'Banding Stok Akhir',     'url' => site_url('inventory/stock/division/reconcile')],
+        ['key' => 'daily',        'label' => 'Snapshot Harian Divisi', 'url' => site_url('inventory/stock/division/daily')],
+        ['key' => 'compare',      'label' => 'Rekonsiliasi Stok Akhir', 'url' => site_url('inventory/stock/division/reconcile')],
         ['key' => 'lot',          'label' => 'Lot',                    'url' => site_url('inventory/stock/division/lot')],
     ];
 } else {

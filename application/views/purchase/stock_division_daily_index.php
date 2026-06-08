@@ -115,6 +115,9 @@ foreach ($rowsData as $row) {
       'adjustment_plus_qty_content' => 0.0,
       'adjustment_plus_qty_pack' => 0.0,
       'adjustment_plus_value' => 0.0,
+      'audit_has_mismatch' => 0,
+      'audit_mismatch_qty_content' => 0.0,
+      'audit_mismatch_notes' => '',
       '_min_date' => null,
       '_max_date' => null,
     ];
@@ -179,6 +182,11 @@ foreach ($rowsData as $row) {
   $entry['variance_value'] += $varianceValue;
   $entry['adjustment_plus_qty_content'] += $adjustmentPlusQtyContent;
   $entry['adjustment_plus_value'] += $adjustmentPlusValue;
+  if (!empty($row['audit_has_mismatch'])) {
+    $entry['audit_has_mismatch'] = 1;
+    $entry['audit_mismatch_qty_content'] = (float)($row['audit_mismatch_qty_content'] ?? $entry['audit_mismatch_qty_content'] ?? 0);
+    $entry['audit_mismatch_notes'] = trim((string)($row['audit_mismatch_notes'] ?? $entry['audit_mismatch_notes'] ?? ''));
+  }
 
   if ($profileContentPerBuy > 0) {
     $entry['in_qty_pack'] += ($inQtyContent / $profileContentPerBuy);
@@ -285,6 +293,9 @@ foreach ($monthlyRows as $row) {
       'adjustment_plus_qty_content' => 0.0,
       'adjustment_plus_qty_pack' => 0.0,
       'adjustment_plus_value' => 0.0,
+      'audit_has_mismatch' => 0,
+      'audit_mismatch_qty_content' => 0.0,
+      'audit_mismatch_notes' => '',
       'adjustment_qty_content' => 0.0,
       'adjustment_qty_pack' => 0.0,
       'closing_qty_content' => 0.0,
@@ -320,6 +331,13 @@ foreach ($monthlyRows as $row) {
   }
 
   $parent['children'][] = $row;
+  if (!empty($row['audit_has_mismatch'])) {
+    $parent['audit_has_mismatch'] = 1;
+    $parent['audit_mismatch_qty_content'] += (float)($row['audit_mismatch_qty_content'] ?? 0);
+    $existingNotes = array_filter(array_map('trim', explode(',', (string)($parent['audit_mismatch_notes'] ?? ''))));
+    $rowNotes = array_filter(array_map('trim', explode(',', (string)($row['audit_mismatch_notes'] ?? ''))));
+    $parent['audit_mismatch_notes'] = implode(', ', array_values(array_unique(array_merge($existingNotes, $rowNotes))));
+  }
 }
 unset($parent);
 
@@ -339,6 +357,25 @@ usort($parentRows, static function (array $a, array $b): int {
   $bName = trim(($b['item_name'] ?? '') !== '' ? (string)$b['item_name'] : (string)($b['material_name'] ?? ''));
   return strcasecmp($aName, $bName);
 });
+foreach ($parentRows as &$parentRow) {
+  $parentRow['children'] = array_values(array_filter((array)($parentRow['children'] ?? []), static function (array $child): bool {
+    return abs(round((float)($child['closing_qty_content'] ?? 0), 2)) >= 0.01;
+  }));
+  $parentRow['profile_count'] = count((array)($parentRow['children'] ?? []));
+  usort($parentRow['children'], static function (array $a, array $b): int {
+    $aNonPositive = (float)($a['closing_qty_content'] ?? 0) <= 0.0001;
+    $bNonPositive = (float)($b['closing_qty_content'] ?? 0) <= 0.0001;
+    if ($aNonPositive !== $bNonPositive) {
+      return $aNonPositive ? 1 : -1;
+    }
+    return strcasecmp((string)($a['profile_name'] ?? ''), (string)($b['profile_name'] ?? ''));
+  });
+}
+unset($parentRow);
+
+$parentRows = array_values(array_filter($parentRows, static function (array $parentRow): bool {
+  return abs(round((float)($parentRow['closing_qty_content'] ?? 0), 2)) >= 0.01;
+}));
 
 foreach ($parentRows as &$parentRow) {
   $count = max(1, (int)($parentRow['profile_count'] ?? 0));
@@ -576,7 +613,8 @@ $formatDestination = static function (string $group): string {
                 $uomContent = (string)($singleChild['profile_content_uom_code'] ?? $uomContent);
               }
             ?>
-            <tr class="table-warning">
+            <?php $parentAlertClass = (!empty($parent['audit_has_mismatch']) || (float)($parent['closing_qty_content'] ?? 0) <= 0.0001) ? ' table-danger' : ' table-warning'; ?>
+            <tr class="<?php echo trim($parentAlertClass); ?>">
               <td>
                 <?php if ($isExpandable): ?>
                   <button type="button" class="btn btn-sm btn-outline-secondary sdd-toggle" data-target="<?php echo html_escape($rowId); ?>">+</button>
@@ -591,6 +629,9 @@ $formatDestination = static function (string $group): string {
               <td>
                 <?php if ($isExpandable): ?>
                   <strong><?php echo (int)($parent['profile_count'] ?? 0); ?> profil</strong>
+                  <?php if (!empty($parent['audit_has_mismatch'])): ?>
+                    <div><span class="badge bg-danger-subtle text-danger">Mismatch Log <?php echo ui_num((float)($parent['audit_mismatch_qty_content'] ?? 0)); ?></span></div>
+                  <?php endif; ?>
                 <?php else: ?>
                   <?php
                     $singleProfile = is_array($singleChild) ? $singleChild : [];
@@ -606,6 +647,9 @@ $formatDestination = static function (string $group): string {
                   ?>
                   <?php if (!empty($profileLines)): ?>
                     <?php echo implode('<br>', $profileLines); ?>
+                  <?php endif; ?>
+                  <?php if (!empty($parent['audit_has_mismatch'])): ?>
+                    <div class="small text-danger mt-1">Mismatch Log <?php echo ui_num((float)($parent['audit_mismatch_qty_content'] ?? 0)); ?></div>
                   <?php endif; ?>
                   <?php if (is_array($singleChild)): ?>
                     <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($singleChild)); ?>">Lihat Lot</a></div>
@@ -642,7 +686,8 @@ $formatDestination = static function (string $group): string {
                 $childUomContent = (string)($child['profile_content_uom_code'] ?? '');
                 $childAvgCostPack = (float)($child['avg_cost_per_content'] ?? 0) * (float)($child['profile_content_per_buy'] ?? 0);
               ?>
-              <tr class="table-light <?php echo html_escape($rowId); ?>" style="display:none;">
+              <?php $childAlertClass = (!empty($child['audit_has_mismatch']) || (float)($child['closing_qty_content'] ?? 0) <= 0.0001) ? 'table-danger' : 'table-light'; ?>
+              <tr class="<?php echo html_escape($childAlertClass . ' ' . $rowId); ?>" style="display:none;">
                 <td></td>
                 <td><small class="text-muted">Detail Profil</small></td>
                 <td></td>
@@ -651,6 +696,9 @@ $formatDestination = static function (string $group): string {
                   <?php echo html_escape((string)($child['profile_name'] ?? '-')); ?><br>
                   <small class="text-muted">Brand: <?php echo html_escape((string)($child['profile_brand'] ?? '-')); ?></small><br>
                   <small class="text-muted"><?php echo number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape($childUomContent); ?> / <?php echo html_escape($childUomPack); ?></small>
+                  <?php if (!empty($child['audit_has_mismatch'])): ?>
+                    <div class="small text-danger mt-1">Mismatch Log <?php echo ui_num((float)($child['audit_mismatch_qty_content'] ?? 0)); ?></div>
+                  <?php endif; ?>
                   <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($child)); ?>">Lihat Lot</a></div>
                 </td>
                 <td><?php echo html_escape($childUomPack); ?></td>

@@ -13,13 +13,26 @@ $links = [
 
 <style>
   .pos-master-label {
-    min-width: 88px;
+    width: 100%;
     font-size: .74rem;
     font-weight: 700;
     letter-spacing: .04em;
     text-transform: uppercase;
     color: #7a6d62;
-    padding-top: .35rem;
+    padding-top: .1rem;
+    margin-bottom: .2rem;
+  }
+  .pos-master-shell {
+    display:flex;
+    flex-direction:column;
+    gap:.45rem;
+    width:100%;
+  }
+  .pos-master-row {
+    display:flex;
+    flex-wrap:wrap;
+    gap:.55rem;
+    align-items:center;
   }
   .pos-master-pill {
     display: inline-flex;
@@ -46,9 +59,9 @@ $links = [
   }
 </style>
 
-<div class="d-flex flex-wrap gap-2 align-items-start mb-3">
+<div class="pos-master-shell mb-3">
   <div class="pos-master-label">Master POS</div>
-  <div class="d-flex flex-wrap gap-2">
+  <div class="pos-master-row">
     <?php foreach ($links as $link): ?>
       <?php if (!empty($link['enabled'])): ?>
         <a href="<?php echo $link['url']; ?>" class="pos-master-pill <?php echo $activeTab === $link['key'] ? 'is-active' : ''; ?>">

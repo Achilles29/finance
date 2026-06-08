@@ -2452,6 +2452,10 @@ class Procurement_model extends CI_Model
             ], $usagePurpose);
             $stockItemId = $this->nullable_int($stockWriteCtx['item_id'] ?? null);
             $stockMaterialId = $this->nullable_int($stockWriteCtx['material_id'] ?? null);
+            if ($usagePurpose !== self::USAGE_PURPOSE_OPERATIONAL && $stockMaterialId === null) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Fulfillment SR ke stok divisi wajib punya material_id canonical. Perbaiki mapping item/profile ke master material terlebih dahulu.'];
+            }
             $fifoIssueId = 0;
             $fifoIssueNo = null;
             if (!empty($stockWriteCtx['uses_material_fifo'])) {

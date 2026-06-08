@@ -133,3 +133,19 @@ masih banyak data kotor
 - cek inventory-material-daily itu ambil data dari mana? saya cek OREO CRUMB kok ada 2 baris, padahal di inv_division_monthly_stock hanya ada 1 baris. bukankah harusnya ambil data dari inv_division_monthly_stock berdasarkan filter bulannya?? CMIIW
 - berikan guarding PO / SR / Opening yang bisa masuk inv_division_monthly_stock harusnya hanya yang punya material_id (bahan baku)
 
+
+
+
+sql sudah saya jalankan.
+pertama kamu perlu cek perbaiki dulu
+/inventory-material-daily, inventory/stock/division  dan  inventory/stock/division/daily , bahwa sumber kebenaran utama stok bahan baku divisi ada di inv_warehouse_monthly_stock dengan material_id tidak null. artinya meskipun ada movement log tapi tidak ada di inv_warehouse_monthly_stock harusnya tidak masuk di 3 halaman tersebut, tapi hal ini yang perlu kita audit di pos/stock-commit-audit.
+
+Opening / PO/ SR / Adjsutmen / Component batch / POS produk mengintervensi langsung tabel inv_warehouse_monthly_stock dan tabel lot turunannya. sedangkan tabel log di masing masing tahapun itu untuk nantinya keperluan audit jika ada missmatch. sedangkan di /inventory-material-daily tabel log digunakan untuk menentukan keluar masuk stok harian sesuai dengan profilnya, dengan catatan patokan stok akhir tetap ada di inv_warehouse_monthly_stock dan ada guarding atau warning langsung di baris yang ada miss antar stock dan log.
+sesuaikan juga ketiga halaman stok tadi untuk profil line stok yang habis atau 0 atau minus ditaruh paling bawah masing masing child dengan pewarnaan merah agar kelihatan kalau habis.
+bulan ini kita tidak masalah jika harus menghilangkan log yang tidak sesuai dengan stok karena juga masih trial, yang penting secara alur UI sudah diperbaiki sehingga bulan depan ketika generate stok opname dan stok awal bisa dimulai dari data yang bersih 
+
+
+
+perbaiki logika adj nya. tadi saya adj OREO CRUMB stok sebelumya -2, saya tambah 2, harusnya closingnya kan jadi 0, ini malah jadi 2. log nya di /inventory/stock/division/movement saya cek sudah benar, tapi di stok masih salah jadi 2 harusnya 0. lalu ketika saya void jadi 0, harusnya kan balik -2 (bener sih karena tadi stoknya jadi 2).
+
+saya tadi adj lewat /inventory-material-daily , saya belum cb lewat /inventory/stock/adjustment/ dan /inventory/stock/daily-recon/division. tapi seharusnya logikanya sama kan? perbaiki dulu nanti akan saya coba ulang

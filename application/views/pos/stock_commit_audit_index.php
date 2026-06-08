@@ -67,17 +67,45 @@ $GLOBALS['auditTab'] = $auditTab;
 ?>
 
 <style>
-  .sca-shell { display:grid; gap:1rem; }
+  .sca-page {
+    width:100%;
+    max-width:1520px;
+    margin:0 auto;
+    padding:1rem 0;
+    box-sizing:border-box;
+    min-width:0;
+  }
+  .sca-shell { display:grid; gap:1rem; min-width:0; }
   .sca-card {
     border:1px solid rgba(225,210,199,.82);
     border-radius:22px;
     background:#fff;
     box-shadow:0 16px 34px rgba(58,38,30,.06);
+    min-width:0;
+    overflow:hidden;
   }
+  .sca-card > .card-body { min-width:0; }
   .sca-filter-grid {
     display:grid;
-    grid-template-columns:180px auto auto;
+    grid-template-columns:minmax(320px, 520px) minmax(0,1fr);
     gap:.75rem;
+    align-items:end;
+    min-width:0;
+  }
+  .sca-filter-primary {
+    display:flex;
+    align-items:end;
+    gap:.75rem;
+    flex-wrap:wrap;
+  }
+  .sca-filter-date {
+    min-width:220px;
+    flex:0 0 220px;
+  }
+  .sca-filter-primary-actions {
+    display:flex;
+    gap:.75rem;
+    flex-wrap:wrap;
     align-items:end;
   }
   .sca-hero-copy { color:#78685d; font-size:.92rem; }
@@ -99,8 +127,28 @@ $GLOBALS['auditTab'] = $auditTab;
   }
   .sca-tab.is-active { background:#34325e; border-color:#34325e; color:#fff; }
   .sca-tab-count { font-size:.74rem; opacity:.9; }
-  .sca-summary-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.8rem; }
-  .sca-toolbar-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; align-items:end; }
+  .sca-summary-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.8rem; min-width:0; }
+  .sca-toolbar-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; align-items:end; min-width:0; }
+  .sca-hero {
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:1rem;
+    flex-wrap:wrap;
+    min-width:0;
+  }
+  .sca-hero-main {
+    max-width:900px;
+    min-width:0;
+  }
+  .sca-filter-actions {
+    display:flex;
+    gap:.75rem;
+    flex-wrap:wrap;
+    justify-content:flex-end;
+    align-items:end;
+    min-width:0;
+  }
   .sca-summary-box {
     border:1px solid rgba(225,210,199,.82); border-radius:18px; background:#fffdfb; padding:.85rem .95rem;
   }
@@ -108,7 +156,14 @@ $GLOBALS['auditTab'] = $auditTab;
   .sca-summary-box .value { font-size:1.18rem; font-weight:900; color:#2f2628; }
   .sca-toolbar-note { color:#8a776f; font-size:.78rem; }
   .sca-pagination-bar { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; }
-  .sca-table-wrap { overflow:auto; }
+  .sca-table-wrap {
+    max-width:100%;
+    overflow:auto;
+  }
+  .sca-table {
+    min-width:100%;
+    width:max-content;
+  }
   .sca-table th { white-space:nowrap; font-size:.78rem; background:#fff8f4; position:sticky; top:0; z-index:1; }
   .sca-table td { font-size:.82rem; vertical-align:top; }
   .sca-status-cell { min-width:280px; max-width:340px; }
@@ -151,14 +206,16 @@ $GLOBALS['auditTab'] = $auditTab;
   @media (max-width: 991.98px) {
     .sca-filter-grid, .sca-kpis, .sca-summary-grid, .sca-toolbar-grid { grid-template-columns:1fr; }
     .sca-status-cell, .sca-status-reason { min-width:0; max-width:none; }
+    .sca-filter-actions { justify-content:flex-start; }
+    .sca-filter-date { min-width:0; flex:1 1 100%; }
   }
 </style>
 
-<div class="container-xxl py-3">
+<div class="sca-page">
   <?php $this->load->view('pos/_master_tabs', ['pos_master_tab_active' => 'stock-commit-audit']); ?>
 
-  <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-3">
-    <div>
+  <div class="sca-hero mb-3">
+    <div class="sca-hero-main">
       <h4 class="mb-1">Audit Commit Stok POS</h4>
       <div class="sca-hero-copy">Satu tempat untuk memantau job stock commit POS yang aktif/gagal, lalu membandingkan mismatch bahan baku dan base/prepare tanpa nyasar ke halaman self-order.</div>
     </div>
@@ -169,16 +226,18 @@ $GLOBALS['auditTab'] = $auditTab;
     <div class="sca-card">
       <div class="card-body p-3 p-lg-4">
         <form method="get" class="sca-filter-grid">
-          <div>
-            <label class="form-label small text-muted mb-1">Tanggal</label>
-            <input type="date" name="as_of_date" value="<?php echo html_escape($asOfDate); ?>" class="form-control">
-          </div>
           <input type="hidden" name="tab" value="<?php echo html_escape($auditTab); ?>">
-          <div class="d-flex gap-2">
-            <button type="submit" class="btn btn-primary">Terapkan</button>
-            <a href="<?php echo html_escape(site_url('pos/stock-commit-audit')); ?>" class="btn btn-outline-secondary">Reset</a>
+          <div class="sca-filter-primary">
+            <div class="sca-filter-date">
+              <label class="form-label small text-muted mb-1">Tanggal</label>
+              <input type="date" name="as_of_date" value="<?php echo html_escape($asOfDate); ?>" class="form-control">
+            </div>
+            <div class="sca-filter-primary-actions">
+              <button type="submit" class="btn btn-primary">Terapkan</button>
+              <a href="<?php echo html_escape(site_url('pos/stock-commit-audit')); ?>" class="btn btn-outline-secondary">Reset</a>
+            </div>
           </div>
-          <div class="d-flex gap-2 flex-wrap justify-content-lg-end">
+          <div class="sca-filter-actions">
             <a href="<?php echo html_escape(site_url('pos/stock-live')); ?>" class="btn btn-outline-secondary">Buka Stock Live POS</a>
             <button type="button" class="btn btn-outline-primary" id="sca_process_all_btn">Proses Pending</button>
             <button type="button" class="btn btn-outline-danger" id="sca_retry_failed_btn">Retry Semua Gagal</button>
@@ -614,6 +673,23 @@ $GLOBALS['auditTab'] = $auditTab;
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  const scaPage = document.querySelector('.sca-page');
+  if (scaPage) {
+    const container = scaPage.closest('.container-xxl');
+    const layoutPage = scaPage.closest('.layout-page');
+    const contentWrapper = scaPage.closest('.content-wrapper');
+    if (container) {
+      container.style.minWidth = '0';
+      container.style.overflowX = 'hidden';
+    }
+    if (layoutPage) {
+      layoutPage.style.minWidth = '0';
+    }
+    if (contentWrapper) {
+      contentWrapper.style.minWidth = '0';
+      contentWrapper.style.overflowX = 'hidden';
+    }
+  }
   async function postJson(url, payload) {
     const response = await fetch(url, {
       method: 'POST',

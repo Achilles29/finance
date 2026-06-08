@@ -76,6 +76,47 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   .pmd-modal-card {
     font-family: "Trebuchet MS", Verdana, sans-serif;
   }
+  .pmd-toast-stack {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 1095;
+    display: grid;
+    gap: 0.7rem;
+    pointer-events: none;
+  }
+  .pmd-toast {
+    min-width: 280px;
+    max-width: 360px;
+    padding: 0.9rem 1rem;
+    border-radius: 16px;
+    color: #fff;
+    box-shadow: 0 18px 36px rgba(32, 23, 28, 0.24);
+    transform: translateY(10px);
+    opacity: 0;
+    transition: transform .2s ease, opacity .2s ease;
+  }
+  .pmd-toast.is-visible {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  .pmd-toast.success {
+    background: linear-gradient(135deg, #176b3a 0%, #289a58 100%);
+  }
+  .pmd-toast.error {
+    background: linear-gradient(135deg, #9f1239 0%, #dc2626 100%);
+  }
+  .pmd-toast-title {
+    font-size: .82rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-bottom: .15rem;
+  }
+  .pmd-toast-body {
+    font-size: .86rem;
+    line-height: 1.45;
+  }
   .pmd-filter-card {
     border: 1px solid #ead9cf;
     border-radius: 16px;
@@ -419,6 +460,17 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     align-items: center;
     justify-content: center;
   }
+  .pmd-alert-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.16rem 0.5rem;
+    border-radius: 999px;
+    background: #c0392b;
+    color: #fff;
+    font-size: 0.64rem;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+  }
   .pmd-material-expand {
     border: 1px solid #d7b6a8;
     background: #fff2ea;
@@ -531,6 +583,20 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
   .pmd-scroll-table tbody tr.pmd-child-row td.pmd-metric-cell {
     background: #fffdfb;
+  }
+  .pmd-freeze-table tbody tr.pmd-stock-alert td,
+  .pmd-scroll-table tbody tr.pmd-stock-alert td.pmd-metric-cell {
+    background: linear-gradient(180deg, #fff1ef 0%, #fff8f7 100%) !important;
+  }
+  .pmd-stock-alert .pmd-name,
+  .pmd-stock-alert .pmd-code,
+  .pmd-stock-alert .pmd-summary-amount,
+  .pmd-stock-alert .pmd-summary-metric strong {
+    color: #8a2f2a !important;
+  }
+  .pmd-stock-alert .pmd-date-card {
+    border-color: #efc0b9 !important;
+    background: linear-gradient(180deg, rgba(255, 244, 242, 0.98) 0%, rgba(255, 249, 248, 0.98) 100%) !important;
   }
   .pmd-scroll-table tbody tr.pmd-group-row .pmd-date-card {
     border-color: #ebcdbd;
@@ -857,6 +923,8 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     }
   }
 </style>
+
+<div class="pmd-toast-stack" id="pmdToastStack" aria-live="polite" aria-atomic="true"></div>
 
 <div id="pmdActionMsg" class="mb-2"></div>
 
@@ -1372,6 +1440,26 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     box.innerHTML = '<div class="alert ' + (ok ? 'alert-success' : 'alert-danger') + ' py-2 mb-0">' + esc(text) + '</div>';
   }
 
+  function showToast(message, kind, title){
+    var stack = document.getElementById('pmdToastStack');
+    if (!stack || !message) { return; }
+    var item = document.createElement('div');
+    item.className = 'pmd-toast ' + (kind === 'error' ? 'error' : 'success');
+    item.innerHTML = '<div class="pmd-toast-title">' + esc(title || 'Informasi') + '</div><div class="pmd-toast-body">' + esc(message) + '</div>';
+    stack.appendChild(item);
+    window.requestAnimationFrame(function(){
+      item.classList.add('is-visible');
+    });
+    window.setTimeout(function(){
+      item.classList.remove('is-visible');
+      window.setTimeout(function(){
+        if (item.parentNode) {
+          item.parentNode.removeChild(item);
+        }
+      }, 220);
+    }, 2600);
+  }
+
   function requestJson(url, options){
     return fetch(url, options || {}).then(parseJson);
   }
@@ -1394,6 +1482,30 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       return;
     }
     box.innerHTML = '<div class="alert ' + (ok ? 'alert-success' : 'alert-danger') + ' py-2 mb-0">' + esc(text) + '</div>';
+  }
+
+  function setSubmitButtonLoading(button, label){
+    if (!button) { return; }
+    if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') {
+      window.FinanceUI.setButtonLoading(button, label || 'Memproses...');
+      return;
+    }
+    button.dataset.originalHtml = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>' + esc(label || 'Memproses...');
+  }
+
+  function clearSubmitButtonLoading(button){
+    if (!button) { return; }
+    if (window.FinanceUI && typeof window.FinanceUI.clearButtonLoading === 'function') {
+      window.FinanceUI.clearButtonLoading(button);
+      return;
+    }
+    button.disabled = false;
+    if (button.dataset.originalHtml) {
+      button.innerHTML = button.dataset.originalHtml;
+      delete button.dataset.originalHtml;
+    }
   }
 
   function openAdjustModalFallback(){
@@ -1540,6 +1652,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
 
     return {
       stock_scope: 'DIVISION',
+      auto_post: true,
       adjustment_date: adjustContext.date,
       division_id: Number(adjustContext.group.division_id || adjustContext.row.division_id || 0),
       destination_type: String(adjustContext.row.destination_type || adjustContext.group.destination_type || 'OTHER'),
@@ -1577,12 +1690,10 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
 
   function submitAdjust(){
     var submitBtn = document.getElementById('pmdAdjustSubmit');
-    var savedResult = null;
     try {
       var payload = buildAdjustPayload();
       showAdjustAlert(true, '');
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Memproses...';
+      setSubmitButtonLoading(submitBtn, 'Posting...');
       requestJson(adjustmentStoreUrl, {
         method: 'POST',
         headers: {
@@ -1592,33 +1703,21 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         },
         body: JSON.stringify(payload)
       }).then(function(result){
-        savedResult = result;
-        return requestJson(adjustmentPostBaseUrl + '/' + String(result.id || 0), {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest'
-          },
-          body: '{}'
-        });
-      }).then(function(){
         if (adjustModal) {
           adjustModal.hide();
         } else {
           closeAdjustModalFallback();
         }
-        showMessage(true, 'Adjustment ' + (savedResult && savedResult.adjustment_no ? savedResult.adjustment_no : '') + ' berhasil diposting.');
-        loadData();
+        var adjustmentNo = (result && result.adjustment_no ? result.adjustment_no : '');
+        showMessage(true, 'Adjustment ' + adjustmentNo + ' berhasil diposting.');
+        showToast('Adjustment ' + adjustmentNo + ' berhasil diposting dan stok langsung diperbarui.', 'success', 'Posting Berhasil');
+        return loadData();
       }).catch(function(err){
         var msg = err && err.message ? err.message : 'Gagal memproses adjustment.';
-        if (savedResult && savedResult.adjustment_no) {
-          msg += ' Draft ' + savedResult.adjustment_no + ' sudah tersimpan.';
-        }
         showAdjustAlert(false, msg);
+        showToast(msg, 'error', 'Posting Gagal');
       }).finally(function(){
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Simpan & Post';
+        clearSubmitButtonLoading(submitBtn);
       });
     } catch (err) {
       showAdjustAlert(false, err && err.message ? err.message : 'Payload adjustment tidak valid.');
@@ -1809,6 +1908,10 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         profile_content_uom_code: String(row.profile_content_uom_code || ''),
         profile_standard_price: Number(row.profile_standard_price || 0),
         profile_last_unit_price: Number(row.profile_last_unit_price || 0),
+        audit_has_mismatch: Number(row.audit_has_mismatch || 0),
+        audit_mismatch_row_count: Number(row.audit_mismatch_row_count || 0),
+        audit_mismatch_qty_content: Number(row.audit_mismatch_qty_content || 0),
+        audit_mismatch_notes: String(row.audit_mismatch_notes || ''),
         daily: profileDaily,
         metrics: profileMetrics
       });
@@ -1846,7 +1949,10 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         mutation_total: 0,
         hpp: 0,
         last_unit_price: 0,
-        standard_price: 0
+        standard_price: 0,
+        audit_has_mismatch: 0,
+        audit_mismatch_row_count: 0,
+        audit_mismatch_qty_content: 0
       };
       var refPriceTotal = 0;
       var refPriceCount = 0;
@@ -1900,6 +2006,24 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
           standardPriceTotal += Number(child.profile_standard_price || 0);
           standardPriceCount += 1;
         }
+        if (Number(child.audit_has_mismatch || 0) > 0) {
+          agg.audit_has_mismatch = 1;
+          agg.audit_mismatch_row_count += Number(child.audit_mismatch_row_count || 0);
+          agg.audit_mismatch_qty_content += Number(child.audit_mismatch_qty_content || 0);
+        }
+      });
+
+      group.children.sort(function(a, b){
+        var aNonPositive = Number((a.metrics && a.metrics.closing_content) || 0) <= 0.0001;
+        var bNonPositive = Number((b.metrics && b.metrics.closing_content) || 0) <= 0.0001;
+        if (aNonPositive !== bNonPositive) {
+          return aNonPositive ? 1 : -1;
+        }
+        var cmp = String(a.profile_name || '').localeCompare(String(b.profile_name || ''), 'id', { sensitivity: 'base' });
+        if (cmp !== 0) { return cmp; }
+        cmp = String(a.profile_brand || '').localeCompare(String(b.profile_brand || ''), 'id', { sensitivity: 'base' });
+        if (cmp !== 0) { return cmp; }
+        return String(a.profile_description || '').localeCompare(String(b.profile_description || ''), 'id', { sensitivity: 'base' });
       });
 
       if (agg.closing_content !== 0) {
@@ -1918,6 +2042,14 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     });
 
     return order.map(function(key){ return map[key]; });
+  }
+
+  function isNonPositiveMetrics(metrics){
+    return Number((metrics && metrics.closing_content) || 0) <= 0.0001;
+  }
+
+  function rowAlertClass(metrics, auditHasMismatch){
+    return (isNonPositiveMetrics(metrics) || Number(auditHasMismatch || 0) > 0) ? ' pmd-stock-alert' : '';
   }
 
   function calcStats(groups){
@@ -2144,6 +2276,11 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     if (!profile && expandable) {
       chips.push('<span class="' + chipClass + '">' + esc(String((group.children || []).length)) + ' profil</span>');
     }
+    if (Number(source.audit_has_mismatch || 0) > 0) {
+      chips.push('<span class="pmd-alert-chip">Mismatch Log ' + esc(num(source.audit_mismatch_qty_content || 0)) + '</span>');
+    } else if (isNonPositiveMetrics(source.metrics || {})) {
+      chips.push('<span class="pmd-alert-chip">Stok Habis / Minus</span>');
+    }
     if (packContent > 0) {
       chips.push('<span class="' + chipClass + '">' + esc(num(packContent)) + ' ' + esc(contentUom) + ' / ' + esc(buyUom) + '</span>');
     }
@@ -2177,6 +2314,14 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         detailParts.push('<span class="pmd-detail-chip">Harga satuan rata-rata ' + esc(money((group.metrics && group.metrics.last_unit_price) || 0)) + '</span>');
       }
     }
+    if ((profile && Number(profile.audit_has_mismatch || 0) > 0) || (!profile && Number((group.metrics && group.metrics.audit_has_mismatch) || 0) > 0)) {
+      var mismatchSource = profile || (group && group.metrics) || {};
+      var mismatchNotes = profile ? String(profile.audit_mismatch_notes || '') : '';
+      detailParts.push('<span class="pmd-alert-chip">Log mismatch ' + esc(num(mismatchSource.audit_mismatch_qty_content || 0)) + '</span>');
+      if (mismatchNotes) {
+        detailParts.push('<span class="pmd-detail-chip">' + esc(mismatchNotes) + '</span>');
+      }
+    }
 
     return ''
       + '<div class="pmd-detail-card pmd-summary-only">'
@@ -2195,6 +2340,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       ? '<button type="button" class="pmd-toggle-arrow" title="Expand/Collapse" data-action="toggle-group" data-group-key="' + esc(group.key) + '">' + (expanded ? '&#9662;' : '&#9656;') + '</button>'
       : '<span class="pmd-toggle-static" title="Baris tunggal">&bull;</span>';
     var rowClass = expandable ? 'pmd-group-row pmd-group-expandable' : 'pmd-group-row pmd-group-single';
+    rowClass += rowAlertClass(singleProfile ? singleProfile.metrics : group.metrics, singleProfile ? singleProfile.audit_has_mismatch : (group.metrics && group.metrics.audit_has_mismatch));
 
     return '' +
       '<tr class="' + rowClass + '">' +
@@ -2208,6 +2354,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     var singleProfile = (!isExpandable(group) && Array.isArray(group.children) && group.children.length === 1) ? group.children[0] : null;
     var parentProfileIndex = singleProfile ? 0 : -1;
     var rowClass = isExpandable(group) ? 'pmd-group-row pmd-group-expandable' : 'pmd-group-row pmd-group-single';
+    rowClass += rowAlertClass(singleProfile ? singleProfile.metrics : group.metrics, singleProfile ? singleProfile.audit_has_mismatch : (group.metrics && group.metrics.audit_has_mismatch));
     var packSize = 0;
     if (singleProfile && Number(singleProfile.profile_content_per_buy || 0) > 0) {
       packSize = Number(singleProfile.profile_content_per_buy || 0);
@@ -2223,7 +2370,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
 
   function freezeProfileRowHtml(group, profile){
     return '' +
-      '<tr class="pmd-child-row">' +
+      '<tr class="pmd-child-row' + rowAlertClass(profile.metrics, profile.audit_has_mismatch) + '">' +
         '<td class="pmd-freeze-col-1"></td>' +
         '<td class="pmd-freeze-col-2">' + materialCellHtml(group, profile, false, false, 'child') + '</td>' +
         '<td class="pmd-freeze-col-3">' + detailCellHtml(null, profile, summaryChildHtml(profile.metrics || {})) + '</td>' +
@@ -2231,7 +2378,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
 
   function profileRowHtml(group, groupIndex, profile, profileIndex){
-    return '<tr class="pmd-child-row">' + dayCells(profile.daily || {}, groupIndex, profileIndex, Number(profile.profile_content_per_buy || 0)) + '</tr>';
+    return '<tr class="pmd-child-row' + rowAlertClass(profile.metrics, profile.audit_has_mismatch) + '">' + dayCells(profile.daily || {}, groupIndex, profileIndex, Number(profile.profile_content_per_buy || 0)) + '</tr>';
   }
 
   function syncPaneRowHeights(){
@@ -2418,7 +2565,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     tableBody.innerHTML = '<tr><td colspan="999" class="pmd-loading">Memuat data...</td></tr>';
     showMessage(true, '');
 
-    fetch(matrixUrl + '?' + buildQuery(), { headers: { 'Accept': 'application/json' } })
+    return fetch(matrixUrl + '?' + buildQuery(), { headers: { 'Accept': 'application/json' } })
       .then(parseJson)
       .then(function(result){
         var data = (result && result.data) ? result.data : {};
@@ -2433,6 +2580,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         freezeBody.innerHTML = '<tr><td colspan="3" class="pmd-empty">Gagal memuat matrix harian.</td></tr>';
         tableBody.innerHTML = '<tr><td colspan="1" class="pmd-empty"></td></tr>';
         showMessage(false, err && err.message ? err.message : 'Terjadi kesalahan saat memuat data.');
+        return null;
       });
   }
 
