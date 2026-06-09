@@ -158,13 +158,14 @@ $GLOBALS['auditTab'] = $auditTab;
   .sca-pagination-bar { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; }
   .sca-table-wrap {
     max-width:100%;
+    max-height:520px;
     overflow:auto;
   }
   .sca-table {
     min-width:100%;
     width:max-content;
   }
-  .sca-table th { white-space:nowrap; font-size:.78rem; background:#fff8f4; position:sticky; top:0; z-index:1; }
+  .sca-table th { white-space:nowrap; font-size:.78rem; background:#fff8f4; position:sticky; top:0; z-index:1; box-shadow:0 1px 0 rgba(0,0,0,.08); }
   .sca-table td { font-size:.82rem; vertical-align:top; }
   .sca-status-cell { min-width:280px; max-width:340px; }
   .sca-status-reason {
@@ -180,6 +181,7 @@ $GLOBALS['auditTab'] = $auditTab;
   }
   .sca-chip.ok { background:#e8f8ee; color:#1f7a49; }
   .sca-chip.bad { background:#fde9e8; color:#b42318; }
+  .sca-chip.unknown { background:#f1f5f9; color:#64748b; }
   .sca-job-list { display:grid; gap:.75rem; }
   .sca-job-card {
     border:1px solid rgba(225,210,199,.82); border-radius:16px; background:#fff; padding:.85rem .95rem;
@@ -252,86 +254,6 @@ $GLOBALS['auditTab'] = $auditTab;
       <div class="sca-kpi"><span class="label">Job Gagal</span><div class="value" id="sca_failed_job_count"><?php echo number_format(count($failedJobs)); ?></div></div>
       <div class="sca-kpi"><span class="label">Mismatch Bahan Baku</span><div class="value"><?php echo number_format((int)($materialSummaryAll['mismatch_rows'] ?? 0)); ?></div></div>
       <div class="sca-kpi"><span class="label">Mismatch Base/Prepare</span><div class="value"><?php echo number_format((int)($componentSummaryAll['mismatched'] ?? 0)); ?></div></div>
-    </div>
-
-    <div class="sca-card">
-      <div class="card-body p-3 p-lg-4">
-        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
-          <div>
-            <div class="small text-uppercase fw-bold text-muted">Akar Masalah</div>
-            <h5 class="mb-1 mt-2">Legacy Snapshot dan Tagging Produksi</h5>
-            <div class="text-muted small">Kalau item produksi punya <code>material_id</code> tetapi snapshot/tagging lama masih pecah, stok live dan audit commit bisa membaca bucket yang berbeda. Fokus kita sekarang bukan menghidupkan dual domain lagi, tetapi membersihkan jejak legacy supaya pembacaan tetap item-centric.</div>
-          </div>
-          <div class="d-flex gap-2 flex-wrap">
-            <a href="<?php echo html_escape(site_url('purchase/reclassify-profile-domain')); ?>" class="btn btn-outline-secondary">Tool Snapshot Lama</a>
-            <span class="btn btn-light disabled">SQL Audit: <code>2026-06-03b</code></span>
-            <span class="btn btn-light disabled">SQL Repair: <code>2026-06-03c</code></span>
-          </div>
-        </div>
-
-        <div class="sca-summary-grid mb-3">
-          <div class="sca-summary-box"><span class="label">Profile Legacy Produksi</span><div class="value"><?php echo number_format((int)($domainAuditSummary['total_wrong_active_profiles'] ?? 0)); ?></div></div>
-          <div class="sca-summary-box"><span class="label">Drift Transaksi</span><div class="value"><?php echo number_format((int)($domainAuditSummary['profiles_with_transaction_drift'] ?? 0)); ?></div></div>
-          <div class="sca-summary-box"><span class="label">Snapshot Pecah</span><div class="value"><?php echo number_format((int)($domainAuditSummary['profiles_with_snapshot_split'] ?? 0)); ?></div></div>
-        </div>
-
-        <div class="table-responsive sca-table-wrap">
-          <table class="table table-sm align-middle sca-table mb-0">
-            <thead>
-              <tr>
-                <th>Profile Legacy Produksi</th>
-                <th>Marker Produksi</th>
-                <th class="text-end">PO Legacy</th>
-                <th class="text-end">Receipt Legacy</th>
-                <th class="text-end">Movement Drift</th>
-                <th class="text-end">Snapshot ITEM</th>
-                <th class="text-end">Snapshot Legacy</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php if (empty($domainAuditRows)): ?>
-                <tr><td colspan="8" class="text-center text-muted py-4">Belum ada profile aktif salah domain yang terdeteksi.</td></tr>
-              <?php else: ?>
-                <?php foreach ($domainAuditRows as $row): ?>
-                  <?php
-                    $snapshotItem = (int)($row['division_monthly_item_rows'] ?? 0) + (int)($row['warehouse_monthly_item_rows'] ?? 0);
-                    $snapshotMaterial = (int)($row['division_monthly_material_rows'] ?? 0) + (int)($row['warehouse_monthly_material_rows'] ?? 0);
-                    $statusLabel = 'Perlu normalisasi tagging';
-                    $statusClass = 'ok';
-                    if (!empty($row['has_split_snapshot'])) {
-                      $statusLabel = 'Legacy split snapshot';
-                      $statusClass = 'bad';
-                    } elseif (!empty($row['has_transaction_drift'])) {
-                      $statusLabel = 'Legacy transaction tagging';
-                      $statusClass = 'bad';
-                    } elseif (!empty($row['has_movement_drift'])) {
-                      $statusLabel = 'Movement marker drift';
-                      $statusClass = 'bad';
-                    }
-                  ?>
-                  <tr>
-                    <td>
-                      <strong><?php echo html_escape((string)($row['catalog_name'] ?? '-')); ?></strong>
-                      <div class="text-muted small"><?php echo html_escape((string)($row['brand_name'] ?? '-')); ?> | profile <code><?php echo html_escape((string)($row['profile_key'] ?? '-')); ?></code></div>
-                    </td>
-                    <td>
-                      <strong>material_id</strong>
-                      <div class="text-muted small"><?php echo html_escape((string)($row['expected_material_name'] ?? '-')); ?><?php if (!empty($row['expected_material_code'])): ?> | <?php echo html_escape((string)$row['expected_material_code']); ?><?php endif; ?></div>
-                    </td>
-                    <td class="text-end"><?php echo number_format((int)($row['po_item_rows'] ?? 0)); ?></td>
-                    <td class="text-end"><?php echo number_format((int)($row['receipt_item_rows'] ?? 0)); ?></td>
-                    <td class="text-end"><?php echo number_format((int)($row['movement_wrong_material_rows'] ?? 0)); ?></td>
-                    <td class="text-end"><?php echo number_format($snapshotItem); ?></td>
-                    <td class="text-end"><?php echo number_format($snapshotMaterial); ?></td>
-                    <td><span class="sca-chip <?php echo $statusClass; ?>"><?php echo html_escape($statusLabel); ?></span></td>
-                  </tr>
-                <?php endforeach; ?>
-              <?php endif; ?>
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
 
     <div class="sca-card">
@@ -436,16 +358,16 @@ $GLOBALS['auditTab'] = $auditTab;
               ?>
             </div>
           </div>
-          <div class="table-responsive sca-table-wrap">
+          <div class="sca-table-wrap">
             <table class="table table-sm align-middle sca-table mb-0">
               <thead>
                 <tr>
                   <th>Material</th>
                   <th>Divisi</th>
                   <th class="text-end">Stok Divisi</th>
-                  <th class="text-end">Snapshot Harian Material</th>
-                  <th class="text-end">Snapshot Harian Divisi</th>
-                  <th class="text-end">Movement</th>
+                  <th class="text-end">Lot Stok</th>
+                  <th class="text-end">Movement Log</th>
+                  <th>Daily Check</th>
                   <th>Status</th>
                   <th class="text-end">Aksi</th>
                 </tr>
@@ -455,14 +377,21 @@ $GLOBALS['auditTab'] = $auditTab;
                   <tr><td colspan="8" class="text-center text-muted py-4">Belum ada data bahan baku.</td></tr>
                 <?php else: ?>
                   <?php foreach ($materialRows as $row): ?>
-                    <?php $isMatch = !empty($row['is_match']); ?>
+                    <?php
+                      $isMatch = !empty($row['is_match']);
+                      $dcStatus = (string)($row['daily_check_status'] ?? 'UNKNOWN');
+                      $dcCount  = (int)($row['daily_check_drift_count'] ?? 0);
+                      if ($dcStatus === 'OK') { $dcClass = 'ok'; $dcLabel = 'OK'; }
+                      elseif ($dcStatus === 'DRIFT') { $dcClass = 'bad'; $dcLabel = 'Drift (' . $dcCount . ')'; }
+                      else { $dcClass = 'unknown'; $dcLabel = 'N/A'; }
+                    ?>
                     <tr>
                       <td><strong><?php echo html_escape((string)($row['material_name'] ?? '-')); ?></strong><div class="text-muted small"><?php echo html_escape((string)($row['material_code'] ?? '-')); ?></div></td>
                       <td><?php echo html_escape((string)($row['division_name'] ?? '-')); ?><div class="text-muted small"><?php echo html_escape((string)($row['destination_name'] ?? 'Reguler')); ?></div></td>
                       <td class="text-end"><?php echo $fmtQty($row['balance_qty_content'] ?? 0); ?></td>
-                      <td class="text-end"><?php echo $fmtQty($row['matrix_qty_content'] ?? 0); ?></td>
-                      <td class="text-end"><?php echo $fmtQty($row['daily_qty_content'] ?? 0); ?></td>
+                      <td class="text-end"><?php echo $fmtQty($row['lot_qty_content'] ?? 0); ?></td>
                       <td class="text-end"><?php echo $fmtQty($row['movement_qty_content'] ?? 0); ?></td>
+                      <td><span class="sca-chip <?php echo $dcClass; ?>"><?php echo html_escape($dcLabel); ?></span></td>
                       <td class="sca-status-cell">
                         <span class="sca-chip <?php echo $isMatch ? 'ok' : 'bad'; ?>"><?php echo $isMatch ? 'Match' : 'Mismatch'; ?></span>
                         <?php if (!$isMatch): ?>
@@ -558,35 +487,40 @@ $GLOBALS['auditTab'] = $auditTab;
               ?>
             </div>
           </div>
-          <div class="table-responsive sca-table-wrap">
+          <div class="sca-table-wrap">
             <table class="table table-sm align-middle sca-table mb-0">
               <thead>
                 <tr>
                   <th>Component</th>
                   <th>Lokasi</th>
-                  <th class="text-end">Live</th>
-                  <th class="text-end">Daily</th>
-                  <th class="text-end">Movement</th>
-                  <th class="text-end">Live vs Daily</th>
-                  <th class="text-end">Live vs Movement</th>
+                  <th class="text-end">Stok Live</th>
+                  <th class="text-end">Lot Stok</th>
+                  <th class="text-end">Movement Log</th>
+                  <th>Daily Check</th>
                   <th>Status</th>
                   <th class="text-end">Aksi</th>
                 </tr>
               </thead>
               <tbody>
                 <?php if (empty($componentRows)): ?>
-                  <tr><td colspan="9" class="text-center text-muted py-4">Belum ada data base/prepare.</td></tr>
+                  <tr><td colspan="8" class="text-center text-muted py-4">Belum ada data base/prepare.</td></tr>
                 <?php else: ?>
                   <?php foreach ($componentRows as $row): ?>
-                    <?php $isMatch = !empty($row['is_match']); ?>
+                    <?php
+                      $isMatch = !empty($row['is_match']);
+                      $dcStatus = (string)($row['daily_check_status'] ?? 'UNKNOWN');
+                      $dcCount  = (int)($row['daily_check_drift_count'] ?? 0);
+                      if ($dcStatus === 'OK') { $dcClass = 'ok'; $dcLabel = 'OK'; }
+                      elseif ($dcStatus === 'DRIFT') { $dcClass = 'bad'; $dcLabel = 'Drift (' . $dcCount . ')'; }
+                      else { $dcClass = 'unknown'; $dcLabel = 'N/A'; }
+                    ?>
                     <tr>
                       <td><strong><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></strong><div class="text-muted small"><?php echo html_escape((string)($row['component_code'] ?? '-')); ?> | <?php echo html_escape((string)($row['uom_code'] ?? '-')); ?></div></td>
                       <td><?php echo html_escape((string)($row['division_name'] ?? '-')); ?><div class="text-muted small"><?php echo html_escape((string)($row['location_type'] ?? '-')); ?></div></td>
                       <td class="text-end"><?php echo $fmtQty($row['balance_qty'] ?? 0); ?></td>
-                      <td class="text-end"><?php echo $fmtQty($row['daily_qty'] ?? 0); ?></td>
+                      <td class="text-end"><?php echo $fmtQty($row['lot_qty'] ?? 0); ?></td>
                       <td class="text-end"><?php echo $fmtQty($row['movement_qty'] ?? 0); ?></td>
-                      <td class="text-end"><?php echo $fmtQty($row['delta_balance_daily'] ?? 0); ?></td>
-                      <td class="text-end"><?php echo $fmtQty($row['delta_balance_movement'] ?? 0); ?></td>
+                      <td><span class="sca-chip <?php echo $dcClass; ?>"><?php echo html_escape($dcLabel); ?></span></td>
                       <td class="sca-status-cell">
                         <span class="sca-chip <?php echo $isMatch ? 'ok' : 'bad'; ?>"><?php echo $isMatch ? 'Match' : 'Mismatch'; ?></span>
                         <?php if (!$isMatch): ?>

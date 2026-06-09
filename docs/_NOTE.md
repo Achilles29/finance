@@ -150,7 +150,6 @@ SR ke divisi
 pastikan sudah mengabaikan line_kind dan stock_domain
 
 
-
-
-buatkan halaman koreksi untuk component
-LEMON SLICE
+PAPER FILTER V60 dibiarkan atau di repair?
+tambahakan jumlah card drift di daily chek
+tambahkan filternya

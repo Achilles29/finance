@@ -2661,6 +2661,9 @@ class Purchase_model extends CI_Model
             return strcasecmp((string)($a['material_code'] ?? ''), (string)($b['material_code'] ?? ''));
         });
 
+        $this->attach_material_lot_totals($rows);
+        $this->attach_material_daily_check($rows);
+
         $summary = [
             'total_rows' => count($rows),
             'match_rows' => 0,
@@ -2679,6 +2682,128 @@ class Purchase_model extends CI_Model
             'rows' => array_slice($rows, 0, $limit),
             'summary' => $summary,
         ];
+    }
+
+    private function attach_material_lot_totals(array &$rows): void
+    {
+        foreach ($rows as &$row) {
+            $row['lot_qty_content'] = null;
+        }
+        unset($row);
+
+        if (!$this->db->table_exists('inv_material_fifo_lot') || empty($rows)) {
+            return;
+        }
+
+        $divisionIds = array_values(array_unique(array_filter(array_map(
+            static function ($r) { return isset($r['division_id']) ? (int)$r['division_id'] : null; },
+            $rows
+        ))));
+        if (empty($divisionIds)) {
+            return;
+        }
+
+        $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+        $results = $this->db
+            ->select("l.division_id, ({$destGroupExpr}) AS destination_group, COALESCE(l.item_id,0) AS item_id, COALESCE(l.material_id,0) AS material_id, SUM(l.qty_balance) AS lot_total", false)
+            ->from('inv_material_fifo_lot l')
+            ->where('l.location_scope', 'DIVISION')
+            ->where('l.status', 'OPEN')
+            ->where('l.qty_balance >', 0.0001)
+            ->where_in('l.division_id', $divisionIds)
+            ->group_by(['l.division_id', 'destination_group', 'l.item_id', 'l.material_id'])
+            ->get()->result_array();
+
+        $lotMap = [];
+        foreach ($results as $r) {
+            $k = (int)$r['division_id'] . '|' . strtoupper((string)($r['destination_group'] ?? 'REGULER'))
+               . '|M-' . (int)$r['material_id'] . '|I-' . (int)$r['item_id'];
+            $lotMap[$k] = round((float)($r['lot_total'] ?? 0), 4);
+        }
+
+        foreach ($rows as &$row) {
+            $k = (int)($row['division_id'] ?? 0) . '|' . strtoupper((string)($row['destination_group'] ?? 'REGULER'))
+               . '|M-' . (int)($row['material_id'] ?? 0) . '|I-' . (int)($row['item_id'] ?? 0);
+            $row['lot_qty_content'] = $lotMap[$k] ?? 0.0;
+        }
+        unset($row);
+    }
+
+    private function attach_material_daily_check(array &$rows): void
+    {
+        foreach ($rows as &$row) {
+            $row['daily_check_status']      = 'UNKNOWN';
+            $row['daily_check_drift']       = 0.0;
+            $row['daily_check_drift_count'] = 0;
+        }
+        unset($row);
+
+        if (!$this->db->table_exists('inv_division_monthly_stock') || empty($rows)) {
+            return;
+        }
+
+        $divisionIds = array_values(array_unique(array_filter(array_map(
+            static function ($r) { return isset($r['division_id']) ? (int)$r['division_id'] : null; },
+            $rows
+        ))));
+        if (empty($divisionIds)) {
+            return;
+        }
+
+        $driftExpr = 'ROUND(ABS(s.closing_qty_content - ROUND('
+            . 's.opening_qty_content + s.in_qty_content + s.adjustment_plus_qty_content'
+            . ' - s.out_qty_content - s.waste_qty_content - s.adjustment_minus_qty_content'
+            . ' - COALESCE(s.discarded_qty_content,0) - COALESCE(s.spoil_qty_content,0)'
+            . ' - COALESCE(s.process_loss_qty_content,0) + COALESCE(s.variance_qty_content,0)'
+            . ', 4)), 4)';
+        $destGroupExpr = "CASE WHEN s.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+
+        // Only check the latest month per identity to avoid false positives from old months
+        $latestMonthSub = $this->db
+            ->select('s2.division_id, s2.destination_type, COALESCE(s2.item_id,0) AS item_id, COALESCE(s2.material_id,0) AS material_id, MAX(s2.month_key) AS max_month', false)
+            ->from('inv_division_monthly_stock s2')
+            ->where_in('s2.division_id', $divisionIds)
+            ->group_by(['s2.division_id', 's2.destination_type', 's2.item_id', 's2.material_id'])
+            ->get_compiled_select();
+
+        $results = $this->db
+            ->select("s.division_id, ({$destGroupExpr}) AS destination_group, COALESCE(s.item_id,0) AS item_id, COALESCE(s.material_id,0) AS material_id, SUM({$driftExpr}) AS total_drift, COUNT(*) AS profile_count, SUM(CASE WHEN {$driftExpr} > 0.0001 THEN 1 ELSE 0 END) AS drift_count", false)
+            ->from('inv_division_monthly_stock s')
+            ->join('(' . $latestMonthSub . ') lm',
+                's.division_id = lm.division_id AND s.destination_type = lm.destination_type'
+                . ' AND COALESCE(s.item_id,0) = lm.item_id AND COALESCE(s.material_id,0) = lm.material_id'
+                . ' AND s.month_key = lm.max_month',
+                'inner', false)
+            ->where_in('s.division_id', $divisionIds)
+            ->group_by(['s.division_id', 'destination_group', 's.item_id', 's.material_id'])
+            ->get()->result_array();
+
+        $checkMap = [];
+        foreach ($results as $r) {
+            $k = (int)$r['division_id'] . '|' . strtoupper((string)($r['destination_group'] ?? 'REGULER'))
+               . '|M-' . (int)$r['material_id'] . '|I-' . (int)$r['item_id'];
+            $checkMap[$k] = [
+                'total_drift'  => round((float)($r['total_drift'] ?? 0), 4),
+                'drift_count'  => (int)($r['drift_count'] ?? 0),
+                'profile_count' => (int)($r['profile_count'] ?? 0),
+            ];
+        }
+
+        foreach ($rows as &$row) {
+            $k = (int)($row['division_id'] ?? 0) . '|' . strtoupper((string)($row['destination_group'] ?? 'REGULER'))
+               . '|M-' . (int)($row['material_id'] ?? 0) . '|I-' . (int)($row['item_id'] ?? 0);
+            $check = $checkMap[$k] ?? null;
+            if ($check === null) {
+                $row['daily_check_status']      = 'UNKNOWN';
+                $row['daily_check_drift']       = 0.0;
+                $row['daily_check_drift_count'] = 0;
+            } else {
+                $row['daily_check_status']      = $check['drift_count'] > 0 ? 'DRIFT' : 'OK';
+                $row['daily_check_drift']       = $check['total_drift'];
+                $row['daily_check_drift_count'] = $check['drift_count'];
+            }
+        }
+        unset($row);
     }
 
     private function list_division_daily_snapshot_latest_closing(string $asOfDate, string $q, ?int $divisionId, ?string $destinationFilter = null): array
