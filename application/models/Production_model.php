@@ -1167,6 +1167,9 @@ class Production_model extends CI_Model
             ];
         }
 
+        $this->attach_component_lot_totals($rows);
+        $this->attach_component_daily_check($rows);
+
         usort($rows, function (array $left, array $right): int {
             return $this->compare_component_display_rows($left, $right);
         });
@@ -1188,6 +1191,110 @@ class Production_model extends CI_Model
                 })),
             ],
         ];
+    }
+
+    private function attach_component_lot_totals(array &$rows): void
+    {
+        foreach ($rows as &$row) { $row['lot_qty'] = null; }
+        unset($row);
+        if (!$this->db->table_exists('inv_component_lot') || empty($rows)) { return; }
+        $keys = [];
+        foreach ($rows as $row) {
+            $locType = strtoupper((string)($row['location_type'] ?? ''));
+            $divId   = $row['division_id'] !== null ? (int)$row['division_id'] : 0;
+            $cId     = (int)($row['component_id'] ?? 0);
+            $uomId   = (int)($row['uom_id'] ?? 0);
+            $keys[] = [$locType, $divId, $cId, $uomId];
+        }
+        if (empty($keys)) { return; }
+        $componentIds = array_values(array_unique(array_column($keys, 2)));
+        $results = $this->db
+            ->select('l.location_type, COALESCE(l.division_id,0) AS division_id, l.component_id, l.uom_id, SUM(l.qty_balance) AS lot_total', false)
+            ->from('inv_component_lot l')
+            ->where('l.status', 'OPEN')
+            ->where('l.qty_balance >', 0.0001)
+            ->where_in('l.component_id', $componentIds)
+            ->group_by(['l.location_type', 'l.division_id', 'l.component_id', 'l.uom_id'])
+            ->get()->result_array();
+        $lotMap = [];
+        foreach ($results as $r) {
+            $k = strtoupper((string)$r['location_type']) . '|' . (int)$r['division_id']
+               . '|C-' . (int)$r['component_id'] . '|U-' . (int)$r['uom_id'];
+            $lotMap[$k] = round((float)($r['lot_total'] ?? 0), 4);
+        }
+        foreach ($rows as &$row) {
+            $locType = strtoupper((string)($row['location_type'] ?? ''));
+            $divId   = $row['division_id'] !== null ? (int)$row['division_id'] : 0;
+            $k = $locType . '|' . $divId
+               . '|C-' . (int)($row['component_id'] ?? 0)
+               . '|U-' . (int)($row['uom_id'] ?? 0);
+            $row['lot_qty'] = $lotMap[$k] ?? 0.0;
+        }
+        unset($row);
+    }
+
+    private function attach_component_daily_check(array &$rows): void
+    {
+        foreach ($rows as &$row) {
+            $row['daily_check_status']      = 'UNKNOWN';
+            $row['daily_check_drift']       = 0.0;
+            $row['daily_check_drift_count'] = 0;
+        }
+        unset($row);
+        if (!$this->db->table_exists('inv_component_monthly_stock') || empty($rows)) { return; }
+        $componentIds = array_values(array_unique(array_filter(array_map(
+            static function ($r) { return isset($r['component_id']) ? (int)$r['component_id'] : null; }, $rows
+        ))));
+        if (empty($componentIds)) { return; }
+        $driftExpr = 'ROUND(ABS(s.closing_qty - ROUND('
+            . 's.opening_qty + s.in_qty + COALESCE(s.adjustment_plus_qty,0)'
+            . ' - s.out_qty - COALESCE(s.waste_qty,0) - COALESCE(s.spoil_qty,0)'
+            . ' - COALESCE(s.adjustment_minus_qty,0)'
+            . ', 4)), 4)';
+        $latestMonthSub = $this->db
+            ->select('s2.location_type, COALESCE(s2.division_id,0) AS division_id, s2.component_id, s2.uom_id, MAX(s2.month_key) AS max_month', false)
+            ->from('inv_component_monthly_stock s2')
+            ->where_in('s2.component_id', $componentIds)
+            ->group_by(['s2.location_type', 's2.division_id', 's2.component_id', 's2.uom_id'])
+            ->get_compiled_select();
+        $results = $this->db
+            ->select("s.location_type, COALESCE(s.division_id,0) AS division_id, s.component_id, s.uom_id, SUM({$driftExpr}) AS total_drift, COUNT(*) AS profile_count, SUM(CASE WHEN {$driftExpr} > 0.0001 THEN 1 ELSE 0 END) AS drift_count", false)
+            ->from('inv_component_monthly_stock s')
+            ->join('(' . $latestMonthSub . ') lm',
+                's.location_type = lm.location_type AND COALESCE(s.division_id,0) = lm.division_id'
+                . ' AND s.component_id = lm.component_id AND s.uom_id = lm.uom_id AND s.month_key = lm.max_month',
+                'inner', false)
+            ->where_in('s.component_id', $componentIds)
+            ->group_by(['s.location_type', 's.division_id', 's.component_id', 's.uom_id'])
+            ->get()->result_array();
+        $checkMap = [];
+        foreach ($results as $r) {
+            $k = strtoupper((string)$r['location_type']) . '|' . (int)$r['division_id']
+               . '|C-' . (int)$r['component_id'] . '|U-' . (int)$r['uom_id'];
+            $checkMap[$k] = [
+                'total_drift'   => round((float)($r['total_drift'] ?? 0), 4),
+                'drift_count'   => (int)($r['drift_count'] ?? 0),
+                'profile_count' => (int)($r['profile_count'] ?? 0),
+            ];
+        }
+        foreach ($rows as &$row) {
+            $locType = strtoupper((string)($row['location_type'] ?? ''));
+            $divId   = $row['division_id'] !== null ? (int)$row['division_id'] : 0;
+            $k = $locType . '|' . $divId
+               . '|C-' . (int)($row['component_id'] ?? 0)
+               . '|U-' . (int)($row['uom_id'] ?? 0);
+            $check = $checkMap[$k] ?? null;
+            if ($check === null) {
+                $row['daily_check_status']      = 'UNKNOWN';
+                $row['daily_check_drift']       = 0.0;
+                $row['daily_check_drift_count'] = 0;
+            } else {
+                $row['daily_check_status']      = $check['drift_count'] > 0 ? 'DRIFT' : 'OK';
+                $row['daily_check_drift']       = $check['total_drift'];
+                $row['daily_check_drift_count'] = $check['drift_count'];
+            }
+        }
+        unset($row);
     }
 
     public function component_reconcile_audit(string $asOfDate, array $filters): array
