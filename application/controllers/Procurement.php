@@ -3,7 +3,8 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Procurement extends MY_Controller
 {
-    private const PAGE_WORKBENCH = 'procurement.workbench.index';
+    private const PAGE_SR       = 'procurement.store_request.index';
+    private const PAGE_DIVISION = 'procurement.division.index';
 
     public function __construct()
     {
@@ -29,7 +30,7 @@ class Procurement extends MY_Controller
 
     public function store_requests()
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'view');
+        $this->require_permission(self::PAGE_SR, 'view');
         $today = date('Y-m-d');
         $activeTab = strtolower(trim((string)$this->input->get('tab', true)));
         if (!in_array($activeTab, ['nota', 'rincian'], true)) {
@@ -95,12 +96,12 @@ class Procurement extends MY_Controller
             'destination_options' => $this->Procurement_model->list_destination_options(),
             'destination_guard_map' => $this->Procurement_model->build_destination_guard_map($divisionOptions),
             'can_create' => (
-                $this->can(self::PAGE_WORKBENCH, 'create')
-                || $this->can(self::PAGE_WORKBENCH, 'edit')
+                $this->can(self::PAGE_SR, 'create')
+                || $this->can(self::PAGE_SR, 'edit')
                 || in_array(strtoupper((string)($this->current_user['role_code'] ?? '')), ['SUPERADMIN', 'CEO', 'ADMIN'], true)
             ),
             'can_edit' => (
-                $this->can(self::PAGE_WORKBENCH, 'edit')
+                $this->can(self::PAGE_SR, 'edit')
                 || in_array(strtoupper((string)($this->current_user['role_code'] ?? '')), ['SUPERADMIN', 'CEO', 'ADMIN'], true)
             ),
             'can_repair_history' => $this->canRepairStoreRequestHistory(),
@@ -110,7 +111,7 @@ class Procurement extends MY_Controller
 
     public function store_request_create()
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'create');
+        $this->require_permission(self::PAGE_SR, 'create');
 
         $divisionOptions = $this->Purchase_model->list_active_operational_divisions();
         $data = [
@@ -140,7 +141,7 @@ class Procurement extends MY_Controller
 
     public function store_request_edit(int $id = 0)
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'edit');
+        $this->require_permission(self::PAGE_SR, 'edit');
         if ($id <= 0) {
             show_404();
             return;
@@ -188,7 +189,7 @@ class Procurement extends MY_Controller
 
     public function store_request_detail(int $id = 0)
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'view');
+        $this->require_permission(self::PAGE_SR, 'view');
         if ($id <= 0) {
             show_404();
             return;
@@ -504,7 +505,7 @@ class Procurement extends MY_Controller
 
     public function division_po_sr_profile_search()
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'view');
+        $this->require_permission(self::PAGE_DIVISION, 'view');
 
         $q = trim((string)$this->input->get('q', true));
         $limit = (int)$this->input->get('limit', true);
@@ -535,7 +536,7 @@ class Procurement extends MY_Controller
 
     public function division_po_sr_store()
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'create');
+        $this->require_permission(self::PAGE_DIVISION, 'create');
         $payload = $this->requestPayload();
         $header = (array)($payload['header'] ?? []);
         $lines = $payload['lines'] ?? [];
@@ -604,7 +605,7 @@ class Procurement extends MY_Controller
 
     public function division_po_sr_verify(int $id = 0)
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'edit');
+        $this->require_permission(self::PAGE_DIVISION, 'edit');
         if ($id <= 0) {
             $this->jsonError('Request ID tidak valid.', 422);
             return;
@@ -704,7 +705,7 @@ class Procurement extends MY_Controller
 
     public function store_request_profile_search()
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'view');
+        $this->require_permission(self::PAGE_SR, 'view');
 
         $q = trim((string)$this->input->get('q', true));
         $limit = (int)$this->input->get('limit', true);
@@ -733,7 +734,7 @@ class Procurement extends MY_Controller
 
     public function store_request_store()
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'create');
+        $this->require_permission(self::PAGE_SR, 'create');
 
         $payload = $this->requestPayload();
         $header = (array)($payload['header'] ?? []);
@@ -767,7 +768,7 @@ class Procurement extends MY_Controller
 
     public function store_request_update(int $id = 0)
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'edit');
+        $this->require_permission(self::PAGE_SR, 'edit');
         if ($id <= 0) {
             $this->jsonError('Request ID tidak valid.', 422);
             return;
@@ -806,7 +807,7 @@ class Procurement extends MY_Controller
 
     public function store_request_action(int $id = 0)
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'edit');
+        $this->require_permission(self::PAGE_SR, 'edit');
         if ($id <= 0) {
             $this->jsonError('Request ID tidak valid.', 422);
             return;
@@ -841,7 +842,7 @@ class Procurement extends MY_Controller
 
     public function store_request_split_preview(int $id = 0)
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'view');
+        $this->require_permission(self::PAGE_SR, 'view');
         if ($id <= 0) {
             $this->jsonError('Request ID tidak valid.', 422);
             return;
@@ -870,7 +871,7 @@ class Procurement extends MY_Controller
 
     public function store_request_fulfill(int $id = 0)
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'edit');
+        $this->require_permission(self::PAGE_SR, 'edit');
         if ($id <= 0) {
             $this->jsonError('Request ID tidak valid.', 422);
             return;
@@ -909,7 +910,7 @@ class Procurement extends MY_Controller
 
     public function store_request_repair_history(int $id = 0)
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'edit');
+        $this->require_permission(self::PAGE_SR, 'edit');
         if ($id <= 0) {
             $this->jsonError('Request ID tidak valid.', 422);
             return;
@@ -946,7 +947,7 @@ class Procurement extends MY_Controller
 
     public function store_request_generate_po(int $id = 0)
     {
-        $this->require_permission(self::PAGE_WORKBENCH, 'edit');
+        $this->require_permission(self::PAGE_SR, 'edit');
         if ($id <= 0) {
             $this->jsonError('Request ID tidak valid.', 422);
             return;
@@ -1030,9 +1031,9 @@ class Procurement extends MY_Controller
 
         $roleCode = strtoupper((string)($this->current_user['role_code'] ?? ''));
         $isAdminRole = in_array($roleCode, ['SUPERADMIN', 'CEO', 'ADMIN'], true);
-        $canModuleView = $this->can(self::PAGE_WORKBENCH, 'view');
-        $canModuleCreate = $this->can(self::PAGE_WORKBENCH, 'create');
-        $canModuleEdit = $this->can(self::PAGE_WORKBENCH, 'edit');
+        $canModuleView = $this->can(self::PAGE_DIVISION, 'view');
+        $canModuleCreate = $this->can(self::PAGE_DIVISION, 'create');
+        $canModuleEdit = $this->can(self::PAGE_DIVISION, 'edit');
         $isPurchase = $canModuleEdit || $isAdminRole;
 
         $allDivisionOptions = $this->Purchase_model->list_active_operational_divisions();

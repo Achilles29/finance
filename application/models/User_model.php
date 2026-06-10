@@ -247,6 +247,10 @@ class User_model extends CI_Model
         $this->replace_user_roles($user_id, $role_ids, $assigned_by);
 
         $this->db->trans_complete();
+
+        // Stamp agar MY_Controller tahu session user ini perlu direfresh
+        $this->db->where('id', $user_id)
+            ->update('auth_user', ['permissions_updated_at' => date('Y-m-d H:i:s')]);
     }
 
     public function get_role_selection_options(bool $active_only = true): array

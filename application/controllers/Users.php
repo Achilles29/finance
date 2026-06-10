@@ -319,8 +319,11 @@ class Users extends MY_Controller
             $this->session->set_flashdata('success', 'Override berhasil disimpan.');
         }
 
-        // Refresh permission user yang di-override (jika dia sedang login — session lain tidak bisa direfresh real-time)
-        // Untuk sekarang, refresh hanya jika itu diri sendiri
+        // Stamp agar session user target auto-refresh pada request berikutnya
+        $this->db->where('id', $id)
+            ->update('auth_user', ['permissions_updated_at' => date('Y-m-d H:i:s')]);
+
+        // Jika user yang diedit adalah diri sendiri, refresh session langsung juga
         if ($id === (int)$this->current_user['id']) {
             $this->Auth_model->refresh_permissions($id);
         }

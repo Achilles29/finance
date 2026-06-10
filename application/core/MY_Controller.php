@@ -88,18 +88,31 @@ class MY_Controller extends CI_Controller
             return;
         }
 
-        // Cek apakah ada role user yang permission-nya diupdate setelah cache
         $cachedAtStr = date('Y-m-d H:i:s', $cachedAt);
+
+        // Cek 1: role assignment atau override user ini berubah
         $isStale = (bool)$this->db
             ->select('1')
-            ->from('auth_user_role ur')
-            ->join('auth_role r', 'r.id = ur.role_id')
-            ->where('ur.user_id', $userId)
-            ->where('r.is_active', 1)
-            ->where('r.permissions_updated_at >', $cachedAtStr)
+            ->from('auth_user')
+            ->where('id', $userId)
+            ->where('permissions_updated_at >', $cachedAtStr)
             ->limit(1)
             ->get()
             ->num_rows();
+
+        // Cek 2: permission matrix salah satu role user berubah
+        if (!$isStale) {
+            $isStale = (bool)$this->db
+                ->select('1')
+                ->from('auth_user_role ur')
+                ->join('auth_role r', 'r.id = ur.role_id')
+                ->where('ur.user_id', $userId)
+                ->where('r.is_active', 1)
+                ->where('r.permissions_updated_at >', $cachedAtStr)
+                ->limit(1)
+                ->get()
+                ->num_rows();
+        }
 
         if ($isStale) {
             $this->load->model('Auth_model');

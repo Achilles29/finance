@@ -363,12 +363,18 @@ class Role_model extends CI_Model
     {
         $new_ids = array_unique(array_filter(array_map('intval', $user_ids)));
 
+        // Catat user lama sebelum dihapus agar bisa diikutkan stamp
+        $old_ids = array_map('intval', array_column(
+            $this->db->select('user_id')->from('auth_user_role')
+                ->where('role_id', $role_id)->get()->result_array(),
+            'user_id'
+        ));
+
         $this->db->trans_start();
 
         // Hapus semua assignment lama untuk role ini
         $this->db->where('role_id', $role_id)->delete('auth_user_role');
 
-        // Insert ulang
         $now = date('Y-m-d H:i:s');
         foreach ($new_ids as $uid) {
             if ($uid <= 0) continue;
@@ -381,6 +387,15 @@ class Role_model extends CI_Model
         }
 
         $this->db->trans_complete();
+
+        // Stamp session-invalidation untuk semua user yang terdampak
+        // (user lama yang dicopot maupun user baru yang ditambahkan)
+        $affected = array_unique(array_merge($old_ids, $new_ids));
+        $affected = array_values(array_filter($affected));
+        if (!empty($affected)) {
+            $this->db->where_in('id', $affected)
+                ->update('auth_user', ['permissions_updated_at' => $now]);
+        }
 
         return count($new_ids);
     }
