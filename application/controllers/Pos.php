@@ -103,6 +103,10 @@ class Pos extends MY_Controller
         if ($componentType === '') {
             $componentType = 'ALL';
         }
+        $dailyCheckFilter = strtoupper(trim((string)$this->input->get('daily_check', true)));
+        if (!in_array($dailyCheckFilter, ['DRIFT', 'OK', 'UNKNOWN'], true)) {
+            $dailyCheckFilter = 'ALL';
+        }
 
         $divisionOptions = $this->Purchase_model->list_active_operational_divisions();
 
@@ -119,6 +123,7 @@ class Pos extends MY_Controller
         $materialRowsFiltered = $this->filter_material_compare_rows($materialRowsAll, [
             'status' => $status,
             'suspect' => $suspectFilter,
+            'daily_check' => $dailyCheckFilter,
         ]);
         $materialFilteredSummary = $this->build_material_compare_summary($materialRowsFiltered);
         $materialPagination = $this->paginate_rows($materialRowsFiltered, $page, $limit);
@@ -135,6 +140,7 @@ class Pos extends MY_Controller
                 'destination' => $destinationFilter,
                 'status' => $status,
                 'suspect' => $suspectFilter,
+                'daily_check' => $dailyCheckFilter,
                 'limit' => $limit,
                 'page' => $materialPagination['pagination']['current_page'],
             ],
@@ -155,6 +161,7 @@ class Pos extends MY_Controller
         $componentOptions = $this->build_component_compare_options($componentRowsAll);
         $componentRowsFiltered = $this->filter_component_compare_rows($componentRowsAll, [
             'status' => $status,
+            'daily_check' => $dailyCheckFilter,
         ]);
         $componentFilteredSummary = $this->build_component_compare_summary($componentRowsFiltered);
         $componentPagination = $this->paginate_rows($componentRowsFiltered, $page, $limit);
@@ -171,6 +178,7 @@ class Pos extends MY_Controller
                 'location_type' => $locationType,
                 'type' => $componentType,
                 'status' => $status,
+                'daily_check' => $dailyCheckFilter,
                 'limit' => $limit,
                 'page' => $componentPagination['pagination']['current_page'],
             ],
@@ -350,6 +358,141 @@ class Pos extends MY_Controller
         ]);
     }
 
+    public function stock_commit_audit_repair_material_drift()
+    {
+        $this->require_permission('pos.stock.live.index', 'edit');
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $asOfDate = trim((string)($payload['as_of_date'] ?? ''));
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
+            $asOfDate = date('Y-m-d');
+        }
+        $q = trim((string)($payload['q'] ?? ''));
+        $divisionId = max(0, (int)($payload['division_id'] ?? 0));
+        $destination = strtoupper(trim((string)($payload['destination'] ?? 'ALL')));
+        if ($destination === '') {
+            $destination = 'ALL';
+        }
+
+        $compare = $this->Purchase_model->list_division_material_stock_compare(
+            $asOfDate,
+            $q,
+            $divisionId > 0 ? $divisionId : null,
+            5000,
+            $destination
+        );
+        $rows = $this->filter_material_compare_rows((array)($compare['rows'] ?? []), [
+            'daily_check' => 'DRIFT',
+        ]);
+        if (empty($rows)) {
+            $this->json_ok([
+                'message' => 'Tidak ada bahan baku dengan drift monthly stock yang perlu direpair.',
+                'processed_count' => 0,
+                'success_count' => 0,
+                'failed_count' => 0,
+                'results' => [],
+            ]);
+            return;
+        }
+
+        $results = [];
+        $successCount = 0;
+        foreach ($rows as $row) {
+            $repair = $this->Purchase_model->repair_material_monthly_stock_drift($asOfDate, [
+                'division_id' => (int)($row['division_id'] ?? 0),
+                'item_id' => (int)($row['item_id'] ?? 0),
+                'material_id' => (int)($row['material_id'] ?? 0),
+                'destination_group' => (string)($row['destination_group'] ?? 'REGULER'),
+            ]);
+            if (!empty($repair['ok'])) {
+                $successCount++;
+            }
+            $results[] = [
+                'label' => trim((string)($row['material_name'] ?? '-')) . ' @ ' . trim((string)($row['division_name'] ?? '-')),
+                'result' => $repair,
+            ];
+        }
+
+        $this->json_ok([
+            'message' => 'Batch repair drift monthly stock bahan baku selesai.',
+            'processed_count' => count($rows),
+            'success_count' => $successCount,
+            'failed_count' => count($rows) - $successCount,
+            'results' => $results,
+        ]);
+    }
+
+    public function stock_commit_audit_repair_component_drift()
+    {
+        $this->require_permission('pos.stock.live.index', 'edit');
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $asOfDate = trim((string)($payload['as_of_date'] ?? ''));
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
+            $asOfDate = date('Y-m-d');
+        }
+        $q = trim((string)($payload['q'] ?? ''));
+        $divisionId = max(0, (int)($payload['division_id'] ?? 0));
+        $locationType = strtoupper(trim((string)($payload['location_type'] ?? 'ALL')));
+        if ($locationType === '') {
+            $locationType = 'ALL';
+        }
+        $componentType = strtoupper(trim((string)($payload['type'] ?? 'ALL')));
+
+        $compare = $this->Production_model->component_reconcile_rows([
+            'as_of_date' => $asOfDate,
+            'q' => $q,
+            'location_type' => $locationType,
+            'division_id' => $divisionId,
+            'type' => $componentType === 'ALL' ? '' : $componentType,
+        ], 5000);
+        $rows = $this->filter_component_compare_rows((array)($compare['rows'] ?? []), [
+            'daily_check' => 'DRIFT',
+        ]);
+        if (empty($rows)) {
+            $this->json_ok([
+                'message' => 'Tidak ada component dengan drift monthly stock yang perlu direpair.',
+                'processed_count' => 0,
+                'success_count' => 0,
+                'failed_count' => 0,
+                'results' => [],
+            ]);
+            return;
+        }
+
+        $results = [];
+        $successCount = 0;
+        foreach ($rows as $row) {
+            $repair = $this->Production_model->repair_component_monthly_stock_drift([
+                'location_type' => (string)($row['location_type'] ?? ''),
+                'division_id' => array_key_exists('division_id', $row) && $row['division_id'] !== null ? (int)$row['division_id'] : null,
+                'component_id' => (int)($row['component_id'] ?? 0),
+                'uom_id' => (int)($row['uom_id'] ?? 0),
+            ]);
+            if (!empty($repair['ok'])) {
+                $successCount++;
+            }
+            $results[] = [
+                'label' => trim((string)($row['component_name'] ?? '-')) . ' @ ' . trim((string)($row['division_name'] ?? '-')),
+                'result' => $repair,
+            ];
+        }
+
+        $this->json_ok([
+            'message' => 'Batch repair drift monthly stock component selesai.',
+            'processed_count' => count($rows),
+            'success_count' => $successCount,
+            'failed_count' => count($rows) - $successCount,
+            'results' => $results,
+        ]);
+    }
+
     private function sort_material_compare_rows(array $rows): array
     {
         usort($rows, static function (array $left, array $right): int {
@@ -388,8 +531,9 @@ class Pos extends MY_Controller
     {
         $status = strtoupper(trim((string)($filters['status'] ?? 'ALL')));
         $suspect = strtoupper(trim((string)($filters['suspect'] ?? 'ALL')));
+        $dailyCheck = strtoupper(trim((string)($filters['daily_check'] ?? 'ALL')));
 
-        return array_values(array_filter($rows, static function (array $row) use ($status, $suspect): bool {
+        return array_values(array_filter($rows, static function (array $row) use ($status, $suspect, $dailyCheck): bool {
             if ($status === 'MATCH' && empty($row['is_match'])) {
                 return false;
             }
@@ -397,6 +541,9 @@ class Pos extends MY_Controller
                 return false;
             }
             if ($suspect !== 'ALL' && strtoupper((string)($row['suspect_table'] ?? '')) !== $suspect) {
+                return false;
+            }
+            if ($dailyCheck !== 'ALL' && strtoupper((string)($row['daily_check_status'] ?? 'UNKNOWN')) !== $dailyCheck) {
                 return false;
             }
             return true;
@@ -409,12 +556,16 @@ class Pos extends MY_Controller
             'total_rows' => count($rows),
             'match_rows' => 0,
             'mismatch_rows' => 0,
+            'drift_rows' => 0,
         ];
         foreach ($rows as $row) {
             if (!empty($row['is_match'])) {
                 $summary['match_rows']++;
             } else {
                 $summary['mismatch_rows']++;
+            }
+            if (strtoupper((string)($row['daily_check_status'] ?? '')) === 'DRIFT') {
+                $summary['drift_rows']++;
             }
         }
 
@@ -493,12 +644,16 @@ class Pos extends MY_Controller
     private function filter_component_compare_rows(array $rows, array $filters): array
     {
         $status = strtoupper(trim((string)($filters['status'] ?? 'ALL')));
+        $dailyCheck = strtoupper(trim((string)($filters['daily_check'] ?? 'ALL')));
 
-        return array_values(array_filter($rows, static function (array $row) use ($status): bool {
+        return array_values(array_filter($rows, static function (array $row) use ($status, $dailyCheck): bool {
             if ($status === 'MATCH' && empty($row['is_match'])) {
                 return false;
             }
             if ($status === 'MISMATCH' && !empty($row['is_match'])) {
+                return false;
+            }
+            if ($dailyCheck !== 'ALL' && strtoupper((string)($row['daily_check_status'] ?? 'UNKNOWN')) !== $dailyCheck) {
                 return false;
             }
             return true;
@@ -508,9 +663,13 @@ class Pos extends MY_Controller
     private function build_component_compare_summary(array $rows): array
     {
         $matched = 0;
+        $driftRows = 0;
         foreach ($rows as $row) {
             if (!empty($row['is_match'])) {
                 $matched++;
+            }
+            if (strtoupper((string)($row['daily_check_status'] ?? '')) === 'DRIFT') {
+                $driftRows++;
             }
         }
 
@@ -518,6 +677,7 @@ class Pos extends MY_Controller
             'total' => count($rows),
             'matched' => $matched,
             'mismatched' => count($rows) - $matched,
+            'drift_rows' => $driftRows,
         ];
     }
 

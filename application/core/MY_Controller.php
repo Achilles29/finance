@@ -112,6 +112,32 @@ class MY_Controller extends CI_Controller
     } 
 
     // ---------------------------------------------------------------
+    // DIVISION SCOPE HELPER
+    // ---------------------------------------------------------------
+
+    /**
+     * Kembalikan division_id yang berlaku untuk user yang sedang login.
+     * - Superadmin → null (lihat semua divisi)
+     * - User dengan role ber-scope → ID divisi tersebut
+     * - User tanpa scope → null (lihat semua divisi)
+     *
+     * Cara pakai di controller:
+     *   $divId = $this->active_division_id();
+     *   if ($divId) $this->db->where('division_id', $divId);
+     */
+    protected function active_division_id(): ?int
+    {
+        if ($this->is_superadmin()) {
+            return null;
+        }
+
+        $scope = $this->session->userdata('user_division_scope');
+        return ($scope !== null && $scope !== false && (int)$scope > 0)
+            ? (int)$scope
+            : null;
+    }
+
+    // ---------------------------------------------------------------
     // VIEW LOADER HELPER
     // ---------------------------------------------------------------
 

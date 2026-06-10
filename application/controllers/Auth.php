@@ -63,10 +63,14 @@ class Auth extends CI_Controller
         $perms = $this->Auth_model->load_permissions($user['id']);
         $is_superadmin = isset($perms['__superadmin__']);
 
+        // Ambil division scope efektif (null = lintas divisi / tidak dibatasi)
+        $divisionScopeId = $is_superadmin ? null : $this->Auth_model->get_division_scope($user['id']);
+
         // Simpan ke session
         $this->session->set_userdata([
-            'auth_user'    => array_merge($user, ['is_superadmin' => $is_superadmin]),
-            'user_perms'   => $perms,
+            'auth_user'           => array_merge($user, ['is_superadmin' => $is_superadmin]),
+            'user_perms'          => $perms,
+            'user_division_scope' => $divisionScopeId,
         ]);
 
         // Catat log

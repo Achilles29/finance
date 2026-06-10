@@ -87,16 +87,44 @@ class Role_model extends CI_Model
         $this->db->join('auth_role_permission rp',
             'rp.page_id = p.id AND rp.role_id = ' . (int)$role_id, 'left');
         $this->db->where('p.is_active', 1);
-        $this->db->order_by('p.module', 'ASC');
+        $hasMatrixGroup = $this->db->field_exists('matrix_group', 'sys_page');
+        if ($hasMatrixGroup) {
+            $this->db->order_by('COALESCE(p.matrix_group, p.module)', 'ASC', false);
+        } else {
+            $this->db->order_by('p.module', 'ASC');
+        }
         $this->db->order_by('has_menu', 'DESC', false);
         $this->db->order_by('COALESCE(menu.menu_label, p.page_name)', 'ASC', false);
         $rows = $this->db->get()->result_array();
 
         $grouped = [];
         foreach ($rows as $row) {
-            $grouped[$row['module']][] = $row;
+            $groupKey = $hasMatrixGroup && !empty($row['matrix_group'])
+                ? (string)$row['matrix_group']
+                : (string)$row['module'];
+            $grouped[$groupKey][] = $row;
         }
         return $grouped;
+    }
+
+    /**
+     * Simpan matrix_group baru untuk satu halaman (sys_page).
+     * Dipakai dari AJAX endpoint di Roles controller.
+     */
+    public function save_page_matrix_group(string $pageCode, string $newGroup): bool
+    {
+        if (trim($pageCode) === '') {
+            return false;
+        }
+
+        if (!$this->db->field_exists('matrix_group', 'sys_page')) {
+            return false;
+        }
+
+        $this->db->where('page_code', $pageCode);
+        return $this->db->update('sys_page', [
+            'matrix_group' => $newGroup !== '' ? $newGroup : null,
+        ]);
     }
 
     public function get_registry_audit_summary(): array
@@ -131,18 +159,18 @@ class Role_model extends CI_Model
             ->row('aggregate_total');
 
         $menusWithoutPage = $this->db
-            ->select('menu_code, menu_label, url')
+            ->select('id, menu_code, menu_label, url')
             ->from('sys_menu')
             ->where('is_active', 1)
             ->where('COALESCE(TRIM(url), \'\') <> \'\'', null, false)
             ->where('page_id IS NULL', null, false)
             ->order_by('menu_label', 'ASC')
-            ->limit(8)
+            ->limit(50)
             ->get()
             ->result_array();
 
         $pagesWithoutMenu = $this->db
-            ->query("SELECT p.page_code, p.page_name, p.module
+            ->query("SELECT p.id, p.page_code, p.page_name, p.module
                 FROM sys_page p
                 WHERE p.is_active = 1
                   AND NOT EXISTS (
@@ -152,7 +180,7 @@ class Role_model extends CI_Model
                       AND m.is_active = 1
                   )
                 ORDER BY p.module ASC, p.page_name ASC
-                LIMIT 8")
+                LIMIT 50")
             ->result_array();
 
         return [

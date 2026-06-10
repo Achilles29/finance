@@ -125,7 +125,7 @@ $perm_flags = [
 .ptog-export .ptog-pill.on { background:#f3e8ff; color:#6d28d9; border-color:#d8b4fe; }
 
 /* ── Row quick-all button ────────────────────────────────── */
-.mx-row-quick { opacity:0; transition:opacity 0.15s; flex-shrink:0; }
+.mx-row-quick { opacity:0; transition:opacity 0.15s; flex-shrink:0; display:flex; align-items:center; gap:3px; }
 .mx-page-row:hover .mx-row-quick { opacity:1; }
 .mx-row-quick .btn { font-size:0.65rem; padding:2px 6px; border-radius:6px; }
 
@@ -169,6 +169,9 @@ $perm_flags = [
 <div class="mx-role-bar d-flex align-items-center gap-3 flex-wrap">
   <a href="<?= base_url('roles') ?>" class="btn btn-sm btn-outline-secondary flex-shrink-0">
     <i class="ri ri-arrow-left-line"></i>
+  </a>
+  <a href="<?= base_url('roles/matrix-groups') ?>" class="btn btn-sm btn-outline-primary flex-shrink-0" title="Konfigurasi pengelompokan halaman di matrix">
+    <i class="ri ri-layout-grid-line me-1"></i><span class="d-none d-md-inline">Konfigurasi Grup</span>
   </a>
   <div style="flex:1; min-width:180px;">
     <div class="fw-bold" style="font-size:1rem;">
@@ -606,6 +609,7 @@ $perm_flags = [
   });
 
   applyRowFilters();
+
 
 }());
 </script>

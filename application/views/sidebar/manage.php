@@ -105,7 +105,7 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
           <button type="button" id="btn_save_sidebar_structure" class="btn btn-primary btn-sm" data-loading-label="Menyimpan...">Simpan Struktur</button>
         </div>
       </div>
-      <div class="card-body">
+      <div class="card-body" style="max-height:640px; overflow-y:auto; overflow-x:hidden; padding-right:4px;">
         <div id="sidebar-tree-root"></div>
         <div id="sidebar-save-alert" class="mt-3"></div>
       </div>
@@ -113,101 +113,193 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
   </div>
 
   <div class="tab-pane fade <?php echo $activeTab === 'menu-data' ? 'show active' : ''; ?>" id="tab-menu-data" role="tabpanel" aria-labelledby="tab-menu-data-btn" tabindex="0">
+    <?php
+      $pageRegistryById = [];
+      foreach (($page_registry ?? []) as $pr) {
+          $pageRegistryById[(int)$pr['id']] = $pr;
+      }
+      $pageRegistryByModule = [];
+      foreach (($page_registry ?? []) as $pr) {
+          $pageRegistryByModule[$pr['module']][] = $pr;
+      }
+    ?>
     <div class="row g-3">
+
+      <!-- ── FORM PANEL ──────────────────────────────────────────── -->
       <div class="col-lg-5">
-        <div class="card h-100">
-          <div class="card-header">
-            <strong><?php echo $isEdit ? 'Edit Menu Sidebar' : 'Tambah Menu Sidebar'; ?></strong>
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <strong><?php echo $isEdit ? '<i class="ri ri-edit-line me-1"></i>Edit Menu Sidebar' : '<i class="ri ri-add-circle-line me-1"></i>Tambah Menu Sidebar'; ?></strong>
+            <?php if ($isEdit): ?>
+              <a href="<?php echo $manageBase . '?type=' . urlencode($type) . '&tab=menu-data'; ?>" class="btn btn-outline-secondary btn-xs px-2 py-1" style="font-size:.75rem;">Batal</a>
+            <?php endif; ?>
           </div>
           <div class="card-body">
-            <form method="post" action="<?php echo $submitUrl; ?>" class="row g-2">
+            <form method="post" action="<?php echo $submitUrl; ?>" class="row g-2" id="sidebar-menu-form">
               <input type="hidden" name="sidebar_type" value="<?php echo html_escape($type); ?>">
+
               <div class="col-12">
-                <label class="form-label mb-1">Kode Menu</label>
-                <input type="text" class="form-control" name="menu_code" required value="<?php echo html_escape((string)($editMenu['menu_code'] ?? '')); ?>">
+                <label class="form-label mb-1 small fw-semibold">Nama Menu <span class="text-danger">*</span></label>
+                <input type="text" class="form-control form-control-sm" name="menu_label" required
+                       placeholder="mis. Laporan Penjualan"
+                       value="<?php echo html_escape((string)($editMenu['menu_label'] ?? '')); ?>">
               </div>
+
               <div class="col-12">
-                <label class="form-label mb-1">Nama Menu</label>
-                <input type="text" class="form-control" name="menu_label" required value="<?php echo html_escape((string)($editMenu['menu_label'] ?? '')); ?>">
+                <label class="form-label mb-1 small fw-semibold">Kode Menu <span class="text-danger">*</span></label>
+                <input type="text" class="form-control form-control-sm font-monospace" name="menu_code" required
+                       placeholder="mis. pos.report.sales"
+                       value="<?php echo html_escape((string)($editMenu['menu_code'] ?? '')); ?>">
+                <div class="form-text" style="font-size:.7rem;">Unik, lowercase + titik. Contoh: <code>grp.inventory</code>, <code>pos.cashier</code></div>
               </div>
-              <div class="col-md-6">
-                <label class="form-label mb-1">Icon (Remix class)</label>
-                <input type="text" class="form-control" name="icon" placeholder="ri-settings-3-line" value="<?php echo html_escape((string)($editMenu['icon'] ?? 'ri-circle-line')); ?>">
+
+              <div class="col-md-7">
+                <label class="form-label mb-1 small fw-semibold">URL</label>
+                <input type="text" class="form-control form-control-sm" name="url"
+                       placeholder="pos/reports/sales"
+                       value="<?php echo html_escape((string)($editMenu['url'] ?? '')); ?>">
               </div>
-              <div class="col-md-6">
-                <label class="form-label mb-1">URL</label>
-                <input type="text" class="form-control" name="url" placeholder="/module/page" value="<?php echo html_escape((string)($editMenu['url'] ?? '')); ?>">
+
+              <div class="col-md-5">
+                <label class="form-label mb-1 small fw-semibold">Icon <small class="text-muted fw-normal">(Remix)</small></label>
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text px-2" id="menu-icon-preview"><i class="ri <?php echo html_escape((string)($editMenu['icon'] ?? 'ri-circle-line')); ?>"></i></span>
+                  <input type="text" class="form-control form-control-sm font-monospace" name="icon" id="menu-icon-input"
+                         placeholder="ri-circle-line"
+                         value="<?php echo html_escape((string)($editMenu['icon'] ?? 'ri-circle-line')); ?>">
+                </div>
               </div>
-              <div class="col-md-6">
-                <label class="form-label mb-1">Parent</label>
-                <select name="parent_id" class="form-select">
-                  <option value="0">(Root)</option>
+
+              <div class="col-12">
+                <label class="form-label mb-1 small fw-semibold">Halaman Terkait (Page Registry)</label>
+                <select name="page_id" class="form-select form-select-sm" id="menu-page-select">
+                  <option value="0">— Tidak dihubungkan (grup/heading) —</option>
+                  <?php foreach ($pageRegistryByModule as $mod => $pages): ?>
+                    <optgroup label="<?php echo html_escape($mod); ?>">
+                      <?php foreach ($pages as $pr): ?>
+                        <option value="<?php echo (int)$pr['id']; ?>"
+                                <?php echo ((int)($editMenu['page_id'] ?? 0) === (int)$pr['id']) ? 'selected' : ''; ?>>
+                          <?php echo html_escape($pr['page_name']); ?> — <small><?php echo html_escape($pr['page_code']); ?></small>
+                        </option>
+                      <?php endforeach; ?>
+                    </optgroup>
+                  <?php endforeach; ?>
+                </select>
+                <div class="form-text" style="font-size:.7rem;">Hubungkan menu ke page registry agar muncul di matrix role &amp; permission.</div>
+              </div>
+
+              <div class="col-md-7">
+                <label class="form-label mb-1 small fw-semibold">Parent</label>
+                <select name="parent_id" class="form-select form-select-sm">
+                  <option value="0">(Root — tanpa parent)</option>
                   <?php foreach ($parentCandidates as $p): ?>
                     <option value="<?php echo (int)$p['id']; ?>" <?php echo ((int)($editMenu['parent_id'] ?? 0) === (int)$p['id']) ? 'selected' : ''; ?>>
-                      <?php echo html_escape((string)$p['menu_label'] . ' (' . $p['menu_code'] . ')'); ?>
+                      <?php echo html_escape((string)$p['menu_label']); ?>
                     </option>
                   <?php endforeach; ?>
                 </select>
               </div>
-              <div class="col-md-6">
-                <label class="form-label mb-1">Sort Order</label>
-                <input type="number" min="1" class="form-control" name="sort_order" value="<?php echo (int)($editMenu['sort_order'] ?? 999); ?>">
+
+              <div class="col-md-5">
+                <label class="form-label mb-1 small fw-semibold">Sort Order</label>
+                <input type="number" min="1" class="form-control form-control-sm" name="sort_order"
+                       value="<?php echo (int)($editMenu['sort_order'] ?? 999); ?>">
               </div>
+
               <?php if ($isEdit): ?>
               <div class="col-12">
-                <label class="form-label mb-1 d-block">Status</label>
-                <label class="form-check form-switch">
-                  <input type="checkbox" class="form-check-input" name="is_active" <?php echo !isset($editMenu['is_active']) || (int)$editMenu['is_active'] === 1 ? 'checked' : ''; ?>>
-                  <span class="form-check-label">Aktif</span>
+                <label class="form-check form-switch mb-0">
+                  <input type="checkbox" class="form-check-input" name="is_active"
+                         <?php echo !isset($editMenu['is_active']) || (int)$editMenu['is_active'] === 1 ? 'checked' : ''; ?>>
+                  <span class="form-check-label small">Menu Aktif</span>
                 </label>
               </div>
               <?php endif; ?>
-              <div class="col-12 d-flex gap-2 mt-2">
-                <button type="submit" class="btn btn-primary btn-sm"><?php echo $isEdit ? 'Update Menu' : 'Simpan Menu'; ?></button>
-                <?php if ($isEdit): ?>
-                  <a href="<?php echo $manageBase . '?type=' . urlencode($type); ?>" class="btn btn-outline-secondary btn-sm">Batal Edit</a>
-                <?php endif; ?>
+
+              <div class="col-12 pt-1">
+                <button type="submit" class="btn btn-primary btn-sm">
+                  <i class="ri <?php echo $isEdit ? 'ri-save-line' : 'ri-add-line'; ?> me-1"></i>
+                  <?php echo $isEdit ? 'Update Menu' : 'Simpan Menu'; ?>
+                </button>
               </div>
             </form>
           </div>
         </div>
       </div>
+
+      <!-- ── TABLE PANEL ─────────────────────────────────────────── -->
       <div class="col-lg-7">
-        <div class="card h-100">
-          <div class="card-header">
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
             <strong>Daftar Menu Sidebar <?php echo html_escape($type); ?></strong>
+            <div class="input-group input-group-sm" style="max-width:220px;">
+              <span class="input-group-text"><i class="ri ri-search-line"></i></span>
+              <input type="text" id="menu-list-search" class="form-control form-control-sm" placeholder="Cari nama / kode / URL…">
+            </div>
           </div>
-          <div class="table-responsive">
-            <table class="table table-striped table-hover mb-0">
-              <thead>
+
+          <div style="max-height:520px; overflow-y:auto;">
+            <table class="table table-hover table-sm align-middle mb-0" id="menu-list-table">
+              <thead class="table-light sticky-top" style="z-index:1;">
                 <tr>
-                  <th width="70">ID</th>
-                  <th>Nama</th>
-                  <th>Kode</th>
-                  <th>Parent</th>
-                  <th>Sort</th>
-                  <th>Status</th>
-                  <th width="120">Aksi</th>
+                  <th style="width:36px;" class="text-center">#</th>
+                  <th>Nama / Kode</th>
+                  <th>Page Link</th>
+                  <th style="width:72px;" class="text-center">Status</th>
+                  <th style="width:72px;" class="text-center">Aksi</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody id="menu-list-tbody">
                 <?php if (empty($flatMenus)): ?>
-                  <tr><td colspan="7" class="text-center text-muted py-4">Belum ada menu.</td></tr>
+                  <tr><td colspan="5" class="text-center text-muted py-4">Belum ada menu.</td></tr>
                 <?php else: ?>
-                  <?php foreach ($flatMenus as $m): ?>
-                    <tr>
-                      <td class="number-cell"><?php echo (int)$m['id']; ?></td>
-                      <td class="text-cell"><?php echo html_escape((string)$m['menu_label']); ?></td>
-                      <td class="text-cell"><?php echo html_escape((string)$m['menu_code']); ?></td>
-                      <td class="number-cell"><?php echo !empty($m['parent_id']) ? (int)$m['parent_id'] : 0; ?></td>
-                      <td class="number-cell"><?php echo (int)$m['sort_order']; ?></td>
-                      <td><?php echo (int)$m['is_active'] === 1 ? 'Aktif' : 'Nonaktif'; ?></td>
-                      <td class="action-cell">
-                        <div class="d-flex gap-1 flex-nowrap justify-content-end">
-                          <a href="<?php echo $manageBase . '?type=' . urlencode($type) . '&tab=menu-data&edit_id=' . (int)$m['id']; ?>" class="btn btn-sm btn-outline-primary action-icon-btn" title="Edit" aria-label="Edit"><i class="ri ri-edit-line"></i></a>
-                          <form method="post" action="<?php echo site_url('sidebar/manage/menu/delete/' . (int)$m['id']); ?>" class="d-inline" onsubmit="return confirm('Nonaktifkan menu ini?');">
-                            <button type="submit" class="btn btn-sm btn-outline-danger action-icon-btn" title="Nonaktifkan" aria-label="Nonaktifkan"><i class="ri ri-close-circle-line"></i></button>
-                          </form>
+                  <?php foreach ($flatMenus as $m):
+                    $linkedPage = !empty($m['page_id']) ? ($pageRegistryById[(int)$m['page_id']] ?? null) : null;
+                    $isActive = (int)($m['is_active'] ?? 0) === 1;
+                    $searchText = strtolower(trim((string)($m['menu_label'] ?? '') . ' ' . (string)($m['menu_code'] ?? '') . ' ' . (string)($m['url'] ?? '')));
+                  ?>
+                    <tr class="menu-row" data-id="<?php echo (int)$m['id']; ?>"
+                        data-search="<?php echo html_escape($searchText); ?>"
+                        data-active="<?php echo $isActive ? '1' : '0'; ?>">
+                      <td class="text-center text-muted small"><?php echo (int)$m['id']; ?></td>
+                      <td>
+                        <div class="fw-semibold small"><?php echo html_escape((string)$m['menu_label']); ?></div>
+                        <div class="font-monospace text-muted" style="font-size:.68rem;"><?php echo html_escape((string)$m['menu_code']); ?></div>
+                        <?php if (!empty($m['url'])): ?>
+                          <div class="text-muted" style="font-size:.68rem;"><?php echo html_escape((string)$m['url']); ?></div>
+                        <?php endif; ?>
+                      </td>
+                      <td>
+                        <?php if ($linkedPage): ?>
+                          <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size:.67rem; max-width:130px; white-space:normal; line-height:1.3;">
+                            <i class="ri ri-pages-line me-1"></i><?php echo html_escape((string)$linkedPage['page_name']); ?>
+                          </span>
+                        <?php elseif (!empty($m['url'])): ?>
+                          <span class="badge bg-warning-subtle text-warning border" style="font-size:.67rem;">Belum di-link</span>
+                        <?php else: ?>
+                          <span class="text-muted" style="font-size:.68rem;">—</span>
+                        <?php endif; ?>
+                      </td>
+                      <td class="text-center">
+                        <span class="menu-status-badge badge <?php echo $isActive ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary-subtle text-secondary border'; ?>"
+                              style="font-size:.67rem; cursor:default;"
+                              data-active="<?php echo $isActive ? '1' : '0'; ?>">
+                          <?php echo $isActive ? 'Aktif' : 'Nonaktif'; ?>
+                        </span>
+                      </td>
+                      <td class="text-center">
+                        <div class="d-flex gap-1 justify-content-center">
+                          <a href="<?php echo $manageBase . '?type=' . urlencode($type) . '&tab=menu-data&edit_id=' . (int)$m['id']; ?>"
+                             class="btn btn-xs btn-outline-primary p-1" style="line-height:1;" title="Edit">
+                            <i class="ri ri-edit-line"></i>
+                          </a>
+                          <button type="button"
+                                  class="btn btn-xs menu-toggle-btn p-1 <?php echo $isActive ? 'btn-outline-warning' : 'btn-outline-success'; ?>"
+                                  style="line-height:1;" title="<?php echo $isActive ? 'Nonaktifkan' : 'Aktifkan'; ?>"
+                                  data-id="<?php echo (int)$m['id']; ?>"
+                                  data-active="<?php echo $isActive ? '1' : '0'; ?>">
+                            <i class="ri <?php echo $isActive ? 'ri-toggle-line' : 'ri-toggle-fill'; ?>"></i>
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -215,6 +307,12 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
                 <?php endif; ?>
               </tbody>
             </table>
+          </div>
+
+          <!-- Pagination bar -->
+          <div class="card-footer py-2 d-flex align-items-center justify-content-between gap-2 flex-wrap" id="menu-pagination-bar">
+            <div class="text-muted small" id="menu-pagination-info"></div>
+            <div class="d-flex gap-1" id="menu-pagination-btns"></div>
           </div>
         </div>
       </div>
@@ -293,19 +391,62 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
     left.appendChild(icon);
     left.appendChild(txt);
 
-    var right = document.createElement('small');
-    right.className = 'text-muted';
-    right.textContent = (item.url && String(item.url).trim() !== '') ? item.url : '-';
-
     if (!isActive && !isVirtual) {
       var off = document.createElement('small');
       off.className = 'badge bg-danger text-white ms-2';
-      off.textContent = 'Belum tampil';
+      off.textContent = 'Nonaktif';
       left.appendChild(off);
     }
 
+    // Right panel: URL + status badge + actions
+    var rightPanel = document.createElement('div');
+    rightPanel.className = 'd-flex align-items-center gap-2 flex-shrink-0';
+
+    var urlSpan = document.createElement('small');
+    urlSpan.className = 'text-muted text-truncate';
+    urlSpan.style.maxWidth = '140px';
+    urlSpan.title = (item.url && String(item.url).trim() !== '') ? String(item.url) : '';
+    urlSpan.textContent = (item.url && String(item.url).trim() !== '') ? String(item.url) : '—';
+    rightPanel.appendChild(urlSpan);
+
+    if (!isVirtual) {
+      // Status badge
+      var statusBadge = document.createElement('span');
+      statusBadge.className = 'node-status-badge badge ' + (isActive
+        ? 'bg-success-subtle text-success border border-success-subtle'
+        : 'bg-secondary-subtle text-secondary border');
+      statusBadge.style.fontSize = '0.67rem';
+      statusBadge.style.whiteSpace = 'nowrap';
+      statusBadge.textContent = isActive ? 'Aktif' : 'Nonaktif';
+      rightPanel.appendChild(statusBadge);
+
+      // Actions
+      var actDiv = document.createElement('div');
+      actDiv.className = 'd-flex gap-1';
+
+      var editLink = document.createElement('a');
+      editLink.href = manageBase + '?type=' + encodeURIComponent(sidebarType) + '&tab=menu-data&edit_id=' + item.id;
+      editLink.className = 'btn btn-xs btn-outline-primary p-1';
+      editLink.style.lineHeight = '1';
+      editLink.title = 'Edit';
+      editLink.innerHTML = '<i class="ri ri-edit-line"></i>';
+      actDiv.appendChild(editLink);
+
+      var togBtn = document.createElement('button');
+      togBtn.type = 'button';
+      togBtn.className = 'btn btn-xs p-1 node-toggle-btn ' + (isActive ? 'btn-outline-warning' : 'btn-outline-success');
+      togBtn.style.lineHeight = '1';
+      togBtn.title = isActive ? 'Nonaktifkan' : 'Aktifkan';
+      togBtn.dataset.id     = String(item.id);
+      togBtn.dataset.active = isActive ? '1' : '0';
+      togBtn.innerHTML = '<i class="ri ' + (isActive ? 'ri-toggle-line' : 'ri-toggle-fill') + '"></i>';
+      actDiv.appendChild(togBtn);
+
+      rightPanel.appendChild(actDiv);
+    }
+
     wrap.appendChild(left);
-    wrap.appendChild(right);
+    wrap.appendChild(rightPanel);
     return wrap;
   }
 
@@ -586,6 +727,76 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
     });
   }
 
+  // ── Inline toggle for tree nodes ──────────────────────────────
+  var TREE_TOGGLE_URL = <?php echo json_encode(site_url('sidebar/manage/menu/toggle/')); ?>;
+
+  rootEl.addEventListener('click', function (e) {
+    var btn = e.target.closest('.node-toggle-btn');
+    if (!btn) return;
+    e.stopPropagation();
+
+    var id       = btn.dataset.id;
+    var isActive = btn.dataset.active === '1';
+    if (!confirm((isActive ? 'Nonaktifkan' : 'Aktifkan') + ' menu ini?')) return;
+
+    btn.disabled = true;
+    var origHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.75rem;height:.75rem;"></span>';
+
+    $.ajax({ url: TREE_TOGGLE_URL + id, type: 'POST', dataType: 'json' })
+      .done(function (resp) {
+        if (!resp || !resp.ok) {
+          alert(resp && resp.message ? resp.message : 'Gagal mengubah status.');
+          btn.innerHTML = origHtml;
+          btn.disabled  = false;
+          return;
+        }
+
+        var nowActive = resp.is_active === 1;
+        btn.dataset.active = nowActive ? '1' : '0';
+        btn.className      = 'btn btn-xs p-1 node-toggle-btn ' + (nowActive ? 'btn-outline-warning' : 'btn-outline-success');
+        btn.title          = nowActive ? 'Nonaktifkan' : 'Aktifkan';
+        btn.innerHTML      = '<i class="ri ' + (nowActive ? 'ri-toggle-line' : 'ri-toggle-fill') + '"></i>';
+        btn.disabled       = false;
+
+        // Update status badge
+        var wrap   = btn.closest('.sidebar-sort-item');
+        var badge  = wrap ? wrap.querySelector('.node-status-badge') : null;
+        if (badge) {
+          badge.textContent = nowActive ? 'Aktif' : 'Nonaktif';
+          badge.className   = 'node-status-badge badge ' + (nowActive
+            ? 'bg-success-subtle text-success border border-success-subtle'
+            : 'bg-secondary-subtle text-secondary border');
+        }
+
+        // Update "Nonaktif" inline badge on the left
+        var offBadge = wrap ? wrap.querySelector('.badge.bg-danger') : null;
+        if (nowActive && offBadge) {
+          offBadge.remove();
+        } else if (!nowActive && !offBadge && wrap) {
+          var left = wrap.querySelector('.d-flex.align-items-center');
+          if (left) {
+            var nb = document.createElement('small');
+            nb.className   = 'badge bg-danger text-white ms-2';
+            nb.textContent = 'Nonaktif';
+            left.appendChild(nb);
+          }
+        }
+
+        // Toggle is-inactive class on the wrap
+        if (wrap) {
+          wrap.classList.toggle('is-inactive', !nowActive);
+        }
+      })
+      .fail(function (xhr) {
+        var msg = 'Gagal mengubah status menu.';
+        try { var r = JSON.parse(xhr.responseText); if (r && r.message) msg = r.message; } catch(ex) {}
+        alert(msg);
+        btn.innerHTML = origHtml;
+        btn.disabled  = false;
+      });
+  });
+
   renderEditor();
 })();
 </script>
@@ -656,3 +867,156 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
     background: #fcfcff;
   }
 </style>
+
+<script>
+// ── CRUD Tab: search, pagination, AJAX toggle, icon preview ───────────
+(function () {
+  'use strict';
+
+  var TOGGLE_URL = <?php echo json_encode(site_url('sidebar/manage/menu/toggle/')); ?>;
+  var PAGE_SIZE  = 25;
+  var currentPage = 1;
+
+  // --- Icon preview ---
+  var iconInput   = document.getElementById('menu-icon-input');
+  var iconPreview = document.getElementById('menu-icon-preview');
+  if (iconInput && iconPreview) {
+    iconInput.addEventListener('input', function () {
+      var cls = this.value.trim();
+      var i = iconPreview.querySelector('i');
+      if (i) {
+        i.className = 'ri ' + (cls || 'ri-circle-line');
+      }
+    });
+  }
+
+  // --- Search & Pagination for menu list ---
+  var searchEl    = document.getElementById('menu-list-search');
+  var infoEl      = document.getElementById('menu-pagination-info');
+  var btnsEl      = document.getElementById('menu-pagination-btns');
+  var allRows     = Array.from(document.querySelectorAll('#menu-list-tbody .menu-row'));
+
+  function getFilteredRows() {
+    var q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+    return allRows.filter(function (tr) {
+      return !q || (tr.dataset.search || '').indexOf(q) !== -1;
+    });
+  }
+
+  function renderPage(rows, page) {
+    var total  = rows.length;
+    var pages  = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    page = Math.min(Math.max(1, page), pages);
+
+    var from = (page - 1) * PAGE_SIZE;
+    var to   = Math.min(from + PAGE_SIZE, total);
+
+    // Hide all, show only current slice
+    allRows.forEach(function (tr) { tr.style.display = 'none'; });
+    rows.forEach(function (tr, idx) {
+      tr.style.display = (idx >= from && idx < to) ? '' : 'none';
+    });
+
+    // Info text
+    if (infoEl) {
+      infoEl.textContent = total === 0
+        ? 'Tidak ada hasil'
+        : 'Menampilkan ' + (from + 1) + '–' + to + ' dari ' + total + ' menu';
+    }
+
+    // Page buttons
+    if (btnsEl) {
+      btnsEl.innerHTML = '';
+      if (pages <= 1) return;
+      var start = Math.max(1, page - 2);
+      var end   = Math.min(pages, page + 2);
+      if (page > 1) appendBtn('«', page - 1, false);
+      for (var p = start; p <= end; p++) { appendBtn(String(p), p, p === page); }
+      if (page < pages) appendBtn('»', page + 1, false);
+    }
+  }
+
+  function appendBtn(label, toPage, isActive) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = label;
+    btn.className   = 'btn btn-sm ' + (isActive ? 'btn-primary' : 'btn-outline-secondary') + ' px-2 py-0';
+    btn.addEventListener('click', function () {
+      currentPage = toPage;
+      renderPage(getFilteredRows(), currentPage);
+    });
+    btnsEl.appendChild(btn);
+  }
+
+  function refresh() {
+    currentPage = 1;
+    renderPage(getFilteredRows(), currentPage);
+  }
+
+  if (searchEl) {
+    searchEl.addEventListener('input', refresh);
+  }
+
+  // Initial render
+  refresh();
+
+  // --- AJAX Toggle ---
+  document.getElementById('menu-list-tbody').addEventListener('click', function (e) {
+    var btn = e.target.closest('.menu-toggle-btn');
+    if (!btn) return;
+
+    var id       = btn.dataset.id;
+    var isActive = btn.dataset.active === '1';
+    var label    = isActive ? 'Nonaktifkan' : 'Aktifkan';
+
+    if (!confirm(label + ' menu ini?')) return;
+
+    btn.disabled = true;
+    var origHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    $.ajax({
+      url:  TOGGLE_URL + id,
+      type: 'POST',
+      dataType: 'json'
+    }).done(function (resp) {
+      if (!resp || !resp.ok) {
+        alert(resp && resp.message ? resp.message : 'Gagal mengubah status menu.');
+        btn.innerHTML = origHtml;
+        btn.disabled  = false;
+        return;
+      }
+
+      var nowActive = resp.is_active === 1;
+      btn.dataset.active = nowActive ? '1' : '0';
+
+      // Update button style & icon
+      btn.className = 'btn btn-xs p-1 ' + (nowActive ? 'btn-outline-warning' : 'btn-outline-success');
+      btn.title     = nowActive ? 'Nonaktifkan' : 'Aktifkan';
+      btn.innerHTML = '<i class="ri ' + (nowActive ? 'ri-toggle-line' : 'ri-toggle-fill') + '"></i>';
+      btn.disabled  = false;
+
+      // Update status badge
+      var row    = btn.closest('.menu-row');
+      var badge  = row ? row.querySelector('.menu-status-badge') : null;
+      if (badge) {
+        badge.textContent   = nowActive ? 'Aktif' : 'Nonaktif';
+        badge.dataset.active = nowActive ? '1' : '0';
+        badge.className     = 'menu-status-badge badge ' + (nowActive
+          ? 'bg-success-subtle text-success border border-success-subtle'
+          : 'bg-secondary-subtle text-secondary border');
+      }
+      if (row) {
+        row.dataset.active = nowActive ? '1' : '0';
+      }
+    }).fail(function (xhr) {
+      var msg = 'Gagal mengubah status menu.';
+      try { var r = JSON.parse(xhr.responseText); if (r && r.message) msg = r.message; } catch(ex) {}
+      alert(msg);
+      btn.innerHTML = origHtml;
+      btn.disabled  = false;
+    });
+  });
+
+})();
+</script>

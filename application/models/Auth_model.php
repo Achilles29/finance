@@ -120,6 +120,30 @@ class Auth_model extends CI_Model
         return $perms;
     }
 
+    /**
+     * Ambil division_scope_id efektif untuk user.
+     * Aturan: jika tepat 1 divisi unik ditemukan di seluruh role aktif user → pakai itu.
+     * Jika 0 atau lebih dari 1 (ambigu) → null (tidak dibatasi).
+     */
+    public function get_division_scope(int $user_id): ?int
+    {
+        $rows = $this->db
+            ->select('DISTINCT r.division_scope_id', false)
+            ->from('auth_user_role ur')
+            ->join('auth_role r', 'r.id = ur.role_id')
+            ->where('ur.user_id', $user_id)
+            ->where('r.is_active', 1)
+            ->where('r.division_scope_id IS NOT NULL', null, false)
+            ->get()
+            ->result_array();
+
+        if (count($rows) === 1) {
+            return (int)$rows[0]['division_scope_id'];
+        }
+
+        return null;
+    }
+
     private function _has_superadmin_role(int $user_id): bool
     {
         $this->db->select('1');

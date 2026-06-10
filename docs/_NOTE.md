@@ -150,6 +150,26 @@ SR ke divisi
 pastikan sudah mengabaikan line_kind dan stock_domain
 
 
-PAPER FILTER V60 dibiarkan atau di repair?
-tambahakan jumlah card drift di daily chek
-tambahkan filternya
+-untuk PAPER FILTER V60 jadinya dibiarkan atau ada cara repair?
+
+- tambahkan clear filter
+- tambahakan jumlah card ringkasan drift di daily chek
+- tambahkan juga filter untuk Daily Check agar bisa memfilter yang drift saja
+- bisa dibuatkan modul untuk repair yang drift agar bisa audit kenapa lot miss dan bisa direpair?
+
+
+
+
+masuk ke /sidebar/manage dan /roles. 2 halaman tersebut terkait. 
+- /sidebar/manage punya 2 tab. perbaiki tampilan keduanya khususnya CRUD MENU agar lebih efisien dan mudah dalam menggunakan. dengan tampilan baris terpagination agar tidak terlalu turun kebawah. dengan modul yang lebih mudah digunakan bagi user. dan ada tombol untuk menonaktifkan juga agar halaman atau modul yang terlanjut dibuat tidak muncul di sidebar. kejutkan saya.
+
+
+- lalu di /roles pastikan sinkron dengan database. di atas sudah ada ringkasan Menu aktif belum punya page registry dan Page aktif tanpa menu aktif, tapi tidak ada opsi atau tindakan untuk menyelesaikannya, apakah mau dinonaktifan, dimasukkan atau bagaimana. kejutkan saya! pastikan semua yang ada di sidebar itu masuk ke database, dan munucul di role matrik
+
+- /roles/matrix/ itu sumber nya dari database kan? bisakah dibuat agar susunan , urutan dan pengelompokkannya bisa diubah? bisa dibuat menu baru juga. jadi ketika ada yang sekirannya rumpunnya tidak sesuai bisa saya sesuaikan sendiri. dan tetap sinkron dengan /sidebar. dengan cara yang USER FRIENDLY. Kejutkan saya!
+
+- lalu di role matrix /roles/edit/ itu ada pilihan DIVISI. tapi ketika misal saya pilih KITCHEN ternyata user dengan role masih bisa melihat data BAR. bagaimana memperbaikinya? di masing masing halaman atau lewat sini?
+
+
+
+untuk mengatur /roles/matrix/  buatkan tab halaman tersendiri, bukan saat edit role matrix 

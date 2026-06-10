@@ -109,7 +109,7 @@ $GLOBALS['auditTab'] = $auditTab;
     align-items:end;
   }
   .sca-hero-copy { color:#78685d; font-size:.92rem; }
-  .sca-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.8rem; }
+  .sca-kpis { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:.8rem; }
   .sca-kpi {
     border:1px solid rgba(225,210,199,.82);
     border-radius:18px;
@@ -254,6 +254,8 @@ $GLOBALS['auditTab'] = $auditTab;
       <div class="sca-kpi"><span class="label">Job Gagal</span><div class="value" id="sca_failed_job_count"><?php echo number_format(count($failedJobs)); ?></div></div>
       <div class="sca-kpi"><span class="label">Mismatch Bahan Baku</span><div class="value"><?php echo number_format((int)($materialSummaryAll['mismatch_rows'] ?? 0)); ?></div></div>
       <div class="sca-kpi"><span class="label">Mismatch Base/Prepare</span><div class="value"><?php echo number_format((int)($componentSummaryAll['mismatched'] ?? 0)); ?></div></div>
+      <div class="sca-kpi"><span class="label">Drift Monthly Bahan</span><div class="value"><?php echo number_format((int)($materialSummaryAll['drift_rows'] ?? 0)); ?></div></div>
+      <div class="sca-kpi"><span class="label">Drift Monthly Base</span><div class="value"><?php echo number_format((int)($componentSummaryAll['drift_rows'] ?? 0)); ?></div></div>
     </div>
 
     <div class="sca-card">
@@ -324,6 +326,15 @@ $GLOBALS['auditTab'] = $auditTab;
               </select>
             </div>
             <div>
+              <label class="form-label small text-muted mb-1">Daily Check</label>
+              <select name="daily_check" class="form-select">
+                <option value="ALL" <?php echo strtoupper((string)($materialFilters['daily_check'] ?? 'ALL')) === 'ALL' ? 'selected' : ''; ?>>Semua</option>
+                <option value="DRIFT" <?php echo strtoupper((string)($materialFilters['daily_check'] ?? 'ALL')) === 'DRIFT' ? 'selected' : ''; ?>>Drift</option>
+                <option value="OK" <?php echo strtoupper((string)($materialFilters['daily_check'] ?? 'ALL')) === 'OK' ? 'selected' : ''; ?>>OK</option>
+                <option value="UNKNOWN" <?php echo strtoupper((string)($materialFilters['daily_check'] ?? 'ALL')) === 'UNKNOWN' ? 'selected' : ''; ?>>N/A</option>
+              </select>
+            </div>
+            <div>
               <label class="form-label small text-muted mb-1">Per Halaman</label>
               <div class="d-flex gap-2">
                 <select name="limit" class="form-select">
@@ -332,17 +343,22 @@ $GLOBALS['auditTab'] = $auditTab;
                   <?php endforeach; ?>
                 </select>
                 <button type="submit" class="btn btn-primary">Filter</button>
+                <a href="<?php echo html_escape(site_url('pos/stock-commit-audit?as_of_date=' . rawurlencode($asOfDate) . '&tab=material')); ?>" class="btn btn-outline-secondary">Bersihkan</a>
               </div>
             </div>
           </form>
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <div class="sca-toolbar-note">Gunakan batch repair ini untuk rebuild mismatch bahan baku langsung dari movement log per identity.</div>
-            <button type="button" class="btn btn-outline-danger" id="sca_repair_material_btn">Repair Semua Mismatch Bahan Baku</button>
+            <div class="d-flex gap-2 flex-wrap">
+              <button type="button" class="btn btn-outline-warning" id="sca_repair_material_drift_btn">Repair Drift Monthly Stock</button>
+              <button type="button" class="btn btn-outline-danger" id="sca_repair_material_btn">Repair Semua Mismatch Bahan Baku</button>
+            </div>
           </div>
           <div class="sca-summary-grid mb-3">
             <div class="sca-summary-box"><span class="label">Total Filter</span><div class="value"><?php echo number_format((int)($materialSummary['total_rows'] ?? 0)); ?></div></div>
             <div class="sca-summary-box"><span class="label">Match Filter</span><div class="value"><?php echo number_format((int)($materialSummary['match_rows'] ?? 0)); ?></div></div>
             <div class="sca-summary-box"><span class="label">Mismatch Filter</span><div class="value"><?php echo number_format((int)($materialSummary['mismatch_rows'] ?? 0)); ?></div></div>
+            <div class="sca-summary-box"><span class="label">Drift Daily Check</span><div class="value"><?php echo number_format((int)($materialSummary['drift_rows'] ?? 0)); ?></div></div>
           </div>
           <div class="sca-pagination-bar mb-3">
             <div class="sca-toolbar-note">
@@ -453,6 +469,15 @@ $GLOBALS['auditTab'] = $auditTab;
               </select>
             </div>
             <div>
+              <label class="form-label small text-muted mb-1">Daily Check</label>
+              <select name="daily_check" class="form-select">
+                <option value="ALL" <?php echo strtoupper((string)($componentFilters['daily_check'] ?? 'ALL')) === 'ALL' ? 'selected' : ''; ?>>Semua</option>
+                <option value="DRIFT" <?php echo strtoupper((string)($componentFilters['daily_check'] ?? 'ALL')) === 'DRIFT' ? 'selected' : ''; ?>>Drift</option>
+                <option value="OK" <?php echo strtoupper((string)($componentFilters['daily_check'] ?? 'ALL')) === 'OK' ? 'selected' : ''; ?>>OK</option>
+                <option value="UNKNOWN" <?php echo strtoupper((string)($componentFilters['daily_check'] ?? 'ALL')) === 'UNKNOWN' ? 'selected' : ''; ?>>N/A</option>
+              </select>
+            </div>
+            <div>
               <label class="form-label small text-muted mb-1">Per Halaman</label>
               <div class="d-flex gap-2">
                 <select name="limit" class="form-select">
@@ -461,17 +486,22 @@ $GLOBALS['auditTab'] = $auditTab;
                   <?php endforeach; ?>
                 </select>
                 <button type="submit" class="btn btn-primary">Filter</button>
+                <a href="<?php echo html_escape(site_url('pos/stock-commit-audit?as_of_date=' . rawurlencode($asOfDate) . '&tab=component')); ?>" class="btn btn-outline-secondary">Bersihkan</a>
               </div>
             </div>
           </form>
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <div class="sca-toolbar-note">Untuk base/prepare, repair akan memakai rebuild histori component yang sama dengan tool reconcile produksi.</div>
-            <button type="button" class="btn btn-outline-danger" id="sca_repair_component_btn">Repair Semua Mismatch Base/Prepare</button>
+            <div class="d-flex gap-2 flex-wrap">
+              <button type="button" class="btn btn-outline-warning" id="sca_repair_component_drift_btn">Repair Drift Monthly Stock</button>
+              <button type="button" class="btn btn-outline-danger" id="sca_repair_component_btn">Repair Semua Mismatch Base/Prepare</button>
+            </div>
           </div>
           <div class="sca-summary-grid mb-3">
             <div class="sca-summary-box"><span class="label">Total Filter</span><div class="value"><?php echo number_format((int)($componentSummary['total'] ?? 0)); ?></div></div>
             <div class="sca-summary-box"><span class="label">Match Filter</span><div class="value"><?php echo number_format((int)($componentSummary['matched'] ?? 0)); ?></div></div>
             <div class="sca-summary-box"><span class="label">Mismatch Filter</span><div class="value"><?php echo number_format((int)($componentSummary['mismatched'] ?? 0)); ?></div></div>
+            <div class="sca-summary-box"><span class="label">Drift Daily Check</span><div class="value"><?php echo number_format((int)($componentSummary['drift_rows'] ?? 0)); ?></div></div>
           </div>
           <div class="sca-pagination-bar mb-3">
             <div class="sca-toolbar-note">
@@ -798,6 +828,71 @@ document.addEventListener('DOMContentLoaded', function () {
         window.location.reload();
       } catch (e) {
         await showAlert(e.message || 'Gagal repair batch mismatch base/prepare.', 'Batch Repair Base/Prepare POS');
+      } finally {
+        clearButtonLoading(this);
+      }
+    });
+  }
+
+  const repairMaterialDriftBtn = document.getElementById('sca_repair_material_drift_btn');
+  if (repairMaterialDriftBtn) {
+    repairMaterialDriftBtn.addEventListener('click', async function () {
+      const confirmed = await askConfirm(
+        'Repair drift monthly stock bahan baku?\n\nDrift akan diserap ke kolom variance agar equation monthly stock seimbang. Closing qty tidak diubah.',
+        { title: 'Repair Drift Monthly Stock Bahan' }
+      );
+      if (!confirmed) return;
+      setButtonLoading(this, 'Repair drift...');
+      try {
+        const payload = <?php echo json_encode([
+            'as_of_date' => $asOfDate,
+            'q' => (string)($materialFilters['q'] ?? ''),
+            'division_id' => (int)($materialFilters['division_id'] ?? 0),
+            'destination' => (string)($materialFilters['destination'] ?? 'ALL'),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+        const json = await postJson('<?php echo site_url('pos/stock-commit-audit/repair-material-drift'); ?>', payload);
+        await showAlert(
+          'Processed: ' + Number((json.processed_count || 0)) + '\n'
+          + 'Success: ' + Number((json.success_count || 0)) + '\n'
+          + 'Failed: ' + Number((json.failed_count || 0)),
+          'Repair Drift Monthly Stock Bahan'
+        );
+        window.location.reload();
+      } catch (e) {
+        await showAlert(e.message || 'Gagal repair drift monthly stock bahan.', 'Repair Drift Monthly Stock Bahan');
+      } finally {
+        clearButtonLoading(this);
+      }
+    });
+  }
+
+  const repairComponentDriftBtn = document.getElementById('sca_repair_component_drift_btn');
+  if (repairComponentDriftBtn) {
+    repairComponentDriftBtn.addEventListener('click', async function () {
+      const confirmed = await askConfirm(
+        'Repair drift monthly stock base/prepare?\n\nDrift akan diserap ke kolom adjustment agar equation monthly stock seimbang. Closing qty tidak diubah.',
+        { title: 'Repair Drift Monthly Stock Base/Prepare' }
+      );
+      if (!confirmed) return;
+      setButtonLoading(this, 'Repair drift...');
+      try {
+        const payload = <?php echo json_encode([
+            'as_of_date' => $asOfDate,
+            'q' => (string)($componentFilters['q'] ?? ''),
+            'division_id' => (int)($componentFilters['division_id'] ?? 0),
+            'location_type' => (string)($componentFilters['location_type'] ?? 'ALL'),
+            'type' => (string)($componentFilters['type'] ?? 'ALL'),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+        const json = await postJson('<?php echo site_url('pos/stock-commit-audit/repair-component-drift'); ?>', payload);
+        await showAlert(
+          'Processed: ' + Number((json.processed_count || 0)) + '\n'
+          + 'Success: ' + Number((json.success_count || 0)) + '\n'
+          + 'Failed: ' + Number((json.failed_count || 0)),
+          'Repair Drift Monthly Stock Base/Prepare'
+        );
+        window.location.reload();
+      } catch (e) {
+        await showAlert(e.message || 'Gagal repair drift monthly stock base/prepare.', 'Repair Drift Monthly Stock Base/Prepare');
       } finally {
         clearButtonLoading(this);
       }

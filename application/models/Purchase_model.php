@@ -3148,6 +3148,80 @@ class Purchase_model extends CI_Model
         ];
     }
 
+    public function repair_material_monthly_stock_drift(string $asOfDate, array $params): array
+    {
+        if (!$this->db->table_exists('inv_division_monthly_stock')) {
+            return ['ok' => false, 'message' => 'Tabel inv_division_monthly_stock tidak ditemukan.'];
+        }
+        $divisionId = (int)($params['division_id'] ?? 0);
+        $itemId = (int)($params['item_id'] ?? 0);
+        $materialId = (int)($params['material_id'] ?? 0);
+        $destinationGroup = strtoupper(trim((string)($params['destination_group'] ?? 'REGULER')));
+        if ($divisionId <= 0) {
+            return ['ok' => false, 'message' => 'division_id diperlukan.'];
+        }
+
+        $destinationTypes = $destinationGroup === 'EVENT'
+            ? ['BAR_EVENT', 'KITCHEN_EVENT']
+            : ['BAR', 'KITCHEN', 'REGULER', 'WAREHOUSE', 'CUSTOM'];
+
+        $monthKeySubQ = $this->db
+            ->select('MAX(s2.month_key)', false)
+            ->from('inv_division_monthly_stock s2')
+            ->where('s2.division_id', $divisionId)
+            ->where('COALESCE(s2.item_id,0)', $itemId)
+            ->where('COALESCE(s2.material_id,0)', $materialId)
+            ->where_in('s2.destination_type', $destinationTypes)
+            ->get_compiled_select();
+
+        $driftExpr = 'ROUND(ABS(s.closing_qty_content - ROUND('
+            . 's.opening_qty_content + s.in_qty_content + COALESCE(s.adjustment_plus_qty_content,0)'
+            . ' - s.out_qty_content - COALESCE(s.waste_qty_content,0) - COALESCE(s.adjustment_minus_qty_content,0)'
+            . ' - COALESCE(s.discarded_qty_content,0) - COALESCE(s.spoil_qty_content,0)'
+            . ' - COALESCE(s.process_loss_qty_content,0) + COALESCE(s.variance_qty_content,0)'
+            . ', 4)), 4)';
+
+        $rows = $this->db
+            ->select('s.id, s.closing_qty_content, s.opening_qty_content, s.in_qty_content, s.out_qty_content, s.waste_qty_content, s.adjustment_plus_qty_content, s.adjustment_minus_qty_content, s.discarded_qty_content, s.spoil_qty_content, s.process_loss_qty_content, s.variance_qty_content', false)
+            ->from('inv_division_monthly_stock s')
+            ->where('s.division_id', $divisionId)
+            ->where('COALESCE(s.item_id,0)', $itemId)
+            ->where('COALESCE(s.material_id,0)', $materialId)
+            ->where_in('s.destination_type', $destinationTypes)
+            ->where("s.month_key = ({$monthKeySubQ})", null, false)
+            ->where("{$driftExpr} > 0.0001", null, false)
+            ->get()->result_array();
+
+        if (empty($rows)) {
+            return ['ok' => true, 'message' => 'Tidak ada drift pada monthly stock bahan ini.', 'data' => ['rows_fixed' => 0]];
+        }
+
+        $fixed = 0;
+        foreach ($rows as $r) {
+            $newVariance = round(
+                (float)$r['closing_qty_content']
+                - (float)$r['opening_qty_content']
+                - (float)$r['in_qty_content']
+                - (float)($r['adjustment_plus_qty_content'] ?? 0)
+                + (float)$r['out_qty_content']
+                + (float)($r['waste_qty_content'] ?? 0)
+                + (float)($r['adjustment_minus_qty_content'] ?? 0)
+                + (float)($r['discarded_qty_content'] ?? 0)
+                + (float)($r['spoil_qty_content'] ?? 0)
+                + (float)($r['process_loss_qty_content'] ?? 0),
+            4);
+            $this->db->where('id', (int)$r['id'])
+                ->update('inv_division_monthly_stock', ['variance_qty_content' => $newVariance]);
+            $fixed++;
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Drift monthly stock bahan diserap ke variance.',
+            'data' => ['rows_fixed' => $fixed],
+        ];
+    }
+
     private function refresh_division_material_movement_after_balances(string $asOfDate, array $identity): array
     {
         if (!$this->db->table_exists('inv_stock_movement_log')) {

@@ -272,4 +272,225 @@ class Roles extends MY_Controller
         );
         redirect('roles/users/' . $id);
     }
+
+    // ---------------------------------------------------------------
+    // MATRIX GROUP LAYOUT
+    // ---------------------------------------------------------------
+
+    /**
+     * Halaman konfigurasi pengelompokan sys_page di matrix role.
+     * Terpisah dari per-role matrix editor — berlaku untuk semua role.
+     */
+    public function matrix_groups()
+    {
+        $this->require_permission(self::PAGE_MATRIX, 'view');
+
+        $hasGroup = $this->db->field_exists('matrix_group', 'sys_page');
+
+        $select = $hasGroup
+            ? 'p.id, p.page_code, p.page_name, p.module, p.matrix_group,
+               COALESCE(menu.menu_label, \'\') AS menu_label,
+               CASE WHEN menu.page_id IS NOT NULL THEN 1 ELSE 0 END AS has_menu'
+            : 'p.id, p.page_code, p.page_name, p.module,
+               COALESCE(menu.menu_label, \'\') AS menu_label,
+               CASE WHEN menu.page_id IS NOT NULL THEN 1 ELSE 0 END AS has_menu';
+
+        $menuSub = $this->db
+            ->select('m.page_id, MIN(m.menu_label) AS menu_label', false)
+            ->from('sys_menu m')
+            ->where('m.is_active', 1)
+            ->where('m.page_id IS NOT NULL', null, false)
+            ->group_by('m.page_id')
+            ->get_compiled_select();
+
+        $this->db->select($select, false);
+        $this->db->from('sys_page p');
+        $this->db->join('(' . $menuSub . ') menu', 'menu.page_id = p.id', 'left');
+        $this->db->where('p.is_active', 1);
+        if ($hasGroup) {
+            $this->db->order_by('COALESCE(p.matrix_group, p.module)', 'ASC', false);
+        } else {
+            $this->db->order_by('p.module', 'ASC');
+        }
+        $this->db->order_by('COALESCE(menu.menu_label, p.page_name)', 'ASC', false);
+        $pages = $this->db->get()->result_array();
+
+        // Group pages and collect unique group names
+        $grouped   = [];
+        $allGroups = [];
+        foreach ($pages as $page) {
+            $gk = $hasGroup && !empty($page['matrix_group'])
+                ? (string)$page['matrix_group']
+                : (string)$page['module'];
+            $grouped[$gk][] = $page;
+            $allGroups[$gk] = true;
+            $allGroups[(string)$page['module']] = true;
+        }
+        $allGroups = array_keys($allGroups);
+        sort($allGroups);
+
+        // Mod meta lookup (reuse same map as matrix.php)
+        $data = [
+            'title'         => 'Konfigurasi Grup Matrix',
+            'active_menu'   => 'sys.roles',
+            'pages_grouped' => $grouped,
+            'all_groups'    => $allGroups,
+            'has_group_col' => $hasGroup,
+            'total_pages'   => count($pages),
+        ];
+
+        $this->render('roles/matrix_layout', $data);
+    }
+
+    // ---------------------------------------------------------------
+    // AUDIT AJAX ENDPOINTS
+    // ---------------------------------------------------------------
+
+    /**
+     * AJAX — Daftarkan menu ke sys_page (auto-derive) lalu link sys_menu.page_id.
+     * POST: menu_code, menu_label, url
+     * Response: { ok: true, page_code, page_id }
+     */
+    public function quick_register_menu()
+    {
+        if (!$this->input->is_ajax_request()) show_404();
+        $this->require_permission(self::PAGE_INDEX, 'edit');
+
+        $menuCode  = trim((string)$this->input->post('menu_code', true));
+        $menuLabel = trim((string)$this->input->post('menu_label', true));
+        $url       = trim((string)$this->input->post('url', true));
+
+        if ($menuCode === '') {
+            $this->json_error('menu_code tidak boleh kosong.', 422);
+            return;
+        }
+
+        $this->load->model('Menu_model');
+
+        // Derive page_code dari URL (replace / → . , strip leading slash)
+        $pageCode = strtolower(trim($url, '/'));
+        $pageCode = preg_replace('/[^a-z0-9]+/', '.', $pageCode);
+        $pageCode = trim($pageCode, '.');
+        if ($pageCode === '') {
+            $pageCode = strtolower(preg_replace('/[^a-z0-9]+/', '.', trim($menuCode, '.')));
+        }
+
+        // Derive module dari segment pertama URL atau page_code
+        $segments = explode('/', trim($url, '/'));
+        $module   = strtoupper($segments[0] ?? 'SYS');
+
+        // Check if page already exists
+        $existingPage = $this->db->get_where('sys_page', ['page_code' => $pageCode])->row_array();
+        if ($existingPage) {
+            $pageId = (int)$existingPage['id'];
+        } else {
+            $this->Menu_model->register_page($pageCode, $menuLabel, $module, 'Auto-registered dari audit sidebar');
+            $pageId = (int)$this->db->insert_id();
+            if ($pageId <= 0) {
+                $row = $this->db->get_where('sys_page', ['page_code' => $pageCode])->row_array();
+                $pageId = (int)($row['id'] ?? 0);
+            }
+        }
+
+        if ($pageId <= 0) {
+            $this->json_error('Gagal mendaftarkan page.', 500);
+            return;
+        }
+
+        // Link sys_menu.page_id
+        $this->db->where('menu_code', $menuCode)
+                 ->update('sys_menu', ['page_id' => $pageId]);
+
+        $this->json_ok(['page_code' => $pageCode, 'page_id' => $pageId]);
+    }
+
+    /**
+     * AJAX — Nonaktifkan menu (sys_menu.is_active = 0).
+     * POST: menu_code
+     */
+    public function deactivate_menu_item()
+    {
+        if (!$this->input->is_ajax_request()) show_404();
+        $this->require_permission(self::PAGE_INDEX, 'edit');
+
+        $menuCode = trim((string)$this->input->post('menu_code', true));
+        if ($menuCode === '') {
+            $this->json_error('menu_code tidak boleh kosong.', 422);
+            return;
+        }
+
+        $this->db->where('menu_code', $menuCode)
+                 ->update('sys_menu', ['is_active' => 0]);
+
+        $this->json_ok(['menu_code' => $menuCode]);
+    }
+
+    /**
+     * AJAX — Nonaktifkan page (sys_page.is_active = 0).
+     * POST: page_code
+     */
+    public function deactivate_page_item()
+    {
+        if (!$this->input->is_ajax_request()) show_404();
+        $this->require_permission(self::PAGE_INDEX, 'edit');
+
+        $pageCode = trim((string)$this->input->post('page_code', true));
+        if ($pageCode === '') {
+            $this->json_error('page_code tidak boleh kosong.', 422);
+            return;
+        }
+
+        $this->db->where('page_code', $pageCode)
+                 ->update('sys_page', ['is_active' => 0]);
+
+        $this->json_ok(['page_code' => $pageCode]);
+    }
+
+    /**
+     * AJAX — Simpan matrix_group untuk satu page.
+     * POST: page_code, group_code
+     */
+    public function save_page_matrix_group()
+    {
+        if (!$this->input->is_ajax_request()) show_404();
+        $this->require_permission(self::PAGE_MATRIX, 'edit');
+
+        $pageCode  = trim((string)$this->input->post('page_code', true));
+        $groupCode = trim((string)$this->input->post('group_code', true));
+
+        if ($pageCode === '') {
+            $this->json_error('page_code tidak boleh kosong.', 422);
+            return;
+        }
+
+        $ok = $this->Role_model->save_page_matrix_group($pageCode, $groupCode);
+        if (!$ok) {
+            $this->json_error('Gagal menyimpan group. Pastikan kolom matrix_group sudah ada (jalankan SQL migration).', 500);
+            return;
+        }
+
+        $this->json_ok(['page_code' => $pageCode, 'group_code' => $groupCode]);
+    }
+
+    // ---------------------------------------------------------------
+    // JSON helpers
+    // ---------------------------------------------------------------
+
+    private function json_ok(array $data = []): void
+    {
+        while (ob_get_level() > 0) { @ob_end_clean(); }
+        $this->output
+            ->set_status_header(200)
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => true] + $data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function json_error(string $message, int $statusCode = 422): void
+    {
+        while (ob_get_level() > 0) { @ob_end_clean(); }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => false, 'message' => $message], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
 }

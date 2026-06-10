@@ -76,6 +76,7 @@ class Sidebar extends MY_Controller
             'parent_candidates' => $this->Menu_model->get_parent_candidates($type, $editId),
             'edit_menu' => $editMenu,
             'favorite_summary' => $this->Menu_model->get_favorite_summary(),
+            'page_registry' => $this->Menu_model->get_all_pages(),
         ];
 
         $this->render('sidebar/manage', $data);
@@ -580,13 +581,15 @@ class Sidebar extends MY_Controller
             return;
         }
 
+        $pageId = (int)$this->input->post('page_id', true) ?: null;
+
         $this->Menu_model->create_sidebar_menu([
             'parent_id' => $parentId > 0 ? $parentId : null,
             'menu_code' => $menuCode,
             'menu_label' => $menuLabel,
             'icon' => $icon !== '' ? $icon : 'ri-circle-line',
             'url' => $url !== '' ? $url : null,
-            'page_id' => null,
+            'page_id' => $pageId,
             'sort_order' => $sortOrder > 0 ? $sortOrder : 999,
             'is_active' => 1,
             'sidebar_type' => $type,
@@ -639,12 +642,15 @@ class Sidebar extends MY_Controller
             return;
         }
 
+        $pageId = (int)$this->input->post('page_id', true) ?: null;
+
         $this->Menu_model->update_sidebar_menu($id, [
             'parent_id' => $parentId > 0 ? $parentId : null,
             'menu_code' => $menuCode,
             'menu_label' => $menuLabel,
             'icon' => $icon !== '' ? $icon : 'ri-circle-line',
             'url' => $url !== '' ? $url : null,
+            'page_id' => $pageId,
             'sort_order' => $sortOrder > 0 ? $sortOrder : 999,
             'is_active' => $isActive,
             'sidebar_type' => $type,
@@ -683,5 +689,66 @@ class Sidebar extends MY_Controller
 
         $this->session->set_flashdata('success', 'Menu sidebar dinonaktifkan (soft delete).');
         redirect('sidebar/manage?type=' . $type . '&tab=menu-data');
+    }
+
+    /**
+     * AJAX — Toggle is_active untuk menu sidebar.
+     * POST: (none required, aksi ditentukan oleh state saat ini)
+     * Response: { ok: true, is_active: 0|1 }
+     */
+    public function menu_toggle_active(int $id)
+    {
+        if (!$this->input->is_ajax_request()) show_404();
+
+        if (!$this->is_superadmin()) {
+            $this->json_error('Hanya superadmin yang dapat mengelola sidebar.', 403);
+            return;
+        }
+
+        $row = $this->Menu_model->get_menu_by_id($id);
+        if (!$row) {
+            $this->json_error('Menu tidak ditemukan.', 404);
+            return;
+        }
+
+        // Cegah toggle jika menu masih punya anak aktif
+        if ((int)$row['is_active'] === 1) {
+            $hasActiveChild = $this->db->from('sys_menu')
+                ->where('parent_id', $id)
+                ->where('is_active', 1)
+                ->count_all_results() > 0;
+            if ($hasActiveChild) {
+                $this->json_error('Menu masih memiliki submenu aktif. Nonaktifkan submenu terlebih dahulu.', 422);
+                return;
+            }
+        }
+
+        $newActive = (int)$row['is_active'] === 1 ? 0 : 1;
+        $this->Menu_model->update_sidebar_menu($id, ['is_active' => $newActive]);
+        $this->clear_sidebar_cache_files();
+
+        $this->json_ok(['id' => $id, 'is_active' => $newActive]);
+    }
+
+    // ---------------------------------------------------------------
+    // JSON helpers
+    // ---------------------------------------------------------------
+
+    private function json_ok(array $data = []): void
+    {
+        while (ob_get_level() > 0) { @ob_end_clean(); }
+        $this->output
+            ->set_status_header(200)
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => true] + $data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function json_error(string $message, int $statusCode = 422): void
+    {
+        while (ob_get_level() > 0) { @ob_end_clean(); }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => false, 'message' => $message], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
     }
 }

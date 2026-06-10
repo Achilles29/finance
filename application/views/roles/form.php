@@ -66,7 +66,16 @@ $selected_div_id  = (int)($role['division_scope_id'] ?? 0);
           </option>
         <?php endforeach; ?>
       </select>
-      <div class="form-text">Role seperti "Kitchen Crew" bisa ditandai scope Kitchen agar mudah diidentifikasi.</div>
+      <div class="form-text">
+        Role seperti "Kitchen Crew" bisa ditandai scope KITCHEN agar data difilter per divisi.
+      </div>
+      <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small">
+        <i class="ri ri-information-line me-1"></i>
+        <strong>Cara kerja scope:</strong> Setelah dipilih, user dengan role ini akan otomatis dibatasi ke divisi tersebut
+        saat mengakses halaman yang mendukung filter divisi (stok, laporan, produksi, dll).
+        Halaman yang <em>belum</em> mengimplementasi filter tidak akan terpengaruh — perlu ditambahkan manual per halaman.
+        Gunakan <code>$this->active_division_id()</code> di controller untuk membaca scope ini.
+      </div>
     </div>
 
     <!-- Status (hanya saat edit) -->

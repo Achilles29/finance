@@ -19,11 +19,16 @@ $pagesWithoutMenu = is_array($registryAudit['pages_without_menu'] ?? null) ? $re
     <h5 class="fw-bold mb-0"><i class="ri ri-shield-keyhole-line me-2 text-primary"></i>Role & Hak Akses</h5>
     <p class="text-muted small mb-0">Pusat pengaturan akses Finance. Hak akses idealnya mengikuti nama menu yang dikenal user, bukan kode teknis.</p>
   </div>
-  <?php if ($canCreate): ?>
-  <a href="<?= base_url('roles/create') ?>" class="btn btn-primary btn-sm">
-    <i class="ri ri-add-line me-1"></i> Buat Role Baru
-  </a>
-  <?php endif; ?>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="<?= base_url('roles/matrix-groups') ?>" class="btn btn-outline-secondary btn-sm">
+      <i class="ri ri-layout-grid-line me-1"></i>Konfigurasi Grup Matrix
+    </a>
+    <?php if ($canCreate): ?>
+    <a href="<?= base_url('roles/create') ?>" class="btn btn-primary btn-sm">
+      <i class="ri ri-add-line me-1"></i> Buat Role Baru
+    </a>
+    <?php endif; ?>
+  </div>
 </div>
 
 <div class="row g-3 mb-3">
@@ -66,55 +71,238 @@ $pagesWithoutMenu = is_array($registryAudit['pages_without_menu'] ?? null) ? $re
 </div>
 
 <?php if ($menusWithoutPageCount > 0 || $pagesWithoutMenuCount > 0): ?>
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-body">
-    <div class="d-flex flex-wrap justify-content-between gap-3 mb-3 align-items-start">
-      <div>
-        <div class="fw-semibold">Audit cepat registry hak akses</div>
-        <div class="small text-muted">Dipakai untuk mengecek apakah ada halaman/menu yang belum masuk pengelolaan role, atau page yang perlu direview karena tidak lagi terhubung ke menu aktif.</div>
-      </div>
-      <span class="badge bg-light text-dark border">Sumber: `sys_page` + `sys_menu`</span>
+<div class="card border-0 shadow-sm mb-3" id="audit-card">
+  <div class="card-header d-flex flex-wrap justify-content-between gap-2 align-items-center">
+    <div>
+      <span class="fw-semibold">Audit Registry Hak Akses</span>
+      <span class="badge bg-light text-dark border ms-2" style="font-size:.7rem;">sys_page + sys_menu</span>
     </div>
+    <div class="small text-muted">Pilih aksi per item — perubahan AJAX, langsung aktif.</div>
+  </div>
+  <div class="card-body">
     <div class="row g-3">
+
+      <!-- Menu tanpa page_id -->
       <div class="col-lg-6">
-        <div class="border rounded-3 p-3 h-100">
-          <div class="fw-semibold mb-2 text-warning">Menu aktif belum punya page registry</div>
-          <?php if (empty($menusWithoutPage)): ?>
-            <div class="small text-muted">Tidak ada temuan.</div>
-          <?php else: ?>
-            <div class="small text-muted mb-2">Contoh temuan yang belum akan muncul rapi di matrix role:</div>
-            <div class="d-flex flex-column gap-2">
-              <?php foreach ($menusWithoutPage as $row): ?>
-                <div class="border rounded-2 px-2 py-2 small">
-                  <div class="fw-semibold"><?= htmlspecialchars((string)($row['menu_label'] ?? '-')) ?></div>
-                  <div class="text-muted"><?= htmlspecialchars((string)($row['url'] ?? '-')) ?></div>
-                </div>
-              <?php endforeach; ?>
-            </div>
-          <?php endif; ?>
+        <div class="fw-semibold small text-warning mb-2">
+          <i class="ri ri-error-warning-line me-1"></i>
+          Menu aktif belum punya page registry
+          <span class="badge bg-warning text-dark ms-1"><?= $menusWithoutPageCount ?></span>
         </div>
+        <?php if (empty($menusWithoutPage)): ?>
+          <div class="small text-muted">Tidak ada temuan.</div>
+        <?php else: ?>
+          <div class="small text-muted mb-2">Tanpa page registry, menu tidak muncul di matrix role.
+            <?php if ($menusWithoutPageCount > count($menusWithoutPage)): ?>
+              Menampilkan <?= count($menusWithoutPage) ?> dari <?= $menusWithoutPageCount ?>.
+            <?php endif; ?>
+          </div>
+          <div class="d-flex flex-column gap-2" id="audit-menus-list">
+            <?php foreach ($menusWithoutPage as $row):
+              $rowMenuCode  = (string)($row['menu_code'] ?? '');
+              $rowMenuLabel = (string)($row['menu_label'] ?? '-');
+              $rowMenuUrl   = (string)($row['url'] ?? '');
+              $rowMenuId    = (int)($row['id'] ?? 0);
+            ?>
+              <div class="audit-menu-row border rounded-2 px-2 py-2 small"
+                   data-menu-code="<?= htmlspecialchars($rowMenuCode) ?>"
+                   data-menu-label="<?= htmlspecialchars($rowMenuLabel) ?>"
+                   data-menu-url="<?= htmlspecialchars($rowMenuUrl) ?>"
+                   id="audit-menu-<?= $rowMenuId ?>">
+                <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                  <div>
+                    <div class="fw-semibold"><?= htmlspecialchars($rowMenuLabel) ?></div>
+                    <div class="text-muted font-monospace" style="font-size:.68rem;"><?= htmlspecialchars($rowMenuCode) ?></div>
+                    <?php if ($rowMenuUrl !== ''): ?>
+                      <div class="text-muted" style="font-size:.68rem;"><?= htmlspecialchars($rowMenuUrl) ?></div>
+                    <?php endif; ?>
+                    <div class="audit-feedback mt-1" style="display:none;"></div>
+                  </div>
+                  <div class="d-flex gap-1 flex-shrink-0 flex-wrap">
+                    <button type="button" class="btn btn-xs btn-outline-success audit-register-btn" style="font-size:.7rem; padding:2px 8px;"
+                            title="Daftarkan ke sys_page lalu link menu ini"
+                            data-menu-code="<?= htmlspecialchars($rowMenuCode) ?>"
+                            data-menu-label="<?= htmlspecialchars($rowMenuLabel) ?>"
+                            data-menu-url="<?= htmlspecialchars($rowMenuUrl) ?>">
+                      <i class="ri ri-file-add-line"></i> Daftarkan &amp; Link
+                    </button>
+                    <button type="button" class="btn btn-xs btn-outline-danger audit-deactivate-menu-btn" style="font-size:.7rem; padding:2px 8px;"
+                            title="Nonaktifkan menu ini"
+                            data-menu-code="<?= htmlspecialchars($rowMenuCode) ?>">
+                      <i class="ri ri-eye-off-line"></i> Nonaktifkan
+                    </button>
+                  </div>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
       </div>
+
+      <!-- Page tanpa menu aktif -->
       <div class="col-lg-6">
-        <div class="border rounded-3 p-3 h-100">
-          <div class="fw-semibold mb-2 text-info">Page aktif tanpa menu aktif</div>
-          <?php if (empty($pagesWithoutMenu)): ?>
-            <div class="small text-muted">Tidak ada temuan.</div>
-          <?php else: ?>
-            <div class="small text-muted mb-2">Sebagian bisa memang halaman teknis/internal, sebagian lain perlu dicek apakah masih dipakai:</div>
-            <div class="d-flex flex-column gap-2">
-              <?php foreach ($pagesWithoutMenu as $row): ?>
-                <div class="border rounded-2 px-2 py-2 small">
-                  <div class="fw-semibold"><?= htmlspecialchars((string)($row['page_name'] ?? '-')) ?></div>
-                  <div class="text-muted"><?= htmlspecialchars((string)($row['page_code'] ?? '-')) ?> • <?= htmlspecialchars((string)($row['module'] ?? '-')) ?></div>
-                </div>
-              <?php endforeach; ?>
-            </div>
-          <?php endif; ?>
+        <div class="fw-semibold small text-info mb-2">
+          <i class="ri ri-information-line me-1"></i>
+          Page aktif tanpa menu aktif
+          <span class="badge bg-info text-white ms-1"><?= $pagesWithoutMenuCount ?></span>
         </div>
+        <?php if (empty($pagesWithoutMenu)): ?>
+          <div class="small text-muted">Tidak ada temuan.</div>
+        <?php else: ?>
+          <div class="small text-muted mb-2">Halaman teknis/internal tidak perlu menu.
+            Nonaktifkan yang sudah tidak relevan.
+            <?php if ($pagesWithoutMenuCount > count($pagesWithoutMenu)): ?>
+              Menampilkan <?= count($pagesWithoutMenu) ?> dari <?= $pagesWithoutMenuCount ?>.
+            <?php endif; ?>
+          </div>
+          <div class="d-flex flex-column gap-2" id="audit-pages-list">
+            <?php foreach ($pagesWithoutMenu as $row):
+              $rowPageCode = (string)($row['page_code'] ?? '');
+              $rowPageName = (string)($row['page_name'] ?? '-');
+              $rowModule   = (string)($row['module'] ?? '-');
+              $rowPageId   = (int)($row['id'] ?? 0);
+            ?>
+              <div class="audit-page-row border rounded-2 px-2 py-2 small"
+                   data-page-code="<?= htmlspecialchars($rowPageCode) ?>"
+                   id="audit-page-<?= $rowPageId ?>">
+                <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                  <div>
+                    <div class="fw-semibold"><?= htmlspecialchars($rowPageName) ?></div>
+                    <div class="text-muted" style="font-size:.68rem;">
+                      <code><?= htmlspecialchars($rowPageCode) ?></code>
+                      <span class="ms-1 badge bg-light text-dark border" style="font-size:.65rem;"><?= htmlspecialchars($rowModule) ?></span>
+                    </div>
+                    <div class="audit-feedback mt-1" style="display:none;"></div>
+                  </div>
+                  <div class="d-flex gap-1 flex-shrink-0">
+                    <button type="button" class="btn btn-xs btn-outline-danger audit-deactivate-page-btn" style="font-size:.7rem; padding:2px 8px;"
+                            title="Nonaktifkan page ini dari sys_page"
+                            data-page-code="<?= htmlspecialchars($rowPageCode) ?>">
+                      <i class="ri ri-eye-off-line"></i> Nonaktifkan
+                    </button>
+                  </div>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
       </div>
+
     </div>
   </div>
 </div>
+
+<script>
+(function () {
+  'use strict';
+  var REGISTER_URL   = <?= json_encode(base_url('roles/quick-register-menu')) ?>;
+  var DEACT_MENU_URL = <?= json_encode(base_url('roles/deactivate-menu')) ?>;
+  var DEACT_PAGE_URL = <?= json_encode(base_url('roles/deactivate-page')) ?>;
+
+  function feedback(btn, msg, ok) {
+    var row = btn.closest('.audit-menu-row, .audit-page-row');
+    var fb  = row ? row.querySelector('.audit-feedback') : null;
+    if (fb) {
+      fb.innerHTML  = '<span class="' + (ok ? 'text-success' : 'text-danger') + '">' + msg + '</span>';
+      fb.style.display = 'block';
+    }
+  }
+
+  function disableRow(btn) {
+    var row = btn.closest('.audit-menu-row, .audit-page-row');
+    if (row) {
+      row.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    }
+  }
+
+  function fadeRow(btn) {
+    var row = btn.closest('.audit-menu-row, .audit-page-row');
+    if (row) {
+      row.style.opacity = '0.4';
+      row.style.pointerEvents = 'none';
+    }
+  }
+
+  // Daftarkan & Link
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.audit-register-btn');
+    if (!btn) return;
+    if (!confirm('Daftarkan menu "' + btn.dataset.menuLabel + '" ke sys_page dan link otomatis?')) return;
+
+    btn.disabled = true;
+    var origHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    $.post(REGISTER_URL, {
+      menu_code:  btn.dataset.menuCode,
+      menu_label: btn.dataset.menuLabel,
+      url:        btn.dataset.menuUrl
+    }, null, 'json').done(function (resp) {
+      if (resp && resp.ok) {
+        feedback(btn, '✓ Terdaftar sebagai ' + resp.page_code, true);
+        disableRow(btn);
+        setTimeout(function () { fadeRow(btn); }, 800);
+      } else {
+        feedback(btn, '✗ ' + (resp && resp.message ? resp.message : 'Gagal'), false);
+        btn.innerHTML = origHtml;
+        btn.disabled  = false;
+      }
+    }).fail(function (xhr) {
+      var msg = 'Gagal mendaftarkan.';
+      try { var r = JSON.parse(xhr.responseText); if (r && r.message) msg = r.message; } catch(ex) {}
+      feedback(btn, '✗ ' + msg, false);
+      btn.innerHTML = origHtml;
+      btn.disabled  = false;
+    });
+  });
+
+  // Nonaktifkan Menu
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.audit-deactivate-menu-btn');
+    if (!btn) return;
+    if (!confirm('Nonaktifkan menu "' + btn.dataset.menuCode + '"?')) return;
+
+    btn.disabled = true;
+    $.post(DEACT_MENU_URL, { menu_code: btn.dataset.menuCode }, null, 'json')
+      .done(function (resp) {
+        if (resp && resp.ok) {
+          feedback(btn, '✓ Dinonaktifkan', true);
+          disableRow(btn);
+          setTimeout(function () { fadeRow(btn); }, 800);
+        } else {
+          feedback(btn, '✗ ' + (resp && resp.message ? resp.message : 'Gagal'), false);
+          btn.disabled = false;
+        }
+      }).fail(function () {
+        feedback(btn, '✗ Gagal', false);
+        btn.disabled = false;
+      });
+  });
+
+  // Nonaktifkan Page
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.audit-deactivate-page-btn');
+    if (!btn) return;
+    if (!confirm('Nonaktifkan page "' + btn.dataset.pageCode + '"?')) return;
+
+    btn.disabled = true;
+    $.post(DEACT_PAGE_URL, { page_code: btn.dataset.pageCode }, null, 'json')
+      .done(function (resp) {
+        if (resp && resp.ok) {
+          feedback(btn, '✓ Dinonaktifkan', true);
+          disableRow(btn);
+          setTimeout(function () { fadeRow(btn); }, 800);
+        } else {
+          feedback(btn, '✗ ' + (resp && resp.message ? resp.message : 'Gagal'), false);
+          btn.disabled = false;
+        }
+      }).fail(function () {
+        feedback(btn, '✗ Gagal', false);
+        btn.disabled = false;
+      });
+  });
+})();
+</script>
 <?php endif; ?>
 
 <div class="card border-0 shadow-sm">

@@ -319,6 +319,8 @@ $route['pos/deposits/data'] = 'pos/deposits_data';
 $route['pos/stock-commit-audit'] = 'pos/stock_commit_audit';
 $route['pos/stock-commit-audit/repair-material-mismatches'] = 'pos/stock_commit_audit_repair_material_mismatches';
 $route['pos/stock-commit-audit/repair-component-mismatches'] = 'pos/stock_commit_audit_repair_component_mismatches';
+$route['pos/stock-commit-audit/repair-material-drift'] = 'pos/stock_commit_audit_repair_material_drift';
+$route['pos/stock-commit-audit/repair-component-drift'] = 'pos/stock_commit_audit_repair_component_drift';
 $route['pos/deposits/member-search'] = 'pos/deposit_member_search';
 $route['pos/deposits/save'] = 'pos/deposit_save';
 $route['pos/deposits/void/(:num)'] = 'pos/deposit_void/$1';
@@ -494,7 +496,14 @@ $route['roles/edit/(:num)']    = 'roles/edit/$1';
 $route['roles/update/(:num)']  = 'roles/update/$1';
 $route['roles/delete/(:num)']  = 'roles/delete/$1';
 $route['roles/matrix/(:num)']  = 'roles/matrix/$1';
-$route['roles/save_matrix/(:num)'] = 'roles/save_matrix/$1';
+$route['roles/save_matrix/(:num)']  = 'roles/save_matrix/$1';
+$route['roles/users/(:num)']        = 'roles/users/$1';
+$route['roles/save_users/(:num)']   = 'roles/save_users/$1';
+$route['roles/matrix-groups']       = 'roles/matrix_groups';
+$route['roles/quick-register-menu'] = 'roles/quick_register_menu';
+$route['roles/deactivate-menu']     = 'roles/deactivate_menu_item';
+$route['roles/deactivate-page']     = 'roles/deactivate_page_item';
+$route['roles/save-page-group']     = 'roles/save_page_matrix_group';
 
 // Sidebar favorites (AJAX)
 $route['sidebar/pin']   = 'sidebar/pin';
@@ -505,6 +514,7 @@ $route['sidebar/manage/save'] = 'sidebar/save_structure';
 $route['sidebar/manage/menu/store'] = 'sidebar/menu_store';
 $route['sidebar/manage/menu/update/(:num)'] = 'sidebar/menu_update/$1';
 $route['sidebar/manage/menu/delete/(:num)'] = 'sidebar/menu_delete/$1';
+$route['sidebar/manage/menu/toggle/(:num)'] = 'sidebar/menu_toggle_active/$1';
 
 // Master Data Tahap 2
 $route['master']                         = 'master/index/uom';

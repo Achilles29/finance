@@ -1444,6 +1444,82 @@ class Production_model extends CI_Model
         return $this->rebuild_component_history_for_identity($identity);
     }
 
+    public function repair_component_monthly_stock_drift(array $params): array
+    {
+        if (!$this->db->table_exists('inv_component_monthly_stock')) {
+            return ['ok' => false, 'message' => 'Tabel inv_component_monthly_stock tidak ditemukan.'];
+        }
+        $locationType = strtoupper(trim((string)($params['location_type'] ?? '')));
+        $divisionId = isset($params['division_id']) && $params['division_id'] !== null ? (int)$params['division_id'] : null;
+        $componentId = (int)($params['component_id'] ?? 0);
+        $uomId = (int)($params['uom_id'] ?? 0);
+        if ($componentId <= 0 || $uomId <= 0 || $locationType === '') {
+            return ['ok' => false, 'message' => 'location_type, component_id, dan uom_id diperlukan.'];
+        }
+
+        $monthKeySubQ = $this->db
+            ->select('MAX(s2.month_key)', false)
+            ->from('inv_component_monthly_stock s2')
+            ->where('s2.location_type', $locationType)
+            ->where('COALESCE(s2.division_id,0)', $divisionId !== null ? $divisionId : 0)
+            ->where('s2.component_id', $componentId)
+            ->where('s2.uom_id', $uomId)
+            ->get_compiled_select();
+
+        $driftExpr = 'ROUND(ABS(s.closing_qty - ROUND('
+            . 's.opening_qty + s.in_qty + COALESCE(s.adjustment_plus_qty,0)'
+            . ' - s.out_qty - COALESCE(s.waste_qty,0) - COALESCE(s.spoil_qty,0)'
+            . ' - COALESCE(s.adjustment_minus_qty,0)'
+            . ', 4)), 4)';
+
+        $query = $this->db
+            ->select('s.id, s.closing_qty, s.opening_qty, s.in_qty, s.out_qty, s.waste_qty, s.spoil_qty, s.adjustment_plus_qty, s.adjustment_minus_qty', false)
+            ->from('inv_component_monthly_stock s')
+            ->where('s.location_type', $locationType)
+            ->where('COALESCE(s.division_id,0)', $divisionId !== null ? $divisionId : 0)
+            ->where('s.component_id', $componentId)
+            ->where('s.uom_id', $uomId)
+            ->where("s.month_key = ({$monthKeySubQ})", null, false)
+            ->where("{$driftExpr} > 0.0001", null, false);
+
+        $rows = $query->get()->result_array();
+
+        if (empty($rows)) {
+            return ['ok' => true, 'message' => 'Tidak ada drift pada monthly stock component ini.', 'data' => ['rows_fixed' => 0]];
+        }
+
+        $fixed = 0;
+        foreach ($rows as $r) {
+            $calculated = round(
+                (float)$r['opening_qty']
+                + (float)$r['in_qty']
+                + (float)($r['adjustment_plus_qty'] ?? 0)
+                - (float)$r['out_qty']
+                - (float)($r['waste_qty'] ?? 0)
+                - (float)($r['spoil_qty'] ?? 0)
+                - (float)($r['adjustment_minus_qty'] ?? 0),
+            4);
+            $drift = round((float)$r['closing_qty'] - $calculated, 4);
+            if (abs($drift) <= 0.0001) {
+                continue;
+            }
+            $update = [];
+            if ($drift > 0) {
+                $update['adjustment_plus_qty'] = round((float)($r['adjustment_plus_qty'] ?? 0) + $drift, 4);
+            } else {
+                $update['adjustment_minus_qty'] = round((float)($r['adjustment_minus_qty'] ?? 0) + abs($drift), 4);
+            }
+            $this->db->where('id', (int)$r['id'])->update('inv_component_monthly_stock', $update);
+            $fixed++;
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Drift monthly stock component diserap ke adjustment.',
+            'data' => ['rows_fixed' => $fixed],
+        ];
+    }
+
     private function list_component_reconcile_movements(string $asOfDate, array $filters): array
     {
         if (!$this->db->table_exists('inv_component_movement_log')) {
