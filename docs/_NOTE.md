@@ -75,91 +75,26 @@ v laporan daily sales seperti core /pos-reports/daily-sales , kemudian cetak
 - akses stok (ketiganya) belum memperhatikan scope divisi
 - metode pembayaran PO tidak bisa diedit padahal belum PAID
 - mst_item / mst_material / purchase catalog yang statusnya tidak aktif harusnya tidak muncul di pencarian PO
+- db replication belum sinkron
+- modul generate stok opname dan stok awal Gudang, divisi, component. siapkan dulu database stok opaname. lalu buatkan modul generate dan tambahkan tombolnya di semua halaman stok (modul harus sama). ketika klik generate maka menggenerate sesuai stok pada montly_stock masing masing sampai dengan profile (line terkecil), lalu menggenerate stok opening untuk bulan berikutnya. untuk stok opening hanya ambil cukup ambil yang stok akhir / stok awal bulan berikutnya tidak sama dengan 0. genertae stok awal berarti menggenerate data di tabel opening dan tabel monthly_stock bulan berikutnya.
+dan jangan lupa buatkan halaman stok opname dan masukkan tab bertingkat semua halaman yang serumpun dan masukkan sidebar sesuai rumpun
 
 
 
-
-sekarang saya ingin buatkan halaman mirip /master/material
-
-buatkan halaman untuk kroscek / rekin data stok bahan baku harian.
-halamannya mirip stok bahan baku divisi dengan tampilan yang lebih simple dan efisien.
-halaman menampilkan stok bahan per divisi yang bisa di breakdown per profil child nya untuk yang punya child. lalu di kolom sebelahnya adalah kolom form input data stok fisik (ajax). kolom sebelahnya lagi otomatis muncul selisih stok nya. lalu ada aksi langsung penyesuaian untuk stok yang miss, dengan opsi sesuai stok adjusment. taruh di sidebar rumupun inv divisi (masukkan databasenya)
-
+perbaiki lagi.
+1. pilihan jenis dan alasan yang tampil seharusnya sama dengan yang ada di /production/component-adjustments
+2. belum masuk sidebar
+3. tab bertingkat component belum ada
+4. ganti nama halaman dan hiperlink jangan gunakan istilah opname, tapi gunakan istilah daily recon. karena opname nanti ada sendiri
 
 
-
-oke sekarng lanjutkan.
-ingat ya, tujuan akhir kita tidak ada lagi Kolom berisi MATERIAL / TABEL
-dan tidak ada lagi missmatch di pos/stock-commit-audit dan /pos/stock-live, dan semua data terkait stok gudang, stok bahan baku, stok komponent, dan stok produk , termasuk hpp live nya, sinkron rumusnya satu sama lain
-
-
-db replication belum sinkron
+sesuaikan juga /inventory/stock/daily-recon/division agar jenis dan alasan sama antara /inventory/stock/daily-recon/division dan /inventory-material-daily dan /inventory-material-daily
 
 
 
+/production/component-daily-recon:
+- tab bertingkat (seperti gambar) belum ada
+- belum masuk sidebar?
+- kalau buat sql baru harus sesuai standars, masuk foilder sql dan penamaannya urut
 
-
-- rapikan lagi, tidak perlu tampilkan kode, perbesar icon sesuai standar dan overlay teks iconnya juga nggak mucul, sebelum aksi harusnya ada dropdown pilihan jenis dan reason adjustment, di kolom setelah selisih bukan dibawah
-
-jadi prinsipnya ini adalah halaman adjustment dengan gaya tampilan yang berbeda
-
-kayaknya ini harusnya bukan opname deh.. opname itu nanti untuk opname bulanan yang digenerate dari stok divisi akhir bulan. ganti namanya yaaaa
-
-
-
-- hiperlinknya masih /inventory/stock/opname/division, apakah bisa diganti? jangan pakai opname donk
-
-- kenapa ada data yang ada stok fisiknya? dan baris lainnya tidak muncul jenis dan alasannya
-- data profile tampilkan jumlah Pack dan Jumlah Isisinya, jadi di UOM atas isi , bawah pack (oum beli), misal Air mineral galon  atas ml bawah galon. bukan hanya isinya, paham maksudku kan?
-
-
-
-jangan "koreksi" donk, yang lain kan pakai bahasa inggris. jadi tujuan halaman ini adalah untuk rekon data harian. cari nama yang sesuai dan langsung ganti sidebarnya pakai nama dan link baru. ganti juga icon di sidebar (tidak muncul gambarnya hanya kotak putih)
-
-kamu bilang Soal "kenapa ada data stok fisiknya?" — Itu data yang sebelumnya sudah diisi untuk tanggal itu. maksudnya diisi dimana?? memang kamu ambil dari tabel mana??? data ini diambil dari monthly stock closingnya ya. dan yang kita input itu nanti masuk adjusment, paham maksudku kan??
-
-rapikan dan percantik lagi tampilan khususnya data tabel nya. jenis dan alasan kok tidka muncul 
-
-
-sql sudah saya jalankan.
-pertama kamu perlu cek perbaiki dulu
-/inventory-material-daily, inventory/stock/division  dan  inventory/stock/division/daily , bahwa sumber kebenaran utama stok bahan baku divisi ada di inv_warehouse_monthly_stock dengan material_id tidak null. artinya meskipun ada movement log tapi tidak ada di inv_warehouse_monthly_stock harusnya tidak masuk di 3 halaman tersebut, tapi hal ini yang perlu kita audit di pos/stock-commit-audit.
-
-Opening / PO/ SR / Adjsutmen / Component batch / POS produk mengintervensi langsung tabel inv_warehouse_monthly_stock dan tabel lot turunannya. sedangkan tabel log di masing masing tahapun itu untuk nantinya keperluan audit jika ada missmatch. sedangkan di /inventory-material-daily tabel log digunakan untuk menentukan keluar masuk stok harian sesuai dengan profilnya, dengan catatan patokan stok akhir tetap ada di inv_warehouse_monthly_stock dan ada guarding atau warning langsung di baris yang ada miss antar stock dan log.
-sesuaikan juga ketiga halaman stok tadi untuk profil line stok yang habis atau 0 atau minus ditaruh paling bawah masing masing child dengan pewarnaan merah agar kelihatan kalau habis.
-bulan ini kita tidak masalah jika harus menghilangkan log yang tidak sesuai dengan stok karena juga masih trial, yang penting secara alur UI sudah diperbaiki sehingga bulan depan ketika generate stok opname dan stok awal bisa dimulai dari data yang bersih 
-
-
-/inventory/stock/daily-recon/division sembunyikan line child stok 0. tambahkan tanggal  masuk stok di setiap child
-
-POS dan component pakai FIFO bahan baku?
-
-
-saya sudah menemukan beberapa bug nya dan tadi sudah kita perbaiki.
-
-bahwa sumber kebenaran utama stok bahan baku divisi ada di inv_division_monthly_stock dengan material_id tidak null. artinya meskipun ada movement log tapi tidak ada di inv_division_monthly_stock harusnya tidak masuk di 3 halaman tersebut, tapi hal ini yang perlu kita audit di pos/stock-commit-audit.
-
-jadi data stok yang tampil di /inventory-material-daily, inventory/stock/division  dan  inventory/stock/division/daily, pos/stock-commit-audit dan inventory/stock/daily-recon/division diambil dari
-
-nah sekarang perlu kita track ulang 1 per 1.
-
-
--untuk PAPER FILTER V60 jadinya dibiarkan atau ada cara repair?
-
-- tambahkan clear filter
-- tambahakan jumlah card ringkasan drift di daily chek
-- tambahkan juga filter untuk Daily Check agar bisa memfilter yang drift saja
-- bisa dibuatkan modul untuk repair yang drift agar bisa audit kenapa lot miss dan bisa direpair?
-
-
-
-
-masih di /roles/matrix-groups dan /roles
-
-1.  Page aktif tanpa menu aktif itu maksudnya bagaimana? dia punya halaman atau tidak? atau bagaimana?
-2. /roles/matrix-groups harus tampil semua yang terdaftar, dan tambahkan kolom status nya aktif atau tidak, dan tambahkan juga kolom link nya
-
-
-Keuangan / Purchase dengan URL #: Mereka adalah parent/induk menu — ada di sys_menu dengan page_id terhubung (makanya "Menu aktif"), tapi url = '#' karena mereka hanya header kolapsibel di sidebar. Sub-menu di bawah mereka yang punya URL asli. Sekarang tampil sebagai badge abu "Induk menu" bukan link kosong.
-
-nah kalau gitu kenapa muncul di /roles/matrix-groups ? apakah aman jika dihilangkan? masalahnya kalau dinonaktifkan menu nya hilang dari sidebar. bukankah Keuangan / Purchase harusnya bukan masuk di role matrix?
+Batch Produksi, daily matrix, daily recon, stok base/prepare, stok bulanan, adjustment, opening, mutasi, Lot FIFO, reconcile

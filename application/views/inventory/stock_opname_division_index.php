@@ -25,42 +25,28 @@ $destOptions = [
 
 $REASONS = [
     'WASTE' => [
-        'cancel_order'     => 'Cancel Order',
-        'kitchen_error'    => 'Kitchen Error',
-        'overproduction'   => 'Overproduction',
-        'spillage'         => 'Spillage / Tumpah',
-        'prep_trim_excess' => 'Prep Trim Excess',
-        'expired_opened'   => 'Expired Opened',
-        'other'            => 'Other',
+        'cancel_order'   => 'Cancel Order',
+        'kitchen_error'  => 'Kitchen Error',
+        'overproduction' => 'Overproduction',
+        'spillage'       => 'Spillage / Tumpah',
+        'expired_opened' => 'Expired Opened',
+        'other'          => 'Other',
     ],
-    'SPOIL' => [
+    'SPOILAGE' => [
         'expired'           => 'Expired',
         'temperature_abuse' => 'Temperature Abuse',
         'contamination'     => 'Contamination',
-        'overstock'         => 'Overstock',
         'improper_storage'  => 'Improper Storage',
+        'overstock'         => 'Overstock',
         'other'             => 'Other',
     ],
-    'PROCESS_LOSS' => [
-        'defrost_loss'                => 'Defrost Loss',
-        'trimming_standard'           => 'Trimming Standard',
-        'cooking_loss'                => 'Cooking Loss',
-        'evaporation'                 => 'Evaporation',
-        'brew_loss'                   => 'Brew Loss',
-        'absorption_loss'             => 'Absorption Loss',
-        'process_residue'             => 'Process Residue',
-        'variable_process_consumable' => 'Variable Process Consumable',
-        'other'                       => 'Other',
-    ],
-    'VARIANCE' => [
-        'over_usage'        => 'Over Usage',
-        'under_usage'       => 'Under Usage',
-        'unrecorded_usage'  => 'Unrecorded Usage',
-        'counting_error'    => 'Counting Error',
-        'system_mismatch'   => 'System Mismatch',
-        'theft_suspected'   => 'Theft Suspected',
-        'unknown_shrinkage' => 'Unknown Shrinkage',
-        'other'             => 'Other',
+    'ADJUSTMENT_MINUS' => [
+        'counting_error'   => 'Counting Error',
+        'system_mismatch'  => 'System Mismatch',
+        'unrecorded_usage' => 'Unrecorded Usage',
+        'process_loss'     => 'Process Loss',
+        'theft_suspected'  => 'Theft Suspected',
+        'other'            => 'Other',
     ],
     'ADJUSTMENT_PLUS' => [
         'opening_correction' => 'Opening Correction',
@@ -70,6 +56,53 @@ $REASONS = [
     ],
 ];
 ?>
+
+<style>
+/* ── Table layout ──────────────────────────────────────── */
+#opnTableWrap .table-responsive { max-height:calc(100vh - 290px); overflow-y:auto; }
+#opnTableWrap table { border-collapse:collapse; }
+#opnTableWrap thead th {
+  position:sticky; top:0; z-index:2;
+  font-size:.73rem; font-weight:700; letter-spacing:.03em; white-space:nowrap;
+  color:#334155; background:#e2e8f0;
+  border-bottom:2px solid #94a3b8 !important; border-top:none !important;
+}
+
+/* Row borders + stripes */
+#opnTbody tr            { border-bottom:1px solid #e2e8f0; }
+#opnTbody tr > td       { border:none; padding-top:5px; padding-bottom:5px; }
+#opnTbody tr:nth-child(even) > td { background:#f8fafc; }
+#opnTbody tr:nth-child(odd)  > td { background:#ffffff; }
+#opnTbody tr:hover > td      { background:#eff6ff !important; }
+
+/* Arrow icon */
+.opn-grp-arrow { transition:transform .18s, color .18s; }
+tr.opn-grp-header.expanded .opn-grp-arrow { transform:rotate(90deg); color:#3b82f6 !important; }
+.opn-arrow-wrap { display:inline-flex; width:16px; flex-shrink:0; align-items:center; }
+
+/* Name cell */
+.opn-name-cell { display:flex; align-items:flex-start; }
+.opn-name-body { min-width:0; }
+
+/* Negative stock rows */
+.opn-row-minus > td { background:#fff1f2 !important; }
+.opn-row-minus > td:first-child { border-left:3px solid #f87171; }
+.opn-row-minus:hover > td { background:#fee2e2 !important; }
+.opn-row-minus .fw-semibold,
+.opn-row-minus .fw-bold { color:#991b1b !important; }
+.opn-row-minus .text-muted { color:#b91c1c !important; opacity:.75; }
+
+/* Tipe / Destinasi badges */
+.opn-tipe-event   { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
+.opn-tipe-reguler { background:#f1f5f9; color:#64748b;  border:1px solid #cbd5e1; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
+.opn-kat-cell     { font-size:.72rem; color:#374151; white-space:nowrap; }
+
+/* Divisi cell */
+.opn-div-cell { font-size:.72rem; color:#1e40af; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:90px; }
+
+/* Minus filter button — active state */
+#btnFilterMinus.filter-on { background:#dc3545; border-color:#dc3545; color:#fff; }
+</style>
 
 <div class="fin-page-header">
     <div>
@@ -140,7 +173,7 @@ $REASONS = [
 
 <!-- Summary Cards -->
 <div class="row g-2 mb-3" id="opnSummary" style="display:none">
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center">
@@ -150,7 +183,7 @@ $REASONS = [
             </div>
         </div>
     </div>
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center">
@@ -160,7 +193,7 @@ $REASONS = [
             </div>
         </div>
     </div>
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center">
@@ -170,12 +203,22 @@ $REASONS = [
             </div>
         </div>
     </div>
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div><div class="small text-muted">Disesuaikan</div><div class="h5 mb-0 fw-bold text-info" id="smAdj">0</div></div>
                     <i class="ri ri-git-commit-line ri-2x text-info opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md">
+        <div class="card border-0 shadow-sm h-100" style="border-left:3px solid #f87171 !important;">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div><div class="small text-muted">Stok Minus</div><div class="h5 mb-0 fw-bold text-danger" id="smMinus">0</div></div>
+                    <i class="ri ri-arrow-down-circle-line ri-2x text-danger opacity-50"></i>
                 </div>
             </div>
         </div>
@@ -197,23 +240,34 @@ $REASONS = [
     </div>
 
     <div id="opnTableWrap" style="display:none">
-        <div class="d-flex justify-content-between align-items-center px-3 pt-2 pb-1">
-            <small class="text-muted" id="opnInfo"></small>
-            <button class="btn btn-sm btn-outline-secondary" id="opnRefresh">
-                <i class="ri ri-refresh-line me-1"></i>Refresh
-            </button>
+        <div class="d-flex justify-content-between align-items-center px-3 pt-2 pb-1 flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <small class="text-muted" id="opnInfo"></small>
+                <span id="opnMinusBadge" class="badge bg-danger-subtle text-danger border border-danger-subtle" style="display:none;font-size:.7rem;cursor:pointer" title="Klik untuk filter stok minus"></span>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-danger" id="btnFilterMinus" style="display:none">
+                    <i class="ri ri-arrow-down-circle-line me-1"></i>Hanya Minus
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" id="opnRefresh">
+                    <i class="ri ri-refresh-line me-1"></i>Refresh
+                </button>
+            </div>
         </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0" style="font-size:.85rem">
-                <thead class="table-light">
+                <thead>
                     <tr>
-                        <th class="text-start" style="min-width:210px">Bahan Baku / Profil</th>
-                        <th style="width:65px">UOM</th>
-                        <th class="text-end" style="width:100px">Sistem</th>
-                        <th class="text-end" style="width:105px">Fisik</th>
-                        <th class="text-end" style="width:90px">Selisih</th>
-                        <th style="min-width:240px">Jenis &amp; Alasan</th>
-                        <th style="width:95px">Aksi</th>
+                        <th style="width:82px">Divisi</th>
+                        <th style="width:66px">Tipe</th>
+                        <th style="width:72px">Destinasi</th>
+                        <th class="text-start" style="min-width:190px">Bahan Baku / Profil</th>
+                        <th style="width:60px">UOM</th>
+                        <th class="text-end" style="width:96px">Sistem</th>
+                        <th class="text-end" style="width:100px">Fisik</th>
+                        <th class="text-end" style="width:82px">Selisih</th>
+                        <th style="min-width:220px">Jenis &amp; Alasan</th>
+                        <th style="width:90px">Aksi</th>
                     </tr>
                 </thead>
                 <tbody id="opnTbody"></tbody>
@@ -232,10 +286,9 @@ const CAN_CREATE = <?= $canCreate ? 'true' : 'false' ?>;
 
 const REASONS = <?= json_encode($REASONS) ?>;
 const ADJ_TYPES_NEG = [
-    { val: 'VARIANCE',     lbl: 'Variance' },
-    { val: 'WASTE',        lbl: 'Waste' },
-    { val: 'SPOIL',        lbl: 'Spoil' },
-    { val: 'PROCESS_LOSS', lbl: 'Process Loss' },
+    { val: 'WASTE',            lbl: 'Waste'           },
+    { val: 'SPOILAGE',         lbl: 'Spoilage'        },
+    { val: 'ADJUSTMENT_MINUS', lbl: 'Adjustment Minus' },
 ];
 const ADJ_TYPES_POS = [
     { val: 'ADJUSTMENT_PLUS', lbl: 'Adjustment Plus' },
@@ -258,11 +311,12 @@ function initTooltips(root) {
 }
 
 function updateSummary() {
-    let total = 0, filled = 0, miss = 0, adj = 0;
+    let total = 0, filled = 0, miss = 0, adj = 0, minus = 0;
     currentData.forEach(function (div) {
         div.materials.forEach(function (mat) {
             mat.profiles.forEach(function (p) {
                 total++;
+                if (parseFloat(p.system_qty_content) < -0.001) minus++;
                 if (p.physical_qty_content !== null) {
                     filled++;
                     if (p.selisih !== null && Math.abs(p.selisih) >= 0.001) miss++;
@@ -275,6 +329,8 @@ function updateSummary() {
     el('smFilled').textContent = filled;
     el('smMiss').textContent   = miss;
     el('smAdj').textContent    = adj;
+    const smMinus = el('smMinus');
+    if (smMinus) smMinus.textContent = minus;
 }
 
 function selisihHtml(sel, iid) {
@@ -364,35 +420,61 @@ function renderTable(divisions) {
     });
     el('opnInfo').textContent = divisions.length + ' divisi · ' + totalMat + ' material · ' + totalProf + ' profil';
 
+    // ── Destination helpers ───────────────────────────────
+    function destInfo(destType) {
+        const map = {
+            'BAR':           { kat: 'Bar',     event: false },
+            'KITCHEN':       { kat: 'Kitchen', event: false },
+            'BAR_EVENT':     { kat: 'Bar',     event: true  },
+            'KITCHEN_EVENT': { kat: 'Kitchen', event: true  },
+            'OFFICE':        { kat: 'Office',  event: false },
+            'OTHER':         { kat: 'Other',   event: false },
+        };
+        return map[destType] || { kat: destType || '—', event: false };
+    }
+    function tipeBadge(destType) {
+        const d = destInfo(destType);
+        return d.event
+            ? `<span class="opn-tipe-event">Event</span>`
+            : `<span class="opn-tipe-reguler">Reguler</span>`;
+    }
+    function katCell(destType) {
+        return `<td class="opn-kat-cell">${esc(destInfo(destType).kat)}</td>`;
+    }
+
     let html = '';
+    let minusCount = 0;
     divisions.forEach(function (div) {
-        html += `<tr class="table-secondary">
-            <td colspan="7" class="py-1 text-start" style="font-size:.78rem;font-weight:700;letter-spacing:.04em">
-                <i class="ri ri-building-2-line me-1 text-primary"></i>${esc(div.division_name)}
-                <span class="text-muted fw-normal ms-1">(${div.materials.length} material)</span>
-            </td>
-        </tr>`;
 
         div.materials.forEach(function (mat) {
             const multiProf = mat.profiles.length > 1;
-
             const grpIid = multiProf ? cssid(div.division_id + '_grp_' + mat.material_id) : null;
 
             if (multiProf) {
                 const sysTotal  = mat.system_total;
                 const physTotal = mat.physical_total;
                 const selTotal  = physTotal !== null ? physTotal - sysTotal : null;
-                html += `<tr id="grp-row-${grpIid}" class="table-light opn-grp-header"
-                         style="cursor:pointer" onclick="opnToggleGrp('${grpIid}')">
-                    <td class="text-start" style="font-size:.8rem;padding-left:.75rem">
-                        <i id="grp-icon-${grpIid}" class="ri ri-arrow-right-s-line text-muted me-1" style="font-size:1rem;vertical-align:middle"></i>
-                        <span class="fw-semibold">${esc(mat.material_name)}</span>
-                        <span class="text-muted fw-normal ms-1">(${mat.profiles.length} profil)</span>
+                const grpNeg    = sysTotal !== null && parseFloat(sysTotal) < -0.001;
+                if (grpNeg) minusCount++;
+                html += `<tr id="grp-row-${grpIid}" class="opn-grp-header${grpNeg ? ' opn-row-minus' : ''}"
+                         data-system-val="${sysTotal}" data-div-id="${esc(String(div.division_id))}"
+                         onclick="opnToggleGrp('${grpIid}')">
+                    <td class="opn-div-cell">${esc(div.division_name)}</td>
+                    <td></td>
+                    <td></td>
+                    <td class="text-start" style="font-size:.8rem;">
+                        <div class="opn-name-cell">
+                            <span class="opn-arrow-wrap"><i id="grp-icon-${grpIid}" class="ri ri-arrow-right-s-line opn-grp-arrow text-muted" style="font-size:1.05rem"></i></span>
+                            <div class="opn-name-body">
+                                <span class="fw-semibold">${esc(mat.material_name)}</span>
+                                <span class="text-muted fw-normal ms-1" style="font-size:.74rem">(${mat.profiles.length} profil)</span>
+                            </div>
+                        </div>
                     </td>
                     <td></td>
-                    <td class="text-end text-muted" style="font-size:.8rem">${fmt4(sysTotal)}</td>
+                    <td class="text-end">${fmt4(sysTotal)}</td>
                     <td></td>
-                    <td class="text-end" style="font-size:.8rem">${selisihHtml(selTotal, grpIid)}</td>
+                    <td class="text-end">${selisihHtml(selTotal, grpIid)}</td>
                     <td></td>
                     <td></td>
                 </tr>`;
@@ -407,26 +489,17 @@ function renderTable(divisions) {
                 const cpb        = parseFloat(p.profile_content_per_buy) || 0;
                 const showBuy    = buyUom && buyUom !== contentUom;
 
-                // UOM cell: content UOM on top, buy UOM below
                 const uomCell = showBuy
-                    ? `<td class="text-start" style="font-size:.8rem">
-                           ${contentUom}
-                           <div class="text-muted" style="font-size:.72rem">${buyUom}</div>
-                       </td>`
-                    : `<td class="text-start text-muted" style="font-size:.8rem">${contentUom}</td>`;
+                    ? `<td style="font-size:.8rem">${contentUom}<div class="text-muted" style="font-size:.72rem">${buyUom}</div></td>`
+                    : `<td class="text-muted" style="font-size:.8rem">${contentUom}</td>`;
 
-                // Sistem cell: content qty on top, buy qty below
                 const sysBuy = p.system_qty_buy > 0
                     ? p.system_qty_buy
                     : (cpb > 0 ? p.system_qty_content / cpb : null);
                 const sistemCell = showBuy && sysBuy !== null
-                    ? `<td class="text-end" style="font-size:.85rem">
-                           ${fmt4(p.system_qty_content)}
-                           <div class="text-muted" style="font-size:.72rem">${fmt4(sysBuy)} ${buyUom}</div>
-                       </td>`
+                    ? `<td class="text-end" style="font-size:.85rem">${fmt4(p.system_qty_content)}<div class="text-muted" style="font-size:.72rem">${fmt4(sysBuy)} ${buyUom}</div></td>`
                     : `<td class="text-end">${fmt4(p.system_qty_content)}</td>`;
 
-                // Fisik input + live buy equivalent
                 const physBuyInit = physVal !== '' && cpb > 0 && showBuy
                     ? fmt4(parseFloat(physVal) / cpb) + ' ' + buyUom : '';
 
@@ -434,17 +507,23 @@ function renderTable(divisions) {
                     ? buildLabelSingle(p, contentUom)
                     : buildLabelSub(p);
 
-                const childAttr = multiProf
-                    ? `data-grp="${grpIid}" style="display:none"`
-                    : '';
+                const profNeg   = parseFloat(p.system_qty_content) < -0.001;
+                if (profNeg && !multiProf) minusCount++;
+                const profClass = profNeg ? 'opn-row-minus' : '';
+                const profAttrs = multiProf
+                    ? `class="${profClass}" data-grp="${grpIid}" data-system-val="${p.system_qty_content}" data-div-id="${esc(String(div.division_id))}" style="display:none"`
+                    : `class="${profClass}" data-system-val="${p.system_qty_content}" data-div-id="${esc(String(div.division_id))}"`;
 
-                html += `<tr id="row-${iid}" ${childAttr}>
+                html += `<tr id="row-${iid}" ${profAttrs}>
+                    <td class="opn-div-cell">${esc(div.division_name)}</td>
+                    <td>${tipeBadge(p.destination_type)}</td>
+                    ${katCell(p.destination_type)}
                     <td class="text-start">${matLabel}</td>
                     ${uomCell}
                     ${sistemCell}
                     <td class="text-end">
                         <input type="number" class="form-control form-control-sm text-end"
-                               style="width:88px;display:inline-block"
+                               style="width:82px;display:inline-block"
                                step="0.01" min="0"
                                value="${esc(physVal)}"
                                placeholder="—"
@@ -467,32 +546,38 @@ function renderTable(divisions) {
     tbody.innerHTML = html;
     initTooltips(tbody);
 
+    const minusBadge = el('opnMinusBadge');
+    const filterBtn  = el('btnFilterMinus');
+    if (minusBadge) {
+        minusBadge.textContent = minusCount + ' stok minus';
+        minusBadge.style.display = minusCount > 0 ? '' : 'none';
+    }
+    if (filterBtn) filterBtn.style.display = minusCount > 0 ? '' : 'none';
+
 function buildLabelSingle(p, contentUom) {
-    let h = `<div class="fw-semibold">${esc(p.material_name || p.item_name)}</div>`;
+    let inner = `<div class="fw-semibold">${esc(p.material_name || p.item_name)}</div>`;
     const subParts = [p.profile_name, p.profile_brand, p.profile_description].filter(Boolean);
     const expBadge = p.profile_expired_date
         ? ` <span class="badge bg-danger-subtle text-danger" style="font-size:.62rem">exp ${esc(p.profile_expired_date)}</span>` : '';
     if (subParts.length) {
-        h += `<div class="text-muted" style="font-size:.76rem">${esc(subParts.join(' · '))}${expBadge}</div>`;
+        inner += `<div class="text-muted" style="font-size:.76rem">${esc(subParts.join(' · '))}${expBadge}</div>`;
     } else if (expBadge) {
-        h += `<div>${expBadge}</div>`;
+        inner += `<div>${expBadge}</div>`;
     }
     if (p.avg_cost_per_content > 0) {
-        h += `<div class="text-muted" style="font-size:.72rem">${fmtRp(p.avg_cost_per_content)}/${contentUom}</div>`;
+        inner += `<div class="text-muted" style="font-size:.72rem">${fmtRp(p.avg_cost_per_content)}/${contentUom}</div>`;
     }
-    return h;
+    return `<div class="opn-name-cell"><span class="opn-arrow-wrap"></span><div class="opn-name-body">${inner}</div></div>`;
 }
 
 function buildLabelSub(p) {
     const expBadge = p.profile_expired_date
         ? ` <span class="badge bg-danger-subtle text-danger" style="font-size:.62rem">exp ${esc(p.profile_expired_date)}</span>` : '';
     const subParts = [p.profile_brand, p.profile_description].filter(Boolean);
-    let h = `<div style="padding-left:1.25rem">`;
-    h += `<span class="fw-semibold" style="font-size:.82rem">${esc(p.profile_name || '')}${expBadge}</span>`;
-    if (subParts.length) h += ` <span class="text-muted" style="font-size:.74rem">· ${esc(subParts.join(' · '))}</span>`;
-    if (p.avg_cost_per_content > 0) h += ` <span class="text-muted" style="font-size:.72rem">· ${fmtRp(p.avg_cost_per_content)}</span>`;
-    h += `</div>`;
-    return h;
+    let inner = `<span class="fw-semibold" style="font-size:.82rem">${esc(p.profile_name || '')}${expBadge}</span>`;
+    if (subParts.length) inner += ` <span class="text-muted" style="font-size:.74rem">· ${esc(subParts.join(' · '))}</span>`;
+    if (p.avg_cost_per_content > 0) inner += ` <span class="text-muted" style="font-size:.72rem">· ${fmtRp(p.avg_cost_per_content)}</span>`;
+    return `<div class="opn-name-cell"><span class="opn-arrow-wrap"></span><div class="opn-name-body" style="padding-left:.6rem">${inner}</div></div>`;
 }
 }
 
@@ -604,20 +689,27 @@ function doSave(inp, p) {
 window.opnToggleGrp = function (grpIid) {
     const children = document.querySelectorAll('[data-grp="' + grpIid + '"]');
     const icon     = el('grp-icon-' + grpIid);
+    const hdrRow   = el('grp-row-' + grpIid);
     if (!children.length) return;
 
     const willExpand = children[0].style.display === 'none';
     children.forEach(function (row) {
-        row.style.display = willExpand ? '' : 'none';
+        // When minus filter is on, only show children that are minus
+        if (showOnlyMinus && willExpand) {
+            const v = parseFloat(row.dataset.systemVal || 0);
+            row.style.display = v < -0.001 ? '' : 'none';
+        } else {
+            row.style.display = willExpand ? '' : 'none';
+        }
     });
 
     if (icon) {
-        icon.className = willExpand
-            ? 'ri ri-arrow-down-s-line text-primary me-1'
-            : 'ri ri-arrow-right-s-line text-muted me-1';
-        icon.style.fontSize = '1rem';
-        icon.style.verticalAlign = 'middle';
+        icon.className = 'ri opn-grp-arrow me-1 ' + (willExpand
+            ? 'ri-arrow-down-s-line text-primary'
+            : 'ri-arrow-right-s-line text-muted');
+        icon.style.fontSize = '1.05rem';
     }
+    if (hdrRow) hdrRow.classList.toggle('expanded', willExpand);
 };
 
 window.opnTypeChange = function (iid) {
@@ -704,6 +796,77 @@ window.opnPostAdj = function (iid) {
     });
 };
 
+// ── Minus filter ─────────────────────────────────────────────
+let showOnlyMinus = false;
+
+function applyMinusFilter() {
+    const tbody = el('opnTbody');
+    if (!tbody) return;
+    const rows    = Array.from(tbody.querySelectorAll('tr'));
+    const btn     = el('btnFilterMinus');
+    const badge   = el('opnMinusBadge');
+
+    if (btn) btn.classList.toggle('filter-on', showOnlyMinus);
+    if (badge) badge.style.fontWeight = showOnlyMinus ? '700' : '';
+
+    if (!showOnlyMinus) {
+        // Restore: show grp headers, collapse child rows as before
+        rows.forEach(function (r) {
+            if (r.classList.contains('opn-grp-header')) {
+                r.style.display = '';
+                return;
+            }
+            if (r.dataset.grp) {
+                const icon = el('grp-icon-' + r.dataset.grp);
+                const expanded = icon && icon.classList.contains('ri-arrow-down-s-line');
+                r.style.display = expanded ? '' : 'none';
+                return;
+            }
+            r.style.display = '';
+        });
+        return;
+    }
+
+    // Show only rows where system stock is negative
+    const visibleGrps = new Set();
+
+    // First pass: profile rows
+    rows.forEach(function (r) {
+        if (r.classList.contains('opn-grp-header')) return;
+        const v = parseFloat(r.dataset.systemVal || 0);
+        if (v < -0.001) {
+            r.style.display = '';
+            if (r.dataset.grp) visibleGrps.add(r.dataset.grp);
+        } else {
+            r.style.display = 'none';
+        }
+    });
+
+    // Second pass: group header rows
+    rows.forEach(function (r) {
+        if (!r.classList.contains('opn-grp-header')) return;
+        const grpIid = r.id.replace('grp-row-', '');
+        if (visibleGrps.has(grpIid)) {
+            r.style.display = '';
+            const icon = el('grp-icon-' + grpIid);
+            if (icon) {
+                icon.className = 'ri opn-grp-arrow me-1 ri-arrow-down-s-line text-primary';
+            }
+            r.classList.add('expanded');
+        } else {
+            const v = parseFloat(r.dataset.systemVal || 0);
+            r.style.display = v < -0.001 ? '' : 'none';
+        }
+    });
+}
+
+document.addEventListener('click', function (e) {
+    if (e.target.closest('#btnFilterMinus') || e.target.closest('#opnMinusBadge')) {
+        showOnlyMinus = !showOnlyMinus;
+        applyMinusFilter();
+    }
+});
+
 function loadData(showSpinner) {
     const form  = el('opnForm');
     const date  = form.querySelector('[name=opname_date]').value;
@@ -714,6 +877,9 @@ function loadData(showSpinner) {
     el('opnEmpty').classList.add('d-none');
     el('opnNoResult').classList.add('d-none');
     if (showSpinner !== false) {
+        showOnlyMinus = false;
+        const fb = el('btnFilterMinus');
+        if (fb) fb.classList.remove('filter-on');
         el('opnLoading').classList.remove('d-none');
         el('opnTableWrap').style.display = 'none';
         el('opnSummary').style.display = 'none';

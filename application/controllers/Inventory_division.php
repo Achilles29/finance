@@ -346,11 +346,11 @@ class Inventory_division extends Purchase
         }
 
         // Jenis penyesuaian harus sesuai sistem adjustment divisi yang ada
-        $validNeg = ['WASTE', 'SPOIL', 'PROCESS_LOSS', 'VARIANCE'];
+        $validNeg = ['WASTE', 'SPOIL', 'PROCESS_LOSS', 'VARIANCE', 'SPOILAGE', 'ADJUSTMENT_MINUS'];
         $validPos = ['ADJUSTMENT_PLUS'];
 
         if ($selisih < 0 && !in_array($adjType, $validNeg, true)) {
-            $adjType = 'VARIANCE';
+            $adjType = 'ADJUSTMENT_MINUS';
         }
         if ($selisih > 0 && !in_array($adjType, $validPos, true)) {
             $adjType = 'ADJUSTMENT_PLUS';
@@ -378,10 +378,12 @@ class Inventory_division extends Purchase
 
         if ($selisih < 0) {
             $reasonMap = [
-                'WASTE'        => ['qty_waste_content'        => $absQty, 'waste_reason_code'        => $rc],
-                'SPOIL'        => ['qty_spoil_content'        => $absQty, 'spoil_reason_code'        => $rc],
-                'PROCESS_LOSS' => ['qty_process_loss_content' => $absQty, 'process_loss_reason_code' => $rc],
-                'VARIANCE'     => ['qty_variance_content'     => $absQty, 'variance_reason_code'     => $rc],
+                'WASTE'            => ['qty_waste_content'        => $absQty, 'waste_reason_code'        => $rc],
+                'SPOIL'            => ['qty_spoil_content'        => $absQty, 'spoil_reason_code'        => $rc],
+                'SPOILAGE'         => ['qty_spoil_content'        => $absQty, 'spoil_reason_code'        => $rc],
+                'PROCESS_LOSS'     => ['qty_process_loss_content' => $absQty, 'process_loss_reason_code' => $rc],
+                'VARIANCE'         => ['qty_variance_content'     => $absQty, 'variance_reason_code'     => $rc],
+                'ADJUSTMENT_MINUS' => ['qty_variance_content'     => $absQty, 'variance_reason_code'     => $rc],
             ];
             $line = array_merge($line, $reasonMap[$adjType] ?? ['qty_variance_content' => $absQty, 'variance_reason_code' => $rc]);
         } else {

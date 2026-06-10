@@ -85,8 +85,9 @@ if (!function_exists('_get_ri_icon')) {
             'production.component.group.monitoring' => 'ri-line-chart-line',
             'production.component.reconcile' => 'ri-scales-3-line',
             'production.component.cost.variable' => 'ri-percent-line',
-            'production.component.adjustment' => 'ri-equalizer-3-line',
-            'production.component.lot' => 'ri-stack-line',
+            'production.component.adjustment'  => 'ri-equalizer-3-line',
+            'production.component.daily.recon' => 'ri-check-double-line',
+            'production.component.lot'         => 'ri-stack-line',
             'grp.purchase'          => 'ri-shopping-cart-2-line',
             'purchase.stock.adjustment.warehouse' => 'ri-scales-3-line',
             'purchase.stock.adjustment.division' => 'ri-scales-3-line',
@@ -571,68 +572,107 @@ if (!function_exists('_regroup_product_sidebar_tree')) {
 if (!function_exists('_append_production_component_monitoring_children')) {
   function _append_production_component_monitoring_children(array $children): array
   {
-    $groupLeafRows = [
-      [
-        'id' => -2302,
-        'parent_id' => null,
+    // Item yang perlu ditambahkan jika belum ada di DB
+    $syntheticItems = [
+      'production.component.daily.recon' => [
+        'id' => -2303, 'parent_id' => null,
+        'menu_code' => 'production.component.daily.recon',
+        'menu_label' => 'Daily Recon Component',
+        'icon' => 'ri-check-double-line',
+        'url' => 'production/component-daily-recon',
+        'page_id' => null, 'sort_order' => 2, 'children' => [],
+      ],
+      'production.component.reconcile' => [
+        'id' => -2302, 'parent_id' => null,
         'menu_code' => 'production.component.reconcile',
         'menu_label' => 'Reconcile Base/Prepare',
         'icon' => 'ri-scales-3-line',
         'url' => 'production/component-reconcile',
-        'page_id' => null,
-        'sort_order' => 4,
-        'children' => [],
+        'page_id' => null, 'sort_order' => 998, 'children' => [],
       ],
-      [
-        'id' => -2301,
-        'parent_id' => null,
+      'production.component.lot' => [
+        'id' => -2301, 'parent_id' => null,
         'menu_code' => 'production.component.lot',
         'menu_label' => 'Lot Component',
         'icon' => 'ri-stack-line',
         'url' => 'production/component-lots',
-        'page_id' => null,
-        'sort_order' => 5,
-        'children' => [],
+        'page_id' => null, 'sort_order' => 999, 'children' => [],
       ],
     ];
 
+    // Deteksi grup operasional component: cocokkan by menu_code ATAU
+    // by isi children (ada URL production/component- yang bukan group)
+    $knownGroupCodes = [
+      'production.component.group.monitoring',
+      'production.component.group.transaction',
+    ];
+    $knownChildUrls = [
+      'production/component-openings',
+      'production/component-batches',
+      'production/component-adjustments',
+      'production/component-stock',
+    ];
+
     foreach ($children as &$child) {
-      if ((string)($child['menu_code'] ?? '') === 'production.component.group.monitoring') {
-        $existingCodes = [];
-        foreach ((array)($child['children'] ?? []) as $leafChild) {
-          $existingCodes[(string)($leafChild['menu_code'] ?? '')] = true;
-        }
-        foreach ($groupLeafRows as $leafRow) {
-          if (isset($existingCodes[$leafRow['menu_code']])) {
-            continue;
+      $code = (string)($child['menu_code'] ?? '');
+
+      // Deteksi: group code dikenal, ATAU salah satu child URL cocok
+      $isTargetGroup = in_array($code, $knownGroupCodes, true);
+      if (!$isTargetGroup && !empty($child['children'])) {
+        foreach ((array)$child['children'] as $gc) {
+          if (in_array(rtrim((string)($gc['url'] ?? ''), '/'), $knownChildUrls, true)) {
+            $isTargetGroup = true;
+            break;
           }
-          $leafRow['parent_id'] = (int)($child['id'] ?? 0);
-          $child['children'][] = $leafRow;
         }
-        $child['children'] = _sort_sidebar_children_by_order((array)($child['children'] ?? []));
-        unset($child);
-        return $children;
       }
+      if (!$isTargetGroup) {
+        continue;
+      }
+
+      // Kumpulkan menu_code yang sudah ada
+      $existingCodes = [];
+      foreach ((array)($child['children'] ?? []) as $leafChild) {
+        $existingCodes[(string)($leafChild['menu_code'] ?? '')] = true;
+      }
+
+      // Temukan sort_order Opening untuk menempatkan Daily Recon tepat sesudahnya
+      $openingSortOrder = null;
+      foreach ((array)($child['children'] ?? []) as $leafChild) {
+        $leafUrl = rtrim((string)($leafChild['url'] ?? ''), '/');
+        if ($leafUrl === 'production/component-openings') {
+          $openingSortOrder = (int)($leafChild['sort_order'] ?? 1);
+          break;
+        }
+      }
+
+      // Tambahkan item yang belum ada
+      foreach ($syntheticItems as $itemCode => $leafRow) {
+        if (isset($existingCodes[$itemCode])) {
+          continue;
+        }
+        // Daily Recon: taruh tepat sesudah Opening dengan geser item lain
+        if ($itemCode === 'production.component.daily.recon' && $openingSortOrder !== null) {
+          foreach ($child['children'] as &$sibling) {
+            if ((int)($sibling['sort_order'] ?? 0) > $openingSortOrder) {
+              $sibling['sort_order'] = (int)$sibling['sort_order'] + 1;
+            }
+          }
+          unset($sibling);
+          $leafRow['sort_order'] = $openingSortOrder + 1;
+        }
+        $leafRow['parent_id'] = (int)($child['id'] ?? 0);
+        $child['children'][]  = $leafRow;
+      }
+
+      $child['children'] = _sort_sidebar_children_by_order((array)($child['children'] ?? []));
+      unset($child);
+      return $children;
     }
     unset($child);
 
-    $fallbackLeafRows = $groupLeafRows;
-    foreach ($fallbackLeafRows as &$leafRow) {
-      $leafRow['sort_order'] = 990 + (int)$leafRow['sort_order'];
-    }
-    unset($leafRow);
-
-    $existingCodes = [];
-    foreach ($children as $child) {
-      $existingCodes[(string)($child['menu_code'] ?? '')] = true;
-    }
-    foreach ($fallbackLeafRows as $leafRow) {
-      if (!isset($existingCodes[$leafRow['menu_code']])) {
-        $children[] = $leafRow;
-      }
-    }
-
-    return _sort_sidebar_children_by_order($children);
+    // Grup tidak ditemukan — tidak buat grup baru, Daily Recon masuk via SQL
+    return $children;
   }
 }
 

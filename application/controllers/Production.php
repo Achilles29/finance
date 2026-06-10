@@ -1388,6 +1388,411 @@ class Production extends MY_Controller
         $this->json_ok();
     }
 
+    // ── Component Daily Recon ─────────────────────────────────
+
+    private const PAGE_COMPONENT_DAILY_RECON = 'production.component.daily.recon.index';
+
+    public function component_daily_recon()
+    {
+        $pageCode = $this->can(self::PAGE_COMPONENT_DAILY_RECON, 'view')
+            ? self::PAGE_COMPONENT_DAILY_RECON
+            : 'production.component.daily.index';
+        $this->require_permission($pageCode, 'view');
+
+        $opnameDate = trim((string)$this->input->get('opname_date', true));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $opnameDate)) {
+            $opnameDate = date('Y-m-d');
+        }
+        $locationType = strtoupper(trim((string)$this->input->get('location_type', true)));
+        if (!in_array($locationType, ['REGULER', 'EVENT'], true)) {
+            $locationType = '';
+        }
+        $divisionId = (int)$this->input->get('division_id', true);
+        $type       = strtoupper(trim((string)$this->input->get('type', true)));
+        if (!in_array($type, ['BASE', 'PREPARE'], true)) {
+            $type = '';
+        }
+        $q           = trim((string)$this->input->get('q', true));
+        $isSuperadmin = !empty($this->current_user['is_superadmin']);
+        $canCreate    = $isSuperadmin || $this->can(self::PAGE_COMPONENT_DAILY_RECON, 'create');
+
+        $this->render('production/component_daily_recon_index', [
+            'page_title'    => 'Daily Recon Stok Component',
+            'active_menu'   => 'production.component.daily.recon',
+            'opname_date'   => $opnameDate,
+            'location_type' => $locationType,
+            'division_id'   => $divisionId,
+            'type'          => $type,
+            'q'             => $q,
+            'divisions'     => $this->active_divisions(),
+            'can_create'    => $canCreate,
+        ]);
+    }
+
+    public function component_daily_recon_data()
+    {
+        $this->require_permission(
+            $this->can(self::PAGE_COMPONENT_DAILY_RECON, 'view') ? self::PAGE_COMPONENT_DAILY_RECON : 'production.component.daily.index',
+            'view'
+        );
+
+        $opnameDate = trim((string)$this->input->get('opname_date', true));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $opnameDate)) {
+            $opnameDate = date('Y-m-d');
+        }
+        $targetMonth = date('Y-m-01', strtotime($opnameDate));
+
+        $locationType = strtoupper(trim((string)$this->input->get('location_type', true)));
+        if (!in_array($locationType, ['REGULER', 'EVENT'], true)) {
+            $locationType = '';
+        }
+        $divisionId = (int)$this->input->get('division_id', true);
+        $type       = strtoupper(trim((string)$this->input->get('type', true)));
+        if (!in_array($type, ['BASE', 'PREPARE'], true)) {
+            $type = '';
+        }
+        $q = trim((string)$this->input->get('q', true));
+
+        if (!$this->db->table_exists('inv_component_monthly_stock')) {
+            $this->json_ok(['rows' => [], 'meta' => ['total_components' => 0]]);
+            return;
+        }
+
+        $divNameCol  = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $divNameExpr = $divNameCol ? ('d.' . $divNameCol) : 'CAST(s.division_id AS CHAR)';
+        $divCodeCol  = $this->db->field_exists('code', 'mst_operational_division') ? 'd.code' : 'NULL';
+
+        $latestSub = "SELECT location_type, division_id, component_id, uom_id, MAX(month_key) AS max_month
+                      FROM inv_component_monthly_stock
+                      WHERE month_key <= " . $this->db->escape($targetMonth) . "
+                      GROUP BY location_type, division_id, component_id, uom_id";
+
+        $where = '';
+        if ($locationType !== '') {
+            $where .= " AND s.location_type = " . $this->db->escape($locationType);
+        }
+        if ($divisionId > 0) {
+            $where .= " AND s.division_id = " . (int)$divisionId;
+        }
+        if ($type !== '') {
+            $where .= " AND c.component_type = " . $this->db->escape($type);
+        }
+        if ($q !== '') {
+            $qLike  = $this->db->escape('%' . $q . '%');
+            $where .= " AND (c.component_name LIKE {$qLike} OR c.component_code LIKE {$qLike})";
+        }
+
+        $catNameExpr = $this->db->field_exists('name', 'mst_component_category') ? 'cat.name' : 'NULL';
+
+        $sql = "
+            SELECT
+                s.location_type,
+                s.division_id,
+                {$divNameExpr}               AS division_name,
+                {$divCodeCol}                AS division_code,
+                s.component_id,
+                c.component_code,
+                c.component_name,
+                c.component_type,
+                s.uom_id,
+                COALESCE(u.code, '')         AS uom_code,
+                s.closing_qty                AS system_qty,
+                s.avg_cost,
+                COALESCE({$catNameExpr}, '') AS category_name
+            FROM inv_component_monthly_stock s
+            INNER JOIN ({$latestSub}) lm
+                ON  lm.location_type  = s.location_type
+                AND lm.division_id  <=> s.division_id
+                AND lm.component_id   = s.component_id
+                AND lm.uom_id         = s.uom_id
+                AND lm.max_month      = s.month_key
+            JOIN  mst_component c ON c.id = s.component_id
+            LEFT JOIN mst_operational_division d ON d.id = s.division_id
+            LEFT JOIN mst_uom u ON u.id = s.uom_id
+            LEFT JOIN mst_component_category cat ON cat.id = c.component_category_id
+            WHERE 1=1 {$where}
+            ORDER BY {$divNameExpr}, s.location_type, c.component_type, c.component_name, u.code
+        ";
+
+        $stockRows = ($r = $this->db->query($sql)) ? $r->result_array() : [];
+
+        // Load physical counts for this opname date
+        $opnameMap = [];
+        if ($this->db->table_exists('inv_component_stock_opname')) {
+            $opnameQ = $this->db->select('location_type, division_id, component_id, uom_id, physical_qty, notes, adjustment_id')
+                ->from('inv_component_stock_opname')
+                ->where('opname_date', $opnameDate);
+            if ($divisionId > 0) {
+                $opnameQ->where('division_id', $divisionId);
+            }
+            if ($locationType !== '') {
+                $opnameQ->where('location_type', $locationType);
+            }
+            foreach ($opnameQ->get()->result_array() as $row) {
+                $k = $row['location_type'] . '|' . $row['division_id'] . '|' . $row['component_id'] . '|' . $row['uom_id'];
+                $opnameMap[$k] = $row;
+            }
+        }
+
+        // Group by division+location_type
+        $groups = [];
+        foreach ($stockRows as $r) {
+            $divId   = (int)$r['division_id'];
+            $locType = (string)$r['location_type'];
+            $ikey    = $locType . '|' . $divId . '|' . $r['component_id'] . '|' . $r['uom_id'];
+            $opname  = $opnameMap[$ikey] ?? null;
+            $sysQty  = (float)$r['system_qty'];
+            $physQty = ($opname !== null && $opname['physical_qty'] !== null)
+                ? (float)$opname['physical_qty'] : null;
+            $selisih = $physQty !== null ? round($physQty - $sysQty, 4) : null;
+
+            $row = [
+                'location_type'  => $locType,
+                'division_id'    => $divId,
+                'division_name'  => (string)$r['division_name'],
+                'division_code'  => strtoupper(trim((string)$r['division_code'])),
+                'component_id'   => (int)$r['component_id'],
+                'component_code' => $r['component_code'],
+                'component_name' => $r['component_name'],
+                'component_type' => $r['component_type'],
+                'category_name'  => $r['category_name'],
+                'uom_id'         => (int)$r['uom_id'],
+                'uom_code'       => $r['uom_code'],
+                'identity_key'   => $ikey,
+                'system_qty'     => $sysQty,
+                'avg_cost'       => (float)$r['avg_cost'],
+                'physical_qty'   => $physQty,
+                'selisih'        => $selisih,
+                'opname_notes'   => (string)($opname['notes'] ?? ''),
+                'adjustment_id'  => ($opname && !empty($opname['adjustment_id']))
+                    ? (int)$opname['adjustment_id'] : null,
+            ];
+
+            $gkey = $divId . '|' . $locType;
+            if (!isset($groups[$gkey])) {
+                $groups[$gkey] = [
+                    'division_id'   => $divId,
+                    'division_name' => $row['division_name'],
+                    'location_type' => $locType,
+                    'rows'          => [],
+                ];
+            }
+            $groups[$gkey]['rows'][] = $row;
+        }
+
+        $this->json_ok([
+            'rows' => array_values($groups),
+            'meta' => [
+                'opname_date'      => $opnameDate,
+                'total_components' => count($stockRows),
+                'total_groups'     => count($groups),
+            ],
+        ]);
+    }
+
+    public function component_daily_recon_save()
+    {
+        $this->require_permission(
+            $this->can(self::PAGE_COMPONENT_DAILY_RECON, 'create') ? self::PAGE_COMPONENT_DAILY_RECON : 'production.component.daily.index',
+            'create'
+        );
+
+        $payload      = $this->request_payload();
+        $opnameDate   = trim((string)($payload['opname_date'] ?? date('Y-m-d')));
+        $locationType = strtoupper(trim((string)($payload['location_type'] ?? 'REGULER')));
+        if (!in_array($locationType, ['REGULER', 'EVENT'], true)) {
+            $locationType = 'REGULER';
+        }
+        $divisionId  = !empty($payload['division_id']) ? (int)$payload['division_id'] : null;
+        $componentId = (int)($payload['component_id'] ?? 0);
+        $uomId       = (int)($payload['uom_id'] ?? 0);
+        $physQty     = isset($payload['physical_qty']) && $payload['physical_qty'] !== ''
+            ? round((float)$payload['physical_qty'], 4) : null;
+        $notes       = trim((string)($payload['notes'] ?? ''));
+        $userId      = (int)($this->current_user['employee_id'] ?? ($this->current_user['id'] ?? 0));
+
+        if ($componentId <= 0 || $uomId <= 0) {
+            $this->json_error('component_id dan uom_id wajib diisi.', 422);
+            return;
+        }
+        if (!$this->db->table_exists('inv_component_stock_opname')) {
+            $this->json_error('Tabel opname belum ada. Jalankan SQL setup terlebih dahulu.', 500);
+            return;
+        }
+
+        $systemQty = (float)($payload['system_qty'] ?? 0);
+        $selisih   = $physQty !== null ? round($physQty - $systemQty, 4) : null;
+
+        $q = $this->db
+            ->where('opname_date', $opnameDate)
+            ->where('location_type', $locationType);
+        if ($divisionId !== null) {
+            $q->where('division_id', $divisionId);
+        } else {
+            $q->where('division_id IS NULL', null, false);
+        }
+        $existing = $q->where('component_id', $componentId)
+                      ->where('uom_id', $uomId)
+                      ->get('inv_component_stock_opname')->row_array();
+
+        if ($existing) {
+            $this->db->where('id', (int)$existing['id'])->update('inv_component_stock_opname', [
+                'physical_qty' => $physQty,
+                'system_qty'   => $systemQty,
+                'notes'        => $notes !== '' ? $notes : null,
+                'updated_at'   => date('Y-m-d H:i:s'),
+            ]);
+        } else {
+            $this->db->insert('inv_component_stock_opname', [
+                'opname_date'   => $opnameDate,
+                'location_type' => $locationType,
+                'division_id'   => $divisionId,
+                'component_id'  => $componentId,
+                'uom_id'        => $uomId,
+                'system_qty'    => $systemQty,
+                'physical_qty'  => $physQty,
+                'notes'         => $notes !== '' ? $notes : null,
+                'created_by'    => $userId > 0 ? $userId : null,
+            ]);
+        }
+
+        $this->json_ok(['selisih' => $selisih, 'physical_qty' => $physQty]);
+    }
+
+    public function component_daily_recon_adjust()
+    {
+        $this->require_permission(
+            $this->can(self::PAGE_COMPONENT_DAILY_RECON, 'create') ? self::PAGE_COMPONENT_DAILY_RECON : 'production.component.daily.index',
+            'create'
+        );
+        $this->require_permission('production.component.adjustment.index', 'create');
+
+        $payload      = $this->request_payload();
+        $opnameDate   = trim((string)($payload['opname_date'] ?? date('Y-m-d')));
+        $locationType = strtoupper(trim((string)($payload['location_type'] ?? 'REGULER')));
+        if (!in_array($locationType, ['REGULER', 'EVENT'], true)) {
+            $locationType = 'REGULER';
+        }
+        $divisionId    = !empty($payload['division_id']) ? (int)$payload['division_id'] : null;
+        $divCode       = strtoupper(trim((string)($payload['division_code'] ?? '')));
+        $componentId   = (int)($payload['component_id'] ?? 0);
+        $uomId         = (int)($payload['uom_id'] ?? 0);
+        $physQty       = (float)($payload['physical_qty'] ?? 0);
+        $systemQty     = (float)($payload['system_qty'] ?? 0);
+        $selisih       = round($physQty - $systemQty, 4);
+        $adjType       = strtoupper(trim((string)($payload['adjustment_type'] ?? '')));
+        $reasonCode    = strtolower(trim((string)($payload['reason_code'] ?? 'other')));
+        $notes         = trim((string)($payload['notes'] ?? ''));
+        $userId        = (int)($this->current_user['employee_id'] ?? ($this->current_user['id'] ?? 0));
+
+        if ($componentId <= 0 || $uomId <= 0 || abs($selisih) < 0.0001) {
+            $this->json_error('Selisih 0 atau parameter tidak lengkap.', 422);
+            return;
+        }
+
+        // Derive specific location (BAR/KITCHEN/BAR_EVENT/KITCHEN_EVENT) from group + division code
+        $specificLocation = '';
+        if ($divCode === 'BAR') {
+            $specificLocation = $locationType === 'EVENT' ? 'BAR_EVENT' : 'BAR';
+        } elseif ($divCode === 'KITCHEN') {
+            $specificLocation = $locationType === 'EVENT' ? 'KITCHEN_EVENT' : 'KITCHEN';
+        }
+        if ($specificLocation === '') {
+            $this->json_error('Lokasi spesifik component tidak dapat ditentukan (divisi harus BAR atau KITCHEN).', 422);
+            return;
+        }
+
+        $absQty = round(abs($selisih), 4);
+        $adjNo  = 'CMPREC-' . date('Ymd', strtotime($opnameDate))
+                . '-' . strtoupper(substr(md5($componentId . $uomId . $opnameDate . $locationType), 0, 6));
+
+        // Map UI type (WASTE/SPOILAGE/ADJUSTMENT_MINUS/ADJUSTMENT_PLUS) to model fields
+        $line = [
+            'component_id'                => $componentId,
+            'uom_id'                      => $uomId,
+            'available_qty'               => $systemQty,
+            'qty_waste'                   => 0,
+            'waste_reason_code'           => '',
+            'qty_spoil'                   => 0,
+            'spoil_reason_code'           => '',
+            'qty_adjust_pos'              => 0,
+            'adjustment_plus_reason_code' => '',
+            'qty_adjust_neg'              => 0,
+            'adjustment_minus_reason_code'=> '',
+            'unit_cost'                   => max(0, (float)($payload['avg_cost'] ?? 0)),
+            'note'                        => $notes,
+        ];
+        if ($selisih < 0) {
+            $validNeg = ['WASTE', 'SPOILAGE', 'ADJUSTMENT_MINUS'];
+            if (!in_array($adjType, $validNeg, true)) {
+                $adjType = 'ADJUSTMENT_MINUS';
+            }
+            if ($adjType === 'WASTE') {
+                $line['qty_waste']         = $absQty;
+                $line['waste_reason_code'] = $reasonCode ?: 'other';
+            } elseif ($adjType === 'SPOILAGE') {
+                $line['qty_spoil']          = $absQty;
+                $line['spoil_reason_code']  = $reasonCode ?: 'other';
+            } else {
+                $line['qty_adjust_neg']                   = $absQty;
+                $line['adjustment_minus_reason_code']     = $reasonCode ?: 'other';
+            }
+        } else {
+            $line['qty_adjust_pos']                  = $absQty;
+            $line['adjustment_plus_reason_code']     = $reasonCode ?: 'other';
+        }
+
+        $header = [
+            'id'              => 0,
+            'adjustment_no'   => $adjNo,
+            'adjustment_date' => $opnameDate,
+            'location_type'   => $specificLocation,
+            'division_id'     => $divisionId,
+            'notes'           => 'Dari daily recon stok component' . ($notes !== '' ? ': ' . $notes : ''),
+        ];
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        $save = $this->Production_model->save_component_adjustment($header, [$line], $userId);
+        if (!($save['ok'] ?? false)) {
+            $this->db->db_debug = $dbDebugBefore;
+            $this->json_error((string)($save['message'] ?? 'Gagal menyimpan adjustment.'), 422);
+            return;
+        }
+
+        $adjId  = (int)($save['id'] ?? 0);
+        $adjHdr = $this->Production_model->get_component_adjustment($adjId);
+        $adjLines = $this->Production_model->get_component_adjustment_lines($adjId);
+        $post   = $this->componentstockwriter->post_adjustment($adjHdr, $adjLines, $userId);
+        if (!($post['ok'] ?? false)) {
+            $this->db->db_debug = $dbDebugBefore;
+            $this->json_error('Tersimpan tapi gagal posting: ' . (string)($post['message'] ?? ''), 422);
+            return;
+        }
+        $this->db->where('id', $adjId)->update('inv_component_adjustment', [
+            'status'    => 'POSTED',
+            'posted_at' => date('Y-m-d H:i:s'),
+            'posted_by' => $userId > 0 ? $userId : null,
+        ]);
+        $this->db->db_debug = $dbDebugBefore;
+
+        // Tag daily-recon record
+        if ($this->db->table_exists('inv_component_stock_opname') && $adjId > 0) {
+            $q = $this->db->where('opname_date', $opnameDate)->where('location_type', $locationType);
+            if ($divisionId !== null) {
+                $q->where('division_id', $divisionId);
+            } else {
+                $q->where('division_id IS NULL', null, false);
+            }
+            $q->where('component_id', $componentId)->where('uom_id', $uomId)
+              ->update('inv_component_stock_opname', ['adjustment_id' => $adjId]);
+        }
+
+        $this->json_ok(['adjustment_id' => $adjId]);
+    }
+
     private function stock_filters()
     {
         return [
