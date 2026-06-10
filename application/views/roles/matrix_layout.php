@@ -3,10 +3,10 @@
  * roles/matrix_layout.php — Konfigurasi pengelompokan halaman di matrix role.
  * Terpisah dari per-role editor; berlaku global untuk semua role.
  *
- * $pages_grouped : ['GRUP' => [['id','page_code','page_name','module','matrix_group','menu_label','has_menu'], ...]]
+ * $pages_grouped : ['GRUP' => [['id','page_code','page_name','module','is_active','matrix_group','menu_label','menu_url','has_menu'], ...]]
  * $all_groups    : string[]  — semua kode grup yang tersedia
  * $has_group_col : bool      — apakah kolom matrix_group sudah ada di sys_page
- * $total_pages   : int
+ * $total_pages   : int       — total semua page (aktif + nonaktif)
  */
 $pagesGrouped = $pages_grouped ?? [];
 $allGroups    = $all_groups    ?? [];
@@ -53,24 +53,59 @@ $modMeta = [
 .mgl-chevron { transition:transform .2s; color:#94a3b8; font-size:.85rem; flex-shrink:0; }
 .mgl-chevron.open { transform:rotate(180deg); }
 
-/* ── Page rows ──────────────────────────────────────────── */
+/* ── Page rows (CSS grid) ───────────────────────────────── */
 .mgl-page-list { border-top:1px solid #f1f5f9; }
+.mgl-list-header,
 .mgl-page-row {
-  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
-  padding:7px 14px; border-bottom:1px solid #f8fafc; transition:background .1s;
+  display:grid;
+  grid-template-columns: 1fr 80px minmax(100px,180px) 120px 175px;
+  align-items:center;
+  gap:8px;
+  padding:6px 14px;
 }
+.mgl-list-header {
+  background:#f8fafc;
+  border-bottom:1px solid #e9ecef;
+  font-size:.68rem;
+  font-weight:700;
+  color:#64748b;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+.mgl-page-row { border-bottom:1px solid #f8fafc; transition:background .1s; }
 .mgl-page-row:last-child { border-bottom:none; }
 .mgl-page-row:hover { background:#f8fafc; }
-.mgl-page-info { flex:1; min-width:160px; }
+
 .mgl-page-name { font-size:.82rem; font-weight:600; color:#1e293b; }
 .mgl-page-code { font-size:.68rem; color:#94a3b8; font-family:monospace; }
 .mgl-page-badge { display:inline-flex; align-items:center; gap:3px; padding:1px 7px; border-radius:999px; font-size:.67rem; font-weight:700; border:1px solid transparent; }
-.mgl-page-badge.menu { background:#ecfdf5; color:#166534; border-color:#bbf7d0; }
-.mgl-page-badge.tech { background:#fff7ed; color:#9a3412; border-color:#fed7aa; }
+.mgl-page-badge.menu     { background:#ecfdf5; color:#166534; border-color:#bbf7d0; }
+.mgl-page-badge.tech     { background:#fff7ed; color:#9a3412; border-color:#fed7aa; }
+.mgl-page-badge.active   { background:#f0fdf4; color:#15803d; border-color:#86efac; }
+.mgl-page-badge.inactive { background:#f8fafc; color:#94a3b8; border-color:#cbd5e1; }
+
+/* Inactive rows */
+.mgl-page-row.is-inactive { opacity:.6; }
+.mgl-page-row.is-inactive .mgl-page-name { text-decoration:line-through; color:#94a3b8; }
+
+/* URL cell */
+.mgl-url-link   { font-size:.72rem; color:#6366f1; font-family:monospace; text-decoration:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; }
+.mgl-url-link:hover { text-decoration:underline; }
+.mgl-url-parent { font-size:.7rem; color:#94a3b8; }
+.mgl-url-none   { color:#e2e8f0; }
+
+/* Status + toggle */
+.mgl-status-cell { display:flex; align-items:center; gap:5px; }
+.mgl-toggle-btn  { background:none; border:none; padding:0 2px; cursor:pointer; line-height:1; }
+.mgl-toggle-btn .ri-toggle-fill { color:#22c55e; font-size:1.25rem; }
+.mgl-toggle-btn .ri-toggle-line { color:#cbd5e1; font-size:1.25rem; }
+.mgl-toggle-btn:hover .ri-toggle-fill { color:#16a34a; }
+.mgl-toggle-btn:hover .ri-toggle-line { color:#94a3b8; }
+.mgl-toggle-btn.saving { opacity:.4; pointer-events:none; }
 
 /* ── Group selector ─────────────────────────────────────── */
-.mgl-group-select-wrap { display:flex; align-items:center; gap:6px; flex-shrink:0; }
-.mgl-group-select { font-size:.78rem; padding:3px 8px; border-radius:8px; border:1px solid #e2e8f0; background:#fff; height:28px; min-width:130px; max-width:180px; transition:border-color .15s; cursor:pointer; }
+.mgl-group-select-wrap { display:flex; align-items:center; gap:4px; }
+.mgl-group-select { font-size:.78rem; padding:3px 6px; border-radius:8px; border:1px solid #e2e8f0; background:#fff; height:28px; width:100%; transition:border-color .15s; cursor:pointer; }
 .mgl-group-select:focus { border-color:#6366f1; outline:none; box-shadow:0 0 0 2px rgba(99,102,241,.15); }
 .mgl-group-select.saving { opacity:.6; pointer-events:none; }
 .mgl-new-group-row { display:none; align-items:center; gap:6px; margin-top:4px; }
@@ -103,8 +138,16 @@ $modMeta = [
     </div>
   </div>
   <div class="text-end flex-shrink-0">
-    <div style="font-size:1.5rem; font-weight:800; line-height:1; color:#1e293b;"><?= count($pagesGrouped) ?></div>
-    <div style="font-size:.68rem; color:#94a3b8;"><?= $totalPages ?> halaman dalam <?= count($pagesGrouped) ?> grup</div>
+    <?php
+      $activeCount = 0;
+      foreach ($pagesGrouped as $grpPages) {
+          foreach ($grpPages as $p) { if (!empty($p['is_active'])) $activeCount++; }
+      }
+    ?>
+    <div style="font-size:1.5rem; font-weight:800; line-height:1; color:#1e293b;"><?= $totalPages ?></div>
+    <div id="mgl-stats" style="font-size:.68rem; color:#94a3b8;">
+      <?= $activeCount ?> aktif · <?= $totalPages - $activeCount ?> nonaktif · <?= count($pagesGrouped) ?> grup
+    </div>
   </div>
 </div>
 
@@ -181,46 +224,94 @@ $modMeta = [
 
   <div id="<?= $grpId ?>" class="collapse show">
     <div class="mgl-page-list">
+
+      <!-- Header row -->
+      <div class="mgl-list-header">
+        <div>Halaman</div>
+        <div>Sidebar</div>
+        <div>URL / Akses</div>
+        <div>Status</div>
+        <div><?= $hasGroupCol ? 'Pindah Grup' : 'Grup' ?></div>
+      </div>
+
       <?php foreach ($pages as $pg):
         $hasMenu     = !empty($pg['has_menu']);
+        $isActive    = !empty($pg['is_active']);
         $menuLabel   = trim((string)($pg['menu_label'] ?? ''));
+        $menuUrl     = trim((string)($pg['menu_url']   ?? ''));
         $displayName = $menuLabel !== '' ? $menuLabel : (string)$pg['page_name'];
         $currentGrp  = $hasGroupCol && !empty($pg['matrix_group']) ? (string)$pg['matrix_group'] : (string)$pg['module'];
+        $statusText  = $isActive ? 'aktif' : 'nonaktif';
+        $isParentUrl = ($menuUrl === '#');
+        $hasRealUrl  = ($menuUrl !== '' && !$isParentUrl);
       ?>
-      <div class="mgl-page-row"
+      <div class="mgl-page-row<?= $isActive ? '' : ' is-inactive' ?>"
            data-page-code="<?= htmlspecialchars((string)$pg['page_code']) ?>"
            data-group="<?= htmlspecialchars($currentGrp) ?>"
-           data-search="<?= htmlspecialchars(strtolower($displayName . ' ' . $pg['page_code'] . ' ' . $pg['module'] . ' ' . $currentGrp)) ?>">
+           data-search="<?= htmlspecialchars(strtolower($displayName . ' ' . $pg['page_code'] . ' ' . $pg['module'] . ' ' . $currentGrp . ' ' . $statusText)) ?>">
 
-        <!-- Page info -->
-        <div class="mgl-page-info">
+        <!-- Col 1: Halaman -->
+        <div>
           <div class="mgl-page-name"><?= htmlspecialchars($displayName) ?></div>
           <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
-            <span class="mgl-page-badge <?= $hasMenu ? 'menu' : 'tech' ?>">
-              <i class="ri <?= $hasMenu ? 'ri-menu-line' : 'ri-code-s-slash-line' ?>"></i>
-              <?= $hasMenu ? 'Menu aktif' : 'Teknis / internal' ?>
-            </span>
             <span class="mgl-page-code"><?= htmlspecialchars((string)$pg['page_code']) ?></span>
             <?php if ($pg['module'] !== $currentGrp): ?>
-              <span style="font-size:.68rem; color:#94a3b8;">module: <?= htmlspecialchars($pg['module']) ?></span>
+              <span style="font-size:.65rem; color:#cbd5e1;">mod: <?= htmlspecialchars($pg['module']) ?></span>
             <?php endif; ?>
           </div>
         </div>
 
-        <!-- Group selector -->
-        <div class="mgl-group-select-wrap">
+        <!-- Col 2: Sidebar badge -->
+        <div>
+          <span class="mgl-page-badge <?= $hasMenu ? 'menu' : 'tech' ?>">
+            <i class="ri <?= $hasMenu ? 'ri-menu-line' : 'ri-code-s-slash-line' ?>"></i>
+            <?= $hasMenu ? 'Menu' : 'Teknis' ?>
+          </span>
+        </div>
+
+        <!-- Col 3: URL -->
+        <div>
+          <?php if ($hasRealUrl): ?>
+            <a href="<?= base_url(ltrim($menuUrl, '/')) ?>" target="_blank" class="mgl-url-link" title="<?= htmlspecialchars($menuUrl) ?>">
+              <i class="ri ri-external-link-line me-1"></i><?= htmlspecialchars($menuUrl) ?>
+            </a>
+          <?php elseif ($isParentUrl): ?>
+            <span class="mgl-url-parent" title="Menu induk — URL navigasi ada di sub-menu"><i class="ri ri-folder-open-line me-1"></i>Induk menu</span>
+          <?php else: ?>
+            <span class="mgl-url-none">—</span>
+          <?php endif; ?>
+        </div>
+
+        <!-- Col 4: Status + toggle -->
+        <div class="mgl-status-cell">
+          <span class="mgl-page-badge mgl-status-badge <?= $isActive ? 'active' : 'inactive' ?>">
+            <?= $isActive ? 'Aktif' : 'Nonaktif' ?>
+          </span>
+          <button type="button"
+                  class="mgl-toggle-btn"
+                  data-page-code="<?= htmlspecialchars((string)$pg['page_code']) ?>"
+                  data-state="<?= $isActive ? '1' : '0' ?>"
+                  title="<?= $isActive ? 'Klik untuk nonaktifkan' : 'Klik untuk aktifkan' ?>">
+            <i class="ri <?= $isActive ? 'ri-toggle-fill' : 'ri-toggle-line' ?>"></i>
+          </button>
+        </div>
+
+        <!-- Col 5: Group selector -->
+        <div>
           <?php if ($hasGroupCol): ?>
-            <select class="mgl-group-select"
-                    data-page-code="<?= htmlspecialchars((string)$pg['page_code']) ?>"
-                    data-current-group="<?= htmlspecialchars($currentGrp) ?>">
-              <option value="<?= htmlspecialchars($currentGrp) ?>" selected disabled><?= htmlspecialchars($currentGrp) ?></option>
-              <?php foreach ($allGroups as $g): if ($g === $currentGrp) continue; ?>
-                <option value="<?= htmlspecialchars($g) ?>"><?= htmlspecialchars($g) ?></option>
-              <?php endforeach; ?>
-              <option value="__new__">+ Grup baru…</option>
-            </select>
-            <span class="mgl-save-indicator"><i class="ri ri-check-line"></i> Tersimpan</span>
-            <span class="mgl-err-indicator"><i class="ri ri-error-warning-line"></i> Gagal</span>
+            <div class="mgl-group-select-wrap">
+              <select class="mgl-group-select"
+                      data-page-code="<?= htmlspecialchars((string)$pg['page_code']) ?>"
+                      data-current-group="<?= htmlspecialchars($currentGrp) ?>">
+                <option value="<?= htmlspecialchars($currentGrp) ?>" selected disabled><?= htmlspecialchars($currentGrp) ?></option>
+                <?php foreach ($allGroups as $g): if ($g === $currentGrp) continue; ?>
+                  <option value="<?= htmlspecialchars($g) ?>"><?= htmlspecialchars($g) ?></option>
+                <?php endforeach; ?>
+                <option value="__new__">+ Grup baru…</option>
+              </select>
+              <span class="mgl-save-indicator"><i class="ri ri-check-line"></i></span>
+              <span class="mgl-err-indicator"><i class="ri ri-error-warning-line"></i></span>
+            </div>
           <?php else: ?>
             <span class="badge bg-light text-dark border" style="font-size:.72rem;"><?= htmlspecialchars($currentGrp) ?></span>
           <?php endif; ?>
@@ -248,8 +339,9 @@ $modMeta = [
 (function () {
   'use strict';
 
-  var SAVE_URL     = <?= json_encode(base_url('roles/save-page-group')) ?>;
-  var hasGroupCol  = <?= $hasGroupCol ? 'true' : 'false' ?>;
+  var SAVE_URL        = <?= json_encode(base_url('roles/save-page-group')) ?>;
+  var TOGGLE_PAGE_URL = <?= json_encode(base_url('roles/toggle-page-active')) ?>;
+  var hasGroupCol     = <?= $hasGroupCol ? 'true' : 'false' ?>;
 
   // ── Chevron sync ─────────────────────────────────────────────
   document.querySelectorAll('.mgl-group .collapse').forEach(function (el) {
@@ -368,7 +460,10 @@ $modMeta = [
         '<i class="ri ri-arrow-down-s-line mgl-chevron open"></i>' +
       '</div>' +
       '<div id="' + grpId + '" class="collapse show">' +
-        '<div class="mgl-page-list"><div class="mgl-no-match" style="display:block;">Belum ada halaman. Pindahkan halaman dari grup lain ke sini.</div></div>' +
+        '<div class="mgl-page-list">' +
+          '<div class="mgl-list-header"><div>Halaman</div><div>Sidebar</div><div>URL / Akses</div><div>Status</div><div>Pindah Grup</div></div>' +
+          '<div class="mgl-no-match" style="display:block;">Belum ada halaman. Pindahkan halaman dari grup lain ke sini.</div>' +
+        '</div>' +
       '</div>';
 
     container.appendChild(card);
@@ -520,6 +615,58 @@ $modMeta = [
     var el    = card.querySelector('.mgl-group-count');
     if (el) el.textContent = count + ' halaman';
   }
+
+  // ── Summary stats ─────────────────────────────────────────────
+  function updateSummaryStats() {
+    var allRows     = document.querySelectorAll('.mgl-page-row');
+    var active      = 0, inactive = 0;
+    allRows.forEach(function (r) {
+      if (r.classList.contains('is-inactive')) inactive++; else active++;
+    });
+    var el = document.getElementById('mgl-stats');
+    if (el) el.textContent = active + ' aktif · ' + inactive + ' nonaktif · <?= count($pagesGrouped) ?> grup';
+  }
+
+  // ── Page active toggle ────────────────────────────────────────
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.mgl-toggle-btn');
+    if (!btn) return;
+
+    var pageCode = btn.dataset.pageCode;
+    var row      = btn.closest('.mgl-page-row');
+
+    btn.classList.add('saving');
+
+    $.post(TOGGLE_PAGE_URL, { page_code: pageCode }, null, 'json')
+      .done(function (resp) {
+        btn.classList.remove('saving');
+        if (!resp || !resp.ok) return;
+
+        var isActive = resp.is_active === 1;
+
+        // Update toggle button
+        btn.dataset.state = isActive ? '1' : '0';
+        btn.title = isActive ? 'Klik untuk nonaktifkan' : 'Klik untuk aktifkan';
+        var icon = btn.querySelector('i');
+        if (icon) icon.className = 'ri ' + (isActive ? 'ri-toggle-fill' : 'ri-toggle-line');
+
+        // Update row class + name styling
+        if (row) {
+          row.classList.toggle('is-inactive', !isActive);
+          var search = row.dataset.search || '';
+          row.dataset.search = search.replace(/\b(aktif|nonaktif)\b/, isActive ? 'aktif' : 'nonaktif');
+          // Update status badge
+          var badge = row.querySelector('.mgl-status-badge');
+          if (badge) {
+            badge.className = 'mgl-page-badge mgl-status-badge ' + (isActive ? 'active' : 'inactive');
+            badge.textContent = isActive ? 'Aktif' : 'Nonaktif';
+          }
+        }
+
+        updateSummaryStats();
+      })
+      .fail(function () { btn.classList.remove('saving'); });
+  });
 
 }());
 </script>

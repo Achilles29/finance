@@ -143,12 +143,6 @@ jadi data stok yang tampil di /inventory-material-daily, inventory/stock/divisio
 
 nah sekarang perlu kita track ulang 1 per 1.
 
-dari Procurement ke divisi
-PO ke divisi
-SR ke divisi
-
-pastikan sudah mengabaikan line_kind dan stock_domain
-
 
 -untuk PAPER FILTER V60 jadinya dibiarkan atau ada cara repair?
 
@@ -160,16 +154,12 @@ pastikan sudah mengabaikan line_kind dan stock_domain
 
 
 
-masuk ke /sidebar/manage dan /roles. 2 halaman tersebut terkait. 
-- /sidebar/manage punya 2 tab. perbaiki tampilan keduanya khususnya CRUD MENU agar lebih efisien dan mudah dalam menggunakan. dengan tampilan baris terpagination agar tidak terlalu turun kebawah. dengan modul yang lebih mudah digunakan bagi user. dan ada tombol untuk menonaktifkan juga agar halaman atau modul yang terlanjut dibuat tidak muncul di sidebar. kejutkan saya.
+masih di /roles/matrix-groups dan /roles
+
+1.  Page aktif tanpa menu aktif itu maksudnya bagaimana? dia punya halaman atau tidak? atau bagaimana?
+2. /roles/matrix-groups harus tampil semua yang terdaftar, dan tambahkan kolom status nya aktif atau tidak, dan tambahkan juga kolom link nya
 
 
-- lalu di /roles pastikan sinkron dengan database. di atas sudah ada ringkasan Menu aktif belum punya page registry dan Page aktif tanpa menu aktif, tapi tidak ada opsi atau tindakan untuk menyelesaikannya, apakah mau dinonaktifan, dimasukkan atau bagaimana. kejutkan saya! pastikan semua yang ada di sidebar itu masuk ke database, dan munucul di role matrik
+Keuangan / Purchase dengan URL #: Mereka adalah parent/induk menu — ada di sys_menu dengan page_id terhubung (makanya "Menu aktif"), tapi url = '#' karena mereka hanya header kolapsibel di sidebar. Sub-menu di bawah mereka yang punya URL asli. Sekarang tampil sebagai badge abu "Induk menu" bukan link kosong.
 
-- /roles/matrix/ itu sumber nya dari database kan? bisakah dibuat agar susunan , urutan dan pengelompokkannya bisa diubah? bisa dibuat menu baru juga. jadi ketika ada yang sekirannya rumpunnya tidak sesuai bisa saya sesuaikan sendiri. dan tetap sinkron dengan /sidebar. dengan cara yang USER FRIENDLY. Kejutkan saya!
-
-- lalu di role matrix /roles/edit/ itu ada pilihan DIVISI. tapi ketika misal saya pilih KITCHEN ternyata user dengan role masih bisa melihat data BAR. bagaimana memperbaikinya? di masing masing halaman atau lewat sini?
-
-
-
-untuk mengatur /roles/matrix/  buatkan tab halaman tersendiri, bukan saat edit role matrix 
+nah kalau gitu kenapa muncul di /roles/matrix-groups ? apakah aman jika dihilangkan? masalahnya kalau dinonaktifkan menu nya hilang dari sidebar. bukankah Keuangan / Purchase harusnya bukan masuk di role matrix?

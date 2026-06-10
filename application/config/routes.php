@@ -503,6 +503,7 @@ $route['roles/matrix-groups']       = 'roles/matrix_groups';
 $route['roles/quick-register-menu'] = 'roles/quick_register_menu';
 $route['roles/deactivate-menu']     = 'roles/deactivate_menu_item';
 $route['roles/deactivate-page']     = 'roles/deactivate_page_item';
+$route['roles/toggle-page-active']  = 'roles/toggle_page_active';
 $route['roles/save-page-group']     = 'roles/save_page_matrix_group';
 
 // Sidebar favorites (AJAX)

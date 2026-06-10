@@ -288,15 +288,17 @@ class Roles extends MY_Controller
         $hasGroup = $this->db->field_exists('matrix_group', 'sys_page');
 
         $select = $hasGroup
-            ? 'p.id, p.page_code, p.page_name, p.module, p.matrix_group,
+            ? 'p.id, p.page_code, p.page_name, p.module, p.is_active, p.matrix_group,
                COALESCE(menu.menu_label, \'\') AS menu_label,
+               COALESCE(menu.menu_url, \'\') AS menu_url,
                CASE WHEN menu.page_id IS NOT NULL THEN 1 ELSE 0 END AS has_menu'
-            : 'p.id, p.page_code, p.page_name, p.module,
+            : 'p.id, p.page_code, p.page_name, p.module, p.is_active,
                COALESCE(menu.menu_label, \'\') AS menu_label,
+               COALESCE(menu.menu_url, \'\') AS menu_url,
                CASE WHEN menu.page_id IS NOT NULL THEN 1 ELSE 0 END AS has_menu';
 
         $menuSub = $this->db
-            ->select('m.page_id, MIN(m.menu_label) AS menu_label', false)
+            ->select('m.page_id, MIN(m.menu_label) AS menu_label, MIN(m.url) AS menu_url', false)
             ->from('sys_menu m')
             ->where('m.is_active', 1)
             ->where('m.page_id IS NOT NULL', null, false)
@@ -306,7 +308,7 @@ class Roles extends MY_Controller
         $this->db->select($select, false);
         $this->db->from('sys_page p');
         $this->db->join('(' . $menuSub . ') menu', 'menu.page_id = p.id', 'left');
-        $this->db->where('p.is_active', 1);
+        // Tampilkan SEMUA page (aktif maupun nonaktif)
         if ($hasGroup) {
             $this->db->order_by('COALESCE(p.matrix_group, p.module)', 'ASC', false);
         } else {
@@ -470,6 +472,38 @@ class Roles extends MY_Controller
         }
 
         $this->json_ok(['page_code' => $pageCode, 'group_code' => $groupCode]);
+    }
+
+    /**
+     * AJAX — Toggle is_active untuk sys_page.
+     * POST: page_code
+     */
+    public function toggle_page_active()
+    {
+        if (!$this->input->is_ajax_request()) show_404();
+        $this->require_permission(self::PAGE_INDEX, 'edit');
+
+        $pageCode = trim((string)$this->input->post('page_code', true));
+        if ($pageCode === '') {
+            $this->json_error('page_code tidak boleh kosong.', 422);
+            return;
+        }
+
+        $row = $this->db->select('id, is_active')
+                        ->where('page_code', $pageCode)
+                        ->get('sys_page')
+                        ->row_array();
+
+        if (!$row) {
+            $this->json_error('Page tidak ditemukan.', 404);
+            return;
+        }
+
+        $newState = $row['is_active'] ? 0 : 1;
+        $this->db->where('page_code', $pageCode)
+                 ->update('sys_page', ['is_active' => $newState]);
+
+        $this->json_ok(['page_code' => $pageCode, 'is_active' => $newState]);
     }
 
     // ---------------------------------------------------------------
