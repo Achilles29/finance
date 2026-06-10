@@ -213,6 +213,7 @@ class Auth_model extends CI_Model
     {
         $perms = $this->load_permissions($user_id);
         $this->session->set_userdata('user_perms', $perms);
+        $this->session->set_userdata('user_perms_cached_at', time());
 
         // Set flag is_superadmin di session user data
         $auth_user = $this->session->userdata('auth_user') ?? [];

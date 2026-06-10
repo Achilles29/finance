@@ -55,6 +55,57 @@ class MY_Controller extends CI_Controller
 
         // Muat izin dari session (sudah di-cache saat login)
         $this->user_perms = $this->session->userdata('user_perms') ?? [];
+
+        // Auto-refresh jika permission role telah diubah sejak cache terakhir
+        $this->_maybe_refresh_stale_perms();
+    }
+
+    private function _maybe_refresh_stale_perms(): void
+    {
+        if ($this->is_superadmin()) {
+            return;
+        }
+
+        $userId = (int)($this->current_user['id'] ?? 0);
+        if ($userId <= 0) {
+            return;
+        }
+
+        // Throttle: cek staleness maksimal sekali per 120 detik per sesi
+        $lastCheck = (int)($this->session->userdata('perms_staleness_checked_at') ?? 0);
+        if (time() - $lastCheck < 120) {
+            return;
+        }
+        $this->session->set_userdata('perms_staleness_checked_at', time());
+
+        $cachedAt = (int)($this->session->userdata('user_perms_cached_at') ?? 0);
+
+        // Jika belum ada timestamp (session lama / baru deploy), refresh sekali
+        if ($cachedAt <= 0) {
+            $this->load->model('Auth_model');
+            $this->Auth_model->refresh_permissions($userId);
+            $this->user_perms = $this->session->userdata('user_perms') ?? [];
+            return;
+        }
+
+        // Cek apakah ada role user yang permission-nya diupdate setelah cache
+        $cachedAtStr = date('Y-m-d H:i:s', $cachedAt);
+        $isStale = (bool)$this->db
+            ->select('1')
+            ->from('auth_user_role ur')
+            ->join('auth_role r', 'r.id = ur.role_id')
+            ->where('ur.user_id', $userId)
+            ->where('r.is_active', 1)
+            ->where('r.permissions_updated_at >', $cachedAtStr)
+            ->limit(1)
+            ->get()
+            ->num_rows();
+
+        if ($isStale) {
+            $this->load->model('Auth_model');
+            $this->Auth_model->refresh_permissions($userId);
+            $this->user_perms = $this->session->userdata('user_perms') ?? [];
+        }
     }
 
     // ---------------------------------------------------------------

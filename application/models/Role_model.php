@@ -292,6 +292,11 @@ class Role_model extends CI_Model
         }
 
         $this->db->trans_complete();
+
+        // Stamp waktu agar session user yang sudah login bisa dideteksi stale
+        $this->db->where('id', $role_id)->update('auth_role', [
+            'permissions_updated_at' => $now,
+        ]);
     }
 
     // ---------------------------------------------------------------

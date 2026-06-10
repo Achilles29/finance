@@ -68,9 +68,10 @@ class Auth extends CI_Controller
 
         // Simpan ke session
         $this->session->set_userdata([
-            'auth_user'           => array_merge($user, ['is_superadmin' => $is_superadmin]),
-            'user_perms'          => $perms,
-            'user_division_scope' => $divisionScopeId,
+            'auth_user'            => array_merge($user, ['is_superadmin' => $is_superadmin]),
+            'user_perms'           => $perms,
+            'user_division_scope'  => $divisionScopeId,
+            'user_perms_cached_at' => time(),
         ]);
 
         // Catat log

@@ -70,15 +70,19 @@ $dailyMatrixColspan = (int)(4 + count($dates));
 ?>
 
 <style>
-  .component-daily-matrix-wrap {
-    max-height: 74vh;
-    overflow: auto;
+  .component-daily-matrix-shell {
     border: 1px solid #e8d2c3;
     border-radius: 18px;
+    overflow: hidden; /* fallback */
+    overflow: clip;   /* tidak membentuk scroll container, hanya clip visual */
     background:
       radial-gradient(circle at top right, rgba(232, 123, 72, .08), transparent 28%),
       linear-gradient(180deg, #fffaf5 0%, #fff 100%);
     box-shadow: 0 18px 36px -30px rgba(95, 53, 39, .45), inset 0 0 0 1px rgba(255, 255, 255, .55);
+  }
+  .component-daily-matrix-wrap {
+    max-height: 74vh;
+    overflow: auto;
   }
   .component-daily-matrix {
     min-width: 2280px;
@@ -574,6 +578,9 @@ $dailyMatrixColspan = (int)(4 + count($dates));
     .component-daily-summary-grid {
       grid-template-columns: 1fr;
     }
+    .component-daily-matrix-shell {
+      border-radius: 12px;
+    }
     .component-daily-matrix-wrap {
       max-height: none;
     }
@@ -672,6 +679,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
 
 <div class="card">
   <div class="card-body p-2">
+    <div class="component-daily-matrix-shell">
     <div class="component-daily-matrix-wrap" id="componentDailyMatrixWrap">
       <table class="table table-sm table-striped component-daily-matrix">
         <thead>
@@ -1003,6 +1011,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
           <?php endif; ?>
         </tbody>
       </table>
+    </div>
     </div>
     <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mt-2">
       <div class="small text-muted">* Kolom Close total menampilkan nilai closing terakhir yang tercatat pada bulan berjalan.</div>
