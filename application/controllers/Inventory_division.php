@@ -464,6 +464,11 @@ class Inventory_division extends Purchase
         return $v === '' ? null : $v;
     }
 
+    public function opname_monthly()
+    {
+        parent::stock_division_opname_monthly();
+    }
+
     private function nd(string $value): ?string
     {
         $v = trim($value);

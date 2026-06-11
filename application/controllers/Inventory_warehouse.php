@@ -44,4 +44,9 @@ class Inventory_warehouse extends Purchase
     {
         parent::warehouse_lot_audit_index();
     }
+
+    public function opname_monthly()
+    {
+        parent::stock_warehouse_opname_monthly();
+    }
 }

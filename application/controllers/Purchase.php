@@ -3065,4 +3065,57 @@ class Purchase extends MY_Controller
 
         $this->jsonOk(['rows' => $rows, 'meta' => ['total' => $total, 'limit' => $limit, 'mode' => $mode]]);
     }
+
+    public function stock_warehouse_opname_monthly()
+    {
+        $pageCode = $this->can('inventory.stock.opname.warehouse.monthly', 'view')
+            ? 'inventory.stock.opname.warehouse.monthly'
+            : self::PAGE_STOCK_WAREHOUSE;
+        $this->require_permission($pageCode, 'view');
+
+        $month = trim((string)$this->input->get('month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $filters = [
+            'month' => $month,
+            'q'     => trim((string)$this->input->get('q', true)),
+        ];
+        $rows = $this->Purchase_model->list_warehouse_monthly_opname($filters, 500);
+        $this->render('purchase/stock_warehouse_opname_monthly_index', [
+            'page_title'   => 'Stok Opname Bulanan Gudang',
+            'active_menu'  => 'inventory.stock.opname.warehouse.monthly',
+            'rows'         => $rows,
+            'filters'      => $filters,
+            'generate_url' => site_url('inventory/stock/opname/generate'),
+        ]);
+    }
+
+    public function stock_division_opname_monthly()
+    {
+        $pageCode = $this->can('inventory.stock.opname.division.monthly', 'view')
+            ? 'inventory.stock.opname.division.monthly'
+            : self::PAGE_STOCK_DIVISION;
+        $this->require_permission($pageCode, 'view');
+
+        $month = trim((string)$this->input->get('month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $filters = [
+            'month'            => $month,
+            'division_id'      => (int)$this->input->get('division_id', true),
+            'destination_type' => strtoupper(trim((string)$this->input->get('destination_type', true))),
+            'q'                => trim((string)$this->input->get('q', true)),
+        ];
+        $rows = $this->Purchase_model->list_division_monthly_opname($filters, 500);
+        $this->render('purchase/stock_division_opname_monthly_index', [
+            'page_title'   => 'Stok Opname Bulanan Divisi',
+            'active_menu'  => 'inventory.stock.opname.division.monthly',
+            'rows'         => $rows,
+            'filters'      => $filters,
+            'divisions'    => $this->Purchase_model->list_active_operational_divisions(),
+            'generate_url' => site_url('inventory/stock/opname/generate'),
+        ]);
+    }
 }

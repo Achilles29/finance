@@ -76,25 +76,18 @@ v laporan daily sales seperti core /pos-reports/daily-sales , kemudian cetak
 - metode pembayaran PO tidak bisa diedit padahal belum PAID
 - mst_item / mst_material / purchase catalog yang statusnya tidak aktif harusnya tidak muncul di pencarian PO
 - db replication belum sinkron
-- modul generate stok opname dan stok awal Gudang, divisi, component. siapkan dulu database stok opaname. lalu buatkan modul generate dan tambahkan tombolnya di semua halaman stok (modul harus sama). ketika klik generate maka menggenerate sesuai stok pada montly_stock masing masing sampai dengan profile (line terkecil), lalu menggenerate stok opening untuk bulan berikutnya. untuk stok opening hanya ambil cukup ambil yang stok akhir / stok awal bulan berikutnya tidak sama dengan 0. genertae stok awal berarti menggenerate data di tabel opening dan tabel monthly_stock bulan berikutnya.
+
+- halaman hutang piutang
+- halaman laporan keuangan
+
+
+- buatkan modul generate stok opname dan stok awal Gudang, divisi, component. siapkan dulu database stok opaname. lalu buatkan modul generate dan tambahkan tombolnya di semua halaman stok (modul harus sama). ketika klik generate maka menggenerate sesuai stok pada montly_stock masing masing sampai dengan profile (line terkecil), lalu menggenerate stok opening untuk bulan berikutnya. untuk stok opening hanya ambil cukup ambil yang stok akhir / stok awal bulan berikutnya tidak sama dengan 0. genertae stok awal berarti menggenerate data di tabel opening dan tabel monthly_stock bulan berikutnya.
 dan jangan lupa buatkan halaman stok opname dan masukkan tab bertingkat semua halaman yang serumpun dan masukkan sidebar sesuai rumpun
 
 
 
-perbaiki lagi.
-1. pilihan jenis dan alasan yang tampil seharusnya sama dengan yang ada di /production/component-adjustments
-2. belum masuk sidebar
-3. tab bertingkat component belum ada
-4. ganti nama halaman dan hiperlink jangan gunakan istilah opname, tapi gunakan istilah daily recon. karena opname nanti ada sendiri
-
-
-sesuaikan juga /inventory/stock/daily-recon/division agar jenis dan alasan sama antara /inventory/stock/daily-recon/division dan /inventory-material-daily dan /inventory-material-daily
+- seragamkan tab halaman divisi dan gudang
+- generate stock opname timpa jika profil sama
 
 
 
-/production/component-daily-recon:
-- tab bertingkat (seperti gambar) belum ada
-- belum masuk sidebar?
-- kalau buat sql baru harus sesuai standars, masuk foilder sql dan penamaannya urut
-
-Batch Produksi, daily matrix, daily recon, stok base/prepare, stok bulanan, adjustment, opening, mutasi, Lot FIFO, reconcile

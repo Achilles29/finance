@@ -7095,4 +7095,47 @@ class Production_model extends CI_Model
         }
         return 'material_item_id';
     }
+
+    public function list_component_monthly_opname(array $filters = [], int $limit = 500): array
+    {
+        if (!$this->db->table_exists('inv_component_monthly_opname')) {
+            return [];
+        }
+        $month = trim((string)($filters['month'] ?? date('Y-m')));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $monthKey = $month . '-01';
+
+        $this->db->select('o.*, c.component_code, c.component_name, c.component_type, u.code AS uom_code, u.name AS uom_name, d.division_name, e.employee_name AS generated_by_name', false)
+            ->from('inv_component_monthly_opname o')
+            ->join('mst_component c', 'c.id = o.component_id', 'left')
+            ->join('mst_uom u', 'u.id = o.uom_id', 'left')
+            ->join('org_division d', 'd.id = o.division_id', 'left')
+            ->join('org_employee e', 'e.id = o.generated_by', 'left')
+            ->where('o.month_key', $monthKey);
+
+        $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        if (in_array($locationType, ['REGULER', 'EVENT'], true)) {
+            $this->db->where('o.location_type', $locationType);
+        }
+        $divisionId = (int)($filters['division_id'] ?? 0);
+        if ($divisionId > 0) {
+            $this->db->where('o.division_id', $divisionId);
+        }
+        $q = trim((string)($filters['q'] ?? ''));
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('c.component_name', $q)
+                ->or_like('c.component_code', $q)
+                ->or_like('d.division_name', $q)
+                ->group_end();
+        }
+
+        $this->db->order_by('o.location_type, d.division_name, c.component_name', '', false);
+        if ($limit > 0) {
+            $this->db->limit($limit);
+        }
+        return $this->db->get()->result_array();
+    }
 }

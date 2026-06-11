@@ -20,17 +20,19 @@ if ($tabScope === 'DIVISION') {
         ['key' => 'movement',     'label' => 'Keluar Masuk',           'url' => site_url('inventory/stock/division/movement')],
         ['key' => 'daily',        'label' => 'Snapshot Harian Divisi', 'url' => site_url('inventory/stock/division/daily')],
         ['key' => 'compare',      'label' => 'Rekonsiliasi Stok Akhir', 'url' => site_url('inventory/stock/division/reconcile')],
-        ['key' => 'lot',          'label' => 'Lot',                    'url' => site_url('inventory/stock/division/lot')],
+        ['key' => 'lot',           'label' => 'Lot',                    'url' => site_url('inventory/stock/division/lot')],
+        ['key' => 'opname_monthly','label' => 'Opname Bulanan',         'url' => site_url('inventory/stock/opname/division/monthly')],
     ];
 } else {
     $links = [
-        ['key' => 'daily_matrix', 'label' => 'Snapshot Harian Gudang', 'url' => site_url('inventory-warehouse-daily')],
-        ['key' => 'stock', 'label' => 'Stok Gudang', 'url' => site_url('inventory/stock/warehouse')],
-        ['key' => 'opening', 'label' => 'Opening Gudang', 'url' => site_url('inventory/stock/opening/warehouse')],
-        ['key' => 'adjustment', 'label' => 'Adjustment Gudang', 'url' => site_url('inventory/stock/adjustment/warehouse')],
-        ['key' => 'movement', 'label' => 'Keluar Masuk Gudang', 'url' => site_url('inventory/stock/warehouse/movement')],
-        ['key' => 'daily', 'label' => 'Stok Bulanan/Daily', 'url' => site_url('inventory/stock/warehouse/daily')],
-        ['key' => 'lot', 'label' => 'Lot Gudang', 'url' => site_url('inventory/stock/warehouse/lot')],
+        ['key' => 'daily_matrix',  'label' => 'Snapshot Harian Gudang', 'url' => site_url('inventory-warehouse-daily')],
+        ['key' => 'stock',         'label' => 'Stok Gudang',            'url' => site_url('inventory/stock/warehouse')],
+        ['key' => 'opening',       'label' => 'Opening Gudang',         'url' => site_url('inventory/stock/opening/warehouse')],
+        ['key' => 'adjustment',    'label' => 'Adjustment Gudang',      'url' => site_url('inventory/stock/adjustment/warehouse')],
+        ['key' => 'movement',      'label' => 'Keluar Masuk Gudang',    'url' => site_url('inventory/stock/warehouse/movement')],
+        ['key' => 'daily',         'label' => 'Stok Bulanan/Daily',     'url' => site_url('inventory/stock/warehouse/daily')],
+        ['key' => 'lot',           'label' => 'Lot Gudang',             'url' => site_url('inventory/stock/warehouse/lot')],
+        ['key' => 'opname_monthly','label' => 'Opname Bulanan',         'url' => site_url('inventory/stock/opname/warehouse/monthly')],
     ];
 }
 

@@ -18206,4 +18206,73 @@ class Purchase_model extends CI_Model
 
         return !empty($row);
     }
+
+    public function list_warehouse_monthly_opname(array $filters = [], int $limit = 500): array
+    {
+        if (!$this->db->table_exists('inv_warehouse_monthly_opname')) {
+            return [];
+        }
+        $month = trim((string)($filters['month'] ?? date('Y-m')));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $monthKey = $month . '-01';
+
+        $this->db->select('o.*, e.employee_name AS generated_by_name', false)
+            ->from('inv_warehouse_monthly_opname o')
+            ->join('org_employee e', 'e.id = o.generated_by', 'left')
+            ->where('o.month_key', $monthKey);
+
+        $q = trim((string)($filters['q'] ?? ''));
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('o.profile_name', $q)
+                ->or_like('o.profile_key', $q)
+                ->group_end();
+        }
+        $this->db->order_by('o.stock_domain, o.profile_name', '', false);
+        if ($limit > 0) {
+            $this->db->limit($limit);
+        }
+        return $this->db->get()->result_array();
+    }
+
+    public function list_division_monthly_opname(array $filters = [], int $limit = 500): array
+    {
+        if (!$this->db->table_exists('inv_division_monthly_opname')) {
+            return [];
+        }
+        $month = trim((string)($filters['month'] ?? date('Y-m')));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $monthKey = $month . '-01';
+
+        $this->db->select('o.*, d.division_name, e.employee_name AS generated_by_name', false)
+            ->from('inv_division_monthly_opname o')
+            ->join('org_division d', 'd.id = o.division_id', 'left')
+            ->join('org_employee e', 'e.id = o.generated_by', 'left')
+            ->where('o.month_key', $monthKey);
+
+        $divisionId = (int)($filters['division_id'] ?? 0);
+        if ($divisionId > 0) {
+            $this->db->where('o.division_id', $divisionId);
+        }
+        $destination = strtoupper(trim((string)($filters['destination_type'] ?? '')));
+        if ($destination !== '') {
+            $this->db->where('o.destination_type', $destination);
+        }
+        $q = trim((string)($filters['q'] ?? ''));
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('o.profile_name', $q)
+                ->or_like('d.division_name', $q)
+                ->group_end();
+        }
+        $this->db->order_by('d.division_name, o.destination_type, o.profile_name', '', false);
+        if ($limit > 0) {
+            $this->db->limit($limit);
+        }
+        return $this->db->get()->result_array();
+    }
 }

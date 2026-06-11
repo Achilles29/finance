@@ -224,6 +224,9 @@ $lotAverageCost = static function (array $lotSummary): float {
     </div>
     <div class="d-flex gap-2 flex-wrap">
       <a href="<?php echo site_url('production/component-lots'); ?>" class="btn btn-outline-secondary btn-sm">Lot FIFO</a>
+      <button type="button" class="btn btn-outline-danger btn-sm" id="btn-generate-monthly-opname">
+        <i class="ri ri-refresh-line me-1"></i>Generate Opname + Stok Awal
+      </button>
     </div>
   </div>
 </div>
@@ -410,6 +413,40 @@ $lotAverageCost = static function (array $lotSummary): float {
 </div>
 
 <script>
+(() => {
+  const btn = document.getElementById('btn-generate-monthly-opname');
+  if (btn) {
+    btn.addEventListener('click', async () => {
+      const monthInput = document.querySelector('input[name="month"]');
+      const locInput   = document.querySelector('select[name="location_type"]');
+      const divInput   = document.querySelector('select[name="division_id"]');
+      const month      = monthInput?.value || '';
+      if (!month) { alert('Pilih bulan terlebih dahulu.'); return; }
+      if (!confirm('Generate opname bulan ' + month + ' dan carry-forward opening bulan berikutnya?')) return;
+      btn.disabled = true;
+      btn.textContent = 'Generating...';
+      try {
+        const res = await fetch('<?php echo site_url('production/component-openings/generate-monthly'); ?>', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ month, location_type: locInput?.value || '', division_id: divInput?.value || '' })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          alert('Gagal: ' + (data.message || res.statusText));
+          btn.disabled = false;
+          btn.innerHTML = '<i class="ri ri-refresh-line me-1"></i>Generate Opname + Stok Awal';
+          return;
+        }
+        window.location.reload();
+      } catch (err) {
+        alert('Error: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ri ri-refresh-line me-1"></i>Generate Opname + Stok Awal';
+      }
+    });
+  }
+})();
 (() => {
   document.addEventListener('click', (event) => {
     const button = event.target.closest('[data-lot-toggle]');

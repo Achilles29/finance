@@ -1391,6 +1391,7 @@ class Production extends MY_Controller
     // ── Component Daily Recon ─────────────────────────────────
 
     private const PAGE_COMPONENT_DAILY_RECON = 'production.component.daily.recon.index';
+    private const PAGE_COMPONENT_OPNAME_MONTHLY = 'production.component.opname.monthly';
 
     public function component_daily_recon()
     {
@@ -2300,6 +2301,35 @@ class Production extends MY_Controller
                 'ok' => false,
                 'message' => $message,
             ] + $data, JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    public function component_opname()
+    {
+        $pageCode = $this->can(self::PAGE_COMPONENT_OPNAME_MONTHLY, 'view')
+            ? self::PAGE_COMPONENT_OPNAME_MONTHLY
+            : 'production.component.daily.index';
+        $this->require_permission($pageCode, 'view');
+
+        $month = trim((string)$this->input->get('month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $filters = [
+            'month'         => $month,
+            'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
+            'division_id'   => (int)$this->input->get('division_id', true),
+            'q'             => trim((string)$this->input->get('q', true)),
+        ];
+        $rows = $this->Production_model->list_component_monthly_opname($filters, 500);
+
+        $this->render('production/component_opname_monthly_index', [
+            'page_title'  => 'Stok Opname Bulanan Component',
+            'active_menu' => 'production.component.opname.monthly',
+            'rows'        => $rows,
+            'filters'     => $filters,
+            'divisions'   => $this->active_divisions(),
+            'generate_url' => site_url('production/component-openings/generate-monthly'),
+        ]);
     }
 
     private function clear_output_buffers(): void

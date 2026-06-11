@@ -86,8 +86,11 @@ if (!function_exists('_get_ri_icon')) {
             'production.component.reconcile' => 'ri-scales-3-line',
             'production.component.cost.variable' => 'ri-percent-line',
             'production.component.adjustment'  => 'ri-equalizer-3-line',
-            'production.component.daily.recon' => 'ri-check-double-line',
-            'production.component.lot'         => 'ri-stack-line',
+            'production.component.daily.recon'    => 'ri-check-double-line',
+            'production.component.lot'            => 'ri-stack-line',
+            'production.component.opname.monthly' => 'ri-file-list-3-line',
+            'inventory.stock.opname.warehouse.monthly' => 'ri-file-list-3-line',
+            'inventory.stock.opname.division.monthly'  => 'ri-file-list-3-line',
             'grp.purchase'          => 'ri-shopping-cart-2-line',
             'purchase.stock.adjustment.warehouse' => 'ri-scales-3-line',
             'purchase.stock.adjustment.division' => 'ri-scales-3-line',
@@ -337,17 +340,14 @@ if (!function_exists('_regroup_inventory_children')) {
       return $children;
     }
 
-    $targetCode = $scope === 'WAREHOUSE' ? 'purchase.stock.warehouse.lot' : 'purchase.stock.division.lot';
-    foreach ($children as $child) {
-      if ((string)($child['menu_code'] ?? '') === $targetCode) {
-        return $children;
-      }
-    }
+    // Synthetic items keyed by menu_code → definition
+    $syntheticItems = [];
 
-    $children[] = [
+    $lotCode = $scope === 'WAREHOUSE' ? 'purchase.stock.warehouse.lot' : 'purchase.stock.division.lot';
+    $syntheticItems[$lotCode] = [
       'id' => $scope === 'WAREHOUSE' ? -2201 : -2202,
       'parent_id' => null,
-      'menu_code' => $targetCode,
+      'menu_code' => $lotCode,
       'menu_label' => $scope === 'WAREHOUSE' ? 'Lot Gudang' : 'Lot Divisi',
       'icon' => 'ri-stack-line',
       'url' => $scope === 'WAREHOUSE' ? 'inventory/stock/warehouse/lot' : 'inventory/stock/division/lot',
@@ -355,6 +355,33 @@ if (!function_exists('_regroup_inventory_children')) {
       'sort_order' => $scope === 'WAREHOUSE' ? 991 : 992,
       'children' => [],
     ];
+
+    $opnameCode = $scope === 'WAREHOUSE'
+      ? 'inventory.stock.opname.warehouse.monthly'
+      : 'inventory.stock.opname.division.monthly';
+    $syntheticItems[$opnameCode] = [
+      'id' => $scope === 'WAREHOUSE' ? -2203 : -2204,
+      'parent_id' => null,
+      'menu_code' => $opnameCode,
+      'menu_label' => $scope === 'WAREHOUSE' ? 'Opname Gudang' : 'Opname Divisi',
+      'icon' => 'ri-file-list-3-line',
+      'url' => $scope === 'WAREHOUSE'
+        ? 'inventory/stock/opname/warehouse/monthly'
+        : 'inventory/stock/opname/division/monthly',
+      'page_id' => null,
+      'sort_order' => $scope === 'WAREHOUSE' ? 993 : 994,
+      'children' => [],
+    ];
+
+    $existingCodes = [];
+    foreach ($children as $child) {
+      $existingCodes[(string)($child['menu_code'] ?? '')] = true;
+    }
+    foreach ($syntheticItems as $code => $item) {
+      if (!isset($existingCodes[$code])) {
+        $children[] = $item;
+      }
+    }
 
     return $children;
   }
@@ -597,6 +624,14 @@ if (!function_exists('_append_production_component_monitoring_children')) {
         'icon' => 'ri-stack-line',
         'url' => 'production/component-lots',
         'page_id' => null, 'sort_order' => 999, 'children' => [],
+      ],
+      'production.component.opname.monthly' => [
+        'id' => -2300, 'parent_id' => null,
+        'menu_code' => 'production.component.opname.monthly',
+        'menu_label' => 'Opname Component',
+        'icon' => 'ri-file-list-3-line',
+        'url' => 'production/component-opname',
+        'page_id' => null, 'sort_order' => 1000, 'children' => [],
       ],
     ];
 

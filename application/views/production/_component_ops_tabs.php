@@ -23,6 +23,7 @@ $groups = [
             ['key' => 'movement',    'label' => 'Mutasi',           'url' => site_url('production/component-movements')],
             ['key' => 'lot',         'label' => 'Lot FIFO',         'url' => site_url('production/component-lots')],
             ['key' => 'reconcile',   'label' => 'Reconcile',        'url' => site_url('production/component-reconcile')],
+            ['key' => 'opname',      'label' => 'Opname',           'url' => site_url('production/component-opname')],
         ],
     ],
 ];
