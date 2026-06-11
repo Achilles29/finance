@@ -205,9 +205,9 @@ const COMP_Q       = <?php echo json_encode($selQ); ?>;
 const REASONS = <?php echo json_encode($REASONS); ?>;
 
 const ADJ_TYPES_NEG = [
-    { val: 'WASTE',          lbl: 'Waste'           },
-    { val: 'SPOILAGE',       lbl: 'Spoil'           },
     { val: 'ADJUSTMENT_MINUS', lbl: 'Adjustment Minus' },
+    { val: 'WASTE',            lbl: 'Waste'            },
+    { val: 'SPOILAGE',         lbl: 'Spoil'            },
 ];
 const ADJ_TYPES_POS = [
     { val: 'ADJUSTMENT_PLUS', lbl: 'Adjustment Plus' },

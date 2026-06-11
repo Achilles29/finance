@@ -855,17 +855,37 @@ class Production extends MY_Controller
     public function component_batches()
     {
         $this->require_permission('production.component.batch.index', 'view');
-        $q = trim((string)$this->input->get('q', true));
-        $rows = $this->Production_model->list_component_batches(['q' => $q], 300);
+        $today      = date('Y-m-d');
+        $q          = trim((string)$this->input->get('q', true));
+        $dateFrom   = trim((string)($this->input->get('date_from', true) ?: $today));
+        $dateTo     = trim((string)($this->input->get('date_to', true) ?: $today));
+        $divisionId = (int)$this->input->get('division_id', true);
+        $locType       = strtoupper(trim((string)$this->input->get('location_type', true)));
+        $componentType = strtoupper(trim((string)$this->input->get('type', true)));
+
+        $filters = [
+            'q'             => $q,
+            'date_from'     => $dateFrom,
+            'date_to'       => $dateTo,
+            'division_id'   => $divisionId > 0 ? $divisionId : null,
+            'location_type' => $locType,
+            'type'          => $componentType,
+        ];
+        $rows = $this->Production_model->list_component_batches($filters, 500);
         $this->render('production/component_batch_index', [
-            'page_title' => 'Batch Produksi Base/Prepare',
-            'rows' => $rows,
-            'q' => $q,
+            'page_title'       => 'Batch Produksi Base/Prepare',
+            'rows'             => $rows,
+            'filters'          => $filters,
+            'q'                => $q,
+            'date_from'        => $dateFrom,
+            'date_to'          => $dateTo,
+            'filter_division'  => $divisionId,
+            'filter_location'  => $locType,
             'location_options' => $this->location_options(),
-            'components' => $this->active_components(),
-            'materials' => $this->active_materials(),
-            'uoms' => $this->active_uoms(),
-            'divisions' => $this->active_divisions(),
+            'components'       => $this->active_components(),
+            'materials'        => $this->active_materials(),
+            'uoms'             => $this->active_uoms(),
+            'divisions'        => $this->active_divisions(),
         ]);
     }
 
@@ -1836,12 +1856,18 @@ class Production extends MY_Controller
             $month = date('Y-m');
         }
 
+        $perPage = (int)$this->input->get('per_page', true);
+        if (!in_array($perPage, [25, 50, 100, 0], true)) {
+            $perPage = 25;
+        }
+
         return [
-            'q' => trim((string)$this->input->get('q', true)),
-            'month' => $month,
+            'q'             => trim((string)$this->input->get('q', true)),
+            'month'         => $month,
             'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
-            'division_id' => (int)$this->input->get('division_id', true),
-            'type' => $this->normalize_component_type_filter($this->input->get('type', true)),
+            'division_id'   => (int)$this->input->get('division_id', true),
+            'type'          => $this->normalize_component_type_filter($this->input->get('type', true)),
+            'per_page'      => $perPage,
         ];
     }
 

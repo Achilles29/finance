@@ -786,7 +786,7 @@ class Production_model extends CI_Model
             $usageOut = round((float)($row['out_qty'] ?? 0), 4);
             $waste = round((float)($row['waste_qty'] ?? 0), 4);
             $spoil = round((float)($row['spoil_qty'] ?? 0), 4);
-            $out = round($usageOut + $waste + $spoil, 4);
+            $out = $usageOut; // waste/spoil masuk adj (negatif), bukan out
             $adj = round((float)($row['adjustment_qty'] ?? 0), 4);
             $closing = round((float)($row['closing_qty'] ?? 0), 4);
 
@@ -2287,7 +2287,7 @@ class Production_model extends CI_Model
             $divisionNameColumn = $this->division_name_column();
             $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
-            $this->db->select('m.id, m.movement_date, m.movement_datetime, m.location_type, m.division_id, ' . $divisionNameSelect . ', m.component_id, c.component_code, c.component_name, c.component_type, m.uom_id, u.code AS uom_code, m.movement_type, m.qty_in, m.qty_out, m.unit_cost, m.total_cost, m.source_table', false)
+            $this->db->select('m.id, m.movement_date, m.movement_datetime, m.location_type, m.division_id, ' . $divisionNameSelect . ', m.component_id, c.component_code, c.component_name, c.component_type, m.uom_id, u.code AS uom_code, m.movement_type, m.qty_in, m.qty_out, m.unit_cost, m.total_cost, m.source_table, m.source_id', false)
                 ->from('inv_component_movement_log m')
                 ->join('mst_component c', 'c.id = m.component_id', 'inner')
                 ->join('mst_operational_division d', 'd.id = m.division_id', 'left')
@@ -2325,7 +2325,33 @@ class Production_model extends CI_Model
                 ->get()
                 ->result_array();
 
+            // Identifikasi void pair yang keduanya ada di window yang sama.
+            // Jika original movement DAN VOID_REVERSE/VOID_OUT keduanya ada di periode ini,
+            // keduanya di-skip dari display — net effect = 0, seolah tidak pernah terjadi.
+            // Void lintas bulan (originalnya di bulan lain) TIDAK di-skip: VOID_REVERSE tetap
+            // diproses agar saldo bulanan tetap benar.
+            $voidPairKeys   = [];
+            $originPairKeys = [];
+            foreach ($movementRows as $_r) {
+                $_mt = strtoupper(trim((string)($_r['movement_type'] ?? '')));
+                $_st = (string)($_r['source_table'] ?? '');
+                $_si = (int)($_r['source_id'] ?? 0);
+                if ($_st === '' || $_si <= 0) { continue; }
+                $_pk = $_st . '|' . $_si;
+                if (in_array($_mt, ['VOID_REVERSE', 'VOID_OUT'], true)) {
+                    $voidPairKeys[$_pk] = true;
+                } else {
+                    $originPairKeys[$_pk] = true;
+                }
+            }
+            $skipVoidPairKeys = array_intersect_key($voidPairKeys, $originPairKeys);
+
             foreach ($movementRows as $movementRow) {
+                $_st = (string)($movementRow['source_table'] ?? '');
+                $_si = (int)($movementRow['source_id'] ?? 0);
+                if ($_st !== '' && $_si > 0 && isset($skipVoidPairKeys[$_st . '|' . $_si])) {
+                    continue; // skip: pasangan void dalam window yang sama
+                }
                 $key = $this->component_identity_key((string)($movementRow['location_type'] ?? ''), $movementRow['division_id'] ?? null, (int)($movementRow['component_id'] ?? 0), (int)($movementRow['uom_id'] ?? 0));
                 if (!isset($metaMap[$key])) {
                     $metaMap[$key] = [
@@ -2416,9 +2442,11 @@ class Production_model extends CI_Model
                         break;
                     case 'WASTE':
                         $dailyRows[$key][$movementDate]['waste_qty'] = round((float)$dailyRows[$key][$movementDate]['waste_qty'] + $qtyOut, 4);
+                        $dailyRows[$key][$movementDate]['adjustment_qty'] = round((float)$dailyRows[$key][$movementDate]['adjustment_qty'] - $qtyOut, 4);
                         break;
                     case 'SPOIL':
                         $dailyRows[$key][$movementDate]['spoil_qty'] = round((float)$dailyRows[$key][$movementDate]['spoil_qty'] + $qtyOut, 4);
+                        $dailyRows[$key][$movementDate]['adjustment_qty'] = round((float)$dailyRows[$key][$movementDate]['adjustment_qty'] - $qtyOut, 4);
                         break;
                     case 'ADJUSTMENT_PLUS':
                     case 'VOID_REVERSE':
@@ -3531,16 +3559,42 @@ class Production_model extends CI_Model
 
     public function list_component_batches(array $filters = [], int $limit = 200): array
     {
-        $q = trim((string)($filters['q'] ?? ''));
-        $this->db->select('b.*, c.component_name, c.component_code, d.name AS division_name');
+        $q          = trim((string)($filters['q'] ?? ''));
+        $dateFrom   = trim((string)($filters['date_from'] ?? ''));
+        $dateTo     = trim((string)($filters['date_to'] ?? ''));
+        $divisionId    = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
+        $locType       = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
+
+        $this->db->select('b.*, c.component_name, c.component_code, d.name AS division_name, u.code AS uom_code');
         $this->db->from('inv_component_batch b');
         $this->db->join('mst_component c', 'c.id = b.component_id', 'left');
         $this->db->join('mst_operational_division d', 'd.id = b.division_id', 'left');
+        $this->db->join('mst_uom u', 'u.id = b.output_uom_id', 'left');
         if ($q !== '') {
             $this->db->group_start()
                 ->like('b.batch_no', $q)
                 ->or_like('c.component_name', $q)
                 ->group_end();
+        }
+        if ($dateFrom !== '') {
+            $this->db->where('b.batch_date >=', $dateFrom);
+        }
+        if ($dateTo !== '') {
+            $this->db->where('b.batch_date <=', $dateTo);
+        }
+        if ($divisionId > 0) {
+            $this->db->where('b.division_id', $divisionId);
+        }
+        if ($locType === 'REGULER') {
+            $this->db->where_in('b.location_type', ['BAR', 'KITCHEN']);
+        } elseif ($locType === 'EVENT') {
+            $this->db->where_in('b.location_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+        } elseif ($locType !== '') {
+            $this->db->where('b.location_type', $locType);
+        }
+        if ($componentType !== '') {
+            $this->db->where('c.component_type', $componentType);
         }
         $this->db->order_by('b.batch_date', 'DESC')->order_by('b.id', 'DESC')->limit(max(1, $limit));
         $rows = $this->db->get()->result_array();

@@ -2064,7 +2064,7 @@ class Purchase_model extends CI_Model
             : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
 
         $this->db
-            ->select('l.id, l.movement_date, l.movement_type, l.ref_table, l.item_id, COALESCE(l.material_id, i.material_id) AS material_id, l.buy_uom_id, l.content_uom_id', false)
+            ->select('l.id, l.movement_date, l.movement_type, l.ref_table, l.ref_id, l.item_id, COALESCE(l.material_id, i.material_id) AS material_id, l.buy_uom_id, l.content_uom_id', false)
             ->select('l.profile_key, l.profile_name, l.profile_brand, l.profile_description, l.profile_content_per_buy, l.profile_buy_uom_code, l.profile_content_uom_code')
             ->select('l.qty_buy_delta, l.qty_content_delta, l.unit_cost, l.created_at')
             ->select('i.item_code, i.item_name, m.material_code, m.material_name')
@@ -2132,9 +2132,33 @@ class Purchase_model extends CI_Model
             ->get()
             ->result_array();
 
+        // Identifikasi void pair yang keduanya ada di window yang sama.
+        // Keduanya di-skip dari display — net effect = 0, seolah tidak pernah terjadi.
+        // Void lintas periode (originalnya di periode lain) TIDAK di-skip.
+        $voidPairKeys   = [];
+        $originPairKeys = [];
+        foreach ($movementRows as $_r) {
+            $_mt = strtoupper(trim((string)($_r['movement_type'] ?? '')));
+            $_rt = (string)($_r['ref_table'] ?? '');
+            $_ri = (int)($_r['ref_id'] ?? 0);
+            if ($_rt === '' || $_ri <= 0) { continue; }
+            $_pk = $_rt . '|' . $_ri;
+            if ($_mt === 'VOID_REVERSE') {
+                $voidPairKeys[$_pk] = true;
+            } else {
+                $originPairKeys[$_pk] = true;
+            }
+        }
+        $skipVoidPairKeys = array_intersect_key($voidPairKeys, $originPairKeys);
+
         $states = [];
         $daily = [];
         foreach ($movementRows as $movementRow) {
+            $_rt = (string)($movementRow['ref_table'] ?? '');
+            $_ri = (int)($movementRow['ref_id'] ?? 0);
+            if ($_rt !== '' && $_ri > 0 && isset($skipVoidPairKeys[$_rt . '|' . $_ri])) {
+                continue; // skip: pasangan void dalam window yang sama
+            }
             $movementDay = (string)($movementRow['movement_date'] ?? '');
             if ($movementDay === '') {
                 continue;
@@ -7539,14 +7563,20 @@ class Purchase_model extends CI_Model
             $pack['delta']['discarded_qty_content'] = abs(min(0, $qtyContentDelta));
             $pack['delta']['waste_qty_buy'] = abs(min(0, $qtyBuyDelta));
             $pack['delta']['waste_qty_content'] = abs(min(0, $qtyContentDelta));
+            $pack['delta']['adjustment_qty_buy'] = $qtyBuyDelta;
+            $pack['delta']['adjustment_qty_content'] = $qtyContentDelta;
             $pack['value']['waste_total_value'] = $mutationValue;
         } elseif ($movementType === 'SPOIL_OUT') {
             $pack['delta']['spoil_qty_buy'] = abs(min(0, $qtyBuyDelta));
             $pack['delta']['spoil_qty_content'] = abs(min(0, $qtyContentDelta));
+            $pack['delta']['adjustment_qty_buy'] = $qtyBuyDelta;
+            $pack['delta']['adjustment_qty_content'] = $qtyContentDelta;
             $pack['value']['spoilage_total_value'] = $mutationValue;
         } elseif ($movementType === 'WASTE_OUT') {
             $pack['delta']['waste_qty_buy'] = abs(min(0, $qtyBuyDelta));
             $pack['delta']['waste_qty_content'] = abs(min(0, $qtyContentDelta));
+            $pack['delta']['adjustment_qty_buy'] = $qtyBuyDelta;
+            $pack['delta']['adjustment_qty_content'] = $qtyContentDelta;
             $pack['value']['waste_total_value'] = $mutationValue;
         } elseif ($movementType === 'PROCESS_LOSS_OUT') {
             $pack['delta']['process_loss_qty_buy'] = abs(min(0, $qtyBuyDelta));

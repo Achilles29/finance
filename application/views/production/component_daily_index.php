@@ -80,9 +80,14 @@ $dailyMatrixColspan = (int)(4 + count($dates));
       linear-gradient(180deg, #fffaf5 0%, #fff 100%);
     box-shadow: 0 18px 36px -30px rgba(95, 53, 39, .45), inset 0 0 0 1px rgba(255, 255, 255, .55);
   }
-  .component-daily-matrix-wrap {
+  .component-daily-matrix-outer-vscroll {
     max-height: 74vh;
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: clip;
+  }
+  .component-daily-matrix-wrap {
+    overflow-x: auto;
+    overflow-y: visible;
   }
   .component-daily-matrix {
     min-width: 2280px;
@@ -602,9 +607,6 @@ $dailyMatrixColspan = (int)(4 + count($dates));
       <h4 class="mb-1"><i class="ri ri-calendar-check-line page-title-icon"></i><?php echo html_escape($page_title ?? 'Daily Matrix Base/Prepare'); ?></h4>
       <small class="text-muted">Matrix harian komponen per tanggal: opening, in, out, adjustment, closing.</small>
     </div>
-    <div class="d-flex gap-2 flex-wrap">
-      <a href="<?php echo site_url('production/component-lots'); ?>" class="btn btn-outline-secondary btn-sm">Lot FIFO</a>
-    </div>
   </div>
 </div>
 
@@ -613,6 +615,13 @@ $dailyMatrixColspan = (int)(4 + count($dates));
   'component_type_base_url' => site_url('production/component-daily'),
   'component_type_filters' => $filters,
   'component_type_active' => (string)($filters['type'] ?? ''),
+]); ?>
+<?php $this->load->view('production/_component_action_buttons', [
+  'component_action_params' => array_filter([
+    'month'         => (string)($filters['month'] ?? ''),
+    'division_id'   => !empty($filters['division_id']) ? (int)$filters['division_id'] : '',
+    'location_type' => (string)($filters['location_type'] ?? ''),
+  ], static fn($v) => $v !== '' && $v !== 0 && $v !== '0'),
 ]); ?>
 
 <?php
@@ -640,7 +649,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
 };
 ?>
 
-<div class="card mb-3">
+<div class="card mb-3 mt-3">
   <div class="card-body">
     <form method="get" action="<?php echo site_url('production/component-daily'); ?>" class="row g-2 align-items-end">
       <div class="col-md-3">
@@ -669,7 +678,18 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-md-2 d-flex gap-2">
+      <div class="col-md-1">
+        <label class="form-label mb-1">Per Hal.</label>
+        <select id="cdPerPage" class="form-select" name="per_page">
+          <?php $selPP = (int)($filters['per_page'] ?? 25); ?>
+          <?php foreach ([25, 50, 100, 0] as $pp): ?>
+            <option value="<?php echo $pp; ?>" <?php echo $selPP === $pp ? 'selected' : ''; ?>>
+              <?php echo $pp > 0 ? $pp : 'Semua'; ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="col-md-1 d-flex gap-2">
         <button type="submit" class="btn btn-outline-primary">Filter</button>
         <a href="<?php echo site_url('production/component-daily'); ?>" class="btn btn-outline-danger">Clear</a>
       </div>
@@ -680,6 +700,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
 <div class="card">
   <div class="card-body p-2">
     <div class="component-daily-matrix-shell">
+    <div class="component-daily-matrix-outer-vscroll" id="componentDailyOuterScroll">
     <div class="component-daily-matrix-wrap" id="componentDailyMatrixWrap">
       <table class="table table-sm table-striped component-daily-matrix">
         <thead>
@@ -722,7 +743,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
               <?php $summaryClosingQty = (float)($row['total_closing'] ?? 0); ?>
               <?php $summaryAvgCost = (float)($row['avg_cost'] ?? 0); ?>
               <?php $summaryTotalValue = (float)($row['total_value'] ?? 0); ?>
-              <tr>
+              <tr data-cd-parent-row="<?php echo (int)$rowIndex; ?>" data-cd-lot-toggle="<?php echo html_escape($lotToggleId); ?>">
                 <td class="component-daily-fixed">
                   <div><a href="<?php echo html_escape($buildLotUrl((array)$row, 'ALL')); ?>" class="fw-semibold text-decoration-none"><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></a></div>
                   <small class="text-muted"><?php echo html_escape((string)($row['component_type'] ?? '-')); ?> • <?php echo html_escape((string)($row['uom_code'] ?? '')); ?></small>
@@ -1013,11 +1034,16 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
       </table>
     </div>
     </div>
-    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mt-2">
-      <div class="small text-muted">* Kolom Close total menampilkan nilai closing terakhir yang tercatat pada bulan berjalan.</div>
-      <?php if ($todayInView): ?>
-        <div class="small text-muted component-daily-legend"><span class="component-daily-legend-swatch"></span>Kolom hari ini ditandai biru muda.</div>
-      <?php endif; ?>
+    </div>
+    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mt-2 px-2 pb-1 border-top pt-2">
+      <div class="d-flex flex-wrap gap-3 align-items-center">
+        <div class="small text-muted">* Kolom Close total menampilkan nilai closing terakhir yang tercatat pada bulan berjalan.</div>
+        <?php if ($todayInView): ?>
+          <div class="small text-muted component-daily-legend"><span class="component-daily-legend-swatch"></span>Hari ini</div>
+        <?php endif; ?>
+        <small class="text-muted" id="cdPageInfo"></small>
+      </div>
+      <nav><ul class="pagination pagination-sm mb-0" id="cdPagination"></ul></nav>
     </div>
   </div>
 </div>
@@ -1177,21 +1203,82 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
   });
 })();
 
+// ── Scroll-to-today (horizontal) ────────────────────────────────────────────
 (() => {
   const wrap = document.getElementById('componentDailyMatrixWrap');
   const todayAnchor = wrap?.querySelector('[data-today-anchor="1"]');
-  if (!wrap || !todayAnchor) {
-    return;
+  if (!wrap || !todayAnchor) return;
+  window.requestAnimationFrame(() => {
+    const targetLeft = Math.max(todayAnchor.offsetLeft - 700, 0);
+    wrap.scrollTo({ left: targetLeft, behavior: 'smooth' });
+  });
+})();
+
+// ── Pagination ───────────────────────────────────────────────────────────────
+(() => {
+  const perPage    = parseInt(document.getElementById('cdPerPage')?.value || '25', 10);
+  const infoEl     = document.getElementById('cdPageInfo');
+  const paginEl    = document.getElementById('cdPagination');
+  const tbody      = document.querySelector('.component-daily-matrix tbody');
+  if (!tbody) return;
+
+  const parentRows = Array.from(tbody.querySelectorAll('tr[data-cd-parent-row]'));
+  if (!parentRows.length) return;
+
+  const total  = parentRows.length;
+  const pages  = perPage > 0 ? Math.max(1, Math.ceil(total / perPage)) : 1;
+  let currentPage = 1;
+
+  function renderPage() {
+    const start = perPage > 0 ? (currentPage - 1) * perPage : 0;
+    const end   = perPage > 0 ? Math.min(start + perPage, total) : total;
+
+    parentRows.forEach((tr, i) => {
+      const show = i >= start && i < end;
+      tr.style.display = show ? '' : 'none';
+      // hide/show lot children
+      const lotId = tr.dataset.cdLotToggle;
+      if (lotId) {
+        tbody.querySelectorAll('[data-lot-group="' + lotId + '"]').forEach((child) => {
+          child.style.display = show ? '' : 'none';
+          // keep collapsed (d-none is managed by toggle button; just mirror parent visibility)
+          if (!show) child.classList.add('d-none');
+        });
+      }
+    });
+
+    if (infoEl) {
+      infoEl.textContent = perPage > 0
+        ? 'Baris ' + (start + 1) + '–' + end + ' dari ' + total
+        : 'Semua ' + total + ' baris';
+    }
+
+    if (!paginEl) return;
+    paginEl.innerHTML = '';
+    if (perPage <= 0 || pages <= 1) return;
+
+    const mkBtn = (label, page, disabled, active) => {
+      const li = document.createElement('li');
+      li.className = 'page-item' + (disabled ? ' disabled' : '') + (active ? ' active' : '');
+      const a = document.createElement('a');
+      a.className = 'page-link';
+      a.href = '#';
+      a.innerHTML = label;
+      if (!disabled && !active) {
+        a.addEventListener('click', (e) => { e.preventDefault(); currentPage = page; renderPage(); });
+      }
+      li.appendChild(a); paginEl.appendChild(li);
+    };
+
+    mkBtn('&laquo;', currentPage - 1, currentPage <= 1, false);
+    const rs = Math.max(1, currentPage - 2), re = Math.min(pages, currentPage + 2);
+    if (rs > 1) { mkBtn('1', 1, false, false); if (rs > 2) mkBtn('…', null, true, false); }
+    for (let p = rs; p <= re; p++) mkBtn(String(p), p, false, p === currentPage);
+    if (re < pages) { if (re < pages - 1) mkBtn('…', null, true, false); mkBtn(String(pages), pages, false, false); }
+    mkBtn('&raquo;', currentPage + 1, currentPage >= pages, false);
   }
 
-  window.requestAnimationFrame(() => {
-    const stickyOffset = 700;
-    const targetLeft = Math.max(todayAnchor.offsetLeft - stickyOffset, 0);
-    wrap.scrollTo({
-      left: targetLeft,
-      behavior: 'smooth'
-    });
-  });
+  renderPage();
 })();
 
 (() => {

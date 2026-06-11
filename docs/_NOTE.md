@@ -91,3 +91,118 @@ dan jangan lupa buatkan halaman stok opname dan masukkan tab bertingkat semua ha
 
 
 
+kita pindah ke component.
+saya melakukan penyesuaian di /production/component-daily-recon ADU RAMU awalnya 150 saya sesuaikan menjadi 140. artinya seharusnya ada adjusment 10. prinsipnya sama seperti adjsutment di /production/component-daily dan /production/component-adjustments
+yang terjadi setelah saya posting:
+- inv_component_adjustment_line selected_lot_id null. apakah seharusnya ada terinput atau bagimana? (saya tanya)
+- di /production/component-daily tidak masuk dalam adj tapi malah masuk di OUT.
+
+
+===========
+perbaiki tampilan halaman:
+1. production/component-batches.
+   -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+   -- ubah skema tampilan jadi: form batch muncul sebagai modal saat di klik tambah batch. jadi tampilan utama hanya tabel daftar batch
+   -- tambahkan card card ringkasan yang diperlukan, seperti hasil batch divisi, nilainya, jumlahnya dll yang penting sebagai bahan analisa. kejutkan saya!
+   -- tambahkan filter divisi dan lokasi.
+   tambahkan kolm pencarian ajax
+   -- tambahkan filter baris dan pagination. defaultnya 25
+   -- tambahkan range filter hari. defautlnya hari ini
+   -- buat kolomnya jadi scrollabel atas bawah
+
+    ---- freeze di judul kolom 
+
+    -- maaf warnanya tab atas kembalikan seperti semula
+    --- tambahkan tab tipe seperti halmaan lainnya (Semua, base, prepare) jadikan template saja untuk halaman lainnya juga yang serumpun
+
+2. /production/component-daily
+    -- di google chrome tidak ter freeze barus judul (atas ) dan kolom ringkasan ketika di scroll ke atas dan ke bawah. coba contoh dari /inventory-material-daily untuk freeze nya. kalau untuk scrollabelnya sudah sesuai
+    -- tambahkan button modul generate stok opname dan stok awal yang sudah dibuat. taruh di samping tab filter jenis component. beri warna mencolok. (boleh jadikan template untuk halaman lain yang serumpun)
+    -- hapus button Lot FIFO di pojok kanan atas
+    -- sedikit jarak antara form TIPE dan Form bawahnya (cari dll)
+
+
+    --- generate sok opname dan stok awal harusnya jadi1 bukan terpisah. artinya setiap generate stok opname otomatis generate stok awal bulan berikutnya
+    --- gabungkan divisi dan komponen agar efisien
+    --- baris judul tabel belum ter freeze ketika di scroll ke bawah 
+    --= tombol filter dan  clear keluar area. perbaiki!
+    -- tambahkan filter baris dan pagination, default 25 baris
+    -- kolom ringkasan masih belum ter freeze di google chrome
+
+
+3. /production/component-daily-recon
+    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+    -- tambahkan button modul generate stok opname dan stok awal yang sudah dibuat. taruh di samping tab filter jenis component. beri warna mencolok.
+4. /production/component-stock
+    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+    -- buat halamannya scrollabel atas bawah seperti pada /production/component-monthly tapi di freeze di judul tabelnya
+    -- tambahkan filter divisi sebelum lokasi
+    -- tambahkan filter baris, default 25
+    -- tambahkan button modul generate stok opname dan stok awal yang sudah dibuat. taruh di samping tab filter jenis component. beri warna mencolok.
+    -- hapus button Lot FIFO di pojok kanan atas
+    -- ringkas tampilan tabel agar tinggi baris tidak terlalu tinggi. kejutkan saya (Divisi , lokasi dan TIPE bisa dijadikan 1 kolom agar tidak terlalau banyak kolom)
+    -- Cost lot aktif masih seragam. bisa digeser agar tidak mempertinggi baris
+5. /production/component-monthly
+    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+    --  halamannya sudah  scrollabel atas bawah tapi belum di freeze di judul tabelnya. perbaiki agar freeze ketika di scroll ke bawah
+    -- tambahkan filter baris, default 25
+    -- modul generate stok opname dan stok awal taruh di samping tab filter jenis component. beri warna mencolok.
+    -- hapus button Lot FIFO di pojok kanan atas
+    -- ringkas tampilan tabel agar tinggi baris tidak terlalu tinggi. kejutkan saya (Divisi , lokasi dan TIPE bisa dijadikan 1 kolom agar tidak terllau banyak kolom)
+    -- Cost lot aktif masih seragam. bisa digeser agar tidak mempertinggi baris
+    -- sesuaikan lebar tabel agar tidak perlu di scroll kanan kiri. karena banyak kolom yang ukurannya terlalu lebar sehingga tidak efisien
+
+6. /production/component-adjustments
+    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+   -- ubah skema tampilan jadi: form adjustmen muncul sebagai modal saat di klik tambah adjustmen. jadi tampilan utama hanya tabel daftar adjustmen (tab Per Nota dan Per Rincian)
+   -- sesuai card card ringkasan yang diperlukan, seperti hasil adjustmen divisi, nilainya, jumlahnya dll yang penting sebagai bahan analisa. kejutkan saya!
+   -- tambahkan filter divisi dan lokasi.
+   tambahkan kolm pencarian ajax
+   -- tambahkan filter baris dan pagination. defaultnya 25
+   -- tambahkan range filter hari. defautlnya bulan ini
+   -- buat kolomnya jadi scrollabel atas bawah dan freeze di judul kolom 
+
+7. /production/component-openings
+
+    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+   -- ubah skema tampilan jadi: form input opening sebagai modal saat di klik tambah opening. jadi tampilan utama hanya tabel daftar opening sesuai tab yang sudah dibuat
+   - form export import tetap.
+   -- tambahkan card card ringkasan yang diperlukan, seperti hasil opening divisi, nilainya, jumlahnya dll yang penting sebagai bahan analisa. kejutkan saya!
+   -- tambahkan filter baris dan pagination. defaultnya 25
+   -- tambahkan range filter hari. defautlnya bulan ini
+   -- buat kolomnya jadi scrollabel atas bawah dan freeze di judul kolom 
+
+8. /production/component-movements
+    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+   -- tambahkan card card ringkasan yang diperlukan, seperti hasil adjustmen divisi, nilainya, jumlahnya dll yang penting sebagai bahan analisa. kejutkan saya!
+   -- tambahkan filter baris dan pagination. defaultnya 25
+   -- tambahkan range filter hari. defautlnya bulan ini
+   -- buat kolomnya jadi scrollabel atas bawah dan freeze di judul kolom 
+
+9. /production/component-lots
+    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+   -- tambahkan card card ringkasan yang diperlukan yang penting sebagai bahan analisa. kejutkan saya!
+   -- tambahkan filter baris dan pagination. defaultnya 25
+   -- tambahkan range filter hari. defautlnya bulan ini
+   -- buat kolomnya jadi scrollabel atas bawah dan freeze di judul kolom 
+    -- sesuaikan lebar tabel agar tidak perlu di scroll kanan kiri. karena banyak kolom yang ukurannya terlalu lebar sehingga tidak efisien
+
+10. /production/component-reconcile
+    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+    -- ubah posisi dan penulisan judul halaman "Rekonsiliasi Base/Prepare" jadi di atas dengan icon relevan seperti pada halaman lain
+  -- tambahkan card card ringkasan yang diperlukan yang penting sebagai bahan analisa. kejutkan saya!
+   -- tambahkan filter baris dan pagination. defaultnya 25
+   -- tambahkan range filter hari. defautlnya bulan ini
+   -- buat kolomnya jadi scrollabel atas bawah dan freeze di judul kolom 
+    -- sesuaikan lebar tabel agar tidak perlu di scroll kanan kiri. karena banyak kolom yang ukurannya terlalu lebar sehingga tidak efisien
+
+11. /production/component-opname
+    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+    --  halamannya sudah  scrollabel atas bawah tapi belum di freeze di judul tabelnya. perbaiki agar freeze ketika di scroll ke bawah
+    -- tambahkan filter baris, default 25
+    -- modul generate stok opname dan stok awal taruh di samping tab filter jenis component. beri warna mencolok.
+    -- ringkas tampilan tabel agar tinggi baris tidak terlalu tinggi. kejutkan saya (Divisi , lokasi dan TIPE bisa dijadikan 1 kolom agar tidak terllau banyak kolom)
+    -- Cost lot aktif masih seragam. bisa digeser agar tidak mempertinggi baris
+    -- sesuaikan lebar tabel agar tidak perlu di scroll kanan kiri. karena banyak kolom yang ukurannya terlalu lebar sehingga tidak efisien
+
+

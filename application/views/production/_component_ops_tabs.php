@@ -28,9 +28,18 @@ $groups = [
     ],
 ];
 
-$buttonClass = static function (string $key) use ($activeTab): string {
-    return $activeTab === $key ? 'btn btn-sm btn-dark' : 'btn btn-sm btn-outline-secondary';
-};
+$buttonClass = [
+    'Master'      => static function (string $key) use ($activeTab): string {
+        return $activeTab === $key
+            ? 'btn btn-sm btn-info'
+            : 'btn btn-sm btn-outline-info';
+    },
+    'Operasional' => static function (string $key) use ($activeTab): string {
+        return $activeTab === $key
+            ? 'btn btn-sm btn-primary'
+            : 'btn btn-sm btn-outline-primary';
+    },
+];
 ?>
 
 <style>
@@ -77,12 +86,14 @@ $buttonClass = static function (string $key) use ($activeTab): string {
   }
 </style>
 
-<?php foreach ($groups as $group): ?>
+<?php foreach ($groups as $group):
+    $btnFn = $buttonClass[$group['label']] ?? $stdBtn;
+?>
   <div class="d-flex flex-wrap gap-2 align-items-start mb-2 component-workbench-group">
     <div class="component-workbench-label"><?php echo html_escape((string)$group['label']); ?></div>
     <div class="d-flex flex-wrap gap-2">
       <?php foreach ($group['links'] as $link): ?>
-        <a href="<?php echo $link['url']; ?>" class="<?php echo $buttonClass((string)$link['key']); ?>"><?php echo html_escape((string)$link['label']); ?></a>
+        <a href="<?php echo $link['url']; ?>" class="<?php echo $btnFn((string)$link['key']); ?>"><?php echo html_escape((string)$link['label']); ?></a>
       <?php endforeach; ?>
     </div>
   </div>
