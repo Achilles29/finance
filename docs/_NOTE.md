@@ -125,16 +125,29 @@ perbaiki tampilan halaman:
     --- generate sok opname dan stok awal harusnya jadi1 bukan terpisah. artinya setiap generate stok opname otomatis generate stok awal bulan berikutnya
     --- gabungkan divisi dan komponen agar efisien
     --- baris judul tabel belum ter freeze ketika di scroll ke bawah 
-    --= tombol filter dan  clear keluar area. perbaiki!
-    -- tambahkan filter baris dan pagination, default 25 baris
-    -- kolom ringkasan masih belum ter freeze di google chrome
+    --- tombol filter dan  clear keluar area. perbaiki!
+    --- tambahkan filter baris dan pagination, default 25 baris
+    --- kolom ringkasan masih belum ter freeze di google chrome
+
+
 
 
 3. /production/component-daily-recon
-    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
     -- tambahkan button modul generate stok opname dan stok awal yang sudah dibuat. taruh di samping tab filter jenis component. beri warna mencolok.
+
+
+
+/production/component-daily-recon 
+- hilangkan tulisan 118 item dibawah aksi cepat
+- tambahkan filter lokasi dan tampilan lokasi di bawah divisi
+- tambahkan clear filter di kanan tampilkan
+- tampilkan expand collapse untuk menampilkan child compontent yang punya lebih dari 1 lot. dan adjustmen dilakukan di child nya
+
+adjustmen jenis dan reason seragam dan sesuai database. 
+
+
 4. /production/component-stock
-    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+
     -- buat halamannya scrollabel atas bawah seperti pada /production/component-monthly tapi di freeze di judul tabelnya
     -- tambahkan filter divisi sebelum lokasi
     -- tambahkan filter baris, default 25
@@ -142,6 +155,15 @@ perbaiki tampilan halaman:
     -- hapus button Lot FIFO di pojok kanan atas
     -- ringkas tampilan tabel agar tinggi baris tidak terlalu tinggi. kejutkan saya (Divisi , lokasi dan TIPE bisa dijadikan 1 kolom agar tidak terlalau banyak kolom)
     -- Cost lot aktif masih seragam. bisa digeser agar tidak mempertinggi baris
+    -- tambahkan card card ringkasan dari data yang berguna untuk analisa
+
+------- lot aktif taruh samping
+
+
+
+
+
+
 5. /production/component-monthly
     -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
     --  halamannya sudah  scrollabel atas bawah tapi belum di freeze di judul tabelnya. perbaiki agar freeze ketika di scroll ke bawah
@@ -206,3 +228,10 @@ perbaiki tampilan halaman:
     -- sesuaikan lebar tabel agar tidak perlu di scroll kanan kiri. karena banyak kolom yang ukurannya terlalu lebar sehingga tidak efisien
 
 
+guarding generate sok tidak bisa kalau ada yang minus
+
+
+di inv_component_monthly_stock ada beberapa jenis adjustment, waste, spoil, plus, minus. sedangkan di inv_division_monthly_stock lebih banyak (discarded, spoil, waste, process_loss, variance, plus, minus)
+
+
+adjustmen divisi belum sesuai pilihan di inv_division_monthly_stock

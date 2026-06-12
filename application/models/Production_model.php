@@ -315,6 +315,7 @@ class Production_model extends CI_Model
         $q = trim((string)($filters['q'] ?? ''));
         $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
         $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
         $divisionNameColumn = $this->division_name_column();
         $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
@@ -352,6 +353,9 @@ class Production_model extends CI_Model
             $this->db->join('mst_component_category cat', 'cat.id = c.component_category_id', 'left');
 
             $this->apply_component_location_filter('s.location_type', $locationType);
+            if ($divisionId > 0) {
+                $this->db->where('s.division_id', $divisionId);
+            }
             if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
                 $this->db->where('c.component_type', $componentType);
             }

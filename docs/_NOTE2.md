@@ -108,3 +108,9 @@ Jadi bentuk yang saya sarankan:
 nanti di kasir ada scope order
 Regular
 Event
+
+
+- cek PH belum masuk gajinya
+- laporan utang piutang
+- laporan kasbon
+- laporan keuangan

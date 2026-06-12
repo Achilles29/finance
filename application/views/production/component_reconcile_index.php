@@ -132,6 +132,18 @@ $statusChip = static function (array $row): array {
 <div class="mb-3">
   <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'reconcile']); ?>
 </div>
+<?php $this->load->view('production/_component_type_tabs', [
+  'component_type_base_url' => site_url('production/component-reconcile'),
+  'component_type_filters'  => $filters,
+  'component_type_active'   => (string)($filters['type'] ?? ''),
+]); ?>
+<?php $this->load->view('production/_component_action_buttons', [
+  'component_action_params' => array_filter([
+    'month'         => (string)($filters['month'] ?? ''),
+    'division_id'   => !empty($filters['division_id']) ? (int)$filters['division_id'] : '',
+    'location_type' => (string)($filters['location_type'] ?? ''),
+  ], static fn($v) => $v !== '' && $v !== 0 && $v !== '0'),
+]); ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>

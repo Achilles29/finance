@@ -44,6 +44,18 @@ $locLabel = static function (string $loc): string {
 </div>
 
 <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'opname']); ?>
+<?php $this->load->view('production/_component_type_tabs', [
+  'component_type_base_url' => site_url('production/component-opname'),
+  'component_type_filters'  => $filters,
+  'component_type_active'   => (string)($filters['type'] ?? ''),
+]); ?>
+<?php $this->load->view('production/_component_action_buttons', [
+  'component_action_params' => array_filter([
+    'month'         => (string)($filters['month'] ?? ''),
+    'division_id'   => !empty($filters['division_id']) ? (int)$filters['division_id'] : '',
+    'location_type' => (string)($filters['location_type'] ?? ''),
+  ], static fn($v) => $v !== '' && $v !== 0 && $v !== '0'),
+]); ?>
 
 <div class="card mb-3">
   <div class="card-body">

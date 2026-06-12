@@ -73,21 +73,16 @@ $dailyMatrixColspan = (int)(4 + count($dates));
   .component-daily-matrix-shell {
     border: 1px solid #e8d2c3;
     border-radius: 18px;
-    overflow: hidden; /* fallback */
-    overflow: clip;   /* tidak membentuk scroll container, hanya clip visual */
+    overflow: hidden;
     background:
       radial-gradient(circle at top right, rgba(232, 123, 72, .08), transparent 28%),
       linear-gradient(180deg, #fffaf5 0%, #fff 100%);
     box-shadow: 0 18px 36px -30px rgba(95, 53, 39, .45), inset 0 0 0 1px rgba(255, 255, 255, .55);
   }
-  .component-daily-matrix-outer-vscroll {
+  /* Single scroll container — both axes in one element so position:sticky works in Chrome */
+  .component-daily-matrix-scroll {
     max-height: 74vh;
-    overflow-y: auto;
-    overflow-x: clip;
-  }
-  .component-daily-matrix-wrap {
-    overflow-x: auto;
-    overflow-y: visible;
+    overflow: auto;
   }
   .component-daily-matrix {
     min-width: 2280px;
@@ -167,6 +162,10 @@ $dailyMatrixColspan = (int)(4 + count($dates));
     background: linear-gradient(180deg, #ffb29d 0%, #ff8f73 100%) !important;
     color: #5d160d !important;
     border-bottom-color: #df6847 !important;
+  }
+  /* Visual grouping separator between different components */
+  tr[style*="border-top"] > td {
+    border-top: 2px solid #e8d2c3 !important;
   }
   .component-daily-today-soft {
     background: #fff1ec !important;
@@ -586,7 +585,7 @@ $dailyMatrixColspan = (int)(4 + count($dates));
     .component-daily-matrix-shell {
       border-radius: 12px;
     }
-    .component-daily-matrix-wrap {
+    .component-daily-matrix-scroll {
       max-height: none;
     }
     .component-adjust-modal-dialog {
@@ -654,13 +653,13 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
     <form method="get" action="<?php echo site_url('production/component-daily'); ?>" class="row g-2 align-items-end">
       <div class="col-md-3">
         <label class="form-label mb-1">Cari</label>
-        <input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Nama component / divisi">
+        <input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Nama component / divisi / kode">
       </div>
-      <div class="col-md-2">
+      <div class="col-sm-6 col-md-2">
         <label class="form-label mb-1">Bulan</label>
         <input type="month" name="month" class="form-control" value="<?php echo html_escape($selectedMonth); ?>">
       </div>
-      <div class="col-md-3">
+      <div class="col-sm-6 col-md-2">
         <label class="form-label mb-1">Divisi</label>
         <select name="division_id" class="form-select">
           <option value="0">Semua Divisi</option>
@@ -670,7 +669,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-md-2">
+      <div class="col-sm-6 col-md-2">
         <label class="form-label mb-1">Lokasi</label>
         <select name="location_type" class="form-select">
           <?php foreach ($locationFilterOptions as $key => $label): ?>
@@ -678,7 +677,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-md-1">
+      <div class="col-sm-6 col-md-1">
         <label class="form-label mb-1">Per Hal.</label>
         <select id="cdPerPage" class="form-select" name="per_page">
           <?php $selPP = (int)($filters['per_page'] ?? 25); ?>
@@ -689,9 +688,9 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-md-1 d-flex gap-2">
+      <div class="col-sm-auto col-md-auto d-flex gap-2 align-items-end">
         <button type="submit" class="btn btn-outline-primary">Filter</button>
-        <a href="<?php echo site_url('production/component-daily'); ?>" class="btn btn-outline-danger">Clear</a>
+        <a href="<?php echo site_url('production/component-daily'); ?>" class="btn btn-outline-secondary">Clear</a>
       </div>
     </form>
   </div>
@@ -700,8 +699,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
 <div class="card">
   <div class="card-body p-2">
     <div class="component-daily-matrix-shell">
-    <div class="component-daily-matrix-outer-vscroll" id="componentDailyOuterScroll">
-    <div class="component-daily-matrix-wrap" id="componentDailyMatrixWrap">
+    <div class="component-daily-matrix-scroll" id="componentDailyMatrixWrap">
       <table class="table table-sm table-striped component-daily-matrix">
         <thead>
           <tr>
@@ -734,6 +732,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
               <td colspan="<?php echo $dailyMatrixColspan; ?>" class="text-center text-muted py-4">Belum ada data daily komponen pada filter ini.</td>
             </tr>
           <?php else: ?>
+            <?php $prevGroupKey = null; ?>
             <?php foreach ($rows as $rowIndex => $row): ?>
               <?php $lotSummary = is_array($row['lot_summary'] ?? null) ? $row['lot_summary'] : []; ?>
               <?php $lotRows = array_values((array)($lotSummary['rows'] ?? [])); ?>
@@ -743,10 +742,19 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
               <?php $summaryClosingQty = (float)($row['total_closing'] ?? 0); ?>
               <?php $summaryAvgCost = (float)($row['avg_cost'] ?? 0); ?>
               <?php $summaryTotalValue = (float)($row['total_value'] ?? 0); ?>
-              <tr data-cd-parent-row="<?php echo (int)$rowIndex; ?>" data-cd-lot-toggle="<?php echo html_escape($lotToggleId); ?>">
+              <?php $groupKey = ((int)($row['component_id'] ?? 0)) . '|' . ((int)($row['uom_id'] ?? 0)); ?>
+              <?php $isGroupStart = $groupKey !== $prevGroupKey; ?>
+              <?php $prevGroupKey = $groupKey; ?>
+              <tr data-cd-parent-row="<?php echo (int)$rowIndex; ?>" data-cd-lot-toggle="<?php echo html_escape($lotToggleId); ?>"<?php if ($isGroupStart && $rowIndex > 0): ?> style="border-top:2px solid #e8d2c3"<?php endif; ?>>
                 <td class="component-daily-fixed">
-                  <div><a href="<?php echo html_escape($buildLotUrl((array)$row, 'ALL')); ?>" class="fw-semibold text-decoration-none"><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></a></div>
-                  <small class="text-muted"><?php echo html_escape((string)($row['component_type'] ?? '-')); ?> • <?php echo html_escape((string)($row['uom_code'] ?? '')); ?></small>
+                  <?php if ($isGroupStart): ?>
+                    <div><a href="<?php echo html_escape($buildLotUrl((array)$row, 'ALL')); ?>" class="fw-semibold text-decoration-none"><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></a></div>
+                    <small class="text-muted"><?php echo html_escape((string)($row['component_type'] ?? '-')); ?> • <?php echo html_escape((string)($row['uom_code'] ?? '')); ?></small>
+                  <?php else: ?>
+                    <div class="text-muted ps-2" style="border-left:3px solid #e8d2c3;font-size:.78rem">
+                      <i class="ri ri-corner-down-right-line"></i> <?php echo html_escape((string)($row['component_name'] ?? '-')); ?>
+                    </div>
+                  <?php endif; ?>
                 </td>
                 <td class="component-daily-fixed-2">
                   <div><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></div>
@@ -1032,7 +1040,6 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
           <?php endif; ?>
         </tbody>
       </table>
-    </div>
     </div>
     </div>
     <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mt-2 px-2 pb-1 border-top pt-2">

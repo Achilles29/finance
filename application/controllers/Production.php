@@ -21,13 +21,14 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.stock.index', 'view');
         $filters = $this->stock_filters();
-        $rows = $this->Production_model->component_stock_rows($filters, 200);
+        $rows = $this->Production_model->component_stock_rows($filters, 500);
 
         $this->render('production/component_stock_index', [
-            'page_title' => 'Stok Base/Prepare',
-            'rows' => $rows,
-            'filters' => $filters,
+            'page_title'       => 'Stok Base/Prepare',
+            'rows'             => $rows,
+            'filters'          => $filters,
             'location_options' => $this->location_options(),
+            'divisions'        => $this->active_divisions(),
         ]);
     }
 
@@ -857,7 +858,7 @@ class Production extends MY_Controller
         $this->require_permission('production.component.batch.index', 'view');
         $today      = date('Y-m-d');
         $q          = trim((string)$this->input->get('q', true));
-        $dateFrom   = trim((string)($this->input->get('date_from', true) ?: $today));
+        $dateFrom   = trim((string)($this->input->get('date_from', true) ?: date('Y-m-01')));
         $dateTo     = trim((string)($this->input->get('date_to', true) ?: $today));
         $divisionId = (int)$this->input->get('division_id', true);
         $locType       = strtoupper(trim((string)$this->input->get('location_type', true)));
@@ -1539,25 +1540,56 @@ class Production extends MY_Controller
 
         $stockRows = ($r = $this->db->query($sql)) ? $r->result_array() : [];
 
-        // Load physical counts for this opname date
-        $opnameMap = [];
-        if ($this->db->table_exists('inv_component_stock_opname')) {
-            $opnameQ = $this->db->select('location_type, division_id, component_id, uom_id, physical_qty, notes, adjustment_id')
-                ->from('inv_component_stock_opname')
-                ->where('opname_date', $opnameDate);
-            if ($divisionId > 0) {
-                $opnameQ->where('division_id', $divisionId);
-            }
-            if ($locationType !== '') {
-                $opnameQ->where('location_type', $locationType);
-            }
-            foreach ($opnameQ->get()->result_array() as $row) {
-                $k = $row['location_type'] . '|' . $row['division_id'] . '|' . $row['component_id'] . '|' . $row['uom_id'];
-                $opnameMap[$k] = $row;
+        // ── Load lot data for multi-lot expand/collapse ───────────────────────
+        // Key: "compId|uomId|divId" — location_type sengaja diabaikan agar
+        // match tetap benar meski monthly_stock menyimpan REGULER/EVENT sementara
+        // inv_component_lot menyimpan BAR/KITCHEN/BAR_EVENT/KITCHEN_EVENT.
+        $lotsByKey = [];
+        if ($this->db->table_exists('inv_component_lot') && !empty($stockRows)) {
+            $compIds = implode(',', array_unique(array_map('intval', array_column($stockRows, 'component_id'))));
+            $lotSql  = "
+                SELECT l.id AS lot_id, l.lot_no, l.location_type AS lot_location_type,
+                       l.division_id, l.component_id, l.uom_id,
+                       l.qty_balance AS system_qty, l.unit_cost,
+                       l.receipt_date, l.expiry_date
+                FROM inv_component_lot l
+                WHERE l.component_id IN ({$compIds})
+                  AND l.status = 'OPEN'
+                ORDER BY l.receipt_date ASC, l.id ASC
+            ";
+            $lotResult = $this->db->query($lotSql);
+            foreach ($lotResult ? $lotResult->result_array() : [] as $lot) {
+                // Key pakai compId|uomId|divId saja, bebas dari ambiguitas location_type
+                $lk = (int)$lot['component_id'] . '|' . (int)$lot['uom_id'] . '|' . (int)$lot['division_id'];
+                $lotsByKey[$lk][] = $lot;
             }
         }
 
-        // Group by division+location_type
+        // ── Load physical counts for this opname date ─────────────────────────
+        $opnameMap    = [];
+        $lotOpnameMap = [];  // keyed: parentKey => [lot_id => row]
+        $hasLotIdCol  = $this->db->field_exists('lot_id', 'inv_component_stock_opname');
+
+        if ($this->db->table_exists('inv_component_stock_opname')) {
+            $selCols = 'location_type, division_id, component_id, uom_id, physical_qty, notes, adjustment_id'
+                       . ($hasLotIdCol ? ', lot_id' : '');
+            $opnameQ = $this->db->select($selCols)
+                ->from('inv_component_stock_opname')
+                ->where('opname_date', $opnameDate);
+            if ($divisionId > 0) $opnameQ->where('division_id', $divisionId);
+            if ($locationType !== '') $opnameQ->where('location_type', $locationType);
+            foreach ($opnameQ->get()->result_array() as $oRow) {
+                $lotId = $hasLotIdCol ? (int)($oRow['lot_id'] ?? 0) : 0;
+                $k = $oRow['location_type'] . '|' . $oRow['division_id'] . '|' . $oRow['component_id'] . '|' . $oRow['uom_id'];
+                if ($lotId > 0) {
+                    $lotOpnameMap[$k][$lotId] = $oRow;
+                } else {
+                    $opnameMap[$k] = $oRow;
+                }
+            }
+        }
+
+        // ── Group by division+location_type ───────────────────────────────────
         $groups = [];
         foreach ($stockRows as $r) {
             $divId   = (int)$r['division_id'];
@@ -1568,6 +1600,35 @@ class Production extends MY_Controller
             $physQty = ($opname !== null && $opname['physical_qty'] !== null)
                 ? (float)$opname['physical_qty'] : null;
             $selisih = $physQty !== null ? round($physQty - $sysQty, 4) : null;
+
+            // Build lot sub-rows for multi-lot components
+            $lotLookupKey = (int)$r['component_id'] . '|' . (int)$r['uom_id'] . '|' . $divId;
+            $rawLots      = $lotsByKey[$lotLookupKey] ?? [];
+            $lotCount     = count($rawLots);
+            $lotSubRows = [];
+            if ($lotCount > 1) {
+                $lotOpnamesForKey = $lotOpnameMap[$ikey] ?? [];
+                foreach ($rawLots as $lot) {
+                    $lotId     = (int)$lot['lot_id'];
+                    $lotSysQty = (float)$lot['system_qty'];
+                    $lotOpname = $lotOpnamesForKey[$lotId] ?? null;
+                    $lotPhys   = ($lotOpname && $lotOpname['physical_qty'] !== null) ? (float)$lotOpname['physical_qty'] : null;
+                    $lotSel    = $lotPhys !== null ? round($lotPhys - $lotSysQty, 4) : null;
+                    $lotSubRows[] = [
+                        'lot_id'            => $lotId,
+                        'lot_no'            => (string)$lot['lot_no'],
+                        'lot_specific_type' => (string)$lot['lot_location_type'],
+                        'receipt_date'      => (string)$lot['receipt_date'],
+                        'expiry_date'       => (string)($lot['expiry_date'] ?? ''),
+                        'unit_cost'         => (float)$lot['unit_cost'],
+                        'identity_key'      => $ikey . '|' . $lotId,
+                        'system_qty'        => $lotSysQty,
+                        'physical_qty'      => $lotPhys,
+                        'selisih'           => $lotSel,
+                        'adjustment_id'     => ($lotOpname && !empty($lotOpname['adjustment_id'])) ? (int)$lotOpname['adjustment_id'] : null,
+                    ];
+                }
+            }
 
             $row = [
                 'location_type'  => $locType,
@@ -1589,6 +1650,8 @@ class Production extends MY_Controller
                 'opname_notes'   => (string)($opname['notes'] ?? ''),
                 'adjustment_id'  => ($opname && !empty($opname['adjustment_id']))
                     ? (int)$opname['adjustment_id'] : null,
+                'lot_count'      => $lotCount,
+                'lots'           => $lotSubRows,
             ];
 
             $gkey = $divId . '|' . $locType;
@@ -1629,6 +1692,7 @@ class Production extends MY_Controller
         $divisionId  = !empty($payload['division_id']) ? (int)$payload['division_id'] : null;
         $componentId = (int)($payload['component_id'] ?? 0);
         $uomId       = (int)($payload['uom_id'] ?? 0);
+        $lotId       = (int)($payload['lot_id'] ?? 0);
         $physQty     = isset($payload['physical_qty']) && $payload['physical_qty'] !== ''
             ? round((float)$payload['physical_qty'], 4) : null;
         $notes       = trim((string)($payload['notes'] ?? ''));
@@ -1643,8 +1707,9 @@ class Production extends MY_Controller
             return;
         }
 
-        $systemQty = (float)($payload['system_qty'] ?? 0);
-        $selisih   = $physQty !== null ? round($physQty - $systemQty, 4) : null;
+        $hasLotIdCol = $this->db->field_exists('lot_id', 'inv_component_stock_opname');
+        $systemQty   = (float)($payload['system_qty'] ?? 0);
+        $selisih     = $physQty !== null ? round($physQty - $systemQty, 4) : null;
 
         $q = $this->db
             ->where('opname_date', $opnameDate)
@@ -1654,9 +1719,11 @@ class Production extends MY_Controller
         } else {
             $q->where('division_id IS NULL', null, false);
         }
-        $existing = $q->where('component_id', $componentId)
-                      ->where('uom_id', $uomId)
-                      ->get('inv_component_stock_opname')->row_array();
+        $q->where('component_id', $componentId)->where('uom_id', $uomId);
+        if ($hasLotIdCol) {
+            $q->where('lot_id', $lotId > 0 ? $lotId : 0);
+        }
+        $existing = $q->get('inv_component_stock_opname')->row_array();
 
         if ($existing) {
             $this->db->where('id', (int)$existing['id'])->update('inv_component_stock_opname', [
@@ -1666,7 +1733,7 @@ class Production extends MY_Controller
                 'updated_at'   => date('Y-m-d H:i:s'),
             ]);
         } else {
-            $this->db->insert('inv_component_stock_opname', [
+            $insertData = [
                 'opname_date'   => $opnameDate,
                 'location_type' => $locationType,
                 'division_id'   => $divisionId,
@@ -1676,7 +1743,9 @@ class Production extends MY_Controller
                 'physical_qty'  => $physQty,
                 'notes'         => $notes !== '' ? $notes : null,
                 'created_by'    => $userId > 0 ? $userId : null,
-            ]);
+            ];
+            if ($hasLotIdCol) $insertData['lot_id'] = $lotId > 0 ? $lotId : 0;
+            $this->db->insert('inv_component_stock_opname', $insertData);
         }
 
         $this->json_ok(['selisih' => $selisih, 'physical_qty' => $physQty]);
@@ -1801,14 +1870,17 @@ class Production extends MY_Controller
 
         // Tag daily-recon record
         if ($this->db->table_exists('inv_component_stock_opname') && $adjId > 0) {
+            $lotIdAdj    = !empty($payload['lot_id']) ? (int)$payload['lot_id'] : 0;
+            $hasLotIdAdj = $this->db->field_exists('lot_id', 'inv_component_stock_opname');
             $q = $this->db->where('opname_date', $opnameDate)->where('location_type', $locationType);
             if ($divisionId !== null) {
                 $q->where('division_id', $divisionId);
             } else {
                 $q->where('division_id IS NULL', null, false);
             }
-            $q->where('component_id', $componentId)->where('uom_id', $uomId)
-              ->update('inv_component_stock_opname', ['adjustment_id' => $adjId]);
+            $q->where('component_id', $componentId)->where('uom_id', $uomId);
+            if ($hasLotIdAdj) $q->where('lot_id', $lotIdAdj > 0 ? $lotIdAdj : 0);
+            $q->update('inv_component_stock_opname', ['adjustment_id' => $adjId]);
         }
 
         $this->json_ok(['adjustment_id' => $adjId]);
@@ -1816,10 +1888,16 @@ class Production extends MY_Controller
 
     private function stock_filters()
     {
+        $perPage = (int)$this->input->get('per_page', true);
+        if (!in_array($perPage, [25, 50, 100, 200, 0], true)) {
+            $perPage = 25;
+        }
         return [
-            'q' => trim((string)$this->input->get('q', true)),
+            'q'             => trim((string)$this->input->get('q', true)),
             'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
-            'type' => $this->normalize_component_type_filter($this->input->get('type', true)),
+            'type'          => $this->normalize_component_type_filter($this->input->get('type', true)),
+            'division_id'   => (int)$this->input->get('division_id', true),
+            'per_page'      => $perPage,
         ];
     }
 

@@ -64,6 +64,13 @@ $REASONS = [
     ],
     'component_type_active' => $selType,
 ]); ?>
+<?php $this->load->view('production/_component_action_buttons', [
+    'component_action_params' => array_filter([
+        'month'         => substr($reconDate, 0, 7),
+        'location_type' => $selLocType,
+        'division_id'   => $selDivId > 0 ? $selDivId : '',
+    ], static fn($v) => $v !== '' && $v !== 0 && $v !== '0'),
+]); ?>
 
 <style>
 #cmpTableWrap table  { border-collapse:collapse; width:100%; }
@@ -91,10 +98,6 @@ $REASONS = [
 .cmp-adj-col    { min-width:200px; }
 .filter-on      { background:#2563eb !important; color:#fff !important; border-color:#2563eb !important; }
 </style>
-
-<div class="d-flex align-items-center gap-2 mb-2">
-  <span class="badge bg-secondary" id="cmpBadgeTotal">—</span>
-</div>
 
 <!-- Filter -->
   <form id="cmpForm" method="get" action="<?php echo site_url('production/component-daily-recon'); ?>"
@@ -134,6 +137,10 @@ $REASONS = [
       <button type="submit" class="btn btn-sm btn-primary">
         <i class="ri ri-search-line me-1"></i>Tampilkan
       </button>
+      <a href="<?php echo site_url('production/component-daily-recon'); ?>"
+         class="btn btn-sm btn-outline-warning ms-1">
+        <i class="ri ri-refresh-line"></i> Clear
+      </a>
     </div>
   </form>
 
@@ -171,8 +178,7 @@ $REASONS = [
     <table class="table table-sm mb-0">
       <thead>
         <tr>
-          <th style="width:80px">Divisi</th>
-          <th style="width:64px">Tipe</th>
+          <th style="width:100px">Divisi / Lokasi</th>
           <th style="width:68px">Jenis</th>
           <th class="text-start" style="min-width:190px">Nama Component</th>
           <th style="width:54px">UOM</th>
@@ -184,7 +190,7 @@ $REASONS = [
         </tr>
       </thead>
       <tbody id="cmpTbody">
-        <tr><td colspan="10" class="text-center text-muted py-4">Memuat data…</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-4">Memuat data…</td></tr>
       </tbody>
     </table>
   </div>
@@ -291,6 +297,21 @@ function actionCell(row, iid) {
     return `<td id="acell-${iid}"></td>`;
 }
 
+// ── Expand / collapse lots ────────────────────────────────────
+window.cmpToggleLots = function (iid) {
+    const btn  = el('expand-' + iid);
+    const open = btn && btn.dataset.expanded === 'true';
+    document.querySelectorAll('.lot-child-' + iid).forEach(function (r) {
+        r.style.display = open ? 'none' : '';
+    });
+    if (btn) {
+        btn.dataset.expanded = open ? 'false' : 'true';
+        btn.innerHTML = open
+            ? '<i class="ri ri-arrow-right-s-line"></i> ' + btn.dataset.lotCount + ' lot'
+            : '<i class="ri ri-arrow-down-s-line"></i> ' + btn.dataset.lotCount + ' lot';
+    }
+};
+
 // ── Render table ──────────────────────────────────────────────
 function renderTable(groups) {
     const tbody = el('cmpTbody');
@@ -301,41 +322,125 @@ function renderTable(groups) {
 
     groups.forEach(function (grp) {
         grp.rows.forEach(function (row) {
-            const iid = cssid(row.identity_key);
+            const iid        = cssid(row.identity_key);
+            const isMultiLot = row.lot_count > 1 && Array.isArray(row.lots) && row.lots.length > 1;
+
             profileMap[iid] = row;
             total++;
             if (row.component_type === 'BASE') base++; else prep++;
-            if (row.physical_qty !== null) counted++;
-            if (parseFloat(row.system_qty) < -0.001) minus++;
 
-            const rowCls  = parseFloat(row.system_qty) < -0.001 ? 'cmp-row-minus' : '';
-            const physVal = row.physical_qty !== null ? row.physical_qty : '';
+            if (isMultiLot) {
+                // ── PARENT row (no input, expand button) ─────────────────
+                html += `<tr id="row-${iid}" class="" data-system-val="${row.system_qty}" data-div-id="${row.division_id}" style="background:#fdf6f0">
+                    <td class="cmp-div-cell">
+                        <div>${esc(row.division_name)}</div>
+                        <div class="mt-1">${tipeBadge(row.location_type)}</div>
+                    </td>
+                    <td>${jenisBadge(row.component_type)}</td>
+                    <td class="text-start">${buildLabel(row)}</td>
+                    <td class="text-muted" style="font-size:.8rem">${esc(row.uom_code || '—')}</td>
+                    <td class="text-end" style="font-size:.85rem;color:#64748b">${fmt4(row.system_qty)}</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td class="text-center">
+                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                                id="expand-${iid}" data-expanded="false" data-lot-count="${row.lot_count}"
+                                onclick="cmpToggleLots('${iid}')">
+                            <i class="ri ri-arrow-right-s-line"></i> ${row.lot_count} lot
+                        </button>
+                    </td>
+                </tr>`;
 
-            html += `<tr id="row-${iid}" class="${rowCls}"
-                         data-system-val="${row.system_qty}" data-div-id="${row.division_id}">
-                <td class="cmp-div-cell">${esc(row.division_name)}</td>
-                <td>${tipeBadge(row.location_type)}</td>
-                <td>${jenisBadge(row.component_type)}</td>
-                <td class="text-start">${buildLabel(row)}</td>
-                <td class="text-muted" style="font-size:.8rem">${esc(row.uom_code || '—')}</td>
-                <td class="text-end" style="font-size:.85rem">${fmt4(row.system_qty)}</td>
-                <td class="text-end">
-                    <input type="number" class="form-control form-control-sm text-end"
-                           style="width:88px;display:inline-block"
-                           step="0.01" value="${esc(physVal)}" placeholder="—"
-                           data-iid="${iid}" data-sys="${row.system_qty}"
-                           oninput="cmpLiveCalc(this,'${iid}')"
-                           onchange="cmpSavePhys('${iid}')"
-                           ${!CAN_CREATE ? 'disabled' : ''}>
-                </td>
-                <td class="text-end">${selisihHtml(row.selisih, iid)}</td>
-                ${adjColHtml(row, iid)}
-                ${actionCell(row, iid)}
-            </tr>`;
+                // ── CHILD rows (one per lot, hidden by default) ───────────
+                row.lots.forEach(function (lot) {
+                    const lotIid = cssid(lot.identity_key);
+                    profileMap[lotIid] = {
+                        location_type: row.location_type,
+                        division_id:   row.division_id,
+                        division_name: row.division_name,
+                        division_code: row.division_code,
+                        component_id:  row.component_id,
+                        uom_id:        row.uom_id,
+                        uom_code:      row.uom_code,
+                        component_type: row.component_type,
+                        lot_id:        lot.lot_id,
+                        lot_no:        lot.lot_no,
+                        identity_key:  lot.identity_key,
+                        system_qty:    lot.system_qty,
+                        avg_cost:      lot.unit_cost,
+                        physical_qty:  lot.physical_qty,
+                        selisih:       lot.selisih,
+                        adjustment_id: lot.adjustment_id,
+                    };
+
+                    if (lot.physical_qty !== null) counted++;
+                    if (parseFloat(lot.system_qty) < -0.001) minus++;
+
+                    const lotPhysVal = lot.physical_qty !== null ? lot.physical_qty : '';
+                    const lotCls     = parseFloat(lot.system_qty) < -0.001 ? 'cmp-row-minus' : '';
+
+                    html += `<tr id="row-${lotIid}" class="lot-child lot-child-${iid} ${lotCls}"
+                                 style="display:none" data-system-val="${lot.system_qty}" data-div-id="${row.division_id}">
+                        <td class="cmp-div-cell" style="padding-left:20px;border-left:3px solid #e2e8f0">
+                            <div class="text-muted fw-semibold" style="font-size:.72rem">└ ${esc(lot.lot_no)}</div>
+                            <div class="text-muted" style="font-size:.67rem">${esc(lot.receipt_date || '')}</div>
+                        </td>
+                        <td></td>
+                        <td class="text-muted" style="font-size:.76rem;padding-left:4px">${esc(lot.lot_no)}</td>
+                        <td class="text-muted" style="font-size:.8rem">${esc(row.uom_code || '—')}</td>
+                        <td class="text-end" style="font-size:.85rem">${fmt4(lot.system_qty)}</td>
+                        <td class="text-end">
+                            <input type="number" class="form-control form-control-sm text-end"
+                                   style="width:88px;display:inline-block"
+                                   step="0.01" value="${esc(lotPhysVal)}" placeholder="—"
+                                   data-iid="${lotIid}" data-sys="${lot.system_qty}"
+                                   oninput="cmpLiveCalc(this,'${lotIid}')"
+                                   onchange="cmpSavePhys('${lotIid}')"
+                                   ${!CAN_CREATE ? 'disabled' : ''}>
+                        </td>
+                        <td class="text-end">${selisihHtml(lot.selisih, lotIid)}</td>
+                        ${adjColHtml(profileMap[lotIid], lotIid)}
+                        ${actionCell(profileMap[lotIid], lotIid)}
+                    </tr>`;
+                });
+
+            } else {
+                // ── NORMAL row (existing behavior) ────────────────────────
+                if (row.physical_qty !== null) counted++;
+                if (parseFloat(row.system_qty) < -0.001) minus++;
+
+                const rowCls  = parseFloat(row.system_qty) < -0.001 ? 'cmp-row-minus' : '';
+                const physVal = row.physical_qty !== null ? row.physical_qty : '';
+
+                html += `<tr id="row-${iid}" class="${rowCls}"
+                             data-system-val="${row.system_qty}" data-div-id="${row.division_id}">
+                    <td class="cmp-div-cell">
+                        <div>${esc(row.division_name)}</div>
+                        <div class="mt-1">${tipeBadge(row.location_type)}</div>
+                    </td>
+                    <td>${jenisBadge(row.component_type)}</td>
+                    <td class="text-start">${buildLabel(row)}</td>
+                    <td class="text-muted" style="font-size:.8rem">${esc(row.uom_code || '—')}</td>
+                    <td class="text-end" style="font-size:.85rem">${fmt4(row.system_qty)}</td>
+                    <td class="text-end">
+                        <input type="number" class="form-control form-control-sm text-end"
+                               style="width:88px;display:inline-block"
+                               step="0.01" value="${esc(physVal)}" placeholder="—"
+                               data-iid="${iid}" data-sys="${row.system_qty}"
+                               oninput="cmpLiveCalc(this,'${iid}')"
+                               onchange="cmpSavePhys('${iid}')"
+                               ${!CAN_CREATE ? 'disabled' : ''}>
+                    </td>
+                    <td class="text-end">${selisihHtml(row.selisih, iid)}</td>
+                    ${adjColHtml(row, iid)}
+                    ${actionCell(row, iid)}
+                </tr>`;
+            }
         });
     });
 
-    tbody.innerHTML = html || `<tr><td colspan="10" class="text-center text-muted py-4">Tidak ada data.</td></tr>`;
+    tbody.innerHTML = html || `<tr><td colspan="9" class="text-center text-muted py-4">Tidak ada data.</td></tr>`;
 
     const s = (id, v) => { const e = el(id); if (e) e.textContent = v; };
     s('smTotal',   total);
@@ -418,6 +523,7 @@ window.cmpSavePhys = function (iid) {
             division_id:   row.division_id || null,
             component_id:  row.component_id,
             uom_id:        row.uom_id,
+            lot_id:        row.lot_id || 0,
             system_qty:    row.system_qty,
             physical_qty:  physVal,
         }),
@@ -452,6 +558,7 @@ window.cmpPostAdj = function (iid) {
             division_code:   row.division_code,
             component_id:    row.component_id,
             uom_id:          row.uom_id,
+            lot_id:          row.lot_id || 0,
             system_qty:      row.system_qty,
             physical_qty:    row.physical_qty,
             avg_cost:        row.avg_cost,
@@ -515,7 +622,7 @@ function loadData() {
             if (spinner) spinner.style.display = 'none';
             if (!data.ok) {
                 if (errMsg)  { errMsg.textContent = data.message || 'Gagal.'; errMsg.style.display = ''; }
-                if (tbody)   tbody.innerHTML = `<tr><td colspan="10" class="text-center text-danger py-4">Gagal memuat data.</td></tr>`;
+                if (tbody)   tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">Gagal memuat data.</td></tr>`;
                 return;
             }
             renderTable(data.rows || []);
@@ -524,7 +631,7 @@ function loadData() {
         .catch(err => {
             if (spinner) spinner.style.display = 'none';
             if (errMsg)  { errMsg.textContent = 'Request gagal: ' + err.message; errMsg.style.display = ''; }
-            if (tbody)   tbody.innerHTML = `<tr><td colspan="10" class="text-center text-danger py-4">Request gagal.</td></tr>`;
+            if (tbody)   tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">Request gagal.</td></tr>`;
         });
 }
 

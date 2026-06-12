@@ -387,6 +387,16 @@ $rincianTabUrl = $buildTabUrl('rincian');
 </div>
 
 <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'adjustment']); ?>
+<?php $this->load->view('production/_component_type_tabs', [
+  'component_type_base_url' => site_url('production/component-adjustments'),
+  'component_type_filters'  => ['q' => $q],
+  'component_type_active'   => '',
+]); ?>
+<?php $this->load->view('production/_component_action_buttons', [
+  'component_action_params' => array_filter([
+    'location_type' => $prefillLocationType,
+  ], static fn($v) => $v !== ''),
+]); ?>
 
 <div id="component-adjustment-alert" class="mb-3"></div>
 

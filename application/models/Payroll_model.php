@@ -2508,13 +2508,19 @@ class Payroll_model extends CI_Model
     private function build_cash_advance_query(array $filters, bool $withSelect): void
     {
         if ($withSelect) {
+            $mutationCountSelect = '0 AS account_mutation_count';
+            if ($this->db->table_exists('fin_account_mutation_log')) {
+                $mutationCountSelect = "COALESCE((SELECT COUNT(*) FROM fin_account_mutation_log m WHERE m.ref_table='pay_cash_advance' AND m.ref_id=ca.id),0) AS account_mutation_count";
+            }
             $this->db->select("
                 ca.*,
                 e.employee_code,
                 e.employee_name,
                 d.division_name,
                 COALESCE((SELECT SUM(i.plan_amount) FROM pay_cash_advance_installment i WHERE i.cash_advance_id=ca.id),0) AS installment_plan_total,
-                COALESCE((SELECT SUM(i.paid_amount) FROM pay_cash_advance_installment i WHERE i.cash_advance_id=ca.id),0) AS installment_paid_total
+                COALESCE((SELECT SUM(i.paid_amount) FROM pay_cash_advance_installment i WHERE i.cash_advance_id=ca.id),0) AS installment_paid_total,
+                COALESCE((SELECT COUNT(*) FROM pay_cash_advance_installment i WHERE i.cash_advance_id=ca.id AND COALESCE(i.paid_amount,0) > 0),0) AS paid_installment_count,
+                {$mutationCountSelect}
             ", false);
         }
         $this->db->from('pay_cash_advance ca')
@@ -3125,8 +3131,9 @@ class Payroll_model extends CI_Model
         if (!$row) {
             return ['ok' => false, 'message' => 'Data kasbon tidak ditemukan.'];
         }
-        if (strtoupper((string)($row['status'] ?? 'DRAFT')) === 'SETTLED') {
-            return ['ok' => false, 'message' => 'Kasbon SETTLED tidak bisa di-VOID.'];
+        $currentStatus = strtoupper((string)($row['status'] ?? 'DRAFT'));
+        if ($currentStatus === 'VOID') {
+            return ['ok' => false, 'message' => 'Kasbon sudah VOID.'];
         }
         $hasPaid = $this->db->select('COUNT(*) AS c', false)
             ->from('pay_cash_advance_installment')
@@ -3135,6 +3142,17 @@ class Payroll_model extends CI_Model
             ->get()->row_array();
         if ((int)($hasPaid['c'] ?? 0) > 0) {
             return ['ok' => false, 'message' => 'Kasbon sudah ada pembayaran, tidak bisa di-VOID.'];
+        }
+        if ($this->db->table_exists('fin_account_mutation_log')) {
+            $hasMutation = $this->db->select('COUNT(*) AS c', false)
+                ->from('fin_account_mutation_log')
+                ->where('ref_table', 'pay_cash_advance')
+                ->where('ref_id', $id)
+                ->where('mutation_type', 'OUT')
+                ->get()->row_array();
+            if ((int)($hasMutation['c'] ?? 0) > 0) {
+                return ['ok' => false, 'message' => 'Kasbon sudah punya mutasi kas keluar, VOID otomatis diblok agar laporan keuangan tetap aman.'];
+            }
         }
 
         $append = trim((string)$notes);

@@ -1,174 +1,165 @@
 <?php
-$filters = is_array($filters ?? null) ? $filters : [];
-$rows = is_array($rows ?? null) ? $rows : [];
+$filters   = is_array($filters ?? null) ? $filters : [];
+$rows      = is_array($rows ?? null) ? $rows : [];
+$divisions = is_array($divisions ?? null) ? $divisions : [];
+
 $locationFilterOptions = ['' => 'Semua Lokasi', 'REGULER' => 'Reguler', 'EVENT' => 'Event'];
-$locationGroupLabel = static function ($locationType): string {
-  $value = strtoupper(trim((string)$locationType));
-  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') {
-    return 'Event';
-  }
-  if ($value === 'BAR' || $value === 'KITCHEN') {
-    return 'Reguler';
-  }
-  return $value !== '' ? $value : '-';
-};
-$locationFilterValue = static function ($locationType): string {
-  $value = strtoupper(trim((string)$locationType));
-  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT' || $value === 'EVENT') {
-    return 'EVENT';
-  }
-  if ($value === 'BAR' || $value === 'KITCHEN' || $value === 'REGULER') {
-    return 'REGULER';
-  }
+
+$locationFilterValue = static function ($v): string {
+  $v = strtoupper(trim((string)$v));
+  if (in_array($v, ['BAR_EVENT', 'KITCHEN_EVENT', 'EVENT'], true)) return 'EVENT';
+  if (in_array($v, ['BAR', 'KITCHEN', 'REGULER'], true)) return 'REGULER';
   return '';
 };
-$buildLotUrl = static function (array $row, string $status = 'ALL') use ($locationFilterValue): string {
-  $params = [
-    'q' => trim((string)($row['component_code'] ?? $row['component_name'] ?? '')),
-    'status' => $status,
-    'location_type' => $locationFilterValue((string)($row['location_type'] ?? '')),
-    'division_id' => !empty($row['division_id']) ? (int)$row['division_id'] : null,
-    'type' => strtoupper(trim((string)($row['component_type'] ?? ''))),
-  ];
-  return site_url('production/component-lots') . '?' . http_build_query(array_filter($params, static function ($value) {
-    return $value !== null && $value !== '';
-  }));
-};
-$lotAverageCost = static function (array $lotSummary): float {
-  $balanceQty = (float)($lotSummary['balance_qty'] ?? 0);
-  if ($balanceQty <= 0) {
-    return 0.0;
+$locBadge = static function ($v): string {
+  $v = strtoupper(trim((string)$v));
+  switch ($v) {
+    case 'BAR':           return '<span class="badge bg-info-subtle text-info px-1 py-0" style="font-size:.65rem">BAR</span>';
+    case 'KITCHEN':       return '<span class="badge bg-success-subtle text-success px-1 py-0" style="font-size:.65rem">KIT</span>';
+    case 'BAR_EVENT':     return '<span class="badge bg-danger-subtle text-danger px-1 py-0" style="font-size:.65rem">BAR Ev</span>';
+    case 'KITCHEN_EVENT': return '<span class="badge bg-warning-subtle text-warning px-1 py-0" style="font-size:.65rem">KIT Ev</span>';
+    default:              return '<span class="badge bg-secondary-subtle text-secondary px-1 py-0" style="font-size:.65rem">' . htmlspecialchars($v) . '</span>';
   }
-  return round((float)($lotSummary['total_value'] ?? 0) / $balanceQty, 6);
 };
+$typeBadge = static function ($v): string {
+  $v = strtoupper(trim((string)$v));
+  if ($v === 'BASE')    return '<span class="badge bg-primary-subtle text-primary px-1 py-0" style="font-size:.65rem">Base</span>';
+  if ($v === 'PREPARE') return '<span class="badge bg-warning-subtle text-warning px-1 py-0" style="font-size:.65rem">Prep</span>';
+  return '<span class="badge bg-secondary-subtle text-secondary px-1 py-0" style="font-size:.65rem">' . htmlspecialchars($v) . '</span>';
+};
+$fmtQty  = static fn($v) => number_format((float)$v, 2, ',', '.');
+$fmtCost = static fn($v) => number_format((float)$v, 0, ',', '.');
+
+$buildLotUrl = static function (array $row, string $status = 'ALL') use ($locationFilterValue): string {
+  $params = array_filter([
+    'q'             => trim((string)($row['component_code'] ?? $row['component_name'] ?? '')),
+    'status'        => $status,
+    'location_type' => $locationFilterValue((string)($row['location_type'] ?? '')),
+    'division_id'   => !empty($row['division_id']) ? (int)$row['division_id'] : null,
+    'type'          => strtoupper(trim((string)($row['component_type'] ?? ''))),
+  ], static fn($v) => $v !== null && $v !== '');
+  return site_url('production/component-lots') . '?' . http_build_query($params);
+};
+$lotAvgCost = static function (array $ls): float {
+  $qty = (float)($ls['balance_qty'] ?? 0);
+  return $qty > 0 ? round((float)($ls['total_value'] ?? 0) / $qty, 6) : 0.0;
+};
+
+/* Summary stats */
+$totalComponents = count($rows);
+$totalNilai      = array_sum(array_column($rows, 'total_value'));
+$countBase       = count(array_filter($rows, fn($r) => strtoupper($r['component_type'] ?? '') === 'BASE'));
+$countPrepare    = count(array_filter($rows, fn($r) => strtoupper($r['component_type'] ?? '') === 'PREPARE'));
+$countNegative   = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand'] ?? 0) < 0));
+$countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand'] ?? 0) == 0));
 ?>
 
 <style>
-  .component-lot-summary-card {
-    min-width: 250px;
+  .csl-card {
+    min-width: 200px;
     white-space: normal;
     line-height: 1.4;
   }
-  .component-lot-summary-card .lot-head {
+  .csl-card .lot-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: .5rem;
+    gap: .4rem;
     font-weight: 600;
     color: #5f3527;
+    font-size: .78rem;
   }
-  .component-lot-summary-card .lot-sub {
-    font-size: .74rem;
-    color: #7f675f;
+  .csl-body {
+    display: flex;
+    gap: .5rem;
+    margin-top: .35rem;
+    align-items: flex-start;
   }
-  .component-lot-summary-grid {
+  .csl-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: .4rem;
-    margin-top: .45rem;
+    gap: .3rem;
+    flex-shrink: 0;
   }
-  .component-lot-summary-metric {
+  .csl-metric {
     border: 1px solid #eadccf;
-    border-radius: 10px;
+    border-radius: 8px;
     background: #fffaf6;
-    padding: .38rem .45rem;
+    padding: .28rem .38rem;
   }
-  .component-lot-summary-metric .label {
+  .csl-metric .label {
     display: block;
-    font-size: .68rem;
+    font-size: .62rem;
     text-transform: uppercase;
     letter-spacing: .04em;
     color: #8a5b4d;
   }
-  .component-lot-summary-metric strong {
+  .csl-metric strong {
     display: block;
-    font-size: .83rem;
+    font-size: .76rem;
     color: #503125;
   }
-  .component-lot-parent-toggle {
+  .csl-toggle {
     display: inline-flex;
     align-items: center;
-    gap: .35rem;
+    gap: .25rem;
     border: 1px solid #e3d1c5;
     border-radius: 999px;
-    padding: .18rem .55rem;
+    padding: .12rem .45rem;
     background: #fff;
     color: #7a4c3f;
-    font-size: .72rem;
+    font-size: .68rem;
     font-weight: 600;
+    white-space: nowrap;
   }
-  .component-lot-parent-toggle i {
-    transition: transform .18s ease;
-  }
-  .component-lot-parent-toggle[aria-expanded="true"] i {
-    transform: rotate(180deg);
-  }
-  .component-lot-single {
-    margin-top: .45rem;
-    padding: .45rem .55rem;
-    border-radius: 12px;
+  .csl-toggle i { transition: transform .18s ease; }
+  .csl-toggle[aria-expanded="true"] i { transform: rotate(180deg); }
+  .csl-single {
+    padding: .32rem .42rem;
+    border-radius: 8px;
     background: #fffdfb;
     border: 1px solid #efe0d5;
-    font-size: .74rem;
+    font-size: .7rem;
+    color: #6b4b40;
+    flex: 1;
+    min-width: 0;
+    border-left: 2px solid #e8d5c8;
   }
-  .component-lot-child-row td {
-    background: #fffcf8 !important;
-  }
-  .component-lot-child-card {
-    padding: .85rem 1rem;
+  .csl-child-row td { background: #fffcf8 !important; }
+  .csl-child-card {
+    padding: .7rem .9rem;
     border: 1px solid #efdfd3;
-    border-radius: 14px;
+    border-radius: 12px;
     background: linear-gradient(180deg, #fffdf9 0%, #fff8f3 100%);
   }
-  .component-lot-child-grid {
+  .csl-child-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: .75rem;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: .6rem;
+    margin-top: .5rem;
   }
-  .component-lot-child-item {
+  .csl-child-item {
     border: 1px solid #ecdccf;
-    border-radius: 14px;
+    border-radius: 12px;
     background: #fff;
-    padding: .75rem .85rem;
-    box-shadow: 0 10px 18px -20px rgba(95, 53, 39, .6);
+    padding: .6rem .75rem;
   }
-  .component-lot-child-item .lot-name {
-    font-size: .84rem;
-    font-weight: 700;
-    color: #5f3527;
-  }
-  .component-lot-child-item .lot-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: .35rem .75rem;
-    margin-top: .2rem;
-    font-size: .72rem;
-    color: #8a5b4d;
-  }
-  .component-lot-child-metrics {
+  .csl-child-item .lot-name { font-size: .8rem; font-weight: 700; color: #5f3527; }
+  .csl-child-item .lot-meta { display: flex; flex-wrap: wrap; gap: .25rem .6rem; margin-top: .15rem; font-size: .68rem; color: #8a5b4d; }
+  .csl-child-metrics {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: .45rem;
-    margin-top: .65rem;
+    gap: .35rem;
+    margin-top: .5rem;
   }
-  .component-lot-child-metric {
-    padding: .42rem .48rem;
+  .csl-child-metric {
+    padding: .32rem .38rem;
     border: 1px solid #f0e1d6;
-    border-radius: 10px;
+    border-radius: 8px;
     background: #fffaf6;
   }
-  .component-lot-child-metric .label {
-    display: block;
-    font-size: .63rem;
-    text-transform: uppercase;
-    letter-spacing: .04em;
-    color: #8a5b4d;
-  }
-  .component-lot-child-metric strong {
-    display: block;
-    font-size: .79rem;
-    color: #503125;
-  }
+  .csl-child-metric .label { display: block; font-size: .6rem; text-transform: uppercase; letter-spacing: .04em; color: #8a5b4d; }
+  .csl-child-metric strong { display: block; font-size: .74rem; color: #503125; }
 </style>
 
 <div class="mb-3">
@@ -177,158 +168,225 @@ $lotAverageCost = static function (array $lotSummary): float {
       <h4 class="mb-1"><i class="ri ri-scales-3-line page-title-icon"></i><?php echo html_escape($page_title ?? 'Stok Base/Prepare'); ?></h4>
       <small class="text-muted">Read-only saldo live base/prepare per lokasi.</small>
     </div>
-    <div class="d-flex gap-2 flex-wrap">
-      <a href="<?php echo site_url('production/component-lots'); ?>" class="btn btn-outline-secondary btn-sm">Lot FIFO</a>
-    </div>
   </div>
 </div>
 
 <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'stock']); ?>
 <?php $this->load->view('production/_component_type_tabs', [
   'component_type_base_url' => site_url('production/component-stock'),
-  'component_type_filters' => $filters,
-  'component_type_active' => (string)($filters['type'] ?? ''),
+  'component_type_filters'  => $filters,
+  'component_type_active'   => (string)($filters['type'] ?? ''),
+]); ?>
+<?php $this->load->view('production/_component_action_buttons', [
+  'component_action_params' => array_filter([
+    'division_id'   => !empty($filters['division_id']) ? (int)$filters['division_id'] : '',
+    'location_type' => (string)($filters['location_type'] ?? ''),
+  ], static fn($v) => $v !== '' && $v !== 0 && $v !== '0'),
 ]); ?>
 
+<!-- Summary cards -->
+<div class="row g-2 mb-3">
+  <div class="col-6 col-sm-4 col-md-2">
+    <div class="card card-body py-2 px-3 text-center h-100">
+      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Komponen</div>
+      <div class="fw-bold fs-5"><?php echo $totalComponents; ?></div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-4 col-md-2">
+    <div class="card card-body py-2 px-3 text-center h-100">
+      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Base</div>
+      <div class="fw-bold fs-5 text-primary"><?php echo $countBase; ?></div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-4 col-md-2">
+    <div class="card card-body py-2 px-3 text-center h-100">
+      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Prepare</div>
+      <div class="fw-bold fs-5 text-warning"><?php echo $countPrepare; ?></div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-4 col-md-2">
+    <div class="card card-body py-2 px-3 text-center h-100">
+      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Stok Nol</div>
+      <div class="fw-bold fs-5 text-secondary"><?php echo $countZero; ?></div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-4 col-md-2">
+    <div class="card card-body py-2 px-3 text-center h-100">
+      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Stok Minus</div>
+      <div class="fw-bold fs-5 <?php echo $countNegative > 0 ? 'text-danger' : 'text-secondary'; ?>"><?php echo $countNegative; ?></div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-4 col-md-2">
+    <div class="card card-body py-2 px-3 text-center h-100">
+      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Total Nilai</div>
+      <div class="fw-bold" style="font-size:.88rem">Rp <?php echo $fmtCost($totalNilai); ?></div>
+    </div>
+  </div>
+</div>
+
+<!-- Filter -->
 <div class="card mb-3">
-  <div class="card-body">
+  <div class="card-body py-2">
     <form method="get" action="<?php echo site_url('production/component-stock'); ?>" class="row g-2 align-items-end">
-      <div class="col-md-4">
-        <label class="form-label mb-1">Cari</label>
-        <input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Nama komponen / divisi">
-      </div>
       <div class="col-md-3">
-        <label class="form-label mb-1">Lokasi</label>
-        <select name="location_type" class="form-select">
-          <?php foreach ($locationFilterOptions as $key => $label): ?>
-            <option value="<?php echo html_escape((string)$key); ?>" <?php echo ((string)($filters['location_type'] ?? '') === (string)$key) ? 'selected' : ''; ?>>
-              <?php echo html_escape((string)$label); ?>
+        <label class="form-label mb-1">Cari</label>
+        <input type="text" name="q" class="form-control form-control-sm" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Nama / kode / divisi">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label mb-1">Divisi</label>
+        <select name="division_id" class="form-select form-select-sm">
+          <option value="0">Semua</option>
+          <?php foreach ($divisions as $div): ?>
+            <option value="<?php echo (int)($div['id'] ?? 0); ?>" <?php echo ((int)($filters['division_id'] ?? 0) === (int)($div['id'] ?? 0)) ? 'selected' : ''; ?>>
+              <?php echo html_escape(trim((string)($div['division_code'] ?? $div['code'] ?? '')) . ' - ' . trim((string)($div['division_name'] ?? $div['name'] ?? ''))); ?>
             </option>
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-md-5 d-flex gap-2">
-        <button type="submit" class="btn btn-outline-primary">Filter</button>
-        <a href="<?php echo site_url('production/component-stock'); ?>" class="btn btn-outline-danger">Clear</a>
-        <a href="<?php echo site_url('production/component-movements'); ?>" class="btn btn-outline-secondary">Lihat Mutasi</a>
+      <div class="col-md-2">
+        <label class="form-label mb-1">Lokasi</label>
+        <select name="location_type" class="form-select form-select-sm">
+          <?php foreach ($locationFilterOptions as $k => $lbl): ?>
+            <option value="<?php echo html_escape((string)$k); ?>" <?php echo ((string)($filters['location_type'] ?? '') === (string)$k) ? 'selected' : ''; ?>><?php echo html_escape($lbl); ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label mb-1">Per Halaman</label>
+        <select name="per_page" id="perPageSelect" class="form-select form-select-sm">
+          <?php foreach ([25, 50, 100, 200, 0] as $pp): ?>
+            <option value="<?php echo $pp; ?>" <?php echo ((int)($filters['per_page'] ?? 25) === $pp) ? 'selected' : ''; ?>><?php echo $pp > 0 ? $pp : 'Semua'; ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="col-auto d-flex gap-1 align-items-end">
+        <button type="submit" class="btn btn-sm btn-outline-primary">Filter</button>
+        <a href="<?php echo site_url('production/component-stock'); ?>" class="btn btn-sm btn-outline-warning">Clear</a>
+        <a href="<?php echo site_url('production/component-movements'); ?>" class="btn btn-sm btn-outline-secondary">Mutasi</a>
       </div>
     </form>
   </div>
 </div>
 
+<!-- Table -->
 <div class="card">
-  <div class="table-responsive">
-    <table class="table table-striped table-hover mb-0">
-      <thead>
+  <div style="overflow:auto;max-height:70vh">
+    <table class="table table-striped table-hover mb-0" id="stockTable" style="min-width:800px">
+      <thead style="position:sticky;top:0;z-index:2">
         <tr>
-          <th>Lokasi</th>
-          <th>Divisi</th>
-          <th>Nama Komponen</th>
-          <th>Tipe</th>
-          <th>Ringkasan Lot</th>
-          <th class="text-end">Qty</th>
-          <th>UOM</th>
-          <th class="text-end">Avg Cost</th>
-          <th class="text-end">Total Nilai</th>
-          <th>Update</th>
+          <th style="width:90px">Lokasi / Divisi / Tipe</th>
+          <th style="width:150px">Nama Komponen</th>
+          <th style="width:260px">Ringkasan Lot</th>
+          <th style="width:50px">UOM</th>
+          <th class="text-end" style="width:85px">Qty</th>
+          <th class="text-end" style="width:80px">Avg Cost</th>
+          <th class="text-end" style="width:95px">Total Nilai</th>
+          <th style="width:75px">Update</th>
         </tr>
       </thead>
       <tbody>
         <?php if (empty($rows)): ?>
-          <tr><td colspan="10" class="text-center text-muted py-4">Belum ada data stok komponen.</td></tr>
+          <tr><td colspan="8" class="text-center text-muted py-4">Belum ada data stok komponen.</td></tr>
         <?php else: ?>
-          <?php foreach ($rows as $rowIndex => $row): ?>
-            <?php $lotSummary = is_array($row['lot_summary'] ?? null) ? $row['lot_summary'] : []; ?>
-            <?php $lotRows = array_values((array)($lotSummary['rows'] ?? [])); ?>
-            <?php $hasLotChildren = count($lotRows) > 1; ?>
-            <?php $avgLotCost = $lotAverageCost($lotSummary); ?>
-            <?php $lotToggleId = 'componentStockLot_' . (int)$rowIndex; ?>
-            <tr>
-              <td><?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? '-'))); ?></td>
-              <td><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>
-              <td>
-                <a href="<?php echo html_escape($buildLotUrl((array)$row, 'ALL')); ?>" class="fw-semibold text-decoration-none"><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></a>
+          <?php foreach ($rows as $ri => $row): ?>
+            <?php
+              $lotSummary  = is_array($row['lot_summary'] ?? null) ? $row['lot_summary'] : [];
+              $lotRows     = array_values((array)($lotSummary['rows'] ?? []));
+              $hasChildren = count($lotRows) > 1;
+              $avgCost     = $lotAvgCost($lotSummary);
+              $toggleId    = 'csl_' . $ri;
+              $minCost     = (float)($lotSummary['min_unit_cost'] ?? 0);
+              $maxCost     = (float)($lotSummary['max_unit_cost'] ?? 0);
+              $uniformCost = abs($maxCost - $minCost) < 0.001;
+              $qtyOnHand   = (float)($row['qty_on_hand'] ?? 0);
+              $compType    = strtoupper(trim((string)($row['component_type'] ?? '')));
+            ?>
+            <tr class="stock-row">
+              <td class="py-1">
+                <?php echo $locBadge((string)($row['location_type'] ?? '')); ?>
+                <br>
+                <span class="text-muted" style="font-size:.68rem"><?php echo html_escape(substr((string)($row['division_name'] ?? '-'), 0, 18)); ?></span>
+                <br>
+                <?php echo $typeBadge($compType); ?>
               </td>
-              <td><?php echo html_escape((string)($row['component_type'] ?? '-')); ?></td>
-              <td>
-                <div class="component-lot-summary-card">
+              <td class="py-1" style="width:150px">
+                <a href="<?php echo html_escape($buildLotUrl((array)$row, 'ALL')); ?>" class="fw-semibold text-decoration-none text-body small"><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></a>
+                <div class="text-muted" style="font-size:.68rem"><?php echo html_escape((string)($row['component_code'] ?? '')); ?></div>
+              </td>
+              <td class="py-1">
+                <div class="csl-card">
                   <div class="lot-head">
-                      <span><?php echo html_escape((string)($row['component_type'] ?? '-')); ?></span>
-                      <?php if ($hasLotChildren): ?>
-                        <button type="button" class="component-lot-parent-toggle" data-lot-toggle="<?php echo html_escape($lotToggleId); ?>" aria-expanded="false">
-                          <span><?php echo (int)($lotSummary['lot_count'] ?? 0); ?> lot aktif</span>
-                          <i class="ri ri-arrow-down-s-line"></i>
-                        </button>
-                      <?php elseif (!empty($lotSummary['lot_count'])): ?>
-                        <span class="badge bg-label-secondary">1 lot aktif</span>
-                      <?php endif; ?>
+                    <?php if ($hasChildren): ?>
+                      <button type="button" class="csl-toggle" data-csl-toggle="<?php echo $toggleId; ?>" aria-expanded="false">
+                        <span><?php echo (int)($lotSummary['lot_count'] ?? 0); ?> lot aktif</span>
+                        <i class="ri ri-arrow-down-s-line"></i>
+                      </button>
+                    <?php elseif (!empty($lotSummary['lot_count'])): ?>
+                      <span class="badge bg-label-secondary" style="font-size:.65rem">1 lot aktif</span>
+                    <?php endif; ?>
                   </div>
-                    <div class="component-lot-summary-grid">
-                      <div class="component-lot-summary-metric">
-                        <span class="label">Qty</span>
-                        <strong><?php echo number_format((float)($row['qty_on_hand'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($row['uom_code'] ?? '')); ?></strong>
+                  <div class="csl-body">
+                    <div class="csl-grid">
+                      <div class="csl-metric">
+                        <span class="label">QTY</span>
+                        <strong><?php echo $fmtQty($row['qty_on_hand'] ?? 0); ?> <?php echo html_escape((string)($row['uom_code'] ?? '')); ?></strong>
                       </div>
-                      <div class="component-lot-summary-metric">
-                        <span class="label">Nilai</span>
-                        <strong><?php echo number_format((float)($row['total_value'] ?? 0), 2, ',', '.'); ?></strong>
+                      <div class="csl-metric">
+                        <span class="label">NILAI</span>
+                        <strong><?php echo $fmtCost($row['total_value'] ?? 0); ?></strong>
                       </div>
-                      <div class="component-lot-summary-metric">
-                        <span class="label"><?php echo $hasLotChildren ? 'Avg Parent' : 'Avg Cost'; ?></span>
-                        <strong><?php echo number_format($hasLotChildren ? $avgLotCost : (float)($row['avg_cost'] ?? 0), 2, ',', '.'); ?></strong>
+                      <div class="csl-metric">
+                        <span class="label">AVG COST</span>
+                        <strong><?php echo $fmtQty($hasChildren ? $avgCost : (float)($row['avg_cost'] ?? 0)); ?></strong>
                       </div>
-                      <div class="component-lot-summary-metric">
-                        <span class="label"><?php echo $hasLotChildren ? 'Range Lot' : 'Lot Cost'; ?></span>
-                        <strong><?php echo number_format((float)($lotSummary['min_unit_cost'] ?? 0), 2, ',', '.'); ?><?php if ((float)($lotSummary['max_unit_cost'] ?? 0) !== (float)($lotSummary['min_unit_cost'] ?? 0)): ?> - <?php echo number_format((float)($lotSummary['max_unit_cost'] ?? 0), 2, ',', '.'); ?><?php endif; ?></strong>
+                      <div class="csl-metric">
+                        <span class="label"><?php echo $hasChildren ? 'RANGE LOT' : 'LOT COST'; ?></span>
+                        <strong><?php
+                          echo $fmtQty($minCost);
+                          if (!$uniformCost) echo ' – ' . $fmtQty($maxCost);
+                        ?></strong>
                       </div>
                     </div>
-                    <div class="lot-sub mt-2"><?php echo $hasLotChildren ? 'Parent menampilkan total saldo dan rata-rata. Expand untuk melihat tiap lot.' : (!empty($lotSummary['has_mixed_cost']) ? 'Cost campur pada lot aktif tunggal ini.' : 'Cost lot aktif masih seragam.'); ?></div>
-                  <?php if (!$hasLotChildren && !empty($lotRows)): ?>
-                    <?php $singleLot = (array)$lotRows[0]; ?>
-                    <div class="component-lot-single">
-                      <div class="fw-semibold"><?php echo html_escape((string)($singleLot['lot_no'] ?? '-')); ?></div>
-                      <div><?php echo number_format((float)($singleLot['qty_balance'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($row['uom_code'] ?? '')); ?> • <?php echo number_format((float)($singleLot['unit_cost'] ?? 0), 2, ',', '.'); ?></div>
-                      <div class="text-muted">Terima <?php echo html_escape((string)($singleLot['receipt_date'] ?? '-')); ?><?php echo !empty($singleLot['expiry_date']) ? ' • Exp ' . html_escape((string)$singleLot['expiry_date']) : ''; ?></div>
-                    </div>
-                  <?php endif; ?>
+                  </div>
                 </div>
               </td>
-              <td class="text-end"><?php echo number_format((float)($row['qty_on_hand'] ?? 0), 2, ',', '.'); ?></td>
-              <td><?php echo html_escape((string)($row['uom_code'] ?? '-')); ?></td>
-              <td class="text-end"><?php echo number_format((float)($row['avg_cost'] ?? 0), 2, ',', '.'); ?></td>
-              <td class="text-end"><?php echo number_format((float)($row['total_value'] ?? 0), 2, ',', '.'); ?></td>
-              <td><?php echo html_escape((string)($row['updated_at'] ?? '-')); ?></td>
+              <td class="py-1 small"><?php echo html_escape((string)($row['uom_code'] ?? '-')); ?></td>
+              <td class="py-1 text-end small <?php echo $qtyOnHand < 0 ? 'text-danger fw-semibold' : ($qtyOnHand == 0 ? 'text-muted' : ''); ?>"><?php echo $fmtQty($qtyOnHand); ?></td>
+              <td class="py-1 text-end small text-muted"><?php echo $fmtCost($row['avg_cost'] ?? 0); ?></td>
+              <td class="py-1 text-end small"><?php echo $fmtCost($row['total_value'] ?? 0); ?></td>
+              <td class="py-1 text-muted" style="font-size:.68rem;white-space:nowrap"><?php echo html_escape(substr((string)($row['updated_at'] ?? '-'), 0, 10)); ?></td>
             </tr>
-            <?php if ($hasLotChildren): ?>
-              <tr id="<?php echo html_escape($lotToggleId); ?>" class="component-lot-child-row d-none">
-                <td colspan="10">
-                  <div class="component-lot-child-card">
-                    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+            <?php if ($hasChildren): ?>
+              <tr id="<?php echo $toggleId; ?>" class="csl-child-row d-none">
+                <td colspan="8">
+                  <div class="csl-child-card">
+                    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-1">
                       <div>
-                        <div class="fw-semibold">Rincian lot aktif</div>
-                        <div class="small text-muted">Parent total <?php echo number_format((float)($lotSummary['balance_qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($row['uom_code'] ?? '')); ?> • avg <?php echo number_format($avgLotCost, 2, ',', '.'); ?></div>
+                        <div class="fw-semibold small">Rincian lot aktif</div>
+                        <div class="small text-muted">Total <?php echo $fmtQty($lotSummary['balance_qty'] ?? 0); ?> <?php echo html_escape((string)($row['uom_code'] ?? '')); ?> • avg <?php echo $fmtQty($avgCost); ?></div>
                       </div>
                       <a href="<?php echo html_escape($buildLotUrl((array)$row, 'OPEN')); ?>" class="btn btn-outline-secondary btn-sm">Buka FIFO lot</a>
                     </div>
-                    <div class="component-lot-child-grid">
-                      <?php foreach ($lotRows as $lotRow): ?>
-                        <div class="component-lot-child-item">
-                          <div class="lot-name"><?php echo html_escape((string)($lotRow['lot_no'] ?? '-')); ?></div>
+                    <div class="csl-child-grid">
+                      <?php foreach ($lotRows as $lr): ?>
+                        <div class="csl-child-item">
+                          <div class="lot-name"><?php echo html_escape((string)($lr['lot_no'] ?? '-')); ?></div>
                           <div class="lot-meta">
-                            <span>Terima <?php echo html_escape((string)($lotRow['receipt_date'] ?? '-')); ?></span>
-                            <span>Expiry <?php echo html_escape((string)($lotRow['expiry_date'] ?? '-')); ?></span>
+                            <span>Terima <?php echo html_escape((string)($lr['receipt_date'] ?? '-')); ?></span>
+                            <?php if (!empty($lr['expiry_date'])): ?><span>Exp <?php echo html_escape((string)$lr['expiry_date']); ?></span><?php endif; ?>
                           </div>
-                          <div class="component-lot-child-metrics">
-                            <div class="component-lot-child-metric">
+                          <div class="csl-child-metrics">
+                            <div class="csl-child-metric">
                               <span class="label">Qty</span>
-                              <strong><?php echo number_format((float)($lotRow['qty_balance'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($row['uom_code'] ?? '')); ?></strong>
+                              <strong><?php echo $fmtQty($lr['qty_balance'] ?? 0); ?> <?php echo html_escape((string)($row['uom_code'] ?? '')); ?></strong>
                             </div>
-                            <div class="component-lot-child-metric">
+                            <div class="csl-child-metric">
                               <span class="label">HPP</span>
-                              <strong><?php echo number_format((float)($lotRow['unit_cost'] ?? 0), 2, ',', '.'); ?></strong>
+                              <strong><?php echo $fmtQty($lr['unit_cost'] ?? 0); ?></strong>
                             </div>
-                            <div class="component-lot-child-metric">
+                            <div class="csl-child-metric">
                               <span class="label">Nilai</span>
-                              <strong><?php echo number_format((float)($lotRow['total_value'] ?? 0), 2, ',', '.'); ?></strong>
+                              <strong><?php echo $fmtCost($lr['total_value'] ?? 0); ?></strong>
                             </div>
                           </div>
                         </div>
@@ -343,24 +401,52 @@ $lotAverageCost = static function (array $lotSummary): float {
       </tbody>
     </table>
   </div>
+  <div class="card-footer py-1 d-flex justify-content-between align-items-center">
+    <span class="text-muted small" id="stockTableCount"><?php echo $totalComponents; ?> baris</span>
+    <span class="text-muted small" id="stockTablePager"></span>
+  </div>
 </div>
 
 <script>
 (() => {
-  document.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-lot-toggle]');
-    if (!button) {
-      return;
-    }
-    const targetId = String(button.getAttribute('data-lot-toggle') || '');
-    const target = targetId !== '' ? document.getElementById(targetId) : null;
-    if (!target) {
-      return;
-    }
-    const isExpanded = button.getAttribute('aria-expanded') === 'true';
-    target.classList.toggle('d-none', isExpanded);
-    button.setAttribute('aria-expanded', isExpanded ? 'false' : 'true');
+  /* expand/collapse lot children */
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-csl-toggle]');
+    if (!btn) return;
+    const row = document.getElementById(btn.getAttribute('data-csl-toggle') || '');
+    if (!row) return;
+    const expanded = btn.getAttribute('aria-expanded') === 'true';
+    row.classList.toggle('d-none', expanded);
+    btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
   });
+
+  /* client-side pagination */
+  const perPageSel = document.getElementById('perPageSelect');
+  const table      = document.getElementById('stockTable');
+  const countEl    = document.getElementById('stockTableCount');
+  const pagerEl    = document.getElementById('stockTablePager');
+
+  function applyPagination() {
+    if (!table) return;
+    const allRows = Array.from(table.querySelectorAll('tbody tr.stock-row'));
+    const perPage = perPageSel ? parseInt(perPageSel.value, 10) || 0 : 0;
+    let shown = 0;
+    allRows.forEach((tr, i) => {
+      const hide = perPage > 0 && i >= perPage;
+      tr.style.display = hide ? 'none' : '';
+      /* hide child lot row too if parent is hidden */
+      const next = tr.nextElementSibling;
+      if (next && next.classList.contains('csl-child-row') && hide) {
+        next.classList.add('d-none');
+      }
+      if (!hide) shown++;
+    });
+    if (countEl) countEl.textContent = shown + ' dari ' + allRows.length + ' baris';
+    if (pagerEl) pagerEl.textContent = perPage > 0 && allRows.length > perPage
+      ? 'Menampilkan ' + shown + ' baris pertama' : '';
+  }
+
+  if (perPageSel) perPageSel.addEventListener('change', applyPagination);
+  applyPagination();
 })();
 </script>
-

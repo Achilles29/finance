@@ -193,6 +193,16 @@ foreach ($monthlyRows as $monthlyRow) {
 </div>
 
 <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'opening']); ?>
+<?php $this->load->view('production/_component_type_tabs', [
+  'component_type_base_url' => site_url('production/component-openings'),
+  'component_type_filters'  => ['month' => $month, 'q' => $q],
+  'component_type_active'   => '',
+]); ?>
+<?php $this->load->view('production/_component_action_buttons', [
+  'component_action_params' => array_filter([
+    'month' => $month,
+  ], static fn($v) => $v !== ''),
+]); ?>
 
 <?php if ($this->session->flashdata('success')): ?>
   <div class="alert alert-success mb-3"><?php echo html_escape((string)$this->session->flashdata('success')); ?></div>

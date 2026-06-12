@@ -5,7 +5,7 @@ $divisions      = is_array($divisions ?? null) ? $divisions : [];
 $locationOptions = is_array($location_options ?? null) ? $location_options : [];
 $filterDivision  = (int)($filter_division ?? 0);
 $filterLocation  = strtoupper(trim((string)($filter_location ?? '')));
-$dateFrom        = (string)($date_from ?? date('Y-m-d'));
+$dateFrom        = (string)($date_from ?? date('Y-m-01'));
 $dateTo          = (string)($date_to ?? date('Y-m-d'));
 
 $locationGroupLabel = static function ($locationType): string {
@@ -232,6 +232,13 @@ $cbFmt = static function ($num): string {
     'component_type_filters'  => $filters ?? [],
     'component_type_active'   => (string)(($filters ?? [])['type'] ?? ''),
 ]); ?>
+<?php $this->load->view('production/_component_action_buttons', [
+    'component_action_params' => array_filter([
+        'month'         => (string)(($filters ?? [])['month'] ?? ''),
+        'division_id'   => !empty(($filters ?? [])['division_id']) ? (int)($filters ?? [])['division_id'] : '',
+        'location_type' => (string)(($filters ?? [])['location_type'] ?? ''),
+    ], static fn($v) => $v !== '' && $v !== 0 && $v !== '0'),
+]); ?>
 
 <div id="component-batch-alert" class="mt-3 mb-0"></div>
 
@@ -279,10 +286,10 @@ $cbFmt = static function ($num): string {
           <option value="EVENT"   <?php echo $filterLocation === 'EVENT'   ? 'selected' : ''; ?>>Event</option>
         </select>
       </div>
-      <div style="min-width:200px;flex:1 1 200px;">
+      <div style="flex:1 1 160px;min-width:160px;max-width:280px">
         <label class="form-label small mb-1 fw-semibold">Cari</label>
         <input type="text" id="searchBatch" class="form-control form-control-sm"
-               placeholder="No batch atau nama component..." autocomplete="off">
+               placeholder="No batch / nama component…" autocomplete="off">
       </div>
       <div>
         <label class="form-label small mb-1 fw-semibold">Per Halaman</label>
@@ -294,11 +301,18 @@ $cbFmt = static function ($num): string {
         </select>
       </div>
       <input type="hidden" name="type" value="<?php echo html_escape((string)(($filters ?? [])['type'] ?? '')); ?>">
-      <div class="ms-auto">
-        <button type="button" class="btn btn-primary btn-sm" id="btnTambahBatch"
-                data-bs-toggle="modal" data-bs-target="#batchFormModal">
-          <i class="ri-add-line"></i> Tambah Batch
-        </button>
+      <div class="ms-auto d-flex flex-column">
+        <label class="form-label small mb-1 fw-semibold" style="visibility:hidden">Aksi</label>
+        <div class="d-flex gap-2">
+          <a href="<?php echo site_url('production/component-batches'); ?>"
+             class="btn btn-sm btn-outline-warning">
+            <i class="ri-refresh-line"></i> Reset
+          </a>
+          <button type="button" class="btn btn-sm btn-primary" id="btnTambahBatch"
+                  data-bs-toggle="modal" data-bs-target="#batchFormModal">
+            <i class="ri-add-line"></i> Tambah Batch
+          </button>
+        </div>
       </div>
     </form>
   </div>
