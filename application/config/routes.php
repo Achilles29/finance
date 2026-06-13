@@ -191,6 +191,7 @@ $route['finance/relasi/toggle/(:num)'] = 'finance/party_toggle/$1';
 $route['finance/relasi/delete/(:num)'] = 'finance/party_delete/$1';
 $route['finance/party-search'] = 'finance/party_search';
 $route['finance/member-search'] = 'finance/member_search';
+$route['finance-reports/cash-position'] = 'finance_reports/cash_position';
 $route['finance-reports/cash-vault-daily'] = 'finance_reports/cash_vault_daily';
 $route['purchase/stock/opening'] = 'inventory/stock_opening_index';
 $route['purchase/stock/opening/warehouse'] = 'inventory_warehouse/opening';

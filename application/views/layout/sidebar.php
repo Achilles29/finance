@@ -99,6 +99,7 @@ if (!function_exists('_get_ri_icon')) {
             'finance.payable'       => 'ri-hand-coin-line',
             'finance.receivable'    => 'ri-wallet-2-line',
             'finance.party'         => 'ri-team-line',
+            'finance.cash_position' => 'ri-funds-box-line',
             'fin.transactions'      => 'ri-exchange-line',
             'fin.income'            => 'ri-arrow-down-circle-line',
             'fin.expense'           => 'ri-arrow-up-circle-line',

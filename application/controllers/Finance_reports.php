@@ -44,4 +44,41 @@ class Finance_reports extends MY_Controller
             'report' => $report,
         ]);
     }
+
+    public function cash_position()
+    {
+        $this->require_permission('finance.cash_position.index', 'view');
+
+        $month = trim((string)$this->input->get('month', true));
+        if (!preg_match('/^\d{4}\-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+
+        $viewMode = strtoupper(trim((string)$this->input->get('view_mode', true)));
+        if (!in_array($viewMode, ['PHYSICAL', 'REAL', 'HISTORICAL'], true)) {
+            $viewMode = 'REAL';
+        }
+
+        $accounts = $this->Finance_report_model->active_company_accounts();
+        $selectedAccountId = (int)$this->input->get('account_id', true);
+        $allowedIds = array_map(static function ($row) {
+            return (int)($row['id'] ?? 0);
+        }, (array)$accounts);
+        $allowedIds = array_values(array_filter($allowedIds));
+        if ($selectedAccountId > 0 && !in_array($selectedAccountId, $allowedIds, true)) {
+            $selectedAccountId = 0;
+        }
+
+        $report = $this->Finance_report_model->cash_position_exposure($month, $selectedAccountId, $viewMode);
+
+        $this->render('finance/cash_position_exposure', [
+            'page_title' => 'Posisi Kas & Eksposur',
+            'active_menu' => 'finance.cash_position',
+            'month' => $month,
+            'view_mode' => $viewMode,
+            'accounts' => $accounts,
+            'selected_account_id' => $selectedAccountId,
+            'report' => $report,
+        ]);
+    }
 }

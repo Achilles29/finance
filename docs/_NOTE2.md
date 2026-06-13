@@ -124,7 +124,9 @@ berikan fitur  ketika input utang / piutang tidak mempengaruhi keuangan karena s
 masukan halamannya ke database modul dan sidebar rumpun keuangan 
 
 
-sekarang saya ingin membuat laporan keuangan yang rapi dan tertib sesuai standar akuntansi dan keuangan kafe, yang berguna untuk melakukan analisa, yang mencakup belanja (bahan baku, operasional, dan lainnya), store request, pembayaran gaji, kasbon, utang, piutang, estimasi gaji berjalan.
+sekarang saya ingin membuat laporan keuangan (harian, bulanan , tahunan) yang rapi dan tertib sesuai standar akuntansi dan keuangan kafe, yang berguna untuk melakukan analisa, yang mencakup belanja (bahan baku, operasional, dan lainnya), store request, pembayaran gaji, kasbon, utang, piutang, estimasi gaji berjalan.
+
+terkait rekening bank jika saat ini saya lihat saldo rekening diambil dari fin_company_account. disitu tidak ada cut off per bulan. bagaimana jika nanti kita ingin melihat laporan keuangan bulanan?
 
 
 saya juga ingin membuat target bulanan dan target harian, yang menganalisa pengeluaran dan pendapatan termasuk estimasi gaji berjalan. target ini nantinya akan digunakan sebagai batas untuk pegawai bisa mendapatkan bonus. ada ide?

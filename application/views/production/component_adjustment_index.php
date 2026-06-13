@@ -589,22 +589,23 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
       </div>
       <div class="tab-pane fade <?php echo $activeListTab === 'rincian' ? 'show active' : ''; ?>" role="tabpanel">
         <div style="overflow:auto;max-height:70vh">
-          <table class="table table-bordered table-hover table-sm align-middle mb-0" style="table-layout:fixed;min-width:1000px">
+          <table class="table table-bordered table-hover table-sm align-middle mb-0" style="table-layout:fixed;min-width:1150px">
             <thead class="table-dark" style="position:sticky;top:0;z-index:2">
               <tr>
-                <th style="width:140px;white-space:nowrap">No</th>
-                <th style="width:90px;white-space:nowrap">Tanggal</th>
-                <th style="width:165px;white-space:nowrap">Komponen</th>
-                <th style="width:100px;white-space:nowrap">Lokasi/Divisi</th>
-                <th style="width:100px;white-space:nowrap" class="text-end">Nilai Adj</th>
-                <th style="width:185px;white-space:nowrap">Jenis &amp; Qty</th>
-                <th style="white-space:nowrap">Alasan</th>
-                <th style="width:72px;white-space:nowrap">Status</th>
+                <th style="width:168px;white-space:nowrap">No</th>
+                <th style="width:100px;white-space:nowrap">Tanggal</th>
+                <th style="width:180px;white-space:nowrap">Komponen</th>
+                <th style="width:105px;white-space:nowrap">Divisi</th>
+                <th style="width:90px;white-space:nowrap" class="text-end">QTY</th>
+                <th style="width:105px;white-space:nowrap" class="text-end">NILAI (Rp)</th>
+                <th style="width:145px;white-space:nowrap">Lot</th>
+                <th style="width:190px;white-space:nowrap">Jenis &amp; Alasan</th>
+                <th style="width:78px;white-space:nowrap">Status</th>
               </tr>
             </thead>
             <tbody id="adj-rincian-tbody">
               <?php if (empty($lineRows)): ?>
-                <tr class="adj-rincian-row"><td colspan="8" class="text-center text-muted py-4">Belum ada rincian adjustment.</td></tr>
+                <tr class="adj-rincian-row"><td colspan="9" class="text-center text-muted py-4">Belum ada rincian adjustment.</td></tr>
               <?php else: ?>
                 <?php foreach ($lineRows as $lineRow): ?>
                   <?php
@@ -612,22 +613,25 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
                     $qWaste  = (float)($lineRow['qty_waste'] ?? 0);
                     $qPlus   = (float)($lineRow['qty_adjust_pos'] ?? 0);
                     $qMinus  = (float)($lineRow['qty_adjust_neg'] ?? 0);
-                    $jenisList = [];
-                    if ($qSpoil > 0)  $jenisList[] = '<span class="badge bg-danger bg-opacity-10 text-danger border border-danger-subtle">Spoil ' . number_format($qSpoil, 2, ',', '.') . '</span>';
-                    if ($qWaste > 0)  $jenisList[] = '<span class="badge bg-warning bg-opacity-10 text-warning border border-warning-subtle">Waste ' . number_format($qWaste, 2, ',', '.') . '</span>';
-                    if ($qPlus > 0)   $jenisList[] = '<span class="badge bg-success bg-opacity-10 text-success border border-success-subtle">+ ' . number_format($qPlus, 2, ',', '.') . '</span>';
-                    if ($qMinus > 0)  $jenisList[] = '<span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle">- ' . number_format($qMinus, 2, ',', '.') . '</span>';
                     $uomCode = strtolower((string)($lineRow['uom_code'] ?? ''));
+                    $uomSuffix = $uomCode ? ' ' . $uomCode : '';
+                    $qtyParts = [];
+                    if ($qSpoil > 0) $qtyParts[] = number_format($qSpoil, 2, ',', '.') . $uomSuffix;
+                    if ($qWaste > 0) $qtyParts[] = number_format($qWaste, 2, ',', '.') . $uomSuffix;
+                    if ($qPlus > 0)  $qtyParts[] = number_format($qPlus,  2, ',', '.') . $uomSuffix;
+                    if ($qMinus > 0) $qtyParts[] = number_format($qMinus, 2, ',', '.') . $uomSuffix;
+                    $jenisTeks = $reasonSummary((array)$lineRow);
+                    $lotPreview = trim((string)($lineRow['lot_issue_preview'] ?? ''));
                   ?>
                   <tr class="adj-rincian-row" data-search="<?php echo html_escape(strtolower(implode(' ', [
                     $lineRow['adjustment_no'] ?? '',
                     $lineRow['adjustment_date'] ?? '',
                     $lineRow['component_name'] ?? '',
                     $lineRow['component_type'] ?? '',
-                    $locationGroupLabel((string)($lineRow['location_type'] ?? '')),
                     $lineRow['division_name'] ?? '',
                     $lineRow['note'] ?? '',
                     $lineRow['status'] ?? '',
+                    $jenisTeks,
                   ]))); ?>">
                     <td style="font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape((string)($lineRow['adjustment_no'] ?? '')); ?></td>
                     <td style="font-size:.78rem;white-space:nowrap;overflow:hidden"><?php echo html_escape((string)($lineRow['adjustment_date'] ?? '')); ?></td>
@@ -636,16 +640,31 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
                       <div class="text-muted" style="font-size:.68rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape((string)($lineRow['component_type'] ?? '-')); ?><?php if ($uomCode): ?> · <?php echo html_escape($uomCode); ?><?php endif; ?></div>
                     </td>
                     <td style="overflow:hidden">
-                      <div style="font-size:.78rem;white-space:nowrap;overflow:hidden"><?php echo html_escape($locationGroupLabel((string)($lineRow['location_type'] ?? ''))); ?></div>
-                      <div class="text-muted" style="font-size:.68rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape((string)($lineRow['division_name'] ?? '-')); ?></div>
+                      <div class="text-muted" style="font-size:.68rem;white-space:nowrap;overflow:hidden"><?php echo html_escape($locationGroupLabel((string)($lineRow['location_type'] ?? ''))); ?></div>
+                      <div style="font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?php echo html_escape((string)($lineRow['division_name'] ?? '-')); ?>"><?php echo html_escape((string)($lineRow['division_name'] ?? '-')); ?></div>
+                    </td>
+                    <td class="text-end" style="overflow:hidden">
+                      <?php foreach ($qtyParts as $qp): ?>
+                        <div style="font-size:.78rem;white-space:nowrap"><?php echo html_escape($qp); ?></div>
+                      <?php endforeach; ?>
+                      <?php if (empty($qtyParts)): ?><div class="text-muted" style="font-size:.78rem">-</div><?php endif; ?>
                     </td>
                     <td class="text-end" style="overflow:hidden">
                       <div style="font-size:.78rem;white-space:nowrap"><?php echo number_format((float)($lineRow['total_adjustment_value'] ?? 0), 2, ',', '.'); ?></div>
                     </td>
                     <td style="overflow:hidden">
-                      <div class="d-flex flex-wrap gap-1" style="font-size:.72rem"><?php echo implode('', $jenisList); ?></div>
+                      <?php if ($lotPreview !== '' && $lotPreview !== '-'): ?>
+                        <div style="font-size:.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#155724" title="<?php echo html_escape($lotPreview); ?>"><?php echo html_escape($lotPreview); ?></div>
+                      <?php else: ?>
+                        <div class="text-muted" style="font-size:.72rem"><?php echo strtoupper((string)($lineRow['status'] ?? '')) === 'DRAFT' ? 'Belum dipost' : '-'; ?></div>
+                      <?php endif; ?>
                     </td>
-                    <td style="font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?php echo html_escape($reasonSummary((array)$lineRow)); ?>"><?php echo html_escape($reasonSummary((array)$lineRow)); ?></td>
+                    <td style="overflow:hidden">
+                      <div style="font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?php echo html_escape($jenisTeks); ?>"><?php echo html_escape($jenisTeks); ?></div>
+                      <?php if (!empty($lineRow['note'])): ?>
+                        <div class="text-muted" style="font-size:.68rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape((string)$lineRow['note']); ?></div>
+                      <?php endif; ?>
+                    </td>
                     <td><?php echo ui_status_badge((string)($lineRow['status'] ?? 'DRAFT')); ?></td>
                   </tr>
                 <?php endforeach; ?>

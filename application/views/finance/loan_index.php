@@ -3,7 +3,9 @@ $loanCfg = is_array($loan_cfg ?? null) ? $loan_cfg : [];
 $filters = is_array($filters ?? null) ? $filters : [];
 $rows = is_array($rows ?? null) ? $rows : [];
 $summary = is_array($summary ?? null) ? $summary : [];
+$recap = is_array($recap ?? null) ? $recap : [];
 $pg = is_array($pg ?? null) ? $pg : ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
+$loanTab = (string)($loan_tab ?? 'recap');
 $detailRow = is_array($detail_row ?? null) ? $detail_row : null;
 $detailPayments = is_array($detail_payments ?? null) ? $detail_payments : [];
 $editRow = is_array($edit_row ?? null) ? $edit_row : null;
@@ -19,9 +21,11 @@ $partySaveUrl = site_url('finance/relasi/save');
 $accountOptions = is_array($company_account_options ?? null) ? $company_account_options : [];
 $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl) {
     $query = [
+        'tab' => (string)($filters['tab'] ?? 'recap'),
         'q' => (string)($filters['q'] ?? ''),
         'status' => (string)($filters['status'] ?? ''),
         'party_id' => (int)($filters['party_id'] ?? 0),
+        'account_id' => (int)($filters['account_id'] ?? 0),
         'impact_mode' => (string)($filters['impact_mode'] ?? ''),
         'date_start' => (string)($filters['date_start'] ?? ''),
         'date_end' => (string)($filters['date_end'] ?? ''),
@@ -160,18 +164,35 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
   <div class="fin-page-header mb-3">
     <div>
       <h4 class="fin-page-title mb-1"><?php echo html_escape((string)($loanCfg['page_title'] ?? 'Transaksi')); ?></h4>
-      <p class="fin-page-subtitle mb-0"><?php echo html_escape((string)($isPayable ? 'Kelola utang ke pihak luar, pantau outstanding, dan catat pelunasan yang memang memengaruhi kas atau hanya penyesuaian historis.' : 'Kelola piutang ke pihak luar, pantau sisa tagihan, dan catat penerimaan yang memang memengaruhi kas atau hanya penyesuaian historis.')); ?></p>
+      <p class="fin-page-subtitle mb-0"><?php echo html_escape((string)($isPayable ? 'Kelola utang ke pihak luar, pantau outstanding, dan catat pembayaran dengan dua mode: saldo bergerak untuk mutasi riil, saldo tetap untuk histori yang tetap ditautkan ke rekening.' : 'Kelola piutang ke pihak luar, pantau sisa tagihan, dan catat penerimaan dengan dua mode: saldo bergerak untuk mutasi riil, saldo tetap untuk histori yang tetap ditautkan ke rekening.')); ?></p>
     </div>
   </div>
 
   <?php $this->load->view('finance/_tabs', ['finance_tab_active' => $isPayable ? 'payable' : 'receivable']); ?>
+
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <?php
+      $loanTabs = [
+          'recap' => 'Rekap',
+          'all' => 'Semua',
+          'party' => 'Rekap Per Orang',
+          'account' => 'Rekap Per Rekening',
+          'party_account' => 'Per Orang Per Rekening',
+      ];
+    ?>
+    <?php foreach ($loanTabs as $tabKey => $tabLabel): ?>
+      <a href="<?php echo $buildUrl(['tab' => $tabKey, 'page' => 1, 'detail_id' => null, 'edit_id' => null]); ?>" class="btn btn-sm <?php echo $loanTab === $tabKey ? 'btn-primary' : 'btn-outline-primary'; ?>">
+        <?php echo html_escape($tabLabel); ?>
+      </a>
+    <?php endforeach; ?>
+  </div>
 
   <div class="card fin-loan-hero mb-3">
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
         <div>
           <h5 class="mb-1"><?php echo html_escape((string)($loanCfg['title_plural'] ?? 'Transaksi')); ?></h5>
-          <div class="text-muted small"><?php echo html_escape((string)($isPayable ? 'Gunakan mode saldo bergerak bila uang benar-benar masuk saat utang dicatat. Pakai saldo tetap bila ini hutang lama yang sudah tercermin di saldo sekarang.' : 'Gunakan mode saldo bergerak bila uang benar-benar keluar saat piutang dicatat. Pakai saldo tetap bila ini piutang lama yang sudah tercermin di saldo sekarang.')); ?></div>
+          <div class="text-muted small"><?php echo html_escape((string)($isPayable ? 'Saldo bergerak dipakai saat uang memang masuk ke rekening sekarang. Saldo tetap dipakai untuk utang lama, tetapi rekening tetap dipilih supaya laporan nanti bisa membedakan saldo rekening fisik dan posisi riil kafe.' : 'Saldo bergerak dipakai saat uang memang keluar dari rekening sekarang. Saldo tetap dipakai untuk piutang lama, tetapi rekening tetap dipilih supaya laporan nanti bisa membedakan saldo rekening fisik dan posisi riil kafe.')); ?></div>
         </div>
         <button type="button" class="btn btn-primary" id="btn-new-loan" data-bs-toggle="modal" data-bs-target="#loanModal"><?php echo html_escape((string)($loanCfg['create_label'] ?? 'Tambah')); ?></button>
       </div>
@@ -226,6 +247,17 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
           </select>
         </div>
         <div class="col-md-2">
+          <label class="form-label mb-1">Rekening</label>
+          <select name="account_id" class="form-select">
+            <option value="0">Semua rekening</option>
+            <?php foreach ($accountOptions as $account): ?>
+              <option value="<?php echo (int)($account['id'] ?? 0); ?>" <?php echo ((int)($filters['account_id'] ?? 0) === (int)($account['id'] ?? 0)) ? 'selected' : ''; ?>>
+                <?php echo html_escape((string)($account['account_name'] ?? '')); ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="col-md-2">
           <label class="form-label mb-1">Dari</label>
           <input type="date" name="date_start" class="form-control" value="<?php echo html_escape((string)($filters['date_start'] ?? '')); ?>">
         </div>
@@ -249,89 +281,352 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
     </div>
   </div>
 
-  <div class="card fin-loan-table mb-3">
-    <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
-        <thead>
-          <tr>
-            <th>No Dokumen</th>
-            <th>Pihak</th>
-            <th>Status</th>
-            <th class="text-end">Nominal</th>
-            <th class="text-end">Outstanding</th>
-            <th>Mode</th>
-            <th>Rekening</th>
-            <th class="text-center">Aksi</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php if (empty($rows)): ?>
-            <tr><td colspan="8" class="text-center text-muted py-4">Belum ada transaksi.</td></tr>
-          <?php else: ?>
-            <?php foreach ($rows as $row): ?>
-              <?php $status = strtoupper((string)($row['status'] ?? 'OPEN')); ?>
-              <tr>
-                <td>
-                  <div class="fin-loan-name"><?php echo html_escape((string)($row[$isPayable ? 'payable_no' : 'receivable_no'] ?? '-')); ?></div>
-                  <div class="fin-loan-sub"><?php echo html_escape((string)($row[$dateField] ?? '-')); ?></div>
-                </td>
-                <td>
-                  <div class="fin-loan-name"><?php echo html_escape((string)($row['party_name'] ?? '-')); ?></div>
-                  <div class="fin-loan-sub"><?php echo html_escape((string)($row[$titleField] ?? '-')); ?></div>
-                </td>
-                <td>
-                  <?php if ($status === 'SETTLED'): ?>
-                    <span class="badge bg-success-subtle text-success-emphasis">Lunas</span>
-                  <?php elseif ($status === 'PARTIAL'): ?>
-                    <span class="badge bg-warning-subtle text-warning-emphasis">Sebagian</span>
-                  <?php elseif ($status === 'VOID'): ?>
-                    <span class="badge bg-secondary-subtle text-secondary-emphasis">Void</span>
-                  <?php else: ?>
-                    <span class="badge bg-primary-subtle text-primary-emphasis">Open</span>
-                  <?php endif; ?>
-                </td>
-                <td class="text-end fin-loan-money">Rp <?php echo number_format((float)($row['amount'] ?? 0), 2, ',', '.'); ?></td>
-                <td class="text-end fin-loan-money outstanding">Rp <?php echo number_format((float)($row['outstanding_amount'] ?? 0), 2, ',', '.'); ?></td>
-                <td>
-                  <span class="fin-loan-mode-pill"><?php echo (($row['account_impact_mode'] ?? '') === 'KEEP_BALANCE') ? 'Saldo tetap' : 'Saldo bergerak'; ?></span>
-                </td>
-                <td>
-                  <?php if (!empty($row['account_name'])): ?>
-                    <div class="fin-loan-name"><?php echo html_escape((string)($row['account_name'] ?? '')); ?></div>
-                    <div class="fin-loan-sub"><?php echo html_escape((string)($row['account_code'] ?? '')); ?></div>
-                  <?php else: ?>
-                    <span class="text-muted">Tidak ada dampak saldo</span>
-                  <?php endif; ?>
-                </td>
-                <td class="text-center">
-                  <a href="<?php echo $buildUrl(['detail_id' => (int)$row['id'], 'page' => (int)($pg['page'] ?? 1)]); ?>" class="btn btn-sm btn-outline-info">Detail</a>
-                  <?php if ($status !== 'VOID'): ?>
-                    <a href="<?php echo $buildUrl(['edit_id' => (int)$row['id'], 'page' => (int)($pg['page'] ?? 1)]); ?>" class="btn btn-sm btn-outline-primary">Edit</a>
-                    <form method="post" action="<?php echo site_url((string)($loanCfg['base_url'] ?? 'finance/utang') . '/void/' . (int)$row['id']); ?>" class="d-inline" onsubmit="return confirm('VOID transaksi ini?');">
-                      <button type="submit" class="btn btn-sm btn-outline-warning">Void</button>
-                    </form>
-                    <form method="post" action="<?php echo site_url((string)($loanCfg['base_url'] ?? 'finance/utang') . '/delete/' . (int)$row['id']); ?>" class="d-inline" onsubmit="return confirm('Hapus transaksi ini?');">
-                      <button type="submit" class="btn btn-sm btn-outline-danger">Hapus</button>
-                    </form>
-                  <?php endif; ?>
-                </td>
-              </tr>
-            <?php endforeach; ?>
-          <?php endif; ?>
-        </tbody>
-      </table>
-    </div>
-    <?php if (($pg['total_pages'] ?? 1) > 1): ?>
-      <div class="card-footer d-flex justify-content-between align-items-center">
-        <small class="text-muted">Halaman <?php echo (int)$pg['page']; ?> dari <?php echo (int)$pg['total_pages']; ?>. Total <?php echo (int)$pg['total']; ?> data.</small>
-        <div class="btn-group btn-group-sm">
-          <?php $prev = max(1, (int)$pg['page'] - 1); $next = min((int)$pg['total_pages'], (int)$pg['page'] + 1); ?>
-          <a class="btn btn-outline-secondary <?php echo ((int)$pg['page'] <= 1) ? 'disabled' : ''; ?>" href="<?php echo ((int)$pg['page'] <= 1) ? '#' : $buildUrl(['page' => $prev]); ?>">Prev</a>
-          <a class="btn btn-outline-secondary <?php echo ((int)$pg['page'] >= (int)$pg['total_pages']) ? 'disabled' : ''; ?>" href="<?php echo ((int)$pg['page'] >= (int)$pg['total_pages']) ? '#' : $buildUrl(['page' => $next]); ?>">Next</a>
+  <?php if ($loanTab === 'recap'): ?>
+    <div class="row g-3 mb-3">
+      <div class="col-lg-6">
+        <div class="card fin-loan-table h-100">
+          <div class="card-body border-bottom">
+            <h5 class="mb-1">Rekap Status</h5>
+            <div class="small text-muted">Ringkasan posisi dokumen berdasarkan status.</div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th class="text-end">Dokumen</th>
+                  <th class="text-end">Nominal</th>
+                  <th class="text-end">Outstanding</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php if (empty($recap['status_rows'])): ?>
+                  <tr><td colspan="4" class="text-center text-muted py-4">Belum ada data.</td></tr>
+                <?php else: ?>
+                  <?php foreach ((array)$recap['status_rows'] as $row): ?>
+                    <tr>
+                      <td><div class="fin-loan-name"><?php echo html_escape((string)($row['status'] ?? '-')); ?></div></td>
+                      <td class="text-end"><?php echo number_format((int)($row['doc_total'] ?? 0)); ?></td>
+                      <td class="text-end fin-loan-money">Rp <?php echo number_format((float)($row['amount_total'] ?? 0), 2, ',', '.'); ?></td>
+                      <td class="text-end fin-loan-money outstanding">Rp <?php echo number_format((float)($row['outstanding_total'] ?? 0), 2, ',', '.'); ?></td>
+                    </tr>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    <?php endif; ?>
-  </div>
+      <div class="col-lg-6">
+        <div class="card fin-loan-table h-100">
+          <div class="card-body border-bottom">
+            <h5 class="mb-1">Rekap Mode Saldo</h5>
+            <div class="small text-muted">Membedakan transaksi riil vs histori saldo tetap.</div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Mode</th>
+                  <th class="text-end">Dokumen</th>
+                  <th class="text-end">Nominal</th>
+                  <th class="text-end">Outstanding</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php if (empty($recap['mode_rows'])): ?>
+                  <tr><td colspan="4" class="text-center text-muted py-4">Belum ada data.</td></tr>
+                <?php else: ?>
+                  <?php foreach ((array)$recap['mode_rows'] as $row): ?>
+                    <tr>
+                      <td><span class="fin-loan-mode-pill"><?php echo (($row['account_impact_mode'] ?? '') === 'KEEP_BALANCE') ? 'Saldo tetap' : 'Saldo bergerak'; ?></span></td>
+                      <td class="text-end"><?php echo number_format((int)($row['doc_total'] ?? 0)); ?></td>
+                      <td class="text-end fin-loan-money">Rp <?php echo number_format((float)($row['amount_total'] ?? 0), 2, ',', '.'); ?></td>
+                      <td class="text-end fin-loan-money outstanding">Rp <?php echo number_format((float)($row['outstanding_total'] ?? 0), 2, ',', '.'); ?></td>
+                    </tr>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <div class="card fin-loan-table h-100">
+          <div class="card-body border-bottom">
+            <h5 class="mb-1">Top Per Orang</h5>
+            <div class="small text-muted">Pihak dengan outstanding terbesar pada filter saat ini.</div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Orang / Pihak</th>
+                  <th class="text-end">Dokumen</th>
+                  <th class="text-end">Outstanding</th>
+                  <th class="text-center">Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php if (empty($recap['top_party_rows'])): ?>
+                  <tr><td colspan="4" class="text-center text-muted py-4">Belum ada data.</td></tr>
+                <?php else: ?>
+                  <?php foreach ((array)$recap['top_party_rows'] as $row): ?>
+                    <tr>
+                      <td>
+                        <div class="fin-loan-name"><?php echo html_escape((string)($row['party_name'] ?? '-')); ?></div>
+                        <div class="fin-loan-sub"><?php echo html_escape((string)($row['party_mobile_phone'] ?? $row['party_code'] ?? '-')); ?></div>
+                      </td>
+                      <td class="text-end"><?php echo number_format((int)($row['doc_total'] ?? 0)); ?></td>
+                      <td class="text-end fin-loan-money outstanding">Rp <?php echo number_format((float)($row['outstanding_total'] ?? 0), 2, ',', '.'); ?></td>
+                      <td class="text-center"><a href="<?php echo $buildUrl(['tab' => 'all', 'party_id' => (int)($row['party_id'] ?? 0), 'page' => 1]); ?>" class="btn btn-sm btn-outline-primary">Lihat Semua</a></td>
+                    </tr>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card fin-loan-table h-100">
+          <div class="card-body border-bottom">
+            <h5 class="mb-1">Top Per Rekening</h5>
+            <div class="small text-muted">Rekening yang paling besar eksposurnya pada filter saat ini.</div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Rekening</th>
+                  <th class="text-end">Dokumen</th>
+                  <th class="text-end">Outstanding</th>
+                  <th class="text-center">Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php if (empty($recap['top_account_rows'])): ?>
+                  <tr><td colspan="4" class="text-center text-muted py-4">Belum ada data.</td></tr>
+                <?php else: ?>
+                  <?php foreach ((array)$recap['top_account_rows'] as $row): ?>
+                    <tr>
+                      <td>
+                        <div class="fin-loan-name"><?php echo html_escape((string)($row['account_name'] ?? '-')); ?></div>
+                        <div class="fin-loan-sub"><?php echo html_escape((string)($row['account_code'] ?? '-')); ?></div>
+                      </td>
+                      <td class="text-end"><?php echo number_format((int)($row['doc_total'] ?? 0)); ?></td>
+                      <td class="text-end fin-loan-money outstanding">Rp <?php echo number_format((float)($row['outstanding_total'] ?? 0), 2, ',', '.'); ?></td>
+                      <td class="text-center"><a href="<?php echo $buildUrl(['tab' => 'all', 'account_id' => (int)($row['company_account_id'] ?? 0), 'page' => 1]); ?>" class="btn btn-sm btn-outline-primary">Lihat Semua</a></td>
+                    </tr>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  <?php else: ?>
+    <div class="card fin-loan-table mb-3">
+      <div class="table-responsive">
+        <?php if ($loanTab === 'all'): ?>
+          <table class="table table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th>No Dokumen</th>
+                <th>Pihak</th>
+                <th>Status</th>
+                <th class="text-end">Nominal</th>
+                <th class="text-end">Outstanding</th>
+                <th>Mode</th>
+                <th>Rekening</th>
+                <th class="text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (empty($rows)): ?>
+                <tr><td colspan="8" class="text-center text-muted py-4">Belum ada transaksi.</td></tr>
+              <?php else: ?>
+                <?php foreach ($rows as $row): ?>
+                  <?php $status = strtoupper((string)($row['status'] ?? 'OPEN')); ?>
+                  <tr>
+                    <td>
+                      <div class="fin-loan-name"><?php echo html_escape((string)($row[$isPayable ? 'payable_no' : 'receivable_no'] ?? '-')); ?></div>
+                      <div class="fin-loan-sub"><?php echo html_escape((string)($row[$dateField] ?? '-')); ?></div>
+                    </td>
+                    <td>
+                      <div class="fin-loan-name"><?php echo html_escape((string)($row['party_name'] ?? '-')); ?></div>
+                      <div class="fin-loan-sub"><?php echo html_escape((string)($row[$titleField] ?? '-')); ?></div>
+                    </td>
+                    <td>
+                      <?php if ($status === 'SETTLED'): ?>
+                        <span class="badge bg-success-subtle text-success-emphasis">Lunas</span>
+                      <?php elseif ($status === 'PARTIAL'): ?>
+                        <span class="badge bg-warning-subtle text-warning-emphasis">Sebagian</span>
+                      <?php elseif ($status === 'VOID'): ?>
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis">Void</span>
+                      <?php else: ?>
+                        <span class="badge bg-primary-subtle text-primary-emphasis">Open</span>
+                      <?php endif; ?>
+                    </td>
+                    <td class="text-end fin-loan-money">Rp <?php echo number_format((float)($row['amount'] ?? 0), 2, ',', '.'); ?></td>
+                    <td class="text-end fin-loan-money outstanding">Rp <?php echo number_format((float)($row['outstanding_amount'] ?? 0), 2, ',', '.'); ?></td>
+                    <td>
+                      <span class="fin-loan-mode-pill"><?php echo (($row['account_impact_mode'] ?? '') === 'KEEP_BALANCE') ? 'Saldo tetap' : 'Saldo bergerak'; ?></span>
+                    </td>
+                    <td>
+                      <?php if (!empty($row['account_name'])): ?>
+                        <div class="fin-loan-name"><?php echo html_escape((string)($row['account_name'] ?? '')); ?></div>
+                        <div class="fin-loan-sub"><?php echo html_escape((string)($row['account_code'] ?? '')); ?></div>
+                      <?php else: ?>
+                        <span class="text-muted">Tidak ada dampak saldo</span>
+                      <?php endif; ?>
+                    </td>
+                    <td class="text-center">
+                      <a href="<?php echo $buildUrl(['detail_id' => (int)$row['id'], 'page' => (int)($pg['page'] ?? 1)]); ?>" class="btn btn-sm btn-outline-info">Detail</a>
+                      <?php if ($status !== 'VOID'): ?>
+                        <a href="<?php echo $buildUrl(['edit_id' => (int)$row['id'], 'page' => (int)($pg['page'] ?? 1)]); ?>" class="btn btn-sm btn-outline-primary">Edit</a>
+                        <form method="post" action="<?php echo site_url((string)($loanCfg['base_url'] ?? 'finance/utang') . '/void/' . (int)$row['id']); ?>" class="d-inline" onsubmit="return confirm('VOID transaksi ini?');">
+                          <button type="submit" class="btn btn-sm btn-outline-warning">Void</button>
+                        </form>
+                        <form method="post" action="<?php echo site_url((string)($loanCfg['base_url'] ?? 'finance/utang') . '/delete/' . (int)$row['id']); ?>" class="d-inline" onsubmit="return confirm('Hapus transaksi ini?');">
+                          <button type="submit" class="btn btn-sm btn-outline-danger">Hapus</button>
+                        </form>
+                      <?php endif; ?>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </tbody>
+          </table>
+        <?php elseif ($loanTab === 'party'): ?>
+          <table class="table table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Orang / Pihak</th>
+                <th class="text-end">Dokumen</th>
+                <th class="text-end">Rekening</th>
+                <th class="text-end">Nominal</th>
+                <th class="text-end">Outstanding</th>
+                <th class="text-end">Sudah Dibayar</th>
+                <th>Tanggal Terakhir</th>
+                <th class="text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (empty($rows)): ?>
+                <tr><td colspan="8" class="text-center text-muted py-4">Belum ada rekap per orang.</td></tr>
+              <?php else: ?>
+                <?php foreach ($rows as $row): ?>
+                  <tr>
+                    <td>
+                      <div class="fin-loan-name"><?php echo html_escape((string)($row['party_name'] ?? '-')); ?></div>
+                      <div class="fin-loan-sub"><?php echo html_escape((string)($row['party_mobile_phone'] ?? $row['party_code'] ?? '-')); ?></div>
+                    </td>
+                    <td class="text-end"><?php echo number_format((int)($row['doc_total'] ?? 0)); ?></td>
+                    <td class="text-end"><?php echo number_format((int)($row['account_total'] ?? 0)); ?></td>
+                    <td class="text-end fin-loan-money">Rp <?php echo number_format((float)($row['amount_total'] ?? 0), 2, ',', '.'); ?></td>
+                    <td class="text-end fin-loan-money outstanding">Rp <?php echo number_format((float)($row['outstanding_total'] ?? 0), 2, ',', '.'); ?></td>
+                    <td class="text-end fin-loan-money">Rp <?php echo number_format((float)($row['paid_total'] ?? 0), 2, ',', '.'); ?></td>
+                    <td><?php echo html_escape((string)($row['last_doc_date'] ?? '-')); ?></td>
+                    <td class="text-center"><a href="<?php echo $buildUrl(['tab' => 'all', 'party_id' => (int)($row['party_id'] ?? 0), 'page' => 1]); ?>" class="btn btn-sm btn-outline-primary">Lihat Transaksi</a></td>
+                  </tr>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </tbody>
+          </table>
+        <?php elseif ($loanTab === 'account'): ?>
+          <table class="table table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Rekening</th>
+                <th class="text-end">Orang</th>
+                <th class="text-end">Dokumen</th>
+                <th class="text-end">Nominal</th>
+                <th class="text-end">Outstanding</th>
+                <th class="text-end">Sudah Dibayar</th>
+                <th>Tanggal Terakhir</th>
+                <th class="text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (empty($rows)): ?>
+                <tr><td colspan="8" class="text-center text-muted py-4">Belum ada rekap per rekening.</td></tr>
+              <?php else: ?>
+                <?php foreach ($rows as $row): ?>
+                  <tr>
+                    <td>
+                      <div class="fin-loan-name"><?php echo html_escape((string)($row['account_name'] ?? '-')); ?></div>
+                      <div class="fin-loan-sub"><?php echo html_escape((string)($row['account_code'] ?? '-')); ?> • <?php echo html_escape((string)($row['bank_name'] ?? '-')); ?></div>
+                    </td>
+                    <td class="text-end"><?php echo number_format((int)($row['party_total'] ?? 0)); ?></td>
+                    <td class="text-end"><?php echo number_format((int)($row['doc_total'] ?? 0)); ?></td>
+                    <td class="text-end fin-loan-money">Rp <?php echo number_format((float)($row['amount_total'] ?? 0), 2, ',', '.'); ?></td>
+                    <td class="text-end fin-loan-money outstanding">Rp <?php echo number_format((float)($row['outstanding_total'] ?? 0), 2, ',', '.'); ?></td>
+                    <td class="text-end fin-loan-money">Rp <?php echo number_format((float)($row['paid_total'] ?? 0), 2, ',', '.'); ?></td>
+                    <td><?php echo html_escape((string)($row['last_doc_date'] ?? '-')); ?></td>
+                    <td class="text-center"><a href="<?php echo $buildUrl(['tab' => 'all', 'account_id' => (int)($row['company_account_id'] ?? 0), 'page' => 1]); ?>" class="btn btn-sm btn-outline-primary">Lihat Transaksi</a></td>
+                  </tr>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </tbody>
+          </table>
+        <?php else: ?>
+          <table class="table table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Orang / Pihak</th>
+                <th>Rekening</th>
+                <th class="text-end">Dokumen</th>
+                <th class="text-end">Nominal</th>
+                <th class="text-end">Outstanding</th>
+                <th class="text-end">Sudah Dibayar</th>
+                <th>Tanggal Terakhir</th>
+                <th class="text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (empty($rows)): ?>
+                <tr><td colspan="8" class="text-center text-muted py-4">Belum ada rekap orang per rekening.</td></tr>
+              <?php else: ?>
+                <?php foreach ($rows as $row): ?>
+                  <tr>
+                    <td>
+                      <div class="fin-loan-name"><?php echo html_escape((string)($row['party_name'] ?? '-')); ?></div>
+                      <div class="fin-loan-sub"><?php echo html_escape((string)($row['party_mobile_phone'] ?? $row['party_code'] ?? '-')); ?></div>
+                    </td>
+                    <td>
+                      <div class="fin-loan-name"><?php echo html_escape((string)($row['account_name'] ?? '-')); ?></div>
+                      <div class="fin-loan-sub"><?php echo html_escape((string)($row['account_code'] ?? '-')); ?></div>
+                    </td>
+                    <td class="text-end"><?php echo number_format((int)($row['doc_total'] ?? 0)); ?></td>
+                    <td class="text-end fin-loan-money">Rp <?php echo number_format((float)($row['amount_total'] ?? 0), 2, ',', '.'); ?></td>
+                    <td class="text-end fin-loan-money outstanding">Rp <?php echo number_format((float)($row['outstanding_total'] ?? 0), 2, ',', '.'); ?></td>
+                    <td class="text-end fin-loan-money">Rp <?php echo number_format((float)($row['paid_total'] ?? 0), 2, ',', '.'); ?></td>
+                    <td><?php echo html_escape((string)($row['last_doc_date'] ?? '-')); ?></td>
+                    <td class="text-center"><a href="<?php echo $buildUrl(['tab' => 'all', 'party_id' => (int)($row['party_id'] ?? 0), 'account_id' => (int)($row['company_account_id'] ?? 0), 'page' => 1]); ?>" class="btn btn-sm btn-outline-primary">Lihat Transaksi</a></td>
+                  </tr>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </tbody>
+          </table>
+        <?php endif; ?>
+      </div>
+      <?php if ($loanTab !== 'recap' && ($pg['total_pages'] ?? 1) > 1): ?>
+        <div class="card-footer d-flex justify-content-between align-items-center">
+          <small class="text-muted">Halaman <?php echo (int)$pg['page']; ?> dari <?php echo (int)$pg['total_pages']; ?>. Total <?php echo (int)$pg['total']; ?> data.</small>
+          <div class="btn-group btn-group-sm">
+            <?php $prev = max(1, (int)$pg['page'] - 1); $next = min((int)$pg['total_pages'], (int)$pg['page'] + 1); ?>
+            <a class="btn btn-outline-secondary <?php echo ((int)$pg['page'] <= 1) ? 'disabled' : ''; ?>" href="<?php echo ((int)$pg['page'] <= 1) ? '#' : $buildUrl(['page' => $prev]); ?>">Prev</a>
+            <a class="btn btn-outline-secondary <?php echo ((int)$pg['page'] >= (int)$pg['total_pages']) ? 'disabled' : ''; ?>" href="<?php echo ((int)$pg['page'] >= (int)$pg['total_pages']) ? '#' : $buildUrl(['page' => $next]); ?>">Next</a>
+          </div>
+        </div>
+      <?php endif; ?>
+    </div>
+  <?php endif; ?>
 
   <?php if ($detailRow): ?>
     <div class="card fin-loan-detail">
@@ -367,7 +662,7 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
             <div class="fin-loan-summary-card h-100">
               <div class="label">Mode Saldo</div>
               <div class="value" style="font-size:1rem;"><?php echo (($detailRow['account_impact_mode'] ?? '') === 'KEEP_BALANCE') ? 'Saldo tetap' : 'Saldo bergerak'; ?></div>
-              <div class="subvalue"><?php echo !empty($detailRow['account_name']) ? html_escape((string)$detailRow['account_name']) : 'Tidak ada dampak saldo'; ?></div>
+              <div class="subvalue"><?php echo !empty($detailRow['account_name']) ? html_escape((string)$detailRow['account_name']) : 'Belum tertaut rekening'; ?></div>
             </div>
           </div>
         </div>
@@ -441,7 +736,7 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
                     </td>
                     <td><?php echo html_escape((string)($payment['payment_date'] ?? '-')); ?></td>
                     <td><span class="fin-loan-party-pill"><?php echo (($payment['account_impact_mode'] ?? '') === 'KEEP_BALANCE') ? 'Saldo tetap' : 'Saldo bergerak'; ?></span></td>
-                    <td><?php echo !empty($payment['account_name']) ? html_escape((string)$payment['account_name']) : '<span class="text-muted">Historis</span>'; ?></td>
+                    <td><?php echo !empty($payment['account_name']) ? html_escape((string)$payment['account_name']) : '<span class="text-muted">Belum tertaut rekening</span>'; ?></td>
                     <td class="text-end fin-loan-money">Rp <?php echo number_format((float)($payment['amount'] ?? 0), 2, ',', '.'); ?></td>
                     <td><?php echo html_escape((string)($payment['transfer_ref_no'] ?? '-')); ?></td>
                     <td><?php echo html_escape((string)($payment['notes'] ?? '-')); ?></td>
@@ -523,6 +818,7 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
                 <option value="<?php echo (int)($account['id'] ?? 0); ?>" <?php echo ((int)($editRow['company_account_id'] ?? 0) === (int)($account['id'] ?? 0)) ? 'selected' : ''; ?>><?php echo html_escape((string)($account['label'] ?? '')); ?></option>
               <?php endforeach; ?>
             </select>
+            <div class="form-text">Rekening tetap wajib dipilih, termasuk untuk saldo tetap, supaya utang/piutang tetap terbaca per rekening di laporan.</div>
           </div>
           <div class="col-12">
             <div class="alert alert-warning mb-0" id="impact_help_box">
@@ -634,11 +930,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
   const impactModeEl = document.getElementById('account_impact_mode');
   const impactHelpBox = document.getElementById('impact_help_box');
-  const companyAccountWrap = document.getElementById('company_account_wrap');
   function syncImpactMode() {
     const keep = impactModeEl.value === 'KEEP_BALANCE';
     impactHelpBox.textContent = keep ? impactHelpKeep : impactHelpApply;
-    companyAccountWrap.style.display = keep ? 'none' : '';
   }
   if (impactModeEl) {
     impactModeEl.addEventListener('change', syncImpactMode);

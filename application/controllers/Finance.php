@@ -182,21 +182,33 @@ class Finance extends MY_Controller
         $cfg = $this->loan_page_config($kind);
         $this->require_permission($cfg['page_code'], 'view');
 
+        $tab = strtolower(trim((string)$this->input->get('tab', true)));
+        if (!in_array($tab, ['recap', 'all', 'party', 'account', 'party_account'], true)) {
+            $tab = 'recap';
+        }
+
         $filters = [
             'q' => trim((string)$this->input->get('q', true)),
             'status' => strtoupper(trim((string)$this->input->get('status', true))),
             'party_id' => (int)$this->input->get('party_id', true),
+            'account_id' => (int)$this->input->get('account_id', true),
             'impact_mode' => strtoupper(trim((string)$this->input->get('impact_mode', true))),
             'date_start' => trim((string)$this->input->get('date_start', true)),
             'date_end' => trim((string)$this->input->get('date_end', true)),
+            'tab' => $tab,
         ];
 
         $perPage = $this->per_page();
         $page = $this->page();
-        $total = $this->Finance_model->count_loan_docs($kind, $filters);
+        $total = $tab === 'all'
+            ? $this->Finance_model->count_loan_docs($kind, $filters)
+            : $this->Finance_model->count_loan_tab_rows($kind, $filters, $tab);
         $pg = $this->build_pagination($total, $perPage, $page);
-        $rows = $this->Finance_model->list_loan_docs($kind, $filters, $pg['per_page'], $pg['offset']);
+        $rows = $tab === 'all'
+            ? $this->Finance_model->list_loan_docs($kind, $filters, $pg['per_page'], $pg['offset'])
+            : $this->Finance_model->list_loan_tab_rows($kind, $filters, $tab, $pg['per_page'], $pg['offset']);
         $summary = $this->Finance_model->summarize_loan_docs($kind, $filters);
+        $recap = $this->Finance_model->summarize_loan_recap($kind, $filters);
 
         $detailId = (int)$this->input->get('detail_id', true);
         $detailRow = $detailId > 0 ? $this->Finance_model->get_loan_by_id($kind, $detailId) : null;
@@ -211,8 +223,10 @@ class Finance extends MY_Controller
             'loan_cfg' => $cfg,
             'filters' => $filters,
             'pg' => $pg,
+            'loan_tab' => $tab,
             'rows' => $rows,
             'summary' => $summary,
+            'recap' => $recap,
             'detail_row' => $detailRow,
             'detail_payments' => $detailPayments,
             'edit_row' => $editRow,
@@ -344,8 +358,8 @@ class Finance extends MY_Controller
                 'title_plural' => 'Piutang',
                 'create_label' => 'Tambah Piutang',
                 'payment_label' => 'Terima Pembayaran',
-                'impact_help_apply' => 'Saldo rekening akan berkurang sekarang, karena dana piutang benar-benar keluar dari kas/rekening perusahaan.',
-                'impact_help_keep' => 'Saldo tetap. Pakai ini bila piutang sudah terjadi sebelum aplikasi dipakai, jadi saldo hari ini sudah mencerminkan kondisi tersebut.',
+                'impact_help_apply' => 'Saldo rekening akan berkurang sekarang, karena dana piutang benar-benar keluar dari kas/rekening perusahaan. Rekening ini juga menjadi pengait laporan saldo rekening dan saldo riil.',
+                'impact_help_keep' => 'Saldo rekening tidak diubah. Pakai ini bila piutang sudah terjadi sebelum aplikasi dipakai, tetapi rekening tetap wajib dipilih agar posisi piutang tetap terbaca per rekening pada laporan.',
             ];
         }
 
@@ -358,8 +372,8 @@ class Finance extends MY_Controller
             'title_plural' => 'Utang',
             'create_label' => 'Tambah Utang',
             'payment_label' => 'Bayar Utang',
-            'impact_help_apply' => 'Saldo rekening akan bertambah sekarang, karena dana utang memang masuk ke kas/rekening perusahaan.',
-            'impact_help_keep' => 'Saldo tetap. Pakai ini bila utang sudah terjadi sebelum aplikasi dipakai, jadi saldo hari ini sudah termasuk efek transaksi lama itu.',
+            'impact_help_apply' => 'Saldo rekening akan bertambah sekarang, karena dana utang memang masuk ke kas/rekening perusahaan. Rekening ini juga menjadi pengait laporan saldo rekening dan saldo riil.',
+            'impact_help_keep' => 'Saldo rekening tidak diubah. Pakai ini bila utang sudah terjadi sebelum aplikasi dipakai, tetapi rekening tetap wajib dipilih agar posisi utang tetap terbaca per rekening pada laporan.',
         ];
     }
 }

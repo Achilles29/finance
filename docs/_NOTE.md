@@ -200,6 +200,18 @@ Per Rincian
 
 apakah adj mengintervensi LOT? karena saya cek kolom LOT kosong semua
 
+Per Rincian:
+- No, Tanggal, dan Status terpotong, Alasan terlalu lebar. sesuaikan keempat kolom itu 	
+- judul LOKASI dan DIVISI cukup tulis DIVIS agar tidak menyebrang
+- apa beda Nilai Adj dan Jenis & Qty? kenapa beda nilainya? apakah nilai itu uangnya? kalau iya sesuaikan urutan kolom : | qty (qty adj ) | NILAI (uang) | Jenis ( misal " waste : erro system")|  
+
+
+masih /production/component-adjustments :
+- di kolom QTY tidak usah tuliskan jenisnya lagi karena sudah ada di kolom sebelahnya. cukup tulis QTY nya
+- perlebar kolom No, Tanggal,dan Komponen agar kontennya tidak terpotong
+- perkecil jenis dan alasan itu terlalu lebar
+- kolom lot boleh tampilkan lagi untuk melihat apakah revisi tadi sudah berjalan (taruh setelah nilai)
+
 
 7. /production/component-openings
 

@@ -2568,7 +2568,18 @@ class Production_model extends CI_Model
     public function list_component_openings(array $filters = [], int $limit = 200): array
     {
         $q = trim((string)($filters['q'] ?? ''));
-        $monthKey = $this->normalize_month_key((string)($filters['month'] ?? ''));
+        $dateFrom = trim((string)($filters['date_from'] ?? ''));
+        $dateTo   = trim((string)($filters['date_to'] ?? ''));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+            $monthKey = $this->normalize_month_key((string)($filters['month'] ?? ''));
+            if ($monthKey !== null) {
+                $dateFrom = $monthKey . '-01';
+                $dateTo   = date('Y-m-t', strtotime($dateFrom));
+            } else {
+                $dateFrom = '';
+                $dateTo   = '';
+            }
+        }
         $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
         $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : null;
         $divisionNameColumn = $this->division_name_column();
@@ -2577,9 +2588,11 @@ class Production_model extends CI_Model
         $this->db->select('h.*, ' . $divisionNameSelect, false);
         $this->db->from('inv_component_opening h');
         $this->db->join('mst_operational_division d', 'd.id = h.division_id', 'left');
-        if ($monthKey !== null) {
-            $this->db->where('h.opening_date >=', $monthKey . '-01');
-            $this->db->where('h.opening_date <=', date('Y-m-t', strtotime($monthKey . '-01')));
+        if ($dateFrom !== '') {
+            $this->db->where('h.opening_date >=', $dateFrom);
+        }
+        if ($dateTo !== '') {
+            $this->db->where('h.opening_date <=', $dateTo);
         }
         $this->apply_component_location_filter('h.location_type', $locationType);
         if ($divisionId !== null) {
@@ -6108,6 +6121,25 @@ class Production_model extends CI_Model
             }
         }
 
+        // Lot yang DIBUAT untuk ADJ_PLUS — tersimpan di lot_no_snapshot movement log
+        $lotPlusMap = [];
+        if ($this->db->field_exists('lot_no_snapshot', 'inv_component_movement_log')) {
+            $plusLotRows = $this->db->select('source_id, source_line_id, MAX(lot_no_snapshot) AS lot_no', false)
+                ->from('inv_component_movement_log')
+                ->where('source_table', 'inv_component_adjustment')
+                ->where('movement_type', 'ADJUSTMENT_PLUS')
+                ->where('lot_no_snapshot IS NOT NULL', null, false)
+                ->where_in('source_id', array_values($adjustmentIds))
+                ->where_in('source_line_id', array_values($lineIds))
+                ->group_by(['source_id', 'source_line_id'])
+                ->get()
+                ->result_array();
+            foreach ($plusLotRows as $plusRow) {
+                $k = (int)($plusRow['source_id'] ?? 0) . '|' . (int)($plusRow['source_line_id'] ?? 0);
+                $lotPlusMap[$k] = trim((string)($plusRow['lot_no'] ?? ''));
+            }
+        }
+
         $snapshotCache = [];
         foreach ($rows as &$row) {
             $key = (int)($row['adjustment_id'] ?? 0) . '|' . (int)($row['id'] ?? 0);
@@ -6145,7 +6177,11 @@ class Production_model extends CI_Model
                 + (float)($row['value_minus'] ?? 0),
                 2
             );
-            $row['lot_issue_preview'] = !empty($lotIssueMap[$key]) ? implode(' | ', $lotIssueMap[$key]) : '-';
+            $lotParts = !empty($lotIssueMap[$key]) ? $lotIssueMap[$key] : [];
+            if (empty($lotParts) && !empty($lotPlusMap[$key])) {
+                $lotParts[] = $lotPlusMap[$key] . ' (+baru)';
+            }
+            $row['lot_issue_preview'] = !empty($lotParts) ? implode(' | ', $lotParts) : '-';
         }
         unset($row);
 

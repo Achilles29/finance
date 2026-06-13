@@ -235,14 +235,25 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.opening.index', 'view');
         $q = trim((string)$this->input->get('q', true));
-        $month = trim((string)$this->input->get('month', true));
-        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
-            $month = date('Y-m');
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo   = trim((string)$this->input->get('date_to', true));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
+            $dateFrom = date('Y-m-01');
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+            $dateTo = date('Y-m-t');
+        }
+        $month = substr($dateFrom, 0, 7);
+        $perPage = (int)$this->input->get('per_page', true);
+        if (!in_array($perPage, [10, 25, 50, 100], true)) {
+            $perPage = 25;
         }
         $locationType = $this->normalize_location_filter($this->input->get('location_type', true));
         $divisionId = (int)$this->input->get('division_id', true);
         $filters = [
             'q' => $q,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
             'month' => $month,
             'location_type' => $locationType,
             'division_id' => $divisionId > 0 ? $divisionId : null,
@@ -270,7 +281,7 @@ class Production extends MY_Controller
         if (!in_array($openingTab, ['documents', 'detail', 'snapshot'], true)) {
             $openingTab = $detailOpening !== null ? 'detail' : 'documents';
         }
-        $rows = $this->Production_model->list_component_openings($filters, 300);
+        $rows = $this->Production_model->list_component_openings($filters, 500);
         $this->render('production/component_opening_index', [
             'page_title' => 'Opening Base/Prepare',
             'rows' => $rows,
@@ -279,9 +290,12 @@ class Production extends MY_Controller
             'opening_tab' => $openingTab,
             'q' => $q,
             'month' => $month,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'per_page' => $perPage,
             'selected_location_type' => $locationType,
             'selected_division_id' => $divisionId,
-            'monthly_rows' => $this->Production_model->list_component_monthly_openings($filters, 250),
+            'monthly_rows' => $this->Production_model->list_component_monthly_openings($filters, 500),
             'location_options' => $this->location_options(),
             'components' => $this->active_components(),
             'uoms' => $this->active_uoms(),

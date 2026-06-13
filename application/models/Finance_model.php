@@ -565,6 +565,11 @@ class Finance_model extends CI_Model
             ->join('fin_relation_party p', 'p.id = h.party_id', 'inner')
             ->join('fin_company_account a', 'a.id = h.company_account_id', 'left');
 
+        $this->apply_loan_filters($cfg, $filters);
+    }
+
+    private function apply_loan_filters(array $cfg, array $filters): void
+    {
         $status = strtoupper(trim((string)($filters['status'] ?? '')));
         if ($status !== '' && in_array($status, ['OPEN', 'PARTIAL', 'SETTLED', 'VOID'], true)) {
             $this->db->where('h.status', $status);
@@ -578,6 +583,11 @@ class Finance_model extends CI_Model
         $partyId = (int)($filters['party_id'] ?? 0);
         if ($partyId > 0) {
             $this->db->where('h.party_id', $partyId);
+        }
+
+        $accountId = (int)($filters['account_id'] ?? 0);
+        if ($accountId > 0) {
+            $this->db->where('h.company_account_id', $accountId);
         }
 
         $dateStart = $this->normalize_date((string)($filters['date_start'] ?? ''));
@@ -596,8 +606,161 @@ class Finance_model extends CI_Model
                 ->or_like('h.' . $cfg['title_field'], $q)
                 ->or_like('p.party_name', $q)
                 ->or_like('p.party_code', $q)
+                ->or_like('a.account_name', $q)
+                ->or_like('a.account_code', $q)
                 ->group_end();
         }
+    }
+
+    public function count_loan_tab_rows(string $kind, array $filters, string $tab): int
+    {
+        if ($tab === 'party') {
+            return count($this->list_loan_tab_rows($kind, $filters, $tab, 1000000, 0));
+        }
+        if ($tab === 'account') {
+            return count($this->list_loan_tab_rows($kind, $filters, $tab, 1000000, 0));
+        }
+        if ($tab === 'party_account') {
+            return count($this->list_loan_tab_rows($kind, $filters, $tab, 1000000, 0));
+        }
+        return 0;
+    }
+
+    public function list_loan_tab_rows(string $kind, array $filters, string $tab, int $limit, int $offset): array
+    {
+        $cfg = $this->loan_config($kind);
+        $limit = max(1, $limit);
+        $offset = max(0, $offset);
+
+        if ($tab === 'party') {
+            $this->db->select("
+                    h.party_id,
+                    p.party_name,
+                    p.party_code,
+                    p.mobile_phone AS party_mobile_phone,
+                    COUNT(*) AS doc_total,
+                    COUNT(DISTINCT h.company_account_id) AS account_total,
+                    COALESCE(SUM(CASE WHEN h.status <> 'VOID' THEN h.amount ELSE 0 END), 0) AS amount_total,
+                    COALESCE(SUM(CASE WHEN h.status <> 'VOID' THEN h.outstanding_amount ELSE 0 END), 0) AS outstanding_total,
+                    COALESCE(SUM(CASE WHEN h.status <> 'VOID' THEN (h.amount - h.outstanding_amount) ELSE 0 END), 0) AS paid_total,
+                    COALESCE(SUM(CASE WHEN h.account_impact_mode = 'KEEP_BALANCE' AND h.status <> 'VOID' THEN 1 ELSE 0 END), 0) AS historical_doc_total,
+                    MAX(h.{$cfg['loan_date_field']}) AS last_doc_date,
+                    MIN(CASE WHEN h.status IN ('OPEN','PARTIAL') AND h.due_date IS NOT NULL THEN h.due_date ELSE NULL END) AS nearest_due_date
+                ", false);
+            $this->db->from($cfg['header_table'] . ' h')
+                ->join('fin_relation_party p', 'p.id = h.party_id', 'inner')
+                ->join('fin_company_account a', 'a.id = h.company_account_id', 'left');
+            $this->apply_loan_filters($cfg, $filters);
+            return $this->db
+                ->group_by(['h.party_id', 'p.party_name', 'p.party_code', 'p.mobile_phone'])
+                ->order_by('outstanding_total', 'DESC', false)
+                ->order_by('amount_total', 'DESC', false)
+                ->limit($limit, $offset)
+                ->get()->result_array();
+        }
+
+        if ($tab === 'account') {
+            $this->db->select("
+                    h.company_account_id,
+                    a.account_code,
+                    a.account_name,
+                    a.account_type,
+                    a.bank_name,
+                    COUNT(*) AS doc_total,
+                    COUNT(DISTINCT h.party_id) AS party_total,
+                    COALESCE(SUM(CASE WHEN h.status <> 'VOID' THEN h.amount ELSE 0 END), 0) AS amount_total,
+                    COALESCE(SUM(CASE WHEN h.status <> 'VOID' THEN h.outstanding_amount ELSE 0 END), 0) AS outstanding_total,
+                    COALESCE(SUM(CASE WHEN h.status <> 'VOID' THEN (h.amount - h.outstanding_amount) ELSE 0 END), 0) AS paid_total,
+                    COALESCE(SUM(CASE WHEN h.account_impact_mode = 'KEEP_BALANCE' AND h.status <> 'VOID' THEN 1 ELSE 0 END), 0) AS historical_doc_total,
+                    MAX(h.{$cfg['loan_date_field']}) AS last_doc_date
+                ", false);
+            $this->db->from($cfg['header_table'] . ' h')
+                ->join('fin_relation_party p', 'p.id = h.party_id', 'inner')
+                ->join('fin_company_account a', 'a.id = h.company_account_id', 'left');
+            $this->apply_loan_filters($cfg, $filters);
+            return $this->db
+                ->group_by(['h.company_account_id', 'a.account_code', 'a.account_name', 'a.account_type', 'a.bank_name'])
+                ->order_by('outstanding_total', 'DESC', false)
+                ->order_by('amount_total', 'DESC', false)
+                ->limit($limit, $offset)
+                ->get()->result_array();
+        }
+
+        if ($tab === 'party_account') {
+            $this->db->select("
+                    h.party_id,
+                    h.company_account_id,
+                    p.party_name,
+                    p.party_code,
+                    p.mobile_phone AS party_mobile_phone,
+                    a.account_code,
+                    a.account_name,
+                    a.account_type,
+                    a.bank_name,
+                    COUNT(*) AS doc_total,
+                    COALESCE(SUM(CASE WHEN h.status <> 'VOID' THEN h.amount ELSE 0 END), 0) AS amount_total,
+                    COALESCE(SUM(CASE WHEN h.status <> 'VOID' THEN h.outstanding_amount ELSE 0 END), 0) AS outstanding_total,
+                    COALESCE(SUM(CASE WHEN h.status <> 'VOID' THEN (h.amount - h.outstanding_amount) ELSE 0 END), 0) AS paid_total,
+                    COALESCE(SUM(CASE WHEN h.account_impact_mode = 'KEEP_BALANCE' AND h.status <> 'VOID' THEN 1 ELSE 0 END), 0) AS historical_doc_total,
+                    MAX(h.{$cfg['loan_date_field']}) AS last_doc_date
+                ", false);
+            $this->db->from($cfg['header_table'] . ' h')
+                ->join('fin_relation_party p', 'p.id = h.party_id', 'inner')
+                ->join('fin_company_account a', 'a.id = h.company_account_id', 'left');
+            $this->apply_loan_filters($cfg, $filters);
+            return $this->db
+                ->group_by([
+                    'h.party_id',
+                    'h.company_account_id',
+                    'p.party_name',
+                    'p.party_code',
+                    'p.mobile_phone',
+                    'a.account_code',
+                    'a.account_name',
+                    'a.account_type',
+                    'a.bank_name',
+                ])
+                ->order_by('outstanding_total', 'DESC', false)
+                ->order_by('amount_total', 'DESC', false)
+                ->limit($limit, $offset)
+                ->get()->result_array();
+        }
+
+        return [];
+    }
+
+    public function summarize_loan_recap(string $kind, array $filters): array
+    {
+        $cfg = $this->loan_config($kind);
+
+        $this->build_loan_query($kind, $filters, false);
+        $statusRows = $this->db->select("
+                h.status,
+                COUNT(*) AS doc_total,
+                COALESCE(SUM(CASE WHEN h.status <> 'VOID' THEN h.amount ELSE 0 END), 0) AS amount_total,
+                COALESCE(SUM(CASE WHEN h.status <> 'VOID' THEN h.outstanding_amount ELSE 0 END), 0) AS outstanding_total
+            ", false)
+            ->group_by('h.status')
+            ->order_by("FIELD(h.status, 'OPEN', 'PARTIAL', 'SETTLED', 'VOID')", '', false)
+            ->get()->result_array();
+
+        $this->build_loan_query($kind, $filters, false);
+        $modeRows = $this->db->select("
+                h.account_impact_mode,
+                COUNT(*) AS doc_total,
+                COALESCE(SUM(CASE WHEN h.status <> 'VOID' THEN h.amount ELSE 0 END), 0) AS amount_total,
+                COALESCE(SUM(CASE WHEN h.status <> 'VOID' THEN h.outstanding_amount ELSE 0 END), 0) AS outstanding_total
+            ", false)
+            ->group_by('h.account_impact_mode')
+            ->order_by("FIELD(h.account_impact_mode, 'APPLY_ACCOUNT', 'KEEP_BALANCE')", '', false)
+            ->get()->result_array();
+
+        return [
+            'status_rows' => $statusRows,
+            'mode_rows' => $modeRows,
+            'top_party_rows' => $this->list_loan_tab_rows($kind, $filters, 'party', 5, 0),
+            'top_account_rows' => $this->list_loan_tab_rows($kind, $filters, 'account', 5, 0),
+        ];
     }
 
     public function summarize_loan_docs(string $kind, array $filters): array
@@ -714,8 +877,8 @@ class Finance_model extends CI_Model
         if (!in_array($impactMode, ['APPLY_ACCOUNT', 'KEEP_BALANCE'], true)) {
             $impactMode = 'APPLY_ACCOUNT';
         }
-        if ($impactMode === 'APPLY_ACCOUNT' && $companyAccountId <= 0) {
-            return ['ok' => false, 'message' => 'Pilih rekening agar saldo bisa bergerak otomatis.'];
+        if ($companyAccountId <= 0) {
+            return ['ok' => false, 'message' => 'Rekening wajib dipilih, termasuk untuk transaksi historis saldo tetap.'];
         }
 
         $dbPayload = [
@@ -725,7 +888,7 @@ class Finance_model extends CI_Model
             $cfg['title_field'] => $title,
             'amount' => $amount,
             'account_impact_mode' => $impactMode,
-            'company_account_id' => $impactMode === 'APPLY_ACCOUNT' ? $companyAccountId : null,
+            'company_account_id' => $companyAccountId,
             'notes' => $notes !== '' ? $notes : null,
             'updated_at' => date('Y-m-d H:i:s'),
         ];
@@ -888,8 +1051,8 @@ class Finance_model extends CI_Model
         if (!in_array($impactMode, ['APPLY_ACCOUNT', 'KEEP_BALANCE'], true)) {
             $impactMode = 'APPLY_ACCOUNT';
         }
-        if ($impactMode === 'APPLY_ACCOUNT' && $companyAccountId <= 0) {
-            return ['ok' => false, 'message' => 'Pilih rekening untuk pembayaran yang memengaruhi saldo.'];
+        if ($companyAccountId <= 0) {
+            return ['ok' => false, 'message' => 'Rekening wajib dipilih, termasuk untuk pembayaran historis saldo tetap.'];
         }
 
         $this->db->trans_begin();
@@ -899,7 +1062,7 @@ class Finance_model extends CI_Model
             $cfg['loan_fk'] => $loanId,
             'payment_no' => $paymentNo,
             'payment_date' => $paymentDate,
-            'company_account_id' => $impactMode === 'APPLY_ACCOUNT' ? $companyAccountId : null,
+            'company_account_id' => $companyAccountId,
             'amount' => $amount,
             'account_impact_mode' => $impactMode,
             'transfer_ref_no' => $transferRefNo !== '' ? $transferRefNo : null,
