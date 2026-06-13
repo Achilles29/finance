@@ -794,6 +794,113 @@ class Master_relation extends MY_Controller
         redirect('master/relation/extra-group/' . $groupId);
     }
 
+    public function extra_item_group_hub()
+    {
+        $q = trim((string)$this->input->get('q', true));
+
+        $this->db->select('e.id, e.extra_code, e.extra_name, e.extra_type, COUNT(m.id) AS total_group');
+        $this->db->from('mst_extra e');
+        $this->db->join('mst_extra_group_item m', 'm.extra_id = e.id', 'left');
+        if ($q !== '') {
+            $this->db->group_start();
+            $this->db->like('e.extra_code', $q);
+            $this->db->or_like('e.extra_name', $q);
+            $this->db->group_end();
+        }
+        $this->db->group_by('e.id, e.extra_code, e.extra_name, e.extra_type');
+        $this->db->order_by('e.extra_name', 'ASC');
+        $rows = $this->db->get()->result_array();
+
+        $this->render('master/extra_item_group_hub', [
+            'title' => 'Halaman Mapping Extra ke Group Extra',
+            'active_menu' => 'grp.master',
+            'rows' => $rows,
+            'q' => $q,
+        ]);
+    }
+
+    public function extra_item_groups(int $extraId)
+    {
+        $extra = $this->Master_model->get_by_id('mst_extra', $extraId);
+        if (!$extra) show_404();
+
+        $q = trim((string)$this->input->get('q', true));
+
+        $this->db->select('g.id, g.group_code, g.group_name, g.is_required, pd.name AS product_division_name, m.id AS map_id, m.sort_order AS map_sort_order');
+        $this->db->from('mst_extra_group g');
+        $this->db->join('mst_product_division pd', 'pd.id = g.product_division_id', 'left');
+        $this->db->join('mst_extra_group_item m', 'm.extra_group_id = g.id AND m.extra_id = ' . (int)$extraId, 'left');
+        if ($q !== '') {
+            $this->db->group_start();
+            $this->db->like('g.group_code', $q);
+            $this->db->or_like('g.group_name', $q);
+            $this->db->group_end();
+        }
+        $this->db->order_by('g.sort_order', 'ASC');
+        $this->db->order_by('g.group_name', 'ASC');
+        $rows = $this->db->get()->result_array();
+
+        $mappedGroupIds = [];
+        foreach ($rows as $row) {
+            if (!empty($row['map_id'])) {
+                $mappedGroupIds[] = (int)$row['id'];
+            }
+        }
+
+        $this->render('master/extra_item_groups', [
+            'title' => 'Checklist Group untuk Master Extra',
+            'active_menu' => 'grp.master',
+            'extra' => $extra,
+            'rows' => $rows,
+            'mapped_group_ids' => $mappedGroupIds,
+            'q' => $q,
+        ]);
+    }
+
+    public function extra_item_groups_save(int $extraId)
+    {
+        $extra = $this->Master_model->get_by_id('mst_extra', $extraId);
+        if (!$extra) show_404();
+
+        $selected = $this->input->post('group_ids');
+        if (!is_array($selected)) {
+            $selected = [];
+        }
+
+        $groupIds = [];
+        foreach ($selected as $groupId) {
+            $groupId = (int)$groupId;
+            if ($groupId > 0) {
+                $groupIds[$groupId] = true;
+            }
+        }
+        $groupIds = array_keys($groupIds);
+
+        $this->db->trans_start();
+
+        $this->db->where('extra_id', $extraId)->delete('mst_extra_group_item');
+
+        $sort = 10;
+        foreach ($groupIds as $groupId) {
+            $this->Master_model->insert('mst_extra_group_item', [
+                'extra_group_id' => $groupId,
+                'extra_id' => $extraId,
+                'sort_order' => $sort,
+            ]);
+            $sort += 10;
+        }
+
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            $this->session->set_flashdata('error', 'Gagal menyimpan mapping master extra ke group extra.');
+        } else {
+            $this->session->set_flashdata('success', 'Mapping master extra ke group extra berhasil disimpan.');
+        }
+
+        redirect('master/relation/extra-item-group/' . $extraId);
+    }
+
     public function product_extra_create(int $productId)
     {
         $product = $this->Master_model->get_by_id('mst_product', $productId);

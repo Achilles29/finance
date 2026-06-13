@@ -49,6 +49,7 @@
           <div class="d-grid gap-2">
             <a href="<?php echo site_url('master/extra'); ?>" class="btn btn-outline-primary">Master Extra</a>
             <a href="<?php echo site_url('master/extra-group'); ?>" class="btn btn-outline-primary">Master Group Extra</a>
+            <a href="<?php echo site_url('master/relation/extra-item-group'); ?>" class="btn btn-outline-primary">Hubungkan Extra ke Group</a>
             <a href="<?php echo site_url('master/relation/product-extra'); ?>" class="btn btn-outline-primary">Mapping Produk ke Group Extra</a>
             <a href="<?php echo site_url('master/relation/extra-group'); ?>" class="btn btn-outline-primary">Checklist Produk per Group Extra</a>
             <a href="<?php echo site_url('pos/cashier'); ?>" class="btn btn-primary">Coba di UI Kasir</a>

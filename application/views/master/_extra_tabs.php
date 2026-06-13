@@ -4,6 +4,7 @@ $extraTabs = [
     'workspace' => ['label' => 'Workspace', 'url' => site_url('master/relation/product-extra-workspace'), 'icon' => 'ri-dashboard-horizontal-line'],
     'master-extra' => ['label' => 'Master Extra', 'url' => site_url('master/extra'), 'icon' => 'ri-add-circle-line'],
     'extra-group' => ['label' => 'Group Extra', 'url' => site_url('master/extra-group'), 'icon' => 'ri-layout-grid-line'],
+    'extra-link' => ['label' => 'Extra ke Group', 'url' => site_url('master/relation/extra-item-group'), 'icon' => 'ri-links-line'],
     'product-extra' => ['label' => 'Mapping Produk', 'url' => site_url('master/relation/product-extra'), 'icon' => 'ri-links-line'],
     'group-checklist' => ['label' => 'Checklist Group', 'url' => site_url('master/relation/extra-group'), 'icon' => 'ri-checkbox-multiple-line'],
 ];

@@ -583,6 +583,9 @@ $route['master/relation/product-bundle/product-search']         = 'master_relati
 $route['master/relation/extra-group']                           = 'master_relation/extra_group_hub';
 $route['master/relation/extra-group/(:num)']                    = 'master_relation/extra_group_products/$1';
 $route['master/relation/extra-group/(:num)/save']               = 'master_relation/extra_group_products_save/$1';
+$route['master/relation/extra-item-group']                      = 'master_relation/extra_item_group_hub';
+$route['master/relation/extra-item-group/(:num)']               = 'master_relation/extra_item_groups/$1';
+$route['master/relation/extra-item-group/(:num)/save']          = 'master_relation/extra_item_groups_save/$1';
 $route['master/att-holiday/generate-year']      = 'master/att_holiday_generate_year';
 
 $route['master/material/usage/(:num)']          = 'master/material_usage/$1';

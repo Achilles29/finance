@@ -246,10 +246,12 @@ $buildPageItems = static function (int $page, int $totalPages): array {
     <?php endif; ?>
     <?php if ($entity === 'extra-group'): ?>
       <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/product-extra-workspace'); ?>">Workspace Extra</a>
+      <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/extra-item-group'); ?>">Hubungkan Extra ke Group</a>
       <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/extra-group'); ?>">Checklist Produk per Group</a>
     <?php endif; ?>
     <?php if ($entity === 'extra'): ?>
       <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/product-extra-workspace'); ?>">Workspace Extra</a>
+      <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/extra-item-group'); ?>">Hubungkan Extra ke Group</a>
     <?php endif; ?>
     <?php if ($entity === 'att-overtime-standard'): ?>
       <a class="btn btn-outline-secondary" href="<?php echo site_url('attendance/overtime-entries'); ?>">
@@ -476,6 +478,9 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                   <?php endif; ?>
                   <?php if ($entity === 'extra-group'): ?>
                     <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Checklist Produk" aria-label="Checklist Produk" href="<?php echo site_url('master/relation/extra-group/' . (int)$r['id']); ?>"><i class="ri ri-checkbox-multiple-line"></i></a>
+                  <?php endif; ?>
+                  <?php if ($entity === 'extra'): ?>
+                    <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Hubungkan ke Group" aria-label="Hubungkan ke Group" href="<?php echo site_url('master/relation/extra-item-group/' . (int)$r['id']); ?>"><i class="ri ri-links-line"></i></a>
                   <?php endif; ?>
                   <?php if (!empty($cfg['toggle']) && $entity !== 'product'): ?>
                     <a class="btn btn-sm btn-outline-warning action-icon-btn" data-bs-toggle="tooltip" title="Toggle Status" aria-label="Toggle Status" href="<?php echo site_url('master/' . $entity . '/toggle/' . (int)$r['id']); ?>" onclick="return confirm('Ubah status data ini?')"><i class="ri ri-refresh-line"></i></a>
