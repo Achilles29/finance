@@ -12,9 +12,114 @@ $recapEmployeeHistory = $recap_employee_history ?? [];
 $editRow = $edit_row ?? null;
 $isEdit = !empty($editRow);
 $transactionBaseUrl = site_url('payroll/cash-advances?tab=transaction');
+$currentPerPage = max(1, (int)($pg['per_page'] ?? 25));
+$perPageOptions = [25, 50, 100];
+$baseFilters = [
+    'tab' => $tab,
+    'q' => (string)($filters['q'] ?? ''),
+    'employee_id' => (int)($filters['employee_id'] ?? 0),
+    'date_start' => (string)($filters['date_start'] ?? ''),
+    'date_end' => (string)($filters['date_end'] ?? ''),
+    'per_page' => $currentPerPage,
+];
+if ($tab === 'transaction') {
+    $baseFilters['status'] = (string)($filters['status'] ?? '');
+}
+if ($tab === 'recap' && $recapEmployeeId > 0) {
+    $baseFilters['recap_employee_id'] = $recapEmployeeId;
+}
+$buildCashAdvanceUrl = static function (array $params) {
+    return site_url('payroll/cash-advances') . '?' . http_build_query($params);
+};
+$renderPager = static function (array $meta, array $query, callable $urlBuilder): string {
+    $page = max(1, (int)($meta['page'] ?? 1));
+    $totalPages = max(1, (int)($meta['total_pages'] ?? 1));
+    $total = max(0, (int)($meta['total'] ?? 0));
+    $limit = max(1, (int)($meta['per_page'] ?? 25));
+    $start = $total > 0 ? (($page - 1) * $limit) + 1 : 0;
+    $end = $total > 0 ? min($total, $page * $limit) : 0;
+    $firstPage = max(1, $page - 2);
+    $lastPage = min($totalPages, $page + 2);
+
+    ob_start();
+    ?>
+    <div class="ca-pager d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+      <div class="small text-muted">
+        <?php if ($total > 0): ?>
+          Menampilkan <?php echo number_format($start); ?>-<?php echo number_format($end); ?> dari <?php echo number_format($total); ?> data
+        <?php else: ?>
+          Belum ada data
+        <?php endif; ?>
+      </div>
+      <nav aria-label="Pagination kasbon">
+        <ul class="pagination pagination-sm mb-0">
+          <?php
+            $prevQuery = $query;
+            $prevQuery['page'] = max(1, $page - 1);
+          ?>
+          <li class="page-item<?php echo $page <= 1 ? ' disabled' : ''; ?>">
+            <a class="page-link" href="<?php echo $page <= 1 ? '#' : $urlBuilder($prevQuery); ?>">Prev</a>
+          </li>
+          <?php for ($i = $firstPage; $i <= $lastPage; $i++): ?>
+            <?php $pageQuery = $query; $pageQuery['page'] = $i; ?>
+            <li class="page-item<?php echo $i === $page ? ' active' : ''; ?>">
+              <a class="page-link" href="<?php echo $urlBuilder($pageQuery); ?>"><?php echo $i; ?></a>
+            </li>
+          <?php endfor; ?>
+          <?php
+            $nextQuery = $query;
+            $nextQuery['page'] = min($totalPages, $page + 1);
+          ?>
+          <li class="page-item<?php echo $page >= $totalPages ? ' disabled' : ''; ?>">
+            <a class="page-link" href="<?php echo $page >= $totalPages ? '#' : $urlBuilder($nextQuery); ?>">Next</a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+    <?php
+    return (string)ob_get_clean();
+};
+$selectedRecapRow = null;
+if ($tab === 'recap' && $recapEmployeeId > 0) {
+    foreach ((array)$recapRows as $candidate) {
+        if ((int)($candidate['employee_id'] ?? 0) === $recapEmployeeId) {
+            $selectedRecapRow = $candidate;
+            break;
+        }
+    }
+}
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+<style>
+  .ca-page-head small { max-width: 760px; display: inline-block; }
+  .ca-tabs .nav-link { border-radius: 999px; margin-right: .45rem; padding: .55rem 1rem; font-weight: 600; border: 1px solid rgba(122, 24, 36, .14); color: #7a1824; }
+  .ca-tabs .nav-link.active { background: linear-gradient(135deg, #b11226, #7a1824); color: #fff; border-color: transparent; box-shadow: 0 12px 30px rgba(122, 24, 36, .18); }
+  .ca-filter-card, .ca-table-card, .ca-history-card, .ca-summary-card { border: 1px solid rgba(122, 24, 36, .08); box-shadow: 0 16px 34px rgba(85, 55, 35, .06); border-radius: 22px; overflow: hidden; }
+  .ca-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
+  .ca-summary-pill { background: linear-gradient(180deg, #fff, #fff8f5); border: 1px solid rgba(122, 24, 36, .08); border-radius: 18px; padding: 1rem 1.1rem; }
+  .ca-summary-pill .label { font-size: .78rem; color: #8a7a6c; text-transform: uppercase; letter-spacing: .04em; }
+  .ca-summary-pill .value { font-size: 1.2rem; font-weight: 700; color: #5a1720; }
+  .ca-summary-pill .subvalue { font-size: .85rem; color: #7c6c5c; }
+  .ca-table-card thead th { background: linear-gradient(135deg, #b11226, #8f1021); color: #fff; text-transform: uppercase; letter-spacing: .03em; font-size: .82rem; border: 0; }
+  .ca-table-card tbody tr td { vertical-align: middle; }
+  .ca-doc-title { font-weight: 700; color: #4c1720; }
+  .ca-doc-sub { color: #8a7a6c; font-size: .85rem; }
+  .ca-money-main { font-weight: 700; color: #4a1820; }
+  .ca-money-outstanding { font-weight: 700; color: #b11226; }
+  .ca-status-badge { display:inline-flex; align-items:center; justify-content:center; padding:.35rem .7rem; border-radius:999px; font-size:.76rem; font-weight:700; letter-spacing:.02em; }
+  .ca-status-badge.approved { background:#e7f9ef; color:#11804a; }
+  .ca-status-badge.settled { background:#e7efff; color:#2857c5; }
+  .ca-status-badge.rejected { background:#ffe8e8; color:#c62828; }
+  .ca-status-badge.void { background:#f3f4f6; color:#6b7280; }
+  .ca-status-badge.draft { background:#fff4de; color:#b26a00; }
+  .ca-pager .pagination .page-link { border-radius: 10px; margin-left: .2rem; border-color: rgba(122,24,36,.12); color: #7a1824; }
+  .ca-pager .pagination .page-item.active .page-link { background: #8f1021; border-color: #8f1021; }
+  .ca-history-card .card-header, .ca-summary-card .card-header { background: linear-gradient(180deg, #fff, #fff8f5); border-bottom: 1px solid rgba(122,24,36,.08); }
+  @media (max-width: 991.98px) { .ca-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 575.98px) { .ca-summary-grid { grid-template-columns: 1fr; } }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2 ca-page-head">
   <div>
     <h4 class="mb-0"><?php echo html_escape($title ?? 'Kasbon Pegawai'); ?></h4>
     <small class="text-muted">Tenor bersifat opsional. Isi `0` jika kasbon tanpa tenor tetap (fleksibel sesuai pembayaran aktual).</small>
@@ -28,15 +133,18 @@ $transactionBaseUrl = site_url('payroll/cash-advances?tab=transaction');
 
 <div class="row g-3">
   <div class="col-12">
-    <ul class="nav nav-tabs mb-3">
+    <ul class="nav nav-tabs mb-3 ca-tabs border-0">
       <li class="nav-item"><a class="nav-link <?php echo $tab === 'transaction' ? 'active' : ''; ?>" href="<?php echo site_url('payroll/cash-advances?tab=transaction'); ?>">Transaksi Kasbon</a></li>
       <li class="nav-item"><a class="nav-link <?php echo $tab === 'recap' ? 'active' : ''; ?>" href="<?php echo site_url('payroll/cash-advances?tab=recap'); ?>">Rekap Pegawai</a></li>
     </ul>
 
-    <div class="card mb-3">
+    <div class="card mb-3 ca-filter-card">
       <div class="card-body">
         <form method="get" action="<?php echo site_url('payroll/cash-advances'); ?>" class="row g-2 align-items-end">
           <input type="hidden" name="tab" value="<?php echo html_escape($tab); ?>">
+          <?php if ($tab === 'recap' && $recapEmployeeId > 0): ?>
+            <input type="hidden" name="recap_employee_id" value="<?php echo (int)$recapEmployeeId; ?>">
+          <?php endif; ?>
           <div class="col-md-3">
             <label class="form-label mb-1">Cari</label>
             <input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="No/Nama/NIP">
@@ -69,6 +177,14 @@ $transactionBaseUrl = site_url('payroll/cash-advances?tab=transaction');
             <label class="form-label mb-1">Sampai</label>
             <input type="date" name="date_end" class="form-control" value="<?php echo html_escape((string)($filters['date_end'] ?? '')); ?>">
           </div>
+          <div class="col-md-2">
+            <label class="form-label mb-1">Baris</label>
+            <select name="per_page" class="form-select">
+              <?php foreach ($perPageOptions as $option): ?>
+                <option value="<?php echo $option; ?>" <?php echo $currentPerPage === $option ? 'selected' : ''; ?>><?php echo $option; ?> / halaman</option>
+              <?php endforeach; ?>
+            </select>
+          </div>
           <div class="col-md-2 d-flex gap-2">
             <button class="btn btn-primary" type="submit">Filter</button>
             <a href="<?php echo site_url('payroll/cash-advances?tab=' . $tab); ?>" class="btn btn-outline-secondary">Reset</a>
@@ -78,7 +194,48 @@ $transactionBaseUrl = site_url('payroll/cash-advances?tab=transaction');
     </div>
 
     <?php if ($tab === 'recap'): ?>
-      <div class="card">
+      <?php if ($selectedRecapRow): ?>
+      <div class="card ca-summary-card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div>
+            <strong><?php echo html_escape((string)($selectedRecapRow['employee_name'] ?? '-')); ?></strong>
+            <div class="small text-muted"><?php echo html_escape((string)($selectedRecapRow['employee_code'] ?? '')); ?><?php echo !empty($selectedRecapRow['division_name']) ? ' | ' . html_escape((string)$selectedRecapRow['division_name']) : ''; ?></div>
+          </div>
+          <a href="<?php echo $buildCashAdvanceUrl(array_diff_key($baseFilters, ['recap_employee_id' => true])); ?>" class="btn btn-sm btn-outline-secondary">Tutup Detail Pegawai</a>
+        </div>
+        <div class="card-body">
+          <div class="ca-summary-grid">
+            <div class="ca-summary-pill">
+              <div class="label">Total Kasbon</div>
+              <div class="value"><?php echo number_format((float)($selectedRecapRow['total_amount'] ?? 0), 2, ',', '.'); ?></div>
+              <div class="subvalue"><?php echo (int)($selectedRecapRow['doc_count'] ?? 0); ?> dokumen aktif/terhitung</div>
+            </div>
+            <div class="ca-summary-pill">
+              <div class="label">Sudah Terbayar</div>
+              <div class="value text-success"><?php echo number_format((float)($selectedRecapRow['paid_total'] ?? 0), 2, ',', '.'); ?></div>
+              <div class="subvalue">Akumulasi pembayaran yang sudah masuk</div>
+            </div>
+            <div class="ca-summary-pill">
+              <div class="label">Sisa Kasbon</div>
+              <div class="value text-danger"><?php echo number_format((float)($selectedRecapRow['outstanding_total'] ?? 0), 2, ',', '.'); ?></div>
+              <div class="subvalue">Nilai yang masih harus dilunasi</div>
+            </div>
+            <div class="ca-summary-pill">
+              <div class="label">Rasio Pelunasan</div>
+              <?php
+                $recapTotalAmount = (float)($selectedRecapRow['total_amount'] ?? 0);
+                $recapPaidAmount = (float)($selectedRecapRow['paid_total'] ?? 0);
+                $paidRatio = $recapTotalAmount > 0 ? round(($recapPaidAmount / $recapTotalAmount) * 100, 1) : 0;
+              ?>
+              <div class="value"><?php echo number_format($paidRatio, 1, ',', '.'); ?>%</div>
+              <div class="subvalue">Progress pelunasan kasbon pegawai</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <?php endif; ?>
+
+      <div class="card ca-table-card">
         <div class="table-responsive">
           <table class="table table-striped mb-0">
             <thead><tr><th>Pegawai</th><th>Divisi</th><th class="text-end">Total Kasbon</th><th class="text-end">Terbayar</th><th class="text-end">Sisa</th><th class="text-end">Dokumen</th><th class="text-center">Detail</th></tr></thead>
@@ -87,11 +244,11 @@ $transactionBaseUrl = site_url('payroll/cash-advances?tab=transaction');
               <tr><td colspan="7" class="text-center text-muted py-4">Belum ada rekap kasbon.</td></tr>
             <?php else: foreach($recapRows as $r): ?>
               <tr>
-                <td><?php echo html_escape((string)($r['employee_name'] ?? '-')); ?><div class="small text-muted"><?php echo html_escape((string)($r['employee_code'] ?? '')); ?></div></td>
+                <td><div class="ca-doc-title"><?php echo html_escape((string)($r['employee_name'] ?? '-')); ?></div><div class="ca-doc-sub"><?php echo html_escape((string)($r['employee_code'] ?? '')); ?></div></td>
                 <td><?php echo html_escape((string)($r['division_name'] ?? '-')); ?></td>
-                <td class="text-end"><?php echo number_format((float)($r['total_amount'] ?? 0), 2, ',', '.'); ?></td>
+                <td class="text-end ca-money-main"><?php echo number_format((float)($r['total_amount'] ?? 0), 2, ',', '.'); ?></td>
                 <td class="text-end text-success"><?php echo number_format((float)($r['paid_total'] ?? 0), 2, ',', '.'); ?></td>
-                <td class="text-end fw-semibold text-danger"><?php echo number_format((float)($r['outstanding_total'] ?? 0), 2, ',', '.'); ?></td>
+                <td class="text-end ca-money-outstanding"><?php echo number_format((float)($r['outstanding_total'] ?? 0), 2, ',', '.'); ?></td>
                 <td class="text-end"><?php echo (int)($r['doc_count'] ?? 0); ?></td>
                 <td class="text-center"><a href="<?php echo site_url('payroll/cash-advances?tab=recap&recap_employee_id=' . (int)($r['employee_id'] ?? 0)); ?>" class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Lihat Detail"><i class="ri ri-eye-line"></i></a></td>
               </tr>
@@ -99,10 +256,13 @@ $transactionBaseUrl = site_url('payroll/cash-advances?tab=transaction');
             </tbody>
           </table>
         </div>
+        <div class="card-body pt-0">
+          <?php echo $renderPager($pg, $baseFilters, $buildCashAdvanceUrl); ?>
+        </div>
       </div>
 
       <?php if ($recapEmployeeId > 0): ?>
-      <div class="card mt-3">
+      <div class="card mt-3 ca-history-card">
         <div class="card-header"><strong>Detail Histori Kasbon Pegawai</strong></div>
         <div class="table-responsive">
           <table class="table table-sm table-striped mb-0">
@@ -112,12 +272,15 @@ $transactionBaseUrl = site_url('payroll/cash-advances?tab=transaction');
               <tr><td colspan="8" class="text-center text-muted py-3">Tidak ada histori kasbon pegawai ini.</td></tr>
             <?php else: foreach($recapEmployeeHistory as $h): ?>
               <tr>
-                <td><?php echo html_escape((string)($h['advance_no'] ?? '-')); ?></td>
+                <td><div class="ca-doc-title"><?php echo html_escape((string)($h['advance_no'] ?? '-')); ?></div></td>
                 <td><?php echo html_escape((string)($h['request_date'] ?? '-')); ?></td>
-                <td><?php echo html_escape((string)($h['status'] ?? '-')); ?></td>
-                <td class="text-end"><?php echo number_format((float)($h['amount'] ?? 0), 2, ',', '.'); ?></td>
+                <td>
+                  <?php $historyStatus = strtolower((string)($h['status'] ?? 'draft')); ?>
+                  <span class="ca-status-badge <?php echo html_escape($historyStatus); ?>"><?php echo html_escape((string)($h['status'] ?? '-')); ?></span>
+                </td>
+                <td class="text-end ca-money-main"><?php echo number_format((float)($h['amount'] ?? 0), 2, ',', '.'); ?></td>
                 <td class="text-end text-success"><?php echo number_format((float)($h['installment_paid_total'] ?? 0), 2, ',', '.'); ?></td>
-                <td class="text-end fw-semibold text-danger"><?php echo number_format((float)($h['outstanding_amount'] ?? 0), 2, ',', '.'); ?></td>
+                <td class="text-end ca-money-outstanding"><?php echo number_format((float)($h['outstanding_amount'] ?? 0), 2, ',', '.'); ?></td>
                 <td class="text-end"><?php echo (int)($h['tenor_month'] ?? 0); ?></td>
                 <td class="small text-muted">
                   <?php
@@ -137,7 +300,7 @@ $transactionBaseUrl = site_url('payroll/cash-advances?tab=transaction');
       <?php endif; ?>
 
     <?php else: ?>
-      <div class="card">
+      <div class="card ca-table-card">
         <div class="table-responsive">
           <table class="table table-striped mb-0">
             <thead>
@@ -158,6 +321,7 @@ $transactionBaseUrl = site_url('payroll/cash-advances?tab=transaction');
                 <?php foreach($rows as $r): ?>
                   <?php $status = strtoupper((string)($r['status'] ?? 'DRAFT')); ?>
                   <?php
+                    $canPayInstallment = $status === 'APPROVED';
                     $canVoidSettled = $status === 'SETTLED'
                       && (float)($r['installment_paid_total'] ?? 0) <= 0.0001
                       && (int)($r['account_mutation_count'] ?? 0) === 0;
@@ -177,16 +341,16 @@ $transactionBaseUrl = site_url('payroll/cash-advances?tab=transaction');
                   ?>
                   <tr>
                     <td>
-                      <?php echo html_escape((string)($r['advance_no'] ?? '-')); ?>
-                      <div class="small text-muted"><?php echo html_escape((string)($r['request_date'] ?? '-')); ?></div>
+                      <div class="ca-doc-title"><?php echo html_escape((string)($r['advance_no'] ?? '-')); ?></div>
+                      <div class="ca-doc-sub"><?php echo html_escape((string)($r['request_date'] ?? '-')); ?></div>
                     </td>
                     <td>
-                      <?php echo html_escape((string)($r['employee_name'] ?? '-')); ?>
-                      <div class="small text-muted"><?php echo html_escape((string)($r['employee_code'] ?? '')); ?></div>
+                      <div class="ca-doc-title"><?php echo html_escape((string)($r['employee_name'] ?? '-')); ?></div>
+                      <div class="ca-doc-sub"><?php echo html_escape((string)($r['employee_code'] ?? '')); ?></div>
                     </td>
-                    <td><span class="badge bg-<?php echo $status === 'APPROVED' ? 'success' : ($status === 'SETTLED' ? 'primary' : ($status === 'REJECTED' ? 'danger' : 'secondary')); ?>"><?php echo html_escape((string)($r['status'] ?? 'DRAFT')); ?></span></td>
-                    <td class="text-end"><?php echo number_format((float)($r['amount'] ?? 0), 2, ',', '.'); ?></td>
-                    <td class="text-end fw-semibold"><?php echo number_format((float)($r['outstanding_amount'] ?? 0), 2, ',', '.'); ?></td>
+                    <td><span class="ca-status-badge <?php echo html_escape(strtolower($status)); ?>"><?php echo html_escape((string)($r['status'] ?? 'DRAFT')); ?></span></td>
+                    <td class="text-end ca-money-main"><?php echo number_format((float)($r['amount'] ?? 0), 2, ',', '.'); ?></td>
+                    <td class="text-end ca-money-outstanding"><?php echo number_format((float)($r['outstanding_amount'] ?? 0), 2, ',', '.'); ?></td>
                     <td class="text-end"><?php echo number_format((float)($r['monthly_deduction_plan'] ?? 0), 2, ',', '.'); ?></td>
                     <td class="action-cell text-center">
                       <button
@@ -195,7 +359,7 @@ $transactionBaseUrl = site_url('payroll/cash-advances?tab=transaction');
                         data-bs-toggle="modal"
                         data-bs-target="#cashAdvanceDetailModal"
                         data-row="<?php echo html_escape(json_encode($detailPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); ?>"
-                        data-can-pay="<?php echo (!$status || $status !== 'SETTLED') ? '1' : '0'; ?>"
+                        data-can-pay="<?php echo $canPayInstallment ? '1' : '0'; ?>"
                         data-can-void-test="<?php echo $canVoidSettled ? '1' : '0'; ?>"
                         title="Detail Kasbon"
                         aria-label="Detail Kasbon"
@@ -220,6 +384,9 @@ $transactionBaseUrl = site_url('payroll/cash-advances?tab=transaction');
               <?php endif; ?>
             </tbody>
           </table>
+        </div>
+        <div class="card-body pt-0">
+          <?php echo $renderPager($pg, $baseFilters, $buildCashAdvanceUrl); ?>
         </div>
       </div>
     <?php endif; ?>
@@ -504,9 +671,17 @@ document.addEventListener('DOMContentLoaded', function () {
           if (detailPaymentCardEl) detailPaymentCardEl.classList.remove('d-none');
           if (detailPaymentNoticeEl) {
             detailPaymentNoticeEl.classList.remove('d-none');
-            detailPaymentNoticeEl.textContent = canVoidTest
-              ? 'Dokumen ini berstatus SETTLED test tanpa mutasi uang. Tidak perlu dibayar lagi; jika salah input, gunakan VOID dari tabel utama.'
-              : 'Dokumen ini sudah SETTLED/lunas. Form pembayaran dinonaktifkan.';
+            if (status === 'SETTLED') {
+              detailPaymentNoticeEl.textContent = canVoidTest
+                ? 'Dokumen ini berstatus SETTLED test tanpa mutasi uang. Tidak perlu dibayar lagi; jika salah input, gunakan VOID dari tabel utama.'
+                : 'Dokumen ini sudah SETTLED atau lunas. Form pembayaran dinonaktifkan.';
+            } else if (status === 'VOID') {
+              detailPaymentNoticeEl.textContent = 'Dokumen ini sudah VOID, jadi form pembayaran dinonaktifkan.';
+            } else if (status === 'REJECTED') {
+              detailPaymentNoticeEl.textContent = 'Dokumen ini berstatus REJECTED, jadi belum bisa dibayarkan.';
+            } else {
+              detailPaymentNoticeEl.textContent = 'Dokumen ini belum APPROVED, jadi form pembayaran masih dinonaktifkan.';
+            }
           }
           if (detailSubmitBtnEl) detailSubmitBtnEl.classList.add('d-none');
           if (detailPayFormEl) {

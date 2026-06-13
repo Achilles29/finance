@@ -1,11 +1,12 @@
 <?php
-$rows = is_array($rows ?? null) ? $rows : [];
-$lineRows = is_array($line_rows ?? null) ? $line_rows : [];
-$components = is_array($components ?? null) ? $components : [];
-$uoms = is_array($uoms ?? null) ? $uoms : [];
-$divisions = is_array($divisions ?? null) ? $divisions : [];
+$rows        = is_array($rows ?? null) ? $rows : [];
+$lineRows    = is_array($line_rows ?? null) ? $line_rows : [];
+$components  = is_array($components ?? null) ? $components : [];
+$uoms        = is_array($uoms ?? null) ? $uoms : [];
+$divisions   = is_array($divisions ?? null) ? $divisions : [];
 $locationOptions = is_array($location_options ?? null) ? $location_options : [];
-$prefill = is_array($prefill ?? null) ? $prefill : [];
+$prefill     = is_array($prefill ?? null) ? $prefill : [];
+$listFilters = is_array($list_filters ?? null) ? $list_filters : [];
 $activeListTab = strtolower(trim((string)($active_list_tab ?? 'nota')));
 if (!in_array($activeListTab, ['nota', 'rincian'], true)) {
   $activeListTab = 'nota';
@@ -67,6 +68,10 @@ $moneySpoil = 0.0;
 $moneyWaste = 0.0;
 $moneyPlus = 0.0;
 $moneyMinus = 0.0;
+$moneyPostedSpoil = 0.0;
+$moneyPostedWaste = 0.0;
+$moneyPostedPlus = 0.0;
+$moneyPostedMinus = 0.0;
 foreach ($lineRows as $moneyRow) {
   $status = strtoupper((string)($moneyRow['status'] ?? 'DRAFT'));
   if ($status === 'VOID') {
@@ -75,6 +80,10 @@ foreach ($lineRows as $moneyRow) {
   $lineTotalValue = round((float)($moneyRow['total_adjustment_value'] ?? 0), 2);
   if ($status === 'POSTED') {
     $moneyPosted += $lineTotalValue;
+    $moneyPostedSpoil += round((float)($moneyRow['value_spoil'] ?? 0), 2);
+    $moneyPostedWaste += round((float)($moneyRow['value_waste'] ?? 0), 2);
+    $moneyPostedPlus  += round((float)($moneyRow['value_plus'] ?? 0), 2);
+    $moneyPostedMinus += round((float)($moneyRow['value_minus'] ?? 0), 2);
   } else {
     $moneyDraft += $lineTotalValue;
   }
@@ -129,11 +138,16 @@ $reasonSummary = static function (array $row) use ($resolveReasonLabel): string 
   }
   return !empty($parts) ? implode(' | ', $parts) : '-';
 };
-$tabBaseParams = ['q' => $q];
+$filterDateFrom    = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($listFilters['date_from'] ?? '')) ? (string)$listFilters['date_from'] : date('Y-m-01');
+$filterDateTo      = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($listFilters['date_to'] ?? '')) ? (string)$listFilters['date_to'] : date('Y-m-d');
+$filterDivisionId  = (int)($listFilters['division_id'] ?? 0);
+$filterLocType     = (string)($listFilters['location_type'] ?? '');
+$filterPerPage     = max(10, (int)($listFilters['per_page'] ?? 25));
+$tabBaseParams = ['date_from' => $filterDateFrom, 'date_to' => $filterDateTo, 'division_id' => $filterDivisionId > 0 ? $filterDivisionId : '', 'location_type' => $filterLocType];
 $buildTabUrl = static function (string $tab) use ($tabBaseParams): string {
   $params = $tabBaseParams;
   $params['tab'] = $tab;
-  return site_url('production/component-adjustments') . '?' . http_build_query($params);
+  return site_url('production/component-adjustments') . '?' . http_build_query(array_filter($params, static fn($v) => $v !== '' && $v !== null));
 };
 $notaTabUrl = $buildTabUrl('nota');
 $rincianTabUrl = $buildTabUrl('rincian');
@@ -400,20 +414,46 @@ $rincianTabUrl = $buildTabUrl('rincian');
 
 <div id="component-adjustment-alert" class="mb-3"></div>
 
+<?php
+$moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $moneyPostedPlus;
+?>
 <div class="row g-2 mb-3">
-  <div class="col-6 col-lg-3"><div class="component-adjustment-chip"><div class="small text-muted">Dokumen</div><strong><?php echo number_format(count($rows), 0, ',', '.'); ?></strong></div></div>
-  <div class="col-6 col-lg-3"><div class="component-adjustment-chip"><div class="small text-muted">Draft</div><strong><?php echo number_format($summaryDraft, 0, ',', '.'); ?></strong></div></div>
-  <div class="col-6 col-lg-3"><div class="component-adjustment-chip"><div class="small text-muted">Posted</div><strong><?php echo number_format($summaryPosted, 0, ',', '.'); ?></strong></div></div>
-  <div class="col-6 col-lg-3"><div class="component-adjustment-chip"><div class="small text-muted">Void</div><strong><?php echo number_format($summaryVoid, 0, ',', '.'); ?></strong></div></div>
-</div>
-
-<div class="row g-2 mb-3">
-  <div class="col-6 col-lg-2"><div class="component-adjustment-chip"><div class="small text-muted">Nilai Draft</div><strong><?php echo $formatMoney((float)$moneyDraft); ?></strong></div></div>
-  <div class="col-6 col-lg-2"><div class="component-adjustment-chip"><div class="small text-muted">Nilai Posted</div><strong><?php echo $formatMoney((float)$moneyPosted); ?></strong></div></div>
-  <div class="col-6 col-lg-2"><div class="component-adjustment-chip"><div class="small text-muted">Nilai Spoil</div><strong><?php echo $formatMoney((float)$moneySpoil); ?></strong></div></div>
-  <div class="col-6 col-lg-2"><div class="component-adjustment-chip"><div class="small text-muted">Nilai Waste</div><strong><?php echo $formatMoney((float)$moneyWaste); ?></strong></div></div>
-  <div class="col-6 col-lg-2"><div class="component-adjustment-chip"><div class="small text-muted">Nilai Plus</div><strong><?php echo $formatMoney((float)$moneyPlus); ?></strong></div></div>
-  <div class="col-6 col-lg-2"><div class="component-adjustment-chip"><div class="small text-muted">Nilai Minus</div><strong><?php echo $formatMoney((float)$moneyMinus); ?></strong></div></div>
+  <div class="col-6 col-sm-4 col-lg-2">
+    <div class="card card-body py-2 px-3 text-center h-100">
+      <div class="small text-muted mb-1">Posted</div>
+      <div class="fw-bold text-success"><?php echo number_format($summaryPosted, 0, ',', '.'); ?> dok</div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-4 col-lg-2">
+    <div class="card card-body py-2 px-3 text-center h-100">
+      <div class="small text-muted mb-1">Nilai Posted</div>
+      <div class="fw-bold text-success" style="font-size:.82rem"><?php echo $formatMoney($moneyPosted); ?></div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-4 col-lg-2">
+    <div class="card card-body py-2 px-3 text-center h-100">
+      <div class="small text-muted mb-1">Net Impact</div>
+      <div class="fw-bold <?php echo $moneyPostedNet >= 0 ? 'text-danger' : 'text-success'; ?>" style="font-size:.82rem"><?php echo $formatMoney($moneyPostedNet); ?></div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-4 col-lg-2">
+    <div class="card card-body py-2 px-3 text-center h-100">
+      <div class="small text-muted mb-1">Spoil + Waste</div>
+      <div class="fw-bold text-danger" style="font-size:.82rem"><?php echo $formatMoney($moneyPostedSpoil + $moneyPostedWaste); ?></div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-4 col-lg-2">
+    <div class="card card-body py-2 px-3 text-center h-100">
+      <div class="small text-muted mb-1">Adj Plus</div>
+      <div class="fw-bold text-success" style="font-size:.82rem"><?php echo $formatMoney($moneyPostedPlus); ?></div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-4 col-lg-2">
+    <div class="card card-body py-2 px-3 text-center h-100">
+      <div class="small text-muted mb-1">Adj Minus</div>
+      <div class="fw-bold text-danger" style="font-size:.82rem"><?php echo $formatMoney($moneyPostedMinus); ?></div>
+    </div>
+  </div>
 </div>
 
 <?php if ($sourceOpeningNo !== ''): ?>
@@ -422,69 +462,54 @@ $rincianTabUrl = $buildTabUrl('rincian');
   </div>
 <?php endif; ?>
 
+<div class="mb-3 d-flex gap-2">
+  <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#componentAdjustmentFormModal">
+    <i class="ri ri-add-line me-1"></i>Tambah Adjustment
+  </button>
+</div>
+
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body">
-    <div class="component-adjustment-stage mb-3">
-      <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
-        <div>
-        <h5 class="mb-1">Form Adjustment</h5>
-        <small class="text-muted">Input header dan tiap baris adjustment sekarang dilakukan lewat modal, jadi halaman utama cukup menampilkan ringkasan tanpa scroll kanan-kiri.</small>
+    <form method="get" action="<?php echo site_url('production/component-adjustments'); ?>" id="adj-filter-form">
+      <input type="hidden" name="tab" value="<?php echo html_escape($activeListTab); ?>">
+      <div class="row g-2 align-items-end">
+        <div class="col-6 col-md-2">
+          <label class="form-label form-label-sm mb-1">Dari</label>
+          <input type="date" class="form-control form-control-sm" name="date_from" value="<?php echo html_escape($filterDateFrom); ?>">
         </div>
-        <div class="d-flex gap-2 flex-wrap">
-          <button type="button" class="btn btn-sm component-adjustment-header-trigger" id="btn-edit-adjustment-header"><i class="ri ri-settings-3-line me-1"></i>Header Adjustment</button>
-          <button type="button" class="btn btn-sm component-adjustment-add-trigger" id="btn-add-adjustment-line"><i class="ri ri-add-line me-1"></i>Tambah Baris</button>
+        <div class="col-6 col-md-2">
+          <label class="form-label form-label-sm mb-1">Sampai</label>
+          <input type="date" class="form-control form-control-sm" name="date_to" value="<?php echo html_escape($filterDateTo); ?>">
         </div>
-      </div>
-    </div>
-
-    <form id="frmAdjustment" autocomplete="off">
-      <input type="hidden" name="adjustment_date" value="<?php echo html_escape($prefillDate); ?>">
-      <input type="hidden" name="location_type" value="<?php echo html_escape($prefillLocationType); ?>">
-      <input type="hidden" name="division_id" value="<?php echo $prefillDivisionId > 0 ? (int)$prefillDivisionId : ''; ?>">
-      <input type="hidden" name="notes" value="<?php echo html_escape($prefillNotes); ?>">
-
-      <div class="row g-2 mb-3">
-        <div class="col-md-3">
-          <div class="component-adjustment-header-card">
-            <span class="label">Tanggal</span>
-            <strong id="adjustment-header-date">-</strong>
-          </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label form-label-sm mb-1">Divisi</label>
+          <select class="form-select form-select-sm" name="division_id">
+            <option value="">Semua Divisi</option>
+            <?php foreach ($divisions as $div): ?>
+              <option value="<?php echo (int)$div['id']; ?>" <?php echo $filterDivisionId === (int)$div['id'] ? 'selected' : ''; ?>><?php echo html_escape(!empty($div['code']) ? $div['code'] . ' - ' . $div['name'] : $div['name']); ?></option>
+            <?php endforeach; ?>
+          </select>
         </div>
-        <div class="col-md-3">
-          <div class="component-adjustment-header-card">
-            <span class="label">Lokasi Tujuan</span>
-            <strong id="adjustment-header-location">-</strong>
-          </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label form-label-sm mb-1">Lokasi</label>
+          <select class="form-select form-select-sm" name="location_type">
+            <option value="">Semua Lokasi</option>
+            <option value="REGULER" <?php echo $filterLocType === 'REGULER' ? 'selected' : ''; ?>>Reguler</option>
+            <option value="EVENT" <?php echo $filterLocType === 'EVENT' ? 'selected' : ''; ?>>Event</option>
+          </select>
         </div>
-        <div class="col-md-3">
-          <div class="component-adjustment-header-card">
-            <span class="label">Divisi</span>
-            <strong id="adjustment-header-division">-</strong>
-          </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label form-label-sm mb-1">Per Halaman</label>
+          <select class="form-select form-select-sm" name="per_page" id="adj-per-page">
+            <?php foreach ([10, 25, 50, 100] as $pp): ?>
+              <option value="<?php echo $pp; ?>" <?php echo $filterPerPage === $pp ? 'selected' : ''; ?>><?php echo $pp; ?></option>
+            <?php endforeach; ?>
+          </select>
         </div>
-        <div class="col-md-3">
-          <div class="component-adjustment-header-card">
-            <span class="label">Catatan</span>
-            <strong id="adjustment-header-notes">-</strong>
-          </div>
+        <div class="col-6 col-md-2 d-flex gap-1">
+          <button type="submit" class="btn btn-primary btn-sm flex-fill">Filter</button>
+          <a href="<?php echo site_url('production/component-adjustments'); ?>" class="btn btn-outline-secondary btn-sm">Reset</a>
         </div>
-      </div>
-
-      <div id="adjustment-line-empty" class="component-adjustment-line-empty mb-2">
-        Belum ada baris adjustment. Gunakan tombol <strong>Tambah Baris</strong> untuk input lewat modal.
-      </div>
-      <div id="adjustment-line-list" class="d-grid gap-2"></div>
-
-      <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mt-3">
-        <div class="component-adjustment-summary d-flex flex-wrap gap-4">
-          <div><div class="small text-muted">Baris</div><strong id="adj-line-count">0</strong></div>
-          <div><div class="small text-muted">Total Spoil</div><strong id="adj-total-spoil">0,00</strong></div>
-          <div><div class="small text-muted">Total Waste</div><strong id="adj-total-waste">0,00</strong></div>
-          <div><div class="small text-muted">Total Plus</div><strong id="adj-total-plus">0,00</strong></div>
-          <div><div class="small text-muted">Total Minus</div><strong id="adj-total-minus">0,00</strong></div>
-          <div><div class="small text-muted">Est. Nilai</div><strong id="adj-total-value">0,00</strong></div>
-        </div>
-        <button type="submit" class="btn btn-primary">Simpan DRAFT</button>
       </div>
     </form>
   </div>
@@ -495,13 +520,9 @@ $rincianTabUrl = $buildTabUrl('rincian');
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
       <div>
         <h5 class="mb-1">Riwayat Adjustment</h5>
-        <small class="text-muted">`Per Nota` untuk ringkasan dokumen, `Per Rincian` untuk line operasional dan reason yang dipakai.</small>
+        <small class="text-muted">Per Nota: ringkasan dokumen. Per Rincian: line operasional &amp; reason.</small>
       </div>
-      <form method="get" action="<?php echo site_url('production/component-adjustments'); ?>" class="d-flex gap-2">
-        <input type="hidden" name="tab" value="<?php echo html_escape($activeListTab); ?>">
-        <input type="text" class="form-control form-control-sm" name="q" value="<?php echo html_escape($q); ?>" placeholder="Cari no, komponen, divisi, catatan">
-        <button type="submit" class="btn btn-outline-primary btn-sm">Cari</button>
-      </form>
+      <input type="text" class="form-control form-control-sm" id="adj-search" style="width:240px" placeholder="Cari no, komponen, divisi, catatan…" value="<?php echo html_escape($q); ?>">
     </div>
 
     <ul class="nav nav-tabs component-adjustment-list-tabs mb-3" role="tablist">
@@ -511,42 +532,49 @@ $rincianTabUrl = $buildTabUrl('rincian');
 
     <div class="tab-content p-0 border-0">
       <div class="tab-pane fade <?php echo $activeListTab === 'nota' ? 'show active' : ''; ?>" role="tabpanel">
-        <div class="table-responsive">
-          <table class="table table-striped align-middle mb-0">
-            <thead>
+        <div style="overflow:auto;max-height:70vh">
+          <table class="table table-bordered table-hover table-sm align-middle mb-0" style="table-layout:fixed;min-width:800px">
+            <thead class="table-dark" style="position:sticky;top:0;z-index:2">
               <tr>
-                <th>No</th>
-                <th>Tanggal</th>
-                <th>Lokasi</th>
-                <th>Divisi</th>
-                <th>Catatan</th>
-                <th>Status</th>
-                <th style="width:140px;">Aksi</th>
+                <th style="width:160px;white-space:nowrap">No</th>
+                <th style="width:92px;white-space:nowrap">Tanggal</th>
+                <th style="width:80px;white-space:nowrap">Lokasi</th>
+                <th style="width:120px;white-space:nowrap">Divisi</th>
+                <th style="width:180px;white-space:nowrap">Catatan</th>
+                <th style="width:82px;white-space:nowrap">Status</th>
+                <th style="width:110px;white-space:nowrap">Aksi</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody id="adj-nota-tbody">
               <?php if (empty($rows)): ?>
-                <tr><td colspan="7" class="text-center text-muted py-4">Belum ada dokumen adjustment.</td></tr>
+                <tr class="adj-nota-row"><td colspan="7" class="text-center text-muted py-4">Belum ada dokumen adjustment.</td></tr>
               <?php else: ?>
                 <?php foreach ($rows as $row): ?>
-                  <tr>
-                    <td><?php echo html_escape((string)($row['adjustment_no'] ?? '')); ?></td>
-                    <td><?php echo html_escape((string)($row['adjustment_date'] ?? '')); ?></td>
-                    <td><?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? ''))); ?></td>
-                    <td><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>
-                    <td><?php echo html_escape((string)($row['notes'] ?? '-')); ?></td>
+                  <?php $adjNo = (string)($row['adjustment_no'] ?? ''); ?>
+                  <tr class="adj-nota-row" data-search="<?php echo html_escape(strtolower(implode(' ', [
+                    $adjNo,
+                    $row['adjustment_date'] ?? '',
+                    $locationGroupLabel((string)($row['location_type'] ?? '')),
+                    $row['division_name'] ?? '',
+                    $row['notes'] ?? '',
+                    $row['status'] ?? '',
+                  ]))); ?>">
+                    <td style="font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?php echo html_escape($adjNo); ?></td>
+                    <td style="font-size:.8rem;white-space:nowrap;overflow:hidden"><?php echo html_escape((string)($row['adjustment_date'] ?? '')); ?></td>
+                    <td style="font-size:.8rem;white-space:nowrap;overflow:hidden"><?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? ''))); ?></td>
+                    <td style="font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?php echo html_escape((string)($row['division_name'] ?? '-')); ?>"><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>
+                    <td style="font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?php echo html_escape((string)($row['notes'] ?? '-')); ?>"><?php echo html_escape((string)($row['notes'] ?? '-')); ?></td>
                     <td><?php echo ui_status_badge((string)($row['status'] ?? 'DRAFT')); ?></td>
                     <td class="component-action-cell">
-                      <?php if (strtoupper((string)($row['status'] ?? '')) === 'DRAFT'): ?>
-                        <div class="component-action-stack">
+                      <div class="component-action-stack">
+                        <button type="button" class="btn btn-outline-info action-icon-btn btn-detail-nota" data-no="<?php echo html_escape($adjNo); ?>" title="Detail Rincian" aria-label="Detail"><i class="ri ri-eye-line"></i></button>
+                        <?php if (strtoupper((string)($row['status'] ?? '')) === 'DRAFT'): ?>
                           <button type="button" class="btn btn-outline-success action-icon-btn component-action-btn btn-post" data-id="<?php echo (int)$row['id']; ?>" title="Post" aria-label="Post"><i class="ri ri-checkbox-circle-line"></i></button>
                           <button type="button" class="btn btn-outline-danger action-icon-btn component-action-btn btn-del" data-id="<?php echo (int)$row['id']; ?>" title="Delete" aria-label="Delete"><i class="ri ri-delete-bin-line"></i></button>
-                        </div>
-                      <?php elseif (strtoupper((string)($row['status'] ?? '')) === 'POSTED'): ?>
-                        <div class="component-action-stack">
+                        <?php elseif (strtoupper((string)($row['status'] ?? '')) === 'POSTED'): ?>
                           <button type="button" class="btn btn-outline-warning action-icon-btn component-action-btn btn-void" data-id="<?php echo (int)$row['id']; ?>" title="Void" aria-label="Void"><i class="ri ri-close-circle-line"></i></button>
-                        </div>
-                      <?php endif; ?>
+                        <?php endif; ?>
+                      </div>
                     </td>
                   </tr>
                 <?php endforeach; ?>
@@ -554,64 +582,70 @@ $rincianTabUrl = $buildTabUrl('rincian');
             </tbody>
           </table>
         </div>
+        <div class="d-flex align-items-center justify-content-between mt-2 gap-2">
+          <div class="small text-muted" id="adj-nota-info"></div>
+          <div id="adj-nota-pager" class="d-flex gap-1 flex-wrap"></div>
+        </div>
       </div>
       <div class="tab-pane fade <?php echo $activeListTab === 'rincian' ? 'show active' : ''; ?>" role="tabpanel">
-        <div class="table-responsive">
-          <table class="table table-striped component-adjustment-detail-table align-middle mb-0">
-            <thead>
+        <div style="overflow:auto;max-height:70vh">
+          <table class="table table-bordered table-hover table-sm align-middle mb-0" style="table-layout:fixed;min-width:1000px">
+            <thead class="table-dark" style="position:sticky;top:0;z-index:2">
               <tr>
-                <th>No</th>
-                <th>Tanggal</th>
-                <th>Komponen</th>
-                <th>Lokasi/Divisi</th>
-                <th class="text-end">Spoil</th>
-                <th class="text-end">Waste</th>
-                <th class="text-end">Plus</th>
-                <th class="text-end">Harga Plus</th>
-                <th class="text-end">Nilai</th>
-                <th class="text-end">Minus</th>
-                <th>Opsi</th>
-                <th>Lot</th>
-                <th>Catatan</th>
-                <th>Status</th>
+                <th style="width:140px;white-space:nowrap">No</th>
+                <th style="width:90px;white-space:nowrap">Tanggal</th>
+                <th style="width:165px;white-space:nowrap">Komponen</th>
+                <th style="width:100px;white-space:nowrap">Lokasi/Divisi</th>
+                <th style="width:100px;white-space:nowrap" class="text-end">Nilai Adj</th>
+                <th style="width:185px;white-space:nowrap">Jenis &amp; Qty</th>
+                <th style="white-space:nowrap">Alasan</th>
+                <th style="width:72px;white-space:nowrap">Status</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody id="adj-rincian-tbody">
               <?php if (empty($lineRows)): ?>
-                <tr><td colspan="14" class="text-center text-muted py-4">Belum ada rincian adjustment.</td></tr>
+                <tr class="adj-rincian-row"><td colspan="8" class="text-center text-muted py-4">Belum ada rincian adjustment.</td></tr>
               <?php else: ?>
                 <?php foreach ($lineRows as $lineRow): ?>
-                  <tr>
-                    <td><?php echo html_escape((string)($lineRow['adjustment_no'] ?? '')); ?></td>
-                    <td><?php echo html_escape((string)($lineRow['adjustment_date'] ?? '')); ?></td>
-                    <td>
-                      <div class="fw-semibold"><?php echo html_escape((string)($lineRow['component_name'] ?? '-')); ?></div>
-                      <div class="small text-muted"><?php echo html_escape((string)($lineRow['component_type'] ?? '-')); ?> • <?php echo html_escape((string)($lineRow['uom_code'] ?? '')); ?></div>
+                  <?php
+                    $qSpoil  = (float)($lineRow['qty_spoil'] ?? 0);
+                    $qWaste  = (float)($lineRow['qty_waste'] ?? 0);
+                    $qPlus   = (float)($lineRow['qty_adjust_pos'] ?? 0);
+                    $qMinus  = (float)($lineRow['qty_adjust_neg'] ?? 0);
+                    $jenisList = [];
+                    if ($qSpoil > 0)  $jenisList[] = '<span class="badge bg-danger bg-opacity-10 text-danger border border-danger-subtle">Spoil ' . number_format($qSpoil, 2, ',', '.') . '</span>';
+                    if ($qWaste > 0)  $jenisList[] = '<span class="badge bg-warning bg-opacity-10 text-warning border border-warning-subtle">Waste ' . number_format($qWaste, 2, ',', '.') . '</span>';
+                    if ($qPlus > 0)   $jenisList[] = '<span class="badge bg-success bg-opacity-10 text-success border border-success-subtle">+ ' . number_format($qPlus, 2, ',', '.') . '</span>';
+                    if ($qMinus > 0)  $jenisList[] = '<span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle">- ' . number_format($qMinus, 2, ',', '.') . '</span>';
+                    $uomCode = strtolower((string)($lineRow['uom_code'] ?? ''));
+                  ?>
+                  <tr class="adj-rincian-row" data-search="<?php echo html_escape(strtolower(implode(' ', [
+                    $lineRow['adjustment_no'] ?? '',
+                    $lineRow['adjustment_date'] ?? '',
+                    $lineRow['component_name'] ?? '',
+                    $lineRow['component_type'] ?? '',
+                    $locationGroupLabel((string)($lineRow['location_type'] ?? '')),
+                    $lineRow['division_name'] ?? '',
+                    $lineRow['note'] ?? '',
+                    $lineRow['status'] ?? '',
+                  ]))); ?>">
+                    <td style="font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape((string)($lineRow['adjustment_no'] ?? '')); ?></td>
+                    <td style="font-size:.78rem;white-space:nowrap;overflow:hidden"><?php echo html_escape((string)($lineRow['adjustment_date'] ?? '')); ?></td>
+                    <td style="overflow:hidden">
+                      <div class="fw-semibold" style="font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?php echo html_escape((string)($lineRow['component_name'] ?? '-')); ?>"><?php echo html_escape((string)($lineRow['component_name'] ?? '-')); ?></div>
+                      <div class="text-muted" style="font-size:.68rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape((string)($lineRow['component_type'] ?? '-')); ?><?php if ($uomCode): ?> · <?php echo html_escape($uomCode); ?><?php endif; ?></div>
                     </td>
-                    <td>
-                      <div><?php echo html_escape($locationGroupLabel((string)($lineRow['location_type'] ?? ''))); ?></div>
-                      <div class="small text-muted"><?php echo html_escape((string)($lineRow['division_name'] ?? '-')); ?></div>
+                    <td style="overflow:hidden">
+                      <div style="font-size:.78rem;white-space:nowrap;overflow:hidden"><?php echo html_escape($locationGroupLabel((string)($lineRow['location_type'] ?? ''))); ?></div>
+                      <div class="text-muted" style="font-size:.68rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape((string)($lineRow['division_name'] ?? '-')); ?></div>
                     </td>
-                    <td class="text-end"><?php echo number_format((float)($lineRow['qty_spoil'] ?? 0), 2, ',', '.'); ?></td>
-                    <td class="text-end"><?php echo number_format((float)($lineRow['qty_waste'] ?? 0), 2, ',', '.'); ?></td>
-                    <td class="text-end"><?php echo number_format((float)($lineRow['qty_adjust_pos'] ?? 0), 2, ',', '.'); ?></td>
-                    <td class="text-end"><?php echo number_format((float)($lineRow['unit_cost'] ?? 0), 2, ',', '.'); ?></td>
-                    <td class="text-end">
-                      <div><?php echo number_format((float)($lineRow['total_adjustment_value'] ?? 0), 2, ',', '.'); ?></div>
-                      <div class="small text-muted">
-                        S <?php echo number_format((float)($lineRow['value_spoil'] ?? 0), 2, ',', '.'); ?> |
-                        W <?php echo number_format((float)($lineRow['value_waste'] ?? 0), 2, ',', '.'); ?> |
-                        P <?php echo number_format((float)($lineRow['value_plus'] ?? 0), 2, ',', '.'); ?> |
-                        M <?php echo number_format((float)($lineRow['value_minus'] ?? 0), 2, ',', '.'); ?>
-                      </div>
+                    <td class="text-end" style="overflow:hidden">
+                      <div style="font-size:.78rem;white-space:nowrap"><?php echo number_format((float)($lineRow['total_adjustment_value'] ?? 0), 2, ',', '.'); ?></div>
                     </td>
-                    <td class="text-end"><?php echo number_format((float)($lineRow['qty_adjust_neg'] ?? 0), 2, ',', '.'); ?></td>
-                    <td><div class="small"><?php echo html_escape($reasonSummary((array)$lineRow)); ?></div></td>
-                    <td><div class="small"><?php echo html_escape((string)($lineRow['lot_issue_preview'] ?? '-')); ?></div></td>
-                    <td>
-                      <div><?php echo html_escape((string)($lineRow['note'] ?? '-')); ?></div>
-                      <?php if (!empty($lineRow['header_notes'])): ?><div class="small text-muted mt-1">Header: <?php echo html_escape((string)$lineRow['header_notes']); ?></div><?php endif; ?>
+                    <td style="overflow:hidden">
+                      <div class="d-flex flex-wrap gap-1" style="font-size:.72rem"><?php echo implode('', $jenisList); ?></div>
                     </td>
+                    <td style="font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?php echo html_escape($reasonSummary((array)$lineRow)); ?>"><?php echo html_escape($reasonSummary((array)$lineRow)); ?></td>
                     <td><?php echo ui_status_badge((string)($lineRow['status'] ?? 'DRAFT')); ?></td>
                   </tr>
                 <?php endforeach; ?>
@@ -619,6 +653,86 @@ $rincianTabUrl = $buildTabUrl('rincian');
             </tbody>
           </table>
         </div>
+        <div class="d-flex align-items-center justify-content-between mt-2 gap-2">
+          <div class="small text-muted" id="adj-rincian-info"></div>
+          <div id="adj-rincian-pager" class="d-flex gap-1 flex-wrap"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade component-adjustment-modal" id="componentAdjustmentFormModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0">Tambah Adjustment</h5>
+          <div class="small text-muted">Isi header lalu tambahkan baris per komponen.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="component-adjustment-stage mb-3">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+            <div class="small text-muted">Header &amp; baris adjustment diisi masing-masing lewat modal terpisah.</div>
+            <div class="d-flex gap-2 flex-wrap">
+              <button type="button" class="btn btn-sm component-adjustment-header-trigger" id="btn-edit-adjustment-header"><i class="ri ri-settings-3-line me-1"></i>Header Adjustment</button>
+              <button type="button" class="btn btn-sm component-adjustment-add-trigger" id="btn-add-adjustment-line"><i class="ri ri-add-line me-1"></i>Tambah Baris</button>
+            </div>
+          </div>
+        </div>
+
+        <form id="frmAdjustment" autocomplete="off">
+          <input type="hidden" name="adjustment_date" value="<?php echo html_escape($prefillDate); ?>">
+          <input type="hidden" name="location_type" value="<?php echo html_escape($prefillLocationType); ?>">
+          <input type="hidden" name="division_id" value="<?php echo $prefillDivisionId > 0 ? (int)$prefillDivisionId : ''; ?>">
+          <input type="hidden" name="notes" value="<?php echo html_escape($prefillNotes); ?>">
+
+          <div class="row g-2 mb-3">
+            <div class="col-md-3">
+              <div class="component-adjustment-header-card">
+                <span class="label">Tanggal</span>
+                <strong id="adjustment-header-date">-</strong>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="component-adjustment-header-card">
+                <span class="label">Lokasi Tujuan</span>
+                <strong id="adjustment-header-location">-</strong>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="component-adjustment-header-card">
+                <span class="label">Divisi</span>
+                <strong id="adjustment-header-division">-</strong>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="component-adjustment-header-card">
+                <span class="label">Catatan</span>
+                <strong id="adjustment-header-notes">-</strong>
+              </div>
+            </div>
+          </div>
+
+          <div id="adjustment-line-empty" class="component-adjustment-line-empty mb-2">
+            Belum ada baris adjustment. Gunakan tombol <strong>Tambah Baris</strong> untuk input lewat modal.
+          </div>
+          <div id="adjustment-line-list" class="d-grid gap-2"></div>
+
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mt-3">
+            <div class="component-adjustment-summary d-flex flex-wrap gap-4">
+              <div><div class="small text-muted">Baris</div><strong id="adj-line-count">0</strong></div>
+              <div><div class="small text-muted">Total Spoil</div><strong id="adj-total-spoil">0,00</strong></div>
+              <div><div class="small text-muted">Total Waste</div><strong id="adj-total-waste">0,00</strong></div>
+              <div><div class="small text-muted">Total Plus</div><strong id="adj-total-plus">0,00</strong></div>
+              <div><div class="small text-muted">Total Minus</div><strong id="adj-total-minus">0,00</strong></div>
+              <div><div class="small text-muted">Est. Nilai</div><strong id="adj-total-value">0,00</strong></div>
+            </div>
+            <button type="submit" class="btn btn-primary">Simpan DRAFT</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
@@ -1994,8 +2108,78 @@ $rincianTabUrl = $buildTabUrl('rincian');
   bindLineComponentPicker();
   renderHeaderSummary();
   renderLineCards();
-  if (!headerContext().location_type) {
-    fillHeaderModal();
+
+  const formModalEl = document.getElementById('componentAdjustmentFormModal');
+  if (formModalEl) {
+    formModalEl.addEventListener('shown.bs.modal', () => {
+      if (!headerContext().location_type) {
+        fillHeaderModal();
+      }
+    });
   }
+})();
+</script>
+<script>
+(function () {
+  const perPage = parseInt(document.getElementById('adj-per-page')?.value || '25', 10) || 25;
+
+  function buildPager(containerId, infoId, totalVisible, currentPage, onGo) {
+    const info = document.getElementById(infoId);
+    const pager = document.getElementById(containerId);
+    if (!pager) return;
+    const pages = Math.max(1, Math.ceil(totalVisible / perPage));
+    if (info) info.textContent = totalVisible + ' baris';
+    pager.innerHTML = '';
+    for (let p = 1; p <= pages; p++) {
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-sm ' + (p === currentPage ? 'btn-primary' : 'btn-outline-secondary');
+      btn.style.minWidth = '32px';
+      btn.textContent = p;
+      btn.addEventListener('click', () => onGo(p));
+      pager.appendChild(btn);
+    }
+  }
+
+  function applyFilter(tbodyId, rowClass, infoId, pagerId, searchVal, page) {
+    const rows = Array.from(document.querySelectorAll('#' + tbodyId + ' tr.' + rowClass));
+    const needle = searchVal.trim().toLowerCase();
+    const visible = rows.filter(r => !needle || (r.dataset.search || '').includes(needle));
+    rows.forEach(r => { r.style.display = 'none'; });
+    const start = (page - 1) * perPage;
+    visible.forEach((r, i) => { r.style.display = (i >= start && i < start + perPage) ? '' : 'none'; });
+    buildPager(pagerId, infoId, visible.length, page, p => applyFilter(tbodyId, rowClass, infoId, pagerId, searchVal, p));
+  }
+
+  let notaPage = 1, rincianPage = 1;
+  const searchInput = document.getElementById('adj-search');
+
+  function refresh(resetPage) {
+    if (resetPage) { notaPage = 1; rincianPage = 1; }
+    const val = searchInput ? searchInput.value : '';
+    applyFilter('adj-nota-tbody', 'adj-nota-row', 'adj-nota-info', 'adj-nota-pager', val, notaPage);
+    applyFilter('adj-rincian-tbody', 'adj-rincian-row', 'adj-rincian-info', 'adj-rincian-pager', val, rincianPage);
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', () => refresh(true));
+  }
+
+  // Detail button: switch to rincian tab and filter by adjustment_no
+  document.querySelectorAll('.btn-detail-nota').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const adjNo = btn.dataset.no || '';
+      const rincianTabLink = document.querySelector('.component-adjustment-list-tabs .nav-link[href*="tab=rincian"], .component-adjustment-list-tabs .nav-link:last-child');
+      if (searchInput) {
+        searchInput.value = adjNo;
+      }
+      if (rincianTabLink) {
+        rincianTabLink.click();
+      } else {
+        refresh(true);
+      }
+    });
+  });
+
+  refresh(false);
 })();
 </script>

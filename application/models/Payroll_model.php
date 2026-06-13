@@ -1135,7 +1135,10 @@ class Payroll_model extends CI_Model
             ->join('org_employee e', 'e.id = ad.employee_id', 'inner')
             ->where('ad.attendance_date >=', $periodStart)
             ->where('ad.attendance_date <=', $periodEnd)
+            ->group_start()
             ->where('ad.checkout_at IS NOT NULL', null, false)
+            ->or_where('ad.attendance_status', 'HOLIDAY')
+            ->group_end()
             ->where('e.is_active', 1)
             ->group_by('ad.employee_id')
             ->get()->result_array();
@@ -1411,7 +1414,10 @@ class Payroll_model extends CI_Model
                   WHERE ad.employee_id = r.employee_id
                     AND ad.attendance_date >= pp.period_start
                     AND ad.attendance_date <= pp.period_end
-                    AND ad.checkout_at IS NOT NULL
+                    AND (
+                        ad.checkout_at IS NOT NULL
+                        OR ad.attendance_status = 'HOLIDAY'
+                    )
                 ) AS attendance_net_total
             ", false)
             ->from('pay_payroll_result r')
@@ -1495,7 +1501,7 @@ class Payroll_model extends CI_Model
                 0 AS rounding_adjustment
             ', false)
             ->from('pay_payroll_result r')
-            ->join('att_daily ad', 'ad.employee_id = r.employee_id AND ad.attendance_date >= "' . $this->db->escape_str($periodStart) . '" AND ad.attendance_date <= "' . $this->db->escape_str($periodEnd) . '" AND ad.checkout_at IS NOT NULL', 'left', false)
+            ->join('att_daily ad', 'ad.employee_id = r.employee_id AND ad.attendance_date >= "' . $this->db->escape_str($periodStart) . '" AND ad.attendance_date <= "' . $this->db->escape_str($periodEnd) . '" AND (ad.checkout_at IS NOT NULL OR ad.attendance_status = "HOLIDAY")', 'left', false)
             ->where('r.payroll_period_id', $periodId)
             ->group_by('r.id')
             ->order_by('r.employee_name_snapshot', 'ASC')
@@ -1856,7 +1862,10 @@ class Payroll_model extends CI_Model
                     FROM att_daily ad
                     WHERE ad.attendance_date >= ' . $this->db->escape((string)$period['period_start']) . '
                       AND ad.attendance_date <= ' . $this->db->escape((string)$period['period_end']) . '
-                      AND ad.checkout_at IS NOT NULL
+                      AND (
+                          ad.checkout_at IS NOT NULL
+                          OR ad.attendance_status = "HOLIDAY"
+                      )
                     GROUP BY ad.employee_id
                 ) att
             ', 'att.employee_id = r.employee_id', 'left', false)

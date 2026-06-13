@@ -191,6 +191,7 @@ class Payroll_preview_model extends CI_Model
             $lateMinutes = (int)($row['late_minutes'] ?? 0);
             $workMinutes = (int)($row['work_minutes'] ?? 0);
             $isClosed = !empty($row['checkout_at']);
+            $isPayrollPaidDay = ($isClosed || $status === 'HOLIDAY');
             $overtimePay = (float)($row['overtime_pay'] ?? 0);
 
             $isPresentish = in_array($status, ['PRESENT', 'LATE', 'HOLIDAY'], true);
@@ -211,15 +212,15 @@ class Payroll_preview_model extends CI_Model
             $dailyTakeHome = 0.0;
 
             if ($hasBreakdown) {
-                $basicEst = $isClosed ? (float)($row['basic_amount'] ?? 0) : 0.0;
-                $allowEst = $isClosed ? (float)($row['allowance_amount'] ?? 0) : 0.0;
-                $mealEst = $isClosed ? (float)($row['meal_amount'] ?? 0) : 0.0;
-                $overtimePay = $isClosed ? (float)($row['overtime_pay'] ?? 0) : 0.0;
-                $lateDeduction = $isClosed ? (float)($row['late_deduction_amount'] ?? 0) : 0.0;
-                $alphaDeduction = $isClosed ? (float)($row['alpha_deduction_amount'] ?? 0) : 0.0;
-                $grossAmount = $isClosed ? (float)($row['gross_amount'] ?? 0) : 0.0;
-                $netAmount = $isClosed ? (float)($row['net_amount'] ?? 0) : 0.0;
-                $dailyTakeHome = $isClosed ? (float)($row['daily_salary_amount'] ?? $netAmount) : 0.0;
+                $basicEst = $isPayrollPaidDay ? (float)($row['basic_amount'] ?? 0) : 0.0;
+                $allowEst = $isPayrollPaidDay ? (float)($row['allowance_amount'] ?? 0) : 0.0;
+                $mealEst = $isPayrollPaidDay ? (float)($row['meal_amount'] ?? 0) : 0.0;
+                $overtimePay = $isPayrollPaidDay ? (float)($row['overtime_pay'] ?? 0) : 0.0;
+                $lateDeduction = $isPayrollPaidDay ? (float)($row['late_deduction_amount'] ?? 0) : 0.0;
+                $alphaDeduction = $isPayrollPaidDay ? (float)($row['alpha_deduction_amount'] ?? 0) : 0.0;
+                $grossAmount = $isPayrollPaidDay ? (float)($row['gross_amount'] ?? 0) : 0.0;
+                $netAmount = $isPayrollPaidDay ? (float)($row['net_amount'] ?? 0) : 0.0;
+                $dailyTakeHome = $isPayrollPaidDay ? (float)($row['daily_salary_amount'] ?? $netAmount) : 0.0;
             } else {
                 // Fallback bila kolom breakdown belum ada.
                 $dailyTakeHome = 0.0;
@@ -243,20 +244,20 @@ class Payroll_preview_model extends CI_Model
                 'overtime_pay' => round($overtimePay, 2),
                 'gross_amount' => round($grossAmount, 2),
                 'net_amount' => round($netAmount, 2),
-                'manual_addition_amount' => $isClosed ? round((float)($row['manual_addition_amount'] ?? 0), 2) : 0.0,
-                'manual_deduction_amount' => $isClosed ? round((float)($row['manual_deduction_amount'] ?? 0), 2) : 0.0,
-                'manual_adjustment_net_amount' => $isClosed ? round((float)($row['manual_adjustment_net_amount'] ?? 0), 2) : 0.0,
-                'cash_advance_cut' => $isClosed ? (float)($cashAdvanceCutDateMap[(string)$row['attendance_date']] ?? 0) : 0.0,
+                'manual_addition_amount' => $isPayrollPaidDay ? round((float)($row['manual_addition_amount'] ?? 0), 2) : 0.0,
+                'manual_deduction_amount' => $isPayrollPaidDay ? round((float)($row['manual_deduction_amount'] ?? 0), 2) : 0.0,
+                'manual_adjustment_net_amount' => $isPayrollPaidDay ? round((float)($row['manual_adjustment_net_amount'] ?? 0), 2) : 0.0,
+                'cash_advance_cut' => $isPayrollPaidDay ? (float)($cashAdvanceCutDateMap[(string)$row['attendance_date']] ?? 0) : 0.0,
                 'day_total' => round($dailyTakeHome, 2),
             ];
 
-            if ($isClosed && $hasAttendanceModeSnapshot) {
+            if ($isPayrollPaidDay && $hasAttendanceModeSnapshot) {
                 $mode = strtoupper(trim((string)($row['attendance_mode_snapshot'] ?? '')));
                 if ($mode !== '') {
                     $attendanceModeSnapshots[$mode] = true;
                 }
             }
-            if ($isClosed && $hasMealModeSnapshot) {
+            if ($isPayrollPaidDay && $hasMealModeSnapshot) {
                 $mode = strtoupper(trim((string)($row['meal_mode_snapshot'] ?? '')));
                 if ($mode !== '') {
                     $mealModeSnapshots[$mode] = true;

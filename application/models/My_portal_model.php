@@ -130,7 +130,7 @@ class My_portal_model extends CI_Model
             }
         } elseif ($requestType === 'STATUS_CORRECTION') {
             $requestedStatus = strtoupper(trim((string)($payload['requested_status'] ?? '')));
-            if (!in_array($requestedStatus, ['PRESENT', 'LATE', 'ALPHA', 'SICK', 'LEAVE', 'OFF', 'HOLIDAY'], true)) {
+            if (!in_array($requestedStatus, ['PRESENT', 'LATE', 'ALPHA', 'SICK', 'LEAVE', 'OFF'], true)) {
                 return ['ok' => false, 'message' => 'Status koreksi tidak valid.'];
             }
         }
@@ -827,9 +827,19 @@ class My_portal_model extends CI_Model
         $netAmount = 0.0;
 
         $isPresentish = in_array($status, ['PRESENT', 'LATE', 'HOLIDAY'], true);
-        $mealEst = ($mealMode === 'CUSTOM' && $isPresentish && $effectiveCheckinTs > 0) ? $mealRate : 0;
+        $isHolidayPaidDay = ($status === 'HOLIDAY');
+        $isPayrollPaidDay = ($hasCompletedCheckout || $isHolidayPaidDay);
+        $phGetsMealAllowance = (int)($policy['ph_gets_meal_allowance'] ?? 0) === 1;
+        $mealEst = 0.0;
+        if ($mealMode === 'CUSTOM') {
+            if ($isPresentish && $effectiveCheckinTs > 0) {
+                $mealEst = $mealRate;
+            } elseif ($isHolidayPaidDay && $phGetsMealAllowance) {
+                $mealEst = $mealRate;
+            }
+        }
 
-        if ($hasCompletedCheckout) {
+        if ($isPayrollPaidDay) {
             $allowanceEligible = $isPresentish;
             if ($allowanceEligible && $allowanceLateTreatment === 'DEDUCT_IF_LATE' && $status === 'LATE') {
                 $allowanceEligible = false;
@@ -837,17 +847,19 @@ class My_portal_model extends CI_Model
 
             $basicEst = $isPresentish ? $basicDailyRate : 0;
             $allowEst = $allowanceEligible ? $allowanceDailyRate : 0;
-            if ($overtimeMode === 'MANUAL') {
+            if ($hasCompletedCheckout && $overtimeMode === 'MANUAL') {
                 $overtimePay = $this->get_manual_overtime_pay($employeeId, $date);
-            } else {
+            } elseif ($hasCompletedCheckout) {
                 $overtimePay = ((int)$payload['overtime_minutes'] > 0 && $overtimeRate > 0)
                     ? (((int)$payload['overtime_minutes'] / 60) * $overtimeRate)
                     : 0;
+            } else {
+                $overtimePay = 0.0;
             }
-            $lateDeduction = $enableLateDeduction ? ($lateMinutes * $lateDeductionPerMinute) : 0;
-            $alphaDeduction = ($enableAlphaDeduction && $status === 'ALPHA') ? $alphaDeductionPerDay : 0;
+            $lateDeduction = ($hasCompletedCheckout && $enableLateDeduction) ? ($lateMinutes * $lateDeductionPerMinute) : 0;
+            $alphaDeduction = ($hasCompletedCheckout && $enableAlphaDeduction && $status === 'ALPHA') ? $alphaDeductionPerDay : 0;
 
-            if (!$hasConfiguredDeduction && $scheduledWorkMinutes > 0) {
+            if ($hasCompletedCheckout && !$hasConfiguredDeduction && $scheduledWorkMinutes > 0) {
                 $ratio = max(0, min(1, $workMinutes / $scheduledWorkMinutes));
                 $deductionFromProrate = 0.0;
                 if ($attendanceMode === 'DAILY') {

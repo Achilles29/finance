@@ -3370,14 +3370,25 @@ class Production_model extends CI_Model
 
     public function list_component_adjustments(array $filters = [], int $limit = 200): array
     {
-        $q = trim((string)($filters['q'] ?? ''));
+        $q          = trim((string)($filters['q'] ?? ''));
+        $dateFrom   = trim((string)($filters['date_from'] ?? ''));
+        $dateTo     = trim((string)($filters['date_to'] ?? ''));
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
+        $locType    = strtoupper(trim((string)($filters['location_type'] ?? '')));
+
         $this->db->select('h.*, d.name AS division_name');
         $this->db->from('inv_component_adjustment h');
         $this->db->join('mst_operational_division d', 'd.id = h.division_id', 'left');
+
+        if ($dateFrom !== '') $this->db->where('h.adjustment_date >=', $dateFrom);
+        if ($dateTo   !== '') $this->db->where('h.adjustment_date <=', $dateTo);
+        if ($divisionId > 0)  $this->db->where('h.division_id', $divisionId);
+        if ($locType !== '')  $this->apply_component_location_filter('h.location_type', $locType);
         if ($q !== '') {
             $this->db->group_start()
                 ->like('h.adjustment_no', $q)
-                ->or_like('h.location_type', $q)
+                ->or_like('h.notes', $q)
+                ->or_like('d.name', $q)
                 ->group_end();
         }
         $this->db->order_by('h.adjustment_date', 'DESC')->order_by('h.id', 'DESC')->limit(max(1, $limit));
@@ -3416,8 +3427,12 @@ class Production_model extends CI_Model
             return [];
         }
 
-        $q = trim((string)($filters['q'] ?? ''));
-        $limit = max(1, min(1500, $limit));
+        $q          = trim((string)($filters['q'] ?? ''));
+        $dateFrom   = trim((string)($filters['date_from'] ?? ''));
+        $dateTo     = trim((string)($filters['date_to'] ?? ''));
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
+        $locType    = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $limit = max(1, min(2000, $limit));
         $divisionNameColumn = $this->division_name_column();
         $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
@@ -3430,6 +3445,10 @@ class Production_model extends CI_Model
             ->join('mst_uom u', 'u.id = l.uom_id', 'left')
             ->join('mst_operational_division d', 'd.id = h.division_id', 'left');
 
+        if ($dateFrom !== '') $this->db->where('h.adjustment_date >=', $dateFrom);
+        if ($dateTo   !== '') $this->db->where('h.adjustment_date <=', $dateTo);
+        if ($divisionId > 0)  $this->db->where('h.division_id', $divisionId);
+        if ($locType !== '')  $this->apply_component_location_filter('h.location_type', $locType);
         if ($q !== '') {
             $this->db->group_start()
                 ->like('h.adjustment_no', $q)

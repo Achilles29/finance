@@ -110,7 +110,22 @@ Regular
 Event
 
 
-- cek PH belum masuk gajinya
+v cek PH belum masuk gajinya
 - laporan utang piutang
-- laporan kasbon
+v laporan kasbon
 - laporan keuangan
+
+
+sekarang buatkan modul Utang dan modul Piutang. halaman ini harus memepengaruhi keuangan dan muatasi keuangan.
+utamh init kepada pihak luar. sementara piutang adalah pihak luar hutang kepada kita.
+buatkan halaman khusus penerima / pemberi hutang. pernerima / pemberi bisa sebagai member. modul tambah penerima/pemberi dibuatkan di halaman tersendiri dan ada modul tambah penerima / pemberi di saat tambah utang / piutang jadi tidak perlu pindah halaman.
+berikan fitur  ketika input utang / piutang tidak mempengaruhi keuangan karena sudah terjadi sebelum aplikasi dijalankan (paham maksud saya kan). jadi misal saat ini saldo BRANKAS 10.000.000, saya input utang 1.000.000 tanggal ini, maka saldo jadi 11.000.000. tapi ada opsi saldo tetap karena hutang sudah dilakukan sejak lama. artinya saldo 10.000.000 itu sudah termasuk hutang.
+
+masukan halamannya ke database modul dan sidebar rumpun keuangan 
+
+
+sekarang saya ingin membuat laporan keuangan yang rapi dan tertib sesuai standar akuntansi dan keuangan kafe, yang berguna untuk melakukan analisa, yang mencakup belanja (bahan baku, operasional, dan lainnya), store request, pembayaran gaji, kasbon, utang, piutang, estimasi gaji berjalan.
+
+
+saya juga ingin membuat target bulanan dan target harian, yang menganalisa pengeluaran dan pendapatan termasuk estimasi gaji berjalan. target ini nantinya akan digunakan sebagai batas untuk pegawai bisa mendapatkan bonus. ada ide?
+

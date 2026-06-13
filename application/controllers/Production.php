@@ -689,9 +689,26 @@ class Production extends MY_Controller
     public function component_adjustments()
     {
         $this->require_permission('production.component.adjustment.index', 'view');
-        $q = trim((string)$this->input->get('q', true));
-        $rows = $this->Production_model->list_component_adjustments(['q' => $q], 300);
-        $lineRows = $this->Production_model->list_component_adjustment_detail_rows(['q' => $q], 1200);
+        $q          = trim((string)$this->input->get('q', true));
+        $dateFrom   = trim((string)$this->input->get('date_from', true));
+        $dateTo     = trim((string)$this->input->get('date_to', true));
+        $divisionId = (int)$this->input->get('filter_division_id', true);
+        $locFilter  = $this->normalize_location_filter($this->input->get('filter_location_type', true));
+        $perPage    = (int)$this->input->get('per_page', true);
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) $dateFrom = date('Y-m-01');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo))   $dateTo   = date('Y-m-d');
+        if (!in_array($perPage, [25, 50, 100, 0], true))      $perPage  = 25;
+
+        $listFilters = [
+            'q'             => $q,
+            'date_from'     => $dateFrom,
+            'date_to'       => $dateTo,
+            'division_id'   => $divisionId,
+            'location_type' => $locFilter,
+        ];
+        $rows     = $this->Production_model->list_component_adjustments($listFilters, 500);
+        $lineRows = $this->Production_model->list_component_adjustment_detail_rows($listFilters, 2000);
+
         $activeListTab = strtolower(trim((string)$this->input->get('tab', true)));
         if (!in_array($activeListTab, ['nota', 'rincian'], true)) {
             $activeListTab = 'nota';
@@ -702,23 +719,24 @@ class Production extends MY_Controller
         }
         $prefillDivisionId = (int)$this->input->get('division_id', true);
         $prefill = [
-            'adjustment_date' => $prefillDate,
-            'location_type' => $this->normalize_location_type($this->input->get('location_type', true)),
-            'division_id' => $prefillDivisionId > 0 ? $prefillDivisionId : 0,
-            'notes' => trim((string)$this->input->get('notes', true)),
-            'source_opening_no' => trim((string)$this->input->get('source_opening_no', true)),
+            'adjustment_date'  => $prefillDate,
+            'location_type'    => $this->normalize_location_type($this->input->get('location_type', true)),
+            'division_id'      => $prefillDivisionId > 0 ? $prefillDivisionId : 0,
+            'notes'            => trim((string)$this->input->get('notes', true)),
+            'source_opening_no'=> trim((string)$this->input->get('source_opening_no', true)),
         ];
         $this->render('production/component_adjustment_index', [
-            'page_title' => 'Adjustment Base/Prepare',
-            'rows' => $rows,
-            'line_rows' => $lineRows,
-            'active_list_tab' => $activeListTab,
-            'q' => $q,
-            'prefill' => $prefill,
+            'page_title'       => 'Adjustment Base/Prepare',
+            'rows'             => $rows,
+            'line_rows'        => $lineRows,
+            'active_list_tab'  => $activeListTab,
+            'q'                => $q,
+            'list_filters'     => array_merge($listFilters, ['per_page' => $perPage]),
+            'prefill'          => $prefill,
             'location_options' => $this->location_options(),
-            'components' => $this->active_components(),
-            'uoms' => $this->active_uoms(),
-            'divisions' => $this->active_divisions(),
+            'components'       => $this->active_components(),
+            'uoms'             => $this->active_uoms(),
+            'divisions'        => $this->active_divisions(),
         ]);
     }
 

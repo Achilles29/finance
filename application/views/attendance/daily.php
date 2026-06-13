@@ -181,7 +181,11 @@ $buildPageItems = static function (int $page, int $totalPages): array {
       <?php if (empty($rows)): ?>
         <tr><td colspan="25" class="text-center text-muted py-4">Tidak ada data.</td></tr>
       <?php else: foreach($rows as $r): ?>
-        <?php $isClosed = !empty($r['checkout_at']); ?>
+        <?php
+          $status = strtoupper((string)($r['attendance_status'] ?? 'OFF'));
+          $isClosed = !empty($r['checkout_at']);
+          $isPayrollPaidDay = ($isClosed || $status === 'HOLIDAY');
+        ?>
         <tr>
           <td><?php echo html_escape((string)$r['attendance_date']); ?></td>
           <td><?php echo html_escape((string)$r['employee_code']); ?></td>
@@ -191,23 +195,23 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <td><?php echo html_escape((string)($r['shift_code'] ?? '-')); ?></td>
           <td><?php echo html_escape((string)($r['checkin_at'] ?? '-')); ?></td>
           <td><?php echo html_escape((string)($r['checkout_at'] ?? '-')); ?></td>
-          <td><?php echo html_escape((string)$r['attendance_status']); ?><?php echo (!empty($r['checkin_at']) && empty($r['checkout_at'])) ? ' (OPEN)' : ''; ?></td>
+          <td><?php echo html_escape((string)$r['attendance_status']); ?><?php echo (!empty($r['checkin_at']) && empty($r['checkout_at']) && $status !== 'HOLIDAY') ? ' (OPEN)' : ''; ?></td>
           <td class="text-end"><?php echo (int)($r['late_minutes'] ?? 0); ?></td>
           <td class="text-end"><?php echo (int)($r['early_leave_minutes'] ?? 0); ?></td>
           <td class="text-end"><?php echo (int)($r['work_minutes'] ?? 0); ?></td>
           <td class="text-end"><?php echo (int)($r['overtime_minutes'] ?? 0); ?></td>
-          <td class="text-end"><?php echo number_format($isClosed ? (float)($r['basic_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
-          <td class="text-end"><?php echo number_format($isClosed ? (float)($r['allowance_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
+          <td class="text-end"><?php echo number_format($isPayrollPaidDay ? (float)($r['basic_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
+          <td class="text-end"><?php echo number_format($isPayrollPaidDay ? (float)($r['allowance_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
           <td class="text-end"><?php echo number_format((float)($r['meal_amount'] ?? 0), 2, ',', '.'); ?></td>
-          <td class="text-end"><?php echo number_format($isClosed ? (float)($r['overtime_pay'] ?? 0) : 0, 2, ',', '.'); ?></td>
-          <td class="text-end"><?php echo number_format($isClosed ? (float)($r['late_deduction_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
-          <td class="text-end"><?php echo number_format($isClosed ? (float)($r['alpha_deduction_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
-          <td class="text-end text-success"><?php echo number_format($isClosed ? (float)($r['manual_addition_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
-          <td class="text-end text-danger"><?php echo number_format($isClosed ? (float)($r['manual_deduction_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
-          <td class="text-end <?php echo ((float)($r['manual_adjustment_net_amount'] ?? 0) >= 0) ? 'text-success' : 'text-danger'; ?>"><?php echo number_format($isClosed ? (float)($r['manual_adjustment_net_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
-          <td class="text-end"><?php echo number_format($isClosed ? (float)($r['gross_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
-          <td class="text-end"><?php echo number_format($isClosed ? (float)($r['net_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
-          <td class="text-end"><?php echo number_format($isClosed ? (float)($r['daily_salary_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
+          <td class="text-end"><?php echo number_format($isPayrollPaidDay ? (float)($r['overtime_pay'] ?? 0) : 0, 2, ',', '.'); ?></td>
+          <td class="text-end"><?php echo number_format($isPayrollPaidDay ? (float)($r['late_deduction_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
+          <td class="text-end"><?php echo number_format($isPayrollPaidDay ? (float)($r['alpha_deduction_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
+          <td class="text-end text-success"><?php echo number_format($isPayrollPaidDay ? (float)($r['manual_addition_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
+          <td class="text-end text-danger"><?php echo number_format($isPayrollPaidDay ? (float)($r['manual_deduction_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
+          <td class="text-end <?php echo ((float)($r['manual_adjustment_net_amount'] ?? 0) >= 0) ? 'text-success' : 'text-danger'; ?>"><?php echo number_format($isPayrollPaidDay ? (float)($r['manual_adjustment_net_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
+          <td class="text-end"><?php echo number_format($isPayrollPaidDay ? (float)($r['gross_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
+          <td class="text-end"><?php echo number_format($isPayrollPaidDay ? (float)($r['net_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
+          <td class="text-end"><?php echo number_format($isPayrollPaidDay ? (float)($r['daily_salary_amount'] ?? 0) : 0, 2, ',', '.'); ?></td>
         </tr>
       <?php endforeach; endif; ?>
       </tbody>

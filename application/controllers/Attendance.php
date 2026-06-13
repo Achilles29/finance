@@ -92,7 +92,7 @@ class Attendance extends MY_Controller
             }
             $phGrantMode = strtoupper(trim((string)$this->input->post('ph_grant_mode', true)));
             if (!in_array($phGrantMode, ['SHIFT_ONLY', 'HOLIDAY_ONLY', 'SHIFT_OR_HOLIDAY'], true)) {
-                $phGrantMode = strtoupper((string)($currentPolicy['ph_grant_mode'] ?? 'HOLIDAY_ONLY'));
+                $phGrantMode = strtoupper((string)($currentPolicy['ph_grant_mode'] ?? 'SHIFT_ONLY'));
             }
             $phGrantHolidayType = strtoupper(trim((string)$this->input->post('ph_grant_holiday_type', true)));
             if (!in_array($phGrantHolidayType, ['ANY', 'NATIONAL', 'COMPANY', 'SPECIAL'], true)) {

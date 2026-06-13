@@ -470,7 +470,7 @@ class My extends MY_Controller
             'pg' => $pg,
             'status_options' => ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'],
             'request_type_options' => ['LEAVE', 'SICK', 'MISSING_CHECKIN', 'MISSING_CHECKOUT', 'STATUS_CORRECTION'],
-            'status_correction_options' => ['PRESENT', 'LATE', 'ALPHA', 'SICK', 'LEAVE', 'OFF', 'HOLIDAY'],
+            'status_correction_options' => ['PRESENT', 'LATE', 'ALPHA', 'SICK', 'LEAVE', 'OFF'],
         ]);
     }
 

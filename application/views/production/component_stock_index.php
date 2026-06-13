@@ -11,6 +11,14 @@ $locationFilterValue = static function ($v): string {
   if (in_array($v, ['BAR', 'KITCHEN', 'REGULER'], true)) return 'REGULER';
   return '';
 };
+$locGroup = static function ($v): string {
+  $v = strtoupper(trim((string)$v));
+  if (in_array($v, ['BAR_EVENT', 'KITCHEN_EVENT'], true))
+    return '<span class="badge bg-danger-subtle text-danger px-1 py-0" style="font-size:.62rem">Event</span>';
+  if (in_array($v, ['BAR', 'KITCHEN'], true))
+    return '<span class="badge bg-secondary-subtle text-secondary px-1 py-0" style="font-size:.62rem">Reguler</span>';
+  return '';
+};
 $locBadge = static function ($v): string {
   $v = strtoupper(trim((string)$v));
   switch ($v) {
@@ -56,29 +64,24 @@ $countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand']
 
 <style>
   .csl-card {
-    min-width: 200px;
     white-space: normal;
     line-height: 1.4;
-  }
-  .csl-card .lot-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: .4rem;
-    font-weight: 600;
-    color: #5f3527;
-    font-size: .78rem;
   }
   .csl-body {
     display: flex;
     gap: .5rem;
-    margin-top: .35rem;
-    align-items: flex-start;
+    align-items: center;
   }
   .csl-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: .3rem;
+    flex-shrink: 0;
+  }
+  .csl-lot-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
   }
   .csl-metric {
@@ -271,12 +274,12 @@ $countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand']
 <!-- Table -->
 <div class="card">
   <div style="overflow:auto;max-height:70vh">
-    <table class="table table-striped table-hover mb-0" id="stockTable" style="min-width:800px">
-      <thead style="position:sticky;top:0;z-index:2">
+    <table class="table table-sm table-bordered table-hover mb-0" id="stockTable" style="min-width:800px;border-color:#dee2e6">
+      <thead class="table-dark" style="position:sticky;top:0;z-index:2">
         <tr>
-          <th style="width:90px">Lokasi / Divisi / Tipe</th>
+          <th style="width:90px">Divisi / Lokasi / Tipe</th>
           <th style="width:150px">Nama Komponen</th>
-          <th style="width:260px">Ringkasan Lot</th>
+          <th style="width:260px" class="text-center">Ringkasan Lot</th>
           <th style="width:50px">UOM</th>
           <th class="text-end" style="width:85px">Qty</th>
           <th class="text-end" style="width:80px">Avg Cost</th>
@@ -302,29 +305,17 @@ $countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand']
               $compType    = strtoupper(trim((string)($row['component_type'] ?? '')));
             ?>
             <tr class="stock-row">
-              <td class="py-1">
-                <?php echo $locBadge((string)($row['location_type'] ?? '')); ?>
-                <br>
-                <span class="text-muted" style="font-size:.68rem"><?php echo html_escape(substr((string)($row['division_name'] ?? '-'), 0, 18)); ?></span>
-                <br>
-                <?php echo $typeBadge($compType); ?>
+              <td class="py-1 text-center">
+                <div class="fw-semibold" style="font-size:.72rem"><?php echo html_escape(substr((string)($row['division_name'] ?? '-'), 0, 16)); ?></div>
+                <div class="mt-1"><?php echo $locGroup((string)($row['location_type'] ?? '')); ?></div>
+                <div class="mt-1"><?php echo $typeBadge($compType); ?></div>
               </td>
               <td class="py-1" style="width:150px">
                 <a href="<?php echo html_escape($buildLotUrl((array)$row, 'ALL')); ?>" class="fw-semibold text-decoration-none text-body small"><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></a>
                 <div class="text-muted" style="font-size:.68rem"><?php echo html_escape((string)($row['component_code'] ?? '')); ?></div>
               </td>
-              <td class="py-1">
-                <div class="csl-card">
-                  <div class="lot-head">
-                    <?php if ($hasChildren): ?>
-                      <button type="button" class="csl-toggle" data-csl-toggle="<?php echo $toggleId; ?>" aria-expanded="false">
-                        <span><?php echo (int)($lotSummary['lot_count'] ?? 0); ?> lot aktif</span>
-                        <i class="ri ri-arrow-down-s-line"></i>
-                      </button>
-                    <?php elseif (!empty($lotSummary['lot_count'])): ?>
-                      <span class="badge bg-label-secondary" style="font-size:.65rem">1 lot aktif</span>
-                    <?php endif; ?>
-                  </div>
+              <td class="py-1 text-center">
+                <div class="csl-card d-inline-block text-start">
                   <div class="csl-body">
                     <div class="csl-grid">
                       <div class="csl-metric">
@@ -346,6 +337,16 @@ $countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand']
                           if (!$uniformCost) echo ' – ' . $fmtQty($maxCost);
                         ?></strong>
                       </div>
+                    </div>
+                    <div class="csl-lot-indicator">
+                      <?php if ($hasChildren): ?>
+                        <button type="button" class="csl-toggle" data-csl-toggle="<?php echo $toggleId; ?>" aria-expanded="false">
+                          <span><?php echo (int)($lotSummary['lot_count'] ?? 0); ?> lot</span>
+                          <i class="ri ri-arrow-down-s-line"></i>
+                        </button>
+                      <?php elseif (!empty($lotSummary['lot_count'])): ?>
+                        <span class="badge bg-label-secondary" style="font-size:.65rem">1 lot</span>
+                      <?php endif; ?>
                     </div>
                   </div>
                 </div>

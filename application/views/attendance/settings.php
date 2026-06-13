@@ -36,9 +36,9 @@ $phMode = strtoupper((string)$val('ph_attendance_mode', 'AUTO_PRESENT'));
 if (!in_array($phMode, ['AUTO_PRESENT', 'MANUAL_CLOCK'], true)) {
     $phMode = 'AUTO_PRESENT';
 }
-$phGrantMode = strtoupper((string)$val('ph_grant_mode', 'HOLIDAY_ONLY'));
+$phGrantMode = strtoupper((string)$val('ph_grant_mode', 'SHIFT_ONLY'));
 if (!in_array($phGrantMode, ['SHIFT_ONLY', 'HOLIDAY_ONLY', 'SHIFT_OR_HOLIDAY'], true)) {
-    $phGrantMode = 'HOLIDAY_ONLY';
+    $phGrantMode = 'SHIFT_ONLY';
 }
 $phGrantHolidayType = strtoupper((string)$val('ph_grant_holiday_type', 'ANY'));
 if (!in_array($phGrantHolidayType, ['ANY', 'NATIONAL', 'COMPANY', 'SPECIAL'], true)) {
@@ -185,23 +185,25 @@ if (!in_array($phGrantHolidayType, ['ANY', 'NATIONAL', 'COMPANY', 'SPECIAL'], tr
         <div class="col-md-4">
           <label class="form-label">Cara Mendapat PH</label>
           <select name="ph_grant_mode" class="form-select">
-            <option value="HOLIDAY_ONLY" <?php echo $phGrantMode === 'HOLIDAY_ONLY' ? 'selected' : ''; ?>>Masuk di Tanggal Libur (Holiday)</option>
-            <option value="SHIFT_ONLY" <?php echo $phGrantMode === 'SHIFT_ONLY' ? 'selected' : ''; ?>>Masuk di Shift PH Saja</option>
-            <option value="SHIFT_OR_HOLIDAY" <?php echo $phGrantMode === 'SHIFT_OR_HOLIDAY' ? 'selected' : ''; ?>>Shift PH atau Holiday</option>
+            <option value="SHIFT_ONLY" <?php echo $phGrantMode === 'SHIFT_ONLY' ? 'selected' : ''; ?>>Masuk di Shift PH Saja (Disarankan)</option>
+            <option value="HOLIDAY_ONLY" <?php echo $phGrantMode === 'HOLIDAY_ONLY' ? 'selected' : ''; ?>>Legacy: dari attendance holiday</option>
+            <option value="SHIFT_OR_HOLIDAY" <?php echo $phGrantMode === 'SHIFT_OR_HOLIDAY' ? 'selected' : ''; ?>>Legacy campuran: shift PH atau holiday</option>
           </select>
+          <div class="form-text">Konsep final operasional: PH didapat karena pegawai masuk di jadwal shift PH. Hari libur biasa tidak otomatis menghasilkan PH bila pegawai memang tidak dijadwalkan kerja.</div>
         </div>
         <div class="col-md-2">
           <label class="form-label">Jatah PH / Hari</label>
           <input type="number" min="0.25" step="0.25" name="ph_grant_qty_per_day" class="form-control" value="<?php echo html_escape((string)$val('ph_grant_qty_per_day', 1)); ?>">
         </div>
         <div class="col-md-3">
-          <label class="form-label">Tipe Holiday untuk Grant</label>
+          <label class="form-label">Tipe Holiday untuk Grant Legacy</label>
           <select name="ph_grant_holiday_type" class="form-select">
             <option value="ANY" <?php echo $phGrantHolidayType === 'ANY' ? 'selected' : ''; ?>>Semua Tipe</option>
             <option value="NATIONAL" <?php echo $phGrantHolidayType === 'NATIONAL' ? 'selected' : ''; ?>>NATIONAL</option>
             <option value="COMPANY" <?php echo $phGrantHolidayType === 'COMPANY' ? 'selected' : ''; ?>>COMPANY</option>
             <option value="SPECIAL" <?php echo $phGrantHolidayType === 'SPECIAL' ? 'selected' : ''; ?>>SPECIAL</option>
           </select>
+          <div class="form-text">Dipakai hanya bila mode grant masih memakai opsi legacy berbasis holiday.</div>
         </div>
         <div class="col-md-2">
           <label class="form-label">Expired PH (bulan)</label>

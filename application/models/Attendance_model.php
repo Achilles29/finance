@@ -122,7 +122,7 @@ class Attendance_model extends CI_Model
                 $row['ph_attendance_mode'] = ((int)($row['ph_requires_clock_in_out'] ?? 0) === 1) ? 'MANUAL_CLOCK' : 'AUTO_PRESENT';
             }
             if (!isset($row['ph_grant_mode']) || $row['ph_grant_mode'] === '') {
-                $row['ph_grant_mode'] = 'HOLIDAY_ONLY';
+                $row['ph_grant_mode'] = 'SHIFT_ONLY';
             }
             if (!isset($row['ph_grant_holiday_type']) || $row['ph_grant_holiday_type'] === '') {
                 $row['ph_grant_holiday_type'] = 'ANY';
@@ -165,7 +165,7 @@ class Attendance_model extends CI_Model
             'pending_request_scope' => 'SELF_ONLY',
             'pending_approval_levels' => 3,
             'ph_attendance_mode' => 'AUTO_PRESENT',
-            'ph_grant_mode' => 'HOLIDAY_ONLY',
+            'ph_grant_mode' => 'SHIFT_ONLY',
             'ph_grant_holiday_type' => 'ANY',
             'ph_grant_requires_checkout' => 1,
             'ph_grant_qty_per_day' => 1,
@@ -1561,9 +1561,9 @@ class Attendance_model extends CI_Model
         }
 
         $policy = $this->get_active_policy();
-        $grantMode = strtoupper((string)($policy['ph_grant_mode'] ?? 'HOLIDAY_ONLY'));
+        $grantMode = strtoupper((string)($policy['ph_grant_mode'] ?? 'SHIFT_ONLY'));
         if (!in_array($grantMode, ['SHIFT_ONLY', 'HOLIDAY_ONLY', 'SHIFT_OR_HOLIDAY'], true)) {
-            $grantMode = 'HOLIDAY_ONLY';
+            $grantMode = 'SHIFT_ONLY';
         }
         $grantHolidayType = strtoupper((string)($policy['ph_grant_holiday_type'] ?? 'ANY'));
         if (!in_array($grantHolidayType, ['ANY', 'NATIONAL', 'COMPANY', 'SPECIAL'], true)) {
@@ -1711,9 +1711,9 @@ class Attendance_model extends CI_Model
         }
 
         $policy = $this->get_active_policy();
-        $grantMode = strtoupper((string)($policy['ph_grant_mode'] ?? 'HOLIDAY_ONLY'));
+        $grantMode = strtoupper((string)($policy['ph_grant_mode'] ?? 'SHIFT_ONLY'));
         if (!in_array($grantMode, ['SHIFT_ONLY', 'HOLIDAY_ONLY', 'SHIFT_OR_HOLIDAY'], true)) {
-            $grantMode = 'HOLIDAY_ONLY';
+            $grantMode = 'SHIFT_ONLY';
         }
         $grantHolidayType = strtoupper((string)($policy['ph_grant_holiday_type'] ?? 'ANY'));
         if (!in_array($grantHolidayType, ['ANY', 'NATIONAL', 'COMPANY', 'SPECIAL'], true)) {
@@ -2905,12 +2905,14 @@ class Attendance_model extends CI_Model
         $checkinAt = (string)($daily['checkin_at'] ?? '');
         $checkoutAt = (string)($daily['checkout_at'] ?? '');
         $status = (string)($daily['attendance_status'] ?? 'OFF');
-
         if ($requestType === 'MISSING_CHECKIN' && !empty($req['requested_checkin_at'])) {
             $checkinAt = (string)$req['requested_checkin_at'];
         } elseif ($requestType === 'MISSING_CHECKOUT' && !empty($req['requested_checkout_at'])) {
             $checkoutAt = (string)$req['requested_checkout_at'];
         } elseif ($requestType === 'STATUS_CORRECTION' && !empty($req['requested_status'])) {
+            if (strtoupper((string)$req['requested_status']) === 'HOLIDAY') {
+                return ['ok' => false, 'message' => 'Status HOLIDAY tidak boleh diajukan manual. Gunakan jadwal shift PH untuk mekanisme PH pegawai.'];
+            }
             $status = (string)$req['requested_status'];
         } elseif (in_array($requestType, ['LEAVE', 'SICK'], true)) {
             $status = $requestType === 'LEAVE' ? 'LEAVE' : 'SICK';
@@ -3152,7 +3154,10 @@ class Attendance_model extends CI_Model
             (int)($dailyRow['shift_id'] ?? 0)
         );
         $isPresentish = in_array($status, ['PRESENT', 'LATE', 'HOLIDAY'], true);
+        $isHolidayPaidDay = ($status === 'HOLIDAY');
+        $isPayrollPaidDay = ($hasCompletedCheckout || $isHolidayPaidDay);
         $isCheckedIn = $checkinTs > 0;
+        $phGetsMealAllowance = (int)($policy['ph_gets_meal_allowance'] ?? 0) === 1;
         $allowanceEligible = $isPresentish;
         if ($allowanceEligible && $allowanceLateTreatment === 'DEDUCT_IF_LATE' && $status === 'LATE') {
             $allowanceEligible = false;
@@ -3167,23 +3172,32 @@ class Attendance_model extends CI_Model
         $grossAmount = 0.0;
         $netAmount = 0.0;
 
-        $mealAmount = ($mealMode === 'CUSTOM' && $isPresentish && $isCheckedIn) ? $mealRate : 0;
+        $mealAmount = 0.0;
+        if ($mealMode === 'CUSTOM') {
+            if ($isPresentish && $isCheckedIn) {
+                $mealAmount = $mealRate;
+            } elseif ($isHolidayPaidDay && $phGetsMealAllowance) {
+                $mealAmount = $mealRate;
+            }
+        }
 
-        if ($hasCompletedCheckout) {
+        if ($isPayrollPaidDay) {
             $basicAmount = $isPresentish ? $basicDailyRate : 0;
             $allowanceAmount = $allowanceEligible ? $allowanceDailyRate : 0;
-            if ($overtimeMode === 'MANUAL') {
+            if ($hasCompletedCheckout && $overtimeMode === 'MANUAL') {
                 $overtimePay = max(0, $manualOvertimePay);
-            } else {
+            } elseif ($hasCompletedCheckout) {
                 $overtimeMinutes = max(0, (int)($dailyRow['overtime_minutes'] ?? 0));
                 $overtimePay = ($overtimeMinutes > 0 && $overtimeRate > 0)
                     ? (($overtimeMinutes / 60) * $overtimeRate)
                     : 0;
+            } else {
+                $overtimePay = 0.0;
             }
-            $lateDeduction = $enableLateDeduction ? ($lateMinutes * $lateDeductionPerMinute) : 0;
-            $alphaDeduction = ($enableAlphaDeduction && $status === 'ALPHA') ? $alphaDeductionPerDay : 0;
+            $lateDeduction = ($hasCompletedCheckout && $enableLateDeduction) ? ($lateMinutes * $lateDeductionPerMinute) : 0;
+            $alphaDeduction = ($hasCompletedCheckout && $enableAlphaDeduction && $status === 'ALPHA') ? $alphaDeductionPerDay : 0;
 
-            if (!$hasConfiguredDeduction && $scheduledWorkMinutes > 0) {
+            if ($hasCompletedCheckout && !$hasConfiguredDeduction && $scheduledWorkMinutes > 0) {
                 $ratio = max(0, min(1, $workMinutes / $scheduledWorkMinutes));
                 $deductionFromProrate = 0.0;
                 if ($attendanceMode === 'DAILY') {

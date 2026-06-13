@@ -165,17 +165,15 @@ adjustmen jenis dan reason seragam dan sesuai database.
 
 
 5. /production/component-monthly
-    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
     --  halamannya sudah  scrollabel atas bawah tapi belum di freeze di judul tabelnya. perbaiki agar freeze ketika di scroll ke bawah
     -- tambahkan filter baris, default 25
-    -- modul generate stok opname dan stok awal taruh di samping tab filter jenis component. beri warna mencolok.
-    -- hapus button Lot FIFO di pojok kanan atas
-    -- ringkas tampilan tabel agar tinggi baris tidak terlalu tinggi. kejutkan saya (Divisi , lokasi dan TIPE bisa dijadikan 1 kolom agar tidak terllau banyak kolom)
+    -- hapus button generate stok opname dan Lot FIFO di pojok kanan atas
+    -- Divisi , lokasi dan TIPE bisa dijadikan 1 kolom seperti pada /production/component-stock
     -- Cost lot aktif masih seragam. bisa digeser agar tidak mempertinggi baris
     -- sesuaikan lebar tabel agar tidak perlu di scroll kanan kiri. karena banyak kolom yang ukurannya terlalu lebar sehingga tidak efisien
 
 6. /production/component-adjustments
-    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+
    -- ubah skema tampilan jadi: form adjustmen muncul sebagai modal saat di klik tambah adjustmen. jadi tampilan utama hanya tabel daftar adjustmen (tab Per Nota dan Per Rincian)
    -- sesuai card card ringkasan yang diperlukan, seperti hasil adjustmen divisi, nilainya, jumlahnya dll yang penting sebagai bahan analisa. kejutkan saya!
    -- tambahkan filter divisi dan lokasi.
@@ -183,6 +181,25 @@ adjustmen jenis dan reason seragam dan sesuai database.
    -- tambahkan filter baris dan pagination. defaultnya 25
    -- tambahkan range filter hari. defautlnya bulan ini
    -- buat kolomnya jadi scrollabel atas bawah dan freeze di judul kolom 
+
+
+seusaikan:
+- rapikan lagi tampilan card ringkasan
+- card ringkasan hanya untuk yang posted ya, yang draft dan void jangan tampilkan
+
+Per Nota:
+- Tanggal dan Lokasi masih menyebrang
+- catatan terlalu lebar. perkecil!
+- tambahkan button detail di aksi
+- pagination belum muncul (hanya 1 halaman)
+
+Per Rincian
+- pagination belum muncul (hanya 1 halaman)
+- Tanggal dan Lokasi masih menyebrang
+- jangan tampilkan kolom Spoil 	Waste 	Plus 	Hrg Plus 	Nilai 	Minus , cukup nilai yang di adj, lalu sampingnya kolom jenis nya (Spoil 	Waste 	Plus 	Hrg Plus 	Nilai 	Minus) dan alasannya. agar lebih efisien
+
+apakah adj mengintervensi LOT? karena saya cek kolom LOT kosong semua
+
 
 7. /production/component-openings
 
