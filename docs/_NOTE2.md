@@ -173,4 +173,25 @@ kejutkan saya!
 
 
 =======================
-tambahkan aksi edit, hapus, void untuk target yang sudah dibuat. jadikan icon saja. ukuran jangan terlalu kecil.
+- /finance-reports/daily-overview, icon aksi tidak terlihat. freeze judul tabel dan buat scrollable. kurangi ukuran font dalam tabel agar terlihat semua
+
+- /finance-reports/financial-estimation tambahkan total dibawah tabel. freeze judul tabel dan buat scrollable. 
+
+- /finance-reports/rekap-rekening-harian freeze judul tabel dan buat scrollable. apakah sudah menghitung kasbon dan DP juga? kasbon aktif berarti dihitung sebagai tambahan saldo bersih, sementara DP aktif sebagai pengurang saldo bersih. betul bukan? CMIIW
+
+================
+
+kita pindah ke /role dan /roles/matrix-groups
+- cek semua menu dan group. sesuaikan penataan rumpun dan urutan matrix-groups sesuai dengan posisi sidebar sekarang agar user lebih mudah menemukan modul mana untuk menu mana.
+- modul tidak aktif atau yang tidak terpakai di sidebar atau di halaman, hapus saja biar tidak membingungkan. selama modul itu memang tidak digunakan. kecuali ada modul crud yang memang bukan menu halaman tapi bagian dari izin crud halaman, yang seperti itu perjelas lagi biar saya tau
+- jika ada 1 modul / menu tambil lebih dari 1 kali di sidebar, sebutkan nanti saya tentukan mana yang dipakai
+- cek jika masih ada halaman atau menu di sidebar yang belum ada di database baik halaman ataupun modul
+- pastikan semua matrix-group izinnya berjalan sesuai dengan halaman masing masing dan sesuai user grup. karena ada kasus user A (misal MANAGEMEN) saya beri aksis untuk modul B full akses, tapi ternyata buka halaman saja tidak bisa, tidak punya akses.
+
+
+saya belum run sql.
+saya baru saja menata ulang sidebar. cek apakah masih relevan dengan sql yang baru kamu buat. kalau tidak sesuaikan ulang sql mu.
+
+
+Duplikasi menu/page yang masih tersisa , berikan link nya yang jelas!
+semua halaman yang rancu, yang masalah, yang tidak ada di sidebar, itu sebutkan linknya! jadi saya bisa cek!

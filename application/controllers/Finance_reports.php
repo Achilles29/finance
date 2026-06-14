@@ -118,22 +118,23 @@ class Finance_reports extends MY_Controller
     {
         $this->require_permission('finance.financial_estimation.index', 'view');
 
-        $dateStart = trim((string)$this->input->get('date_start', true));
-        $dateEnd = trim((string)$this->input->get('date_end', true));
-        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateStart)) {
-            $dateStart = date('Y-m-01');
+        $month = trim((string)$this->input->get('month', true));
+        $year = (int)$this->input->get('year', true);
+        if (!preg_match('/^\d{1,2}$/', $month)) {
+            $month = date('n');
         }
-        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateEnd)) {
-            $dateEnd = date('Y-m-t');
+        $monthInt = max(1, min(12, (int)$month));
+        if ($year <= 0) {
+            $year = (int)date('Y');
         }
 
-        $report = $this->Finance_report_model->financial_estimation_report($dateStart, $dateEnd);
+        $report = $this->Finance_report_model->financial_estimation_report($year, $monthInt);
 
         $this->render('finance/financial_estimation', [
             'page_title' => 'Estimasi Keuangan',
             'active_menu' => 'finance.financial_estimation',
-            'date_start' => $dateStart,
-            'date_end' => $dateEnd,
+            'month' => $monthInt,
+            'year' => $year,
             'report' => $report,
         ]);
     }
@@ -147,24 +148,31 @@ class Finance_reports extends MY_Controller
             $month = date('Y-m');
         }
 
-        $accounts = $this->Finance_report_model->active_company_accounts();
-        $selectedAccountId = (int)$this->input->get('account_id', true);
-        $allowedIds = array_map(static function ($row) {
-            return (int)($row['id'] ?? 0);
-        }, (array)$accounts);
-        $allowedIds = array_values(array_filter($allowedIds));
-        if ($selectedAccountId > 0 && !in_array($selectedAccountId, $allowedIds, true)) {
-            $selectedAccountId = 0;
-        }
-
-        $report = $this->Finance_report_model->bank_daily_recap($month, $selectedAccountId);
+        $report = $this->Finance_report_model->bank_daily_recap($month);
 
         $this->render('finance/bank_daily_recap', [
             'page_title' => 'Rekap Rekening Harian',
             'active_menu' => 'finance.bank_daily_recap',
             'month' => $month,
-            'accounts' => $accounts,
-            'selected_account_id' => $selectedAccountId,
+            'report' => $report,
+        ]);
+    }
+
+    public function daily_overview()
+    {
+        $this->require_permission('finance.daily_overview.index', 'view');
+
+        $month = trim((string)$this->input->get('month', true));
+        if (!preg_match('/^\d{4}\-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+
+        $report = $this->Finance_report_model->daily_overview_report($month);
+
+        $this->render('finance/daily_overview', [
+            'page_title' => 'Keuangan Harian',
+            'active_menu' => 'finance.daily_overview',
+            'month' => $month,
             'report' => $report,
         ]);
     }

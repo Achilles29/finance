@@ -3142,9 +3142,25 @@ class Payroll_model extends CI_Model
                 $insertPayload['notes'] = $notes !== '' ? $notes : null;
             }
             $this->db->insert('pay_cash_advance_installment', $insertPayload);
+            $installmentId = (int)$this->db->insert_id();
 
             if ($paymentMethod === 'SALARY_CUT') {
                 $this->register_cash_advance_salary_cut($cashAdvanceId, $header, $pay, $salaryCutDate, $actorUserId);
+            } elseif (in_array($paymentMethod, ['CASH', 'TRANSFER'], true) && $pay > 0) {
+                $credit = $this->credit_account_and_log_mutation(
+                    $targetAccountId,
+                    $pay,
+                    $paymentDateValue,
+                    'pay_cash_advance_installment',
+                    $installmentId,
+                    (string)($header['advance_no'] ?? ('CA#' . $cashAdvanceId)),
+                    'Pembayaran kasbon ' . (string)($header['advance_no'] ?? ('CA#' . $cashAdvanceId)) . ' cicilan #' . $nextNo,
+                    $actorUserId
+                );
+                if (!($credit['ok'] ?? false)) {
+                    $this->db->trans_rollback();
+                    return ['ok' => false, 'message' => (string)($credit['message'] ?? 'Gagal mencatat mutasi pelunasan kasbon.')];
+                }
             }
 
             $this->refresh_cash_advance_outstanding($cashAdvanceId);
@@ -3212,6 +3228,21 @@ class Payroll_model extends CI_Model
         if ($postedAmount > 0) {
             if ($paymentMethod === 'SALARY_CUT') {
                 $this->register_cash_advance_salary_cut($cashAdvanceId, $header, $postedAmount, $salaryCutDate, $actorUserId);
+            } elseif (in_array($paymentMethod, ['CASH', 'TRANSFER'], true)) {
+                $credit = $this->credit_account_and_log_mutation(
+                    $targetAccountId,
+                    $postedAmount,
+                    $paymentDateValue,
+                    'pay_cash_advance_installment',
+                    (int)($row['id'] ?? 0),
+                    (string)($header['advance_no'] ?? ('CA#' . $cashAdvanceId)),
+                    'Pembayaran kasbon ' . (string)($header['advance_no'] ?? ('CA#' . $cashAdvanceId)) . ' cicilan #' . (int)($row['installment_no'] ?? $installmentNo),
+                    $actorUserId
+                );
+                if (!($credit['ok'] ?? false)) {
+                    $this->db->trans_rollback();
+                    return ['ok' => false, 'message' => (string)($credit['message'] ?? 'Gagal mencatat mutasi pelunasan kasbon.')];
+                }
             }
         }
 

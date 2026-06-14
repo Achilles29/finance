@@ -391,142 +391,127 @@ class Finance_report_model extends CI_Model
         ];
     }
 
-    public function financial_estimation_report(string $dateStart, string $dateEnd): array
+    public function financial_estimation_report(int $year, int $month): array
     {
-        [$dateStart, $dateEnd] = $this->normalize_date_range($dateStart, $dateEnd);
+        $year = max(2000, min(2100, $year));
+        $month = max(1, min(12, $month));
+        $dateStart = sprintf('%04d-%02d-01', $year, $month);
+        $dateEnd = date('Y-m-t', strtotime($dateStart));
+        $salaryMap = $this->attendance_salary_daily_map($dateStart, $dateEnd);
+        $dailyMutationMap = [];
 
-        $accounts = $this->active_company_accounts();
-        $snapshotRows = $this->collect_account_snapshot_rows($dateStart, $dateEnd, $accounts);
-        $metricRows = $this->collect_management_metric_rows($dateStart, $dateEnd, $snapshotRows);
+        if ($this->db->table_exists('fin_account_mutation_log')) {
+            $mutationRows = $this->db->select("
+                    mutation_date,
+                    COALESCE(SUM(CASE
+                        WHEN ref_module = 'POS'
+                         AND mutation_type = 'IN'
+                        THEN amount ELSE 0 END), 0) AS sales_total,
+                    COALESCE(SUM(CASE
+                        WHEN ref_module = 'POS'
+                         AND mutation_type = 'OUT'
+                         AND ref_table = 'pos_refund'
+                        THEN amount ELSE 0 END), 0) AS refund_total,
+                    COALESCE(SUM(CASE
+                        WHEN mutation_type = 'OUT'
+                         AND NOT (ref_module = 'POS' AND ref_table = 'pos_refund')
+                         AND COALESCE(ref_module, '') NOT IN ('FINANCE_TRANSFER', 'FINANCE_PAYABLE', 'FINANCE_RECEIVABLE', 'PAYROLL')
+                        THEN amount ELSE 0 END), 0) AS expense_total
+                ", false)
+                ->from('fin_account_mutation_log')
+                ->where('mutation_date >=', $dateStart)
+                ->where('mutation_date <=', $dateEnd)
+                ->group_by('mutation_date')
+                ->order_by('mutation_date', 'ASC')
+                ->get()->result_array();
 
-        $globalMetricMap = [];
-        $globalMetricGroups = [];
-        $divisionRows = [];
-        foreach ($metricRows as $row) {
-            $scopeType = strtoupper(trim((string)($row['scope_type'] ?? '')));
-            $scopeRefId = (int)($row['scope_ref_id'] ?? 0);
-            $metricCode = strtoupper(trim((string)($row['metric_code'] ?? '')));
-            $metricGroup = strtoupper(trim((string)($row['metric_group'] ?? '')));
-            $amount = round((float)($row['metric_amount'] ?? 0), 2);
-
-            if ($scopeType === 'GLOBAL' && $scopeRefId === 0) {
-                $globalMetricMap[$metricCode] = $amount;
-                if (!isset($globalMetricGroups[$metricGroup])) {
-                    $globalMetricGroups[$metricGroup] = [];
+            foreach ($mutationRows as $row) {
+                $key = (string)($row['mutation_date'] ?? '');
+                if ($key === '') {
+                    continue;
                 }
-                $globalMetricGroups[$metricGroup][] = $row;
-                continue;
-            }
-
-            if ($scopeType === 'DIVISION' && $scopeRefId > 0) {
-                $divisionRows[] = $row;
-            }
-        }
-
-        $overview = [
-            'net_revenue' => round(($globalMetricMap['POS_REVENUE'] ?? 0) - ($globalMetricMap['POS_REFUND'] ?? 0), 2),
-            'pos_revenue' => round((float)($globalMetricMap['POS_REVENUE'] ?? 0), 2),
-            'pos_refund' => round((float)($globalMetricMap['POS_REFUND'] ?? 0), 2),
-            'live_hpp' => round((float)($globalMetricMap['LIVE_HPP_VALUE'] ?? 0), 2),
-            'purchase_operational' => round((float)($globalMetricMap['PURCHASE_OPERATIONAL'] ?? 0), 2),
-            'purchase_utility' => round((float)($globalMetricMap['PURCHASE_UTILITY'] ?? 0), 2),
-            'purchase_other' => round((float)($globalMetricMap['PURCHASE_OTHER'] ?? 0), 2),
-            'payroll_estimate_running' => round((float)($globalMetricMap['PAYROLL_ESTIMATE_RUNNING'] ?? 0), 2),
-            'sr_pending_value' => round((float)($globalMetricMap['SR_PENDING_VALUE'] ?? 0), 2),
-            'warehouse_adjustment' => round((float)($globalMetricMap['WAREHOUSE_ADJUSTMENT_VALUE'] ?? 0), 2),
-            'division_adjustment' => round((float)($globalMetricMap['DIVISION_ADJUSTMENT_VALUE'] ?? 0), 2),
-            'component_adjustment' => round((float)($globalMetricMap['COMPONENT_ADJUSTMENT_VALUE'] ?? 0), 2),
-            'estimated_profit_value' => round((float)($globalMetricMap['ESTIMATED_PROFIT_VALUE'] ?? 0), 2),
-            'estimated_profit_percent' => round((float)($globalMetricMap['ESTIMATED_PROFIT_PERCENT'] ?? 0), 2),
-            'physical_balance_value' => round((float)($globalMetricMap['PHYSICAL_BALANCE_VALUE'] ?? 0), 2),
-            'real_balance_value' => round((float)($globalMetricMap['REAL_BALANCE_VALUE'] ?? 0), 2),
-        ];
-        $overview['estimated_cost_total'] = round(
-            $overview['live_hpp']
-            + $overview['purchase_operational']
-            + $overview['purchase_utility']
-            + $overview['purchase_other']
-            + $overview['payroll_estimate_running']
-            + $overview['warehouse_adjustment']
-            + $overview['division_adjustment']
-            + $overview['component_adjustment'],
-            2
-        );
-
-        $waterfallRows = [
-            ['label' => 'Omzet POS', 'amount' => $overview['pos_revenue'], 'tone' => 'positive'],
-            ['label' => 'Refund POS', 'amount' => $overview['pos_refund'], 'tone' => 'negative'],
-            ['label' => 'Omzet Bersih', 'amount' => $overview['net_revenue'], 'tone' => 'neutral'],
-            ['label' => 'HPP Live', 'amount' => $overview['live_hpp'], 'tone' => 'negative'],
-            ['label' => 'Belanja Operasional', 'amount' => $overview['purchase_operational'], 'tone' => 'negative'],
-            ['label' => 'Belanja Utilitas', 'amount' => $overview['purchase_utility'], 'tone' => 'negative'],
-            ['label' => 'Belanja Lainnya', 'amount' => $overview['purchase_other'], 'tone' => 'negative'],
-            ['label' => 'Estimasi Gaji Berjalan', 'amount' => $overview['payroll_estimate_running'], 'tone' => 'negative'],
-            ['label' => 'Adjustment Gudang', 'amount' => $overview['warehouse_adjustment'], 'tone' => 'negative'],
-            ['label' => 'Adjustment Divisi', 'amount' => $overview['division_adjustment'], 'tone' => 'negative'],
-            ['label' => 'Adjustment Component', 'amount' => $overview['component_adjustment'], 'tone' => 'negative'],
-            ['label' => 'Profit Estimasi', 'amount' => $overview['estimated_profit_value'], 'tone' => $overview['estimated_profit_value'] < 0 ? 'negative' : 'positive'],
-        ];
-
-        $divisionMap = [];
-        foreach ($this->division_options() as $division) {
-            $divisionMap[(int)($division['id'] ?? 0)] = (string)($division['name'] ?? ('Divisi #' . (int)($division['id'] ?? 0)));
-        }
-
-        $divisionMetricMap = [];
-        foreach ($divisionRows as $row) {
-            $divisionId = (int)($row['scope_ref_id'] ?? 0);
-            $metricCode = strtoupper(trim((string)($row['metric_code'] ?? '')));
-            if ($divisionId <= 0 || $metricCode === '') {
-                continue;
-            }
-            if (!isset($divisionMetricMap[$divisionId])) {
-                $divisionMetricMap[$divisionId] = [
-                    'division_id' => $divisionId,
-                    'division_name' => $divisionMap[$divisionId] ?? ('Divisi #' . $divisionId),
-                    'SR_PENDING_VALUE' => 0.0,
-                    'PAYROLL_ESTIMATE_RUNNING' => 0.0,
-                    'RAW_MATERIAL_IN_VALUE' => 0.0,
-                    'RAW_MATERIAL_USAGE_VALUE' => 0.0,
-                    'DIVISION_ADJUSTMENT_VALUE' => 0.0,
-                    'DIVISION_ENDING_STOCK_VALUE' => 0.0,
+                $dailyMutationMap[$key] = [
+                    'sales_total' => round((float)($row['sales_total'] ?? 0), 2),
+                    'refund_total' => round((float)($row['refund_total'] ?? 0), 2),
+                    'expense_total' => round((float)($row['expense_total'] ?? 0), 2),
                 ];
             }
-            if (array_key_exists($metricCode, $divisionMetricMap[$divisionId])) {
-                $divisionMetricMap[$divisionId][$metricCode] = round((float)($row['metric_amount'] ?? 0), 2);
-            }
         }
 
-        $divisionScoreboard = array_values($divisionMetricMap);
-        usort($divisionScoreboard, static function (array $a, array $b): int {
-            $scoreA = abs((float)($a['RAW_MATERIAL_USAGE_VALUE'] ?? 0)) + abs((float)($a['DIVISION_ADJUSTMENT_VALUE'] ?? 0));
-            $scoreB = abs((float)($b['RAW_MATERIAL_USAGE_VALUE'] ?? 0)) + abs((float)($b['DIVISION_ADJUSTMENT_VALUE'] ?? 0));
-            if ($scoreA !== $scoreB) {
-                return $scoreB <=> $scoreA;
-            }
-            return strcmp((string)($a['division_name'] ?? ''), (string)($b['division_name'] ?? ''));
-        });
+        $rows = [];
+        $overview = [
+            'total_sales' => 0.0,
+            'total_refund' => 0.0,
+            'total_expense' => 0.0,
+            'total_gross_profit' => 0.0,
+            'total_salary' => 0.0,
+            'total_final_profit' => 0.0,
+            'attendance_days_with_data' => 0,
+            'days_in_month' => (int)date('t', strtotime($dateStart)),
+        ];
 
-        usort($snapshotRows, static function (array $a, array $b): int {
-            $balanceCompare = (float)($b['closing_balance_real'] ?? 0) <=> (float)($a['closing_balance_real'] ?? 0);
-            if ($balanceCompare !== 0) {
-                return $balanceCompare;
+        $cursor = strtotime($dateStart);
+        $endCursor = strtotime($dateEnd);
+        while ($cursor <= $endCursor) {
+            $day = date('Y-m-d', $cursor);
+            $mutation = (array)($dailyMutationMap[$day] ?? []);
+            $salary = (array)($salaryMap[$day] ?? []);
+            $salesTotal = round((float)($mutation['sales_total'] ?? 0), 2);
+            $refundTotal = round((float)($mutation['refund_total'] ?? 0), 2);
+            $expenseTotal = round((float)($mutation['expense_total'] ?? 0), 2);
+            $salaryTotal = round((float)($salary['salary_total'] ?? 0), 2);
+            $attendanceBase = round((float)($salary['attendance_base_total'] ?? max(0, $salaryTotal - (float)($salary['overtime_total'] ?? 0))), 2);
+            $overtimeTotal = round((float)($salary['overtime_total'] ?? 0), 2);
+            $grossProfit = round($salesTotal - $refundTotal - $expenseTotal, 2);
+            $finalProfit = round($grossProfit - $salaryTotal, 2);
+            $hasAttendance = !empty($salary['has_attendance']);
+
+            if ($hasAttendance) {
+                $overview['attendance_days_with_data']++;
             }
-            return strcmp((string)($a['account_name_snapshot'] ?? ''), (string)($b['account_name_snapshot'] ?? ''));
-        });
+
+            $rows[] = [
+                'date' => $day,
+                'sales_total' => $salesTotal,
+                'refund_total' => $refundTotal,
+                'expense_total' => $expenseTotal,
+                'gross_profit' => $grossProfit,
+                'salary_total' => $salaryTotal,
+                'attendance_base_total' => $attendanceBase,
+                'overtime_total' => $overtimeTotal,
+                'final_profit' => $finalProfit,
+                'has_attendance' => $hasAttendance,
+            ];
+
+            $overview['total_sales'] += $salesTotal;
+            $overview['total_refund'] += $refundTotal;
+            $overview['total_expense'] += $expenseTotal;
+            $overview['total_gross_profit'] += $grossProfit;
+            $overview['total_salary'] += $salaryTotal;
+            $overview['total_final_profit'] += $finalProfit;
+            $cursor = strtotime('+1 day', $cursor);
+        }
+
+        foreach ($overview as $key => $value) {
+            if ($key === 'attendance_days_with_data' || $key === 'days_in_month') {
+                $overview[$key] = (int)$value;
+                continue;
+            }
+            $overview[$key] = round((float)$value, 2);
+        }
 
         return [
+            'month' => $month,
+            'year' => $year,
             'date_start' => $dateStart,
             'date_end' => $dateEnd,
+            'month_label' => $this->month_label_id($dateStart),
             'overview' => $overview,
-            'waterfall_rows' => $waterfallRows,
-            'global_metric_groups' => $globalMetricGroups,
-            'division_scoreboard' => $divisionScoreboard,
-            'account_snapshots' => $snapshotRows,
+            'rows' => $rows,
         ];
     }
 
-    public function bank_daily_recap(string $month, int $accountId = 0): array
+    public function bank_daily_recap(string $month): array
     {
         $month = trim($month);
         if (!preg_match('/^\d{4}\-\d{2}$/', $month)) {
@@ -534,95 +519,291 @@ class Finance_report_model extends CI_Model
         }
 
         $accounts = $this->active_company_accounts();
-        $accountMap = [];
-        foreach ($accounts as $account) {
-            $accountMap[(int)($account['id'] ?? 0)] = $account;
-        }
-
-        if ($accountId > 0 && !isset($accountMap[$accountId])) {
-            $accountId = 0;
-        }
-
         $dateStart = $month . '-01';
         $dateEnd = date('Y-m-t', strtotime($dateStart));
-        $dailyRows = [];
-        $endingAccountRows = [];
+        $palette = [
+            ['head' => '#8a1f23', 'cell' => '#fff6f4'],
+            ['head' => '#2553c7', 'cell' => '#f2f7ff'],
+            ['head' => '#17786f', 'cell' => '#effbf9'],
+            ['head' => '#9c5412', 'cell' => '#fff8ef'],
+            ['head' => '#6d2bd6', 'cell' => '#f7f1ff'],
+            ['head' => '#2c5c91', 'cell' => '#f3f8ff'],
+            ['head' => '#7a2f57', 'cell' => '#fff3fa'],
+            ['head' => '#4e5f17', 'cell' => '#f7fbe8'],
+        ];
 
+        $accountColumns = [];
+        foreach (array_values($accounts) as $index => $account) {
+            $palettePick = $palette[$index % count($palette)];
+            $account['head_color'] = $palettePick['head'];
+            $account['cell_color'] = $palettePick['cell'];
+            $accountColumns[] = $account;
+        }
+
+        $rows = [];
+        $endingRows = [];
         $cursor = strtotime($dateStart);
         $endCursor = strtotime($dateEnd);
         while ($cursor <= $endCursor) {
             $day = date('Y-m-d', $cursor);
             $snapshotRows = $this->collect_account_snapshot_rows($day, $day, $accounts);
-            $kafeSummary = $this->snapshot_summary_from_rows($snapshotRows);
-            $focusSummary = $kafeSummary;
-            if ($accountId > 0) {
-                $focusSummary = $this->snapshot_summary_from_rows(array_values(array_filter($snapshotRows, static function (array $row) use ($accountId): bool {
-                    return (int)($row['company_account_id'] ?? 0) === $accountId;
-                })));
+            $depositMap = $this->deposit_outstanding_as_of_map($day, array_values(array_filter(array_map(static function (array $row): int {
+                return (int)($row['id'] ?? 0);
+            }, $accounts))));
+            $snapshotMap = [];
+            foreach ($snapshotRows as $snapshotRow) {
+                $snapshotMap[(int)($snapshotRow['company_account_id'] ?? 0)] = $snapshotRow;
             }
 
-            $dailyRows[] = [
+            $dayPhysical = 0.0;
+            $dayNet = 0.0;
+            $dayPayable = 0.0;
+            $dayReceivable = 0.0;
+            $dayDeposit = 0.0;
+            $cells = [];
+
+            foreach ($accountColumns as $account) {
+                $accountId = (int)($account['id'] ?? 0);
+                $snapshotRow = (array)($snapshotMap[$accountId] ?? []);
+                $physical = round((float)($snapshotRow['closing_balance_physical'] ?? 0), 2);
+                $payable = round((float)($snapshotRow['payable_outstanding'] ?? 0), 2);
+                $receivableOnly = round((float)($snapshotRow['receivable_outstanding'] ?? 0), 2);
+                $cashAdvance = round((float)($snapshotRow['cash_advance_outstanding'] ?? 0), 2);
+                $receivable = round($receivableOnly + $cashAdvance, 2);
+                $deposit = round((float)($depositMap[$accountId]['outstanding_total'] ?? 0), 2);
+                $net = round($physical - $payable - $deposit + $receivable, 2);
+
+                $cells[$accountId] = [
+                    'physical_balance' => $physical,
+                    'net_balance' => $net,
+                    'payable_total' => $payable,
+                    'receivable_only_total' => $receivableOnly,
+                    'cash_advance_total' => $cashAdvance,
+                    'receivable_total' => $receivable,
+                    'deposit_total' => $deposit,
+                ];
+
+                $dayPhysical += $physical;
+                $dayNet += $net;
+                $dayPayable += $payable;
+                $dayReceivable += $receivable;
+                $dayDeposit += $deposit;
+            }
+
+            $rows[] = [
                 'date' => $day,
-                'rekening_mutation_in' => round((float)($focusSummary['mutation_in_total'] ?? 0), 2),
-                'rekening_mutation_out' => round((float)($focusSummary['mutation_out_total'] ?? 0), 2),
-                'rekening_physical_balance' => round((float)($focusSummary['physical_total'] ?? 0), 2),
-                'rekening_real_balance' => round((float)($focusSummary['real_total'] ?? 0), 2),
-                'kafe_mutation_in' => round((float)($kafeSummary['mutation_in_total'] ?? 0), 2),
-                'kafe_mutation_out' => round((float)($kafeSummary['mutation_out_total'] ?? 0), 2),
-                'kafe_physical_balance' => round((float)($kafeSummary['physical_total'] ?? 0), 2),
-                'kafe_real_balance' => round((float)($kafeSummary['real_total'] ?? 0), 2),
-                'kafe_gap' => round((float)($kafeSummary['real_total'] ?? 0) - (float)($kafeSummary['physical_total'] ?? 0), 2),
-                'payable_total' => round((float)($kafeSummary['payable_total'] ?? 0), 2),
-                'receivable_total' => round((float)($kafeSummary['receivable_total'] ?? 0), 2),
-                'cash_advance_total' => round((float)($kafeSummary['cash_advance_total'] ?? 0), 2),
-                'payroll_pending_total' => round((float)($kafeSummary['payroll_pending_total'] ?? 0), 2),
+                'day_label' => date('d M', $cursor),
+                'weekday_label' => $this->weekday_label_id($day),
+                'physical_total' => round($dayPhysical, 2),
+                'net_total' => round($dayNet, 2),
+                'payable_total' => round($dayPayable, 2),
+                'receivable_total' => round($dayReceivable, 2),
+                'deposit_total' => round($dayDeposit, 2),
+                'cells' => $cells,
             ];
 
             if ($day === $dateEnd) {
-                $endingAccountRows = $snapshotRows;
+                $endingRows = $snapshotRows;
             }
             $cursor = strtotime('+1 day', $cursor);
         }
 
-        if (empty($endingAccountRows)) {
-            $endingAccountRows = $this->collect_account_snapshot_rows($dateEnd, $dateEnd, $accounts);
+        if (empty($endingRows)) {
+            $endingRows = $this->collect_account_snapshot_rows($dateEnd, $dateEnd, $accounts);
         }
 
-        usort($endingAccountRows, static function (array $a, array $b): int {
-            $realCompare = (float)($b['closing_balance_real'] ?? 0) <=> (float)($a['closing_balance_real'] ?? 0);
-            if ($realCompare !== 0) {
-                return $realCompare;
-            }
-            return strcmp((string)($a['account_name_snapshot'] ?? ''), (string)($b['account_name_snapshot'] ?? ''));
-        });
-
-        $endingKafeSummary = $this->snapshot_summary_from_rows($endingAccountRows);
-        $endingFocusSummary = $endingKafeSummary;
-        if ($accountId > 0) {
-            $endingFocusSummary = $this->snapshot_summary_from_rows(array_values(array_filter($endingAccountRows, static function (array $row) use ($accountId): bool {
-                return (int)($row['company_account_id'] ?? 0) === $accountId;
-            })));
+        $endingNet = 0.0;
+        $endingPhysical = 0.0;
+        $endingPayable = 0.0;
+        $endingReceivable = 0.0;
+        $endingDeposit = 0.0;
+        $endingDepositMap = $this->deposit_outstanding_as_of_map($dateEnd, array_values(array_filter(array_map(static function (array $row): int {
+            return (int)($row['id'] ?? 0);
+        }, $accounts))));
+        foreach ($endingRows as $row) {
+            $accountId = (int)($row['company_account_id'] ?? 0);
+            $physical = round((float)($row['closing_balance_physical'] ?? 0), 2);
+            $payable = round((float)($row['payable_outstanding'] ?? 0), 2);
+            $receivableOnly = round((float)($row['receivable_outstanding'] ?? 0), 2);
+            $cashAdvance = round((float)($row['cash_advance_outstanding'] ?? 0), 2);
+            $receivable = round($receivableOnly + $cashAdvance, 2);
+            $deposit = round((float)($endingDepositMap[$accountId]['outstanding_total'] ?? 0), 2);
+            $endingPhysical += $physical;
+            $endingPayable += $payable;
+            $endingReceivable += $receivable;
+            $endingDeposit += $deposit;
+            $endingNet += $physical - $payable - $deposit + $receivable;
         }
 
         return [
             'month' => $month,
             'date_start' => $dateStart,
             'date_end' => $dateEnd,
-            'selected_account_id' => $accountId,
-            'selected_account' => $accountId > 0 ? ($accountMap[$accountId] ?? null) : null,
+            'month_label' => $this->month_label_id($dateStart),
+            'accounts' => $accountColumns,
             'overview' => [
-                'rekening_physical_balance' => round((float)($endingFocusSummary['physical_total'] ?? 0), 2),
-                'rekening_real_balance' => round((float)($endingFocusSummary['real_total'] ?? 0), 2),
-                'kafe_physical_balance' => round((float)($endingKafeSummary['physical_total'] ?? 0), 2),
-                'kafe_real_balance' => round((float)($endingKafeSummary['real_total'] ?? 0), 2),
-                'kafe_gap' => round((float)($endingKafeSummary['real_total'] ?? 0) - (float)($endingKafeSummary['physical_total'] ?? 0), 2),
-                'payable_total' => round((float)($endingKafeSummary['payable_total'] ?? 0), 2),
-                'receivable_total' => round((float)($endingKafeSummary['receivable_total'] ?? 0), 2),
-                'cash_advance_total' => round((float)($endingKafeSummary['cash_advance_total'] ?? 0), 2),
-                'payroll_pending_total' => round((float)($endingKafeSummary['payroll_pending_total'] ?? 0), 2),
+                'total_net_balance' => round($endingNet, 2),
+                'total_physical_balance' => round($endingPhysical, 2),
+                'total_payable' => round($endingPayable, 2),
+                'total_receivable' => round($endingReceivable, 2),
+                'total_deposit' => round($endingDeposit, 2),
+                'active_account_count' => count($accountColumns),
             ],
-            'daily_rows' => $dailyRows,
-            'account_rows' => $endingAccountRows,
+            'rows' => $rows,
+        ];
+    }
+
+    public function daily_overview_report(string $month): array
+    {
+        $month = trim($month);
+        if (!preg_match('/^\d{4}\-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+
+        $accounts = $this->active_company_accounts();
+        $accountIds = array_values(array_filter(array_map(static function (array $row): int {
+            return (int)($row['id'] ?? 0);
+        }, $accounts)));
+        $dateStart = $month . '-01';
+        $dateEnd = date('Y-m-t', strtotime($dateStart));
+        $txnCountMap = $this->daily_account_transaction_count_map($dateStart, $dateEnd, $accountIds);
+        $rows = [];
+        $monthOpening = 0.0;
+        $monthClosing = 0.0;
+        $totalIn = 0.0;
+        $totalOut = 0.0;
+        $totalRevenue = 0.0;
+        $totalRefund = 0.0;
+        $totalPurchase = 0.0;
+        $transactionCount = 0;
+        $activeDays = 0;
+        $peakInflowRow = null;
+        $endingAccountDetail = [];
+
+        $cursor = strtotime($dateStart);
+        $endCursor = strtotime($dateEnd);
+        while ($cursor <= $endCursor) {
+            $day = date('Y-m-d', $cursor);
+            $snapshotRows = $this->collect_account_snapshot_rows($day, $day, $accounts);
+            $detailRows = [];
+            $dayOpening = 0.0;
+            $dayClosing = 0.0;
+            $dayRevenue = 0.0;
+            $dayRefund = 0.0;
+            $dayIn = 0.0;
+            $dayOut = 0.0;
+            $dayPurchase = 0.0;
+            $dayTxnCount = 0;
+
+            foreach ($snapshotRows as $snapshotRow) {
+                $accountId = (int)($snapshotRow['company_account_id'] ?? 0);
+                $txnCount = (int)($txnCountMap[$day][$accountId] ?? 0);
+                $opening = round((float)($snapshotRow['opening_balance_physical'] ?? 0), 2);
+                $closing = round((float)($snapshotRow['closing_balance_physical'] ?? 0), 2);
+                $revenue = round((float)($snapshotRow['pos_in_total'] ?? 0), 2);
+                $refund = round((float)($snapshotRow['pos_refund_out_total'] ?? 0), 2);
+                $inTotal = round((float)($snapshotRow['mutation_in_total'] ?? 0), 2);
+                $outTotal = round((float)($snapshotRow['mutation_out_total'] ?? 0), 2);
+                $purchase = round((float)($snapshotRow['purchase_out_total'] ?? 0), 2);
+                $net = round($inTotal - $outTotal, 2);
+
+                $detailRows[] = [
+                    'account_id' => $accountId,
+                    'account_name' => (string)($snapshotRow['account_name_snapshot'] ?? '-'),
+                    'bank_name' => (string)($snapshotRow['bank_name_snapshot'] ?? '-'),
+                    'account_code' => (string)($snapshotRow['account_code_snapshot'] ?? '-'),
+                    'opening_balance' => $opening,
+                    'revenue' => $revenue,
+                    'in_total' => $inTotal,
+                    'out_total' => $outTotal,
+                    'refund' => $refund,
+                    'purchase' => $purchase,
+                    'net_total' => $net,
+                    'closing_balance' => $closing,
+                    'txn_count' => $txnCount,
+                ];
+
+                $dayOpening += $opening;
+                $dayClosing += $closing;
+                $dayRevenue += $revenue;
+                $dayRefund += $refund;
+                $dayIn += $inTotal;
+                $dayOut += $outTotal;
+                $dayPurchase += $purchase;
+                $dayTxnCount += $txnCount;
+            }
+
+            usort($detailRows, static function (array $a, array $b): int {
+                $amountCompare = (float)($b['closing_balance'] ?? 0) <=> (float)($a['closing_balance'] ?? 0);
+                if ($amountCompare !== 0) {
+                    return $amountCompare;
+                }
+                return strcmp((string)($a['account_name'] ?? ''), (string)($b['account_name'] ?? ''));
+            });
+
+            $netTotal = round($dayIn - $dayOut, 2);
+            if (abs($dayIn) > 0.0001 || abs($dayOut) > 0.0001 || $dayTxnCount > 0) {
+                $activeDays++;
+            }
+
+            $row = [
+                'date' => $day,
+                'opening_balance' => round($dayOpening, 2),
+                'revenue' => round($dayRevenue, 2),
+                'in_total' => round($dayIn, 2),
+                'out_total' => round($dayOut, 2),
+                'refund' => round($dayRefund, 2),
+                'purchase' => round($dayPurchase, 2),
+                'net_total' => $netTotal,
+                'closing_balance' => round($dayClosing, 2),
+                'txn_count' => $dayTxnCount,
+                'detail_rows' => $detailRows,
+            ];
+
+            if ($peakInflowRow === null || (float)$row['in_total'] > (float)($peakInflowRow['in_total'] ?? 0)) {
+                $peakInflowRow = $row;
+            }
+
+            if ($day === $dateStart) {
+                $monthOpening = round($dayOpening, 2);
+            }
+            if ($day === $dateEnd) {
+                $monthClosing = round($dayClosing, 2);
+                $endingAccountDetail = $detailRows;
+            }
+
+            $rows[] = $row;
+            $totalIn += $dayIn;
+            $totalOut += $dayOut;
+            $totalRevenue += $dayRevenue;
+            $totalRefund += $dayRefund;
+            $totalPurchase += $dayPurchase;
+            $transactionCount += $dayTxnCount;
+            $cursor = strtotime('+1 day', $cursor);
+        }
+
+        $topAccount = $endingAccountDetail[0] ?? null;
+
+        return [
+            'month' => $month,
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+            'month_label' => $this->month_label_id($dateStart),
+            'overview' => [
+                'opening_balance' => round($monthOpening, 2),
+                'total_in' => round($totalIn, 2),
+                'total_out' => round($totalOut, 2),
+                'net_total' => round($totalIn - $totalOut, 2),
+                'closing_balance' => round($monthClosing, 2),
+                'active_days' => $activeDays,
+                'transaction_count' => $transactionCount,
+                'active_account_count' => count($accounts),
+                'peak_inflow_date' => (string)($peakInflowRow['date'] ?? ''),
+                'peak_inflow_amount' => round((float)($peakInflowRow['in_total'] ?? 0), 2),
+                'top_account_name' => (string)($topAccount['account_name'] ?? '-'),
+                'top_account_amount' => round((float)($topAccount['closing_balance'] ?? 0), 2),
+            ],
+            'rows' => $rows,
         ];
     }
 
@@ -690,6 +871,49 @@ class Finance_report_model extends CI_Model
         foreach ($rows as $row) {
             $result[(int)($row['company_account_id'] ?? 0)] = $row;
         }
+        return $result;
+    }
+
+    private function deposit_outstanding_as_of_map(string $dateEnd, array $accountIds = []): array
+    {
+        if (
+            !$this->db->table_exists('pos_payment')
+            || !$this->db->table_exists('pos_payment_line')
+            || !$this->table_has_field('pos_payment_line', 'company_account_id')
+        ) {
+            return [];
+        }
+
+        $dateCutoff = $dateEnd . ' 23:59:59';
+        $remainingExpr = 'GREATEST(COALESCE(p.net_amount,0) - COALESCE(p.deposit_applied_amount,0), 0)';
+        $db = $this->db->select("
+                pl.company_account_id,
+                COUNT(DISTINCT p.id) AS doc_count,
+                COALESCE(SUM({$remainingExpr}), 0) AS outstanding_total
+            ", false)
+            ->from('pos_payment p')
+            ->join('pos_payment_line pl', 'pl.payment_id = p.id', 'inner')
+            ->where('p.payment_type', 'DEPOSIT')
+            ->where('p.payment_status', 'PAID')
+            ->where($remainingExpr . ' >', 0, false)
+            ->where('COALESCE(p.paid_at, p.created_at) <= ' . $this->db->escape($dateCutoff), null, false)
+            ->where('pl.company_account_id IS NOT NULL', null, false);
+
+        if (!empty($accountIds)) {
+            $db->where_in('pl.company_account_id', $accountIds);
+        }
+
+        $rows = $db->group_by('pl.company_account_id')
+            ->get()->result_array();
+
+        $result = [];
+        foreach ($rows as $row) {
+            $result[(int)($row['company_account_id'] ?? 0)] = [
+                'doc_count' => (int)($row['doc_count'] ?? 0),
+                'outstanding_total' => round((float)($row['outstanding_total'] ?? 0), 2),
+            ];
+        }
+
         return $result;
     }
 
@@ -992,6 +1216,136 @@ class Finance_report_model extends CI_Model
             [$dateStart, $dateEnd] = [$dateEnd, $dateStart];
         }
         return [$dateStart, $dateEnd];
+    }
+
+    private function month_label_id(string $date): string
+    {
+        $monthNames = [
+            1 => 'Januari',
+            2 => 'Februari',
+            3 => 'Maret',
+            4 => 'April',
+            5 => 'Mei',
+            6 => 'Juni',
+            7 => 'Juli',
+            8 => 'Agustus',
+            9 => 'September',
+            10 => 'Oktober',
+            11 => 'November',
+            12 => 'Desember',
+        ];
+
+        $timestamp = strtotime($date);
+        $month = (int)date('n', $timestamp);
+        $year = (int)date('Y', $timestamp);
+        return ($monthNames[$month] ?? date('F', $timestamp)) . ' ' . $year;
+    }
+
+    private function weekday_label_id(string $date): string
+    {
+        $map = [
+            'Sun' => 'MIN',
+            'Mon' => 'SEN',
+            'Tue' => 'SEL',
+            'Wed' => 'RAB',
+            'Thu' => 'KAM',
+            'Fri' => 'JUM',
+            'Sat' => 'SAB',
+        ];
+
+        $key = date('D', strtotime($date));
+        return $map[$key] ?? strtoupper($key);
+    }
+
+    private function attendance_salary_daily_map(string $dateStart, string $dateEnd): array
+    {
+        if (
+            !$this->db->table_exists('att_daily')
+            || !$this->table_has_field('att_daily', 'attendance_date')
+            || !$this->table_has_field('att_daily', 'daily_salary_amount')
+        ) {
+            return [];
+        }
+
+        $hasCheckout = $this->table_has_field('att_daily', 'checkout_at');
+        $hasStatus = $this->table_has_field('att_daily', 'attendance_status');
+        $hasOvertime = $this->table_has_field('att_daily', 'overtime_pay');
+
+        $eligibleParts = [];
+        if ($hasCheckout) {
+            $eligibleParts[] = "(ad.checkout_at IS NOT NULL AND ad.checkout_at <> '')";
+        }
+        if ($hasStatus) {
+            $eligibleParts[] = "UPPER(COALESCE(ad.attendance_status, '')) = 'HOLIDAY'";
+        }
+        $eligibleExpr = empty($eligibleParts) ? '1=1' : '(' . implode(' OR ', $eligibleParts) . ')';
+        $overtimeExpr = $hasOvertime ? 'COALESCE(ad.overtime_pay, 0)' : '0';
+
+        $rows = $this->db->select("
+                ad.attendance_date,
+                COALESCE(SUM(CASE WHEN {$eligibleExpr} THEN COALESCE(ad.daily_salary_amount, 0) ELSE 0 END), 0) AS salary_total,
+                COALESCE(SUM(CASE WHEN {$eligibleExpr} THEN {$overtimeExpr} ELSE 0 END), 0) AS overtime_total,
+                COALESCE(SUM(CASE WHEN {$eligibleExpr} THEN COALESCE(ad.daily_salary_amount, 0) - {$overtimeExpr} ELSE 0 END), 0) AS attendance_base_total,
+                COUNT(CASE WHEN {$eligibleExpr} THEN 1 END) AS attendance_rows
+            ", false)
+            ->from('att_daily ad')
+            ->where('ad.attendance_date >=', $dateStart)
+            ->where('ad.attendance_date <=', $dateEnd)
+            ->group_by('ad.attendance_date')
+            ->order_by('ad.attendance_date', 'ASC')
+            ->get()->result_array();
+
+        $result = [];
+        foreach ($rows as $row) {
+            $dateKey = (string)($row['attendance_date'] ?? '');
+            if ($dateKey === '') {
+                continue;
+            }
+            $result[$dateKey] = [
+                'salary_total' => round((float)($row['salary_total'] ?? 0), 2),
+                'overtime_total' => round((float)($row['overtime_total'] ?? 0), 2),
+                'attendance_base_total' => round((float)($row['attendance_base_total'] ?? 0), 2),
+                'attendance_rows' => (int)($row['attendance_rows'] ?? 0),
+                'has_attendance' => (int)($row['attendance_rows'] ?? 0) > 0,
+            ];
+        }
+
+        return $result;
+    }
+
+    private function daily_account_transaction_count_map(string $dateStart, string $dateEnd, array $accountIds = []): array
+    {
+        if (!$this->db->table_exists('fin_account_mutation_log')) {
+            return [];
+        }
+
+        $db = $this->db->select('mutation_date, account_id, COUNT(*) AS txn_count', false)
+            ->from('fin_account_mutation_log')
+            ->where('mutation_date >=', $dateStart)
+            ->where('mutation_date <=', $dateEnd);
+
+        if (!empty($accountIds)) {
+            $db->where_in('account_id', $accountIds);
+        }
+
+        $rows = $db->group_by(['mutation_date', 'account_id'])
+            ->order_by('mutation_date', 'ASC')
+            ->get()->result_array();
+
+        $result = [];
+        foreach ($rows as $row) {
+            $dateKey = (string)($row['mutation_date'] ?? '');
+            $accountId = (int)($row['account_id'] ?? 0);
+            if ($dateKey === '' || $accountId <= 0) {
+                continue;
+            }
+            if (!isset($result[$dateKey])) {
+                $result[$dateKey] = [];
+            }
+            $result[$dateKey][$accountId] = (int)($row['txn_count'] ?? 0);
+        }
+
+        return $result;
     }
 
     private function snapshot_summary_from_rows(array $rows): array
@@ -2798,7 +3152,7 @@ class Finance_report_model extends CI_Model
             ->from('pay_cash_advance ca')
             ->join('(' . $paymentSql . ') py', 'py.cash_advance_id = ca.id', 'left', false)
             ->where('ca.company_account_id IS NOT NULL', null, false)
-            ->where("{$effectiveDateExpr} <=", $dateEnd, false)
+            ->where($effectiveDateExpr . ' <=', $dateEnd)
             ->where_in('ca.status', ['APPROVED', 'SETTLED']);
 
         if (!empty($accountIds)) {

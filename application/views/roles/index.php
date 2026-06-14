@@ -11,8 +11,14 @@ $activePageCount = (int)($registryAudit['active_page_count'] ?? 0);
 $activeMenuCount = (int)($registryAudit['active_menu_count'] ?? 0);
 $menusWithoutPageCount = (int)($registryAudit['active_menus_without_page_count'] ?? 0);
 $pagesWithoutMenuCount = (int)($registryAudit['active_pages_without_menu_count'] ?? 0);
+$sharedPageRegistryCount = (int)($registryAudit['shared_page_registry_count'] ?? 0);
+$controllerMissingPageCount = (int)($registryAudit['controller_missing_page_count'] ?? 0);
+$pagesWithoutPermissionCount = (int)($registryAudit['pages_without_permission_count'] ?? 0);
 $menusWithoutPage = is_array($registryAudit['menus_without_page'] ?? null) ? $registryAudit['menus_without_page'] : [];
 $pagesWithoutMenu = is_array($registryAudit['pages_without_menu'] ?? null) ? $registryAudit['pages_without_menu'] : [];
+$sharedPageRegistryRows = is_array($registryAudit['shared_page_registry_rows'] ?? null) ? $registryAudit['shared_page_registry_rows'] : [];
+$controllerMissingPages = is_array($registryAudit['controller_missing_pages'] ?? null) ? $registryAudit['controller_missing_pages'] : [];
+$pagesWithoutPermissions = is_array($registryAudit['pages_without_permissions'] ?? null) ? $registryAudit['pages_without_permissions'] : [];
 ?>
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <div>
@@ -70,7 +76,37 @@ $pagesWithoutMenu = is_array($registryAudit['pages_without_menu'] ?? null) ? $re
   </div>
 </div>
 
-<?php if ($menusWithoutPageCount > 0 || $pagesWithoutMenuCount > 0): ?>
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100 border-danger-subtle">
+      <div class="card-body">
+        <div class="text-muted small mb-1">Page Dipakai Banyak Menu</div>
+        <div class="fs-4 fw-bold text-danger"><?= $sharedPageRegistryCount ?></div>
+        <div class="small text-muted">Perlu dibedakan mana shared permission dan mana salah taut page</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100 border-primary-subtle">
+      <div class="card-body">
+        <div class="text-muted small mb-1">Page Controller Belum Terdaftar</div>
+        <div class="fs-4 fw-bold text-primary"><?= $controllerMissingPageCount ?></div>
+        <div class="small text-muted">Ini sumber utama kasus role diberi akses tapi halaman tetap tidak bisa dibuka</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100 border-secondary-subtle">
+      <div class="card-body">
+        <div class="text-muted small mb-1">Page Tanpa Permission Rows</div>
+        <div class="fs-4 fw-bold text-secondary"><?= $pagesWithoutPermissionCount ?></div>
+        <div class="small text-muted">Page aktif yang belum punya baris `auth_role_permission` sama sekali</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<?php if ($menusWithoutPageCount > 0 || $pagesWithoutMenuCount > 0 || $sharedPageRegistryCount > 0 || $controllerMissingPageCount > 0 || $pagesWithoutPermissionCount > 0): ?>
 <div class="card border-0 shadow-sm mb-3" id="audit-card">
   <div class="card-header d-flex flex-wrap justify-content-between gap-2 align-items-center">
     <div>
@@ -171,6 +207,9 @@ $pagesWithoutMenu = is_array($registryAudit['pages_without_menu'] ?? null) ? $re
                     <div class="text-muted" style="font-size:.68rem;">
                       <code><?= htmlspecialchars($rowPageCode) ?></code>
                       <span class="ms-1 badge bg-light text-dark border" style="font-size:.65rem;"><?= htmlspecialchars($rowModule) ?></span>
+                      <span class="ms-1 badge <?= ($row['usage_type'] ?? '') === 'controller' ? 'bg-success-subtle text-success border' : 'bg-warning-subtle text-warning border' ?>" style="font-size:.65rem;">
+                        <?= ($row['usage_type'] ?? '') === 'controller' ? 'Dipakai controller' : 'Legacy / orphan' ?>
+                      </span>
                     </div>
                     <div class="audit-feedback mt-1" style="display:none;"></div>
                   </div>
@@ -181,6 +220,83 @@ $pagesWithoutMenu = is_array($registryAudit['pages_without_menu'] ?? null) ? $re
                       <i class="ri ri-eye-off-line"></i> Nonaktifkan
                     </button>
                   </div>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
+      </div>
+
+      <div class="col-lg-6">
+        <div class="fw-semibold small text-danger mb-2">
+          <i class="ri ri-links-line me-1"></i>
+          Page registry dipakai lebih dari satu menu
+          <span class="badge bg-danger ms-1"><?= $sharedPageRegistryCount ?></span>
+        </div>
+        <?php if (empty($sharedPageRegistryRows)): ?>
+          <div class="small text-muted">Tidak ada temuan.</div>
+        <?php else: ?>
+          <div class="small text-muted mb-2">Sebagian memang sengaja share permission, sebagian lain salah link ke page lama. Ini daftar yang perlu kita putuskan.</div>
+          <div class="d-flex flex-column gap-2">
+            <?php foreach ($sharedPageRegistryRows as $row): ?>
+              <div class="border rounded-2 px-2 py-2 small">
+                <div class="fw-semibold"><?= htmlspecialchars((string)$row['page_name']) ?></div>
+                <div class="text-muted" style="font-size:.68rem;">
+                  <code><?= htmlspecialchars((string)$row['page_code']) ?></code>
+                  <span class="ms-1 badge bg-light text-dark border"><?= htmlspecialchars((string)($row['resolved_group_code'] ?? $row['module'] ?? '-')) ?></span>
+                </div>
+                <div class="mt-1">
+                  <?php foreach (($row['menu_items'] ?? []) as $menu): ?>
+                    <div class="text-muted" style="font-size:.68rem;">
+                      <span class="fw-semibold"><?= htmlspecialchars((string)($menu['menu_code'] ?? '-')) ?></span>
+                      <span class="ms-1"><?= htmlspecialchars((string)($menu['url'] ?? '')) ?></span>
+                    </div>
+                  <?php endforeach; ?>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
+      </div>
+
+      <div class="col-lg-6">
+        <div class="fw-semibold small text-primary mb-2">
+          <i class="ri ri-code-box-line me-1"></i>
+          Page dipanggil controller tetapi belum ada di `sys_page`
+          <span class="badge bg-primary ms-1"><?= $controllerMissingPageCount ?></span>
+        </div>
+        <?php if (empty($controllerMissingPages)): ?>
+          <div class="small text-muted">Tidak ada temuan.</div>
+        <?php else: ?>
+          <div class="small text-muted mb-2">Ini wajib dibereskan karena role matrix tidak akan pernah bisa memberi akses ke halaman yang belum terdaftar.</div>
+          <div class="d-flex flex-column gap-2">
+            <?php foreach ($controllerMissingPages as $row): ?>
+              <div class="border rounded-2 px-2 py-2 small">
+                <div class="fw-semibold"><code><?= htmlspecialchars((string)$row['page_code']) ?></code></div>
+                <div class="text-muted" style="font-size:.68rem;">Saran grup: <?= htmlspecialchars((string)($row['suggested_group'] ?? '-')) ?></div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
+      </div>
+
+      <div class="col-lg-6">
+        <div class="fw-semibold small text-secondary mb-2">
+          <i class="ri ri-shield-cross-line me-1"></i>
+          Page aktif tanpa baris permission
+          <span class="badge bg-secondary ms-1"><?= $pagesWithoutPermissionCount ?></span>
+        </div>
+        <?php if (empty($pagesWithoutPermissions)): ?>
+          <div class="small text-muted">Tidak ada temuan.</div>
+        <?php else: ?>
+          <div class="small text-muted mb-2">Page ini aktif tetapi belum pernah disebar ke `auth_role_permission`, jadi role non-superadmin tidak akan bisa diatur dengan normal.</div>
+          <div class="d-flex flex-column gap-2">
+            <?php foreach ($pagesWithoutPermissions as $row): ?>
+              <div class="border rounded-2 px-2 py-2 small">
+                <div class="fw-semibold"><?= htmlspecialchars((string)$row['page_name']) ?></div>
+                <div class="text-muted" style="font-size:.68rem;">
+                  <code><?= htmlspecialchars((string)$row['page_code']) ?></code>
+                  <span class="ms-1 badge bg-light text-dark border"><?= htmlspecialchars((string)$row['module']) ?></span>
                 </div>
               </div>
             <?php endforeach; ?>

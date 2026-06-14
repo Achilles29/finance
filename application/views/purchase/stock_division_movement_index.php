@@ -1,289 +1,544 @@
 <?php
-$baseUrl = site_url('inventory/stock/division/movement');
-$generateUrl = site_url('inventory/stock/opname/generate');
+$baseUrl  = site_url('inventory/stock/division/movement');
 $genMonth = !empty($date_from ?? '') ? date('Y-m', strtotime((string)$date_from)) : date('Y-m');
-$rowsData = is_array($rows ?? null) ? $rows : [];
-$summaryRows = count($rowsData);
-$summaryDivisions = [];
-$summaryIn = 0.0;
-$summaryOut = 0.0;
-$summaryValue = 0.0;
-foreach ($rowsData as $row) {
-  $divisionId = (int)($row['division_id'] ?? 0);
-  if ($divisionId > 0) {
-    $summaryDivisions[$divisionId] = true;
-  }
-  $delta = (float)($row['qty_content_delta'] ?? 0);
-  $summaryValue += abs($delta) * (float)($row['unit_cost'] ?? 0);
-  if ($delta >= 0) {
-    $summaryIn += $delta;
-  } else {
-    $summaryOut += abs($delta);
-  }
+$rows     = is_array($rows ?? null) ? $rows : [];
+$divisions = is_array($divisions ?? null) ? $divisions : [];
+
+$dateFrom = (string)($date_from ?? '');
+$dateTo   = (string)($date_to   ?? '');
+$qSearch  = (string)($q         ?? '');
+$perPage  = max(10, (int)($per_page ?? 25));
+$page     = max(1, (int)($page ?? 1));
+$selDiv   = (int)($division_id ?? 0);
+$selDest  = strtoupper((string)($destination ?? 'ALL'));
+
+// ── KPI ──────────────────────────────────────────────────────────────────────
+$kpiRows    = count($rows);
+$kpiDivSet  = [];
+$kpiIn      = 0.0;
+$kpiOut     = 0.0;
+$kpiValue   = 0.0;
+$typeCounts = [];          // for breakdown bar
+$typeValues = [];          // nilai per type
+foreach ($rows as $r) {
+    $divId = (int)($r['division_id'] ?? 0);
+    if ($divId > 0) $kpiDivSet[$divId] = true;
+    $delta = (float)($r['qty_content_delta'] ?? 0);
+    $cost  = (float)($r['unit_cost'] ?? 0);
+    $val   = abs($delta) * $cost;
+    $kpiValue += $val;
+    if ($delta >= 0) $kpiIn  += $delta;
+    else             $kpiOut += abs($delta);
+    $typeRaw = strtoupper(trim((string)($r['movement_type_label'] ?? $r['movement_type'] ?? 'UNKNOWN')));
+    $typeCounts[$typeRaw] = ($typeCounts[$typeRaw] ?? 0) + 1;
+    $typeValues[$typeRaw] = ($typeValues[$typeRaw] ?? 0.0) + $val;
 }
-$summaryDivisionCount = count($summaryDivisions);
-$destinationValue = strtoupper(trim((string)($destination ?? 'ALL')));
-if ($destinationValue === '') {
-  $destinationValue = 'ALL';
-}
-$formatDivisionLabel = static function (string $code, string $name, $fallbackId = '-'): string {
-  $code = trim($code);
-  $name = trim($name);
-  if ($code !== '' && strcasecmp($code, $name) === 0) {
-    return $code;
-  }
-  if ($code !== '' && $name !== '') {
-    return $code . ' - ' . $name;
-  }
-  if ($code !== '') {
-    return $code;
-  }
-  if ($name !== '') {
-    return $name;
-  }
-  return (string)$fallbackId;
+$kpiNet = $kpiIn - $kpiOut;
+$kpiDivCount = count($kpiDivSet);
+arsort($typeCounts);
+
+// ── Movement type metadata ───────────────────────────────────────────────────
+$movTypeLabel = [
+    'TRANSFER_IN'          => 'Transfer Masuk',
+    'TRANSFER_OUT'         => 'Transfer Keluar',
+    'RECEIPT_IN'           => 'Penerimaan PO',
+    'FULFILLMENT_OUT'      => 'Fulfillment SR',
+    'WASTE_OUT'            => 'Waste',
+    'DISCARDED_OUT'        => 'Discarded',
+    'SPOIL_OUT'            => 'Spoilage',
+    'PROCESS_LOSS_OUT'     => 'Process Loss',
+    'VARIANCE_OUT'         => 'Variance',
+    'ADJUSTMENT_IN'        => 'Adj Plus',
+    'ADJUSTMENT_OUT'       => 'Adj Minus',
+    'ADJUSTMENT'           => 'Adjustment',
+    'OPENING_STOK_AWAL'    => 'Opening Awal',
+    'POS_OUT'              => 'POS Usage',
+];
+$movTypeColor = [
+    'TRANSFER_IN'       => '#0284c7',
+    'TRANSFER_OUT'      => '#7c3aed',
+    'RECEIPT_IN'        => '#059669',
+    'FULFILLMENT_OUT'   => '#d97706',
+    'WASTE_OUT'         => '#dc2626',
+    'DISCARDED_OUT'     => '#b91c1c',
+    'SPOIL_OUT'         => '#ea580c',
+    'PROCESS_LOSS_OUT'  => '#ca8a04',
+    'VARIANCE_OUT'      => '#c2410c',
+    'ADJUSTMENT_IN'     => '#0d9488',
+    'ADJUSTMENT_OUT'    => '#be185d',
+    'ADJUSTMENT'        => '#6d28d9',
+    'OPENING_STOK_AWAL' => '#475569',
+    'POS_OUT'           => '#854d0e',
+];
+$movTypeRowClass = [
+    'TRANSFER_IN'    => 'mvt-row-in',
+    'RECEIPT_IN'     => 'mvt-row-in',
+    'ADJUSTMENT_IN'  => 'mvt-row-adj-in',
+    'OPENING_STOK_AWAL' => 'mvt-row-opening',
+    'WASTE_OUT'      => 'mvt-row-shrink',
+    'DISCARDED_OUT'  => 'mvt-row-shrink',
+    'SPOIL_OUT'      => 'mvt-row-shrink',
+    'PROCESS_LOSS_OUT' => 'mvt-row-shrink',
+    'VARIANCE_OUT'   => 'mvt-row-shrink',
+];
+$getMovLabel  = static fn(string $t): string => $movTypeLabel[$t] ?? ucwords(strtolower(str_replace('_', ' ', $t)));
+$getMovColor  = static fn(string $t): string => $movTypeColor[$t] ?? '#6b7280';
+$getMovClass  = static fn(string $t): string => $movTypeRowClass[$t] ?? '';
+$isInMovement = static fn(string $t): bool   => in_array($t, ['TRANSFER_IN','RECEIPT_IN','ADJUSTMENT_IN','OPENING_STOK_AWAL'], true) || str_contains($t,'_IN');
+
+$adjCategoryLabel = [
+    'WASTE'            => ['Waste',        '#dc2626'],
+    'SPOILAGE'         => ['Spoil',        '#ea580c'],
+    'PROCESS_LOSS'     => ['Process Loss', '#ca8a04'],
+    'VARIANCE'         => ['Variance',     '#c2410c'],
+    'ADJUSTMENT_PLUS'  => ['Adj Plus',     '#0d9488'],
+    'ADJUSTMENT_MINUS' => ['Adj Minus',    '#7c3aed'],
+];
+$fmtMoney = static fn($v): string => 'Rp ' . number_format((float)$v, 0, ',', '.');
+
+// ── Pagination ───────────────────────────────────────────────────────────────
+$totalRows  = count($rows);
+$totalPages = max(1, (int)ceil($totalRows / $perPage));
+$page       = min($page, $totalPages);
+$pagedRows  = array_slice($rows, ($page - 1) * $perPage, $perPage);
+$pBase = ['per_page' => $perPage, 'date_from' => $dateFrom, 'date_to' => $dateTo, 'q' => $qSearch, 'destination' => $selDest];
+if ($selDiv > 0) $pBase['division_id'] = $selDiv;
+$pQs = http_build_query($pBase);
+
+// ── Source helpers ───────────────────────────────────────────────────────────
+$sourceMap = [
+    'pos_stock_commit'                      => 'POS Commit',
+    'pur_purchase_receipt'                  => 'Receipt PO',
+    'pur_store_request_fulfillment'         => 'Fulfillment SR',
+    'inv_division_stock_adjustment'         => 'Adj Bahan Baku',
+    'inv_stock_adjustment'                  => 'Adj Stok',
+    'inv_division_stock_opening_snapshot'   => 'Opening Snapshot',
+    'inv_warehouse_stock_opening_snapshot'  => 'Opening Snapshot',
+    'inv_component_adjustment'              => 'Component Adj',
+];
+$buildSource = static function (array $r) use ($sourceMap): array {
+    $tbl = strtolower(trim((string)($r['ref_table'] ?? '')));
+    $rid = (int)($r['ref_id'] ?? 0);
+    $lbl = $sourceMap[$tbl] ?? ($tbl !== '' ? strtoupper(str_replace('_',' ',$tbl)) : '-');
+    if ($rid > 0) $lbl .= ' #' . $rid;
+    $meta = array_filter([
+        (int)($r['receipt_id']      ?? 0) > 0 ? 'Rcpt #' . (int)$r['receipt_id']      : '',
+        (int)($r['receipt_line_id'] ?? 0) > 0 ? 'Line #' . (int)$r['receipt_line_id'] : '',
+    ]);
+    return ['label' => $lbl, 'meta' => implode(' | ', $meta)];
 };
-$formatDestination = static function (string $group): string {
-  return strtoupper(trim($group)) === 'EVENT' ? 'Event' : 'Reguler';
-};
-$buildSourceAudit = static function (array $row): array {
-  $refTable = strtolower(trim((string)($row['ref_table'] ?? '')));
-  $refId = (int)($row['ref_id'] ?? 0);
-  $receiptId = (int)($row['receipt_id'] ?? 0);
-  $receiptLineId = (int)($row['receipt_line_id'] ?? 0);
-  $labelMap = [
-    'pos_stock_commit' => 'POS Commit',
-    'pur_purchase_receipt' => 'Receipt PO',
-    'pur_store_request_fulfillment' => 'Fulfillment SR',
-    'inv_division_stock_adjustment' => 'Adjustment Bahan Baku',
-    'inv_division_stock_opening_snapshot' => 'Opening Snapshot',
-    'inv_warehouse_stock_opening_snapshot' => 'Opening Snapshot',
-  ];
-  $label = $labelMap[$refTable] ?? ($refTable !== '' ? strtoupper(str_replace('_', ' ', $refTable)) : '-');
-  if ($refId > 0) {
-    $label .= ' #' . $refId;
-  }
-  $meta = [];
-  if ($receiptId > 0) {
-    $meta[] = 'Receipt #' . $receiptId;
-  }
-  if ($receiptLineId > 0) {
-    $meta[] = 'Line #' . $receiptLineId;
-  }
-  return ['label' => $label, 'meta' => implode(' | ', $meta)];
+$formatDivLabel = static function (array $r): string {
+    $code = trim((string)($r['division_code'] ?? ''));
+    $name = trim((string)($r['division_name'] ?? ''));
+    if ($code !== '' && strcasecmp($code,$name) === 0) return $code;
+    if ($code !== '' && $name !== '') return $code . ' · ' . $name;
+    return $name !== '' ? $name : (string)($r['division_id'] ?? '-');
 };
 ?>
 
 <style>
-  .stock-division-movement-wrap {
-    max-height: 74vh;
-    overflow: auto;
-    border-top: 1px solid #f0e1d6;
-  }
-  .stock-division-movement-table {
-    min-width: 1760px;
-    margin-bottom: 0;
-    border-collapse: separate;
-    border-spacing: 0;
-  }
-  .stock-division-movement-table thead th {
-    position: sticky;
-    top: 0;
-    z-index: 4;
-    background: linear-gradient(180deg, #7c1f2d 0%, #9f2f3e 100%);
-    color: #fff8f5;
-    border-bottom: 1px solid #7f2936;
-    white-space: nowrap;
-  }
-  .stock-division-movement-table td,
-  .stock-division-movement-table th {
-    vertical-align: top;
-  }
-  .stock-division-source-title {
-    font-weight: 800;
-    color: #2f2628;
-  }
-  .stock-division-source-meta {
-    display: block;
-    margin-top: .18rem;
-    color: #8a776f;
-    font-size: .72rem;
-    line-height: 1.35;
-  }
+/* ── Filter ── */
+.mvt-filter-grid {
+  display:grid;
+  grid-template-columns: minmax(120px,1.4fr) 95px 110px 110px minmax(150px,2fr) 64px auto auto;
+  gap:.5rem; align-items:end;
+}
+@media(max-width:1199px) { .mvt-filter-grid { grid-template-columns:minmax(100px,1fr) 88px 105px 105px minmax(120px,2fr) 58px auto auto; } }
+@media(max-width:991px)  { .mvt-filter-grid { grid-template-columns:1fr 1fr 1fr 1fr; } }
+@media(max-width:575px)  { .mvt-filter-grid { grid-template-columns:1fr 1fr; } }
+
+/* ── KPI ── */
+.mvt-kpi-row { display:grid; grid-template-columns:repeat(6,1fr); gap:.6rem; margin-bottom:1rem; }
+@media(max-width:1199px) { .mvt-kpi-row { grid-template-columns:repeat(3,1fr); } }
+@media(max-width:575px)  { .mvt-kpi-row { grid-template-columns:repeat(2,1fr); } }
+.mvt-kpi {
+  border-radius:14px; padding:.95rem 1.1rem .9rem; color:#fff;
+  position:relative; overflow:hidden; box-shadow:0 4px 18px rgba(0,0,0,.13);
+}
+.mvt-kpi::before { content:''; position:absolute; right:-16px; bottom:-16px; width:76px; height:76px; border-radius:50%; background:rgba(255,255,255,.12); }
+.mvt-kpi::after  { content:''; position:absolute; right:12px; top:-20px; width:52px; height:52px; border-radius:50%; background:rgba(255,255,255,.08); }
+.mvt-kpi-icon { font-size:1.2rem; opacity:.82; margin-bottom:.3rem; display:block; }
+.mvt-kpi-val  { font-size:1.35rem; font-weight:800; line-height:1.1; }
+.mvt-kpi-sub  { font-size:.7rem; opacity:.75; margin-top:.1rem; }
+.mvt-kpi-lbl  { font-size:.67rem; opacity:.82; text-transform:uppercase; letter-spacing:.06em; margin-top:.2rem; }
+.mvt-kpi-1 { background:linear-gradient(135deg,#667eea,#764ba2); }
+.mvt-kpi-2 { background:linear-gradient(135deg,#0c7cba,#0fcdba); }
+.mvt-kpi-3 { background:linear-gradient(135deg,#11998e,#38ef7d); }
+.mvt-kpi-4 { background:linear-gradient(135deg,#e55d2b,#f7b733); }
+.mvt-kpi-5 { background:linear-gradient(135deg,#1c7ed6,#4dabf7); }
+.mvt-kpi-net-pos { background:linear-gradient(135deg,#2f9e44,#69db7c); }
+.mvt-kpi-net-neg { background:linear-gradient(135deg,#c92a2a,#fa5252); }
+
+/* ── Breakdown bar ── */
+.mvt-breakdown { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; padding:.6rem 1rem; background:#faf6f3; border-bottom:1px solid #f0ddd4; }
+.mvt-type-chip {
+  display:inline-flex; align-items:center; gap:.35rem; padding:.22rem .7rem; border-radius:999px;
+  font-size:.72rem; font-weight:700; border:1px solid; cursor:pointer; transition:all .15s; white-space:nowrap;
+}
+.mvt-type-chip:hover  { filter:brightness(.92); transform:translateY(-1px); }
+.mvt-type-chip.dimmed { opacity:.3; }
+.mvt-type-chip-count  { background:rgba(0,0,0,.12); border-radius:999px; padding:0 .45rem; font-size:.66rem; }
+
+/* ── Table ── */
+.mvt-table-wrap { overflow-x:auto; overflow-y:auto; max-height:68vh; }
+.mvt-table-wrap table { min-width:1600px; border-collapse:separate; border-spacing:0; }
+.mvt-table-wrap thead th {
+  position:sticky; top:0; z-index:4;
+  background:linear-gradient(180deg,#6a2d3c 0%,#8a3d50 100%);
+  color:#fff8f5; white-space:nowrap;
+  border-bottom:1px solid #7f3040; font-size:.73rem; font-weight:700; letter-spacing:.03em;
+}
+/* Row color coding */
+.mvt-row-in      > td:first-child { border-left:3px solid #2f9e44; }
+.mvt-row-adj-in  > td:first-child { border-left:3px solid #0d9488; }
+.mvt-row-shrink  > td:first-child { border-left:3px solid #c92a2a; }
+.mvt-row-opening > td:first-child { border-left:3px solid #475569; }
+.mvt-row-hidden  { display:none; }
+
+/* Movement type badge */
+.mvt-type-badge {
+  display:inline-flex; align-items:center; gap:.28rem; font-size:.68rem; font-weight:700;
+  padding:.22rem .6rem; border-radius:6px; white-space:nowrap; border:1px solid;
+}
+.mvt-delta-pos { color:#2f9e44 !important; font-weight:800; }
+.mvt-delta-neg { color:#c92a2a !important; font-weight:800; }
+
+/* ── Pagination ── */
+.mvt-pagination { display:flex; align-items:center; flex-wrap:wrap; gap:.35rem; }
+.mvt-page-btn {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:32px; height:32px; padding:0 .5rem;
+  border:1px solid #ddd; border-radius:8px; background:#fff; color:#555;
+  font-size:.8rem; font-weight:600; text-decoration:none; transition:all .15s;
+}
+.mvt-page-btn:hover   { background:#f5f5f5; border-color:#bbb; color:#333; }
+.mvt-page-btn.active  { background:#6a2d3c; border-color:#6a2d3c; color:#fff; }
+.mvt-page-btn.disabled { opacity:.4; pointer-events:none; }
 </style>
 
-<div class="mb-3">
-  <h4 class="mb-1"><i class="ri ri-arrow-left-right-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-  <small class="text-muted">Log keluar masuk stok per divisi dari inv_stock_movement_log.</small>
-</div>
-<div class="d-flex flex-wrap gap-2 mb-2">
-  <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'movement']); ?>
-</div>
-<?php $this->load->view('purchase/_division_stock_generate_btn', [
-  'division_action_params' => ['month' => $genMonth, 'division_id' => (string)(int)($division_id ?? 0), 'destination_type' => $destinationValue],
-]); ?>
-<div class="mb-2">
-  <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-sm btn-outline-secondary">
+<!-- Header -->
+<div class="d-flex flex-wrap justify-content-between align-items-start mb-2 gap-2">
+  <div>
+    <h4 class="mb-1"><i class="ri ri-arrow-left-right-line page-title-icon"></i><?php echo html_escape((string)($title ?? 'Mutasi Bahan Baku')); ?></h4>
+    <small class="text-muted">Log pergerakan stok per baris dari <code>inv_stock_movement_log</code> — setiap transfer, penerimaan, adjustment, dan POS usage tercatat di sini.</small>
+  </div>
+  <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-sm btn-outline-secondary align-self-start">
     <i class="ri ri-bar-chart-line me-1"></i>Audit FIFO
   </a>
 </div>
 
+<div class="d-flex flex-wrap gap-1 align-items-center mb-2">
+  <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'movement']); ?>
+</div>
+<?php $this->load->view('purchase/_division_stock_generate_btn', [
+  'division_action_params' => ['month' => $genMonth, 'division_id' => (string)$selDiv, 'destination_type' => $selDest],
+]); ?>
+
+<!-- ── Filter 1-row ── -->
 <div class="card mb-3">
-  <div class="card-body py-3">
-    <form method="get" action="<?php echo $baseUrl; ?>" class="row g-2 align-items-end">
-      <div class="col-md-3">
-        <label class="form-label mb-1">Divisi</label>
-        <select class="form-select" name="division_id">
-          <option value="">Semua Divisi</option>
-          <?php foreach (($divisions ?? []) as $d): ?>
-            <?php
-              $id = (int)($d['id'] ?? 0);
-              $code = trim((string)($d['code'] ?? ''));
-              $name = trim((string)($d['name'] ?? ''));
-              $label = $code !== '' ? $code . ' - ' . $name : ($name !== '' ? $name : (string)$id);
-            ?>
-            <option value="<?php echo $id; ?>" <?php echo ((int)$division_id === $id) ? 'selected' : ''; ?>><?php echo html_escape($label); ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label mb-1">Tujuan</label>
-        <select class="form-select" name="destination">
-          <option value="ALL" <?php echo $destinationValue === 'ALL' ? 'selected' : ''; ?>>Semua</option>
-          <option value="REGULER" <?php echo $destinationValue === 'REGULER' ? 'selected' : ''; ?>>Reguler</option>
-          <option value="EVENT" <?php echo $destinationValue === 'EVENT' ? 'selected' : ''; ?>>Event</option>
-        </select>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label mb-1">Cari</label>
-        <input type="text" class="form-control" name="q" value="<?php echo html_escape((string)$q); ?>" placeholder="No mutasi / item / material / profile">
-      </div>
-      <div class="w-100"></div>
-      <div class="col-md-2">
-        <label class="form-label mb-1">Dari Tanggal</label>
-        <input type="date" class="form-control" name="date_from" value="<?php echo html_escape((string)$date_from); ?>">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label mb-1">Sampai Tanggal</label>
-        <input type="date" class="form-control" name="date_to" value="<?php echo html_escape((string)$date_to); ?>">
-      </div>
-      <div class="col-md-1">
-        <label class="form-label mb-1">Limit</label>
-        <input type="number" class="form-control" name="limit" min="1" max="1000" value="<?php echo (int)$limit; ?>">
-      </div>
-      <div class="col-md-1 d-grid">
-        <button type="submit" class="btn btn-outline-primary">Filter</button>
-      </div>
-      <div class="col-md-1 d-grid">
-        <a href="<?php echo $baseUrl; ?>" class="btn btn-outline-danger">Clear</a>
+  <div class="card-body py-2">
+    <form method="get" action="<?php echo $baseUrl; ?>" id="mvt-filter-form">
+      <div class="mvt-filter-grid">
+        <div>
+          <label class="form-label mb-1">Divisi</label>
+          <select class="form-select form-select-sm" name="division_id">
+            <option value="">Semua Divisi</option>
+            <?php foreach ($divisions as $d): ?>
+              <?php $did = (int)($d['id']??0); $dc = trim((string)($d['code']??'')); $dn = trim((string)($d['name']??'')); $dl = $dc !== '' ? $dc.' - '.$dn : ($dn ?: (string)$did); ?>
+              <option value="<?php echo $did; ?>" <?php echo $selDiv === $did ? 'selected' : ''; ?>><?php echo html_escape($dl); ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div>
+          <label class="form-label mb-1">Tujuan</label>
+          <select class="form-select form-select-sm" name="destination">
+            <option value="ALL"     <?php echo $selDest==='ALL'     ?'selected':''; ?>>Semua</option>
+            <option value="REGULER" <?php echo $selDest==='REGULER' ?'selected':''; ?>>Reguler</option>
+            <option value="EVENT"   <?php echo $selDest==='EVENT'   ?'selected':''; ?>>Event</option>
+            <option value="BAR"     <?php echo $selDest==='BAR'     ?'selected':''; ?>>BAR</option>
+            <option value="KITCHEN" <?php echo $selDest==='KITCHEN' ?'selected':''; ?>>KITCHEN</option>
+            <option value="OFFICE"  <?php echo $selDest==='OFFICE'  ?'selected':''; ?>>OFFICE</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label mb-1">Dari</label>
+          <input type="date" class="form-control form-control-sm" name="date_from" value="<?php echo html_escape($dateFrom); ?>">
+        </div>
+        <div>
+          <label class="form-label mb-1">Sampai</label>
+          <input type="date" class="form-control form-control-sm" name="date_to" value="<?php echo html_escape($dateTo); ?>">
+        </div>
+        <div>
+          <label class="form-label mb-1">Cari</label>
+          <input type="text" class="form-control form-control-sm" name="q" value="<?php echo html_escape($qSearch); ?>" placeholder="No mutasi / item / material / tipe / divisi" id="mvt-q-input" autocomplete="off">
+        </div>
+        <div>
+          <label class="form-label mb-1">/ Hal</label>
+          <input type="number" class="form-control form-control-sm" name="per_page" min="10" max="200" value="<?php echo $perPage; ?>">
+        </div>
+        <div style="display:flex;gap:.4rem;align-items:flex-end">
+          <button type="submit" class="btn btn-sm btn-outline-primary">Terapkan</button>
+          <a href="<?php echo $baseUrl; ?>" class="btn btn-sm btn-outline-danger">Clear</a>
+        </div>
       </div>
     </form>
   </div>
 </div>
 
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Baris Mutasi</div><div class="h5 mb-0"><?php echo number_format($summaryRows); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Divisi</div><div class="h5 mb-0"><?php echo number_format($summaryDivisionCount); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Masuk</div><div class="h5 mb-0 text-success"><?php echo number_format($summaryIn, 2, ',', '.'); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Keluar</div><div class="h5 mb-0 text-danger"><?php echo number_format($summaryOut, 2, ',', '.'); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Nilai</div><div class="h5 mb-0"><?php echo number_format($summaryValue, 2, ',', '.'); ?></div></div></div></div>
-</div>
-
-<div class="card">
-  <div class="card-body pb-0">
-    <small class="fin-audit-note">Audit stok ditampilkan seragam: Before, Delta, After. Nilai bawah menunjukkan satuan beli jika tersedia.</small>
+<!-- ── KPI Cards ── -->
+<?php if ($kpiRows > 0): ?>
+<div class="mvt-kpi-row">
+  <div class="mvt-kpi mvt-kpi-1">
+    <span class="mvt-kpi-icon"><i class="ri ri-arrow-left-right-line"></i></span>
+    <div class="mvt-kpi-val"><?php echo number_format($kpiRows); ?></div>
+    <div class="mvt-kpi-sub"><?php echo count($typeCounts); ?> tipe gerakan</div>
+    <div class="mvt-kpi-lbl">Total Mutasi</div>
   </div>
-  <div class="stock-division-movement-wrap">
-    <table class="table table-striped table-hover fin-audit-table stock-division-movement-table">
+  <div class="mvt-kpi mvt-kpi-2">
+    <span class="mvt-kpi-icon"><i class="ri ri-building-2-line"></i></span>
+    <div class="mvt-kpi-val"><?php echo number_format($kpiDivCount); ?></div>
+    <div class="mvt-kpi-sub">divisi terlibat</div>
+    <div class="mvt-kpi-lbl">Divisi Aktif</div>
+  </div>
+  <div class="mvt-kpi mvt-kpi-3">
+    <span class="mvt-kpi-icon"><i class="ri ri-arrow-down-circle-line"></i></span>
+    <div class="mvt-kpi-val"><?php echo number_format($kpiIn, 2, ',', '.'); ?></div>
+    <div class="mvt-kpi-sub">isi masuk</div>
+    <div class="mvt-kpi-lbl">Total Masuk</div>
+  </div>
+  <div class="mvt-kpi mvt-kpi-4">
+    <span class="mvt-kpi-icon"><i class="ri ri-arrow-up-circle-line"></i></span>
+    <div class="mvt-kpi-val"><?php echo number_format($kpiOut, 2, ',', '.'); ?></div>
+    <div class="mvt-kpi-sub">isi keluar</div>
+    <div class="mvt-kpi-lbl">Total Keluar</div>
+  </div>
+  <div class="mvt-kpi mvt-kpi-5">
+    <span class="mvt-kpi-icon"><i class="ri ri-money-dollar-circle-line"></i></span>
+    <div class="mvt-kpi-val"><?php echo 'Rp '.number_format($kpiValue, 0, ',', '.'); ?></div>
+    <div class="mvt-kpi-sub">abs(delta) × cost</div>
+    <div class="mvt-kpi-lbl">Nilai Pergerakan</div>
+  </div>
+  <div class="mvt-kpi <?php echo $kpiNet >= 0 ? 'mvt-kpi-net-pos' : 'mvt-kpi-net-neg'; ?>">
+    <span class="mvt-kpi-icon"><i class="ri ri-scales-3-line"></i></span>
+    <div class="mvt-kpi-val"><?php echo ($kpiNet >= 0 ? '+' : '') . number_format($kpiNet, 2, ',', '.'); ?></div>
+    <div class="mvt-kpi-sub">masuk dikurangi keluar</div>
+    <div class="mvt-kpi-lbl">Net Delta</div>
+  </div>
+</div>
+<?php endif; ?>
+
+<!-- ── Table card ── -->
+<div class="card">
+
+  <!-- Movement type breakdown chips -->
+  <?php if (!empty($typeCounts)): ?>
+  <div class="mvt-breakdown">
+    <span class="small text-muted me-1">Filter tipe:</span>
+    <button type="button" class="mvt-type-chip" id="mvt-chip-all"
+      style="background:#f1f5f9;border-color:#cbd5e1;color:#334155"
+      data-mvt-type="ALL">
+      Semua <span class="mvt-type-chip-count"><?php echo $kpiRows; ?></span>
+    </button>
+    <?php foreach ($typeCounts as $typeKey => $typeCount): ?>
+      <?php
+        $typeColor = $getMovColor($typeKey);
+        $typeDisplayLabel = $getMovLabel($typeKey);
+        $typeValueFmt = isset($typeValues[$typeKey]) && $typeValues[$typeKey] > 0
+          ? ' · Rp'.number_format($typeValues[$typeKey],0,',','.') : '';
+      ?>
+      <button type="button" class="mvt-type-chip" data-mvt-type="<?php echo html_escape($typeKey); ?>"
+        style="background:<?php echo $typeColor; ?>1a;border-color:<?php echo $typeColor; ?>55;color:<?php echo $typeColor; ?>">
+        <?php echo html_escape($typeDisplayLabel); ?>
+        <span class="mvt-type-chip-count"><?php echo $typeCount; ?></span>
+      </button>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
+
+  <div class="mvt-table-wrap">
+    <table class="table table-sm table-hover mb-0" id="mvt-table">
       <thead>
         <tr>
-          <th>Tanggal</th>
-          <th>Divisi</th>
-          <th>Tujuan</th>
-          <th>No Mutasi</th>
-          <th>Tipe</th>
-          <th>Kategori/Alasan</th>
-          <th>Objek</th>
-          <th>Keterangan</th>
-          <th class="text-end col-balance">Before</th>
-          <th class="text-end col-delta">Delta Isi</th>
-          <th class="text-end col-balance">After</th>
-          <th class="text-end col-amount">Unit Cost</th>
-          <th class="text-end col-amount">Nilai Mutasi</th>
-          <th class="col-ref">Sumber / Ref</th>
+          <th style="min-width:90px">Tanggal</th>
+          <th style="min-width:130px">Divisi</th>
+          <th style="min-width:90px">Tujuan</th>
+          <th style="min-width:160px">No Mutasi</th>
+          <th style="min-width:160px">Tipe</th>
+          <th style="min-width:140px">Kategori / Alasan</th>
+          <th style="min-width:200px">Objek</th>
+          <th style="min-width:180px">Profil</th>
+          <th class="text-end" style="min-width:100px">Before (Isi)</th>
+          <th class="text-end" style="min-width:110px">Delta (Isi)</th>
+          <th class="text-end" style="min-width:100px">After (Isi)</th>
+          <th class="text-end" style="min-width:85px">Cost/Isi</th>
+          <th class="text-end" style="min-width:110px">Nilai</th>
+          <th style="min-width:160px">Sumber / Ref</th>
+          <th style="min-width:180px">Catatan</th>
         </tr>
       </thead>
       <tbody>
-        <?php if (empty($rows)): ?>
-          <tr><td colspan="14" class="text-center text-muted py-4">Belum ada data mutasi divisi.</td></tr>
-        <?php else: ?>
-          <?php foreach ($rows as $r): ?>
-            <?php
-              $sourceAudit = $buildSourceAudit((array)$r);
-              $divisionText = $formatDivisionLabel((string)($r['division_code'] ?? ''), (string)($r['division_name'] ?? ''), (string)($r['division_id'] ?? '-'));
+      <?php if (empty($pagedRows)): ?>
+        <tr><td colspan="15" class="text-center text-muted py-4">Belum ada data mutasi untuk filter ini.</td></tr>
+      <?php else: ?>
+        <?php foreach ($pagedRows as $r): ?>
+          <?php
+            $typeRaw    = strtoupper(trim((string)($r['movement_type_label'] ?? $r['movement_type'] ?? 'UNKNOWN')));
+            $typeLabel  = $getMovLabel($typeRaw);
+            $typeColor  = $getMovColor($typeRaw);
+            $typeClass  = $getMovClass($typeRaw);
+            $sourceData = $buildSource((array)$r);
+            $divLabel   = $formatDivLabel((array)$r);
 
-              $movementTypeLabel = trim((string)($r['movement_type_label'] ?? $r['movement_type'] ?? '-'));
-              $itemText = trim((string)($r['item_code'] ?? '') . ' - ' . (string)($r['item_name'] ?? ''));
-              $materialText = trim((string)($r['material_code'] ?? '') . ' - ' . (string)($r['material_name'] ?? ''));
-              $preferMaterial = (int)($r['material_id'] ?? 0) > 0;
-              if ($preferMaterial) {
-                $objectText = $materialText !== ' -' && $materialText !== '' ? $materialText : ($itemText !== ' -' && $itemText !== '' ? $itemText : '-');
-              } else {
-                $objectText = $itemText !== ' -' && $itemText !== '' ? $itemText : ($materialText !== ' -' && $materialText !== '' ? $materialText : '-');
-              }
-              $adjustmentCategory = strtoupper(trim((string)($r['adjustment_category'] ?? '')));
-              $adjustmentReason = strtolower(trim((string)($r['adjustment_reason_code'] ?? '')));
-              $deltaContent = (float)($r['qty_content_delta'] ?? 0);
-              $afterContent = (float)($r['qty_content_after'] ?? 0);
-              $beforeContent = $afterContent - $deltaContent;
-              $deltaBuy = (float)($r['qty_buy_delta'] ?? 0);
-              $afterBuy = (float)($r['qty_buy_after'] ?? 0);
-              $beforeBuy = $afterBuy - $deltaBuy;
-              $destinationText = $formatDestination((string)($r['destination_group'] ?? 'REGULER'));
-              $unitCost = (float)($r['unit_cost'] ?? 0);
-              $mutationValue = abs($deltaContent) * $unitCost;
-            ?>
-            <tr>
-              <td><?php echo html_escape((string)$r['movement_date']); ?></td>
-              <td><?php echo html_escape($divisionText); ?></td>
-              <td><?php echo html_escape($destinationText); ?></td>
-              <td><?php echo html_escape((string)$r['movement_no']); ?></td>
-              <td><?php echo html_escape($movementTypeLabel !== '' ? $movementTypeLabel : '-'); ?></td>
-              <td>
-                <div><?php echo html_escape($adjustmentCategory !== '' ? $adjustmentCategory : '-'); ?></div>
-                <small class="text-muted"><?php echo html_escape($adjustmentReason !== '' ? str_replace('_', ' ', $adjustmentReason) : '-'); ?></small>
-              </td>
-              <td><?php echo html_escape($objectText); ?></td>
-              <td><?php echo html_escape((string)($r['notes'] ?? '-')); ?></td>
-              <td class="text-end col-balance">
-                <div class="fin-audit-metric">
-                  <div class="fin-audit-primary"><?php echo ui_num($beforeContent); ?></div>
-                  <small class="fin-audit-secondary"><?php echo ui_num($beforeBuy); ?> <?php echo html_escape((string)($r['profile_buy_uom_code'] ?? '')); ?></small>
-                </div>
-              </td>
-              <td class="text-end col-delta <?php echo $deltaContent >= 0 ? 'fin-audit-delta-positive' : 'fin-audit-delta-negative'; ?>">
-                <div class="fin-audit-metric">
-                  <div class="fin-audit-primary"><?php echo ui_num($deltaContent); ?></div>
-                  <small class="fin-audit-secondary"><?php echo ui_num($deltaBuy); ?> <?php echo html_escape((string)($r['profile_buy_uom_code'] ?? '')); ?></small>
-                </div>
-              </td>
-              <td class="text-end col-balance">
-                <div class="fin-audit-metric">
-                  <div class="fin-audit-primary"><?php echo ui_num($afterContent); ?></div>
-                  <small class="fin-audit-secondary"><?php echo ui_num($afterBuy); ?> <?php echo html_escape((string)($r['profile_buy_uom_code'] ?? '')); ?></small>
-                </div>
-              </td>
-              <td class="text-end col-amount"><?php echo ui_num($unitCost); ?></td>
-              <td class="text-end col-amount"><?php echo number_format($mutationValue, 2, ',', '.'); ?></td>
-              <td class="col-ref">
-                <span class="stock-division-source-title"><?php echo html_escape((string)($sourceAudit['label'] ?? '-')); ?></span>
-                <?php if (!empty($sourceAudit['meta'])): ?><span class="stock-division-source-meta"><?php echo html_escape((string)$sourceAudit['meta']); ?></span><?php endif; ?>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-        <?php endif; ?>
+            $delta     = (float)($r['qty_content_delta'] ?? 0);
+            $after     = (float)($r['qty_content_after'] ?? 0);
+            $before    = $after - $delta;
+            $deltaBuy  = (float)($r['qty_buy_delta'] ?? 0);
+            $afterBuy  = (float)($r['qty_buy_after'] ?? 0);
+            $beforeBuy = $afterBuy - $deltaBuy;
+            $cost      = (float)($r['unit_cost'] ?? 0);
+            $mutVal    = abs($delta) * $cost;
+            $uom       = (string)($r['profile_content_uom_code'] ?? ($r['profile_buy_uom_code'] ?? ''));
+
+            $matName   = trim((string)($r['material_name'] ?? ''));
+            $itemName  = trim((string)($r['item_name'] ?? ''));
+            $objName   = $matName !== '' ? $matName : ($itemName ?: '-');
+
+            $profileParts = array_filter([trim((string)($r['profile_name']??'')), trim((string)($r['profile_brand']??''))]);
+            $profileLabel = implode(' · ', $profileParts) ?: '-';
+            $profileDesc  = trim((string)($r['profile_description'] ?? ''));
+
+            $adjCat    = strtoupper(trim((string)($r['adjustment_category'] ?? '')));
+            $adjReason = strtolower(trim((string)($r['adjustment_reason_code'] ?? '')));
+            [$adjCatLabel, $adjCatColor] = $adjCategoryLabel[$adjCat] ?? [$adjCat, '#6b7280'];
+
+            $destType  = strtoupper(trim((string)($r['destination_type'] ?? 'OTHER')));
+            $destGroup = strtoupper(trim((string)($r['destination_group'] ?? 'REGULER')));
+            $destNames = ['BAR'=>'Bar','KITCHEN'=>'Kitchen','BAR_EVENT'=>'Bar Event','KITCHEN_EVENT'=>'Kitchen Ev.','OFFICE'=>'Office','GUDANG'=>'Gudang'];
+            $destDisplay = ($destNames[$destType] ?? $destType) . ' · ' . ($destGroup === 'EVENT' ? 'Event' : 'Reguler');
+          ?>
+          <tr class="<?php echo $typeClass; ?>" data-mvt-type="<?php echo html_escape($typeRaw); ?>">
+            <td class="small text-nowrap"><?php echo html_escape((string)($r['movement_date'] ?? '-')); ?></td>
+            <td class="small"><?php echo html_escape($divLabel); ?></td>
+            <td class="small text-nowrap">
+              <div><?php echo html_escape($destType); ?></div>
+              <small class="text-muted"><?php echo $destGroup === 'EVENT' ? 'Event' : 'Reguler'; ?></small>
+            </td>
+            <td class="small fw-semibold text-nowrap"><?php echo html_escape((string)($r['movement_no'] ?? '-')); ?></td>
+            <td>
+              <span class="mvt-type-badge" style="background:<?php echo $typeColor; ?>15;border-color:<?php echo $typeColor; ?>44;color:<?php echo $typeColor; ?>">
+                <i class="ri <?php echo $delta >= 0 ? 'ri-arrow-down-circle-line' : 'ri-arrow-up-circle-line'; ?>"></i>
+                <?php echo html_escape($typeLabel); ?>
+              </span>
+            </td>
+            <td class="small">
+              <?php if ($adjCat !== ''): ?>
+                <span class="badge fw-semibold" style="background:<?php echo $adjCatColor; ?>22;border:1px solid <?php echo $adjCatColor; ?>44;color:<?php echo $adjCatColor; ?>"><?php echo html_escape((string)($adjCatLabel ?: $adjCat)); ?></span>
+              <?php else: ?><span class="text-muted">—</span><?php endif; ?>
+              <?php if ($adjReason !== ''): ?><div class="text-muted" style="font-size:.7rem;margin-top:.1rem"><?php echo html_escape(str_replace('_',' ',$adjReason)); ?></div><?php endif; ?>
+            </td>
+            <td>
+              <div class="small fw-semibold"><?php echo html_escape($objName); ?></div>
+              <?php if (trim((string)($r['material_code'] ?? '')) !== '' || trim((string)($r['item_code'] ?? '')) !== ''): ?>
+                <small class="text-muted"><?php echo html_escape(trim((string)($r['material_code'] ?? ($r['item_code'] ?? '')))); ?></small>
+              <?php endif; ?>
+            </td>
+            <td>
+              <div class="small"><?php echo html_escape($profileLabel); ?></div>
+              <?php if ($profileDesc !== ''): ?><small class="text-muted"><?php echo html_escape($profileDesc); ?></small><?php endif; ?>
+            </td>
+            <td class="text-end small">
+              <div><?php echo number_format($before, 2, ',', '.'); ?></div>
+              <?php if ($beforeBuy != 0): ?><small class="text-muted"><?php echo number_format($beforeBuy, 3, ',', '.'); ?> <?php echo html_escape((string)($r['profile_buy_uom_code'] ?? '')); ?></small><?php endif; ?>
+            </td>
+            <td class="text-end small <?php echo $delta >= 0 ? 'mvt-delta-pos' : 'mvt-delta-neg'; ?>">
+              <div><?php echo ($delta >= 0 ? '+' : '') . number_format($delta, 2, ',', '.'); ?></div>
+              <?php if ($deltaBuy != 0): ?><small style="opacity:.7;font-weight:normal"><?php echo ($deltaBuy >= 0 ? '+' : '') . number_format($deltaBuy, 3, ',', '.'); ?></small><?php endif; ?>
+            </td>
+            <td class="text-end small">
+              <div><?php echo number_format($after, 2, ',', '.'); ?></div>
+              <?php if ($afterBuy != 0): ?><small class="text-muted"><?php echo number_format($afterBuy, 3, ',', '.'); ?> <?php echo html_escape((string)($r['profile_buy_uom_code'] ?? '')); ?></small><?php endif; ?>
+            </td>
+            <td class="text-end small"><?php echo $cost > 0 ? number_format($cost, 4, ',', '.') : '—'; ?></td>
+            <td class="text-end small fw-semibold"><?php echo $mutVal > 0 ? 'Rp '.number_format($mutVal, 0, ',', '.') : '—'; ?></td>
+            <td class="small">
+              <div class="fw-semibold"><?php echo html_escape($sourceData['label']); ?></div>
+              <?php if ($sourceData['meta'] !== ''): ?><small class="text-muted"><?php echo html_escape($sourceData['meta']); ?></small><?php endif; ?>
+            </td>
+            <td class="small text-muted"><?php echo html_escape((string)($r['notes'] ?? '—')); ?></td>
+          </tr>
+        <?php endforeach; ?>
+      <?php endif; ?>
       </tbody>
     </table>
   </div>
+
+  <!-- Pagination footer -->
+  <?php if ($totalRows > 0): ?>
+  <div class="card-footer py-2 d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <?php $fromR = ($page-1)*$perPage+1; $toR = min($page*$perPage,$totalRows); ?>
+    <span class="text-muted small">Baris <?php echo "{$fromR}–{$toR}"; ?> dari <?php echo number_format($totalRows); ?></span>
+    <?php if ($totalPages > 1): ?>
+    <div class="mvt-pagination">
+      <?php
+        $ws = max(1,$page-2); $we = min($totalPages,$page+2);
+        if ($we-$ws < 4) { if ($ws===1) $we=min($totalPages,$ws+4); else $ws=max(1,$we-4); }
+      ?>
+      <a href="<?php echo html_escape($baseUrl.'?'.$pQs.'&page='.($page-1)); ?>" class="mvt-page-btn<?php echo $page>1?'':' disabled'; ?>">&#8249;</a>
+      <?php if ($ws>1): ?><a href="<?php echo html_escape($baseUrl.'?'.$pQs.'&page=1'); ?>" class="mvt-page-btn">1</a><?php if ($ws>2): ?><span class="text-muted small px-1">…</span><?php endif; ?><?php endif; ?>
+      <?php for ($pn=$ws;$pn<=$we;$pn++): ?><a href="<?php echo html_escape($baseUrl.'?'.$pQs.'&page='.$pn); ?>" class="mvt-page-btn<?php echo $pn===$page?' active':''; ?>"><?php echo $pn; ?></a><?php endfor; ?>
+      <?php if ($we<$totalPages): ?><?php if ($we<$totalPages-1): ?><span class="text-muted small px-1">…</span><?php endif; ?><a href="<?php echo html_escape($baseUrl.'?'.$pQs.'&page='.$totalPages); ?>" class="mvt-page-btn"><?php echo $totalPages; ?></a><?php endif; ?>
+      <a href="<?php echo html_escape($baseUrl.'?'.$pQs.'&page='.($page+1)); ?>" class="mvt-page-btn<?php echo $page<$totalPages?'':' disabled'; ?>">&#8250;</a>
+    </div>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 </div>
 
+<script>
+(function () {
+  // AJAX debounce on search
+  const qInput = document.getElementById('mvt-q-input');
+  if (qInput) {
+    qInput.addEventListener('input', function () {
+      clearTimeout(window._mvtQTimer);
+      window._mvtQTimer = setTimeout(function () {
+        document.getElementById('mvt-filter-form')?.submit();
+      }, 450);
+    });
+  }
+
+  // Client-side type filter chips
+  const chips = document.querySelectorAll('.mvt-type-chip[data-mvt-type]');
+  const rows  = document.querySelectorAll('#mvt-table tbody tr[data-mvt-type]');
+  let activeType = 'ALL';
+
+  function applyFilter() {
+    const all = activeType === 'ALL';
+    rows.forEach(function (row) {
+      if (all || row.dataset.mvtType === activeType) {
+        row.classList.remove('mvt-row-hidden');
+      } else {
+        row.classList.add('mvt-row-hidden');
+      }
+    });
+    chips.forEach(function (chip) {
+      const isActive = chip.dataset.mvtType === activeType;
+      chip.style.opacity = isActive ? '1' : '.45';
+      chip.style.fontWeight = isActive ? '800' : '';
+      chip.style.transform = isActive ? 'scale(1.05)' : '';
+    });
+  }
+
+  chips.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      const t = chip.dataset.mvtType;
+      activeType = (activeType === t && t !== 'ALL') ? 'ALL' : t;
+      applyFilter();
+    });
+  });
+
+  // Highlight "Semua" chip by default
+  const allChip = document.getElementById('mvt-chip-all');
+  if (allChip) { allChip.style.fontWeight = '800'; }
+})();
+</script>

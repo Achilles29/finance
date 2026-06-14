@@ -631,38 +631,40 @@ class Purchase extends MY_Controller
             $this->require_permission(self::PAGE_ORDER, 'view');
         }
 
-        $month = trim((string)$this->input->get('month', true));
-        $q = trim((string)$this->input->get('q', true));
+        $month      = trim((string)$this->input->get('month', true));
+        $q          = trim((string)$this->input->get('q', true));
         $divisionId = (int)$this->input->get('division_id', true);
         $destination = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destination === '') {
             $destination = 'ALL';
         }
-        $limit = (int)$this->input->get('limit', true);
-        if ($limit <= 0 || $limit > 500) {
-            $limit = 500;
+        $perPage = (int)$this->input->get('per_page', true);
+        if ($perPage < 10 || $perPage > 200) {
+            $perPage = 25;
         }
+        $page = max(1, (int)$this->input->get('page', true));
 
         $data = [
-            'title' => 'Opening Manual Bahan Baku',
-            'active_menu' => 'purchase.stock.opening.division',
-            'stock_scope' => 'DIVISION',
-            'is_division_scope' => true,
-            'base_url_opening' => 'inventory/stock/opening/division',
-            'stock_opening_export_url' => site_url('inventory/stock/opening/division/export-template'),
+            'title'                         => 'Opening Manual Bahan Baku',
+            'active_menu'                   => 'purchase.stock.opening.division',
+            'stock_scope'                   => 'DIVISION',
+            'is_division_scope'             => true,
+            'base_url_opening'              => 'inventory/stock/opening/division',
+            'stock_opening_export_url'      => site_url('inventory/stock/opening/division/export-template'),
             'stock_opening_export_existing_url' => site_url('inventory/stock/opening/division/export-existing'),
-            'stock_opening_import_url' => site_url('inventory/stock/opening/division/import'),
-            'month' => $month,
-            'q' => $q,
+            'stock_opening_import_url'      => site_url('inventory/stock/opening/division/import'),
+            'month'       => $month,
+            'q'           => $q,
             'division_id' => $divisionId,
             'destination' => $destination,
-            'limit' => $limit,
-            'rows' => $this->Purchase_model->list_stock_opening_snapshots('DIVISION', $month, $q, $limit, $divisionId > 0 ? $divisionId : null, $destination),
-            'uoms' => $this->Purchase_model->list_active_uoms(),
-            'divisions' => $this->Purchase_model->list_active_operational_divisions(),
+            'per_page'    => $perPage,
+            'page'        => $page,
+            'rows'        => $this->Purchase_model->list_stock_opening_snapshots('DIVISION', $month, $q, 500, $divisionId > 0 ? $divisionId : null, $destination),
+            'uoms'        => $this->Purchase_model->list_active_uoms(),
+            'divisions'   => $this->Purchase_model->list_active_operational_divisions(),
         ];
 
-        $this->render('purchase/stock_opening_index', $data);
+        $this->render('purchase/stock_opening_division_index', $data);
     }
 
     public function stock_opening_division_export_template()
@@ -1315,43 +1317,59 @@ class Purchase extends MY_Controller
     {
         $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'view');
 
-        $month = trim((string)$this->input->get('month', true));
-        $q = trim((string)$this->input->get('q', true));
-        $activeTab = strtolower(trim((string)$this->input->get('tab', true)));
+        $month      = trim((string)$this->input->get('month', true));
+        $q          = trim((string)$this->input->get('q', true));
+        $dateFrom   = trim((string)$this->input->get('date_from', true));
+        $dateTo     = trim((string)$this->input->get('date_to', true));
+        $page       = max(1, (int)$this->input->get('page', true));
+        $activeTab  = strtolower(trim((string)$this->input->get('tab', true)));
         if (!in_array($activeTab, ['input', 'rincian'], true)) {
             $activeTab = 'input';
         }
-        $divisionId = (int)$this->input->get('division_id', true);
+        $divisionId  = (int)$this->input->get('division_id', true);
         $destination = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destination === '') {
             $destination = 'ALL';
         }
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 500) {
-            $limit = 200;
+            $limit = 25;
         }
 
-        $divisions = $this->Purchase_model->list_active_operational_divisions();
+        // Validate date params
+        if ($dateFrom !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom) !== 1) { $dateFrom = ''; }
+        if ($dateTo   !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)   !== 1) { $dateTo   = ''; }
+
+        // Default to current month when no date filter supplied
+        if ($dateFrom === '' && $dateTo === '' && $month === '') {
+            $dateFrom = date('Y-m-01');
+            $dateTo   = date('Y-m-d');
+        }
+
+        $divisions           = $this->Purchase_model->list_active_operational_divisions();
         $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
-        $destination = $this->normalizeDestinationForDivisionFilter($destination, $divisionId, $destinationGuardMap);
+        $destination         = $this->normalizeDestinationForDivisionFilter($destination, $divisionId, $destinationGuardMap);
 
         $this->render('purchase/stock_adjustment_index', [
-            'title' => 'Adjustment Bahan Baku',
-            'active_menu' => 'purchase.stock.adjustment.division',
-            'stock_scope' => 'DIVISION',
-            'is_division_scope' => true,
+            'title'               => 'Adjustment Bahan Baku',
+            'active_menu'         => 'purchase.stock.adjustment.division',
+            'stock_scope'         => 'DIVISION',
+            'is_division_scope'   => true,
             'base_url_adjustment' => 'inventory/stock/adjustment/division',
-            'active_tab' => $activeTab,
-            'month' => $month,
-            'q' => $q,
-            'division_id' => $divisionId,
-            'destination' => $destination,
-            'limit' => $limit,
-            'rows' => $this->Purchase_model->list_stock_adjustments('DIVISION', $month, $q, $limit, $divisionId > 0 ? $divisionId : null, $destination),
-            'line_rows' => $activeTab === 'rincian'
-                ? $this->Purchase_model->list_stock_adjustment_detail_rows('DIVISION', $month, $q, $limit, $divisionId > 0 ? $divisionId : null, $destination)
+            'active_tab'          => $activeTab,
+            'month'               => $month,
+            'date_from'           => $dateFrom,
+            'date_to'             => $dateTo,
+            'q'                   => $q,
+            'division_id'         => $divisionId,
+            'destination'         => $destination,
+            'limit'               => $limit,
+            'page'                => $page,
+            'rows'                => $this->Purchase_model->list_stock_adjustments('DIVISION', $month, $q, 500, $divisionId > 0 ? $divisionId : null, $destination, $dateFrom, $dateTo),
+            'line_rows'           => $activeTab === 'rincian'
+                ? $this->Purchase_model->list_stock_adjustment_detail_rows('DIVISION', $month, $q, 500, $divisionId > 0 ? $divisionId : null, $destination, $dateFrom, $dateTo)
                 : [],
-            'divisions' => $divisions,
+            'divisions'           => $divisions,
             'destination_guard_map' => $destinationGuardMap,
         ]);
     }
@@ -1758,33 +1776,31 @@ class Purchase extends MY_Controller
             $this->require_permission(self::PAGE_ORDER, 'view');
         }
 
-        $q = trim((string)$this->input->get('q', true));
-        $dateFrom = trim((string)$this->input->get('date_from', true));
-        $dateTo = trim((string)$this->input->get('date_to', true));
-        $range = $this->resolveDateRange('', $dateFrom, $dateTo);
-        $dateFrom = $range['date_from'];
-        $dateTo = $range['date_to'];
-        $divisionId = (int)$this->input->get('division_id', true);
+        $q            = trim((string)$this->input->get('q', true));
+        $dateFrom     = trim((string)$this->input->get('date_from', true));
+        $dateTo       = trim((string)$this->input->get('date_to', true));
+        $range        = $this->resolveDateRange('', $dateFrom, $dateTo);
+        $dateFrom     = $range['date_from'];
+        $dateTo       = $range['date_to'];
+        $divisionId   = (int)$this->input->get('division_id', true);
         $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
-        if ($destinationFilter === '') {
-            $destinationFilter = 'ALL';
-        }
-        $limit = (int)$this->input->get('limit', true);
-        if ($limit <= 0 || $limit > 1000) {
-            $limit = 300;
-        }
+        if ($destinationFilter === '') { $destinationFilter = 'ALL'; }
+        $perPage = (int)$this->input->get('per_page', true);
+        if ($perPage < 10 || $perPage > 200) { $perPage = 25; }
+        $page = max(1, (int)$this->input->get('page', true));
 
         $data = [
-            'title' => 'mutasi Bahan Baku',
-            'active_menu' => 'purchase.stock.division',
-            'q' => $q,
-            'date_from' => $dateFrom,
-            'date_to' => $dateTo,
-            'division_id' => $divisionId,
-            'destination' => $destinationFilter,
-            'limit' => $limit,
-            'divisions' => $this->Purchase_model->list_active_operational_divisions(),
-            'rows' => $this->Purchase_model->list_stock_movements('DIVISION', $q, $dateFrom, $dateTo, $divisionId > 0 ? $divisionId : null, $limit, $destinationFilter),
+            'title'        => 'Mutasi Bahan Baku',
+            'active_menu'  => 'purchase.stock.division',
+            'q'            => $q,
+            'date_from'    => $dateFrom,
+            'date_to'      => $dateTo,
+            'division_id'  => $divisionId,
+            'destination'  => $destinationFilter,
+            'per_page'     => $perPage,
+            'page'         => $page,
+            'divisions'    => $this->Purchase_model->list_active_operational_divisions(),
+            'rows'         => $this->Purchase_model->list_stock_movements('DIVISION', $q, $dateFrom, $dateTo, $divisionId > 0 ? $divisionId : null, 500, $destinationFilter),
         ];
 
         $this->render('purchase/stock_division_movement_index', $data);
@@ -1843,48 +1859,48 @@ class Purchase extends MY_Controller
             $this->require_permission(self::PAGE_ORDER, 'view');
         }
 
-        $divisions = $this->Purchase_model->list_active_operational_divisions();
+        $divisions           = $this->Purchase_model->list_active_operational_divisions();
         $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
-        $asOfDate = trim((string)$this->input->get('as_of_date', true));
+        $asOfDate            = trim((string)$this->input->get('as_of_date', true));
         if ($asOfDate === '') {
             $asOfDate = date('Y-m-d');
         }
-        $q = trim((string)$this->input->get('q', true));
-        $divisionId = (int)$this->input->get('division_id', true);
-        $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
+        $q                  = trim((string)$this->input->get('q', true));
+        $divisionId         = (int)$this->input->get('division_id', true);
+        $destinationFilter  = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destinationFilter === '') {
             $destinationFilter = 'ALL';
         }
         $destinationFilter = $this->normalizeDestinationForDivisionFilter($destinationFilter, $divisionId, $destinationGuardMap);
-        $limit = (int)$this->input->get('limit', true);
-        if ($limit <= 0 || $limit > 2000) {
-            $limit = 300;
+        $perPage           = (int)$this->input->get('per_page', true);
+        if ($perPage < 10 || $perPage > 200) {
+            $perPage = 25;
         }
+        $page = max(1, (int)$this->input->get('page', true));
 
         $compare = $this->Purchase_model->list_division_material_stock_compare(
             $asOfDate,
             $q,
             $divisionId > 0 ? $divisionId : null,
-            $limit,
+            500,
             $destinationFilter
         );
 
-        $data = [
-            'title' => 'Audit Bahan Baku',
-            'page_title' => 'Audit Bahan Baku',
-            'active_menu' => 'purchase.stock.division',
-            'as_of_date' => $compare['as_of_date'] ?? $asOfDate,
-            'q' => $q,
-            'division_id' => $divisionId,
-            'destination' => $destinationFilter,
-            'limit' => $limit,
-            'divisions' => $divisions,
+        $this->render('purchase/stock_division_reconcile_index', [
+            'title'                => 'Rekonsiliasi Stok Divisi',
+            'page_title'           => 'Rekonsiliasi Stok Divisi',
+            'active_menu'          => 'purchase.stock.division',
+            'as_of_date'           => $compare['as_of_date'] ?? $asOfDate,
+            'q'                    => $q,
+            'division_id'          => $divisionId,
+            'destination'          => $destinationFilter,
+            'per_page'             => $perPage,
+            'page'                 => $page,
+            'divisions'            => $divisions,
             'destination_guard_map' => $destinationGuardMap,
-            'rows' => $compare['rows'] ?? [],
-            'summary' => $compare['summary'] ?? [],
-        ];
-
-        $this->render('purchase/stock_division_reconcile_index', $data);
+            'rows'                 => $compare['rows'] ?? [],
+            'summary'              => $compare['summary'] ?? [],
+        ]);
     }
 
     public function stock_division_reconcile_audit()
@@ -2207,14 +2223,68 @@ class Purchase extends MY_Controller
 
     public function division_lot_audit_index()
     {
-        $this->render_lot_audit_page(
-            'DIVISION',
-            true,
-            'Lot Bahan Baku',
-            'purchase.stock.division.lot',
-            'inventory/stock/division/lot',
-            'Posisi lot FIFO untuk stok divisi operasional.'
-        );
+        $canView = $this->can(self::PAGE_STOCK_WAREHOUSE, 'view')
+            || $this->can(self::PAGE_STOCK_DIVISION, 'view')
+            || $this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')
+            || $this->can(self::PAGE_STOCK_MATERIAL_MATRIX, 'view');
+        if (!$canView) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $divisions          = $this->Purchase_model->list_active_operational_divisions();
+        $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
+        $q                  = trim((string)$this->input->get('q', true));
+        $dateFrom           = trim((string)$this->input->get('date_from', true));
+        $dateTo             = trim((string)$this->input->get('date_to', true));
+        $range              = $this->resolveDateRange('', $dateFrom, $dateTo);
+        $dateFrom           = $range['date_from'];
+        $dateTo             = $range['date_to'];
+        $status             = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['ALL', 'OPEN', 'CLOSED'], true)) {
+            $status = 'OPEN';
+        }
+        $divisionId         = (int)$this->input->get('division_id', true);
+        $destinationFilter  = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destinationFilter === '') {
+            $destinationFilter = 'ALL';
+        }
+        $destinationFilter  = $this->normalizeDestinationForDivisionFilter($destinationFilter, $divisionId, $destinationGuardMap);
+        $profileKey         = trim((string)$this->input->get('profile_key', true));
+        $perPage            = (int)$this->input->get('per_page', true);
+        if ($perPage < 10 || $perPage > 200) {
+            $perPage = 25;
+        }
+        $page               = max(1, (int)$this->input->get('page', true));
+
+        $rows = $this->Purchase_model->list_fifo_lot_audit([
+            'q'           => $q,
+            'scope'       => 'DIVISION',
+            'status'      => $status,
+            'date_from'   => $dateFrom,
+            'date_to'     => $dateTo,
+            'division_id' => $divisionId,
+            'destination' => $destinationFilter,
+            'profile_key' => $profileKey,
+        ], 500);
+
+        $this->render('purchase/lot_division_index', [
+            'title'                => 'Lot Bahan Baku',
+            'subtitle'             => 'Posisi lot FIFO untuk stok divisi operasional.',
+            'active_menu'          => 'purchase.stock.division.lot',
+            'base_url'             => site_url('inventory/stock/division/lot'),
+            'q'                    => $q,
+            'date_from'            => $dateFrom,
+            'date_to'              => $dateTo,
+            'status'               => $status,
+            'division_id'          => $divisionId,
+            'destination'          => $destinationFilter,
+            'profile_key'          => $profileKey,
+            'per_page'             => $perPage,
+            'page'                 => $page,
+            'divisions'            => $divisions,
+            'destination_guard_map' => $destinationGuardMap,
+            'rows'                 => $rows,
+        ]);
     }
 
     public function material_lot_usage($lotId)

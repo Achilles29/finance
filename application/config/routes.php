@@ -204,6 +204,7 @@ $route['finance/relasi/delete/(:num)'] = 'finance/party_delete/$1';
 $route['finance/party-search'] = 'finance/party_search';
 $route['finance/member-search'] = 'finance/member_search';
 $route['finance-reports/financial-estimation'] = 'finance_reports/financial_estimation';
+$route['finance-reports/daily-overview'] = 'finance_reports/daily_overview';
 $route['finance-reports/rekap-rekening-harian'] = 'finance_reports/bank_daily_recap';
 $route['finance-reports/cash-position'] = 'finance_reports/cash_position';
 $route['finance-reports/cash-vault-daily'] = 'finance_reports/cash_vault_daily';

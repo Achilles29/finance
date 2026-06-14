@@ -378,9 +378,32 @@ Kolom 4 : Keterangan
 Kolom 5 : UKURAN Isi (data  sudah benar)
 
 Kolom 6 dan seterusnya sesuai kondisi sekarang
+======================
+
+sekarang /inventory/stock/adjustment/division
+   -- buat polanya seperti /inventory/stock/division
+   -- ubah skema tampilan jadi: form adjustmen muncul sebagai modal saat di klik tambah adjustmen. jadi tampilan utama hanya tabel daftar adjustmen (tab Per Nota dan Per Rincian)
+   -- sesuai card card ringkasan yang diperlukan, seperti hasil adjustmen divisi, nilainya, jumlahnya dll yang penting sebagai bahan analisa. kejutkan saya!
+   -- card ringkasan hanya untuk yang posted ya, yang draft dan void jangan tampilkan
+   -- filter divisi dan lokasi.
+   -- tambahkan kolm pencarian ajax
+   -- filter baris dan pagination. defaultnya 25
+   -- range filter hari. defautlnya bulan ini
+   -- buat kolomnya jadi scrollabel atas bawah dan freeze di judul kolom 
+
+
+apakah adj mengintervensi LOT? sekalian di fix kan
+
+
+/inventory/stock/adjustment/division 
+
+Per Rincian:
+sesuaikan tampilan : NO , TANGGAL , Divisi / Tujuan 	(KITCHEN , REGULER), Status, Line hapus saja, Objek NAMAN BAHAN BAKU (hapus kode dan profile), QTY isi adj, Jenis adj dan alasan, cost isi, nilai total, Lot in, catatan. tidak usah tampilkan semua kolom jenis, paham kan? seperti pada component (gambar 1) 
+apakah adj mengintervensi LOT? karena saya cek kolom LOT kosong semua
 
 
 
+======================================
 harusnya link nya bukan /inventory/stock/opening/division/generate donk, mending pakai /inventory/stock/division/opening-stock
 
 saya belum coba generate, tapi pastikan guardnya seperti ini:
@@ -391,36 +414,4 @@ saya belum coba generate, tapi pastikan guardnya seperti ini:
 - pastikan qty stok dan nilai di semua halaman stok sama
 
 
-
-
-
-
-
-
-
-- perbaiki modul role matrix , rapikan sesuai rumpun dan pastikan semua role dapat mengakses sesuai izinnya
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-di inv_component_monthly_stock ada beberapa jenis adjustment, waste, spoil, plus, minus. sedangkan di inv_division_monthly_stock lebih banyak (discarded, spoil, waste, process_loss, variance, plus, minus)
-
-
-adjustmen divisi belum sesuai pilihan di inv_division_monthly_stock
-
-
+/inventory/stock/division/reconcile sesuaikan form filter agar tidak ada tampilan terpotong. tambahkan filter missmatch

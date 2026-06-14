@@ -6,6 +6,7 @@ $active = (string)($finance_tab_active ?? '');
   <a href="<?php echo site_url('finance/utang'); ?>" class="btn btn-sm <?php echo $active === 'payable' ? 'btn-primary' : 'btn-outline-primary'; ?>">Utang</a>
   <a href="<?php echo site_url('finance/piutang'); ?>" class="btn btn-sm <?php echo $active === 'receivable' ? 'btn-primary' : 'btn-outline-primary'; ?>">Piutang</a>
   <a href="<?php echo site_url('finance/relasi'); ?>" class="btn btn-sm <?php echo $active === 'party' ? 'btn-primary' : 'btn-outline-primary'; ?>">Pihak Luar</a>
+  <a href="<?php echo site_url('finance-reports/daily-overview'); ?>" class="btn btn-sm <?php echo $active === 'daily-overview' ? 'btn-primary' : 'btn-outline-primary'; ?>">Keuangan Harian</a>
   <a href="<?php echo site_url('finance-reports/financial-estimation'); ?>" class="btn btn-sm <?php echo $active === 'financial-estimation' ? 'btn-primary' : 'btn-outline-primary'; ?>">Estimasi Keuangan</a>
   <a href="<?php echo site_url('finance-reports/rekap-rekening-harian'); ?>" class="btn btn-sm <?php echo $active === 'bank-daily-recap' ? 'btn-primary' : 'btn-outline-primary'; ?>">Rekap Rekening Harian</a>
   <a href="<?php echo site_url('finance-reports/cash-position'); ?>" class="btn btn-sm <?php echo $active === 'cash-position' ? 'btn-primary' : 'btn-outline-primary'; ?>">Posisi Kas & Eksposur</a>

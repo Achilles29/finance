@@ -5612,7 +5612,7 @@ class Purchase_model extends CI_Model
         ];
     }
 
-    public function list_stock_adjustments(string $scope, string $month, string $q, int $limit, ?int $divisionId = null, ?string $destination = null): array
+    public function list_stock_adjustments(string $scope, string $month, string $q, int $limit, ?int $divisionId = null, ?string $destination = null, string $dateFrom = '', string $dateTo = ''): array
     {
         if (!$this->db->table_exists('inv_stock_adjustment')) {
             return [];
@@ -5627,6 +5627,10 @@ class Purchase_model extends CI_Model
         if ($month !== '' && preg_match('/^\d{4}\-\d{2}$/', $month) !== 1) {
             $month = '';
         }
+        $dateFrom = trim($dateFrom);
+        $dateTo   = trim($dateTo);
+        if ($dateFrom !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom) !== 1) { $dateFrom = ''; }
+        if ($dateTo   !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)   !== 1) { $dateTo   = ''; }
         $q = trim($q);
         $limit = max(1, min(500, $limit));
 
@@ -5658,7 +5662,9 @@ class Purchase_model extends CI_Model
             ->join('mst_operational_division d', 'd.id = h.division_id', 'left')
             ->where('h.stock_scope', $scope);
 
-        if ($month !== '') {
+        if ($dateFrom !== '' && $dateTo !== '') {
+            $this->db->where('h.adjustment_date >=', $dateFrom)->where('h.adjustment_date <=', $dateTo);
+        } elseif ($month !== '') {
             $this->db->where("DATE_FORMAT(h.adjustment_date, '%Y-%m') =", $month, false);
         }
         if ($scope === 'DIVISION' && $divisionId !== null && $divisionId > 0) {
@@ -5688,7 +5694,7 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
-    public function list_stock_adjustment_detail_rows(string $scope, string $month, string $q, int $limit, ?int $divisionId = null, ?string $destination = null): array
+    public function list_stock_adjustment_detail_rows(string $scope, string $month, string $q, int $limit, ?int $divisionId = null, ?string $destination = null, string $dateFrom = '', string $dateTo = ''): array
     {
         if (!$this->db->table_exists('inv_stock_adjustment') || !$this->db->table_exists('inv_stock_adjustment_line')) {
             return [];
@@ -5703,6 +5709,10 @@ class Purchase_model extends CI_Model
         if ($month !== '' && preg_match('/^\d{4}\-\d{2}$/', $month) !== 1) {
             $month = '';
         }
+        $dateFrom = trim($dateFrom);
+        $dateTo   = trim($dateTo);
+        if ($dateFrom !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom) !== 1) { $dateFrom = ''; }
+        if ($dateTo   !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)   !== 1) { $dateTo   = ''; }
         $q = trim($q);
         $limit = max(1, min(500, $limit));
         $lineLimit = max(50, min(2000, $limit * 5));
@@ -5715,15 +5725,20 @@ class Purchase_model extends CI_Model
         $this->db
             ->select('h.id AS adjustment_id, h.adjustment_no, h.adjustment_date, h.status, h.stock_scope, h.division_id, h.destination_type, h.notes AS header_notes', false)
             ->select($divisionNameSelect, false)
-            ->select('l.*, i.item_code, i.item_name, m.material_code, m.material_name')
+            ->select('l.*, i.item_code, i.item_name, m.material_code, m.material_name', false)
+            ->select('mfl.lot_no AS plus_lot_no', false)
+            ->select('COALESCE((SELECT mfl2.lot_no FROM inv_material_fifo_issue_line mfil JOIN inv_material_fifo_lot mfl2 ON mfl2.id=mfil.lot_id WHERE mfil.issue_id = COALESCE(l.waste_issue_id, l.spoil_issue_id, l.process_loss_issue_id, l.variance_issue_id) ORDER BY mfil.id ASC LIMIT 1),(SELECT cl.lot_no FROM inv_component_lot_issue_line cil JOIN inv_component_lot cl ON cl.id=cil.lot_id WHERE cil.issue_id = COALESCE(l.waste_issue_id, l.spoil_issue_id, l.process_loss_issue_id, l.variance_issue_id) ORDER BY cil.id ASC LIMIT 1)) AS shrink_lot_no', false)
             ->from('inv_stock_adjustment_line l')
             ->join('inv_stock_adjustment h', 'h.id = l.adjustment_id')
             ->join('mst_item i', 'i.id = l.item_id', 'left')
             ->join('mst_material m', 'm.id = l.material_id', 'left')
             ->join('mst_operational_division d', 'd.id = h.division_id', 'left')
+            ->join('inv_material_fifo_lot mfl', 'mfl.id = l.adjustment_plus_lot_id', 'left')
             ->where('h.stock_scope', $scope);
 
-        if ($month !== '') {
+        if ($dateFrom !== '' && $dateTo !== '') {
+            $this->db->where('h.adjustment_date >=', $dateFrom)->where('h.adjustment_date <=', $dateTo);
+        } elseif ($month !== '') {
             $this->db->where("DATE_FORMAT(h.adjustment_date, '%Y-%m') =", $month, false);
         }
         if ($scope === 'DIVISION' && $divisionId !== null && $divisionId > 0) {

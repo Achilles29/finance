@@ -12,9 +12,10 @@ $pagesGrouped = $pages_grouped ?? [];
 $allGroups    = $all_groups    ?? [];
 $hasGroupCol  = !empty($has_group_col);
 $totalPages   = (int)($total_pages ?? 0);
+$groupMeta    = $group_meta ?? [];
 
 // Reuse same mod_meta palette as matrix.php
-$modMeta = [
+$defaultModMeta = [
     'DASHBOARD'  => ['icon' => 'ri-dashboard-line',           'color' => '#1d4ed8', 'bg' => '#eff6ff'],
     'AUTH'       => ['icon' => 'ri-lock-password-line',       'color' => '#2563eb', 'bg' => '#eff6ff'],
     'SISTEM'     => ['icon' => 'ri-settings-3-line',          'color' => '#475569', 'bg' => '#f1f5f9'],
@@ -31,6 +32,16 @@ $modMeta = [
     'REPORT'     => ['icon' => 'ri-bar-chart-2-line',         'color' => '#6d28d9', 'bg' => '#faf5ff'],
     'MY_PORTAL'  => ['icon' => 'ri-user-settings-line',       'color' => '#4338ca', 'bg' => '#eef2ff'],
 ];
+$modMeta = $defaultModMeta;
+foreach ($groupMeta as $groupCode => $meta) {
+    $modMeta[$groupCode] = [
+        'icon' => $meta['icon'] ?? ($modMeta[$groupCode]['icon'] ?? 'ri-folder-line'),
+        'color' => $meta['color'] ?? ($modMeta[$groupCode]['color'] ?? '#64748b'),
+        'bg' => $meta['bg_color'] ?? ($modMeta[$groupCode]['bg'] ?? '#f8fafc'),
+        'label' => $meta['group_label'] ?? $groupCode,
+        'sort_order' => $meta['sort_order'] ?? 9999,
+    ];
+}
 ?>
 
 <style>
@@ -204,7 +215,7 @@ $modMeta = [
 <?php endif; ?>
 
 <?php foreach ($pagesGrouped as $grp => $pages):
-  $meta   = $modMeta[$grp] ?? ['icon' => 'ri-apps-line', 'color' => '#64748b', 'bg' => '#f8fafc'];
+  $meta   = $modMeta[$grp] ?? ['icon' => 'ri-apps-line', 'color' => '#64748b', 'bg' => '#f8fafc', 'label' => $grp];
   $grpId  = 'mgl-grp-' . preg_replace('/[^a-z0-9]/i', '-', strtolower($grp));
   $isOpen = true;
 ?>
@@ -216,8 +227,8 @@ $modMeta = [
       <i class="ri <?= $meta['icon'] ?>"></i>
     </div>
     <div style="flex:1; min-width:80px;">
-      <div class="mgl-group-label" style="color:<?= $meta['color'] ?>;"><?= htmlspecialchars($grp) ?></div>
-      <div class="mgl-group-count"><?= count($pages) ?> halaman</div>
+      <div class="mgl-group-label" style="color:<?= $meta['color'] ?>;"><?= htmlspecialchars($meta['label']) ?></div>
+      <div class="mgl-group-count"><?= htmlspecialchars($grp) ?> · <?= count($pages) ?> halaman</div>
     </div>
     <i class="ri ri-arrow-down-s-line mgl-chevron open"></i>
   </div>

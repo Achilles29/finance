@@ -25,14 +25,15 @@ $destOptions = [
 
 $REASONS = [
     'WASTE' => [
-        'cancel_order'   => 'Cancel Order',
-        'kitchen_error'  => 'Kitchen Error',
-        'overproduction' => 'Overproduction',
-        'spillage'       => 'Spillage / Tumpah',
-        'expired_opened' => 'Expired Opened',
-        'other'          => 'Other',
+        'cancel_order'     => 'Cancel Order',
+        'kitchen_error'    => 'Kitchen Error',
+        'overproduction'   => 'Overproduction',
+        'spillage'         => 'Spillage / Tumpah',
+        'prep_trim_excess' => 'Prep Trim Excess',
+        'expired_opened'   => 'Expired Opened',
+        'other'            => 'Other',
     ],
-    'SPOILAGE' => [
+    'SPOIL' => [
         'expired'           => 'Expired',
         'temperature_abuse' => 'Temperature Abuse',
         'contamination'     => 'Contamination',
@@ -40,13 +41,26 @@ $REASONS = [
         'overstock'         => 'Overstock',
         'other'             => 'Other',
     ],
-    'ADJUSTMENT_MINUS' => [
-        'counting_error'   => 'Counting Error',
-        'system_mismatch'  => 'System Mismatch',
-        'unrecorded_usage' => 'Unrecorded Usage',
-        'process_loss'     => 'Process Loss',
-        'theft_suspected'  => 'Theft Suspected',
-        'other'            => 'Other',
+    'PROCESS_LOSS' => [
+        'defrost_loss'                => 'Defrost Loss',
+        'trimming_standard'           => 'Trimming Standard',
+        'cooking_loss'                => 'Cooking Loss',
+        'evaporation'                 => 'Evaporation',
+        'brew_loss'                   => 'Brew Loss',
+        'absorption_loss'             => 'Absorption Loss',
+        'process_residue'             => 'Process Residue',
+        'variable_process_consumable' => 'Variable Process Consumable',
+        'other'                       => 'Other',
+    ],
+    'VARIANCE' => [
+        'over_usage'        => 'Over Usage',
+        'under_usage'       => 'Under Usage',
+        'unrecorded_usage'  => 'Unrecorded Usage',
+        'counting_error'    => 'Counting Error',
+        'system_mismatch'   => 'System Mismatch',
+        'theft_suspected'   => 'Theft Suspected',
+        'unknown_shrinkage' => 'Unknown Shrinkage',
+        'other'             => 'Other',
     ],
     'ADJUSTMENT_PLUS' => [
         'opening_correction' => 'Opening Correction',
@@ -299,9 +313,10 @@ const CAN_CREATE = <?= $canCreate ? 'true' : 'false' ?>;
 
 const REASONS = <?= json_encode($REASONS) ?>;
 const ADJ_TYPES_NEG = [
-    { val: 'WASTE',            lbl: 'Waste'           },
-    { val: 'SPOILAGE',         lbl: 'Spoilage'        },
-    { val: 'ADJUSTMENT_MINUS', lbl: 'Adjustment Minus' },
+    { val: 'WASTE',         lbl: 'Waste'          },
+    { val: 'SPOIL',         lbl: 'Spoil'          },
+    { val: 'PROCESS_LOSS',  lbl: 'Process Loss'   },
+    { val: 'VARIANCE',      lbl: 'Variance / Minus' },
 ];
 const ADJ_TYPES_POS = [
     { val: 'ADJUSTMENT_PLUS', lbl: 'Adjustment Plus' },

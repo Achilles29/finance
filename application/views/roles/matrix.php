@@ -7,11 +7,12 @@
  */
 $users_in_role   = $users_in_role ?? [];
 $pages_by_module = $pages_by_module ?? [];
+$group_meta      = $group_meta ?? [];
 
-// Metadata per modul: ikon, warna aksen, label display
-$mod_meta = [
+// Metadata default: ikon, warna aksen, label display
+$default_mod_meta = [
     'DASHBOARD'  => ['icon' => 'ri-dashboard-line',           'color' => '#1d4ed8', 'bg' => '#eff6ff', 'label' => 'Dashboard'],
-  'SISTEM'     => ['icon' => 'ri-settings-3-line',          'color' => '#475569', 'bg' => '#f1f5f9', 'label' => 'Sistem & Hak Akses'],
+    'SISTEM'     => ['icon' => 'ri-settings-3-line',          'color' => '#475569', 'bg' => '#f1f5f9', 'label' => 'Sistem & Hak Akses'],
     'AUTH'       => ['icon' => 'ri-lock-password-line',       'color' => '#2563eb', 'bg' => '#eff6ff', 'label' => 'Auth & RBAC'],
     'SYS'        => ['icon' => 'ri-settings-3-line',          'color' => '#475569', 'bg' => '#f1f5f9', 'label' => 'Sistem'],
     'MASTER'     => ['icon' => 'ri-database-2-line',          'color' => '#7c3aed', 'bg' => '#f5f3ff', 'label' => 'Master Data'],
@@ -26,6 +27,15 @@ $mod_meta = [
   'PRODUKSI'   => ['icon' => 'ri-flask-line',               'color' => '#0f766e', 'bg' => '#ecfeff', 'label' => 'Produksi'],
   'MY_PORTAL'  => ['icon' => 'ri-user-settings-line',       'color' => '#4338ca', 'bg' => '#eef2ff', 'label' => 'Portal Saya'],
 ];
+$mod_meta = $default_mod_meta;
+foreach ($group_meta as $groupCode => $meta) {
+    $mod_meta[$groupCode] = [
+        'icon' => $meta['icon'] ?? ($mod_meta[$groupCode]['icon'] ?? 'ri-apps-line'),
+        'color' => $meta['color'] ?? ($mod_meta[$groupCode]['color'] ?? '#64748b'),
+        'bg' => $meta['bg_color'] ?? ($mod_meta[$groupCode]['bg'] ?? '#f8fafc'),
+        'label' => $meta['group_label'] ?? ($mod_meta[$groupCode]['label'] ?? $groupCode),
+    ];
+}
 
 // Pre-hitung stats per modul & grand total
 $mod_stats       = [];

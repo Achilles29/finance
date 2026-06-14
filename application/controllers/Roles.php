@@ -175,6 +175,7 @@ class Roles extends MY_Controller
             'active_menu'      => 'sys.roles',
             'role'             => $role,
             'pages_by_module'  => $this->Role_model->get_pages_with_permissions($id),
+            'group_meta'       => $this->Role_model->get_matrix_group_registry(),
             'users_in_role'    => $this->Role_model->get_users_in_role($id),
         ];
 
@@ -286,52 +287,33 @@ class Roles extends MY_Controller
         $this->require_permission(self::PAGE_MATRIX, 'view');
 
         $hasGroup = $this->db->field_exists('matrix_group', 'sys_page');
-
-        $select = $hasGroup
-            ? 'p.id, p.page_code, p.page_name, p.module, p.is_active, p.matrix_group,
-               COALESCE(menu.menu_label, \'\') AS menu_label,
-               COALESCE(menu.menu_url, \'\') AS menu_url,
-               CASE WHEN menu.page_id IS NOT NULL THEN 1 ELSE 0 END AS has_menu'
-            : 'p.id, p.page_code, p.page_name, p.module, p.is_active,
-               COALESCE(menu.menu_label, \'\') AS menu_label,
-               COALESCE(menu.menu_url, \'\') AS menu_url,
-               CASE WHEN menu.page_id IS NOT NULL THEN 1 ELSE 0 END AS has_menu';
-
-        $menuSub = $this->db
-            ->select('m.page_id, MIN(m.menu_label) AS menu_label, MIN(m.url) AS menu_url', false)
-            ->from('sys_menu m')
-            ->where('m.is_active', 1)
-            ->where('m.page_id IS NOT NULL', null, false)
-            ->group_by('m.page_id')
-            ->get_compiled_select();
-
-        $this->db->select($select, false);
-        $this->db->from('sys_page p');
-        $this->db->join('(' . $menuSub . ') menu', 'menu.page_id = p.id', 'left');
-        // Tampilkan SEMUA page (aktif maupun nonaktif)
-        if ($hasGroup) {
-            $this->db->order_by('COALESCE(p.matrix_group, p.module)', 'ASC', false);
-        } else {
-            $this->db->order_by('p.module', 'ASC');
-        }
-        $this->db->order_by('COALESCE(menu.menu_label, p.page_name)', 'ASC', false);
-        $pages = $this->db->get()->result_array();
+        $pages = $this->Role_model->get_pages_for_matrix_layout();
+        $groupMeta = $this->Role_model->get_matrix_group_registry();
 
         // Group pages and collect unique group names
         $grouped   = [];
         $allGroups = [];
         foreach ($pages as $page) {
-            $gk = $hasGroup && !empty($page['matrix_group'])
-                ? (string)$page['matrix_group']
-                : (string)$page['module'];
+            $gk = (string)($page['resolved_group_code'] ?? $page['module'] ?? 'OTHER');
             $grouped[$gk][] = $page;
             $allGroups[$gk] = true;
-            $allGroups[(string)$page['module']] = true;
+            if (!empty($page['module'])) {
+                $allGroups[(string)$page['module']] = true;
+            }
+        }
+        foreach (array_keys($groupMeta) as $groupCode) {
+            $allGroups[$groupCode] = true;
         }
         $allGroups = array_keys($allGroups);
-        sort($allGroups);
+        usort($allGroups, static function (string $a, string $b) use ($groupMeta): int {
+            $sortA = (int)($groupMeta[$a]['sort_order'] ?? 9999);
+            $sortB = (int)($groupMeta[$b]['sort_order'] ?? 9999);
+            if ($sortA !== $sortB) {
+                return $sortA <=> $sortB;
+            }
+            return strcmp($a, $b);
+        });
 
-        // Mod meta lookup (reuse same map as matrix.php)
         $data = [
             'title'         => 'Konfigurasi Grup Matrix',
             'active_menu'   => 'sys.roles',
@@ -339,6 +321,7 @@ class Roles extends MY_Controller
             'all_groups'    => $allGroups,
             'has_group_col' => $hasGroup,
             'total_pages'   => count($pages),
+            'group_meta'    => $groupMeta,
         ];
 
         $this->render('roles/matrix_layout', $data);
