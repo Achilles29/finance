@@ -3549,12 +3549,17 @@ class Payroll_model extends CI_Model
                 p.*,
                 c.config_name,
                 r.rule_name,
+                " . $this->target_plan_name_expr('tp') . " AS target_plan_name,
                 o.outlet_name,
                 d.division_name
             ", false)
             ->from('pay_bonus_pool_daily p')
             ->join('pay_bonus_config c', 'c.id = p.config_id', 'left')
             ->join('pay_bonus_rule r', 'r.id = p.rule_id', 'left');
+
+        if ($this->db->table_exists('fin_target_plan')) {
+            $db->join('fin_target_plan tp', 'tp.id = p.target_plan_id', 'left');
+        }
 
         if ($this->db->table_exists('pos_outlet')) {
             $db->join('pos_outlet o', 'o.id = p.outlet_id', 'left');
@@ -3567,6 +3572,15 @@ class Payroll_model extends CI_Model
                 ->like('r.rule_name', $q)
                 ->or_like('c.config_name', $q)
                 ->or_like('p.approval_status', strtoupper($q));
+            if ($this->db->table_exists('fin_target_plan')) {
+                if ($this->table_has_field('fin_target_plan', 'target_name')) {
+                    $db->or_like('tp.target_name', $q);
+                } elseif ($this->table_has_field('fin_target_plan', 'plan_name')) {
+                    $db->or_like('tp.plan_name', $q);
+                } elseif ($this->table_has_field('fin_target_plan', 'name')) {
+                    $db->or_like('tp.name', $q);
+                }
+            }
             if ($this->db->table_exists('pos_outlet')) {
                 $db->or_like('o.outlet_name', $q);
             }
@@ -3595,6 +3609,146 @@ class Payroll_model extends CI_Model
         return $this->build_bonus_pool_query($month, $q)
             ->order_by('p.bonus_date', 'DESC')
             ->order_by('p.id', 'DESC')
+            ->limit($limit, $offset)
+            ->get()->result_array();
+    }
+
+    private function build_bonus_service_metric_query(string $month = '', string $q = ''): CI_DB_query_builder
+    {
+        if (!$this->db->table_exists('pay_bonus_service_metric_daily')) {
+            return $this->db;
+        }
+
+        $month = preg_match('/^\d{4}-\d{2}$/', $month) ? $month : date('Y-m');
+
+        $db = $this->db->select("
+                sm.*,
+                o.outlet_name,
+                d.division_name,
+                s.shift_code,
+                s.shift_name
+            ", false)
+            ->from('pay_bonus_service_metric_daily sm');
+
+        if ($this->db->table_exists('pos_outlet')) {
+            $db->join('pos_outlet o', 'o.id = sm.outlet_id', 'left');
+        }
+        $db->join('org_division d', 'd.id = sm.division_id', 'left')
+            ->join('att_shift s', 's.id = sm.shift_id', 'left')
+            ->where("DATE_FORMAT(sm.metric_date, '%Y-%m') =", $month);
+
+        if ($q !== '') {
+            $db->group_start();
+            if ($this->db->table_exists('pos_outlet')) {
+                $db->like('o.outlet_name', $q)
+                    ->or_like('d.division_name', $q);
+            } else {
+                $db->like('d.division_name', $q);
+            }
+            $db->or_like('s.shift_code', $q)
+                ->or_like('s.shift_name', $q)
+                ->or_like('sm.source_notes', $q)
+                ->group_end();
+        }
+
+        return $db;
+    }
+
+    public function count_bonus_service_metrics(string $month = '', string $q = ''): int
+    {
+        if (!$this->db->table_exists('pay_bonus_service_metric_daily')) {
+            return 0;
+        }
+
+        $this->build_bonus_service_metric_query($month, $q);
+        return (int)$this->db->count_all_results();
+    }
+
+    public function list_bonus_service_metrics(string $month = '', string $q = '', int $limit = 25, int $offset = 0): array
+    {
+        if (!$this->db->table_exists('pay_bonus_service_metric_daily')) {
+            return [];
+        }
+
+        return $this->build_bonus_service_metric_query($month, $q)
+            ->order_by('sm.metric_date', 'DESC')
+            ->order_by('sm.outlet_id IS NULL', 'ASC', false)
+            ->order_by('o.outlet_name', 'ASC')
+            ->order_by('sm.division_id IS NULL', 'ASC', false)
+            ->order_by('d.division_name', 'ASC')
+            ->order_by('sm.shift_id IS NULL', 'ASC', false)
+            ->order_by('s.shift_code', 'ASC')
+            ->order_by('sm.id', 'DESC')
+            ->limit($limit, $offset)
+            ->get()->result_array();
+    }
+
+    private function build_bonus_monthly_summary_query(string $month = '', string $q = ''): CI_DB_query_builder
+    {
+        if (!$this->db->table_exists('pay_bonus_monthly_summary')) {
+            return $this->db;
+        }
+
+        $month = preg_match('/^\d{4}-\d{2}$/', $month) ? $month : date('Y-m');
+
+        $db = $this->db->select("
+                ms.*,
+                c.config_name,
+                r.rule_name,
+                e.employee_code,
+                e.employee_name,
+                o.outlet_name,
+                d.division_name
+            ", false)
+            ->from('pay_bonus_monthly_summary ms')
+            ->join('pay_bonus_config c', 'c.id = ms.config_id', 'left')
+            ->join('pay_bonus_rule r', 'r.id = ms.rule_id', 'left')
+            ->join('org_employee e', 'e.id = ms.employee_id', 'left');
+
+        if ($this->db->table_exists('pos_outlet')) {
+            $db->join('pos_outlet o', 'o.id = ms.outlet_id', 'left');
+        }
+        $db->join('org_division d', 'd.id = ms.division_id', 'left')
+            ->where('ms.summary_month', $month);
+
+        if ($q !== '') {
+            $db->group_start()
+                ->like('e.employee_name', $q)
+                ->or_like('e.employee_code', $q)
+                ->or_like('c.config_name', $q)
+                ->or_like('r.rule_name', $q);
+            if ($this->db->table_exists('pos_outlet')) {
+                $db->or_like('o.outlet_name', $q);
+            }
+            $db->or_like('d.division_name', $q)
+                ->or_like('ms.payout_status', strtoupper($q))
+                ->or_like('ms.notes', $q)
+                ->group_end();
+        }
+
+        return $db;
+    }
+
+    public function count_bonus_monthly_summaries(string $month = '', string $q = ''): int
+    {
+        if (!$this->db->table_exists('pay_bonus_monthly_summary')) {
+            return 0;
+        }
+
+        $this->build_bonus_monthly_summary_query($month, $q);
+        return (int)$this->db->count_all_results();
+    }
+
+    public function list_bonus_monthly_summaries(string $month = '', string $q = '', int $limit = 25, int $offset = 0): array
+    {
+        if (!$this->db->table_exists('pay_bonus_monthly_summary')) {
+            return [];
+        }
+
+        return $this->build_bonus_monthly_summary_query($month, $q)
+            ->order_by('ms.total_final_amount', 'DESC')
+            ->order_by('e.employee_name', 'ASC')
+            ->order_by('ms.id', 'DESC')
             ->limit($limit, $offset)
             ->get()->result_array();
     }
@@ -4000,7 +4154,7 @@ class Payroll_model extends CI_Model
         return $db->get()->row_array() ?: [];
     }
 
-    private function calculate_bonus_target_context(array $rule, int $actorUserId = 0): array
+    private function calculate_bonus_target_context(array $rule, string $bonusDate = '', int $actorUserId = 0): array
     {
         $default = [
             'target_plan_id' => !empty($rule['linked_target_plan_id']) ? (int)$rule['linked_target_plan_id'] : null,
@@ -4008,50 +4162,50 @@ class Payroll_model extends CI_Model
             'target_gate_passed' => 1,
             'target_multiplier' => 1.0000,
             'target_notes' => 'Target netral',
+            'target_progress_start' => null,
+            'target_progress_end' => null,
         ];
 
         $planId = (int)($rule['linked_target_plan_id'] ?? 0);
-        if ($planId <= 0 || !$this->db->table_exists('fin_target_plan') || !$this->db->table_exists('fin_target_realization')) {
+        if ($planId <= 0 || !$this->db->table_exists('fin_target_plan')) {
             return $default;
         }
 
-        $realizationCount = (int)$this->db->from('fin_target_realization')->where('target_plan_id', $planId)->count_all_results();
-        if ($realizationCount <= 0) {
-            $CI = &get_instance();
-            $CI->load->model('Finance_report_model');
-            if (isset($CI->Finance_report_model) && method_exists($CI->Finance_report_model, 'generate_target_realization')) {
-                $CI->Finance_report_model->generate_target_realization($planId, $actorUserId);
-            }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $bonusDate)) {
+            $bonusDate = date('Y-m-d');
         }
 
-        $row = $this->db->select("
-                COALESCE(AVG(score_percent), 100) AS avg_score_percent,
-                COALESCE(MIN(bonus_gate_passed), 1) AS all_bonus_gate_passed
-            ", false)
-            ->from('fin_target_realization')
-            ->where('target_plan_id', $planId)
-            ->get()->row_array();
-        if (!$row) {
+        $CI = &get_instance();
+        $CI->load->model('Finance_report_model');
+        if (!isset($CI->Finance_report_model) || !method_exists($CI->Finance_report_model, 'get_target_progress_snapshot')) {
             return $default;
         }
 
-        $avgScore = round((float)($row['avg_score_percent'] ?? 100), 2);
-        $allPassed = (int)($row['all_bonus_gate_passed'] ?? 1) === 1;
+        $progress = $CI->Finance_report_model->get_target_progress_snapshot($planId, $bonusDate);
+        if (empty($progress['ok']) || empty($progress['applicable'])) {
+            $default['target_notes'] = (string)($progress['notes'] ?? 'Target netral');
+            return $default;
+        }
+
+        $avgScore = round((float)($progress['avg_score_percent'] ?? 100), 2);
+        $allPassed = !empty($progress['all_required_passed']);
         $gateMode = strtoupper((string)($rule['target_gate_mode'] ?? 'WEIGHTED_SCORE'));
         $minTargetScore = max(1, (float)($rule['min_target_score'] ?? 100));
         $multiplier = 1.0000;
         $passed = 1;
-        $notes = 'Target netral';
+        $notes = (string)($progress['notes'] ?? 'Target netral');
 
         if ($gateMode === 'ALL_REQUIRED') {
             $passed = $allPassed ? 1 : 0;
             $multiplier = $passed ? 1.0000 : 0.0000;
-            $notes = $passed ? 'Semua target lolos' : 'Ada target yang belum lolos';
+            $notes = $passed
+                ? 'Semua target wajib saat ini lolos'
+                : 'Masih ada target wajib yang belum lolos';
         } elseif ($gateMode === 'WEIGHTED_SCORE') {
             $ratio = max(0, min(1, $avgScore / $minTargetScore));
             $multiplier = round($ratio, 4);
             $passed = $avgScore >= $minTargetScore ? 1 : 0;
-            $notes = 'Skor target rata-rata ' . number_format($avgScore, 2, ',', '.') . '%';
+            $notes = 'Skor target progres ' . number_format($avgScore, 2, ',', '.') . '%';
         }
 
         return [
@@ -4060,6 +4214,8 @@ class Payroll_model extends CI_Model
             'target_gate_passed' => $passed,
             'target_multiplier' => $multiplier,
             'target_notes' => $notes,
+            'target_progress_start' => (string)($progress['date_start'] ?? ''),
+            'target_progress_end' => (string)($progress['date_end'] ?? ''),
         ];
     }
 
@@ -4650,7 +4806,7 @@ class Payroll_model extends CI_Model
                 : round($netSalesAmount * ($formulaValue / 100), 2);
         }
 
-        $targetCtx = $this->calculate_bonus_target_context($rule, $actorUserId);
+        $targetCtx = $this->calculate_bonus_target_context($rule, $bonusDate, $actorUserId);
         $configPayoutMultiplier = max(0, min(100, (float)($rule['payout_percent'] ?? 100))) / 100;
         $serviceTargetMinute = round((float)($rule['service_time_target_minute'] ?? 0), 2);
         $serviceScorePercent = 100.00;

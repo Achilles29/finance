@@ -114,6 +114,61 @@ class Finance_reports extends MY_Controller
         ]);
     }
 
+    public function financial_estimation()
+    {
+        $this->require_permission('finance.financial_estimation.index', 'view');
+
+        $dateStart = trim((string)$this->input->get('date_start', true));
+        $dateEnd = trim((string)$this->input->get('date_end', true));
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateStart)) {
+            $dateStart = date('Y-m-01');
+        }
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateEnd)) {
+            $dateEnd = date('Y-m-t');
+        }
+
+        $report = $this->Finance_report_model->financial_estimation_report($dateStart, $dateEnd);
+
+        $this->render('finance/financial_estimation', [
+            'page_title' => 'Estimasi Keuangan',
+            'active_menu' => 'finance.financial_estimation',
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+            'report' => $report,
+        ]);
+    }
+
+    public function bank_daily_recap()
+    {
+        $this->require_permission('finance.bank_daily_recap.index', 'view');
+
+        $month = trim((string)$this->input->get('month', true));
+        if (!preg_match('/^\d{4}\-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+
+        $accounts = $this->Finance_report_model->active_company_accounts();
+        $selectedAccountId = (int)$this->input->get('account_id', true);
+        $allowedIds = array_map(static function ($row) {
+            return (int)($row['id'] ?? 0);
+        }, (array)$accounts);
+        $allowedIds = array_values(array_filter($allowedIds));
+        if ($selectedAccountId > 0 && !in_array($selectedAccountId, $allowedIds, true)) {
+            $selectedAccountId = 0;
+        }
+
+        $report = $this->Finance_report_model->bank_daily_recap($month, $selectedAccountId);
+
+        $this->render('finance/bank_daily_recap', [
+            'page_title' => 'Rekap Rekening Harian',
+            'active_menu' => 'finance.bank_daily_recap',
+            'month' => $month,
+            'accounts' => $accounts,
+            'selected_account_id' => $selectedAccountId,
+            'report' => $report,
+        ]);
+    }
+
     public function period_close()
     {
         $this->require_permission('finance.period_close.index', 'view');

@@ -1813,9 +1813,10 @@ class Purchase extends MY_Controller
         }
         $destinationFilter = $this->normalizeDestinationForDivisionFilter($destinationFilter, $divisionId, $destinationGuardMap);
         $limit = (int)$this->input->get('limit', true);
-        if ($limit <= 0 || $limit > 1000) {
-            $limit = 300;
+        if ($limit <= 0 || $limit > 500) {
+            $limit = 100;
         }
+        $page = max(1, (int)$this->input->get('page', true));
 
         $data = [
             'title' => 'Stok Bahan Baku Bulanan',
@@ -1827,9 +1828,10 @@ class Purchase extends MY_Controller
             'division_id' => $divisionId,
             'destination' => $destinationFilter,
             'limit' => $limit,
+            'page' => $page,
             'divisions' => $divisions,
             'destination_guard_map' => $destinationGuardMap,
-            'rows' => $this->Purchase_model->list_division_daily_snapshot($month, $q, $divisionId > 0 ? $divisionId : null, $dateFrom, $dateTo, $limit, $destinationFilter),
+            'rows' => $this->Purchase_model->list_division_daily_snapshot($month, $q, $divisionId > 0 ? $divisionId : null, $dateFrom, $dateTo, 2000, $destinationFilter),
         ];
 
         $this->render('purchase/stock_division_daily_index', $data);

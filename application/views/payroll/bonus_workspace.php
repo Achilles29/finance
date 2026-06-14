@@ -14,16 +14,22 @@ $penaltyTypeRows = $penalty_type_rows ?? [];
 $penaltyEventRows = $penalty_event_rows ?? [];
 $poolRows = $pool_rows ?? [];
 $pendingPeerRows = $pending_peer_rows ?? [];
+$serviceMetricRows = $service_metric_rows ?? [];
+$monthlySummaryRows = $monthly_summary_rows ?? [];
 $poolFilters = $pool_filters ?? ['q' => ''];
 $ruleFilters = $rule_filters ?? ['q' => ''];
 $penaltyTypeFilters = $penalty_type_filters ?? ['q' => ''];
 $penaltyEventFilters = $penalty_event_filters ?? ['q' => ''];
 $peerFilters = $peer_filters ?? ['q' => ''];
+$serviceFilters = $service_filters ?? ['q' => ''];
+$monthlyFilters = $monthly_filters ?? ['q' => ''];
 $poolPg = $pool_pg ?? ['total' => count($poolRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1, 'offset' => 0];
 $rulePg = $rule_pg ?? ['total' => count($ruleRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1, 'offset' => 0];
 $penaltyTypePg = $penalty_type_pg ?? ['total' => count($penaltyTypeRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1, 'offset' => 0];
 $penaltyEventPg = $penalty_event_pg ?? ['total' => count($penaltyEventRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1, 'offset' => 0];
 $peerPg = $peer_pg ?? ['total' => count($pendingPeerRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1, 'offset' => 0];
+$servicePg = $service_pg ?? ['total' => count($serviceMetricRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1, 'offset' => 0];
+$monthlyPg = $monthly_pg ?? ['total' => count($monthlySummaryRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1, 'offset' => 0];
 $penaltyCategoryLabels = [
     'ATTENDANCE' => 'Absensi',
     'DISCIPLINE' => 'Disiplin',
@@ -97,7 +103,7 @@ $buildUrl = static function (array $overrides = []) use ($month, $tab) {
         'tab' => $tab,
     ], $overrides));
 };
-$buildTableUrl = static function (array $overrides = []) use ($month, $tab, $poolFilters, $ruleFilters, $penaltyTypeFilters, $penaltyEventFilters, $peerFilters, $poolPg, $rulePg, $penaltyTypePg, $penaltyEventPg, $peerPg) {
+$buildTableUrl = static function (array $overrides = []) use ($month, $tab, $poolFilters, $ruleFilters, $penaltyTypeFilters, $penaltyEventFilters, $peerFilters, $serviceFilters, $monthlyFilters, $poolPg, $rulePg, $penaltyTypePg, $penaltyEventPg, $peerPg, $servicePg, $monthlyPg) {
     $base = [
         'month' => $month,
         'tab' => $tab,
@@ -116,6 +122,12 @@ $buildTableUrl = static function (array $overrides = []) use ($month, $tab, $poo
         'peer_q' => $peerFilters['q'] ?? '',
         'peer_page' => $peerPg['page'] ?? 1,
         'peer_per_page' => $peerPg['per_page'] ?? 25,
+        'service_q' => $serviceFilters['q'] ?? '',
+        'service_page' => $servicePg['page'] ?? 1,
+        'service_per_page' => $servicePg['per_page'] ?? 25,
+        'monthly_q' => $monthlyFilters['q'] ?? '',
+        'monthly_page' => $monthlyPg['page'] ?? 1,
+        'monthly_per_page' => $monthlyPg['per_page'] ?? 25,
     ];
     return site_url('payroll/bonus') . '?' . http_build_query(array_merge($base, $overrides));
 };
@@ -210,6 +222,8 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
   <li class="nav-item"><a class="nav-link <?php echo $tab === 'rules' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'rules']); ?>">Aturan Bonus</a></li>
   <li class="nav-item"><a class="nav-link <?php echo $tab === 'penalties' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'penalties']); ?>">Penalti</a></li>
   <li class="nav-item"><a class="nav-link <?php echo $tab === 'peer' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'peer']); ?>">Penilaian 360</a></li>
+  <li class="nav-item"><a class="nav-link <?php echo $tab === 'service' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'service']); ?>">Metric Layanan</a></li>
+  <li class="nav-item"><a class="nav-link <?php echo $tab === 'monthly' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'monthly']); ?>">Rekap Bulanan</a></li>
   <li class="nav-item"><a class="nav-link <?php echo $tab === 'guide' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'guide']); ?>">Panduan</a></li>
 </ul>
 
@@ -264,14 +278,34 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
           </form>
           <div class="bonus-table-wrap bonus-table">
             <table class="table align-middle mb-0">
-              <thead><tr><th>Tanggal</th><th>Aturan</th><th class="text-end">Penjualan Bersih</th><th class="text-end">Pool</th><th>Status</th><th>Aksi</th></tr></thead>
+              <thead><tr><th>Tanggal</th><th>Aturan</th><th>Target</th><th class="text-end">Penjualan Bersih</th><th class="text-end">Pool</th><th>Status</th><th>Aksi</th></tr></thead>
               <tbody>
               <?php if (empty($poolRows)): ?>
-                <tr><td colspan="6" class="text-center text-muted py-4">Belum ada pool bonus pada bulan ini.</td></tr>
+                <tr><td colspan="7" class="text-center text-muted py-4">Belum ada pool bonus pada bulan ini.</td></tr>
               <?php else: foreach ($poolRows as $row): ?>
                 <tr>
                   <td><?php echo html_escape((string)($row['bonus_date'] ?? '-')); ?></td>
                   <td><strong><?php echo html_escape((string)($row['rule_name'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape((string)($row['outlet_name'] ?? $row['division_name'] ?? $row['config_name'] ?? '-')); ?></div></td>
+                  <td>
+                    <?php
+                      $targetPlanName = trim((string)($row['target_plan_name'] ?? ''));
+                      $targetScorePercent = (float)($row['target_score_percent'] ?? 100);
+                      $targetGatePassed = (int)($row['target_gate_passed'] ?? 1) === 1;
+                    ?>
+                    <?php if ($targetPlanName !== ''): ?>
+                      <strong><?php echo html_escape($targetPlanName); ?></strong>
+                      <div class="small text-muted">
+                        Skor <?php echo number_format($targetScorePercent, 2, ',', '.'); ?>%
+                        <?php if ($targetGatePassed): ?>
+                          <span class="bonus-soft-badge ok ms-1">Lolos</span>
+                        <?php else: ?>
+                          <span class="bonus-soft-badge warn ms-1">Tertahan</span>
+                        <?php endif; ?>
+                      </div>
+                    <?php else: ?>
+                      <span class="small text-muted">Tidak pakai target khusus</span>
+                    <?php endif; ?>
+                  </td>
                   <td class="text-end">Rp <?php echo number_format((float)($row['net_sales_amount'] ?? 0), 2, ',', '.'); ?></td>
                   <td class="text-end fw-semibold">Rp <?php echo number_format((float)($row['payout_amount'] ?? $row['pool_amount'] ?? 0), 2, ',', '.'); ?></td>
                   <td>
@@ -1139,6 +1173,214 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
         </table>
       </div>
       <?php $renderPager($peerPg, static function ($overrides) use ($buildTableUrl) { return $buildTableUrl(array_merge(['tab' => 'peer'], $overrides)); }, 'peer_page', 'peer_per_page'); ?>
+    </div>
+  </div>
+<?php elseif ($tab === 'service'): ?>
+  <div class="card bonus-card">
+    <div class="card-header bg-white border-0 pb-0">
+      <h5 class="mb-1">Metric layanan harian</h5>
+      <div class="small text-muted">Di sini kita lihat kualitas layanan per hari, per outlet, dan per shift. Data ini nanti ikut membentuk bobot bonus operasional.</div>
+    </div>
+    <div class="card-body">
+      <form method="get" action="<?php echo site_url('payroll/bonus'); ?>" class="bonus-filter-bar mb-3">
+        <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+        <input type="hidden" name="tab" value="service">
+        <input type="hidden" name="pool_q" value="<?php echo html_escape((string)($poolFilters['q'] ?? '')); ?>">
+        <input type="hidden" name="pool_page" value="<?php echo (int)($poolPg['page'] ?? 1); ?>">
+        <input type="hidden" name="pool_per_page" value="<?php echo (int)($poolPg['per_page'] ?? 25); ?>">
+        <input type="hidden" name="rule_q" value="<?php echo html_escape((string)($ruleFilters['q'] ?? '')); ?>">
+        <input type="hidden" name="rule_page" value="<?php echo (int)($rulePg['page'] ?? 1); ?>">
+        <input type="hidden" name="rule_per_page" value="<?php echo (int)($rulePg['per_page'] ?? 25); ?>">
+        <input type="hidden" name="penalty_type_q" value="<?php echo html_escape((string)($penaltyTypeFilters['q'] ?? '')); ?>">
+        <input type="hidden" name="penalty_type_page" value="<?php echo (int)($penaltyTypePg['page'] ?? 1); ?>">
+        <input type="hidden" name="penalty_type_per_page" value="<?php echo (int)($penaltyTypePg['per_page'] ?? 25); ?>">
+        <input type="hidden" name="penalty_event_q" value="<?php echo html_escape((string)($penaltyEventFilters['q'] ?? '')); ?>">
+        <input type="hidden" name="penalty_event_page" value="<?php echo (int)($penaltyEventPg['page'] ?? 1); ?>">
+        <input type="hidden" name="penalty_event_per_page" value="<?php echo (int)($penaltyEventPg['per_page'] ?? 25); ?>">
+        <input type="hidden" name="peer_q" value="<?php echo html_escape((string)($peerFilters['q'] ?? '')); ?>">
+        <input type="hidden" name="peer_page" value="<?php echo (int)($peerPg['page'] ?? 1); ?>">
+        <input type="hidden" name="peer_per_page" value="<?php echo (int)($peerPg['per_page'] ?? 25); ?>">
+        <input type="hidden" name="monthly_q" value="<?php echo html_escape((string)($monthlyFilters['q'] ?? '')); ?>">
+        <input type="hidden" name="monthly_page" value="<?php echo (int)($monthlyPg['page'] ?? 1); ?>">
+        <input type="hidden" name="monthly_per_page" value="<?php echo (int)($monthlyPg['per_page'] ?? 25); ?>">
+        <div class="row g-3 align-items-end">
+          <div class="col-md-8">
+            <label class="form-label">Cari metric</label>
+            <input type="text" name="service_q" class="form-control" value="<?php echo html_escape((string)($serviceFilters['q'] ?? '')); ?>" placeholder="Cari outlet, divisi, shift, atau catatan sumber">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Baris</label>
+            <select name="service_per_page" class="form-select">
+              <?php foreach ([10, 25, 50, 100] as $size): ?>
+                <option value="<?php echo $size; ?>" <?php echo (int)($servicePg['per_page'] ?? 25) === $size ? 'selected' : ''; ?>><?php echo $size; ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="col-md-2 d-grid">
+            <button type="submit" class="btn btn-outline-primary">Filter</button>
+          </div>
+        </div>
+      </form>
+      <div class="bonus-table-wrap bonus-table">
+        <table class="table align-middle mb-0">
+          <thead>
+          <tr>
+            <th>Tanggal</th>
+            <th>Scope</th>
+            <th class="text-end">Order</th>
+            <th class="text-end">Tersaji</th>
+            <th class="text-end">On Time</th>
+            <th class="text-end">Lewat SLA</th>
+            <th class="text-end">Rata2 Menit</th>
+            <th class="text-end">Skor</th>
+            <th>Catatan</th>
+          </tr>
+          </thead>
+          <tbody>
+          <?php if (empty($serviceMetricRows)): ?>
+            <tr><td colspan="9" class="text-center text-muted py-4">Belum ada metric layanan untuk bulan ini. Jalankan generator dari tab Ringkasan.</td></tr>
+          <?php else: foreach ($serviceMetricRows as $row): ?>
+            <?php
+              $scopeBits = [];
+              $scopeBits[] = !empty($row['outlet_name']) ? (string)$row['outlet_name'] : 'Semua outlet';
+              if (!empty($row['division_name'])) {
+                  $scopeBits[] = (string)$row['division_name'];
+              }
+              if (!empty($row['shift_code']) || !empty($row['shift_name'])) {
+                  $scopeBits[] = trim((string)(($row['shift_code'] ?? '') . ' ' . ($row['shift_name'] ?? '')));
+              } else {
+                  $scopeBits[] = 'Gabungan shift';
+              }
+              $serviceScore = (float)($row['service_score_percent'] ?? 0);
+            ?>
+            <tr>
+              <td><?php echo html_escape((string)($row['metric_date'] ?? '-')); ?></td>
+              <td><strong><?php echo html_escape(implode(' • ', $scopeBits)); ?></strong></td>
+              <td class="text-end"><?php echo number_format((int)($row['total_orders'] ?? 0)); ?></td>
+              <td class="text-end"><?php echo number_format((int)($row['served_orders'] ?? 0)); ?></td>
+              <td class="text-end"><?php echo number_format((int)($row['on_time_orders'] ?? 0)); ?></td>
+              <td class="text-end"><?php echo number_format(max(0, (int)($row['served_orders'] ?? 0) - (int)($row['on_time_orders'] ?? 0))); ?></td>
+              <td class="text-end"><?php echo number_format((float)($row['avg_service_minutes'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end">
+                <span class="bonus-soft-badge <?php echo $serviceScore >= 90 ? 'ok' : ($serviceScore >= 75 ? 'warn' : 'muted'); ?>">
+                  <?php echo number_format($serviceScore, 2, ',', '.'); ?>%
+                </span>
+              </td>
+              <td class="small text-muted"><?php echo html_escape((string)($row['source_notes'] ?? '-')); ?></td>
+            </tr>
+          <?php endforeach; endif; ?>
+          </tbody>
+        </table>
+      </div>
+      <?php $renderPager($servicePg, static function ($overrides) use ($buildTableUrl) { return $buildTableUrl(array_merge(['tab' => 'service'], $overrides)); }, 'service_page', 'service_per_page'); ?>
+    </div>
+  </div>
+<?php elseif ($tab === 'monthly'): ?>
+  <div class="card bonus-card">
+    <div class="card-header bg-white border-0 pb-0">
+      <h5 class="mb-1">Rekap bonus bulanan per pegawai</h5>
+      <div class="small text-muted">Ini adalah ringkasan akhir per pegawai untuk bulan terpilih. Cocok dipakai sebelum bonus diposting ke payroll.</div>
+    </div>
+    <div class="card-body">
+      <form method="get" action="<?php echo site_url('payroll/bonus'); ?>" class="bonus-filter-bar mb-3">
+        <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+        <input type="hidden" name="tab" value="monthly">
+        <input type="hidden" name="pool_q" value="<?php echo html_escape((string)($poolFilters['q'] ?? '')); ?>">
+        <input type="hidden" name="pool_page" value="<?php echo (int)($poolPg['page'] ?? 1); ?>">
+        <input type="hidden" name="pool_per_page" value="<?php echo (int)($poolPg['per_page'] ?? 25); ?>">
+        <input type="hidden" name="rule_q" value="<?php echo html_escape((string)($ruleFilters['q'] ?? '')); ?>">
+        <input type="hidden" name="rule_page" value="<?php echo (int)($rulePg['page'] ?? 1); ?>">
+        <input type="hidden" name="rule_per_page" value="<?php echo (int)($rulePg['per_page'] ?? 25); ?>">
+        <input type="hidden" name="penalty_type_q" value="<?php echo html_escape((string)($penaltyTypeFilters['q'] ?? '')); ?>">
+        <input type="hidden" name="penalty_type_page" value="<?php echo (int)($penaltyTypePg['page'] ?? 1); ?>">
+        <input type="hidden" name="penalty_type_per_page" value="<?php echo (int)($penaltyTypePg['per_page'] ?? 25); ?>">
+        <input type="hidden" name="penalty_event_q" value="<?php echo html_escape((string)($penaltyEventFilters['q'] ?? '')); ?>">
+        <input type="hidden" name="penalty_event_page" value="<?php echo (int)($penaltyEventPg['page'] ?? 1); ?>">
+        <input type="hidden" name="penalty_event_per_page" value="<?php echo (int)($penaltyEventPg['per_page'] ?? 25); ?>">
+        <input type="hidden" name="peer_q" value="<?php echo html_escape((string)($peerFilters['q'] ?? '')); ?>">
+        <input type="hidden" name="peer_page" value="<?php echo (int)($peerPg['page'] ?? 1); ?>">
+        <input type="hidden" name="peer_per_page" value="<?php echo (int)($peerPg['per_page'] ?? 25); ?>">
+        <input type="hidden" name="service_q" value="<?php echo html_escape((string)($serviceFilters['q'] ?? '')); ?>">
+        <input type="hidden" name="service_page" value="<?php echo (int)($servicePg['page'] ?? 1); ?>">
+        <input type="hidden" name="service_per_page" value="<?php echo (int)($servicePg['per_page'] ?? 25); ?>">
+        <div class="row g-3 align-items-end">
+          <div class="col-md-8">
+            <label class="form-label">Cari pegawai / paket bonus</label>
+            <input type="text" name="monthly_q" class="form-control" value="<?php echo html_escape((string)($monthlyFilters['q'] ?? '')); ?>" placeholder="Cari nama pegawai, paket bonus, outlet, divisi, atau status">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Baris</label>
+            <select name="monthly_per_page" class="form-select">
+              <?php foreach ([10, 25, 50, 100] as $size): ?>
+                <option value="<?php echo $size; ?>" <?php echo (int)($monthlyPg['per_page'] ?? 25) === $size ? 'selected' : ''; ?>><?php echo $size; ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="col-md-2 d-grid">
+            <button type="submit" class="btn btn-outline-primary">Filter</button>
+          </div>
+        </div>
+      </form>
+      <div class="bonus-table-wrap bonus-table">
+        <table class="table align-middle mb-0">
+          <thead>
+          <tr>
+            <th>Pegawai</th>
+            <th>Paket Bonus</th>
+            <th>Scope</th>
+            <th class="text-end">Poin Final</th>
+            <th class="text-end">Bonus Final</th>
+            <th class="text-center">Telat / Alpha / PH</th>
+            <th class="text-end">Peer</th>
+            <th class="text-end">Layanan</th>
+            <th class="text-end">Target</th>
+            <th>Status</th>
+          </tr>
+          </thead>
+          <tbody>
+          <?php if (empty($monthlySummaryRows)): ?>
+            <tr><td colspan="10" class="text-center text-muted py-4">Belum ada rekap bonus bulanan untuk bulan ini. Jalankan refresh rekap dari tab Ringkasan setelah pool disetujui.</td></tr>
+          <?php else: foreach ($monthlySummaryRows as $row): ?>
+            <?php
+              $scopeLabel = trim((string)(($row['outlet_name'] ?? '') . ' ' . (!empty($row['division_name']) ? '• ' . $row['division_name'] : '')));
+              if ($scopeLabel === '') {
+                  $scopeLabel = 'Global';
+              }
+              $status = strtoupper((string)($row['payout_status'] ?? 'DRAFT'));
+            ?>
+            <tr>
+              <td>
+                <strong><?php echo html_escape((string)($row['employee_name'] ?? '-')); ?></strong>
+                <div class="small text-muted"><?php echo html_escape((string)($row['employee_code'] ?? '')); ?></div>
+              </td>
+              <td>
+                <strong><?php echo html_escape((string)($row['config_name'] ?? '-')); ?></strong>
+                <div class="small text-muted"><?php echo html_escape((string)($row['rule_name'] ?? 'Tanpa rule spesifik')); ?></div>
+              </td>
+              <td class="small text-muted"><?php echo html_escape($scopeLabel); ?></td>
+              <td class="text-end fw-semibold"><?php echo number_format((float)($row['total_final_point'] ?? 0), 4, ',', '.'); ?></td>
+              <td class="text-end fw-semibold">Rp <?php echo number_format((float)($row['total_final_amount'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-center small">
+                <?php echo number_format((int)($row['late_count'] ?? 0)); ?>
+                /
+                <?php echo number_format((int)($row['alpha_count'] ?? 0)); ?>
+                /
+                <?php echo number_format((int)($row['ph_taken_count'] ?? 0)); ?>
+              </td>
+              <td class="text-end"><?php echo number_format((float)($row['peer_avg_star'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end"><?php echo number_format((float)($row['service_avg_score'] ?? 0), 2, ',', '.'); ?>%</td>
+              <td class="text-end"><?php echo number_format((float)($row['target_avg_score'] ?? 0), 2, ',', '.'); ?>%</td>
+              <td>
+                <span class="bonus-soft-badge <?php echo $status === 'POSTED' ? 'ok' : ($status === 'APPROVED' ? 'info' : ($status === 'VOID' ? 'muted' : 'warn')); ?>">
+                  <?php echo html_escape($status); ?>
+                </span>
+              </td>
+            </tr>
+          <?php endforeach; endif; ?>
+          </tbody>
+        </table>
+      </div>
+      <?php $renderPager($monthlyPg, static function ($overrides) use ($buildTableUrl) { return $buildTableUrl(array_merge(['tab' => 'monthly'], $overrides)); }, 'monthly_page', 'monthly_per_page'); ?>
     </div>
   </div>
 <?php else: ?>

@@ -43,6 +43,39 @@ $status = strtoupper((string)($row['status'] ?? 'DRAFT'));
     font-size: .79rem;
     text-transform: uppercase;
     vertical-align: middle;
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+  .fintdetail-table-wrap {
+    max-height: 72vh;
+    overflow: auto;
+    border-radius: 24px;
+  }
+  .fintdetail-table .form-control,
+  .fintdetail-table .form-select {
+    min-width: 110px;
+  }
+  .fintdetail-table .metric-note-input {
+    min-width: 180px;
+  }
+  .fintdetail-helper {
+    border: 1px solid rgba(143, 53, 58, .10);
+    background: #fff8f4;
+    border-radius: 16px;
+    padding: .8rem .95rem;
+  }
+  .fintdetail-helper .title {
+    font-size: .82rem;
+    font-weight: 700;
+    color: #6f222a;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .fintdetail-helper .body {
+    font-size: .9rem;
+    color: #6f5d56;
+    line-height: 1.65;
   }
   @media (max-width: 991.98px) {
     .fintdetail-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -129,11 +162,11 @@ $status = strtoupper((string)($row['status'] ?? 'DRAFT'));
                 <input type="number" step="0.01" name="min_bonus_score" class="form-control" value="<?php echo html_escape((string)($row['min_bonus_score'] ?? '100')); ?>">
               </div>
               <div class="col-md-2">
-                <label class="form-label">Bonus disiapkan</label>
+                <label class="form-label">Cadangan bonus bila target lolos</label>
                 <input type="number" step="0.01" name="bonus_pool_amount" class="form-control" value="<?php echo html_escape((string)($row['bonus_pool_amount'] ?? '0')); ?>">
               </div>
               <div class="col-md-2">
-                <label class="form-label">% laba untuk bonus</label>
+                <label class="form-label">% laba yang dialokasikan ke bonus</label>
                 <input type="number" step="0.0001" name="bonus_percent_of_profit" class="form-control" value="<?php echo html_escape((string)($row['bonus_percent_of_profit'] ?? '0')); ?>">
               </div>
               <div class="col-md-4">
@@ -151,6 +184,16 @@ $status = strtoupper((string)($row['status'] ?? 'DRAFT'));
               <div class="col-12">
                 <label class="form-label">Catatan singkat</label>
                 <input type="text" name="notes" class="form-control" value="<?php echo html_escape((string)($row['notes'] ?? '')); ?>" placeholder="Misal fokus jaga food cost dan kontrol adjustment">
+              </div>
+              <div class="col-12">
+                <div class="fintdetail-helper">
+                  <div class="title mb-1">Cara baca bagian bonus</div>
+                  <div class="body">
+                    <strong>Cadangan bonus</strong> adalah plafon manajerial yang ingin Anda siapkan jika target lolos.
+                    <strong>% laba untuk bonus</strong> adalah pagar agar bonus tidak melebihi porsi laba yang Anda anggap aman.
+                    Jika Anda ingin skema seperti <strong>3% omzet harian</strong> tapi <strong>cair setelah target bulanan lolos</strong>, maka target ini berfungsi sebagai gerbangnya, sedangkan angka 3% dan ambang omzet harian tetap diatur di rule bonus.
+                  </div>
+                </div>
               </div>
             </div>
             <div class="mt-3 d-flex justify-content-end">
@@ -178,7 +221,15 @@ $status = strtoupper((string)($row['status'] ?? 'DRAFT'));
           </div>
 
           <form method="post" action="<?php echo site_url('finance-reports/targets/lines-save/' . (int)($row['id'] ?? 0)); ?>">
-            <div class="table-responsive fintdetail-table">
+            <div class="fintdetail-helper mb-3">
+              <div class="title mb-1">Saran pengisian indikator</div>
+              <div class="body">
+                Gunakan indikator wajib hanya untuk hal yang benar-benar harus lolos, misalnya omzet minimal, margin profit minimal, atau batas adjustment yang tidak boleh jebol.
+                Untuk stok mengendap, sementara ini paling aman memakai <strong>Stok Akhir Gudang</strong> dan <strong>Stok Akhir Divisi</strong> sebagai penjaga akhir periode.
+              </div>
+            </div>
+
+            <div class="table-responsive fintdetail-table fintdetail-table-wrap">
               <table class="table table-hover align-middle mb-0">
                 <thead>
                   <tr>
@@ -232,7 +283,7 @@ $status = strtoupper((string)($row['status'] ?? 'DRAFT'));
                             <?php echo $line['latest_score_percent'] !== null ? (!empty($line['latest_is_passed']) ? 'lolos' : 'belum') : '-'; ?>
                           </div>
                         </td>
-                        <td><input type="text" name="line_notes[]" class="form-control form-control-sm" value="<?php echo html_escape((string)($line['notes'] ?? '')); ?>" placeholder="Opsional"></td>
+                        <td><input type="text" name="line_notes[]" class="form-control form-control-sm metric-note-input" value="<?php echo html_escape((string)($line['notes'] ?? '')); ?>" placeholder="Opsional"></td>
                       </tr>
                     <?php endforeach; ?>
                   <?php endif; ?>

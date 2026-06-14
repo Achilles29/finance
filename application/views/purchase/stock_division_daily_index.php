@@ -1,28 +1,15 @@
 <?php
 $baseUrl = site_url('inventory/stock/division/daily');
-$generateUrl = site_url('inventory/stock/opname/generate');
 $lotAuditBaseUrl = site_url('inventory/stock/division/lot');
 $genMonth = $month !== '' ? substr((string)$month, 0, 7) : date('Y-m');
 $buildLotUrl = static function (array $row) use ($lotAuditBaseUrl): string {
   $searchToken = trim((string)($row['profile_key'] ?? ''));
-  if ($searchToken === '') {
-    $searchToken = trim((string)($row['item_code'] ?? ''));
-  }
-  if ($searchToken === '') {
-    $searchToken = trim((string)($row['material_code'] ?? ''));
-  }
-  if ($searchToken === '') {
-    $searchToken = trim((string)($row['item_name'] ?? ''));
-  }
-  if ($searchToken === '') {
-    $searchToken = trim((string)($row['material_name'] ?? ''));
-  }
-
+  if ($searchToken === '') { $searchToken = trim((string)($row['item_code'] ?? '')); }
+  if ($searchToken === '') { $searchToken = trim((string)($row['material_code'] ?? '')); }
+  if ($searchToken === '') { $searchToken = trim((string)($row['item_name'] ?? '')); }
+  if ($searchToken === '') { $searchToken = trim((string)($row['material_name'] ?? '')); }
   $destination = trim((string)($row['destination_type'] ?? ''));
-  if ($destination === '') {
-    $destination = trim((string)($row['destination_group'] ?? 'ALL'));
-  }
-
+  if ($destination === '') { $destination = trim((string)($row['destination_group'] ?? 'ALL')); }
   $params = [
     'q' => $searchToken,
     'profile_key' => trim((string)($row['profile_key'] ?? '')),
@@ -31,10 +18,7 @@ $buildLotUrl = static function (array $row) use ($lotAuditBaseUrl): string {
     'item_id' => (int)($row['item_id'] ?? 0) > 0 ? (int)($row['item_id'] ?? 0) : null,
     'material_id' => (int)($row['material_id'] ?? 0) > 0 ? (int)($row['material_id'] ?? 0) : null,
   ];
-  $params = array_filter($params, static function ($value) {
-    return $value !== null && $value !== '';
-  });
-
+  $params = array_filter($params, static function ($value) { return $value !== null && $value !== ''; });
   return $lotAuditBaseUrl . (!empty($params) ? ('?' . http_build_query($params)) : '');
 };
 $rowsData = is_array($rows ?? null) ? $rows : [];
@@ -82,44 +66,22 @@ foreach ($rowsData as $row) {
       'profile_content_per_buy' => (float)($row['profile_content_per_buy'] ?? 0),
       'profile_buy_uom_code' => (string)($row['profile_buy_uom_code'] ?? ''),
       'profile_content_uom_code' => (string)($row['profile_content_uom_code'] ?? ''),
-      'opening_qty_content' => 0.0,
-      'opening_qty_pack' => 0.0,
-      'in_qty_content' => 0.0,
-      'in_qty_pack' => 0.0,
-      'out_qty_content' => 0.0,
-      'out_qty_pack' => 0.0,
-      'adjustment_qty_content' => 0.0,
-      'adjustment_qty_pack' => 0.0,
-      'closing_qty_content' => 0.0,
-      'closing_qty_pack' => 0.0,
-      'total_value' => 0.0,
-      'avg_cost_per_content' => 0.0,
-      'discard_qty_content' => 0.0,
-      'discard_qty_pack' => 0.0,
-      'spoil_qty_content' => 0.0,
-      'spoil_qty_pack' => 0.0,
-      'waste_qty_content' => 0.0,
-      'waste_qty_pack' => 0.0,
-      'waste_component_qty_content' => 0.0,
-      'waste_component_qty_pack' => 0.0,
-      'waste_component_value' => 0.0,
-      'spoilage_qty_content' => 0.0,
-      'spoilage_qty_pack' => 0.0,
-      'spoilage_value' => 0.0,
-      'process_loss_qty_content' => 0.0,
-      'process_loss_qty_pack' => 0.0,
-      'process_loss_value' => 0.0,
-      'variance_qty_content' => 0.0,
-      'variance_qty_pack' => 0.0,
-      'variance_value' => 0.0,
-      'adjustment_plus_qty_content' => 0.0,
-      'adjustment_plus_qty_pack' => 0.0,
-      'adjustment_plus_value' => 0.0,
-      'audit_has_mismatch' => 0,
-      'audit_mismatch_qty_content' => 0.0,
-      'audit_mismatch_notes' => '',
-      '_min_date' => null,
-      '_max_date' => null,
+      'opening_qty_content' => 0.0, 'opening_qty_pack' => 0.0,
+      'in_qty_content' => 0.0, 'in_qty_pack' => 0.0,
+      'out_qty_content' => 0.0, 'out_qty_pack' => 0.0,
+      'adjustment_qty_content' => 0.0, 'adjustment_qty_pack' => 0.0,
+      'closing_qty_content' => 0.0, 'closing_qty_pack' => 0.0,
+      'total_value' => 0.0, 'avg_cost_per_content' => 0.0,
+      'discard_qty_content' => 0.0, 'discard_qty_pack' => 0.0,
+      'spoil_qty_content' => 0.0, 'spoil_qty_pack' => 0.0,
+      'waste_qty_content' => 0.0, 'waste_qty_pack' => 0.0,
+      'waste_component_qty_content' => 0.0, 'waste_component_qty_pack' => 0.0, 'waste_component_value' => 0.0,
+      'spoilage_qty_content' => 0.0, 'spoilage_qty_pack' => 0.0, 'spoilage_value' => 0.0,
+      'process_loss_qty_content' => 0.0, 'process_loss_qty_pack' => 0.0, 'process_loss_value' => 0.0,
+      'variance_qty_content' => 0.0, 'variance_qty_pack' => 0.0, 'variance_value' => 0.0,
+      'adjustment_plus_qty_content' => 0.0, 'adjustment_plus_qty_pack' => 0.0, 'adjustment_plus_value' => 0.0,
+      'audit_has_mismatch' => 0, 'audit_mismatch_qty_content' => 0.0, 'audit_mismatch_notes' => '',
+      '_min_date' => null, '_max_date' => null,
     ];
   }
 
@@ -136,35 +98,21 @@ foreach ($rowsData as $row) {
   $spoilageQtyContent = $spoilQtyContent;
   $processLossQtyContent = (float)($row['process_loss_qty_content'] ?? 0);
   $varianceQtyContent = (float)($row['variance_qty_content'] ?? 0);
-  if ($varianceQtyContent <= 0 && $adjustmentQtyContent < 0) {
-    $varianceQtyContent = abs($adjustmentQtyContent);
-  }
+  if ($varianceQtyContent <= 0 && $adjustmentQtyContent < 0) { $varianceQtyContent = abs($adjustmentQtyContent); }
   $adjustmentPlusQtyContent = (float)($row['adjustment_plus_qty_content'] ?? 0);
-  if ($adjustmentPlusQtyContent <= 0 && $adjustmentQtyContent > 0) {
-    $adjustmentPlusQtyContent = $adjustmentQtyContent;
-  }
+  if ($adjustmentPlusQtyContent <= 0 && $adjustmentQtyContent > 0) { $adjustmentPlusQtyContent = $adjustmentQtyContent; }
 
   $avgCostPerContent = (float)($row['avg_cost_per_content'] ?? 0);
   $wasteComponentValue = (float)($row['waste_total_value'] ?? 0);
-  if ($wasteComponentValue <= 0 && $wasteComponentQtyContent > 0) {
-    $wasteComponentValue = $wasteComponentQtyContent * $avgCostPerContent;
-  }
+  if ($wasteComponentValue <= 0 && $wasteComponentQtyContent > 0) { $wasteComponentValue = $wasteComponentQtyContent * $avgCostPerContent; }
   $spoilageValue = (float)($row['spoilage_total_value'] ?? 0);
-  if ($spoilageValue <= 0 && $spoilageQtyContent > 0) {
-    $spoilageValue = $spoilageQtyContent * $avgCostPerContent;
-  }
+  if ($spoilageValue <= 0 && $spoilageQtyContent > 0) { $spoilageValue = $spoilageQtyContent * $avgCostPerContent; }
   $processLossValue = (float)($row['process_loss_total_value'] ?? 0);
-  if ($processLossValue <= 0 && $processLossQtyContent > 0) {
-    $processLossValue = $processLossQtyContent * $avgCostPerContent;
-  }
+  if ($processLossValue <= 0 && $processLossQtyContent > 0) { $processLossValue = $processLossQtyContent * $avgCostPerContent; }
   $varianceValue = (float)($row['variance_total_value'] ?? 0);
-  if ($varianceValue <= 0 && $varianceQtyContent > 0) {
-    $varianceValue = $varianceQtyContent * $avgCostPerContent;
-  }
+  if ($varianceValue <= 0 && $varianceQtyContent > 0) { $varianceValue = $varianceQtyContent * $avgCostPerContent; }
   $adjustmentPlusValue = (float)($row['adjustment_plus_total_value'] ?? 0);
-  if ($adjustmentPlusValue <= 0 && $adjustmentPlusQtyContent > 0) {
-    $adjustmentPlusValue = $adjustmentPlusQtyContent * $avgCostPerContent;
-  }
+  if ($adjustmentPlusValue <= 0 && $adjustmentPlusQtyContent > 0) { $adjustmentPlusValue = $adjustmentPlusQtyContent * $avgCostPerContent; }
 
   $entry['in_qty_content'] += $inQtyContent;
   $entry['out_qty_content'] += $outQtyContent;
@@ -187,21 +135,19 @@ foreach ($rowsData as $row) {
     $entry['audit_mismatch_qty_content'] = (float)($row['audit_mismatch_qty_content'] ?? $entry['audit_mismatch_qty_content'] ?? 0);
     $entry['audit_mismatch_notes'] = trim((string)($row['audit_mismatch_notes'] ?? $entry['audit_mismatch_notes'] ?? ''));
   }
-
   if ($profileContentPerBuy > 0) {
-    $entry['in_qty_pack'] += ($inQtyContent / $profileContentPerBuy);
-    $entry['out_qty_pack'] += ($outQtyContent / $profileContentPerBuy);
-    $entry['adjustment_qty_pack'] += ($adjustmentQtyContent / $profileContentPerBuy);
-    $entry['discard_qty_pack'] += ($discardQtyContent / $profileContentPerBuy);
-    $entry['spoil_qty_pack'] += ($spoilQtyContent / $profileContentPerBuy);
-    $entry['waste_qty_pack'] += ($wasteQtyContent / $profileContentPerBuy);
-    $entry['waste_component_qty_pack'] += ($wasteComponentQtyContent / $profileContentPerBuy);
-    $entry['spoilage_qty_pack'] += ($spoilageQtyContent / $profileContentPerBuy);
-    $entry['process_loss_qty_pack'] += ($processLossQtyContent / $profileContentPerBuy);
-    $entry['variance_qty_pack'] += ($varianceQtyContent / $profileContentPerBuy);
-    $entry['adjustment_plus_qty_pack'] += ($adjustmentPlusQtyContent / $profileContentPerBuy);
+    $entry['in_qty_pack']                  += ($inQtyContent / $profileContentPerBuy);
+    $entry['out_qty_pack']                 += ($outQtyContent / $profileContentPerBuy);
+    $entry['adjustment_qty_pack']          += ($adjustmentQtyContent / $profileContentPerBuy);
+    $entry['discard_qty_pack']             += ($discardQtyContent / $profileContentPerBuy);
+    $entry['spoil_qty_pack']               += ($spoilQtyContent / $profileContentPerBuy);
+    $entry['waste_qty_pack']               += ($wasteQtyContent / $profileContentPerBuy);
+    $entry['waste_component_qty_pack']     += ($wasteComponentQtyContent / $profileContentPerBuy);
+    $entry['spoilage_qty_pack']            += ($spoilageQtyContent / $profileContentPerBuy);
+    $entry['process_loss_qty_pack']        += ($processLossQtyContent / $profileContentPerBuy);
+    $entry['variance_qty_pack']            += ($varianceQtyContent / $profileContentPerBuy);
+    $entry['adjustment_plus_qty_pack']     += ($adjustmentPlusQtyContent / $profileContentPerBuy);
   }
-
   if ($entry['_min_date'] === null || ($movementDate !== '' && $movementDate < $entry['_min_date'])) {
     $entry['_min_date'] = $movementDate;
     $entry['opening_qty_content'] = (float)($row['opening_qty_content'] ?? 0);
@@ -218,38 +164,26 @@ foreach ($rowsData as $row) {
 
 $monthlyRows = array_values($monthlyMap);
 usort($monthlyRows, static function (array $a, array $b): int {
-  $aDiv = trim((string)($a['division_name'] ?? ''));
-  $bDiv = trim((string)($b['division_name'] ?? ''));
-  $cmpDiv = strcasecmp($aDiv, $bDiv);
-  if ($cmpDiv !== 0) {
-    return $cmpDiv;
-  }
+  $cmpDiv = strcasecmp(trim((string)($a['division_name'] ?? '')), trim((string)($b['division_name'] ?? '')));
+  if ($cmpDiv !== 0) { return $cmpDiv; }
   $cmpDest = strcasecmp((string)($a['destination_group'] ?? ''), (string)($b['destination_group'] ?? ''));
-  if ($cmpDest !== 0) {
-    return $cmpDest;
-  }
+  if ($cmpDest !== 0) { return $cmpDest; }
   $aName = trim(($a['item_name'] ?? '') !== '' ? (string)$a['item_name'] : (string)($a['material_name'] ?? ''));
   $bName = trim(($b['item_name'] ?? '') !== '' ? (string)$b['item_name'] : (string)($b['material_name'] ?? ''));
   $cmp = strcasecmp($aName, $bName);
-  if ($cmp !== 0) {
-    return $cmp;
-  }
+  if ($cmp !== 0) { return $cmp; }
   return strcasecmp((string)($a['profile_name'] ?? ''), (string)($b['profile_name'] ?? ''));
 });
 
 $parentMap = [];
 foreach ($monthlyRows as $row) {
-  $materialId = (int)($row['material_id'] ?? 0);
-  $itemId = (int)($row['item_id'] ?? 0);
-  $objectIdentity = $materialId > 0 ? ('M-' . $materialId) : ('I-' . $itemId);
+  $materialId2 = (int)($row['material_id'] ?? 0);
+  $itemId2 = (int)($row['item_id'] ?? 0);
+  $objectIdentity = $materialId2 > 0 ? ('M-' . $materialId2) : ('I-' . $itemId2);
   if ($objectIdentity === 'M-0' || $objectIdentity === 'I-0') {
     $objectIdentity .= '|' . strtoupper(trim((string)($row['material_code'] ?? '') . '|' . (string)($row['item_code'] ?? '')));
   }
-  $parentKey = implode('|', [
-    (int)($row['division_id'] ?? 0),
-    strtoupper((string)($row['destination_group'] ?? 'REGULER')),
-    $objectIdentity,
-  ]);
+  $parentKey = implode('|', [(int)($row['division_id'] ?? 0), strtoupper((string)($row['destination_group'] ?? 'REGULER')), $objectIdentity]);
 
   if (!isset($parentMap[$parentKey])) {
     $parentMap[$parentKey] = [
@@ -266,93 +200,55 @@ foreach ($monthlyRows as $row) {
       'profile_buy_uom_code' => (string)($row['profile_buy_uom_code'] ?? ''),
       'profile_content_uom_code' => (string)($row['profile_content_uom_code'] ?? ''),
       'avg_content_per_buy' => 0.0,
-      'opening_qty_content' => 0.0,
-      'opening_qty_pack' => 0.0,
-      'in_qty_content' => 0.0,
-      'in_qty_pack' => 0.0,
-      'out_qty_content' => 0.0,
-      'out_qty_pack' => 0.0,
-      'discard_qty_content' => 0.0,
-      'discard_qty_pack' => 0.0,
-      'spoil_qty_content' => 0.0,
-      'spoil_qty_pack' => 0.0,
-      'waste_qty_content' => 0.0,
-      'waste_qty_pack' => 0.0,
-      'waste_component_qty_content' => 0.0,
-      'waste_component_qty_pack' => 0.0,
-      'waste_component_value' => 0.0,
-      'spoilage_qty_content' => 0.0,
-      'spoilage_qty_pack' => 0.0,
-      'spoilage_value' => 0.0,
-      'process_loss_qty_content' => 0.0,
-      'process_loss_qty_pack' => 0.0,
-      'process_loss_value' => 0.0,
-      'variance_qty_content' => 0.0,
-      'variance_qty_pack' => 0.0,
-      'variance_value' => 0.0,
-      'adjustment_plus_qty_content' => 0.0,
-      'adjustment_plus_qty_pack' => 0.0,
-      'adjustment_plus_value' => 0.0,
-      'audit_has_mismatch' => 0,
-      'audit_mismatch_qty_content' => 0.0,
-      'audit_mismatch_notes' => '',
-      'adjustment_qty_content' => 0.0,
-      'adjustment_qty_pack' => 0.0,
-      'closing_qty_content' => 0.0,
-      'closing_qty_pack' => 0.0,
-      'total_value' => 0.0,
-      'avg_cost_per_content' => 0.0,
-      'avg_cost_per_pack' => 0.0,
-      '_content_per_buy_sum' => 0.0,
-      '_hpp_sum' => 0.0,
-      '_hpp_pack_sum' => 0.0,
+      'opening_qty_content' => 0.0, 'opening_qty_pack' => 0.0,
+      'in_qty_content' => 0.0, 'in_qty_pack' => 0.0,
+      'out_qty_content' => 0.0, 'out_qty_pack' => 0.0,
+      'discard_qty_content' => 0.0, 'discard_qty_pack' => 0.0,
+      'spoil_qty_content' => 0.0, 'spoil_qty_pack' => 0.0,
+      'waste_qty_content' => 0.0, 'waste_qty_pack' => 0.0,
+      'waste_component_qty_content' => 0.0, 'waste_component_qty_pack' => 0.0, 'waste_component_value' => 0.0,
+      'spoilage_qty_content' => 0.0, 'spoilage_qty_pack' => 0.0, 'spoilage_value' => 0.0,
+      'process_loss_qty_content' => 0.0, 'process_loss_qty_pack' => 0.0, 'process_loss_value' => 0.0,
+      'variance_qty_content' => 0.0, 'variance_qty_pack' => 0.0, 'variance_value' => 0.0,
+      'adjustment_plus_qty_content' => 0.0, 'adjustment_plus_qty_pack' => 0.0, 'adjustment_plus_value' => 0.0,
+      'audit_has_mismatch' => 0, 'audit_mismatch_qty_content' => 0.0, 'audit_mismatch_notes' => '',
+      'adjustment_qty_content' => 0.0, 'adjustment_qty_pack' => 0.0,
+      'closing_qty_content' => 0.0, 'closing_qty_pack' => 0.0,
+      'total_value' => 0.0, 'avg_cost_per_content' => 0.0, 'avg_cost_per_pack' => 0.0,
+      '_content_per_buy_sum' => 0.0, '_hpp_sum' => 0.0, '_hpp_pack_sum' => 0.0,
       'children' => [],
     ];
   }
 
-  $avgCostPerContent = (float)($row['avg_cost_per_content'] ?? 0);
-  $avgCostPerPack = $avgCostPerContent * (float)($row['profile_content_per_buy'] ?? 0);
-  $parent =& $parentMap[$parentKey];
-
-  $parent['profile_count']++;
-  $parent['_content_per_buy_sum'] += (float)($row['profile_content_per_buy'] ?? 0);
-  $parent['_hpp_sum'] += $avgCostPerContent;
-  $parent['_hpp_pack_sum'] += $avgCostPerPack;
-
-  if ($parent['profile_buy_uom_code'] !== '' && (string)($row['profile_buy_uom_code'] ?? '') !== '' && $parent['profile_buy_uom_code'] !== (string)($row['profile_buy_uom_code'] ?? '')) {
-    $parent['profile_buy_uom_code'] = 'MIX';
+  $avgCostPerContent2 = (float)($row['avg_cost_per_content'] ?? 0);
+  $avgCostPerPack2 = $avgCostPerContent2 * (float)($row['profile_content_per_buy'] ?? 0);
+  $parent2 =& $parentMap[$parentKey];
+  $parent2['profile_count']++;
+  $parent2['_content_per_buy_sum'] += (float)($row['profile_content_per_buy'] ?? 0);
+  $parent2['_hpp_sum'] += $avgCostPerContent2;
+  $parent2['_hpp_pack_sum'] += $avgCostPerPack2;
+  if ($parent2['profile_buy_uom_code'] !== '' && (string)($row['profile_buy_uom_code'] ?? '') !== '' && $parent2['profile_buy_uom_code'] !== (string)($row['profile_buy_uom_code'] ?? '')) { $parent2['profile_buy_uom_code'] = 'MIX'; }
+  if ($parent2['profile_content_uom_code'] !== '' && (string)($row['profile_content_uom_code'] ?? '') !== '' && $parent2['profile_content_uom_code'] !== (string)($row['profile_content_uom_code'] ?? '')) { $parent2['profile_content_uom_code'] = 'MIX'; }
+  foreach (['opening_qty_content','opening_qty_pack','in_qty_content','in_qty_pack','out_qty_content','out_qty_pack','discard_qty_content','discard_qty_pack','spoil_qty_content','spoil_qty_pack','waste_qty_content','waste_qty_pack','waste_component_qty_content','waste_component_qty_pack','waste_component_value','spoilage_qty_content','spoilage_qty_pack','spoilage_value','process_loss_qty_content','process_loss_qty_pack','process_loss_value','variance_qty_content','variance_qty_pack','variance_value','adjustment_plus_qty_content','adjustment_plus_qty_pack','adjustment_plus_value','adjustment_qty_content','adjustment_qty_pack','closing_qty_content','closing_qty_pack','total_value'] as $mk) {
+    $parent2[$mk] += (float)($row[$mk] ?? 0);
   }
-  if ($parent['profile_content_uom_code'] !== '' && (string)($row['profile_content_uom_code'] ?? '') !== '' && $parent['profile_content_uom_code'] !== (string)($row['profile_content_uom_code'] ?? '')) {
-    $parent['profile_content_uom_code'] = 'MIX';
-  }
-
-  foreach (['opening_qty_content','opening_qty_pack','in_qty_content','in_qty_pack','out_qty_content','out_qty_pack','discard_qty_content','discard_qty_pack','spoil_qty_content','spoil_qty_pack','waste_qty_content','waste_qty_pack','waste_component_qty_content','waste_component_qty_pack','waste_component_value','spoilage_qty_content','spoilage_qty_pack','spoilage_value','process_loss_qty_content','process_loss_qty_pack','process_loss_value','variance_qty_content','variance_qty_pack','variance_value','adjustment_plus_qty_content','adjustment_plus_qty_pack','adjustment_plus_value','adjustment_qty_content','adjustment_qty_pack','closing_qty_content','closing_qty_pack','total_value'] as $metricKey) {
-    $parent[$metricKey] += (float)($row[$metricKey] ?? 0);
-  }
-
-  $parent['children'][] = $row;
+  $parent2['children'][] = $row;
   if (!empty($row['audit_has_mismatch'])) {
-    $parent['audit_has_mismatch'] = 1;
-    $parent['audit_mismatch_qty_content'] += (float)($row['audit_mismatch_qty_content'] ?? 0);
-    $existingNotes = array_filter(array_map('trim', explode(',', (string)($parent['audit_mismatch_notes'] ?? ''))));
-    $rowNotes = array_filter(array_map('trim', explode(',', (string)($row['audit_mismatch_notes'] ?? ''))));
-    $parent['audit_mismatch_notes'] = implode(', ', array_values(array_unique(array_merge($existingNotes, $rowNotes))));
+    $parent2['audit_has_mismatch'] = 1;
+    $parent2['audit_mismatch_qty_content'] += (float)($row['audit_mismatch_qty_content'] ?? 0);
+    $existingNotes2 = array_filter(array_map('trim', explode(',', (string)($parent2['audit_mismatch_notes'] ?? ''))));
+    $rowNotes2 = array_filter(array_map('trim', explode(',', (string)($row['audit_mismatch_notes'] ?? ''))));
+    $parent2['audit_mismatch_notes'] = implode(', ', array_values(array_unique(array_merge($existingNotes2, $rowNotes2))));
   }
 }
-unset($parent);
+unset($parent2);
 
 $parentRows = array_values($parentMap);
 usort($parentRows, static function (array $a, array $b): int {
-  $aDiv = trim((string)($a['division_name'] ?? ''));
-  $bDiv = trim((string)($b['division_name'] ?? ''));
-  $cmpDiv = strcasecmp($aDiv, $bDiv);
-  if ($cmpDiv !== 0) {
-    return $cmpDiv;
-  }
+  $cmpDiv = strcasecmp(trim((string)($a['division_name'] ?? '')), trim((string)($b['division_name'] ?? '')));
+  if ($cmpDiv !== 0) { return $cmpDiv; }
   $cmpDest = strcasecmp((string)($a['destination_group'] ?? ''), (string)($b['destination_group'] ?? ''));
-  if ($cmpDest !== 0) {
-    return $cmpDest;
-  }
+  if ($cmpDest !== 0) { return $cmpDest; }
   $aName = trim(($a['item_name'] ?? '') !== '' ? (string)$a['item_name'] : (string)($a['material_name'] ?? ''));
   $bName = trim(($b['item_name'] ?? '') !== '' ? (string)$b['item_name'] : (string)($b['material_name'] ?? ''));
   return strcasecmp($aName, $bName);
@@ -363,114 +259,180 @@ foreach ($parentRows as &$parentRow) {
   }));
   $parentRow['profile_count'] = count((array)($parentRow['children'] ?? []));
   usort($parentRow['children'], static function (array $a, array $b): int {
-    $aNonPositive = (float)($a['closing_qty_content'] ?? 0) <= 0.0001;
-    $bNonPositive = (float)($b['closing_qty_content'] ?? 0) <= 0.0001;
-    if ($aNonPositive !== $bNonPositive) {
-      return $aNonPositive ? 1 : -1;
-    }
+    $aNP = (float)($a['closing_qty_content'] ?? 0) <= 0.0001;
+    $bNP = (float)($b['closing_qty_content'] ?? 0) <= 0.0001;
+    if ($aNP !== $bNP) { return $aNP ? 1 : -1; }
     return strcasecmp((string)($a['profile_name'] ?? ''), (string)($b['profile_name'] ?? ''));
   });
 }
 unset($parentRow);
-
-$parentRows = array_values(array_filter($parentRows, static function (array $parentRow): bool {
-  return abs(round((float)($parentRow['closing_qty_content'] ?? 0), 2)) >= 0.01;
+$parentRows = array_values(array_filter($parentRows, static function (array $p): bool {
+  return abs(round((float)($p['closing_qty_content'] ?? 0), 2)) >= 0.01;
 }));
-
 foreach ($parentRows as &$parentRow) {
-  $count = max(1, (int)($parentRow['profile_count'] ?? 0));
-  $parentRow['avg_content_per_buy'] = (float)$parentRow['_content_per_buy_sum'] / $count;
-  $parentRow['avg_cost_per_content'] = (float)$parentRow['_hpp_sum'] / $count;
-  $parentRow['avg_cost_per_pack'] = (float)$parentRow['_hpp_pack_sum'] / $count;
+  $cnt = max(1, (int)($parentRow['profile_count'] ?? 0));
+  $parentRow['avg_content_per_buy']   = (float)$parentRow['_content_per_buy_sum'] / $cnt;
+  $parentRow['avg_cost_per_content']  = (float)$parentRow['_hpp_sum'] / $cnt;
+  $parentRow['avg_cost_per_pack']     = (float)$parentRow['_hpp_pack_sum'] / $cnt;
 }
 unset($parentRow);
 
-$summaryProfiles = count($monthlyRows);
-$summaryDivisions = [];
-$summaryInPack = 0.0;
-$summaryOutPack = 0.0;
+// ── Summary (from all rows, before pagination) ──
+$summaryProfiles    = count($monthlyRows);
+$summaryDivisions   = [];
+$summaryInPack      = 0.0;
+$summaryOutPack     = 0.0;
 $summaryClosingPack = 0.0;
-$summaryIn = 0.0;
-$summaryOut = 0.0;
-$summaryClosing = 0.0;
-$summaryValue = 0.0;
-foreach ($monthlyRows as $row) {
-  $divisionId = (int)($row['division_id'] ?? 0);
-  if ($divisionId > 0) {
-    $summaryDivisions[$divisionId] = true;
-  }
-  $summaryInPack += (float)($row['in_qty_pack'] ?? 0);
-  $summaryOutPack += (float)($row['out_qty_pack'] ?? 0);
-  $summaryClosingPack += (float)($row['closing_qty_pack'] ?? 0);
-  $summaryIn += (float)($row['in_qty_content'] ?? 0);
-  $summaryOut += (float)($row['out_qty_content'] ?? 0);
-  $summaryClosing += (float)($row['closing_qty_content'] ?? 0);
-  $summaryValue += (float)($row['total_value'] ?? 0);
+$summaryIn          = 0.0;
+$summaryOut         = 0.0;
+$summaryClosing     = 0.0;
+$summaryValue       = 0.0;
+$summaryLosses      = 0.0;
+$uniqueMaterialCodes = [];
+foreach ($monthlyRows as $mRow) {
+  $mDivId = (int)($mRow['division_id'] ?? 0);
+  if ($mDivId > 0) { $summaryDivisions[$mDivId] = true; }
+  $summaryInPack      += (float)($mRow['in_qty_pack'] ?? 0);
+  $summaryOutPack     += (float)($mRow['out_qty_pack'] ?? 0);
+  $summaryClosingPack += (float)($mRow['closing_qty_pack'] ?? 0);
+  $summaryIn          += (float)($mRow['in_qty_content'] ?? 0);
+  $summaryOut         += (float)($mRow['out_qty_content'] ?? 0);
+  $summaryClosing     += (float)($mRow['closing_qty_content'] ?? 0);
+  $summaryValue       += (float)($mRow['total_value'] ?? 0);
+  $summaryLosses      += (float)($mRow['waste_component_qty_content'] ?? 0)
+                       + (float)($mRow['spoilage_qty_content'] ?? 0)
+                       + (float)($mRow['process_loss_qty_content'] ?? 0);
+  $mc = trim((string)($mRow['material_code'] ?? ''));
+  if ($mc !== '') $uniqueMaterialCodes[$mc] = true;
 }
-$summaryDivisionCount = count($summaryDivisions);
+$summaryDivisionCount       = count($summaryDivisions);
+$summaryUniqueMaterialCount = count($uniqueMaterialCodes);
+$summaryAlertCount = 0;
+foreach ($parentRows as $pRow) {
+  if ((float)($pRow['closing_qty_content'] ?? 0) <= 0.0001) { $summaryAlertCount++; }
+}
+
 $destinationValue = strtoupper(trim((string)($destination ?? 'ALL')));
-if ($destinationValue === '') {
-  $destinationValue = 'ALL';
-}
+if ($destinationValue === '') { $destinationValue = 'ALL'; }
 $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_guard_map : [];
 $formatDivisionLabel = static function (string $code, string $name, $fallbackId = '-'): string {
-  $code = trim($code);
-  $name = trim($name);
-  if ($code !== '' && strcasecmp($code, $name) === 0) {
-    return $code;
-  }
-  if ($code !== '' && $name !== '') {
-    return $code . ' - ' . $name;
-  }
-  if ($code !== '') {
-    return $code;
-  }
-  if ($name !== '') {
-    return $name;
-  }
+  $code = trim($code); $name = trim($name);
+  if ($code !== '' && strcasecmp($code, $name) === 0) { return $code; }
+  if ($code !== '' && $name !== '') { return $code . ' - ' . $name; }
+  if ($code !== '') { return $code; }
+  if ($name !== '') { return $name; }
   return (string)$fallbackId;
 };
 $formatDestination = static function (string $group): string {
   return strtoupper(trim($group)) === 'EVENT' ? 'Event' : 'Reguler';
 };
+
+// ── Pagination ──
+$perPage      = max(10, (int)($limit ?? 100));
+$currentPage  = max(1, (int)($page ?? 1));
+$totalParentCount = count($parentRows);
+$totalPages   = $totalParentCount > 0 ? (int)ceil($totalParentCount / $perPage) : 1;
+$currentPage  = min($currentPage, max(1, $totalPages));
+$parentRows   = array_slice($parentRows, ($currentPage - 1) * $perPage, $perPage);
+
+$pParams = ['limit' => $perPage];
+if (!empty($q)) $pParams['q'] = $q;
+if ($genMonth !== '') $pParams['month'] = $genMonth;
+if ((int)($division_id ?? 0) > 0) $pParams['division_id'] = (int)$division_id;
+if ($destinationValue !== 'ALL') $pParams['destination'] = $destinationValue;
+if (!empty($date_from)) $pParams['date_from'] = $date_from;
+if (!empty($date_to))   $pParams['date_to']   = $date_to;
+$paginationQs = http_build_query($pParams);
 ?>
 
 <style>
-  :root {
-    --sdd-sticky-top: 0px;
-  }
-  .sdd-sticky-head {
-    position: fixed;
-    top: var(--sdd-sticky-top);
-    left: 0;
-    display: none;
-    overflow: hidden;
-    z-index: 1035;
-    pointer-events: none;
-    background: #fff8f4;
-    border: 1px solid #ead5ca;
-    border-bottom: 0;
-    border-radius: 14px 14px 0 0;
-    box-shadow: 0 10px 24px rgba(95, 23, 39, 0.12);
-  }
-  .sdd-sticky-head table {
-    margin-bottom: 0;
-    transform: translateX(0);
-    will-change: transform;
-  }
-  .sdd-sticky-head th {
-    background: #fff8f4 !important;
-    box-shadow: inset 0 -1px 0 #e8d1c5;
-    white-space: nowrap;
-  }
-  .sdd-table-wrap {
-    overflow-x: auto;
-    overflow-y: visible;
-  }
-  .sdd-monthly-table thead th {
-    background: #fff8f4;
-    box-shadow: inset 0 -1px 0 #e8d1c5;
-  }
+/* ── Filter ── */
+.sdd-filter-grid {
+  display: grid;
+  grid-template-columns: 92px minmax(130px,1.2fr) 95px minmax(150px,2fr) 112px 112px 64px auto auto;
+  gap: .5rem;
+  align-items: end;
+}
+@media (max-width:1199px) { .sdd-filter-grid { grid-template-columns: 88px minmax(120px,1fr) 90px minmax(130px,2fr) 105px 105px 60px auto auto; } }
+@media (max-width:991px)  { .sdd-filter-grid { grid-template-columns: 1fr 1fr 1fr 1fr; } .sdd-filter-btn { grid-column: span 2; display:flex; gap:.4rem; } }
+@media (max-width:767px)  { .sdd-filter-grid { grid-template-columns: 1fr 1fr; } .sdd-filter-btn { grid-column: span 2; } }
+
+/* ── KPI ── */
+.sdd-kpi-row { display:grid; grid-template-columns:repeat(6,1fr); gap:.6rem; margin-bottom:1rem; }
+@media (max-width:1199px) { .sdd-kpi-row { grid-template-columns:repeat(3,1fr); } }
+@media (max-width:575px)  { .sdd-kpi-row { grid-template-columns:repeat(2,1fr); } }
+.sdd-kpi {
+  border-radius:14px; padding:1rem 1.15rem .9rem; color:#fff;
+  position:relative; overflow:hidden; box-shadow:0 4px 18px rgba(0,0,0,.13);
+}
+.sdd-kpi::before { content:''; position:absolute; right:-18px; bottom:-18px; width:80px; height:80px; border-radius:50%; background:rgba(255,255,255,.13); }
+.sdd-kpi::after  { content:''; position:absolute; right:14px; top:-22px; width:56px; height:56px; border-radius:50%; background:rgba(255,255,255,.09); }
+.sdd-kpi-icon { font-size:1.25rem; opacity:.8; margin-bottom:.35rem; display:block; }
+.sdd-kpi-val  { font-size:1.4rem; font-weight:800; line-height:1.1; }
+.sdd-kpi-sub  { font-size:.7rem; opacity:.75; margin-top:.1rem; }
+.sdd-kpi-lbl  { font-size:.68rem; opacity:.82; text-transform:uppercase; letter-spacing:.06em; margin-top:.2rem; }
+.sdd-kpi-1 { background:linear-gradient(135deg,#667eea,#764ba2); }
+.sdd-kpi-2 { background:linear-gradient(135deg,#0c7cba,#0fcdba); }
+.sdd-kpi-3 { background:linear-gradient(135deg,#11998e,#38ef7d); }
+.sdd-kpi-4 { background:linear-gradient(135deg,#e44d26,#f7b733); }
+.sdd-kpi-5 { background:linear-gradient(135deg,#1c7ed6,#74c0fc); }
+.sdd-kpi-6 { background:linear-gradient(135deg,#b22222,#e05252); }
+
+/* ── Table ── */
+.sdd-table-wrap {
+  overflow-x:auto; overflow-y:auto; max-height:72vh;
+}
+.sdd-monthly-table thead th {
+  position:sticky; top:0; z-index:2;
+  background:#fff8f4; box-shadow:inset 0 -1px 0 #e8d1c5;
+  white-space:nowrap;
+}
+.sdd-monthly-table td:nth-child(1) { width:42px; text-align:center; }
+.sdd-monthly-table td:nth-child(3) { min-width:190px; }
+.sdd-parent-row { background:#fff6ef; border-top:2px solid #f0d8ca; }
+.sdd-child-row td { background:#fff; }
+.sdd-stock-row-alert td { background:linear-gradient(180deg,#fff1ef,#fff8f7) !important; color:#8a2f2a; }
+.sdd-mismatch-row td { background:linear-gradient(180deg,#fffbec,#fffdf8) !important; }
+.sdd-alert-chip {
+  display:inline-flex; align-items:center; padding:.13rem .44rem;
+  border-radius:999px; background:#c0392b; color:#fff; font-size:.62rem; font-weight:800;
+}
+.sdd-mismatch-chip {
+  display:inline-flex; align-items:center; padding:.13rem .44rem;
+  border-radius:999px; background:#d68910; color:#fff; font-size:.62rem; font-weight:800;
+}
+.sdd-obj-name { font-weight:700; color:#4e1f2e; line-height:1.25; }
+.sdd-child-indent {
+  padding-left:1.2rem; position:relative;
+}
+.sdd-child-indent::before {
+  content:''; position:absolute; left:.45rem; top:.2rem; bottom:.2rem;
+  width:3px; border-radius:999px;
+  background:linear-gradient(180deg,#ebd7cc,#d9b6a4);
+}
+.sdd-toggle-arrow {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:34px; height:34px; border-radius:8px;
+  border:2px solid #c8a090; background:#fff8f4; color:#7a2e1c;
+  font-size:.85rem; cursor:pointer;
+  transition:transform .2s ease, background .15s, border-color .15s;
+  box-shadow:0 1px 4px rgba(120,60,30,.12);
+}
+.sdd-toggle-arrow:hover { background:#fde8de; border-color:#b07060; color:#5c1a0a; }
+.sdd-toggle-arrow.is-open { transform:rotate(90deg); background:#fde8de; border-color:#b07060; }
+
+/* ── Pagination ── */
+.sdd-pagination { display:flex; align-items:center; flex-wrap:wrap; gap:.35rem; margin-top:.75rem; }
+.sdd-page-btn {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:32px; height:32px; padding:0 .5rem;
+  border:1px solid #ddd; border-radius:8px;
+  background:#fff; color:#555; font-size:.8rem; font-weight:600;
+  text-decoration:none; cursor:pointer; transition:all .15s;
+}
+.sdd-page-btn:hover { background:#f5f5f5; border-color:#bbb; color:#333; }
+.sdd-page-btn.is-active { background:#6a2d3c; border-color:#6a2d3c; color:#fff; }
+.sdd-page-btn.is-disabled { opacity:.4; pointer-events:none; }
 </style>
 
 <div class="mb-3">
@@ -484,91 +446,156 @@ $formatDestination = static function (string $group): string {
   'division_action_params' => ['month' => $genMonth, 'division_id' => (string)(int)($division_id ?? 0), 'destination_type' => $destinationValue],
 ]); ?>
 
+<!-- Filter -->
 <div class="card mb-3">
   <div class="card-body py-3">
-    <form method="get" action="<?php echo $baseUrl; ?>" class="row g-2 align-items-end">
-      <div class="col-md-2">
-        <label class="form-label mb-1">Bulan</label>
-        <input type="month" class="form-control" name="month" value="<?php echo html_escape($month !== '' ? substr((string)$month, 0, 7) : date('Y-m')); ?>">
-      </div>
-      <div class="col-md-3">
-        <label class="form-label mb-1">Divisi</label>
-        <select class="form-select" name="division_id">
-          <option value="">Semua Divisi</option>
-          <?php foreach (($divisions ?? []) as $d): ?>
-            <?php
-              $id = (int)($d['id'] ?? 0);
-              $code = trim((string)($d['code'] ?? ''));
-              $name = trim((string)($d['name'] ?? ''));
-              $label = $code !== '' ? $code . ' - ' . $name : ($name !== '' ? $name : (string)$id);
-            ?>
-            <option value="<?php echo $id; ?>" <?php echo ((int)$division_id === $id) ? 'selected' : ''; ?>><?php echo html_escape($label); ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label mb-1">Tujuan</label>
-        <select class="form-select" name="destination" id="sddDestination">
-          <option value="ALL" <?php echo $destinationValue === 'ALL' ? 'selected' : ''; ?>>Semua</option>
-          <option value="REGULER" <?php echo $destinationValue === 'REGULER' ? 'selected' : ''; ?>>Reguler</option>
-          <option value="EVENT" <?php echo $destinationValue === 'EVENT' ? 'selected' : ''; ?>>Event</option>
-          <option value="BAR" <?php echo $destinationValue === 'BAR' ? 'selected' : ''; ?>>Bar Reguler</option>
-          <option value="KITCHEN" <?php echo $destinationValue === 'KITCHEN' ? 'selected' : ''; ?>>Kitchen Reguler</option>
-          <option value="BAR_EVENT" <?php echo $destinationValue === 'BAR_EVENT' ? 'selected' : ''; ?>>Bar Event</option>
-          <option value="KITCHEN_EVENT" <?php echo $destinationValue === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>Kitchen Event</option>
-          <option value="OFFICE" <?php echo $destinationValue === 'OFFICE' ? 'selected' : ''; ?>>Office</option>
-          <option value="OTHER" <?php echo $destinationValue === 'OTHER' ? 'selected' : ''; ?>>Other</option>
-        </select>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label mb-1">Cari</label>
-        <input type="text" class="form-control" name="q" value="<?php echo html_escape((string)$q); ?>" placeholder="Item / material / profile / merk / keterangan">
-      </div>
-      <div class="w-100"></div>
-      <div class="col-md-2">
-        <label class="form-label mb-1">Dari Tanggal</label>
-        <input type="date" class="form-control" name="date_from" value="<?php echo html_escape((string)$date_from); ?>">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label mb-1">Sampai Tanggal</label>
-        <input type="date" class="form-control" name="date_to" value="<?php echo html_escape((string)$date_to); ?>">
-      </div>
-      <div class="col-md-1">
-        <label class="form-label mb-1">Limit</label>
-        <input type="number" class="form-control" name="limit" min="1" max="1000" value="<?php echo (int)$limit; ?>">
-      </div>
-      <div class="col-md-1 d-grid">
-        <button type="submit" class="btn btn-outline-primary">Filter</button>
-      </div>
-      <div class="col-md-1 d-grid">
-        <a href="<?php echo $baseUrl; ?>" class="btn btn-outline-danger">Clear</a>
+    <form method="get" action="<?php echo $baseUrl; ?>">
+      <div class="sdd-filter-grid">
+        <div>
+          <label class="form-label mb-1">Bulan</label>
+          <input type="month" class="form-control form-control-sm" name="month" value="<?php echo html_escape($genMonth); ?>">
+        </div>
+        <div>
+          <label class="form-label mb-1">Divisi</label>
+          <select class="form-select form-select-sm" name="division_id">
+            <option value="">Semua Divisi</option>
+            <?php foreach (($divisions ?? []) as $d): ?>
+              <?php
+                $dId = (int)($d['id'] ?? 0);
+                $dCode = trim((string)($d['code'] ?? ''));
+                $dName = trim((string)($d['name'] ?? ''));
+                $dLabel = $dCode !== '' ? $dCode . ' - ' . $dName : ($dName !== '' ? $dName : (string)$dId);
+              ?>
+              <option value="<?php echo $dId; ?>" <?php echo ((int)($division_id ?? 0) === $dId) ? 'selected' : ''; ?>><?php echo html_escape($dLabel); ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div>
+          <label class="form-label mb-1">Tujuan</label>
+          <select class="form-select form-select-sm" name="destination" id="sddDestination">
+            <option value="ALL" <?php echo $destinationValue === 'ALL' ? 'selected' : ''; ?>>Semua</option>
+            <option value="REGULER" <?php echo $destinationValue === 'REGULER' ? 'selected' : ''; ?>>Reguler</option>
+            <option value="EVENT" <?php echo $destinationValue === 'EVENT' ? 'selected' : ''; ?>>Event</option>
+            <option value="BAR" <?php echo $destinationValue === 'BAR' ? 'selected' : ''; ?>>Bar Reg</option>
+            <option value="KITCHEN" <?php echo $destinationValue === 'KITCHEN' ? 'selected' : ''; ?>>Kitchen Reg</option>
+            <option value="BAR_EVENT" <?php echo $destinationValue === 'BAR_EVENT' ? 'selected' : ''; ?>>Bar Event</option>
+            <option value="KITCHEN_EVENT" <?php echo $destinationValue === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>Kitchen Evt</option>
+            <option value="OFFICE" <?php echo $destinationValue === 'OFFICE' ? 'selected' : ''; ?>>Office</option>
+            <option value="OTHER" <?php echo $destinationValue === 'OTHER' ? 'selected' : ''; ?>>Other</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label mb-1">Cari</label>
+          <input type="text" class="form-control form-control-sm" name="q" value="<?php echo html_escape((string)$q); ?>" placeholder="Item / material / profile / merk">
+        </div>
+        <div>
+          <label class="form-label mb-1">Dari</label>
+          <input type="date" class="form-control form-control-sm" name="date_from" value="<?php echo html_escape((string)$date_from); ?>">
+        </div>
+        <div>
+          <label class="form-label mb-1">Sampai</label>
+          <input type="date" class="form-control form-control-sm" name="date_to" value="<?php echo html_escape((string)$date_to); ?>">
+        </div>
+        <div>
+          <label class="form-label mb-1">/ Hal</label>
+          <input type="number" class="form-control form-control-sm" name="limit" min="10" max="500" value="<?php echo $perPage; ?>">
+        </div>
+        <div class="sdd-filter-btn" style="display:flex;gap:.4rem;">
+          <button type="submit" class="btn btn-sm btn-outline-primary w-100">Terapkan</button>
+          <a href="<?php echo $baseUrl; ?>" class="btn btn-sm btn-outline-danger w-100">Clear</a>
+        </div>
       </div>
     </form>
   </div>
 </div>
 
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-2"><div class="card"><div class="card-body py-2"><div class="small text-muted">Profil Bulanan</div><div class="h5 mb-0"><?php echo number_format($summaryProfiles); ?></div></div></div></div>
-  <div class="col-6 col-md-2"><div class="card"><div class="card-body py-2"><div class="small text-muted">Divisi</div><div class="h5 mb-0"><?php echo number_format($summaryDivisionCount); ?></div></div></div></div>
-  <div class="col-6 col-md-2"><div class="card"><div class="card-body py-2"><div class="small text-muted">In (Isi)</div><div class="h5 mb-0"><?php echo number_format($summaryIn, 2, ',', '.'); ?></div><small class="text-muted">Pack: <?php echo number_format($summaryInPack, 2, ',', '.'); ?></small></div></div></div>
-  <div class="col-6 col-md-2"><div class="card"><div class="card-body py-2"><div class="small text-muted">Out (Isi)</div><div class="h5 mb-0"><?php echo number_format($summaryOut, 2, ',', '.'); ?></div><small class="text-muted">Pack: <?php echo number_format($summaryOutPack, 2, ',', '.'); ?></small></div></div></div>
-  <div class="col-6 col-md-2"><div class="card"><div class="card-body py-2"><div class="small text-muted">Closing (Isi)</div><div class="h5 mb-0"><?php echo number_format($summaryClosing, 2, ',', '.'); ?></div><small class="text-muted">Pack: <?php echo number_format($summaryClosingPack, 2, ',', '.'); ?></small></div></div></div>
-  <div class="col-6 col-md-2"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Nilai</div><div class="h5 mb-0"><?php echo number_format($summaryValue, 2, ',', '.'); ?></div></div></div></div>
-</div>
+<script>
+(function(){
+  var guardMap = <?php echo json_encode($destinationGuardMap, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+  var destinationEl = document.getElementById('sddDestination');
+  var divisionEl = document.querySelector('select[name="division_id"]');
+  var allOptions = [
+    {value:'ALL',label:'Semua'},{value:'REGULER',label:'Reguler'},{value:'EVENT',label:'Event'},
+    {value:'BAR',label:'Bar Reg'},{value:'KITCHEN',label:'Kitchen Reg'},
+    {value:'BAR_EVENT',label:'Bar Event'},{value:'KITCHEN_EVENT',label:'Kitchen Evt'},
+    {value:'OFFICE',label:'Office'},{value:'OTHER',label:'Other'}
+  ];
+  function esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function syncDestinationOptions(){
+    if (!destinationEl || !divisionEl) { return; }
+    var divId = parseInt(divisionEl.value||'0',10);
+    var current = String(destinationEl.value||'ALL').toUpperCase();
+    var options = allOptions.slice();
+    if (Number.isFinite(divId) && divId > 0 && guardMap[String(divId)]) {
+      var allowed = (guardMap[String(divId)]||[]).map(function(x){ return String(x||'').toUpperCase(); });
+      options = allOptions.filter(function(opt){
+        if (opt.value==='ALL'||opt.value==='REGULER'||opt.value==='EVENT') { return true; }
+        return allowed.indexOf(opt.value) !== -1;
+      });
+    }
+    destinationEl.innerHTML = options.map(function(opt){ return '<option value="'+esc(opt.value)+'">'+esc(opt.label)+'</option>'; }).join('');
+    var exists = options.some(function(opt){ return opt.value===current; });
+    destinationEl.value = exists ? current : 'ALL';
+  }
+  if (divisionEl) { divisionEl.addEventListener('change', syncDestinationOptions); }
+  syncDestinationOptions();
+})();
+</script>
 
+<!-- KPI Cards -->
+<?php if ($totalParentCount > 0): ?>
+<div class="sdd-kpi-row">
+  <div class="sdd-kpi sdd-kpi-1">
+    <span class="sdd-kpi-icon"><i class="ri ri-archive-line"></i></span>
+    <div class="sdd-kpi-val"><?php echo number_format($totalParentCount); ?></div>
+    <div class="sdd-kpi-lbl">Item Stok</div>
+  </div>
+  <div class="sdd-kpi sdd-kpi-2">
+    <span class="sdd-kpi-icon"><i class="ri ri-building-2-line"></i></span>
+    <div class="sdd-kpi-val"><?php echo number_format($summaryDivisionCount); ?></div>
+    <div class="sdd-kpi-lbl">Divisi Aktif</div>
+  </div>
+  <div class="sdd-kpi sdd-kpi-3">
+    <span class="sdd-kpi-icon"><i class="ri ri-arrow-down-circle-line"></i></span>
+    <div class="sdd-kpi-val"><?php echo number_format($summaryIn, 1, ',', '.'); ?></div>
+    <div class="sdd-kpi-sub"><?php echo number_format($summaryInPack, 1, ',', '.'); ?> pack</div>
+    <div class="sdd-kpi-lbl">Total Masuk (Isi)</div>
+  </div>
+  <div class="sdd-kpi sdd-kpi-4">
+    <span class="sdd-kpi-icon"><i class="ri ri-arrow-up-circle-line"></i></span>
+    <div class="sdd-kpi-val"><?php echo number_format($summaryOut, 1, ',', '.'); ?></div>
+    <div class="sdd-kpi-sub"><?php echo number_format($summaryOutPack, 1, ',', '.'); ?> pack</div>
+    <div class="sdd-kpi-lbl">Total Keluar (Isi)</div>
+  </div>
+  <div class="sdd-kpi sdd-kpi-5">
+    <span class="sdd-kpi-icon"><i class="ri ri-scales-3-line"></i></span>
+    <div class="sdd-kpi-val"><?php echo number_format($summaryClosing, 1, ',', '.'); ?></div>
+    <div class="sdd-kpi-sub"><?php echo number_format($summaryClosingPack, 1, ',', '.'); ?> pack</div>
+    <div class="sdd-kpi-lbl">Stok Akhir (Isi)</div>
+  </div>
+  <div class="sdd-kpi sdd-kpi-6">
+    <span class="sdd-kpi-icon"><i class="ri ri-fire-line"></i></span>
+    <div class="sdd-kpi-val"><?php echo number_format($summaryLosses, 1, ',', '.'); ?></div>
+    <?php if ($summaryAlertCount > 0): ?>
+      <div class="sdd-kpi-sub"><?php echo $summaryAlertCount; ?> item stok habis</div>
+    <?php endif; ?>
+    <div class="sdd-kpi-lbl">Losses (Waste+Spoilage+PL)</div>
+  </div>
+</div>
+<?php endif; ?>
+
+<!-- Table -->
 <div class="card">
-  <div class="sdd-sticky-head" id="sddStickyHead" aria-hidden="true"></div>
-  <div class="table-responsive sdd-table-wrap">
-    <table class="table table-striped table-hover mb-0 sdd-monthly-table" id="sddMonthlyTable">
+  <div class="sdd-table-wrap">
+    <table class="table table-sm table-hover mb-0 sdd-monthly-table" id="sddMonthlyTable">
       <thead>
         <tr>
-          <th>No</th>
-          <th>Divisi</th>
-          <th>Tujuan</th>
-          <th>Nama</th>
-          <th>Profil Pack</th>
-          <th>Satuan</th>
-          <th class="text-end">Isi / Pack</th>
+          <th></th>
+          <th>Divisi / Tujuan</th>
+          <th>Nama Barang</th>
+          <th>Merk</th>
+          <th>Keterangan</th>
+          <th>Ukuran Isi</th>
           <th class="text-end">Stok Awal</th>
           <th class="text-end">Masuk</th>
           <th class="text-end">Keluar</th>
@@ -579,136 +606,126 @@ $formatDestination = static function (string $group): string {
           <th class="text-end">Adjustment +</th>
           <th class="text-end">Stok Akhir</th>
           <th class="text-end">Nilai Total</th>
-          <th class="text-end">HPP / Isi</th>
-          <th class="text-end">HPP / Pack</th>
-          <th class="text-end">Total Isi</th>
+          <th class="text-end">HPP/Isi</th>
+          <th class="text-end">HPP/Pack</th>
         </tr>
       </thead>
       <tbody>
         <?php if (empty($parentRows)): ?>
-          <tr><td colspan="20" class="text-center text-muted py-4">Belum ada data bulanan divisi.</td></tr>
+          <tr><td colspan="18" class="text-center text-muted py-4">Belum ada data bulanan divisi untuk bulan <?php echo html_escape($genMonth); ?>.</td></tr>
         <?php else: ?>
           <?php foreach ($parentRows as $idx => $parent): ?>
             <?php
-              $divisionText = $formatDivisionLabel((string)($parent['division_code'] ?? ''), (string)($parent['division_name'] ?? ''), (string)($parent['division_id'] ?? '-'));
-              $itemText = trim((string)($parent['item_name'] ?? ''));
-              $materialText = trim((string)($parent['material_name'] ?? ''));
-              $objectText = $itemText !== '' ? $itemText : ($materialText !== '' ? $materialText : '-');
+              $divisionText  = $formatDivisionLabel((string)($parent['division_code'] ?? ''), (string)($parent['division_name'] ?? ''), (string)($parent['division_id'] ?? '-'));
               $destinationText = $formatDestination((string)($parent['destination_group'] ?? 'REGULER'));
-              $rowId = 'sdd-parent-' . (int)$idx;
-              $isExpandable = ((int)($parent['profile_count'] ?? 0) > 1);
-              $singleChild = (!$isExpandable && !empty($parent['children'])) ? $parent['children'][0] : null;
-              $totalIsi = (float)($parent['closing_qty_content'] ?? 0);
-              $uomPack = (string)($parent['profile_buy_uom_code'] ?? '-');
+              $itemText      = trim((string)($parent['item_name'] ?? ''));
+              $materialText  = trim((string)($parent['material_name'] ?? ''));
+              $objectText    = $itemText !== '' ? $itemText : ($materialText !== '' ? $materialText : '-');
+              $rowId         = 'sdd-p-' . $idx . '-pg' . $currentPage;
+              $isExpandable  = ((int)($parent['profile_count'] ?? 0) > 1);
+              $singleChild   = (!$isExpandable && !empty($parent['children'])) ? $parent['children'][0] : null;
+
+              $uomPack    = (string)($parent['profile_buy_uom_code'] ?? '-');
               $uomContent = (string)($parent['profile_content_uom_code'] ?? '');
               if (is_array($singleChild)) {
-                $uomPack = (string)($singleChild['profile_buy_uom_code'] ?? $uomPack);
+                $uomPack    = (string)($singleChild['profile_buy_uom_code'] ?? $uomPack);
                 $uomContent = (string)($singleChild['profile_content_uom_code'] ?? $uomContent);
               }
+              $contentPerBuy = is_array($singleChild)
+                ? (float)($singleChild['profile_content_per_buy'] ?? 0)
+                : (float)($parent['avg_content_per_buy'] ?? 0);
+              $sizeCol = number_format($contentPerBuy, 2, ',', '.') . ' ' . html_escape($uomContent) . ' / ' . html_escape($uomPack);
+
+              $brandCol   = '-';
+              $descCol    = '-';
+              $profileLine = '';
+              if (is_array($singleChild)) {
+                $brandCol    = html_escape(trim((string)($singleChild['profile_brand'] ?? '-')));
+                $descCol     = html_escape(trim((string)($singleChild['profile_description'] ?? '-')));
+                $pName       = trim((string)($singleChild['profile_name'] ?? '-'));
+                $profileLine = html_escape($pName) . ' &nbsp;<a href="' . html_escape($buildLotUrl($singleChild)) . '" class="small">Lihat Lot</a>';
+              } else {
+                $profileLine = '<span class="text-muted small">' . (int)($parent['profile_count'] ?? 0) . ' profil</span>';
+              }
+
+              $isZeroStock   = (float)($parent['closing_qty_content'] ?? 0) <= 0.0001;
+              $hasMismatch   = !empty($parent['audit_has_mismatch']);
+              $rowAlertClass = $hasMismatch ? ' sdd-mismatch-row' : ($isZeroStock ? ' sdd-stock-row-alert' : '');
             ?>
-            <?php $parentAlertClass = (!empty($parent['audit_has_mismatch']) || (float)($parent['closing_qty_content'] ?? 0) <= 0.0001) ? ' table-danger' : ' table-warning'; ?>
-            <tr class="<?php echo trim($parentAlertClass); ?>">
+            <tr class="sdd-parent-row<?php echo $rowAlertClass; ?>">
               <td>
                 <?php if ($isExpandable): ?>
-                  <button type="button" class="btn btn-sm btn-outline-secondary sdd-toggle" data-target="<?php echo html_escape($rowId); ?>">+</button>
-                <?php else: ?>
-                  <span class="text-muted">-</span>
+                  <button type="button" class="sdd-toggle-arrow" data-target="<?php echo html_escape($rowId); ?>">&#9658;</button>
                 <?php endif; ?>
-                <span class="ms-1"><?php echo (int)($idx + 1); ?></span>
               </td>
-              <td><?php echo html_escape($divisionText); ?></td>
-              <td><?php echo html_escape($destinationText); ?></td>
-              <td><?php echo html_escape($objectText); ?></td>
               <td>
-                <?php if ($isExpandable): ?>
-                  <strong><?php echo (int)($parent['profile_count'] ?? 0); ?> profil</strong>
-                  <?php if (!empty($parent['audit_has_mismatch'])): ?>
-                    <div><span class="badge bg-danger-subtle text-danger">Mismatch Log <?php echo ui_num((float)($parent['audit_mismatch_qty_content'] ?? 0)); ?></span></div>
-                  <?php endif; ?>
-                <?php else: ?>
-                  <?php
-                    $singleProfile = is_array($singleChild) ? $singleChild : [];
-                    $profileLines = [];
-                    $brandText = trim((string)($singleProfile['profile_brand'] ?? ''));
-                    $descText = trim((string)($singleProfile['profile_description'] ?? ''));
-                    if ($brandText !== '' && $brandText !== '-') {
-                      $profileLines[] = 'Merk: ' . html_escape($brandText);
-                    }
-                    if ($descText !== '' && $descText !== '-') {
-                      $profileLines[] = 'Ket: ' . html_escape($descText);
-                    }
-                  ?>
-                  <?php if (!empty($profileLines)): ?>
-                    <?php echo implode('<br>', $profileLines); ?>
-                  <?php endif; ?>
-                  <?php if (!empty($parent['audit_has_mismatch'])): ?>
-                    <div class="small text-danger mt-1">Mismatch Log <?php echo ui_num((float)($parent['audit_mismatch_qty_content'] ?? 0)); ?></div>
-                  <?php endif; ?>
-                  <?php if (is_array($singleChild)): ?>
-                    <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($singleChild)); ?>">Lihat Lot</a></div>
-                  <?php endif; ?>
+                <div class="fw-semibold small"><?php echo html_escape($divisionText); ?></div>
+                <div class="text-muted" style="font-size:.72rem"><?php echo html_escape($destinationText); ?></div>
+              </td>
+              <td>
+                <div class="sdd-obj-name"><?php echo html_escape($objectText); ?></div>
+                <div class="small mt-1"><?php echo $profileLine; ?></div>
+                <?php if ($hasMismatch): ?>
+                  <span class="sdd-mismatch-chip mt-1">Mismatch <?php echo ui_num((float)($parent['audit_mismatch_qty_content'] ?? 0)); ?></span>
+                <?php endif; ?>
+                <?php if ($isZeroStock): ?>
+                  <span class="sdd-alert-chip mt-1">Stok Habis</span>
                 <?php endif; ?>
               </td>
-              <td><?php echo html_escape($uomPack); ?></td>
-              <td class="text-end">
-                <?php
-                  $contentPerBuy = is_array($singleChild)
-                    ? (float)($singleChild['profile_content_per_buy'] ?? 0)
-                    : (float)($parent['avg_content_per_buy'] ?? 0);
-                ?>
-                <?php echo number_format($contentPerBuy, 2, ',', '.'); ?> <?php echo html_escape($uomContent); ?>
-              </td>
-              <td class="text-end"><div class="fw-semibold"><?php echo ui_num((float)($parent['opening_qty_content'] ?? 0)); ?> <?php echo html_escape($uomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($parent['opening_qty_pack'] ?? 0)); ?> <?php echo html_escape($uomPack); ?></small></td>
-              <td class="text-end text-success"><div class="fw-semibold"><?php echo ui_num((float)($parent['in_qty_content'] ?? 0)); ?> <?php echo html_escape($uomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($parent['in_qty_pack'] ?? 0)); ?> <?php echo html_escape($uomPack); ?></small></td>
-              <td class="text-end text-danger"><div class="fw-semibold"><?php echo ui_num((float)($parent['out_qty_content'] ?? 0)); ?> <?php echo html_escape($uomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($parent['out_qty_pack'] ?? 0)); ?> <?php echo html_escape($uomPack); ?></small></td>
-              <td class="text-end"><div class="fw-semibold"><?php echo ui_num((float)($parent['waste_component_qty_content'] ?? 0)); ?> <?php echo html_escape($uomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($parent['waste_component_qty_pack'] ?? 0)); ?> <?php echo html_escape($uomPack); ?> | Rp <?php echo number_format((float)($parent['waste_component_value'] ?? 0), 2, ',', '.'); ?></small></td>
-              <td class="text-end"><div class="fw-semibold"><?php echo ui_num((float)($parent['spoilage_qty_content'] ?? 0)); ?> <?php echo html_escape($uomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($parent['spoilage_qty_pack'] ?? 0)); ?> <?php echo html_escape($uomPack); ?> | Rp <?php echo number_format((float)($parent['spoilage_value'] ?? 0), 2, ',', '.'); ?></small></td>
-              <td class="text-end"><div class="fw-semibold"><?php echo ui_num((float)($parent['process_loss_qty_content'] ?? 0)); ?> <?php echo html_escape($uomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($parent['process_loss_qty_pack'] ?? 0)); ?> <?php echo html_escape($uomPack); ?> | Rp <?php echo number_format((float)($parent['process_loss_value'] ?? 0), 2, ',', '.'); ?></small></td>
-              <td class="text-end"><div class="fw-semibold"><?php echo ui_num((float)($parent['variance_qty_content'] ?? 0)); ?> <?php echo html_escape($uomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($parent['variance_qty_pack'] ?? 0)); ?> <?php echo html_escape($uomPack); ?> | Rp <?php echo number_format((float)($parent['variance_value'] ?? 0), 2, ',', '.'); ?></small></td>
-              <td class="text-end"><div class="fw-semibold"><?php echo ui_num((float)($parent['adjustment_plus_qty_content'] ?? 0)); ?> <?php echo html_escape($uomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($parent['adjustment_plus_qty_pack'] ?? 0)); ?> <?php echo html_escape($uomPack); ?> | Rp <?php echo number_format((float)($parent['adjustment_plus_value'] ?? 0), 2, ',', '.'); ?></small></td>
-              <td class="text-end fw-semibold"><div class="fw-semibold"><?php echo ui_num((float)($parent['closing_qty_content'] ?? 0)); ?> <?php echo html_escape($uomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($parent['closing_qty_pack'] ?? 0)); ?> <?php echo html_escape($uomPack); ?></small></td>
-              <td class="text-end"><?php echo number_format((float)($parent['total_value'] ?? 0), 2, ',', '.'); ?></td>
-              <td class="text-end"><?php echo ui_num((float)($parent['avg_cost_per_content'] ?? 0)); ?></td>
-              <td class="text-end"><?php echo ui_num((float)($parent['avg_cost_per_pack'] ?? 0)); ?></td>
-              <td class="text-end"><?php echo ui_num($totalIsi); ?></td>
+              <td class="small"><?php echo $brandCol; ?></td>
+              <td class="small"><?php echo $descCol; ?></td>
+              <td class="small" style="white-space:nowrap"><?php echo $sizeCol; ?></td>
+              <td class="text-end"><div class="fw-semibold small"><?php echo ui_num((float)($parent['opening_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo html_escape($uomContent); ?></span></div><div class="text-muted" style="font-size:.7rem"><?php echo ui_num((float)($parent['opening_qty_pack'] ?? 0)); ?> <?php echo html_escape($uomPack); ?></div></td>
+              <td class="text-end text-success"><div class="fw-semibold small"><?php echo ui_num((float)($parent['in_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo html_escape($uomContent); ?></span></div><div class="text-muted" style="font-size:.7rem"><?php echo ui_num((float)($parent['in_qty_pack'] ?? 0)); ?> <?php echo html_escape($uomPack); ?></div></td>
+              <td class="text-end text-danger"><div class="fw-semibold small"><?php echo ui_num((float)($parent['out_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo html_escape($uomContent); ?></span></div><div class="text-muted" style="font-size:.7rem"><?php echo ui_num((float)($parent['out_qty_pack'] ?? 0)); ?> <?php echo html_escape($uomPack); ?></div></td>
+              <td class="text-end"><div class="small"><?php echo ui_num((float)($parent['waste_component_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo html_escape($uomContent); ?></span></div><div class="text-muted" style="font-size:.7rem">Rp <?php echo number_format((float)($parent['waste_component_value'] ?? 0), 0, ',', '.'); ?></div></td>
+              <td class="text-end"><div class="small"><?php echo ui_num((float)($parent['spoilage_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo html_escape($uomContent); ?></span></div><div class="text-muted" style="font-size:.7rem">Rp <?php echo number_format((float)($parent['spoilage_value'] ?? 0), 0, ',', '.'); ?></div></td>
+              <td class="text-end"><div class="small"><?php echo ui_num((float)($parent['process_loss_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo html_escape($uomContent); ?></span></div><div class="text-muted" style="font-size:.7rem">Rp <?php echo number_format((float)($parent['process_loss_value'] ?? 0), 0, ',', '.'); ?></div></td>
+              <td class="text-end"><div class="small"><?php echo ui_num((float)($parent['variance_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo html_escape($uomContent); ?></span></div><div class="text-muted" style="font-size:.7rem">Rp <?php echo number_format((float)($parent['variance_value'] ?? 0), 0, ',', '.'); ?></div></td>
+              <td class="text-end"><div class="small"><?php echo ui_num((float)($parent['adjustment_plus_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo html_escape($uomContent); ?></span></div><div class="text-muted" style="font-size:.7rem">Rp <?php echo number_format((float)($parent['adjustment_plus_value'] ?? 0), 0, ',', '.'); ?></div></td>
+              <td class="text-end fw-semibold"><div class="small"><?php echo ui_num((float)($parent['closing_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo html_escape($uomContent); ?></span></div><div class="text-muted" style="font-size:.7rem"><?php echo ui_num((float)($parent['closing_qty_pack'] ?? 0)); ?> <?php echo html_escape($uomPack); ?></div></td>
+              <td class="text-end small"><?php echo number_format((float)($parent['total_value'] ?? 0), 0, ',', '.'); ?></td>
+              <td class="text-end small"><?php echo ui_num((float)($parent['avg_cost_per_content'] ?? 0)); ?></td>
+              <td class="text-end small"><?php echo ui_num((float)($parent['avg_cost_per_pack'] ?? 0)); ?></td>
             </tr>
             <?php if ($isExpandable): ?>
             <?php foreach ((array)($parent['children'] ?? []) as $child): ?>
               <?php
-                $childUomPack = (string)($child['profile_buy_uom_code'] ?? '-');
-                $childUomContent = (string)($child['profile_content_uom_code'] ?? '');
-                $childAvgCostPack = (float)($child['avg_cost_per_content'] ?? 0) * (float)($child['profile_content_per_buy'] ?? 0);
+                $cUomPack    = (string)($child['profile_buy_uom_code'] ?? '-');
+                $cUomContent = (string)($child['profile_content_uom_code'] ?? '');
+                $cAvgCostPack = (float)($child['avg_cost_per_content'] ?? 0) * (float)($child['profile_content_per_buy'] ?? 0);
+                $cSizeStr    = number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.') . ' ' . html_escape($cUomContent) . ' / ' . html_escape($cUomPack);
+                $cIsZero     = (float)($child['closing_qty_content'] ?? 0) <= 0.0001;
+                $cHasMismatch = !empty($child['audit_has_mismatch']);
+                $cAlertClass = $cHasMismatch ? 'sdd-mismatch-row' : ($cIsZero ? 'sdd-stock-row-alert' : '');
               ?>
-              <?php $childAlertClass = (!empty($child['audit_has_mismatch']) || (float)($child['closing_qty_content'] ?? 0) <= 0.0001) ? 'table-danger' : 'table-light'; ?>
-              <tr class="<?php echo html_escape($childAlertClass . ' ' . $rowId); ?>" style="display:none;">
-                <td></td>
-                <td><small class="text-muted">Detail Profil</small></td>
+              <tr class="sdd-child-row <?php echo html_escape($cAlertClass . ' ' . $rowId); ?>" style="display:none">
                 <td></td>
                 <td></td>
                 <td>
-                  <?php echo html_escape((string)($child['profile_name'] ?? '-')); ?><br>
-                  <small class="text-muted">Brand: <?php echo html_escape((string)($child['profile_brand'] ?? '-')); ?></small><br>
-                  <small class="text-muted"><?php echo number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape($childUomContent); ?> / <?php echo html_escape($childUomPack); ?></small>
-                  <?php if (!empty($child['audit_has_mismatch'])): ?>
-                    <div class="small text-danger mt-1">Mismatch Log <?php echo ui_num((float)($child['audit_mismatch_qty_content'] ?? 0)); ?></div>
-                  <?php endif; ?>
-                  <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($child)); ?>">Lihat Lot</a></div>
+                  <div class="sdd-child-indent">
+                    <div class="small fw-semibold"><?php echo html_escape((string)($child['profile_name'] ?? '-')); ?></div>
+                    <div class="small"><a href="<?php echo html_escape($buildLotUrl($child)); ?>">Lihat Lot</a></div>
+                    <?php if ($cHasMismatch): ?>
+                      <span class="sdd-mismatch-chip">Mismatch <?php echo ui_num((float)($child['audit_mismatch_qty_content'] ?? 0)); ?></span>
+                    <?php endif; ?>
+                  </div>
                 </td>
-                <td><?php echo html_escape($childUomPack); ?></td>
-                <td class="text-end"><?php echo number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape($childUomContent); ?></td>
-                <td class="text-end"><div class="fw-semibold"><?php echo ui_num((float)($child['opening_qty_content'] ?? 0)); ?> <?php echo html_escape($childUomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($child['opening_qty_pack'] ?? 0)); ?> <?php echo html_escape($childUomPack); ?></small></td>
-                <td class="text-end text-success"><div class="fw-semibold"><?php echo ui_num((float)($child['in_qty_content'] ?? 0)); ?> <?php echo html_escape($childUomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($child['in_qty_pack'] ?? 0)); ?> <?php echo html_escape($childUomPack); ?></small></td>
-                <td class="text-end text-danger"><div class="fw-semibold"><?php echo ui_num((float)($child['out_qty_content'] ?? 0)); ?> <?php echo html_escape($childUomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($child['out_qty_pack'] ?? 0)); ?> <?php echo html_escape($childUomPack); ?></small></td>
-                <td class="text-end"><div class="fw-semibold"><?php echo ui_num((float)($child['waste_component_qty_content'] ?? 0)); ?> <?php echo html_escape($childUomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($child['waste_component_qty_pack'] ?? 0)); ?> <?php echo html_escape($childUomPack); ?> | Rp <?php echo number_format((float)($child['waste_component_value'] ?? 0), 2, ',', '.'); ?></small></td>
-                <td class="text-end"><div class="fw-semibold"><?php echo ui_num((float)($child['spoilage_qty_content'] ?? 0)); ?> <?php echo html_escape($childUomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($child['spoilage_qty_pack'] ?? 0)); ?> <?php echo html_escape($childUomPack); ?> | Rp <?php echo number_format((float)($child['spoilage_value'] ?? 0), 2, ',', '.'); ?></small></td>
-                <td class="text-end"><div class="fw-semibold"><?php echo ui_num((float)($child['process_loss_qty_content'] ?? 0)); ?> <?php echo html_escape($childUomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($child['process_loss_qty_pack'] ?? 0)); ?> <?php echo html_escape($childUomPack); ?> | Rp <?php echo number_format((float)($child['process_loss_value'] ?? 0), 2, ',', '.'); ?></small></td>
-                <td class="text-end"><div class="fw-semibold"><?php echo ui_num((float)($child['variance_qty_content'] ?? 0)); ?> <?php echo html_escape($childUomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($child['variance_qty_pack'] ?? 0)); ?> <?php echo html_escape($childUomPack); ?> | Rp <?php echo number_format((float)($child['variance_value'] ?? 0), 2, ',', '.'); ?></small></td>
-                <td class="text-end"><div class="fw-semibold"><?php echo ui_num((float)($child['adjustment_plus_qty_content'] ?? 0)); ?> <?php echo html_escape($childUomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($child['adjustment_plus_qty_pack'] ?? 0)); ?> <?php echo html_escape($childUomPack); ?> | Rp <?php echo number_format((float)($child['adjustment_plus_value'] ?? 0), 2, ',', '.'); ?></small></td>
-                <td class="text-end fw-semibold"><div class="fw-semibold"><?php echo ui_num((float)($child['closing_qty_content'] ?? 0)); ?> <?php echo html_escape($childUomContent); ?></div><small class="text-muted"><?php echo ui_num((float)($child['closing_qty_pack'] ?? 0)); ?> <?php echo html_escape($childUomPack); ?></small></td>
-                <td class="text-end"><?php echo number_format((float)($child['total_value'] ?? 0), 2, ',', '.'); ?></td>
-                <td class="text-end"><?php echo ui_num((float)($child['avg_cost_per_content'] ?? 0)); ?></td>
-                <td class="text-end"><?php echo ui_num($childAvgCostPack); ?></td>
-                <td class="text-end"><?php echo ui_num((float)($child['closing_qty_content'] ?? 0)); ?></td>
+                <td class="small"><?php echo html_escape(trim((string)($child['profile_brand'] ?? '-'))); ?></td>
+                <td class="small"><?php echo html_escape(trim((string)($child['profile_description'] ?? '-'))); ?></td>
+                <td class="small" style="white-space:nowrap"><?php echo $cSizeStr; ?></td>
+                <td class="text-end"><div class="small"><?php echo ui_num((float)($child['opening_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo $cUomContent; ?></span></div><div class="text-muted" style="font-size:.7rem"><?php echo ui_num((float)($child['opening_qty_pack'] ?? 0)); ?> <?php echo $cUomPack; ?></div></td>
+                <td class="text-end text-success"><div class="small"><?php echo ui_num((float)($child['in_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo $cUomContent; ?></span></div><div class="text-muted" style="font-size:.7rem"><?php echo ui_num((float)($child['in_qty_pack'] ?? 0)); ?> <?php echo $cUomPack; ?></div></td>
+                <td class="text-end text-danger"><div class="small"><?php echo ui_num((float)($child['out_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo $cUomContent; ?></span></div><div class="text-muted" style="font-size:.7rem"><?php echo ui_num((float)($child['out_qty_pack'] ?? 0)); ?> <?php echo $cUomPack; ?></div></td>
+                <td class="text-end"><div class="small"><?php echo ui_num((float)($child['waste_component_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo $cUomContent; ?></span></div><div class="text-muted" style="font-size:.7rem">Rp <?php echo number_format((float)($child['waste_component_value'] ?? 0), 0, ',', '.'); ?></div></td>
+                <td class="text-end"><div class="small"><?php echo ui_num((float)($child['spoilage_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo $cUomContent; ?></span></div><div class="text-muted" style="font-size:.7rem">Rp <?php echo number_format((float)($child['spoilage_value'] ?? 0), 0, ',', '.'); ?></div></td>
+                <td class="text-end"><div class="small"><?php echo ui_num((float)($child['process_loss_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo $cUomContent; ?></span></div><div class="text-muted" style="font-size:.7rem">Rp <?php echo number_format((float)($child['process_loss_value'] ?? 0), 0, ',', '.'); ?></div></td>
+                <td class="text-end"><div class="small"><?php echo ui_num((float)($child['variance_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo $cUomContent; ?></span></div><div class="text-muted" style="font-size:.7rem">Rp <?php echo number_format((float)($child['variance_value'] ?? 0), 0, ',', '.'); ?></div></td>
+                <td class="text-end"><div class="small"><?php echo ui_num((float)($child['adjustment_plus_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo $cUomContent; ?></span></div><div class="text-muted" style="font-size:.7rem">Rp <?php echo number_format((float)($child['adjustment_plus_value'] ?? 0), 0, ',', '.'); ?></div></td>
+                <td class="text-end fw-semibold"><div class="small"><?php echo ui_num((float)($child['closing_qty_content'] ?? 0)); ?> <span class="text-muted"><?php echo $cUomContent; ?></span></div><div class="text-muted" style="font-size:.7rem"><?php echo ui_num((float)($child['closing_qty_pack'] ?? 0)); ?> <?php echo $cUomPack; ?></div></td>
+                <td class="text-end small"><?php echo number_format((float)($child['total_value'] ?? 0), 0, ',', '.'); ?></td>
+                <td class="text-end small"><?php echo ui_num((float)($child['avg_cost_per_content'] ?? 0)); ?></td>
+                <td class="text-end small"><?php echo ui_num($cAvgCostPack); ?></td>
               </tr>
             <?php endforeach; ?>
             <?php endif; ?>
@@ -717,120 +734,61 @@ $formatDestination = static function (string $group): string {
       </tbody>
     </table>
   </div>
+  <?php if ($totalParentCount > 0): ?>
+  <div class="card-footer py-2 d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <span class="text-muted small">
+      <?php
+        $fromRow = ($currentPage - 1) * $perPage + 1;
+        $toRow   = min($currentPage * $perPage, $totalParentCount);
+        echo "Item {$fromRow}–{$toRow} dari {$totalParentCount}";
+        if ($summaryAlertCount > 0) {
+          echo ' &mdash; <span class="text-danger fw-semibold">' . $summaryAlertCount . ' stok habis</span>';
+        }
+      ?>
+    </span>
+    <?php if ($totalPages > 1): ?>
+    <div class="sdd-pagination">
+      <?php
+        $winStart = max(1, $currentPage - 2);
+        $winEnd   = min($totalPages, $currentPage + 2);
+        if ($winEnd - $winStart < 4) {
+          if ($winStart === 1) { $winEnd = min($totalPages, $winStart + 4); }
+          else { $winStart = max(1, $winEnd - 4); }
+        }
+        $prevUrl = $baseUrl . '?' . $paginationQs . '&page=' . ($currentPage - 1);
+        $nextUrl = $baseUrl . '?' . $paginationQs . '&page=' . ($currentPage + 1);
+      ?>
+      <a href="<?php echo html_escape($prevUrl); ?>" class="sdd-page-btn<?php echo $currentPage > 1 ? '' : ' is-disabled'; ?>">&#8249;</a>
+      <?php if ($winStart > 1): ?>
+        <a href="<?php echo html_escape($baseUrl . '?' . $paginationQs . '&page=1'); ?>" class="sdd-page-btn">1</a>
+        <?php if ($winStart > 2): ?><span class="text-muted small px-1">…</span><?php endif; ?>
+      <?php endif; ?>
+      <?php for ($pn = $winStart; $pn <= $winEnd; $pn++): ?>
+        <a href="<?php echo html_escape($baseUrl . '?' . $paginationQs . '&page=' . $pn); ?>" class="sdd-page-btn<?php echo $pn === $currentPage ? ' is-active' : ''; ?>"><?php echo $pn; ?></a>
+      <?php endfor; ?>
+      <?php if ($winEnd < $totalPages): ?>
+        <?php if ($winEnd < $totalPages - 1): ?><span class="text-muted small px-1">…</span><?php endif; ?>
+        <a href="<?php echo html_escape($baseUrl . '?' . $paginationQs . '&page=' . $totalPages); ?>" class="sdd-page-btn"><?php echo $totalPages; ?></a>
+      <?php endif; ?>
+      <a href="<?php echo html_escape($nextUrl); ?>" class="sdd-page-btn<?php echo $currentPage < $totalPages ? '' : ' is-disabled'; ?>">&#8250;</a>
+    </div>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 </div>
 
 <script>
 (function(){
-  var guardMap = <?php echo json_encode($destinationGuardMap, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
-  var destinationEl = document.getElementById('sddDestination');
-  var divisionEl = document.querySelector('select[name="division_id"]');
-  var allOptions = [
-    { value: 'ALL', label: 'Semua' },
-    { value: 'REGULER', label: 'Reguler' },
-    { value: 'EVENT', label: 'Event' },
-    { value: 'BAR', label: 'Bar Reguler' },
-    { value: 'KITCHEN', label: 'Kitchen Reguler' },
-    { value: 'BAR_EVENT', label: 'Bar Event' },
-    { value: 'KITCHEN_EVENT', label: 'Kitchen Event' },
-    { value: 'OFFICE', label: 'Office' },
-    { value: 'OTHER', label: 'Other' }
-  ];
-  function esc(v){
-    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-  function syncDestinationOptions(){
-    if (!destinationEl || !divisionEl) { return; }
-    var divisionId = parseInt(divisionEl.value || '0', 10);
-    var current = String(destinationEl.value || 'ALL').toUpperCase();
-    var options = allOptions.slice();
-    if (Number.isFinite(divisionId) && divisionId > 0 && guardMap[String(divisionId)]) {
-      var allowed = (guardMap[String(divisionId)] || []).map(function(x){ return String(x || '').toUpperCase(); });
-      options = allOptions.filter(function(opt){
-        if (opt.value === 'ALL' || opt.value === 'REGULER' || opt.value === 'EVENT') { return true; }
-        return allowed.indexOf(opt.value) !== -1;
-      });
-    }
-    destinationEl.innerHTML = options.map(function(opt){
-      return '<option value="' + esc(opt.value) + '">' + esc(opt.label) + '</option>';
-    }).join('');
-    var exists = options.some(function(opt){ return opt.value === current; });
-    destinationEl.value = exists ? current : 'ALL';
-  }
-  if (divisionEl) {
-    divisionEl.addEventListener('change', syncDestinationOptions);
-  }
-  syncDestinationOptions();
-
-  document.querySelectorAll('.sdd-toggle').forEach(function(btn){
+  document.querySelectorAll('.sdd-toggle-arrow').forEach(function(btn){
     btn.addEventListener('click', function(){
       var target = btn.getAttribute('data-target');
       if (!target) { return; }
       var rows = document.querySelectorAll('.' + target);
       if (!rows.length) { return; }
       var willShow = rows[0].style.display === 'none';
-      rows.forEach(function(row){
-        row.style.display = willShow ? '' : 'none';
-      });
-      btn.textContent = willShow ? '-' : '+';
+      rows.forEach(function(row){ row.style.display = willShow ? '' : 'none'; });
+      btn.classList.toggle('is-open', willShow);
     });
   });
-})();
-</script>
-
-<script>
-(function(){
-  function syncDivisionDailyStickyTop(){
-    var navbar = document.getElementById('layout-navbar') || document.querySelector('.layout-navbar');
-    var topOffset = navbar ? Math.ceil(navbar.getBoundingClientRect().height) : 0;
-    document.documentElement.style.setProperty('--sdd-sticky-top', topOffset + 'px');
-    return topOffset;
-  }
-
-  function initDivisionDailyFloatingHeader(){
-    var wrapper = document.querySelector('.sdd-table-wrap');
-    var table = document.getElementById('sddMonthlyTable');
-    var host = document.getElementById('sddStickyHead');
-    if (!wrapper || !table || !host) { return; }
-    var thead = table.querySelector('thead');
-    if (!thead) { return; }
-
-    host.innerHTML = '<table class="' + table.className + '"><thead>' + thead.innerHTML + '</thead></table>';
-    var cloneTable = host.querySelector('table');
-    var cloneHead = cloneTable ? cloneTable.querySelector('thead') : null;
-    if (!cloneTable || !cloneHead) { return; }
-
-    function syncFloatingHeader(){
-      var stickyTop = syncDivisionDailyStickyTop();
-      var wrapperRect = wrapper.getBoundingClientRect();
-      var tableRect = table.getBoundingClientRect();
-      var originalThs = Array.prototype.slice.call(thead.querySelectorAll('th'));
-      var cloneThs = Array.prototype.slice.call(cloneHead.querySelectorAll('th'));
-      originalThs.forEach(function(th, index){
-        if (!cloneThs[index]) { return; }
-        var width = Math.ceil(th.getBoundingClientRect().width);
-        cloneThs[index].style.width = width + 'px';
-        cloneThs[index].style.minWidth = width + 'px';
-        cloneThs[index].style.maxWidth = width + 'px';
-      });
-      cloneTable.style.width = Math.ceil(table.getBoundingClientRect().width) + 'px';
-      cloneTable.style.transform = 'translateX(' + (-wrapper.scrollLeft) + 'px)';
-
-      var headerHeight = Math.ceil(thead.getBoundingClientRect().height || 0);
-      var shouldShow = wrapperRect.top <= stickyTop && tableRect.bottom > (stickyTop + headerHeight);
-      host.style.display = shouldShow ? 'block' : 'none';
-      host.style.top = stickyTop + 'px';
-      host.style.left = Math.ceil(wrapperRect.left) + 'px';
-      host.style.width = Math.ceil(wrapperRect.width) + 'px';
-    }
-
-    wrapper.addEventListener('scroll', syncFloatingHeader, { passive: true });
-    window.addEventListener('scroll', syncFloatingHeader, { passive: true });
-    window.addEventListener('resize', syncFloatingHeader);
-    requestAnimationFrame(syncFloatingHeader);
-  }
-
-  syncDivisionDailyStickyTop();
-  window.addEventListener('resize', syncDivisionDailyStickyTop);
-  initDivisionDailyFloatingHeader();
 })();
 </script>
