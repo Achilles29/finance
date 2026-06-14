@@ -417,5 +417,9 @@ saya belum coba generate, tapi pastikan guardnya seperti ini:
 /inventory/stock/division/reconcile sesuaikan form filter agar tidak ada tampilan terpotong. tambahkan filter missmatch
 
 
+
+masih gagal. cek dengan serius, apa karena PAPER FILTER V60 punya 2 baris profile, tapi di movement log dan halaman audit hanya tercatat 1?
+
+PAPER FILTER V60
 sekalian cek, kemarin ada ordern MANUAL BREW V60 JAPANESE dari MSO-20260614153456-3FEA. tapi paper filter v60 tidak terpotong stok nya. tidak masuk log. kenapa? apa karena orderan dari self order? yang di klik saat verifikasi. /pos/self-order/orders
 CEK DAN PERBAIKI

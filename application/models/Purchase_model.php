@@ -3013,7 +3013,10 @@ class Purchase_model extends CI_Model
             $row['closing_qty_pack'] = $packSize > 0
                 ? round((float)($row['closing_qty_content'] ?? 0) / $packSize, 4)
                 : 0.0;
-            $latestRows[$identityKey] = $row;
+            $existing = $latestRows[$identityKey] ?? null;
+            if ($existing === null || (string)($row['movement_date'] ?? '') > (string)($existing['movement_date'] ?? '')) {
+                $latestRows[$identityKey] = $row;
+            }
         }
 
         return array_values($latestRows);

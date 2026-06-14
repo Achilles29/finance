@@ -162,6 +162,18 @@ class PosOrderStockService
     {
         $divisionId = $this->resolve_operational_division_id($line);
         $destinationType = $this->resolve_destination_type($line, (string)($header['order_scope'] ?? 'REGULAR'));
+
+        if ($destinationType === 'OTHER') {
+            $recipeDiv = $this->resolve_recipe_source_division_for_line($line);
+            if ($recipeDiv) {
+                $divisionId = (int)$recipeDiv['id'];
+                $destinationType = $this->resolve_destination_type(
+                    array_merge($line, ['operational_division_code' => $recipeDiv['code'], 'operational_division_name' => $recipeDiv['name']]),
+                    (string)($header['order_scope'] ?? 'REGULAR')
+                );
+            }
+        }
+
         $requiredQty = round((float)($line['committed_qty'] ?? $line['required_qty'] ?? 0), 4);
         if ($requiredQty <= 0) {
             return ['ok' => false, 'message' => 'Qty material commit tidak valid.'];
@@ -281,6 +293,17 @@ class PosOrderStockService
     {
         $divisionId = $this->resolve_operational_division_id($line);
         $destinationType = $this->resolve_destination_type($line, (string)($header['order_scope'] ?? 'REGULAR'));
+
+        if ($destinationType === 'OTHER') {
+            $recipeDiv = $this->resolve_recipe_source_division_for_line($line);
+            if ($recipeDiv) {
+                $divisionId = (int)$recipeDiv['id'];
+                $destinationType = $this->resolve_destination_type(
+                    array_merge($line, ['operational_division_code' => $recipeDiv['code'], 'operational_division_name' => $recipeDiv['name']]),
+                    (string)($header['order_scope'] ?? 'REGULAR')
+                );
+            }
+        }
         $fullReverse = abs($reverseQty - round((float)($line['committed_qty'] ?? 0), 4)) < 0.0001;
         $movementRefType = $this->resolve_material_movement_ref_type($header, $line);
 
@@ -705,6 +728,27 @@ class PosOrderStockService
             return $isEvent ? 'KITCHEN_EVENT' : 'KITCHEN';
         }
         return 'OTHER';
+    }
+
+    private function resolve_recipe_source_division_for_line(array $line): ?array
+    {
+        $productId = !empty($line['product_id']) ? (int)$line['product_id'] : 0;
+        $materialId = !empty($line['material_id']) ? (int)$line['material_id'] : 0;
+        if ($productId <= 0 || $materialId <= 0) {
+            return null;
+        }
+        $row = $this->ci->db
+            ->select('od.id, od.name, od.code')
+            ->from('mst_product_recipe r')
+            ->join('mst_item i', 'i.id = r.material_item_id', 'inner')
+            ->join('mst_operational_division od', 'od.id = r.source_division_id', 'inner')
+            ->where('r.product_id', $productId)
+            ->where('i.material_id', $materialId)
+            ->where('r.source_division_id IS NOT NULL', null, false)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        return $row ?: null;
     }
 
     private function resolve_component_location_type(array $line, string $orderScope = 'REGULAR'): ?string
