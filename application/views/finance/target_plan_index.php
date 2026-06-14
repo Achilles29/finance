@@ -56,6 +56,14 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
     border: 0;
     font-size: .79rem;
     text-transform: uppercase;
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+  .fintarget-table-wrap {
+    max-height: 68vh;
+    overflow: auto;
+    border-radius: 26px;
   }
   .fintarget-metric-preview {
     max-height: 240px;
@@ -77,6 +85,24 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
     font-weight: 700;
   }
   .fintarget-guide-box .small {
+    line-height: 1.6;
+  }
+  .fintarget-helper {
+    border: 1px solid rgba(143, 53, 58, .10);
+    background: #fff8f4;
+    border-radius: 16px;
+    padding: .75rem .9rem;
+  }
+  .fintarget-helper .title {
+    font-size: .82rem;
+    font-weight: 700;
+    color: #6f222a;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .fintarget-helper .body {
+    font-size: .88rem;
+    color: #6f5d56;
     line-height: 1.6;
   }
   @media (max-width: 991.98px) {
@@ -184,7 +210,15 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
             </div>
           </form>
 
-          <div class="table-responsive fintarget-table">
+          <div class="fintarget-helper mb-3">
+            <div class="title mb-1">Catatan bonus</div>
+            <div class="body">
+              Kolom bonus di halaman target ini dipakai sebagai <strong>patokan manajerial</strong>: berapa bonus yang ingin disiapkan dan berapa porsi laba yang layak dibuka untuk bonus.
+              Untuk skema teknis seperti <strong>3% omzet harian</strong>, <strong>ambang omzet minimum</strong>, dan <strong>cair hanya jika target bulanan lolos</strong>, pengaturan detailnya tetap dilanjutkan di <strong>rule bonus</strong> agar lebih aman dan fleksibel.
+            </div>
+          </div>
+
+          <div class="table-responsive fintarget-table fintarget-table-wrap">
             <table class="table table-hover align-middle mb-0">
               <thead>
                 <tr>
@@ -306,6 +340,18 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
                 </div>
               </div>
             </div>
+            <div class="col-12">
+              <div class="fintarget-guide-box">
+                <h6 class="mb-2">Contoh bonus harian 3% tapi cairnya menunggu target bulanan</h6>
+                <div class="small text-muted">
+                  Jika Anda ingin bonus harian dibentuk dari <strong>3% omzet harian</strong> saat omzet minimal tercapai, tetapi <strong>baru boleh cair kalau target bulanan lolos</strong>, maka alurnya begini:
+                  <br>1. Di halaman target, buat target bulanan dan aktifkan sebagai gerbang bonus bulanan.
+                  <br>2. Di rule bonus, atur ambang omzet harian, misalnya minimal Rp 3.000.000.
+                  <br>3. Di rule bonus, atur rumus pool harian = 3% dari omzet yang lolos.
+                  <br>4. Pool bonus harian tetap dihitung di belakang layar, tetapi pencairannya ditahan sampai hasil target bulanan dinyatakan lolos.
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -375,14 +421,17 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
             <div class="col-md-4">
               <label class="form-label">Skor minimal agar bonus bisa diproses</label>
               <input type="number" step="0.01" name="min_bonus_score" class="form-control" value="100">
+              <div class="form-text">Contoh: isi `100` jika bonus baru boleh jalan saat skor target minimal 100%.</div>
             </div>
             <div class="col-md-4">
-              <label class="form-label">Total bonus yang disiapkan</label>
+              <label class="form-label">Cadangan bonus bila target lolos</label>
               <input type="number" step="0.01" name="bonus_pool_amount" class="form-control" value="0">
+              <div class="form-text">Ini angka patokan manajerial. Cocok jika Anda sudah tahu plafon bonus maksimal yang ingin dibuka.</div>
             </div>
             <div class="col-md-4">
-              <label class="form-label">% laba yang ingin dibagi jadi bonus</label>
+              <label class="form-label">% laba yang dialokasikan ke bonus</label>
               <input type="number" step="0.0001" name="bonus_percent_of_profit" class="form-control" value="0">
+              <div class="form-text">Isi jika ingin punya pagar: misalnya maksimal 8% dari laba bersih estimasi boleh dibuka untuk bonus.</div>
             </div>
             <div class="col-12">
               <label class="form-label">Catatan singkat</label>

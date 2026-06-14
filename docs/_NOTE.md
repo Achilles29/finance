@@ -343,9 +343,41 @@ sesuaikan di atas dulu baru saya lanjutkan
 - buat tabel nya scrollable dan freeze judul tabel
 - buatkan pagination berdasarkan filter baris
 
-sesuaikan tampilan agar lebih efisien:
-kolom 1 : Divisi (berisi Divisi / tujuan)
+sesuaikan tampilan tabel agar lebih efisien:
 
+paling kanan Arrow expand collapase untuk line yang punya childe
+
+kolom 1 : Divisi (berisi Divisi / tujuan)
+Kolom 2 : Nama Barang, jangan tampilkan Kode, jangan tampilkan Material (karena seharusnya pasti material), enter profile dan lihat lot
+Kolom 3 : Merk
+Kolom 4 : Keterangan
+Kolom 5 : UKURAN Isi (data  sudah benar)
+Kolom 6 : QTY (beli dan isi) => yang atas QTY isi, enter QTY beli , misal 200 pcs enter 1 pack
+Kolom 7 : Avg Cost
+Kolom 8 : Total Nilai
+Kolom 9 : Update
+
+===========================
+
+sekarang /inventory/stock/division/daily
+- buat polanya seperti /inventory/stock/division
+
+- sesuaikan ukuran form filter sampai dengan button "Terapkan" dan "Clear" agar bisa jadi 1 baris
+- buat card card ringkasan yang diperlukan yang penting sebagai bahan analisa dengan tampilan lebih menarik. kejutkan saya!
+- buat tabel nya scrollable dan freeze judul tabel
+- buatkan pagination berdasarkan filter baris
+
+sesuaikan tampilan tabel agar lebih efisien:
+
+paling kanan Arrow expand collapase untuk line yang punya childe
+
+kolom 1 : Divisi (berisi Divisi / tujuan)
+Kolom 2 : Nama Barang, jangan tampilkan Kode, jangan tampilkan Material (karena seharusnya pasti material), enter profile dan lihat lot
+Kolom 3 : Merk
+Kolom 4 : Keterangan
+Kolom 5 : UKURAN Isi (data  sudah benar)
+
+Kolom 6 dan seterusnya sesuai kondisi sekarang
 
 
 

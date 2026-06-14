@@ -285,9 +285,13 @@ $paginationQs = http_build_query($pParams);
   box-shadow: inset 0 -1px 0 #e8d1c5;
   white-space: nowrap;
 }
+.dv-stock-table th:nth-child(1),
+.dv-stock-table td:nth-child(1) {
+  width: 42px; text-align: center;
+}
 .dv-stock-table th:nth-child(3),
 .dv-stock-table td:nth-child(3) {
-  min-width: 280px;
+  min-width: 200px;
 }
 .dv-parent-row {
   background: #fff6ef;
@@ -341,19 +345,16 @@ $paginationQs = http_build_query($pParams);
 }
 .dv-name-chip.is-parent { border-radius: 999px; }
 .dv-name-chip.is-child  { border-radius: 10px; border-style: dashed; background: #fffaf7; }
-.dv-toggle {
-  border: 1px solid #d7b6a8; background: #fff; color: #6a2d3c;
-  border-radius: 8px; width: 26px; height: 24px; line-height: 1;
+.dv-toggle-arrow {
   display: inline-flex; align-items: center; justify-content: center;
-  margin-right: .35rem; font-size: .85rem; font-weight: 800;
+  width: 34px; height: 34px; border-radius: 8px;
+  border: 2px solid #c8a090; background: #fff8f4; color: #7a2e1c;
+  font-size: .85rem; cursor: pointer;
+  transition: transform .2s ease, background .15s, border-color .15s;
+  box-shadow: 0 1px 4px rgba(120,60,30,.12);
 }
-.dv-toggle:hover { background: #ffece2; border-color: #c99f8f; }
-.dv-static {
-  display: inline-flex; width: 26px; height: 24px;
-  align-items: center; justify-content: center;
-  margin-right: .35rem; border-radius: 8px;
-  background: #e9f8df; color: #3e7f32; font-size: .8rem; font-weight: 800;
-}
+.dv-toggle-arrow:hover { background: #fde8de; border-color: #b07060; color: #5c1a0a; }
+.dv-toggle-arrow[aria-expanded="true"] { transform: rotate(90deg); background: #fde8de; border-color: #b07060; }
 .dv-object-name { font-weight: 700; color: #4e1f2e; line-height: 1.25; }
 .dv-object-code { color: #876a65; font-size: .8rem; }
 .dv-child-label {
@@ -528,23 +529,21 @@ $paginationQs = http_build_query($pParams);
     <table class="table table-striped table-hover mb-0 dv-stock-table" id="dvStockTable">
       <thead>
         <tr>
-          <th>Divisi</th>
-          <th>Tujuan</th>
+          <th></th>
+          <th>Divisi / Tujuan</th>
           <th>Nama Barang</th>
-          <th>Profile</th>
           <th>Merk</th>
           <th>Keterangan</th>
           <th>Ukuran Isi</th>
-          <th class="text-end">Qty Beli</th>
-          <th class="text-end">Qty Isi</th>
-          <th class="text-end">Avg Cost / Isi</th>
+          <th class="text-end">QTY (Isi / Beli)</th>
+          <th class="text-end">Avg Cost/Isi</th>
           <th class="text-end">Total Nilai</th>
           <th>Update</th>
         </tr>
       </thead>
       <tbody>
         <?php if (empty($parentRows)): ?>
-          <tr><td colspan="12" class="text-center text-muted py-4">Belum ada data stok divisi.</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4">Belum ada data stok divisi.</td></tr>
         <?php else: ?>
           <?php foreach ($parentRows as $idx => $parent): ?>
             <?php
@@ -555,80 +554,73 @@ $paginationQs = http_build_query($pParams);
               );
               $destinationText = $formatDestination((string)($parent['destination_group'] ?? 'REGULER'));
 
-              $itemCode = trim((string)($parent['item_code'] ?? ''));
               $itemName = trim((string)($parent['item_name'] ?? ''));
-              $materialCode = trim((string)($parent['material_code'] ?? ''));
               $materialName = trim((string)($parent['material_name'] ?? ''));
-
               $objectText = $itemName !== '' ? $itemName : ($materialName !== '' ? $materialName : '-');
-              $objectCode = $materialCode !== '' ? $materialCode : $itemCode;
-              $objectKind = $materialName !== '' ? 'Material' : 'Item';
 
               $collapseClass = 'dv-parent-' . ($idx + 1) . '-p' . $currentPage;
               $isExpandable = ((int)($parent['profile_count'] ?? 0) > 1);
               $singleChild = (!$isExpandable && !empty($parent['children'])) ? $parent['children'][0] : null;
               $singleChildNonPositive = is_array($singleChild) ? $isChildNonPositive($singleChild) : false;
 
-              $profileCol = '<strong>' . (int)($parent['profile_count'] ?? 0) . ' profil</strong>';
+              $profileLine = '';
               $brandCol = '-';
-              $descCol = 'Parent';
+              $descCol = '-';
               $sizeCol = '-';
+              $qtyIsiStr = ui_num((float)($parent['qty_content_balance'] ?? 0));
+              $qtyBeliStr = ui_num((float)($parent['qty_buy_balance'] ?? 0));
+
               if (is_array($singleChild)) {
-                $profileText2 = trim((string)($singleChild['profile_name'] ?? '-'));
+                $pName = trim((string)($singleChild['profile_name'] ?? '-'));
                 $lotUrl = $lotAuditBaseUrl
                   . '?scope=DIVISION&status=ALL&division_id=' . (int)($parent['division_id'] ?? 0)
                   . '&destination=' . rawurlencode((string)($parent['destination_group'] ?? 'REGULER'))
                   . '&profile_key=' . rawurlencode((string)($singleChild['profile_key'] ?? ''));
-                $profileCol = html_escape($profileText2);
-                $profileCol .= '<div class="small mt-1"><a href="' . html_escape($lotUrl) . '">Lihat Lot</a></div>';
+                $profileLine = html_escape($pName) . ' &nbsp;<a href="' . html_escape($lotUrl) . '" class="small">Lihat Lot</a>';
                 $brandCol = html_escape((string)($singleChild['profile_brand'] ?? '-'));
                 $descCol = html_escape((string)($singleChild['profile_description'] ?? '-'));
-                $sizeCol = number_format((float)($singleChild['profile_content_per_buy'] ?? 0), 2, ',', '.')
-                  . ' ' . html_escape((string)($singleChild['profile_content_uom_code'] ?? ''))
-                  . ' / ' . html_escape((string)($singleChild['profile_buy_uom_code'] ?? ''));
+                $cUom = html_escape((string)($singleChild['profile_content_uom_code'] ?? ''));
+                $bUom = html_escape((string)($singleChild['profile_buy_uom_code'] ?? ''));
+                $sizeCol = number_format((float)($singleChild['profile_content_per_buy'] ?? 0), 2, ',', '.') . ' ' . $cUom . ' / ' . $bUom;
+                $qtyIsiStr  = '<span class="fw-semibold">' . ui_num((float)($parent['qty_content_balance'] ?? 0)) . '</span> <span class="text-muted">' . $cUom . '</span>';
+                $qtyBeliStr = ui_num((float)($parent['qty_buy_balance'] ?? 0)) . ' <span class="text-muted">' . $bUom . '</span>';
+              } else {
+                $profileLine = '<span class="text-muted small">' . (int)($parent['profile_count'] ?? 0) . ' profil</span>';
               }
             ?>
             <tr class="dv-parent-row<?php echo $singleChildNonPositive ? ' dv-stock-row-alert' : ''; ?>">
-              <td><?php echo html_escape($divisionText); ?></td>
-              <td><?php echo html_escape($destinationText); ?></td>
               <td>
-                <div class="dv-name-cell">
-                  <?php if ($isExpandable): ?>
-                    <button type="button" class="dv-toggle" data-bs-toggle="collapse" data-bs-target=".<?php echo html_escape($collapseClass); ?>" aria-expanded="false">+</button>
-                  <?php else: ?>
-                    <span class="dv-static">=</span>
-                  <?php endif; ?>
-                  <div class="dv-name-body">
-                    <div class="dv-object-name"><?php echo html_escape($objectText); ?></div>
-                    <div class="dv-name-meta">
-                      <?php if ($objectCode !== ''): ?>
-                        <span class="dv-name-chip is-parent"><?php echo html_escape($objectCode); ?></span>
-                      <?php endif; ?>
-                      <span class="dv-name-chip is-parent"><?php echo html_escape($objectKind); ?></span>
-                      <?php if ($isExpandable): ?>
-                        <span class="dv-name-chip is-parent"><?php echo (int)($parent['profile_count'] ?? 0); ?> profil</span>
-                      <?php elseif ($singleChildNonPositive): ?>
-                        <span class="dv-alert-chip">Stok Habis / Minus</span>
-                      <?php endif; ?>
-                    </div>
-                  </div>
-                </div>
+                <?php if ($isExpandable): ?>
+                  <button type="button" class="dv-toggle-arrow" data-bs-toggle="collapse" data-bs-target=".<?php echo html_escape($collapseClass); ?>" aria-expanded="false">&#9658;</button>
+                <?php endif; ?>
               </td>
-              <td><?php echo $profileCol; ?></td>
-              <td><?php echo $brandCol; ?></td>
-              <td><?php echo $descCol; ?></td>
-              <td><?php echo $sizeCol; ?></td>
-              <td class="text-end fw-semibold"><?php echo ui_num((float)($parent['qty_buy_balance'] ?? 0)); ?></td>
-              <td class="text-end fw-semibold"><?php echo ui_num((float)($parent['qty_content_balance'] ?? 0)); ?></td>
-              <td class="text-end fw-semibold"><?php echo ui_num((float)($parent['avg_cost_per_content'] ?? 0)); ?></td>
-              <td class="text-end fw-semibold"><?php echo number_format((float)($parent['total_value'] ?? 0), 2, ',', '.'); ?></td>
-              <td><?php echo html_escape((string)($parent['updated_at'] ?? '-')); ?></td>
+              <td>
+                <div class="fw-semibold small"><?php echo html_escape($divisionText); ?></div>
+                <div class="text-muted" style="font-size:.72rem"><?php echo html_escape($destinationText); ?></div>
+              </td>
+              <td>
+                <div class="dv-object-name"><?php echo html_escape($objectText); ?></div>
+                <div class="small mt-1"><?php echo $profileLine; ?></div>
+                <?php if ($singleChildNonPositive): ?>
+                  <span class="dv-alert-chip mt-1">Stok Habis / Minus</span>
+                <?php endif; ?>
+              </td>
+              <td class="small"><?php echo $brandCol; ?></td>
+              <td class="small"><?php echo $descCol; ?></td>
+              <td class="small" style="white-space:nowrap"><?php echo $sizeCol; ?></td>
+              <td class="text-end">
+                <div><?php echo $qtyIsiStr; ?></div>
+                <div class="text-muted small"><?php echo $qtyBeliStr; ?></div>
+              </td>
+              <td class="text-end fw-semibold small"><?php echo ui_num((float)($parent['avg_cost_per_content'] ?? 0)); ?></td>
+              <td class="text-end fw-semibold small"><?php echo number_format((float)($parent['total_value'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-muted small" style="white-space:nowrap"><?php echo html_escape(substr((string)($parent['updated_at'] ?? ''), 0, 16)); ?></td>
             </tr>
 
             <?php if ($isExpandable): ?>
             <?php foreach (($parent['children'] ?? []) as $child): ?>
               <?php
-                $profileText3 = trim((string)($child['profile_name'] ?? '-'));
+                $cProfileName = trim((string)($child['profile_name'] ?? '-'));
                 $lotUrl2 = $lotAuditBaseUrl
                   . '?scope=DIVISION&status=ALL&division_id=' . (int)($parent['division_id'] ?? 0)
                   . '&destination=' . rawurlencode((string)($parent['destination_group'] ?? 'REGULER'))
@@ -638,39 +630,32 @@ $paginationQs = http_build_query($pParams);
                   : 0.0;
                 $childClass = 'collapse ' . $collapseClass;
                 $childNonPositive = $isChildNonPositive($child);
+                $cChildUom = html_escape((string)($child['profile_content_uom_code'] ?? ''));
+                $bChildUom = html_escape((string)($child['profile_buy_uom_code'] ?? ''));
+                $childSizeStr = number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.') . ' ' . $cChildUom . ' / ' . $bChildUom;
               ?>
               <tr class="dv-child-row <?php echo html_escape($childClass); ?><?php echo $childNonPositive ? ' dv-stock-row-alert' : ''; ?>">
                 <td></td>
                 <td></td>
                 <td>
-                  <div class="dv-name-cell dv-name-cell-child">
-                    <div class="dv-name-body">
-                      <div class="dv-child-label">Profil Turunan</div>
-                      <div class="dv-object-name"><?php echo html_escape($objectText); ?></div>
-                      <div class="dv-name-meta">
-                        <?php if ($objectCode !== ''): ?>
-                          <span class="dv-name-chip is-child"><?php echo html_escape($objectCode); ?></span>
-                        <?php endif; ?>
-                        <span class="dv-name-chip is-child">Child</span>
-                        <?php if ($childNonPositive): ?>
-                          <span class="dv-alert-chip">Stok Habis / Minus</span>
-                        <?php endif; ?>
-                      </div>
-                    </div>
+                  <div class="dv-name-cell-child">
+                    <div class="small fw-semibold"><?php echo html_escape($cProfileName); ?></div>
+                    <div class="small"><a href="<?php echo html_escape($lotUrl2); ?>">Lihat Lot</a></div>
+                    <?php if ($childNonPositive): ?>
+                      <span class="dv-alert-chip">Stok Habis / Minus</span>
+                    <?php endif; ?>
                   </div>
                 </td>
-                <td>
-                  <?php echo html_escape($profileText3); ?>
-                  <div class="small mt-1"><a href="<?php echo html_escape($lotUrl2); ?>">Lihat Lot</a></div>
+                <td class="small"><?php echo html_escape((string)($child['profile_brand'] ?? '-')); ?></td>
+                <td class="small"><?php echo html_escape((string)($child['profile_description'] ?? '-')); ?></td>
+                <td class="small" style="white-space:nowrap"><?php echo $childSizeStr; ?></td>
+                <td class="text-end">
+                  <div><span class="fw-semibold"><?php echo ui_num((float)($child['qty_content_balance'] ?? 0)); ?></span> <span class="text-muted small"><?php echo $cChildUom; ?></span></div>
+                  <div class="text-muted small"><?php echo ui_num((float)($child['qty_buy_balance'] ?? 0)); ?> <?php echo $bChildUom; ?></div>
                 </td>
-                <td><?php echo html_escape((string)($child['profile_brand'] ?? '-')); ?></td>
-                <td><?php echo html_escape((string)($child['profile_description'] ?? '-')); ?></td>
-                <td><?php echo number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($child['profile_content_uom_code'] ?? '')); ?> / <?php echo html_escape((string)($child['profile_buy_uom_code'] ?? '')); ?></td>
-                <td class="text-end"><?php echo ui_num((float)($child['qty_buy_balance'] ?? 0)); ?></td>
-                <td class="text-end"><?php echo ui_num((float)($child['qty_content_balance'] ?? 0)); ?></td>
-                <td class="text-end"><?php echo ui_num($childAvgCost); ?></td>
-                <td class="text-end"><?php echo number_format((float)($child['total_value'] ?? 0), 2, ',', '.'); ?></td>
-                <td><?php echo html_escape((string)($child['updated_at'] ?? '-')); ?></td>
+                <td class="text-end small"><?php echo ui_num($childAvgCost); ?></td>
+                <td class="text-end small"><?php echo number_format((float)($child['total_value'] ?? 0), 2, ',', '.'); ?></td>
+                <td class="text-muted small" style="white-space:nowrap"><?php echo html_escape(substr((string)($child['updated_at'] ?? ''), 0, 16)); ?></td>
               </tr>
             <?php endforeach; ?>
             <?php endif; ?>

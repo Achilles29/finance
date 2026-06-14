@@ -391,6 +391,241 @@ class Finance_report_model extends CI_Model
         ];
     }
 
+    public function financial_estimation_report(string $dateStart, string $dateEnd): array
+    {
+        [$dateStart, $dateEnd] = $this->normalize_date_range($dateStart, $dateEnd);
+
+        $accounts = $this->active_company_accounts();
+        $snapshotRows = $this->collect_account_snapshot_rows($dateStart, $dateEnd, $accounts);
+        $metricRows = $this->collect_management_metric_rows($dateStart, $dateEnd, $snapshotRows);
+
+        $globalMetricMap = [];
+        $globalMetricGroups = [];
+        $divisionRows = [];
+        foreach ($metricRows as $row) {
+            $scopeType = strtoupper(trim((string)($row['scope_type'] ?? '')));
+            $scopeRefId = (int)($row['scope_ref_id'] ?? 0);
+            $metricCode = strtoupper(trim((string)($row['metric_code'] ?? '')));
+            $metricGroup = strtoupper(trim((string)($row['metric_group'] ?? '')));
+            $amount = round((float)($row['metric_amount'] ?? 0), 2);
+
+            if ($scopeType === 'GLOBAL' && $scopeRefId === 0) {
+                $globalMetricMap[$metricCode] = $amount;
+                if (!isset($globalMetricGroups[$metricGroup])) {
+                    $globalMetricGroups[$metricGroup] = [];
+                }
+                $globalMetricGroups[$metricGroup][] = $row;
+                continue;
+            }
+
+            if ($scopeType === 'DIVISION' && $scopeRefId > 0) {
+                $divisionRows[] = $row;
+            }
+        }
+
+        $overview = [
+            'net_revenue' => round(($globalMetricMap['POS_REVENUE'] ?? 0) - ($globalMetricMap['POS_REFUND'] ?? 0), 2),
+            'pos_revenue' => round((float)($globalMetricMap['POS_REVENUE'] ?? 0), 2),
+            'pos_refund' => round((float)($globalMetricMap['POS_REFUND'] ?? 0), 2),
+            'live_hpp' => round((float)($globalMetricMap['LIVE_HPP_VALUE'] ?? 0), 2),
+            'purchase_operational' => round((float)($globalMetricMap['PURCHASE_OPERATIONAL'] ?? 0), 2),
+            'purchase_utility' => round((float)($globalMetricMap['PURCHASE_UTILITY'] ?? 0), 2),
+            'purchase_other' => round((float)($globalMetricMap['PURCHASE_OTHER'] ?? 0), 2),
+            'payroll_estimate_running' => round((float)($globalMetricMap['PAYROLL_ESTIMATE_RUNNING'] ?? 0), 2),
+            'sr_pending_value' => round((float)($globalMetricMap['SR_PENDING_VALUE'] ?? 0), 2),
+            'warehouse_adjustment' => round((float)($globalMetricMap['WAREHOUSE_ADJUSTMENT_VALUE'] ?? 0), 2),
+            'division_adjustment' => round((float)($globalMetricMap['DIVISION_ADJUSTMENT_VALUE'] ?? 0), 2),
+            'component_adjustment' => round((float)($globalMetricMap['COMPONENT_ADJUSTMENT_VALUE'] ?? 0), 2),
+            'estimated_profit_value' => round((float)($globalMetricMap['ESTIMATED_PROFIT_VALUE'] ?? 0), 2),
+            'estimated_profit_percent' => round((float)($globalMetricMap['ESTIMATED_PROFIT_PERCENT'] ?? 0), 2),
+            'physical_balance_value' => round((float)($globalMetricMap['PHYSICAL_BALANCE_VALUE'] ?? 0), 2),
+            'real_balance_value' => round((float)($globalMetricMap['REAL_BALANCE_VALUE'] ?? 0), 2),
+        ];
+        $overview['estimated_cost_total'] = round(
+            $overview['live_hpp']
+            + $overview['purchase_operational']
+            + $overview['purchase_utility']
+            + $overview['purchase_other']
+            + $overview['payroll_estimate_running']
+            + $overview['warehouse_adjustment']
+            + $overview['division_adjustment']
+            + $overview['component_adjustment'],
+            2
+        );
+
+        $waterfallRows = [
+            ['label' => 'Omzet POS', 'amount' => $overview['pos_revenue'], 'tone' => 'positive'],
+            ['label' => 'Refund POS', 'amount' => $overview['pos_refund'], 'tone' => 'negative'],
+            ['label' => 'Omzet Bersih', 'amount' => $overview['net_revenue'], 'tone' => 'neutral'],
+            ['label' => 'HPP Live', 'amount' => $overview['live_hpp'], 'tone' => 'negative'],
+            ['label' => 'Belanja Operasional', 'amount' => $overview['purchase_operational'], 'tone' => 'negative'],
+            ['label' => 'Belanja Utilitas', 'amount' => $overview['purchase_utility'], 'tone' => 'negative'],
+            ['label' => 'Belanja Lainnya', 'amount' => $overview['purchase_other'], 'tone' => 'negative'],
+            ['label' => 'Estimasi Gaji Berjalan', 'amount' => $overview['payroll_estimate_running'], 'tone' => 'negative'],
+            ['label' => 'Adjustment Gudang', 'amount' => $overview['warehouse_adjustment'], 'tone' => 'negative'],
+            ['label' => 'Adjustment Divisi', 'amount' => $overview['division_adjustment'], 'tone' => 'negative'],
+            ['label' => 'Adjustment Component', 'amount' => $overview['component_adjustment'], 'tone' => 'negative'],
+            ['label' => 'Profit Estimasi', 'amount' => $overview['estimated_profit_value'], 'tone' => $overview['estimated_profit_value'] < 0 ? 'negative' : 'positive'],
+        ];
+
+        $divisionMap = [];
+        foreach ($this->division_options() as $division) {
+            $divisionMap[(int)($division['id'] ?? 0)] = (string)($division['name'] ?? ('Divisi #' . (int)($division['id'] ?? 0)));
+        }
+
+        $divisionMetricMap = [];
+        foreach ($divisionRows as $row) {
+            $divisionId = (int)($row['scope_ref_id'] ?? 0);
+            $metricCode = strtoupper(trim((string)($row['metric_code'] ?? '')));
+            if ($divisionId <= 0 || $metricCode === '') {
+                continue;
+            }
+            if (!isset($divisionMetricMap[$divisionId])) {
+                $divisionMetricMap[$divisionId] = [
+                    'division_id' => $divisionId,
+                    'division_name' => $divisionMap[$divisionId] ?? ('Divisi #' . $divisionId),
+                    'SR_PENDING_VALUE' => 0.0,
+                    'PAYROLL_ESTIMATE_RUNNING' => 0.0,
+                    'RAW_MATERIAL_IN_VALUE' => 0.0,
+                    'RAW_MATERIAL_USAGE_VALUE' => 0.0,
+                    'DIVISION_ADJUSTMENT_VALUE' => 0.0,
+                    'DIVISION_ENDING_STOCK_VALUE' => 0.0,
+                ];
+            }
+            if (array_key_exists($metricCode, $divisionMetricMap[$divisionId])) {
+                $divisionMetricMap[$divisionId][$metricCode] = round((float)($row['metric_amount'] ?? 0), 2);
+            }
+        }
+
+        $divisionScoreboard = array_values($divisionMetricMap);
+        usort($divisionScoreboard, static function (array $a, array $b): int {
+            $scoreA = abs((float)($a['RAW_MATERIAL_USAGE_VALUE'] ?? 0)) + abs((float)($a['DIVISION_ADJUSTMENT_VALUE'] ?? 0));
+            $scoreB = abs((float)($b['RAW_MATERIAL_USAGE_VALUE'] ?? 0)) + abs((float)($b['DIVISION_ADJUSTMENT_VALUE'] ?? 0));
+            if ($scoreA !== $scoreB) {
+                return $scoreB <=> $scoreA;
+            }
+            return strcmp((string)($a['division_name'] ?? ''), (string)($b['division_name'] ?? ''));
+        });
+
+        usort($snapshotRows, static function (array $a, array $b): int {
+            $balanceCompare = (float)($b['closing_balance_real'] ?? 0) <=> (float)($a['closing_balance_real'] ?? 0);
+            if ($balanceCompare !== 0) {
+                return $balanceCompare;
+            }
+            return strcmp((string)($a['account_name_snapshot'] ?? ''), (string)($b['account_name_snapshot'] ?? ''));
+        });
+
+        return [
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+            'overview' => $overview,
+            'waterfall_rows' => $waterfallRows,
+            'global_metric_groups' => $globalMetricGroups,
+            'division_scoreboard' => $divisionScoreboard,
+            'account_snapshots' => $snapshotRows,
+        ];
+    }
+
+    public function bank_daily_recap(string $month, int $accountId = 0): array
+    {
+        $month = trim($month);
+        if (!preg_match('/^\d{4}\-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+
+        $accounts = $this->active_company_accounts();
+        $accountMap = [];
+        foreach ($accounts as $account) {
+            $accountMap[(int)($account['id'] ?? 0)] = $account;
+        }
+
+        if ($accountId > 0 && !isset($accountMap[$accountId])) {
+            $accountId = 0;
+        }
+
+        $dateStart = $month . '-01';
+        $dateEnd = date('Y-m-t', strtotime($dateStart));
+        $dailyRows = [];
+        $endingAccountRows = [];
+
+        $cursor = strtotime($dateStart);
+        $endCursor = strtotime($dateEnd);
+        while ($cursor <= $endCursor) {
+            $day = date('Y-m-d', $cursor);
+            $snapshotRows = $this->collect_account_snapshot_rows($day, $day, $accounts);
+            $kafeSummary = $this->snapshot_summary_from_rows($snapshotRows);
+            $focusSummary = $kafeSummary;
+            if ($accountId > 0) {
+                $focusSummary = $this->snapshot_summary_from_rows(array_values(array_filter($snapshotRows, static function (array $row) use ($accountId): bool {
+                    return (int)($row['company_account_id'] ?? 0) === $accountId;
+                })));
+            }
+
+            $dailyRows[] = [
+                'date' => $day,
+                'rekening_mutation_in' => round((float)($focusSummary['mutation_in_total'] ?? 0), 2),
+                'rekening_mutation_out' => round((float)($focusSummary['mutation_out_total'] ?? 0), 2),
+                'rekening_physical_balance' => round((float)($focusSummary['physical_total'] ?? 0), 2),
+                'rekening_real_balance' => round((float)($focusSummary['real_total'] ?? 0), 2),
+                'kafe_mutation_in' => round((float)($kafeSummary['mutation_in_total'] ?? 0), 2),
+                'kafe_mutation_out' => round((float)($kafeSummary['mutation_out_total'] ?? 0), 2),
+                'kafe_physical_balance' => round((float)($kafeSummary['physical_total'] ?? 0), 2),
+                'kafe_real_balance' => round((float)($kafeSummary['real_total'] ?? 0), 2),
+                'kafe_gap' => round((float)($kafeSummary['real_total'] ?? 0) - (float)($kafeSummary['physical_total'] ?? 0), 2),
+                'payable_total' => round((float)($kafeSummary['payable_total'] ?? 0), 2),
+                'receivable_total' => round((float)($kafeSummary['receivable_total'] ?? 0), 2),
+                'cash_advance_total' => round((float)($kafeSummary['cash_advance_total'] ?? 0), 2),
+                'payroll_pending_total' => round((float)($kafeSummary['payroll_pending_total'] ?? 0), 2),
+            ];
+
+            if ($day === $dateEnd) {
+                $endingAccountRows = $snapshotRows;
+            }
+            $cursor = strtotime('+1 day', $cursor);
+        }
+
+        if (empty($endingAccountRows)) {
+            $endingAccountRows = $this->collect_account_snapshot_rows($dateEnd, $dateEnd, $accounts);
+        }
+
+        usort($endingAccountRows, static function (array $a, array $b): int {
+            $realCompare = (float)($b['closing_balance_real'] ?? 0) <=> (float)($a['closing_balance_real'] ?? 0);
+            if ($realCompare !== 0) {
+                return $realCompare;
+            }
+            return strcmp((string)($a['account_name_snapshot'] ?? ''), (string)($b['account_name_snapshot'] ?? ''));
+        });
+
+        $endingKafeSummary = $this->snapshot_summary_from_rows($endingAccountRows);
+        $endingFocusSummary = $endingKafeSummary;
+        if ($accountId > 0) {
+            $endingFocusSummary = $this->snapshot_summary_from_rows(array_values(array_filter($endingAccountRows, static function (array $row) use ($accountId): bool {
+                return (int)($row['company_account_id'] ?? 0) === $accountId;
+            })));
+        }
+
+        return [
+            'month' => $month,
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+            'selected_account_id' => $accountId,
+            'selected_account' => $accountId > 0 ? ($accountMap[$accountId] ?? null) : null,
+            'overview' => [
+                'rekening_physical_balance' => round((float)($endingFocusSummary['physical_total'] ?? 0), 2),
+                'rekening_real_balance' => round((float)($endingFocusSummary['real_total'] ?? 0), 2),
+                'kafe_physical_balance' => round((float)($endingKafeSummary['physical_total'] ?? 0), 2),
+                'kafe_real_balance' => round((float)($endingKafeSummary['real_total'] ?? 0), 2),
+                'kafe_gap' => round((float)($endingKafeSummary['real_total'] ?? 0) - (float)($endingKafeSummary['physical_total'] ?? 0), 2),
+                'payable_total' => round((float)($endingKafeSummary['payable_total'] ?? 0), 2),
+                'receivable_total' => round((float)($endingKafeSummary['receivable_total'] ?? 0), 2),
+                'cash_advance_total' => round((float)($endingKafeSummary['cash_advance_total'] ?? 0), 2),
+                'payroll_pending_total' => round((float)($endingKafeSummary['payroll_pending_total'] ?? 0), 2),
+            ],
+            'daily_rows' => $dailyRows,
+            'account_rows' => $endingAccountRows,
+        ];
+    }
+
     private function loan_exposure_map(string $table, array $accountIds = []): array
     {
         if (!$this->db->table_exists($table)) {
@@ -738,6 +973,53 @@ class Finance_report_model extends CI_Model
                     $summary['salary_estimate_running'] = round($sum, 2);
                 }
             }
+        }
+
+        return $summary;
+    }
+
+    private function normalize_date_range(string $dateStart, string $dateEnd): array
+    {
+        $dateStart = trim($dateStart);
+        $dateEnd = trim($dateEnd);
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateStart)) {
+            $dateStart = date('Y-m-01');
+        }
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateEnd)) {
+            $dateEnd = date('Y-m-t');
+        }
+        if ($dateStart > $dateEnd) {
+            [$dateStart, $dateEnd] = [$dateEnd, $dateStart];
+        }
+        return [$dateStart, $dateEnd];
+    }
+
+    private function snapshot_summary_from_rows(array $rows): array
+    {
+        $summary = [
+            'physical_total' => 0.0,
+            'real_total' => 0.0,
+            'payable_total' => 0.0,
+            'receivable_total' => 0.0,
+            'cash_advance_total' => 0.0,
+            'payroll_pending_total' => 0.0,
+            'mutation_in_total' => 0.0,
+            'mutation_out_total' => 0.0,
+        ];
+
+        foreach ($rows as $row) {
+            $summary['physical_total'] += (float)($row['closing_balance_physical'] ?? 0);
+            $summary['real_total'] += (float)($row['closing_balance_real'] ?? 0);
+            $summary['payable_total'] += (float)($row['payable_outstanding'] ?? 0);
+            $summary['receivable_total'] += (float)($row['receivable_outstanding'] ?? 0);
+            $summary['cash_advance_total'] += (float)($row['cash_advance_outstanding'] ?? 0);
+            $summary['payroll_pending_total'] += (float)($row['payroll_pending'] ?? 0);
+            $summary['mutation_in_total'] += (float)($row['mutation_in_total'] ?? 0);
+            $summary['mutation_out_total'] += (float)($row['mutation_out_total'] ?? 0);
+        }
+
+        foreach ($summary as $key => $value) {
+            $summary[$key] = round((float)$value, 2);
         }
 
         return $summary;
@@ -1667,6 +1949,130 @@ class Finance_report_model extends CI_Model
         return ['ok' => true, 'message' => 'Realisasi target berhasil dihitung untuk ' . count($lines) . ' metric.'];
     }
 
+    public function get_target_progress_snapshot(int $targetPlanId, string $asOfDate = ''): array
+    {
+        $default = [
+            'ok' => false,
+            'applicable' => false,
+            'target_plan_id' => $targetPlanId,
+            'plan' => null,
+            'date_start' => null,
+            'date_end' => null,
+            'as_of_date' => $asOfDate,
+            'line_count' => 0,
+            'avg_score_percent' => 100.00,
+            'all_required_passed' => true,
+            'required_failed_count' => 0,
+            'notes' => 'Target netral',
+            'lines' => [],
+        ];
+
+        if (
+            $targetPlanId <= 0
+            || !$this->db->table_exists('fin_target_plan')
+            || !$this->db->table_exists('fin_target_plan_line')
+        ) {
+            return $default;
+        }
+
+        $plan = $this->get_target_plan_by_id($targetPlanId);
+        if (!$plan) {
+            $default['notes'] = 'Target tidak ditemukan.';
+            return $default;
+        }
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOfDate)) {
+            $asOfDate = date('Y-m-d');
+        }
+
+        $planStart = (string)($plan['date_start'] ?? '');
+        $planEnd = (string)($plan['date_end'] ?? '');
+        $scope = strtoupper(trim((string)($plan['target_scope'] ?? 'MONTHLY')));
+        $default['plan'] = $plan;
+        $default['date_start'] = $planStart;
+        $default['date_end'] = $planEnd;
+        $default['as_of_date'] = $asOfDate;
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $planStart) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $planEnd)) {
+            $default['notes'] = 'Rentang target belum valid.';
+            return $default;
+        }
+
+        if ($asOfDate < $planStart || $asOfDate > $planEnd) {
+            $default['notes'] = 'Tanggal bonus berada di luar rentang target.';
+            return $default;
+        }
+
+        $effectiveStart = $scope === 'DAILY' ? $asOfDate : $planStart;
+        $effectiveEnd = $scope === 'DAILY' ? $asOfDate : min($asOfDate, $planEnd);
+
+        $lines = $this->db->select('tl.*')
+            ->from('fin_target_plan_line tl')
+            ->where('tl.target_plan_id', $targetPlanId)
+            ->order_by('tl.metric_group', 'ASC')
+            ->order_by('tl.metric_label', 'ASC')
+            ->get()->result_array();
+        if (empty($lines)) {
+            $default['notes'] = 'Target belum punya metric line.';
+            return $default;
+        }
+
+        $snapshotRows = $this->collect_account_snapshot_rows($effectiveStart, $effectiveEnd, $this->active_company_accounts());
+        $rawMetricRows = $this->collect_management_metric_rows($effectiveStart, $effectiveEnd, $snapshotRows);
+
+        $weightedScoreSum = 0.0;
+        $weightTotal = 0.0;
+        $requiredFailedCount = 0;
+        $lineResults = [];
+
+        foreach ($lines as $line) {
+            $resolved = $this->resolve_target_line_actual($plan, $line, [], $rawMetricRows);
+            $score = $this->calculate_target_score($line, (float)($resolved['actual_value'] ?? 0));
+            $weight = round((float)($line['weight_percent'] ?? 0), 4);
+            if ($weight <= 0) {
+                $weight = 1.0;
+            }
+
+            $weightedScoreSum += ((float)($score['score_percent'] ?? 0) * $weight);
+            $weightTotal += $weight;
+            if ((int)($line['is_required'] ?? 0) === 1 && empty($score['bonus_gate_passed'])) {
+                $requiredFailedCount++;
+            }
+
+            $lineResults[] = [
+                'line_id' => (int)($line['id'] ?? 0),
+                'metric_code' => (string)($line['metric_code'] ?? ''),
+                'metric_label' => (string)($line['metric_label'] ?? ''),
+                'target_value' => round((float)($line['target_value'] ?? 0), 2),
+                'actual_value' => round((float)($resolved['actual_value'] ?? 0), 2),
+                'score_percent' => round((float)($score['score_percent'] ?? 0), 2),
+                'is_passed' => !empty($score['is_passed']) ? 1 : 0,
+                'bonus_gate_passed' => !empty($score['bonus_gate_passed']) ? 1 : 0,
+                'weight_percent' => $weight,
+                'is_required' => (int)($line['is_required'] ?? 0),
+                'notes' => (string)($resolved['notes'] ?? ''),
+            ];
+        }
+
+        $avgScore = $weightTotal > 0 ? round($weightedScoreSum / $weightTotal, 2) : 100.00;
+
+        return [
+            'ok' => true,
+            'applicable' => true,
+            'target_plan_id' => $targetPlanId,
+            'plan' => $plan,
+            'date_start' => $effectiveStart,
+            'date_end' => $effectiveEnd,
+            'as_of_date' => $asOfDate,
+            'line_count' => count($lineResults),
+            'avg_score_percent' => $avgScore,
+            'all_required_passed' => $requiredFailedCount === 0,
+            'required_failed_count' => $requiredFailedCount,
+            'notes' => 'Progress target ' . $effectiveStart . ' s/d ' . $effectiveEnd,
+            'lines' => $lineResults,
+        ];
+    }
+
     private function collect_account_snapshot_rows(string $dateStart, string $dateEnd, array $accounts): array
     {
         if (empty($accounts)) {
@@ -1862,6 +2268,24 @@ class Finance_report_model extends CI_Model
                 (string)$row['notes']
             );
         }
+
+        $globalNetRevenue = $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'POS_REVENUE')
+            - $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'POS_REFUND');
+        $globalEstimatedCost = $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'LIVE_HPP_VALUE')
+            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'PURCHASE_OPERATIONAL')
+            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'PURCHASE_UTILITY')
+            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'PURCHASE_OTHER')
+            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'PAYROLL_ESTIMATE_RUNNING')
+            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'WAREHOUSE_ADJUSTMENT_VALUE')
+            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'DIVISION_ADJUSTMENT_VALUE')
+            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'COMPONENT_ADJUSTMENT_VALUE');
+        $globalEstimatedProfit = round($globalNetRevenue - $globalEstimatedCost, 2);
+        $globalEstimatedProfitPct = $globalNetRevenue > 0
+            ? round(($globalEstimatedProfit / $globalNetRevenue) * 100, 2)
+            : 0.00;
+
+        $this->metric_add($bucket, 'GLOBAL', 0, 'PROFITABILITY', 'ESTIMATED_PROFIT_VALUE', 'Profit Estimasi', $globalEstimatedProfit, 0, 'derived_global', 'Estimasi profit = omzet bersih - HPP live - beban operasional - estimasi gaji - adjustment.');
+        $this->metric_add($bucket, 'GLOBAL', 0, 'PROFITABILITY', 'ESTIMATED_PROFIT_PERCENT', 'Margin Profit Estimasi %', $globalEstimatedProfitPct, 0, 'derived_global', 'Margin estimasi dihitung dari profit estimasi dibanding omzet bersih.');
 
         return array_values($bucket);
     }
@@ -2192,6 +2616,12 @@ class Finance_report_model extends CI_Model
         $bucket[$key]['metric_qty'] = round((float)$bucket[$key]['metric_qty'] + round($qty, 4), 4);
     }
 
+    private function bucket_metric_amount(array $bucket, string $scopeType, int $scopeRefId, string $metricCode): float
+    {
+        $key = $scopeType . '|' . $scopeRefId . '|' . $metricCode;
+        return round((float)($bucket[$key]['metric_amount'] ?? 0), 2);
+    }
+
     private function purchase_metric_code_for_row(array $row): string
     {
         $typeCode = strtoupper(trim((string)($row['type_code'] ?? '')));
@@ -2239,6 +2669,8 @@ class Finance_report_model extends CI_Model
             'RAW_MATERIAL_USAGE_VALUE' => 'Bahan Baku Terpakai',
             'WAREHOUSE_ENDING_STOCK_VALUE' => 'Stok Akhir Gudang',
             'DIVISION_ENDING_STOCK_VALUE' => 'Stok Akhir Divisi',
+            'ESTIMATED_PROFIT_VALUE' => 'Profit Estimasi',
+            'ESTIMATED_PROFIT_PERCENT' => 'Margin Profit Estimasi %',
             'REAL_BALANCE_VALUE' => 'Saldo Riil',
             'PHYSICAL_BALANCE_VALUE' => 'Saldo Fisik',
         ];

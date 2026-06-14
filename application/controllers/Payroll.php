@@ -648,7 +648,7 @@ class Payroll extends MY_Controller
             $month = date('Y-m');
         }
         $tab = strtolower(trim((string)$this->input->get('tab', true)));
-        if (!in_array($tab, ['overview', 'rules', 'penalties', 'peer', 'guide'], true)) {
+        if (!in_array($tab, ['overview', 'rules', 'penalties', 'peer', 'service', 'monthly', 'guide'], true)) {
             $tab = 'overview';
         }
 
@@ -657,6 +657,8 @@ class Payroll extends MY_Controller
         $penaltyTypeFilters = ['q' => trim((string)$this->input->get('penalty_type_q', true))];
         $penaltyEventFilters = ['q' => trim((string)$this->input->get('penalty_event_q', true))];
         $peerFilters = ['q' => trim((string)$this->input->get('peer_q', true))];
+        $serviceFilters = ['q' => trim((string)$this->input->get('service_q', true))];
+        $monthlyFilters = ['q' => trim((string)$this->input->get('monthly_q', true))];
 
         $poolPg = $this->build_pagination(
             $this->Payroll_model->count_bonus_recent_pools($month, $poolFilters['q']),
@@ -683,6 +685,16 @@ class Payroll extends MY_Controller
             $this->per_page('peer_per_page'),
             $this->page('peer_page')
         );
+        $servicePg = $this->build_pagination(
+            $this->Payroll_model->count_bonus_service_metrics($month, $serviceFilters['q']),
+            $this->per_page('service_per_page'),
+            $this->page('service_page')
+        );
+        $monthlyPg = $this->build_pagination(
+            $this->Payroll_model->count_bonus_monthly_summaries($month, $monthlyFilters['q']),
+            $this->per_page('monthly_per_page'),
+            $this->page('monthly_page')
+        );
 
         $this->render('payroll/bonus_workspace', [
             'title' => 'Bonus Pegawai',
@@ -695,11 +707,15 @@ class Payroll extends MY_Controller
             'penalty_type_filters' => $penaltyTypeFilters,
             'penalty_event_filters' => $penaltyEventFilters,
             'peer_filters' => $peerFilters,
+            'service_filters' => $serviceFilters,
+            'monthly_filters' => $monthlyFilters,
             'pool_pg' => $poolPg,
             'rule_pg' => $rulePg,
             'penalty_type_pg' => $penaltyTypePg,
             'penalty_event_pg' => $penaltyEventPg,
             'peer_pg' => $peerPg,
+            'service_pg' => $servicePg,
+            'monthly_pg' => $monthlyPg,
             'config_rows' => $this->Payroll_model->list_bonus_config_options(),
             'outlet_rows' => $this->Payroll_model->list_bonus_outlet_options(),
             'division_rows' => $this->Payroll_model->get_division_options(),
@@ -712,6 +728,8 @@ class Payroll extends MY_Controller
             'penalty_event_rows' => $this->Payroll_model->list_bonus_penalty_events($month, $penaltyEventFilters['q'], $penaltyEventPg['per_page'], $penaltyEventPg['offset']),
             'pool_rows' => $this->Payroll_model->list_bonus_recent_pools($month, $poolFilters['q'], $poolPg['per_page'], $poolPg['offset']),
             'pending_peer_rows' => $this->Payroll_model->list_pending_peer_feedback($peerFilters['q'], $peerPg['per_page'], $peerPg['offset']),
+            'service_metric_rows' => $this->Payroll_model->list_bonus_service_metrics($month, $serviceFilters['q'], $servicePg['per_page'], $servicePg['offset']),
+            'monthly_summary_rows' => $this->Payroll_model->list_bonus_monthly_summaries($month, $monthlyFilters['q'], $monthlyPg['per_page'], $monthlyPg['offset']),
         ]);
     }
 
