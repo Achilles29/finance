@@ -14,6 +14,7 @@ class My extends MY_Controller
     private const PAGE_PH = 'my.ph.index';
     private const PAGE_ADJUSTMENT = 'my.adjustment.index';
     private const PAGE_CASH_ADVANCE = 'my.cash_advance.index';
+    private const PAGE_BONUS = 'my.bonus.index';
 
     /** @var array<string,bool> */
     private $registeredPageCache = [];
@@ -43,15 +44,15 @@ class My extends MY_Controller
         return 0;
     }
 
-    private function per_page(): int
+    private function per_page(string $param = 'per_page'): int
     {
-        $pp = (int)$this->input->get('per_page', true);
+        $pp = (int)$this->input->get($param, true);
         return in_array($pp, [10, 25, 50, 100], true) ? $pp : 25;
     }
 
-    private function page(): int
+    private function page(string $param = 'page'): int
     {
-        return max(1, (int)$this->input->get('page', true));
+        return max(1, (int)$this->input->get($param, true));
     }
 
     private function build_pagination(int $total, int $perPage, int $page): array
@@ -111,6 +112,7 @@ class My extends MY_Controller
         $policy = $this->My_portal_model->get_active_policy();
         $todaySchedule = null;
         $todayPresence = ['checkin_count' => 0, 'checkout_count' => 0, 'last_checkin_at' => null, 'last_checkout_at' => null];
+        $pendingPeerFeedback = [];
         $pg = ['total' => 0, 'per_page' => $this->per_page(), 'page' => 1, 'total_pages' => 1, 'offset' => 0];
         $locationOptions = $this->Attendance_model->get_active_locations();
         $defaultLocationId = $this->Attendance_model->get_default_location_id();
@@ -119,6 +121,7 @@ class My extends MY_Controller
             $this->My_portal_model->ensure_auto_ph_presence((int)$employee['id'], $today, $policy);
             $todaySchedule = $this->My_portal_model->get_schedule_with_shift((int)$employee['id'], $today);
             $todayPresence = $this->My_portal_model->get_today_presence_state((int)$employee['id'], $today);
+            $pendingPeerFeedback = $this->Payroll_model->get_pending_peer_feedback_targets((int)$employee['id'], $today);
 
             $perPage = $this->per_page();
             $page = $this->page();
@@ -137,6 +140,7 @@ class My extends MY_Controller
             'today' => $today,
             'today_schedule' => $todaySchedule,
             'today_presence' => $todayPresence,
+            'pending_peer_feedback' => $pendingPeerFeedback,
             'location_options' => $locationOptions,
             'default_location_id' => $defaultLocationId,
             'filters' => $filters,
@@ -172,6 +176,10 @@ class My extends MY_Controller
         $result = $this->My_portal_model->mark_attendance((int)$employee['id'], date('Y-m-d'), $eventType, $policy, $locationId, $latVal, $lonVal);
         if (!empty($result['ok'])) {
             $this->Attendance_model->sync_ph_grant_for_employee_date((int)$employee['id'], date('Y-m-d'), (int)($this->current_user['id'] ?? 0));
+            $pendingPeerFeedback = $this->Payroll_model->get_pending_peer_feedback_targets((int)$employee['id'], date('Y-m-d'));
+            if (!empty($pendingPeerFeedback)) {
+                $this->session->set_flashdata('warning', 'Masih ada rekan kerja hari ini yang belum Anda nilai. Buka Bonus Saya untuk mengisi penilaian 360.');
+            }
         }
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal memproses absensi.'));
 
@@ -776,6 +784,113 @@ class My extends MY_Controller
             'pg' => $pg,
             'status_options' => ['DRAFT', 'APPROVED', 'REJECTED', 'SETTLED', 'VOID'],
         ]);
+    }
+
+    public function bonus()
+    {
+        $this->require_registered_page_permission(self::PAGE_BONUS);
+
+        $employeeId = $this->selected_employee_id();
+        $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
+        if (!$employee) {
+            $this->session->set_flashdata('error', 'Data pegawai belum terhubung ke akun ini.');
+            redirect('my');
+            return;
+        }
+
+        $month = trim((string)$this->input->get('month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $date = trim((string)$this->input->get('date', true));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            $date = date('Y-m-d');
+        }
+        $tab = strtolower(trim((string)$this->input->get('tab', true)));
+        if (!in_array($tab, ['summary', '360', 'history'], true)) {
+            $tab = 'summary';
+        }
+
+        $dailyFilters = ['q' => trim((string)$this->input->get('daily_q', true))];
+        $historyFilters = ['q' => trim((string)$this->input->get('history_q', true))];
+        $dailyPg = $this->build_pagination(
+            $this->Payroll_model->count_my_bonus_daily_rows((int)$employee['id'], $month, $dailyFilters['q'], true),
+            $this->per_page('daily_per_page'),
+            $this->page('daily_page')
+        );
+        $historyPg = $this->build_pagination(
+            $this->Payroll_model->count_my_peer_feedback_history((int)$employee['id'], $month, $historyFilters['q']),
+            $this->per_page('history_per_page'),
+            $this->page('history_page')
+        );
+
+        $this->render('my/bonus', [
+            'title' => 'Bonus Saya',
+            'active_menu' => 'my.bonus',
+            'employee' => $employee,
+            'employee_options' => $this->is_superadmin() ? $this->My_portal_model->get_employee_options() : [],
+            'selected_employee_id' => $employeeId,
+            'month' => $month,
+            'date' => $date,
+            'tab' => $tab,
+            'daily_filters' => $dailyFilters,
+            'history_filters' => $historyFilters,
+            'daily_pg' => $dailyPg,
+            'history_pg' => $historyPg,
+            'summary' => $this->Payroll_model->get_employee_bonus_overview((int)$employee['id'], $month),
+            'daily_rows' => $this->Payroll_model->list_my_bonus_daily_rows((int)$employee['id'], $month, $dailyFilters['q'], $dailyPg['per_page'], $dailyPg['offset'], true),
+            'pending_peer_feedback' => $this->Payroll_model->get_pending_peer_feedback_targets((int)$employee['id'], $date),
+            'peer_history_rows' => $this->Payroll_model->list_my_peer_feedback_history((int)$employee['id'], $month, $historyFilters['q'], $historyPg['per_page'], $historyPg['offset']),
+        ]);
+    }
+
+    public function bonus_peer_submit()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_registered_page_permission(self::PAGE_BONUS);
+
+        $employeeId = $this->selected_employee_id();
+        $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
+        if (!$employee) {
+            $this->session->set_flashdata('error', 'Data pegawai belum terhubung ke akun ini.');
+            redirect('my/bonus');
+            return;
+        }
+
+        $date = trim((string)$this->input->post('date', true));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            $date = date('Y-m-d');
+        }
+
+        $toIds = (array)$this->input->post('to_employee_id');
+        $ratings = (array)$this->input->post('star_rating');
+        $reasons = (array)$this->input->post('reason_text');
+        $shiftIds = (array)$this->input->post('shift_id');
+
+        $entries = [];
+        foreach ($toIds as $idx => $toId) {
+            $entries[] = [
+                'to_employee_id' => (int)$toId,
+                'star_rating' => (int)($ratings[$idx] ?? 0),
+                'reason_text' => trim((string)($reasons[$idx] ?? '')),
+                'shift_id' => (int)($shiftIds[$idx] ?? 0),
+            ];
+        }
+
+        $result = $this->Payroll_model->submit_peer_feedback_batch((int)$employee['id'], $date, $entries);
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan penilaian 360.'));
+        if (!empty($result['warning'])) {
+            $this->session->set_flashdata('warning', (string)$result['warning']);
+        }
+
+        $query = ['tab' => '360', 'date' => $date];
+        if ($this->is_superadmin()) {
+            $query['employee_id'] = (int)$employee['id'];
+        }
+        redirect('my/bonus?' . http_build_query($query));
     }
 
     private function render_placeholder(string $activeMenu, string $title, string $message): void

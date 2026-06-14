@@ -1,0 +1,430 @@
+<?php
+$filters = is_array($filters ?? null) ? $filters : [];
+$rows = is_array($rows ?? null) ? $rows : [];
+$summary = is_array($summary ?? null) ? $summary : [];
+$pg = is_array($pg ?? null) ? $pg : ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
+$divisionOptions = is_array($division_options ?? null) ? $division_options : [];
+$companyAccounts = is_array($company_accounts ?? null) ? $company_accounts : [];
+$metricCatalog = is_array($metric_catalog ?? null) ? $metric_catalog : [];
+$baseUrl = site_url('finance-reports/targets');
+$buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl) {
+    $query = [
+        'q' => (string)($filters['q'] ?? ''),
+        'status' => (string)($filters['status'] ?? ''),
+        'target_scope' => (string)($filters['target_scope'] ?? ''),
+        'division_id' => (int)($filters['division_id'] ?? 0),
+        'per_page' => (int)($pg['per_page'] ?? 25),
+        'page' => (int)($pg['page'] ?? 1),
+    ];
+    return $baseUrl . '?' . http_build_query(array_merge($query, $overrides));
+};
+?>
+
+<style>
+  .fintarget-card,
+  .fintarget-table {
+    border: 1px solid rgba(143, 53, 58, .10);
+    border-radius: 26px;
+    box-shadow: 0 18px 40px rgba(96, 60, 39, .07);
+    overflow: hidden;
+  }
+  .fintarget-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+  }
+  .fintarget-summary {
+    border-radius: 20px;
+    border: 1px solid rgba(143, 53, 58, .08);
+    background: linear-gradient(180deg, #fff, #fff8f5);
+    padding: 1rem 1.1rem;
+  }
+  .fintarget-summary .label {
+    font-size: .78rem;
+    text-transform: uppercase;
+    color: #8b7a6f;
+    letter-spacing: .04em;
+  }
+  .fintarget-summary .value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #4f1f1f;
+  }
+  .fintarget-table thead th {
+    background: linear-gradient(135deg, #8f353a, #6f222a);
+    color: #fff;
+    border: 0;
+    font-size: .79rem;
+    text-transform: uppercase;
+  }
+  .fintarget-metric-preview {
+    max-height: 240px;
+    overflow: auto;
+    border: 1px dashed rgba(143, 53, 58, .18);
+    border-radius: 18px;
+    padding: .85rem .95rem;
+    background: #fffaf6;
+  }
+  .fintarget-guide-box {
+    border: 1px dashed rgba(143, 53, 58, .18);
+    border-radius: 18px;
+    background: linear-gradient(180deg, #fffdfb, #fff6f1);
+    padding: 1rem 1.1rem;
+    height: 100%;
+  }
+  .fintarget-guide-box h6 {
+    color: #6f222a;
+    font-weight: 700;
+  }
+  .fintarget-guide-box .small {
+    line-height: 1.6;
+  }
+  @media (max-width: 991.98px) {
+    .fintarget-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 575.98px) {
+    .fintarget-summary-grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="container-xxl py-3">
+  <div class="fin-page-header mb-3">
+    <div>
+      <h4 class="fin-page-title mb-1"><?php echo html_escape((string)($page_title ?? 'Target Keuangan')); ?></h4>
+      <p class="fin-page-subtitle mb-0">Halaman ini dipakai untuk menyusun target usaha, memantau hasilnya, lalu menilai apakah performa sudah cukup untuk bonus.</p>
+    </div>
+  </div>
+
+  <?php $this->load->view('finance/_tabs', ['finance_tab_active' => 'target-plan']); ?>
+
+  <?php if ($this->session->flashdata('success')): ?>
+    <div class="alert alert-success"><?php echo html_escape((string)$this->session->flashdata('success')); ?></div>
+  <?php endif; ?>
+  <?php if ($this->session->flashdata('error')): ?>
+    <div class="alert alert-danger"><?php echo html_escape((string)$this->session->flashdata('error')); ?></div>
+  <?php endif; ?>
+
+  <div class="fintarget-summary-grid mb-3">
+    <div class="fintarget-summary">
+      <div class="label">Total Target</div>
+      <div class="value"><?php echo number_format((int)($summary['total_rows'] ?? 0)); ?></div>
+    </div>
+    <div class="fintarget-summary">
+      <div class="label">Draft</div>
+      <div class="value"><?php echo number_format((int)($summary['draft_rows'] ?? 0)); ?></div>
+    </div>
+    <div class="fintarget-summary">
+      <div class="label">Aktif</div>
+      <div class="value"><?php echo number_format((int)($summary['active_rows'] ?? 0)); ?></div>
+    </div>
+    <div class="fintarget-summary">
+      <div class="label">Dikunci</div>
+      <div class="value"><?php echo number_format((int)($summary['locked_rows'] ?? 0)); ?></div>
+    </div>
+  </div>
+
+  <div class="card fintarget-card mb-3">
+    <div class="card-body">
+      <ul class="nav nav-pills gap-2 mb-3" id="targetPageTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="btn btn-sm btn-primary active" id="target-list-tab" data-bs-toggle="pill" data-bs-target="#target-list-pane" type="button" role="tab" aria-controls="target-list-pane" aria-selected="true">Daftar Target</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="btn btn-sm btn-outline-primary" id="target-guide-tab" data-bs-toggle="pill" data-bs-target="#target-guide-pane" type="button" role="tab" aria-controls="target-guide-pane" aria-selected="false">Panduan</button>
+        </li>
+      </ul>
+
+      <div class="tab-content" id="targetPageTabsContent">
+        <div class="tab-pane fade show active" id="target-list-pane" role="tabpanel" aria-labelledby="target-list-tab" tabindex="0">
+          <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+            <div>
+              <h5 class="mb-1">Daftar Target</h5>
+              <div class="small text-muted">Buat target baru, lihat target yang sudah berjalan, lalu cek apakah hasil nyatanya sudah sesuai harapan.</div>
+            </div>
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#targetModal">Buat Target Baru</button>
+          </div>
+
+          <form method="get" class="row g-2 align-items-end mb-3">
+            <div class="col-md-4">
+              <label class="form-label mb-1">Cari target</label>
+              <input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Cari nama target atau catatan singkat">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label mb-1">Jenis target</label>
+              <select name="target_scope" class="form-select">
+                <option value="">Semua</option>
+                <?php foreach (['DAILY' => 'Harian', 'MONTHLY' => 'Bulanan', 'YEARLY' => 'Tahunan'] as $k => $v): ?>
+                  <option value="<?php echo $k; ?>" <?php echo (($filters['target_scope'] ?? '') === $k) ? 'selected' : ''; ?>><?php echo $v; ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label mb-1">Status</label>
+              <select name="status" class="form-select">
+                <option value="">Semua</option>
+                <?php foreach (['DRAFT' => 'Draft', 'ACTIVE' => 'Aktif', 'LOCKED' => 'Dikunci', 'VOID' => 'Void'] as $k => $v): ?>
+                  <option value="<?php echo $k; ?>" <?php echo (($filters['status'] ?? '') === $k) ? 'selected' : ''; ?>><?php echo $v; ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label mb-1">Divisi</label>
+              <select name="division_id" class="form-select">
+                <option value="0">Semua divisi</option>
+                <?php foreach ($divisionOptions as $division): ?>
+                  <option value="<?php echo (int)$division['id']; ?>" <?php echo ((int)($filters['division_id'] ?? 0) === (int)$division['id']) ? 'selected' : ''; ?>>
+                    <?php echo html_escape((string)$division['name']); ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+              <button type="submit" class="btn btn-primary w-100">Terapkan</button>
+              <a href="<?php echo site_url('finance-reports/targets'); ?>" class="btn btn-outline-secondary">Reset</a>
+            </div>
+          </form>
+
+          <div class="table-responsive fintarget-table">
+            <table class="table table-hover align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Nama Target</th>
+                  <th>Jenis</th>
+                  <th>Periode</th>
+                  <th>Fokus</th>
+                  <th>Syarat Bonus</th>
+                  <th>Indikator</th>
+                  <th>Status</th>
+                  <th>Hasil Saat Ini</th>
+                  <th class="text-end">Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php if (empty($rows)): ?>
+                  <tr><td colspan="9" class="text-center text-muted py-4">Belum ada target yang dibuat.</td></tr>
+                <?php else: ?>
+                  <?php foreach ($rows as $row): ?>
+                    <tr>
+                      <td>
+                        <div class="fw-semibold"><?php echo html_escape((string)($row['target_name'] ?? '-')); ?></div>
+                        <div class="small text-muted"><?php echo html_escape((string)($row['target_code'] ?? '-')); ?></div>
+                      </td>
+                      <td><?php echo html_escape((string)($row['target_scope'] ?? '-')); ?></td>
+                      <td><?php echo html_escape((string)($row['date_start'] ?? '-')); ?> s/d <?php echo html_escape((string)($row['date_end'] ?? '-')); ?></td>
+                      <td>
+                        <div><?php echo html_escape((string)($row['division_name'] ?? 'Semua divisi')); ?></div>
+                        <div class="small text-muted"><?php echo html_escape((string)($row['account_name'] ?? 'Semua rekening')); ?></div>
+                      </td>
+                      <td>
+                        <div><?php echo html_escape((string)($row['bonus_gate_mode'] ?? '-')); ?></div>
+                        <div class="small text-muted">Skor minimal bonus: <?php echo number_format((float)($row['min_bonus_score'] ?? 0), 2, ',', '.'); ?></div>
+                      </td>
+                      <td><?php echo number_format((int)($row['metric_count'] ?? 0)); ?> indikator</td>
+                      <td><span class="badge bg-light text-dark border"><?php echo html_escape((string)($row['status'] ?? '-')); ?></span></td>
+                      <td>
+                        <div class="small">Baris hasil: <?php echo number_format((int)($row['realization_count'] ?? 0)); ?></div>
+                        <div class="small text-muted">Rata-rata skor: <?php echo number_format((float)($row['avg_score_percent'] ?? 0), 2, ',', '.'); ?>%</div>
+                        <div class="small text-muted"><?php echo !empty($row['last_realization_date']) ? 'Update terakhir ' . html_escape((string)$row['last_realization_date']) : 'Belum dihitung'; ?></div>
+                      </td>
+                      <td class="text-end">
+                        <a href="<?php echo site_url('finance-reports/targets/detail/' . (int)$row['id']); ?>" class="btn btn-sm btn-outline-secondary">Buka</a>
+                        <?php $status = strtoupper((string)($row['status'] ?? '')); ?>
+                        <?php if ($status !== 'VOID'): ?>
+                          <form method="post" action="<?php echo site_url('finance-reports/targets/realize/' . (int)$row['id']); ?>" onsubmit="return confirm('Hitung hasil aktual target ini sekarang?');">
+                            <input type="hidden" name="redirect_to" value="<?php echo html_escape(site_url('finance-reports/targets/detail/' . (int)$row['id'])); ?>">
+                            <button type="submit" class="btn btn-sm btn-primary">Hitung Hasil</button>
+                          </form>
+                        <?php else: ?>
+                          <span class="small text-muted">VOID</span>
+                        <?php endif; ?>
+                      </td>
+                    </tr>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+            <div class="small text-muted">Menampilkan <?php echo number_format((int)($pg['total'] ?? 0)); ?> data, default 25 baris per halaman.</div>
+            <div class="btn-group">
+              <a class="btn btn-sm btn-outline-secondary <?php echo (($pg['page'] ?? 1) <= 1) ? 'disabled' : ''; ?>" href="<?php echo (($pg['page'] ?? 1) <= 1) ? '#' : $buildUrl(['page' => max(1, (int)$pg['page'] - 1)]); ?>">Prev</a>
+              <button class="btn btn-sm btn-outline-secondary disabled">Hal <?php echo (int)($pg['page'] ?? 1); ?> / <?php echo (int)($pg['total_pages'] ?? 1); ?></button>
+              <a class="btn btn-sm btn-outline-secondary <?php echo (($pg['page'] ?? 1) >= ($pg['total_pages'] ?? 1)) ? 'disabled' : ''; ?>" href="<?php echo (($pg['page'] ?? 1) >= ($pg['total_pages'] ?? 1)) ? '#' : $buildUrl(['page' => (int)$pg['page'] + 1]); ?>">Next</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-pane fade" id="target-guide-pane" role="tabpanel" aria-labelledby="target-guide-tab" tabindex="0">
+          <div class="row g-3">
+            <div class="col-lg-4">
+              <div class="fintarget-guide-box">
+                <h6 class="mb-2">1. Target ini dipakai untuk apa?</h6>
+                <div class="small text-muted">
+                  Target dipakai untuk menetapkan angka yang ingin dicapai, misalnya omzet, kontrol belanja, HPP, atau disiplin biaya. Setelah itu sistem akan membandingkan target dengan hasil nyatanya.
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-4">
+              <div class="fintarget-guide-box">
+                <h6 class="mb-2">2. Cara paling mudah membuat target</h6>
+                <div class="small text-muted">
+                  Isi dulu nama target, pilih harian, bulanan, atau tahunan, tentukan rentangnya, lalu pilih beberapa indikator awal. Setelah tersimpan, buka detail target untuk mengisi angka target dan bobotnya.
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-4">
+              <div class="fintarget-guide-box">
+                <h6 class="mb-2">3. Kapan hasilnya bisa dihitung?</h6>
+                <div class="small text-muted">
+                  Untuk target bulanan atau tahunan, sebaiknya periode keuangannya sudah ditutup dulu. Untuk target harian, sistem masih bisa membaca data live jika period close belum ada.
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-6">
+              <div class="fintarget-guide-box">
+                <h6 class="mb-2">Arti istilah penting</h6>
+                <div class="small text-muted">
+                  <strong>Jenis target</strong>: target harian, bulanan, atau tahunan.<br>
+                  <strong>Indikator</strong>: hal yang dinilai, misalnya omzet, refund, HPP, belanja operasional.<br>
+                  <strong>Syarat bonus</strong>: aturan apakah target ini ikut menentukan bonus atau tidak.<br>
+                  <strong>Bobot</strong>: seberapa besar pengaruh indikator terhadap total skor.
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-6">
+              <div class="fintarget-guide-box">
+                <h6 class="mb-2">Contoh sederhana</h6>
+                <div class="small text-muted">
+                  Misalnya Anda ingin membuat target bulanan Juni untuk outlet BAR:
+                  <br>- omzet minimal Rp 300 juta
+                  <br>- refund maksimal Rp 2 juta
+                  <br>- HPP live maksimal 38%
+                  <br>- adjustment gudang maksimal Rp 500 ribu
+                  <br><br>
+                  Setelah itu baru atur mana yang wajib lolos dan berapa bobot tiap indikator.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="targetModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="<?php echo site_url('finance-reports/targets/store'); ?>">
+        <div class="modal-header">
+          <h5 class="modal-title">Buat Target Baru</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-light border mb-3">
+            Isi bagian dasarnya dulu di sini. Setelah tersimpan, Anda bisa buka detail target untuk mengatur angka target, bobot, dan syarat bonus lebih lengkap.
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Nama target</label>
+              <input type="text" name="target_name" class="form-control" required placeholder="Contoh: Target Outlet BAR Juni 2026">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Jenis target</label>
+              <select name="target_scope" class="form-select" required>
+                <option value="DAILY">Target Harian</option>
+                <option value="MONTHLY" selected>Target Bulanan</option>
+                <option value="YEARLY">Target Tahunan</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Aturan bonus</label>
+              <select name="bonus_gate_mode" class="form-select">
+                <option value="WEIGHTED_SCORE">Dinilai dari total skor</option>
+                <option value="ALL_REQUIRED">Semua indikator wajib lolos</option>
+                <option value="NONE">Tidak dipakai untuk bonus</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Mulai berlaku</label>
+              <input type="date" name="date_start" class="form-control" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Sampai tanggal</label>
+              <input type="date" name="date_end" class="form-control" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Divisi yang dinilai</label>
+              <select name="division_id" class="form-select">
+                <option value="0">Semua divisi</option>
+                <?php foreach ($divisionOptions as $division): ?>
+                  <option value="<?php echo (int)$division['id']; ?>"><?php echo html_escape((string)$division['name']); ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Rekening fokus</label>
+              <select name="company_account_id" class="form-select">
+                <option value="0">Semua rekening</option>
+                <?php foreach ($companyAccounts as $account): ?>
+                  <option value="<?php echo (int)$account['id']; ?>"><?php echo html_escape((string)$account['account_name'] . ' - ' . (string)$account['bank_name']); ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Skor minimal agar bonus bisa diproses</label>
+              <input type="number" step="0.01" name="min_bonus_score" class="form-control" value="100">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Total bonus yang disiapkan</label>
+              <input type="number" step="0.01" name="bonus_pool_amount" class="form-control" value="0">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">% laba yang ingin dibagi jadi bonus</label>
+              <input type="number" step="0.0001" name="bonus_percent_of_profit" class="form-control" value="0">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Catatan singkat</label>
+              <input type="text" name="notes" class="form-control" placeholder="Opsional, misal fokus jaga food cost dan kurangi adjustment gudang">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Pilih indikator awal</label>
+              <select name="metric_codes[]" class="form-select" multiple size="8">
+                <?php foreach ($metricCatalog as $metric): ?>
+                  <option value="<?php echo html_escape((string)$metric['metric_code']); ?>">
+                    <?php echo html_escape((string)$metric['metric_label']); ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+              <div class="form-text">Boleh pilih beberapa sekaligus. Nanti setelah target tersimpan, Anda masih bisa atur angkanya satu per satu di halaman detail.</div>
+            </div>
+            <div class="col-12">
+              <div class="fintarget-metric-preview">
+                <div class="fw-semibold mb-2">Daftar indikator yang siap dipakai</div>
+                <?php if (empty($metricCatalog)): ?>
+                  <div class="text-muted small">Daftar indikator belum tersedia. Jalankan SQL foundation lebih dulu.</div>
+                <?php else: ?>
+                  <div class="row g-2">
+                    <?php foreach ($metricCatalog as $metric): ?>
+                      <div class="col-md-6">
+                        <div class="small">
+                          <strong><?php echo html_escape((string)$metric['metric_label']); ?></strong><br>
+                          <span class="text-muted"><?php echo html_escape((string)($metric['description'] ?? 'Indikator penilaian target')); ?></span>
+                        </div>
+                      </div>
+                    <?php endforeach; ?>
+                  </div>
+                <?php endif; ?>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan Target Awal</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

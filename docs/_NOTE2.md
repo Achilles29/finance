@@ -131,3 +131,41 @@ terkait rekening bank jika saat ini saya lihat saldo rekening diambil dari fin_c
 
 saya juga ingin membuat target bulanan dan target harian, yang menganalisa pengeluaran dan pendapatan termasuk estimasi gaji berjalan. target ini nantinya akan digunakan sebagai batas untuk pegawai bisa mendapatkan bonus. ada ide?
 
+
+/finance-reports/targets susah dimengerti, bahasanya terlalu teknis untuk user. ubah bahasa saat buat target lebih manusiawi. tambahkan tab panduan juga
+
+
+
+
+karena sudah sampai sini, baiknya kita buat modul bonus sekalian ya?
+modul bonus sudah pernah dipakai di directory core tapi belum sempurna. kita sempurnakan disini.
+
+coba cek directory core / payroll-bonus dan halaman turunannya.
+bonus dipengaruhi oleh kinerja pegawai dan target keuangan
+aturan bonus antara lain di core /payroll-bonus/rules dengan penyesuian yang menurutmu diperlukan.
+bonus bisa berbeda masing masing pegawai. masing masing divisi dan jabatan bisa diberi skor beda. 
+bonus bisa dikurangi dengan penalti. seperti pada core / payroll-bonus/penalty-types.
+bonus juga memperhatikan pengaturan absensi yang dibuat (misal pegawai PH tidak dihitung bonusnya pada hari itu)
+tambahkan kedalam aturan pegawai ambil PH juga dikurangi poinnya.
+poin bonus didapatkan beda beda tergantung jam orderan saat shift pegawai (misal shift 1 ramai, maka pegawai yang hadir dalam rentang shift itu dapat bonus sesuai proporsi yang ditentukan dalam shift itu sesuai omzet dalan rentang jam shift itu)
+bonus tetap memperhatikan target, agar pegawai juga semangat dalam mengejar target
+
+penalti untuk bonus juga bisa diinput manual oleh superadmin dengan kejadian tertentu, misal :
+- belum follow ig namua
+- belum share story / taging ig namua
+- penalty personal dan tim, misal ketika pagi hari saya menemukan ada area kitchen masih kotor, maka semua tim kitchen ya shift terakhir semalam dapat penalti (manual)
+
+
+- tambahkan komponent waktu penyajian dalam faktor penentu bonus.
+
+%bonus yang dibagi juga ditentukan dalam pengaturan.
+pisahkan pengaturan target dan pengaturan bonus, tapi hubungkan datanya
+
+
+lalu buatkan juga modul penilaian 360 untuk rekan yang hadir di hari yang sama.
+penilaian dilakukan dengan memberi bintang 1 - 5 dengan disertai alasan.
+form penilaian muncul setelah pegawai melakukan absensi.
+penilaian hanya dapat dilihat dan dimoderasi oleh superadmin. dan dari hasil penilaian ini nanti superadmin bisa memberi pengurangan atau penambahan poin pada pegawai tertentu.
+
+setelah ini baru kita bahas laporan keuangannya
+kejutkan saya!

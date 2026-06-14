@@ -100,6 +100,8 @@ if (!function_exists('_get_ri_icon')) {
             'finance.receivable'    => 'ri-wallet-2-line',
             'finance.party'         => 'ri-team-line',
             'finance.cash_position' => 'ri-funds-box-line',
+            'finance.period_close'  => 'ri-calendar-check-line',
+            'finance.target'        => 'ri-focus-3-line',
             'fin.transactions'      => 'ri-exchange-line',
             'fin.income'            => 'ri-arrow-down-circle-line',
             'fin.expense'           => 'ri-arrow-up-circle-line',
@@ -116,6 +118,7 @@ if (!function_exists('_get_ri_icon')) {
             'my.payroll'            => 'ri-file-list-3-line',
             'my.leave'              => 'ri-hotel-bed-line',
             'my.meal'               => 'ri-restaurant-line',
+            'my.bonus'              => 'ri-medal-line',
             'my.cash_advance'       => 'ri-hand-coin-line',
         ];
         return $map[$code] ?? $fallback;
@@ -352,7 +355,7 @@ if (!function_exists('_regroup_inventory_children')) {
       'id' => $scope === 'WAREHOUSE' ? -2201 : -2202,
       'parent_id' => null,
       'menu_code' => $lotCode,
-      'menu_label' => $scope === 'WAREHOUSE' ? 'Lot Gudang' : 'Lot Divisi',
+      'menu_label' => $scope === 'WAREHOUSE' ? 'Lot Gudang' : 'Lot Bahan Baku',
       'icon' => 'ri-stack-line',
       'url' => $scope === 'WAREHOUSE' ? 'inventory/stock/warehouse/lot' : 'inventory/stock/division/lot',
       'page_id' => null,
@@ -367,7 +370,7 @@ if (!function_exists('_regroup_inventory_children')) {
       'id' => $scope === 'WAREHOUSE' ? -2203 : -2204,
       'parent_id' => null,
       'menu_code' => $opnameCode,
-      'menu_label' => $scope === 'WAREHOUSE' ? 'Opname Gudang' : 'Opname Divisi',
+      'menu_label' => $scope === 'WAREHOUSE' ? 'Opname Gudang' : 'Opname Bahan Baku',
       'icon' => 'ri-file-list-3-line',
       'url' => $scope === 'WAREHOUSE'
         ? 'inventory/stock/opname/warehouse/monthly'
@@ -627,6 +630,14 @@ if (!function_exists('_append_production_component_monitoring_children')) {
         'menu_label' => 'Lot Component',
         'icon' => 'ri-stack-line',
         'url' => 'production/component-lots',
+        'page_id' => null, 'sort_order' => 999, 'children' => [],
+      ],
+      'production.component.opening.monthly' => [
+        'id' => -2299, 'parent_id' => null,
+        'menu_code' => 'production.component.opening.monthly',
+        'menu_label' => 'Opening Bulanan',
+        'icon' => 'ri-archive-line',
+        'url' => 'production/component-opening-monthly',
         'page_id' => null, 'sort_order' => 999, 'children' => [],
       ],
       'production.component.opname.monthly' => [

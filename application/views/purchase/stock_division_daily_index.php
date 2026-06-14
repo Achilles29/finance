@@ -473,23 +473,16 @@ $formatDestination = static function (string $group): string {
   }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div>
-    <h4 class="mb-1"><i class="ri ri-calendar-check-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-    <small class="text-muted">Rekap parent-child per barang divisi dalam rentang 1 bulan (expand untuk detail profil).</small>
-  </div>
-  <div class="d-flex gap-1 flex-wrap align-items-center">
-    <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname divisi bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
-      <input type="hidden" name="stock_scope" value="DIVISION">
-      <input type="hidden" name="month" value="<?php echo html_escape($genMonth); ?>">
-      <input type="hidden" name="division_id" value="<?php echo (int)($division_id ?? 0); ?>">
-      <input type="hidden" name="destination" value="<?php echo html_escape($destinationValue); ?>">
-      <input type="hidden" name="back_url" value="inventory/stock/division/daily?month=<?php echo rawurlencode($genMonth); ?>&division_id=<?php echo (int)($division_id ?? 0); ?>&destination=<?php echo rawurlencode($destinationValue); ?>">
-      <button type="submit" class="btn btn-primary">Generate Opname + Stok Awal</button>
-    </form>
-    <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'daily']); ?>
-  </div>
+<div class="mb-3">
+  <h4 class="mb-1"><i class="ri ri-calendar-check-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
+  <small class="text-muted">Rekap parent-child per barang divisi dalam rentang 1 bulan (expand untuk detail profil).</small>
 </div>
+<div class="d-flex flex-wrap gap-2 mb-2">
+  <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'daily']); ?>
+</div>
+<?php $this->load->view('purchase/_division_stock_generate_btn', [
+  'division_action_params' => ['month' => $genMonth, 'division_id' => (string)(int)($division_id ?? 0), 'destination_type' => $destinationValue],
+]); ?>
 
 <div class="card mb-3">
   <div class="card-body py-3">

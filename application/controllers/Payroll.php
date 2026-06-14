@@ -10,15 +10,15 @@ class Payroll extends MY_Controller
         $this->load->model('Payroll_model');
     }
 
-    private function per_page(): int
+    private function per_page(string $param = 'per_page'): int
     {
-        $pp = (int)$this->input->get('per_page', true);
+        $pp = (int)$this->input->get($param, true);
         return in_array($pp, [10, 25, 50, 100], true) ? $pp : 25;
     }
 
-    private function page(): int
+    private function page(string $param = 'page'): int
     {
-        return max(1, (int)$this->input->get('page', true));
+        return max(1, (int)$this->input->get($param, true));
     }
 
     private function build_pagination(int $total, int $perPage, int $page): array
@@ -637,5 +637,245 @@ class Payroll extends MY_Controller
         $result = $this->Payroll_model->delete_cash_advance($id);
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal hapus kasbon.'));
         redirect('payroll/cash-advances');
+    }
+
+    public function bonus()
+    {
+        $this->require_permission('payroll.bonus.index', 'view');
+
+        $month = trim((string)$this->input->get('month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $tab = strtolower(trim((string)$this->input->get('tab', true)));
+        if (!in_array($tab, ['overview', 'rules', 'penalties', 'peer', 'guide'], true)) {
+            $tab = 'overview';
+        }
+
+        $poolFilters = ['q' => trim((string)$this->input->get('pool_q', true))];
+        $ruleFilters = ['q' => trim((string)$this->input->get('rule_q', true))];
+        $penaltyTypeFilters = ['q' => trim((string)$this->input->get('penalty_type_q', true))];
+        $penaltyEventFilters = ['q' => trim((string)$this->input->get('penalty_event_q', true))];
+        $peerFilters = ['q' => trim((string)$this->input->get('peer_q', true))];
+
+        $poolPg = $this->build_pagination(
+            $this->Payroll_model->count_bonus_recent_pools($month, $poolFilters['q']),
+            $this->per_page('pool_per_page'),
+            $this->page('pool_page')
+        );
+        $rulePg = $this->build_pagination(
+            $this->Payroll_model->count_bonus_rules($ruleFilters['q']),
+            $this->per_page('rule_per_page'),
+            $this->page('rule_page')
+        );
+        $penaltyTypePg = $this->build_pagination(
+            $this->Payroll_model->count_bonus_penalty_types($penaltyTypeFilters['q']),
+            $this->per_page('penalty_type_per_page'),
+            $this->page('penalty_type_page')
+        );
+        $penaltyEventPg = $this->build_pagination(
+            $this->Payroll_model->count_bonus_penalty_events($month, $penaltyEventFilters['q']),
+            $this->per_page('penalty_event_per_page'),
+            $this->page('penalty_event_page')
+        );
+        $peerPg = $this->build_pagination(
+            $this->Payroll_model->count_pending_peer_feedback($peerFilters['q']),
+            $this->per_page('peer_per_page'),
+            $this->page('peer_page')
+        );
+
+        $this->render('payroll/bonus_workspace', [
+            'title' => 'Bonus Pegawai',
+            'active_menu' => 'pay.bonus',
+            'month' => $month,
+            'tab' => $tab,
+            'summary' => $this->Payroll_model->get_bonus_workspace_summary($month),
+            'pool_filters' => $poolFilters,
+            'rule_filters' => $ruleFilters,
+            'penalty_type_filters' => $penaltyTypeFilters,
+            'penalty_event_filters' => $penaltyEventFilters,
+            'peer_filters' => $peerFilters,
+            'pool_pg' => $poolPg,
+            'rule_pg' => $rulePg,
+            'penalty_type_pg' => $penaltyTypePg,
+            'penalty_event_pg' => $penaltyEventPg,
+            'peer_pg' => $peerPg,
+            'config_rows' => $this->Payroll_model->list_bonus_config_options(),
+            'outlet_rows' => $this->Payroll_model->list_bonus_outlet_options(),
+            'division_rows' => $this->Payroll_model->get_division_options(),
+            'employee_rows' => $this->Payroll_model->get_employee_options(),
+            'shift_rows' => $this->Payroll_model->get_shift_options(),
+            'bonus_rule_option_rows' => $this->Payroll_model->list_bonus_rule_options(),
+            'target_plan_rows' => $this->Payroll_model->list_bonus_target_plan_options(),
+            'rule_rows' => $this->Payroll_model->list_bonus_rules($ruleFilters['q'], $rulePg['per_page'], $rulePg['offset']),
+            'penalty_type_rows' => $this->Payroll_model->list_bonus_penalty_types($penaltyTypeFilters['q'], $penaltyTypePg['per_page'], $penaltyTypePg['offset']),
+            'penalty_event_rows' => $this->Payroll_model->list_bonus_penalty_events($month, $penaltyEventFilters['q'], $penaltyEventPg['per_page'], $penaltyEventPg['offset']),
+            'pool_rows' => $this->Payroll_model->list_bonus_recent_pools($month, $poolFilters['q'], $poolPg['per_page'], $poolPg['offset']),
+            'pending_peer_rows' => $this->Payroll_model->list_pending_peer_feedback($peerFilters['q'], $peerPg['per_page'], $peerPg['offset']),
+        ]);
+    }
+
+    public function bonus_pool_generate()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_permission('payroll.bonus.index', 'create');
+        $bonusDate = trim((string)$this->input->post('bonus_date', true));
+        $ruleId = (int)$this->input->post('rule_id', true);
+        $result = $this->Payroll_model->generate_bonus_pool_daily($bonusDate, $ruleId, (int)($this->current_user['id'] ?? 0));
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal generate draft bonus.'));
+        redirect('payroll/bonus?' . http_build_query([
+            'tab' => 'overview',
+            'month' => preg_match('/^\d{4}-\d{2}$/', substr($bonusDate, 0, 7)) ? substr($bonusDate, 0, 7) : date('Y-m'),
+        ]));
+    }
+
+    public function bonus_auto_penalty_sync()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_permission('payroll.bonus.index', 'edit');
+        $bonusDate = trim((string)$this->input->post('bonus_date', true));
+        $employeeId = (int)$this->input->post('employee_id', true);
+        $result = $this->Payroll_model->sync_bonus_auto_penalties($bonusDate, $employeeId, (int)($this->current_user['id'] ?? 0));
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal sinkron penalti otomatis.'));
+        redirect('payroll/bonus?' . http_build_query([
+            'tab' => 'penalties',
+            'month' => preg_match('/^\d{4}-\d{2}$/', substr($bonusDate, 0, 7)) ? substr($bonusDate, 0, 7) : date('Y-m'),
+        ]));
+    }
+
+    public function bonus_pool_approve($poolId = 0)
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_permission('payroll.bonus.index', 'edit');
+        $poolId = (int)$poolId;
+        $result = $this->Payroll_model->approve_bonus_pool_daily($poolId, (int)($this->current_user['id'] ?? 0));
+        $month = trim((string)$this->input->post('month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal mempublikasikan pool bonus.'));
+        redirect('payroll/bonus?' . http_build_query([
+            'tab' => 'overview',
+            'month' => $month,
+        ]));
+    }
+
+    public function bonus_service_metric_generate()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_permission('payroll.bonus.index', 'edit');
+        $metricDate = trim((string)$this->input->post('metric_date', true));
+        $outletId = (int)$this->input->post('outlet_id', true);
+        $result = $this->Payroll_model->generate_bonus_service_metric_daily($metricDate, $outletId);
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal membangun metric layanan harian.'));
+        redirect('payroll/bonus?' . http_build_query([
+            'tab' => 'overview',
+            'month' => preg_match('/^\d{4}-\d{2}$/', substr($metricDate, 0, 7)) ? substr($metricDate, 0, 7) : date('Y-m'),
+        ]));
+    }
+
+    public function bonus_monthly_summary_generate()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_permission('payroll.bonus.index', 'edit');
+        $month = trim((string)$this->input->post('summary_month', true));
+        $result = $this->Payroll_model->refresh_bonus_monthly_summary($month, (int)($this->current_user['id'] ?? 0));
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal membangun rekap bonus bulanan.'));
+        redirect('payroll/bonus?' . http_build_query([
+            'tab' => 'overview',
+            'month' => preg_match('/^\d{4}-\d{2}$/', $month) ? $month : date('Y-m'),
+        ]));
+    }
+
+    public function bonus_rule_save()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $payload = $this->input->post(null, true) ?? [];
+        $id = (int)($payload['id'] ?? 0);
+        $this->require_permission('payroll.bonus.index', $id > 0 ? 'edit' : 'create');
+
+        $result = $this->Payroll_model->save_bonus_rule($payload, (int)($this->current_user['id'] ?? 0));
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan aturan bonus.'));
+
+        $query = http_build_query([
+            'tab' => 'rules',
+            'month' => trim((string)($payload['month'] ?? date('Y-m'))),
+        ]);
+        redirect('payroll/bonus' . ($query !== '' ? ('?' . $query) : ''));
+    }
+
+    public function bonus_penalty_type_save()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $payload = $this->input->post(null, true) ?? [];
+        $id = (int)($payload['id'] ?? 0);
+        $this->require_permission('payroll.bonus.index', $id > 0 ? 'edit' : 'create');
+
+        $result = $this->Payroll_model->save_bonus_penalty_type($payload);
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan master penalti bonus.'));
+
+        $query = http_build_query([
+            'tab' => 'penalties',
+            'month' => trim((string)($payload['month'] ?? date('Y-m'))),
+        ]);
+        redirect('payroll/bonus' . ($query !== '' ? ('?' . $query) : ''));
+    }
+
+    public function bonus_penalty_event_save()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_permission('payroll.bonus.index', 'create');
+        $payload = $this->input->post(null, true) ?? [];
+        $result = $this->Payroll_model->save_bonus_penalty_event($payload, (int)($this->current_user['id'] ?? 0));
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan kejadian penalti bonus.'));
+
+        $query = http_build_query([
+            'tab' => 'penalties',
+            'month' => trim((string)($payload['month'] ?? date('Y-m'))),
+        ]);
+        redirect('payroll/bonus' . ($query !== '' ? ('?' . $query) : ''));
+    }
+
+    public function bonus_peer_moderate(int $id)
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_permission('payroll.bonus.index', 'edit');
+        $decision = trim((string)$this->input->post('decision', true));
+        $notes = trim((string)$this->input->post('moderation_notes', true));
+        $result = $this->Payroll_model->moderate_peer_feedback($id, $decision, $notes, (int)($this->current_user['id'] ?? 0));
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal moderasi penilaian 360.'));
+
+        $query = http_build_query([
+            'tab' => 'peer',
+            'month' => trim((string)$this->input->post('month', true)) ?: date('Y-m'),
+        ]);
+        redirect('payroll/bonus' . ($query !== '' ? ('?' . $query) : ''));
     }
 }

@@ -268,6 +268,18 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
   .adjustment-metric-card.value-success .value { color: #166534; }
   .adjustment-line-table td,
   .adjustment-line-table th { vertical-align: middle; }
+  .adj-scroll-wrap {
+    max-height: 70vh;
+    overflow-y: auto;
+    overflow-x: auto;
+  }
+  .adj-scroll-wrap table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #fff;
+    border-bottom: 2px solid rgba(0,0,0,.09);
+  }
   .adjustment-selected-card {
     border: 1px dashed rgba(0,0,0,.18);
     border-radius: .9rem;
@@ -387,9 +399,14 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
   <small class="text-muted">Draft disimpan dulu. Saat diposting, stok live, stok harian, dan lot FIFO ikut berubah.</small>
 </div>
 
-<div class="d-flex flex-wrap gap-1 align-items-center mb-3">
+<div class="d-flex flex-wrap gap-1 align-items-center mb-2">
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => $isDivisionScope ? 'DIVISION' : 'WAREHOUSE', 'active_tab' => 'adjustment']); ?>
 </div>
+<?php if (!empty($isDivisionScope)): ?>
+<?php $this->load->view('purchase/_division_stock_generate_btn', [
+  'division_action_params' => ['month' => (string)($month ?? date('Y-m')), 'division_id' => (string)($division_id ?? ''), 'destination_type' => (string)($destination ?? '')],
+]); ?>
+<?php endif; ?>
 
 <div id="adjustment-alert"></div>
 
@@ -592,7 +609,7 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
           <button type="button" class="btn btn-primary btn-sm" id="btn-save-draft">Simpan Draft</button>
         </div>
       </div>
-      <div class="table-responsive">
+      <div class="table-responsive adj-scroll-wrap">
         <table class="table table-striped mb-0 adjustment-line-table" id="draft-lines-table">
           <thead>
             <tr>
@@ -665,7 +682,7 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
           <div class="col-md-2 d-grid"><a href="<?php echo $baseUrl; ?>" class="btn btn-outline-danger">Clear</a></div>
         </form>
       </div>
-      <div class="table-responsive">
+      <div class="table-responsive adj-scroll-wrap">
         <table class="table table-striped table-hover mb-0">
           <thead>
             <tr>
@@ -836,7 +853,7 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
           <div class="col-md-2 d-grid"><a href="<?php echo html_escape($detailTabUrl); ?>" class="btn btn-outline-danger">Clear</a></div>
         </form>
       </div>
-      <div class="table-responsive">
+      <div class="table-responsive adj-scroll-wrap">
         <table class="table table-striped table-hover mb-0 adjustment-line-table">
           <thead>
             <tr>

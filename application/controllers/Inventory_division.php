@@ -43,7 +43,7 @@ class Inventory_division extends Purchase
         $divisions    = $this->Purchase_model->list_active_operational_divisions();
 
         $this->render('inventory/stock_opname_division_index', [
-            'title'       => 'Opname Stok Bahan Baku Divisi',
+            'title'       => 'Daily Recon Bahan Baku Divisi',
             'active_menu' => 'purchase.stock.opname.division',
             'opname_date' => $opnameDate,
             'division_id' => $divisionId,

@@ -14,6 +14,18 @@ class Finance_report_model extends CI_Model
         return (bool)$this->tableFieldCache[$key];
     }
 
+    private function auth_user_display_expr(string $alias = 'u'): string
+    {
+        $parts = [];
+        foreach (['name', 'full_name', 'display_name', 'username', 'email'] as $field) {
+            if ($this->table_has_field('auth_user', $field)) {
+                $parts[] = "NULLIF(TRIM({$alias}.{$field}), '')";
+            }
+        }
+        $parts[] = "CONCAT('User #', {$alias}.id)";
+        return 'COALESCE(' . implode(', ', $parts) . ')';
+    }
+
     public function active_company_accounts(): array
     {
         if (!$this->db->table_exists('fin_company_account')) {
@@ -769,5 +781,1831 @@ class Finance_report_model extends CI_Model
                 'active_days' => 0,
             ],
         ];
+    }
+
+    public function division_options(): array
+    {
+        if (!$this->db->table_exists('mst_operational_division')) {
+            return [];
+        }
+
+        return $this->db->select('id, name, code')
+            ->from('mst_operational_division')
+            ->where('is_active', 1)
+            ->order_by('name', 'ASC')
+            ->get()->result_array();
+    }
+
+    public function metric_catalog_options(): array
+    {
+        if (!$this->db->table_exists('fin_metric_catalog')) {
+            return [];
+        }
+
+        return $this->db->select('id, metric_code, metric_group, metric_label, metric_unit, metric_scope, comparator_hint, description')
+            ->from('fin_metric_catalog')
+            ->where('is_active', 1)
+            ->order_by('metric_group', 'ASC')
+            ->order_by('metric_label', 'ASC')
+            ->get()->result_array();
+    }
+
+    public function count_period_closes(array $filters = []): int
+    {
+        if (!$this->db->table_exists('fin_period_close')) {
+            return 0;
+        }
+
+        $db = $this->db->from('fin_period_close pc');
+        $this->apply_period_close_filters($db, $filters);
+        return (int)$db->count_all_results();
+    }
+
+    public function list_period_closes(array $filters = [], int $limit = 25, int $offset = 0): array
+    {
+        if (!$this->db->table_exists('fin_period_close')) {
+            return [];
+        }
+
+        $db = $this->db
+            ->select('pc.*')
+            ->select('(SELECT COUNT(*) FROM fin_account_period_snapshot s WHERE s.period_close_id = pc.id) AS snapshot_count', false)
+            ->select('(SELECT COUNT(*) FROM fin_management_period_metric m WHERE m.period_close_id = pc.id) AS metric_count', false)
+            ->from('fin_period_close pc');
+        if ($this->db->table_exists('auth_user')) {
+            $db->select($this->auth_user_display_expr('uc') . ' AS created_by_name', false)
+                ->select($this->auth_user_display_expr('ucl') . ' AS closed_by_name', false)
+                ->select($this->auth_user_display_expr('ur') . ' AS reopened_by_name', false)
+                ->join('auth_user uc', 'uc.id = pc.created_by', 'left')
+                ->join('auth_user ucl', 'ucl.id = pc.closed_by', 'left')
+                ->join('auth_user ur', 'ur.id = pc.reopened_by', 'left');
+        }
+        $this->apply_period_close_filters($db, $filters);
+        return $db->order_by('pc.period_end', 'DESC')
+            ->order_by('pc.snapshot_version', 'DESC')
+            ->limit(max(1, $limit), max(0, $offset))
+            ->get()->result_array();
+    }
+
+    public function summarize_period_closes(array $filters = []): array
+    {
+        $summary = [
+            'total_rows' => 0,
+            'closed_rows' => 0,
+            'open_rows' => 0,
+            'reopened_rows' => 0,
+        ];
+
+        if (!$this->db->table_exists('fin_period_close')) {
+            return $summary;
+        }
+
+        $row = $this->db->select("
+                COUNT(*) AS total_rows,
+                COALESCE(SUM(CASE WHEN status = 'CLOSED' THEN 1 ELSE 0 END), 0) AS closed_rows,
+                COALESCE(SUM(CASE WHEN status = 'OPEN' THEN 1 ELSE 0 END), 0) AS open_rows,
+                COALESCE(SUM(CASE WHEN status = 'REOPENED' THEN 1 ELSE 0 END), 0) AS reopened_rows
+            ", false)
+            ->from('fin_period_close pc');
+        $this->apply_period_close_filters($this->db, $filters);
+        $result = $this->db->get()->row_array();
+
+        return [
+            'total_rows' => (int)($result['total_rows'] ?? 0),
+            'closed_rows' => (int)($result['closed_rows'] ?? 0),
+            'open_rows' => (int)($result['open_rows'] ?? 0),
+            'reopened_rows' => (int)($result['reopened_rows'] ?? 0),
+        ];
+    }
+
+    public function save_period_close(array $payload, int $actorUserId = 0): array
+    {
+        if (!$this->db->table_exists('fin_period_close')) {
+            return ['ok' => false, 'message' => 'Tabel tutup periode keuangan belum tersedia. Jalankan SQL foundation terlebih dahulu.'];
+        }
+
+        $periodType = strtoupper(trim((string)($payload['period_type'] ?? 'MONTHLY')));
+        if (!in_array($periodType, ['MONTHLY', 'YEARLY'], true)) {
+            $periodType = 'MONTHLY';
+        }
+
+        $periodStart = trim((string)($payload['period_start'] ?? ''));
+        $periodEnd = trim((string)($payload['period_end'] ?? ''));
+        if ($periodStart === '' || $periodEnd === '') {
+            return ['ok' => false, 'message' => 'Tanggal awal dan akhir periode wajib diisi.'];
+        }
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $periodStart) || !preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $periodEnd)) {
+            return ['ok' => false, 'message' => 'Format tanggal periode tidak valid.'];
+        }
+        if ($periodStart > $periodEnd) {
+            return ['ok' => false, 'message' => 'Tanggal akhir periode tidak boleh lebih kecil dari tanggal awal.'];
+        }
+
+        $periodYear = (int)date('Y', strtotime($periodStart));
+        $periodMonth = $periodType === 'MONTHLY' ? (int)date('m', strtotime($periodStart)) : null;
+        $periodCode = $periodType === 'MONTHLY'
+            ? 'FIN-CLOSE-' . date('Ym', strtotime($periodStart))
+            : 'FIN-CLOSE-' . $periodYear;
+
+        $existingVersion = $this->db->select('MAX(snapshot_version) AS max_version', false)
+            ->from('fin_period_close')
+            ->where('period_code', $periodCode)
+            ->get()->row_array();
+        $snapshotVersion = ((int)($existingVersion['max_version'] ?? 0)) + 1;
+
+        $row = [
+            'period_code' => $periodCode,
+            'period_type' => $periodType,
+            'period_year' => $periodYear,
+            'period_month' => $periodMonth,
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd,
+            'snapshot_version' => $snapshotVersion,
+            'close_mode' => strtoupper(trim((string)($payload['close_mode'] ?? 'AUTO_REBUILD'))) === 'MANUAL_LOCK' ? 'MANUAL_LOCK' : 'AUTO_REBUILD',
+            'status' => 'OPEN',
+            'notes' => trim((string)($payload['notes'] ?? '')) ?: null,
+            'created_by' => $actorUserId > 0 ? $actorUserId : null,
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+
+        $this->db->insert('fin_period_close', $row);
+        return [
+            'ok' => true,
+            'id' => (int)$this->db->insert_id(),
+            'message' => 'Draft periode keuangan berhasil dibuat.',
+        ];
+    }
+
+    public function count_target_plans(array $filters = []): int
+    {
+        if (!$this->db->table_exists('fin_target_plan')) {
+            return 0;
+        }
+
+        $db = $this->db->from('fin_target_plan tp');
+        $this->apply_target_plan_filters($db, $filters);
+        return (int)$db->count_all_results();
+    }
+
+    public function list_target_plans(array $filters = [], int $limit = 25, int $offset = 0): array
+    {
+        if (!$this->db->table_exists('fin_target_plan')) {
+            return [];
+        }
+
+        $db = $this->db
+            ->select('tp.*')
+            ->select('d.name AS division_name, acc.account_name, acc.bank_name')
+            ->from('fin_target_plan tp');
+        if ($this->db->table_exists('mst_operational_division')) {
+            $db->join('mst_operational_division d', 'd.id = tp.division_id', 'left');
+        }
+        if ($this->db->table_exists('fin_company_account')) {
+            $db->join('fin_company_account acc', 'acc.id = tp.company_account_id', 'left');
+        }
+        if ($this->db->table_exists('fin_target_plan_line')) {
+            $db->select('(SELECT COUNT(*) FROM fin_target_plan_line tl WHERE tl.target_plan_id = tp.id) AS metric_count', false);
+        } else {
+            $db->select('0 AS metric_count', false);
+        }
+        if ($this->db->table_exists('fin_target_realization')) {
+            $db->select('(SELECT COUNT(*) FROM fin_target_realization tr WHERE tr.target_plan_id = tp.id) AS realization_count', false)
+                ->select('(SELECT ROUND(AVG(tr.score_percent), 2) FROM fin_target_realization tr WHERE tr.target_plan_id = tp.id) AS avg_score_percent', false)
+                ->select('(SELECT MAX(tr.realization_date) FROM fin_target_realization tr WHERE tr.target_plan_id = tp.id) AS last_realization_date', false);
+        } else {
+            $db->select('0 AS realization_count', false)
+                ->select('0 AS avg_score_percent', false)
+                ->select('NULL AS last_realization_date', false);
+        }
+        $this->apply_target_plan_filters($db, $filters);
+        return $db->order_by('tp.date_end', 'DESC')
+            ->order_by('tp.id', 'DESC')
+            ->limit(max(1, $limit), max(0, $offset))
+            ->get()->result_array();
+    }
+
+    public function summarize_target_plans(array $filters = []): array
+    {
+        $summary = [
+            'total_rows' => 0,
+            'active_rows' => 0,
+            'draft_rows' => 0,
+            'locked_rows' => 0,
+        ];
+
+        if (!$this->db->table_exists('fin_target_plan')) {
+            return $summary;
+        }
+
+        $this->db->select("
+                COUNT(*) AS total_rows,
+                COALESCE(SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END), 0) AS active_rows,
+                COALESCE(SUM(CASE WHEN status = 'DRAFT' THEN 1 ELSE 0 END), 0) AS draft_rows,
+                COALESCE(SUM(CASE WHEN status = 'LOCKED' THEN 1 ELSE 0 END), 0) AS locked_rows
+            ", false)
+            ->from('fin_target_plan tp');
+        $this->apply_target_plan_filters($this->db, $filters);
+        $result = $this->db->get()->row_array();
+
+        return [
+            'total_rows' => (int)($result['total_rows'] ?? 0),
+            'active_rows' => (int)($result['active_rows'] ?? 0),
+            'draft_rows' => (int)($result['draft_rows'] ?? 0),
+            'locked_rows' => (int)($result['locked_rows'] ?? 0),
+        ];
+    }
+
+    public function save_target_plan(array $payload, int $actorUserId = 0): array
+    {
+        if (!$this->db->table_exists('fin_target_plan')) {
+            return ['ok' => false, 'message' => 'Tabel target keuangan belum tersedia. Jalankan SQL foundation terlebih dahulu.'];
+        }
+
+        $targetName = trim((string)($payload['target_name'] ?? ''));
+        if ($targetName === '') {
+            return ['ok' => false, 'message' => 'Nama target wajib diisi.'];
+        }
+
+        $scope = strtoupper(trim((string)($payload['target_scope'] ?? 'MONTHLY')));
+        if (!in_array($scope, ['DAILY', 'MONTHLY', 'YEARLY'], true)) {
+            $scope = 'MONTHLY';
+        }
+
+        $dateStart = trim((string)($payload['date_start'] ?? ''));
+        $dateEnd = trim((string)($payload['date_end'] ?? ''));
+        if ($dateStart === '' || $dateEnd === '') {
+            return ['ok' => false, 'message' => 'Tanggal awal dan akhir target wajib diisi.'];
+        }
+        if ($dateStart > $dateEnd) {
+            return ['ok' => false, 'message' => 'Tanggal akhir target tidak boleh lebih kecil dari tanggal awal.'];
+        }
+
+        $targetYear = (int)date('Y', strtotime($dateStart));
+        $targetMonth = $scope !== 'YEARLY' ? (int)date('m', strtotime($dateStart)) : null;
+        $targetDate = $scope === 'DAILY' ? $dateStart : null;
+        $maxIdRow = $this->db->select('MAX(id) AS max_id', false)->from('fin_target_plan')->get()->row_array();
+        $nextSeq = ((int)($maxIdRow['max_id'] ?? 0)) + 1;
+        $targetCode = 'FIN-TARGET-' . date('Ym', strtotime($dateStart)) . '-' . str_pad((string)$nextSeq, 4, '0', STR_PAD_LEFT);
+
+        $row = [
+            'target_code' => $targetCode,
+            'target_name' => $targetName,
+            'target_scope' => $scope,
+            'target_year' => $targetYear,
+            'target_month' => $targetMonth,
+            'target_date' => $targetDate,
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+            'division_id' => (int)($payload['division_id'] ?? 0) > 0 ? (int)$payload['division_id'] : null,
+            'company_account_id' => (int)($payload['company_account_id'] ?? 0) > 0 ? (int)$payload['company_account_id'] : null,
+            'status' => 'DRAFT',
+            'bonus_gate_mode' => in_array(strtoupper(trim((string)($payload['bonus_gate_mode'] ?? 'WEIGHTED_SCORE'))), ['NONE', 'ALL_REQUIRED', 'WEIGHTED_SCORE'], true)
+                ? strtoupper(trim((string)($payload['bonus_gate_mode'] ?? 'WEIGHTED_SCORE')))
+                : 'WEIGHTED_SCORE',
+            'min_bonus_score' => round((float)($payload['min_bonus_score'] ?? 100), 2),
+            'bonus_pool_amount' => round((float)($payload['bonus_pool_amount'] ?? 0), 2),
+            'bonus_percent_of_profit' => round((float)($payload['bonus_percent_of_profit'] ?? 0), 4),
+            'notes' => trim((string)($payload['notes'] ?? '')) ?: null,
+            'created_by' => $actorUserId > 0 ? $actorUserId : null,
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+
+        $this->db->insert('fin_target_plan', $row);
+        $targetPlanId = (int)$this->db->insert_id();
+
+        $metricCodes = $payload['metric_codes'] ?? [];
+        if (!is_array($metricCodes)) {
+            $metricCodes = [$metricCodes];
+        }
+        $metricCodes = array_values(array_unique(array_filter(array_map(static function ($v) {
+            return strtoupper(trim((string)$v));
+        }, $metricCodes))));
+
+        if ($targetPlanId > 0 && !empty($metricCodes) && $this->db->table_exists('fin_metric_catalog') && $this->db->table_exists('fin_target_plan_line')) {
+            $catalogRows = $this->db->select('metric_group, metric_code, metric_label, comparator_hint')
+                ->from('fin_metric_catalog')
+                ->where_in('metric_code', $metricCodes)
+                ->where('is_active', 1)
+                ->order_by('metric_group', 'ASC')
+                ->order_by('metric_label', 'ASC')
+                ->get()->result_array();
+            $lineCount = count($catalogRows);
+            $weight = $lineCount > 0 ? round(100 / $lineCount, 4) : 0;
+            foreach ($catalogRows as $catalogRow) {
+                $this->db->insert('fin_target_plan_line', [
+                    'target_plan_id' => $targetPlanId,
+                    'metric_group' => (string)($catalogRow['metric_group'] ?? 'OTHER'),
+                    'metric_code' => (string)($catalogRow['metric_code'] ?? ''),
+                    'metric_label' => (string)($catalogRow['metric_label'] ?? ''),
+                    'comparator' => in_array((string)($catalogRow['comparator_hint'] ?? 'MAX'), ['MIN', 'MAX', 'RANGE', 'EQUAL'], true)
+                        ? (string)$catalogRow['comparator_hint']
+                        : 'MAX',
+                    'target_value' => 0,
+                    'weight_percent' => $weight,
+                    'is_required' => 0,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+        }
+
+        return [
+            'ok' => true,
+            'id' => $targetPlanId,
+            'message' => 'Draft target keuangan berhasil dibuat.',
+        ];
+    }
+
+    public function get_period_close_by_id(int $id): ?array
+    {
+        if ($id <= 0 || !$this->db->table_exists('fin_period_close')) {
+            return null;
+        }
+
+        return $this->db->select('pc.*')
+            ->from('fin_period_close pc')
+            ->where('pc.id', $id)
+            ->limit(1)
+            ->get()->row_array() ?: null;
+    }
+
+    public function get_period_close_detail(int $id): ?array
+    {
+        $row = $this->get_period_close_by_id($id);
+        if (!$row) {
+            return null;
+        }
+
+        $snapshotSummary = $this->summarize_period_close_snapshots($id);
+        $metricSummary = $this->summarize_period_close_metrics($id);
+
+        return array_merge($row, [
+            'snapshot_summary' => $snapshotSummary,
+            'metric_summary' => $metricSummary,
+        ]);
+    }
+
+    public function summarize_period_close_snapshots(int $periodCloseId): array
+    {
+        $summary = [
+            'account_count' => 0,
+            'physical_total' => 0.0,
+            'real_total' => 0.0,
+            'payable_total' => 0.0,
+            'receivable_total' => 0.0,
+            'cash_advance_total' => 0.0,
+            'payroll_pending_total' => 0.0,
+        ];
+
+        if ($periodCloseId <= 0 || !$this->db->table_exists('fin_account_period_snapshot')) {
+            return $summary;
+        }
+
+        $row = $this->db->select("
+                COUNT(*) AS account_count,
+                COALESCE(SUM(closing_balance_physical), 0) AS physical_total,
+                COALESCE(SUM(closing_balance_real), 0) AS real_total,
+                COALESCE(SUM(payable_outstanding), 0) AS payable_total,
+                COALESCE(SUM(receivable_outstanding), 0) AS receivable_total,
+                COALESCE(SUM(cash_advance_outstanding), 0) AS cash_advance_total,
+                COALESCE(SUM(payroll_pending), 0) AS payroll_pending_total
+            ", false)
+            ->from('fin_account_period_snapshot')
+            ->where('period_close_id', $periodCloseId)
+            ->get()->row_array();
+
+        if (!$row) {
+            return $summary;
+        }
+
+        foreach ($summary as $key => $defaultValue) {
+            $summary[$key] = $key === 'account_count'
+                ? (int)($row[$key] ?? 0)
+                : round((float)($row[$key] ?? 0), 2);
+        }
+
+        return $summary;
+    }
+
+    public function list_period_close_snapshots(int $periodCloseId): array
+    {
+        if ($periodCloseId <= 0 || !$this->db->table_exists('fin_account_period_snapshot')) {
+            return [];
+        }
+
+        return $this->db->select('s.*')
+            ->from('fin_account_period_snapshot s')
+            ->where('s.period_close_id', $periodCloseId)
+            ->order_by('s.account_name_snapshot', 'ASC')
+            ->order_by('s.id', 'ASC')
+            ->get()->result_array();
+    }
+
+    public function summarize_period_close_metrics(int $periodCloseId): array
+    {
+        $summary = [
+            'metric_count' => 0,
+            'global_count' => 0,
+            'division_count' => 0,
+            'account_count' => 0,
+        ];
+
+        if ($periodCloseId <= 0 || !$this->db->table_exists('fin_management_period_metric')) {
+            return $summary;
+        }
+
+        $row = $this->db->select("
+                COUNT(*) AS metric_count,
+                COALESCE(SUM(CASE WHEN scope_type = 'GLOBAL' THEN 1 ELSE 0 END), 0) AS global_count,
+                COALESCE(SUM(CASE WHEN scope_type = 'DIVISION' THEN 1 ELSE 0 END), 0) AS division_count,
+                COALESCE(SUM(CASE WHEN scope_type = 'ACCOUNT' THEN 1 ELSE 0 END), 0) AS account_count
+            ", false)
+            ->from('fin_management_period_metric')
+            ->where('period_close_id', $periodCloseId)
+            ->get()->row_array();
+
+        if (!$row) {
+            return $summary;
+        }
+
+        foreach ($summary as $key => $defaultValue) {
+            $summary[$key] = (int)($row[$key] ?? 0);
+        }
+
+        return $summary;
+    }
+
+    public function list_period_close_metrics(int $periodCloseId): array
+    {
+        if ($periodCloseId <= 0 || !$this->db->table_exists('fin_management_period_metric')) {
+            return [];
+        }
+
+        return $this->db->select('m.*')
+            ->from('fin_management_period_metric m')
+            ->where('m.period_close_id', $periodCloseId)
+            ->order_by("FIELD(m.scope_type, 'GLOBAL','DIVISION','ACCOUNT')", '', false)
+            ->order_by('m.metric_group', 'ASC')
+            ->order_by('m.metric_label', 'ASC')
+            ->get()->result_array();
+    }
+
+    public function reopen_period(int $periodCloseId, int $actorUserId = 0): array
+    {
+        $row = $this->get_period_close_by_id($periodCloseId);
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Draft period close tidak ditemukan.'];
+        }
+
+        if (strtoupper((string)($row['status'] ?? 'OPEN')) !== 'CLOSED') {
+            return ['ok' => false, 'message' => 'Hanya period yang sudah CLOSED yang bisa dibuka ulang.'];
+        }
+
+        $notes = trim((string)($row['notes'] ?? ''));
+        $notes = trim($notes . ($notes !== '' ? ' | ' : '') . 'Reopened ' . date('Y-m-d H:i'));
+
+        $this->db->where('id', $periodCloseId)->update('fin_period_close', [
+            'status' => 'REOPENED',
+            'reopened_by' => $actorUserId > 0 ? $actorUserId : null,
+            'reopened_at' => date('Y-m-d H:i:s'),
+            'notes' => $notes !== '' ? substr($notes, 0, 255) : null,
+        ]);
+
+        return [
+            'ok' => (bool)$this->db->affected_rows() >= 0,
+            'message' => 'Period berhasil dibuka ulang. Anda bisa koreksi data lalu proses close lagi.',
+        ];
+    }
+
+    public function close_period(int $periodCloseId, int $actorUserId = 0): array
+    {
+        if (
+            $periodCloseId <= 0
+            || !$this->db->table_exists('fin_period_close')
+            || !$this->db->table_exists('fin_account_period_snapshot')
+            || !$this->db->table_exists('fin_management_period_metric')
+        ) {
+            return ['ok' => false, 'message' => 'Fondasi tutup periode belum lengkap. Jalankan SQL foundation terlebih dahulu.'];
+        }
+
+        $period = $this->get_period_close_by_id($periodCloseId);
+        if (!$period) {
+            return ['ok' => false, 'message' => 'Draft period close tidak ditemukan.'];
+        }
+
+        $status = strtoupper(trim((string)($period['status'] ?? 'OPEN')));
+        if (!in_array($status, ['OPEN', 'REOPENED'], true)) {
+            return ['ok' => false, 'message' => 'Period ini tidak bisa diproses karena statusnya bukan OPEN/REOPENED.'];
+        }
+
+        $dateStart = (string)($period['period_start'] ?? '');
+        $dateEnd = (string)($period['period_end'] ?? '');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEnd)) {
+            return ['ok' => false, 'message' => 'Tanggal period close tidak valid.'];
+        }
+
+        $accounts = $this->active_company_accounts();
+        if (empty($accounts)) {
+            return ['ok' => false, 'message' => 'Belum ada rekening aktif untuk dibuat snapshot.'];
+        }
+
+        $this->db->trans_start();
+
+        $this->db->where('period_close_id', $periodCloseId)->delete('fin_account_period_snapshot');
+        $this->db->where('period_close_id', $periodCloseId)->delete('fin_management_period_metric');
+
+        $snapshotRows = $this->collect_account_snapshot_rows($dateStart, $dateEnd, $accounts);
+        foreach ($snapshotRows as $row) {
+            $row['period_close_id'] = $periodCloseId;
+            $this->db->insert('fin_account_period_snapshot', $row);
+        }
+
+        $metricRows = $this->collect_management_metric_rows($dateStart, $dateEnd, $snapshotRows);
+        foreach ($metricRows as $row) {
+            $row['period_close_id'] = $periodCloseId;
+            $this->db->insert('fin_management_period_metric', $row);
+        }
+
+        $this->db->where('id', $periodCloseId)->update('fin_period_close', [
+            'status' => 'CLOSED',
+            'closed_by' => $actorUserId > 0 ? $actorUserId : null,
+            'closed_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        $this->db->trans_complete();
+        if (!$this->db->trans_status()) {
+            return ['ok' => false, 'message' => 'Gagal membuat snapshot tutup periode.'];
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Period berhasil ditutup. Snapshot rekening: ' . count($snapshotRows) . ' | metric manajerial: ' . count($metricRows) . '.',
+        ];
+    }
+
+    public function get_target_plan_by_id(int $id): ?array
+    {
+        if ($id <= 0 || !$this->db->table_exists('fin_target_plan')) {
+            return null;
+        }
+
+        return $this->db->select('tp.*')
+            ->from('fin_target_plan tp')
+            ->where('tp.id', $id)
+            ->limit(1)
+            ->get()->row_array() ?: null;
+    }
+
+    public function get_target_plan_detail(int $id): ?array
+    {
+        if ($id <= 0 || !$this->db->table_exists('fin_target_plan')) {
+            return null;
+        }
+
+        $db = $this->db->select('tp.*');
+        if ($this->db->table_exists('mst_operational_division')) {
+            $db->select('d.name AS division_name')
+                ->join('mst_operational_division d', 'd.id = tp.division_id', 'left');
+        }
+        if ($this->db->table_exists('fin_company_account')) {
+            $db->select('acc.account_name, acc.bank_name')
+                ->join('fin_company_account acc', 'acc.id = tp.company_account_id', 'left');
+        }
+
+        $row = $db->from('fin_target_plan tp')
+            ->where('tp.id', $id)
+            ->limit(1)
+            ->get()->row_array();
+
+        if (!$row) {
+            return null;
+        }
+
+        return array_merge($row, [
+            'realization_summary' => $this->summarize_target_plan_realization($id),
+        ]);
+    }
+
+    public function list_target_plan_lines(int $targetPlanId): array
+    {
+        if (
+            $targetPlanId <= 0
+            || !$this->db->table_exists('fin_target_plan_line')
+        ) {
+            return [];
+        }
+
+        $db = $this->db->select('tl.*');
+        if ($this->db->table_exists('fin_target_realization')) {
+            $db->select('lr.actual_value AS latest_actual_value, lr.score_percent AS latest_score_percent, lr.is_passed AS latest_is_passed, lr.realization_date AS latest_realization_date')
+                ->join('(
+                    SELECT r1.target_plan_line_id, r1.actual_value, r1.score_percent, r1.is_passed, r1.realization_date
+                    FROM fin_target_realization r1
+                    INNER JOIN (
+                        SELECT target_plan_line_id, MAX(realization_date) AS latest_date
+                        FROM fin_target_realization
+                        GROUP BY target_plan_line_id
+                    ) rx
+                      ON rx.target_plan_line_id = r1.target_plan_line_id
+                     AND rx.latest_date = r1.realization_date
+                ) lr', 'lr.target_plan_line_id = tl.id', 'left', false);
+        } else {
+            $db->select('NULL AS latest_actual_value, NULL AS latest_score_percent, NULL AS latest_is_passed, NULL AS latest_realization_date', false);
+        }
+
+        return $db->from('fin_target_plan_line tl')
+            ->where('tl.target_plan_id', $targetPlanId)
+            ->order_by('tl.metric_group', 'ASC')
+            ->order_by('tl.metric_label', 'ASC')
+            ->get()->result_array();
+    }
+
+    public function summarize_target_plan_realization(int $targetPlanId): array
+    {
+        $summary = [
+            'line_count' => 0,
+            'required_count' => 0,
+            'weight_total' => 0.0,
+            'avg_score_percent' => 0.0,
+            'passed_count' => 0,
+            'last_realization_date' => null,
+        ];
+
+        if ($targetPlanId <= 0 || !$this->db->table_exists('fin_target_plan_line')) {
+            return $summary;
+        }
+
+        $lineRow = $this->db->select("
+                COUNT(*) AS line_count,
+                COALESCE(SUM(CASE WHEN is_required = 1 THEN 1 ELSE 0 END), 0) AS required_count,
+                COALESCE(SUM(weight_percent), 0) AS weight_total
+            ", false)
+            ->from('fin_target_plan_line')
+            ->where('target_plan_id', $targetPlanId)
+            ->get()->row_array();
+
+        if ($lineRow) {
+            $summary['line_count'] = (int)($lineRow['line_count'] ?? 0);
+            $summary['required_count'] = (int)($lineRow['required_count'] ?? 0);
+            $summary['weight_total'] = round((float)($lineRow['weight_total'] ?? 0), 4);
+        }
+
+        if ($this->db->table_exists('fin_target_realization')) {
+            $realizationRow = $this->db->select("
+                    ROUND(COALESCE(AVG(score_percent), 0), 2) AS avg_score_percent,
+                    COALESCE(SUM(CASE WHEN is_passed = 1 THEN 1 ELSE 0 END), 0) AS passed_count,
+                    MAX(realization_date) AS last_realization_date
+                ", false)
+                ->from('fin_target_realization')
+                ->where('target_plan_id', $targetPlanId)
+                ->get()->row_array();
+
+            if ($realizationRow) {
+                $summary['avg_score_percent'] = round((float)($realizationRow['avg_score_percent'] ?? 0), 2);
+                $summary['passed_count'] = (int)($realizationRow['passed_count'] ?? 0);
+                $summary['last_realization_date'] = $realizationRow['last_realization_date'] ?: null;
+            }
+        }
+
+        return $summary;
+    }
+
+    public function update_target_plan(int $targetPlanId, array $payload, int $actorUserId = 0): array
+    {
+        unset($actorUserId);
+
+        $row = $this->get_target_plan_by_id($targetPlanId);
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Draft target tidak ditemukan.'];
+        }
+
+        $status = strtoupper(trim((string)($payload['status'] ?? ($row['status'] ?? 'DRAFT'))));
+        if (!in_array($status, ['DRAFT', 'ACTIVE', 'LOCKED', 'VOID'], true)) {
+            $status = 'DRAFT';
+        }
+
+        $bonusGateMode = strtoupper(trim((string)($payload['bonus_gate_mode'] ?? ($row['bonus_gate_mode'] ?? 'WEIGHTED_SCORE'))));
+        if (!in_array($bonusGateMode, ['NONE', 'ALL_REQUIRED', 'WEIGHTED_SCORE'], true)) {
+            $bonusGateMode = 'WEIGHTED_SCORE';
+        }
+
+        $update = [
+            'status' => $status,
+            'bonus_gate_mode' => $bonusGateMode,
+            'min_bonus_score' => round((float)($payload['min_bonus_score'] ?? ($row['min_bonus_score'] ?? 100)), 2),
+            'bonus_pool_amount' => round((float)($payload['bonus_pool_amount'] ?? ($row['bonus_pool_amount'] ?? 0)), 2),
+            'bonus_percent_of_profit' => round((float)($payload['bonus_percent_of_profit'] ?? ($row['bonus_percent_of_profit'] ?? 0)), 4),
+            'notes' => trim((string)($payload['notes'] ?? ($row['notes'] ?? ''))) ?: null,
+        ];
+
+        $this->db->where('id', $targetPlanId)->update('fin_target_plan', $update);
+
+        return ['ok' => true, 'message' => 'Header target berhasil diperbarui.'];
+    }
+
+    public function save_target_plan_lines(int $targetPlanId, array $payload, int $actorUserId = 0): array
+    {
+        unset($actorUserId);
+
+        $plan = $this->get_target_plan_by_id($targetPlanId);
+        if (!$plan) {
+            return ['ok' => false, 'message' => 'Draft target tidak ditemukan.'];
+        }
+        if (!$this->db->table_exists('fin_target_plan_line')) {
+            return ['ok' => false, 'message' => 'Tabel metric target belum tersedia.'];
+        }
+
+        $lineIds = $payload['line_id'] ?? [];
+        if (!is_array($lineIds) || empty($lineIds)) {
+            return ['ok' => false, 'message' => 'Belum ada line metric yang dikirim.'];
+        }
+
+        $comparator = $payload['comparator'] ?? [];
+        $targetValue = $payload['target_value'] ?? [];
+        $minimumValue = $payload['minimum_value'] ?? [];
+        $maximumValue = $payload['maximum_value'] ?? [];
+        $warningValue = $payload['warning_value'] ?? [];
+        $weightPercent = $payload['weight_percent'] ?? [];
+        $isRequired = $payload['is_required'] ?? [];
+        $notes = $payload['line_notes'] ?? [];
+
+        $updated = 0;
+        $this->db->trans_start();
+        foreach ($lineIds as $idx => $lineIdRaw) {
+            $lineId = (int)$lineIdRaw;
+            if ($lineId <= 0) {
+                continue;
+            }
+
+            $comp = strtoupper(trim((string)($comparator[$idx] ?? 'MIN')));
+            if (!in_array($comp, ['MIN', 'MAX', 'RANGE', 'EQUAL'], true)) {
+                $comp = 'MIN';
+            }
+
+            $update = [
+                'comparator' => $comp,
+                'target_value' => round((float)($targetValue[$idx] ?? 0), 2),
+                'minimum_value' => $minimumValue[$idx] !== '' ? round((float)$minimumValue[$idx], 2) : null,
+                'maximum_value' => $maximumValue[$idx] !== '' ? round((float)$maximumValue[$idx], 2) : null,
+                'warning_value' => $warningValue[$idx] !== '' ? round((float)$warningValue[$idx], 2) : null,
+                'weight_percent' => round((float)($weightPercent[$idx] ?? 0), 4),
+                'is_required' => isset($isRequired[$lineId]) ? 1 : 0,
+                'notes' => trim((string)($notes[$idx] ?? '')) ?: null,
+            ];
+
+            $this->db->where('id', $lineId)
+                ->where('target_plan_id', $targetPlanId)
+                ->update('fin_target_plan_line', $update);
+            $updated++;
+        }
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status()) {
+            return ['ok' => false, 'message' => 'Gagal menyimpan perubahan line metric.'];
+        }
+
+        return ['ok' => true, 'message' => 'Metric target berhasil diperbarui (' . $updated . ' baris).'];
+    }
+
+    public function generate_target_realization(int $targetPlanId, int $actorUserId = 0): array
+    {
+        unset($actorUserId);
+
+        if (
+            $targetPlanId <= 0
+            || !$this->db->table_exists('fin_target_plan')
+            || !$this->db->table_exists('fin_target_plan_line')
+            || !$this->db->table_exists('fin_target_realization')
+        ) {
+            return ['ok' => false, 'message' => 'Fondasi target keuangan belum lengkap.'];
+        }
+
+        $plan = $this->get_target_plan_by_id($targetPlanId);
+        if (!$plan) {
+            return ['ok' => false, 'message' => 'Draft target tidak ditemukan.'];
+        }
+        if (strtoupper(trim((string)($plan['status'] ?? 'DRAFT'))) === 'VOID') {
+            return ['ok' => false, 'message' => 'Target berstatus VOID tidak bisa dihitung.'];
+        }
+
+        $lines = $this->db->select('tl.*')
+            ->from('fin_target_plan_line tl')
+            ->where('tl.target_plan_id', $targetPlanId)
+            ->order_by('tl.metric_group', 'ASC')
+            ->order_by('tl.metric_label', 'ASC')
+            ->get()->result_array();
+        if (empty($lines)) {
+            return ['ok' => false, 'message' => 'Target ini belum punya metric line.'];
+        }
+
+        $dateStart = (string)($plan['date_start'] ?? '');
+        $dateEnd = (string)($plan['date_end'] ?? '');
+        $closedPeriods = [];
+        if ($this->db->table_exists('fin_period_close')) {
+            $closedPeriods = $this->db->select('id, period_start, period_end, period_type')
+                ->from('fin_period_close')
+                ->where('status', 'CLOSED')
+                ->where('period_start >=', $dateStart)
+                ->where('period_end <=', $dateEnd)
+                ->order_by('period_end', 'ASC')
+                ->get()->result_array();
+        }
+
+        if (strtoupper(trim((string)($plan['target_scope'] ?? 'MONTHLY'))) !== 'DAILY' && empty($closedPeriods)) {
+            return ['ok' => false, 'message' => 'Belum ada period close CLOSED di rentang target ini. Tutup periodenya dulu baru hitung realisasi.'];
+        }
+
+        $rawMetricRows = [];
+        if (empty($closedPeriods)) {
+            $rawMetricRows = $this->collect_management_metric_rows(
+                $dateStart,
+                $dateEnd,
+                $this->collect_account_snapshot_rows($dateStart, $dateEnd, $this->active_company_accounts())
+            );
+        }
+
+        $this->db->trans_start();
+        foreach ($lines as $line) {
+            $resolved = $this->resolve_target_line_actual($plan, $line, $closedPeriods, $rawMetricRows);
+            $score = $this->calculate_target_score($line, (float)$resolved['actual_value']);
+
+            $payload = [
+                'target_plan_id' => $targetPlanId,
+                'target_plan_line_id' => (int)$line['id'],
+                'period_close_id' => (int)($resolved['period_close_id'] ?? 0) > 0 ? (int)$resolved['period_close_id'] : null,
+                'realization_date' => $dateEnd,
+                'metric_code' => (string)($line['metric_code'] ?? ''),
+                'target_value_snapshot' => round((float)($line['target_value'] ?? 0), 2),
+                'actual_value' => round((float)($resolved['actual_value'] ?? 0), 2),
+                'score_percent' => round((float)($score['score_percent'] ?? 0), 2),
+                'is_passed' => !empty($score['is_passed']) ? 1 : 0,
+                'bonus_gate_passed' => !empty($score['bonus_gate_passed']) ? 1 : 0,
+                'notes' => $resolved['notes'] !== '' ? $resolved['notes'] : null,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ];
+
+            $exists = $this->db->select('id')
+                ->from('fin_target_realization')
+                ->where('target_plan_line_id', (int)$line['id'])
+                ->where('realization_date', $dateEnd)
+                ->limit(1)
+                ->get()->row_array();
+
+            if ($exists) {
+                $this->db->where('id', (int)$exists['id'])->update('fin_target_realization', $payload);
+            } else {
+                $payload['created_at'] = date('Y-m-d H:i:s');
+                $this->db->insert('fin_target_realization', $payload);
+            }
+        }
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status()) {
+            return ['ok' => false, 'message' => 'Gagal menghitung realisasi target.'];
+        }
+
+        return ['ok' => true, 'message' => 'Realisasi target berhasil dihitung untuk ' . count($lines) . ' metric.'];
+    }
+
+    private function collect_account_snapshot_rows(string $dateStart, string $dateEnd, array $accounts): array
+    {
+        if (empty($accounts)) {
+            return [];
+        }
+
+        $accountIds = array_values(array_filter(array_map(static function ($row) {
+            return (int)($row['id'] ?? 0);
+        }, $accounts)));
+        $mutationMap = $this->account_month_mutation_map($dateStart, $dateEnd, $accountIds);
+        $breakdownMap = $this->account_mutation_breakdown_map($dateStart, $dateEnd, $accountIds);
+        $payableMap = $this->loan_outstanding_as_of_map('payable', $dateEnd, $accountIds);
+        $receivableMap = $this->loan_outstanding_as_of_map('receivable', $dateEnd, $accountIds);
+        $cashAdvanceMap = $this->cash_advance_outstanding_as_of_map($dateEnd, $accountIds);
+        $payrollMap = $this->payroll_pending_as_of_map($dateEnd, $accountIds);
+
+        $rows = [];
+        foreach ($accounts as $account) {
+            $accountId = (int)($account['id'] ?? 0);
+            if ($accountId <= 0) {
+                continue;
+            }
+
+            $opening = $this->opening_balance_for_month($accountId, $dateStart, (float)($account['opening_balance'] ?? 0));
+            $movement = (array)($mutationMap[$accountId] ?? []);
+            $breakdown = (array)($breakdownMap[$accountId] ?? []);
+            $payable = (array)($payableMap[$accountId] ?? []);
+            $receivable = (array)($receivableMap[$accountId] ?? []);
+            $cashAdvance = (array)($cashAdvanceMap[$accountId] ?? []);
+            $payroll = (array)($payrollMap[$accountId] ?? []);
+
+            $mutationIn = round((float)($movement['amount_in'] ?? 0), 2);
+            $mutationOut = round((float)($movement['amount_out'] ?? 0), 2);
+            $closingPhysical = round($opening + ((float)($movement['net_amount'] ?? 0)), 2);
+            $payableOutstanding = round((float)($payable['outstanding_total'] ?? 0), 2);
+            $receivableOutstanding = round((float)($receivable['outstanding_total'] ?? 0), 2);
+            $cashAdvanceOutstanding = round((float)($cashAdvance['outstanding_total'] ?? 0), 2);
+            $payrollPending = round((float)($payroll['pending_total'] ?? 0), 2);
+            $historicalNet = round((float)($receivable['keep_total'] ?? 0) - (float)($payable['keep_total'] ?? 0), 2);
+            $closingReal = round($closingPhysical + $receivableOutstanding + $cashAdvanceOutstanding - $payableOutstanding - $payrollPending, 2);
+
+            $rows[] = [
+                'company_account_id' => $accountId,
+                'account_code_snapshot' => (string)($account['account_code'] ?? ''),
+                'account_name_snapshot' => (string)($account['account_name'] ?? ''),
+                'account_type_snapshot' => (string)($account['account_type'] ?? ''),
+                'bank_name_snapshot' => (string)($account['bank_name'] ?? ''),
+                'opening_balance_physical' => round($opening, 2),
+                'mutation_in_total' => $mutationIn,
+                'mutation_out_total' => $mutationOut,
+                'closing_balance_physical' => $closingPhysical,
+                'receivable_outstanding' => $receivableOutstanding,
+                'payable_outstanding' => $payableOutstanding,
+                'cash_advance_outstanding' => $cashAdvanceOutstanding,
+                'payroll_pending' => $payrollPending,
+                'historical_keep_balance_net' => $historicalNet,
+                'closing_balance_real' => $closingReal,
+                'pos_in_total' => round((float)($breakdown['pos_in_total'] ?? 0), 2),
+                'pos_refund_out_total' => round((float)($breakdown['pos_refund_out_total'] ?? 0), 2),
+                'purchase_out_total' => round((float)($breakdown['purchase_out_total'] ?? 0), 2),
+                'payroll_out_total' => round((float)($breakdown['payroll_out_total'] ?? 0), 2),
+                'cash_advance_out_total' => round((float)($breakdown['cash_advance_out_total'] ?? 0), 2),
+                'payable_in_total' => round((float)($breakdown['payable_in_total'] ?? 0), 2),
+                'payable_payment_out_total' => round((float)($breakdown['payable_payment_out_total'] ?? 0), 2),
+                'receivable_out_total' => round((float)($breakdown['receivable_out_total'] ?? 0), 2),
+                'receivable_payment_in_total' => round((float)($breakdown['receivable_payment_in_total'] ?? 0), 2),
+                'transfer_in_total' => round((float)($breakdown['transfer_in_total'] ?? 0), 2),
+                'transfer_out_total' => round((float)($breakdown['transfer_out_total'] ?? 0), 2),
+                'manual_in_total' => round((float)($breakdown['manual_in_total'] ?? 0), 2),
+                'manual_out_total' => round((float)($breakdown['manual_out_total'] ?? 0), 2),
+                'notes' => 'Snapshot ' . $dateStart . ' s/d ' . $dateEnd,
+                'created_at' => date('Y-m-d H:i:s'),
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function collect_management_metric_rows(string $dateStart, string $dateEnd, array $snapshotRows): array
+    {
+        $bucket = [];
+        $monthStart = date('Y-m-01', strtotime($dateStart));
+        $monthEnd = date('Y-m-01', strtotime($dateEnd));
+
+        $physicalTotal = 0.0;
+        $realTotal = 0.0;
+        $payableTotal = 0.0;
+        $receivableTotal = 0.0;
+        $cashAdvanceTotal = 0.0;
+        foreach ($snapshotRows as $row) {
+            $accountId = (int)($row['company_account_id'] ?? 0);
+            $physical = round((float)($row['closing_balance_physical'] ?? 0), 2);
+            $real = round((float)($row['closing_balance_real'] ?? 0), 2);
+            $payable = round((float)($row['payable_outstanding'] ?? 0), 2);
+            $receivable = round((float)($row['receivable_outstanding'] ?? 0), 2);
+            $cashAdvance = round((float)($row['cash_advance_outstanding'] ?? 0), 2);
+
+            $this->metric_add($bucket, 'ACCOUNT', $accountId, 'CASH_POSITION', 'PHYSICAL_BALANCE_VALUE', 'Saldo Fisik', $physical, 0, 'snapshot_account', 'Snapshot saldo fisik per rekening');
+            $this->metric_add($bucket, 'ACCOUNT', $accountId, 'CASH_POSITION', 'REAL_BALANCE_VALUE', 'Saldo Riil', $real, 0, 'snapshot_account', 'Snapshot saldo riil per rekening');
+            $this->metric_add($bucket, 'ACCOUNT', $accountId, 'EXPOSURE', 'PAYABLE_OUTSTANDING', 'Utang Outstanding', $payable, 0, 'snapshot_account', 'Utang aktif per rekening');
+            $this->metric_add($bucket, 'ACCOUNT', $accountId, 'EXPOSURE', 'RECEIVABLE_OUTSTANDING', 'Piutang Outstanding', $receivable, 0, 'snapshot_account', 'Piutang aktif per rekening');
+
+            $physicalTotal += $physical;
+            $realTotal += $real;
+            $payableTotal += $payable;
+            $receivableTotal += $receivable;
+            $cashAdvanceTotal += $cashAdvance;
+        }
+        $this->metric_add($bucket, 'GLOBAL', 0, 'CASH_POSITION', 'PHYSICAL_BALANCE_VALUE', 'Saldo Fisik', $physicalTotal, 0, 'snapshot_global', 'Akumulasi saldo fisik semua rekening');
+        $this->metric_add($bucket, 'GLOBAL', 0, 'CASH_POSITION', 'REAL_BALANCE_VALUE', 'Saldo Riil', $realTotal, 0, 'snapshot_global', 'Akumulasi saldo riil semua rekening');
+        $this->metric_add($bucket, 'GLOBAL', 0, 'EXPOSURE', 'PAYABLE_OUTSTANDING', 'Utang Outstanding', $payableTotal, 0, 'snapshot_global', 'Akumulasi utang outstanding');
+        $this->metric_add($bucket, 'GLOBAL', 0, 'EXPOSURE', 'RECEIVABLE_OUTSTANDING', 'Piutang Outstanding', $receivableTotal, 0, 'snapshot_global', 'Akumulasi piutang outstanding');
+        $this->metric_add($bucket, 'GLOBAL', 0, 'EXPOSURE', 'CASH_ADVANCE_OUTSTANDING', 'Kasbon Outstanding', $cashAdvanceTotal, 0, 'snapshot_global', 'Akumulasi kasbon outstanding');
+
+        if ($this->db->table_exists('fin_account_mutation_log')) {
+            $row = $this->db->select("
+                    COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'IN' THEN amount ELSE 0 END), 0) AS pos_revenue,
+                    COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS pos_refund,
+                    COALESCE(SUM(CASE WHEN ref_module = 'PAYROLL' AND ref_table = 'pay_salary_disbursement' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS payroll_disbursed
+                ", false)
+                ->from('fin_account_mutation_log')
+                ->where('mutation_date >=', $dateStart)
+                ->where('mutation_date <=', $dateEnd)
+                ->get()->row_array();
+
+            $this->metric_add($bucket, 'GLOBAL', 0, 'REVENUE', 'POS_REVENUE', 'Omzet POS', (float)($row['pos_revenue'] ?? 0), 0, 'fin_account_mutation_log', 'Akumulasi mutasi masuk POS');
+            $this->metric_add($bucket, 'GLOBAL', 0, 'REVENUE', 'POS_REFUND', 'Refund POS', (float)($row['pos_refund'] ?? 0), 0, 'fin_account_mutation_log', 'Akumulasi mutasi refund POS');
+            $this->metric_add($bucket, 'GLOBAL', 0, 'PAYROLL', 'PAYROLL_DISBURSED', 'Pencairan Gaji', (float)($row['payroll_disbursed'] ?? 0), 0, 'fin_account_mutation_log', 'Akumulasi gaji cair');
+        }
+
+        if (
+            $this->db->table_exists('pur_purchase_order')
+            && $this->db->table_exists('pur_purchase_order_line')
+            && $this->db->table_exists('mst_purchase_type')
+            && $this->db->table_exists('mst_posting_type')
+        ) {
+            $rows = $this->db->select("
+                    pt.type_code,
+                    pt.type_name,
+                    pst.affects_inventory,
+                    pst.affects_asset,
+                    pst.affects_expense,
+                    pst.affects_service,
+                    COALESCE(SUM(l.line_subtotal), 0) AS total_value
+                ", false)
+                ->from('pur_purchase_order po')
+                ->join('pur_purchase_order_line l', 'l.purchase_order_id = po.id', 'inner')
+                ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
+                ->join('mst_posting_type pst', 'pst.id = pt.posting_type_id', 'left')
+                ->where('po.request_date >=', $dateStart)
+                ->where('po.request_date <=', $dateEnd)
+                ->where('po.status <>', 'VOID')
+                ->group_by(['pt.type_code', 'pt.type_name', 'pst.affects_inventory', 'pst.affects_asset', 'pst.affects_expense', 'pst.affects_service'])
+                ->get()->result_array();
+
+            foreach ($rows as $row) {
+                $metricCode = $this->purchase_metric_code_for_row($row);
+                $metricLabel = $this->metric_label_for_code($metricCode);
+                $this->metric_add($bucket, 'GLOBAL', 0, 'PURCHASE', $metricCode, $metricLabel, (float)($row['total_value'] ?? 0), 0, 'pur_purchase_order', 'Akumulasi belanja per purchase type');
+            }
+        }
+
+        $planning = $this->planning_summary($dateStart, $dateEnd);
+        $this->metric_add($bucket, 'GLOBAL', 0, 'PROCUREMENT', 'SR_PENDING_VALUE', 'SR Pending', (float)($planning['store_request_pending_value'] ?? 0), 0, 'pur_store_request', 'Estimasi store request yang masih pending');
+        $this->metric_add($bucket, 'GLOBAL', 0, 'PAYROLL', 'PAYROLL_ESTIMATE_RUNNING', 'Estimasi Gaji Berjalan', (float)($planning['salary_estimate_running'] ?? 0), 0, 'payroll_preview', 'Estimasi payroll berjalan');
+
+        foreach ($this->division_metric_rows($dateStart, $dateEnd, $monthStart, $monthEnd) as $row) {
+            $this->metric_add(
+                $bucket,
+                'DIVISION',
+                (int)$row['scope_ref_id'],
+                (string)$row['metric_group'],
+                (string)$row['metric_code'],
+                (string)$row['metric_label'],
+                (float)$row['metric_amount'],
+                (float)$row['metric_qty'],
+                (string)$row['source_ref'],
+                (string)$row['notes']
+            );
+        }
+
+        foreach ($this->global_inventory_metric_rows($dateStart, $dateEnd, $monthStart, $monthEnd) as $row) {
+            $this->metric_add(
+                $bucket,
+                'GLOBAL',
+                0,
+                (string)$row['metric_group'],
+                (string)$row['metric_code'],
+                (string)$row['metric_label'],
+                (float)$row['metric_amount'],
+                (float)$row['metric_qty'],
+                (string)$row['source_ref'],
+                (string)$row['notes']
+            );
+        }
+
+        return array_values($bucket);
+    }
+
+    private function division_metric_rows(string $dateStart, string $dateEnd, string $monthStart, string $monthEnd): array
+    {
+        $rows = [];
+        $latestMonth = $monthEnd;
+
+        if ($this->db->table_exists('mst_operational_division')) {
+            $divisions = $this->division_options();
+            foreach ($divisions as $division) {
+                $divisionId = (int)($division['id'] ?? 0);
+                if ($divisionId <= 0) {
+                    continue;
+                }
+                $planning = $this->planning_summary_by_division($dateStart, $dateEnd, $divisionId);
+                $rows[] = [
+                    'scope_ref_id' => $divisionId,
+                    'metric_group' => 'PROCUREMENT',
+                    'metric_code' => 'SR_PENDING_VALUE',
+                    'metric_label' => 'SR Pending',
+                    'metric_amount' => (float)($planning['store_request_pending_value'] ?? 0),
+                    'metric_qty' => 0,
+                    'source_ref' => 'pur_store_request',
+                    'notes' => 'Store request pending per divisi',
+                ];
+                $rows[] = [
+                    'scope_ref_id' => $divisionId,
+                    'metric_group' => 'PAYROLL',
+                    'metric_code' => 'PAYROLL_ESTIMATE_RUNNING',
+                    'metric_label' => 'Estimasi Gaji Berjalan',
+                    'metric_amount' => (float)($planning['salary_estimate_running'] ?? 0),
+                    'metric_qty' => 0,
+                    'source_ref' => 'payroll_preview',
+                    'notes' => 'Estimasi payroll per divisi',
+                ];
+            }
+        }
+
+        if ($this->db->table_exists('inv_division_monthly_stock')) {
+            $flowRows = $this->db->select("
+                    division_id,
+                    COALESCE(SUM(in_total_value), 0) AS raw_in_value,
+                    COALESCE(SUM(out_total_value), 0) AS usage_value,
+                    COALESCE(SUM(discarded_total_value + spoilage_total_value + waste_total_value + process_loss_total_value + variance_total_value + adjustment_minus_total_value), 0) AS adjustment_value
+                ", false)
+                ->from('inv_division_monthly_stock')
+                ->where('month_key >=', $monthStart)
+                ->where('month_key <=', $monthEnd)
+                ->group_by('division_id')
+                ->get()->result_array();
+            foreach ($flowRows as $row) {
+                $divisionId = (int)($row['division_id'] ?? 0);
+                $rows[] = [
+                    'scope_ref_id' => $divisionId,
+                    'metric_group' => 'INVENTORY_FLOW',
+                    'metric_code' => 'RAW_MATERIAL_IN_VALUE',
+                    'metric_label' => 'Bahan Baku Masuk',
+                    'metric_amount' => (float)($row['raw_in_value'] ?? 0),
+                    'metric_qty' => 0,
+                    'source_ref' => 'inv_division_monthly_stock',
+                    'notes' => 'Akumulasi bahan baku masuk divisi',
+                ];
+                $rows[] = [
+                    'scope_ref_id' => $divisionId,
+                    'metric_group' => 'INVENTORY_FLOW',
+                    'metric_code' => 'RAW_MATERIAL_USAGE_VALUE',
+                    'metric_label' => 'Bahan Baku Terpakai',
+                    'metric_amount' => (float)($row['usage_value'] ?? 0),
+                    'metric_qty' => 0,
+                    'source_ref' => 'inv_division_monthly_stock',
+                    'notes' => 'Akumulasi pemakaian bahan baku divisi',
+                ];
+                $rows[] = [
+                    'scope_ref_id' => $divisionId,
+                    'metric_group' => 'INVENTORY_ADJ',
+                    'metric_code' => 'DIVISION_ADJUSTMENT_VALUE',
+                    'metric_label' => 'Adjustment Bahan Baku Divisi',
+                    'metric_amount' => (float)($row['adjustment_value'] ?? 0),
+                    'metric_qty' => 0,
+                    'source_ref' => 'inv_division_monthly_stock',
+                    'notes' => 'Akumulasi koreksi / waste / spoil bahan baku divisi',
+                ];
+            }
+
+            $endingRows = $this->db->select('division_id, COALESCE(SUM(total_value), 0) AS ending_value', false)
+                ->from('inv_division_monthly_stock')
+                ->where('month_key', $latestMonth)
+                ->group_by('division_id')
+                ->get()->result_array();
+            foreach ($endingRows as $row) {
+                $rows[] = [
+                    'scope_ref_id' => (int)($row['division_id'] ?? 0),
+                    'metric_group' => 'INVENTORY_POSITION',
+                    'metric_code' => 'DIVISION_ENDING_STOCK_VALUE',
+                    'metric_label' => 'Stok Akhir Divisi',
+                    'metric_amount' => (float)($row['ending_value'] ?? 0),
+                    'metric_qty' => 0,
+                    'source_ref' => 'inv_division_monthly_stock',
+                    'notes' => 'Nilai stok akhir divisi di bulan terakhir period',
+                ];
+            }
+        }
+
+        if ($this->db->table_exists('inv_component_monthly_stock')) {
+            $componentRows = $this->db->select("
+                    division_id,
+                    COALESCE(SUM(waste_total_value + spoil_total_value + adjustment_minus_total_value), 0) AS adjustment_value
+                ", false)
+                ->from('inv_component_monthly_stock')
+                ->where('month_key >=', $monthStart)
+                ->where('month_key <=', $monthEnd)
+                ->where('division_id IS NOT NULL', null, false)
+                ->group_by('division_id')
+                ->get()->result_array();
+            foreach ($componentRows as $row) {
+                $rows[] = [
+                    'scope_ref_id' => (int)($row['division_id'] ?? 0),
+                    'metric_group' => 'INVENTORY_ADJ',
+                    'metric_code' => 'COMPONENT_ADJUSTMENT_VALUE',
+                    'metric_label' => 'Adjustment Component',
+                    'metric_amount' => (float)($row['adjustment_value'] ?? 0),
+                    'metric_qty' => 0,
+                    'source_ref' => 'inv_component_monthly_stock',
+                    'notes' => 'Akumulasi koreksi / waste / spoil component',
+                ];
+            }
+        }
+
+        if ($this->db->table_exists('pos_order') && $this->db->table_exists('pos_order_line')) {
+            $posRows = $this->db->select("
+                    COALESCE(l.operational_division_id, 0) AS division_id,
+                    COALESCE(SUM(CASE
+                        WHEN o.stock_commit_status = 'POSTED'
+                         AND o.paid_at IS NOT NULL
+                         AND o.status IN ('PAID','READY','SERVED','REFUND_PARTIAL','REFUND_FULL')
+                        THEN COALESCE(NULLIF(l.cogs_amount, 0), (l.qty * l.hpp_live_snapshot))
+                        ELSE 0
+                    END), 0) AS live_hpp_total
+                ", false)
+                ->from('pos_order_line l')
+                ->join('pos_order o', 'o.id = l.order_id', 'inner')
+                ->where('DATE(o.paid_at) >=', $dateStart)
+                ->where('DATE(o.paid_at) <=', $dateEnd)
+                ->group_by('COALESCE(l.operational_division_id, 0)', false)
+                ->get()->result_array();
+            foreach ($posRows as $row) {
+                $divisionId = (int)($row['division_id'] ?? 0);
+                if ($divisionId <= 0) {
+                    continue;
+                }
+                $rows[] = [
+                    'scope_ref_id' => $divisionId,
+                    'metric_group' => 'INVENTORY_COST',
+                    'metric_code' => 'LIVE_HPP_VALUE',
+                    'metric_label' => 'HPP Live',
+                    'metric_amount' => (float)($row['live_hpp_total'] ?? 0),
+                    'metric_qty' => 0,
+                    'source_ref' => 'pos_order_line',
+                    'notes' => 'HPP live aktual dari transaksi POS',
+                ];
+            }
+        }
+
+        if ($this->db->table_exists('pay_cash_advance') && $this->db->table_exists('org_employee')) {
+            $cashRows = $this->db->select("
+                    e.division_id,
+                    COALESCE(SUM(ca.outstanding_amount), 0) AS outstanding_total
+                ", false)
+                ->from('pay_cash_advance ca')
+                ->join('org_employee e', 'e.id = ca.employee_id', 'left')
+                ->where('ca.status <>', 'VOID')
+                ->where('COALESCE(ca.outstanding_amount, 0) >', 0)
+                ->group_by('e.division_id')
+                ->get()->result_array();
+            foreach ($cashRows as $row) {
+                $divisionId = (int)($row['division_id'] ?? 0);
+                if ($divisionId <= 0) {
+                    continue;
+                }
+                $rows[] = [
+                    'scope_ref_id' => $divisionId,
+                    'metric_group' => 'EXPOSURE',
+                    'metric_code' => 'CASH_ADVANCE_OUTSTANDING',
+                    'metric_label' => 'Kasbon Outstanding',
+                    'metric_amount' => (float)($row['outstanding_total'] ?? 0),
+                    'metric_qty' => 0,
+                    'source_ref' => 'pay_cash_advance',
+                    'notes' => 'Kasbon aktif per divisi pegawai',
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    private function global_inventory_metric_rows(string $dateStart, string $dateEnd, string $monthStart, string $monthEnd): array
+    {
+        $rows = [];
+        $latestMonth = $monthEnd;
+
+        if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
+            $flow = $this->db->select("
+                    COALESCE(SUM(discarded_total_value + spoilage_total_value + waste_total_value + process_loss_total_value + variance_total_value + adjustment_minus_total_value), 0) AS adjustment_value
+                ", false)
+                ->from('inv_warehouse_monthly_stock')
+                ->where('month_key >=', $monthStart)
+                ->where('month_key <=', $monthEnd)
+                ->get()->row_array();
+            $rows[] = [
+                'metric_group' => 'INVENTORY_ADJ',
+                'metric_code' => 'WAREHOUSE_ADJUSTMENT_VALUE',
+                'metric_label' => 'Adjustment Gudang',
+                'metric_amount' => (float)($flow['adjustment_value'] ?? 0),
+                'metric_qty' => 0,
+                'source_ref' => 'inv_warehouse_monthly_stock',
+                'notes' => 'Akumulasi koreksi / waste / spoil gudang',
+            ];
+
+            $ending = $this->db->select('COALESCE(SUM(total_value), 0) AS ending_value', false)
+                ->from('inv_warehouse_monthly_stock')
+                ->where('month_key', $latestMonth)
+                ->get()->row_array();
+            $rows[] = [
+                'metric_group' => 'INVENTORY_POSITION',
+                'metric_code' => 'WAREHOUSE_ENDING_STOCK_VALUE',
+                'metric_label' => 'Stok Akhir Gudang',
+                'metric_amount' => (float)($ending['ending_value'] ?? 0),
+                'metric_qty' => 0,
+                'source_ref' => 'inv_warehouse_monthly_stock',
+                'notes' => 'Nilai stok akhir gudang di bulan terakhir period',
+            ];
+        }
+
+        if ($this->db->table_exists('pos_order') && $this->db->table_exists('pos_order_line')) {
+            $row = $this->db->select("
+                    COALESCE(SUM(CASE
+                        WHEN o.stock_commit_status = 'POSTED'
+                         AND o.paid_at IS NOT NULL
+                         AND o.status IN ('PAID','READY','SERVED','REFUND_PARTIAL','REFUND_FULL')
+                        THEN COALESCE(NULLIF(l.cogs_amount, 0), (l.qty * l.hpp_live_snapshot))
+                        ELSE 0
+                    END), 0) AS live_hpp_total
+                ", false)
+                ->from('pos_order_line l')
+                ->join('pos_order o', 'o.id = l.order_id', 'inner')
+                ->where('DATE(o.paid_at) >=', $dateStart)
+                ->where('DATE(o.paid_at) <=', $dateEnd)
+                ->get()->row_array();
+            $rows[] = [
+                'metric_group' => 'INVENTORY_COST',
+                'metric_code' => 'LIVE_HPP_VALUE',
+                'metric_label' => 'HPP Live',
+                'metric_amount' => (float)($row['live_hpp_total'] ?? 0),
+                'metric_qty' => 0,
+                'source_ref' => 'pos_order_line',
+                'notes' => 'HPP live aktual transaksi POS',
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function planning_summary_by_division(string $dateStart, string $dateEnd, int $divisionId = 0): array
+    {
+        $summary = [
+            'store_request_pending_value' => 0.0,
+            'salary_estimate_running' => 0.0,
+        ];
+
+        if (file_exists(APPPATH . 'models/Procurement_model.php')) {
+            $this->load->model('Procurement_model');
+            if (method_exists($this->Procurement_model, 'get_store_request_summary')) {
+                $srSummary = $this->Procurement_model->get_store_request_summary([
+                    'date_start' => $dateStart,
+                    'date_end' => $dateEnd,
+                    'division_id' => $divisionId,
+                ]);
+                $summary['store_request_pending_value'] = round((float)($srSummary['pending_fulfillment_value_total'] ?? 0), 2);
+            }
+        }
+
+        if (file_exists(APPPATH . 'models/Payroll_preview_model.php')) {
+            $this->load->model('Payroll_preview_model');
+            if (method_exists($this->Payroll_preview_model, 'count_monthly_recap') && method_exists($this->Payroll_preview_model, 'list_monthly_recap')) {
+                $filters = [
+                    'q' => '',
+                    'division_id' => $divisionId,
+                    'position_id' => 0,
+                    'date_start' => $dateStart,
+                    'date_end' => $dateEnd,
+                ];
+                $total = (int)$this->Payroll_preview_model->count_monthly_recap($filters);
+                if ($total > 0) {
+                    $payRows = $this->Payroll_preview_model->list_monthly_recap($filters, min($total, 5000), 0);
+                    $sum = 0.0;
+                    foreach ($payRows as $row) {
+                        $sum += (float)($row['net_total'] ?? 0);
+                    }
+                    $summary['salary_estimate_running'] = round($sum, 2);
+                }
+            }
+        }
+
+        return $summary;
+    }
+
+    private function metric_add(array &$bucket, string $scopeType, int $scopeRefId, string $metricGroup, string $metricCode, string $metricLabel, float $amount, float $qty = 0.0, string $sourceRef = '', string $notes = ''): void
+    {
+        $key = $scopeType . '|' . $scopeRefId . '|' . $metricCode;
+        if (!isset($bucket[$key])) {
+            $bucket[$key] = [
+                'scope_type' => $scopeType,
+                'scope_ref_id' => $scopeRefId,
+                'metric_group' => $metricGroup,
+                'metric_code' => $metricCode,
+                'metric_label' => $metricLabel,
+                'metric_amount' => 0.0,
+                'metric_qty' => 0.0,
+                'source_ref' => $sourceRef !== '' ? $sourceRef : null,
+                'notes' => $notes !== '' ? $notes : null,
+                'created_at' => date('Y-m-d H:i:s'),
+            ];
+        }
+
+        $bucket[$key]['metric_amount'] = round((float)$bucket[$key]['metric_amount'] + round($amount, 2), 2);
+        $bucket[$key]['metric_qty'] = round((float)$bucket[$key]['metric_qty'] + round($qty, 4), 4);
+    }
+
+    private function purchase_metric_code_for_row(array $row): string
+    {
+        $typeCode = strtoupper(trim((string)($row['type_code'] ?? '')));
+        $typeName = strtoupper(trim((string)($row['type_name'] ?? '')));
+        $affectsInventory = (int)($row['affects_inventory'] ?? 0) === 1;
+        $affectsAsset = (int)($row['affects_asset'] ?? 0) === 1;
+        $affectsExpense = (int)($row['affects_expense'] ?? 0) === 1;
+
+        if ($affectsAsset || strpos($typeCode, 'ASET') !== false || strpos($typeName, 'ASET') !== false) {
+            return 'PURCHASE_ASSET';
+        }
+        if (strpos($typeCode, 'UTILITY') !== false || strpos($typeName, 'UTILITY') !== false || strpos($typeName, 'LISTRIK') !== false || strpos($typeName, 'AIR') !== false) {
+            return 'PURCHASE_UTILITY';
+        }
+        if ($affectsInventory || strpos($typeCode, 'INV_') === 0) {
+            return 'PURCHASE_RAW_MATERIAL';
+        }
+        if ($affectsExpense || in_array($typeCode, ['BEBAN', 'JASA'], true)) {
+            return 'PURCHASE_OPERATIONAL';
+        }
+        return 'PURCHASE_OTHER';
+    }
+
+    private function metric_label_for_code(string $metricCode): string
+    {
+        static $map = [
+            'POS_REVENUE' => 'Omzet POS',
+            'POS_REFUND' => 'Refund POS',
+            'PURCHASE_RAW_MATERIAL' => 'Belanja Bahan Baku',
+            'PURCHASE_OPERATIONAL' => 'Belanja Operasional',
+            'PURCHASE_UTILITY' => 'Belanja Utilitas',
+            'PURCHASE_ASSET' => 'Belanja Aset',
+            'PURCHASE_OTHER' => 'Belanja Lainnya',
+            'SR_PENDING_VALUE' => 'SR Pending',
+            'PAYROLL_ESTIMATE_RUNNING' => 'Estimasi Gaji Berjalan',
+            'PAYROLL_DISBURSED' => 'Pencairan Gaji',
+            'PAYABLE_OUTSTANDING' => 'Utang Outstanding',
+            'RECEIVABLE_OUTSTANDING' => 'Piutang Outstanding',
+            'CASH_ADVANCE_OUTSTANDING' => 'Kasbon Outstanding',
+            'LIVE_HPP_VALUE' => 'HPP Live',
+            'WAREHOUSE_ADJUSTMENT_VALUE' => 'Adjustment Gudang',
+            'DIVISION_ADJUSTMENT_VALUE' => 'Adjustment Bahan Baku Divisi',
+            'COMPONENT_ADJUSTMENT_VALUE' => 'Adjustment Component',
+            'RAW_MATERIAL_IN_VALUE' => 'Bahan Baku Masuk',
+            'RAW_MATERIAL_USAGE_VALUE' => 'Bahan Baku Terpakai',
+            'WAREHOUSE_ENDING_STOCK_VALUE' => 'Stok Akhir Gudang',
+            'DIVISION_ENDING_STOCK_VALUE' => 'Stok Akhir Divisi',
+            'REAL_BALANCE_VALUE' => 'Saldo Riil',
+            'PHYSICAL_BALANCE_VALUE' => 'Saldo Fisik',
+        ];
+
+        return $map[$metricCode] ?? $metricCode;
+    }
+
+    private function account_mutation_breakdown_map(string $dateStart, string $dateEnd, array $accountIds = []): array
+    {
+        if (!$this->db->table_exists('fin_account_mutation_log')) {
+            return [];
+        }
+
+        $db = $this->db->select("
+                account_id,
+                COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'IN' THEN amount ELSE 0 END), 0) AS pos_in_total,
+                COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS pos_refund_out_total,
+                COALESCE(SUM(CASE WHEN ref_module = 'PURCHASE' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS purchase_out_total,
+                COALESCE(SUM(CASE WHEN ref_module = 'PAYROLL' AND ref_table = 'pay_salary_disbursement' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS payroll_out_total,
+                COALESCE(SUM(CASE WHEN ref_module = 'PAYROLL' AND ref_table = 'pay_cash_advance' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS cash_advance_out_total,
+                COALESCE(SUM(CASE WHEN ref_module = 'FINANCE_PAYABLE' AND mutation_type = 'IN' THEN amount ELSE 0 END), 0) AS payable_in_total,
+                COALESCE(SUM(CASE WHEN ref_module = 'FINANCE_PAYABLE' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS payable_payment_out_total,
+                COALESCE(SUM(CASE WHEN ref_module = 'FINANCE_RECEIVABLE' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS receivable_out_total,
+                COALESCE(SUM(CASE WHEN ref_module = 'FINANCE_RECEIVABLE' AND mutation_type = 'IN' THEN amount ELSE 0 END), 0) AS receivable_payment_in_total,
+                COALESCE(SUM(CASE WHEN ref_module = 'FINANCE_TRANSFER' AND mutation_type = 'IN' THEN amount ELSE 0 END), 0) AS transfer_in_total,
+                COALESCE(SUM(CASE WHEN ref_module = 'FINANCE_TRANSFER' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS transfer_out_total,
+                COALESCE(SUM(CASE WHEN mutation_type = 'IN' AND COALESCE(ref_module, '') NOT IN ('POS','FINANCE_PAYABLE','FINANCE_RECEIVABLE','FINANCE_TRANSFER') THEN amount ELSE 0 END), 0) AS manual_in_total,
+                COALESCE(SUM(CASE WHEN mutation_type = 'OUT' AND COALESCE(ref_module, '') NOT IN ('POS','PURCHASE','PAYROLL','FINANCE_PAYABLE','FINANCE_RECEIVABLE','FINANCE_TRANSFER') THEN amount ELSE 0 END), 0) AS manual_out_total
+            ", false)
+            ->from('fin_account_mutation_log')
+            ->where('mutation_date >=', $dateStart)
+            ->where('mutation_date <=', $dateEnd);
+
+        if (!empty($accountIds)) {
+            $db->where_in('account_id', $accountIds);
+        }
+
+        $result = [];
+        foreach ($db->group_by('account_id')->get()->result_array() as $row) {
+            $result[(int)($row['account_id'] ?? 0)] = $row;
+        }
+        return $result;
+    }
+
+    private function loan_outstanding_as_of_map(string $kind, string $dateEnd, array $accountIds = []): array
+    {
+        $isReceivable = $kind === 'receivable';
+        $headerTable = $isReceivable ? 'fin_receivable' : 'fin_payable';
+        $paymentTable = $isReceivable ? 'fin_receivable_payment' : 'fin_payable_payment';
+        $dateField = $isReceivable ? 'receivable_date' : 'payable_date';
+        $loanFk = $isReceivable ? 'receivable_id' : 'payable_id';
+
+        if (!$this->db->table_exists($headerTable) || !$this->db->table_exists($paymentTable)) {
+            return [];
+        }
+
+        $paymentSql = $this->db->select($loanFk . ', COALESCE(SUM(amount), 0) AS paid_total', false)
+            ->from($paymentTable)
+            ->where('payment_date <=', $dateEnd)
+            ->group_by($loanFk)
+            ->get_compiled_select();
+
+        $db = $this->db->select("
+                h.company_account_id,
+                COUNT(*) AS doc_count,
+                COALESCE(SUM(h.amount), 0) AS nominal_total,
+                COALESCE(SUM(GREATEST(h.amount - COALESCE(py.paid_total, 0), 0)), 0) AS outstanding_total,
+                COALESCE(SUM(CASE WHEN h.account_impact_mode = 'KEEP_BALANCE' THEN GREATEST(h.amount - COALESCE(py.paid_total, 0), 0) ELSE 0 END), 0) AS keep_total,
+                COALESCE(SUM(CASE WHEN h.account_impact_mode = 'APPLY_ACCOUNT' THEN GREATEST(h.amount - COALESCE(py.paid_total, 0), 0) ELSE 0 END), 0) AS apply_total
+            ", false)
+            ->from($headerTable . ' h')
+            ->join('(' . $paymentSql . ') py', 'py.' . $loanFk . ' = h.id', 'left', false)
+            ->where('h.company_account_id IS NOT NULL', null, false)
+            ->where('h.' . $dateField . ' <=', $dateEnd)
+            ->where('h.status <>', 'VOID');
+
+        if (!empty($accountIds)) {
+            $db->where_in('h.company_account_id', $accountIds);
+        }
+
+        $result = [];
+        foreach ($db->group_by('h.company_account_id')->get()->result_array() as $row) {
+            $result[(int)($row['company_account_id'] ?? 0)] = $row;
+        }
+        return $result;
+    }
+
+    private function cash_advance_outstanding_as_of_map(string $dateEnd, array $accountIds = []): array
+    {
+        if (
+            !$this->db->table_exists('pay_cash_advance')
+            || !$this->db->table_exists('pay_cash_advance_installment')
+            || !$this->table_has_field('pay_cash_advance', 'company_account_id')
+        ) {
+            return [];
+        }
+
+        $cutPeriod = date('Y-m', strtotime($dateEnd));
+        $paymentWhere = [];
+        if ($this->table_has_field('pay_cash_advance_installment', 'payment_date')) {
+            $paymentWhere[] = "(payment_date IS NOT NULL AND payment_date <= " . $this->db->escape($dateEnd) . ")";
+        }
+        if ($this->table_has_field('pay_cash_advance_installment', 'salary_cut_date')) {
+            $paymentWhere[] = "(salary_cut_date IS NOT NULL AND salary_cut_date <= " . $this->db->escape($dateEnd) . ")";
+        }
+        if ($this->table_has_field('pay_cash_advance_installment', 'salary_cut_period')) {
+            $paymentWhere[] = "(salary_cut_period IS NOT NULL AND salary_cut_period <= " . $this->db->escape($cutPeriod) . ")";
+        }
+        $paymentCondition = empty($paymentWhere) ? '1=1' : implode(' OR ', $paymentWhere);
+        $paymentSql = "SELECT cash_advance_id, COALESCE(SUM(paid_amount), 0) AS paid_total
+            FROM pay_cash_advance_installment
+            WHERE COALESCE(paid_amount, 0) > 0 AND ({$paymentCondition})
+            GROUP BY cash_advance_id";
+
+        $effectiveDateExpr = $this->table_has_field('pay_cash_advance', 'approved_date')
+            ? 'COALESCE(ca.approved_date, ca.request_date)'
+            : 'ca.request_date';
+
+        $db = $this->db->select("
+                ca.company_account_id,
+                COUNT(*) AS doc_count,
+                COALESCE(SUM(ca.amount), 0) AS nominal_total,
+                COALESCE(SUM(GREATEST(ca.amount - COALESCE(py.paid_total, 0), 0)), 0) AS outstanding_total
+            ", false)
+            ->from('pay_cash_advance ca')
+            ->join('(' . $paymentSql . ') py', 'py.cash_advance_id = ca.id', 'left', false)
+            ->where('ca.company_account_id IS NOT NULL', null, false)
+            ->where("{$effectiveDateExpr} <=", $dateEnd, false)
+            ->where_in('ca.status', ['APPROVED', 'SETTLED']);
+
+        if (!empty($accountIds)) {
+            $db->where_in('ca.company_account_id', $accountIds);
+        }
+
+        $result = [];
+        foreach ($db->group_by('ca.company_account_id')->get()->result_array() as $row) {
+            $result[(int)($row['company_account_id'] ?? 0)] = $row;
+        }
+        return $result;
+    }
+
+    private function payroll_pending_as_of_map(string $dateEnd, array $accountIds = []): array
+    {
+        if (
+            !$this->db->table_exists('pay_salary_disbursement')
+            || !$this->db->table_exists('pay_salary_disbursement_line')
+        ) {
+            return [];
+        }
+
+        $lineHasAccount = $this->table_has_field('pay_salary_disbursement_line', 'company_account_id');
+        $accountExpr = $lineHasAccount ? 'COALESCE(l.company_account_id, h.company_account_id)' : 'h.company_account_id';
+
+        $db = $this->db->select("
+                {$accountExpr} AS company_account_id,
+                COUNT(*) AS doc_count,
+                COALESCE(SUM(CASE WHEN l.transfer_status IN ('PENDING','FAILED') THEN l.transfer_amount ELSE 0 END), 0) AS pending_total
+            ", false)
+            ->from('pay_salary_disbursement_line l')
+            ->join('pay_salary_disbursement h', 'h.id = l.disbursement_id', 'inner')
+            ->where('h.disbursement_date <=', $dateEnd)
+            ->where('h.status <>', 'VOID')
+            ->where_in('l.transfer_status', ['PENDING', 'FAILED'])
+            ->where("{$accountExpr} IS NOT NULL", null, false);
+
+        if (!empty($accountIds)) {
+            $db->where_in($accountExpr, $accountIds, false);
+        }
+
+        $result = [];
+        foreach ($db->group_by($accountExpr, false)->get()->result_array() as $row) {
+            $result[(int)($row['company_account_id'] ?? 0)] = $row;
+        }
+        return $result;
+    }
+
+    private function resolve_target_line_actual(array $plan, array $line, array $closedPeriods, array $rawMetricRows): array
+    {
+        $metricCode = strtoupper(trim((string)($line['metric_code'] ?? '')));
+        $scopeCandidates = $this->target_scope_candidates($plan);
+        $isSnapshotMetric = $this->is_snapshot_metric_code($metricCode);
+
+        if (!empty($closedPeriods) && $this->db->table_exists('fin_management_period_metric')) {
+            foreach ($scopeCandidates as $scope) {
+                if ($isSnapshotMetric) {
+                    $row = $this->db->select('m.metric_amount, m.period_close_id, p.period_end')
+                        ->from('fin_management_period_metric m')
+                        ->join('fin_period_close p', 'p.id = m.period_close_id', 'inner')
+                        ->where('m.metric_code', $metricCode)
+                        ->where('m.scope_type', $scope['scope_type'])
+                        ->where('m.scope_ref_id', $scope['scope_ref_id'])
+                        ->where('p.status', 'CLOSED')
+                        ->where('p.period_start >=', (string)($plan['date_start'] ?? ''))
+                        ->where('p.period_end <=', (string)($plan['date_end'] ?? ''))
+                        ->order_by('p.period_end', 'DESC')
+                        ->limit(1)
+                        ->get()->row_array();
+                    if ($row) {
+                        return [
+                            'actual_value' => round((float)($row['metric_amount'] ?? 0), 2),
+                            'period_close_id' => (int)($row['period_close_id'] ?? 0),
+                            'notes' => 'Ambil snapshot closed period terakhir.',
+                        ];
+                    }
+                } else {
+                    $row = $this->db->select('COALESCE(SUM(m.metric_amount), 0) AS actual_total', false)
+                        ->from('fin_management_period_metric m')
+                        ->join('fin_period_close p', 'p.id = m.period_close_id', 'inner')
+                        ->where('m.metric_code', $metricCode)
+                        ->where('m.scope_type', $scope['scope_type'])
+                        ->where('m.scope_ref_id', $scope['scope_ref_id'])
+                        ->where('p.status', 'CLOSED')
+                        ->where('p.period_start >=', (string)($plan['date_start'] ?? ''))
+                        ->where('p.period_end <=', (string)($plan['date_end'] ?? ''))
+                        ->get()->row_array();
+                    if ($row && array_key_exists('actual_total', $row)) {
+                        return [
+                            'actual_value' => round((float)($row['actual_total'] ?? 0), 2),
+                            'period_close_id' => (int)end($closedPeriods)['id'],
+                            'notes' => 'Akumulasi dari period close yang sudah ditutup.',
+                        ];
+                    }
+                }
+            }
+        }
+
+        if (!empty($rawMetricRows)) {
+            foreach ($scopeCandidates as $scope) {
+                foreach ($rawMetricRows as $row) {
+                    if (
+                        strtoupper((string)($row['metric_code'] ?? '')) === $metricCode
+                        && strtoupper((string)($row['scope_type'] ?? 'GLOBAL')) === $scope['scope_type']
+                        && (int)($row['scope_ref_id'] ?? 0) === (int)$scope['scope_ref_id']
+                    ) {
+                        return [
+                            'actual_value' => round((float)($row['metric_amount'] ?? 0), 2),
+                            'period_close_id' => null,
+                            'notes' => 'Fallback hitung langsung dari data live karena belum ada closed period.',
+                        ];
+                    }
+                }
+            }
+        }
+
+        return [
+            'actual_value' => 0.0,
+            'period_close_id' => null,
+            'notes' => 'Belum ada data actual untuk metric ini di scope yang dipilih.',
+        ];
+    }
+
+    private function target_scope_candidates(array $plan): array
+    {
+        $accountId = (int)($plan['company_account_id'] ?? 0);
+        $divisionId = (int)($plan['division_id'] ?? 0);
+        $candidates = [];
+        if ($accountId > 0) {
+            $candidates[] = ['scope_type' => 'ACCOUNT', 'scope_ref_id' => $accountId];
+        }
+        if ($divisionId > 0) {
+            $candidates[] = ['scope_type' => 'DIVISION', 'scope_ref_id' => $divisionId];
+        }
+        $candidates[] = ['scope_type' => 'GLOBAL', 'scope_ref_id' => 0];
+        return $candidates;
+    }
+
+    private function is_snapshot_metric_code(string $metricCode): bool
+    {
+        return in_array($metricCode, [
+            'PAYABLE_OUTSTANDING',
+            'RECEIVABLE_OUTSTANDING',
+            'CASH_ADVANCE_OUTSTANDING',
+            'REAL_BALANCE_VALUE',
+            'PHYSICAL_BALANCE_VALUE',
+            'WAREHOUSE_ENDING_STOCK_VALUE',
+            'DIVISION_ENDING_STOCK_VALUE',
+        ], true);
+    }
+
+    private function calculate_target_score(array $line, float $actualValue): array
+    {
+        $comparator = strtoupper(trim((string)($line['comparator'] ?? 'MIN')));
+        $targetValue = round((float)($line['target_value'] ?? 0), 2);
+        $minimumValue = $line['minimum_value'] !== null ? round((float)$line['minimum_value'], 2) : null;
+        $maximumValue = $line['maximum_value'] !== null ? round((float)$line['maximum_value'], 2) : null;
+
+        if ($targetValue <= 0 && $minimumValue === null && $maximumValue === null) {
+            return ['score_percent' => 0, 'is_passed' => false, 'bonus_gate_passed' => false];
+        }
+
+        $score = 0.0;
+        $passed = false;
+        switch ($comparator) {
+            case 'MAX':
+                if ($targetValue > 0) {
+                    $score = $actualValue <= 0 ? 100.0 : min(200.0, ($targetValue / max($actualValue, 0.0001)) * 100);
+                    $passed = $actualValue <= $targetValue;
+                }
+                break;
+            case 'RANGE':
+                $min = $minimumValue ?? $targetValue;
+                $max = $maximumValue ?? $targetValue;
+                $passed = $actualValue >= $min && $actualValue <= $max;
+                $score = $passed ? 100.0 : 0.0;
+                break;
+            case 'EQUAL':
+                $passed = abs($actualValue - $targetValue) < 0.0001;
+                $score = $passed ? 100.0 : 0.0;
+                break;
+            case 'MIN':
+            default:
+                if ($targetValue > 0) {
+                    $score = min(200.0, ($actualValue / $targetValue) * 100);
+                    $passed = $actualValue >= $targetValue;
+                }
+                break;
+        }
+
+        return [
+            'score_percent' => round($score, 2),
+            'is_passed' => $passed,
+            'bonus_gate_passed' => $passed || (int)($line['is_required'] ?? 0) === 0,
+        ];
+    }
+
+    private function apply_period_close_filters($db, array $filters = []): void
+    {
+        $q = trim((string)($filters['q'] ?? ''));
+        $status = strtoupper(trim((string)($filters['status'] ?? '')));
+        $periodType = strtoupper(trim((string)($filters['period_type'] ?? '')));
+
+        if ($q !== '') {
+            $db->group_start()
+                ->like('pc.period_code', $q)
+                ->or_like('pc.notes', $q)
+                ->group_end();
+        }
+        if (in_array($status, ['OPEN', 'CLOSED', 'REOPENED', 'VOID'], true)) {
+            $db->where('pc.status', $status);
+        }
+        if (in_array($periodType, ['MONTHLY', 'YEARLY'], true)) {
+            $db->where('pc.period_type', $periodType);
+        }
+    }
+
+    private function apply_target_plan_filters($db, array $filters = []): void
+    {
+        $q = trim((string)($filters['q'] ?? ''));
+        $status = strtoupper(trim((string)($filters['status'] ?? '')));
+        $scope = strtoupper(trim((string)($filters['target_scope'] ?? '')));
+        $divisionId = (int)($filters['division_id'] ?? 0);
+
+        if ($q !== '') {
+            $db->group_start()
+                ->like('tp.target_code', $q)
+                ->or_like('tp.target_name', $q)
+                ->or_like('tp.notes', $q)
+                ->group_end();
+        }
+        if (in_array($status, ['DRAFT', 'ACTIVE', 'LOCKED', 'VOID'], true)) {
+            $db->where('tp.status', $status);
+        }
+        if (in_array($scope, ['DAILY', 'MONTHLY', 'YEARLY'], true)) {
+            $db->where('tp.target_scope', $scope);
+        }
+        if ($divisionId > 0) {
+            $db->where('tp.division_id', $divisionId);
+        }
     }
 }

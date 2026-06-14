@@ -6,6 +6,7 @@ $policy = $policy ?? [];
 $today = $today ?? date('Y-m-d');
 $todaySchedule = $today_schedule ?? null;
 $todayPresence = $today_presence ?? ['checkin_count'=>0,'checkout_count'=>0,'last_checkin_at'=>null,'last_checkout_at'=>null];
+$pendingPeerFeedback = $pending_peer_feedback ?? [];
 $locationOptions = $location_options ?? [];
 $defaultLocationId = (int)($default_location_id ?? 0);
 $filters = $filters ?? [];
@@ -72,6 +73,19 @@ $buildPageItems = static function (int $page, int $totalPages): array {
   Data pegawai tidak ditemukan pada akun ini. Hubungkan dulu `auth_user.employee_id`.
 </div>
 <?php else: ?>
+<?php if (!empty($pendingPeerFeedback)): ?>
+<div class="alert alert-warning border-0 shadow-sm">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <div>
+      <div class="fw-semibold">Masih ada penilaian 360 hari ini</div>
+      <div class="small">Ada <?php echo count($pendingPeerFeedback); ?> rekan kerja yang hadir hari ini dan belum Anda nilai. Penilaian ini membantu admin membaca kualitas kerja tim secara lebih adil.</div>
+    </div>
+    <a href="<?php echo site_url('my/bonus?tab=360&date=' . urlencode($today) . (!empty($selectedEmployeeId) ? ('&employee_id=' . (int)$selectedEmployeeId) : '')); ?>" class="btn btn-sm btn-warning">
+      Buka Penilaian 360
+    </a>
+  </div>
+</div>
+<?php endif; ?>
 <div class="row g-3 mb-3">
   <div class="col-md-5">
     <div class="card border-0 shadow-sm h-100">

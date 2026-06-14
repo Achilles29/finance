@@ -44,13 +44,14 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.movement.index', 'view');
         $filters = $this->movement_filters();
-        $rows = $this->Production_model->component_movement_rows($filters, (int)($filters['limit'] ?? 50));
+        $rows = $this->Production_model->component_movement_rows($filters, 500);
 
         $this->render('production/component_movement_index', [
-            'page_title' => 'Mutasi Base/Prepare',
-            'rows' => $rows,
-            'filters' => $filters,
+            'page_title'       => 'Mutasi Base/Prepare',
+            'rows'             => $rows,
+            'filters'          => $filters,
             'location_options' => $this->location_options(),
+            'divisions'        => $this->active_divisions(),
         ]);
     }
 
@@ -139,7 +140,7 @@ class Production extends MY_Controller
             : 'production.component.daily.index';
         $this->require_permission($pageCode, 'view');
         $filters = $this->component_reconcile_filters();
-        $compare = $this->Production_model->component_reconcile_rows($filters, (int)($filters['limit'] ?? 50));
+        $compare = $this->Production_model->component_reconcile_rows($filters, 500);
 
         $this->render('production/component_reconcile_index', [
             'page_title' => 'Rekonsiliasi Base/Prepare',
@@ -186,6 +187,25 @@ class Production extends MY_Controller
         $this->json_ok($result);
     }
 
+    public function component_reconcile_repair_all()
+    {
+        $this->require_permission('production.component.daily.index', 'edit');
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $result = $this->Production_model->repair_all_component_identities([
+            'location_type' => $this->normalize_location_filter($payload['location_type'] ?? ''),
+            'division_id'   => !empty($payload['division_id']) ? (int)$payload['division_id'] : null,
+        ]);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Repair All gagal.'), 422, $result['data'] ?? []);
+            return;
+        }
+        $this->json_ok($result);
+    }
+
     public function component_lots()
     {
         $pageCode = $this->can('production.component.lot.index', 'view')
@@ -201,7 +221,7 @@ class Production extends MY_Controller
             return;
         }
 
-        $rows = $this->componentlotmanager->listLots($filters, 400);
+        $rows = $this->componentlotmanager->listLots($filters, 500);
         $this->render('production/component_lot_index', [
             'page_title' => 'Lot FIFO Base/Prepare',
             'active_menu' => 'production.component.lot',
@@ -1936,26 +1956,26 @@ class Production extends MY_Controller
     private function movement_filters()
     {
         $dateFrom = trim((string)$this->input->get('date_from', true));
-        $dateTo = trim((string)$this->input->get('date_to', true));
-        $limit = (int)$this->input->get('limit', true);
+        $dateTo   = trim((string)$this->input->get('date_to', true));
         if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateFrom)) {
             $dateFrom = date('Y-m-01');
         }
         if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateTo)) {
             $dateTo = date('Y-m-d');
         }
-        if ($limit <= 0 || $limit > 500) {
-            $limit = 50;
+        $perPage = (int)$this->input->get('per_page', true);
+        if (!in_array($perPage, [10, 25, 50, 100], true)) {
+            $perPage = 25;
         }
-
         return [
-            'q' => trim((string)$this->input->get('q', true)),
+            'q'             => trim((string)$this->input->get('q', true)),
             'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
             'movement_type' => strtoupper(trim((string)$this->input->get('movement_type', true))),
-            'date_from' => $dateFrom,
-            'date_to' => $dateTo,
-            'type' => $this->normalize_component_type_filter($this->input->get('type', true)),
-            'limit' => $limit,
+            'division_id'   => (int)$this->input->get('division_id', true),
+            'date_from'     => $dateFrom,
+            'date_to'       => $dateTo,
+            'type'          => $this->normalize_component_type_filter($this->input->get('type', true)),
+            'per_page'      => $perPage,
         ];
     }
 
@@ -1983,24 +2003,37 @@ class Production extends MY_Controller
 
     private function component_reconcile_filters(): array
     {
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo   = trim((string)$this->input->get('date_to', true));
         $asOfDate = trim((string)$this->input->get('as_of_date', true));
-        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
+
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateFrom)) {
+            $dateFrom = date('Y-m-01');
+        }
+        if (preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateTo)) {
+            $asOfDate = $dateTo;
+        } elseif (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
             $asOfDate = date('Y-m-d');
         }
-        $limit = (int)$this->input->get('limit', true);
-        if ($limit <= 0 || $limit > 500) {
-            $limit = 50;
+        $dateTo = $asOfDate;
+
+        $perPage = (int)$this->input->get('per_page', true);
+        if (!in_array($perPage, [10, 25, 50, 100], true)) {
+            $perPage = 25;
         }
 
         return [
-            'q' => trim((string)$this->input->get('q', true)),
-            'as_of_date' => $asOfDate,
+            'q'             => trim((string)$this->input->get('q', true)),
+            'as_of_date'    => $asOfDate,
+            'date_from'     => $dateFrom,
+            'date_to'       => $dateTo,
             'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
-            'division_id' => (int)$this->input->get('division_id', true),
-            'type' => $this->normalize_component_type_filter($this->input->get('type', true)),
-            'component_id' => (int)$this->input->get('component_id', true),
-            'uom_id' => (int)$this->input->get('uom_id', true),
-            'limit' => $limit,
+            'division_id'   => (int)$this->input->get('division_id', true),
+            'type'          => $this->normalize_component_type_filter($this->input->get('type', true)),
+            'component_id'  => (int)$this->input->get('component_id', true),
+            'uom_id'        => (int)$this->input->get('uom_id', true),
+            'per_page'      => $perPage,
+            'limit'         => 500,
         ];
     }
 
@@ -2010,13 +2043,27 @@ class Production extends MY_Controller
         if (!in_array($status, ['OPEN', 'CLOSED', 'VOID', 'ALL'], true)) {
             $status = 'OPEN';
         }
-
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo   = trim((string)$this->input->get('date_to', true));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
+            $dateFrom = date('Y-m-01');
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+            $dateTo = date('Y-m-d');
+        }
+        $perPage = (int)$this->input->get('per_page', true);
+        if (!in_array($perPage, [10, 25, 50, 100], true)) {
+            $perPage = 25;
+        }
         return [
-            'q' => trim((string)$this->input->get('q', true)),
-            'status' => $status,
+            'q'             => trim((string)$this->input->get('q', true)),
+            'status'        => $status,
+            'date_from'     => $dateFrom,
+            'date_to'       => $dateTo,
+            'per_page'      => $perPage,
             'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
-            'division_id' => (int)$this->input->get('division_id', true),
-            'type' => $this->normalize_component_type_filter($this->input->get('type', true)),
+            'division_id'   => (int)$this->input->get('division_id', true),
+            'type'          => $this->normalize_component_type_filter($this->input->get('type', true)),
         ];
     }
 
@@ -2465,6 +2512,34 @@ class Production extends MY_Controller
             'filters'     => $filters,
             'divisions'   => $this->active_divisions(),
             'generate_url' => site_url('production/component-openings/generate-monthly'),
+        ]);
+    }
+
+    public function component_opening_monthly()
+    {
+        $pageCode = $this->can(self::PAGE_COMPONENT_OPNAME_MONTHLY, 'view')
+            ? self::PAGE_COMPONENT_OPNAME_MONTHLY
+            : 'production.component.daily.index';
+        $this->require_permission($pageCode, 'view');
+
+        $month = trim((string)$this->input->get('month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $filters = [
+            'month'         => $month,
+            'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
+            'division_id'   => (int)$this->input->get('division_id', true),
+            'q'             => trim((string)$this->input->get('q', true)),
+        ];
+        $rows = $this->Production_model->list_component_monthly_openings($filters, 500);
+
+        $this->render('production/component_opening_monthly_index', [
+            'page_title'  => 'Opening Stok Bulanan Component',
+            'active_menu' => 'production.component.opening.monthly',
+            'rows'        => $rows,
+            'filters'     => $filters,
+            'divisions'   => $this->active_divisions(),
         ]);
     }
 

@@ -251,25 +251,45 @@ foreach ($rows as $row) {
     --bs-btn-font-size:.68rem;
     border-radius:999px;
   }
+  .lot-audit-table-card .table-responsive {
+    max-height: 72vh;
+    overflow-y: auto;
+    overflow-x: auto;
+  }
+  .lot-audit-table-card .table-responsive table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #fff;
+    border-bottom: 2px solid rgba(226,212,200,.88);
+  }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div>
-    <h4 class="mb-1"><i class="ri ri-stack-line page-title-icon"></i><?php echo html_escape($title ?? 'Audit Lot Material'); ?></h4>
-    <small class="text-muted"><?php echo html_escape((string)($subtitle ?? 'Posisi lot FIFO per scope, profile, dan lokasi stok.')); ?></small>
-  </div>
-  <div class="d-flex gap-2 flex-wrap">
-    <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-outline-secondary">Audit FIFO</a>
-    <?php if ($pageScope === 'WAREHOUSE'): ?>
-      <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'lot']); ?>
-    <?php elseif ($pageScope === 'DIVISION'): ?>
-      <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'lot']); ?>
-    <?php else: ?>
-      <a href="<?php echo site_url('inventory/stock/warehouse/lot'); ?>" class="btn btn-outline-secondary">Lot Gudang</a>
-      <a href="<?php echo site_url('inventory/stock/division/lot'); ?>" class="btn btn-outline-secondary">Lot Divisi</a>
-    <?php endif; ?>
-  </div>
+<div class="mb-3">
+  <h4 class="mb-1"><i class="ri ri-stack-line page-title-icon"></i><?php echo html_escape($title ?? 'Audit Lot Material'); ?></h4>
+  <small class="text-muted"><?php echo html_escape((string)($subtitle ?? 'Posisi lot FIFO per scope, profile, dan lokasi stok.')); ?></small>
 </div>
+<div class="d-flex flex-wrap gap-2 mb-2">
+  <?php if ($pageScope === 'WAREHOUSE'): ?>
+    <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'lot']); ?>
+  <?php elseif ($pageScope === 'DIVISION'): ?>
+    <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'lot']); ?>
+  <?php else: ?>
+    <a href="<?php echo site_url('inventory/stock/warehouse/lot'); ?>" class="btn btn-outline-secondary">Lot Gudang</a>
+    <a href="<?php echo site_url('inventory/stock/division/lot'); ?>" class="btn btn-outline-secondary">Lot Bahan Baku</a>
+  <?php endif; ?>
+  <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-sm btn-outline-secondary">
+    <i class="ri ri-bar-chart-line me-1"></i>Audit FIFO
+  </a>
+</div>
+<?php if ($pageScope === 'DIVISION'): ?>
+<?php
+$lotGenMonth = !empty($date_from) ? date('Y-m', strtotime((string)$date_from)) : date('Y-m');
+$this->load->view('purchase/_division_stock_generate_btn', [
+  'division_action_params' => ['month' => $lotGenMonth, 'division_id' => (string)(int)($division_id ?? 0), 'destination_type' => (string)($destination ?? '')],
+]);
+?>
+<?php endif; ?>
 
 <div class="card mb-3 lot-audit-filter-card">
   <div class="card-body py-3">

@@ -1,6 +1,5 @@
 <?php
 $baseUrl = site_url('inventory/stock/division');
-$generateUrl = site_url('inventory/stock/opname/generate');
 $lotAuditBaseUrl = site_url('inventory/stock/division/lot');
 $genMonth = !empty($date_from ?? '') ? date('Y-m', strtotime((string)$date_from)) : date('Y-m');
 $rowsData = is_array($rows ?? null) ? $rows : [];
@@ -35,7 +34,7 @@ $isChildNonPositive = static function (array $row): bool {
 
 $parentMap = [];
 foreach ($rowsData as $row) {
-  $divisionId = (int)($row['division_id'] ?? 0);
+  $divisionId2 = (int)($row['division_id'] ?? 0);
   $divisionCode = trim((string)($row['division_code'] ?? ''));
   $divisionName = trim((string)($row['division_name'] ?? ''));
   $destinationGroup = strtoupper(trim((string)($row['destination_group'] ?? 'REGULER')));
@@ -47,10 +46,10 @@ foreach ($rowsData as $row) {
     $objectIdentity .= '|' . strtoupper(trim((string)($row['material_code'] ?? '') . '|' . (string)($row['item_code'] ?? '')));
   }
 
-  $parentKey = implode('|', [$divisionId, $destinationGroup, $objectIdentity]);
+  $parentKey = implode('|', [$divisionId2, $destinationGroup, $objectIdentity]);
   if (!isset($parentMap[$parentKey])) {
     $parentMap[$parentKey] = [
-      'division_id' => $divisionId,
+      'division_id' => $divisionId2,
       'division_code' => $divisionCode,
       'division_name' => $divisionName,
       'destination_group' => $destinationGroup,
@@ -167,10 +166,13 @@ usort($parentRows, static function (array $a, array $b): int {
   return strcasecmp($aName, $bName);
 });
 
+// ── Summary (computed from ALL rows before pagination) ──
 $summaryProfiles = 0;
 $summaryQtyContent = 0.0;
 $summaryTotalValue = 0.0;
 $summaryDivisions = [];
+$summaryAlertCount = 0;
+$uniqueMaterialCodes = [];
 foreach ($parentRows as $parentRow) {
   $summaryProfiles += (int)($parentRow['profile_count'] ?? 0);
   $summaryQtyContent += (float)($parentRow['qty_content_balance'] ?? 0);
@@ -179,244 +181,266 @@ foreach ($parentRows as $parentRow) {
   if ($divId > 0) {
     $summaryDivisions[$divId] = true;
   }
+  if ((float)($parentRow['qty_content_balance'] ?? 0) <= 0.0001) {
+    $summaryAlertCount++;
+  }
+  $mc = trim((string)($parentRow['material_code'] ?? ''));
+  if ($mc !== '') {
+    $uniqueMaterialCodes[$mc] = true;
+  }
 }
 $summaryDivisionCount = count($summaryDivisions);
+$summaryUniqueMaterialCount = count($uniqueMaterialCodes);
+
+// ── Pagination ──
+$perPage = max(10, (int)($limit ?? 100));
+$currentPage = max(1, (int)($page ?? 1));
+$totalParentCount = count($parentRows);
+$totalPages = $totalParentCount > 0 ? (int)ceil($totalParentCount / $perPage) : 1;
+$currentPage = min($currentPage, max(1, $totalPages));
+$parentRows = array_slice($parentRows, ($currentPage - 1) * $perPage, $perPage);
+
+$pParams = ['limit' => $perPage];
+if (!empty($q)) $pParams['q'] = $q;
+if ((int)($division_id ?? 0) > 0) $pParams['division_id'] = (int)$division_id;
+if ($destinationValue !== 'ALL') $pParams['destination'] = $destinationValue;
+if (!empty($date_from)) $pParams['date_from'] = $date_from;
+if (!empty($date_to)) $pParams['date_to'] = $date_to;
+$paginationQs = http_build_query($pParams);
 ?>
 
 <style>
-  :root {
-    --dv-sticky-top: 0px;
+/* ── Filter form ── */
+.dv-filter-grid {
+  display: grid;
+  grid-template-columns: minmax(140px,1.2fr) 100px minmax(160px,2fr) 118px 118px 68px auto auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+@media (max-width: 1199px) {
+  .dv-filter-grid {
+    grid-template-columns: minmax(130px,1fr) 95px minmax(140px,2fr) 110px 110px 64px auto auto;
   }
-  .dv-sticky-head {
-    position: fixed;
-    top: var(--dv-sticky-top);
-    left: 0;
-    display: none;
-    overflow: hidden;
-    z-index: 1035;
-    pointer-events: none;
-    background: #fff8f4;
-    border: 1px solid #ead5ca;
-    border-bottom: 0;
-    border-radius: 14px 14px 0 0;
-    box-shadow: 0 10px 24px rgba(95, 23, 39, 0.12);
+}
+@media (max-width: 991px) {
+  .dv-filter-grid {
+    grid-template-columns: 1fr 1fr 1fr 1fr;
   }
-  .dv-sticky-head table {
-    margin-bottom: 0;
-    transform: translateX(0);
-    will-change: transform;
-  }
-  .dv-sticky-head th {
-    background: #fff8f4 !important;
-    box-shadow: inset 0 -1px 0 #e8d1c5;
-    white-space: nowrap;
-  }
-  .dv-table-wrap {
-    overflow-x: auto;
-    overflow-y: visible;
-  }
-  .dv-stock-table thead th {
-    background: #fff8f4;
-    box-shadow: inset 0 -1px 0 #e8d1c5;
-  }
-  .dv-stock-table th:nth-child(3),
-  .dv-stock-table td:nth-child(3) {
-    min-width: 280px;
-  }
-  .dv-parent-row {
-    background: #fff6ef;
-    border-top: 2px solid #f0d8ca;
-  }
-  .dv-child-row td {
-    background: #fff;
-  }
-  .dv-stock-row-alert td {
-    background: linear-gradient(180deg, #fff1ef 0%, #fff8f7 100%) !important;
-    color: #8a2f2a;
-  }
-  .dv-stock-row-alert .dv-item-name,
-  .dv-stock-row-alert .fw-semibold {
-    color: #8a2f2a !important;
-  }
-  .dv-alert-chip {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.16rem 0.48rem;
-    border-radius: 999px;
-    background: #c0392b;
-    color: #fff;
-    font-size: 0.64rem;
-    font-weight: 800;
-  }
-  .dv-name-cell {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.55rem;
-    min-width: 0;
-  }
-  .dv-name-cell-child {
-    padding-left: 1.4rem;
-    position: relative;
-  }
-  .dv-name-cell-child::before {
-    content: '';
-    position: absolute;
-    left: 0.55rem;
-    top: 0.2rem;
-    bottom: 0.2rem;
-    width: 3px;
-    border-radius: 999px;
-    background: linear-gradient(180deg, #ebd7cc 0%, #d9b6a4 100%);
-  }
-  .dv-name-body {
-    min-width: 0;
-    display: grid;
-    gap: 0.22rem;
-  }
-  .dv-name-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.32rem;
-  }
-  .dv-name-chip {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.15rem 0.48rem;
-    font-size: 0.68rem;
-    font-weight: 800;
-    max-width: 100%;
-    color: #855346;
-    border: 1px solid #ead5ca;
-    background: #fff8f3;
-  }
-  .dv-name-chip.is-parent {
-    border-radius: 999px;
-  }
-  .dv-name-chip.is-child {
-    border-radius: 10px;
-    border-style: dashed;
-    background: #fffaf7;
-  }
-  .dv-toggle {
-    border: 1px solid #d7b6a8;
-    background: #fff;
-    color: #6a2d3c;
-    border-radius: 8px;
-    width: 26px;
-    height: 24px;
-    line-height: 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    margin-right: 0.35rem;
-    font-size: 0.85rem;
-    font-weight: 800;
-  }
-  .dv-toggle:hover {
-    background: #ffece2;
-    border-color: #c99f8f;
-  }
-  .dv-static {
-    display: inline-flex;
-    width: 26px;
-    height: 24px;
-    align-items: center;
-    justify-content: center;
-    margin-right: 0.35rem;
-    border-radius: 8px;
-    background: #e9f8df;
-    color: #3e7f32;
-    font-size: 0.8rem;
-    font-weight: 800;
-  }
-  .dv-object-name {
-    font-weight: 700;
-    color: #4e1f2e;
-    line-height: 1.25;
-  }
-  .dv-object-code {
-    color: #876a65;
-    font-size: 0.8rem;
-  }
-  .dv-child-label {
-    font-size: 0.68rem;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: #9a6f60;
-  }
+  .dv-filter-btn-wrap { grid-column: span 2; display: flex; gap: 0.5rem; }
+}
+@media (max-width: 767px) {
+  .dv-filter-grid { grid-template-columns: 1fr 1fr; }
+  .dv-filter-btn-wrap { grid-column: span 2; }
+}
+
+/* ── KPI cards ── */
+.dv-kpi-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.6rem; margin-bottom: 1rem; }
+@media (max-width: 1199px) { .dv-kpi-row { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 575px)  { .dv-kpi-row { grid-template-columns: repeat(2, 1fr); } }
+.dv-kpi {
+  border-radius: 14px;
+  padding: 1rem 1.15rem 0.9rem;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 18px rgba(0,0,0,.13);
+}
+.dv-kpi::before {
+  content: '';
+  position: absolute;
+  right: -18px; bottom: -18px;
+  width: 80px; height: 80px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.13);
+}
+.dv-kpi::after {
+  content: '';
+  position: absolute;
+  right: 14px; top: -22px;
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.09);
+}
+.dv-kpi-icon { font-size: 1.25rem; opacity: .8; margin-bottom: .35rem; display: block; }
+.dv-kpi-val  { font-size: 1.55rem; font-weight: 800; line-height: 1.1; }
+.dv-kpi-lbl  { font-size: .68rem; opacity: .82; text-transform: uppercase; letter-spacing: .06em; margin-top: .2rem; }
+.dv-kpi-1 { background: linear-gradient(135deg,#667eea 0%,#764ba2 100%); }
+.dv-kpi-2 { background: linear-gradient(135deg,#0c7cba 0%,#0fcdba 100%); }
+.dv-kpi-3 { background: linear-gradient(135deg,#1c7ed6 0%,#74c0fc 100%); }
+.dv-kpi-4 { background: linear-gradient(135deg,#e06c00 0%,#f7b733 100%); }
+.dv-kpi-5 { background: linear-gradient(135deg,#134e5e 0%,#38b2a3 100%); }
+.dv-kpi-6 { background: linear-gradient(135deg,#b22222 0%,#e05252 100%); }
+
+/* ── Table scroll / sticky ── */
+.dv-table-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 72vh;
+}
+.dv-stock-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fff8f4;
+  box-shadow: inset 0 -1px 0 #e8d1c5;
+  white-space: nowrap;
+}
+.dv-stock-table th:nth-child(3),
+.dv-stock-table td:nth-child(3) {
+  min-width: 280px;
+}
+.dv-parent-row {
+  background: #fff6ef;
+  border-top: 2px solid #f0d8ca;
+}
+.dv-child-row td {
+  background: #fff;
+}
+.dv-stock-row-alert td {
+  background: linear-gradient(180deg, #fff1ef 0%, #fff8f7 100%) !important;
+  color: #8a2f2a;
+}
+.dv-stock-row-alert .dv-item-name,
+.dv-stock-row-alert .fw-semibold {
+  color: #8a2f2a !important;
+}
+.dv-alert-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: .16rem .48rem;
+  border-radius: 999px;
+  background: #c0392b;
+  color: #fff;
+  font-size: .64rem;
+  font-weight: 800;
+}
+.dv-name-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: .55rem;
+  min-width: 0;
+}
+.dv-name-cell-child {
+  padding-left: 1.4rem;
+  position: relative;
+}
+.dv-name-cell-child::before {
+  content: '';
+  position: absolute;
+  left: .55rem; top: .2rem; bottom: .2rem;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ebd7cc 0%, #d9b6a4 100%);
+}
+.dv-name-body  { min-width: 0; display: grid; gap: .22rem; }
+.dv-name-meta  { display: flex; flex-wrap: wrap; gap: .32rem; }
+.dv-name-chip  {
+  display: inline-flex; align-items: center;
+  padding: .15rem .48rem; font-size: .68rem; font-weight: 800; max-width: 100%;
+  color: #855346; border: 1px solid #ead5ca; background: #fff8f3;
+}
+.dv-name-chip.is-parent { border-radius: 999px; }
+.dv-name-chip.is-child  { border-radius: 10px; border-style: dashed; background: #fffaf7; }
+.dv-toggle {
+  border: 1px solid #d7b6a8; background: #fff; color: #6a2d3c;
+  border-radius: 8px; width: 26px; height: 24px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-right: .35rem; font-size: .85rem; font-weight: 800;
+}
+.dv-toggle:hover { background: #ffece2; border-color: #c99f8f; }
+.dv-static {
+  display: inline-flex; width: 26px; height: 24px;
+  align-items: center; justify-content: center;
+  margin-right: .35rem; border-radius: 8px;
+  background: #e9f8df; color: #3e7f32; font-size: .8rem; font-weight: 800;
+}
+.dv-object-name { font-weight: 700; color: #4e1f2e; line-height: 1.25; }
+.dv-object-code { color: #876a65; font-size: .8rem; }
+.dv-child-label {
+  font-size: .68rem; font-weight: 800; letter-spacing: .04em;
+  text-transform: uppercase; color: #9a6f60;
+}
+
+/* ── Pagination ── */
+.dv-pagination { display: flex; align-items: center; flex-wrap: wrap; gap: .35rem; margin-top: .75rem; }
+.dv-page-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 32px; height: 32px; padding: 0 .5rem;
+  border: 1px solid #ddd; border-radius: 8px;
+  background: #fff; color: #555; font-size: .8rem; font-weight: 600;
+  text-decoration: none; cursor: pointer; transition: all .15s;
+}
+.dv-page-btn:hover { background: #f5f5f5; border-color: #bbb; color: #333; }
+.dv-page-btn.is-active { background: #6a2d3c; border-color: #6a2d3c; color: #fff; }
+.dv-page-btn.is-disabled { opacity: .4; pointer-events: none; }
+.dv-page-info { font-size: .8rem; color: #777; }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div>
-    <h4 class="mb-1"><i class="ri ri-store-2-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-    <small class="text-muted">Posisi stok divisi operasional per profile purchase.</small>
-  </div>
-  <div class="d-flex gap-1 flex-wrap align-items-center">
-    <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname divisi bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
-      <input type="hidden" name="stock_scope" value="DIVISION">
-      <input type="hidden" name="month" value="<?php echo html_escape($genMonth); ?>">
-      <input type="hidden" name="division_id" value="<?php echo (int)($division_id ?? 0); ?>">
-      <input type="hidden" name="destination" value="<?php echo html_escape($destinationValue); ?>">
-      <input type="hidden" name="back_url" value="inventory/stock/division?date_from=<?php echo rawurlencode((string)($date_from ?? '')); ?>&date_to=<?php echo rawurlencode((string)($date_to ?? '')); ?>&division_id=<?php echo (int)($division_id ?? 0); ?>&destination=<?php echo rawurlencode($destinationValue); ?>">
-      <button type="submit" class="btn btn-outline-primary">Generate Opname + Stok Awal</button>
-    </form>
-    <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'stock']); ?>
-  </div>
+<div class="mb-3">
+  <h4 class="mb-1"><i class="ri ri-store-2-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
+  <small class="text-muted">Posisi stok divisi operasional per profile purchase.</small>
 </div>
+<div class="d-flex flex-wrap gap-2 mb-2">
+  <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'stock']); ?>
+</div>
+<?php $this->load->view('purchase/_division_stock_generate_btn', [
+  'division_action_params' => ['month' => $genMonth, 'division_id' => (string)(int)($division_id ?? 0), 'destination_type' => $destinationValue],
+]); ?>
 
+<!-- Filter -->
 <div class="card mb-3">
   <div class="card-body py-3">
-    <form method="get" action="<?php echo $baseUrl; ?>" class="row g-2 align-items-end">
-      <div class="col-md-3">
-        <label class="form-label mb-1">Divisi</label>
-        <select class="form-select" name="division_id">
-          <option value="">Semua Divisi</option>
-          <?php foreach (($divisions ?? []) as $d): ?>
-            <?php
-              $id = (int)($d['id'] ?? 0);
-              $code = trim((string)($d['code'] ?? ''));
-              $name = trim((string)($d['name'] ?? ''));
-              $label = $formatDivisionLabel($code, $name, $id);
-            ?>
-            <option value="<?php echo $id; ?>" <?php echo ((int)($division_id ?? 0) === $id) ? 'selected' : ''; ?>><?php echo html_escape($label); ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label mb-1">Tujuan</label>
-        <select class="form-select" name="destination" id="sdDestination">
-          <option value="ALL" <?php echo $destinationValue === 'ALL' ? 'selected' : ''; ?>>Semua Tujuan</option>
-          <option value="REGULER" <?php echo $destinationValue === 'REGULER' ? 'selected' : ''; ?>>Reguler</option>
-          <option value="EVENT" <?php echo $destinationValue === 'EVENT' ? 'selected' : ''; ?>>Event</option>
-          <option value="BAR" <?php echo $destinationValue === 'BAR' ? 'selected' : ''; ?>>Bar Reguler</option>
-          <option value="KITCHEN" <?php echo $destinationValue === 'KITCHEN' ? 'selected' : ''; ?>>Kitchen Reguler</option>
-          <option value="BAR_EVENT" <?php echo $destinationValue === 'BAR_EVENT' ? 'selected' : ''; ?>>Bar Event</option>
-          <option value="KITCHEN_EVENT" <?php echo $destinationValue === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>Kitchen Event</option>
-          <option value="OFFICE" <?php echo $destinationValue === 'OFFICE' ? 'selected' : ''; ?>>Office</option>
-          <option value="OTHER" <?php echo $destinationValue === 'OTHER' ? 'selected' : ''; ?>>Other</option>
-        </select>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label mb-1">Cari Stok Divisi</label>
-        <input type="text" class="form-control" name="q" value="<?php echo html_escape((string)$q); ?>" placeholder="Divisi / Item / Material / Profile / Merk / Keterangan">
-      </div>
-      <div class="w-100"></div>
-      <div class="col-md-2">
-        <label class="form-label mb-1">Dari Tanggal</label>
-        <input type="date" class="form-control" name="date_from" value="<?php echo html_escape((string)($date_from ?? '')); ?>">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label mb-1">Sampai Tanggal</label>
-        <input type="date" class="form-control" name="date_to" value="<?php echo html_escape((string)($date_to ?? '')); ?>">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label mb-1">Limit</label>
-        <input type="number" min="1" max="500" class="form-control" name="limit" value="<?php echo (int)$limit; ?>">
-      </div>
-      <div class="col-md-2 d-flex gap-2">
-        <button type="submit" class="btn btn-outline-primary w-100">Filter</button>
-        <a href="<?php echo $baseUrl; ?>" class="btn btn-outline-danger w-100">Clear</a>
+    <form method="get" action="<?php echo $baseUrl; ?>">
+      <div class="dv-filter-grid">
+        <div>
+          <label class="form-label mb-1">Divisi</label>
+          <select class="form-select form-select-sm" name="division_id">
+            <option value="">Semua Divisi</option>
+            <?php foreach (($divisions ?? []) as $d): ?>
+              <?php
+                $dId = (int)($d['id'] ?? 0);
+                $dCode = trim((string)($d['code'] ?? ''));
+                $dName = trim((string)($d['name'] ?? ''));
+                $dLabel = $formatDivisionLabel($dCode, $dName, $dId);
+              ?>
+              <option value="<?php echo $dId; ?>" <?php echo ((int)($division_id ?? 0) === $dId) ? 'selected' : ''; ?>><?php echo html_escape($dLabel); ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div>
+          <label class="form-label mb-1">Tujuan</label>
+          <select class="form-select form-select-sm" name="destination" id="sdDestination">
+            <option value="ALL" <?php echo $destinationValue === 'ALL' ? 'selected' : ''; ?>>Semua</option>
+            <option value="REGULER" <?php echo $destinationValue === 'REGULER' ? 'selected' : ''; ?>>Reguler</option>
+            <option value="EVENT" <?php echo $destinationValue === 'EVENT' ? 'selected' : ''; ?>>Event</option>
+            <option value="BAR" <?php echo $destinationValue === 'BAR' ? 'selected' : ''; ?>>Bar Reg</option>
+            <option value="KITCHEN" <?php echo $destinationValue === 'KITCHEN' ? 'selected' : ''; ?>>Kitchen Reg</option>
+            <option value="BAR_EVENT" <?php echo $destinationValue === 'BAR_EVENT' ? 'selected' : ''; ?>>Bar Event</option>
+            <option value="KITCHEN_EVENT" <?php echo $destinationValue === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>Kitchen Evt</option>
+            <option value="OFFICE" <?php echo $destinationValue === 'OFFICE' ? 'selected' : ''; ?>>Office</option>
+            <option value="OTHER" <?php echo $destinationValue === 'OTHER' ? 'selected' : ''; ?>>Other</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label mb-1">Cari Stok Divisi</label>
+          <input type="text" class="form-control form-control-sm" name="q" value="<?php echo html_escape((string)$q); ?>" placeholder="Divisi / Item / Material / Profile / Merk">
+        </div>
+        <div>
+          <label class="form-label mb-1">Dari</label>
+          <input type="date" class="form-control form-control-sm" name="date_from" value="<?php echo html_escape((string)($date_from ?? '')); ?>">
+        </div>
+        <div>
+          <label class="form-label mb-1">Sampai</label>
+          <input type="date" class="form-control form-control-sm" name="date_to" value="<?php echo html_escape((string)($date_to ?? '')); ?>">
+        </div>
+        <div>
+          <label class="form-label mb-1">/ Hal</label>
+          <input type="number" min="10" max="500" class="form-control form-control-sm" name="limit" value="<?php echo $perPage; ?>">
+        </div>
+        <div class="dv-filter-btn-wrap" style="display:flex;gap:.4rem;">
+          <button type="submit" class="btn btn-sm btn-outline-primary w-100">Terapkan</button>
+          <a href="<?php echo $baseUrl; ?>" class="btn btn-sm btn-outline-danger w-100">Clear</a>
+        </div>
       </div>
     </form>
   </div>
@@ -429,34 +453,32 @@ $summaryDivisionCount = count($summaryDivisions);
   var divisionEl = document.querySelector('select[name="division_id"]');
   if (!destinationEl || !divisionEl) { return; }
   var allOptions = [
-    { value: 'ALL', label: 'Semua Tujuan' },
+    { value: 'ALL', label: 'Semua' },
     { value: 'REGULER', label: 'Reguler' },
     { value: 'EVENT', label: 'Event' },
-    { value: 'BAR', label: 'Bar Reguler' },
-    { value: 'KITCHEN', label: 'Kitchen Reguler' },
+    { value: 'BAR', label: 'Bar Reg' },
+    { value: 'KITCHEN', label: 'Kitchen Reg' },
     { value: 'BAR_EVENT', label: 'Bar Event' },
-    { value: 'KITCHEN_EVENT', label: 'Kitchen Event' },
+    { value: 'KITCHEN_EVENT', label: 'Kitchen Evt' },
     { value: 'OFFICE', label: 'Office' },
     { value: 'OTHER', label: 'Other' }
   ];
-  function esc(v){
-    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
+  function esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function syncDestinationOptions(){
-    var divisionId = parseInt(divisionEl.value || '0', 10);
-    var current = String(destinationEl.value || 'ALL').toUpperCase();
+    var divisionId = parseInt(divisionEl.value||'0',10);
+    var current = String(destinationEl.value||'ALL').toUpperCase();
     var options = allOptions.slice();
     if (Number.isFinite(divisionId) && divisionId > 0 && guardMap[String(divisionId)]) {
-      var allowed = (guardMap[String(divisionId)] || []).map(function(x){ return String(x || '').toUpperCase(); });
+      var allowed = (guardMap[String(divisionId)]||[]).map(function(x){ return String(x||'').toUpperCase(); });
       options = allOptions.filter(function(opt){
-        if (opt.value === 'ALL' || opt.value === 'REGULER' || opt.value === 'EVENT') { return true; }
+        if (opt.value==='ALL'||opt.value==='REGULER'||opt.value==='EVENT') { return true; }
         return allowed.indexOf(opt.value) !== -1;
       });
     }
     destinationEl.innerHTML = options.map(function(opt){
-      return '<option value="' + esc(opt.value) + '">' + esc(opt.label) + '</option>';
+      return '<option value="'+esc(opt.value)+'">'+esc(opt.label)+'</option>';
     }).join('');
-    var exists = options.some(function(opt){ return opt.value === current; });
+    var exists = options.some(function(opt){ return opt.value===current; });
     destinationEl.value = exists ? current : 'ALL';
   }
   divisionEl.addEventListener('change', syncDestinationOptions);
@@ -464,16 +486,45 @@ $summaryDivisionCount = count($summaryDivisions);
 })();
 </script>
 
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Profile</div><div class="h5 mb-0"><?php echo number_format($summaryProfiles); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Divisi</div><div class="h5 mb-0"><?php echo number_format($summaryDivisionCount); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Qty Isi Total</div><div class="h5 mb-0"><?php echo number_format($summaryQtyContent, 2, ',', '.'); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Nilai</div><div class="h5 mb-0"><?php echo number_format($summaryTotalValue, 2, ',', '.'); ?></div></div></div></div>
+<!-- KPI Cards -->
+<?php if ($totalParentCount > 0): ?>
+<div class="dv-kpi-row">
+  <div class="dv-kpi dv-kpi-1">
+    <span class="dv-kpi-icon"><i class="ri ri-archive-line"></i></span>
+    <div class="dv-kpi-val"><?php echo number_format($totalParentCount); ?></div>
+    <div class="dv-kpi-lbl">Item Stok</div>
+  </div>
+  <div class="dv-kpi dv-kpi-2">
+    <span class="dv-kpi-icon"><i class="ri ri-building-2-line"></i></span>
+    <div class="dv-kpi-val"><?php echo number_format($summaryDivisionCount); ?></div>
+    <div class="dv-kpi-lbl">Divisi Aktif</div>
+  </div>
+  <div class="dv-kpi dv-kpi-3">
+    <span class="dv-kpi-icon"><i class="ri ri-flask-line"></i></span>
+    <div class="dv-kpi-val"><?php echo number_format($summaryUniqueMaterialCount); ?></div>
+    <div class="dv-kpi-lbl">Material Unik</div>
+  </div>
+  <div class="dv-kpi dv-kpi-4">
+    <span class="dv-kpi-icon"><i class="ri ri-scales-3-line"></i></span>
+    <div class="dv-kpi-val"><?php echo number_format($summaryQtyContent, 1, ',', '.'); ?></div>
+    <div class="dv-kpi-lbl">Total Qty Isi</div>
+  </div>
+  <div class="dv-kpi dv-kpi-5">
+    <span class="dv-kpi-icon"><i class="ri ri-money-dollar-circle-line"></i></span>
+    <div class="dv-kpi-val" style="font-size:1.2rem">Rp <?php echo number_format($summaryTotalValue, 0, ',', '.'); ?></div>
+    <div class="dv-kpi-lbl">Total Nilai HPP</div>
+  </div>
+  <div class="dv-kpi dv-kpi-6">
+    <span class="dv-kpi-icon"><i class="ri ri-error-warning-line"></i></span>
+    <div class="dv-kpi-val"><?php echo number_format($summaryAlertCount); ?></div>
+    <div class="dv-kpi-lbl">Stok Habis / Minus</div>
+  </div>
 </div>
+<?php endif; ?>
 
+<!-- Table -->
 <div class="card">
-  <div class="dv-sticky-head" id="dvStickyHead" aria-hidden="true"></div>
-  <div class="table-responsive dv-table-wrap">
+  <div class="dv-table-wrap">
     <table class="table table-striped table-hover mb-0 dv-stock-table" id="dvStockTable">
       <thead>
         <tr>
@@ -509,13 +560,11 @@ $summaryDivisionCount = count($summaryDivisions);
               $materialCode = trim((string)($parent['material_code'] ?? ''));
               $materialName = trim((string)($parent['material_name'] ?? ''));
 
-              $itemText = trim($itemName);
-              $materialText = trim($materialName);
-              $objectText = $itemText !== '' ? $itemText : ($materialText !== '' ? $materialText : '-');
+              $objectText = $itemName !== '' ? $itemName : ($materialName !== '' ? $materialName : '-');
               $objectCode = $materialCode !== '' ? $materialCode : $itemCode;
-              $objectKind = $materialText !== '' ? 'Material' : 'Item';
+              $objectKind = $materialName !== '' ? 'Material' : 'Item';
 
-              $collapseClass = 'dv-parent-' . ($idx + 1);
+              $collapseClass = 'dv-parent-' . ($idx + 1) . '-p' . $currentPage;
               $isExpandable = ((int)($parent['profile_count'] ?? 0) > 1);
               $singleChild = (!$isExpandable && !empty($parent['children'])) ? $parent['children'][0] : null;
               $singleChildNonPositive = is_array($singleChild) ? $isChildNonPositive($singleChild) : false;
@@ -525,12 +574,12 @@ $summaryDivisionCount = count($summaryDivisions);
               $descCol = 'Parent';
               $sizeCol = '-';
               if (is_array($singleChild)) {
-                $profileText = trim((string)($singleChild['profile_name'] ?? '-'));
+                $profileText2 = trim((string)($singleChild['profile_name'] ?? '-'));
                 $lotUrl = $lotAuditBaseUrl
                   . '?scope=DIVISION&status=ALL&division_id=' . (int)($parent['division_id'] ?? 0)
                   . '&destination=' . rawurlencode((string)($parent['destination_group'] ?? 'REGULER'))
                   . '&profile_key=' . rawurlencode((string)($singleChild['profile_key'] ?? ''));
-                $profileCol = html_escape($profileText);
+                $profileCol = html_escape($profileText2);
                 $profileCol .= '<div class="small mt-1"><a href="' . html_escape($lotUrl) . '">Lihat Lot</a></div>';
                 $brandCol = html_escape((string)($singleChild['profile_brand'] ?? '-'));
                 $descCol = html_escape((string)($singleChild['profile_description'] ?? '-'));
@@ -579,8 +628,8 @@ $summaryDivisionCount = count($summaryDivisions);
             <?php if ($isExpandable): ?>
             <?php foreach (($parent['children'] ?? []) as $child): ?>
               <?php
-                $profileText = trim((string)($child['profile_name'] ?? '-'));
-                $lotUrl = $lotAuditBaseUrl
+                $profileText3 = trim((string)($child['profile_name'] ?? '-'));
+                $lotUrl2 = $lotAuditBaseUrl
                   . '?scope=DIVISION&status=ALL&division_id=' . (int)($parent['division_id'] ?? 0)
                   . '&destination=' . rawurlencode((string)($parent['destination_group'] ?? 'REGULER'))
                   . '&profile_key=' . rawurlencode((string)($child['profile_key'] ?? ''));
@@ -611,8 +660,8 @@ $summaryDivisionCount = count($summaryDivisions);
                   </div>
                 </td>
                 <td>
-                  <?php echo html_escape($profileText); ?>
-                  <div class="small mt-1"><a href="<?php echo html_escape($lotUrl); ?>">Lihat Lot</a></div>
+                  <?php echo html_escape($profileText3); ?>
+                  <div class="small mt-1"><a href="<?php echo html_escape($lotUrl2); ?>">Lihat Lot</a></div>
                 </td>
                 <td><?php echo html_escape((string)($child['profile_brand'] ?? '-')); ?></td>
                 <td><?php echo html_escape((string)($child['profile_description'] ?? '-')); ?></td>
@@ -630,62 +679,55 @@ $summaryDivisionCount = count($summaryDivisions);
       </tbody>
     </table>
   </div>
+  <?php if ($totalParentCount > 0): ?>
+  <div class="card-footer py-2 d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <span class="text-muted small">
+      <?php
+        $fromRow = ($currentPage - 1) * $perPage + 1;
+        $toRow   = min($currentPage * $perPage, $totalParentCount);
+        echo "Item {$fromRow}–{$toRow} dari {$totalParentCount}";
+        if ($summaryAlertCount > 0) {
+          echo ' &mdash; <span class="text-danger fw-semibold">' . $summaryAlertCount . ' stok habis/minus</span>';
+        }
+      ?>
+    </span>
+    <?php if ($totalPages > 1): ?>
+    <div class="dv-pagination">
+      <?php
+        $prevPage = $currentPage - 1;
+        $nextPage = $currentPage + 1;
+        $prevUrl = $baseUrl . '?' . $paginationQs . '&page=' . $prevPage;
+        $nextUrl = $baseUrl . '?' . $paginationQs . '&page=' . $nextPage;
+
+        $showPrev = $currentPage > 1;
+        $showNext = $currentPage < $totalPages;
+
+        // Build page number window (max 5 numbers)
+        $winStart = max(1, $currentPage - 2);
+        $winEnd   = min($totalPages, $currentPage + 2);
+        if ($winEnd - $winStart < 4) {
+          if ($winStart === 1) {
+            $winEnd = min($totalPages, $winStart + 4);
+          } else {
+            $winStart = max(1, $winEnd - 4);
+          }
+        }
+      ?>
+      <a href="<?php echo html_escape($prevUrl); ?>" class="dv-page-btn<?php echo $showPrev ? '' : ' is-disabled'; ?>">&#8249;</a>
+      <?php if ($winStart > 1): ?>
+        <a href="<?php echo html_escape($baseUrl . '?' . $paginationQs . '&page=1'); ?>" class="dv-page-btn">1</a>
+        <?php if ($winStart > 2): ?><span class="dv-page-info px-1">…</span><?php endif; ?>
+      <?php endif; ?>
+      <?php for ($pn = $winStart; $pn <= $winEnd; $pn++): ?>
+        <a href="<?php echo html_escape($baseUrl . '?' . $paginationQs . '&page=' . $pn); ?>" class="dv-page-btn<?php echo $pn === $currentPage ? ' is-active' : ''; ?>"><?php echo $pn; ?></a>
+      <?php endfor; ?>
+      <?php if ($winEnd < $totalPages): ?>
+        <?php if ($winEnd < $totalPages - 1): ?><span class="dv-page-info px-1">…</span><?php endif; ?>
+        <a href="<?php echo html_escape($baseUrl . '?' . $paginationQs . '&page=' . $totalPages); ?>" class="dv-page-btn"><?php echo $totalPages; ?></a>
+      <?php endif; ?>
+      <a href="<?php echo html_escape($nextUrl); ?>" class="dv-page-btn<?php echo $showNext ? '' : ' is-disabled'; ?>">&#8250;</a>
+    </div>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 </div>
-
-<script>
-(function(){
-  function syncDivisionStickyTop(){
-    var navbar = document.getElementById('layout-navbar') || document.querySelector('.layout-navbar');
-    var topOffset = navbar ? Math.ceil(navbar.getBoundingClientRect().height) : 0;
-    document.documentElement.style.setProperty('--dv-sticky-top', topOffset + 'px');
-    return topOffset;
-  }
-
-  function initDivisionFloatingHeader(){
-    var wrapper = document.querySelector('.dv-table-wrap');
-    var table = document.getElementById('dvStockTable');
-    var host = document.getElementById('dvStickyHead');
-    if (!wrapper || !table || !host) { return; }
-    var thead = table.querySelector('thead');
-    if (!thead) { return; }
-
-    host.innerHTML = '<table class="' + table.className + '"><thead>' + thead.innerHTML + '</thead></table>';
-    var cloneTable = host.querySelector('table');
-    var cloneHead = cloneTable ? cloneTable.querySelector('thead') : null;
-    if (!cloneTable || !cloneHead) { return; }
-
-    function syncFloatingHeader(){
-      var stickyTop = syncDivisionStickyTop();
-      var wrapperRect = wrapper.getBoundingClientRect();
-      var tableRect = table.getBoundingClientRect();
-      var originalThs = Array.prototype.slice.call(thead.querySelectorAll('th'));
-      var cloneThs = Array.prototype.slice.call(cloneHead.querySelectorAll('th'));
-      originalThs.forEach(function(th, index){
-        if (!cloneThs[index]) { return; }
-        var width = Math.ceil(th.getBoundingClientRect().width);
-        cloneThs[index].style.width = width + 'px';
-        cloneThs[index].style.minWidth = width + 'px';
-        cloneThs[index].style.maxWidth = width + 'px';
-      });
-      cloneTable.style.width = Math.ceil(table.getBoundingClientRect().width) + 'px';
-      cloneTable.style.transform = 'translateX(' + (-wrapper.scrollLeft) + 'px)';
-
-      var headerHeight = Math.ceil(thead.getBoundingClientRect().height || 0);
-      var shouldShow = wrapperRect.top <= stickyTop && tableRect.bottom > (stickyTop + headerHeight);
-      host.style.display = shouldShow ? 'block' : 'none';
-      host.style.top = stickyTop + 'px';
-      host.style.left = Math.ceil(wrapperRect.left) + 'px';
-      host.style.width = Math.ceil(wrapperRect.width) + 'px';
-    }
-
-    wrapper.addEventListener('scroll', syncFloatingHeader, { passive: true });
-    window.addEventListener('scroll', syncFloatingHeader, { passive: true });
-    window.addEventListener('resize', syncFloatingHeader);
-    requestAnimationFrame(syncFloatingHeader);
-  }
-
-  syncDivisionStickyTop();
-  window.addEventListener('resize', syncDivisionStickyTop);
-  initDivisionFloatingHeader();
-})();
-</script>

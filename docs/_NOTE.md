@@ -215,7 +215,8 @@ masih /production/component-adjustments :
 
 7. /production/component-openings
 
-    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+sekarang /production/component-openings
+
    -- ubah skema tampilan jadi: form input opening sebagai modal saat di klik tambah opening. jadi tampilan utama hanya tabel daftar opening sesuai tab yang sudah dibuat
    - form export import tetap.
    -- tambahkan card card ringkasan yang diperlukan, seperti hasil opening divisi, nilainya, jumlahnya dll yang penting sebagai bahan analisa. kejutkan saya!
@@ -224,14 +225,15 @@ masih /production/component-adjustments :
    -- buat kolomnya jadi scrollabel atas bawah dan freeze di judul kolom 
 
 8. /production/component-movements
-    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+
+sekarang /production/component-movements
    -- tambahkan card card ringkasan yang diperlukan, seperti hasil adjustmen divisi, nilainya, jumlahnya dll yang penting sebagai bahan analisa. kejutkan saya!
    -- tambahkan filter baris dan pagination. defaultnya 25
    -- tambahkan range filter hari. defautlnya bulan ini
-   -- buat kolomnya jadi scrollabel atas bawah dan freeze di judul kolom 
+   -- pindahkan data di kolom No untuk ditampilkan di kolom SUmber. jadi hapus saja kolom No, tapi perjelas yang kolom SUmber. boleh di bold 
 
 9. /production/component-lots
-    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+sekarang /production/component-lots
    -- tambahkan card card ringkasan yang diperlukan yang penting sebagai bahan analisa. kejutkan saya!
    -- tambahkan filter baris dan pagination. defaultnya 25
    -- tambahkan range filter hari. defautlnya bulan ini
@@ -239,7 +241,7 @@ masih /production/component-adjustments :
     -- sesuaikan lebar tabel agar tidak perlu di scroll kanan kiri. karena banyak kolom yang ukurannya terlalu lebar sehingga tidak efisien
 
 10. /production/component-reconcile
-    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
+sekarang /production/component-reconcile
     -- ubah posisi dan penulisan judul halaman "Rekonsiliasi Base/Prepare" jadi di atas dengan icon relevan seperti pada halaman lain
   -- tambahkan card card ringkasan yang diperlukan yang penting sebagai bahan analisa. kejutkan saya!
    -- tambahkan filter baris dan pagination. defaultnya 25
@@ -248,19 +250,145 @@ masih /production/component-adjustments :
     -- sesuaikan lebar tabel agar tidak perlu di scroll kanan kiri. karena banyak kolom yang ukurannya terlalu lebar sehingga tidak efisien
 
 11. /production/component-opname
-    -- sesuaikan button tab bertingkat sesuai coding_standars (seperti pada /purchase) teramasuk pada bentuk dan warna masing masing tingkat nya
-    --  halamannya sudah  scrollabel atas bawah tapi belum di freeze di judul tabelnya. perbaiki agar freeze ketika di scroll ke bawah
-    -- tambahkan filter baris, default 25
-    -- modul generate stok opname dan stok awal taruh di samping tab filter jenis component. beri warna mencolok.
-    -- ringkas tampilan tabel agar tinggi baris tidak terlalu tinggi. kejutkan saya (Divisi , lokasi dan TIPE bisa dijadikan 1 kolom agar tidak terllau banyak kolom)
-    -- Cost lot aktif masih seragam. bisa digeser agar tidak mempertinggi baris
-    -- sesuaikan lebar tabel agar tidak perlu di scroll kanan kiri. karena banyak kolom yang ukurannya terlalu lebar sehingga tidak efisien
+
+/production/component-opname
+   -- tambahkan card card ringkasan yang diperlukan yang penting sebagai bahan analisa. kejutkan saya!
+   -- tambahkan filter baris dan pagination. defaultnya 25
+   -- buat kolomnya jadi scrollabel atas bawah dan freeze di judul kolom 
+   -- urutan kolom: |JENIS - berisi divisi - lokasi - tipe | COMPONENT - berisi nama component tanpa kode | selanjutnya, yang terakhir ganti AVG COST dengan TOTAL VALUE / total nilai
+
+buatkan halaman stok awal untuk inv_component_monthly_opening, masukkan ke sidebar dan tab rumpun setelah Adjustment, dengan pola halaman sama dengan halaman opname
 
 
-guarding generate sok tidak bisa kalau ada yang minus
+
+kita lanjut ke modul generate opname dan stok awal component.
+kita review dulu yang sudah dibuat.
+tambahkan 
+
+(compoent id dan lot id yang sama).
+cek juga apakah generate opname ini generate lot nya juga? atau bagaiaman skemanya nanti? karena skema kita ini pakai cut off bulanan, jadi inv_component_monthly_stock bulan berikutnya digenerate dari sini, dan semua halaman yang menampilkan sotok produk membaca ini. 
+
+cek:
+- /production/component-monthly bulan juni dan /production/component-stock di card ada 1 stock minus, tapi di /production/component-daily-recon tidak ada. stock minusnya apa?
+- /production/component-stock ada 116 component total nilai  27.261.872, /production/component-monthly bulan juni ada 117 component total nilai  30.125.988. kenapa bisa beda? apa karena beda pembacaan bulannya? 
+- /production/component-opname nilai stok 30,13 jt , 117 baris. /production/component-stock total nilai Rp 27.261.872 dengan 116 baris. kenapa beda? 
+
+
+
+perbaiki:
+/production/component-opname dan /production/component-opening-monthly : pola Jenis buat menjadi => BAR - REGULER - BASE , BAR - EVENT - PREPARE, bukan BAR - BAR - BASE
+
+/production/component-stock 
+
+- coba tunjukan stock minusnya apa? stock minus itu kan seharusnya stock minus di akhir bukan di movement log. buktinya bisa di generate berarti kan seharusnya tidak ada stock minus
+
+- seharusnya, sumber kebenaran adalah inv_component_monthly_stock. sementara inv_component_movement_log merupakan pergerakan yang seharusnya hasil akhirnya sama dnegan inv_component_monthly_stock. jadi kalau memang ada perbedaan, harusny ada warning di ketiga halaman stok dan di halaman /production/component-reconcile. padahal di halaman reconcile tidak ada missmatch. jadi prinsipnya semua halaman harus menampilkan data yang sama untuk bulan yang sama, baik baris, nilai, minus dan lainnya. coba cek dulu semua halaman stok termasuk reconcile, opname dan openingt
+=============
+
+saat generate sok awal, harusnya generate juga di inv_component_monthly_stock dengan bulan dan tanggal baru kan?
+
+
+
+
+sekarang sudah benar. kita pindah ke bahan baku dengan pola yang sama.
+- rapikan halaman serumpun
+- tambahkan card ringkasan relevan
+- buat tab bertingkan dengan modul generate stock opname dan stok awal yang sama
+- tabel dengan pola scrollable dan freeze di kolom judul
+- halaman dengan filter divisi, reguler / event, kolom pencarian ajax, pagination dan filter baris halaman
+- filter range tanggal atau range bulan sesuai halamannya
+- buatkan halaman stok awal hasil generate jika belum ada.
+- untuk halaman yang punya form input, jadikan sebagai modal agar tampilan lebih rapi
+- pastikan halaman rapi, tabel tidak ada yang tumpang tindih.
+- urutan sidebar dan tab bertingkat: 
+    Daily Recon - Daily Material Matrix  - Posisi Stok Divisi (ganti "Stok Bahan Baku Live") - Stok Bulanan / Daily Divisi (ganti "Stok Bahan Baku Bulanan") - Adjustment Divisi (ganti "Adjustment Bahan Baku" ) - Keluar Masuk Divisi (ganti "mutasi Bahan Baku") - stok awal hasil generate (sesuaikan namanya) - Opening Bahan Baku Divisi (ganti "Opening Manual Bahan Baku")- Opname Divisi (ganti "Stok Opname Bahan Baku") - Lot Divisi (ganti "Lot Bahan Baku") - Banding Stok Akhir (ganti "Audit Bahan Baku" )
+    ==> ganti semua nama halaman, nama sidebar, dan Page Title sesua nama yang saya ganti.
+
+- ekseskusi 1 per satu semua halaman nanti akan saya cek satu per satu hasilnya
+
+
+Perintah saya kan ganti nama dan urutannya baik di sidebar maupun di tab bertingkat:
+    Daily Recon => tetap
+    Daily Material Matrix => tetap
+    Posisi Stok Divisi=>  Stok Bahan Baku Live
+    Stok Bulanan / Daily Divisi => Stok Bahan Baku Bulanan
+    Adjustment Divisi => Adjustment Bahan Baku
+    Keluar Masuk Divisi => mutasi Bahan Baku
+    stok awal hasil generate (halaman baru untuk menampilkan database stok opening hasil generate , sesuaikan namanya)
+    Opening Bahan Baku Divisi => Opening Manual Bahan Baku
+    Opname Divisi => Opname Bahan Baku
+    Lot Divisi => Lot Bahan Baku
+    Banding Stok Akhir => Audit Bahan Baku
+
+    hapus /inventory/stock/opening/division/generate
+
+penyesuaian di semua halaman:
+    - tambahkan card ringkasan relevan
+    - tabel dengan pola scrollable dan freeze di baris judul
+    - halaman dengan filter divisi, reguler / event, kolom pencarian ajax, pagination dan filter baris halaman
+    - filter range tanggal atau range bulan sesuai halamannya (kamu tentukan sesuai halamannya)
+    - pastikan halaman rapi, tabel tidak ada yang tumpang tindih.
+
+sesuaikan di atas dulu baru saya lanjutkan
+
+
+/inventory-material-daily 
+- sesuaikan ukuran form filter sampai dengan button "Terapkan" dan "Clear" agar bisa jadi 1 baris
+- tambahkan card card ringkasan yang diperlukan yang penting sebagai bahan analisa. kejutkan saya!
+- buatkan pagination berdasarkan filter baris
+
+/inventory/stock/division
+- sesuaikan ukuran form filter sampai dengan button "Terapkan" dan "Clear" agar bisa jadi 1 baris
+- buat card card ringkasan yang diperlukan yang penting sebagai bahan analisa dengan tampilan lebih menarik. kejutkan saya!
+- buat tabel nya scrollable dan freeze judul tabel
+- buatkan pagination berdasarkan filter baris
+
+sesuaikan tampilan agar lebih efisien:
+kolom 1 : Divisi (berisi Divisi / tujuan)
+
+
+
+
+harusnya link nya bukan /inventory/stock/opening/division/generate donk, mending pakai /inventory/stock/division/opening-stock
+
+saya belum coba generate, tapi pastikan guardnya seperti ini:
+
+- guarding generate sok tidak bisa kalau ada yang minus. jadi harus ada penyesuaian dulu.
+- jika generate dilakukan lebih dari 1 kali di bulan yang sama, data dengan profile identik ditimpa 
+- saat generate otomatis menggenrate snapshot di opname, opening, dan stok opening di monthly_stock
+- pastikan qty stok dan nilai di semua halaman stok sama
+
+
+
+
+
+
+
+
+
+- perbaiki modul role matrix , rapikan sesuai rumpun dan pastikan semua role dapat mengakses sesuai izinnya
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 di inv_component_monthly_stock ada beberapa jenis adjustment, waste, spoil, plus, minus. sedangkan di inv_division_monthly_stock lebih banyak (discarded, spoil, waste, process_loss, variance, plus, minus)
 
 
 adjustmen divisi belum sesuai pilihan di inv_division_monthly_stock
+
+

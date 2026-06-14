@@ -413,6 +413,14 @@ class ComponentLotManager
         if ($componentType !== '') {
             $db->where('c.component_type', $componentType);
         }
+        $dateFrom = trim((string)($filters['date_from'] ?? ''));
+        $dateTo   = trim((string)($filters['date_to'] ?? ''));
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
+            $db->where('l.receipt_date >=', $dateFrom);
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+            $db->where('l.receipt_date <=', $dateTo);
+        }
 
         $db->order_by('CASE WHEN l.status = "OPEN" THEN 0 WHEN l.status = "CLOSED" THEN 1 ELSE 2 END', '', false);
         $db->order_by('d.name', 'ASC');

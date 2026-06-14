@@ -34,28 +34,20 @@ if ($initialDivisionId > 0 && !in_array($initialDivisionId, $divisionIds, true))
 $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_guard_map : [];
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div>
-    <h4 class="mb-1"><i class="ri ri-calendar-check-line page-title-icon"></i><?php echo html_escape($title ?? 'Inventory Material Daily'); ?></h4>
-    <small class="text-muted">Matrix stok bahan baku per divisi/tujuan, bisa digabung item lalu expand ke profil.</small>
-  </div>
-  <div class="d-flex gap-2 flex-wrap">
-    <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname divisi bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
-      <input type="hidden" name="stock_scope" value="DIVISION">
-      <input type="hidden" name="month" value="<?php echo html_escape(substr($initialMonth, 0, 7)); ?>">
-      <input type="hidden" name="division_id" value="<?php echo (int)$initialDivisionId; ?>">
-      <input type="hidden" name="destination" value="<?php echo html_escape($initialDestination); ?>">
-      <input type="hidden" name="back_url" value="inventory-material-daily?month=<?php echo rawurlencode(substr($initialMonth, 0, 7)); ?>&division_id=<?php echo (int)$initialDivisionId; ?>&destination=<?php echo rawurlencode($initialDestination); ?>">
-      <button type="submit" class="btn btn-primary">Generate Opname + Stok Awal</button>
-    </form>
-    <a href="<?php echo site_url('inventory-material-daily'); ?>" class="btn btn-dark">Daily Material Matrix</a>
-    <a href="<?php echo site_url('inventory/stock/division'); ?>" class="btn btn-outline-secondary">Stok Divisi</a>
-    <a href="<?php echo site_url('inventory/stock/opening/division'); ?>" class="btn btn-outline-secondary">Opening Divisi</a>
-    <a href="<?php echo site_url('inventory/stock/division/movement'); ?>" class="btn btn-outline-secondary">Keluar Masuk Divisi</a>
-    <a href="<?php echo site_url('inventory/stock/division/daily'); ?>" class="btn btn-outline-secondary">Stok Bulanan/Snapshot Harian Divisi</a>
-    <a href="<?php echo $lotAuditBaseUrl; ?>" class="btn btn-outline-secondary">Halaman Lot</a>
-    <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-outline-secondary">Audit FIFO</a>
-  </div>
+<div class="mb-3">
+  <h4 class="mb-1"><i class="ri ri-calendar-check-line page-title-icon"></i><?php echo html_escape($title ?? 'Daily Material Matrix'); ?></h4>
+  <small class="text-muted">Matrix stok bahan baku per divisi/tujuan, bisa digabung item lalu expand ke profil.</small>
+</div>
+<div class="d-flex flex-wrap gap-2 mb-2">
+  <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'daily_matrix']); ?>
+</div>
+<?php $this->load->view('purchase/_division_stock_generate_btn', [
+  'division_action_params' => ['month' => substr($initialMonth, 0, 7), 'division_id' => (string)(int)$initialDivisionId, 'destination_type' => $initialDestination],
+]); ?>
+<div class="mb-2">
+  <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-sm btn-outline-secondary">
+    <i class="ri ri-bar-chart-line me-1"></i>Audit FIFO
+  </a>
 </div>
 
 <style>
@@ -124,8 +116,8 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
   .pmd-filter-grid {
     display: grid;
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-    gap: 0.8rem;
+    grid-template-columns: 108px minmax(130px,1fr) 92px minmax(130px,1.1fr) 124px 116px 64px auto;
+    gap: 0.5rem;
     align-items: end;
   }
   .pmd-filter-field {
@@ -133,34 +125,58 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
   .pmd-filter-field label {
     display: block;
-    margin-bottom: 0.35rem;
-    font-size: 0.74rem;
+    margin-bottom: 0.3rem;
+    font-size: 0.72rem;
     font-weight: 800;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: #7a554a;
   }
-  .pmd-filter-main {
-    grid-column: span 2;
-  }
+  .pmd-filter-main,
   .pmd-filter-division,
-  .pmd-filter-search {
-    grid-column: span 3;
-  }
   .pmd-filter-destination,
+  .pmd-filter-search,
   .pmd-filter-date,
-  .pmd-filter-date-to {
-    grid-column: span 2;
-  }
+  .pmd-filter-date-to,
   .pmd-filter-limit {
     grid-column: span 1;
   }
   .pmd-filter-actions {
-    grid-column: span 2;
+    grid-column: span 1;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.55rem;
+    gap: 0.4rem;
   }
+  .pmd-pagination {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.65rem;
+    background: #fff;
+    border: 1px solid #ead9cf;
+    border-radius: 12px;
+  }
+  .pmd-pagination-info {
+    font-size: 0.78rem;
+    color: #7a554a;
+    margin-right: 0.35rem;
+  }
+  .pmd-page-btn {
+    border: 1px solid #d7b6a8;
+    background: #fff;
+    color: #6a2d3c;
+    border-radius: 8px;
+    padding: 0.28rem 0.7rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .pmd-page-btn:hover:not(:disabled) { background: #ffece2; border-color: #c99f8f; }
+  .pmd-page-btn:disabled { opacity: .38; cursor: default; }
+  .pmd-page-btn.is-active { background: linear-gradient(135deg,#5f2432,#8c3f49); color:#fff; border-color:#5f2432; }
   .pmd-board-card {
     border: 1px solid #ead9cf;
     border-radius: 18px;
@@ -882,6 +898,12 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     font-size: 0.83rem;
     color: #6f4d47;
   }
+  @media (max-width: 1199.98px) {
+    .pmd-filter-grid {
+      grid-template-columns: 100px minmax(120px,1fr) 88px minmax(120px,1fr) 116px 108px 60px auto;
+      gap: 0.4rem;
+    }
+  }
   @media (max-width: 991.98px) {
     :root {
       --pmd-col-division: 136px;
@@ -890,18 +912,16 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       --pmd-date-col: 162px;
     }
     .pmd-filter-grid {
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
     }
     .pmd-filter-main,
     .pmd-filter-division,
-    .pmd-filter-search,
     .pmd-filter-destination,
+    .pmd-filter-search,
     .pmd-filter-date,
     .pmd-filter-date-to,
+    .pmd-filter-limit,
     .pmd-filter-actions {
-      grid-column: span 3;
-    }
-    .pmd-filter-limit {
       grid-column: span 2;
     }
     .pmd-matrix-shell { grid-template-columns: calc(var(--pmd-col-division) + var(--pmd-col-material) + var(--pmd-col-detail)) minmax(0, 1fr); }
@@ -909,12 +929,12 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
   @media (max-width: 767.98px) {
     .pmd-filter-grid {
-      grid-template-columns: 1fr;
+      grid-template-columns: 1fr 1fr;
     }
     .pmd-filter-main,
     .pmd-filter-division,
-    .pmd-filter-search,
     .pmd-filter-destination,
+    .pmd-filter-search,
     .pmd-filter-date,
     .pmd-filter-date-to,
     .pmd-filter-limit,
@@ -983,10 +1003,54 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
 </div>
 
 <div class="row g-2 mb-2">
-  <div class="col-6 col-md-3"><div class="pmd-stat-card"><div class="pmd-stat-label">Profil</div><div id="pmdStatProfiles" class="pmd-stat-value">0</div></div></div>
-  <div class="col-6 col-md-3"><div class="pmd-stat-card"><div class="pmd-stat-label">Divisi</div><div id="pmdStatDivisions" class="pmd-stat-value">0</div></div></div>
-  <div class="col-6 col-md-3"><div class="pmd-stat-card"><div class="pmd-stat-label">Material</div><div id="pmdStatMaterials" class="pmd-stat-value">0</div></div></div>
-  <div class="col-6 col-md-3"><div class="pmd-stat-card"><div class="pmd-stat-label">Nilai Sisa</div><div id="pmdStatValue" class="pmd-stat-value">0,00</div></div></div>
+  <div class="col-6 col-md-3 col-xl">
+    <div class="pmd-stat-card">
+      <div class="pmd-stat-label">Profil</div>
+      <div id="pmdStatProfiles" class="pmd-stat-value">0</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3 col-xl">
+    <div class="pmd-stat-card">
+      <div class="pmd-stat-label">Divisi</div>
+      <div id="pmdStatDivisions" class="pmd-stat-value">0</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3 col-xl">
+    <div class="pmd-stat-card">
+      <div class="pmd-stat-label">Material</div>
+      <div id="pmdStatMaterials" class="pmd-stat-value">0</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3 col-xl">
+    <div class="pmd-stat-card">
+      <div class="pmd-stat-label">Nilai Sisa</div>
+      <div id="pmdStatValue" class="pmd-stat-value">0,00</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3 col-xl">
+    <div class="pmd-stat-card" style="border-color:#f5c6c6">
+      <div class="pmd-stat-label" style="color:#9b2626">Stok Minus/Habis</div>
+      <div id="pmdStatAlert" class="pmd-stat-value" style="color:#c0392b">0</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3 col-xl">
+    <div class="pmd-stat-card" style="border-color:#c6e8d1">
+      <div class="pmd-stat-label" style="color:#1a6b3c">Total Masuk (isi)</div>
+      <div id="pmdStatIn" class="pmd-stat-value" style="color:#197a44">0,00</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3 col-xl">
+    <div class="pmd-stat-card" style="border-color:#fad8c2">
+      <div class="pmd-stat-label" style="color:#7a3820">Total Keluar (isi)</div>
+      <div id="pmdStatOut" class="pmd-stat-value" style="color:#c15f28">0,00</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3 col-xl">
+    <div class="pmd-stat-card" style="border-color:#ddd0f5">
+      <div class="pmd-stat-label" style="color:#5b3e9e">Adj Bersih (isi)</div>
+      <div id="pmdStatAdj" class="pmd-stat-value" style="color:#5b3e9e">0,00</div>
+    </div>
+  </div>
 </div>
 
 <div class="card pmd-board-card">
@@ -1027,6 +1091,8 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     </div>
   </div>
 </div>
+
+<div id="pmdPaginationWrap" class="mt-2" style="display:none"></div>
 
 <div class="modal fade" id="pmdDetailModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
@@ -1213,6 +1279,8 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     date_from: <?php echo json_encode($initialDateFrom); ?>,
     date_to: <?php echo json_encode($initialDateTo); ?>,
     limit: <?php echo (int)$initialLimit; ?>,
+    offset: 0,
+    totalCount: 0,
     dates: [],
     groups: [],
     expanded: {}
@@ -1413,6 +1481,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     if (state.division_id > 0) { p.set('division_id', String(state.division_id)); }
     if (state.destination && state.destination !== 'ALL') { p.set('destination', state.destination); }
     p.set('limit', String(state.limit));
+    if (state.offset > 0) { p.set('offset', String(state.offset)); }
     return p.toString();
   }
 
@@ -2057,18 +2126,91 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     var divisionSet = {};
     var materialSet = {};
     var totalValue = 0;
+    var alertCount = 0;
+    var totalIn = 0;
+    var totalOut = 0;
+    var totalAdj = 0;
 
     (groups || []).forEach(function(group){
       profileCount += (group.children || []).length;
       if (group.division_id) { divisionSet[String(group.division_id)] = true; }
       if (group.material_id) { materialSet[String(group.material_id)] = true; }
-      totalValue += Number((group.metrics && group.metrics.total_value) || 0);
+      var m = group.metrics || {};
+      totalValue += Number(m.total_value || 0);
+      totalIn    += Number(m.in_total    || 0);
+      totalOut   += Number(m.out_total   || 0);
+      totalAdj   += Number(m.adjustment_total || 0);
+      if (Number(m.closing_content || 0) <= 0.0001) { alertCount++; }
     });
 
-    document.getElementById('pmdStatProfiles').textContent = profileCount.toLocaleString('id-ID');
+    document.getElementById('pmdStatProfiles').textContent  = profileCount.toLocaleString('id-ID');
     document.getElementById('pmdStatDivisions').textContent = Object.keys(divisionSet).length.toLocaleString('id-ID');
     document.getElementById('pmdStatMaterials').textContent = Object.keys(materialSet).length.toLocaleString('id-ID');
-    document.getElementById('pmdStatValue').textContent = money(totalValue);
+    document.getElementById('pmdStatValue').textContent     = money(totalValue);
+    document.getElementById('pmdStatAlert').textContent     = alertCount.toLocaleString('id-ID');
+    document.getElementById('pmdStatIn').textContent        = num(totalIn);
+    document.getElementById('pmdStatOut').textContent       = num(totalOut);
+    document.getElementById('pmdStatAdj').textContent       = (totalAdj >= 0 ? '+' : '') + num(totalAdj);
+  }
+
+  function renderPagination(){
+    var wrap = document.getElementById('pmdPaginationWrap');
+    if (!wrap) { return; }
+    var total = state.totalCount || 0;
+    var limit = state.limit || 120;
+    var offset = state.offset || 0;
+    if (total <= limit && offset === 0) {
+      wrap.style.display = 'none';
+      wrap.innerHTML = '';
+      return;
+    }
+    wrap.style.display = '';
+    var totalPages = Math.ceil(total / limit);
+    var currentPage = Math.floor(offset / limit);
+    var from = offset + 1;
+    var to = Math.min(offset + limit, total);
+
+    var pageButtons = '';
+    var maxButtons = 7;
+    var startPage = Math.max(0, currentPage - Math.floor(maxButtons / 2));
+    var endPage = Math.min(totalPages - 1, startPage + maxButtons - 1);
+    if (endPage - startPage + 1 < maxButtons) {
+      startPage = Math.max(0, endPage - maxButtons + 1);
+    }
+    for (var p = startPage; p <= endPage; p++) {
+      pageButtons += '<button type="button" class="pmd-page-btn' + (p === currentPage ? ' is-active' : '') + '" data-page="' + p + '">' + (p + 1) + '</button>';
+    }
+
+    wrap.innerHTML = '<div class="pmd-pagination">'
+      + '<span class="pmd-pagination-info">Baris <strong>' + from + '–' + to + '</strong> dari <strong>' + total.toLocaleString('id-ID') + '</strong></span>'
+      + '<button type="button" class="pmd-page-btn" id="pmdPrevPage"' + (offset === 0 ? ' disabled' : '') + '>&#8592; Prev</button>'
+      + pageButtons
+      + '<button type="button" class="pmd-page-btn" id="pmdNextPage"' + (to >= total ? ' disabled' : '') + '>Next &#8594;</button>'
+      + '</div>';
+
+    wrap.querySelectorAll('[data-page]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var page = parseInt(this.getAttribute('data-page') || '0', 10);
+        state.offset = page * limit;
+        loadData();
+      });
+    });
+    var prevBtn = document.getElementById('pmdPrevPage');
+    if (prevBtn) {
+      prevBtn.addEventListener('click', function(){
+        state.offset = Math.max(0, offset - limit);
+        loadData();
+      });
+    }
+    var nextBtn = document.getElementById('pmdNextPage');
+    if (nextBtn) {
+      nextBtn.addEventListener('click', function(){
+        if (to < total) {
+          state.offset = offset + limit;
+          loadData();
+        }
+      });
+    }
   }
 
   function summaryCardHtml(metrics){
@@ -2571,8 +2713,13 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         var data = (result && result.data) ? result.data : {};
         state.dates = Array.isArray(data.dates) ? data.dates : [];
         state.groups = buildGroups(Array.isArray(data.rows) ? data.rows : [], state.dates);
+        state.totalCount = Number(result.total_count || data.total_count || 0);
+        if (state.totalCount === 0 && state.groups.length > 0) {
+          state.totalCount = state.groups.length;
+        }
         calcStats(state.groups);
-        render({ focusToday: true });
+        render({ focusToday: state.offset === 0 });
+        renderPagination();
       })
       .catch(function(err){
         freezeHead.innerHTML = '';
@@ -2586,6 +2733,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
 
   document.getElementById('pmdApply').addEventListener('click', function(){
     readFilters();
+    state.offset = 0;
     loadData();
   });
 
@@ -2598,6 +2746,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   document.getElementById('pmdClear').addEventListener('click', function(){
     clearFilters();
     applyDestinationGuard();
+    state.offset = 0;
     loadData();
   });
 
@@ -2605,6 +2754,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     if (ev.key === 'Enter') {
       ev.preventDefault();
       readFilters();
+      state.offset = 0;
       loadData();
     }
   });

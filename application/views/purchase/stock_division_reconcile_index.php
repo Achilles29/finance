@@ -317,9 +317,12 @@ $statusChip = static function (array $row): array {
   <div class="text-muted small">Tanggal acuan: <strong><?php echo html_escape((string)($as_of_date ?? date('Y-m-d'))); ?></strong></div>
 </div>
 
-<div class="mb-3 d-flex flex-wrap gap-2">
+<div class="mb-2 d-flex flex-wrap gap-2">
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'compare']); ?>
 </div>
+<?php $this->load->view('purchase/_division_stock_generate_btn', [
+  'division_action_params' => ['month' => date('Y-m'), 'division_id' => (string)($division_id ?? ''), 'destination_type' => (string)($destination ?? '')],
+]); ?>
 
 <div class="card src-card mb-3">
   <div class="card-body p-3 p-lg-4">

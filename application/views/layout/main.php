@@ -107,8 +107,9 @@ $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
         ['code' => 'my.home', 'url' => site_url('my'), 'icon' => 'ri-home-5-line', 'label' => 'Beranda'],
         ['code' => 'my.attendance', 'url' => site_url('my/attendance'), 'icon' => 'ri-fingerprint-line', 'label' => 'Absensi'],
         ['code' => 'my.leave', 'url' => site_url('my/leave-requests'), 'icon' => 'ri-hotel-bed-line', 'label' => 'Izin'],
-        ['code' => 'my.payroll', 'url' => site_url('my/payroll'), 'icon' => 'ri-file-list-3-line', 'label' => 'Payroll'],
+        ['code' => 'my.bonus', 'url' => site_url('my/bonus'), 'icon' => 'ri-medal-line', 'label' => 'Bonus'],
         ['code' => 'my.profile', 'url' => site_url('my/profile'), 'icon' => 'ri-user-3-line', 'label' => 'Kontrak'],
+        ['code' => 'my.payroll', 'url' => site_url('my/payroll'), 'icon' => 'ri-file-list-3-line', 'label' => 'Payroll'],
       ];
       $activeCode = (string)($active_menu ?? '');
       $currentUri = trim((string)uri_string(), '/');

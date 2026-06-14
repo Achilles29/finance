@@ -59,7 +59,7 @@ $buildSourceUrl = static function (array $row): string {
       <small class="text-muted"><?php echo html_escape((string)($subtitle ?? '')); ?></small>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-      <a href="<?php echo site_url('inventory/stock/division/lot'); ?>" class="btn btn-outline-secondary btn-sm">Kembali ke Lot Divisi</a>
+      <a href="<?php echo site_url('inventory/stock/division/lot'); ?>" class="btn btn-outline-secondary btn-sm">Kembali ke Lot Bahan Baku</a>
       <a href="<?php echo site_url('inventory/stock/warehouse/lot'); ?>" class="btn btn-outline-secondary btn-sm">Lot Gudang</a>
     </div>
   </div>

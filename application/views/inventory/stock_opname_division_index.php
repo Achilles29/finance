@@ -107,19 +107,22 @@ tr.opn-grp-header.expanded .opn-grp-arrow { transform:rotate(90deg); color:#3b82
 <div class="fin-page-header">
     <div>
         <p class="fin-breadcrumb">
-            <a href="<?= base_url('dashboard') ?>">Dashboard</a> / Stok Divisi / Daily Recon
+            <a href="<?= base_url('dashboard') ?>">Dashboard</a> / Bahan Baku Divisi / Daily Recon
         </p>
         <h4 class="fin-page-title">
             <i class="ri ri-check-double-line me-1 text-primary"></i>
-            Daily Recon — Stok Divisi
+            Daily Recon
         </h4>
-        <p class="fin-page-subtitle">Input stok fisik harian · selisih vs sistem otomatis · posting adjustment langsung</p>
+        <p class="fin-page-subtitle">Input stok fisik harian · selisih vs sistem · posting adjustment langsung</p>
     </div>
 </div>
 
-<div class="d-flex flex-wrap gap-1 align-items-center mb-3">
+<div class="d-flex flex-wrap gap-1 align-items-center mb-2">
     <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'daily_recon']); ?>
 </div>
+<?php $this->load->view('purchase/_division_stock_generate_btn', [
+    'division_action_params' => ['month' => substr($adjustDate, 0, 7), 'division_id' => (string)$divisionId, 'destination_type' => $destination],
+]); ?>
 
 <div id="alert-area" class="mb-3"></div>
 
@@ -223,6 +226,16 @@ tr.opn-grp-header.expanded .opn-grp-arrow { transform:rotate(90deg); color:#3b82
             </div>
         </div>
     </div>
+    <div class="col-12 col-md">
+        <div class="card border-0 shadow-sm h-100" style="border-left:3px solid #3b82f6 !important;">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div><div class="small text-muted">Nilai Stok Sistem</div><div class="h6 mb-0 fw-bold text-primary" id="smNilai" style="font-size:.88rem">—</div></div>
+                    <i class="ri ri-currency-line ri-2x text-primary opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Tabel Data -->
@@ -311,12 +324,15 @@ function initTooltips(root) {
 }
 
 function updateSummary() {
-    let total = 0, filled = 0, miss = 0, adj = 0, minus = 0;
+    let total = 0, filled = 0, miss = 0, adj = 0, minus = 0, nilaiTotal = 0;
     currentData.forEach(function (div) {
         div.materials.forEach(function (mat) {
             mat.profiles.forEach(function (p) {
                 total++;
-                if (parseFloat(p.system_qty_content) < -0.001) minus++;
+                const qty  = parseFloat(p.system_qty_content) || 0;
+                const cost = parseFloat(p.avg_cost_per_content || p.total_value_per_content || 0);
+                if (qty < -0.001) minus++;
+                nilaiTotal += (p.total_value != null ? parseFloat(p.total_value) : qty * cost);
                 if (p.physical_qty_content !== null) {
                     filled++;
                     if (p.selisih !== null && Math.abs(p.selisih) >= 0.001) miss++;
@@ -331,6 +347,8 @@ function updateSummary() {
     el('smAdj').textContent    = adj;
     const smMinus = el('smMinus');
     if (smMinus) smMinus.textContent = minus;
+    const smNilai = el('smNilai');
+    if (smNilai) smNilai.textContent = 'Rp ' + nilaiTotal.toLocaleString('id-ID', { maximumFractionDigits: 0 });
 }
 
 function selisihHtml(sel, iid) {

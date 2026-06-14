@@ -161,6 +161,9 @@ $topDivisions = array_slice($divisionValues, 0, 4, true);
 .opening-summary-card .sub { font-size:.68rem;color:#aaa;margin-top:.15rem; }
 .opening-summary-card.highlight { border-color:#b5cca0;background:#f0f7ea; }
 .opening-summary-card.highlight .val { color:#2d6a0a; }
+.doc-aksi-cell { text-align:center; vertical-align:middle !important; }
+.doc-aksi-wrap { display:flex; gap:6px; justify-content:center; align-items:center; flex-wrap:wrap; }
+.doc-aksi-wrap .btn { width:38px; height:38px; padding:0; display:inline-flex; align-items:center; justify-content:center; font-size:1rem; border-radius:10px; }
 </style>
 
 <div class="mb-3">
@@ -362,16 +365,16 @@ $topDivisions = array_slice($divisionValues, 0, 4, true);
     <!-- ====== TAB: Daftar Dokumen ====== -->
     <div class="tab-pane fade <?php echo $openingTab === 'documents' ? 'show active' : ''; ?>">
       <div style="overflow:auto;max-height:70vh">
-        <table class="table table-bordered table-hover table-sm align-middle mb-0" style="table-layout:fixed;min-width:780px" id="tbl-documents">
+        <table class="table table-bordered table-hover table-sm align-middle mb-0" style="table-layout:fixed;min-width:900px" id="tbl-documents">
           <thead class="table-dark" style="position:sticky;top:0;z-index:2">
             <tr>
-              <th style="width:185px;white-space:nowrap">No Opening</th>
-              <th style="width:82px;white-space:nowrap">Bulan</th>
-              <th style="width:80px;white-space:nowrap">Lokasi</th>
-              <th style="width:125px;white-space:nowrap">Divisi</th>
-              <th style="white-space:nowrap">Catatan</th>
-              <th style="width:75px;white-space:nowrap">Status</th>
-              <th style="width:108px;white-space:nowrap">Aksi</th>
+              <th style="width:210px;white-space:nowrap">No Opening</th>
+              <th style="width:80px;white-space:nowrap">Bulan</th>
+              <th style="width:76px;white-space:nowrap">Lokasi</th>
+              <th style="width:110px;white-space:nowrap">Divisi</th>
+              <th style="width:210px;white-space:nowrap">Catatan</th>
+              <th style="width:72px;white-space:nowrap">Status</th>
+              <th style="width:130px;white-space:nowrap">Aksi</th>
             </tr>
           </thead>
           <tbody id="opening-docs-tbody">
@@ -399,22 +402,24 @@ $topDivisions = array_slice($divisionValues, 0, 4, true);
                   <td style="font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?php echo html_escape((string)($row['division_name'] ?? '-')); ?>"><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>
                   <td style="font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?php echo html_escape((string)($row['notes'] ?? '')); ?>"><?php echo html_escape((string)($row['notes'] ?? '-')); ?></td>
                   <td><?php echo ui_status_badge((string)($row['status'] ?? 'DRAFT')); ?></td>
-                  <td>
+                  <td class="doc-aksi-cell">
                     <?php if ($rowStatus === 'DRAFT'): ?>
-                      <div class="d-flex gap-1 flex-wrap">
-                        <button type="button" class="btn btn-outline-primary action-icon-btn btn-edit-draft" data-id="<?php echo (int)$row['id']; ?>" data-url="<?php echo html_escape($rowEditUrl); ?>" title="Edit Draft"><i class="ri ri-edit-line"></i></button>
-                        <a href="<?php echo $rowDetailUrl; ?>" class="btn btn-outline-info action-icon-btn" title="Rincian"><i class="ri ri-eye-line"></i></a>
-                        <button type="button" class="btn btn-outline-success action-icon-btn btn-post" data-id="<?php echo (int)$row['id']; ?>" title="Post"><i class="ri ri-checkbox-circle-line"></i></button>
-                        <button type="button" class="btn btn-outline-danger action-icon-btn btn-del" data-id="<?php echo (int)$row['id']; ?>" title="Hapus"><i class="ri ri-delete-bin-line"></i></button>
+                      <div class="doc-aksi-wrap">
+                        <button type="button" class="btn btn-outline-primary btn-edit-draft" data-id="<?php echo (int)$row['id']; ?>" data-url="<?php echo html_escape($rowEditUrl); ?>" title="Edit Draft"><i class="ri ri-edit-line"></i></button>
+                        <a href="<?php echo $rowDetailUrl; ?>" class="btn btn-outline-info" title="Rincian"><i class="ri ri-eye-line"></i></a>
+                        <button type="button" class="btn btn-outline-success btn-post" data-id="<?php echo (int)$row['id']; ?>" title="Post"><i class="ri ri-checkbox-circle-line"></i></button>
+                        <button type="button" class="btn btn-outline-danger btn-del" data-id="<?php echo (int)$row['id']; ?>" title="Hapus"><i class="ri ri-delete-bin-line"></i></button>
                       </div>
                     <?php elseif ($rowStatus === 'POSTED'): ?>
-                      <div class="d-flex gap-1 flex-wrap">
-                        <a href="<?php echo $rowDetailUrl; ?>" class="btn btn-outline-info action-icon-btn" title="Rincian"><i class="ri ri-eye-line"></i></a>
-                        <button type="button" class="btn btn-outline-primary action-icon-btn btn-reopen" data-reopen-url="<?php echo site_url('production/component-openings/reopen/' . (int)($row['id'] ?? 0)); ?>" data-edit-url="<?php echo html_escape($rowEditUrl); ?>" title="Draftkan & Edit"><i class="ri ri-refresh-line"></i></button>
-                        <button type="button" class="btn btn-outline-warning action-icon-btn btn-void" data-id="<?php echo (int)$row['id']; ?>" title="Void"><i class="ri ri-close-circle-line"></i></button>
+                      <div class="doc-aksi-wrap">
+                        <a href="<?php echo $rowDetailUrl; ?>" class="btn btn-outline-info" title="Rincian"><i class="ri ri-eye-line"></i></a>
+                        <button type="button" class="btn btn-outline-primary btn-reopen" data-reopen-url="<?php echo site_url('production/component-openings/reopen/' . (int)($row['id'] ?? 0)); ?>" data-edit-url="<?php echo html_escape($rowEditUrl); ?>" title="Draftkan & Edit"><i class="ri ri-refresh-line"></i></button>
+                        <button type="button" class="btn btn-outline-warning btn-void" data-id="<?php echo (int)$row['id']; ?>" title="Void"><i class="ri ri-close-circle-line"></i></button>
                       </div>
                     <?php else: ?>
-                      <a href="<?php echo $rowDetailUrl; ?>" class="btn btn-outline-info action-icon-btn" title="Rincian"><i class="ri ri-eye-line"></i></a>
+                      <div class="doc-aksi-wrap">
+                        <a href="<?php echo $rowDetailUrl; ?>" class="btn btn-outline-info" title="Rincian"><i class="ri ri-eye-line"></i></a>
+                      </div>
                     <?php endif; ?>
                   </td>
                 </tr>

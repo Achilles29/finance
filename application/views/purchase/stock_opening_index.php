@@ -55,23 +55,40 @@ foreach ($rowsData as $row) {
     border-radius: 16px;
     padding: 1rem;
   }
+  .opening-scroll-wrap {
+    max-height: 72vh;
+    overflow-y: auto;
+    overflow-x: auto;
+  }
+  .opening-scroll-wrap table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #fff;
+    border-bottom: 2px solid rgba(0,0,0,.08);
+  }
 </style>
 
 <div class="mb-2">
   <h4 class="mb-1"><i class="ri ri-archive-stack-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
   <small class="text-muted">Input opening stok per profile. Tanggal posting otomatis tanggal 1 dari Snapshot Month.</small>
 </div>
-<div class="d-flex flex-wrap gap-1 align-items-center mb-3">
+<div class="d-flex flex-wrap gap-2 mb-2">
+  <?php if (!$isDivisionScope): ?>
   <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname bulan ini dan buat opening bulan berikutnya? Proses dibatalkan jika ada stok minus.');" class="d-inline">
     <input type="hidden" name="stock_scope" value="<?php echo html_escape($stockScope); ?>">
     <input type="hidden" name="month" value="<?php echo html_escape($month !== '' ? substr((string)$month, 0, 7) : date('Y-m')); ?>">
-    <input type="hidden" name="division_id" value="<?php echo (int)$selectedDivisionId; ?>">
-    <input type="hidden" name="destination" value="<?php echo html_escape($selectedDestination); ?>">
-    <input type="hidden" name="back_url" value="<?php echo html_escape((string)($base_url_opening ?? 'inventory/stock/opening')); ?>?month=<?php echo rawurlencode($month !== '' ? substr((string)$month, 0, 7) : date('Y-m')); ?><?php echo $isDivisionScope ? ('&division_id=' . (int)$selectedDivisionId . '&destination=' . rawurlencode($selectedDestination)) : ''; ?>">
+    <input type="hidden" name="back_url" value="<?php echo html_escape((string)($base_url_opening ?? 'inventory/stock/opening')); ?>?month=<?php echo rawurlencode($month !== '' ? substr((string)$month, 0, 7) : date('Y-m')); ?>">
     <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal</button>
   </form>
+  <?php endif; ?>
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => $isDivisionScope ? 'DIVISION' : 'WAREHOUSE', 'active_tab' => 'opening']); ?>
 </div>
+<?php if ($isDivisionScope): ?>
+<?php $this->load->view('purchase/_division_stock_generate_btn', [
+  'division_action_params' => ['month' => $month !== '' ? substr((string)$month, 0, 7) : date('Y-m'), 'division_id' => (string)(int)$selectedDivisionId, 'destination_type' => $selectedDestination],
+]); ?>
+<?php endif; ?>
 
 <div id="alert-area"></div>
 
@@ -319,7 +336,7 @@ foreach ($rowsData as $row) {
     </div>
 
     <div class="card">
-      <div class="table-responsive">
+      <div class="table-responsive opening-scroll-wrap">
         <table class="table table-striped table-hover mb-0">
           <thead>
             <tr>

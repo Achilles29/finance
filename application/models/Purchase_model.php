@@ -1352,6 +1352,69 @@ class Purchase_model extends CI_Model
         return $this->list_stock_opening_snapshots('WAREHOUSE', $month, $q, $limit, null, null);
     }
 
+    public function list_division_generate_openings(array $filters = [], int $limit = 500): array
+    {
+        $openingTable = 'inv_division_stock_opening_snapshot';
+        if (!$this->db->table_exists($openingTable)) {
+            return [];
+        }
+
+        $month      = trim((string)($filters['month'] ?? date('Y-m')));
+        $monthKey   = $this->normalizeMonth($month);
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : null;
+        $destFilter = $this->normalizeDestinationFilter($filters['destination_type'] ?? '');
+        $q          = trim((string)($filters['q'] ?? ''));
+
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $this->db
+            ->select('s.id, s.snapshot_month, s.division_id, s.destination_type, s.stock_domain', false)
+            ->select($divisionNameSelect, false)
+            ->select('s.item_id, s.material_id, s.profile_name, s.profile_brand, s.profile_content_per_buy, s.profile_buy_uom_code, s.profile_content_uom_code', false)
+            ->select('s.opening_qty_buy, s.opening_qty_content, s.opening_avg_cost_per_content, s.opening_total_value, s.source_type, s.notes, s.updated_at', false)
+            ->select('i.item_code, i.item_name, m.material_code, m.material_name', false)
+            ->from($openingTable . ' s')
+            ->join('mst_item i', 'i.id = s.item_id', 'left')
+            ->join('mst_material m', 'm.id = s.material_id', 'left')
+            ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
+            ->where('s.source_type', 'OPNAME');
+
+        if ($monthKey !== null) {
+            $this->db->where('s.snapshot_month', $monthKey);
+        }
+        if ($divisionId !== null && $divisionId > 0) {
+            $this->db->where('s.division_id', $divisionId);
+        }
+        if ($destFilter === 'REGULER') {
+            $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+        } elseif ($destFilter === 'EVENT') {
+            $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+        } elseif ($destFilter !== null && $destFilter !== '') {
+            $this->db->where('s.destination_type', $destFilter);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('s.profile_name', $q)
+                ->or_like('i.item_name', $q)
+                ->or_like('i.item_code', $q)
+                ->or_like('m.material_name', $q)
+                ->or_like('m.material_code', $q)
+                ->group_end();
+        }
+
+        $this->db
+            ->order_by('s.snapshot_month', 'DESC')
+            ->order_by($divisionNameColumn !== null ? ('d.' . $divisionNameColumn) : 's.division_id', 'ASC')
+            ->order_by('s.destination_type', 'ASC')
+            ->order_by('s.profile_name', 'ASC')
+            ->limit(max(1, $limit));
+
+        return $this->db->get()->result_array();
+    }
+
     public function list_warehouse_daily_snapshot(string $month, string $q, string $dateFrom, string $dateTo, int $limit): array
     {
         if ($this->db->table_exists('inv_stock_movement_log')) {
@@ -1457,27 +1520,29 @@ class Purchase_model extends CI_Model
         return [];
     }
 
-    public function list_material_daily_matrix(string $month, string $q, ?int $divisionId, string $dateFrom, string $dateTo, int $limit, ?string $destinationFilter = null): array
+    public function list_material_daily_matrix(string $month, string $q, ?int $divisionId, string $dateFrom, string $dateTo, int $limit, ?string $destinationFilter = null, int $offset = 0): array
     {
         $window = $this->resolveDailyWindow($month, $dateFrom, $dateTo);
         $dates = $this->buildDateSeries($window['date_from'], $window['date_to']);
 
         if ($this->db->table_exists('inv_division_monthly_stock')) {
-            $rows = $this->build_material_daily_rows_from_monthly_base(
+            $result = $this->build_material_daily_rows_from_monthly_base(
                 $q,
                 $divisionId,
                 $window['date_from'],
                 $window['date_to'],
                 $dates,
                 $limit,
-                $destinationFilter
+                $destinationFilter,
+                $offset
             );
-            $rows = $this->attachMaterialDailyProfilePrices($rows);
+            $rows = $this->attachMaterialDailyProfilePrices($result['rows']);
 
             return [
-                'window' => $window,
-                'dates' => $dates,
-                'rows' => $rows,
+                'window'      => $window,
+                'dates'       => $dates,
+                'rows'        => $rows,
+                'total_count' => $result['total_count'],
             ];
         }
 
@@ -1730,9 +1795,11 @@ class Purchase_model extends CI_Model
         string $dateTo,
         array $dates,
         int $limit,
-        ?string $destinationFilter = null
+        ?string $destinationFilter = null,
+        int $offset = 0
     ): array {
-        $baseRows = $this->fetch_material_daily_monthly_base_rows($q, $divisionId, $dateTo, $limit, $destinationFilter);
+        $totalCount = $this->count_material_daily_monthly_base_rows($q, $divisionId, $dateTo, $destinationFilter);
+        $baseRows = $this->fetch_material_daily_monthly_base_rows($q, $divisionId, $dateTo, $limit, $destinationFilter, $offset);
         if (empty($baseRows)) {
             return [];
         }
@@ -1867,7 +1934,7 @@ class Purchase_model extends CI_Model
             }
         }
 
-        return $this->pivotDailyRows($dailyRows, $limit);
+        return ['rows' => $this->pivotDailyRows($dailyRows, $limit), 'total_count' => $totalCount];
     }
 
     private function fetch_material_daily_monthly_base_rows(
@@ -1875,7 +1942,8 @@ class Purchase_model extends CI_Model
         ?int $divisionId,
         string $dateTo,
         int $limit,
-        ?string $destinationFilter = null
+        ?string $destinationFilter = null,
+        int $offset = 0
     ): array {
         if (!$this->db->table_exists('inv_division_monthly_stock')) {
             return [];
@@ -1954,14 +2022,69 @@ class Purchase_model extends CI_Model
                 ->group_end();
         }
 
-        return $this->db
+        $offset = max(0, (int)$offset);
+        $query = $this->db
             ->order_by($divisionNameColumn !== null ? ('d.' . $divisionNameColumn) : 's.division_id', 'ASC')
             ->order_by($destinationGroupExpr, 'ASC', false)
             ->order_by('m.material_name', 'ASC')
             ->order_by('s.profile_name', 'ASC')
-            ->limit($limit)
-            ->get()
-            ->result_array();
+            ->limit($limit, $offset);
+        return $query->get()->result_array();
+    }
+
+    private function count_material_daily_monthly_base_rows(
+        string $q,
+        ?int $divisionId,
+        string $dateTo,
+        ?string $destinationFilter = null
+    ): int {
+        if (!$this->db->table_exists('inv_division_monthly_stock')) {
+            return 0;
+        }
+        $targetMonth = date('Y-m-01', strtotime($dateTo ?: date('Y-m-d')));
+        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+        $latestMonthSubquery = $this->db
+            ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
+            ->from('inv_division_monthly_stock')
+            ->where('month_key <=', $targetMonth)
+            ->group_by(['division_id', 'destination_type', 'identity_key'])
+            ->get_compiled_select();
+
+        $this->db
+            ->select('COUNT(*) AS cnt', false)
+            ->from('inv_division_monthly_stock s')
+            ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+            ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
+            ->join('mst_item i', 'i.id = s.item_id', 'left')
+            ->join('mst_material m', 'm.id = COALESCE(s.material_id, i.material_id)', 'left')
+            ->where('COALESCE(s.material_id, i.material_id) IS NOT NULL', null, false);
+
+        if ($divisionId !== null && $divisionId > 0) {
+            $this->db->where('s.division_id', $divisionId);
+        }
+        if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
+            if ($destinationFilter === 'REGULER') {
+                $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } elseif ($destinationFilter === 'EVENT') {
+                $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } else {
+                $this->db->where('s.destination_type', $destinationFilter);
+            }
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('i.item_code', $q)
+                ->or_like('i.item_name', $q)
+                ->or_like('m.material_code', $q)
+                ->or_like('m.material_name', $q)
+                ->or_like('s.profile_name', $q)
+                ->or_like('s.profile_brand', $q)
+                ->or_like('s.profile_description', $q)
+                ->or_like('s.profile_key', $q)
+                ->group_end();
+        }
+        $row = $this->db->get()->row_array();
+        return (int)($row['cnt'] ?? 0);
     }
 
     private function build_material_daily_base_day_row(array $baseRow, string $day, ?array $existingRow = null): array

@@ -6,13 +6,14 @@ $attendanceUrl = site_url('my/attendance' . (!empty($selectedEmployeeId) ? ('?em
 $profileUrl = site_url('my/profile' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
 $scheduleUrl = site_url('my/schedule' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
 $payrollUrl = site_url('my/payroll' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
+$bonusUrl = site_url('my/bonus' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
 ?>
 
 <div class="my-mobile-shell d-block d-md-none">
   <div class="my-mobile-header">
     <div>
       <h4 class="my-mobile-title"><i class="ri ri-contacts-book-3-line me-1 text-primary"></i>Portal Pegawai</h4>
-      <p class="my-mobile-sub">Akses cepat absensi, jadwal, profil, dan payroll.</p>
+      <p class="my-mobile-sub">Akses cepat absensi, bonus, jadwal, profil, dan payroll.</p>
     </div>
   </div>
   <div class="my-mobile-grid">
@@ -32,13 +33,17 @@ $payrollUrl = site_url('my/payroll' . (!empty($selectedEmployeeId) ? ('?employee
       <span class="my-mobile-tile-icon"><i class="ri ri-file-list-3-line"></i></span>
       <span class="my-mobile-tile-text">Slip Gaji</span>
     </a>
+    <a href="<?php echo $bonusUrl; ?>" class="my-mobile-tile">
+      <span class="my-mobile-tile-icon"><i class="ri ri-medal-line"></i></span>
+      <span class="my-mobile-tile-text">Bonus Saya</span>
+    </a>
   </div>
 </div>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2 d-none d-md-flex">
   <div>
     <h4 class="mb-0">Portal Pegawai</h4>
-    <small class="text-muted">Beranda personal untuk absensi, jadwal, kontrak, dan payroll.</small>
+    <small class="text-muted">Beranda personal untuk absensi, bonus, jadwal, kontrak, dan payroll.</small>
   </div>
   <?php if (!empty($employeeOptions)): ?>
   <form method="get" action="<?php echo site_url('my'); ?>" class="d-flex gap-2">
@@ -91,6 +96,7 @@ $payrollUrl = site_url('my/payroll' . (!empty($selectedEmployeeId) ? ('?employee
         <h6 class="mb-2">Akses Cepat</h6>
         <div class="d-flex flex-wrap gap-2">
           <a href="<?php echo $attendanceUrl; ?>" class="btn btn-outline-primary btn-sm">Absensi Saya</a>
+          <a href="<?php echo $bonusUrl; ?>" class="btn btn-outline-secondary btn-sm">Bonus Saya</a>
           <a href="<?php echo $profileUrl; ?>" class="btn btn-outline-secondary btn-sm">Profil & Kontrak</a>
           <a href="<?php echo $scheduleUrl; ?>" class="btn btn-outline-secondary btn-sm">Jadwal Shift</a>
           <a href="<?php echo $payrollUrl; ?>" class="btn btn-outline-secondary btn-sm">Slip Gaji</a>
@@ -130,6 +136,10 @@ $payrollUrl = site_url('my/payroll' . (!empty($selectedEmployeeId) ? ('?employee
         <a href="<?php echo $payrollUrl; ?>" class="my-mobile-tile">
           <span class="my-mobile-tile-icon"><i class="ri ri-file-list-3-line"></i></span>
           <span class="my-mobile-tile-text">Slip Gaji</span>
+        </a>
+        <a href="<?php echo $bonusUrl; ?>" class="my-mobile-tile">
+          <span class="my-mobile-tile-icon"><i class="ri ri-medal-line"></i></span>
+          <span class="my-mobile-tile-text">Bonus Saya</span>
         </a>
       </div>
     </div>

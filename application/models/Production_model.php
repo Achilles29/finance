@@ -880,8 +880,81 @@ class Production_model extends CI_Model
         ];
     }
 
+    private function _component_monthly_rows_from_stock(array $filters, int $limit): ?array
+    {
+        if (!$this->db->table_exists('inv_component_monthly_stock')) {
+            return null; // tabel belum ada → fallback
+        }
+
+        $month = trim((string)($filters['month'] ?? date('Y-m')));
+        if (!preg_match('/^\d{4}\-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $monthStart = $month . '-01';
+
+        // Cek apakah bulan ini sudah ada data di monthly_stock (tanpa filter)
+        $monthCount = (int)$this->db
+            ->where('month_key', $monthStart)
+            ->from('inv_component_monthly_stock')
+            ->count_all_results();
+        if ($monthCount === 0) {
+            return null; // belum ada data bulan ini → fallback ke daily projection
+        }
+
+        $q             = trim((string)($filters['q'] ?? ''));
+        $locationType  = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $divisionId    = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
+        $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
+        $divNameCol    = $this->division_name_column();
+        $divNameSelect = $divNameCol !== null ? ('d.' . $divNameCol . ' AS division_name') : 'NULL AS division_name';
+
+        $this->db->select('s.*, (s.adjustment_plus_qty - s.adjustment_minus_qty) AS adjustment_qty, c.component_code, c.component_name, c.component_type, u.code AS uom_code, u.name AS uom_name, ' . $divNameSelect, false)
+            ->from('inv_component_monthly_stock s')
+            ->join('mst_component c', 'c.id = s.component_id', 'inner')
+            ->join('mst_uom u', 'u.id = s.uom_id', 'left')
+            ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
+            ->where('s.month_key', $monthStart);
+
+        $this->apply_component_location_filter('s.location_type', $locationType);
+        if ($divisionId > 0) {
+            $this->db->where('s.division_id', $divisionId);
+        }
+        if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+            $this->db->where('c.component_type', $componentType);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('c.component_name', $q)
+                ->or_like('c.component_code', $q);
+            if ($divNameCol !== null) {
+                $this->db->or_like('d.' . $divNameCol, $q);
+            }
+            $this->db->group_end();
+        }
+
+        $this->apply_component_display_order(
+            $divNameCol !== null ? ('d.' . $divNameCol) : 's.division_id',
+            'c.component_type',
+            'c.component_name'
+        );
+        $this->db->order_by('s.location_type', 'ASC');
+        if ($limit > 0) {
+            $this->db->limit($limit);
+        }
+
+        $rows = $this->db->get()->result_array();
+        return $this->attach_component_lot_summaries($rows); // bisa kosong jika filter ketat
+    }
+
     public function component_monthly_rows(array $filters, int $limit = 500): array
     {
+        // Baca dari snapshot monthly_stock jika tersedia — sumber kebenaran resmi.
+        // Fallback ke daily projection hanya jika bulan itu belum pernah Repair/Generate.
+        $fromStock = $this->_component_monthly_rows_from_stock($filters, $limit);
+        if ($fromStock !== null) {
+            return $fromStock;
+        }
+
         $daily = $this->component_daily_rows(array_merge($filters, ['type' => (string)($filters['type'] ?? '')]), max(1, $limit * 31));
         if (empty($daily)) {
             return [];
@@ -1446,6 +1519,59 @@ class Production_model extends CI_Model
         ];
 
         return $this->rebuild_component_history_for_identity($identity);
+    }
+
+    public function repair_all_component_identities(array $filters = []): array
+    {
+        if (!$this->db->table_exists('inv_component_movement_log') || !$this->db->table_exists('inv_component_monthly_stock')) {
+            return ['ok' => false, 'message' => 'Tabel movement log atau monthly stock tidak ditemukan.'];
+        }
+
+        @set_time_limit(300);
+
+        $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $divisionId   = isset($filters['division_id']) && $filters['division_id'] !== null ? (int)$filters['division_id'] : null;
+
+        // Ambil semua identity unik dari movement log (sumber pergerakan)
+        $this->db->select('DISTINCT location_type, division_id, component_id, uom_id', false)
+            ->from('inv_component_movement_log');
+        if ($locationType !== '') {
+            $this->apply_component_location_filter('location_type', $locationType);
+        }
+        if ($divisionId !== null) {
+            $this->db->where('division_id', $divisionId);
+        }
+        $identities = $this->db->get()->result_array();
+
+        if (empty($identities)) {
+            return ['ok' => true, 'message' => 'Tidak ada identity component ditemukan.', 'repaired' => 0, 'failed' => 0];
+        }
+
+        $repaired = 0;
+        $failed   = 0;
+        $errors   = [];
+        foreach ($identities as $row) {
+            $result = $this->rebuild_component_history_for_identity([
+                'location_type' => (string)($row['location_type'] ?? ''),
+                'division_id'   => $row['division_id'] !== null ? (int)$row['division_id'] : null,
+                'component_id'  => (int)($row['component_id'] ?? 0),
+                'uom_id'        => (int)($row['uom_id'] ?? 0),
+            ]);
+            if ($result['ok'] ?? false) {
+                $repaired++;
+            } else {
+                $failed++;
+                $errors[] = ($row['component_id'] ?? '?') . ': ' . ($result['message'] ?? 'gagal');
+            }
+        }
+
+        return [
+            'ok'       => $failed === 0,
+            'message'  => "Repair selesai: {$repaired} berhasil" . ($failed > 0 ? ", {$failed} gagal." : '.'),
+            'repaired' => $repaired,
+            'failed'   => $failed,
+            'errors'   => array_slice($errors, 0, 20),
+        ];
     }
 
     public function repair_component_monthly_stock_drift(array $params): array
@@ -3067,26 +3193,63 @@ class Production_model extends CI_Model
             ];
         }
 
-        $negativeSamples = [];
+        // Kumpulkan closing AKHIR BULAN per identity (baris terakhir per identity)
+        // dan catat hari-hari yang sempat minus (untuk warning nilai tidak akurat)
+        $finalClosing    = [];   // identity → last row (month-end closing)
+        $midMonthNegative = [];  // identity → info hari minus di tengah bulan
+
         foreach ($rows as $row) {
-            $closingQty = round((float)($row['closing_qty'] ?? 0), 4);
-            if ($closingQty >= 0) {
-                continue;
-            }
-            $negativeSamples[] = trim((string)($row['movement_date'] ?? ''))
-                . ' | ' . (string)($row['location_type'] ?? '-')
-                . ' | ' . (string)($row['component_code'] ?? '-')
-                . ' - ' . (string)($row['component_name'] ?? '-')
-                . ' | closing=' . number_format($closingQty, 4, '.', '');
-            if (count($negativeSamples) >= 5) {
-                break;
+            $negKey = strtoupper((string)($row['location_type'] ?? ''))
+                . '|' . (int)($row['division_id'] ?? 0)
+                . '|' . (int)($row['component_id'] ?? 0)
+                . '|' . (int)($row['uom_id'] ?? 0);
+
+            // Selalu overwrite → pada akhir loop, berisi baris dengan tanggal terbesar
+            $finalClosing[$negKey] = $row;
+
+            // Catat hari minus di tengah bulan (untuk warning nilai)
+            $dayClosing = round((float)($row['closing_qty'] ?? 0), 2);
+            if ($dayClosing < 0) {
+                if (!isset($midMonthNegative[$negKey])) {
+                    $midMonthNegative[$negKey] = [
+                        'component_code' => (string)($row['component_code'] ?? '-'),
+                        'component_name' => (string)($row['component_name'] ?? '-'),
+                        'location_type'  => (string)($row['location_type'] ?? '-'),
+                        'division_name'  => (string)($row['division_name'] ?? '-'),
+                        'negative_days'  => 0,
+                        'worst_closing'  => 0.0,
+                        'worst_date'     => '',
+                    ];
+                }
+                $midMonthNegative[$negKey]['negative_days']++;
+                if ($dayClosing < $midMonthNegative[$negKey]['worst_closing']) {
+                    $midMonthNegative[$negKey]['worst_closing'] = $dayClosing;
+                    $midMonthNegative[$negKey]['worst_date']    = trim((string)($row['movement_date'] ?? ''));
+                }
             }
         }
-        if (!empty($negativeSamples)) {
+
+        // HARD BLOCK: hanya jika closing AKHIR BULAN masih minus
+        $negativeAtMonthEnd = [];
+        foreach ($finalClosing as $negKey => $row) {
+            $endClosing = round((float)($row['closing_qty'] ?? 0), 2);
+            if ($endClosing < 0) {
+                $negativeAtMonthEnd[] = [
+                    'code'          => (string)($row['component_code'] ?? '-'),
+                    'name'          => (string)($row['component_name'] ?? '-'),
+                    'location_type' => (string)($row['location_type'] ?? '-'),
+                    'division_name' => (string)($row['division_name'] ?? '-'),
+                    'negative_days' => $midMonthNegative[$negKey]['negative_days'] ?? 1,
+                    'worst_closing' => $endClosing,
+                    'worst_date'    => trim((string)($row['movement_date'] ?? '')),
+                ];
+            }
+        }
+        if (!empty($negativeAtMonthEnd)) {
             return [
                 'ok' => false,
-                'message' => 'Generate ditolak karena masih ada stok minus pada daily rollup component.',
-                'data' => ['negative_samples' => $negativeSamples],
+                'message' => 'Generate ditolak: ' . count($negativeAtMonthEnd) . ' komponen masih minus di akhir bulan. Lakukan ADJ_PLUS terlebih dahulu.',
+                'data' => ['negative_samples' => $negativeAtMonthEnd],
             ];
         }
 
@@ -3211,11 +3374,43 @@ class Production_model extends CI_Model
         }
         $this->db->delete('inv_component_monthly_opening');
 
+        $hasMonthlyStockTable = $this->db->table_exists('inv_component_monthly_stock');
         $generatedRows = 0;
         $carriedRows = 0;
         foreach ($aggregated as $row) {
             $this->upsert_by_unique('inv_component_monthly_opname', $row, ['month_key', 'location_type', 'division_id', 'component_id', 'uom_id']);
             $generatedRows++;
+
+            // Sync ke monthly_stock untuk bulan M (snapshot resmi = hasil generate)
+            if ($hasMonthlyStockTable) {
+                $this->upsert_by_unique('inv_component_monthly_stock', [
+                    'month_key'                    => $monthStart,
+                    'location_type'                => (string)$row['location_type'],
+                    'division_id'                  => $row['division_id'],
+                    'component_id'                 => (int)$row['component_id'],
+                    'uom_id'                       => (int)$row['uom_id'],
+                    'opening_qty'                  => round((float)($row['opening_qty'] ?? 0), 4),
+                    'opening_total_value'          => round((float)($row['opening_total_value'] ?? 0), 2),
+                    'in_qty'                       => round((float)($row['in_qty'] ?? 0), 4),
+                    'in_total_value'               => round((float)($row['in_total_value'] ?? 0), 2),
+                    'out_qty'                      => round((float)($row['out_qty'] ?? 0), 4),
+                    'out_total_value'              => round((float)($row['out_total_value'] ?? 0), 2),
+                    'waste_qty'                    => round((float)($row['waste_qty'] ?? 0), 4),
+                    'waste_total_value'            => round((float)($row['waste_total_value'] ?? 0), 2),
+                    'spoil_qty'                    => round((float)($row['spoil_qty'] ?? 0), 4),
+                    'spoil_total_value'            => round((float)($row['spoil_total_value'] ?? 0), 2),
+                    'adjustment_plus_qty'          => round((float)($row['adjustment_plus_qty'] ?? 0), 4),
+                    'adjustment_plus_total_value'  => round((float)($row['adjustment_plus_total_value'] ?? 0), 2),
+                    'adjustment_minus_qty'         => round((float)($row['adjustment_minus_qty'] ?? 0), 4),
+                    'adjustment_minus_total_value' => round((float)($row['adjustment_minus_total_value'] ?? 0), 2),
+                    'closing_qty'                  => round((float)($row['closing_qty'] ?? 0), 4),
+                    'avg_cost'                     => round((float)($row['avg_cost'] ?? 0), 6),
+                    'total_value'                  => round((float)($row['total_value'] ?? 0), 2),
+                    'movement_day_count'           => (int)($row['movement_day_count'] ?? 0),
+                    'mutation_count'               => (int)($row['mutation_count'] ?? 0),
+                    'source_mode'                  => 'OPNAME_GENERATE',
+                ], ['month_key', 'location_type', 'division_id', 'component_id', 'uom_id']);
+            }
 
             if ((float)$row['closing_qty'] <= 0) {
                 continue;
@@ -3237,6 +3432,37 @@ class Production_model extends CI_Model
             ];
             $this->upsert_by_unique('inv_component_monthly_opening', $openingRow, ['month_key', 'location_type', 'division_id', 'component_id', 'uom_id']);
             $carriedRows++;
+
+            // Sync opening ke monthly_stock untuk bulan M+1
+            if ($hasMonthlyStockTable) {
+                $this->upsert_by_unique('inv_component_monthly_stock', [
+                    'month_key'                    => $nextMonthStart,
+                    'location_type'                => (string)$row['location_type'],
+                    'division_id'                  => $row['division_id'],
+                    'component_id'                 => (int)$row['component_id'],
+                    'uom_id'                       => (int)$row['uom_id'],
+                    'opening_qty'                  => round((float)$row['closing_qty'], 4),
+                    'opening_total_value'          => round((float)$row['total_value'], 2),
+                    'in_qty'                       => 0.0,
+                    'in_total_value'               => 0.0,
+                    'out_qty'                      => 0.0,
+                    'out_total_value'              => 0.0,
+                    'waste_qty'                    => 0.0,
+                    'waste_total_value'            => 0.0,
+                    'spoil_qty'                    => 0.0,
+                    'spoil_total_value'            => 0.0,
+                    'adjustment_plus_qty'          => 0.0,
+                    'adjustment_plus_total_value'  => 0.0,
+                    'adjustment_minus_qty'         => 0.0,
+                    'adjustment_minus_total_value' => 0.0,
+                    'closing_qty'                  => round((float)$row['closing_qty'], 4),
+                    'avg_cost'                     => round((float)$row['avg_cost'], 6),
+                    'total_value'                  => round((float)$row['total_value'], 2),
+                    'movement_day_count'           => 0,
+                    'mutation_count'               => 0,
+                    'source_mode'                  => 'OPENING_CARRY_FORWARD',
+                ], ['month_key', 'location_type', 'division_id', 'component_id', 'uom_id']);
+            }
         }
 
         if ($this->db->table_exists('aud_transaction_log')) {
@@ -3269,14 +3495,30 @@ class Production_model extends CI_Model
 
         $this->db->trans_commit();
 
+        // Siapkan warning jika ada hari minus di tengah bulan (nilai mungkin tidak akurat)
+        $midMonthWarnings = [];
+        foreach ($midMonthNegative as $comp) {
+            $midMonthWarnings[] = [
+                'code'          => $comp['component_code'],
+                'name'          => $comp['component_name'],
+                'location_type' => $comp['location_type'],
+                'division_name' => $comp['division_name'],
+                'negative_days' => $comp['negative_days'],
+                'worst_closing' => $comp['worst_closing'],
+                'worst_date'    => $comp['worst_date'],
+            ];
+        }
+
         return [
             'ok' => true,
-            'message' => 'Generate opname bulanan component berhasil. Opening bulan berikutnya juga sudah dibuat.',
+            'message' => 'Generate opname bulanan component berhasil. Opening bulan berikutnya juga sudah dibuat.'
+                . (!empty($midMonthWarnings) ? ' Perhatian: ' . count($midMonthWarnings) . ' komponen sempat minus di tengah bulan — nilai mungkin tidak akurat, disarankan Repair.' : ''),
             'data' => [
-                'month' => $monthKey,
-                'next_month' => $nextMonth,
-                'generated_rows' => $generatedRows,
-                'carried_rows' => $carriedRows,
+                'month'              => $monthKey,
+                'next_month'         => $nextMonth,
+                'generated_rows'     => $generatedRows,
+                'carried_rows'       => $carriedRows,
+                'mid_month_warnings' => $midMonthWarnings,
             ],
         ];
     }
@@ -7229,9 +7471,7 @@ class Production_model extends CI_Model
             ->where('o.month_key', $monthKey);
 
         $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
-        if (in_array($locationType, ['REGULER', 'EVENT'], true)) {
-            $this->db->where('o.location_type', $locationType);
-        }
+        $this->apply_component_location_filter('o.location_type', $locationType);
         $divisionId = (int)($filters['division_id'] ?? 0);
         if ($divisionId > 0) {
             $this->db->where('o.division_id', $divisionId);

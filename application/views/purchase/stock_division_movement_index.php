@@ -55,7 +55,7 @@ $buildSourceAudit = static function (array $row): array {
     'pos_stock_commit' => 'POS Commit',
     'pur_purchase_receipt' => 'Receipt PO',
     'pur_store_request_fulfillment' => 'Fulfillment SR',
-    'inv_division_stock_adjustment' => 'Adjustment Divisi',
+    'inv_division_stock_adjustment' => 'Adjustment Bahan Baku',
     'inv_division_stock_opening_snapshot' => 'Opening Snapshot',
     'inv_warehouse_stock_opening_snapshot' => 'Opening Snapshot',
   ];
@@ -112,23 +112,20 @@ $buildSourceAudit = static function (array $row): array {
   }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div>
-    <h4 class="mb-1"><i class="ri ri-arrow-left-right-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-    <small class="text-muted">Log keluar masuk stok per divisi dari inv_stock_movement_log.</small>
-  </div>
-  <div class="d-flex gap-1 flex-wrap align-items-center">
-    <form method="post" action="<?php echo $generateUrl; ?>" class="d-inline js-stock-division-generate-form">
-      <input type="hidden" name="stock_scope" value="DIVISION">
-      <input type="hidden" name="month" value="<?php echo html_escape($genMonth); ?>">
-      <input type="hidden" name="division_id" value="<?php echo (int)($division_id ?? 0); ?>">
-      <input type="hidden" name="destination" value="<?php echo html_escape($destinationValue); ?>">
-      <input type="hidden" name="back_url" value="inventory/stock/division/movement?date_from=<?php echo rawurlencode((string)($date_from ?? '')); ?>&date_to=<?php echo rawurlencode((string)($date_to ?? '')); ?>&division_id=<?php echo (int)($division_id ?? 0); ?>&destination=<?php echo rawurlencode($destinationValue); ?>">
-      <button type="submit" class="btn btn-outline-primary">Generate Opname + Stok Awal</button>
-    </form>
-    <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'movement']); ?>
-    <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-outline-secondary">Audit FIFO</a>
-  </div>
+<div class="mb-3">
+  <h4 class="mb-1"><i class="ri ri-arrow-left-right-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
+  <small class="text-muted">Log keluar masuk stok per divisi dari inv_stock_movement_log.</small>
+</div>
+<div class="d-flex flex-wrap gap-2 mb-2">
+  <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'movement']); ?>
+</div>
+<?php $this->load->view('purchase/_division_stock_generate_btn', [
+  'division_action_params' => ['month' => $genMonth, 'division_id' => (string)(int)($division_id ?? 0), 'destination_type' => $destinationValue],
+]); ?>
+<div class="mb-2">
+  <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-sm btn-outline-secondary">
+    <i class="ri ri-bar-chart-line me-1"></i>Audit FIFO
+  </a>
 </div>
 
 <div class="card mb-3">
@@ -290,26 +287,3 @@ $buildSourceAudit = static function (array $row): array {
   </div>
 </div>
 
-<script>
-(() => {
-  document.addEventListener('submit', (event) => {
-    const form = event.target.closest('.js-stock-division-generate-form');
-    if (!form) {
-      return;
-    }
-    if (!(window.FinanceUI && typeof window.FinanceUI.confirm === 'function')) {
-      return;
-    }
-    event.preventDefault();
-    Promise.resolve(window.FinanceUI.confirm('Generate opname divisi bulan ini dan carry-forward opening bulan berikutnya?', {
-      title: 'Generate Opname Divisi',
-      confirmText: 'Generate',
-      cancelText: 'Batal'
-    })).then((confirmed) => {
-      if (confirmed) {
-        form.submit();
-      }
-    });
-  });
-})();
-</script>

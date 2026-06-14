@@ -644,7 +644,7 @@ class Purchase extends MY_Controller
         }
 
         $data = [
-            'title' => 'Opening Bahan Baku Divisi',
+            'title' => 'Opening Manual Bahan Baku',
             'active_menu' => 'purchase.stock.opening.division',
             'stock_scope' => 'DIVISION',
             'is_division_scope' => true,
@@ -1336,7 +1336,7 @@ class Purchase extends MY_Controller
         $destination = $this->normalizeDestinationForDivisionFilter($destination, $divisionId, $destinationGuardMap);
 
         $this->render('purchase/stock_adjustment_index', [
-            'title' => 'Adjustment Stok Bahan Baku Divisi',
+            'title' => 'Adjustment Bahan Baku',
             'active_menu' => 'purchase.stock.adjustment.division',
             'stock_scope' => 'DIVISION',
             'is_division_scope' => true,
@@ -1730,11 +1730,12 @@ class Purchase extends MY_Controller
         $dateTo = $range['date_to'];
         $limit = (int)$this->input->get('limit', true);
         if ($limit <= 0 || $limit > 500) {
-            $limit = 500;
+            $limit = 100;
         }
+        $page = max(1, (int)$this->input->get('page', true));
 
         $data = [
-            'title' => 'Stok Divisi',
+            'title' => 'Stok Bahan Baku Live',
             'active_menu' => 'purchase.stock.division',
             'q' => $q,
             'destination' => $destinationFilter,
@@ -1742,9 +1743,10 @@ class Purchase extends MY_Controller
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
             'limit' => $limit,
+            'page' => $page,
             'divisions' => $divisions,
             'destination_guard_map' => $destinationGuardMap,
-            'rows' => $this->Purchase_model->list_division_stock($q, $limit, $destinationFilter, $dateFrom, $dateTo, $divisionId > 0 ? $divisionId : null),
+            'rows' => $this->Purchase_model->list_division_stock($q, 2000, $destinationFilter, $dateFrom, $dateTo, $divisionId > 0 ? $divisionId : null),
         ];
 
         $this->render('purchase/stock_division_index', $data);
@@ -1773,7 +1775,7 @@ class Purchase extends MY_Controller
         }
 
         $data = [
-            'title' => 'Keluar Masuk Stok Divisi',
+            'title' => 'mutasi Bahan Baku',
             'active_menu' => 'purchase.stock.division',
             'q' => $q,
             'date_from' => $dateFrom,
@@ -1816,7 +1818,7 @@ class Purchase extends MY_Controller
         }
 
         $data = [
-            'title' => 'Stok Bulanan / Snapshot Harian Divisi',
+            'title' => 'Stok Bahan Baku Bulanan',
             'active_menu' => 'purchase.stock.division',
             'month' => $month,
             'q' => $q,
@@ -1866,8 +1868,8 @@ class Purchase extends MY_Controller
         );
 
         $data = [
-            'title' => 'Rekonsiliasi Stok Akhir Divisi',
-            'page_title' => 'Rekonsiliasi Stok Akhir Divisi',
+            'title' => 'Audit Bahan Baku',
+            'page_title' => 'Audit Bahan Baku',
             'active_menu' => 'purchase.stock.division',
             'as_of_date' => $compare['as_of_date'] ?? $asOfDate,
             'q' => $q,
@@ -2009,7 +2011,7 @@ class Purchase extends MY_Controller
         }
 
         $data = [
-            'title' => 'Inventory Material Daily',
+            'title' => 'Daily Material Matrix',
             'active_menu' => 'purchase.stock.material.matrix',
             'month' => $month,
             'q' => $q,
@@ -2206,7 +2208,7 @@ class Purchase extends MY_Controller
         $this->render_lot_audit_page(
             'DIVISION',
             true,
-            'Lot Stok Divisi',
+            'Lot Bahan Baku',
             'purchase.stock.division.lot',
             'inventory/stock/division/lot',
             'Posisi lot FIFO untuk stok divisi operasional.'
@@ -2318,6 +2320,7 @@ class Purchase extends MY_Controller
         if ($limit <= 0 || $limit > 1000) {
             $limit = 120;
         }
+        $offset = max(0, (int)$this->input->get('offset', true));
 
         $matrix = $this->Purchase_model->list_material_daily_matrix(
             $month,
@@ -2326,14 +2329,18 @@ class Purchase extends MY_Controller
             $dateFrom,
             $dateTo,
             $limit,
-            $destinationFilter
+            $destinationFilter,
+            $offset
         );
 
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode([
-                'ok' => true,
-                'data' => $matrix,
+                'ok'          => true,
+                'data'        => $matrix,
+                'total_count' => (int)($matrix['total_count'] ?? count($matrix['rows'] ?? [])),
+                'limit'       => $limit,
+                'offset'      => $offset,
             ]));
     }
 
@@ -3102,15 +3109,18 @@ class Purchase extends MY_Controller
         if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
             $month = date('Y-m');
         }
+        $limitParam = (int)$this->input->get('limit', true);
+        $limit = $limitParam > 0 ? min($limitParam, 2000) : 200;
         $filters = [
             'month'            => $month,
             'division_id'      => (int)$this->input->get('division_id', true),
             'destination_type' => strtoupper(trim((string)$this->input->get('destination_type', true))),
             'q'                => trim((string)$this->input->get('q', true)),
+            'limit'            => $limit,
         ];
-        $rows = $this->Purchase_model->list_division_monthly_opname($filters, 500);
+        $rows = $this->Purchase_model->list_division_monthly_opname($filters, $limit);
         $this->render('purchase/stock_division_opname_monthly_index', [
-            'page_title'   => 'Stok Opname Bulanan Divisi',
+            'page_title'   => 'Opname Bahan Baku',
             'active_menu'  => 'inventory.stock.opname.division.monthly',
             'rows'         => $rows,
             'filters'      => $filters,
