@@ -5372,17 +5372,11 @@ class Pos_model extends CI_Model
                 b.selling_price,
                 b.product_division_id,
                 pd.code AS product_division_code,
-                    $db->from('pos_payment_method pm');
-                    $select = 'pm.id, pm.method_code, pm.method_name, pm.method_type, pm.company_account_id';
-                    if ($db->table_exists('fin_company_account')) {
-                        $db->join('fin_company_account acc', 'acc.id = pm.company_account_id', 'left');
-                        $select .= ', acc.account_name, acc.account_type, acc.bank_name, acc.account_no, acc.account_holder';
-                    }
-
-                    return $db
-                        ->select($select, false)
-                        ->where('pm.is_active', 1)
-                        ->where_not_in('pm.method_type', ['COMPLIMENT'])
+                pd.name AS product_division_name,
+                (
+                    SELECT COUNT(*)
+                    FROM pos_product_bundle_line blc
+                    WHERE blc.bundle_id = b.id
                 ) AS line_count,
                 (
                     SELECT p2.photo_path
