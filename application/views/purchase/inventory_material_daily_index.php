@@ -870,14 +870,54 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     color: #8e6f67;
     padding: 2rem 1rem;
   }
-  .pmd-stat-card {
-    border: 1px solid #ead9cf;
-    border-radius: 14px;
-    background: #fff;
-    padding: 0.6rem 0.78rem;
+  /* ── KPI gradient cards ─────────────────────────────────── */
+  .pmd-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0,1fr));
+    gap: .6rem;
   }
-  .pmd-stat-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: #8d6b64; font-weight: 800; }
-  .pmd-stat-value { margin-top: 0.22rem; font-size: 1.25rem; font-weight: 800; color: #5f2432; }
+  @media (max-width:991.98px) { .pmd-kpi-row { grid-template-columns: repeat(3,1fr); } }
+  @media (max-width:575.98px) { .pmd-kpi-row { grid-template-columns: repeat(2,1fr); } }
+  .pmd-kpi-card {
+    border-radius: 18px;
+    padding: .85rem 1rem;
+    position: relative;
+    overflow: hidden;
+    color: #fff;
+    min-height: 84px;
+  }
+  .pmd-kpi-card::before,.pmd-kpi-card::after {
+    content: ''; position: absolute; border-radius: 50%; opacity: .12; background: #fff;
+  }
+  .pmd-kpi-card::before { width: 80px; height: 80px; right: -18px; top: -18px; }
+  .pmd-kpi-card::after  { width: 50px; height: 50px; right: 16px;  bottom: -14px; }
+  .pmd-kpi-label { font-size: .67rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; opacity: .88; }
+  .pmd-kpi-value { font-size: 1.5rem; font-weight: 900; line-height: 1.15; margin-top: .16rem; }
+  .pmd-kpi-sub   { font-size: .7rem; opacity: .82; margin-top: .1rem; }
+  .pmd-kpi-1 { background: linear-gradient(135deg,#4a1529 0%,#7a2d45 100%); }
+  .pmd-kpi-2 { background: linear-gradient(135deg,#134e4a 0%,#0d9488 100%); }
+  .pmd-kpi-3 { background: linear-gradient(135deg,#3b0764 0%,#7c3aed 100%); }
+  .pmd-kpi-4 { background: linear-gradient(135deg,#7f1d1d 0%,#dc2626 100%); }
+  .pmd-kpi-5 { background: linear-gradient(135deg,#14532d 0%,#16a34a 100%); }
+  .pmd-kpi-6 { background: linear-gradient(135deg,#78350f 0%,#d97706 100%); }
+
+  /* ── Sparkline (surprise) ────────────────────────────────── */
+  .pmd-sparkline-wrap {
+    display: flex; flex-direction: column; gap: .2rem; min-width: 90px;
+  }
+  .pmd-sparkline-label {
+    font-size: .58rem; font-weight: 800; letter-spacing: .08em;
+    text-transform: uppercase; opacity: .72;
+  }
+  .pmd-sparkline { display: flex; align-items: flex-end; gap: 2px; height: 26px; }
+  .pmd-spark-bar {
+    flex: 1; min-width: 2px; border-radius: 2px 2px 0 0;
+    background: rgba(255,255,255,.7);
+    transition: height .4s ease;
+    cursor: default;
+  }
+  .pmd-spark-bar.is-today { background: #ffb79e; }
+  .pmd-spark-bar:hover    { background: rgba(255,255,255,1); }
   .pmd-modal-card {
     border: 1px solid #e9d9d1;
     border-radius: 12px;
@@ -1002,54 +1042,36 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   </div>
 </div>
 
-<div class="row g-2 mb-2">
-  <div class="col-6 col-md-3 col-xl">
-    <div class="pmd-stat-card">
-      <div class="pmd-stat-label">Profil</div>
-      <div id="pmdStatProfiles" class="pmd-stat-value">0</div>
-    </div>
+<div class="pmd-kpi-row mb-2">
+  <div class="pmd-kpi-card pmd-kpi-1">
+    <div class="pmd-kpi-label">Total Profil</div>
+    <div id="pmdStatProfiles" class="pmd-kpi-value">0</div>
+    <div class="pmd-kpi-sub"><span id="pmdStatDivisions">0</span> divisi</div>
   </div>
-  <div class="col-6 col-md-3 col-xl">
-    <div class="pmd-stat-card">
-      <div class="pmd-stat-label">Divisi</div>
-      <div id="pmdStatDivisions" class="pmd-stat-value">0</div>
-    </div>
+  <div class="pmd-kpi-card pmd-kpi-2">
+    <div class="pmd-kpi-label">Material</div>
+    <div id="pmdStatMaterials" class="pmd-kpi-value">0</div>
+    <div class="pmd-kpi-sub">jenis bahan baku</div>
   </div>
-  <div class="col-6 col-md-3 col-xl">
-    <div class="pmd-stat-card">
-      <div class="pmd-stat-label">Material</div>
-      <div id="pmdStatMaterials" class="pmd-stat-value">0</div>
-    </div>
+  <div class="pmd-kpi-card pmd-kpi-3">
+    <div class="pmd-kpi-label">Nilai Sisa</div>
+    <div id="pmdStatValue" class="pmd-kpi-value" style="font-size:1.08rem">0,00</div>
+    <div class="pmd-kpi-sub">HPP stok aktif</div>
   </div>
-  <div class="col-6 col-md-3 col-xl">
-    <div class="pmd-stat-card">
-      <div class="pmd-stat-label">Nilai Sisa</div>
-      <div id="pmdStatValue" class="pmd-stat-value">0,00</div>
-    </div>
+  <div class="pmd-kpi-card pmd-kpi-4">
+    <div class="pmd-kpi-label">Stok Alert</div>
+    <div id="pmdStatAlert" class="pmd-kpi-value">0</div>
+    <div class="pmd-kpi-sub">minus / habis</div>
   </div>
-  <div class="col-6 col-md-3 col-xl">
-    <div class="pmd-stat-card" style="border-color:#f5c6c6">
-      <div class="pmd-stat-label" style="color:#9b2626">Stok Minus/Habis</div>
-      <div id="pmdStatAlert" class="pmd-stat-value" style="color:#c0392b">0</div>
-    </div>
+  <div class="pmd-kpi-card pmd-kpi-5">
+    <div class="pmd-kpi-label">Total Masuk (isi)</div>
+    <div id="pmdStatIn" class="pmd-kpi-value" style="font-size:1.08rem">0,00</div>
+    <div class="pmd-kpi-sub">periode ini</div>
   </div>
-  <div class="col-6 col-md-3 col-xl">
-    <div class="pmd-stat-card" style="border-color:#c6e8d1">
-      <div class="pmd-stat-label" style="color:#1a6b3c">Total Masuk (isi)</div>
-      <div id="pmdStatIn" class="pmd-stat-value" style="color:#197a44">0,00</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3 col-xl">
-    <div class="pmd-stat-card" style="border-color:#fad8c2">
-      <div class="pmd-stat-label" style="color:#7a3820">Total Keluar (isi)</div>
-      <div id="pmdStatOut" class="pmd-stat-value" style="color:#c15f28">0,00</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3 col-xl">
-    <div class="pmd-stat-card" style="border-color:#ddd0f5">
-      <div class="pmd-stat-label" style="color:#5b3e9e">Adj Bersih (isi)</div>
-      <div id="pmdStatAdj" class="pmd-stat-value" style="color:#5b3e9e">0,00</div>
-    </div>
+  <div class="pmd-kpi-card pmd-kpi-6">
+    <div class="pmd-kpi-label">Total Keluar (isi)</div>
+    <div id="pmdStatOut" class="pmd-kpi-value" style="font-size:1.08rem">0,00</div>
+    <div class="pmd-kpi-sub">adj: <span id="pmdStatAdj">0,00</span></div>
   </div>
 </div>
 
@@ -1064,6 +1086,11 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       <span class="pmd-legend-pill"><span class="pmd-legend-dot pmd-dot-out"></span>Out</span>
       <span class="pmd-legend-pill"><span class="pmd-legend-dot pmd-dot-adj"></span>Adj</span>
       <span class="pmd-legend-pill"><span class="pmd-legend-dot pmd-dot-close"></span>Akhir</span>
+    </div>
+    <!-- Surprise: daily activity sparkline -->
+    <div id="pmdSparklineWrap" class="pmd-sparkline-wrap" style="display:none">
+      <div class="pmd-sparkline-label">Aktivitas Masuk Harian</div>
+      <div id="pmdSparkline" class="pmd-sparkline"></div>
     </div>
   </div>
   <div class="pmd-matrix-shell" id="pmdMatrixShell">
@@ -2537,6 +2564,35 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     }
   }
 
+  function renderSparkline(groups, dates){
+    var wrap      = document.getElementById('pmdSparklineWrap');
+    var container = document.getElementById('pmdSparkline');
+    if (!wrap || !container || !dates || !dates.length) { if (wrap) wrap.style.display = 'none'; return; }
+
+    var dailyIn = {};
+    dates.forEach(function(d){ dailyIn[d] = 0; });
+    (groups || []).forEach(function(group){
+      dates.forEach(function(d){
+        var day = (group.daily && group.daily[d]) || {};
+        dailyIn[d] += Number(day.in || 0);
+      });
+    });
+
+    var values = dates.map(function(d){ return dailyIn[d]; });
+    var maxVal  = Math.max.apply(null, values) || 1;
+    var today   = (function(){ var n = new Date(); return n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0'); })();
+
+    container.innerHTML = values.map(function(v, i){
+      var pctH  = Math.max(4, Math.round(v / maxVal * 100));
+      var isTd  = dates[i] === today;
+      var cls   = 'pmd-spark-bar' + (isTd ? ' is-today' : '');
+      var label = dates[i] + ': ' + num(v);
+      return '<div class="' + cls + '" style="height:' + pctH + '%" title="' + esc(label) + '"></div>';
+    }).join('');
+
+    wrap.style.display = '';
+  }
+
   function render(options){
     var opts = options || {};
     var keepScroll = !!opts.keepScroll;
@@ -2720,6 +2776,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         calcStats(state.groups);
         render({ focusToday: state.offset === 0 });
         renderPagination();
+        renderSparkline(state.groups, state.dates);
       })
       .catch(function(err){
         freezeHead.innerHTML = '';

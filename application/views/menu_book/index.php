@@ -309,6 +309,8 @@
             <div class="open-icon">&#8599; Buka halaman</div>
         </a>
 
+        <a href="<?= site_url('menu_book/food/flame_flavor') ?>" target="_blank" class="page-card wip">
+
         <span class="page-card plan">
             <span class="status-badge status-plan">Plan</span>
             <div class="page-num">Halaman 04</div>
@@ -321,6 +323,7 @@
                 <span class="cat-tag">12 Gambar</span>
             </div>
         </span>
+        </a>
 
         <span class="page-card plan">
             <span class="status-badge status-plan">Plan</span>

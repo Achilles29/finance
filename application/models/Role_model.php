@@ -341,6 +341,7 @@ class Role_model extends CI_Model
             $row['menu_code'] = $primaryMenu['menu_code'] ?? '';
             $row['menu_label'] = $primaryMenu['menu_label'] ?? '';
             $row['menu_url'] = $primaryMenu['url'] ?? '';
+            $row['menu_sort_order'] = (int)($primaryMenu['sort_order'] ?? 9999);
             $row['top_menu_code'] = $primaryMenu['top_menu_code'] ?? '';
             $row['top_menu_label'] = $primaryMenu['top_menu_label'] ?? '';
             $row['top_sort_order'] = (int)($primaryMenu['top_sort_order'] ?? 9999);
@@ -350,6 +351,7 @@ class Role_model extends CI_Model
             $row['resolved_group_icon'] = $groupMeta['icon'];
             $row['resolved_group_color'] = $groupMeta['color'];
             $row['resolved_group_bg'] = $groupMeta['bg_color'];
+            $row['resolved_row_bucket'] = $this->resolve_registry_row_bucket($row);
             $row['usage_type'] = isset($controllerCodes[strtolower((string)$row['page_code'])]) ? 'controller' : 'orphan';
 
             $resolved[] = $row;
@@ -364,9 +366,17 @@ class Role_model extends CI_Model
             if ($menuCmp !== 0) {
                 return $menuCmp;
             }
+            $bucketCmp = ((int)$a['resolved_row_bucket']) <=> ((int)$b['resolved_row_bucket']);
+            if ($bucketCmp !== 0) {
+                return $bucketCmp;
+            }
             $topCmp = ((int)$a['top_sort_order']) <=> ((int)$b['top_sort_order']);
             if ($topCmp !== 0) {
                 return $topCmp;
+            }
+            $menuSortCmp = ((int)$a['menu_sort_order']) <=> ((int)$b['menu_sort_order']);
+            if ($menuSortCmp !== 0) {
+                return $menuSortCmp;
             }
             $labelA = strtolower(trim((string)($a['menu_label'] ?: $a['page_name'])));
             $labelB = strtolower(trim((string)($b['menu_label'] ?: $b['page_name'])));
@@ -378,6 +388,42 @@ class Role_model extends CI_Model
         });
 
         return $resolved;
+    }
+
+    private function resolve_registry_row_bucket(array $row): int
+    {
+        $resolvedGroup = strtoupper(trim((string)($row['resolved_group_code'] ?? '')));
+        $menuCode = strtolower(trim((string)($row['menu_code'] ?? '')));
+        $pageCode = strtolower(trim((string)($row['page_code'] ?? '')));
+        $lookup = trim($menuCode . ' ' . $pageCode);
+
+        if ($resolvedGroup === 'INVENTORY') {
+            if (
+                strpos($lookup, 'warehouse') !== false
+                || strpos($lookup, 'gudang') !== false
+            ) {
+                return 10;
+            }
+
+            if (
+                strpos($lookup, 'component') !== false
+                || strpos($lookup, 'base/prepare') !== false
+                || strpos($pageCode, 'production.component.') === 0
+            ) {
+                return 30;
+            }
+
+            if (
+                strpos($lookup, 'division') !== false
+                || strpos($lookup, 'material') !== false
+                || strpos($lookup, 'daily-recon') !== false
+                || strpos($lookup, 'opname.division') !== false
+            ) {
+                return 20;
+            }
+        }
+
+        return 50;
     }
 
     private function get_active_menu_registry_rows(): array

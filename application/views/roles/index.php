@@ -37,6 +37,25 @@ $pagesWithoutPermissions = is_array($registryAudit['pages_without_permissions'] 
   </div>
 </div>
 
+<style>
+.role-tab-nav .btn.active {
+  background:#7c2d12;
+  border-color:#7c2d12;
+  color:#fff;
+}
+</style>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2 d-flex flex-wrap gap-2 align-items-center">
+    <div class="btn-group btn-group-sm role-tab-nav" role="tablist" aria-label="Tab role dan audit">
+      <button type="button" class="btn btn-outline-secondary active" data-role-tab="roles">Daftar Role</button>
+      <button type="button" class="btn btn-outline-secondary" data-role-tab="audit">Audit Registry Hak Akses</button>
+    </div>
+    <div class="small text-muted">Tab utama sekarang langsung ke tabel role. Audit registry dipisah supaya lebih enak dibaca.</div>
+  </div>
+</div>
+
+<div class="role-tab-pane" data-role-tab-pane="audit" style="display:none;">
 <div class="row g-3 mb-3">
   <div class="col-md-3 col-sm-6">
     <div class="card border-0 shadow-sm h-100">
@@ -421,6 +440,9 @@ $pagesWithoutPermissions = is_array($registryAudit['pages_without_permissions'] 
 </script>
 <?php endif; ?>
 
+</div>
+
+<div class="role-tab-pane" data-role-tab-pane="roles">
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -519,3 +541,28 @@ $pagesWithoutPermissions = is_array($registryAudit['pages_without_permissions'] 
     </div>
   </div>
 </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  function setRoleTab(tab) {
+    document.querySelectorAll('[data-role-tab]').forEach(function (btn) {
+      btn.classList.toggle('active', btn.dataset.roleTab === tab);
+    });
+
+    document.querySelectorAll('[data-role-tab-pane]').forEach(function (pane) {
+      pane.style.display = pane.dataset.roleTabPane === tab ? '' : 'none';
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-role-tab]');
+    if (!btn) return;
+    setRoleTab(btn.dataset.roleTab || 'roles');
+  });
+
+  setRoleTab('roles');
+})();
+</script>

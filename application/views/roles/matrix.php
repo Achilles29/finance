@@ -202,7 +202,7 @@ $perm_flags = [
   </div>
   <div class="text-end flex-shrink-0">
     <div style="font-size:1.6rem; font-weight:800; line-height:1; color:#1e293b;" id="grand-active-num"><?= $grand_active ?></div>
-    <div style="font-size:0.68rem; color:#94a3b8;">halaman aktif dari <?= $grand_pages ?></div>
+    <div style="font-size:0.68rem; color:#94a3b8;">halaman aktif dari <span id="grand-total-num"><?= $grand_pages ?></span></div>
   </div>
 </div>
 
@@ -282,7 +282,7 @@ $perm_flags = [
     </div>
     <!-- Counter -->
     <div class="mx-mod-counter" style="color:<?= $meta['color'] ?>;">
-      <span class="mod-active-num" data-mod="<?= htmlspecialchars($mod) ?>"><?= $stats['active'] ?></span>/<span><?= $stats['total'] ?></span>
+      <span class="mod-active-num" data-mod="<?= htmlspecialchars($mod) ?>"><?= $stats['active'] ?></span>/<span class="mod-total-num" data-mod="<?= htmlspecialchars($mod) ?>"><?= $stats['total'] ?></span>
     </div>
     <!-- Quick buttons -->
     <div class="mx-mod-quick" onclick="event.stopPropagation();">
@@ -388,6 +388,22 @@ $perm_flags = [
     return document.querySelectorAll(`.matrix-cb[data-pid="${pid}"]`);
   }
 
+  function isRowFilterVisible(row) {
+    return row && row.dataset.filterVisible === '1';
+  }
+
+  function getModuleRows(mod, filteredOnly) {
+    const rows = Array.from(document.querySelectorAll(`.mx-page-row[data-module="${mod}"]`));
+    return filteredOnly ? rows.filter(isRowFilterVisible) : rows;
+  }
+
+  function getFilteredCheckboxes(selector) {
+    return Array.from(document.querySelectorAll(selector)).filter(cb => {
+      const row = cb.closest('.mx-page-row');
+      return isRowFilterVisible(row);
+    });
+  }
+
   function applyRowFilters() {
     const searchInput = document.getElementById('mx-search');
     const showTechnical = !!document.getElementById('mx-show-technical')?.checked;
@@ -402,6 +418,7 @@ $perm_flags = [
         const isTechnical = row.dataset.hasMenu !== '1';
         const visibleRow = matchesSearch && (showTechnical || !isTechnical);
         row.style.display = visibleRow ? '' : 'none';
+        row.dataset.filterVisible = visibleRow ? '1' : '0';
         if (visibleRow) visible++;
       });
 
@@ -416,7 +433,10 @@ $perm_flags = [
       }
 
       modEl.style.display = visible === 0 ? 'none' : '';
+      syncModuleStats(modEl.dataset.module);
     });
+
+    syncGrandCounter();
   }
   function getCbsByModule(mod) {
     return document.querySelectorAll(`.matrix-cb[data-module="${mod}"]`);
@@ -441,7 +461,7 @@ $perm_flags = [
 
   // ── Module counter + progress bar ─────────────────────────────
   function syncModuleStats(mod) {
-    const rows  = document.querySelectorAll(`.mx-page-row[data-module="${mod}"]`);
+    const rows  = getModuleRows(mod, true);
     let active  = 0;
     rows.forEach(row => {
       const pid  = row.dataset.pid;
@@ -453,14 +473,16 @@ $perm_flags = [
     const pct   = total > 0 ? Math.round(active / total * 100) : 0;
 
     const numEl = document.querySelector(`.mod-active-num[data-mod="${mod}"]`);
+    const totalEl = document.querySelector(`.mod-total-num[data-mod="${mod}"]`);
     const barEl = document.querySelector(`.mx-mod-bar-fill[data-mod="${mod}"]`);
     if (numEl) numEl.textContent = active;
+    if (totalEl) totalEl.textContent = total;
     if (barEl) barEl.style.width = pct + '%';
   }
 
   // ── Grand counter ──────────────────────────────────────────────
   function syncGrandCounter() {
-    const allRows = document.querySelectorAll('.mx-page-row');
+    const allRows = Array.from(document.querySelectorAll('.mx-page-row')).filter(isRowFilterVisible);
     let active = 0;
     allRows.forEach(row => {
       const pid = row.dataset.pid;
@@ -468,8 +490,10 @@ $perm_flags = [
       if (Array.from(cbs).some(c => c.checked)) active++;
     });
     const el1 = document.getElementById('grand-active-num');
+    const elTotal = document.getElementById('grand-total-num');
     const el2 = document.getElementById('save-bar-active');
     if (el1) el1.textContent = active;
+    if (elTotal) elTotal.textContent = allRows.length;
     if (el2) el2.textContent = active;
   }
 
@@ -527,10 +551,10 @@ $perm_flags = [
 
   // ── Global buttons ─────────────────────────────────────────────
   function setAllCbs(checked) {
-    document.querySelectorAll('.matrix-cb').forEach(cb => {
+    getFilteredCheckboxes('.matrix-cb').forEach(cb => {
       cb.checked = checked; syncPill(cb);
     });
-    document.querySelectorAll('.mx-page-row').forEach(row => syncRowState(row.dataset.pid));
+    Array.from(document.querySelectorAll('.mx-page-row')).filter(isRowFilterVisible).forEach(row => syncRowState(row.dataset.pid));
     document.querySelectorAll('.mx-module').forEach(m => syncModuleStats(m.dataset.module));
     syncGrandCounter();
     markDirty();
@@ -539,10 +563,10 @@ $perm_flags = [
   document.getElementById('btn-check-all').addEventListener('click', () => setAllCbs(true));
   document.getElementById('btn-uncheck-all').addEventListener('click', () => setAllCbs(false));
   document.getElementById('btn-check-all-view').addEventListener('click', () => {
-    document.querySelectorAll('.matrix-cb[data-flag="can_view"]').forEach(cb => {
+    getFilteredCheckboxes('.matrix-cb[data-flag="can_view"]').forEach(cb => {
       cb.checked = true; syncPill(cb);
     });
-    document.querySelectorAll('.mx-page-row').forEach(row => syncRowState(row.dataset.pid));
+    Array.from(document.querySelectorAll('.mx-page-row')).filter(isRowFilterVisible).forEach(row => syncRowState(row.dataset.pid));
     document.querySelectorAll('.mx-module').forEach(m => syncModuleStats(m.dataset.module));
     syncGrandCounter();
     markDirty();
@@ -562,7 +586,7 @@ $perm_flags = [
 
   // ── Per-module quick buttons ───────────────────────────────────
   function setModCbs(mod, checked, viewOnly) {
-    getCbsByModule(mod).forEach(cb => {
+    getFilteredCheckboxes(`.matrix-cb[data-module="${mod}"]`).forEach(cb => {
       if (viewOnly && cb.dataset.flag !== 'can_view') return;
       cb.checked = checked; syncPill(cb);
     });
@@ -571,7 +595,7 @@ $perm_flags = [
       const collapseEl = document.querySelector(`.mx-module[data-module="${mod}"] .collapse`);
       if (collapseEl) bootstrap.Collapse.getOrCreateInstance(collapseEl).show();
     }
-    document.querySelectorAll(`.mx-page-row[data-module="${mod}"]`).forEach(row => syncRowState(row.dataset.pid));
+    getModuleRows(mod, true).forEach(row => syncRowState(row.dataset.pid));
     syncModuleStats(mod);
     syncGrandCounter();
     markDirty();

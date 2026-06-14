@@ -351,7 +351,73 @@ class My extends MY_Controller
     public function schedule()
     {
         $this->require_registered_page_permission(self::PAGE_SCHEDULE);
-        $this->render_placeholder('my.schedule', 'Jadwal Shift Saya', 'Halaman jadwal shift personal akan disatukan dengan kalender shift bulanan per pegawai.');
+
+        $employeeId = $this->selected_employee_id();
+        $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
+
+        $month = trim((string)$this->input->get('month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+
+        $dateStart = $month . '-01';
+        $dateEnd = date('Y-m-t', strtotime($dateStart));
+        $holidayDates = $this->Attendance_model->get_holiday_dates_between($dateStart, $dateEnd);
+        $holidayMap = array_fill_keys($holidayDates, true);
+
+        $scheduleRows = [];
+        $scheduleMap = [];
+        if ($employee) {
+            $scheduleRows = $this->My_portal_model->list_monthly_schedules((int)$employee['id'], $dateStart, $dateEnd);
+            foreach ($scheduleRows as $row) {
+                $scheduleDate = (string)($row['schedule_date'] ?? '');
+                if ($scheduleDate !== '') {
+                    $scheduleMap[$scheduleDate] = $row;
+                }
+            }
+        }
+
+        $days = [];
+        $scheduledCount = 0;
+        $holidayCount = 0;
+        for ($ts = strtotime($dateStart); $ts <= strtotime($dateEnd); $ts = strtotime('+1 day', $ts)) {
+            $date = date('Y-m-d', $ts);
+            $row = $scheduleMap[$date] ?? null;
+            $isHoliday = isset($holidayMap[$date]);
+            if ($row) {
+                $scheduledCount++;
+            }
+            if ($isHoliday) {
+                $holidayCount++;
+            }
+
+            $days[] = [
+                'date' => $date,
+                'day_label' => date('d M Y', $ts),
+                'dow_label' => date('D', $ts),
+                'is_today' => $date === date('Y-m-d'),
+                'is_holiday' => $isHoliday,
+                'schedule' => $row,
+            ];
+        }
+
+        $this->render('my/schedule', [
+            'title' => 'Jadwal Shift Saya',
+            'active_menu' => 'my.schedule',
+            'employee' => $employee,
+            'employee_options' => $this->is_superadmin() ? $this->My_portal_model->get_employee_options() : [],
+            'selected_employee_id' => $employeeId,
+            'month' => $month,
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+            'days' => $days,
+            'summary' => [
+                'total_days' => count($days),
+                'scheduled_days' => $scheduledCount,
+                'unscheduled_days' => max(0, count($days) - $scheduledCount),
+                'holiday_days' => $holidayCount,
+            ],
+        ]);
     }
 
     public function payroll()

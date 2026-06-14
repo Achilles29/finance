@@ -9,9 +9,9 @@ if ($isProductRecipe) {
   $backUrl = site_url('master/product');
   $openBase = 'master/relation/product-recipe/';
 } elseif ($isComponentFormula) {
-  $baseUrl = site_url('master/relation/component-formula');
-  $backUrl = site_url('master/component');
-  $openBase = 'master/relation/component-formula/';
+  $baseUrl = site_url('production/component-formulas');
+  $backUrl = site_url('production/component-masters');
+  $openBase = 'production/component-formulas/detail/';
 } else {
   $baseUrl = site_url('master/relation/product-extra');
   $backUrl = site_url('master/product');

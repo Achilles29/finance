@@ -156,7 +156,10 @@ class Production extends MY_Controller
 
     public function component_reconcile_audit()
     {
-        $this->require_permission('production.component.daily.index', 'view');
+        $pageCode = $this->can('production.component.reconcile.index', 'view')
+            ? 'production.component.reconcile.index'
+            : 'production.component.daily.index';
+        $this->require_permission($pageCode, 'view');
         $filters = $this->component_reconcile_filters();
         $result = $this->Production_model->component_reconcile_audit((string)($filters['as_of_date'] ?? ''), $filters);
         if (!($result['ok'] ?? false)) {
@@ -168,7 +171,10 @@ class Production extends MY_Controller
 
     public function component_reconcile_repair()
     {
-        $this->require_permission('production.component.daily.index', 'edit');
+        $pageCode = $this->can('production.component.reconcile.index', 'edit')
+            ? 'production.component.reconcile.index'
+            : 'production.component.daily.index';
+        $this->require_permission($pageCode, 'edit');
         $payload = json_decode((string)$this->input->raw_input_stream, true);
         if (!is_array($payload)) {
             $payload = $this->input->post(null, true) ?: [];
@@ -189,7 +195,10 @@ class Production extends MY_Controller
 
     public function component_reconcile_repair_all()
     {
-        $this->require_permission('production.component.daily.index', 'edit');
+        $pageCode = $this->can('production.component.reconcile.index', 'edit')
+            ? 'production.component.reconcile.index'
+            : 'production.component.daily.index';
+        $this->require_permission($pageCode, 'edit');
         $payload = json_decode((string)$this->input->raw_input_stream, true);
         if (!is_array($payload)) {
             $payload = $this->input->post(null, true) ?: [];

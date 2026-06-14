@@ -502,7 +502,7 @@ class Purchase extends MY_Controller
 
     public function account_index()
     {
-        redirect('master/company-account');
+        redirect('finance/accounts');
     }
 
     public function finance_mutation_index()
@@ -2211,6 +2211,9 @@ class Purchase extends MY_Controller
 
     public function warehouse_lot_audit_index()
     {
+        if ($this->can('purchase.stock.warehouse.lot.index', 'view')) {
+            $this->require_permission('purchase.stock.warehouse.lot.index', 'view');
+        }
         $this->render_lot_audit_page(
             'WAREHOUSE',
             true,
@@ -2223,12 +2226,15 @@ class Purchase extends MY_Controller
 
     public function division_lot_audit_index()
     {
-        $canView = $this->can(self::PAGE_STOCK_WAREHOUSE, 'view')
+        $canView = $this->can('purchase.stock.division.lot.index', 'view')
+            || $this->can(self::PAGE_STOCK_WAREHOUSE, 'view')
             || $this->can(self::PAGE_STOCK_DIVISION, 'view')
             || $this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')
             || $this->can(self::PAGE_STOCK_MATERIAL_MATRIX, 'view');
         if (!$canView) {
             $this->require_permission(self::PAGE_ORDER, 'view');
+        } elseif ($this->can('purchase.stock.division.lot.index', 'view')) {
+            $this->require_permission('purchase.stock.division.lot.index', 'view');
         }
 
         $divisions          = $this->Purchase_model->list_active_operational_divisions();
@@ -2289,7 +2295,9 @@ class Purchase extends MY_Controller
 
     public function material_lot_usage($lotId)
     {
-        $canView = $this->can(self::PAGE_STOCK_WAREHOUSE, 'view')
+        $canView = $this->can('purchase.stock.warehouse.lot.index', 'view')
+            || $this->can('purchase.stock.division.lot.index', 'view')
+            || $this->can(self::PAGE_STOCK_WAREHOUSE, 'view')
             || $this->can(self::PAGE_STOCK_DIVISION, 'view')
             || $this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')
             || $this->can(self::PAGE_STOCK_MATERIAL_MATRIX, 'view');

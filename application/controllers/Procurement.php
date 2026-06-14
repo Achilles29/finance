@@ -25,7 +25,7 @@ class Procurement extends MY_Controller
 
     public function purchasing_desk()
     {
-        $this->store_requests();
+        redirect('store-requests');
     }
 
     public function store_requests()

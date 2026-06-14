@@ -32,7 +32,7 @@ $lag         = (int)($replStatus['lag_seconds'] ?? 0);
     <p class="fin-page-subtitle mb-0">MySQL Master-Slave replication dengan failover manual dan sync terverifikasi.</p>
   </div>
   <div class="fin-page-actions">
-    <a href="<?php echo site_url('dbtools/backup-guide'); ?>" class="btn btn-outline-secondary btn-sm">
+    <a href="<?php echo site_url('dbtools'); ?>" class="btn btn-outline-secondary btn-sm">
       <i class="ri ri-database-2-line me-1"></i>Skema 1 — Backup
     </a>
   </div>

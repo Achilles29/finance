@@ -415,3 +415,7 @@ saya belum coba generate, tapi pastikan guardnya seperti ini:
 
 
 /inventory/stock/division/reconcile sesuaikan form filter agar tidak ada tampilan terpotong. tambahkan filter missmatch
+
+
+sekalian cek, kemarin ada ordern MANUAL BREW V60 JAPANESE dari MSO-20260614153456-3FEA. tapi paper filter v60 tidak terpotong stok nya. tidak masuk log. kenapa? apa karena orderan dari self order? yang di klik saat verifikasi. /pos/self-order/orders
+CEK DAN PERBAIKI

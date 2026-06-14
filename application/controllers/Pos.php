@@ -22,7 +22,10 @@ class Pos extends MY_Controller
 
     public function members_data()
     {
-        $this->require_permission('pos.member.index', 'view');
+        $pageCode = $this->can('loyalty.member.index', 'view')
+            ? 'loyalty.member.index'
+            : 'pos.member.index';
+        $this->require_permission($pageCode, 'view');
         $this->json_ok($this->Pos_model->member_rows($this->member_filters()));
     }
 
@@ -30,7 +33,10 @@ class Pos extends MY_Controller
     {
         $payload = $this->request_payload();
         $id = (int)($payload['id'] ?? 0);
-        $this->require_permission('pos.member.index', $id > 0 ? 'edit' : 'create');
+        $pageCode = $this->can('loyalty.member.index', $id > 0 ? 'edit' : 'create')
+            ? 'loyalty.member.index'
+            : 'pos.member.index';
+        $this->require_permission($pageCode, $id > 0 ? 'edit' : 'create');
         $result = $this->Pos_model->save_member($payload);
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menyimpan member.'), 422);
@@ -41,7 +47,10 @@ class Pos extends MY_Controller
 
     public function member_toggle($id)
     {
-        $this->require_permission('pos.member.index', 'edit');
+        $pageCode = $this->can('loyalty.member.index', 'edit')
+            ? 'loyalty.member.index'
+            : 'pos.member.index';
+        $this->require_permission($pageCode, 'edit');
         $result = $this->Pos_model->toggle_member((int)$id);
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal mengubah status member.'), 422);
@@ -62,7 +71,10 @@ class Pos extends MY_Controller
 
     public function stock_commit_audit()
     {
-        $this->require_permission('pos.stock.live.index', 'view');
+        $pageCode = $this->can('pos.stock.commit.audit.index', 'view')
+            ? 'pos.stock.commit.audit.index'
+            : 'pos.stock.live.index';
+        $this->require_permission($pageCode, 'view');
         if (!isset($this->posruntimejobservice) || !is_object($this->posruntimejobservice)) {
             $this->load->library('PosRuntimeJobService', null, 'posruntimejobservice');
         }
@@ -204,7 +216,10 @@ class Pos extends MY_Controller
 
     public function stock_commit_audit_repair_material_mismatches()
     {
-        $this->require_permission('pos.stock.live.index', 'edit');
+        $pageCode = $this->can('pos.stock.commit.audit.index', 'edit')
+            ? 'pos.stock.commit.audit.index'
+            : 'pos.stock.live.index';
+        $this->require_permission($pageCode, 'edit');
         $payload = json_decode((string)$this->input->raw_input_stream, true);
         if (!is_array($payload)) {
             $payload = $this->input->post(null, true) ?: [];
@@ -279,7 +294,10 @@ class Pos extends MY_Controller
 
     public function stock_commit_audit_repair_component_mismatches()
     {
-        $this->require_permission('pos.stock.live.index', 'edit');
+        $pageCode = $this->can('pos.stock.commit.audit.index', 'edit')
+            ? 'pos.stock.commit.audit.index'
+            : 'pos.stock.live.index';
+        $this->require_permission($pageCode, 'edit');
         $payload = json_decode((string)$this->input->raw_input_stream, true);
         if (!is_array($payload)) {
             $payload = $this->input->post(null, true) ?: [];
@@ -360,7 +378,10 @@ class Pos extends MY_Controller
 
     public function stock_commit_audit_repair_material_drift()
     {
-        $this->require_permission('pos.stock.live.index', 'edit');
+        $pageCode = $this->can('pos.stock.commit.audit.index', 'edit')
+            ? 'pos.stock.commit.audit.index'
+            : 'pos.stock.live.index';
+        $this->require_permission($pageCode, 'edit');
         $payload = json_decode((string)$this->input->raw_input_stream, true);
         if (!is_array($payload)) {
             $payload = $this->input->post(null, true) ?: [];
@@ -427,7 +448,10 @@ class Pos extends MY_Controller
 
     public function stock_commit_audit_repair_component_drift()
     {
-        $this->require_permission('pos.stock.live.index', 'edit');
+        $pageCode = $this->can('pos.stock.commit.audit.index', 'edit')
+            ? 'pos.stock.commit.audit.index'
+            : 'pos.stock.live.index';
+        $this->require_permission($pageCode, 'edit');
         $payload = json_decode((string)$this->input->raw_input_stream, true);
         if (!is_array($payload)) {
             $payload = $this->input->post(null, true) ?: [];

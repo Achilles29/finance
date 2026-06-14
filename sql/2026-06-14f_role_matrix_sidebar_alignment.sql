@@ -6,7 +6,8 @@ SET NAMES utf8mb4;
 -- 1) Menyamakan registry role/matrix-group dengan sidebar aktif saat ini
 -- 2) Mendaftarkan page_code controller yang belum ada di sys_page
 -- 3) Memperbaiki menu yang masih tertaut ke page lama / salah
--- 4) Backfill matrix_group agar urutan matrix mengikuti rumpun sidebar
+-- 4) Memisahkan registry page yang memang beda fungsi walau dulu share page_id
+-- 5) Backfill matrix_group agar urutan matrix mengikuti rumpun sidebar
 --
 -- Catatan:
 -- - Script ini fokus pada registry hak akses, bukan UI kosmetik
@@ -204,6 +205,86 @@ WHERE NOT EXISTS (
   SELECT 1 FROM sys_page WHERE page_code = 'my.schedule.index'
 );
 
+INSERT INTO sys_page (
+  page_code, page_name, module, matrix_group, description, is_active, created_at
+)
+SELECT
+  'attendance.schedules.v2.index',
+  'Jadwal Shift V2',
+  'ATTENDANCE',
+  'ATTENDANCE',
+  'Versi spreadsheet jadwal shift bulanan per pegawai.',
+  1,
+  @now
+FROM dual
+WHERE NOT EXISTS (
+  SELECT 1 FROM sys_page WHERE page_code = 'attendance.schedules.v2.index'
+);
+
+INSERT INTO sys_page (
+  page_code, page_name, module, matrix_group, description, is_active, created_at
+)
+SELECT
+  'attendance.meal_calendar.index',
+  'Kalender Uang Makan',
+  'ATTENDANCE',
+  'ATTENDANCE',
+  'Kalender estimasi uang makan per pegawai dan per hari.',
+  1,
+  @now
+FROM dual
+WHERE NOT EXISTS (
+  SELECT 1 FROM sys_page WHERE page_code = 'attendance.meal_calendar.index'
+);
+
+INSERT INTO sys_page (
+  page_code, page_name, module, matrix_group, description, is_active, created_at
+)
+SELECT
+  'pos.stock.commit.audit.index',
+  'Audit Commit Stok POS',
+  'POS',
+  'POS',
+  'Audit mismatch commit stok POS untuk bahan baku dan base/prepare.',
+  1,
+  @now
+FROM dual
+WHERE NOT EXISTS (
+  SELECT 1 FROM sys_page WHERE page_code = 'pos.stock.commit.audit.index'
+);
+
+INSERT INTO sys_page (
+  page_code, page_name, module, matrix_group, description, is_active, created_at
+)
+SELECT
+  'purchase.stock.division.lot.index',
+  'Lot Bahan Baku Divisi',
+  'INVENTORY',
+  'INVENTORY',
+  'Audit dan penelusuran lot FIFO bahan baku pada scope divisi.',
+  1,
+  @now
+FROM dual
+WHERE NOT EXISTS (
+  SELECT 1 FROM sys_page WHERE page_code = 'purchase.stock.division.lot.index'
+);
+
+INSERT INTO sys_page (
+  page_code, page_name, module, matrix_group, description, is_active, created_at
+)
+SELECT
+  'purchase.stock.warehouse.lot.index',
+  'Lot Stok Gudang',
+  'INVENTORY',
+  'INVENTORY',
+  'Audit dan penelusuran lot FIFO bahan baku pada scope gudang.',
+  1,
+  @now
+FROM dual
+WHERE NOT EXISTS (
+  SELECT 1 FROM sys_page WHERE page_code = 'purchase.stock.warehouse.lot.index'
+);
+
 -- ------------------------------------------------------------
 -- C. Perbaiki menu yang masih salah taut ke page lama
 -- ------------------------------------------------------------
@@ -211,6 +292,31 @@ UPDATE sys_menu m
 JOIN sys_page p ON p.page_code = 'production.component.reconcile.index'
 SET m.page_id = p.id
 WHERE m.menu_code = 'production.component.reconcile';
+
+UPDATE sys_menu m
+JOIN sys_page p ON p.page_code = 'attendance.schedules.v2.index'
+SET m.page_id = p.id
+WHERE m.menu_code = 'hr.att-schedules-v2';
+
+UPDATE sys_menu m
+JOIN sys_page p ON p.page_code = 'attendance.meal_calendar.index'
+SET m.page_id = p.id
+WHERE m.menu_code = 'hr.att-meal-calendar';
+
+UPDATE sys_menu m
+JOIN sys_page p ON p.page_code = 'pos.stock.commit.audit.index'
+SET m.page_id = p.id
+WHERE m.menu_code = 'pos.stock.commit.audit';
+
+UPDATE sys_menu m
+JOIN sys_page p ON p.page_code = 'purchase.stock.division.lot.index'
+SET m.page_id = p.id
+WHERE m.menu_code = 'purchase.stock.division.lot';
+
+UPDATE sys_menu m
+JOIN sys_page p ON p.page_code = 'purchase.stock.warehouse.lot.index'
+SET m.page_id = p.id
+WHERE m.menu_code = 'purchase.stock.warehouse.lot';
 
 UPDATE sys_menu m
 JOIN sys_page p ON p.page_code = 'inventory.stock.opname.division.index'
@@ -222,14 +328,108 @@ JOIN sys_page p ON p.page_code = 'production.component.opname.monthly'
 SET m.page_id = p.id
 WHERE m.menu_code = 'production.component.opening.monthly';
 
--- Page alias lama daily recon tidak dipakai controller lagi
-UPDATE sys_page
-SET is_active = 0
-WHERE page_code = 'inventory.stock.daily.recon.division';
+UPDATE sys_menu
+SET url = '/inventory/stock/daily-recon/division',
+    updated_at = @now
+WHERE menu_code = 'purchase.stock.opname.division';
 
+UPDATE sys_menu
+SET url = '/inventory/stock/opname/division/monthly',
+    updated_at = @now
+WHERE menu_code = 'inventory.stock.opname.division.monthly';
+
+UPDATE sys_menu
+SET url = '/inventory/stock/opname/warehouse/monthly',
+    updated_at = @now
+WHERE menu_code = 'inventory.stock.opname.warehouse.monthly';
+
+UPDATE sys_menu
+SET url = '/production/component-daily-recon',
+    updated_at = @now
+WHERE menu_code = 'production.component.daily.recon';
+
+UPDATE sys_menu
+SET url = '/production/component-opname',
+    updated_at = @now
+WHERE menu_code = 'production.component.opname.monthly';
+
+UPDATE sys_menu
+SET url = '/finance/accounts',
+    updated_at = @now
+WHERE menu_code = 'finance.company_account';
+
+SET @has_my_schedule_menu := (
+  SELECT COUNT(*)
+  FROM sys_menu
+  WHERE menu_code = 'my.schedule'
+);
+
+UPDATE sys_menu
+SET sort_order = sort_order + 1,
+    updated_at = @now
+WHERE @has_my_schedule_menu = 0
+  AND sidebar_type = 'MY'
+  AND parent_id IS NULL
+  AND sort_order >= 3;
+
+INSERT INTO sys_menu (
+  menu_code, menu_label, icon, url, page_id, sort_order, is_active, sidebar_type, parent_id
+)
+SELECT
+  'my.schedule',
+  'Jadwal Saya',
+  'ri-calendar-2-line',
+  '/my/schedule',
+  p.id,
+  3,
+  1,
+  'MY',
+  NULL
+FROM sys_page p
+WHERE p.page_code = 'my.schedule.index'
+ON DUPLICATE KEY UPDATE
+  menu_label = VALUES(menu_label),
+  icon = VALUES(icon),
+  url = VALUES(url),
+  page_id = VALUES(page_id),
+  sort_order = VALUES(sort_order),
+  is_active = VALUES(is_active),
+  sidebar_type = VALUES(sidebar_type),
+  updated_at = @now;
+
+-- Page alias / legacy yang memang sudah digantikan route / page lain
 UPDATE sys_page
 SET is_active = 0
-WHERE page_code = 'production.component.opening.monthly';
+WHERE page_code IN (
+  'inventory.stock.daily.recon.division',
+  'production.component.opening.monthly',
+  'master.component.index',
+  'master.component_formula.index',
+  'master.purchase.company_account',
+  'master.purchase.payment_channel',
+  'procurement.purchasing.index',
+  'purchase.account.index',
+  'purchase.stock.opening.index',
+  'pos.member.index',
+  'system.backup.guide',
+  'system.replication.guide',
+  'grp.finance',
+  'grp.purchase'
+);
+
+UPDATE sys_menu
+SET is_active = 0,
+    updated_at = @now
+WHERE menu_code IN (
+  'master.component',
+  'master.component.formula',
+  'master.purchase.payment_channel',
+  'production.component.opening.monthly',
+  'purchase.account',
+  'system.backup.guide',
+  'system.replication.guide',
+  'pos.member'
+);
 
 -- ------------------------------------------------------------
 -- D. Clone permission rows untuk page baru yang sebelumnya tidak bisa diatur
@@ -239,6 +439,36 @@ SET @page_daily_component := (
 );
 SET @page_reconcile_component := (
   SELECT id FROM sys_page WHERE page_code = 'production.component.reconcile.index' LIMIT 1
+);
+SET @page_schedules := (
+  SELECT id FROM sys_page WHERE page_code = 'attendance.schedules.index' LIMIT 1
+);
+SET @page_schedules_v2 := (
+  SELECT id FROM sys_page WHERE page_code = 'attendance.schedules.v2.index' LIMIT 1
+);
+SET @page_attendance_estimate := (
+  SELECT id FROM sys_page WHERE page_code = 'attendance.estimate.index' LIMIT 1
+);
+SET @page_meal_calendar := (
+  SELECT id FROM sys_page WHERE page_code = 'attendance.meal_calendar.index' LIMIT 1
+);
+SET @page_pos_stock_live := (
+  SELECT id FROM sys_page WHERE page_code = 'pos.stock.live.index' LIMIT 1
+);
+SET @page_pos_stock_commit_audit := (
+  SELECT id FROM sys_page WHERE page_code = 'pos.stock.commit.audit.index' LIMIT 1
+);
+SET @page_stock_division := (
+  SELECT id FROM sys_page WHERE page_code = 'purchase.stock.division.index' LIMIT 1
+);
+SET @page_stock_division_lot := (
+  SELECT id FROM sys_page WHERE page_code = 'purchase.stock.division.lot.index' LIMIT 1
+);
+SET @page_stock_warehouse := (
+  SELECT id FROM sys_page WHERE page_code = 'purchase.stock.warehouse.index' LIMIT 1
+);
+SET @page_stock_warehouse_lot := (
+  SELECT id FROM sys_page WHERE page_code = 'purchase.stock.warehouse.lot.index' LIMIT 1
 );
 SET @page_daily_recon_component := (
   SELECT id FROM sys_page WHERE page_code = 'production.component.daily.recon.index' LIMIT 1
@@ -268,6 +498,121 @@ SELECT
 FROM auth_role_permission rp
 WHERE rp.page_id = @page_daily_component
   AND @page_reconcile_component IS NOT NULL
+ON DUPLICATE KEY UPDATE
+  can_view = VALUES(can_view),
+  can_create = VALUES(can_create),
+  can_edit = VALUES(can_edit),
+  can_delete = VALUES(can_delete),
+  can_export = VALUES(can_export),
+  updated_at = @now;
+
+INSERT INTO auth_role_permission (
+  role_id, page_id, can_view, can_create, can_edit, can_delete, can_export, created_at
+)
+SELECT
+  rp.role_id,
+  @page_schedules_v2,
+  rp.can_view,
+  rp.can_create,
+  rp.can_edit,
+  rp.can_delete,
+  rp.can_export,
+  @now
+FROM auth_role_permission rp
+WHERE rp.page_id = @page_schedules
+  AND @page_schedules_v2 IS NOT NULL
+ON DUPLICATE KEY UPDATE
+  can_view = VALUES(can_view),
+  can_create = VALUES(can_create),
+  can_edit = VALUES(can_edit),
+  can_delete = VALUES(can_delete),
+  can_export = VALUES(can_export),
+  updated_at = @now;
+
+INSERT INTO auth_role_permission (
+  role_id, page_id, can_view, can_create, can_edit, can_delete, can_export, created_at
+)
+SELECT
+  rp.role_id,
+  @page_meal_calendar,
+  rp.can_view,
+  rp.can_create,
+  rp.can_edit,
+  rp.can_delete,
+  rp.can_export,
+  @now
+FROM auth_role_permission rp
+WHERE rp.page_id = @page_attendance_estimate
+  AND @page_meal_calendar IS NOT NULL
+ON DUPLICATE KEY UPDATE
+  can_view = VALUES(can_view),
+  can_create = VALUES(can_create),
+  can_edit = VALUES(can_edit),
+  can_delete = VALUES(can_delete),
+  can_export = VALUES(can_export),
+  updated_at = @now;
+
+INSERT INTO auth_role_permission (
+  role_id, page_id, can_view, can_create, can_edit, can_delete, can_export, created_at
+)
+SELECT
+  rp.role_id,
+  @page_pos_stock_commit_audit,
+  rp.can_view,
+  rp.can_create,
+  rp.can_edit,
+  rp.can_delete,
+  rp.can_export,
+  @now
+FROM auth_role_permission rp
+WHERE rp.page_id = @page_pos_stock_live
+  AND @page_pos_stock_commit_audit IS NOT NULL
+ON DUPLICATE KEY UPDATE
+  can_view = VALUES(can_view),
+  can_create = VALUES(can_create),
+  can_edit = VALUES(can_edit),
+  can_delete = VALUES(can_delete),
+  can_export = VALUES(can_export),
+  updated_at = @now;
+
+INSERT INTO auth_role_permission (
+  role_id, page_id, can_view, can_create, can_edit, can_delete, can_export, created_at
+)
+SELECT
+  rp.role_id,
+  @page_stock_division_lot,
+  rp.can_view,
+  rp.can_create,
+  rp.can_edit,
+  rp.can_delete,
+  rp.can_export,
+  @now
+FROM auth_role_permission rp
+WHERE rp.page_id = @page_stock_division
+  AND @page_stock_division_lot IS NOT NULL
+ON DUPLICATE KEY UPDATE
+  can_view = VALUES(can_view),
+  can_create = VALUES(can_create),
+  can_edit = VALUES(can_edit),
+  can_delete = VALUES(can_delete),
+  can_export = VALUES(can_export),
+  updated_at = @now;
+
+INSERT INTO auth_role_permission (
+  role_id, page_id, can_view, can_create, can_edit, can_delete, can_export, created_at
+)
+SELECT
+  rp.role_id,
+  @page_stock_warehouse_lot,
+  rp.can_view,
+  rp.can_create,
+  rp.can_edit,
+  rp.can_delete,
+  rp.can_export,
+  @now
+FROM auth_role_permission rp
+WHERE rp.page_id = @page_stock_warehouse
+  AND @page_stock_warehouse_lot IS NOT NULL
 ON DUPLICATE KEY UPDATE
   can_view = VALUES(can_view),
   can_create = VALUES(can_create),
@@ -400,10 +745,15 @@ WHERE p.is_active = 1
   AND (
     COALESCE(p.matrix_group, '') = ''
     OR p.page_code IN (
+      'attendance.schedules.v2.index',
+      'attendance.meal_calendar.index',
+      'pos.stock.commit.audit.index',
       'product.monitoring.availability.index',
       'production.component.lot.index',
       'production.component.reconcile.index',
       'inventory.stock.opname.division.index',
+      'purchase.stock.division.lot.index',
+      'purchase.stock.warehouse.lot.index',
       'my.schedule.index'
     )
   );
@@ -441,6 +791,11 @@ COMMIT;
 SELECT 'controller_pages_missing_after_seed' AS metric, COUNT(*) AS total
 FROM (
   SELECT 'my.schedule.index' AS page_code
+  UNION ALL SELECT 'attendance.schedules.v2.index'
+  UNION ALL SELECT 'attendance.meal_calendar.index'
+  UNION ALL SELECT 'pos.stock.commit.audit.index'
+  UNION ALL SELECT 'purchase.stock.division.lot.index'
+  UNION ALL SELECT 'purchase.stock.warehouse.lot.index'
   UNION ALL SELECT 'product.monitoring.availability.index'
   UNION ALL SELECT 'production.component.lot.index'
   UNION ALL SELECT 'production.component.reconcile.index'
@@ -474,6 +829,46 @@ WHERE m.menu_code = 'purchase.stock.opname.division'
 
 UNION ALL
 
+SELECT 'attendance_schedules_v2_menu_link_ok', COUNT(*)
+FROM sys_menu m
+JOIN sys_page p ON p.id = m.page_id
+WHERE m.menu_code = 'hr.att-schedules-v2'
+  AND p.page_code = 'attendance.schedules.v2.index'
+
+UNION ALL
+
+SELECT 'attendance_meal_calendar_menu_link_ok', COUNT(*)
+FROM sys_menu m
+JOIN sys_page p ON p.id = m.page_id
+WHERE m.menu_code = 'hr.att-meal-calendar'
+  AND p.page_code = 'attendance.meal_calendar.index'
+
+UNION ALL
+
+SELECT 'pos_stock_commit_audit_menu_link_ok', COUNT(*)
+FROM sys_menu m
+JOIN sys_page p ON p.id = m.page_id
+WHERE m.menu_code = 'pos.stock.commit.audit'
+  AND p.page_code = 'pos.stock.commit.audit.index'
+
+UNION ALL
+
+SELECT 'purchase_stock_division_lot_menu_link_ok', COUNT(*)
+FROM sys_menu m
+JOIN sys_page p ON p.id = m.page_id
+WHERE m.menu_code = 'purchase.stock.division.lot'
+  AND p.page_code = 'purchase.stock.division.lot.index'
+
+UNION ALL
+
+SELECT 'purchase_stock_warehouse_lot_menu_link_ok', COUNT(*)
+FROM sys_menu m
+JOIN sys_page p ON p.id = m.page_id
+WHERE m.menu_code = 'purchase.stock.warehouse.lot'
+  AND p.page_code = 'purchase.stock.warehouse.lot.index'
+
+UNION ALL
+
 SELECT 'production_component_reconcile_menu_link_ok', COUNT(*)
 FROM sys_menu m
 JOIN sys_page p ON p.id = m.page_id
@@ -482,8 +877,7 @@ WHERE m.menu_code = 'production.component.reconcile'
 
 UNION ALL
 
-SELECT 'production_component_opening_monthly_menu_link_ok', COUNT(*)
+SELECT 'production_component_opening_monthly_menu_disabled', COUNT(*)
 FROM sys_menu m
-JOIN sys_page p ON p.id = m.page_id
 WHERE m.menu_code = 'production.component.opening.monthly'
-  AND p.page_code = 'production.component.opname.monthly';
+  AND COALESCE(m.is_active, 1) = 0;

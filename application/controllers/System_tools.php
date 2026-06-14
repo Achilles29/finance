@@ -49,7 +49,7 @@ class System_tools extends MY_Controller
     // ── Halaman Panduan Backup ─────────────────────────────────────
     public function backup_guide()
     {
-        $this->require_permission('system.backup.guide', 'view');
+        $this->require_permission('system.dbtools.settings', 'view');
         $financeRoot = FCPATH;
         $backupDir   = $financeRoot . 'backup/dumps/';
 
@@ -71,7 +71,7 @@ class System_tools extends MY_Controller
     // ── Halaman Panduan Replication ────────────────────────────────
     public function replication_guide()
     {
-        $this->require_permission('system.replication.guide', 'view');
+        $this->require_permission('system.dbtools.settings', 'view');
         $financeRoot  = FCPATH;
         $statusFile   = $financeRoot . 'backup/logs/replication_status.json';
         $failoverFile = $financeRoot . 'backup/logs/failover_time.txt';
@@ -841,7 +841,7 @@ class System_tools extends MY_Controller
     // ── AJAX: replication status ───────────────────────────────────
     public function backup_status()
     {
-        $this->require_permission('system.backup.guide', 'view');
+        $this->require_permission('system.dbtools.settings', 'view');
         $dumpDir = FCPATH . 'backup/dumps/';
         $logFile = FCPATH . 'backup/logs/cron.log';
         $dumps   = $this->_listRecentFiles($dumpDir, 'backup_*.sql*', 20);
@@ -856,7 +856,7 @@ class System_tools extends MY_Controller
 
     public function replication_status()
     {
-        $this->require_permission('system.replication.guide', 'view');
+        $this->require_permission('system.dbtools.settings', 'view');
         $statusFile   = FCPATH . 'backup/logs/replication_status.json';
         $failoverFile = FCPATH . 'backup/logs/failover_time.txt';
         $status = file_exists($statusFile) ? (json_decode(file_get_contents($statusFile), true) ?: []) : [];

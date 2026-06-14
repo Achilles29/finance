@@ -334,7 +334,10 @@ class Attendance extends MY_Controller
 
     public function schedules_v2()
     {
-        $this->require_permission('attendance.schedules.index', 'view');
+        $pageCode = $this->can('attendance.schedules.v2.index', 'view')
+            ? 'attendance.schedules.v2.index'
+            : 'attendance.schedules.index';
+        $this->require_permission($pageCode, 'view');
 
         $month = (int)($this->input->get('month', true) ?: date('m'));
         $year = (int)($this->input->get('year', true) ?: date('Y'));
@@ -367,7 +370,10 @@ class Attendance extends MY_Controller
         if ($this->input->method() !== 'post') {
             show_404();
         }
-        $this->require_permission('attendance.schedules.index', 'edit');
+        $pageCode = $this->can('attendance.schedules.v2.index', 'edit')
+            ? 'attendance.schedules.v2.index'
+            : 'attendance.schedules.index';
+        $this->require_permission($pageCode, 'edit');
 
         $payload = json_decode((string)file_get_contents('php://input'), true);
         if (!is_array($payload)) {
@@ -885,7 +891,10 @@ class Attendance extends MY_Controller
 
     public function meal_calendar()
     {
-        $this->require_permission('attendance.estimate.index', 'view');
+        $pageCode = $this->can('attendance.meal_calendar.index', 'view')
+            ? 'attendance.meal_calendar.index'
+            : 'attendance.estimate.index';
+        $this->require_permission($pageCode, 'view');
 
         $filters = [
             'q' => trim((string)$this->input->get('q', true)),

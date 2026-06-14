@@ -15,9 +15,13 @@ $selDest     = strtoupper((string)($destination ?? 'ALL'));
 $perPage     = max(10, (int)($per_page ?? 25));
 $page        = max(1, (int)($page ?? 1));
 
-// ── Filter zero-balance rows (same as original) ─────────────────────────────
-$rows = array_values(array_filter($allRows, static function (array $row): bool {
-    return abs(round((float)($row['balance_qty_content'] ?? 0), 2)) >= 0.01;
+$mismatchOnly = !empty($_GET['mismatch_only']);
+
+// ── Filter zero-balance rows ──────────────────────────────────────────────────
+$rows = array_values(array_filter($allRows, static function (array $row) use ($mismatchOnly): bool {
+    if (abs(round((float)($row['balance_qty_content'] ?? 0), 2)) < 0.01) return false;
+    if ($mismatchOnly && !empty($row['is_match'])) return false;
+    return true;
 }));
 
 // ── KPI ─────────────────────────────────────────────────────────────────────
@@ -59,8 +63,11 @@ $totalRows  = count($rows);
 $totalPages = max(1, (int)ceil($totalRows / $perPage));
 $page       = min($page, $totalPages);
 $pagedRows  = array_slice($rows, ($page - 1) * $perPage, $perPage);
-$pBase      = array_filter(['as_of_date' => $asOfDate, 'division_id' => $selDivId ?: null, 'destination' => $selDest !== 'ALL' ? $selDest : null, 'q' => $qSearch, 'per_page' => $perPage]);
+$pBase      = array_filter(['as_of_date' => $asOfDate, 'division_id' => $selDivId ?: null, 'destination' => $selDest !== 'ALL' ? $selDest : null, 'q' => $qSearch, 'per_page' => $perPage, 'mismatch_only' => $mismatchOnly ? '1' : null]);
 $pQs        = http_build_query($pBase);
+$mismatchToggleBase = $pBase;
+if ($mismatchOnly) { unset($mismatchToggleBase['mismatch_only']); } else { $mismatchToggleBase['mismatch_only'] = '1'; }
+$mismatchToggleUrl  = $baseUrl . '?' . http_build_query($mismatchToggleBase);
 
 $fmtQty     = static fn($v): string => number_format((float)$v, 2, ',', '.');
 $fmtText    = static fn($v, string $fb = '-'): string => trim((string)$v) !== '' ? trim((string)$v) : $fb;
@@ -70,10 +77,10 @@ $fmtText    = static fn($v, string $fb = '-'): string => trim((string)$v) !== ''
 /* ── Filter ── */
 .rec-filter-grid {
   display:grid;
-  grid-template-columns: 115px minmax(120px,1.4fr) 90px minmax(140px,2fr) 58px auto auto;
+  grid-template-columns: minmax(100px,1fr) minmax(130px,1.6fr) minmax(96px,1fr) minmax(150px,2fr) 84px auto;
   gap:.5rem; align-items:end;
 }
-@media(max-width:991px)  { .rec-filter-grid { grid-template-columns:repeat(4,1fr); } }
+@media(max-width:991px)  { .rec-filter-grid { grid-template-columns:repeat(3,1fr); } }
 @media(max-width:575px)  { .rec-filter-grid { grid-template-columns:1fr 1fr; } }
 
 /* ── KPI ── */
@@ -244,7 +251,7 @@ $fmtText    = static fn($v, string $fb = '-'): string => trim((string)$v) !== ''
         </div>
         <div>
           <label class="form-label mb-1">/ Hal</label>
-          <input type="number" class="form-control form-control-sm" name="per_page" min="10" max="200" value="<?php echo $perPage; ?>">
+          <input type="number" class="form-control form-control-sm" name="per_page" min="10" max="200" value="<?php echo $perPage; ?>" style="max-width:84px">
         </div>
         <div style="display:flex;gap:.4rem;align-items:flex-end">
           <button type="submit" class="btn btn-sm btn-outline-primary">Terapkan</button>
@@ -252,6 +259,17 @@ $fmtText    = static fn($v, string $fb = '-'): string => trim((string)$v) !== ''
         </div>
       </div>
     </form>
+    <div class="d-flex align-items-center gap-2 mt-2 pt-2 border-top" style="flex-wrap:wrap">
+      <span class="text-muted" style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Filter Cepat:</span>
+      <a href="<?php echo html_escape($mismatchToggleUrl); ?>"
+         class="btn btn-xs <?php echo $mismatchOnly ? 'btn-warning' : 'btn-outline-secondary'; ?>"
+         style="font-size:.75rem;padding:.22rem .65rem;border-radius:999px">
+        <i class="ri ri-error-warning-line me-1"></i>Hanya Mismatch<?php echo $mismatchOnly ? ' &times;' : ''; ?>
+      </a>
+      <?php if ($mismatchOnly): ?>
+      <span class="text-warning" style="font-size:.72rem;font-weight:600"><i class="ri ri-filter-3-line me-1"></i>Menampilkan <?php echo number_format($kpiMismatch); ?> baris mismatch</span>
+      <?php endif; ?>
+    </div>
   </div>
 </div>
 
@@ -356,8 +374,11 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
 <!-- ── Reconcile Table ── -->
 <div class="card mb-3">
   <div class="card-header py-2 d-flex justify-content-between align-items-center">
-    <span class="fw-semibold small">Rekonsiliasi Stok vs Movement</span>
-    <span class="text-muted small"><?php echo number_format($totalRows); ?> baris aktif</span>
+    <span class="fw-semibold small">
+      Rekonsiliasi Stok vs Movement
+      <?php if ($mismatchOnly): ?><span class="badge bg-warning text-dark ms-2" style="font-size:.65rem;font-weight:700">Hanya Mismatch</span><?php endif; ?>
+    </span>
+    <span class="text-muted small"><?php echo number_format($totalRows); ?> baris<?php echo $mismatchOnly ? ' mismatch' : ' aktif'; ?></span>
   </div>
   <div class="rec-table-wrap">
     <table class="table table-sm table-hover mb-0 align-middle">

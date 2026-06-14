@@ -1,5 +1,5 @@
 <?php
-$baseUrl = site_url('purchase/account');
+$baseUrl = site_url('finance/accounts');
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">

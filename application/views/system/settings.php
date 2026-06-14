@@ -33,12 +33,12 @@ function cfgVal(array $cfg, string $key, string $default = ''): string {
 
 <div class="fin-page-header mb-4">
   <div>
-    <p class="fin-breadcrumb"><a href="<?php echo site_url('dbtools/backup-guide'); ?>">DB Tools</a> / Pengaturan</p>
+    <p class="fin-breadcrumb"><a href="<?php echo site_url('dbtools'); ?>">DB Tools</a> / Pengaturan</p>
     <h4 class="fin-page-title"><i class="ri ri-settings-3-line me-1 text-primary"></i>Pengaturan DB Tools</h4>
     <p class="fin-page-subtitle mb-0">Konfigurasi backup otomatis &amp; replication tersimpan di database, tidak perlu edit file manual.</p>
   </div>
   <div class="fin-page-actions">
-    <a href="<?php echo site_url('dbtools/replication-guide'); ?>" class="btn btn-outline-info btn-sm">
+    <a href="<?php echo site_url('dbtools'); ?>" class="btn btn-outline-info btn-sm">
       <i class="ri ri-book-open-line me-1"></i>Panduan
     </a>
   </div>

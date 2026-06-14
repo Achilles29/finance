@@ -376,6 +376,31 @@ class My_portal_model extends CI_Model
         return $row ?: null;
     }
 
+    public function list_monthly_schedules(int $employeeId, string $dateStart, string $dateEnd): array
+    {
+        if ($employeeId <= 0 || $dateStart === '' || $dateEnd === '') {
+            return [];
+        }
+
+        return $this->db->select('
+                ss.schedule_date,
+                ss.notes,
+                s.shift_code,
+                s.shift_name,
+                s.start_time,
+                s.end_time,
+                COALESCE(s.is_overnight, 0) AS is_overnight
+            ')
+            ->from('att_shift_schedule ss')
+            ->join('att_shift s', 's.id = ss.shift_id', 'left')
+            ->where('ss.employee_id', $employeeId)
+            ->where('ss.schedule_date >=', $dateStart)
+            ->where('ss.schedule_date <=', $dateEnd)
+            ->order_by('ss.schedule_date', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
     public function get_today_presence_state(int $employeeId, string $date): array
     {
         $rows = $this->db->select('event_type, attendance_at')

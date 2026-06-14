@@ -195,3 +195,58 @@ saya baru saja menata ulang sidebar. cek apakah masih relevan dengan sql yang ba
 
 Duplikasi menu/page yang masih tersisa , berikan link nya yang jelas!
 semua halaman yang rancu, yang masalah, yang tidak ada di sidebar, itu sebutkan linknya! jadi saya bisa cek!
+
+==============
+
+
+terkait temuanmu Duplikasi menu/page yang masih ada sekarang:
+    /attendance/estimate dan /attendance/meal-calendar itu 2 halaman yang berbeda! pisahkan dan biarkan keduanya hidup.
+
+    /attendance/schedules dan /attendance/schedules-v2 data yang ditampilkan memang sama, tapi tampilannya memang beda!  pisahkan dan biarkan keduanya hidup.
+
+    /master/hr-contract dan /hr/contracts itu sama. gunakan /hr/contracts saja
+
+    /pos/stock-live dan /pos/stock-commit-audit itu 2 halaman yang beda tujuannya!
+
+    /production/component-daily dan /production/component-reconcile juga 2 halaman yang berbeda tujuannya
+
+    /inventory/stock/division dan /inventory/stock/division/lot memang menampilkan 2 hal yang berbeda
+
+    /inventory/stock/warehouse dan /inventory/stock/warehouse/lot juga menampilkan hal yang berbeda
+
+
+
+terkait Halaman/menu yang memang bermasalah secara registry saat ini. perbaiki donk! itu semua menu dan halaman terpakai
+    untuk /my/schedule halaman belum ada. buatkan sekalian! menampilkan jadwal harian selama sebulan masing masing pegawai
+
+untuk Halaman aktif yang saat ini tidak ada di sidebar, sepertinya memang saya pernah memerintahkan merubah link atau route dengan nama yang lebih relevan
+    - /pos/members ketika dibuka mengarah ke /loyalty/members. saya prefer /loyalty/members  (lebih relevan)
+    - /inventory/stock/opname/division halaman sama persis dan sepertinya routing ke /inventory/stock/daily-recon/division. untuk hiperlinknya saya prefer /inventory/stock/daily-recon/division  (lebih relevan)
+    - /procurement/purchasing-desk => /store-requests  (lebih relevan)
+    - /purchase/account => /master/company-account  (lebih relevan)
+    - /purchase/stock/opening => /inventory/stock/opening/warehouse (lebih relevan)
+    - /dbtools/backup-guide dan /dbtools/replication-guide jadi 1 di /dbtools (CMIIW)
+    - /my/schedule harusnya ada, buatkan juga halamannya
+    - /master/component boleh dihapus karena sudah ada /production/component-masters
+    - /master/relation/component-formula boleh dihapus karena sudah ada /production/component-formulas
+    - /master/company-account ada di sidebar. /finance/accounts malah tidak ada. kalau saya prefer /finance/accounts lebih relevan namanya. boleh sesuaikan!
+    - /master/payment-channel 404. hapus aja? 
+
+
+Yang bukan sidebar page normal / rancu / internal:
+    - /purchase/catalog/search ini modul bukan? atau helper pencarian di halaman tertentu? terpakai tidak? kalau tidak terpakai hapus.
+    - /purchase/catalog/sync-core sudah tidak terpakai. hapus saja.
+    - grp.finance dan grp.purchase kalau tidak ada pengaruhnya ke mana puun, hapus saja 
+
+
+
+    sql sudah saya jalankan
+    - /purchase/account -> /finance/accounts , di sidebar kenapa malah /master/company-account ?
+    - di /sidebar/manage yang masih status nonaktif itu tidak terpakai kan? amanka kalau dihapus?
+    - di /role, jadikan Audit Registry Hak Akses  dan tabel role sebagai tab yang berbeda. tab utama tabel role nya
+    - saat edit di /roles/matrix, misal Point of sales sudah saya klik semua, tapi kenapa masih 21/22? pembelian 9/13?
+    - di /roles/matrix bagian inventory, urutkan sesuai sub rumpunnya lagi, (gudang, bahan baku, component)
+
+
+
+buat “daftar final yang aman dihapus” untuk page/menu legacy yang sudah benar-benar tidak punya pemakai lagi.

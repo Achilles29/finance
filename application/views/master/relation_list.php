@@ -12,9 +12,9 @@ if ($isProductRecipe) {
     $createUrl = site_url('master/relation/product-recipe/' . (int)$parent['id'] . '/create');
     $backUrl = site_url('master/product');
 } elseif ($isComponentFormula) {
-    $base = site_url('master/relation/component-formula/' . (int)$parent['id']);
-    $createUrl = site_url('master/relation/component-formula/' . (int)$parent['id'] . '/create');
-    $backUrl = site_url('master/component');
+    $base = site_url('production/component-formulas/detail/' . (int)$parent['id']);
+    $createUrl = site_url('production/component-formulas/edit/' . (int)$parent['id']);
+    $backUrl = site_url('production/component-masters');
 } else {
     $base = site_url('master/relation/product-extra/' . (int)$parent['id']);
     $createUrl = site_url('master/relation/product-extra/' . (int)$parent['id'] . '/create');

@@ -239,7 +239,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
       <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/product-extra'); ?>">Halaman Mapping Extra</a>
     <?php endif; ?>
     <?php if ($entity === 'component'): ?>
-      <a class="btn btn-outline-info" href="<?php echo site_url('master/relation/component-formula'); ?>">Halaman Formula Component</a>
+      <a class="btn btn-outline-info" href="<?php echo site_url('production/component-formulas'); ?>">Halaman Formula Component</a>
     <?php endif; ?>
     <?php if ($entity === 'product' || $entity === 'component'): ?>
       <a class="btn btn-outline-secondary" href="<?php echo site_url('master/variable-cost-default'); ?>">Pengaturan Variable Cost</a>
@@ -474,7 +474,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                     <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Extra" aria-label="Extra" href="<?php echo site_url('master/relation/product-extra/' . (int)$r['id']); ?>"><i class="ri ri-links-line"></i></a>
                   <?php endif; ?>
                   <?php if ($entity === 'component'): ?>
-                    <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Formula" aria-label="Formula" href="<?php echo site_url('master/relation/component-formula/' . (int)$r['id']); ?>"><i class="ri ri-function-line"></i></a>
+                    <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Formula" aria-label="Formula" href="<?php echo site_url('production/component-formulas/detail/' . (int)$r['id']); ?>"><i class="ri ri-function-line"></i></a>
                   <?php endif; ?>
                   <?php if ($entity === 'extra-group'): ?>
                     <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Checklist Produk" aria-label="Checklist Produk" href="<?php echo site_url('master/relation/extra-group/' . (int)$r['id']); ?>"><i class="ri ri-checkbox-multiple-line"></i></a>

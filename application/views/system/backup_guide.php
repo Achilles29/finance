@@ -26,7 +26,7 @@ $cronExample    = rtrim($financeRoot, '/\\') . DIRECTORY_SEPARATOR . 'scripts' .
     <p class="fin-page-subtitle mb-0">Backup otomatis via mysqldump + push ke GitHub. Data disimpan lokal 3 hari.</p>
   </div>
   <div class="fin-page-actions">
-    <a href="<?php echo site_url('dbtools/replication-guide'); ?>" class="btn btn-outline-info btn-sm">
+    <a href="<?php echo site_url('dbtools'); ?>" class="btn btn-outline-info btn-sm">
       <i class="ri ri-server-line me-1"></i>Skema 2 — Replication
     </a>
   </div>

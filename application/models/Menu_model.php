@@ -31,6 +31,7 @@ class Menu_model extends CI_Model
         // Filter berdasarkan izin
         $allowed = [];
         foreach ($rows as $row) {
+            $row = $this->normalize_sidebar_menu_row($row);
             // Tidak ada page_id = selalu tampil (heading/grup)
             if (empty($row['page_id'])) {
                 $allowed[$row['id']] = $row;
@@ -76,7 +77,8 @@ class Menu_model extends CI_Model
         $this->db->where('f.user_id', $user_id);
         $this->db->where('m.is_active', 1);
         $this->db->order_by('f.sort_order', 'ASC');
-        return $this->db->get()->result_array();
+        $rows = $this->db->get()->result_array();
+        return array_map([$this, 'normalize_sidebar_menu_row'], $rows);
     }
 
     public function pin_favorite(int $user_id, int $menu_id): void
@@ -163,6 +165,7 @@ class Menu_model extends CI_Model
 
         $indexed = [];
         foreach ($rows as $row) {
+            $row = $this->normalize_sidebar_menu_row($row);
             $row['children'] = [];
             $indexed[(int)$row['id']] = $row;
         }
@@ -188,12 +191,14 @@ class Menu_model extends CI_Model
         $this->db->order_by('parent_id IS NULL', 'DESC', false);
         $this->db->order_by('parent_id', 'ASC');
         $this->db->order_by('sort_order', 'ASC');
-        return $this->db->get()->result_array();
+        $rows = $this->db->get()->result_array();
+        return array_map([$this, 'normalize_sidebar_menu_row'], $rows);
     }
 
     public function get_menu_by_id(int $id): ?array
     {
-        return $this->db->get_where('sys_menu', ['id' => $id])->row_array() ?: null;
+        $row = $this->db->get_where('sys_menu', ['id' => $id])->row_array() ?: null;
+        return $row ? $this->normalize_sidebar_menu_row($row) : null;
     }
 
     public function get_parent_candidates(string $type, int $excludeId = 0): array
@@ -260,6 +265,21 @@ class Menu_model extends CI_Model
         foreach ($children as $child) {
             $this->persist_sidebar_node($type, (array)$child, $menuId, $childOrder++);
         }
+    }
+
+    private function normalize_sidebar_menu_row(array $row): array
+    {
+        $url = trim((string)($row['url'] ?? ''));
+        $aliasMap = [
+            '/master/company-account' => '/finance/accounts',
+            'master/company-account' => 'finance/accounts',
+        ];
+
+        if ($url !== '' && isset($aliasMap[$url])) {
+            $row['url'] = $aliasMap[$url];
+        }
+
+        return $row;
     }
 
     // ---------------------------------------------------------------
