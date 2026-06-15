@@ -576,47 +576,79 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
             <?php if ($hasLotData && !empty($profileBreakdown) && !isset($shownBreakdownKeys[$bKey])): ?>
               <?php $shownBreakdownKeys[$bKey] = true; ?>
               <tr class="rec-profile-breakdown-row" data-breakdown-key="<?php echo html_escape($bKey); ?>" style="display:<?php echo $hasProfileMismatch ? '' : 'none'; ?>">
-                <td colspan="11" style="padding:.25rem 1rem .5rem 2.5rem;background:#f8fafc;border-top:none;">
-                  <table class="table table-sm table-borderless mb-0" style="font-size:.7rem;">
+                <td colspan="11" style="padding:.25rem .5rem .5rem 2rem;background:#f0f4f8;border-top:none;">
+                  <div style="font-size:.65rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;padding:.3rem 0 .2rem">Breakdown per Profil</div>
+                  <div style="overflow-x:auto">
+                  <table class="table table-sm table-borderless mb-0" style="font-size:.68rem;min-width:860px;">
                     <thead>
-                      <tr style="border-bottom:1px solid #e2e8f0;">
-                        <th style="width:160px;font-weight:600">Profil (ID)</th>
-                        <th class="text-end" style="font-weight:600">Stok Ledger</th>
-                        <th class="text-end" style="font-weight:600">Lot FIFO</th>
-                        <th class="text-end" style="font-weight:600">Delta</th>
-                        <th class="text-center" style="font-weight:600">Status</th>
+                      <tr style="border-bottom:2px solid #cbd5e1;background:#e2e8f0;">
+                        <th style="min-width:140px;font-weight:700;padding:.3rem .5rem">Profil</th>
+                        <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Stok Divisi</th>
+                        <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Lot FIFO</th>
+                        <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Mat. Daily</th>
+                        <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Snap. Harian</th>
+                        <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Movement</th>
+                        <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:72px">Δ Stok/Mvt</th>
+                        <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:72px">Δ Daily/Mvt</th>
+                        <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:72px">Δ Snap/Mvt</th>
+                        <th class="text-center" style="font-weight:700;padding:.3rem .4rem;min-width:72px">Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       <?php foreach ($profileBreakdown as $pb): ?>
                         <?php
-                          $pbPk     = (string)($pb['profile_key'] ?? '');
-                          $pbShort  = $pbPk !== '' ? substr($pbPk, 0, 12) . '…' : '(no profile)';
-                          $pbStock  = (float)($pb['stock_balance'] ?? 0);
-                          $pbLot    = (float)($pb['lot_balance'] ?? 0);
-                          $pbDelta  = (float)($pb['delta'] ?? 0);
-                          $pbMis    = !empty($pb['has_mismatch']);
+                          $pbPk      = (string)($pb['profile_key'] ?? '');
+                          $pbShort   = $pbPk !== '' ? substr($pbPk, 0, 8) . '…' : '(no profile)';
+                          $pbName    = trim((string)($pb['profile_name'] ?? ''));
+                          $pbLabel   = $pbName !== '' ? $pbName : $pbShort;
+                          $pbStock   = (float)($pb['stock_balance'] ?? 0);
+                          $pbLot     = (float)($pb['lot_balance'] ?? 0);
+                          $pbDaily   = isset($pb['daily_content'])    ? (float)$pb['daily_content']    : $pbStock;
+                          $pbSnap    = isset($pb['snapshot_content']) ? (float)$pb['snapshot_content'] : $pbStock;
+                          $pbMvt     = isset($pb['movement_content']) ? (float)$pb['movement_content'] : 0.0;
+                          $pbDStk    = isset($pb['delta_stock_vs_mvt'])    ? (float)$pb['delta_stock_vs_mvt']    : round($pbStock - $pbMvt, 4);
+                          $pbDDly    = isset($pb['delta_daily_vs_mvt'])    ? (float)$pb['delta_daily_vs_mvt']    : round($pbDaily - $pbMvt, 4);
+                          $pbDSnp    = isset($pb['delta_snapshot_vs_mvt']) ? (float)$pb['delta_snapshot_vs_mvt'] : round($pbSnap - $pbMvt, 4);
+                          $pbMis     = !empty($pb['has_mismatch']);
+                          $pbHasMvt  = isset($pb['movement_content']);
+                          $dStkBad   = abs($pbDStk) > 0.01;
+                          $dDlyBad   = abs($pbDDly) > 0.01;
+                          $dSnpBad   = abs($pbDSnp) > 0.01;
+                          $pbLotMis  = abs($pbStock - $pbLot) > 0.01;
+                          // Determine status chip
+                          if ($dStkBad || $dDlyBad || $dSnpBad || $pbLotMis) {
+                              $pbStatus = 'Mismatch'; $pbStatusCls = 'rec-chip-bad';
+                          } else {
+                              $pbStatus = 'Match'; $pbStatusCls = 'rec-chip-ok';
+                          }
                         ?>
-                        <tr>
-                          <td><code title="<?php echo html_escape($pbPk); ?>" style="font-size:.65rem;word-break:break-all"><?php echo html_escape($pbShort); ?></code></td>
-                          <td class="text-end"><?php echo $fmtQty($pbStock); ?></td>
-                          <td class="text-end"><?php echo $fmtQty($pbLot); ?></td>
-                          <td class="text-end <?php echo $pbMis ? ($pbDelta < 0 ? 'text-danger fw-semibold' : 'text-warning fw-semibold') : 'text-success'; ?>">
-                            <?php echo ($pbDelta > 0 ? '+' : '') . $fmtQty($pbDelta); ?>
+                        <tr style="border-bottom:1px solid #e2e8f0;">
+                          <td style="padding:.3rem .5rem">
+                            <div style="font-weight:600"><?php echo html_escape($pbLabel); ?></div>
+                            <code title="<?php echo html_escape($pbPk); ?>" style="font-size:.6rem;color:#94a3b8"><?php echo html_escape(substr($pbPk,0,12)); ?><?php echo strlen($pbPk)>12?'…':''; ?></code>
                           </td>
-                          <td class="text-center">
-                            <?php if ($pbMis): ?>
-                              <span class="rec-chip <?php echo $pbDelta < 0 ? 'rec-chip-bad' : 'rec-chip-warn'; ?>" style="font-size:.6rem">
-                                <?php echo $pbDelta < 0 ? 'Lot-' : 'Lot+'; ?>
-                              </span>
-                            <?php else: ?>
-                              <span class="rec-chip rec-chip-ok" style="font-size:.6rem">OK</span>
-                            <?php endif; ?>
+                          <td class="text-end" style="padding:.3rem .4rem;font-weight:600;<?php echo $pbStock < 0 ? 'color:#b42318' : ''; ?>"><?php echo $fmtQty($pbStock); ?></td>
+                          <td class="text-end" style="padding:.3rem .4rem;<?php echo $pbLotMis ? 'color:#b42318;font-weight:600' : ''; ?>"><?php echo $fmtQty($pbLot); ?></td>
+                          <td class="text-end" style="padding:.3rem .4rem"><?php echo $fmtQty($pbDaily); ?></td>
+                          <td class="text-end" style="padding:.3rem .4rem"><?php echo $fmtQty($pbSnap); ?></td>
+                          <td class="text-end" style="padding:.3rem .4rem<?php echo !$pbHasMvt ? ';color:#94a3b8' : ''; ?>"><?php echo $pbHasMvt ? $fmtQty($pbMvt) : '–'; ?></td>
+                          <td class="text-end <?php echo $dStkBad ? 'rec-delta-bad' : 'rec-delta-ok'; ?>" style="padding:.3rem .4rem">
+                            <?php echo ($pbDStk > 0 ? '+' : '') . $fmtQty($pbDStk); ?>
+                          </td>
+                          <td class="text-end <?php echo $dDlyBad ? 'rec-delta-bad' : 'rec-delta-ok'; ?>" style="padding:.3rem .4rem">
+                            <?php echo ($pbDDly > 0 ? '+' : '') . $fmtQty($pbDDly); ?>
+                          </td>
+                          <td class="text-end <?php echo $dSnpBad ? 'rec-delta-bad' : 'rec-delta-ok'; ?>" style="padding:.3rem .4rem">
+                            <?php echo ($pbDSnp > 0 ? '+' : '') . $fmtQty($pbDSnp); ?>
+                          </td>
+                          <td class="text-center" style="padding:.3rem .4rem">
+                            <span class="rec-chip <?php echo $pbStatusCls; ?>" style="font-size:.6rem"><?php echo $pbStatus; ?></span>
                           </td>
                         </tr>
                       <?php endforeach; ?>
                     </tbody>
                   </table>
+                  </div>
                 </td>
               </tr>
             <?php endif; ?>

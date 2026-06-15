@@ -2969,7 +2969,7 @@ class Purchase_model extends CI_Model
             return strcasecmp((string)($a['material_code'] ?? ''), (string)($b['material_code'] ?? ''));
         });
 
-        $this->attach_material_lot_totals($rows);
+        $this->attach_material_lot_totals($rows, $asOfDate);
         $this->attach_material_daily_check($rows);
 
         $summary = [
@@ -2992,7 +2992,7 @@ class Purchase_model extends CI_Model
         ];
     }
 
-    private function attach_material_lot_totals(array &$rows): void
+    private function attach_material_lot_totals(array &$rows, string $asOfDate = ''): void
     {
         foreach ($rows as &$row) {
             $row['lot_qty_content'] = null;
@@ -3070,6 +3070,7 @@ class Purchase_model extends CI_Model
                        CASE WHEN ms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
                        COALESCE(ms.material_id, 0) AS material_id,
                        COALESCE(ms.profile_key, '') AS profile_key,
+                       MAX(ms.profile_name) AS profile_name,
                        SUM(ms.closing_qty_content) AS stock_balance
                 FROM inv_division_monthly_stock ms
                 INNER JOIN ({$latestMonthSubP}) lm
@@ -3085,16 +3086,62 @@ class Purchase_model extends CI_Model
                 $matK = (int)$sr['division_id'] . '|' . strtoupper((string)($sr['destination_group'] ?? 'REGULER')) . '|M-' . (int)$sr['material_id'];
                 $pk = (string)($sr['profile_key'] ?? '');
                 if (!isset($profileBreakdownMap[$matK][$pk])) {
-                    $profileBreakdownMap[$matK][$pk] = ['profile_key' => $pk, 'lot_balance' => 0.0, 'stock_balance' => 0.0];
+                    $profileBreakdownMap[$matK][$pk] = ['profile_key' => $pk, 'profile_name' => null, 'lot_balance' => 0.0, 'stock_balance' => 0.0];
                 }
                 $profileBreakdownMap[$matK][$pk]['stock_balance'] = round((float)($sr['stock_balance'] ?? 0), 4);
+                if (!empty($sr['profile_name'])) {
+                    $profileBreakdownMap[$matK][$pk]['profile_name'] = (string)$sr['profile_name'];
+                }
+            }
+
+            // Fetch per-profile movement closing (last qty_content_after from movement_log up to asOfDate)
+            $profileMovementMap = [];
+            if (!empty($asOfDate) && $this->db->table_exists('inv_stock_movement_log')) {
+                $asOfDateEsc = $this->db->escape($asOfDate);
+                $profileMvtResults = $this->db->query("
+                    SELECT ml.division_id,
+                           CASE WHEN ml.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
+                           COALESCE(ml.material_id, 0) AS material_id,
+                           COALESCE(ml.profile_key, '') AS profile_key,
+                           ml.qty_content_after AS movement_closing
+                    FROM inv_stock_movement_log ml
+                    INNER JOIN (
+                        SELECT division_id, destination_type,
+                               COALESCE(material_id, 0) AS material_id,
+                               COALESCE(profile_key, '') AS profile_key,
+                               MAX(id) AS max_id
+                        FROM inv_stock_movement_log
+                        WHERE movement_scope = 'DIVISION'
+                          AND movement_date <= {$asOfDateEsc}
+                          AND division_id IN ({$divIdsStr})
+                        GROUP BY division_id, destination_type, material_id, profile_key
+                    ) lm ON lm.division_id = ml.division_id
+                         AND lm.destination_type = ml.destination_type
+                         AND lm.max_id = ml.id
+                ")->result_array();
+
+                foreach ($profileMvtResults as $mr) {
+                    $matK2 = (int)$mr['division_id'] . '|' . strtoupper((string)($mr['destination_group'] ?? 'REGULER')) . '|M-' . (int)$mr['material_id'];
+                    $pk2 = (string)($mr['profile_key'] ?? '');
+                    $profileMovementMap[$matK2][$pk2] = round((float)($mr['movement_closing'] ?? 0), 4);
+                }
             }
 
             foreach ($profileBreakdownMap as $matK => &$profiles) {
-                foreach ($profiles as &$profile) {
-                    $delta = $profile['stock_balance'] - $profile['lot_balance'];
+                foreach ($profiles as $pk => &$profile) {
+                    $stockBal  = (float)$profile['stock_balance'];
+                    $mvtBal    = (float)($profileMovementMap[$matK][$pk] ?? 0.0);
+                    $lotBal    = (float)$profile['lot_balance'];
+                    $profile['movement_content'] = round($mvtBal, 4);
+                    // daily/snapshot: same source as Stok Divisi at per-profile level (monthly_stock closing)
+                    $profile['daily_content']    = round($stockBal, 4);
+                    $profile['snapshot_content'] = round($stockBal, 4);
+                    $profile['delta_stock_vs_mvt']    = round($stockBal - $mvtBal, 4);
+                    $profile['delta_daily_vs_mvt']    = round($stockBal - $mvtBal, 4);
+                    $profile['delta_snapshot_vs_mvt'] = round($stockBal - $mvtBal, 4);
+                    $delta = $stockBal - $lotBal;
                     $profile['delta'] = round($delta, 4);
-                    $profile['has_mismatch'] = abs($delta) > 0.01;
+                    $profile['has_mismatch'] = abs($delta) > 0.01 || abs($stockBal - $mvtBal) > 0.01;
                 }
                 unset($profile);
                 ksort($profiles);
