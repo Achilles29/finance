@@ -2125,7 +2125,10 @@ class Purchase_model extends CI_Model
             ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
             ->join('mst_item i', 'i.id = s.item_id', 'left')
             ->join('mst_material m', 'm.id = COALESCE(s.material_id, i.material_id)', 'left')
-            ->where('COALESCE(s.material_id, i.material_id) IS NOT NULL', null, false);
+            ->where('COALESCE(s.material_id, i.material_id) IS NOT NULL', null, false)
+            // Exclude stale rows: profiled rows must have identity_key = profile_key.
+            // Stale rows carry wrong closing values from before Repair Material ID ran.
+            ->where('(s.profile_key IS NULL OR s.identity_key = s.profile_key)', null, false);
 
         if ($divisionId !== null && $divisionId > 0) {
             $this->db->where('s.division_id', $divisionId);
@@ -2187,7 +2190,8 @@ class Purchase_model extends CI_Model
             ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
             ->join('mst_item i', 'i.id = s.item_id', 'left')
             ->join('mst_material m', 'm.id = COALESCE(s.material_id, i.material_id)', 'left')
-            ->where('COALESCE(s.material_id, i.material_id) IS NOT NULL', null, false);
+            ->where('COALESCE(s.material_id, i.material_id) IS NOT NULL', null, false)
+            ->where('(s.profile_key IS NULL OR s.identity_key = s.profile_key)', null, false);
 
         if ($divisionId !== null && $divisionId > 0) {
             $this->db->where('s.division_id', $divisionId);

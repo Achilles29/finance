@@ -516,3 +516,8 @@ sekalian perbaiki pembacaan /inventory-material-daily. stok awal itu artinya sto
 KAMU PAHAM NGGAK MAKSUD SAYA?
 sumber kebenaran utama di halaman stok adalah inv_division_monthly_stock.
 stok awal itu artinya stok tanggal 1, dan itu dibaca di inv_division_monthly_stock opening_qty , sementara stok akhir dari kolom closing. nah pergerakan dari tabel movement_log. jadi sumber kebenaran utama tetap inv_division_monthly_stock. movement log sebagai pergerakan harian sekaligus guarding ketika ada perbedaan data yang harus diaudit dan diselesaikan!
+
+
+ternyata di movement log stok masuk fugold tidak punya material id. apakah itu jadi pengaruh ? bagaimana ini saya pusing
+
+mana lagi bahan baku yang tidak punya material id
