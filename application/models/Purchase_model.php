@@ -2012,12 +2012,16 @@ class Purchase_model extends CI_Model
                 'audit_mismatch_notes' => [],
             ];
 
-            $nextClosingBuy = round((float)($baseRow['qty_buy_balance'] ?? 0), 4);
-            $nextClosingContent = round((float)($baseRow['qty_content_balance'] ?? 0), 4);
+            // Seed from monthly stock opening (source of truth for stok awal bulan)
+            $nextOpeningBuy = round((float)($baseRow['qty_buy_opening'] ?? 0), 4);
+            $nextOpeningContent = round((float)($baseRow['qty_content_opening'] ?? 0), 4);
+            $endClosingBuy = round((float)($baseRow['qty_buy_balance'] ?? 0), 4);
+            $endClosingContent = round((float)($baseRow['qty_content_balance'] ?? 0), 4);
             $avgCost = round((float)($baseRow['avg_cost_per_content'] ?? 0), 6);
-            $totalValue = round((float)($baseRow['total_value'] ?? ($nextClosingContent * $avgCost)), 2);
+            $totalValue = round((float)($baseRow['total_value'] ?? ($endClosingContent * $avgCost)), 2);
+            $lastDateIdx = count($dates) - 1;
 
-            for ($i = count($dates) - 1; $i >= 0; $i--) {
+            for ($i = 0; $i <= $lastDateIdx; $i++) {
                 $day = (string)$dates[$i];
                 $existingRow = $dayMap[$day] ?? null;
                 $row = $this->build_material_daily_base_day_row($baseRow, $day, $existingRow);
@@ -2036,22 +2040,27 @@ class Purchase_model extends CI_Model
                     4
                 );
 
-                $row['closing_qty_buy'] = $nextClosingBuy;
-                $row['closing_qty_content'] = $nextClosingContent;
-                $row['opening_qty_buy'] = round($nextClosingBuy - $deltaBuy, 4);
-                $row['opening_qty_content'] = round($nextClosingContent - $deltaContent, 4);
+                $row['opening_qty_buy'] = $nextOpeningBuy;
+                $row['opening_qty_content'] = $nextOpeningContent;
+                // Anchor last day to monthly stock closing to avoid drift from incomplete movement_log
+                if ($i === $lastDateIdx) {
+                    $row['closing_qty_buy'] = $endClosingBuy;
+                    $row['closing_qty_content'] = $endClosingContent;
+                    $row['total_value'] = $totalValue;
+                } else {
+                    $row['closing_qty_buy'] = round($nextOpeningBuy + $deltaBuy, 4);
+                    $row['closing_qty_content'] = round($nextOpeningContent + $deltaContent, 4);
+                    $row['total_value'] = round((float)$row['closing_qty_content'] * $avgCost, 2);
+                }
                 $row['avg_cost_per_content'] = $avgCost;
-                $row['total_value'] = $i === count($dates) - 1
-                    ? $totalValue
-                    : round((float)$row['closing_qty_content'] * $avgCost, 2);
                 $row['audit_has_mismatch'] = (int)$mismatchMeta['audit_has_mismatch'];
                 $row['audit_mismatch_row_count'] = (int)$mismatchMeta['audit_mismatch_row_count'];
                 $row['audit_mismatch_qty_content'] = round((float)$mismatchMeta['audit_mismatch_qty_content'], 4);
                 $row['audit_mismatch_notes'] = implode(', ', array_keys((array)$mismatchMeta['audit_mismatch_notes']));
 
                 $dailyRows[] = $row;
-                $nextClosingBuy = round((float)$row['opening_qty_buy'], 4);
-                $nextClosingContent = round((float)$row['opening_qty_content'], 4);
+                $nextOpeningBuy = round((float)$row['closing_qty_buy'], 4);
+                $nextOpeningContent = round((float)$row['closing_qty_content'], 4);
             }
         }
 
@@ -2109,7 +2118,7 @@ class Purchase_model extends CI_Model
             ->select('i.item_code, i.item_name, m.material_code, m.material_name')
             ->select('s.profile_key, s.profile_name, s.profile_brand, s.profile_description, s.profile_expired_date')
             ->select('s.profile_content_per_buy, s.profile_buy_uom_code, s.profile_content_uom_code')
-            ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content, s.total_value')
+            ->select('s.opening_qty_buy AS qty_buy_opening, s.opening_qty_content AS qty_content_opening, s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content, s.total_value')
             ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
             ->from('inv_division_monthly_stock s')
             ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
@@ -3606,24 +3615,59 @@ class Purchase_model extends CI_Model
 
         $divWhere = $divisionId !== null && $divisionId > 0 ? 'AND ms.division_id = ' . (int)$divisionId : '';
 
-        $sql = "
+        // Step 1: Fill material_id from mst_item
+        $this->db->query("
             UPDATE inv_division_monthly_stock ms
             JOIN mst_item i ON i.id = ms.item_id AND i.material_id IS NOT NULL
             SET ms.material_id = i.material_id,
                 ms.updated_at  = NOW()
             WHERE ms.material_id IS NULL
               {$divWhere}
-        ";
+        ");
+        $affectedMat = $this->db->affected_rows();
 
-        $this->db->query($sql);
-        $affected = $this->db->affected_rows();
+        // Step 2: Fix stale identity_key.
+        // When a row was created with material_id=NULL, identity_key was hashed with material_id=0.
+        // For any row with profile_key set, identity_key MUST equal profile_key.
+        // This ensures future upserts find the correct row and don't create ghost duplicates.
+        // UPDATE IGNORE: if updating identity_key would violate the unique key
+        // (another row with the same month+division+destination+profile_key already exists),
+        // that row is skipped — it needs manual Repair Mismatch to merge/clean up.
+        $ikDivWhere = $divisionId !== null && $divisionId > 0 ? 'AND division_id = ' . (int)$divisionId : '';
+        $this->db->query("
+            UPDATE IGNORE inv_division_monthly_stock
+            SET identity_key = profile_key,
+                updated_at   = NOW()
+            WHERE profile_key IS NOT NULL
+              AND profile_key != identity_key
+              {$ikDivWhere}
+        ");
+        $affectedIk = $this->db->affected_rows();
+
+        // Count remaining stale rows (those that couldn't be fixed due to duplicate conflict)
+        $staleSql = "SELECT COUNT(*) AS cnt FROM inv_division_monthly_stock
+                     WHERE profile_key IS NOT NULL AND profile_key != identity_key {$ikDivWhere}";
+        $staleRemaining = (int)(($this->db->query($staleSql)->row_array())['cnt'] ?? 0);
+
+        $parts = [];
+        if ($affectedMat > 0) {
+            $parts[] = "mengisi material_id untuk {$affectedMat} baris";
+        }
+        if ($affectedIk > 0) {
+            $parts[] = "memperbaiki identity_key untuk {$affectedIk} baris";
+        }
+
+        $message = !empty($parts) ? 'Berhasil ' . implode(' dan ', $parts) . '.' : 'Tidak ada baris yang perlu diperbaiki.';
+        if ($staleRemaining > 0) {
+            $message .= " Ada {$staleRemaining} baris identity_key tidak bisa diperbaiki otomatis (konflik profil duplikat) — jalankan Repair Mismatch untuk item tersebut.";
+        }
 
         return [
-            'ok'       => true,
-            'repaired' => $affected,
-            'message'  => $affected > 0
-                ? "Berhasil mengisi material_id untuk {$affected} baris monthly stock."
-                : 'Tidak ada baris yang perlu diperbaiki.',
+            'ok'               => true,
+            'repaired'         => $affectedMat,
+            'repaired_ik'      => $affectedIk,
+            'stale_remaining'  => $staleRemaining,
+            'message'          => $message,
         ];
     }
 

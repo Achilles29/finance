@@ -477,8 +477,37 @@ kita sudah membuat skema "Repair lot semua" dan "Repair Lot" di tabel kolom LOT 
 contoh ICE CUBE ketika di repair seharusnya baris profile yang tidak punya LOT otomatis menggenerate baris lot sesuai profilenya. ICE CUBE tadi gagal setelah saya cek ternyata dia tidak punya material_id di inv_division_monthly_stock. nah coba cek ulang logika repair dan cek juga profil mana saja yang tidak punya material_id.
 
 kenapa bisa baris tidak punya material id? apakah dari legacy atau ada PO / SR / Adjustment/ Opening yang tidak menggenerate material_id?
- 
+
+buatkan guarding agar semua yang ada di inv_division_monthly_stock punya material_id. dan berikan warning yang tidak punya, lalu buatkan repairnya juga
+
 
 
 
 kalau baris atau profil yang tidak ada lot nya, ketika di repair lot semua seharusnya membuat lot baru
+
+
+
+sql sudah saya jalankan. gambar terlampir
+coba cek database db_finance2, adalah data yang baru saja saya tarik dari server. saya cek contoh espresso arabika jadi berkurang (ada baris yang hilang) ketika saya repair material_id. dugaan saya material dengan profil yang sama dijadikan 1 tapi nilainya tidak jadi 1.
+saya juga bingung kenapa ada identity_key dan profile_key
+
+coba bandingkan db_finance (lokal) yang sudah kamu repair dan db_finance2 (server) yang saya repair lewat UI material id. bandingkan kedua database itu fokus di inv_division_monthly_stock,inv_material_fifo_lot, inv_material_fifo_issue_log, inv_material_fifo_issue_line, inv_stock_adjustment_line, inv_stock_movement_log.
+cek item apa saja yang terpengaruh, setelah ketemu pangkal masalahnya, buatkan perbaiki UI nya dan buatkan sql untuk di run di server
+
+apakah kamu sudah bandingkan db_finance dan db_finance2 inv_division_monthly_stock ?
+
+saya hanya suruh bandingkan dulu dan periksa mana saja yang berbeda db_finance dan db_finance2 inv_division_monthly_stock.
+contoh ESPRESSO ARABIKA saja id nya berbeda antara kedua tabel tersebut. cek yang lain. jelaskan perbedaan kedua tabel itu
+
+
+
+cek tabel mana saja yang punya identity_key, dan modul mana yang menggeneratenya?
+
+kok bisa nggak ada yang hilang? di lokal ada 3 baris espresso arabika dengan total 937 gram, d server tinggal 2 baris 108 gram (108 dan 0), di lokal ada fugold 1000 di server fugold ter crossed dengan hayati dan nilainya 0
+
+
+
+yang benar aja. fugold masuk 2 juni lewat PO PO202606020010
+
+sql sudah saya jalankan tapi tidak terjadi apa apa.
+sekalian perbaiki pembacaan /inventory-material-daily. stok awal itu artinya stok tanggal 1, dan itu dibaca di inv_warehouse_monthly_stock opening_qty , sementara stok akhir dari kolom closing. nah pergerakan dari tabel movement_log. jadi sumber kebenaran utama tetap inv_warehouse_monthly_stock. movement log sebagai pergerakan harian sekaligus guarding ketika ada perbedaan data yang harus diaudit dan diselesaikan!
