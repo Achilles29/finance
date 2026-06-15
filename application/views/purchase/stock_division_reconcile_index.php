@@ -5,10 +5,15 @@ $repairUrl    = site_url('inventory/stock/division/reconcile/repair');
 $lotRepairUrl        = site_url('inventory/stock/division/reconcile/lot-repair');
 $lotProfileSyncUrl   = site_url('inventory/stock/division/reconcile/lot-profile-sync');
 $lotRepairAllUrl     = site_url('inventory/stock/division/reconcile/lot-repair-all');
+$repairMaterialIdUrl = site_url('inventory/stock/division/reconcile/repair-material-id');
 
 $allRows     = is_array($rows ?? null) ? $rows : [];
 $divisions   = is_array($divisions ?? null) ? $divisions : [];
 $summary     = is_array($summary ?? null) ? $summary : [];
+$orphanStock = is_array($orphan_stock ?? null) ? $orphan_stock : ['fixable' => [], 'no_material' => [], 'total' => 0];
+$orphanFixable   = (array)($orphanStock['fixable'] ?? []);
+$orphanNoMat     = (array)($orphanStock['no_material'] ?? []);
+$orphanTotal     = (int)($orphanStock['total'] ?? 0);
 $destGuardMap = is_array($destination_guard_map ?? null) ? $destination_guard_map : [];
 
 $asOfDate    = (string)($as_of_date ?? date('Y-m-d'));
@@ -275,6 +280,53 @@ $fmtText    = static fn($v, string $fb = '-'): string => trim((string)$v) !== ''
     </div>
   </div>
 </div>
+
+<!-- ── Warning: Monthly Stock tanpa Material ID ─────────────────────────── -->
+<?php if ($orphanTotal > 0): ?>
+<div class="alert alert-warning py-2 px-3 mb-3 d-flex align-items-start gap-3" style="border-radius:8px;font-size:.82rem">
+  <i class="ri ri-alert-line mt-1" style="font-size:1.1rem;color:#b45309;flex-shrink:0"></i>
+  <div style="flex:1;min-width:0">
+    <strong><?php echo $orphanTotal; ?> baris monthly stock tidak punya material_id</strong>
+    — baris ini tersembunyi dari tabel rekonsiliasi dan tidak bisa di-Repair Lot.
+    <?php if (count($orphanFixable) > 0): ?>
+      <span class="text-success fw-bold"><?php echo count($orphanFixable); ?> bisa otomatis diperbaiki</span>
+      (item sudah punya material di katalog):
+      <span class="text-muted"><?php
+        $names = array_slice(array_unique(array_column($orphanFixable, 'item_name')), 0, 5);
+        echo implode(', ', array_map('htmlspecialchars', $names));
+        if (count($orphanFixable) > 5) echo ' ...+' . (count($orphanFixable) - 5) . ' lainnya';
+      ?></span>.
+    <?php endif; ?>
+    <?php if (count($orphanNoMat) > 0): ?>
+      <span class="text-muted"><?php echo count($orphanNoMat); ?> item non-material</span>
+      (misal kemasan, plastik) memang tidak punya kode bahan baku — tidak perlu diperbaiki.
+    <?php endif; ?>
+    <?php if (count($orphanFixable) > 0): ?>
+    <div class="mt-2">
+      <button type="button" id="src_repair_material_id_btn"
+        class="btn btn-sm btn-warning" style="font-size:.77rem;padding:.25rem .7rem">
+        <i class="ri ri-tools-line me-1"></i>Repair Material ID (<?php echo count($orphanFixable); ?> baris)
+      </button>
+      <span class="text-muted ms-2" style="font-size:.72rem">
+        Mengisi material_id dari katalog item. Setelah repair, baris muncul di tabel rekonsiliasi dan Repair Lot bisa dijalankan.
+      </span>
+    </div>
+    <?php endif; ?>
+    <?php if (count($orphanNoMat) > 0): ?>
+    <details class="mt-1" style="font-size:.75rem">
+      <summary class="text-muted" style="cursor:pointer">Lihat item non-material (<?php echo count($orphanNoMat); ?>)</summary>
+      <ul class="mb-0 mt-1" style="padding-left:1.2rem">
+        <?php foreach ($orphanNoMat as $nm): ?>
+        <li><?php echo html_escape((string)($nm['item_name'] ?? '-')); ?>
+          @ <?php echo html_escape((string)($nm['division_name'] ?? '-')); ?>
+          — <?php echo number_format((float)($nm['closing_qty_content'] ?? 0), 2); ?> sisa stok</li>
+        <?php endforeach; ?>
+      </ul>
+    </details>
+    <?php endif; ?>
+  </div>
+</div>
+<?php endif; ?>
 
 <!-- ── KPI Cards (6: 5 standard + 1 health ring) ── -->
 <?php
@@ -820,6 +872,33 @@ document.addEventListener('DOMContentLoaded', function () {
       } catch(e) {
         lotRepairAllBtn.disabled = false; lotRepairAllBtn.innerHTML = orig;
         await showAlert(e.message || 'Gagal menjalankan repair lot semua.', 'Repair Lot Semua');
+      }
+    });
+  }
+
+  // ── Repair Material ID ───────────────────────────────────────────────────
+  var repairMatIdBtn = document.getElementById('src_repair_material_id_btn');
+  if (repairMatIdBtn) {
+    repairMatIdBtn.addEventListener('click', async function() {
+      var ok = await askConfirm(
+        'Repair Material ID akan mengisi kolom material_id di monthly stock untuk item yang sudah punya data bahan baku di katalog.\n\nProses ini aman dan tidak mengubah nilai stok.',
+        {title: 'Repair Material ID', confirmText: 'Repair', cancelText: 'Batal'}
+      );
+      if (!ok) return;
+      var orig = repairMatIdBtn.innerHTML;
+      repairMatIdBtn.disabled = true; repairMatIdBtn.textContent = 'Memproses...';
+      try {
+        var json = await postJson('<?php echo $repairMaterialIdUrl; ?>', {
+          division_id: <?php echo (int)($selDivId ?? 0); ?>
+        });
+        await showAlert(
+          (json.message || 'Selesai.') + '\n\n' + (json.data && json.data.repaired ? json.data.repaired + ' baris diperbaiki.' : ''),
+          'Repair Material ID'
+        );
+        window.location.reload();
+      } catch(e) {
+        repairMatIdBtn.disabled = false; repairMatIdBtn.innerHTML = orig;
+        await showAlert(e.message || 'Gagal repair material ID.', 'Repair Material ID');
       }
     });
   }

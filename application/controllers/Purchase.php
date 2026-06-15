@@ -1891,6 +1891,8 @@ class Purchase extends MY_Controller
             $destinationFilter
         );
 
+        $orphanStock = $this->Purchase_model->list_monthly_stock_no_material_id($divisionId > 0 ? $divisionId : null);
+
         $this->render('purchase/stock_division_reconcile_index', [
             'title'                => 'Rekonsiliasi Stok Divisi',
             'page_title'           => 'Rekonsiliasi Stok Divisi',
@@ -1905,6 +1907,7 @@ class Purchase extends MY_Controller
             'destination_guard_map' => $destinationGuardMap,
             'rows'                 => $compare['rows'] ?? [],
             'summary'              => $compare['summary'] ?? [],
+            'orphan_stock'         => $orphanStock,
         ]);
     }
 
@@ -2063,6 +2066,12 @@ class Purchase extends MY_Controller
             ];
             $label = trim((string)($row['material_name'] ?? '-')) . ' @ ' . trim((string)($row['division_name'] ?? '-'));
 
+            if ($params['material_id'] <= 0) {
+                $failed++;
+                $results[] = ['label' => $label, 'status' => 'skipped', 'message' => 'Tidak punya material_id — jalankan Repair Material ID terlebih dahulu.'];
+                continue;
+            }
+
             $repair = $this->Purchase_model->repair_division_material_lot_balance($params);
 
             if (!empty($repair['ok'])) {
@@ -2097,6 +2106,27 @@ class Purchase extends MY_Controller
                     'failed'         => $failed,
                     'results'        => $results,
                 ],
+            ]));
+    }
+
+    public function stock_division_reconcile_repair_material_id()
+    {
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');
+
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+        $divisionId = (int)($payload['division_id'] ?? 0);
+
+        $result = $this->Purchase_model->repair_monthly_stock_missing_material_id($divisionId > 0 ? $divisionId : null);
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok'      => (bool)($result['ok'] ?? false),
+                'message' => (string)($result['message'] ?? ''),
+                'data'    => ['repaired' => (int)($result['repaired'] ?? 0)],
             ]));
     }
 

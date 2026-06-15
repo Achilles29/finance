@@ -472,4 +472,13 @@ dengan yang sudah kita lalui tadi, bisakah kamu cek untuk component? logikanya s
 
 2. pos/stock-commit-audit masih sering gagal repair issmatch dan drift, coba cek apa masalahnya dan apakah bisa disamakan polanya dengan repairt lot di reconcile?
 
+
+kita sudah membuat skema "Repair lot semua" dan "Repair Lot" di tabel kolom LOT FIFO di /inventory/stock/division/reconcile. dimana ketika di klik maka semua LOT yang tidak sesuai ledger maka akan disesuikan. tadi masih menyisakan masalah ada bari di monthly_stock yang ternyata tidak punya LOT.
+contoh ICE CUBE ketika di repair seharusnya baris profile yang tidak punya LOT otomatis menggenerate baris lot sesuai profilenya. ICE CUBE tadi gagal setelah saya cek ternyata dia tidak punya material_id di inv_division_monthly_stock. nah coba cek ulang logika repair dan cek juga profil mana saja yang tidak punya material_id.
+
+kenapa bisa baris tidak punya material id? apakah dari legacy atau ada PO / SR / Adjustment/ Opening yang tidak menggenerate material_id?
+ 
+
+
+
 kalau baris atau profil yang tidak ada lot nya, ketika di repair lot semua seharusnya membuat lot baru

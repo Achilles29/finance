@@ -3544,6 +3544,89 @@ class Purchase_model extends CI_Model
      * – lot_total > balance  → deduct excess from oldest open lots (FIFO order)
      * – lot_total < balance  → insert a correction inbound lot for the shortfall
      */
+
+    /**
+     * List baris inv_division_monthly_stock yang tidak punya material_id.
+     * Returns ['fixable'] (item punya material_id di mst_item) dan ['no_material'] (item memang bukan bahan baku).
+     */
+    public function list_monthly_stock_no_material_id(?int $divisionId = null): array
+    {
+        if (!$this->db->table_exists('inv_division_monthly_stock')) {
+            return ['fixable' => [], 'no_material' => [], 'total' => 0];
+        }
+
+        $divWhere = $divisionId !== null && $divisionId > 0 ? 'AND ms.division_id = ' . (int)$divisionId : '';
+
+        $sql = "
+            SELECT ms.id, ms.division_id, ms.destination_type, ms.month_key,
+                   ms.item_id, ms.material_id, ms.profile_key, ms.profile_name,
+                   ms.closing_qty_content,
+                   i.item_name, i.material_id AS item_material_id,
+                   m.material_name, m.material_code,
+                   od.name AS division_name
+            FROM inv_division_monthly_stock ms
+            LEFT JOIN mst_item i ON i.id = ms.item_id
+            LEFT JOIN mst_material m ON m.id = i.material_id
+            LEFT JOIN mst_operational_division od ON od.id = ms.division_id
+            WHERE ms.material_id IS NULL
+              AND ms.closing_qty_content > 0
+              {$divWhere}
+            ORDER BY i.item_name, ms.division_id
+        ";
+
+        $rows = ($r = $this->db->query($sql)) ? $r->result_array() : [];
+
+        $fixable = [];
+        $noMaterial = [];
+        foreach ($rows as $row) {
+            if (!empty($row['item_material_id'])) {
+                $fixable[] = $row;
+            } else {
+                $noMaterial[] = $row;
+            }
+        }
+
+        return [
+            'fixable'     => $fixable,
+            'no_material' => $noMaterial,
+            'total'       => count($rows),
+        ];
+    }
+
+    /**
+     * Backfill material_id di inv_division_monthly_stock dari mst_item.material_id
+     * untuk semua baris yang material_id-nya NULL tapi item-nya punya material_id.
+     * Kembalikan jumlah baris yang diperbaiki.
+     */
+    public function repair_monthly_stock_missing_material_id(?int $divisionId = null): array
+    {
+        if (!$this->db->table_exists('inv_division_monthly_stock')) {
+            return ['ok' => false, 'message' => 'Tabel inv_division_monthly_stock tidak ditemukan.'];
+        }
+
+        $divWhere = $divisionId !== null && $divisionId > 0 ? 'AND ms.division_id = ' . (int)$divisionId : '';
+
+        $sql = "
+            UPDATE inv_division_monthly_stock ms
+            JOIN mst_item i ON i.id = ms.item_id AND i.material_id IS NOT NULL
+            SET ms.material_id = i.material_id,
+                ms.updated_at  = NOW()
+            WHERE ms.material_id IS NULL
+              {$divWhere}
+        ";
+
+        $this->db->query($sql);
+        $affected = $this->db->affected_rows();
+
+        return [
+            'ok'       => true,
+            'repaired' => $affected,
+            'message'  => $affected > 0
+                ? "Berhasil mengisi material_id untuk {$affected} baris monthly stock."
+                : 'Tidak ada baris yang perlu diperbaiki.',
+        ];
+    }
+
     public function repair_division_material_lot_balance(array $params): array
     {
         $divisionId  = (int)($params['division_id'] ?? 0);
