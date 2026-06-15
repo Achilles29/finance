@@ -4270,6 +4270,197 @@ class Purchase_model extends CI_Model
         ];
     }
 
+    public function repair_division_material_profile(array $params): array
+    {
+        $divisionId  = (int)($params['division_id'] ?? 0);
+        $materialId  = (int)($params['material_id'] ?? 0);
+        $destination = strtoupper(trim((string)($params['destination'] ?? 'ALL')));
+        $profileKey  = trim((string)($params['profile_key'] ?? ''));
+        $repairMode  = strtolower(trim((string)($params['repair_mode'] ?? 'lot_repair')));
+        $asOfDate    = $this->normalizeDate((string)($params['as_of_date'] ?? '')) ?? date('Y-m-d');
+
+        if ($divisionId <= 0 || $materialId <= 0) {
+            return ['ok' => false, 'message' => 'division_id dan material_id wajib diisi.'];
+        }
+        if (!$this->db->table_exists('inv_material_fifo_lot')) {
+            return ['ok' => false, 'message' => 'Tabel inv_material_fifo_lot belum ada.'];
+        }
+        if (!$this->db->table_exists('inv_division_monthly_stock')) {
+            return ['ok' => false, 'message' => 'Tabel inv_division_monthly_stock belum ada.'];
+        }
+
+        $divId   = $divisionId;
+        $matId   = $materialId;
+        $pkEsc   = $this->db->escape($profileKey);
+        $pkWhere = "AND COALESCE(profile_key,'') = {$pkEsc}";
+
+        // Build destination WHERE fragments for different table aliases
+        $lotDestCond    = '';  // no alias (for inv_material_fifo_lot)
+        $stockDestWhere = '';  // 'dms.' alias (for inv_division_monthly_stock)
+        $mlDestWhere    = '';  // 'ml.' alias (for inv_stock_movement_log)
+        if ($destination === 'EVENT') {
+            $lotDestCond    = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $mlDestWhere    = " AND ml.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+        } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)) {
+            $lotDestCond    = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $mlDestWhere    = " AND ml.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+        } elseif (!in_array($destination, ['ALL', ''], true)) {
+            $dEsc           = $this->db->escape($destination);
+            $lotDestCond    = " AND destination_type = {$dEsc}";
+            $stockDestWhere = " AND dms.destination_type = {$dEsc}";
+            $mlDestWhere    = " AND ml.destination_type = {$dEsc}";
+        }
+
+        $actions = [];
+
+        // Step 1 (to_movement only): update monthly_stock.closing for this profile to match movement_log
+        if ($repairMode === 'to_movement') {
+            if (!$this->db->table_exists('inv_stock_movement_log')) {
+                return ['ok' => false, 'message' => 'Tabel inv_stock_movement_log tidak ditemukan untuk mode to_movement.'];
+            }
+            $asOfDateEsc = $this->db->escape($asOfDate);
+            $lastMvt = $this->db->query("
+                SELECT ml.qty_content_after AS movement_closing, ml.qty_buy_after AS buy_closing
+                FROM inv_stock_movement_log ml
+                WHERE ml.division_id = {$divId} AND ml.material_id = {$matId}
+                  AND ml.movement_scope = 'DIVISION'
+                  AND ml.movement_date <= {$asOfDateEsc}
+                  {$mlDestWhere} {$pkWhere}
+                ORDER BY ml.movement_date DESC, ml.id DESC LIMIT 1
+            ")->row_array();
+
+            if (empty($lastMvt)) {
+                return ['ok' => false, 'message' => 'Tidak ada movement log untuk profil ini — tidak bisa repair sesuai movement.'];
+            }
+            $newClosing    = round((float)($lastMvt['movement_closing'] ?? 0), 4);
+            $newBuyClos    = round((float)($lastMvt['buy_closing'] ?? 0), 4);
+
+            $latestMonthSubUpd = "SELECT division_id, destination_type, identity_key, MAX(month_key) AS max_month
+                                  FROM inv_division_monthly_stock
+                                  WHERE division_id={$divId} AND material_id={$matId}
+                                  GROUP BY division_id, destination_type, identity_key";
+            $this->db->query("
+                UPDATE inv_division_monthly_stock dms
+                INNER JOIN ({$latestMonthSubUpd}) lm
+                    ON lm.division_id=dms.division_id AND lm.destination_type=dms.destination_type
+                       AND lm.identity_key=dms.identity_key AND lm.max_month=dms.month_key
+                SET dms.closing_qty_content = {$newClosing},
+                    dms.closing_qty_buy     = {$newBuyClos},
+                    dms.updated_at          = NOW()
+                WHERE dms.division_id={$divId} AND dms.material_id={$matId}
+                  {$stockDestWhere} {$pkWhere}
+            ");
+            $affected = $this->db->affected_rows();
+            $actions[] = "Monthly stock closing diupdate ke {$newClosing} ({$affected} baris)";
+        }
+
+        // Step 2: Re-read stock balance (after possible update)
+        $latestMonthSub = "SELECT division_id, destination_type, identity_key, MAX(month_key) AS max_month
+                           FROM inv_division_monthly_stock
+                           WHERE division_id={$divId} AND material_id={$matId}
+                           GROUP BY division_id, destination_type, identity_key";
+        $stockRow = $this->db->query("
+            SELECT SUM(dms.closing_qty_content) AS stock_balance,
+                   MAX(dms.destination_type) AS destination_type,
+                   MAX(dms.item_id) AS item_id,
+                   MAX(dms.buy_uom_id) AS buy_uom_id,
+                   MAX(dms.content_uom_id) AS content_uom_id
+            FROM inv_division_monthly_stock dms
+            INNER JOIN ({$latestMonthSub}) lm
+                ON lm.division_id=dms.division_id AND lm.destination_type=dms.destination_type
+                   AND lm.identity_key=dms.identity_key AND lm.max_month=dms.month_key
+            WHERE dms.division_id={$divId} AND dms.material_id={$matId}
+              {$stockDestWhere} {$pkWhere}
+        ")->row_array();
+        $stockBalance = round((float)($stockRow['stock_balance'] ?? 0), 4);
+        $destType     = (string)($stockRow['destination_type'] ?? 'OTHER');
+        $itemId       = $stockRow['item_id'] ?? null;
+        $buyUomId     = $stockRow['buy_uom_id'] ?? null;
+        $contentUomId = $stockRow['content_uom_id'] ?? null;
+
+        // Step 3: Current lot balance for this profile
+        $lotRow = $this->db->query("
+            SELECT SUM(qty_balance) AS lot_total
+            FROM inv_material_fifo_lot
+            WHERE location_scope='DIVISION' AND division_id={$divId} AND material_id={$matId}
+              AND status='OPEN' AND qty_balance>0.0001
+              {$lotDestCond} {$pkWhere}
+        ")->row_array();
+        $lotBalance = round((float)($lotRow['lot_total'] ?? 0), 4);
+
+        $gap = round($lotBalance - $stockBalance, 4); // positive = lot excess
+
+        if (abs($gap) <= 0.01) {
+            $msg = count($actions) ? implode('; ', $actions) . '. Lot sudah sesuai stok.' : 'Lot dan stok sudah sesuai, tidak perlu repair.';
+            return ['ok' => true, 'message' => $msg, 'data' => ['lot_balance' => $lotBalance, 'stock_balance' => $stockBalance, 'gap' => $gap, 'actions' => $actions]];
+        }
+
+        // Step 4: Repair lot to match stock
+        if ($gap > 0.01) {
+            // Lot excess → deduct from oldest lots for this profile
+            $profileLots = $this->db->query("
+                SELECT id, qty_balance FROM inv_material_fifo_lot
+                WHERE location_scope='DIVISION' AND division_id={$divId} AND material_id={$matId}
+                  AND status='OPEN' AND qty_balance>0.0001 {$lotDestCond} {$pkWhere}
+                ORDER BY receipt_date ASC, id ASC
+            ")->result_array();
+            $remaining = $gap;
+            foreach ($profileLots as $lot) {
+                if ($remaining <= 0.0001) { break; }
+                $lotId   = (int)$lot['id'];
+                $lb      = round((float)$lot['qty_balance'], 4);
+                $deduct  = round(min($remaining, $lb), 4);
+                $newBal  = round($lb - $deduct, 4);
+                $this->db->query(
+                    "UPDATE inv_material_fifo_lot SET qty_out=qty_out+?, qty_balance=?, status=?, updated_at=NOW() WHERE id=?",
+                    [$deduct, $newBal, $newBal <= 0.0001 ? 'CLOSED' : 'OPEN', $lotId]
+                );
+                $remaining = round($remaining - $deduct, 4);
+            }
+            $actions[] = 'Kurangi lot: -' . number_format($gap, 4) . ' → sesuai stok ' . number_format($stockBalance, 4);
+        } else {
+            // Lot deficit → add CORR lot
+            $shortfall = abs($gap);
+            $ucRow = $this->db->query("
+                SELECT unit_cost FROM inv_material_fifo_lot
+                WHERE division_id={$divId} AND material_id={$matId} {$pkWhere}
+                  AND location_scope='DIVISION' ORDER BY id DESC LIMIT 1
+            ")->row_array()
+                ?: $this->db->query("SELECT unit_cost FROM inv_material_fifo_lot WHERE division_id={$divId} AND material_id={$matId} AND location_scope='DIVISION' ORDER BY id DESC LIMIT 1")->row_array();
+
+            $this->db->insert('inv_material_fifo_lot', [
+                'lot_no'           => 'CORR-' . date('Ymd-His') . '-M' . $matId,
+                'location_scope'   => 'DIVISION',
+                'receipt_date'     => date('Y-m-d'),
+                'expiry_date'      => null,
+                'division_id'      => $divId,
+                'destination_type' => $destType,
+                'item_id'          => !empty($itemId) ? (int)$itemId : null,
+                'material_id'      => $matId,
+                'buy_uom_id'       => !empty($buyUomId) ? (int)$buyUomId : null,
+                'content_uom_id'   => !empty($contentUomId) ? (int)$contentUomId : null,
+                'profile_key'      => $profileKey !== '' ? $profileKey : null,
+                'qty_in'           => $shortfall,
+                'qty_out'          => 0,
+                'qty_balance'      => $shortfall,
+                'unit_cost'        => $ucRow ? (float)($ucRow['unit_cost'] ?? 0) : 0.0,
+                'source_table'     => 'profile_repair',
+                'source_id'        => null, 'source_line_id' => null,
+                'receipt_id'       => null, 'receipt_line_id' => null,
+                'parent_lot_id'    => null, 'status' => 'OPEN',
+            ]);
+            $actions[] = 'CORR lot dibuat: +' . number_format($shortfall, 4) . ' → sesuai stok ' . number_format($stockBalance, 4);
+        }
+
+        return [
+            'ok'      => true,
+            'message' => 'Repair profil selesai. ' . implode('; ', $actions) . '.',
+            'data'    => ['lot_balance' => $lotBalance, 'stock_balance' => $stockBalance, 'gap' => $gap, 'actions' => $actions],
+        ];
+    }
+
     public function repair_material_monthly_stock_drift(string $asOfDate, array $params): array
     {
         if (!$this->db->table_exists('inv_division_monthly_stock')) {

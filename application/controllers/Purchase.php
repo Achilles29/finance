@@ -2130,6 +2130,31 @@ class Purchase extends MY_Controller
             ]));
     }
 
+    public function stock_division_reconcile_profile_repair()
+    {
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');
+
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $result = $this->Purchase_model->repair_division_material_profile([
+            'division_id' => (int)($payload['division_id'] ?? 0),
+            'material_id' => (int)($payload['material_id'] ?? 0),
+            'destination' => strtoupper(trim((string)($payload['destination'] ?? 'ALL'))),
+            'profile_key' => trim((string)($payload['profile_key'] ?? '')),
+            'repair_mode' => trim((string)($payload['repair_mode'] ?? 'lot_repair')),
+            'as_of_date'  => trim((string)($payload['as_of_date'] ?? date('Y-m-d'))),
+        ]);
+
+        $status = !empty($result['ok']) ? 200 : 422;
+        $this->output
+            ->set_status_header($status)
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
     public function inventory_warehouse_daily_index()
     {
         if (!$this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')) {

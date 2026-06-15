@@ -5,7 +5,8 @@ $repairUrl    = site_url('inventory/stock/division/reconcile/repair');
 $lotRepairUrl        = site_url('inventory/stock/division/reconcile/lot-repair');
 $lotProfileSyncUrl   = site_url('inventory/stock/division/reconcile/lot-profile-sync');
 $lotRepairAllUrl     = site_url('inventory/stock/division/reconcile/lot-repair-all');
-$repairMaterialIdUrl = site_url('inventory/stock/division/reconcile/repair-material-id');
+$repairMaterialIdUrl    = site_url('inventory/stock/division/reconcile/repair-material-id');
+$profileRepairUrl       = site_url('inventory/stock/division/reconcile/profile-repair');
 
 $allRows     = is_array($rows ?? null) ? $rows : [];
 $divisions   = is_array($divisions ?? null) ? $divisions : [];
@@ -576,73 +577,91 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
             <?php if ($hasLotData && !empty($profileBreakdown) && !isset($shownBreakdownKeys[$bKey])): ?>
               <?php $shownBreakdownKeys[$bKey] = true; ?>
               <tr class="rec-profile-breakdown-row" data-breakdown-key="<?php echo html_escape($bKey); ?>" style="display:<?php echo $hasProfileMismatch ? '' : 'none'; ?>">
-                <td colspan="11" style="padding:.25rem .5rem .5rem 2rem;background:#f0f4f8;border-top:none;">
-                  <div style="font-size:.65rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;padding:.3rem 0 .2rem">Breakdown per Profil</div>
+                <td colspan="11" style="padding:.2rem .5rem .5rem 1.8rem;background:#f0f4f8;border-top:none;">
+                  <div style="font-size:.62rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;padding:.3rem 0 .2rem">Breakdown per Profil</div>
                   <div style="overflow-x:auto">
-                  <table class="table table-sm table-borderless mb-0" style="font-size:.68rem;min-width:860px;">
+                  <table class="table table-sm table-borderless mb-0" style="font-size:.68rem;min-width:720px;">
                     <thead>
                       <tr style="border-bottom:2px solid #cbd5e1;background:#e2e8f0;">
                         <th style="min-width:140px;font-weight:700;padding:.3rem .5rem">Profil</th>
                         <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Stok Divisi</th>
                         <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Lot FIFO</th>
                         <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Mat. Daily</th>
-                        <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Snap. Harian</th>
                         <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Movement</th>
-                        <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:72px">Δ Stok/Mvt</th>
-                        <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:72px">Δ Daily/Mvt</th>
-                        <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:72px">Δ Snap/Mvt</th>
+                        <th style="font-weight:700;padding:.3rem .4rem;min-width:140px">Selisih</th>
                         <th class="text-center" style="font-weight:700;padding:.3rem .4rem;min-width:72px">Status</th>
+                        <th class="text-center" style="font-weight:700;padding:.3rem .4rem;min-width:64px">Aksi</th>
                       </tr>
                     </thead>
                     <tbody>
                       <?php foreach ($profileBreakdown as $pb): ?>
                         <?php
-                          $pbPk      = (string)($pb['profile_key'] ?? '');
-                          $pbShort   = $pbPk !== '' ? substr($pbPk, 0, 8) . '…' : '(no profile)';
-                          $pbName    = trim((string)($pb['profile_name'] ?? ''));
-                          $pbLabel   = $pbName !== '' ? $pbName : $pbShort;
-                          $pbStock   = (float)($pb['stock_balance'] ?? 0);
-                          $pbLot     = (float)($pb['lot_balance'] ?? 0);
-                          $pbDaily   = isset($pb['daily_content'])    ? (float)$pb['daily_content']    : $pbStock;
-                          $pbSnap    = isset($pb['snapshot_content']) ? (float)$pb['snapshot_content'] : $pbStock;
-                          $pbMvt     = isset($pb['movement_content']) ? (float)$pb['movement_content'] : 0.0;
-                          $pbDStk    = isset($pb['delta_stock_vs_mvt'])    ? (float)$pb['delta_stock_vs_mvt']    : round($pbStock - $pbMvt, 4);
-                          $pbDDly    = isset($pb['delta_daily_vs_mvt'])    ? (float)$pb['delta_daily_vs_mvt']    : round($pbDaily - $pbMvt, 4);
-                          $pbDSnp    = isset($pb['delta_snapshot_vs_mvt']) ? (float)$pb['delta_snapshot_vs_mvt'] : round($pbSnap - $pbMvt, 4);
-                          $pbMis     = !empty($pb['has_mismatch']);
-                          $pbHasMvt  = isset($pb['movement_content']);
-                          $dStkBad   = abs($pbDStk) > 0.01;
-                          $dDlyBad   = abs($pbDDly) > 0.01;
-                          $dSnpBad   = abs($pbDSnp) > 0.01;
-                          $pbLotMis  = abs($pbStock - $pbLot) > 0.01;
-                          // Determine status chip
-                          if ($dStkBad || $dDlyBad || $dSnpBad || $pbLotMis) {
-                              $pbStatus = 'Mismatch'; $pbStatusCls = 'rec-chip-bad';
-                          } else {
-                              $pbStatus = 'Match'; $pbStatusCls = 'rec-chip-ok';
+                          $pbPk     = (string)($pb['profile_key'] ?? '');
+                          $pbName   = trim((string)($pb['profile_name'] ?? ''));
+                          $pbLabel  = $pbName !== '' ? $pbName : ($pbPk !== '' ? substr($pbPk, 0, 8).'…' : '(no profile)');
+                          $pbStock  = (float)($pb['stock_balance'] ?? 0);
+                          $pbLot    = (float)($pb['lot_balance'] ?? 0);
+                          $pbDaily  = isset($pb['daily_content']) ? (float)$pb['daily_content'] : $pbStock;
+                          $pbMvt    = isset($pb['movement_content']) ? (float)$pb['movement_content'] : 0.0;
+                          $pbHasMvt = isset($pb['movement_content']);
+                          $pbDStk   = round($pbStock - $pbMvt, 4);
+                          $pbDLot   = round($pbStock - $pbLot, 4);
+                          $dStkBad  = $pbHasMvt && abs($pbDStk) > 0.01;
+                          $dLotBad  = abs($pbDLot) > 0.01;
+                          $pbMis    = $dStkBad || $dLotBad;
+
+                          // Build smart Selisih text
+                          $selisihParts = [];
+                          if ($dLotBad) {
+                              $sign = $pbDLot > 0 ? '+' : '';
+                              $selisihParts[] = 'Lot vs Stok: ' . $sign . $fmtQty($pbDLot);
                           }
+                          if ($dStkBad) {
+                              $sign = $pbDStk > 0 ? '+' : '';
+                              $selisihParts[] = 'Stok vs Mvt: ' . $sign . $fmtQty($pbDStk);
+                          }
+                          $selisihText = empty($selisihParts) ? '–' : implode('; ', $selisihParts);
+
+                          $pbStatusLbl = $pbMis ? 'Mismatch' : 'Match';
+                          $pbStatusCls = $pbMis ? 'rec-chip-bad' : 'rec-chip-ok';
                         ?>
                         <tr style="border-bottom:1px solid #e2e8f0;">
                           <td style="padding:.3rem .5rem">
                             <div style="font-weight:600"><?php echo html_escape($pbLabel); ?></div>
-                            <code title="<?php echo html_escape($pbPk); ?>" style="font-size:.6rem;color:#94a3b8"><?php echo html_escape(substr($pbPk,0,12)); ?><?php echo strlen($pbPk)>12?'…':''; ?></code>
+                            <code title="<?php echo html_escape($pbPk); ?>" style="font-size:.59rem;color:#94a3b8"><?php echo html_escape(substr($pbPk,0,12)); ?><?php echo strlen($pbPk)>12?'…':''; ?></code>
                           </td>
                           <td class="text-end" style="padding:.3rem .4rem;font-weight:600;<?php echo $pbStock < 0 ? 'color:#b42318' : ''; ?>"><?php echo $fmtQty($pbStock); ?></td>
-                          <td class="text-end" style="padding:.3rem .4rem;<?php echo $pbLotMis ? 'color:#b42318;font-weight:600' : ''; ?>"><?php echo $fmtQty($pbLot); ?></td>
+                          <td class="text-end" style="padding:.3rem .4rem;<?php echo $dLotBad ? 'color:#b42318;font-weight:600' : ''; ?>"><?php echo $fmtQty($pbLot); ?></td>
                           <td class="text-end" style="padding:.3rem .4rem"><?php echo $fmtQty($pbDaily); ?></td>
-                          <td class="text-end" style="padding:.3rem .4rem"><?php echo $fmtQty($pbSnap); ?></td>
                           <td class="text-end" style="padding:.3rem .4rem<?php echo !$pbHasMvt ? ';color:#94a3b8' : ''; ?>"><?php echo $pbHasMvt ? $fmtQty($pbMvt) : '–'; ?></td>
-                          <td class="text-end <?php echo $dStkBad ? 'rec-delta-bad' : 'rec-delta-ok'; ?>" style="padding:.3rem .4rem">
-                            <?php echo ($pbDStk > 0 ? '+' : '') . $fmtQty($pbDStk); ?>
-                          </td>
-                          <td class="text-end <?php echo $dDlyBad ? 'rec-delta-bad' : 'rec-delta-ok'; ?>" style="padding:.3rem .4rem">
-                            <?php echo ($pbDDly > 0 ? '+' : '') . $fmtQty($pbDDly); ?>
-                          </td>
-                          <td class="text-end <?php echo $dSnpBad ? 'rec-delta-bad' : 'rec-delta-ok'; ?>" style="padding:.3rem .4rem">
-                            <?php echo ($pbDSnp > 0 ? '+' : '') . $fmtQty($pbDSnp); ?>
+                          <td style="padding:.3rem .4rem;font-size:.65rem">
+                            <?php if (!$pbMis): ?>
+                              <span style="color:#2f9e44">–</span>
+                            <?php else: ?>
+                              <span style="color:#b42318;font-weight:600"><?php echo html_escape($selisihText); ?></span>
+                            <?php endif; ?>
                           </td>
                           <td class="text-center" style="padding:.3rem .4rem">
-                            <span class="rec-chip <?php echo $pbStatusCls; ?>" style="font-size:.6rem"><?php echo $pbStatus; ?></span>
+                            <span class="rec-chip <?php echo $pbStatusCls; ?>" style="font-size:.59rem"><?php echo $pbStatusLbl; ?></span>
+                          </td>
+                          <td class="text-center" style="padding:.3rem .4rem">
+                            <?php if ($pbMis): ?>
+                            <button type="button" class="btn btn-xs btn-outline-warning src-profile-repair-btn"
+                              data-as-of-date="<?php echo html_escape($asOfDate); ?>"
+                              data-division-id="<?php echo $dataDivId; ?>"
+                              data-material-id="<?php echo $dataMatId; ?>"
+                              data-destination="<?php echo html_escape($dataDest); ?>"
+                              data-profile-key="<?php echo html_escape($pbPk); ?>"
+                              data-profile-name="<?php echo html_escape($pbLabel); ?>"
+                              data-stock="<?php echo $pbStock; ?>"
+                              data-lot="<?php echo $pbLot; ?>"
+                              data-daily="<?php echo $pbDaily; ?>"
+                              data-movement="<?php echo $pbHasMvt ? $pbMvt : ''; ?>"
+                              data-has-mvt="<?php echo $pbHasMvt ? '1' : '0'; ?>"
+                              data-d-lot="<?php echo $pbDLot; ?>"
+                              data-d-stk="<?php echo $pbDStk; ?>"
+                              style="font-size:.59rem;padding:.1rem .35rem">Repair</button>
+                            <?php endif; ?>
                           </td>
                         </tr>
                       <?php endforeach; ?>
@@ -972,6 +991,152 @@ document.addEventListener('DOMContentLoaded', function () {
       bdRows.forEach(function(r){r.style.display=r.style.display==='none'?'':'none';});
       pb.textContent=pb.textContent.includes('▼')?pb.textContent.replace('▼','▲'):pb.textContent.replace('▲','▼');
     }
+    var prb=ev.target.closest('.src-profile-repair-btn');
+    if(prb){ openProfileRepairModal(prb); }
   });
+
+  // ── Profile Repair Modal ──────────────────────────────────────────────────
+  var profileRepairUrl = <?php echo json_encode($profileRepairUrl); ?>;
+  var prModal = document.getElementById('profileRepairModal');
+  var prModalBs = prModal ? (typeof bootstrap !== 'undefined' ? new bootstrap.Modal(prModal) : null) : null;
+
+  function openProfileRepairModal(btn) {
+    if (!prModal) { showAlert('Modal tidak tersedia.', 'Error'); return; }
+    var pk       = btn.dataset.profileKey  || '';
+    var pname    = btn.dataset.profileName || (pk.slice(0,8)+'…');
+    var stock    = Number(btn.dataset.stock  || 0);
+    var lot      = Number(btn.dataset.lot    || 0);
+    var daily    = Number(btn.dataset.daily  || 0);
+    var hasMvt   = btn.dataset.hasMvt === '1';
+    var mvt      = hasMvt ? Number(btn.dataset.movement || 0) : null;
+    var dLot     = Number(btn.dataset.dLot || 0);  // stock - lot
+    var dStk     = hasMvt ? Number(btn.dataset.dStk || 0) : null; // stock - mvt
+    var lotBad   = Math.abs(dLot) > 0.01;
+    var mvtBad   = hasMvt && Math.abs(dStk) > 0.01;
+
+    // Store context on modal for use in repair
+    prModal.dataset.divisionId  = btn.dataset.divisionId  || '0';
+    prModal.dataset.materialId  = btn.dataset.materialId  || '0';
+    prModal.dataset.destination = btn.dataset.destination || 'ALL';
+    prModal.dataset.profileKey  = pk;
+    prModal.dataset.asOfDate    = btn.dataset.asOfDate    || '';
+
+    // Populate header
+    var titleEl = document.getElementById('prModalTitle');
+    if (titleEl) titleEl.textContent = 'Repair Profil — ' + pname;
+
+    // Build analysis HTML
+    var rows = [
+      ['Stok Divisi', fmtQty(stock), '(monthly_stock closing)'],
+      ['Lot FIFO',    fmtQty(lot),   lotBad ? '<span style="color:#b42318;font-weight:700">Selisih ' + (dLot > 0 ? '+' : '') + fmtQty(dLot) + '</span>' : 'OK'],
+      ['Mat. Daily',  fmtQty(daily), '(= Stok Divisi)'],
+      ['Movement',    hasMvt ? fmtQty(mvt) : '–', hasMvt && mvtBad ? '<span style="color:#b42318;font-weight:700">Selisih ' + (dStk > 0 ? '+' : '') + fmtQty(dStk) + '</span>' : (hasMvt ? 'OK' : 'Tidak ada data movement')],
+    ];
+    var analysisEl = document.getElementById('prModalAnalysis');
+    if (analysisEl) {
+      analysisEl.innerHTML = '<table style="width:100%;font-size:.8rem;border-collapse:collapse">'
+        + rows.map(function(r){return '<tr><td style="padding:.3rem .5rem;font-weight:600;width:110px">'+escHtml(r[0])+'</td><td style="padding:.3rem .5rem;text-align:right;width:90px">'+escHtml(r[1])+'</td><td style="padding:.3rem .5rem;color:#64748b">'+r[2]+'</td></tr>';}).join('')
+        + '</table>';
+    }
+
+    // Build action section
+    var actionEl = document.getElementById('prModalActions');
+    var toStockBtn   = document.getElementById('prRepairToStock');
+    var toMvtBtn     = document.getElementById('prRepairToMovement');
+    var explanEl     = document.getElementById('prModalExplanation');
+
+    if (actionEl && toStockBtn && toMvtBtn && explanEl) {
+      if (!lotBad && !mvtBad) {
+        // Shouldn't happen (button only shows when mismatch)
+        explanEl.innerHTML = '<div class="alert alert-success py-2 mb-0">Tidak ada selisih yang perlu direpair.</div>';
+        toStockBtn.style.display = 'none';
+        toMvtBtn.style.display   = 'none';
+      } else if (lotBad && !mvtBad) {
+        // Only lot mismatch — unambiguous: repair lot to match stock
+        var dir = dLot > 0 ? 'dikurangi ' + fmtQty(dLot) : 'ditambah CORR lot ' + fmtQty(Math.abs(dLot));
+        explanEl.innerHTML = '<div class="alert alert-warning py-2 mb-0 small">Lot FIFO tidak sesuai stok. Lot akan '+ escHtml(dir) +' agar cocok dengan stok <strong>' + escHtml(fmtQty(stock)) + '</strong>.</div>';
+        toStockBtn.style.display = '';
+        toStockBtn.textContent   = 'Repair Lot → Stok';
+        toMvtBtn.style.display   = 'none';
+      } else if (!lotBad && mvtBad) {
+        // Only stock vs movement mismatch
+        explanEl.innerHTML = '<div class="alert alert-info py-2 mb-0 small">Stok (<strong>' + escHtml(fmtQty(stock)) + '</strong>) berbeda dengan Movement (<strong>' + escHtml(fmtQty(mvt)) + '</strong>). Pilih titik temu:</div>';
+        toStockBtn.style.display = '';
+        toStockBtn.textContent   = 'Repair sesuai Stok (' + fmtQty(stock) + ')';
+        toMvtBtn.style.display   = '';
+        toMvtBtn.textContent     = 'Repair sesuai Movement (' + fmtQty(mvt) + ')';
+      } else {
+        // Both mismatched
+        explanEl.innerHTML = '<div class="alert alert-danger py-2 mb-0 small">Lot (<strong>' + escHtml(fmtQty(lot)) + '</strong>) tidak cocok stok (<strong>' + escHtml(fmtQty(stock)) + '</strong>), dan stok berbeda dari movement (<strong>' + escHtml(fmtQty(mvt)) + '</strong>). Pilih referensi:</div>';
+        toStockBtn.style.display = '';
+        toStockBtn.textContent   = 'Repair sesuai Stok (' + fmtQty(stock) + ')';
+        toMvtBtn.style.display   = '';
+        toMvtBtn.textContent     = 'Repair sesuai Movement (' + fmtQty(mvt) + ')';
+      }
+    }
+
+    if (prModalBs) { prModalBs.show(); }
+    else if (typeof $ !== 'undefined') { $(prModal).modal('show'); }
+    else { prModal.style.display = 'block'; prModal.classList.add('show'); }
+  }
+
+  async function runProfileRepair(repairMode) {
+    var divisionId  = Number(prModal.dataset.divisionId  || 0);
+    var materialId  = Number(prModal.dataset.materialId  || 0);
+    var destination = prModal.dataset.destination || 'ALL';
+    var profileKey  = prModal.dataset.profileKey  || '';
+    var asOfDate    = prModal.dataset.asOfDate    || '';
+
+    var actionBtn = repairMode === 'to_movement'
+      ? document.getElementById('prRepairToMovement')
+      : document.getElementById('prRepairToStock');
+
+    if (prModalBs) { prModalBs.hide(); }
+    else if (typeof $ !== 'undefined') { $(prModal).modal('hide'); }
+
+    setButtonLoading(actionBtn, 'Repair...');
+    try {
+      var json = await postJson(profileRepairUrl, {
+        division_id: divisionId,
+        material_id: materialId,
+        destination: destination,
+        profile_key: profileKey,
+        repair_mode: repairMode,
+        as_of_date:  asOfDate,
+      });
+      await showAlert(json.message || 'Repair selesai.', 'Repair Profil');
+      window.location.reload();
+    } catch(e) {
+      clearButtonLoading(actionBtn);
+      await showAlert(e.message || 'Gagal repair profil.', 'Repair Profil');
+    }
+  }
+
+  var prToStockBtn = document.getElementById('prRepairToStock');
+  var prToMvtBtn   = document.getElementById('prRepairToMovement');
+  if (prToStockBtn) { prToStockBtn.addEventListener('click', function() { runProfileRepair('lot_repair'); }); }
+  if (prToMvtBtn)   { prToMvtBtn.addEventListener('click',   function() { runProfileRepair('to_movement'); }); }
 });
 </script>
+
+<!-- Profile Repair Modal -->
+<div class="modal fade" id="profileRepairModal" tabindex="-1" aria-labelledby="prModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2" style="background:linear-gradient(135deg,#312028,#4a2f3a)">
+        <h6 class="modal-title text-white mb-0" id="prModalTitle">Repair Profil</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Tutup"></button>
+      </div>
+      <div class="modal-body pb-2">
+        <div class="small text-muted mb-2">Analisis selisih untuk profil ini:</div>
+        <div id="prModalAnalysis" class="mb-3" style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden"></div>
+        <div id="prModalExplanation" class="mb-3"></div>
+        <div id="prModalActions" class="d-flex gap-2 flex-wrap justify-content-end">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+          <button type="button" id="prRepairToStock"    class="btn btn-sm btn-warning">Repair sesuai Stok</button>
+          <button type="button" id="prRepairToMovement" class="btn btn-sm btn-info text-white">Repair sesuai Movement</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
