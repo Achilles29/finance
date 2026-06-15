@@ -35,7 +35,7 @@ class Purchase extends MY_Controller
         $dateStart = trim((string)$this->input->get('date_start', true));
         $dateEnd = trim((string)$this->input->get('date_end', true));
         $tab = strtolower(trim((string)$this->input->get('tab', true)));
-        if (!in_array($tab, ['nota', 'rincian'], true)) {
+        if (!in_array($tab, ['nota', 'rincian', 'paid'], true)) {
             $tab = 'nota';
         }
         if ($dateStart === '') {
@@ -59,6 +59,8 @@ class Purchase extends MY_Controller
             'filtered_summary' => $this->Purchase_model->get_purchase_order_filtered_summary($q, $status, $dateStart, $dateEnd),
             'line_summary' => $this->Purchase_model->get_purchase_order_line_filtered_summary($q, $status, $dateStart, $dateEnd),
             'month_attention_summary' => $this->Purchase_model->get_purchase_order_filtered_summary('', 'ALL', date('Y-m-01'), date('Y-m-t')),
+            'payment_method_breakdown' => $this->Purchase_model->get_purchase_order_payment_method_breakdown($q, $rangeStatus, $dateStart, $dateEnd),
+            'type_breakdown' => $this->Purchase_model->get_purchase_order_type_breakdown($q, $rangeStatus, $dateStart, $dateEnd),
             'q' => $q,
             'status' => $status,
             'date_start' => $dateStart,
@@ -68,6 +70,8 @@ class Purchase extends MY_Controller
             'status_options' => ['ALL', 'DRAFT', 'APPROVED', 'ORDERED', 'REJECTED', 'PARTIAL_RECEIVED', 'RECEIVED', 'PAID', 'VOID'],
             'rows' => $this->Purchase_model->list_purchase_orders_dashboard($q, $status, $dateStart, $dateEnd, $limit),
             'line_rows' => $this->Purchase_model->list_purchase_order_lines_dashboard($q, $status, $dateStart, $dateEnd, $limit),
+            'paid_rows' => $tab === 'paid' ? $this->Purchase_model->list_purchase_orders_paid_dashboard($q, $dateStart, $dateEnd, $limit) : [],
+            'paid_summary' => $tab === 'paid' ? $this->Purchase_model->get_purchase_order_paid_filtered_summary($q, $dateStart, $dateEnd) : ['total_count' => 0, 'total_value' => 0.0],
         ];
 
         $this->render('purchase/index', $data);
@@ -526,6 +530,7 @@ class Purchase extends MY_Controller
             'active_menu' => 'finance.mutation',
             'accounts' => $this->Purchase_model->list_active_company_accounts(),
             'summary' => $this->Purchase_model->get_account_mutation_summary($accountId, $dateFrom, $dateTo),
+            'account_breakdown' => $this->Purchase_model->get_account_mutation_per_account_breakdown($dateFrom, $dateTo),
             'rows' => $this->Purchase_model->list_account_mutations($accountId, $dateFrom, $dateTo, $pg['per_page'], $pg['offset']),
             'pg' => $pg,
             'filter_account_id' => $accountId,

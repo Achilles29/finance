@@ -3,6 +3,15 @@ $cardSummary = (array)($card_summary ?? []);
 $filteredSummary = (array)($filtered_summary ?? []);
 $lineSummary = (array)($line_summary ?? []);
 $monthAttentionSummary = (array)($month_attention_summary ?? []);
+$paymentMethodBreakdown = (array)($payment_method_breakdown ?? []);
+$typeBreakdown = (array)($type_breakdown ?? []);
+$paidRows = (array)($paid_rows ?? []);
+$paidSummary = (array)($paid_summary ?? []);
+$poPaidPageCount = count($paidRows);
+$poPaidPageValue = 0.0;
+foreach ($paidRows as $pr) {
+    $poPaidPageValue += (float)($pr['grand_total'] ?? 0);
+}
 $poRows = (array)($rows ?? []);
 $poLineRows = (array)($line_rows ?? []);
 $poPageCount = count($poRows);
@@ -17,7 +26,7 @@ foreach ($poLineRows as $lineRow) {
     $poLinePageQty += (float)($lineRow['qty_buy'] ?? 0);
     $poLinePageValue += (float)($lineRow['line_subtotal'] ?? 0);
 }
-$activeTab = in_array((string)($tab ?? 'nota'), ['nota', 'rincian'], true) ? (string)$tab : 'nota';
+$activeTab = in_array((string)($tab ?? 'nota'), ['nota', 'rincian', 'paid'], true) ? (string)$tab : 'nota';
 $dateStart = (string)($date_start ?? '');
 $dateEnd = (string)($date_end ?? '');
 $statusOptions = (array)($status_options ?? ['ALL']);
@@ -276,7 +285,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
     }
     .po-rincian-table th,
     .po-rincian-table td {
-        white-space: nowrap !important;
+        white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
@@ -285,6 +294,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
     }
     .po-rincian-table td.rincian-text-left {
         text-align: left !important;
+        white-space: normal;
     }
     .po-rincian-table td.rincian-center {
         text-align: center !important;
@@ -470,6 +480,60 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
         --po-soft: rgba(29, 78, 216, .15);
         --po-surface: #eff4ff;
     }
+    .po-summary-card--payment {
+        --po-accent: #7c3aed;
+        --po-soft: rgba(124, 58, 237, .14);
+        --po-surface: #f5f0ff;
+    }
+    .po-summary-card--type {
+        --po-accent: #0e7490;
+        --po-soft: rgba(14, 116, 144, .14);
+        --po-surface: #ecfafe;
+    }
+    .po-breakdown-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: .45rem;
+    }
+    .po-breakdown-table td {
+        padding: .18rem .1rem;
+        font-size: .73rem;
+        vertical-align: middle;
+        border: 0;
+    }
+    .po-breakdown-table td:last-child {
+        text-align: right;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .po-breakdown-name {
+        color: #2a3544;
+        font-weight: 600;
+        max-width: 0;
+        width: 99%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .po-breakdown-count {
+        color: #6b7280;
+        white-space: nowrap;
+        padding-left: .4rem;
+        padding-right: .4rem;
+    }
+    .po-breakdown-bar-wrap {
+        height: 4px;
+        background: var(--po-soft);
+        border-radius: 99px;
+        margin-top: .1rem;
+        overflow: hidden;
+    }
+    .po-breakdown-bar {
+        height: 100%;
+        background: var(--po-accent);
+        border-radius: 99px;
+        transition: width .3s;
+    }
     .po-summary-kicker {
         color: var(--po-accent);
         font-weight: 800;
@@ -593,7 +657,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
             <div class="po-hero-meta">
                 <span class="po-hero-chip">Status: <?php echo html_escape($summaryStatusText); ?></span>
                 <span class="po-hero-chip"><?php echo html_escape($summaryRangeText); ?></span>
-                <span class="po-hero-chip">View: <?php echo $activeTab === 'rincian' ? 'Per Rincian' : 'Per Nota'; ?></span>
+                <span class="po-hero-chip">View: <?php echo $activeTab === 'rincian' ? 'Per Rincian' : ($activeTab === 'paid' ? 'Tgl Paid' : 'Per Nota'); ?></span>
             </div>
         </div>
         <div class="po-hero-actions">
@@ -683,6 +747,77 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
     </div>
 </div>
 
+<?php
+$pmTotal = array_sum(array_column($paymentMethodBreakdown, 'total_value'));
+$ptTotal = array_sum(array_column($typeBreakdown, 'total_value'));
+?>
+<div class="row g-3 mb-3">
+    <div class="col-md-6">
+        <div class="card h-100 po-summary-card po-summary-card--payment">
+            <div class="card-body">
+                <div class="po-summary-head">
+                    <div>
+                        <span class="po-summary-kicker">Metode Pembayaran</span>
+                        <div class="po-summary-count"><?php echo count($paymentMethodBreakdown); ?> rekening</div>
+                    </div>
+                    <span class="po-summary-icon"><i class="ri ri-bank-card-line"></i></span>
+                </div>
+                <?php if (empty($paymentMethodBreakdown)): ?>
+                    <p class="text-muted mb-0" style="font-size:.76rem;">Belum ada data.</p>
+                <?php else: ?>
+                <table class="po-breakdown-table">
+                    <?php foreach ($paymentMethodBreakdown as $pm): ?>
+                    <?php $pct = $pmTotal > 0 ? round((float)$pm['total_value'] / $pmTotal * 100) : 0; ?>
+                    <tr>
+                        <td class="po-breakdown-name" title="<?php echo html_escape((string)$pm['method_name']); ?>"><?php echo html_escape((string)$pm['method_name']); ?></td>
+                        <td class="po-breakdown-count"><?php echo (int)$pm['po_count']; ?> nota</td>
+                        <td>Rp <?php echo number_format((float)$pm['total_value'], 0, ',', '.'); ?></td>
+                    </tr>
+                    <tr>
+                        <td colspan="3" style="padding-top:0;padding-bottom:.3rem;">
+                            <div class="po-breakdown-bar-wrap"><div class="po-breakdown-bar" style="width:<?php echo $pct; ?>%"></div></div>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </table>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card h-100 po-summary-card po-summary-card--type">
+            <div class="card-body">
+                <div class="po-summary-head">
+                    <div>
+                        <span class="po-summary-kicker">Tipe Purchase</span>
+                        <div class="po-summary-count"><?php echo count($typeBreakdown); ?> tipe</div>
+                    </div>
+                    <span class="po-summary-icon"><i class="ri ri-price-tag-3-line"></i></span>
+                </div>
+                <?php if (empty($typeBreakdown)): ?>
+                    <p class="text-muted mb-0" style="font-size:.76rem;">Belum ada data.</p>
+                <?php else: ?>
+                <table class="po-breakdown-table">
+                    <?php foreach ($typeBreakdown as $pt): ?>
+                    <?php $pct = $ptTotal > 0 ? round((float)$pt['total_value'] / $ptTotal * 100) : 0; ?>
+                    <tr>
+                        <td class="po-breakdown-name" title="<?php echo html_escape((string)$pt['type_name']); ?>"><?php echo html_escape((string)$pt['type_name']); ?></td>
+                        <td class="po-breakdown-count"><?php echo (int)$pt['po_count']; ?> nota</td>
+                        <td>Rp <?php echo number_format((float)$pt['total_value'], 0, ',', '.'); ?></td>
+                    </tr>
+                    <tr>
+                        <td colspan="3" style="padding-top:0;padding-bottom:.3rem;">
+                            <div class="po-breakdown-bar-wrap"><div class="po-breakdown-bar" style="width:<?php echo $pct; ?>%"></div></div>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </table>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="card mt-3 po-board-card">
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 po-toolbar">
@@ -701,6 +836,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
             </div>
         </div>
 
+        <?php if ($activeTab !== 'paid'): ?>
         <ul class="nav nav-pills po-tab-strip mb-3" role="tablist" aria-label="Tab Pembagi Jenis">
             <?php foreach ($statusOptions as $statusOption): ?>
                 <?php $statusOption = strtoupper(trim((string)$statusOption)); ?>
@@ -709,6 +845,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
                 </li>
             <?php endforeach; ?>
         </ul>
+        <?php endif; ?>
 
         <ul class="nav nav-pills po-tab-strip mb-3" role="tablist" aria-label="Tab Pembagi Halaman">
             <li class="nav-item" role="presentation">
@@ -717,7 +854,17 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
             <li class="nav-item" role="presentation">
                 <a class="nav-link po-tab-link po-view-tab-link <?php echo $activeTab === 'rincian' ? 'active' : ''; ?>" href="<?php echo site_url('purchase-orders') . '?tab=rincian&q=' . urlencode((string)($q ?? '')) . '&status=' . urlencode((string)($status ?? 'ALL')) . '&date_start=' . urlencode($dateStart) . '&date_end=' . urlencode($dateEnd); ?>">Per Rincian</a>
             </li>
+            <li class="nav-item" role="presentation">
+                <a class="nav-link po-tab-link po-view-tab-link <?php echo $activeTab === 'paid' ? 'active' : ''; ?>" href="<?php echo site_url('purchase-orders') . '?tab=paid&q=' . urlencode((string)($q ?? '')) . '&date_start=' . urlencode($dateStart) . '&date_end=' . urlencode($dateEnd); ?>">Per Tgl Paid</a>
+            </li>
         </ul>
+
+        <?php if ($activeTab === 'paid'): ?>
+        <div class="alert alert-info py-2 px-3 mb-3" style="font-size:.78rem;border-radius:12px;">
+            <i class="ri ri-information-line me-1"></i>
+            Filter tanggal pada tab ini berlaku untuk <strong>tanggal PAID</strong> (bukan tanggal PO). Hanya menampilkan PO dengan status <strong>PAID</strong>.
+        </div>
+        <?php endif; ?>
 
         <div class="tab-content p-0 border-0">
             <div class="tab-pane fade <?php echo $activeTab === 'nota' ? 'show active' : ''; ?>" id="po-tab-nota" role="tabpanel">
@@ -854,24 +1001,24 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
                 <div class="po-table-wrap">
                     <table class="table table-sm table-striped align-middle po-table po-rincian-table">
                         <colgroup>
+                            <col style="width:13%">
                             <col class="po-col-type">
-                            <col class="po-col-purchase">
-                            <col class="po-col-purchase">
-                            <col class="po-col-purchase">
+                            <col style="width:26%">
                             <col class="po-col-value">
                             <col class="po-col-value">
                             <col class="po-col-value">
+                            <col style="width:14%">
                             <col class="po-col-status">
                         </colgroup>
                         <thead>
                             <tr>
+                                <th>PO &amp; Tanggal</th>
                                 <th class="po-col-type">Tipe Belanja</th>
-                                <th class="po-col-purchase">Rincian</th>
-                                <th class="po-col-purchase">Merk</th>
-                                <th class="po-col-purchase">Keterangan</th>
+                                <th>Rincian</th>
                                 <th class="po-col-value">Qty</th>
                                 <th class="po-col-value">UOM Isi</th>
                                 <th class="po-col-status">Nilai</th>
+                                <th>Rekening Pembayaran</th>
                                 <th class="text-center po-col-status">Status</th>
                             </tr>
                         </thead>
@@ -884,32 +1031,31 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
                                         $st = strtoupper((string)($lr['status'] ?? 'DRAFT'));
                                         $lineName = trim((string)($lr['snapshot_item_name'] ?? ''));
                                         if ($lineName === '') {
-                                            $lineName = trim((string)($lr['snapshot_material_name'] ?? '-'));
+                                            $lineName = trim((string)($lr['snapshot_material_name'] ?? ''));
                                         }
-                                        if ($lineName === '' || $lineName === '-') {
+                                        if ($lineName === '') {
                                             $lineName = trim((string)($lr['snapshot_line_description'] ?? '-'));
                                         }
-                                        $lineBrand = trim((string)($lr['snapshot_brand_name'] ?? '-'));
-                                        if ($lineBrand === '') {
-                                            $lineBrand = '-';
-                                        }
-                                        $lineDesc = trim((string)($lr['snapshot_line_description'] ?? '-'));
-                                        if ($lineDesc === '') {
-                                            $lineDesc = '-';
-                                        }
+                                        $lineBrand = trim((string)($lr['snapshot_brand_name'] ?? ''));
+                                        $lineDesc  = trim((string)($lr['snapshot_line_description'] ?? ''));
+                                        $paymentAcct = trim((string)($lr['payment_account_name'] ?? ''));
                                     ?>
                                     <tr>
+                                        <td class="rincian-text-left">
+                                            <div class="po-cell-title" style="font-size:.76rem;"><?php echo html_escape((string)($lr['po_no'] ?? '-')); ?></div>
+                                            <span class="po-cell-subtext"><?php echo html_escape((string)($lr['request_date'] ?? '-')); ?></span>
+                                        </td>
                                         <td class="rincian-text-left">
                                             <span class="po-rincian-main"><?php echo html_escape((string)($lr['purchase_type_name'] ?? '-')); ?></span>
                                         </td>
                                         <td class="rincian-text-left">
-                                            <span class="po-rincian-main"><?php echo html_escape($lineName); ?></span>
-                                        </td>
-                                        <td class="rincian-text-left">
-                                            <span class="po-rincian-main"><?php echo html_escape($lineBrand); ?></span>
-                                        </td>
-                                        <td class="rincian-text-left">
-                                            <span class="po-rincian-main"><?php echo html_escape($lineDesc); ?></span>
+                                            <div class="po-rincian-main"><?php echo html_escape($lineName); ?></div>
+                                            <?php if ($lineBrand !== ''): ?>
+                                            <span class="po-cell-subtext"><?php echo html_escape($lineBrand); ?></span>
+                                            <?php endif; ?>
+                                            <?php if ($lineDesc !== '' && $lineDesc !== $lineName): ?>
+                                            <span class="po-cell-subtext"><?php echo html_escape($lineDesc); ?></span>
+                                            <?php endif; ?>
                                         </td>
                                         <td class="rincian-number">
                                             <span class="po-rincian-main"><?php echo number_format((float)($lr['qty_buy'] ?? 0), 2, ',', '.'); ?></span>
@@ -922,6 +1068,9 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
                                         </td>
                                         <td class="rincian-number">
                                             <span class="po-rincian-main"><?php echo number_format((float)($lr['line_subtotal'] ?? 0), 2, ',', '.'); ?></span>
+                                        </td>
+                                        <td class="rincian-text-left">
+                                            <span class="po-rincian-main"><?php echo html_escape($paymentAcct !== '' ? $paymentAcct : '-'); ?></span>
                                         </td>
                                         <td class="rincian-center">
                                             <span class="badge <?php echo $statusBadgeClass($st); ?> po-status-pill po-status-pill--xs"><?php echo html_escape($st); ?></span>
@@ -946,6 +1095,80 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
                                 <strong>Total Range Filter</strong>
                                 <span class="po-footer-value"><?php echo number_format((int)($lineSummary['total_lines'] ?? 0)); ?> baris</span>
                                 <span>Qty <?php echo number_format((float)($lineSummary['total_qty_buy'] ?? 0), 2, ',', '.'); ?> | Nilai Rp <?php echo number_format((float)($lineSummary['total_value'] ?? 0), 2, ',', '.'); ?></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade <?php echo $activeTab === 'paid' ? 'show active' : ''; ?>" id="po-tab-paid" role="tabpanel">
+                <div class="po-table-wrap">
+                    <table class="table table-sm table-striped align-middle po-table">
+                        <colgroup>
+                            <col style="width:11%">
+                            <col class="po-col-po">
+                            <col class="po-col-vendor">
+                            <col class="po-col-purchase">
+                            <col class="po-col-value">
+                            <col class="po-col-action">
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th>Tgl Paid</th>
+                                <th class="po-col-po">PO</th>
+                                <th class="po-col-vendor">Vendor</th>
+                                <th class="po-col-purchase">Pembelian</th>
+                                <th class="text-end po-col-value">Nilai</th>
+                                <th class="po-col-action text-center">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($paidRows)): ?>
+                                <tr><td colspan="6" class="text-center text-muted py-3">Belum ada PO PAID pada rentang tanggal ini.</td></tr>
+                            <?php else: ?>
+                                <?php foreach ($paidRows as $pr): ?>
+                                    <tr>
+                                        <td>
+                                            <div class="po-cell-title" style="color:#0f766e;"><?php echo html_escape((string)($pr['paid_date'] ?? '-')); ?></div>
+                                        </td>
+                                        <td>
+                                            <div class="po-cell-title"><?php echo html_escape((string)($pr['po_no'] ?? '-')); ?></div>
+                                            <span class="po-cell-subtext"><?php echo html_escape((string)($pr['request_date'] ?? '-')); ?></span>
+                                        </td>
+                                        <td>
+                                            <div class="po-cell-title"><?php echo html_escape((string)($pr['vendor_name'] ?? '-')); ?></div>
+                                            <span class="po-cell-subtext"><?php echo html_escape((string)($pr['destination_type'] ?? '-')); ?></span>
+                                        </td>
+                                        <td>
+                                            <div><?php echo html_escape((string)($pr['purchase_type_name'] ?? '-')); ?></div>
+                                            <span class="po-cell-subtext"><?php echo html_escape(trim((string)($pr['payment_account_name'] ?? '')) !== '' ? (string)$pr['payment_account_name'] : '-'); ?></span>
+                                        </td>
+                                        <td class="text-end">
+                                            <div class="po-money-main"><?php echo number_format((float)($pr['grand_total'] ?? 0), 2, ',', '.'); ?></div>
+                                        </td>
+                                        <td class="po-action-cell">
+                                            <a href="<?php echo site_url('purchase-orders/detail/' . (int)($pr['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-secondary action-icon-btn" title="Detail"><i class="ri ri-eye-line"></i></a>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="po-table-footer">
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <div class="po-footer-block">
+                                <strong>Pagination Saat Ini</strong>
+                                <span class="po-footer-value"><?php echo number_format($poPaidPageCount); ?> nota</span>
+                                <span>Nilai Rp <?php echo number_format($poPaidPageValue, 2, ',', '.'); ?></span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="po-footer-block">
+                                <strong>Total Range Filter (Tgl Paid)</strong>
+                                <span class="po-footer-value"><?php echo number_format((int)($paidSummary['total_count'] ?? 0)); ?> nota</span>
+                                <span>Nilai Rp <?php echo number_format((float)($paidSummary['total_value'] ?? 0), 2, ',', '.'); ?></span>
                             </div>
                         </div>
                     </div>
@@ -981,9 +1204,11 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
             var url = <?php echo json_encode(site_url('purchase-orders')); ?>
                 + '?tab=' + encodeURIComponent(currentTab)
                 + '&q=' + encodeURIComponent(q)
-                + '&status=' + encodeURIComponent(status)
                 + '&date_start=' + encodeURIComponent(dateStart)
                 + '&date_end=' + encodeURIComponent(dateEnd);
+            if (currentTab !== 'paid') {
+                url += '&status=' + encodeURIComponent(status);
+            }
             window.location.href = url;
         });
     }
@@ -993,9 +1218,11 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
         clearBtn.addEventListener('click', function () {
             var url = <?php echo json_encode(site_url('purchase-orders')); ?>
                 + '?tab=' + encodeURIComponent(currentTab)
-                + '&status=ALL'
                 + '&date_start=' + encodeURIComponent(<?php echo json_encode(date('Y-m-d')); ?>)
                 + '&date_end=' + encodeURIComponent(<?php echo json_encode(date('Y-m-d')); ?>);
+            if (currentTab !== 'paid') {
+                url += '&status=ALL';
+            }
             window.location.href = url;
         });
     }

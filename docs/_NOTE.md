@@ -423,3 +423,40 @@ masih gagal. cek dengan serius, apa karena PAPER FILTER V60 punya 2 baris profil
 PAPER FILTER V60
 sekalian cek, kemarin ada ordern MANUAL BREW V60 JAPANESE dari MSO-20260614153456-3FEA. tapi paper filter v60 tidak terpotong stok nya. tidak masuk log. kenapa? apa karena orderan dari self order? yang di klik saat verifikasi. /pos/self-order/orders
 CEK DAN PERBAIKI
+
+
+
+
+
+
+
+
+
+
+
+
+- /purchase tambahkan lagi card ringkasan metode pembayaran dan card ringkasan tipe purchase nya
+
+- lakukan penyesuaian  pada /purchase-orders?tab=rincian tambahkan kolom kode PO dan tanggal di sebelah kiri (1 kolom), tambahkan kolom rekening pembayaran sebelah kanan sebelum aksi. kolom Rincian , merk dan keterangan dijadian 1 atas bawah
+
+- /purchase-orders tambahkan tab baru berdasarkan tanggal PAID
+
+
+- /finance/mutations sesuaikan tampilan, input mutasi jadi modal. tampilan hanya untuk tabel mutasi. buat tabel freeze di judul kolom dan scrollabel. kolom catatan mestinya ada hiperlink menuju transaksi bersangkutan baik kasbon, Purchase dan lainnya. tambahkan card ringkasan per rekening dan lainnya yang diperlukan. kejutkan saya!
+
+
+
+- /purchase-orders?tab=paid detail 404, link nya /purchase-orders/* yang benar /purchase-orders/detail/* bukan? cmiiw
+
+- /finance/mutations
+  -- hiperlink PO 404 /purchase-orders/* yang benar /purchase-orders/detail/* bukan? cmiiw
+  -- freeze judul kolo ketik a di scroll ke bawah
+  -- kolom tabel terpotong, perkecil kolom REF NO agar CATATAN tidak terpotong
+  -- RE NO harusnya hiperlink
+
+  /finance/mutations;
+  - baris judul belum ter freeze. cek gambar 1
+  - sesuaikan semua ukuran kolom agar kolom REF NO tidak terpotong
+
+ - tanggal, nominal, before , after, Reff no jangan sampai terpotong. perkecil lagi kolom catatan
+- Reff no dan catatan POS belum hiperlink ke transaksi tujuan

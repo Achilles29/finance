@@ -224,6 +224,91 @@ class Purchase_model extends CI_Model
         return $summary;
     }
 
+    public function get_purchase_order_payment_method_breakdown(string $q, string $status, string $dateStart, string $dateEnd): array
+    {
+        if (!$this->db->table_exists('pur_purchase_order')) {
+            return [];
+        }
+
+        $from = $this->normalizeDate($dateStart);
+        $to   = $this->normalizeDate($dateEnd);
+
+        $this->db
+            ->select('COALESCE(a.account_name, "(Tanpa Rekening)") AS method_name', false)
+            ->select('COUNT(*) AS po_count', false)
+            ->select('COALESCE(SUM(po.grand_total), 0) AS total_value', false)
+            ->from('pur_purchase_order po')
+            ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
+            ->join('mst_vendor v', 'v.id = po.vendor_id', 'left')
+            ->join('fin_company_account a', 'a.id = po.payment_account_id', 'left');
+
+        $status = strtoupper(trim($status));
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('po.status', $status);
+        }
+        if ($from !== null) {
+            $this->db->where('po.request_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('po.request_date <=', $to);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('po.po_no', $q)
+                ->or_like('v.vendor_name', $q)
+                ->or_like('pt.type_name', $q)
+                ->group_end();
+        }
+
+        return $this->db
+            ->group_by('po.payment_account_id, a.account_name')
+            ->order_by('total_value', 'DESC')
+            ->get()
+            ->result_array();
+    }
+
+    public function get_purchase_order_type_breakdown(string $q, string $status, string $dateStart, string $dateEnd): array
+    {
+        if (!$this->db->table_exists('pur_purchase_order')) {
+            return [];
+        }
+
+        $from = $this->normalizeDate($dateStart);
+        $to   = $this->normalizeDate($dateEnd);
+
+        $this->db
+            ->select('COALESCE(pt.type_name, "(Tanpa Tipe)") AS type_name', false)
+            ->select('COUNT(*) AS po_count', false)
+            ->select('COALESCE(SUM(po.grand_total), 0) AS total_value', false)
+            ->from('pur_purchase_order po')
+            ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
+            ->join('mst_vendor v', 'v.id = po.vendor_id', 'left');
+
+        $status = strtoupper(trim($status));
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('po.status', $status);
+        }
+        if ($from !== null) {
+            $this->db->where('po.request_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('po.request_date <=', $to);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('po.po_no', $q)
+                ->or_like('v.vendor_name', $q)
+                ->or_like('pt.type_name', $q)
+                ->group_end();
+        }
+
+        return $this->db
+            ->group_by('po.purchase_type_id, pt.type_name')
+            ->order_by('total_value', 'DESC')
+            ->get()
+            ->result_array();
+    }
+
     public function list_company_accounts(string $q, int $limit): array
     {
         if (!$this->db->table_exists('fin_company_account')) {
@@ -281,8 +366,10 @@ class Purchase_model extends CI_Model
         $this->db
             ->select('m.id, m.mutation_no, m.mutation_date, m.account_id, m.mutation_type, m.amount, m.balance_before, m.balance_after')
             ->select('m.ref_module, m.ref_table, m.ref_id, m.ref_no, m.notes, m.created_at, a.account_code, a.account_name')
+            ->select('ppl.payment_id AS pos_payment_line_parent_id')
             ->from('fin_account_mutation_log m')
-            ->join('fin_company_account a', 'a.id = m.account_id', 'left');
+            ->join('fin_company_account a', 'a.id = m.account_id', 'left')
+            ->join('pos_payment_line ppl', "ppl.id = m.ref_id AND m.ref_table = 'pos_payment_line'", 'left', false);
 
         $this->applyAccountMutationDateFilters('m', $accountId, $dateFrom, $dateTo);
 
@@ -370,6 +457,40 @@ class Purchase_model extends CI_Model
         $summary['rows_total'] = (int)($row['rows_total'] ?? 0);
 
         return $summary;
+    }
+
+    public function get_account_mutation_per_account_breakdown(string $dateFrom, string $dateTo): array
+    {
+        if (!$this->db->table_exists('fin_account_mutation_log') || !$this->db->table_exists('fin_company_account')) {
+            return [];
+        }
+
+        $from = $this->normalizeDate($dateFrom);
+        $to   = $this->normalizeDate($dateTo);
+
+        $whereParts = ["1=1"];
+        if ($from !== null) {
+            $whereParts[] = "mutation_date >= " . $this->db->escape($from);
+        }
+        if ($to !== null) {
+            $whereParts[] = "mutation_date <= " . $this->db->escape($to);
+        }
+        $subWhere = implode(' AND ', $whereParts);
+        $mSub = "(SELECT account_id, mutation_type, amount FROM fin_account_mutation_log WHERE $subWhere)";
+
+        return $this->db
+            ->select('a.id AS account_id, a.account_code, a.account_name, a.account_type, a.current_balance, a.currency_code')
+            ->select("COALESCE(SUM(CASE WHEN m.mutation_type='IN' THEN m.amount ELSE 0 END), 0) AS in_total", false)
+            ->select("COALESCE(SUM(CASE WHEN m.mutation_type='OUT' THEN m.amount ELSE 0 END), 0) AS out_total", false)
+            ->select('COUNT(m.account_id) AS tx_count', false)
+            ->from('fin_company_account a')
+            ->join("$mSub m", 'm.account_id = a.id', 'left', false)
+            ->where('a.is_active', 1)
+            ->group_by('a.id, a.account_code, a.account_name, a.account_type, a.current_balance, a.currency_code')
+            ->order_by('a.is_default', 'DESC')
+            ->order_by('a.account_name', 'ASC')
+            ->get()
+            ->result_array();
     }
 
     public function apply_manual_account_mutation(array $payload, int $userId, string $sourceIp = ''): array
@@ -9186,10 +9307,12 @@ class Purchase_model extends CI_Model
             ->select('l.snapshot_buy_uom_code, l.snapshot_content_uom_code, l.profile_key')
             ->select('po.po_no, po.request_date, po.status, po.destination_type, po.purchase_type_id')
             ->select('pt.type_name AS purchase_type_name, v.vendor_name')
+            ->select('a.account_name AS payment_account_name')
             ->from('pur_purchase_order_line l')
             ->join('pur_purchase_order po', 'po.id = l.purchase_order_id', 'inner')
             ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
-            ->join('mst_vendor v', 'v.id = po.vendor_id', 'left');
+            ->join('mst_vendor v', 'v.id = po.vendor_id', 'left')
+            ->join('fin_company_account a', 'a.id = po.payment_account_id', 'left');
 
         $status = strtoupper(trim($status));
         if ($status !== '' && $status !== 'ALL') {
@@ -9222,6 +9345,100 @@ class Purchase_model extends CI_Model
             ->limit($limit)
             ->get()
             ->result_array();
+    }
+
+    public function list_purchase_orders_paid_dashboard(string $q, string $dateStart, string $dateEnd, int $limit): array
+    {
+        if (!$this->db->table_exists('pur_purchase_order') || !$this->db->table_exists('pur_purchase_payment_plan')) {
+            return [];
+        }
+
+        $from = $this->normalizeDate($dateStart);
+        $to   = $this->normalizeDate($dateEnd);
+
+        $ppSub = "(SELECT purchase_order_id, MAX(payment_date) AS paid_date FROM pur_purchase_payment_plan WHERE status='PAID' GROUP BY purchase_order_id)";
+
+        $this->db
+            ->select('po.id, po.po_no, po.request_date, po.destination_type, po.status, po.grand_total')
+            ->select('po.created_at, po.payment_account_id, pt.type_code AS purchase_type_code, pt.type_name AS purchase_type_name')
+            ->select('v.vendor_code, v.vendor_name, a.account_code AS payment_account_code, a.account_name AS payment_account_name')
+            ->select('pp.paid_date')
+            ->from('pur_purchase_order po')
+            ->join("$ppSub pp", 'pp.purchase_order_id = po.id', 'inner', false)
+            ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
+            ->join('mst_vendor v', 'v.id = po.vendor_id', 'left')
+            ->join('fin_company_account a', 'a.id = po.payment_account_id', 'left')
+            ->where('po.status', 'PAID');
+
+        if ($from !== null) {
+            $this->db->where('pp.paid_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('pp.paid_date <=', $to);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('po.po_no', $q)
+                ->or_like('v.vendor_name', $q)
+                ->or_like('pt.type_name', $q)
+                ->or_like('po.notes', $q)
+                ->group_end();
+        }
+
+        return $this->db
+            ->order_by('pp.paid_date', 'DESC')
+            ->order_by('po.id', 'DESC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function get_purchase_order_paid_filtered_summary(string $q, string $dateStart, string $dateEnd): array
+    {
+        $summary = [
+            'total_count' => 0,
+            'total_value' => 0.0,
+        ];
+
+        if (!$this->db->table_exists('pur_purchase_order') || !$this->db->table_exists('pur_purchase_payment_plan')) {
+            return $summary;
+        }
+
+        $from = $this->normalizeDate($dateStart);
+        $to   = $this->normalizeDate($dateEnd);
+
+        $ppSub = "(SELECT purchase_order_id, MAX(payment_date) AS paid_date FROM pur_purchase_payment_plan WHERE status='PAID' GROUP BY purchase_order_id)";
+
+        $this->db
+            ->select('COUNT(*) AS total_count', false)
+            ->select('COALESCE(SUM(po.grand_total), 0) AS total_value', false)
+            ->from('pur_purchase_order po')
+            ->join("$ppSub pp", 'pp.purchase_order_id = po.id', 'inner', false)
+            ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
+            ->join('mst_vendor v', 'v.id = po.vendor_id', 'left')
+            ->where('po.status', 'PAID');
+
+        if ($from !== null) {
+            $this->db->where('pp.paid_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('pp.paid_date <=', $to);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('po.po_no', $q)
+                ->or_like('v.vendor_name', $q)
+                ->or_like('pt.type_name', $q)
+                ->group_end();
+        }
+
+        $row = $this->db->get()->row_array();
+        if ($row) {
+            $summary['total_count'] = (int)($row['total_count'] ?? 0);
+            $summary['total_value'] = round((float)($row['total_value'] ?? 0), 2);
+        }
+
+        return $summary;
     }
 
     public function get_purchase_report_overview(string $dateFrom, string $dateTo, string $status, int $purchaseTypeId = 0): array
