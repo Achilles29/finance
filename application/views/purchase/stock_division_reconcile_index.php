@@ -1,7 +1,8 @@
 <?php
-$baseUrl   = site_url('inventory/stock/division/reconcile');
-$auditUrl  = site_url('inventory/stock/division/reconcile/audit');
-$repairUrl = site_url('inventory/stock/division/reconcile/repair');
+$baseUrl      = site_url('inventory/stock/division/reconcile');
+$auditUrl     = site_url('inventory/stock/division/reconcile/audit');
+$repairUrl    = site_url('inventory/stock/division/reconcile/repair');
+$lotRepairUrl = site_url('inventory/stock/division/reconcile/lot-repair');
 
 $allRows     = is_array($rows ?? null) ? $rows : [];
 $divisions   = is_array($divisions ?? null) ? $divisions : [];
@@ -386,6 +387,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
         <tr>
           <th style="min-width:210px">Material</th>
           <th class="text-end" style="min-width:100px">Stok Divisi</th>
+          <th class="text-end" style="min-width:100px">Lot FIFO</th>
           <th class="text-end" style="min-width:100px">Material Daily</th>
           <th class="text-end" style="min-width:100px">Snapshot Harian</th>
           <th class="text-end" style="min-width:100px">Movement</th>
@@ -398,15 +400,19 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
       </thead>
       <tbody>
         <?php if (empty($pagedRows)): ?>
-          <tr><td colspan="10" class="text-center text-muted py-4 small">Tidak ada baris aktif untuk filter ini. Row dengan stok akhir 0 disembunyikan agar fokus audit tetap ke stok aktif dan minus.</td></tr>
+          <tr><td colspan="11" class="text-center text-muted py-4 small">Tidak ada baris aktif untuk filter ini. Row dengan stok akhir 0 disembunyikan agar fokus audit tetap ke stok aktif dan minus.</td></tr>
         <?php else: ?>
           <?php foreach ($pagedRows as $row): ?>
             <?php
-              $isMatch   = !empty($row['is_match']);
-              $isMinus   = (float)($row['balance_qty_content'] ?? 0) < 0;
-              $dBVsM     = (float)($row['delta_balance_vs_movement'] ?? 0);
-              $dMVsM     = (float)($row['delta_matrix_vs_movement']  ?? 0);
-              $dDVsM     = (float)($row['delta_daily_vs_movement']   ?? 0);
+              $isMatch      = !empty($row['is_match']);
+              $isMinus      = (float)($row['balance_qty_content'] ?? 0) < 0;
+              $dBVsM        = (float)($row['delta_balance_vs_movement'] ?? 0);
+              $dMVsM        = (float)($row['delta_matrix_vs_movement']  ?? 0);
+              $dDVsM        = (float)($row['delta_daily_vs_movement']   ?? 0);
+              $lotQty       = $row['lot_qty_content'] ?? null;
+              $hasLotData   = $lotQty !== null;
+              $lotDelta     = (float)($row['lot_vs_balance_delta'] ?? 0);
+              $hasLotMismatch = !empty($row['has_lot_mismatch']);
               $asOf      = html_escape($asOfDate);
               $dataDivId = (int)($row['division_id'] ?? 0);
               $dataItemId= (int)($row['item_id']     ?? 0);
@@ -426,6 +432,24 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                 <div class="fw-semibold <?php echo $isMinus ? 'text-danger' : ''; ?>"><?php echo $fmtQty($row['balance_qty_content'] ?? 0); ?></div>
                 <div class="text-muted" style="font-size:.68rem"><?php echo $fmtQty($row['balance_qty_pack'] ?? 0); ?> pack</div>
                 <?php if ($isMinus): ?><span class="rec-chip rec-chip-warn" style="margin-top:.2rem">Minus</span><?php endif; ?>
+              </td>
+              <td class="text-end small <?php echo $hasLotMismatch ? 'table-warning' : ''; ?>">
+                <?php if ($hasLotData): ?>
+                  <div class="fw-semibold <?php echo $hasLotMismatch ? 'text-danger' : ''; ?>"><?php echo $fmtQty($lotQty); ?></div>
+                  <?php if ($hasLotMismatch): ?>
+                    <div style="font-size:.66rem;color:#b45309;" title="Selisih lot FIFO vs stok ledger">Δ <?php echo $fmtQty(abs($lotDelta)); ?></div>
+                    <span class="rec-chip rec-chip-bad" style="margin-top:.15rem;font-size:.6rem">Lot Beda</span>
+                    <div style="margin-top:.25rem">
+                      <button type="button" class="btn btn-xs btn-warning src-lot-repair-btn"
+                        data-division-id="<?php echo $dataDivId; ?>"
+                        data-material-id="<?php echo $dataMatId; ?>"
+                        data-destination="<?php echo $dataDest; ?>"
+                        style="font-size:.6rem;padding:.1rem .35rem">Repair Lot</button>
+                    </div>
+                  <?php endif; ?>
+                <?php else: ?>
+                  <span class="text-muted">–</span>
+                <?php endif; ?>
               </td>
               <td class="text-end small">
                 <div><?php echo $fmtQty($row['matrix_qty_content'] ?? 0); ?></div>
@@ -549,14 +573,14 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // ── AJAX debounce on search ───────────────────────────────────────────────
+  // ── Search: submit only on Enter ─────────────────────────────────────────
   var qInput = document.getElementById('rec-q-input');
   if (qInput) {
-    qInput.addEventListener('input', function () {
-      clearTimeout(window._recQTimer);
-      window._recQTimer = setTimeout(function () {
+    qInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
         document.getElementById('rec-filter-form')?.submit();
-      }, 450);
+      }
     });
   }
 
@@ -661,6 +685,16 @@ document.addEventListener('DOMContentLoaded', function () {
       window.location.reload();
     } catch(e) { clearButtonLoading(button); throw e; }
   }
+  async function runLotRepair(identity,button) {
+    var ok=await askConfirm('Repair lot FIFO akan menyesuaikan saldo lot agar cocok dengan saldo stok ledger. Lanjutkan?',{title:'Repair Lot FIFO',confirmText:'Repair Lot',cancelText:'Batal'});
+    if(!ok)return;
+    var orig=button.innerHTML; button.disabled=true; button.textContent='Repair...';
+    try {
+      var json=await postJson('<?php echo $lotRepairUrl; ?>',{division_id:identity.division_id,material_id:identity.material_id,destination:identity.destination});
+      await showAlert(json.message||'Lot repair selesai.','Repair Lot FIFO');
+      window.location.reload();
+    } catch(e) { button.disabled=false; button.innerHTML=orig; throw e; }
+  }
 
   // ── POS Jobs ──────────────────────────────────────────────────────────────
   function jobBadge(status) {
@@ -689,7 +723,9 @@ document.addEventListener('DOMContentLoaded', function () {
     var ab=ev.target.closest('.src-material-audit-btn');
     if(ab){loadMaterialAudit(buttonIdentity(ab)).catch(function(e){setAuditState(e.message,false);}); return;}
     var rb=ev.target.closest('.src-material-repair-btn');
-    if(rb){runMaterialRepair(buttonIdentity(rb),rb).catch(function(e){clearButtonLoading(rb);setAuditState(e.message,false);});}
+    if(rb){runMaterialRepair(buttonIdentity(rb),rb).catch(function(e){clearButtonLoading(rb);setAuditState(e.message,false);}); return;}
+    var lb=ev.target.closest('.src-lot-repair-btn');
+    if(lb){runLotRepair(buttonIdentity(lb),lb).catch(function(e){showAlert(e.message,'Repair Lot FIFO');});}
   });
 });
 </script>
