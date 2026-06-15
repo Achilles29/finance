@@ -445,3 +445,31 @@ coba cek ya. baiknya di /inventory/stock/division/reconcile ada guarding bahan b
 
 /inventory/stock/division/reconcile metode searcnya bukan ajax, tapi refresh. lebih baik pencairan dengan enter saja. perbaiki
 
+
+
+/pos/stock-commit-audit? STOK DIVISI dan LOT STOK
+
+void, bahan baku belum kembali? saya void lemon tea hot kok sari lemon nggak kembali stok dan lot nya?
+
+
+1. nah barusan terjadi lagi. saya order lemon tea hot 4, menyebabkan 1 baris sari lemon minus, tidak mengambil dari baris lain. cek.
+
+2. lalu ketika void, benar jumlah stok dan kembali. tapi jumlah stok kembali dalam bentuk adjustmen plu, kalau seperti itu seolah olah ada stok masuk yang akan mempengaruhi analisa. harusnya bukan melalui adjutmen plus, tapi dengan skema rollback 
+
+ah sekarang saya tau kenapa SARI LEMON tidak diambil dari baris satunya karena baris satunya tidak punya lot aktif.
+SARI LEMON ada 2 baris dengan 2 profil beda dengan profil eec258040b8b933b8351219e74d4fa15bbe047b57dab975f59d4447f149eb1ad 35 ml, dan e3a51cb637ea7bd62c872e345b1aef20fe8631841a561a050754ccc81dd72f27 15 ml. sementara lot 35 ml dan 15 ml keduanya untuk e3a51cb637ea7bd62c872e345b1aef20fe8631841a561a050754ccc81dd72f27, sehingga menyebabkan minus saat potong stok. betul begitu kan?
+pertanyaannya kenapa bisa yang 1 punya profil yang 1 tidak? nah berarti tingkat guarding reconcil dan audit commit harus sampai pada membandingkan stok dan lot sesuai profilnya. begitu bagaimana?
+
+ingat jawabnya terakhir dengan bahasa ya
+
+
+oke sepertinya kita sudah selesaikan masalah bahan baku dan lot nya terkait POS saat simpan transaksi dan void.
+dengan yang sudah kita lalui tadi, bisakah kamu cek untuk component? logikanya sama, saat simpan pos stok component dipotong berdasarkan FIFO agar tidak ada minus. saat void dan refund stok di rollback bukan di adjustment. lalu di reconcil dan stock commit khusus component, buatkan juga skema repair missmacth, repair drift dan repair lot yang sama.
+
+
+
+1. tambahkan repair lot all di /inventory/stock/division/reconcile kira kira bisa tidak?
+
+2. pos/stock-commit-audit masih sering gagal repair issmatch dan drift, coba cek apa masalahnya dan apakah bisa disamakan polanya dengan repairt lot di reconcile?
+
+kalau baris atau profil yang tidak ada lot nya, ketika di repair lot semua seharusnya membuat lot baru

@@ -1990,6 +1990,116 @@ class Purchase extends MY_Controller
             ->set_output(json_encode($result));
     }
 
+    public function stock_division_reconcile_lot_profile_sync()
+    {
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');
+
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $result = $this->Purchase_model->sync_division_lot_by_profile([
+            'division_id' => (int)($payload['division_id'] ?? 0),
+            'material_id' => (int)($payload['material_id'] ?? 0),
+            'destination' => strtoupper(trim((string)($payload['destination'] ?? 'ALL'))),
+        ]);
+
+        $status = !empty($result['ok']) ? 200 : 422;
+        $this->output
+            ->set_status_header($status)
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    public function stock_division_reconcile_lot_repair_all()
+    {
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');
+
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $asOfDate        = trim((string)($payload['as_of_date'] ?? date('Y-m-d')));
+        $divisionId      = (int)($payload['division_id'] ?? 0);
+        $destinationFilter = strtoupper(trim((string)($payload['destination'] ?? 'ALL')));
+        $q               = trim((string)($payload['q'] ?? ''));
+
+        $compare = $this->Purchase_model->list_division_material_stock_compare(
+            $asOfDate,
+            $q,
+            $divisionId > 0 ? $divisionId : null,
+            2000,
+            $destinationFilter !== 'ALL' ? $destinationFilter : null
+        );
+
+        $rows = is_array($compare['rows'] ?? null) ? $compare['rows'] : [];
+        $toRepair = array_values(array_filter($rows, static fn($r) =>
+            !empty($r['has_lot_mismatch']) || !empty($r['has_profile_lot_mismatch'])
+        ));
+
+        if (empty($toRepair)) {
+            $this->output
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'ok'      => true,
+                    'message' => 'Semua lot sudah sesuai, tidak ada yang perlu direpair.',
+                    'data'    => ['processed' => 0, 'repaired' => 0, 'profile_synced' => 0, 'failed' => 0, 'results' => []],
+                ]));
+            return;
+        }
+
+        $repaired      = 0;
+        $profileSynced = 0;
+        $failed        = 0;
+        $results       = [];
+
+        foreach ($toRepair as $row) {
+            $params = [
+                'division_id' => (int)($row['division_id'] ?? 0),
+                'material_id' => (int)($row['material_id'] ?? 0),
+                'destination' => strtoupper((string)($row['destination_group'] ?? 'ALL')),
+            ];
+            $label = trim((string)($row['material_name'] ?? '-')) . ' @ ' . trim((string)($row['division_name'] ?? '-'));
+
+            $repair = $this->Purchase_model->repair_division_material_lot_balance($params);
+
+            if (!empty($repair['ok'])) {
+                $repaired++;
+                $results[] = ['label' => $label, 'status' => 'repaired'];
+            } elseif (!empty($repair['needs_profile_sync'])) {
+                $sync = $this->Purchase_model->sync_division_lot_by_profile($params);
+                if (!empty($sync['ok'])) {
+                    $profileSynced++;
+                    $results[] = ['label' => $label, 'status' => 'profile_synced'];
+                } else {
+                    $failed++;
+                    $results[] = ['label' => $label, 'status' => 'failed', 'message' => (string)($sync['message'] ?? '')];
+                }
+            } else {
+                $failed++;
+                $results[] = ['label' => $label, 'status' => 'failed', 'message' => (string)($repair['message'] ?? '')];
+            }
+        }
+
+        $total   = count($toRepair);
+        $message = "Repair Lot selesai: {$repaired} direpair, {$profileSynced} sinkronisasi profil, {$failed} gagal dari {$total} bahan baku.";
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok'      => ($failed === 0),
+                'message' => $message,
+                'data'    => [
+                    'processed'      => $total,
+                    'repaired'       => $repaired,
+                    'profile_synced' => $profileSynced,
+                    'failed'         => $failed,
+                    'results'        => $results,
+                ],
+            ]));
+    }
+
     public function inventory_warehouse_daily_index()
     {
         if (!$this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')) {

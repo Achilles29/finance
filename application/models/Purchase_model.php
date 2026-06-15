@@ -2992,6 +2992,91 @@ class Purchase_model extends CI_Model
             $lotMap[$k] = round((float)($r['lot_total'] ?? 0), 4);
         }
 
+        // Per-profile breakdown: compare monthly stock vs FIFO lots at profile_key level.
+        // This detects "crossed-profile" mismatches (e.g., lot has profile B but stock 15ml
+        // belongs to profile A) that are invisible at the aggregate material level.
+        $profileBreakdownMap = [];
+        if ($this->db->table_exists('inv_division_monthly_stock')) {
+            $divIdsStr = implode(',', $divisionIds);
+
+            $profileLotResults = $this->db->query("
+                SELECT l.division_id,
+                       CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
+                       COALESCE(l.material_id, 0) AS material_id,
+                       COALESCE(l.profile_key, '') AS profile_key,
+                       SUM(l.qty_balance) AS lot_total
+                FROM inv_material_fifo_lot l
+                WHERE l.location_scope = 'DIVISION' AND l.status = 'OPEN' AND l.qty_balance > 0.0001
+                  AND l.division_id IN ({$divIdsStr})
+                GROUP BY l.division_id, destination_group, l.material_id, l.profile_key
+            ")->result_array();
+
+            foreach ($profileLotResults as $lr) {
+                $matK = (int)$lr['division_id'] . '|' . strtoupper((string)($lr['destination_group'] ?? 'REGULER')) . '|M-' . (int)$lr['material_id'];
+                $pk = (string)($lr['profile_key'] ?? '');
+                if (!isset($profileBreakdownMap[$matK][$pk])) {
+                    $profileBreakdownMap[$matK][$pk] = ['profile_key' => $pk, 'lot_balance' => 0.0, 'stock_balance' => 0.0];
+                }
+                $profileBreakdownMap[$matK][$pk]['lot_balance'] = round((float)($lr['lot_total'] ?? 0), 4);
+            }
+
+            $latestMonthSubP = "SELECT ms2.division_id, ms2.destination_type, ms2.identity_key, MAX(ms2.month_key) AS max_month
+                                FROM inv_division_monthly_stock ms2
+                                WHERE ms2.division_id IN ({$divIdsStr})
+                                GROUP BY ms2.division_id, ms2.destination_type, ms2.identity_key";
+
+            $profileStockResults = $this->db->query("
+                SELECT ms.division_id,
+                       CASE WHEN ms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
+                       COALESCE(ms.material_id, 0) AS material_id,
+                       COALESCE(ms.profile_key, '') AS profile_key,
+                       SUM(ms.closing_qty_content) AS stock_balance
+                FROM inv_division_monthly_stock ms
+                INNER JOIN ({$latestMonthSubP}) lm
+                    ON  lm.division_id      = ms.division_id
+                    AND lm.destination_type = ms.destination_type
+                    AND lm.identity_key     = ms.identity_key
+                    AND lm.max_month        = ms.month_key
+                WHERE ms.division_id IN ({$divIdsStr}) AND ms.material_id IS NOT NULL
+                GROUP BY ms.division_id, destination_group, ms.material_id, ms.profile_key
+            ")->result_array();
+
+            foreach ($profileStockResults as $sr) {
+                $matK = (int)$sr['division_id'] . '|' . strtoupper((string)($sr['destination_group'] ?? 'REGULER')) . '|M-' . (int)$sr['material_id'];
+                $pk = (string)($sr['profile_key'] ?? '');
+                if (!isset($profileBreakdownMap[$matK][$pk])) {
+                    $profileBreakdownMap[$matK][$pk] = ['profile_key' => $pk, 'lot_balance' => 0.0, 'stock_balance' => 0.0];
+                }
+                $profileBreakdownMap[$matK][$pk]['stock_balance'] = round((float)($sr['stock_balance'] ?? 0), 4);
+            }
+
+            foreach ($profileBreakdownMap as $matK => &$profiles) {
+                foreach ($profiles as &$profile) {
+                    $delta = $profile['stock_balance'] - $profile['lot_balance'];
+                    $profile['delta'] = round($delta, 4);
+                    $profile['has_mismatch'] = abs($delta) > 0.01;
+                }
+                unset($profile);
+                ksort($profiles);
+            }
+            unset($profiles);
+        }
+
+        // Pre-sum the ledger stock balance at material level (same grouping key as lotMap).
+        // A material can have multiple identity rows (different item_id/profile_key) from separate
+        // purchase batches, so comparing each identity's individual balance to the material-wide
+        // lot total would always produce a spurious mismatch. Compare totals to totals instead.
+        $balanceSumMap = [];
+        foreach ($rows as $row) {
+            $matId = (int)($row['material_id'] ?? 0);
+            if ($matId <= 0) {
+                continue;
+            }
+            $k = (int)($row['division_id'] ?? 0) . '|' . strtoupper((string)($row['destination_group'] ?? 'REGULER'))
+               . '|M-' . $matId;
+            $balanceSumMap[$k] = round(($balanceSumMap[$k] ?? 0.0) + (float)($row['balance_qty_content'] ?? 0), 4);
+        }
+
         foreach ($rows as &$row) {
             $matId = (int)($row['material_id'] ?? 0);
             $k = (int)($row['division_id'] ?? 0) . '|' . strtoupper((string)($row['destination_group'] ?? 'REGULER'))
@@ -2999,13 +3084,31 @@ class Purchase_model extends CI_Model
             $lotQty = $matId > 0 && isset($lotMap[$k]) ? $lotMap[$k] : null;
             $row['lot_qty_content'] = $lotQty;
 
-            // Flag mismatch only when there are known FIFO lots for this material.
-            $hasFifoLots = $lotQty !== null;
-            $balanceQty  = (float)($row['balance_qty_content'] ?? 0);
-            $lotDelta    = $hasFifoLots ? round($balanceQty - (float)$lotQty, 4) : 0.0;
+            // Compare material-level lot total vs material-level stock balance sum.
+            // Include the case where stock > 0 but no lots exist yet (lot_qty_content = null)
+            // — those materials also need lot repair (a correction lot must be inserted).
+            $materialBalance = (float)($balanceSumMap[$k] ?? $row['balance_qty_content'] ?? 0);
+            $lotQtyActual    = $lotQty ?? 0.0;
+            $lotDelta        = round($materialBalance - $lotQtyActual, 4);
             $row['lot_vs_balance_delta'] = $lotDelta;
-            $row['has_lot_mismatch']     = ($hasFifoLots && abs($lotDelta) > 0.01) ? 1 : 0;
+            $row['has_lot_mismatch']     = (abs($lotDelta) > 0.01) ? 1 : 0;
             if (!empty($row['has_lot_mismatch'])) {
+                $row['is_match'] = 0;
+                // Update suspect info so POS audit reason column is meaningful
+                if ($lotQty === null) {
+                    $row['suspect_table']  = 'LOT';
+                    $row['suspect_reason'] = 'Stok ledger ' . round($materialBalance, 2) . ' tapi tidak ada lot FIFO. Jalankan Repair Lot untuk membuat lot koreksi.';
+                } elseif (empty($row['suspect_table']) || $row['suspect_table'] === 'MATCH') {
+                    $row['suspect_table']  = 'LOT';
+                    $row['suspect_reason'] = 'Lot FIFO ' . round($lotQty, 2) . ' tidak sesuai stok ledger ' . round($materialBalance, 2) . '. Jalankan Repair Lot.';
+                }
+            }
+
+            $profileBreakdown = isset($profileBreakdownMap[$k]) ? array_values($profileBreakdownMap[$k]) : [];
+            $row['lot_profile_breakdown'] = $profileBreakdown;
+            $hasProfileMismatch = !empty(array_filter($profileBreakdown, static fn($p) => $p['has_mismatch'] ?? false));
+            $row['has_profile_lot_mismatch'] = $hasProfileMismatch ? 1 : 0;
+            if ($hasProfileMismatch) {
                 $row['is_match'] = 0;
             }
         }
@@ -3454,15 +3557,18 @@ class Purchase_model extends CI_Model
             return ['ok' => false, 'message' => 'Tabel inv_material_fifo_lot belum ada.'];
         }
 
-        // Destination group → SQL fragment for filtering
-        $lotDestWhere   = '';
-        $stockDestWhere = '';
+        // Destination group → SQL fragment for filtering (three variants: aliased 'l.', aliased 'dms.', and no alias)
+        $lotDestWhere   = '';  // used with 'FROM ... l' alias
+        $stockDestWhere = '';  // used with 'FROM ... dms' alias
+        $lotDestCond    = '';  // used without alias
         if ($destination === 'EVENT') {
             $lotDestWhere   = " AND l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
             $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $lotDestCond    = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
         } elseif ($destination === 'REGULER' || $destination === 'REGULAR') {
             $lotDestWhere   = " AND l.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
             $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $lotDestCond    = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
         }
 
         $divId  = (int)$divisionId;
@@ -3503,6 +3609,69 @@ class Purchase_model extends CI_Model
         $gap = round($lotTotal - $stockBalance, 4);
 
         if (abs($gap) <= 0.01) {
+            // Material-level totals match. Still check for crossed-profile mismatches —
+            // e.g., all lots under profile B (50ml) but monthly stock is profile A 15ml + B 35ml.
+            // Total is equal but FIFO posting would make B go negative.
+            if ($this->db->table_exists('inv_division_monthly_stock')) {
+                $latestMonthSubCP = "SELECT division_id, destination_type, identity_key, MAX(month_key) AS max_month
+                                     FROM inv_division_monthly_stock
+                                     WHERE division_id = {$divId} AND material_id = {$matId}
+                                     GROUP BY division_id, destination_type, identity_key";
+
+                $cpStockRows = $this->db->query("
+                    SELECT COALESCE(dms.profile_key,'') AS profile_key, SUM(dms.closing_qty_content) AS stock_balance
+                    FROM inv_division_monthly_stock dms
+                    INNER JOIN ({$latestMonthSubCP}) lm
+                        ON lm.division_id=dms.division_id AND lm.destination_type=dms.destination_type
+                           AND lm.identity_key=dms.identity_key AND lm.max_month=dms.month_key
+                    WHERE dms.division_id={$divId} AND dms.material_id={$matId} {$stockDestWhere}
+                    GROUP BY dms.profile_key
+                ")->result_array();
+
+                $cpLotRows = $this->db->query("
+                    SELECT COALESCE(profile_key,'') AS pk, SUM(qty_balance) AS lot_total
+                    FROM inv_material_fifo_lot
+                    WHERE location_scope='DIVISION' AND division_id={$divId} AND material_id={$matId}
+                      AND status='OPEN' AND qty_balance>0.0001 {$lotDestCond}
+                    GROUP BY profile_key
+                ")->result_array();
+
+                $cpLotByKey = [];
+                foreach ($cpLotRows as $lr) { $cpLotByKey[(string)$lr['pk']] = round((float)$lr['lot_total'], 4); }
+
+                $crossMismatches = [];
+                foreach ($cpStockRows as $sr) {
+                    $pk = (string)($sr['profile_key'] ?? '');
+                    $sb = round((float)$sr['stock_balance'], 4);
+                    $lb = $cpLotByKey[$pk] ?? 0.0;
+                    if (abs($sb - $lb) > 0.01) {
+                        $crossMismatches[] = ['profile_key' => $pk, 'stock_balance' => $sb, 'lot_balance' => $lb];
+                    }
+                }
+                // Also flag lot-only profiles (lot exists, no stock)
+                foreach ($cpLotByKey as $pk => $lb) {
+                    $sb = 0.0;
+                    foreach ($cpStockRows as $sr) { if ((string)$sr['profile_key'] === $pk) { $sb = (float)$sr['stock_balance']; break; } }
+                    if ($sb < 0.001 && $lb > 0.01 && !in_array($pk, array_column($crossMismatches, 'profile_key'), true)) {
+                        $crossMismatches[] = ['profile_key' => $pk, 'stock_balance' => 0.0, 'lot_balance' => round($lb, 4)];
+                    }
+                }
+
+                if (!empty($crossMismatches)) {
+                    $lines = [];
+                    foreach ($crossMismatches as $cm) {
+                        $pkS = $cm['profile_key'] !== '' ? (substr($cm['profile_key'], 0, 8) . '…') : '(no profil)';
+                        $dir = $cm['stock_balance'] > $cm['lot_balance'] ? 'stok ada tapi lot kosong' : 'lot ada tapi stok tidak cukup';
+                        $lines[] = "profil {$pkS}: stok " . number_format($cm['stock_balance'], 2) . ", lot " . number_format($cm['lot_balance'], 2) . " ({$dir})";
+                    }
+                    return [
+                        'ok'                 => false,
+                        'needs_profile_sync' => true,
+                        'message'            => 'Total lot dan stok sudah sama, tapi ada profil yang "silang" — lot dibuat dengan profil yang salah sehingga satu profil kelebihan lot, profil lain kekurangan. Akibatnya FIFO akan memotong stok dari baris yang salah dan menyebabkan minus. Detail: ' . implode('; ', $lines) . '. Gunakan tombol Samakan per Profil untuk memperbaiki.',
+                        'data'               => ['lot_total' => $lotTotal, 'stock_balance' => $stockBalance, 'gap' => $gap, 'cross_mismatches' => $crossMismatches],
+                    ];
+                }
+            }
             return ['ok' => true, 'message' => 'Lot dan stok sudah sesuai, tidak perlu repair.', 'data' => [
                 'lot_total' => $lotTotal, 'stock_balance' => $stockBalance, 'gap' => $gap,
             ]];
@@ -3544,55 +3713,146 @@ class Purchase_model extends CI_Model
                 $lotsModified++;
             }
         } else {
-            // Lots under-state the stock → add a correction inbound lot
-            $shortfall = abs($gap);
+            // Lots under-state the stock → create correction lots per profile_key so that
+            // each lot's profile_key matches the monthly stock row it was derived from.
+            // Using a single lot with the last lot's profile_key risks posting FIFO usage
+            // to the wrong monthly stock row and causing a negative balance there.
 
-            // Use an existing lot row to infer destination_type and identity fields
-            $refRow = $this->db->query(
-                "SELECT destination_type, item_id, profile_key, buy_uom_id, content_uom_id, unit_cost
-                 FROM inv_material_fifo_lot
-                 WHERE division_id = {$divId} AND material_id = {$matId} AND location_scope = 'DIVISION'
-                 ORDER BY id DESC LIMIT 1"
-            )->row_array();
+            $latestMonthPerKey = "SELECT division_id, destination_type, identity_key, MAX(month_key) AS max_month
+                                   FROM inv_division_monthly_stock
+                                   WHERE division_id = {$divId} AND material_id = {$matId}
+                                   GROUP BY division_id, destination_type, identity_key";
 
-            $destType = 'OTHER';
-            if ($refRow) {
-                $destType = (string)($refRow['destination_type'] ?? 'OTHER');
+            $stockPerKey = $this->db->query("
+                SELECT dms.identity_key, dms.profile_key, dms.item_id, dms.buy_uom_id, dms.content_uom_id,
+                       dms.destination_type, dms.closing_qty_content AS balance
+                FROM inv_division_monthly_stock dms
+                INNER JOIN ({$latestMonthPerKey}) lm
+                    ON  lm.division_id      = dms.division_id
+                    AND lm.destination_type = dms.destination_type
+                    AND lm.identity_key     = dms.identity_key
+                    AND lm.max_month        = dms.month_key
+                WHERE dms.division_id = {$divId} AND dms.material_id = {$matId}
+                  {$stockDestWhere}
+            ")->result_array();
+
+            // FIFO totals per profile_key
+            $fifoPerKey = $this->db->query("
+                SELECT COALESCE(profile_key, '') AS pk, SUM(qty_balance) AS lot_total
+                FROM inv_material_fifo_lot
+                WHERE location_scope = 'DIVISION' AND division_id = {$divId} AND material_id = {$matId}
+                  AND status = 'OPEN' AND qty_balance > 0.0001
+                  {$lotDestCond}
+                GROUP BY profile_key
+            ")->result_array();
+
+            $fifoByKey = [];
+            foreach ($fifoPerKey as $lr) {
+                $pk = (string)($lr['pk'] ?? '');
+                $fifoByKey[$pk] = round((float)$lr['lot_total'], 4);
             }
-            // Honor destination filter
-            if ($destination === 'EVENT' && !in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
-                $destType = 'BAR_EVENT';
-            } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)
-                && in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
-                $destType = 'OTHER';
+
+            foreach ($stockPerKey as $sr) {
+                $pk        = (string)($sr['profile_key'] ?? '');
+                $monthBal  = round((float)$sr['balance'], 4);
+                $fifoForPk = $fifoByKey[$pk] ?? 0.0;
+                $perKeyGap = round($monthBal - $fifoForPk, 4);
+
+                if ($perKeyGap <= 0.01) {
+                    continue;
+                }
+
+                $destType = (string)($sr['destination_type'] ?? 'OTHER');
+                if ($destination === 'EVENT' && !in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
+                    $destType = 'BAR_EVENT';
+                } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)
+                    && in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
+                    $destType = 'OTHER';
+                }
+
+                // Try to get unit_cost from an existing lot with the same profile_key
+                $ucRow = $this->db->query("
+                    SELECT unit_cost FROM inv_material_fifo_lot
+                    WHERE division_id = {$divId} AND material_id = {$matId}
+                      AND COALESCE(profile_key, '') = ? AND location_scope = 'DIVISION'
+                    ORDER BY id DESC LIMIT 1
+                ", [$pk])->row_array();
+                $unitCost = !empty($ucRow) ? (float)($ucRow['unit_cost'] ?? 0) : 0.0;
+
+                $corrLotNo = 'CORR-' . date('Ymd-His') . '-M' . $matId;
+                $this->db->insert('inv_material_fifo_lot', [
+                    'lot_no'           => $corrLotNo,
+                    'location_scope'   => 'DIVISION',
+                    'receipt_date'     => date('Y-m-d'),
+                    'expiry_date'      => null,
+                    'division_id'      => $divId,
+                    'destination_type' => $destType,
+                    'item_id'          => !empty($sr['item_id']) ? (int)$sr['item_id'] : null,
+                    'material_id'      => $matId,
+                    'buy_uom_id'       => !empty($sr['buy_uom_id']) ? (int)$sr['buy_uom_id'] : null,
+                    'content_uom_id'   => !empty($sr['content_uom_id']) ? (int)$sr['content_uom_id'] : null,
+                    'profile_key'      => $pk !== '' ? $pk : null,
+                    'qty_in'           => $perKeyGap,
+                    'qty_out'          => 0,
+                    'qty_balance'      => $perKeyGap,
+                    'unit_cost'        => $unitCost,
+                    'source_table'     => 'lot_repair',
+                    'source_id'        => null,
+                    'source_line_id'   => null,
+                    'receipt_id'       => null,
+                    'receipt_line_id'  => null,
+                    'parent_lot_id'    => null,
+                    'status'           => 'OPEN',
+                ]);
+                $lotsModified++;
             }
 
-            $corrLotNo = 'CORR-' . date('Ymd-His') . '-M' . $matId;
-            $this->db->insert('inv_material_fifo_lot', [
-                'lot_no'           => $corrLotNo,
-                'location_scope'   => 'DIVISION',
-                'receipt_date'     => date('Y-m-d'),
-                'expiry_date'      => null,
-                'division_id'      => $divId,
-                'destination_type' => $destType,
-                'item_id'          => $refRow ? ($refRow['item_id'] ?? null) : null,
-                'material_id'      => $matId,
-                'buy_uom_id'       => $refRow ? ($refRow['buy_uom_id'] ?? null) : null,
-                'content_uom_id'   => $refRow ? ($refRow['content_uom_id'] ?? null) : null,
-                'profile_key'      => $refRow ? ($refRow['profile_key'] ?? null) : null,
-                'qty_in'           => $shortfall,
-                'qty_out'          => 0,
-                'qty_balance'      => $shortfall,
-                'unit_cost'        => $refRow ? (float)($refRow['unit_cost'] ?? 0) : 0,
-                'source_table'     => 'lot_repair',
-                'source_id'        => null,
-                'source_line_id'   => null,
-                'receipt_id'       => null,
-                'receipt_line_id'  => null,
-                'parent_lot_id'    => null,
-                'status'           => 'OPEN',
-            ]);
-            $lotsModified = 1;
+            // Fallback: if monthly stock has no identity rows but overall gap < 0,
+            // create one correction lot using the last existing lot as template.
+            if ($lotsModified === 0) {
+                $refRow = $this->db->query("
+                    SELECT destination_type, item_id, profile_key, buy_uom_id, content_uom_id, unit_cost
+                    FROM inv_material_fifo_lot
+                    WHERE division_id = {$divId} AND material_id = {$matId} AND location_scope = 'DIVISION'
+                    ORDER BY id DESC LIMIT 1
+                ")->row_array();
+
+                $destType = $refRow ? (string)($refRow['destination_type'] ?? 'OTHER') : 'OTHER';
+                if ($destination === 'EVENT' && !in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
+                    $destType = 'BAR_EVENT';
+                } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)
+                    && in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
+                    $destType = 'OTHER';
+                }
+
+                $shortfall  = abs($gap);
+                $corrLotNo  = 'CORR-' . date('Ymd-His') . '-M' . $matId;
+                $this->db->insert('inv_material_fifo_lot', [
+                    'lot_no'           => $corrLotNo,
+                    'location_scope'   => 'DIVISION',
+                    'receipt_date'     => date('Y-m-d'),
+                    'expiry_date'      => null,
+                    'division_id'      => $divId,
+                    'destination_type' => $destType,
+                    'item_id'          => $refRow ? ($refRow['item_id'] ?? null) : null,
+                    'material_id'      => $matId,
+                    'buy_uom_id'       => $refRow ? ($refRow['buy_uom_id'] ?? null) : null,
+                    'content_uom_id'   => $refRow ? ($refRow['content_uom_id'] ?? null) : null,
+                    'profile_key'      => $refRow ? ($refRow['profile_key'] ?? null) : null,
+                    'qty_in'           => $shortfall,
+                    'qty_out'          => 0,
+                    'qty_balance'      => $shortfall,
+                    'unit_cost'        => $refRow ? (float)($refRow['unit_cost'] ?? 0) : 0,
+                    'source_table'     => 'lot_repair',
+                    'source_id'        => null,
+                    'source_line_id'   => null,
+                    'receipt_id'       => null,
+                    'receipt_line_id'  => null,
+                    'parent_lot_id'    => null,
+                    'status'           => 'OPEN',
+                ]);
+                $lotsModified = 1;
+            }
         }
 
         $direction = $gap > 0 ? 'dikurangi dari' : 'ditambah ke';
@@ -3611,6 +3871,181 @@ class Purchase_model extends CI_Model
         ];
     }
 
+    /**
+     * Force-sync FIFO lots to match monthly stock balance per profile_key.
+     * Used when material-level totals match but individual profiles are crossed
+     * (e.g., lot correction was created with wrong profile_key).
+     *
+     * – profile lot > stock  → deduct excess from oldest lots of that profile (FIFO order)
+     * – profile stock > lot  → insert a correction lot with the correct profile_key
+     */
+    public function sync_division_lot_by_profile(array $params): array
+    {
+        $divisionId  = (int)($params['division_id'] ?? 0);
+        $materialId  = (int)($params['material_id'] ?? 0);
+        $destination = strtoupper(trim((string)($params['destination'] ?? 'ALL')));
+
+        if ($divisionId <= 0 || $materialId <= 0) {
+            return ['ok' => false, 'message' => 'division_id dan material_id wajib diisi.'];
+        }
+        if (!$this->db->table_exists('inv_material_fifo_lot')) {
+            return ['ok' => false, 'message' => 'Tabel inv_material_fifo_lot belum ada.'];
+        }
+        if (!$this->db->table_exists('inv_division_monthly_stock')) {
+            return ['ok' => false, 'message' => 'Tabel inv_division_monthly_stock belum ada.'];
+        }
+
+        $divId = $divisionId;
+        $matId = $materialId;
+
+        $stockDestWhere = '';
+        $lotDestCond    = '';
+        if ($destination === 'EVENT') {
+            $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $lotDestCond    = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+        } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)) {
+            $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $lotDestCond    = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+        }
+
+        // Per-profile monthly stock balance (latest month per identity)
+        $latestMonthSub = "SELECT division_id, destination_type, identity_key, MAX(month_key) AS max_month
+                           FROM inv_division_monthly_stock
+                           WHERE division_id={$divId} AND material_id={$matId}
+                           GROUP BY division_id, destination_type, identity_key";
+
+        $stockRows = $this->db->query("
+            SELECT COALESCE(dms.profile_key,'') AS profile_key,
+                   dms.destination_type, dms.item_id, dms.buy_uom_id, dms.content_uom_id,
+                   SUM(dms.closing_qty_content) AS stock_balance
+            FROM inv_division_monthly_stock dms
+            INNER JOIN ({$latestMonthSub}) lm
+                ON lm.division_id=dms.division_id AND lm.destination_type=dms.destination_type
+                   AND lm.identity_key=dms.identity_key AND lm.max_month=dms.month_key
+            WHERE dms.division_id={$divId} AND dms.material_id={$matId} {$stockDestWhere}
+            GROUP BY dms.profile_key, dms.destination_type, dms.item_id, dms.buy_uom_id, dms.content_uom_id
+        ")->result_array();
+
+        // Per-profile FIFO lot balance
+        $lotRows = $this->db->query("
+            SELECT COALESCE(profile_key,'') AS pk, SUM(qty_balance) AS lot_total
+            FROM inv_material_fifo_lot
+            WHERE location_scope='DIVISION' AND division_id={$divId} AND material_id={$matId}
+              AND status='OPEN' AND qty_balance>0.0001 {$lotDestCond}
+            GROUP BY profile_key
+        ")->result_array();
+
+        $lotByKey = [];
+        foreach ($lotRows as $lr) { $lotByKey[(string)$lr['pk']] = round((float)$lr['lot_total'], 4); }
+
+        // Build full profile map (from stock + lot-only)
+        $profiles = [];
+        foreach ($stockRows as $sr) {
+            $pk = (string)($sr['profile_key'] ?? '');
+            $profiles[$pk] = [
+                'profile_key'      => $pk,
+                'stock_balance'    => round((float)$sr['stock_balance'], 4),
+                'lot_balance'      => $lotByKey[$pk] ?? 0.0,
+                'destination_type' => (string)($sr['destination_type'] ?? 'OTHER'),
+                'item_id'          => $sr['item_id'],
+                'buy_uom_id'       => $sr['buy_uom_id'],
+                'content_uom_id'   => $sr['content_uom_id'],
+            ];
+        }
+        foreach ($lotByKey as $pk => $lb) {
+            if (!isset($profiles[$pk])) {
+                $profiles[$pk] = ['profile_key' => $pk, 'stock_balance' => 0.0, 'lot_balance' => round($lb, 4),
+                                  'destination_type' => 'OTHER', 'item_id' => null, 'buy_uom_id' => null, 'content_uom_id' => null];
+            }
+        }
+
+        $lotsModified = 0;
+        $actions = [];
+
+        foreach ($profiles as $pk => $pd) {
+            $stockBal  = $pd['stock_balance'];
+            $lotBal    = $pd['lot_balance'];
+            $perKeyGap = round($lotBal - $stockBal, 4); // positive = lot excess
+
+            if (abs($perKeyGap) <= 0.01) { continue; }
+
+            if ($perKeyGap > 0.01) {
+                // Lot excess → deduct from oldest lots for this profile
+                $profileLots = $this->db->query("
+                    SELECT id, qty_balance FROM inv_material_fifo_lot
+                    WHERE location_scope='DIVISION' AND division_id={$divId} AND material_id={$matId}
+                      AND COALESCE(profile_key,'')=? AND status='OPEN' AND qty_balance>0.0001 {$lotDestCond}
+                    ORDER BY receipt_date ASC, id ASC
+                ", [$pk])->result_array();
+
+                $remaining = $perKeyGap;
+                foreach ($profileLots as $lot) {
+                    if ($remaining <= 0.0001) { break; }
+                    $lotId  = (int)$lot['id'];
+                    $lb     = round((float)$lot['qty_balance'], 4);
+                    $deduct = round(min($remaining, $lb), 4);
+                    $newBal = round($lb - $deduct, 4);
+                    $this->db->query(
+                        "UPDATE inv_material_fifo_lot SET qty_out=qty_out+?, qty_balance=?, status=?, updated_at=NOW() WHERE id=?",
+                        [$deduct, $newBal, $newBal <= 0.0001 ? 'CLOSED' : 'OPEN', $lotId]
+                    );
+                    $remaining = round($remaining - $deduct, 4);
+                    $lotsModified++;
+                }
+                $pkS = $pk !== '' ? substr($pk, 0, 8) . '…' : '(no profil)';
+                $actions[] = "Kurangi lot profil {$pkS}: -" . number_format($perKeyGap, 4);
+            } else {
+                // Lot deficit → add a correction lot for this profile
+                $shortfall = abs($perKeyGap);
+                $destType  = $pd['destination_type'];
+                if ($destination === 'EVENT' && !in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) { $destType = 'BAR_EVENT'; }
+                elseif (in_array($destination, ['REGULER', 'REGULAR'], true) && in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) { $destType = 'OTHER'; }
+
+                $ucRow = $this->db->query("
+                    SELECT unit_cost FROM inv_material_fifo_lot
+                    WHERE division_id={$divId} AND material_id={$matId} AND COALESCE(profile_key,'')=?
+                      AND location_scope='DIVISION' ORDER BY id DESC LIMIT 1
+                ", [$pk])->row_array()
+                    ?: $this->db->query("SELECT unit_cost FROM inv_material_fifo_lot WHERE division_id={$divId} AND material_id={$matId} AND location_scope='DIVISION' ORDER BY id DESC LIMIT 1")->row_array();
+
+                $this->db->insert('inv_material_fifo_lot', [
+                    'lot_no'           => 'PROF-' . date('Ymd-His') . '-M' . $matId,
+                    'location_scope'   => 'DIVISION',
+                    'receipt_date'     => date('Y-m-d'),
+                    'expiry_date'      => null,
+                    'division_id'      => $divId,
+                    'destination_type' => $destType,
+                    'item_id'          => !empty($pd['item_id']) ? (int)$pd['item_id'] : null,
+                    'material_id'      => $matId,
+                    'buy_uom_id'       => !empty($pd['buy_uom_id']) ? (int)$pd['buy_uom_id'] : null,
+                    'content_uom_id'   => !empty($pd['content_uom_id']) ? (int)$pd['content_uom_id'] : null,
+                    'profile_key'      => $pk !== '' ? $pk : null,
+                    'qty_in'           => $shortfall,
+                    'qty_out'          => 0,
+                    'qty_balance'      => $shortfall,
+                    'unit_cost'        => $ucRow ? (float)($ucRow['unit_cost'] ?? 0) : 0.0,
+                    'source_table'     => 'lot_profile_sync',
+                    'source_id'        => null, 'source_line_id' => null,
+                    'receipt_id'       => null, 'receipt_line_id' => null,
+                    'parent_lot_id'    => null, 'status' => 'OPEN',
+                ]);
+                $lotsModified++;
+                $pkS = $pk !== '' ? substr($pk, 0, 8) . '…' : '(no profil)';
+                $actions[] = "Tambah lot profil {$pkS}: +" . number_format($shortfall, 4);
+            }
+        }
+
+        if ($lotsModified === 0) {
+            return ['ok' => true, 'message' => 'Semua profil sudah sesuai, tidak ada yang perlu disesuaikan.'];
+        }
+
+        return [
+            'ok'      => true,
+            'message' => "Penyesuaian lot per profil selesai ({$lotsModified} lot). " . implode('; ', $actions) . '.',
+            'data'    => ['lots_modified' => $lotsModified, 'actions' => $actions],
+        ];
+    }
+
     public function repair_material_monthly_stock_drift(string $asOfDate, array $params): array
     {
         if (!$this->db->table_exists('inv_division_monthly_stock')) {
@@ -3624,9 +4059,14 @@ class Purchase_model extends CI_Model
             return ['ok' => false, 'message' => 'division_id diperlukan.'];
         }
 
-        $destinationTypes = $destinationGroup === 'EVENT'
-            ? ['BAR_EVENT', 'KITCHEN_EVENT']
-            : ['BAR', 'KITCHEN', 'REGULER', 'WAREHOUSE', 'CUSTOM'];
+        // Use IN/NOT IN for event types instead of a hardcoded list so that
+        // non-standard destination_type values (OTHER, RESTO, etc.) are still matched.
+        $destCondSub  = $destinationGroup === 'EVENT'
+            ? "s2.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')"
+            : "s2.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+        $destCondMain = $destinationGroup === 'EVENT'
+            ? "s.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')"
+            : "s.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
 
         $monthKeySubQ = $this->db
             ->select('MAX(s2.month_key)', false)
@@ -3634,7 +4074,7 @@ class Purchase_model extends CI_Model
             ->where('s2.division_id', $divisionId)
             ->where('COALESCE(s2.item_id,0)', $itemId)
             ->where('COALESCE(s2.material_id,0)', $materialId)
-            ->where_in('s2.destination_type', $destinationTypes)
+            ->where($destCondSub, null, false)
             ->get_compiled_select();
 
         $driftExpr = 'ROUND(ABS(s.closing_qty_content - ROUND('
@@ -3650,7 +4090,7 @@ class Purchase_model extends CI_Model
             ->where('s.division_id', $divisionId)
             ->where('COALESCE(s.item_id,0)', $itemId)
             ->where('COALESCE(s.material_id,0)', $materialId)
-            ->where_in('s.destination_type', $destinationTypes)
+            ->where($destCondMain, null, false)
             ->where("s.month_key = ({$monthKeySubQ})", null, false)
             ->where("{$driftExpr} > 0.0001", null, false)
             ->get()->result_array();

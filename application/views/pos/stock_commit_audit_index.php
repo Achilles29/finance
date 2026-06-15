@@ -351,6 +351,7 @@ $GLOBALS['auditTab'] = $auditTab;
             <div class="sca-toolbar-note">Gunakan batch repair ini untuk rebuild mismatch bahan baku langsung dari movement log per identity.</div>
             <div class="d-flex gap-2 flex-wrap">
               <button type="button" class="btn btn-outline-warning" id="sca_repair_material_drift_btn">Repair Drift Monthly Stock</button>
+              <button type="button" class="btn btn-outline-warning" id="sca_repair_material_lot_btn">Repair Lot Semua</button>
               <button type="button" class="btn btn-outline-danger" id="sca_repair_material_btn">Repair Semua Mismatch Bahan Baku</button>
             </div>
           </div>
@@ -774,6 +775,26 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  function scaBatchRepairDetail(json) {
+    var lines = [
+      'Diproses: ' + Number(json.processed_count || 0),
+      'Berhasil: ' + Number(json.success_count || 0),
+      'Gagal: '    + Number(json.failed_count   || 0),
+    ];
+    var results = Array.isArray(json.results) ? json.results : [];
+    var failed = results.filter(function(r){ return !(r.result && r.result.ok); });
+    if (failed.length) {
+      lines.push('');
+      lines.push('Detail gagal:');
+      failed.slice(0, 10).forEach(function(r) {
+        var msg = (r.result && r.result.message) ? r.result.message : 'tidak ada detail';
+        lines.push('• ' + String(r.label || '-') + ': ' + msg);
+      });
+      if (failed.length > 10) lines.push('... dan ' + (failed.length - 10) + ' lainnya.');
+    }
+    return lines.join('\n');
+  }
+
   const repairMaterialBtn = document.getElementById('sca_repair_material_btn');
   if (repairMaterialBtn) {
     repairMaterialBtn.addEventListener('click', async function () {
@@ -789,12 +810,7 @@ document.addEventListener('DOMContentLoaded', function () {
             'suspect' => (string)($materialFilters['suspect'] ?? 'ALL'),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
         const json = await postJson('<?php echo site_url('pos/stock-commit-audit/repair-material-mismatches'); ?>', payload);
-        await showAlert(
-          'Processed: ' + Number((json.processed_count || 0)) + '\n'
-          + 'Success: ' + Number((json.success_count || 0)) + '\n'
-          + 'Failed: ' + Number((json.failed_count || 0)),
-          'Batch Repair Bahan Baku POS'
-        );
+        await showAlert(scaBatchRepairDetail(json), 'Batch Repair Bahan Baku POS');
         window.location.reload();
       } catch (e) {
         await showAlert(e.message || 'Gagal repair batch mismatch bahan baku.', 'Batch Repair Bahan Baku POS');
@@ -819,12 +835,7 @@ document.addEventListener('DOMContentLoaded', function () {
             'type' => (string)($componentFilters['type'] ?? 'ALL'),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
         const json = await postJson('<?php echo site_url('pos/stock-commit-audit/repair-component-mismatches'); ?>', payload);
-        await showAlert(
-          'Processed: ' + Number((json.processed_count || 0)) + '\n'
-          + 'Success: ' + Number((json.success_count || 0)) + '\n'
-          + 'Failed: ' + Number((json.failed_count || 0)),
-          'Batch Repair Base/Prepare POS'
-        );
+        await showAlert(scaBatchRepairDetail(json), 'Batch Repair Base/Prepare POS');
         window.location.reload();
       } catch (e) {
         await showAlert(e.message || 'Gagal repair batch mismatch base/prepare.', 'Batch Repair Base/Prepare POS');
@@ -851,15 +862,44 @@ document.addEventListener('DOMContentLoaded', function () {
             'destination' => (string)($materialFilters['destination'] ?? 'ALL'),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
         const json = await postJson('<?php echo site_url('pos/stock-commit-audit/repair-material-drift'); ?>', payload);
-        await showAlert(
-          'Processed: ' + Number((json.processed_count || 0)) + '\n'
-          + 'Success: ' + Number((json.success_count || 0)) + '\n'
-          + 'Failed: ' + Number((json.failed_count || 0)),
-          'Repair Drift Monthly Stock Bahan'
-        );
+        await showAlert(scaBatchRepairDetail(json), 'Repair Drift Monthly Stock Bahan');
         window.location.reload();
       } catch (e) {
         await showAlert(e.message || 'Gagal repair drift monthly stock bahan.', 'Repair Drift Monthly Stock Bahan');
+      } finally {
+        clearButtonLoading(this);
+      }
+    });
+  }
+
+  const repairMaterialLotBtn = document.getElementById('sca_repair_material_lot_btn');
+  if (repairMaterialLotBtn) {
+    repairMaterialLotBtn.addEventListener('click', async function () {
+      const confirmed = await askConfirm(
+        'Repair lot FIFO semua bahan baku yang mismatch sesuai filter aktif?\n\nProses ini otomatis menjalankan profile sync jika ada profil silang.',
+        { title: 'Repair Lot Semua Bahan POS' }
+      );
+      if (!confirmed) return;
+      setButtonLoading(this, 'Repair lot...');
+      try {
+        const payload = <?php echo json_encode([
+            'as_of_date' => $asOfDate,
+            'q' => (string)($materialFilters['q'] ?? ''),
+            'division_id' => (int)($materialFilters['division_id'] ?? 0),
+            'destination' => (string)($materialFilters['destination'] ?? 'ALL'),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+        const json = await postJson('<?php echo site_url('inventory/stock/division/reconcile/lot-repair-all'); ?>', payload);
+        var d = json.data || {};
+        var detail = json.message || 'Selesai.';
+        if ((d.failed || 0) > 0 && Array.isArray(d.results)) {
+          var failLines = d.results.filter(function(r){ return r.status === 'failed'; })
+            .map(function(r){ return '• ' + r.label + (r.message ? ' — ' + r.message : ''); });
+          if (failLines.length) detail += '\n\nGagal:\n' + failLines.join('\n');
+        }
+        await showAlert(detail, 'Repair Lot Semua Bahan POS');
+        window.location.reload();
+      } catch (e) {
+        await showAlert(e.message || 'Gagal repair lot bahan.', 'Repair Lot Semua Bahan POS');
       } finally {
         clearButtonLoading(this);
       }
@@ -884,12 +924,7 @@ document.addEventListener('DOMContentLoaded', function () {
             'type' => (string)($componentFilters['type'] ?? 'ALL'),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
         const json = await postJson('<?php echo site_url('pos/stock-commit-audit/repair-component-drift'); ?>', payload);
-        await showAlert(
-          'Processed: ' + Number((json.processed_count || 0)) + '\n'
-          + 'Success: ' + Number((json.success_count || 0)) + '\n'
-          + 'Failed: ' + Number((json.failed_count || 0)),
-          'Repair Drift Monthly Stock Base/Prepare'
-        );
+        await showAlert(scaBatchRepairDetail(json), 'Repair Drift Monthly Stock Base/Prepare');
         window.location.reload();
       } catch (e) {
         await showAlert(e.message || 'Gagal repair drift monthly stock base/prepare.', 'Repair Drift Monthly Stock Base/Prepare');

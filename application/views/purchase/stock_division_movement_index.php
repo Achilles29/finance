@@ -53,6 +53,7 @@ $movTypeLabel = [
     'ADJUSTMENT'           => 'Adjustment',
     'OPENING_STOK_AWAL'    => 'Opening Awal',
     'POS_OUT'              => 'POS Usage',
+    'VOID_REVERSE'         => 'Void Return',
 ];
 $movTypeColor = [
     'TRANSFER_IN'       => '#0284c7',
@@ -69,11 +70,13 @@ $movTypeColor = [
     'ADJUSTMENT'        => '#6d28d9',
     'OPENING_STOK_AWAL' => '#475569',
     'POS_OUT'           => '#854d0e',
+    'VOID_REVERSE'      => '#0369a1',
 ];
 $movTypeRowClass = [
     'TRANSFER_IN'    => 'mvt-row-in',
     'RECEIPT_IN'     => 'mvt-row-in',
     'ADJUSTMENT_IN'  => 'mvt-row-adj-in',
+    'VOID_REVERSE'   => 'mvt-row-in',
     'OPENING_STOK_AWAL' => 'mvt-row-opening',
     'WASTE_OUT'      => 'mvt-row-shrink',
     'DISCARDED_OUT'  => 'mvt-row-shrink',

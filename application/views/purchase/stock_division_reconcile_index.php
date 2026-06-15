@@ -2,7 +2,9 @@
 $baseUrl      = site_url('inventory/stock/division/reconcile');
 $auditUrl     = site_url('inventory/stock/division/reconcile/audit');
 $repairUrl    = site_url('inventory/stock/division/reconcile/repair');
-$lotRepairUrl = site_url('inventory/stock/division/reconcile/lot-repair');
+$lotRepairUrl        = site_url('inventory/stock/division/reconcile/lot-repair');
+$lotProfileSyncUrl   = site_url('inventory/stock/division/reconcile/lot-profile-sync');
+$lotRepairAllUrl     = site_url('inventory/stock/division/reconcile/lot-repair-all');
 
 $allRows     = is_array($rows ?? null) ? $rows : [];
 $divisions   = is_array($divisions ?? null) ? $divisions : [];
@@ -374,12 +376,17 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
 
 <!-- ── Reconcile Table ── -->
 <div class="card mb-3">
-  <div class="card-header py-2 d-flex justify-content-between align-items-center">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span class="fw-semibold small">
       Rekonsiliasi Stok vs Movement
       <?php if ($mismatchOnly): ?><span class="badge bg-warning text-dark ms-2" style="font-size:.65rem;font-weight:700">Hanya Mismatch</span><?php endif; ?>
     </span>
-    <span class="text-muted small"><?php echo number_format($totalRows); ?> baris<?php echo $mismatchOnly ? ' mismatch' : ' aktif'; ?></span>
+    <div class="d-flex align-items-center gap-2">
+      <span class="text-muted small"><?php echo number_format($totalRows); ?> baris<?php echo $mismatchOnly ? ' mismatch' : ' aktif'; ?></span>
+      <button type="button" class="btn btn-xs btn-outline-warning" id="src_lot_repair_all_btn"
+        style="font-size:.7rem;padding:.18rem .55rem"
+        title="Repair semua lot yang mismatch sesuai filter aktif">Repair Lot Semua</button>
+    </div>
   </div>
   <div class="rec-table-wrap">
     <table class="table table-sm table-hover mb-0 align-middle">
@@ -402,6 +409,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
         <?php if (empty($pagedRows)): ?>
           <tr><td colspan="11" class="text-center text-muted py-4 small">Tidak ada baris aktif untuk filter ini. Row dengan stok akhir 0 disembunyikan agar fokus audit tetap ke stok aktif dan minus.</td></tr>
         <?php else: ?>
+          <?php $shownBreakdownKeys = []; ?>
           <?php foreach ($pagedRows as $row): ?>
             <?php
               $isMatch      = !empty($row['is_match']);
@@ -418,6 +426,9 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
               $dataItemId= (int)($row['item_id']     ?? 0);
               $dataMatId = (int)($row['material_id'] ?? 0);
               $dataDest  = html_escape((string)($row['destination_group'] ?? ($selDest !== 'ALL' ? $selDest : 'ALL')));
+              $profileBreakdown = (array)($row['lot_profile_breakdown'] ?? []);
+              $hasProfileMismatch = !empty($row['has_profile_lot_mismatch']);
+              $bKey = $dataDivId . '-' . $dataMatId . '-' . $dataDest;
             ?>
             <tr class="<?php echo $isMinus ? 'rec-row-negative' : ''; ?>">
               <td>
@@ -433,7 +444,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                 <div class="text-muted" style="font-size:.68rem"><?php echo $fmtQty($row['balance_qty_pack'] ?? 0); ?> pack</div>
                 <?php if ($isMinus): ?><span class="rec-chip rec-chip-warn" style="margin-top:.2rem">Minus</span><?php endif; ?>
               </td>
-              <td class="text-end small <?php echo $hasLotMismatch ? 'table-warning' : ''; ?>">
+              <td class="text-end small <?php echo ($hasLotMismatch || $hasProfileMismatch) ? 'table-warning' : ''; ?>">
                 <?php if ($hasLotData): ?>
                   <div class="fw-semibold <?php echo $hasLotMismatch ? 'text-danger' : ''; ?>"><?php echo $fmtQty($lotQty); ?></div>
                   <?php if ($hasLotMismatch): ?>
@@ -447,6 +458,28 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                         style="font-size:.6rem;padding:.1rem .35rem">Repair Lot</button>
                     </div>
                   <?php endif; ?>
+                  <?php if ($hasProfileMismatch && !$hasLotMismatch): ?>
+                    <span class="rec-chip rec-chip-bad" style="margin-top:.15rem;font-size:.6rem">Profil Beda</span>
+                  <?php endif; ?>
+                  <?php if (!empty($profileBreakdown)): ?>
+                    <div style="margin-top:.25rem">
+                      <button type="button" class="btn btn-xs btn-outline-secondary src-profile-breakdown-toggle"
+                        data-breakdown-key="<?php echo html_escape($bKey); ?>"
+                        style="font-size:.6rem;padding:.1rem .35rem">Profil ▼</button>
+                    </div>
+                  <?php endif; ?>
+                <?php elseif ($hasLotMismatch): ?>
+                  <?php /* Stock > 0 but no FIFO lots at all — repair will insert a correction lot */ ?>
+                  <div class="fw-semibold text-danger">0</div>
+                  <div style="font-size:.66rem;color:#b45309;" title="Stok ada tapi tidak ada lot FIFO">Δ <?php echo $fmtQty(abs($lotDelta)); ?></div>
+                  <span class="rec-chip rec-chip-bad" style="margin-top:.15rem;font-size:.6rem">Lot Kosong</span>
+                  <div style="margin-top:.25rem">
+                    <button type="button" class="btn btn-xs btn-warning src-lot-repair-btn"
+                      data-division-id="<?php echo $dataDivId; ?>"
+                      data-material-id="<?php echo $dataMatId; ?>"
+                      data-destination="<?php echo $dataDest; ?>"
+                      style="font-size:.6rem;padding:.1rem .35rem">Repair Lot</button>
+                  </div>
                 <?php else: ?>
                   <span class="text-muted">–</span>
                 <?php endif; ?>
@@ -488,6 +521,53 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                 </div>
               </td>
             </tr>
+            <?php if ($hasLotData && !empty($profileBreakdown) && !isset($shownBreakdownKeys[$bKey])): ?>
+              <?php $shownBreakdownKeys[$bKey] = true; ?>
+              <tr class="rec-profile-breakdown-row" data-breakdown-key="<?php echo html_escape($bKey); ?>" style="display:<?php echo $hasProfileMismatch ? '' : 'none'; ?>">
+                <td colspan="11" style="padding:.25rem 1rem .5rem 2.5rem;background:#f8fafc;border-top:none;">
+                  <table class="table table-sm table-borderless mb-0" style="font-size:.7rem;">
+                    <thead>
+                      <tr style="border-bottom:1px solid #e2e8f0;">
+                        <th style="width:160px;font-weight:600">Profil (ID)</th>
+                        <th class="text-end" style="font-weight:600">Stok Ledger</th>
+                        <th class="text-end" style="font-weight:600">Lot FIFO</th>
+                        <th class="text-end" style="font-weight:600">Delta</th>
+                        <th class="text-center" style="font-weight:600">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <?php foreach ($profileBreakdown as $pb): ?>
+                        <?php
+                          $pbPk     = (string)($pb['profile_key'] ?? '');
+                          $pbShort  = $pbPk !== '' ? substr($pbPk, 0, 12) . '…' : '(no profile)';
+                          $pbStock  = (float)($pb['stock_balance'] ?? 0);
+                          $pbLot    = (float)($pb['lot_balance'] ?? 0);
+                          $pbDelta  = (float)($pb['delta'] ?? 0);
+                          $pbMis    = !empty($pb['has_mismatch']);
+                        ?>
+                        <tr>
+                          <td><code title="<?php echo html_escape($pbPk); ?>" style="font-size:.65rem;word-break:break-all"><?php echo html_escape($pbShort); ?></code></td>
+                          <td class="text-end"><?php echo $fmtQty($pbStock); ?></td>
+                          <td class="text-end"><?php echo $fmtQty($pbLot); ?></td>
+                          <td class="text-end <?php echo $pbMis ? ($pbDelta < 0 ? 'text-danger fw-semibold' : 'text-warning fw-semibold') : 'text-success'; ?>">
+                            <?php echo ($pbDelta > 0 ? '+' : '') . $fmtQty($pbDelta); ?>
+                          </td>
+                          <td class="text-center">
+                            <?php if ($pbMis): ?>
+                              <span class="rec-chip <?php echo $pbDelta < 0 ? 'rec-chip-bad' : 'rec-chip-warn'; ?>" style="font-size:.6rem">
+                                <?php echo $pbDelta < 0 ? 'Lot-' : 'Lot+'; ?>
+                              </span>
+                            <?php else: ?>
+                              <span class="rec-chip rec-chip-ok" style="font-size:.6rem">OK</span>
+                            <?php endif; ?>
+                          </td>
+                        </tr>
+                      <?php endforeach; ?>
+                    </tbody>
+                  </table>
+                </td>
+              </tr>
+            <?php endif; ?>
           <?php endforeach; ?>
         <?php endif; ?>
       </tbody>
@@ -691,9 +771,57 @@ document.addEventListener('DOMContentLoaded', function () {
     var orig=button.innerHTML; button.disabled=true; button.textContent='Repair...';
     try {
       var json=await postJson('<?php echo $lotRepairUrl; ?>',{division_id:identity.division_id,material_id:identity.material_id,destination:identity.destination});
-      await showAlert(json.message||'Lot repair selesai.','Repair Lot FIFO');
-      window.location.reload();
+      if(json.needs_profile_sync) {
+        button.disabled=false; button.innerHTML=orig;
+        var doSync=await askConfirm(
+          (json.message||'Ada ketidaksesuaian profil lot.')+'\n\nSamakan lot per profil sekarang?',
+          {title:'Profil Lot Silang Terdeteksi',confirmText:'Ya, Samakan Profil',cancelText:'Batal'}
+        );
+        if(!doSync)return;
+        button.disabled=true; button.textContent='Sinkronisasi...';
+        var syncJson=await postJson('<?php echo $lotProfileSyncUrl; ?>',{division_id:identity.division_id,material_id:identity.material_id,destination:identity.destination});
+        await showAlert(syncJson.message||'Sinkronisasi profil selesai.','Samakan Lot per Profil');
+        window.location.reload();
+      } else {
+        await showAlert(json.message||'Lot repair selesai.','Repair Lot FIFO');
+        window.location.reload();
+      }
     } catch(e) { button.disabled=false; button.innerHTML=orig; throw e; }
+  }
+
+  // ── Repair Lot Semua ──────────────────────────────────────────────────────
+  var lotRepairAllBtn = document.getElementById('src_lot_repair_all_btn');
+  if (lotRepairAllBtn) {
+    lotRepairAllBtn.addEventListener('click', async function() {
+      var ok = await askConfirm(
+        'Repair semua lot FIFO yang mismatch sesuai filter aktif?\n\nProses ini otomatis menjalankan profile sync jika ada profil silang.',
+        {title:'Repair Lot Semua', confirmText:'Repair Semua', cancelText:'Batal'}
+      );
+      if (!ok) return;
+      var orig = lotRepairAllBtn.innerHTML;
+      lotRepairAllBtn.disabled = true; lotRepairAllBtn.textContent = 'Memproses...';
+      try {
+        var payload = {
+          as_of_date:  '<?php echo $asOfDate; ?>',
+          division_id: <?php echo (int)$selDivId; ?>,
+          destination: '<?php echo addslashes($selDest ?? 'ALL'); ?>',
+          q:           <?php echo json_encode($qSearch ?? ''); ?>
+        };
+        var json = await postJson('<?php echo $lotRepairAllUrl; ?>', payload);
+        var d = json.data || {};
+        var detail = json.message || 'Selesai.';
+        if ((d.failed||0) > 0 && Array.isArray(d.results)) {
+          var failLines = d.results.filter(function(r){return r.status==='failed';})
+            .map(function(r){return '• '+r.label+(r.message?' — '+r.message:'');});
+          if (failLines.length) detail += '\n\nGagal:\n' + failLines.join('\n');
+        }
+        await showAlert(detail, 'Repair Lot Semua');
+        window.location.reload();
+      } catch(e) {
+        lotRepairAllBtn.disabled = false; lotRepairAllBtn.innerHTML = orig;
+        await showAlert(e.message || 'Gagal menjalankan repair lot semua.', 'Repair Lot Semua');
+      }
+    });
   }
 
   // ── POS Jobs ──────────────────────────────────────────────────────────────
@@ -726,6 +854,13 @@ document.addEventListener('DOMContentLoaded', function () {
     if(rb){runMaterialRepair(buttonIdentity(rb),rb).catch(function(e){clearButtonLoading(rb);setAuditState(e.message,false);}); return;}
     var lb=ev.target.closest('.src-lot-repair-btn');
     if(lb){runLotRepair(buttonIdentity(lb),lb).catch(function(e){showAlert(e.message,'Repair Lot FIFO');});}
+    var pb=ev.target.closest('.src-profile-breakdown-toggle');
+    if(pb){
+      var key=pb.getAttribute('data-breakdown-key');
+      var bdRows=document.querySelectorAll('.rec-profile-breakdown-row[data-breakdown-key="'+key+'"]');
+      bdRows.forEach(function(r){r.style.display=r.style.display==='none'?'':'none';});
+      pb.textContent=pb.textContent.includes('▼')?pb.textContent.replace('▼','▲'):pb.textContent.replace('▲','▼');
+    }
   });
 });
 </script>

@@ -568,6 +568,72 @@ class MaterialFifoManager
             ];
         }
 
+        // Per-profile balance pre-check: ensure that consuming from these lots will not cause
+        // any individual profile_key's monthly stock row to go negative. This catches the
+        // "crossed-profile" mismatch (all lots are profile B but monthly stock B < consumption).
+        if (($identity['material_id'] ?? null) !== null && $this->ci->db->table_exists('inv_division_monthly_stock')) {
+            $plannedByProfile = [];
+            $tempRem = $qtyNeed;
+            foreach ($divisionLots as $lot) {
+                if ($tempRem <= 0.0001) { break; }
+                $lb = round((float)($lot['qty_balance'] ?? 0), 4);
+                if ($lb <= 0) { continue; }
+                $take = round(min($tempRem, $lb), 4);
+                $pk   = (string)($lot['profile_key'] ?? '');
+                $plannedByProfile[$pk] = round(($plannedByProfile[$pk] ?? 0.0) + $take, 4);
+                $tempRem = round($tempRem - $take, 4);
+            }
+
+            if (!empty($plannedByProfile)) {
+                $divId = (int)$divisionId;
+                $matId = (int)$identity['material_id'];
+                $destT = (string)$destinationType;
+
+                $latestMonthSub = "SELECT ms2.division_id, ms2.destination_type, ms2.identity_key, MAX(ms2.month_key) AS max_month
+                                   FROM inv_division_monthly_stock ms2
+                                   WHERE ms2.division_id = {$divId} AND ms2.material_id = {$matId}
+                                   GROUP BY ms2.division_id, ms2.destination_type, ms2.identity_key";
+
+                $stockRows = $this->ci->db->query("
+                    SELECT COALESCE(ms.profile_key, '') AS profile_key, SUM(ms.closing_qty_content) AS stock_balance
+                    FROM inv_division_monthly_stock ms
+                    INNER JOIN ({$latestMonthSub}) lm
+                        ON  lm.division_id      = ms.division_id
+                        AND lm.destination_type = ms.destination_type
+                        AND lm.identity_key     = ms.identity_key
+                        AND lm.max_month        = ms.month_key
+                    WHERE ms.division_id = {$divId} AND ms.material_id = {$matId}
+                      AND ms.destination_type = ?
+                    GROUP BY ms.profile_key
+                ", [$destT])->result_array();
+
+                $stockByProfile = [];
+                foreach ($stockRows as $sr) {
+                    $pk = (string)($sr['profile_key'] ?? '');
+                    $stockByProfile[$pk] = round((float)($sr['stock_balance'] ?? 0), 4);
+                }
+
+                // Only run check when monthly stock data exists for this material/destination
+                if (!empty($stockByProfile)) {
+                    $profileErrors = [];
+                    foreach ($plannedByProfile as $pk => $plannedQty) {
+                        $stockBal = $stockByProfile[$pk] ?? 0.0;
+                        if ($stockBal - $plannedQty < -0.01) {
+                            $pkLabel = $pk !== '' ? substr($pk, 0, 8) . '…' : '(no profile)';
+                            $profileErrors[] = "profil {$pkLabel}: stok " . number_format($stockBal, 4, '.', '') . ', diambil ' . number_format($plannedQty, 4, '.', '');
+                        }
+                    }
+                    if (!empty($profileErrors)) {
+                        return [
+                            'ok' => false,
+                            'message' => 'Stok per profil tidak mencukupi (' . implode('; ', $profileErrors) . '). Jalankan Lot Repair di halaman rekonsiliasi terlebih dahulu.',
+                            'profile_mismatch' => true,
+                        ];
+                    }
+                }
+            }
+        }
+
         $issueNo = $this->generateIssueNo($issueDate);
         $issueData = [
             'issue_no' => $issueNo,

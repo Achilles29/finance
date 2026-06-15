@@ -9086,14 +9086,13 @@ class Pos_model extends CI_Model
             return ['ok' => false, 'message' => 'Snapshot stock commit belum tersedia.'];
         }
 
+        // All order lines with committed stock need to be included in the reversal plan,
+        // regardless of whether they were physically processed. The physical process status
+        // only determines the POLICY (return-to-stock vs adjustment), not plan inclusion.
         $activeOrderLineIds = [];
         $activeExtraLineIds = [];
         foreach ((array)($order['lines'] ?? []) as $line) {
             $orderLineId = (int)($line['id'] ?? 0);
-            $state = $processByOrderLine[$orderLineId] ?? 'NOT_PROCESSED';
-            if ($state === 'NOT_PROCESSED') {
-                continue;
-            }
             if ($orderLineId > 0) {
                 $activeOrderLineIds[$orderLineId] = true;
             }
@@ -9437,10 +9436,9 @@ class Pos_model extends CI_Model
             return $lineStatus;
         }
 
-        if (in_array($headerCommitStatus, ['POSTED', 'REVERSED'], true)) {
-            return 'PROCESSED';
-        }
-
+        // A POSTED stock-commit means the stock was deducted, not that the item was physically
+        // served. Return the actual physical process status so NOT_PROCESSED items can still
+        // be returned to stock on void/refund.
         return 'NOT_PROCESSED';
     }
 

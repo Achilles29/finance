@@ -783,10 +783,10 @@ class InventoryLedger
             $delta['in_qty_content'] = max(0, $qtyContentDelta);
             $delta['in_total_value'] = $mutationValue;
         } elseif ($movementType === 'VOID_REVERSE') {
-            // Reversal of an out movement — shows as adjustment, not as a real purchase/transfer IN.
-            $delta['adjustment_plus_qty_buy'] = max(0, $qtyBuyDelta);
-            $delta['adjustment_plus_qty_content'] = max(0, $qtyContentDelta);
-            $delta['adjustment_plus_total_value'] = $mutationValue;
+            // Reversal of an out movement — reduces out_qty (true rollback, not a new adjustment).
+            $delta['out_qty_buy'] = -max(0, $qtyBuyDelta);
+            $delta['out_qty_content'] = -max(0, $qtyContentDelta);
+            $delta['out_total_value'] = -$mutationValue;
         } elseif (in_array($movementType, ['TRANSFER_OUT', 'USAGE_OUT'], true)) {
             $delta['out_qty_buy'] = abs(min(0, $qtyBuyDelta));
             $delta['out_qty_content'] = abs(min(0, $qtyContentDelta));
