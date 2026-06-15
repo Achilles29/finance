@@ -530,3 +530,14 @@ setelah itu perbaiki juga, buatkan sql untuk FUGOLD agar sesuai movement log nya
 
 sepertinya setelah repair tadi, inv_stock_movement_log. after untuk fugold jadi 0 semua
  q
+
+
+/stock/division/reconcile buat tampilan barisnya bisa di breakdow per profile Stok Divisi 	Lot FIFO 	Material Daily 	Snapshot Harian 	Movement 	Δ Stok vs Mvt 	Δ Daily vs Mvt 	Δ Snapshot vs Mvt 	Status
+
+
+nah sekarang bisa terlihat jelas mana saja yang ada selisih.
+revisi lagi kolom terlalu banyak, cukup tampilkan  Stok Divisi, Lot FIFO, Material Daily, Movement, Selisih (selisih ini menjelaskan jika ada selisih kolom mana dengan kolom mana, dijelaskan), status, aksi. 
+lalu kolom repair di kolom aksi ini, ketika di klik dia memproses dulu data nya yang miss lalu muncul modal penjelasan akan di repair seperti apa, dan jika tidak ada titik temu maka muncul pilihan di repair sesuai stock atau di repair sesuai movement
+
+
+

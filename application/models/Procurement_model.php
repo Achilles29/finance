@@ -1699,6 +1699,17 @@ class Procurement_model extends CI_Model
         ];
     }
 
+    private function merge_division_request_notes(string $existing, string $newNote, string $status): string
+    {
+        $newNote = trim($newNote);
+        if ($newNote === '') {
+            return $existing;
+        }
+        $entry = '[' . date('Y-m-d H:i') . ' ' . $status . '] ' . $newNote;
+        $existing = trim($existing);
+        return $existing !== '' ? $existing . "\n" . $entry : $entry;
+    }
+
     public function list_purchasing_verification_queue(array $filters, int $limit = 100): array
     {
         if (!$this->has_division_request_schema()) {
