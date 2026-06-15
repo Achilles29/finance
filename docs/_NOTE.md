@@ -468,71 +468,9 @@ dengan yang sudah kita lalui tadi, bisakah kamu cek untuk component? logikanya s
 
 
 
-1. tambahkan repair lot all di /inventory/stock/division/reconcile kira kira bisa tidak?
-
-2. pos/stock-commit-audit masih sering gagal repair issmatch dan drift, coba cek apa masalahnya dan apakah bisa disamakan polanya dengan repairt lot di reconcile?
 
 
-kita sudah membuat skema "Repair lot semua" dan "Repair Lot" di tabel kolom LOT FIFO di /inventory/stock/division/reconcile. dimana ketika di klik maka semua LOT yang tidak sesuai ledger maka akan disesuikan. tadi masih menyisakan masalah ada bari di monthly_stock yang ternyata tidak punya LOT.
-contoh ICE CUBE ketika di repair seharusnya baris profile yang tidak punya LOT otomatis menggenerate baris lot sesuai profilenya. ICE CUBE tadi gagal setelah saya cek ternyata dia tidak punya material_id di inv_division_monthly_stock. nah coba cek ulang logika repair dan cek juga profil mana saja yang tidak punya material_id.
-
-kenapa bisa baris tidak punya material id? apakah dari legacy atau ada PO / SR / Adjustment/ Opening yang tidak menggenerate material_id?
-
-buatkan guarding agar semua yang ada di inv_division_monthly_stock punya material_id. dan berikan warning yang tidak punya, lalu buatkan repairnya juga
+<div style="border:1px solid #990000;padding-left:20px;margin:0 0 10px 0;"> <h4>A PHP Error was encountered</h4> <p>Severity: Warning</p> <p>Message: Undefined array key "rows"</p> <p>Filename: models/Purchase_model.php</p> <p>Line Number: 1660</p> <p>Backtrace:</p> <p style="margin-left:10px"> File: C:\xampp\htdocs\finance\application\models\Purchase_model.php<br /> Line: 1660<br /> Function: _error_handler </p> <p style="margin-left:10px"> File: C:\xampp\htdocs\finance\application\controllers\Purchase.php<br /> Line: 2599<br /> Function: list_material_daily_matrix </p> <p style="margin-left:10px"> File: C:\xampp\htdocs\finance\application\controllers\Inventory_division.php<br /> Line: 23<br /> Function: stock_material_daily_matrix </p> <p style="margin-left:10px"> File: C:\xampp\htdocs\finance\index.php<br /> Line: 317<br /> Function: require_once </p> </div> <div style="border:1px solid #990000;padding-left:20px;margin:0 0 10px 0;"> <h4>An uncaught Exception was encountered</h4> <p>Type: TypeError</p> <p>Message: Purchase_model::attachMaterialDailyProfilePrices(): Argument #1 ($rows) must be of type array, null given, called in C:\xampp\htdocs\finance\application\models\Purchase_model.php on line 1660</p> <p>Filename: C:\xampp\htdocs\finance\application\models\Purchase_model.php</p> <p>Line Number: 5605</p> <p>Backtrace:</p> <p style="margin-left:10px"> File: C:\xampp\htdocs\finance\application\models\Purchase_model.php<br /> Line: 1660<br /> Function: attachMaterialDailyProfilePrices </p> <p style="margin-left:10px"> File: C:\xampp\htdocs\finance\application\controllers\Purchase.php<br /> Line: 2599<br /> Function: list_material_daily_matrix </p> <p style="margin-left:10px"> File: C:\xampp\htdocs\finance\application\controllers\Inventory_division.php<br /> Line: 23<br /> Function: stock_material_daily_matrix </p> <p style="margin-left:10px"> File: C:\xampp\htdocs\finance\index.php<br /> Line: 317<br /> Function: require_once </p> </div>
 
 
-
-
-kalau baris atau profil yang tidak ada lot nya, ketika di repair lot semua seharusnya membuat lot baru
-
-
-
-sql sudah saya jalankan. gambar terlampir
-coba cek database db_finance2, adalah data yang baru saja saya tarik dari server. saya cek contoh espresso arabika jadi berkurang (ada baris yang hilang) ketika saya repair material_id. dugaan saya material dengan profil yang sama dijadikan 1 tapi nilainya tidak jadi 1.
-saya juga bingung kenapa ada identity_key dan profile_key
-
-coba bandingkan db_finance (lokal) yang sudah kamu repair dan db_finance2 (server) yang saya repair lewat UI material id. bandingkan kedua database itu fokus di inv_division_monthly_stock,inv_material_fifo_lot, inv_material_fifo_issue_log, inv_material_fifo_issue_line, inv_stock_adjustment_line, inv_stock_movement_log.
-cek item apa saja yang terpengaruh, setelah ketemu pangkal masalahnya, buatkan perbaiki UI nya dan buatkan sql untuk di run di server
-
-apakah kamu sudah bandingkan db_finance dan db_finance2 inv_division_monthly_stock ?
-
-saya hanya suruh bandingkan dulu dan periksa mana saja yang berbeda db_finance dan db_finance2 inv_division_monthly_stock.
-contoh ESPRESSO ARABIKA saja id nya berbeda antara kedua tabel tersebut. cek yang lain. jelaskan perbedaan kedua tabel itu
-
-
-
-cek tabel mana saja yang punya identity_key, dan modul mana yang menggeneratenya?
-
-kok bisa nggak ada yang hilang? di lokal ada 3 baris espresso arabika dengan total 937 gram, d server tinggal 2 baris 108 gram (108 dan 0), di lokal ada fugold 1000 di server fugold ter crossed dengan hayati dan nilainya 0
-
-
-
-yang benar aja. fugold masuk 2 juni lewat PO PO202606020010
-
-sql sudah saya jalankan tapi tidak terjadi apa apa.
-sekalian perbaiki pembacaan /inventory-material-daily. stok awal itu artinya stok tanggal 1, dan itu dibaca di inv_division_monthly_stock opening_qty , sementara stok akhir dari kolom closing. nah pergerakan dari tabel movement_log. jadi sumber kebenaran utama tetap inv_division_monthly_stock. movement log sebagai pergerakan harian sekaligus guarding ketika ada perbedaan data yang harus diaudit dan diselesaikan!
-
-
-KAMU PAHAM NGGAK MAKSUD SAYA?
-sumber kebenaran utama di halaman stok adalah inv_division_monthly_stock.
-stok awal itu artinya stok tanggal 1, dan itu dibaca di inv_division_monthly_stock opening_qty , sementara stok akhir dari kolom closing. nah pergerakan dari tabel movement_log. jadi sumber kebenaran utama tetap inv_division_monthly_stock. movement log sebagai pergerakan harian sekaligus guarding ketika ada perbedaan data yang harus diaudit dan diselesaikan!
-
-
-ternyata di movement log stok masuk fugold tidak punya material id. apakah itu jadi pengaruh ? bagaimana ini saya pusing
-
-mana lagi bahan baku yang tidak punya material id
-
-
-
-
-saya kan udah bilang opening/closing tetap ambil dari inv_division_monthly_stock ,  inv_stock_movement_log  hanya dipakai untuk keluar masuknya, dan supaya jelas ada warning jika opening / closing tidak sesuai dengan inv_stock_movement_log ! PERBAIKI!
-setelah itu perbaiki juga, buatkan sql untuk FUGOLD agar sesuai movement log nya baik masuk dan keluar!
-
-sepertinya setelah repair tadi, inv_stock_movement_log. after untuk fugold jadi 0 semua
- q
-
-
-
-
-coba cek BAWANG BOMBAY, di /inventory/stock/division/reconcile ada selish Stok vs Mvt: -8,00 	padahal kalau ditotal movement 794,5 sesuai dengan stok.
-hapus kolom Δ Stok vs Mvt 	Δ Daily vs Mvt 	Δ Snapshot vs Mvt di parent, ganti dengan kolom selisih seperti child nya
+muncul error di daily matrix saat barang yang dicari tidak ada

@@ -481,6 +481,8 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
               $hasProfileMismatch = !empty($row['has_profile_lot_mismatch']);
               $bKey = $dataDivId . '-' . $dataMatId . '-' . $dataDest;
               $parentSelisihParts = [];
+              $profileLotDeltaSum = 0.0;
+              $profileStockDeltaSum = 0.0;
               if ($hasLotMismatch) {
                   $sign = $lotDelta > 0 ? '+' : '';
                   $parentSelisihParts[] = 'Lot vs Stok: ' . $sign . $fmtQty($lotDelta);
@@ -498,8 +500,6 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                   $parentSelisihParts[] = 'Snapshot vs Mvt: ' . $sign . $fmtQty($dDVsM);
               }
               if (empty($parentSelisihParts) && $hasProfileMismatch && !empty($profileBreakdown)) {
-                  $profileLotDeltaSum = 0.0;
-                  $profileStockDeltaSum = 0.0;
                   foreach ($profileBreakdown as $pb) {
                       if (empty($pb['has_mismatch'])) {
                           continue;
