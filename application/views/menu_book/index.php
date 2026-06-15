@@ -296,7 +296,7 @@
         </a>
 
         <a href="<?= site_url('menu_book/food/nusantara_comfort') ?>" target="_blank" class="page-card wip">
-            <span class="status-badge status-wip">WIP</span>
+            <span class="status-badge status-done">Done</span>
             <div class="page-num">Halaman 03</div>
             <div class="page-title-name">Nusantara &amp; Comfort Food</div>
             <div class="page-subtitle">Indonesian Heritage · Crave Corner</div>
@@ -310,9 +310,7 @@
         </a>
 
         <a href="<?= site_url('menu_book/food/flame_flavor') ?>" target="_blank" class="page-card wip">
-
-        <span class="page-card plan">
-            <span class="status-badge status-plan">Plan</span>
+            <span class="status-badge status-done">Done</span>
             <div class="page-num">Halaman 04</div>
             <div class="page-title-name">Flame &amp; Flavor</div>
             <div class="page-subtitle">Munch &amp; Meat · Classic Western</div>
@@ -325,8 +323,8 @@
         </span>
         </a>
 
-        <span class="page-card plan">
-            <span class="status-badge status-plan">Plan</span>
+        <a href="<?= site_url('menu_book/food/asian_signatures') ?>" target="_blank" class="page-card wip">
+            <span class="status-badge status-done">Done</span>
             <div class="page-num">Halaman 05</div>
             <div class="page-title-name">Asian Signatures</div>
             <div class="page-subtitle">Asian Course</div>
@@ -336,9 +334,11 @@
                 <span class="cat-tag">13 Gambar</span>
             </div>
         </span>
+        </a>
 
-        <span class="page-card plan">
-            <span class="status-badge status-plan">Plan</span>
+        
+        <a href="<?= site_url('menu_book/food/bowl_spice_noodles') ?>" target="_blank" class="page-card wip">
+            <span class="status-badge status-done">Done</span>
             <div class="page-num">Halaman 06</div>
             <div class="page-title-name">Bowl, Spice &amp; Noodles</div>
             <div class="page-subtitle">Spicy · Rice Bowl · Anak Kos Core</div>
@@ -350,6 +350,7 @@
                 <span class="cat-tag">4 Gambar</span>
             </div>
         </span>
+        </a>
 
         <span class="page-card plan">
             <span class="status-badge status-plan">Plan</span>

@@ -3094,38 +3094,11 @@ class Purchase_model extends CI_Model
                 }
             }
 
-            // Fetch per-profile movement closing (last qty_content_after from movement_log up to asOfDate)
-            $profileMovementMap = [];
-            if (!empty($asOfDate) && $this->db->table_exists('inv_stock_movement_log')) {
-                $asOfDateEsc = $this->db->escape($asOfDate);
-                $profileMvtResults = $this->db->query("
-                    SELECT ml.division_id,
-                           CASE WHEN ml.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
-                           COALESCE(ml.material_id, 0) AS material_id,
-                           COALESCE(ml.profile_key, '') AS profile_key,
-                           ml.qty_content_after AS movement_closing
-                    FROM inv_stock_movement_log ml
-                    INNER JOIN (
-                        SELECT division_id, destination_type,
-                               COALESCE(material_id, 0) AS material_id,
-                               COALESCE(profile_key, '') AS profile_key,
-                               MAX(id) AS max_id
-                        FROM inv_stock_movement_log
-                        WHERE movement_scope = 'DIVISION'
-                          AND movement_date <= {$asOfDateEsc}
-                          AND division_id IN ({$divIdsStr})
-                        GROUP BY division_id, destination_type, material_id, profile_key
-                    ) lm ON lm.division_id = ml.division_id
-                         AND lm.destination_type = ml.destination_type
-                         AND lm.max_id = ml.id
-                ")->result_array();
-
-                foreach ($profileMvtResults as $mr) {
-                    $matK2 = (int)$mr['division_id'] . '|' . strtoupper((string)($mr['destination_group'] ?? 'REGULER')) . '|M-' . (int)$mr['material_id'];
-                    $pk2 = (string)($mr['profile_key'] ?? '');
-                    $profileMovementMap[$matK2][$pk2] = round((float)($mr['movement_closing'] ?? 0), 4);
-                }
-            }
+            // Fetch per-profile movement closing from the same reconstructed movement source
+            // used by the reconcile page, so UI and repair always read the same truth source.
+            $profileMovementMap = !empty($asOfDate)
+                ? $this->buildDivisionProfileMovementClosingMap($asOfDate, $divisionIds)
+                : [];
 
             foreach ($profileBreakdownMap as $matK => &$profiles) {
                 foreach ($profiles as $pk => &$profile) {
@@ -3346,6 +3319,71 @@ class Purchase_model extends CI_Model
         }
 
         return array_values($latestRows);
+    }
+
+    private function buildDivisionProfileMovementClosingMap(string $asOfDate, array $divisionIds): array
+    {
+        $map = [];
+        if (empty($divisionIds)) {
+            return $map;
+        }
+
+        foreach ($divisionIds as $divisionId) {
+            $divisionId = (int)$divisionId;
+            if ($divisionId <= 0) {
+                continue;
+            }
+
+            $rows = $this->list_division_daily_snapshot_latest_closing_raw_movement($asOfDate, '', $divisionId, null);
+            foreach ($rows as $row) {
+                $materialId = (int)($row['material_id'] ?? 0);
+                if ($materialId <= 0) {
+                    continue;
+                }
+
+                $destinationGroup = strtoupper((string)($row['destination_group'] ?? 'REGULER'));
+                $profileKey = trim((string)($row['profile_key'] ?? ''));
+                $matKey = $divisionId . '|' . $destinationGroup . '|M-' . $materialId;
+                if (!isset($map[$matKey][$profileKey])) {
+                    $map[$matKey][$profileKey] = 0.0;
+                }
+                $map[$matKey][$profileKey] = round(
+                    (float)$map[$matKey][$profileKey] + (float)($row['closing_qty_content'] ?? 0),
+                    4
+                );
+            }
+        }
+
+        return $map;
+    }
+
+    private function getDivisionProfileMovementClosing(string $asOfDate, int $divisionId, int $materialId, string $destination, string $profileKey): array
+    {
+        $destinationFilter = $this->normalizeDestinationFilter($destination);
+        $rows = $this->list_division_daily_snapshot_latest_closing_raw_movement($asOfDate, '', $divisionId, $destinationFilter);
+
+        $closingContent = 0.0;
+        $closingBuy = 0.0;
+        $matched = 0;
+        foreach ($rows as $row) {
+            if ((int)($row['material_id'] ?? 0) !== $materialId) {
+                continue;
+            }
+            if (trim((string)($row['profile_key'] ?? '')) !== $profileKey) {
+                continue;
+            }
+
+            $closingContent += (float)($row['closing_qty_content'] ?? 0);
+            $closingBuy += (float)($row['closing_qty_pack'] ?? 0);
+            $matched++;
+        }
+
+        return [
+            'found' => $matched > 0,
+            'closing_qty_content' => round($closingContent, 4),
+            'closing_qty_buy' => round($closingBuy, 4),
+            'matched_rows' => $matched,
+        ];
     }
 
     private function normalizeDivisionProfileKeyRows(array $rows): array
@@ -4605,25 +4643,35 @@ class Purchase_model extends CI_Model
 
         // Step 1 (to_movement only): update monthly_stock.closing for this profile to match movement_log
         if ($repairMode === 'to_movement') {
-            if (!$this->db->table_exists('inv_stock_movement_log')) {
-                return ['ok' => false, 'message' => 'Tabel inv_stock_movement_log tidak ditemukan untuk mode to_movement.'];
-            }
-            $asOfDateEsc = $this->db->escape($asOfDate);
-            $lastMvt = $this->db->query("
-                SELECT ml.qty_content_after AS movement_closing, ml.qty_buy_after AS buy_closing
-                FROM inv_stock_movement_log ml
-                WHERE ml.division_id = {$divId} AND ml.material_id = {$matId}
-                  AND ml.movement_scope = 'DIVISION'
-                  AND ml.movement_date <= {$asOfDateEsc}
-                  {$mlDestWhere} {$pkWhere}
-                ORDER BY ml.movement_date DESC, ml.id DESC LIMIT 1
-            ")->row_array();
+            $movementClosing = $this->getDivisionProfileMovementClosing($asOfDate, $divId, $matId, $destination, $profileKey);
+            if (!$movementClosing['found']) {
+                if (!$this->db->table_exists('inv_stock_movement_log')) {
+                    return ['ok' => false, 'message' => 'Tabel inv_stock_movement_log tidak ditemukan untuk mode to_movement.'];
+                }
+                $asOfDateEsc = $this->db->escape($asOfDate);
+                $lastMvt = $this->db->query("
+                    SELECT ml.qty_content_after AS movement_closing, ml.qty_buy_after AS buy_closing
+                    FROM inv_stock_movement_log ml
+                    WHERE ml.division_id = {$divId} AND ml.material_id = {$matId}
+                      AND ml.movement_scope = 'DIVISION'
+                      AND ml.movement_date <= {$asOfDateEsc}
+                      {$mlDestWhere} {$pkWhere}
+                    ORDER BY ml.movement_date DESC, ml.id DESC LIMIT 1
+                ")->row_array();
 
-            if (empty($lastMvt)) {
-                return ['ok' => false, 'message' => 'Tidak ada movement log untuk profil ini — tidak bisa repair sesuai movement.'];
+                if (empty($lastMvt)) {
+                    return ['ok' => false, 'message' => 'Tidak ada movement log untuk profil ini - tidak bisa repair sesuai movement.'];
+                }
+
+                $movementClosing = [
+                    'found' => true,
+                    'closing_qty_content' => round((float)($lastMvt['movement_closing'] ?? 0), 4),
+                    'closing_qty_buy' => round((float)($lastMvt['buy_closing'] ?? 0), 4),
+                    'matched_rows' => 1,
+                ];
             }
-            $newClosing    = round((float)($lastMvt['movement_closing'] ?? 0), 4);
-            $newBuyClos    = round((float)($lastMvt['buy_closing'] ?? 0), 4);
+            $newClosing = round((float)($movementClosing['closing_qty_content'] ?? 0), 4);
+            $newBuyClos = round((float)($movementClosing['closing_qty_buy'] ?? 0), 4);
 
             $latestMonthSubUpd = "SELECT division_id, destination_type, identity_key, MAX(month_key) AS max_month
                                   FROM inv_division_monthly_stock
