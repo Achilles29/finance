@@ -510,4 +510,9 @@ kok bisa nggak ada yang hilang? di lokal ada 3 baris espresso arabika dengan tot
 yang benar aja. fugold masuk 2 juni lewat PO PO202606020010
 
 sql sudah saya jalankan tapi tidak terjadi apa apa.
-sekalian perbaiki pembacaan /inventory-material-daily. stok awal itu artinya stok tanggal 1, dan itu dibaca di inv_warehouse_monthly_stock opening_qty , sementara stok akhir dari kolom closing. nah pergerakan dari tabel movement_log. jadi sumber kebenaran utama tetap inv_warehouse_monthly_stock. movement log sebagai pergerakan harian sekaligus guarding ketika ada perbedaan data yang harus diaudit dan diselesaikan!
+sekalian perbaiki pembacaan /inventory-material-daily. stok awal itu artinya stok tanggal 1, dan itu dibaca di inv_division_monthly_stock opening_qty , sementara stok akhir dari kolom closing. nah pergerakan dari tabel movement_log. jadi sumber kebenaran utama tetap inv_division_monthly_stock. movement log sebagai pergerakan harian sekaligus guarding ketika ada perbedaan data yang harus diaudit dan diselesaikan!
+
+
+KAMU PAHAM NGGAK MAKSUD SAYA?
+sumber kebenaran utama di halaman stok adalah inv_division_monthly_stock.
+stok awal itu artinya stok tanggal 1, dan itu dibaca di inv_division_monthly_stock opening_qty , sementara stok akhir dari kolom closing. nah pergerakan dari tabel movement_log. jadi sumber kebenaran utama tetap inv_division_monthly_stock. movement log sebagai pergerakan harian sekaligus guarding ketika ada perbedaan data yang harus diaudit dan diselesaikan!
