@@ -1961,10 +1961,11 @@ class Purchase extends MY_Controller
                 'item_id' => (int)($payload['item_id'] ?? 0),
                 'material_id' => (int)($payload['material_id'] ?? 0),
                 'destination' => $destinationFilter,
+                'force_mode' => (string)($payload['force_mode'] ?? ''),
             ]
         );
 
-        $status = !empty($result['ok']) ? 200 : 422;
+        $status = (!empty($result['ok']) || !empty($result['needs_choice'])) ? 200 : 422;
         $this->output
             ->set_status_header($status)
             ->set_content_type('application/json')

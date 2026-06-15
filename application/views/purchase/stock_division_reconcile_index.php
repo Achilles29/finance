@@ -451,16 +451,14 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
           <th class="text-end" style="min-width:100px">Material Daily</th>
           <th class="text-end" style="min-width:100px">Snapshot Harian</th>
           <th class="text-end" style="min-width:100px">Movement</th>
-          <th class="text-end" style="min-width:90px">Δ Stok vs Mvt</th>
-          <th class="text-end" style="min-width:90px">Δ Daily vs Mvt</th>
-          <th class="text-end" style="min-width:90px">Δ Snapshot vs Mvt</th>
+          <th style="min-width:180px">Selisih</th>
           <th style="min-width:100px">Status</th>
           <th style="min-width:140px">Aksi</th>
         </tr>
       </thead>
       <tbody>
         <?php if (empty($pagedRows)): ?>
-          <tr><td colspan="11" class="text-center text-muted py-4 small">Tidak ada baris aktif untuk filter ini. Row dengan stok akhir 0 disembunyikan agar fokus audit tetap ke stok aktif dan minus.</td></tr>
+          <tr><td colspan="9" class="text-center text-muted py-4 small">Tidak ada baris aktif untuk filter ini. Row dengan stok akhir 0 disembunyikan agar fokus audit tetap ke stok aktif dan minus.</td></tr>
         <?php else: ?>
           <?php $shownBreakdownKeys = []; ?>
           <?php foreach ($pagedRows as $row): ?>
@@ -482,6 +480,48 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
               $profileBreakdown = (array)($row['lot_profile_breakdown'] ?? []);
               $hasProfileMismatch = !empty($row['has_profile_lot_mismatch']);
               $bKey = $dataDivId . '-' . $dataMatId . '-' . $dataDest;
+              $parentSelisihParts = [];
+              if ($hasLotMismatch) {
+                  $sign = $lotDelta > 0 ? '+' : '';
+                  $parentSelisihParts[] = 'Lot vs Stok: ' . $sign . $fmtQty($lotDelta);
+              }
+              if (abs($dBVsM) > 0.01) {
+                  $sign = $dBVsM > 0 ? '+' : '';
+                  $parentSelisihParts[] = 'Stok vs Mvt: ' . $sign . $fmtQty($dBVsM);
+              }
+              if (abs($dMVsM) > 0.01) {
+                  $sign = $dMVsM > 0 ? '+' : '';
+                  $parentSelisihParts[] = 'Mat. Daily vs Mvt: ' . $sign . $fmtQty($dMVsM);
+              }
+              if (abs($dDVsM) > 0.01) {
+                  $sign = $dDVsM > 0 ? '+' : '';
+                  $parentSelisihParts[] = 'Snapshot vs Mvt: ' . $sign . $fmtQty($dDVsM);
+              }
+              if (empty($parentSelisihParts) && $hasProfileMismatch && !empty($profileBreakdown)) {
+                  $profileLotDeltaSum = 0.0;
+                  $profileStockDeltaSum = 0.0;
+                  foreach ($profileBreakdown as $pb) {
+                      if (empty($pb['has_mismatch'])) {
+                          continue;
+                      }
+                      $profileLotDeltaSum += (float)($pb['delta'] ?? 0);
+                      $profileStockDeltaSum += (float)($pb['delta_stock_vs_mvt'] ?? 0);
+                  }
+                  $profileLotDeltaSum = round($profileLotDeltaSum, 4);
+                  $profileStockDeltaSum = round($profileStockDeltaSum, 4);
+                  if (abs($profileLotDeltaSum) > 0.01) {
+                      $sign = $profileLotDeltaSum > 0 ? '+' : '';
+                      $parentSelisihParts[] = 'Lot vs Stok: ' . $sign . $fmtQty($profileLotDeltaSum) . ' (antar profil)';
+                  }
+                  if (abs($profileStockDeltaSum) > 0.01) {
+                      $sign = $profileStockDeltaSum > 0 ? '+' : '';
+                      $parentSelisihParts[] = 'Stok vs Mvt: ' . $sign . $fmtQty($profileStockDeltaSum) . ' (antar profil)';
+                  }
+                  if (empty($parentSelisihParts)) {
+                      $parentSelisihParts[] = 'Mismatch antar profil';
+                  }
+              }
+              $parentSelisihText = empty($parentSelisihParts) ? '–' : implode('; ', $parentSelisihParts);
             ?>
             <tr class="<?php echo $isMinus ? 'rec-row-negative' : ''; ?>">
               <td>
@@ -550,9 +590,13 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                 <div><?php echo $fmtQty($row['movement_qty_content'] ?? 0); ?></div>
                 <div class="text-muted" style="font-size:.68rem"><?php echo $fmtQty($row['movement_qty_pack'] ?? 0); ?> pack</div>
               </td>
-              <td class="text-end small <?php echo abs($dBVsM) < 0.0001 ? 'rec-delta-ok' : 'rec-delta-bad'; ?>"><?php echo $fmtQty($dBVsM); ?></td>
-              <td class="text-end small <?php echo abs($dMVsM) < 0.0001 ? 'rec-delta-ok' : 'rec-delta-bad'; ?>"><?php echo $fmtQty($dMVsM); ?></td>
-              <td class="text-end small <?php echo abs($dDVsM) < 0.0001 ? 'rec-delta-ok' : 'rec-delta-bad'; ?>"><?php echo $fmtQty($dDVsM); ?></td>
+              <td class="small" style="font-size:.68rem">
+                <?php if ($parentSelisihText === '–'): ?>
+                  <span class="rec-delta-ok">–</span>
+                <?php else: ?>
+                  <span class="rec-delta-bad" style="font-weight:600"><?php echo html_escape($parentSelisihText); ?></span>
+                <?php endif; ?>
+              </td>
               <td>
                 <span class="rec-chip <?php echo $isMatch ? 'rec-chip-ok' : 'rec-chip-bad'; ?>"><?php echo $isMatch ? 'Match' : 'Mismatch'; ?></span>
                 <?php if (!empty($row['daily_audit_has_mismatch'])): ?><div class="text-muted" style="font-size:.66rem;margin-top:.2rem">Log liar: <?php echo html_escape((string)($row['daily_audit_mismatch_notes'] ?? 'fallback identity')); ?></div><?php endif; ?>
@@ -577,7 +621,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
             <?php if ($hasLotData && !empty($profileBreakdown) && !isset($shownBreakdownKeys[$bKey])): ?>
               <?php $shownBreakdownKeys[$bKey] = true; ?>
               <tr class="rec-profile-breakdown-row" data-breakdown-key="<?php echo html_escape($bKey); ?>" style="display:<?php echo $hasProfileMismatch ? '' : 'none'; ?>">
-                <td colspan="11" style="padding:.2rem .5rem .5rem 1.8rem;background:#f0f4f8;border-top:none;">
+                <td colspan="9" style="padding:.2rem .5rem .5rem 1.8rem;background:#f0f4f8;border-top:none;">
                   <div style="font-size:.62rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;padding:.3rem 0 .2rem">Breakdown per Profil</div>
                   <div style="overflow-x:auto">
                   <table class="table table-sm table-borderless mb-0" style="font-size:.68rem;min-width:720px;">
@@ -801,6 +845,8 @@ document.addEventListener('DOMContentLoaded', function () {
   var repairCurBtn = document.getElementById('src_material_repair_current');
   var searchTimer = null;
   var currentMaterialIdentity = null;
+  var repairDecisionModal = document.getElementById('repairDecisionModal');
+  var repairDecisionBs = repairDecisionModal ? (typeof bootstrap !== 'undefined' ? new bootstrap.Modal(repairDecisionModal) : null) : null;
 
   function escHtml(v) { return String(v??'').replace(/[&<>"']/g,function(m){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]);}); }
   function fmtQty(v) { return new Intl.NumberFormat('id-ID',{minimumFractionDigits:2,maximumFractionDigits:4}).format(Number(v||0)); }
@@ -815,7 +861,7 @@ document.addEventListener('DOMContentLoaded', function () {
   async function postJson(url,payload) {
     var r = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},body:JSON.stringify(payload||{})});
     var t = await r.text(); var j=null; try{j=JSON.parse(t);}catch(e){throw new Error('Response tidak valid: '+String(t||'').slice(0,180));}
-    if(!r.ok||!j.ok) throw new Error(j.message||'Gagal memproses.'); return j;
+    if(!r.ok||(!j.ok && !j.needs_choice)) throw new Error(j.message||'Gagal memproses.'); return j;
   }
   function setButtonLoading(btn,lbl) {
     if(!btn)return; if(window.FinanceUI&&typeof window.FinanceUI.setButtonLoading==='function'){window.FinanceUI.setButtonLoading(btn,lbl);return;}
@@ -831,6 +877,60 @@ document.addEventListener('DOMContentLoaded', function () {
   function setAuditState(msg,loading) {
     auditState.textContent=msg; auditBody.classList.add('d-none'); auditState.classList.remove('d-none');
     if(repairCurBtn){repairCurBtn.classList.toggle('d-none',!currentMaterialIdentity||!!loading);repairCurBtn.disabled=!!loading||!currentMaterialIdentity;}
+  }
+
+  function hideRepairDecisionModal() {
+    if (!repairDecisionModal) return;
+    if (repairDecisionBs) { repairDecisionBs.hide(); return; }
+    if (typeof $ !== 'undefined') { $(repairDecisionModal).modal('hide'); return; }
+    repairDecisionModal.style.display = 'none';
+    repairDecisionModal.classList.remove('show');
+  }
+
+  function openRepairDecisionModal(identity, response, sourceButton) {
+    if (!repairDecisionModal) {
+      showAlert('Pilihan repair membutuhkan modal, tetapi modal belum tersedia.', 'Repair Bahan');
+      return;
+    }
+    var plan = response?.data?.repair_plan || {};
+    var summary = response?.data?.summary || {};
+    repairDecisionModal.dataset.identity = JSON.stringify(identity || {});
+    repairDecisionModal.dataset.sourceButtonId = sourceButton?.id || '';
+
+    var titleEl = document.getElementById('repairDecisionTitle');
+    var bodyEl = document.getElementById('repairDecisionBody');
+    var actionEl = document.getElementById('repairDecisionActions');
+    if (titleEl) {
+      titleEl.textContent = 'Pilih Arah Repair - ' + String(summary.material_name || 'Bahan');
+    }
+    if (bodyEl) {
+      var verdict = String(summary.suspect_table || 'UNKNOWN');
+      var reason = String(summary.suspect_reason || response.message || '');
+      var recommended = String(plan.recommended_mode || '');
+      bodyEl.innerHTML =
+        '<div class="small text-muted mb-2">Sistem mendeteksi mismatch yang masih ambigu.</div>' +
+        '<div class="border rounded p-2 mb-2" style="background:#fffaf5">' +
+          '<div class="small"><strong>Verdict:</strong> ' + escHtml(verdict) + '</div>' +
+          '<div class="small mt-1"><strong>Analisis:</strong> ' + escHtml(reason) + '</div>' +
+          (recommended ? '<div class="small mt-1"><strong>Rekomendasi:</strong> ' + escHtml(recommended) + '</div>' : '') +
+        '</div>';
+    }
+    if (actionEl) {
+      var choices = Array.isArray(plan.choices) ? plan.choices : [];
+      actionEl.innerHTML = '<button type="button" class="btn btn-sm btn-outline-secondary" data-role="cancel">Batal</button>' +
+        choices.map(function(choice){
+          var recommendedBadge = choice.recommended ? ' <span class="badge bg-warning text-dark ms-1">Rekomendasi</span>' : '';
+          var btnClass = choice.recommended ? 'btn-danger' : 'btn-outline-primary';
+          return '<button type="button" class="btn btn-sm ' + btnClass + ' repair-choice-btn"'
+            + ' data-mode="' + escHtml(String(choice.mode || '')) + '">'
+            + escHtml(String(choice.label || choice.mode || 'Pilih')) + recommendedBadge + '</button>'
+            + '<div class="w-100 small text-muted" style="margin-top:-.25rem;margin-bottom:.35rem">' + escHtml(String(choice.description || '')) + '</div>';
+        }).join('');
+    }
+
+    if (repairDecisionBs) { repairDecisionBs.show(); }
+    else if (typeof $ !== 'undefined') { $(repairDecisionModal).modal('show'); }
+    else { repairDecisionModal.style.display = 'block'; repairDecisionModal.classList.add('show'); }
   }
 
   // ── Material audit render ────────────────────────────────────────────────
@@ -857,13 +957,26 @@ document.addEventListener('DOMContentLoaded', function () {
     var json=await getJson('<?php echo $auditUrl; ?>?'+p.toString());
     renderMaterialAudit(identity,json);
   }
-  async function runMaterialRepair(identity,button) {
-    var ok=await askConfirm('Repair histori stok bahan ini akan menjalankan rebuild per identity sumber. Lanjutkan?',{title:'Repair Reconcile Bahan',confirmText:'Repair',cancelText:'Batal'});
+  async function runMaterialRepair(identity,button,forceMode) {
+    var ok=await askConfirm(
+      forceMode
+        ? 'Sistem akan memaksa repair mengikuti pilihan yang Anda tentukan. Lanjutkan?'
+        : 'Sistem akan mendeteksi masalah lalu menjalankan repair yang paling cocok. Jika ambigu, Anda akan diminta memilih truth source. Lanjutkan?',
+      {title:'Repair Reconcile Bahan',confirmText:'Repair',cancelText:'Batal'}
+    );
     if(!ok)return;
     setButtonLoading(button,'Repair...');
     setAuditState('Menjalankan repair bahan...',true);
     try {
-      var json=await postJson('<?php echo $repairUrl; ?>',identity);
+      var payload = Object.assign({}, identity || {});
+      if (forceMode) payload.force_mode = forceMode;
+      var json=await postJson('<?php echo $repairUrl; ?>', payload);
+      if (json && json.needs_choice) {
+        clearButtonLoading(button);
+        setAuditState('Memerlukan keputusan user untuk menentukan truth source repair.', false);
+        openRepairDecisionModal(identity, json, button);
+        return;
+      }
       await showAlert(json.message||'Repair selesai.','Repair Reconcile Bahan');
       window.location.reload();
     } catch(e) { clearButtonLoading(button); throw e; }
@@ -1116,6 +1229,26 @@ document.addEventListener('DOMContentLoaded', function () {
   var prToMvtBtn   = document.getElementById('prRepairToMovement');
   if (prToStockBtn) { prToStockBtn.addEventListener('click', function() { runProfileRepair('lot_repair'); }); }
   if (prToMvtBtn)   { prToMvtBtn.addEventListener('click',   function() { runProfileRepair('to_movement'); }); }
+
+  if (repairDecisionModal) {
+    repairDecisionModal.addEventListener('click', function(ev) {
+      var cancelBtn = ev.target.closest('[data-role="cancel"]');
+      if (cancelBtn) {
+        hideRepairDecisionModal();
+        return;
+      }
+      var choiceBtn = ev.target.closest('.repair-choice-btn');
+      if (!choiceBtn) return;
+      var rawIdentity = repairDecisionModal.dataset.identity || '{}';
+      var identity = {};
+      try { identity = JSON.parse(rawIdentity); } catch (e) { identity = {}; }
+      hideRepairDecisionModal();
+      var fallbackBtn = repairCurBtn || document.querySelector('.src-material-repair-btn');
+      runMaterialRepair(identity, fallbackBtn, choiceBtn.dataset.mode || '').catch(function(e){
+        showAlert(e.message || 'Gagal menjalankan repair paksa.', 'Repair Bahan');
+      });
+    });
+  }
 });
 </script>
 
@@ -1136,6 +1269,21 @@ document.addEventListener('DOMContentLoaded', function () {
           <button type="button" id="prRepairToStock"    class="btn btn-sm btn-warning">Repair sesuai Stok</button>
           <button type="button" id="prRepairToMovement" class="btn btn-sm btn-info text-white">Repair sesuai Movement</button>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="repairDecisionModal" tabindex="-1" aria-labelledby="repairDecisionTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2" style="background:linear-gradient(135deg,#2b2430,#46354b)">
+        <h6 class="modal-title text-white mb-0" id="repairDecisionTitle">Pilih Arah Repair</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Tutup"></button>
+      </div>
+      <div class="modal-body">
+        <div id="repairDecisionBody"></div>
+        <div id="repairDecisionActions" class="d-flex flex-wrap gap-2 justify-content-end align-items-start"></div>
       </div>
     </div>
   </div>

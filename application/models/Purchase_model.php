@@ -3573,6 +3573,294 @@ class Purchase_model extends CI_Model
         $itemId = (int)($filters['item_id'] ?? 0);
         $materialId = (int)($filters['material_id'] ?? 0);
         $destinationFilter = $this->normalizeDestinationFilter((string)($filters['destination'] ?? 'ALL'));
+        $forceMode = strtolower(trim((string)($filters['force_mode'] ?? '')));
+
+        $compare = $this->list_division_material_stock_compare($asOfDate, '', $divisionId > 0 ? $divisionId : null, 5000, $destinationFilter);
+        $summaryRow = $this->find_division_material_compare_row((array)($compare['rows'] ?? []), [
+            'division_id' => $divisionId,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'destination' => $destinationFilter,
+        ]);
+        if ($summaryRow === null) {
+            return ['ok' => false, 'message' => 'Data reconcile bahan tidak ditemukan untuk filter ini.'];
+        }
+
+        $repairPlan = $this->build_division_material_repair_plan($summaryRow, [
+            'division_id' => $divisionId,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'destination' => $destinationFilter,
+            'as_of_date' => $asOfDate,
+        ]);
+
+        if (!empty($repairPlan['needs_choice']) && $forceMode === '') {
+            return [
+                'ok' => false,
+                'needs_choice' => true,
+                'message' => (string)($repairPlan['message'] ?? 'Pilih metode repair yang ingin dipakai.'),
+                'data' => [
+                    'summary' => $summaryRow,
+                    'repair_plan' => $repairPlan,
+                ],
+            ];
+        }
+
+        $mode = $forceMode !== '' ? $forceMode : (string)($repairPlan['mode'] ?? '');
+        if ($mode === '' || $mode === 'noop') {
+            return [
+                'ok' => true,
+                'message' => (string)($repairPlan['message'] ?? 'Tidak ada repair yang perlu dijalankan.'),
+                'data' => [
+                    'summary' => $summaryRow,
+                    'repair_plan' => $repairPlan,
+                ],
+            ];
+        }
+
+        $executed = $this->execute_division_material_repair_mode($mode, $asOfDate, [
+            'division_id' => $divisionId,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'destination' => $destinationFilter,
+            'profile_key' => (string)($repairPlan['target_profile_key'] ?? ''),
+        ]);
+        if (!empty($executed['ok'])) {
+            $baseMessage = (string)($repairPlan['message'] ?? 'Repair bahan selesai dijalankan.');
+            $execMessage = trim((string)($executed['message'] ?? ''));
+            $message = $execMessage !== '' ? $baseMessage . ' ' . $execMessage : $baseMessage;
+            $executed['message'] = trim($message);
+            $executed['data']['summary'] = $summaryRow;
+            $executed['data']['repair_plan'] = $repairPlan;
+            $executed['data']['executed_mode'] = $mode;
+        }
+        return $executed;
+    }
+
+    private function build_division_material_repair_plan(array $summaryRow, array $filters): array
+    {
+        $hasLotMismatch = !empty($summaryRow['has_lot_mismatch']);
+        $hasProfileMismatch = !empty($summaryRow['has_profile_lot_mismatch']);
+        $suspectTable = strtoupper(trim((string)($summaryRow['suspect_table'] ?? 'MATCH')));
+        $deltaBalance = round((float)($summaryRow['delta_balance_vs_movement'] ?? 0), 4);
+        $deltaDaily = round((float)($summaryRow['delta_daily_vs_movement'] ?? 0), 4);
+        $deltaSnapshot = round((float)($summaryRow['delta_matrix_vs_movement'] ?? 0), 4);
+        $movementMismatch = abs($deltaBalance) > 0.01 || abs($deltaDaily) > 0.01 || abs($deltaSnapshot) > 0.01;
+        $materialName = trim((string)($summaryRow['material_name'] ?? 'bahan ini'));
+        $profileBreakdown = array_values(array_filter((array)($summaryRow['lot_profile_breakdown'] ?? []), static function ($pb) {
+            return !empty($pb['has_mismatch']);
+        }));
+        $profileMovementMismatch = false;
+        $profileLotMismatch = false;
+        $profileTargetKey = '';
+        foreach ($profileBreakdown as $pb) {
+            if (abs((float)($pb['delta_stock_vs_mvt'] ?? 0)) > 0.01) {
+                $profileMovementMismatch = true;
+                if ($profileTargetKey === '') {
+                    $profileTargetKey = (string)($pb['profile_key'] ?? '');
+                }
+            }
+            if (abs((float)($pb['delta'] ?? 0)) > 0.01) {
+                $profileLotMismatch = true;
+            }
+        }
+
+        if ($suspectTable === 'MATCH' && !$hasLotMismatch && !$hasProfileMismatch) {
+            return [
+                'mode' => 'noop',
+                'recommended_mode' => 'noop',
+                'message' => 'Tidak ada repair untuk ' . $materialName . ' karena semua sumber masih sinkron.',
+                'choices' => [],
+            ];
+        }
+
+        if ($hasProfileMismatch && $profileMovementMismatch && !$profileLotMismatch && !$hasLotMismatch && count($profileBreakdown) === 1 && $profileTargetKey !== '') {
+            return [
+                'mode' => 'profile_to_movement',
+                'recommended_mode' => 'profile_to_movement',
+                'target_profile_key' => $profileTargetKey,
+                'message' => 'Rekomendasi: profil tertentu masih tertinggal dari movement log. Samakan stok profil itu ke closing movement-nya.',
+                'choices' => [],
+            ];
+        }
+
+        if ($hasProfileMismatch && !$movementMismatch && !$profileMovementMismatch) {
+            return [
+                'mode' => 'profile_sync',
+                'recommended_mode' => 'profile_sync',
+                'message' => 'Rekomendasi: samakan lot per profil ke stok divisi karena mismatch hanya terjadi di distribusi profil lot.',
+                'target_profile_key' => $profileTargetKey,
+                'choices' => [],
+            ];
+        }
+
+        if ($hasProfileMismatch && $profileMovementMismatch && !$hasLotMismatch && !$profileLotMismatch) {
+            return [
+                'mode' => 'rebuild_from_movement',
+                'recommended_mode' => 'rebuild_from_movement',
+                'message' => 'Rekomendasi: rebuild stok bahan dari movement log karena mismatch ada di closing movement per profil.',
+                'target_profile_key' => $profileTargetKey,
+                'choices' => [],
+            ];
+        }
+
+        if ($hasLotMismatch && !$hasProfileMismatch && !$movementMismatch) {
+            return [
+                'mode' => 'lot_repair',
+                'recommended_mode' => 'lot_repair',
+                'message' => 'Rekomendasi: repair lot agar saldo FIFO mengikuti stok divisi yang sudah benar.',
+                'choices' => [],
+            ];
+        }
+
+        if (!$hasLotMismatch && !$hasProfileMismatch) {
+            return [
+                'mode' => 'rebuild_from_movement',
+                'recommended_mode' => 'rebuild_from_movement',
+                'message' => 'Rekomendasi: rebuild stok bahan dari movement log karena mismatch ada di saldo vs movement.',
+                'choices' => [],
+            ];
+        }
+
+        if ($hasProfileMismatch && $movementMismatch) {
+            return [
+                'mode' => '',
+                'recommended_mode' => 'rebuild_then_profile_sync',
+                'needs_choice' => true,
+                'message' => 'Mismatch bahan ini ambigu: profil lot silang dan stok juga beda dari movement. Pilih apakah truth source-nya stok sekarang atau movement log.',
+                'choices' => [
+                    [
+                        'mode' => 'rebuild_then_profile_sync',
+                        'label' => 'Pakai Movement',
+                        'description' => 'Rebuild stok dari movement log, lalu samakan lot per profil mengikuti hasil rebuild.',
+                        'recommended' => true,
+                    ],
+                    [
+                        'mode' => 'profile_sync',
+                        'label' => 'Pakai Stok Saat Ini',
+                        'description' => 'Pertahankan stok divisi sekarang, lalu paksa lot per profil mengikuti stok yang tampil.',
+                        'recommended' => false,
+                    ],
+                ],
+            ];
+        }
+
+        if ($hasLotMismatch && $movementMismatch) {
+            return [
+                'mode' => '',
+                'recommended_mode' => 'rebuild_then_lot_repair',
+                'needs_choice' => true,
+                'message' => 'Mismatch bahan ini ambigu: total lot beda dari stok, dan stok juga beda dari movement. Pilih apakah truth source-nya stok sekarang atau movement log.',
+                'choices' => [
+                    [
+                        'mode' => 'rebuild_then_lot_repair',
+                        'label' => 'Pakai Movement',
+                        'description' => 'Rebuild stok dari movement log, lalu repair lot agar mengikuti hasil rebuild.',
+                        'recommended' => true,
+                    ],
+                    [
+                        'mode' => 'lot_repair',
+                        'label' => 'Pakai Stok Saat Ini',
+                        'description' => 'Pertahankan stok divisi sekarang, lalu paksa lot mengikuti stok yang tampil.',
+                        'recommended' => false,
+                    ],
+                ],
+            ];
+        }
+
+        return [
+            'mode' => 'rebuild_from_movement',
+            'recommended_mode' => 'rebuild_from_movement',
+            'message' => 'Rekomendasi fallback: rebuild stok bahan dari movement log.',
+            'choices' => [],
+        ];
+    }
+
+    private function execute_division_material_repair_mode(string $mode, string $asOfDate, array $filters): array
+    {
+        $mode = strtolower(trim($mode));
+        switch ($mode) {
+            case 'lot_repair':
+                return $this->repair_division_material_lot_balance([
+                    'division_id' => (int)($filters['division_id'] ?? 0),
+                    'material_id' => (int)($filters['material_id'] ?? 0),
+                    'destination' => (string)($filters['destination'] ?? 'ALL'),
+                ]);
+
+            case 'profile_sync':
+                return $this->sync_division_lot_by_profile([
+                    'division_id' => (int)($filters['division_id'] ?? 0),
+                    'material_id' => (int)($filters['material_id'] ?? 0),
+                    'destination' => (string)($filters['destination'] ?? 'ALL'),
+                ]);
+
+            case 'profile_to_movement':
+                return $this->repair_division_material_profile([
+                    'division_id' => (int)($filters['division_id'] ?? 0),
+                    'material_id' => (int)($filters['material_id'] ?? 0),
+                    'destination' => (string)($filters['destination'] ?? 'ALL'),
+                    'profile_key' => trim((string)($filters['profile_key'] ?? '')),
+                    'repair_mode' => 'to_movement',
+                    'as_of_date' => $asOfDate,
+                ]);
+
+            case 'rebuild_from_movement':
+                return $this->execute_division_material_rebuild_from_movement($asOfDate, $filters);
+
+            case 'rebuild_then_lot_repair':
+                $rebuild = $this->execute_division_material_rebuild_from_movement($asOfDate, $filters);
+                if (empty($rebuild['ok'])) {
+                    return $rebuild;
+                }
+                $lotRepair = $this->repair_division_material_lot_balance([
+                    'division_id' => (int)($filters['division_id'] ?? 0),
+                    'material_id' => (int)($filters['material_id'] ?? 0),
+                    'destination' => (string)($filters['destination'] ?? 'ALL'),
+                ]);
+                if (empty($lotRepair['ok'])) {
+                    return $lotRepair;
+                }
+                return [
+                    'ok' => true,
+                    'message' => trim((string)($rebuild['message'] ?? '') . ' ' . (string)($lotRepair['message'] ?? '')),
+                    'data' => [
+                        'rebuild' => $rebuild['data'] ?? [],
+                        'lot_repair' => $lotRepair['data'] ?? [],
+                    ],
+                ];
+
+            case 'rebuild_then_profile_sync':
+                $rebuild = $this->execute_division_material_rebuild_from_movement($asOfDate, $filters);
+                if (empty($rebuild['ok'])) {
+                    return $rebuild;
+                }
+                $profileSync = $this->sync_division_lot_by_profile([
+                    'division_id' => (int)($filters['division_id'] ?? 0),
+                    'material_id' => (int)($filters['material_id'] ?? 0),
+                    'destination' => (string)($filters['destination'] ?? 'ALL'),
+                ]);
+                if (empty($profileSync['ok'])) {
+                    return $profileSync;
+                }
+                return [
+                    'ok' => true,
+                    'message' => trim((string)($rebuild['message'] ?? '') . ' ' . (string)($profileSync['message'] ?? '')),
+                    'data' => [
+                        'rebuild' => $rebuild['data'] ?? [],
+                        'profile_sync' => $profileSync['data'] ?? [],
+                    ],
+                ];
+        }
+
+        return ['ok' => false, 'message' => 'Mode repair tidak dikenal: ' . $mode];
+    }
+
+    private function execute_division_material_rebuild_from_movement(string $asOfDate, array $filters): array
+    {
+        $divisionId = (int)($filters['division_id'] ?? 0);
+        $itemId = (int)($filters['item_id'] ?? 0);
+        $materialId = (int)($filters['material_id'] ?? 0);
+        $destinationFilter = $this->normalizeDestinationFilter((string)($filters['destination'] ?? 'ALL'));
 
         $identities = $this->list_division_material_reconcile_identities($asOfDate, [
             'division_id' => $divisionId,

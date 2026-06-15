@@ -532,12 +532,7 @@ sepertinya setelah repair tadi, inv_stock_movement_log. after untuk fugold jadi 
  q
 
 
-/stock/division/reconcile buat tampilan barisnya bisa di breakdow per profile Stok Divisi 	Lot FIFO 	Material Daily 	Snapshot Harian 	Movement 	Δ Stok vs Mvt 	Δ Daily vs Mvt 	Δ Snapshot vs Mvt 	Status
 
 
-nah sekarang bisa terlihat jelas mana saja yang ada selisih.
-revisi lagi kolom terlalu banyak, cukup tampilkan  Stok Divisi, Lot FIFO, Material Daily, Movement, Selisih (selisih ini menjelaskan jika ada selisih kolom mana dengan kolom mana, dijelaskan), status, aksi. 
-lalu kolom repair di kolom aksi ini, ketika di klik dia memproses dulu data nya yang miss lalu muncul modal penjelasan akan di repair seperti apa, dan jika tidak ada titik temu maka muncul pilihan di repair sesuai stock atau di repair sesuai movement
-
-
-
+coba cek BAWANG BOMBAY, di /inventory/stock/division/reconcile ada selish Stok vs Mvt: -8,00 	padahal kalau ditotal movement 794,5 sesuai dengan stok.
+hapus kolom Δ Stok vs Mvt 	Δ Daily vs Mvt 	Δ Snapshot vs Mvt di parent, ganti dengan kolom selisih seperti child nya
