@@ -2971,28 +2971,43 @@ class Purchase_model extends CI_Model
             return;
         }
 
+        // Group lots by (division_id, destination_group, material_id) only — not item_id/profile_key —
+        // because the same material can arrive from different purchase batches with different item_ids.
+        // Using item_id in the key would cause cross-batch lots to be missed.
         $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
         $results = $this->db
-            ->select("l.division_id, ({$destGroupExpr}) AS destination_group, COALESCE(l.item_id,0) AS item_id, COALESCE(l.material_id,0) AS material_id, SUM(l.qty_balance) AS lot_total", false)
+            ->select("l.division_id, ({$destGroupExpr}) AS destination_group, COALESCE(l.material_id,0) AS material_id, SUM(l.qty_balance) AS lot_total", false)
             ->from('inv_material_fifo_lot l')
             ->where('l.location_scope', 'DIVISION')
             ->where('l.status', 'OPEN')
             ->where('l.qty_balance >', 0.0001)
             ->where_in('l.division_id', $divisionIds)
-            ->group_by(['l.division_id', 'destination_group', 'l.item_id', 'l.material_id'])
+            ->group_by(['l.division_id', 'destination_group', 'l.material_id'])
             ->get()->result_array();
 
         $lotMap = [];
         foreach ($results as $r) {
             $k = (int)$r['division_id'] . '|' . strtoupper((string)($r['destination_group'] ?? 'REGULER'))
-               . '|M-' . (int)$r['material_id'] . '|I-' . (int)$r['item_id'];
+               . '|M-' . (int)$r['material_id'];
             $lotMap[$k] = round((float)($r['lot_total'] ?? 0), 4);
         }
 
         foreach ($rows as &$row) {
+            $matId = (int)($row['material_id'] ?? 0);
             $k = (int)($row['division_id'] ?? 0) . '|' . strtoupper((string)($row['destination_group'] ?? 'REGULER'))
-               . '|M-' . (int)($row['material_id'] ?? 0) . '|I-' . (int)($row['item_id'] ?? 0);
-            $row['lot_qty_content'] = $lotMap[$k] ?? 0.0;
+               . '|M-' . $matId;
+            $lotQty = $matId > 0 && isset($lotMap[$k]) ? $lotMap[$k] : null;
+            $row['lot_qty_content'] = $lotQty;
+
+            // Flag mismatch only when there are known FIFO lots for this material.
+            $hasFifoLots = $lotQty !== null;
+            $balanceQty  = (float)($row['balance_qty_content'] ?? 0);
+            $lotDelta    = $hasFifoLots ? round($balanceQty - (float)$lotQty, 4) : 0.0;
+            $row['lot_vs_balance_delta'] = $lotDelta;
+            $row['has_lot_mismatch']     = ($hasFifoLots && abs($lotDelta) > 0.01) ? 1 : 0;
+            if (!empty($row['has_lot_mismatch'])) {
+                $row['is_match'] = 0;
+            }
         }
         unset($row);
     }
@@ -3415,6 +3430,183 @@ class Purchase_model extends CI_Model
                 'identity_count' => count($identities),
                 'success_count' => $successCount,
                 'results' => $results,
+            ],
+        ];
+    }
+
+    /**
+     * Repair FIFO lot balances for a material/division so that the lot total matches
+     * the current stock ledger balance (inv_division_monthly_stock closing_qty_content).
+     *
+     * – lot_total > balance  → deduct excess from oldest open lots (FIFO order)
+     * – lot_total < balance  → insert a correction inbound lot for the shortfall
+     */
+    public function repair_division_material_lot_balance(array $params): array
+    {
+        $divisionId  = (int)($params['division_id'] ?? 0);
+        $materialId  = (int)($params['material_id'] ?? 0);
+        $destination = strtoupper(trim((string)($params['destination'] ?? 'ALL')));
+
+        if ($divisionId <= 0 || $materialId <= 0) {
+            return ['ok' => false, 'message' => 'division_id dan material_id wajib diisi.'];
+        }
+        if (!$this->db->table_exists('inv_material_fifo_lot')) {
+            return ['ok' => false, 'message' => 'Tabel inv_material_fifo_lot belum ada.'];
+        }
+
+        // Destination group → SQL fragment for filtering
+        $lotDestWhere   = '';
+        $stockDestWhere = '';
+        if ($destination === 'EVENT') {
+            $lotDestWhere   = " AND l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+        } elseif ($destination === 'REGULER' || $destination === 'REGULAR') {
+            $lotDestWhere   = " AND l.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+        }
+
+        $divId  = (int)$divisionId;
+        $matId  = (int)$materialId;
+
+        // 1. Current stock ledger balance (latest month snapshot per identity)
+        $latestMonthSub = "SELECT division_id, destination_type, identity_key, MAX(month_key) AS max_month
+                           FROM inv_division_monthly_stock
+                           WHERE division_id = {$divId} AND material_id = {$matId}
+                           GROUP BY division_id, destination_type, identity_key";
+
+        $balanceRow = $this->db->query(
+            "SELECT SUM(dms.closing_qty_content) AS balance_total
+             FROM inv_division_monthly_stock dms
+             INNER JOIN ({$latestMonthSub}) lm
+                 ON  lm.division_id      = dms.division_id
+                 AND lm.destination_type = dms.destination_type
+                 AND lm.identity_key     = dms.identity_key
+                 AND lm.max_month        = dms.month_key
+             WHERE dms.division_id = {$divId} AND dms.material_id = {$matId}
+               {$stockDestWhere}"
+        )->row_array();
+        $stockBalance = round((float)($balanceRow['balance_total'] ?? 0), 4);
+
+        // 2. Current FIFO lot balance
+        $lotRow = $this->db->query(
+            "SELECT SUM(qty_balance) AS lot_total
+             FROM inv_material_fifo_lot l
+             WHERE l.location_scope = 'DIVISION'
+               AND l.division_id = {$divId}
+               AND l.material_id = {$matId}
+               AND l.status = 'OPEN'
+               AND l.qty_balance > 0.0001
+               {$lotDestWhere}"
+        )->row_array();
+        $lotTotal = round((float)($lotRow['lot_total'] ?? 0), 4);
+
+        $gap = round($lotTotal - $stockBalance, 4);
+
+        if (abs($gap) <= 0.01) {
+            return ['ok' => true, 'message' => 'Lot dan stok sudah sesuai, tidak perlu repair.', 'data' => [
+                'lot_total' => $lotTotal, 'stock_balance' => $stockBalance, 'gap' => $gap,
+            ]];
+        }
+
+        $lotsModified = 0;
+
+        if ($gap > 0.0001) {
+            // Lots over-state the stock → deduct from oldest open lots in FIFO order
+            $lots = $this->db->query(
+                "SELECT id, qty_balance
+                 FROM inv_material_fifo_lot l
+                 WHERE l.location_scope = 'DIVISION'
+                   AND l.division_id = {$divId}
+                   AND l.material_id = {$matId}
+                   AND l.status = 'OPEN'
+                   AND l.qty_balance > 0.0001
+                   {$lotDestWhere}
+                 ORDER BY receipt_date ASC, id ASC"
+            )->result_array();
+
+            $remaining = $gap;
+            foreach ($lots as $lot) {
+                if ($remaining <= 0.0001) {
+                    break;
+                }
+                $lotId  = (int)$lot['id'];
+                $lotBal = round((float)$lot['qty_balance'], 4);
+                $deduct = round(min($remaining, $lotBal), 4);
+                $newBal = round($lotBal - $deduct, 4);
+                $newStatus = $newBal <= 0.0001 ? 'CLOSED' : 'OPEN';
+                $this->db->query(
+                    "UPDATE inv_material_fifo_lot
+                     SET qty_out = qty_out + ?, qty_balance = ?, status = ?, updated_at = NOW()
+                     WHERE id = ?",
+                    [$deduct, $newBal, $newStatus, $lotId]
+                );
+                $remaining = round($remaining - $deduct, 4);
+                $lotsModified++;
+            }
+        } else {
+            // Lots under-state the stock → add a correction inbound lot
+            $shortfall = abs($gap);
+
+            // Use an existing lot row to infer destination_type and identity fields
+            $refRow = $this->db->query(
+                "SELECT destination_type, item_id, profile_key, buy_uom_id, content_uom_id, unit_cost
+                 FROM inv_material_fifo_lot
+                 WHERE division_id = {$divId} AND material_id = {$matId} AND location_scope = 'DIVISION'
+                 ORDER BY id DESC LIMIT 1"
+            )->row_array();
+
+            $destType = 'OTHER';
+            if ($refRow) {
+                $destType = (string)($refRow['destination_type'] ?? 'OTHER');
+            }
+            // Honor destination filter
+            if ($destination === 'EVENT' && !in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
+                $destType = 'BAR_EVENT';
+            } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)
+                && in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
+                $destType = 'OTHER';
+            }
+
+            $corrLotNo = 'CORR-' . date('Ymd-His') . '-M' . $matId;
+            $this->db->insert('inv_material_fifo_lot', [
+                'lot_no'           => $corrLotNo,
+                'location_scope'   => 'DIVISION',
+                'receipt_date'     => date('Y-m-d'),
+                'expiry_date'      => null,
+                'division_id'      => $divId,
+                'destination_type' => $destType,
+                'item_id'          => $refRow ? ($refRow['item_id'] ?? null) : null,
+                'material_id'      => $matId,
+                'buy_uom_id'       => $refRow ? ($refRow['buy_uom_id'] ?? null) : null,
+                'content_uom_id'   => $refRow ? ($refRow['content_uom_id'] ?? null) : null,
+                'profile_key'      => $refRow ? ($refRow['profile_key'] ?? null) : null,
+                'qty_in'           => $shortfall,
+                'qty_out'          => 0,
+                'qty_balance'      => $shortfall,
+                'unit_cost'        => $refRow ? (float)($refRow['unit_cost'] ?? 0) : 0,
+                'source_table'     => 'lot_repair',
+                'source_id'        => null,
+                'source_line_id'   => null,
+                'receipt_id'       => null,
+                'receipt_line_id'  => null,
+                'parent_lot_id'    => null,
+                'status'           => 'OPEN',
+            ]);
+            $lotsModified = 1;
+        }
+
+        $direction = $gap > 0 ? 'dikurangi dari' : 'ditambah ke';
+        return [
+            'ok'      => true,
+            'message' => sprintf(
+                'Lot repair selesai. Selisih Δ%.4f %s %d lot.',
+                abs($gap), $direction, $lotsModified
+            ),
+            'data' => [
+                'lot_total_before' => $lotTotal,
+                'stock_balance'    => $stockBalance,
+                'gap'              => $gap,
+                'lots_modified'    => $lotsModified,
             ],
         ];
     }

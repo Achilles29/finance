@@ -1968,6 +1968,28 @@ class Purchase extends MY_Controller
             ->set_output(json_encode($result));
     }
 
+    public function stock_division_reconcile_lot_repair()
+    {
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');
+
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $result = $this->Purchase_model->repair_division_material_lot_balance([
+            'division_id' => (int)($payload['division_id'] ?? 0),
+            'material_id' => (int)($payload['material_id'] ?? 0),
+            'destination' => strtoupper(trim((string)($payload['destination'] ?? 'ALL'))),
+        ]);
+
+        $status = !empty($result['ok']) ? 200 : 422;
+        $this->output
+            ->set_status_header($status)
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
     public function inventory_warehouse_daily_index()
     {
         if (!$this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')) {

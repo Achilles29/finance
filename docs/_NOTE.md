@@ -429,34 +429,19 @@ CEK DAN PERBAIKI
 
 
 
+cek logika simpan transaksi di POS. hari ini sari lemon stok awal 35 ml dengan 2 baris, 15 dan 20. keluar 55.
+pos_stock_commit #567	stok awal 20 keluar 15 sisa 5. pos_stock_commit #573 keluar 5 kenapa yang 10 tidak mengambil dari baris 1 nya? malah melanjutkan jadi minus
+ 
+
+kenapa patokannya profile key? harusnya kan patokan bahan baku / material_id bukan? memotong lot dan stock sesuai material dengan FIFO.
+nah sekarnag malah kalau kita cek di /inventory/stock/division/lot , sisa lot sari lemon 5 ml, ini jelas beda dengan stock.
+sementara di pos/stock-commit-audit tidak ditemukan selisih stock dan lot.
+coba cek ya. baiknya di /inventory/stock/division/reconcile ada guarding bahan baku dengan jumlah stock dan dan jumlah lot yang berbeda
 
 
+- adakah kasus serupa dengan sari lemon?
+- apakah bisa dibuat repair sqlnya?
 
 
+/inventory/stock/division/reconcile metode searcnya bukan ajax, tapi refresh. lebih baik pencairan dengan enter saja. perbaiki
 
-
-- /purchase tambahkan lagi card ringkasan metode pembayaran dan card ringkasan tipe purchase nya
-
-- lakukan penyesuaian  pada /purchase-orders?tab=rincian tambahkan kolom kode PO dan tanggal di sebelah kiri (1 kolom), tambahkan kolom rekening pembayaran sebelah kanan sebelum aksi. kolom Rincian , merk dan keterangan dijadian 1 atas bawah
-
-- /purchase-orders tambahkan tab baru berdasarkan tanggal PAID
-
-
-- /finance/mutations sesuaikan tampilan, input mutasi jadi modal. tampilan hanya untuk tabel mutasi. buat tabel freeze di judul kolom dan scrollabel. kolom catatan mestinya ada hiperlink menuju transaksi bersangkutan baik kasbon, Purchase dan lainnya. tambahkan card ringkasan per rekening dan lainnya yang diperlukan. kejutkan saya!
-
-
-
-- /purchase-orders?tab=paid detail 404, link nya /purchase-orders/* yang benar /purchase-orders/detail/* bukan? cmiiw
-
-- /finance/mutations
-  -- hiperlink PO 404 /purchase-orders/* yang benar /purchase-orders/detail/* bukan? cmiiw
-  -- freeze judul kolo ketik a di scroll ke bawah
-  -- kolom tabel terpotong, perkecil kolom REF NO agar CATATAN tidak terpotong
-  -- RE NO harusnya hiperlink
-
-  /finance/mutations;
-  - baris judul belum ter freeze. cek gambar 1
-  - sesuaikan semua ukuran kolom agar kolom REF NO tidak terpotong
-
- - tanggal, nominal, before , after, Reff no jangan sampai terpotong. perkecil lagi kolom catatan
-- Reff no dan catatan POS belum hiperlink ke transaksi tujuan. harusnya tranaksinya

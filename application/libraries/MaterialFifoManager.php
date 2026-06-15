@@ -517,18 +517,26 @@ class MaterialFifoManager
             return $identity;
         }
 
+        $broadSearchOptions = [
+            'allow_any_item_id' => true,
+            'allow_any_buy_uom' => true,
+            'allow_any_content_uom' => true,
+            'allow_any_profile_key' => true,
+        ];
+
+        // Consumption is material-centric: find ALL lots for this material regardless of which
+        // purchase catalog (profile_key / item_id) they came from. Profile-key filtering is only
+        // meaningful for inbound receipts; for outbound consumption the primary key is material_id.
+        $hasMaterialId = ($identity['material_id'] ?? null) !== null;
         $divisionLots = $this->findIssueSourceLots($identity, [
-            'allow_any_item_id' => ($identity['item_id'] ?? null) === null && ($identity['material_id'] ?? null) !== null,
-            'allow_any_buy_uom' => ($identity['buy_uom_id'] ?? null) === null,
-            'allow_any_profile_key' => ($identity['profile_key'] ?? null) === null,
+            'allow_any_item_id'  => $hasMaterialId,
+            'allow_any_buy_uom'  => ($identity['buy_uom_id'] ?? null) === null,
+            'allow_any_profile_key' => $hasMaterialId,
         ]);
-        if (empty($divisionLots) && ($identity['material_id'] ?? null) !== null) {
-            $divisionLots = $this->findIssueSourceLots($identity, [
-                'allow_any_item_id' => true,
-                'allow_any_buy_uom' => true,
-                'allow_any_content_uom' => true,
-                'allow_any_profile_key' => true,
-            ]);
+
+        // Broad fallback (also relax content_uom) when the above still finds nothing.
+        if (empty($divisionLots) && $hasMaterialId) {
+            $divisionLots = $this->findIssueSourceLots($identity, $broadSearchOptions);
         }
 
         $available = 0.0;
@@ -536,6 +544,23 @@ class MaterialFifoManager
             $available += round((float)($lot['qty_balance'] ?? 0), 4);
         }
         $available = round($available, 4);
+
+        // Broad fallback when strict search finds some lots but total balance is still insufficient.
+        // This covers the case where stock came from multiple purchase batches with different
+        // profile_key / item_id values, so only one batch was visible in the strict search.
+        if ($available + 0.0001 < $qtyNeed && !empty($divisionLots) && ($identity['material_id'] ?? null) !== null) {
+            $broadLots = $this->findIssueSourceLots($identity, $broadSearchOptions);
+            $broadAvailable = 0.0;
+            foreach ($broadLots as $lot) {
+                $broadAvailable += round((float)($lot['qty_balance'] ?? 0), 4);
+            }
+            $broadAvailable = round($broadAvailable, 4);
+            if ($broadAvailable > $available) {
+                $divisionLots = $broadLots;
+                $available = $broadAvailable;
+            }
+        }
+
         if ($available + 0.0001 < $qtyNeed) {
             return [
                 'ok' => false,
@@ -594,7 +619,7 @@ class MaterialFifoManager
                 continue;
             }
 
-            $divisionMutation = $this->applyLotMutation([
+            $lotPayload = [
                 'lot_id' => $lotId,
                 'location_scope' => 'DIVISION',
                 'division_id' => $divisionId,
@@ -614,9 +639,25 @@ class MaterialFifoManager
                 'receipt_id' => $this->nullableInt($lot['receipt_id'] ?? null),
                 'receipt_line_id' => $this->nullableInt($lot['receipt_line_id'] ?? null),
                 'parent_lot_id' => $this->nullableInt($lot['parent_lot_id'] ?? null),
-            ], 0.0, $takeQty);
+            ];
+            $divisionMutation = $this->applyLotMutation($lotPayload, 0.0, $takeQty);
+
+            // Concurrent depletion: re-read the locked balance and take only what's left.
             if (!($divisionMutation['ok'] ?? false)) {
-                return $divisionMutation;
+                $freshLot = $this->findLotById($lotId, true);
+                $freshBalance = $freshLot ? round((float)($freshLot['qty_balance'] ?? 0), 4) : 0.0;
+                if ($freshBalance <= 0) {
+                    continue; // Lot was fully consumed concurrently; skip to next lot.
+                }
+                $takeQty = round(min($remaining, $freshBalance), 4);
+                if ($takeQty <= 0) {
+                    continue;
+                }
+                $divisionMutation = $this->applyLotMutation($lotPayload, 0.0, $takeQty);
+                if (!($divisionMutation['ok'] ?? false)) {
+                    return $divisionMutation; // Still failing — propagate error.
+                }
+                $lotBalance = $freshBalance;
             }
 
             $unitCost = max(0, round((float)($lot['unit_cost'] ?? 0), 6));
