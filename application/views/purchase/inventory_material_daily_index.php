@@ -2008,6 +2008,8 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         audit_mismatch_row_count: Number(row.audit_mismatch_row_count || 0),
         audit_mismatch_qty_content: Number(row.audit_mismatch_qty_content || 0),
         audit_mismatch_notes: String(row.audit_mismatch_notes || ''),
+        log_has_gap: Number(row.log_has_gap || 0),
+        log_gap_content: Number(row.log_gap_content || 0),
         daily: profileDaily,
         metrics: profileMetrics
       });
@@ -2048,7 +2050,9 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         standard_price: 0,
         audit_has_mismatch: 0,
         audit_mismatch_row_count: 0,
-        audit_mismatch_qty_content: 0
+        audit_mismatch_qty_content: 0,
+        log_has_gap: 0,
+        log_gap_content: 0
       };
       var refPriceTotal = 0;
       var refPriceCount = 0;
@@ -2106,6 +2110,10 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
           agg.audit_has_mismatch = 1;
           agg.audit_mismatch_row_count += Number(child.audit_mismatch_row_count || 0);
           agg.audit_mismatch_qty_content += Number(child.audit_mismatch_qty_content || 0);
+        }
+        if (Number(child.log_has_gap || 0) > 0) {
+          agg.log_has_gap = 1;
+          agg.log_gap_content += Number(child.log_gap_content || 0);
         }
       });
 
@@ -2445,7 +2453,12 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     if (!profile && expandable) {
       chips.push('<span class="' + chipClass + '">' + esc(String((group.children || []).length)) + ' profil</span>');
     }
-    if (Number(source.audit_has_mismatch || 0) > 0) {
+    var logHasGap = profile ? Number(source.log_has_gap || 0) > 0 : Number((source.metrics && source.metrics.log_has_gap) || 0) > 0;
+    var logGapContent = profile ? Number(source.log_gap_content || 0) : Number((source.metrics && source.metrics.log_gap_content) || 0);
+    if (logHasGap) {
+      var gapSign = logGapContent >= 0 ? '+' : '';
+      chips.push('<span class="pmd-alert-chip" title="Movement log tidak lengkap. Selisih: ' + esc(gapSign + num(logGapContent)) + '">⚠ Log Gap ' + esc(gapSign + num(logGapContent)) + '</span>');
+    } else if (Number(source.audit_has_mismatch || 0) > 0) {
       chips.push('<span class="pmd-alert-chip">Mismatch Log ' + esc(num(source.audit_mismatch_qty_content || 0)) + '</span>');
     } else if (isNonPositiveMetrics(source.metrics || {})) {
       chips.push('<span class="pmd-alert-chip">Stok Habis / Minus</span>');
@@ -2482,6 +2495,12 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       if (Number((group.metrics && group.metrics.last_unit_price) || 0) > 0) {
         detailParts.push('<span class="pmd-detail-chip">Harga satuan rata-rata ' + esc(money((group.metrics && group.metrics.last_unit_price) || 0)) + '</span>');
       }
+    }
+    var detailLogHasGap = profile ? Number(profile.log_has_gap || 0) > 0 : Number((group.metrics && group.metrics.log_has_gap) || 0) > 0;
+    var detailLogGap = profile ? Number(profile.log_gap_content || 0) : Number((group.metrics && group.metrics.log_gap_content) || 0);
+    if (detailLogHasGap) {
+      var detailGapSign = detailLogGap >= 0 ? '+' : '';
+      detailParts.push('<span class="pmd-alert-chip">⚠ Gap movement log: selisih ' + esc(detailGapSign + num(detailLogGap)) + ' — ada pergerakan yang tidak tercatat di movement log (koreksi phantom, edit manual, dll). Opening & closing tetap dari monthly_stock.</span>');
     }
     if ((profile && Number(profile.audit_has_mismatch || 0) > 0) || (!profile && Number((group.metrics && group.metrics.audit_has_mismatch) || 0) > 0)) {
       var mismatchSource = profile || (group && group.metrics) || {};

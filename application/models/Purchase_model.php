@@ -2021,6 +2021,29 @@ class Purchase_model extends CI_Model
             $totalValue = round((float)($baseRow['total_value'] ?? ($endClosingContent * $avgCost)), 2);
             $lastDateIdx = count($dates) - 1;
 
+            // Pre-compute predicted closing from movement_log to detect gap vs monthly_stock closing.
+            // Gap = monthly_stock.closing - (opening + Σ movement_log deltas).
+            // Non-zero gap means movement_log is incomplete (e.g. phantom correction, manual edit).
+            $predictedClosingContent = $nextOpeningContent;
+            $predictedClosingBuy = $nextOpeningBuy;
+            foreach ($dates as $preDay) {
+                $preRow = $dayMap[(string)$preDay] ?? null;
+                if ($preRow !== null) {
+                    $preAdjC = round($this->resolveDailyMatrixAdjustmentQtyContent($preRow), 4);
+                    $preAdjB = round($this->resolveDailyMatrixAdjustmentQtyBuy($preRow), 4);
+                    $predictedClosingContent = round($predictedClosingContent
+                        + (float)($preRow['in_qty_content'] ?? 0)
+                        - (float)($preRow['out_qty_content'] ?? 0)
+                        + $preAdjC, 4);
+                    $predictedClosingBuy = round($predictedClosingBuy
+                        + (float)($preRow['in_qty_buy'] ?? 0)
+                        - (float)($preRow['out_qty_buy'] ?? 0)
+                        + $preAdjB, 4);
+                }
+            }
+            $logGapContent = round($endClosingContent - $predictedClosingContent, 4);
+            $logHasGap = abs($logGapContent) > 0.001;
+
             for ($i = 0; $i <= $lastDateIdx; $i++) {
                 $day = (string)$dates[$i];
                 $existingRow = $dayMap[$day] ?? null;
@@ -2042,7 +2065,8 @@ class Purchase_model extends CI_Model
 
                 $row['opening_qty_buy'] = $nextOpeningBuy;
                 $row['opening_qty_content'] = $nextOpeningContent;
-                // Anchor last day to monthly stock closing to avoid drift from incomplete movement_log
+                // Opening and closing always from monthly_stock (source of truth).
+                // Last day anchored to monthly_stock closing; intermediate days from forward walk.
                 if ($i === $lastDateIdx) {
                     $row['closing_qty_buy'] = $endClosingBuy;
                     $row['closing_qty_content'] = $endClosingContent;
@@ -2053,6 +2077,9 @@ class Purchase_model extends CI_Model
                     $row['total_value'] = round((float)$row['closing_qty_content'] * $avgCost, 2);
                 }
                 $row['avg_cost_per_content'] = $avgCost;
+                // log_has_gap: movement_log Σdeltas + opening ≠ monthly_stock closing → incomplete log
+                $row['log_has_gap'] = $logHasGap ? 1 : 0;
+                $row['log_gap_content'] = $logGapContent;
                 $row['audit_has_mismatch'] = (int)$mismatchMeta['audit_has_mismatch'];
                 $row['audit_mismatch_row_count'] = (int)$mismatchMeta['audit_mismatch_row_count'];
                 $row['audit_mismatch_qty_content'] = round((float)$mismatchMeta['audit_mismatch_qty_content'], 4);
@@ -17983,6 +18010,10 @@ class Purchase_model extends CI_Model
                     'audit_mismatch_row_count' => (int)($row['audit_mismatch_row_count'] ?? 0),
                     'audit_mismatch_qty_content' => round((float)($row['audit_mismatch_qty_content'] ?? 0), 4),
                     'audit_mismatch_notes' => (string)($row['audit_mismatch_notes'] ?? ''),
+                    // log_has_gap: opening + Σmovement_log ≠ monthly_stock.closing
+                    // Means movement_log is incomplete — some movements not recorded (e.g. phantom correction, manual edit)
+                    'log_has_gap' => (int)($row['log_has_gap'] ?? 0),
+                    'log_gap_content' => round((float)($row['log_gap_content'] ?? 0), 4),
                     'daily' => [],
                     'summary' => [
                         'in_total' => 0.0,
@@ -18035,6 +18066,10 @@ class Purchase_model extends CI_Model
                 if (trim((string)($row['audit_mismatch_notes'] ?? '')) !== '') {
                     $pivot[$profileKey]['audit_mismatch_notes'] = (string)$row['audit_mismatch_notes'];
                 }
+            }
+            if ((int)($row['log_has_gap'] ?? 0) > 0) {
+                $pivot[$profileKey]['log_has_gap'] = 1;
+                $pivot[$profileKey]['log_gap_content'] = round((float)($row['log_gap_content'] ?? 0), 4);
             }
         }
 

@@ -525,4 +525,7 @@ mana lagi bahan baku yang tidak punya material id
 
 
 
-saya kan udah bilang opening/closing tetap ambil dari inv_division_monthly_stock ,  inv_stock_movement_log  hanya dipakai untuk keluar masuknya, dan supaya jelas ada warning jika opening / closing tidak sesuai dengan inv_stock_movement_log !
+saya kan udah bilang opening/closing tetap ambil dari inv_division_monthly_stock ,  inv_stock_movement_log  hanya dipakai untuk keluar masuknya, dan supaya jelas ada warning jika opening / closing tidak sesuai dengan inv_stock_movement_log ! PERBAIKI!
+setelah itu perbaiki juga, buatkan sql untuk FUGOLD agar sesuai movement log nya baik masuk dan keluar!
+
+sepertinya setelah repair tadi, inv_stock_movement_log. after untuk fugold jadi 0 semua
