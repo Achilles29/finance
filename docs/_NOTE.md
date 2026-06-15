@@ -521,3 +521,8 @@ stok awal itu artinya stok tanggal 1, dan itu dibaca di inv_division_monthly_sto
 ternyata di movement log stok masuk fugold tidak punya material id. apakah itu jadi pengaruh ? bagaimana ini saya pusing
 
 mana lagi bahan baku yang tidak punya material id
+
+
+
+
+saya kan udah bilang opening/closing tetap ambil dari inv_division_monthly_stock ,  inv_stock_movement_log  hanya dipakai untuk keluar masuknya, dan supaya jelas ada warning jika opening / closing tidak sesuai dengan inv_stock_movement_log !

@@ -3648,6 +3648,21 @@ class Purchase_model extends CI_Model
         ");
         $affectedIk = $this->db->affected_rows();
 
+        // Step 3: Backfill material_id in movement_log for movements that were recorded
+        // before the item's material_id was set in mst_item.
+        $mlDivWhere = $divisionId !== null && $divisionId > 0 ? 'AND ml.division_id = ' . (int)$divisionId : '';
+        $affectedMl = 0;
+        if ($this->db->table_exists('inv_stock_movement_log')) {
+            $this->db->query("
+                UPDATE inv_stock_movement_log ml
+                JOIN mst_item i ON i.id = ml.item_id AND i.material_id IS NOT NULL
+                SET ml.material_id = i.material_id
+                WHERE ml.material_id IS NULL
+                  {$mlDivWhere}
+            ");
+            $affectedMl = $this->db->affected_rows();
+        }
+
         // Count remaining stale rows (those that couldn't be fixed due to duplicate conflict)
         $staleSql = "SELECT COUNT(*) AS cnt FROM inv_division_monthly_stock
                      WHERE profile_key IS NOT NULL AND profile_key != identity_key {$ikDivWhere}";
@@ -3655,10 +3670,13 @@ class Purchase_model extends CI_Model
 
         $parts = [];
         if ($affectedMat > 0) {
-            $parts[] = "mengisi material_id untuk {$affectedMat} baris";
+            $parts[] = "mengisi material_id untuk {$affectedMat} baris monthly_stock";
         }
         if ($affectedIk > 0) {
             $parts[] = "memperbaiki identity_key untuk {$affectedIk} baris";
+        }
+        if ($affectedMl > 0) {
+            $parts[] = "mengisi material_id untuk {$affectedMl} baris movement_log";
         }
 
         $message = !empty($parts) ? 'Berhasil ' . implode(' dan ', $parts) . '.' : 'Tidak ada baris yang perlu diperbaiki.';
@@ -3670,6 +3688,7 @@ class Purchase_model extends CI_Model
             'ok'               => true,
             'repaired'         => $affectedMat,
             'repaired_ik'      => $affectedIk,
+            'repaired_ml'      => $affectedMl,
             'stale_remaining'  => $staleRemaining,
             'message'          => $message,
         ];
