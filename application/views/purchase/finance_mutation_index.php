@@ -219,7 +219,7 @@ $totalBalance = array_sum(array_column($accountBreakdown, 'current_balance'));
   }
   .mut-table {
     table-layout: fixed;
-    min-width: 960px;
+    min-width: 1024px;
     width: 100%;
     font-size: .77rem;
   }
@@ -246,16 +246,16 @@ $totalBalance = array_sum(array_column($accountBreakdown, 'current_balance'));
   .mut-table tbody tr:hover td { background: rgba(255,245,242,.7); }
   .mut-table tbody tr:last-child td { border-bottom: 0; }
 
-  /* column widths — total ≈ 960px */
-  .mut-col-date  { width: 86px; }
-  .mut-col-no    { width: 122px; }
-  .mut-col-acct  { width: 128px; }
-  .mut-col-type  { width: 52px;  text-align: center; }
-  .mut-col-mod   { width: 76px;  text-align: center; }
-  .mut-col-amt   { width: 110px; text-align: right; }
-  .mut-col-bal   { width: 94px;  text-align: right; }
-  .mut-col-ref   { width: 122px; }
-  .mut-col-notes { width: 150px; white-space: normal; word-break: break-word; overflow: hidden; }
+  /* column widths — total = 1024px, keep min-width in sync */
+  .mut-col-date  { width: 98px; }
+  .mut-col-no    { width: 130px; }
+  .mut-col-acct  { width: 126px; }
+  .mut-col-type  { width: 48px;  text-align: center; }
+  .mut-col-mod   { width: 74px;  text-align: center; }
+  .mut-col-amt   { width: 118px; text-align: right; }
+  .mut-col-bal   { width: 108px; text-align: right; }
+  .mut-col-ref   { width: 120px; }
+  .mut-col-notes { width: 94px; white-space: normal; word-break: break-word; overflow: hidden; }
 
   /* amount colors */
   .mut-amt-in  { color: #0f766e; font-weight: 700; }
@@ -518,7 +518,13 @@ $totalBalance = array_sum(array_column($accountBreakdown, 'current_balance'));
                 $refUrl           = $resolveRefUrl($mod, $tbl, $refId, $posLineParentId);
               ?>
               <tr>
-                <td class="mut-col-date"><?php echo html_escape((string)($r['mutation_date'] ?? '')); ?></td>
+                <?php $dt = (string)($r['mutation_date'] ?? ''); ?>
+                <td class="mut-col-date" title="<?php echo html_escape($dt); ?>">
+                  <div style="font-size:.73rem;"><?php echo html_escape(strlen($dt) >= 10 ? substr($dt, 0, 10) : $dt); ?></div>
+                  <?php if (strlen($dt) >= 16): ?>
+                    <div style="font-size:.63rem;color:#9ca3af;"><?php echo html_escape(substr($dt, 11, 5)); ?></div>
+                  <?php endif; ?>
+                </td>
                 <td class="mut-col-no" style="font-family:monospace;font-size:.71rem;"><?php echo html_escape((string)($r['mutation_no'] ?? '')); ?></td>
                 <td class="mut-col-acct">
                   <div style="font-weight:600;font-size:.76rem;color:#1f2a39;"><?php echo html_escape((string)($r['account_name'] ?? '')); ?></div>
