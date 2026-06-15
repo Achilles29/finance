@@ -459,4 +459,4 @@ CEK DAN PERBAIKI
   - sesuaikan semua ukuran kolom agar kolom REF NO tidak terpotong
 
  - tanggal, nominal, before , after, Reff no jangan sampai terpotong. perkecil lagi kolom catatan
-- Reff no dan catatan POS belum hiperlink ke transaksi tujuan
+- Reff no dan catatan POS belum hiperlink ke transaksi tujuan. harusnya tranaksinya
