@@ -196,7 +196,8 @@ $REASONS = [
   </div>
 
 <script>
-const DATA_URL     = '<?php echo site_url('production/component-daily-recon/data'); ?>';
+const DATA_URL       = '<?php echo site_url('production/component-daily-recon/data'); ?>';
+const USAGE_BASE_URL = '<?php echo site_url('production/component-masters/usage/'); ?>';
 const SAVE_URL     = '<?php echo site_url('production/component-daily-recon/save-physical'); ?>';
 const ADJ_URL      = '<?php echo site_url('production/component-daily-recon/quick-adjust'); ?>';
 const ADJ_PAGE_URL = '<?php echo site_url('production/component-adjustments'); ?>';
@@ -247,7 +248,8 @@ function jenisBadge(ct) {
 }
 
 function buildLabel(row) {
-    let inner = `<div class="fw-semibold" style="font-size:.82rem">${esc(row.component_name)}</div>`;
+    const usageUrl = USAGE_BASE_URL + (parseInt(row.component_id, 10) || 0);
+    let inner = `<div class="fw-semibold" style="font-size:.82rem"><a href="${usageUrl}" class="text-decoration-none text-body">${esc(row.component_name)}</a></div>`;
     const sub = [row.component_code, row.category_name].filter(Boolean);
     if (sub.length) inner += `<div class="text-muted" style="font-size:.74rem">${esc(sub.join(' · '))}</div>`;
     return `<div class="cmp-name-cell"><div class="cmp-name-body">${inner}</div></div>`;

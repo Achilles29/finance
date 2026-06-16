@@ -3375,6 +3375,15 @@ class Production_model extends CI_Model
         $this->db->delete('inv_component_monthly_opening');
 
         $hasMonthlyStockTable = $this->db->table_exists('inv_component_monthly_stock');
+        $hasLotTable = $this->db->table_exists('inv_component_lot');
+        if ($hasLotTable) {
+            $this->load->library('ComponentLotManager');
+            $lotReady = $this->componentlotmanager->ensureReady();
+            if (!($lotReady['ok'] ?? false)) {
+                return $lotReady;
+            }
+        }
+
         $generatedRows = 0;
         $carriedRows = 0;
         foreach ($aggregated as $row) {
@@ -3432,6 +3441,45 @@ class Production_model extends CI_Model
             ];
             $this->upsert_by_unique('inv_component_monthly_opening', $openingRow, ['month_key', 'location_type', 'division_id', 'component_id', 'uom_id']);
             $carriedRows++;
+
+            // Sync FIFO lot untuk opening bulan M+1:
+            // void lot lama dari sumber ini, lalu daftarkan lot baru sesuai closing qty.
+            if ($hasLotTable) {
+                $divQ = $this->db->from('inv_component_monthly_opening')
+                    ->where('month_key', $nextMonthStart)
+                    ->where('location_type', (string)$row['location_type'])
+                    ->where('component_id', (int)$row['component_id'])
+                    ->where('uom_id', (int)$row['uom_id']);
+                if ($row['division_id'] !== null) {
+                    $divQ->where('division_id', (int)$row['division_id']);
+                } else {
+                    $divQ->where('division_id IS NULL', null, false);
+                }
+                $openingRecord = $divQ->get()->row_array();
+                $openingId = (int)($openingRecord['id'] ?? 0);
+                if ($openingId > 0) {
+                    $this->componentlotmanager->voidInboundLotsBySource('inv_component_monthly_opening', $openingId);
+                    $lotResult = $this->componentlotmanager->registerProductionInboundLot([
+                        'location_type' => (string)$row['location_type'],
+                        'division_id'   => $row['division_id'],
+                        'component_id'  => (int)$row['component_id'],
+                        'uom_id'        => (int)$row['uom_id'],
+                        'qty_in'        => round((float)$row['closing_qty'], 4),
+                        'unit_cost'     => round((float)$row['avg_cost'], 6),
+                        'receipt_date'  => $nextMonthStart,
+                        'source_module' => 'MONTHLY_OPNAME',
+                        'source_table'  => 'inv_component_monthly_opening',
+                        'source_id'     => $openingId,
+                    ]);
+                    if (!($lotResult['ok'] ?? false)) {
+                        $this->db->trans_rollback();
+                        return [
+                            'ok'      => false,
+                            'message' => 'Generate opname berhasil tapi gagal register lot component opening: ' . (string)($lotResult['message'] ?? ''),
+                        ];
+                    }
+                }
+            }
 
             // Sync opening ke monthly_stock untuk bulan M+1
             if ($hasMonthlyStockTable) {

@@ -15,6 +15,141 @@ class Inventory_tools extends CI_Controller
         $this->load->model('Production_model');
     }
 
+    public function repost_pos_skipped_commit_lines()
+    {
+        $cliArgs = $this->parseCliArgs();
+        $commitId = (int)($cliArgs['commit_id'] ?? 0);
+        $orderId = (int)($cliArgs['order_id'] ?? 0);
+        $limit = max(1, min(200, (int)($cliArgs['limit'] ?? 50)));
+        $userId = (int)($cliArgs['user_id'] ?? 0);
+        $dryRun = in_array(strtolower((string)($cliArgs['dry_run'] ?? '0')), ['1', 'true', 'yes', 'y'], true);
+
+        $this->load->model('Pos_model');
+        $this->load->library('PosRuntimeJobService');
+        $this->load->library('PosStockCommitService');
+
+        $db = $this->db;
+        $db->select('
+            cl.commit_id,
+            c.order_id,
+            COUNT(*) AS skipped_line_count,
+            SUM(CASE WHEN cl.line_type = "EXTRA" THEN 1 ELSE 0 END) AS skipped_extra_count,
+            SUM(CASE WHEN cl.line_type = "PRODUCT" THEN 1 ELSE 0 END) AS skipped_product_count
+        ', false);
+        $db->from('pos_stock_commit_line cl');
+        $db->join('pos_stock_commit c', 'c.id = cl.commit_id', 'inner');
+        $db->where('COALESCE(cl.movement_ref_type, "NONE") =', 'NONE');
+        $db->where('(cl.movement_ref_id IS NULL OR cl.movement_ref_id = 0)', null, false);
+        $db->like('COALESCE(cl.notes, "")', 'destination OTHER', 'both', false);
+        if ($commitId > 0) {
+            $db->where('cl.commit_id', $commitId);
+        }
+        if ($orderId > 0) {
+            $db->where('c.order_id', $orderId);
+        }
+        $targets = $db
+            ->group_by('cl.commit_id')
+            ->group_by('c.order_id')
+            ->order_by('cl.commit_id', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+
+        if (empty($targets)) {
+            fwrite(STDOUT, json_encode([
+                'ok' => true,
+                'message' => 'Tidak ada skipped commit line destination OTHER yang perlu di-repost.',
+                'filters' => [
+                    'commit_id' => $commitId,
+                    'order_id' => $orderId,
+                    'limit' => $limit,
+                    'dry_run' => $dryRun,
+                ],
+            ], JSON_PRETTY_PRINT) . PHP_EOL);
+            return;
+        }
+
+        if ($dryRun) {
+            fwrite(STDOUT, json_encode([
+                'ok' => true,
+                'message' => 'Dry run only.',
+                'total_targets' => count($targets),
+                'targets' => $targets,
+            ], JSON_PRETTY_PRINT) . PHP_EOL);
+            return;
+        }
+
+        $results = [];
+        foreach ($targets as $target) {
+            $targetCommitId = (int)($target['commit_id'] ?? 0);
+            $targetOrderId = (int)($target['order_id'] ?? 0);
+            $actorEmployeeId = $userId > 0 ? $userId : $this->resolvePosRepairActorEmployeeId($targetOrderId, $targetCommitId);
+
+            if ($targetCommitId <= 0 || $targetOrderId <= 0) {
+                $results[] = [
+                    'commit_id' => $targetCommitId,
+                    'order_id' => $targetOrderId,
+                    'ok' => false,
+                    'message' => 'Commit/order target tidak valid.',
+                ];
+                continue;
+            }
+
+            $queued = $this->posruntimejobservice->queue_order_confirm_commit($targetOrderId, $targetCommitId, $actorEmployeeId, [
+                'event_source' => 'REPAIR_SKIPPED_DESTINATION_OTHER',
+                'event_id' => $targetCommitId,
+            ]);
+            if (!($queued['ok'] ?? false)) {
+                $results[] = [
+                    'commit_id' => $targetCommitId,
+                    'order_id' => $targetOrderId,
+                    'ok' => false,
+                    'message' => (string)($queued['message'] ?? 'Gagal membuat queue repost POS.'),
+                ];
+                continue;
+            }
+
+            $markQueued = $this->posstockcommitservice->mark_queued($targetCommitId);
+            if (!($markQueued['ok'] ?? false)) {
+                $this->posruntimejobservice->cancel_job((int)($queued['job_id'] ?? 0), 'Snapshot stock commit gagal ditandai queued untuk repair skipped line.');
+                $results[] = [
+                    'commit_id' => $targetCommitId,
+                    'order_id' => $targetOrderId,
+                    'ok' => false,
+                    'message' => (string)($markQueued['message'] ?? 'Gagal menandai snapshot queued.'),
+                ];
+                continue;
+            }
+
+            $processed = $this->posruntimejobservice->process_job((int)($queued['job_id'] ?? 0));
+            $results[] = [
+                'commit_id' => $targetCommitId,
+                'order_id' => $targetOrderId,
+                'job_id' => (int)($queued['job_id'] ?? 0),
+                'job_code' => (string)($queued['job_code'] ?? ''),
+                'ok' => (bool)($processed['ok'] ?? false),
+                'message' => (string)(($processed['message'] ?? '') ?: (($processed['ok'] ?? false) ? 'Repost skipped commit line berhasil diproses.' : 'Repost skipped commit line gagal diproses.')),
+                'queued' => $queued,
+                'processed' => $processed,
+            ];
+        }
+
+        $successCount = 0;
+        foreach ($results as $row) {
+            if (!empty($row['ok'])) {
+                $successCount++;
+            }
+        }
+
+        fwrite(STDOUT, json_encode([
+            'ok' => $successCount === count($results),
+            'processed_targets' => count($results),
+            'success_targets' => $successCount,
+            'failed_targets' => count($results) - $successCount,
+            'results' => $results,
+        ], JSON_PRETTY_PRINT) . PHP_EOL);
+    }
+
     public function smoke_test()
     {
         $cliArgs = $this->parseCliArgs();
@@ -1462,6 +1597,64 @@ class Inventory_tools extends CI_Controller
         }
 
         return $cliArgs;
+    }
+
+    private function resolvePosRepairActorEmployeeId(int $orderId, int $commitId): int
+    {
+        if ($commitId > 0 && $this->db->table_exists('pos_runtime_job')) {
+            $jobs = $this->db
+                ->select('payload_json, created_by_employee_id')
+                ->from('pos_runtime_job')
+                ->where('snapshot_id', $commitId)
+                ->where('order_id', $orderId)
+                ->order_by('id', 'DESC')
+                ->limit(5)
+                ->get()
+                ->result_array();
+            foreach ($jobs as $job) {
+                $payload = json_decode((string)($job['payload_json'] ?? ''), true);
+                $actorId = (int)($payload['actor_employee_id'] ?? 0);
+                if ($actorId > 0) {
+                    return $actorId;
+                }
+                $createdBy = (int)($job['created_by_employee_id'] ?? 0);
+                if ($createdBy > 0) {
+                    return $createdBy;
+                }
+            }
+        }
+
+        if ($commitId > 0 && $this->db->table_exists('pos_stock_commit')) {
+            $row = $this->db->select('actor_employee_id')
+                ->from('pos_stock_commit')
+                ->where('id', $commitId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $actorId = (int)($row['actor_employee_id'] ?? 0);
+            if ($actorId > 0) {
+                return $actorId;
+            }
+        }
+
+        if ($orderId > 0 && $this->db->table_exists('pos_order')) {
+            $row = $this->db->select('cashier_employee_id, served_by')
+                ->from('pos_order')
+                ->where('id', $orderId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $actorId = (int)($row['cashier_employee_id'] ?? 0);
+            if ($actorId > 0) {
+                return $actorId;
+            }
+            $servedBy = (int)($row['served_by'] ?? 0);
+            if ($servedBy > 0) {
+                return $servedBy;
+            }
+        }
+
+        return 0;
     }
 
     private function runSmokeCase(string $name, callable $callback): array

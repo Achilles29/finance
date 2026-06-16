@@ -226,23 +226,120 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
       </button>
     </div>
     <div id="negStockBody" class="d-none">
-      <div class="fd-scroll" style="max-height:300px;">
-        <?php foreach ($negativeStockRows as $r):
-          $typeLabel = ['material' => 'Bahan Baku', 'component' => 'Base/Prepare', 'warehouse' => 'Gudang'][(string)($r['stock_type'] ?? '')] ?? (string)($r['stock_type'] ?? '-');
-          $qty = (float)($r['qty_balance'] ?? 0);
-          $uom = (string)($r['uom_code'] ?? '');
-        ?>
-          <div class="fd-item minus" style="align-items:center;">
-            <div>
-              <div class="fd-item-title" style="color:#c62828;"><?= htmlspecialchars((string)($r['item_name'] ?? '-')) ?></div>
-              <div class="fd-item-meta"><?= htmlspecialchars($typeLabel) ?> · <?= htmlspecialchars((string)($r['location_name'] ?? '-')) ?></div>
-            </div>
-            <div class="text-end flex-shrink-0">
-              <span class="fd-pill minus"><?= number_format($qty, 2, ',', '.') ?> <?= htmlspecialchars($uom) ?></span>
-            </div>
-          </div>
+      <?php
+      // Group: location_name → [material|component] → rows
+      $negByDiv = [];
+      foreach ($negativeStockRows as $r) {
+          $loc = (string)($r['location_name'] ?? 'Lainnya');
+          $cat = ((string)($r['stock_type'] ?? '') === 'component') ? 'component' : 'material';
+          $negByDiv[$loc][$cat][] = $r;
+      }
+      uksort($negByDiv, function ($a, $b) {
+          static $o = ['BAR' => 0, 'KITCHEN' => 1, 'Gudang Pusat' => 99];
+          return (($o[$a] ?? 50) <=> ($o[$b] ?? 50)) ?: strcmp($a, $b);
+      });
+      $divIds = [];
+      foreach ($negByDiv as $loc => $_cats) {
+          $divIds[$loc] = 'negDiv_' . preg_replace('/[^a-zA-Z0-9]+/', '_', strtolower($loc));
+      }
+      $fdItemRow = function (array $r): void {
+          $qty      = (float)($r['qty_balance'] ?? 0);
+          $uom      = htmlspecialchars((string)($r['uom_code'] ?? ''));
+          $type     = (string)($r['stock_type'] ?? '');
+          $itemName = htmlspecialchars((string)($r['item_name'] ?? '-'));
+          $da = 'data-neg-adj="1"'
+              . ' data-stock-type="' . htmlspecialchars($type) . '"'
+              . ' data-item-name="' . $itemName . '"'
+              . ' data-uom-code="' . $uom . '"';
+          if ($type === 'component') {
+              $da .= ' data-component-id="' . (int)($r['component_id'] ?? 0) . '"'
+                  . ' data-uom-id="' . (int)($r['uom_id'] ?? 0) . '"'
+                  . ' data-division-id="' . (int)($r['division_id'] ?? 0) . '"'
+                  . ' data-location-type="' . htmlspecialchars((string)($r['location_type'] ?? '')) . '"';
+          } else {
+              $da .= ' data-item-id="' . (int)($r['item_id'] ?? 0) . '"'
+                  . ' data-content-uom-id="' . (int)($r['content_uom_id'] ?? 0) . '"'
+                  . ' data-division-id="' . (int)($r['division_id'] ?? 0) . '"'
+                  . ' data-destination-type="' . htmlspecialchars((string)($r['destination_type'] ?? '')) . '"';
+          }
+          echo '<div class="fd-item minus" style="align-items:center;">'
+              . '<div style="flex:1;min-width:0"><div class="fd-item-title" style="color:#c62828;">' . $itemName . '</div></div>'
+              . '<div class="d-flex align-items-center gap-2 flex-shrink-0">'
+              . '<button type="button" class="btn btn-sm py-0 px-1" title="Buat Adjustment" '
+              . 'style="border:1px solid #f5a5a5;border-radius:8px;background:#fff5f5;color:#c62828;line-height:1.6" ' . $da . '>'
+              . '<i class="ri ri-edit-line"></i></button>'
+              . '<span class="fd-pill minus">' . number_format($qty, 2, ',', '.') . ' ' . $uom . '</span>'
+              . '</div>'
+              . '</div>';
+      };
+      $first1 = true;
+      ?>
+
+      <!-- Level-1 tab: Divisi -->
+      <ul class="nav nav-tabs mb-2" role="tablist" style="font-size:.82rem">
+        <?php foreach ($negByDiv as $loc => $cats): ?>
+          <?php $total = array_sum(array_map('count', $cats)); ?>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link<?= $first1 ? ' active' : '' ?> py-1 px-2"
+                    id="<?= $divIds[$loc] ?>_tab" data-bs-toggle="tab"
+                    data-bs-target="#<?= $divIds[$loc] ?>" type="button" role="tab">
+              <?= htmlspecialchars($loc) ?>
+              <span class="badge bg-danger-subtle text-danger ms-1" style="font-size:.7rem"><?= $total ?></span>
+            </button>
+          </li>
+          <?php $first1 = false; ?>
         <?php endforeach; ?>
+      </ul>
+
+      <div class="tab-content">
+        <?php $first2 = true; foreach ($negByDiv as $loc => $cats): ?>
+          <?php
+          $divId   = $divIds[$loc];
+          $hasMat  = !empty($cats['material']);
+          $hasComp = !empty($cats['component']);
+          ?>
+          <div class="tab-pane fade<?= $first2 ? ' show active' : '' ?>" id="<?= $divId ?>" role="tabpanel">
+            <?php if ($hasMat && $hasComp): ?>
+              <!-- Level-2 tab: Bahan Baku / Component -->
+              <ul class="nav nav-pills mb-2" role="tablist" style="font-size:.78rem">
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link active py-1 px-2"
+                          id="<?= $divId ?>_mat_tab" data-bs-toggle="tab"
+                          data-bs-target="#<?= $divId ?>_mat" type="button" role="tab">
+                    Bahan Baku
+                    <span class="badge bg-danger-subtle text-danger ms-1" style="font-size:.68rem"><?= count($cats['material']) ?></span>
+                  </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link py-1 px-2"
+                          id="<?= $divId ?>_comp_tab" data-bs-toggle="tab"
+                          data-bs-target="#<?= $divId ?>_comp" type="button" role="tab">
+                    Component (Base/Prepare)
+                    <span class="badge bg-danger-subtle text-danger ms-1" style="font-size:.68rem"><?= count($cats['component']) ?></span>
+                  </button>
+                </li>
+              </ul>
+              <div class="tab-content">
+                <div class="tab-pane fade show active fd-scroll" id="<?= $divId ?>_mat" role="tabpanel" style="max-height:220px">
+                  <?php foreach ($cats['material'] as $r) { $fdItemRow($r); } ?>
+                </div>
+                <div class="tab-pane fade fd-scroll" id="<?= $divId ?>_comp" role="tabpanel" style="max-height:220px">
+                  <?php foreach ($cats['component'] as $r) { $fdItemRow($r); } ?>
+                </div>
+              </div>
+            <?php elseif ($hasMat): ?>
+              <div class="fd-scroll" style="max-height:220px">
+                <?php foreach ($cats['material'] as $r) { $fdItemRow($r); } ?>
+              </div>
+            <?php elseif ($hasComp): ?>
+              <div class="fd-scroll" style="max-height:220px">
+                <?php foreach ($cats['component'] as $r) { $fdItemRow($r); } ?>
+              </div>
+            <?php endif; ?>
+          </div>
+          <?php $first2 = false; endforeach; ?>
       </div>
+
       <div class="mt-2" style="font-size:.82rem;color:#8b2020;">
         <i class="ri-information-line"></i>
         Stok negatif = kasir sudah input order POS sebelum batch tersedia.
@@ -252,6 +349,62 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
     </div>
   </section>
   <?php endif; ?>
+
+  <!-- Modal: Adjustment Cepat Stok Negatif -->
+  <div class="modal fade" id="negAdjModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:460px">
+      <div class="modal-content" style="border:0;border-radius:22px;overflow:hidden;box-shadow:0 24px 60px -28px rgba(120,0,0,.55)">
+        <div class="modal-header" style="background:linear-gradient(135deg,#fff5f5 0%,#fff9f9 100%);border-bottom:1px solid #fcc;padding:.9rem 1.1rem">
+          <div>
+            <div style="font-size:.66rem;font-weight:900;text-transform:uppercase;letter-spacing:.06em;color:#c62828">
+              <i class="ri ri-error-warning-fill me-1"></i>Adjustment Cepat — Stok Negatif
+            </div>
+            <h5 class="modal-title mb-0" id="negAdjModalTitle" style="color:#5d160d;font-size:.95rem">-</h5>
+            <div class="small" id="negAdjModalSub" style="color:#8b2020;font-size:.75rem">-</div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" style="padding:1rem 1.1rem">
+          <div id="negAdjAlert" class="mb-3"></div>
+          <div class="row g-2 mb-2">
+            <div class="col-7">
+              <label class="form-label mb-1" style="font-size:.74rem;font-weight:700">Jenis Koreksi</label>
+              <select class="form-select form-select-sm" id="negAdjAction">
+                <option value="PLUS">Adjustment Plus</option>
+                <option value="WASTE">Waste</option>
+                <option value="SPOIL">Spoil</option>
+                <option value="MINUS">Minus / Variance</option>
+              </select>
+            </div>
+            <div class="col-5">
+              <label class="form-label mb-1" style="font-size:.74rem;font-weight:700">Tanggal</label>
+              <input type="date" class="form-control form-control-sm" id="negAdjDate" required>
+            </div>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-5">
+              <label class="form-label mb-1" style="font-size:.74rem;font-weight:700" id="negAdjQtyLabel">Qty</label>
+              <input type="number" min="0.001" step="0.01" class="form-control form-control-sm" id="negAdjQty" value="">
+            </div>
+            <div class="col-7">
+              <label class="form-label mb-1" style="font-size:.74rem;font-weight:700">Alasan</label>
+              <select class="form-select form-select-sm" id="negAdjReason"></select>
+            </div>
+          </div>
+          <div class="mb-1">
+            <label class="form-label mb-1" style="font-size:.74rem;font-weight:700">Catatan</label>
+            <textarea class="form-control form-control-sm" id="negAdjNote" rows="2" placeholder="Catatan adjustment (opsional)"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer" style="background:#fff9f9;border-top:1px solid #fcc;padding:.7rem 1.1rem">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
+          <button type="button" class="btn btn-sm btn-danger" id="negAdjSubmitBtn">
+            <i class="ri ri-upload-2-line me-1"></i>Simpan &amp; Posting
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Scope -->
   <section class="fd-2scope">
@@ -700,6 +853,181 @@ window.addEventListener('load', function () {
         body.innerHTML = '<div style="color:#c62828">Gagal memuat resep.</div>';
       });
   };
+
+  // ─── Adjustment Cepat Stok Negatif ─────────────────────────
+  (function () {
+    const MAT_STORE_URL  = <?= json_encode(site_url('inventory/stock/adjustment/store')) ?>;
+    const COMP_SAVE_URL  = <?= json_encode(site_url('production/component-adjustments/save')) ?>;
+    const COMP_POST_URL  = <?= json_encode(site_url('production/component-adjustments/post')) ?>;
+
+    const REASONS = {
+      ADJUSTMENT_PLUS:  { opening_correction: 'Opening Correction', stock_found: 'Stock Found', manual_reclass: 'Manual Reclass', other: 'Other' },
+      WASTE:            { cancel_order: 'Cancel Order', kitchen_error: 'Kitchen Error', overproduction: 'Overproduction', spillage: 'Spillage / Tumpah', expired_opened: 'Expired Opened', other: 'Other' },
+      SPOILAGE:         { expired: 'Expired', temperature_abuse: 'Temperature Abuse', contamination: 'Contamination', improper_storage: 'Improper Storage', other: 'Other' },
+      ADJUSTMENT_MINUS: { counting_error: 'Counting Error', system_mismatch: 'System Mismatch', unrecorded_usage: 'Unrecorded Usage', process_loss: 'Process Loss', other: 'Other' },
+      VARIANCE:         { over_usage: 'Over Usage', under_usage: 'Under Usage', counting_error: 'Counting Error', system_mismatch: 'System Mismatch', unrecorded_usage: 'Unrecorded Usage', other: 'Other' },
+    };
+
+    function reasonCat(action, stockType) {
+      if (action === 'PLUS')  return 'ADJUSTMENT_PLUS';
+      if (action === 'WASTE') return 'WASTE';
+      if (action === 'SPOIL') return 'SPOILAGE';
+      if (action === 'MINUS') return stockType === 'component' ? 'ADJUSTMENT_MINUS' : 'VARIANCE';
+      return 'ADJUSTMENT_PLUS';
+    }
+
+    const modalEl    = document.getElementById('negAdjModal');
+    const titleEl    = document.getElementById('negAdjModalTitle');
+    const subEl      = document.getElementById('negAdjModalSub');
+    const alertEl    = document.getElementById('negAdjAlert');
+    const actionSel  = document.getElementById('negAdjAction');
+    const dateInp    = document.getElementById('negAdjDate');
+    const qtyInp     = document.getElementById('negAdjQty');
+    const qtyLbl     = document.getElementById('negAdjQtyLabel');
+    const reasonSel  = document.getElementById('negAdjReason');
+    const noteArea   = document.getElementById('negAdjNote');
+    const submitBtn  = document.getElementById('negAdjSubmitBtn');
+    if (!modalEl || !submitBtn) return;
+
+    let _ctx = {};
+
+    function esc(s) {
+      const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML;
+    }
+    function showAlert(type, msg) {
+      alertEl.innerHTML = msg ? '<div class="alert alert-' + type + ' py-2 small mb-0">' + msg + '</div>' : '';
+    }
+    function fillReasons(cat) {
+      const opts = REASONS[cat] || {};
+      reasonSel.innerHTML = Object.keys(opts).map(k => '<option value="' + k + '">' + esc(opts[k]) + '</option>').join('');
+    }
+    function syncAction() {
+      const action = actionSel.value;
+      const cat = reasonCat(action, _ctx.stockType || '');
+      fillReasons(cat);
+      qtyLbl.textContent = 'Qty ' + (_ctx.uomCode || '') + (action === 'PLUS' ? ' (tambah)' : ' (kurang)');
+    }
+
+    document.addEventListener('click', function (e) {
+      const btn = e.target.closest('[data-neg-adj="1"]');
+      if (!btn) return;
+      _ctx = {
+        stockType:       btn.dataset.stockType      || '',
+        itemName:        btn.dataset.itemName        || '-',
+        uomCode:         btn.dataset.uomCode         || '',
+        qtyBalance:      parseFloat(btn.dataset.qtyBalance || 0),
+        // material/warehouse
+        itemId:          parseInt(btn.dataset.itemId || 0, 10),
+        contentUomId:    parseInt(btn.dataset.contentUomId || 0, 10),
+        divisionId:      parseInt(btn.dataset.divisionId || 0, 10),
+        destinationType: btn.dataset.destinationType || '',
+        // component
+        componentId:     parseInt(btn.dataset.componentId || 0, 10),
+        uomId:           parseInt(btn.dataset.uomId || 0, 10),
+        locationType:    btn.dataset.locationType || '',
+      };
+
+      titleEl.textContent = _ctx.itemName;
+      const locLabel = _ctx.stockType === 'component'
+        ? (_ctx.locationType || '-')
+        : (_ctx.destinationType || (_ctx.stockType === 'warehouse' ? 'Gudang Pusat' : '-'));
+      subEl.textContent = (_ctx.stockType === 'component' ? 'Component' : 'Bahan Baku')
+        + ' · ' + locLabel
+        + ' · Saldo: ' + _ctx.qtyBalance.toLocaleString('id-ID', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ' + _ctx.uomCode;
+      actionSel.value = 'PLUS';
+      dateInp.value   = new Date().toISOString().slice(0, 10);
+      qtyInp.value    = '';
+      noteArea.value  = '';
+      showAlert('', '');
+      syncAction();
+
+      const modal = window.bootstrap && window.bootstrap.Modal.getOrCreateInstance(modalEl);
+      if (modal) modal.show();
+    });
+
+    actionSel.addEventListener('change', syncAction);
+
+    submitBtn.addEventListener('click', async function () {
+      const action = actionSel.value;
+      const qty    = parseFloat(qtyInp.value || 0);
+      const date   = dateInp.value;
+      const reason = reasonSel.value || 'other';
+      const note   = noteArea.value.trim();
+
+      if (!date)    { showAlert('danger', 'Pilih tanggal adjustment.'); return; }
+      if (!(qty > 0)) { showAlert('danger', 'Qty harus lebih dari 0.'); return; }
+
+      submitBtn.disabled = true;
+      showAlert('info', 'Menyimpan...');
+
+      try {
+        if (_ctx.stockType === 'component') {
+          const line = {
+            component_id: _ctx.componentId,
+            uom_id:       _ctx.uomId,
+            selected_lot_id: '',
+            qty_spoil:    action === 'SPOIL' ? qty : 0,
+            spoil_reason_code:           action === 'SPOIL' ? reason : 'other',
+            qty_waste:    action === 'WASTE' ? qty : 0,
+            waste_reason_code:            action === 'WASTE' ? reason : 'other',
+            qty_adjust_neg: action === 'MINUS' ? qty : 0,
+            adjustment_minus_reason_code: action === 'MINUS' ? reason : 'other',
+            qty_adjust_pos: action === 'PLUS'  ? qty : 0,
+            adjustment_plus_reason_code:  action === 'PLUS'  ? reason : 'other',
+            unit_cost: 0,
+            note: note,
+          };
+          const saveBody = {
+            adjustment_date: date,
+            location_type:   _ctx.locationType,
+            division_id:     _ctx.divisionId || '',
+            notes:           note,
+            lines:           [line],
+          };
+          const saveRes  = await fetch(COMP_SAVE_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(saveBody) });
+          const saveData = await saveRes.json();
+          if (!saveRes.ok || !saveData.ok) throw new Error(saveData.message || 'Gagal menyimpan adjustment component.');
+          const postRes  = await fetch(COMP_POST_URL + '/' + encodeURIComponent(saveData.id || 0), { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+          const postData = await postRes.json();
+          if (!postRes.ok || !postData.ok) throw new Error(postData.message || 'Gagal posting adjustment component.');
+
+        } else {
+          const scope = _ctx.stockType === 'warehouse' ? 'WAREHOUSE' : 'DIVISION';
+          const line  = {
+            item_id:                       _ctx.itemId,
+            content_uom_id:                _ctx.contentUomId,
+            qty_waste_content:             action === 'WASTE' ? qty : 0,
+            waste_reason_code:             action === 'WASTE' ? reason : 'other',
+            qty_spoil_content:             action === 'SPOIL' ? qty : 0,
+            spoil_reason_code:             action === 'SPOIL' ? reason : 'other',
+            qty_variance_content:          action === 'MINUS' ? qty : 0,
+            variance_reason_code:          action === 'MINUS' ? reason : 'other',
+            qty_adjustment_plus_content:   action === 'PLUS'  ? qty : 0,
+            adjustment_plus_reason_code:   action === 'PLUS'  ? reason : 'other',
+            unit_cost: 0,
+          };
+          const body = {
+            stock_scope:      scope,
+            division_id:      scope === 'DIVISION' ? _ctx.divisionId : '',
+            destination_type: scope === 'DIVISION' ? _ctx.destinationType : '',
+            adjustment_date:  date,
+            notes:            note,
+            auto_post:        true,
+            lines:            [line],
+          };
+          const res  = await fetch(MAT_STORE_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+          const data = await res.json();
+          if (!res.ok || !data.ok) throw new Error(data.message || 'Gagal menyimpan adjustment bahan baku.');
+        }
+
+        showAlert('success', 'Adjustment berhasil diposting. Memuat ulang...');
+        window.setTimeout(function () { window.location.reload(); }, 800);
+      } catch (err) {
+        showAlert('danger', esc(err.message || 'Terjadi kesalahan.'));
+        submitBtn.disabled = false;
+      }
+    });
+  })();
 
   // ─── Stok Kritis Detail — JS filter no reload ─────────────
   const critTabs = document.getElementById('critTabs');

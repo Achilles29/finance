@@ -748,7 +748,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
               <tr data-cd-parent-row="<?php echo (int)$rowIndex; ?>" data-cd-lot-toggle="<?php echo html_escape($lotToggleId); ?>"<?php if ($isGroupStart && $rowIndex > 0): ?> style="border-top:2px solid #e8d2c3"<?php endif; ?>>
                 <td class="component-daily-fixed">
                   <?php if ($isGroupStart): ?>
-                    <div><a href="<?php echo html_escape($buildLotUrl((array)$row, 'ALL')); ?>" class="fw-semibold text-decoration-none"><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></a></div>
+                    <div><a href="<?php echo html_escape(site_url('production/component-masters/usage/' . (int)($row['component_id'] ?? 0))); ?>" class="fw-semibold text-decoration-none"><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></a></div>
                     <small class="text-muted"><?php echo html_escape((string)($row['component_type'] ?? '-')); ?> • <?php echo html_escape((string)($row['uom_code'] ?? '')); ?></small>
                   <?php else: ?>
                     <div class="text-muted ps-2" style="border-left:3px solid #e8d2c3;font-size:.78rem">

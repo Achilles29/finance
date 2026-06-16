@@ -733,21 +733,43 @@ class PosOrderStockService
     private function resolve_recipe_source_division_for_line(array $line): ?array
     {
         $productId = !empty($line['product_id']) ? (int)$line['product_id'] : 0;
-        $materialId = !empty($line['material_id']) ? (int)$line['material_id'] : 0;
-        if ($productId <= 0 || $materialId <= 0) {
+        if ($productId <= 0) {
             return null;
         }
-        $row = $this->ci->db
-            ->select('od.id, od.name, od.code')
-            ->from('mst_product_recipe r')
-            ->join('mst_item i', 'i.id = r.material_item_id', 'inner')
-            ->join('mst_operational_division od', 'od.id = r.source_division_id', 'inner')
-            ->where('r.product_id', $productId)
-            ->where('i.material_id', $materialId)
-            ->where('r.source_division_id IS NOT NULL', null, false)
-            ->limit(1)
-            ->get()
-            ->row_array();
+
+        $materialId = !empty($line['material_id']) ? (int)$line['material_id'] : 0;
+        $row = [];
+        if ($materialId > 0) {
+            $row = $this->ci->db
+                ->select('od.id, od.name, od.code')
+                ->from('mst_product_recipe r')
+                ->join('mst_item i', 'i.id = r.material_item_id', 'inner')
+                ->join('mst_operational_division od', 'od.id = r.source_division_id', 'inner')
+                ->where('r.product_id', $productId)
+                ->where('i.material_id', $materialId)
+                ->where('r.source_division_id IS NOT NULL', null, false)
+                ->order_by('r.id', 'ASC')
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+        }
+
+        // Fallback: untuk extra replacement / optional material yang tidak ada
+        // sebagai recipe line utama, pakai source_division pertama dari recipe
+        // produk agar commit tetap mengarah ke division stok yang sama.
+        if (empty($row)) {
+            $row = $this->ci->db
+                ->select('od.id, od.name, od.code')
+                ->from('mst_product_recipe r')
+                ->join('mst_operational_division od', 'od.id = r.source_division_id', 'inner')
+                ->where('r.product_id', $productId)
+                ->where('r.source_division_id IS NOT NULL', null, false)
+                ->order_by('r.id', 'ASC')
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+        }
+
         return $row ?: null;
     }
 

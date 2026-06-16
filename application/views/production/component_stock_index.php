@@ -311,8 +311,8 @@ $countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand']
                 <div class="mt-1"><?php echo $typeBadge($compType); ?></div>
               </td>
               <td class="py-1" style="width:150px">
-                <a href="<?php echo html_escape($buildLotUrl((array)$row, 'ALL')); ?>" class="fw-semibold text-decoration-none text-body small"><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></a>
-                <div class="text-muted" style="font-size:.68rem"><?php echo html_escape((string)($row['component_code'] ?? '')); ?></div>
+                <a href="<?php echo html_escape(site_url('production/component-masters/usage/' . (int)($row['component_id'] ?? 0))); ?>" class="fw-semibold text-decoration-none text-body small"><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></a>
+                <div class="text-muted" style="font-size:.68rem"><?php echo html_escape((string)($row['component_code'] ?? '')); ?> <a href="<?php echo html_escape($buildLotUrl((array)$row, 'ALL')); ?>" class="text-muted" style="font-size:.64rem" title="Lihat lot">lots</a></div>
               </td>
               <td class="py-1 text-center">
                 <div class="csl-card d-inline-block text-start">

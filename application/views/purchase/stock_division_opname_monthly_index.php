@@ -146,7 +146,7 @@ $limitValue  = (int)($filters['limit'] ?? 200);
               <td><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>
               <td><span class="badge bg-secondary-subtle text-secondary"><?php echo html_escape((string)($row['destination_type'] ?? '-')); ?></span></td>
               <td>
-                <div class="fw-semibold"><?php echo html_escape((string)($row['profile_name'] ?? '-')); ?></div>
+                <div class="fw-semibold"><?php $matIdOp = (int)($row['material_id'] ?? 0); echo $matIdOp > 0 ? '<a href="' . html_escape(site_url('master/material/usage/' . $matIdOp)) . '" class="text-decoration-none text-body">' . html_escape((string)($row['profile_name'] ?? '-')) . '</a>' : html_escape((string)($row['profile_name'] ?? '-')); ?></div>
                 <?php if (!empty($row['profile_brand'])): ?>
                   <div class="text-muted" style="font-size:.72rem"><?php echo html_escape((string)$row['profile_brand']); ?></div>
                 <?php endif; ?>

@@ -171,5 +171,12 @@ setelah ini baru kita bahas laporan keuangannya
 kejutkan saya!
 
 
+POS simpan transaksi MANUAL BREW V60 JAPANESE dengan extra SO YIRGACHEFFE .
+cek master extranya di /master/extra/edit/19.
 
+saat simpan transaksi stok SO YIRGACHEFFE tidak terpotong
+
+
+
+cek resep produk /master/relation/product-recipe/ disana ada Source Divisi . contoh RUM DMC divisi produk ada di BAR, tapi di resepnya ada TING TING CRUMBLE yang merupakan bahan milik kitchen. jadi seharusnya saat simpan transaksi TING TING CRUMBLE yang dipotong adalah dari kitchen. CEK
 

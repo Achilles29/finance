@@ -554,7 +554,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
             ?>
             <tr class="<?php echo $isMinus ? 'rec-row-negative' : ''; ?>">
               <td>
-                <div class="fw-semibold small"><?php echo html_escape($fmtText($row['material_name'] ?? '')); ?></div>
+                <div class="fw-semibold small"><?php echo $dataMatId > 0 ? '<a href="' . html_escape(site_url('master/material/usage/' . $dataMatId)) . '" class="text-decoration-none text-body">' . html_escape($fmtText($row['material_name'] ?? '')) . '</a>' : html_escape($fmtText($row['material_name'] ?? '')); ?></div>
                 <div class="text-muted" style="font-size:.7rem">
                   <?php echo html_escape($fmtText($row['material_code'] ?? '')); ?>
                   · <?php echo html_escape($fmtText($row['division_name'] ?? '')); ?>

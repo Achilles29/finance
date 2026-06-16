@@ -53,6 +53,7 @@ foreach ($rowsData as $row) {
       'division_code' => $divisionCode,
       'division_name' => $divisionName,
       'destination_group' => $destinationGroup,
+      'material_id' => $materialId,
       'item_code' => trim((string)($row['item_code'] ?? '')),
       'item_name' => trim((string)($row['item_name'] ?? '')),
       'material_code' => trim((string)($row['material_code'] ?? '')),
@@ -599,7 +600,7 @@ $paginationQs = http_build_query($pParams);
                 <div class="text-muted" style="font-size:.72rem"><?php echo html_escape($destinationText); ?></div>
               </td>
               <td>
-                <div class="dv-object-name"><?php echo html_escape($objectText); ?></div>
+                <div class="dv-object-name"><?php $matIdLink = (int)($parent['material_id'] ?? 0); echo $matIdLink > 0 ? '<a href="' . html_escape(site_url('master/material/usage/' . $matIdLink)) . '" class="text-decoration-none text-body">' . html_escape($objectText) . '</a>' : html_escape($objectText); ?></div>
                 <div class="small mt-1"><?php echo $profileLine; ?></div>
                 <?php if ($singleChildNonPositive): ?>
                   <span class="dv-alert-chip mt-1">Stok Habis / Minus</span>

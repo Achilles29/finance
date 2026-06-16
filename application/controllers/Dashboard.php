@@ -998,7 +998,8 @@ class Dashboard extends MY_Controller
                     COALESCE(s.profile_name, m.material_name, i.item_name, CONCAT('Item #', s.item_id)) AS item_name,
                     {$divLocSelect} AS location_name,
                     s.closing_qty_content AS qty_balance,
-                    COALESCE(cu.code, '') AS uom_code
+                    COALESCE(cu.code, '') AS uom_code,
+                    s.item_id, s.division_id, s.destination_type, s.content_uom_id
              FROM inv_division_monthly_stock s
              INNER JOIN ({latest_month_subquery}) lm
                 ON lm.division_id      = s.division_id
@@ -1027,7 +1028,8 @@ class Dashboard extends MY_Controller
                     COALESCE(c.component_name, CONCAT('Component #', s.component_id)) AS item_name,
                     {$compLocSelect} AS location_name,
                     s.closing_qty AS qty_balance,
-                    COALESCE(u.code, '') AS uom_code
+                    COALESCE(u.code, '') AS uom_code,
+                    s.component_id, s.uom_id, s.division_id, s.location_type
              FROM inv_component_monthly_stock s
              INNER JOIN ({latest_month_subquery}) lm
                 ON lm.location_type = s.location_type
@@ -1052,7 +1054,8 @@ class Dashboard extends MY_Controller
                     COALESCE(s.profile_name, m.material_name, i.item_name, CONCAT('Item #', s.item_id)) AS item_name,
                     'Gudang Pusat' AS location_name,
                     s.closing_qty_content AS qty_balance,
-                    COALESCE(cu.code, '') AS uom_code
+                    COALESCE(cu.code, '') AS uom_code,
+                    s.item_id, s.content_uom_id
              FROM inv_warehouse_monthly_stock s
              INNER JOIN ({latest_month_subquery}) lm
                 ON lm.identity_key = s.identity_key

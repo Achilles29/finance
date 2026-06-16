@@ -9028,8 +9028,30 @@ class Pos_model extends CI_Model
     private function resolve_product_default_operational_division(array $product): ?int
     {
         $divisionId = (int)($product['default_operational_division_id'] ?? 0);
+        $productId = (int)($product['id'] ?? 0);
+        $recipeDivisionId = 0;
+
+        if ($productId > 0 && $this->db->table_exists('mst_product_recipe')) {
+            $recipeRow = $this->db->select('source_division_id')
+                ->from('mst_product_recipe')
+                ->where('product_id', $productId)
+                ->where('source_division_id IS NOT NULL', null, false)
+                ->order_by('id', 'ASC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $recipeDivisionId = (int)($recipeRow['source_division_id'] ?? 0);
+        }
+
         if ($divisionId > 0) {
+            if ($recipeDivisionId > 0 && $recipeDivisionId !== $divisionId) {
+                return $recipeDivisionId;
+            }
             return $divisionId;
+        }
+
+        if ($recipeDivisionId > 0) {
+            return $recipeDivisionId;
         }
 
         $divisionKey = strtoupper(trim((string)($product['product_division_code'] ?? ($product['product_division_name'] ?? ''))));

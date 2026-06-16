@@ -663,7 +663,7 @@ $paginationQs = http_build_query($pParams);
                 <div class="text-muted" style="font-size:.72rem"><?php echo html_escape($destinationText); ?></div>
               </td>
               <td>
-                <div class="sdd-obj-name"><?php echo html_escape($objectText); ?></div>
+                <div class="sdd-obj-name"><?php $matIdLink = (int)($parent['material_id'] ?? 0); echo $matIdLink > 0 ? '<a href="' . html_escape(site_url('master/material/usage/' . $matIdLink)) . '" class="text-decoration-none text-body">' . html_escape($objectText) . '</a>' : html_escape($objectText); ?></div>
                 <div class="small mt-1"><?php echo $profileLine; ?></div>
                 <?php if ($hasMismatch): ?>
                   <span class="sdd-mismatch-chip mt-1">Mismatch <?php echo ui_num((float)($parent['audit_mismatch_qty_content'] ?? 0)); ?></span>
