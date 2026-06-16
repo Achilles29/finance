@@ -183,6 +183,7 @@ class Dashboard extends MY_Controller
             INNER JOIN mst_product_category pc ON pc.id = p.product_category_id
             INNER JOIN mst_product_division pd ON pd.id = pc.product_division_id
             WHERE pd.name != 'EVENT'
+              AND p.is_active = 1
             GROUP BY pac.availability_status, pd.name
             ORDER BY pd.name, pac.availability_status
         ");
@@ -227,6 +228,7 @@ class Dashboard extends MY_Controller
             INNER JOIN mst_product_division pd ON pd.id = pc.product_division_id
             LEFT JOIN mst_uom u ON u.id = p.uom_id
             WHERE pd.name != 'EVENT'
+              AND p.is_active = 1
             ORDER BY
                 FIELD(pac.availability_status, 'OUT', 'LIMITED', 'AVAILABLE'),
                 pd.name,

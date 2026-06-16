@@ -26,7 +26,7 @@ body {
     margin: 0 auto;
     position: relative;
     overflow: hidden;
-    padding: 8mm 9mm 12mm;
+    padding: 7mm 9mm 12mm;
     background:
         linear-gradient(rgba(250,246,238,.90), rgba(250,246,238,.96)),
         url('/finance/assets/menu-book/backgrounds/bg-asian-signatures.png') center / cover no-repeat,
@@ -50,37 +50,35 @@ body {
 }
 
 .menu-header {
-    height: 28mm;
+    height: 25mm;
     display: grid;
     grid-template-columns: 22mm 1fr 16mm;
     align-items: center;
     border-bottom: 1px solid rgba(125,31,31,.16);
-    padding-bottom: 3.5mm;
-    margin-bottom: 3.5mm;
+    padding-bottom: 3mm;
+    margin-bottom: 3mm;
 }
 
 .menu-logo {
-    width: 15mm;
-    height: 15mm;
+    width: 14mm;
+    height: 14mm;
     object-fit: contain;
 }
 
-.header-title-area {
-    text-align: center;
-}
+.header-title-area { text-align: center; }
 
 .label-category {
     display: block;
     font-family: Arial, sans-serif;
-    font-size: 6.5px;
+    font-size: 6px;
     letter-spacing: 3px;
     text-transform: uppercase;
     color: #b58b4b;
-    margin-bottom: 1.5mm;
+    margin-bottom: 1.2mm;
 }
 
 .page-title {
-    font-size: 26px;
+    font-size: 24px;
     line-height: .95;
     color: #7D1F1F;
     letter-spacing: 1.5px;
@@ -88,8 +86,8 @@ body {
 }
 
 .header-title-area h2 {
-    margin-top: 1.5mm;
-    font-size: 10.5px;
+    margin-top: 1.3mm;
+    font-size: 10px;
     font-style: italic;
     font-weight: 400;
     color: #6A4E3A;
@@ -105,26 +103,24 @@ body {
 }
 
 .content {
-    height: 232mm;
+    height: 235mm;
     display: grid;
-    grid-template-rows: 64mm 64mm 91mm 7mm;
-    gap: 3mm;
+    grid-template-rows: 72mm 72mm 78mm 5mm;
+    gap: 2.5mm;
 }
 
-/* SECTION */
-
 .section-heading {
-    height: 9mm;
+    height: 8mm;
     display: flex;
     justify-content: space-between;
     align-items: end;
     border-bottom: 1px solid rgba(201,168,106,.45);
-    padding-bottom: 1.3mm;
+    padding-bottom: 1.1mm;
     margin-bottom: 2mm;
 }
 
 .section-heading h3 {
-    font-size: 14px;
+    font-size: 13px;
     color: #7D1F1F;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -132,13 +128,11 @@ body {
 
 .section-heading p {
     font-family: Arial, sans-serif;
-    font-size: 7px;
+    font-size: 6.4px;
     letter-spacing: 1.1px;
     text-transform: uppercase;
     color: #9a7440;
 }
-
-/* CARD BASE */
 
 .asian-card {
     position: relative;
@@ -152,7 +146,6 @@ body {
 .asian-card img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
     display: block;
     filter: saturate(1.04) contrast(1.02);
 }
@@ -171,11 +164,11 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    padding: 14mm 3mm 2.4mm;
+    padding: 13mm 3mm 2.4mm;
     background: linear-gradient(
         to top,
         rgba(38,22,14,.95) 0%,
-        rgba(38,22,14,.82) 48%,
+        rgba(38,22,14,.80) 48%,
         rgba(38,22,14,.10) 100%
     );
     color: #fff;
@@ -183,19 +176,19 @@ body {
 }
 
 .asian-info h4 {
-    font-size: 10px;
+    font-size: 9.2px;
     line-height: 1.05;
-    letter-spacing: .35px;
+    letter-spacing: .3px;
     text-transform: uppercase;
     color: #fff;
-    margin-bottom: .8mm;
+    margin-bottom: .7mm;
     text-shadow: 0 1px 3px rgba(0,0,0,.6);
 }
 
 .asian-desc {
-    margin-bottom: 1mm;
+    margin-bottom: .8mm;
     font-family: Arial, sans-serif;
-    font-size: 7px;
+    font-size: 6.4px;
     line-height: 1.18;
     color: rgba(255,255,255,.83);
     display: -webkit-box;
@@ -206,7 +199,7 @@ body {
 
 .price {
     font-family: Arial, sans-serif;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 900;
     color: #F1D28A;
     letter-spacing: .8px;
@@ -219,31 +212,34 @@ body {
     background: #C9A86A;
     color: #2a170b;
     font-family: Arial, sans-serif;
-    font-size: 5.8px;
+    font-size: 5.6px;
     font-weight: 900;
     letter-spacing: .8px;
     text-transform: uppercase;
     border-radius: 99px;
 }
 
-/* COMBO IMAGE SECTIONS */
+/* COMBO FULL IMAGE */
 
 .combo-card {
-    height: 53mm;
+    height: 62mm;
+    background: #f8f1e8;
 }
 
 .combo-card img {
+    object-fit: contain;
     object-position: center center;
+    background: #f8f1e8;
 }
 
 .combo-info {
-    padding: 15mm 4mm 3mm;
+    padding: 14mm 4mm 3mm;
 }
 
 .combo-menu-list {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1.2mm 4mm;
+    gap: 1mm 4mm;
     margin: .8mm 0 1mm;
     font-family: Arial, sans-serif;
 }
@@ -253,30 +249,34 @@ body {
     justify-content: space-between;
     gap: 2mm;
     border-bottom: 1px solid rgba(255,255,255,.22);
-    padding-bottom: .7mm;
+    padding-bottom: .6mm;
 }
 
 .combo-menu-list strong {
-    font-size: 7.4px;
+    font-size: 7.1px;
     color: #fff;
-    letter-spacing: .4px;
+    letter-spacing: .35px;
     line-height: 1.05;
 }
 
 .combo-menu-list span {
-    font-size: 9px;
+    font-size: 8.8px;
     font-weight: 900;
     color: #F1D28A;
     white-space: nowrap;
 }
 
-/* WOK GRID */
+/* WOK SECTION */
 
 .wok-combo-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    grid-template-rows: 39mm 39mm;
-    gap: 2.5mm;
+    grid-template-rows: 33mm 33mm;
+    gap: 2.3mm;
+}
+
+.wok-combo-grid .asian-card img {
+    object-fit: cover;
 }
 
 .wok-feature {
@@ -285,35 +285,35 @@ body {
 }
 
 .wok-combo-grid .asian-info {
-    padding: 12mm 2.4mm 2mm;
+    padding: 10mm 2.2mm 1.8mm;
 }
 
 .wok-feature .asian-info {
-    padding: 16mm 3.2mm 2.8mm;
+    padding: 14mm 3mm 2.4mm;
 }
 
 .wok-feature .asian-info h4 {
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .wok-feature .asian-desc {
-    font-size: 7.3px;
+    font-size: 7px;
 }
 
 .wok-feature .price {
-    font-size: 14px;
+    font-size: 13px;
 }
 
 .wok-combo-grid .asian-info h4 {
-    font-size: 8.5px;
+    font-size: 7.9px;
 }
 
 .wok-combo-grid .asian-desc {
-    font-size: 6.1px;
+    font-size: 5.8px;
 }
 
 .wok-combo-grid .price {
-    font-size: 10.5px;
+    font-size: 10px;
 }
 
 .note-row {
@@ -322,12 +322,12 @@ body {
     align-items: center;
     gap: 5mm;
     font-family: Arial, sans-serif;
-    font-size: 6.8px;
+    font-size: 6.5px;
     letter-spacing: 1.2px;
     text-transform: uppercase;
     color: #7D1F1F;
     border-top: 1px solid rgba(125,31,31,.16);
-    padding-top: 2mm;
+    padding-top: 1.5mm;
 }
 
 .menu-footer {
@@ -390,25 +390,10 @@ body {
                 <span class="mini-badge">4 Bowl Selection</span>
 
                 <div class="combo-menu-list">
-                    <div>
-                        <strong>SOYU RAMEN</strong>
-                        <span>38K</span>
-                    </div>
-
-                    <div>
-                        <strong>TORI PAITAN RAMEN</strong>
-                        <span>35K</span>
-                    </div>
-
-                    <div>
-                        <strong>SPICY RAMYEON</strong>
-                        <span>32K</span>
-                    </div>
-
-                    <div>
-                        <strong>GYU DON</strong>
-                        <span>32K</span>
-                    </div>
+                    <div><strong>SOYU RAMEN</strong><span>38K</span></div>
+                    <div><strong>TORI PAITAN RAMEN</strong><span>35K</span></div>
+                    <div><strong>SPICY RAMYEON</strong><span>32K</span></div>
+                    <div><strong>GYU DON</strong><span>32K</span></div>
                 </div>
 
                 <div class="asian-desc">
@@ -431,25 +416,10 @@ body {
                 <span class="mini-badge">Roll Selection</span>
 
                 <div class="combo-menu-list">
-                    <div>
-                        <strong>KOREAN BEEF KIMBAB</strong>
-                        <span>31K</span>
-                    </div>
-
-                    <div>
-                        <strong>CALIFORNIA ROLL</strong>
-                        <span>24K</span>
-                    </div>
-
-                    <div>
-                        <strong>VOLCANO ROLL</strong>
-                        <span>26K</span>
-                    </div>
-
-                    <div>
-                        <strong>YAKINIKU SUSHI ROLL</strong>
-                        <span>29K</span>
-                    </div>
+                    <div><strong>KOREAN BEEF KIMBAB</strong><span>31K</span></div>
+                    <div><strong>CALIFORNIA ROLL</strong><span>24K</span></div>
+                    <div><strong>VOLCANO ROLL</strong><span>26K</span></div>
+                    <div><strong>YAKINIKU SUSHI ROLL</strong><span>29K</span></div>
                 </div>
 
                 <div class="asian-desc">
