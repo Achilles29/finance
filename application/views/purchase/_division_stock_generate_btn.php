@@ -72,7 +72,18 @@ $generateUrl = site_url('inventory/stock/opname/generate');
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        showAlert('danger', 'Gagal: ' + (data.message || res.statusText));
+        let errHtml = 'Gagal: ' + (data.message || res.statusText);
+        const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+        const negSamples = data.data && data.data.negative_samples;
+        if (negSamples && negSamples.length) {
+          errHtml += '<ul class="mb-0 mt-1 ps-3" style="font-size:.8em">'
+            + negSamples.map(s => '<li>' + esc(s) + '</li>').join('') + '</ul>';
+        }
+        const posSamples = data.data && data.data.pending_pos_samples;
+        if (posSamples && posSamples.length) {
+          errHtml += '<div class="mt-1" style="font-size:.8em">Order: ' + posSamples.map(esc).join(', ') + '</div>';
+        }
+        showAlert('danger', errHtml);
       } else {
         showAlert('success', 'Generate selesai untuk bulan <strong>' + month + '</strong>. '
           + (data.message || '') + ' <a href="' + <?php echo json_encode($opnameUrl); ?> + '" class="alert-link ms-1">Lihat Opname</a>'

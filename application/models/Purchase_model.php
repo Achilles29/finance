@@ -10067,6 +10067,69 @@ class Purchase_model extends CI_Model
             ];
         }
 
+        // Guard: tidak boleh ada transaksi POS bulan ini yang belum di-commit ke stok.
+        // Transaksi pending berarti movement log belum lengkap — opname yang di-generate akan meleset.
+        if ($this->db->table_exists('pos_order')) {
+            $hasCommitStatus = $this->db->field_exists('stock_commit_status', 'pos_order');
+            $dateCol = $this->db->field_exists('confirmed_at', 'pos_order') ? 'confirmed_at' : 'ordered_at';
+
+            if ($hasCommitStatus) {
+                $pendingCount = $this->db
+                    ->from('pos_order')
+                    ->where($dateCol . ' >=', $dateFrom . ' 00:00:00')
+                    ->where($dateCol . ' <=', $dateTo . ' 23:59:59')
+                    ->where('stock_commit_status', 'PENDING')
+                    ->count_all_results();
+
+                if ($pendingCount > 0) {
+                    $samples = $this->db
+                        ->select('order_no, ' . $dateCol)
+                        ->from('pos_order')
+                        ->where($dateCol . ' >=', $dateFrom . ' 00:00:00')
+                        ->where($dateCol . ' <=', $dateTo . ' 23:59:59')
+                        ->where('stock_commit_status', 'PENDING')
+                        ->order_by($dateCol, 'DESC')
+                        ->limit(5)
+                        ->get()->result_array();
+
+                    $sampleNos = array_column($samples, 'order_no');
+
+                    return [
+                        'ok'      => false,
+                        'message' => 'Generate ditolak — masih ada ' . $pendingCount . ' transaksi POS bulan ' . date('Y-m', strtotime($monthKey)) . ' yang belum di-commit ke stok. Selesaikan commit terlebih dahulu agar movement log bulan ini lengkap. Contoh: ' . implode(', ', $sampleNos),
+                        'data'    => [
+                            'pending_pos_count'   => $pendingCount,
+                            'pending_pos_samples' => $sampleNos,
+                        ],
+                    ];
+                }
+            }
+
+            // Cek juga commit FAILED — stok mungkin inkonsisten
+            if ($this->db->table_exists('pos_stock_commit')) {
+                $hasScDate = $this->db->field_exists('committed_at', 'pos_stock_commit');
+                if ($hasScDate) {
+                    $failedCount = $this->db
+                        ->select('COUNT(*) AS cnt', false)
+                        ->from('pos_stock_commit sc')
+                        ->join('pos_order o', 'o.id = sc.order_id', 'inner')
+                        ->where('o.' . $dateCol . ' >=', $dateFrom . ' 00:00:00')
+                        ->where('o.' . $dateCol . ' <=', $dateTo . ' 23:59:59')
+                        ->where('sc.commit_status', 'FAILED')
+                        ->get()->row_array();
+
+                    $failedTotal = (int)($failedCount['cnt'] ?? 0);
+                    if ($failedTotal > 0) {
+                        return [
+                            'ok'      => false,
+                            'message' => 'Generate ditolak — ada ' . $failedTotal . ' transaksi POS bulan ' . date('Y-m', strtotime($monthKey)) . ' dengan commit FAILED. Perbaiki atau batalkan commit gagal tersebut sebelum generate.',
+                            'data'    => ['failed_commit_count' => $failedTotal],
+                        ];
+                    }
+                }
+            }
+        }
+
         $rows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
             $stockScope,
             '',
@@ -10081,32 +10144,6 @@ class Purchase_model extends CI_Model
             return [
                 'ok' => false,
                 'message' => 'Data movement bulan ' . date('Y-m', strtotime($monthKey)) . ' tidak ditemukan untuk digenerate.',
-            ];
-        }
-
-        $negativeSamples = [];
-        foreach ($rows as $row) {
-            $closing = (float)($row['closing_qty_content'] ?? 0);
-            if ($closing >= 0) {
-                continue;
-            }
-
-            $negativeSamples[] = trim((string)($row['movement_date'] ?? ''))
-                . ' | '
-                . ($stockScope === 'DIVISION' ? ('DIV ' . (string)($row['division_id'] ?? '-') . ' ' . (string)($row['destination_type'] ?? 'OTHER') . ' | ') : '')
-                . (string)($row['profile_name'] ?? '-')
-                . ' | closing=' . number_format($closing, 4, '.', '');
-            if (count($negativeSamples) >= 5) {
-                break;
-            }
-        }
-        if (!empty($negativeSamples)) {
-            return [
-                'ok' => false,
-                'message' => 'Generate ditolak karena masih ada stok minus. Perbaiki dulu data minus sebelum generate opname.',
-                'data' => [
-                    'negative_samples' => $negativeSamples,
-                ],
             ];
         }
 
@@ -10212,6 +10249,43 @@ class Purchase_model extends CI_Model
         foreach ($aggregated as $groupKey => $row) {
             $aggregated[$groupKey]['movement_day_count'] = count($row['_day_map']);
             unset($aggregated[$groupKey]['_first_date'], $aggregated[$groupKey]['_last_date'], $aggregated[$groupKey]['_day_map']);
+        }
+
+        // Guard: cek saldo AKHIR BULAN per profil (closing aggregated), bukan closing per hari.
+        // Backward-propagation harian bisa negatif di tengah bulan meski saldo akhir positif.
+        $worstByKey = [];
+        foreach ($aggregated as $row) {
+            $closing = (float)($row['closing_qty_content'] ?? 0);
+            if ($closing >= 0) {
+                continue;
+            }
+            $worstByKey[] = [
+                'closing'      => $closing,
+                'profile_name' => (string)($row['profile_name'] ?? ($row['material_name'] ?? '-')),
+                'division_name'=> (string)($row['division_name'] ?? ''),
+                'dest'         => (string)($row['destination_type'] ?? ''),
+            ];
+        }
+        if (!empty($worstByKey)) {
+            $negativeSamples = [];
+            foreach ($worstByKey as $entry) {
+                $label = $entry['profile_name'];
+                if ($stockScope === 'DIVISION' && $entry['division_name'] !== '') {
+                    $label .= ' (' . $entry['division_name'] . ' · ' . $entry['dest'] . ')';
+                }
+                $negativeSamples[] = $label . ' → ' . number_format($entry['closing'], 4, '.', '');
+                if (count($negativeSamples) >= 5) {
+                    break;
+                }
+            }
+            return [
+                'ok'      => false,
+                'message' => 'Generate ditolak — ' . count($worstByKey) . ' profil saldo akhir bulan masih minus. Perbaiki via Adjustment atau Repair dulu. Contoh: ' . implode('; ', array_slice($negativeSamples, 0, 3)),
+                'data'    => [
+                    'negative_count'   => count($worstByKey),
+                    'negative_samples' => $negativeSamples,
+                ],
+            ];
         }
 
         $upsertRow = function (string $table, array $rowData, array $uniqueColumns): void {

@@ -87,3 +87,30 @@ dan jangan lupa buatkan halaman stok opname dan masukkan tab bertingkat semua ha
 
 
 buatkan halaman untuk menampilkan stok awal hasil generate ini dengan nama yang relevan. masukkan ke database sidebar dan role matrix, serta tab rumpun inventory.  di tab bertingkat taruh setelah mutasi Bahan baku
+
+
+"Opname fisik harian — pencatatan qty fisik per tanggal dari Daily Recon (halaman /inventory/stock/daily-recon/division). User input manual qty fisik → disimpan ke sini, lalu jika ada selisih dibuat adjustment" memang masih ada seperti ini? bukannya kita langsung ke adjustment?
+
+
+
+Gagal: Generate ditolak karena masih ada stok minus. Perbaiki dulu data minus sebelum generate opname.
+
+
+Gagal: Generate ditolak — 4 profil masih minus. Perbaiki via Adjustment atau Repair dulu. Contoh: AIR MINERAL GALON (BAR · BAR) → -760.0000 (tgl 2026-06-02); KANI STICK (KITCHEN · KITCHEN) → -17.0000 (tgl 2026-06-11); MINYAK IKAN (KITCHEN · KITCHEN) → -55.9980 (tgl 2026-06-14)
+
+
+kita ambil contoh AIR MINERAL GALON di inv_division_monthly_stock tidak ada stock minus. coba cek
+
+
+
+sekarang logika d pos. kita kan membuat skema cutoff bulanan untuk stok divisi dan component.
+1. apakah logika lot masing masing sudah sinkron dengan skema ini?
+2. apakah pos saat simpan transaksi/void/refund sudah mengintervensi stok bahan baku dan component pada bulan bersangkutan?
+
+
+1. seharusnya sebelum generate stok awal dipastikan tidak ada miss dan tidak ada commit tertunda, jadi tidak ada  transaksi POS tanggal 31 Mei yang baru di-commit 2 Juni.
+2. apakah saat generate stok awal bulan berikutnya logika lot masing masing sudah sinkron dengan stok awal nya?
+3. tambahkan guarding poin 1
+
+
+pindah ke component. lakukan pengecekan
