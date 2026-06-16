@@ -851,7 +851,7 @@ window.addEventListener('load', function () {
   // ─── Product division tabs + category filter (DB-shared) ────
   var SAVE_CAT_URL = <?= json_encode(site_url('dashboard/save_prod_live_cats')) ?>;
 
-  function fdCatFilter(divName) {
+  window.fdCatFilter = function(divName) {
     var checks  = document.querySelectorAll('[data-pdiv-checks="' + divName + '"] .fd-cat-cb');
     var enabled = new Set();
     checks.forEach(function(cb) { if (cb.checked) enabled.add(cb.dataset.cat); });
@@ -861,9 +861,9 @@ window.addEventListener('load', function () {
         row.style.display = (enabled.size === 0 || enabled.has(row.dataset.category)) ? '' : 'none';
       });
     }
-  }
+  };
 
-  function fdCatSave(divName, btn) {
+  window.fdCatSave = function(divName, btn) {
     var checks  = document.querySelectorAll('[data-pdiv-checks="' + divName + '"] .fd-cat-cb');
     var hidden  = [];
     checks.forEach(function(cb) { if (!cb.checked) hidden.push(cb.dataset.cat); });
@@ -896,12 +896,12 @@ window.addEventListener('load', function () {
         btn.innerHTML = '<i class="ri ri-save-line"></i> Simpan Pengaturan';
         if (status) { status.textContent = '✗ Gagal'; status.style.color = '#c62828'; status.style.opacity = '1'; setTimeout(function() { status.style.opacity = '0'; }, 2500); }
       });
-  }
+  };
 
-  function fdCatAll(divName, checked) {
+  window.fdCatAll = function(divName, checked) {
     document.querySelectorAll('[data-pdiv-checks="' + divName + '"] .fd-cat-cb').forEach(function(cb) { cb.checked = checked; });
-    fdCatFilter(divName);
-  }
+    window.fdCatFilter(divName);
+  };
 
   // Apply filter on page load based on PHP-rendered checkbox state (from DB)
   <?php foreach (array_keys($productByDivision) as $divName): ?>

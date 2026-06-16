@@ -150,6 +150,142 @@ class Inventory_tools extends CI_Controller
         ], JSON_PRETTY_PRINT) . PHP_EOL);
     }
 
+    public function audit_pos_cross_division_commit_lines()
+    {
+        $cliArgs = $this->parseCliArgs();
+        $commitId = (int)($cliArgs['commit_id'] ?? 0);
+        $orderId = (int)($cliArgs['order_id'] ?? 0);
+        $lineId = (int)($cliArgs['line_id'] ?? 0);
+        $limit = max(1, min(500, (int)($cliArgs['limit'] ?? 100)));
+
+        $this->load->library('PosOrderStockService');
+
+        $targets = $this->collectPosCrossDivisionCommitTargets($commitId, $orderId, $lineId, $limit);
+        if (empty($targets)) {
+            fwrite(STDOUT, json_encode([
+                'ok' => true,
+                'message' => 'Tidak ada kandidat commit POS untuk diaudit.',
+                'filters' => compact('commitId', 'orderId', 'lineId', 'limit'),
+            ], JSON_PRETTY_PRINT) . PHP_EOL);
+            return;
+        }
+
+        $rows = [];
+        foreach ($targets as $target) {
+            $audit = $this->posorderstockservice->audit_cross_division_commit_snapshot((int)$target['commit_id'], [
+                'line_id' => $lineId,
+            ]);
+            if (!($audit['ok'] ?? false)) {
+                $rows[] = [
+                    'commit_id' => (int)$target['commit_id'],
+                    'order_id' => (int)$target['order_id'],
+                    'ok' => false,
+                    'message' => (string)($audit['message'] ?? 'Audit gagal.'),
+                ];
+                continue;
+            }
+
+            foreach ((array)($audit['mismatches'] ?? []) as $mismatch) {
+                $line = (array)($mismatch['line'] ?? []);
+                $rows[] = [
+                    'commit_id' => (int)$target['commit_id'],
+                    'order_id' => (int)$target['order_id'],
+                    'line_id' => (int)($mismatch['line_id'] ?? 0),
+                    'line_type' => (string)($line['line_type'] ?? ''),
+                    'source_kind' => (string)($mismatch['source_kind'] ?? ''),
+                    'source_name_snapshot' => (string)($line['source_name_snapshot'] ?? ''),
+                    'product_id' => (int)($line['product_id'] ?? 0),
+                    'extra_id' => (int)($line['extra_id'] ?? 0),
+                    'material_id' => (int)($line['material_id'] ?? 0),
+                    'component_id' => (int)($line['component_id'] ?? 0),
+                    'expected_division_id' => (int)($mismatch['expected_division_id'] ?? 0),
+                    'expected_division_code' => (string)($mismatch['expected_division_code'] ?? ''),
+                    'expected_division_name' => (string)($mismatch['expected_division_name'] ?? ''),
+                    'expected_destination_type' => (string)($mismatch['expected_destination_type'] ?? ''),
+                    'actual_division_id' => (int)($mismatch['actual_division_id'] ?? 0),
+                    'actual_division_code' => (string)($mismatch['actual_division_code'] ?? ''),
+                    'actual_division_name' => (string)($mismatch['actual_division_name'] ?? ''),
+                    'actual_destination_type' => (string)($mismatch['actual_destination_type'] ?? ''),
+                    'actual_ref_kind' => (string)($mismatch['actual_ref_kind'] ?? ''),
+                    'movement_ref_type' => (string)($mismatch['movement_ref_type'] ?? ''),
+                    'movement_ref_id' => (int)($mismatch['movement_ref_id'] ?? 0),
+                ];
+            }
+        }
+
+        fwrite(STDOUT, json_encode([
+            'ok' => true,
+            'total_candidate_commits' => count($targets),
+            'total_mismatches' => count($rows),
+            'rows' => $rows,
+        ], JSON_PRETTY_PRINT) . PHP_EOL);
+    }
+
+    public function repair_pos_cross_division_commit_lines()
+    {
+        $cliArgs = $this->parseCliArgs();
+        $commitId = (int)($cliArgs['commit_id'] ?? 0);
+        $orderId = (int)($cliArgs['order_id'] ?? 0);
+        $lineId = (int)($cliArgs['line_id'] ?? 0);
+        $limit = max(1, min(200, (int)($cliArgs['limit'] ?? 50)));
+        $userId = (int)($cliArgs['user_id'] ?? 0);
+        $dryRun = in_array(strtolower((string)($cliArgs['dry_run'] ?? '0')), ['1', 'true', 'yes', 'y'], true);
+
+        $this->load->library('PosOrderStockService');
+
+        $targets = $this->collectPosCrossDivisionCommitTargets($commitId, $orderId, $lineId, $limit);
+        if (empty($targets)) {
+            fwrite(STDOUT, json_encode([
+                'ok' => true,
+                'message' => 'Tidak ada kandidat commit POS lintas divisi untuk direpair.',
+                'filters' => compact('commitId', 'orderId', 'lineId', 'limit', 'dryRun'),
+            ], JSON_PRETTY_PRINT) . PHP_EOL);
+            return;
+        }
+
+        $results = [];
+        foreach ($targets as $target) {
+            $targetCommitId = (int)$target['commit_id'];
+            $targetOrderId = (int)$target['order_id'];
+            $actorEmployeeId = $userId > 0 ? $userId : $this->resolvePosRepairActorEmployeeId($targetOrderId, $targetCommitId);
+
+            $repair = $this->posorderstockservice->repair_cross_division_commit_snapshot($targetCommitId, [
+                'line_id' => $lineId,
+                'actor_employee_id' => $actorEmployeeId,
+                'dry_run' => $dryRun,
+                'note' => 'Repair cross-division POS commit line',
+            ]);
+
+            $results[] = [
+                'commit_id' => $targetCommitId,
+                'order_id' => $targetOrderId,
+                'ok' => (bool)($repair['ok'] ?? false),
+                'message' => (string)($repair['message'] ?? ''),
+                'processed' => (int)($repair['processed'] ?? 0),
+                'success' => (int)($repair['success'] ?? 0),
+                'failed' => (int)($repair['failed'] ?? 0),
+                'dry_run' => $dryRun,
+                'results' => (array)($repair['results'] ?? []),
+                'targets' => (array)($repair['targets'] ?? []),
+            ];
+        }
+
+        $successCount = 0;
+        foreach ($results as $row) {
+            if (!empty($row['ok'])) {
+                $successCount++;
+            }
+        }
+
+        fwrite(STDOUT, json_encode([
+            'ok' => $successCount === count($results),
+            'processed_targets' => count($results),
+            'success_targets' => $successCount,
+            'failed_targets' => count($results) - $successCount,
+            'results' => $results,
+        ], JSON_PRETTY_PRINT) . PHP_EOL);
+    }
+
     public function smoke_test()
     {
         $cliArgs = $this->parseCliArgs();
@@ -1597,6 +1733,35 @@ class Inventory_tools extends CI_Controller
         }
 
         return $cliArgs;
+    }
+
+    private function collectPosCrossDivisionCommitTargets(int $commitId, int $orderId, int $lineId, int $limit): array
+    {
+        if (!$this->db->table_exists('pos_stock_commit') || !$this->db->table_exists('pos_stock_commit_line')) {
+            return [];
+        }
+
+        $db = $this->db;
+        $db->select('DISTINCT cl.commit_id, c.order_id', false)
+            ->from('pos_stock_commit_line cl')
+            ->join('pos_stock_commit c', 'c.id = cl.commit_id', 'inner')
+            ->where('COALESCE(cl.movement_ref_id, 0) >', 0);
+
+        if ($commitId > 0) {
+            $db->where('cl.commit_id', $commitId);
+        }
+        if ($orderId > 0) {
+            $db->where('c.order_id', $orderId);
+        }
+        if ($lineId > 0) {
+            $db->where('cl.id', $lineId);
+        }
+
+        return $db
+            ->order_by('cl.commit_id', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
     }
 
     private function resolvePosRepairActorEmployeeId(int $orderId, int $commitId): int

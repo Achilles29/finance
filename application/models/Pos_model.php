@@ -8500,6 +8500,8 @@ class Pos_model extends CI_Model
             'r.line_type',
             'r.qty',
             'r.source_division_id',
+            'sd.code AS source_division_code',
+            'sd.name AS source_division_name',
             'r.material_item_id',
             'r.component_id',
             'i.material_id',
@@ -8520,6 +8522,7 @@ class Pos_model extends CI_Model
 
         return $this->db->select(implode(",\n", $select))
             ->from('mst_product_recipe r')
+            ->join('mst_operational_division sd', 'sd.id = r.source_division_id', 'left')
             ->join('mst_item i', 'i.id = r.material_item_id', 'left')
             ->join('mst_material m', 'm.id = i.material_id', 'left')
             ->join('mst_component c', 'c.id = r.component_id', 'left')
@@ -8613,6 +8616,9 @@ class Pos_model extends CI_Model
                 'unit_cost_live' => round($unitCost, 6),
                 'total_cost_live' => round($requiredQty * $unitCost, 6),
                 'cost_source' => $costSource,
+                'resolved_source_division_id' => $resolvedDivisionId > 0 ? $resolvedDivisionId : null,
+                'resolved_source_division_code' => trim((string)($recipeRow['source_division_code'] ?? '')) !== '' ? trim((string)$recipeRow['source_division_code']) : null,
+                'resolved_source_division_name' => trim((string)($recipeRow['source_division_name'] ?? '')) !== '' ? trim((string)$recipeRow['source_division_name']) : null,
                 'movement_ref_type' => 'NONE',
                 'movement_ref_id' => null,
                 'return_policy' => 'RETURN_TO_STOCK',
@@ -8637,6 +8643,8 @@ class Pos_model extends CI_Model
 
         $requiredQty = round($extraQty * $sourceQty, 4);
         $resolvedDivisionId = (int)($orderLine['operational_division_id'] ?? 0);
+        $resolvedDivisionCode = null;
+        $resolvedDivisionName = null;
         $line = [
             'order_id' => (int)($header['id'] ?? ($orderLine['order_id'] ?? 0)),
             'order_line_id' => !empty($orderLine['id']) ? (int)$orderLine['id'] : null,
@@ -8666,6 +8674,9 @@ class Pos_model extends CI_Model
             if ($resolvedDivisionId <= 0) {
                 $resolvedDivisionId = (int)($component['operational_division_id'] ?? 0);
             }
+            $divisionMeta = $this->resolve_order_operational_division_meta($resolvedDivisionId);
+            $resolvedDivisionCode = $divisionMeta['code'] ?? null;
+            $resolvedDivisionName = $divisionMeta['name'] ?? null;
             $cost = $this->resolve_order_component_live_cost($componentId, $resolvedDivisionId);
             return [
                 'ok' => true,
@@ -8681,6 +8692,9 @@ class Pos_model extends CI_Model
                     'unit_cost_live' => round((float)($cost['unit_cost'] ?? 0), 6),
                     'total_cost_live' => round($requiredQty * (float)($cost['unit_cost'] ?? 0), 6),
                     'cost_source' => (string)($cost['cost_source'] ?? 'STANDARD_FALLBACK'),
+                    'resolved_source_division_id' => $resolvedDivisionId > 0 ? $resolvedDivisionId : null,
+                    'resolved_source_division_code' => $resolvedDivisionCode,
+                    'resolved_source_division_name' => $resolvedDivisionName,
                 ] + $line],
             ];
         }
@@ -8696,6 +8710,7 @@ class Pos_model extends CI_Model
                 ->limit(1)
                 ->get()
                 ->row_array() ?: [];
+            $divisionMeta = $this->resolve_order_operational_division_meta($resolvedDivisionId);
             $requiredUomId = !empty($material['content_uom_id']) ? (int)$material['content_uom_id'] : null;
             $cost = $this->resolve_order_material_live_cost($materialId, $resolvedDivisionId, (int)$requiredUomId);
             return [
@@ -8712,6 +8727,9 @@ class Pos_model extends CI_Model
                     'unit_cost_live' => round((float)($cost['unit_cost'] ?? 0), 6),
                     'total_cost_live' => round($requiredQty * (float)($cost['unit_cost'] ?? 0), 6),
                     'cost_source' => (string)($cost['cost_source'] ?? 'STANDARD_FALLBACK'),
+                    'resolved_source_division_id' => $resolvedDivisionId > 0 ? $resolvedDivisionId : null,
+                    'resolved_source_division_code' => $divisionMeta['code'] ?? null,
+                    'resolved_source_division_name' => $divisionMeta['name'] ?? null,
                 ] + $line],
             ];
         }
@@ -8928,6 +8946,20 @@ class Pos_model extends CI_Model
             return $append;
         }
         return $base . ' | ' . $append;
+    }
+
+    private function resolve_order_operational_division_meta(int $divisionId): array
+    {
+        if ($divisionId <= 0) {
+            return [];
+        }
+
+        return $this->db->select('id, code, name')
+            ->from('mst_operational_division')
+            ->where('id', $divisionId)
+            ->limit(1)
+            ->get()
+            ->row_array() ?: [];
     }
 
     private function resolve_order_material_live_cost(int $materialId, int $divisionId, int $uomId = 0): array

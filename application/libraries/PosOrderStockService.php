@@ -7,6 +7,8 @@ class PosOrderStockService
     private $ci;
     /** @var array<int, string>|null */
     private $commitLineMovementRefEnumValues = null;
+    /** @var array<string, bool> */
+    private $commitLineColumnExistsCache = [];
 
     public function __construct()
     {
@@ -167,6 +169,194 @@ class PosOrderStockService
                 'commit_status' => (string)($apply['commit_status'] ?? ''),
                 'affected_lines' => (int)($apply['affected_lines'] ?? 0),
                 'adjustment_doc_count' => (int)($adjustmentPosting['adjustment_doc_count'] ?? 0),
+            ];
+        } catch (Throwable $e) {
+            $db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function audit_cross_division_commit_snapshot(int $commitId, array $filters = []): array
+    {
+        if ($commitId <= 0) {
+            return ['ok' => false, 'message' => 'Snapshot stock commit tidak valid.'];
+        }
+
+        $snapshot = $this->load_snapshot($commitId);
+        if (!$snapshot['header']) {
+            return ['ok' => false, 'message' => 'Snapshot stock commit tidak ditemukan.'];
+        }
+
+        $filterLineId = (int)($filters['line_id'] ?? 0);
+        $mismatches = [];
+        $all = [];
+
+        foreach ((array)$snapshot['lines'] as $line) {
+            if ($filterLineId > 0 && (int)($line['id'] ?? 0) !== $filterLineId) {
+                continue;
+            }
+
+            $audit = $this->build_commit_line_scope_audit($snapshot['header'], $line);
+            $all[] = $audit;
+            if (!empty($audit['is_mismatch'])) {
+                $mismatches[] = $audit;
+            }
+        }
+
+        return [
+            'ok' => true,
+            'header' => $snapshot['header'],
+            'lines' => $all,
+            'mismatches' => $mismatches,
+        ];
+    }
+
+    public function repair_cross_division_commit_snapshot(int $commitId, array $options = []): array
+    {
+        if ($commitId <= 0) {
+            return ['ok' => false, 'message' => 'Snapshot stock commit tidak valid.'];
+        }
+
+        $snapshot = $this->load_snapshot($commitId);
+        if (!$snapshot['header']) {
+            return ['ok' => false, 'message' => 'Snapshot stock commit tidak ditemukan.'];
+        }
+
+        $filterLineId = (int)($options['line_id'] ?? 0);
+        $dryRun = !empty($options['dry_run']);
+        $actorEmployeeId = (int)($options['actor_employee_id'] ?? 0);
+        $repairNote = trim((string)($options['note'] ?? 'Repair cross-division POS commit line'));
+
+        $targets = [];
+        foreach ((array)$snapshot['lines'] as $line) {
+            if ($filterLineId > 0 && (int)($line['id'] ?? 0) !== $filterLineId) {
+                continue;
+            }
+
+            $audit = $this->build_commit_line_scope_audit($snapshot['header'], $line);
+            if (empty($audit['is_mismatch'])) {
+                continue;
+            }
+            $targets[] = $audit;
+        }
+
+        if (empty($targets)) {
+            return [
+                'ok' => true,
+                'message' => 'Tidak ada line commit lintas divisi yang perlu direpair.',
+                'processed' => 0,
+                'dry_run' => $dryRun,
+            ];
+        }
+
+        if ($dryRun) {
+            return [
+                'ok' => true,
+                'message' => 'Dry run only.',
+                'processed' => count($targets),
+                'dry_run' => true,
+                'targets' => $targets,
+            ];
+        }
+
+        $db = $this->ci->db;
+        $db->trans_begin();
+        try {
+            $results = [];
+            foreach ($targets as $audit) {
+                $line = (array)($audit['line'] ?? []);
+                $lineId = (int)($line['id'] ?? 0);
+                $remainingQty = round((float)($line['committed_qty'] ?? 0) - (float)($line['reversed_qty'] ?? 0), 4);
+                if ($remainingQty <= 0) {
+                    $results[] = [
+                        'line_id' => $lineId,
+                        'ok' => false,
+                        'message' => 'Line sudah fully reversed, tidak bisa direpair otomatis.',
+                    ];
+                    continue;
+                }
+
+                $reverseMeta = $options;
+                $reverseMeta['actor_employee_id'] = $actorEmployeeId > 0 ? $actorEmployeeId : (int)($snapshot['header']['actor_employee_id'] ?? 0);
+                $reverseMeta['notes'] = $repairNote . ' | rollback wrong division';
+
+                $reverse = strtoupper((string)($line['source_kind'] ?? 'MATERIAL')) === 'COMPONENT'
+                    ? $this->reverse_component_usage($snapshot['header'], $line, $remainingQty, $reverseMeta)
+                    : $this->reverse_material_usage($snapshot['header'], $line, $remainingQty, $reverseMeta);
+                if (!($reverse['ok'] ?? false)) {
+                    throw new RuntimeException('Rollback line #' . $lineId . ' gagal: ' . (string)($reverse['message'] ?? 'unknown error'));
+                }
+
+                $correctedLine = $line;
+                $correctedLine['resolved_source_division_id'] = $audit['expected_division_id'] ?: null;
+                $correctedLine['resolved_source_division_code'] = $audit['expected_division_code'] ?: null;
+                $correctedLine['resolved_source_division_name'] = $audit['expected_division_name'] ?: null;
+                $correctedLine['movement_ref_type'] = 'NONE';
+                $correctedLine['movement_ref_id'] = null;
+
+                $postMeta = $options;
+                $postMeta['actor_employee_id'] = $actorEmployeeId > 0 ? $actorEmployeeId : (int)($snapshot['header']['actor_employee_id'] ?? 0);
+                $postMeta['notes'] = $repairNote . ' | repost to expected division';
+
+                $repost = strtoupper((string)($line['source_kind'] ?? 'MATERIAL')) === 'COMPONENT'
+                    ? $this->post_component_usage($snapshot['header'], $correctedLine, $postMeta)
+                    : $this->post_material_usage($snapshot['header'], $correctedLine, $postMeta);
+                if (!($repost['ok'] ?? false)) {
+                    throw new RuntimeException('Repost line #' . $lineId . ' gagal: ' . (string)($repost['message'] ?? 'unknown error'));
+                }
+
+                $update = [
+                    'movement_ref_type' => $this->normalize_commit_line_movement_ref_type_for_storage((string)($repost['movement_ref_type'] ?? 'NONE')),
+                    'movement_ref_id' => !empty($repost['movement_ref_id']) ? (int)$repost['movement_ref_id'] : null,
+                    'unit_cost_live' => round((float)($repost['unit_cost_live'] ?? ($line['unit_cost_live'] ?? 0)), 6),
+                    'total_cost_live' => round((float)($repost['total_cost_live'] ?? ($line['total_cost_live'] ?? 0)), 6),
+                    'cost_source' => (string)($repost['cost_source'] ?? ($line['cost_source'] ?? 'STANDARD_FALLBACK')),
+                    'notes' => $this->merge_note((string)($line['notes'] ?? ''), $repairNote . ' | ' . (string)($repost['notes'] ?? 'reposted to expected division')),
+                ];
+                if ($this->commit_line_has_column('resolved_source_division_id')) {
+                    $update['resolved_source_division_id'] = $audit['expected_division_id'] ?: null;
+                }
+                if ($this->commit_line_has_column('resolved_source_division_code')) {
+                    $update['resolved_source_division_code'] = $audit['expected_division_code'] ?: null;
+                }
+                if ($this->commit_line_has_column('resolved_source_division_name')) {
+                    $update['resolved_source_division_name'] = $audit['expected_division_name'] ?: null;
+                }
+
+                $db->where('id', $lineId)->update('pos_stock_commit_line', $update);
+                if ($db->affected_rows() < 0) {
+                    throw new RuntimeException('Update commit line #' . $lineId . ' gagal.');
+                }
+
+                $results[] = [
+                    'line_id' => $lineId,
+                    'ok' => true,
+                    'movement_ref_type' => $update['movement_ref_type'],
+                    'movement_ref_id' => $update['movement_ref_id'],
+                    'expected_division_id' => $audit['expected_division_id'],
+                    'actual_before_division_id' => $audit['actual_division_id'],
+                ];
+            }
+
+            if ($db->trans_status() === false) {
+                throw new RuntimeException('Repair cross-division commit snapshot gagal disimpan.');
+            }
+            $db->trans_commit();
+
+            $successCount = 0;
+            foreach ($results as $row) {
+                if (!empty($row['ok'])) {
+                    $successCount++;
+                }
+            }
+
+            return [
+                'ok' => true,
+                'message' => 'Repair cross-division commit snapshot selesai.',
+                'processed' => count($results),
+                'success' => $successCount,
+                'failed' => count($results) - $successCount,
+                'results' => $results,
             ];
         } catch (Throwable $e) {
             $db->trans_rollback();
@@ -1015,6 +1205,133 @@ class PosOrderStockService
         return 'OTHER';
     }
 
+    private function build_commit_line_scope_audit(array $header, array $line): array
+    {
+        $orderScope = (string)($header['order_scope'] ?? 'REGULAR');
+        $expectedScope = $this->resolve_effective_stock_scope_for_line($line, $orderScope);
+        $actualScope = $this->resolve_actual_scope_from_movement_ref($header, $line);
+
+        $expectedDivisionId = (int)($expectedScope['division_id'] ?? 0);
+        $expectedDestinationType = (string)($expectedScope['destination_type'] ?? 'OTHER');
+        $actualDivisionId = (int)($actualScope['division_id'] ?? 0);
+        $actualDestinationType = (string)($actualScope['destination_type'] ?? ($actualScope['location_type'] ?? 'OTHER'));
+        $actualRefKind = (string)($actualScope['ref_kind'] ?? 'NONE');
+
+        $isMismatch = false;
+        if ($expectedDivisionId > 0 && $expectedDestinationType !== 'OTHER') {
+            $isMismatch = $actualDivisionId > 0
+                && (
+                    $actualDivisionId !== $expectedDivisionId
+                    || strtoupper($actualDestinationType) !== strtoupper($expectedDestinationType)
+                );
+        }
+
+        return [
+            'line' => $line,
+            'line_id' => (int)($line['id'] ?? 0),
+            'commit_id' => (int)($header['id'] ?? 0),
+            'order_id' => (int)($header['order_id'] ?? 0),
+            'source_kind' => strtoupper((string)($line['source_kind'] ?? 'MATERIAL')),
+            'expected_division_id' => $expectedDivisionId,
+            'expected_division_code' => (string)($expectedScope['line']['operational_division_code'] ?? ($expectedScope['recipe_division']['code'] ?? '')),
+            'expected_division_name' => (string)($expectedScope['line']['operational_division_name'] ?? ($expectedScope['recipe_division']['name'] ?? '')),
+            'expected_destination_type' => $expectedDestinationType,
+            'actual_division_id' => $actualDivisionId,
+            'actual_division_code' => (string)($actualScope['division_code'] ?? ''),
+            'actual_division_name' => (string)($actualScope['division_name'] ?? ''),
+            'actual_destination_type' => $actualDestinationType,
+            'actual_ref_kind' => $actualRefKind,
+            'movement_ref_type' => (string)($line['movement_ref_type'] ?? 'NONE'),
+            'movement_ref_id' => (int)($line['movement_ref_id'] ?? 0),
+            'is_mismatch' => $isMismatch,
+        ];
+    }
+
+    private function resolve_actual_scope_from_movement_ref(array $header, array $line): array
+    {
+        $refId = (int)($line['movement_ref_id'] ?? 0);
+        if ($refId <= 0) {
+            return [
+                'division_id' => 0,
+                'destination_type' => 'OTHER',
+                'location_type' => 'OTHER',
+                'ref_kind' => 'NONE',
+            ];
+        }
+
+        if (strtoupper((string)($line['source_kind'] ?? 'MATERIAL')) === 'COMPONENT') {
+            $refType = $this->resolve_component_movement_ref_type($header, $line);
+            if ($refType === 'COMPONENT_LOT_ISSUE' && $this->ci->db->table_exists('inv_component_lot_issue_log')) {
+                $row = $this->ci->db->select('division_id, location_type')
+                    ->from('inv_component_lot_issue_log')
+                    ->where('id', $refId)
+                    ->limit(1)
+                    ->get()
+                    ->row_array() ?: [];
+                return $this->enrich_division_scope($row, 'COMPONENT_LOT_ISSUE');
+            }
+            if ($this->ci->db->table_exists('inv_component_movement_log')) {
+                $row = $this->ci->db->select('division_id, location_type')
+                    ->from('inv_component_movement_log')
+                    ->where('id', $refId)
+                    ->limit(1)
+                    ->get()
+                    ->row_array() ?: [];
+                return $this->enrich_division_scope($row, 'COMPONENT_MOVEMENT');
+            }
+        }
+
+        $refType = $this->resolve_material_movement_ref_type($header, $line);
+        if ($refType === 'FIFO_ISSUE' && $this->ci->db->table_exists('inv_material_fifo_issue_log')) {
+            $row = $this->ci->db->select('division_id, destination_type')
+                ->from('inv_material_fifo_issue_log')
+                ->where('id', $refId)
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+            return $this->enrich_division_scope($row, 'FIFO_ISSUE');
+        }
+        if ($this->ci->db->table_exists('inv_stock_movement_log')) {
+            $row = $this->ci->db->select('division_id, destination_type')
+                ->from('inv_stock_movement_log')
+                ->where('id', $refId)
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+            return $this->enrich_division_scope($row, 'LEDGER_MOVEMENT');
+        }
+
+        return [
+            'division_id' => 0,
+            'destination_type' => 'OTHER',
+            'location_type' => 'OTHER',
+            'ref_kind' => 'UNKNOWN',
+        ];
+    }
+
+    private function enrich_division_scope(array $row, string $refKind): array
+    {
+        $divisionId = (int)($row['division_id'] ?? 0);
+        $division = [];
+        if ($divisionId > 0) {
+            $division = $this->ci->db->select('code, name')
+                ->from('mst_operational_division')
+                ->where('id', $divisionId)
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+        }
+
+        return [
+            'division_id' => $divisionId,
+            'division_code' => (string)($division['code'] ?? ''),
+            'division_name' => (string)($division['name'] ?? ''),
+            'destination_type' => (string)($row['destination_type'] ?? ($row['location_type'] ?? 'OTHER')),
+            'location_type' => (string)($row['location_type'] ?? ($row['destination_type'] ?? 'OTHER')),
+            'ref_kind' => $refKind,
+        ];
+    }
+
     private function resolve_recipe_source_division_for_line(array $line): ?array
     {
         if (!empty($line['resolved_source_division_id'])) {
@@ -1427,6 +1744,19 @@ class PosOrderStockService
         }
 
         return $this->commitLineMovementRefEnumValues;
+    }
+
+    private function commit_line_has_column(string $column): bool
+    {
+        if (array_key_exists($column, $this->commitLineColumnExistsCache)) {
+            return $this->commitLineColumnExistsCache[$column];
+        }
+
+        $exists = $this->ci->db->table_exists('pos_stock_commit_line')
+            && $this->ci->db->field_exists($column, 'pos_stock_commit_line');
+        $this->commitLineColumnExistsCache[$column] = $exists;
+
+        return $exists;
     }
 
     private function resolve_material_movement_ref_type(array $header, array $line): string

@@ -13,6 +13,8 @@ class PosStockCommitService
     protected $allowedCostSources = ['FIFO', 'LAST_LIVE', 'STANDARD_FALLBACK', 'MANUAL'];
     protected $allowedReturnPolicies = ['RETURN_TO_STOCK', 'ADJUSTMENT_ONLY', 'NO_RETURN'];
     protected $allowedReversalStatuses = ['NONE', 'RETURNED', 'ADJUSTED', 'SKIPPED'];
+    /** @var array<string, bool> */
+    protected $posStockCommitLineColumnCache = [];
 
     public function __construct()
     {
@@ -368,7 +370,7 @@ class PosStockCommitService
 
     protected function normalize_snapshot_line_payload(int $commitId, int $orderId, int $lineNo, array $line): array
     {
-        return [
+        $payload = [
             'commit_id' => $commitId,
             'line_no' => $lineNo,
             'order_id' => $orderId,
@@ -395,6 +397,33 @@ class PosStockCommitService
             'reversal_status' => $this->normalize_enum((string)($line['reversal_status'] ?? 'NONE'), $this->allowedReversalStatuses, 'NONE'),
             'notes' => trim((string)($line['notes'] ?? '')),
         ];
+
+        if ($this->pos_stock_commit_line_has_column('resolved_source_division_id')) {
+            $payload['resolved_source_division_id'] = !empty($line['resolved_source_division_id']) ? (int)$line['resolved_source_division_id'] : null;
+        }
+        if ($this->pos_stock_commit_line_has_column('resolved_source_division_code')) {
+            $payload['resolved_source_division_code'] = trim((string)($line['resolved_source_division_code'] ?? '')) ?: null;
+        }
+        if ($this->pos_stock_commit_line_has_column('resolved_source_division_name')) {
+            $payload['resolved_source_division_name'] = trim((string)($line['resolved_source_division_name'] ?? '')) ?: null;
+        }
+
+        return $payload;
+    }
+
+    protected function pos_stock_commit_line_has_column(string $column): bool
+    {
+        if (array_key_exists($column, $this->posStockCommitLineColumnCache)) {
+            return $this->posStockCommitLineColumnCache[$column];
+        }
+
+        $hasColumn = false;
+        if ($this->CI->db->table_exists('pos_stock_commit_line')) {
+            $hasColumn = $this->CI->db->field_exists($column, 'pos_stock_commit_line');
+        }
+        $this->posStockCommitLineColumnCache[$column] = $hasColumn;
+
+        return $hasColumn;
     }
 
     protected function merge_note(string $current, string $append): string
