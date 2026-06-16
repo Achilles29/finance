@@ -5,6 +5,7 @@ $repairUrl    = site_url('inventory/stock/division/reconcile/repair');
 $lotRepairUrl        = site_url('inventory/stock/division/reconcile/lot-repair');
 $lotProfileSyncUrl   = site_url('inventory/stock/division/reconcile/lot-profile-sync');
 $lotRepairAllUrl     = site_url('inventory/stock/division/reconcile/lot-repair-all');
+$gapRepairAllUrl     = site_url('inventory/stock/division/reconcile/gap-repair-all');
 $repairMaterialIdUrl    = site_url('inventory/stock/division/reconcile/repair-material-id');
 $profileRepairUrl       = site_url('inventory/stock/division/reconcile/profile-repair');
 
@@ -436,6 +437,9 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
     </span>
     <div class="d-flex align-items-center gap-2">
       <span class="text-muted small"><?php echo number_format($totalRows); ?> baris<?php echo $mismatchOnly ? ' mismatch' : ' aktif'; ?></span>
+      <button type="button" class="btn btn-xs btn-outline-danger" id="src_gap_repair_all_btn"
+        style="font-size:.7rem;padding:.18rem .55rem"
+        title="Repair semua gap opening monthly yang punya anchor aman">Repair Gap Opening</button>
       <button type="button" class="btn btn-xs btn-outline-warning" id="src_lot_repair_all_btn"
         style="font-size:.7rem;padding:.18rem .55rem"
         title="Repair semua lot yang mismatch sesuai filter aktif">Repair Lot Semua</button>
@@ -499,6 +503,10 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                   $sign = $dDVsM > 0 ? '+' : '';
                   $parentSelisihParts[] = 'Snapshot vs Mvt: ' . $sign . $fmtQty($dDVsM);
               }
+              if (!empty($row['daily_log_has_gap']) && abs((float)($row['daily_log_gap_content'] ?? 0)) > 0.01) {
+                  $sign = ((float)($row['daily_log_gap_content'] ?? 0)) > 0 ? '+' : '';
+                  $parentSelisihParts[] = 'Gap Log: ' . $sign . $fmtQty($row['daily_log_gap_content'] ?? 0);
+              }
               if (empty($parentSelisihParts) && $hasProfileMismatch && !empty($profileBreakdown)) {
                   foreach ($profileBreakdown as $pb) {
                       if (empty($pb['has_mismatch'])) {
@@ -525,6 +533,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
               $parentMovementMismatch = abs((float)($row['delta_balance_vs_movement'] ?? 0)) > 0.01
                 || abs((float)($row['delta_daily_vs_movement'] ?? 0)) > 0.01
                 || abs((float)($row['delta_matrix_vs_movement'] ?? 0)) > 0.01
+                || !empty($row['daily_log_has_gap'])
                 || abs((float)$profileStockDeltaSum) > 0.01;
               $parentProfileLotMismatch = abs((float)$profileLotDeltaSum) > 0.01;
               $parentRepairLabel = 'Repair Bahan';
@@ -605,6 +614,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                 <div><?php echo $fmtQty($row['daily_qty_content'] ?? 0); ?></div>
                 <div class="text-muted" style="font-size:.68rem"><?php echo $fmtQty($row['daily_qty_pack'] ?? 0); ?> pack</div>
                 <?php if (!empty($row['daily_audit_has_mismatch'])): ?><div class="text-danger" style="font-size:.66rem">Log liar ±<?php echo $fmtQty($row['daily_audit_mismatch_qty_content'] ?? 0); ?></div><?php endif; ?>
+                <?php if (!empty($row['daily_log_has_gap'])): ?><div class="text-warning" style="font-size:.66rem">Gap log ±<?php echo $fmtQty($row['daily_log_gap_content'] ?? 0); ?></div><?php endif; ?>
               </td>
               <td class="text-end small">
                 <div><?php echo $fmtQty($row['movement_qty_content'] ?? 0); ?></div>
@@ -620,6 +630,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
               <td>
                 <span class="rec-chip <?php echo $isMatch ? 'rec-chip-ok' : 'rec-chip-bad'; ?>"><?php echo $isMatch ? 'Match' : 'Mismatch'; ?></span>
                 <?php if (!empty($row['daily_audit_has_mismatch'])): ?><div class="text-muted" style="font-size:.66rem;margin-top:.2rem">Log liar: <?php echo html_escape((string)($row['daily_audit_mismatch_notes'] ?? 'fallback identity')); ?></div><?php endif; ?>
+                <?php if (!empty($row['daily_log_has_gap'])): ?><div class="text-muted" style="font-size:.66rem;margin-top:.2rem">Gap movement log: opening + delta log tidak sama dengan closing monthly.</div><?php endif; ?>
               </td>
               <td>
                 <div class="d-flex gap-1 flex-wrap">
@@ -794,6 +805,23 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
       <table class="table table-sm align-middle mb-0">
         <thead class="table-light">
           <tr>
+            <th>Profil</th>
+            <th class="text-end">Opening Monthly</th>
+            <th class="text-end">Opening Snapshot</th>
+            <th class="text-end">Prev Closing</th>
+            <th class="text-end">Delta Log</th>
+            <th class="text-end">Closing Monthly</th>
+            <th class="text-end">Gap</th>
+            <th>Saran Repair</th>
+          </tr>
+        </thead>
+        <tbody id="src_material_audit_gap_profiles"></tbody>
+      </table>
+    </div>
+    <div class="table-responsive mb-3">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr>
             <th>Bucket</th>
             <th class="text-end">Jumlah Log</th>
             <th class="text-end">Delta Content</th>
@@ -874,6 +902,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var auditState  = document.getElementById('src_material_audit_state');
   var auditBody   = document.getElementById('src_material_audit_body');
   var auditSumEl  = document.getElementById('src_material_audit_summary');
+  var auditGapEl  = document.getElementById('src_material_audit_gap_profiles');
   var auditBktEl  = document.getElementById('src_material_audit_buckets');
   var auditMvtEl  = document.getElementById('src_material_audit_movements');
   var repairCurBtn = document.getElementById('src_material_repair_current');
@@ -942,6 +971,7 @@ document.addEventListener('DOMContentLoaded', function () {
       lot_repair: 'Repair Lot',
       profile_sync: 'Repair Profil',
       profile_to_movement: 'Repair Stok/Mvt per Profil',
+      repair_log_gap_opening: 'Repair Gap Opening',
       rebuild_from_movement: 'Repair Stok dari Movement',
       rebuild_then_lot_repair: 'Ikuti Movement lalu Repair Lot',
       rebuild_then_profile_sync: 'Ikuti Movement lalu Repair Profil'
@@ -979,7 +1009,7 @@ document.addEventListener('DOMContentLoaded', function () {
   // ── Material audit render ────────────────────────────────────────────────
   function renderMaterialAudit(identity,json) {
     currentMaterialIdentity=identity;
-    var summary=json.summary||{}; var buckets=Array.isArray(json.buckets)?json.buckets:[]; var movements=Array.isArray(json.movements)?json.movements:[];
+    var summary=json.summary||{}; var buckets=Array.isArray(json.buckets)?json.buckets:[]; var movements=Array.isArray(json.movements)?json.movements:[]; var gapProfiles=Array.isArray(json.gap_profiles)?json.gap_profiles:[];
     auditState.classList.add('d-none'); auditBody.classList.remove('d-none');
     if(repairCurBtn){repairCurBtn.classList.remove('d-none');repairCurBtn.disabled=false;}
     auditSumEl.innerHTML=[
@@ -987,8 +1017,30 @@ document.addEventListener('DOMContentLoaded', function () {
       ['Verdict',  escHtml(summary.suspect_table||'MATCH'), escHtml(summary.suspect_reason||'Semua tabel masih sinkron.')],
       ['Stok vs Mvt', fmtQty(summary.delta_balance_vs_movement||0),'selisih content'],
       ['Daily vs Mvt', fmtQty(summary.delta_daily_vs_movement||0),'closing daily '+escHtml(summary.daily_date||'-')],
+      ['Gap Log', fmtQty(summary.daily_log_gap_content||0), (summary.daily_log_has_gap ? 'opening + delta log tidak foot ke closing monthly' : 'tidak ada gap')],
       ['Identity Repair', escHtml(String(json.repair_identity_count||0)),'identity sumber'],
     ].map(function(it){return '<div class="rec-audit-metric"><span class="label">'+it[0]+'</span><div class="value">'+it[1]+'</div><div class="text-muted small">'+it[2]+'</div></div>';}).join('');
+    var gapPathLabel = {
+      NO_GAP: 'Sudah foot',
+      RESTORE_OPENING_FROM_SNAPSHOT: 'Pulihkan opening dari snapshot',
+      SEED_OPENING_FROM_PREV_MONTH_CLOSING: 'Isi opening dari closing bulan lalu',
+      REVIEW_MOVEMENT_HISTORY: 'Review histori movement',
+      NO_MONTH_MOVEMENT_REVIEW_MONTHLY: 'Review monthly tanpa movement bulan ini'
+    };
+    auditGapEl.innerHTML=gapProfiles.map(function(g){
+      var gap = Number(g.gap_from_monthly_opening||0);
+      var gapCls = Math.abs(gap) > 0.01 ? 'text-danger fw-bold' : 'text-success fw-bold';
+      return '<tr>'
+        + '<td>'+escHtml(g.profile_name||g.profile_key||'-')+'<div class="text-muted small">'+escHtml(String(g.profile_key||'').slice(0,12))+'</div></td>'
+        + '<td class="text-end">'+fmtQty(g.monthly_opening_qty_content||0)+'</td>'
+        + '<td class="text-end">'+(g.snapshot_opening_qty_content==null?'<span class="text-muted">-</span>':fmtQty(g.snapshot_opening_qty_content))+'</td>'
+        + '<td class="text-end">'+(g.prev_closing_qty_content==null?'<span class="text-muted">-</span>':fmtQty(g.prev_closing_qty_content))+'</td>'
+        + '<td class="text-end">'+fmtQty(g.net_non_opening_delta||0)+'</td>'
+        + '<td class="text-end">'+fmtQty(g.monthly_closing_qty_content||0)+'</td>'
+        + '<td class="text-end '+gapCls+'">'+(gap>0?'+':'')+fmtQty(gap)+'</td>'
+        + '<td>'+escHtml(gapPathLabel[g.suggested_repair_path] || g.suggested_repair_path || '-')+'</td>'
+        + '</tr>';
+    }).join('')||'<tr><td colspan="8" class="text-center text-muted py-3">Tidak ada gap movement log per profil.</td></tr>';
     auditBktEl.innerHTML=buckets.map(function(b){return '<tr><td>'+escHtml(b.bucket_label||b.bucket_code||'-')+'</td><td class="text-end">'+Number(b.count||0)+'</td><td class="text-end">'+fmtQty(b.delta_content||0)+'</td><td class="text-end">'+fmtQty(b.delta_buy||0)+'</td><td class="text-end">'+fmtQty(b.mutation_value||0)+'</td><td>'+escHtml(b.last_movement_date||'-')+'<div class="text-muted small">'+escHtml(b.last_movement_no||'-')+'</div></td></tr>';}).join('')||'<tr><td colspan="6" class="text-center text-muted py-3">Belum ada bucket log.</td></tr>';
     auditMvtEl.innerHTML=movements.map(function(r){return '<tr><td>'+escHtml(r.movement_date||'-')+'</td><td>'+escHtml(r.movement_no||'-')+'</td><td>'+escHtml(r.source_label||'-')+'<div class="text-muted small">'+escHtml(r.source_bucket_label||'-')+'</div></td><td class="text-end">'+fmtQty(r.qty_content_before||0)+'</td><td class="text-end">'+fmtQty(r.qty_content_delta||0)+'</td><td class="text-end">'+fmtQty(r.qty_content_after||0)+'</td><td>'+escHtml(r.movement_type_label||r.movement_type||'-')+'</td><td>'+escHtml(r.notes||'-')+'</td></tr>';}).join('')||'<tr><td colspan="8" class="text-center text-muted py-3">Belum ada movement sumber.</td></tr>';
     auditCard.scrollIntoView({behavior:'smooth',block:'start'});
@@ -1046,6 +1098,44 @@ document.addEventListener('DOMContentLoaded', function () {
         window.location.reload();
       }
     } catch(e) { button.disabled=false; button.innerHTML=orig; throw e; }
+  }
+
+  // ── Repair Lot Semua ──────────────────────────────────────────────────────
+  var gapRepairAllBtn = document.getElementById('src_gap_repair_all_btn');
+  if (gapRepairAllBtn) {
+    gapRepairAllBtn.addEventListener('click', async function() {
+      var ok = await askConfirm(
+        'Repair semua gap movement log yang anchor-nya aman sesuai filter aktif?\n\nSaat ini sistem hanya akan memperbaiki kasus yang bisa dipulihkan dari opening snapshot atau closing bulan sebelumnya. Kasus lain tetap dibiarkan untuk review manual.',
+        {title:'Repair Gap Opening', confirmText:'Repair Gap', cancelText:'Batal'}
+      );
+      if (!ok) return;
+      var orig = gapRepairAllBtn.innerHTML;
+      gapRepairAllBtn.disabled = true; gapRepairAllBtn.textContent = 'Memproses...';
+      try {
+        var json = await postJson('<?php echo $gapRepairAllUrl; ?>', {
+          as_of_date:  '<?php echo $asOfDate; ?>',
+          division_id: <?php echo (int)$selDivId; ?>,
+          destination: '<?php echo addslashes($selDest ?? 'ALL'); ?>'
+        });
+        var data = json.data || {};
+        var detail = json.message || 'Selesai.';
+        if (Array.isArray(data.updated_profiles) && data.updated_profiles.length) {
+          detail += '\n\nDirepair:\n' + data.updated_profiles.slice(0, 12).map(function(r) {
+            return '• ' + (r.profile_name || r.profile_key || ('monthly#' + r.monthly_id)) + ' — ' + (r.repair_path || '-');
+          }).join('\n');
+        }
+        if (Array.isArray(data.skipped_profiles) && data.skipped_profiles.length) {
+          detail += '\n\nMasih perlu review:\n' + data.skipped_profiles.slice(0, 12).map(function(r) {
+            return '• ' + (r.profile_name || r.profile_key || ('monthly#' + r.monthly_id)) + ' — ' + (r.repair_path || '-');
+          }).join('\n');
+        }
+        await showAlert(detail, 'Repair Gap Opening');
+        window.location.reload();
+      } catch(e) {
+        gapRepairAllBtn.disabled = false; gapRepairAllBtn.innerHTML = orig;
+        await showAlert(e.message || 'Gagal menjalankan repair gap opening.', 'Repair Gap Opening');
+      }
+    });
   }
 
   // ── Repair Lot Semua ──────────────────────────────────────────────────────

@@ -439,6 +439,40 @@ function initTooltips(root) {
     });
 }
 
+function showAlert(type, msg) {
+    var host = el('alert-area');
+    var alertTypeMap = {
+        success: 'success',
+        danger: 'danger',
+        warning: 'warning',
+        info: 'info'
+    };
+    if (host) {
+        var cls = alertTypeMap[type] || 'info';
+        host.innerHTML = ''
+            + '<div class="alert alert-' + cls + ' alert-dismissible fade show shadow-sm mb-0" role="alert">'
+            + msg
+            + '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>'
+            + '</div>';
+        host.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        window.setTimeout(function () {
+            var alertEl = host.querySelector('.alert');
+            if (!alertEl) return;
+            try {
+                bootstrap.Alert.getOrCreateInstance(alertEl).close();
+            } catch (ex) {
+                host.innerHTML = '';
+            }
+        }, cls === 'danger' ? 8000 : 3500);
+        return;
+    }
+    if (window.FinanceUI && typeof window.FinanceUI.alert === 'function') {
+        window.FinanceUI.alert(String(msg || ''), { title: 'Informasi' });
+        return;
+    }
+    window.alert(String(msg || ''));
+}
+
 /* ── Surprise #1: animated completion ring ────────────────── */
 function updateRing(filled, total) {
     const pct        = total > 0 ? Math.round(filled / total * 100) : 0;
@@ -823,6 +857,7 @@ function doSave(inp, p) {
         if (!res.j.ok) { showAlert('danger', res.j.message || 'Gagal menyimpan.'); return; }
         p.physical_qty_content = res.j.data.physical_qty_content;
         p.selisih              = res.j.data.selisih;
+        var savedName = (p.profile_name || p.material_name || p.item_name || 'stok fisik');
         var iid = cssid(p.division_id + '_' + p.identity_key);
         var selEl = el('sel-' + iid);
         if (selEl) {
@@ -838,6 +873,7 @@ function doSave(inp, p) {
             initTooltips(row);
         }
         updateSummary();
+        showAlert('success', savedName + ' berhasil disimpan. Selisih terbaru: ' + (p.selisih === null ? 'â€”' : ((p.selisih > 0 ? '+' : '') + fmt4(p.selisih))));
     })
     .catch(function (e) { showAlert('danger', 'Error: ' + e.message); });
 }
@@ -913,7 +949,6 @@ window.opnPostAdj = function (iid) {
         btn.disabled = false; btn.innerHTML = orig;
         if (res.s >= 400 || !res.j.ok) { showAlert('danger', res.j.message || 'Terjadi kesalahan.'); return; }
         var adjId = res.j.data && res.j.data.adjustment_id;
-        showAlert('success', 'Adjustment #' + adjId + ' berhasil diposting.');
         p.adjustment_id = adjId;
         var row = el('row-' + iid);
         if (row) {
@@ -922,6 +957,7 @@ window.opnPostAdj = function (iid) {
             initTooltips(row);
         }
         updateSummary();
+        showAlert('success', res.j.message || ('Adjustment #' + adjId + ' berhasil diposting.'));
     })
     .catch(function (e) { btn.disabled = false; btn.innerHTML = orig; showAlert('danger', 'Error: ' + e.message); });
 };

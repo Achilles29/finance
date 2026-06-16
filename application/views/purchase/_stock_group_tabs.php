@@ -18,6 +18,7 @@ if ($tabScope === 'DIVISION') {
         ['key' => 'daily',          'label' => 'Stok Bahan Baku Bulanan','url' => site_url('inventory/stock/division/daily')],
         ['key' => 'adjustment',     'label' => 'Adjustment Bahan Baku',  'url' => site_url('inventory/stock/adjustment/division')],
         ['key' => 'movement',       'label' => 'mutasi Bahan Baku',      'url' => site_url('inventory/stock/division/movement')],
+        ['key' => 'stok_awal',      'label' => 'Stok Awal Bahan Baku',   'url' => site_url('inventory/stock/stok-awal/division')],
         ['key' => 'opening',        'label' => 'Opening Manual Bahan Baku', 'url' => site_url('inventory/stock/opening/division')],
         ['key' => 'opname_monthly', 'label' => 'Opname Bahan Baku',     'url' => site_url('inventory/stock/opname/division/monthly')],
         ['key' => 'lot',            'label' => 'Lot Bahan Baku',         'url' => site_url('inventory/stock/division/lot')],

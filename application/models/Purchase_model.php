@@ -1353,7 +1353,7 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
-    public function list_stock_opening_snapshots(string $scope, string $month, string $q, int $limit, ?int $divisionId = null, ?string $destinationFilter = null): array
+    public function list_stock_opening_snapshots(string $scope, string $month, string $q, int $limit, ?int $divisionId = null, ?string $destinationFilter = null, array $options = []): array
     {
         $scope = strtoupper(trim($scope));
         if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
@@ -1440,6 +1440,10 @@ class Purchase_model extends CI_Model
                     $this->db->where("'OTHER' = " . $this->db->escape($destinationFilter), null, false);
                 }
             }
+        }
+
+        if (isset($options['source_type']) && $options['source_type'] !== '') {
+            $this->db->where('s.source_type', $options['source_type']);
         }
 
         if ($q !== '') {
@@ -1657,13 +1661,13 @@ class Purchase_model extends CI_Model
                 $destinationFilter,
                 $offset
             );
-            $rows = $this->attachMaterialDailyProfilePrices($result['rows']);
+            $rows = $this->attachMaterialDailyProfilePrices((array)($result['rows'] ?? []));
 
             return [
                 'window'      => $window,
                 'dates'       => $dates,
                 'rows'        => $rows,
-                'total_count' => $result['total_count'],
+                'total_count' => (int)($result['total_count'] ?? count($rows)),
             ];
         }
 
@@ -1801,6 +1805,8 @@ class Purchase_model extends CI_Model
 
             $nextClosingBuy = round((float)($baseRow['qty_buy_balance'] ?? 0), 4);
             $nextClosingContent = round((float)($baseRow['qty_content_balance'] ?? 0), 4);
+            $monthlyOpeningBuy = round((float)($baseRow['qty_buy_opening'] ?? 0), 4);
+            $monthlyOpeningContent = round((float)($baseRow['qty_content_opening'] ?? 0), 4);
             $avgCost = round((float)($baseRow['avg_cost_per_content'] ?? 0), 6);
             $totalValue = round((float)($baseRow['qty_content_balance'] ?? 0) * $avgCost, 2);
 
@@ -1842,6 +1848,20 @@ class Purchase_model extends CI_Model
                 $dailyRows[] = $row;
                 $nextClosingBuy = round((float)$row['opening_qty_buy'], 4);
                 $nextClosingContent = round((float)$row['opening_qty_content'], 4);
+            }
+
+            $logGapContent = round($monthlyOpeningContent - $nextClosingContent, 4);
+            $logGapBuy = round($monthlyOpeningBuy - $nextClosingBuy, 4);
+            $logHasGap = abs($logGapContent) > 0.001 || abs($logGapBuy) > 0.001;
+            if ($logHasGap) {
+                $firstIndex = count($dailyRows) - count($dates);
+                for ($j = $firstIndex; $j < count($dailyRows); $j++) {
+                    if (!isset($dailyRows[$j])) {
+                        continue;
+                    }
+                    $dailyRows[$j]['log_has_gap'] = 1;
+                    $dailyRows[$j]['log_gap_content'] = $logGapContent;
+                }
             }
         }
 
@@ -1922,7 +1942,10 @@ class Purchase_model extends CI_Model
         $totalCount = $this->count_material_daily_monthly_base_rows($q, $divisionId, $dateTo, $destinationFilter);
         $baseRows = $this->fetch_material_daily_monthly_base_rows($q, $divisionId, $dateTo, $limit, $destinationFilter, $offset);
         if (empty($baseRows)) {
-            return [];
+            return [
+                'rows' => [],
+                'total_count' => $totalCount,
+            ];
         }
 
         $movementRows = [];
@@ -2911,15 +2934,19 @@ class Purchase_model extends CI_Model
                 [
                     'daily_date' => (string)($daily['_meta']['latest_date'] ?? ''),
                     'as_of_date' => $asOfDate,
+                    'log_has_gap' => (int)($daily['_meta']['log_has_gap'] ?? 0),
+                    'log_gap_content' => (float)($daily['_meta']['log_gap_content'] ?? 0),
                 ],
                 [
                     'movement_date' => (string)($movement['_meta']['latest_date'] ?? ''),
                 ]
             );
 
+            $dailyLogHasGap = !empty($daily['_meta']['log_has_gap']);
             $matches = abs($deltaBalanceVsMovement) < 0.0001
                 && abs($deltaDailyVsMovement) < 0.0001
-                && abs($deltaMatrixVsMovement) < 0.0001;
+                && abs($deltaMatrixVsMovement) < 0.0001
+                && !$dailyLogHasGap;
 
             $rows[] = [
                 'division_id' => (int)($meta['division_id'] ?? 0),
@@ -2947,6 +2974,8 @@ class Purchase_model extends CI_Model
                 'daily_audit_has_mismatch' => (int)($daily['_meta']['audit_has_mismatch'] ?? 0),
                 'daily_audit_mismatch_qty_content' => (float)($daily['_meta']['audit_mismatch_qty_content'] ?? 0),
                 'daily_audit_mismatch_notes' => (string)($daily['_meta']['audit_mismatch_notes'] ?? ''),
+                'daily_log_has_gap' => (int)($daily['_meta']['log_has_gap'] ?? 0),
+                'daily_log_gap_content' => (float)($daily['_meta']['log_gap_content'] ?? 0),
                 'suspect_table' => (string)($verdict['suspect_table'] ?? 'MATCH'),
                 'suspect_reason' => (string)($verdict['reason'] ?? ''),
                 'is_match' => $matches ? 1 : 0,
@@ -3479,7 +3508,16 @@ class Purchase_model extends CI_Model
         $dailyVsMovement = abs($dailyContent - $movementContent);
         $dailyDate = (string)($dailyMeta['daily_date'] ?? '');
         $movementDate = (string)($movementMeta['movement_date'] ?? '');
+        $dailyLogHasGap = !empty($dailyMeta['log_has_gap']);
+        $dailyLogGapContent = round((float)($dailyMeta['log_gap_content'] ?? 0), 4);
 
+        if ($balanceVsDaily < $eps && $balanceVsMovement < $eps && $dailyLogHasGap) {
+            $reason = 'Ending balance masih sinkron, tetapi histori movement dalam bulan tidak lengkap: opening + delta movement tidak foot ke closing monthly.';
+            if (abs($dailyLogGapContent) >= $eps) {
+                $reason .= ' Gap log ' . ($dailyLogGapContent > 0 ? '+' : '') . $dailyLogGapContent . '.';
+            }
+            return ['suspect_table' => 'MOVEMENT_LOG_GAP', 'reason' => $reason];
+        }
         if ($balanceVsDaily < $eps && $balanceVsMovement < $eps) {
             return ['suspect_table' => 'MATCH', 'reason' => 'Balance, proyeksi harian, dan movement masih sinkron.'];
         }
@@ -3588,12 +3626,19 @@ class Purchase_model extends CI_Model
             'material_id' => $materialId,
             'destination' => $destinationFilter,
         ]);
+        $gapProfiles = $this->analyze_division_material_log_gap_profiles($asOfDate, [
+            'division_id' => $divisionId,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'destination' => $destinationFilter,
+        ]);
 
         return [
             'ok' => true,
             'summary' => $summaryRow,
             'buckets' => array_values($bucketRows),
             'movements' => array_reverse($movements),
+            'gap_profiles' => $gapProfiles,
             'diagnosis' => [
                 'suspect_table' => (string)($summaryRow['suspect_table'] ?? 'MATCH'),
                 'reason' => (string)($summaryRow['suspect_reason'] ?? ''),
@@ -3688,6 +3733,7 @@ class Purchase_model extends CI_Model
         $profileBreakdown = array_values(array_filter((array)($summaryRow['lot_profile_breakdown'] ?? []), static function ($pb) {
             return !empty($pb['has_mismatch']);
         }));
+        $gapProfiles = $this->analyze_division_material_log_gap_profiles((string)($filters['as_of_date'] ?? date('Y-m-d')), $filters);
         $profileMovementMismatch = false;
         $profileLotMismatch = false;
         $profileTargetKey = '';
@@ -3710,6 +3756,22 @@ class Purchase_model extends CI_Model
                 'message' => 'Tidak ada repair untuk ' . $materialName . ' karena semua sumber masih sinkron.',
                 'choices' => [],
             ];
+        }
+
+        if ($suspectTable === 'MOVEMENT_LOG_GAP' && !$hasLotMismatch && !$hasProfileMismatch) {
+            $repairableGapProfiles = array_values(array_filter($gapProfiles, static function ($gap) {
+                $action = strtoupper((string)($gap['suggested_repair_path'] ?? ''));
+                return in_array($action, ['RESTORE_OPENING_FROM_SNAPSHOT', 'SEED_OPENING_FROM_PREV_MONTH_CLOSING'], true);
+            }));
+            if (!empty($repairableGapProfiles)) {
+                return [
+                    'mode' => 'repair_log_gap_opening',
+                    'recommended_mode' => 'repair_log_gap_opening',
+                    'message' => 'Rekomendasi: perbaiki opening monthly profil yang hilang/pecah agar closing monthly kembali foot dengan histori movement log.',
+                    'choices' => [],
+                    'gap_profiles' => $gapProfiles,
+                ];
+            }
         }
 
         if ($hasProfileMismatch && $profileMovementMismatch && !$profileLotMismatch && !$hasLotMismatch && count($profileBreakdown) === 1 && $profileTargetKey !== '') {
@@ -3842,6 +3904,9 @@ class Purchase_model extends CI_Model
                     'as_of_date' => $asOfDate,
                 ]);
 
+            case 'repair_log_gap_opening':
+                return $this->repair_division_material_log_gap_opening($asOfDate, $filters);
+
             case 'rebuild_from_movement':
                 return $this->execute_division_material_rebuild_from_movement($asOfDate, $filters);
 
@@ -3947,6 +4012,298 @@ class Purchase_model extends CI_Model
                 'success_count' => $successCount,
                 'results' => $results,
             ],
+        ];
+    }
+
+    private function analyze_division_material_log_gap_profiles(string $asOfDate, array $filters): array
+    {
+        $asOfDate = $this->normalizeDate($asOfDate) ?? date('Y-m-d');
+        $targetMonth = date('Y-m-01', strtotime($asOfDate));
+        $nextMonth = date('Y-m-01', strtotime($targetMonth . ' +1 month'));
+        $prevMonth = date('Y-m-01', strtotime($targetMonth . ' -1 month'));
+        $divisionId = (int)($filters['division_id'] ?? 0);
+        $itemId = (int)($filters['item_id'] ?? 0);
+        $materialId = (int)($filters['material_id'] ?? 0);
+        $destinationFilter = $this->normalizeDestinationFilter((string)($filters['destination'] ?? 'ALL'));
+
+        if (!$this->db->table_exists('inv_division_monthly_stock')) {
+            return [];
+        }
+
+        $this->db
+            ->select('s.id AS monthly_id, s.division_id, COALESCE(s.destination_type, "OTHER") AS destination_type, s.item_id, COALESCE(s.material_id, 0) AS material_id, COALESCE(s.profile_key, "") AS profile_key, COALESCE(s.profile_name, "") AS profile_name, ROUND(COALESCE(s.opening_qty_buy, 0), 4) AS monthly_opening_qty_buy, ROUND(COALESCE(s.opening_qty_content, 0), 4) AS monthly_opening_qty_content, ROUND(COALESCE(s.closing_qty_buy, 0), 4) AS monthly_closing_qty_buy, ROUND(COALESCE(s.closing_qty_content, 0), 4) AS monthly_closing_qty_content, ROUND(COALESCE(s.avg_cost_per_content, 0), 6) AS avg_cost_per_content', false)
+            ->from('inv_division_monthly_stock s')
+            ->where('s.month_key', $targetMonth);
+        if ($divisionId > 0) {
+            $this->db->where('s.division_id', $divisionId);
+        }
+        if ($itemId > 0) {
+            $this->db->where('s.item_id', $itemId);
+        }
+        if ($materialId > 0) {
+            $this->db->where('COALESCE(s.material_id, 0) =', $materialId, false);
+        }
+        if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
+            if ($destinationFilter === 'REGULER') {
+                $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } elseif ($destinationFilter === 'EVENT') {
+                $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } else {
+                $this->db->where('s.destination_type', $destinationFilter);
+            }
+        }
+        $monthlyRows = $this->db->get()->result_array();
+        if (empty($monthlyRows)) {
+            return [];
+        }
+
+        $snapshotRows = $this->db
+            ->select('snapshot_month, division_id, COALESCE(destination_type, "OTHER") AS destination_type, item_id, COALESCE(material_id, 0) AS material_id, COALESCE(profile_key, "") AS profile_key, ROUND(COALESCE(opening_qty_buy, 0), 4) AS opening_qty_buy, ROUND(COALESCE(opening_qty_content, 0), 4) AS opening_qty_content', false)
+            ->from('inv_division_stock_opening_snapshot')
+            ->where('snapshot_month', $targetMonth)
+            ->get()->result_array();
+        $snapshotMap = [];
+        foreach ($snapshotRows as $row) {
+            $snapshotMap[$this->build_division_gap_scope_key($row)] = $row;
+        }
+
+        $prevRows = $this->db
+            ->select('month_key, division_id, COALESCE(destination_type, "OTHER") AS destination_type, item_id, COALESCE(material_id, 0) AS material_id, COALESCE(profile_key, "") AS profile_key, ROUND(COALESCE(closing_qty_buy, 0), 4) AS prev_closing_qty_buy, ROUND(COALESCE(closing_qty_content, 0), 4) AS prev_closing_qty_content', false)
+            ->from('inv_division_monthly_stock')
+            ->where('month_key', $prevMonth)
+            ->get()->result_array();
+        $prevMap = [];
+        foreach ($prevRows as $row) {
+            $prevMap[$this->build_division_gap_scope_key($row)] = $row;
+        }
+
+        $movementRows = $this->db
+            ->select('division_id, COALESCE(destination_type, "OTHER") AS destination_type, item_id, COALESCE(material_id, 0) AS material_id, COALESCE(profile_key, "") AS profile_key, ROUND(SUM(CASE WHEN COALESCE(ref_table, "") IN ("inv_division_stock_opening_snapshot", "inv_warehouse_stock_opening_snapshot") THEN 0 ELSE COALESCE(qty_content_delta, 0) END), 4) AS net_non_opening_delta, ROUND(SUM(CASE WHEN COALESCE(ref_table, "") IN ("inv_division_stock_opening_snapshot", "inv_warehouse_stock_opening_snapshot") THEN 0 ELSE COALESCE(qty_buy_delta, 0) END), 4) AS net_non_opening_delta_buy, SUM(CASE WHEN COALESCE(ref_table, "") IN ("inv_division_stock_opening_snapshot", "inv_warehouse_stock_opening_snapshot") THEN 1 ELSE 0 END) AS opening_repost_rows, COUNT(*) AS month_movement_rows', false)
+            ->from('inv_stock_movement_log')
+            ->where('movement_scope', 'DIVISION')
+            ->where('movement_date >=', $targetMonth)
+            ->where('movement_date <', $nextMonth)
+            ->group_by(['division_id', 'destination_type', 'item_id', 'material_id', 'profile_key'])
+            ->get()->result_array();
+        $movementMap = [];
+        foreach ($movementRows as $row) {
+            $movementMap[$this->build_division_gap_scope_key($row)] = $row;
+        }
+
+        $results = [];
+        foreach ($monthlyRows as $row) {
+            $scopeKey = $this->build_division_gap_scope_key($row);
+            $snapshot = $snapshotMap[$scopeKey] ?? null;
+            $prev = $prevMap[$scopeKey] ?? null;
+            $movement = $movementMap[$scopeKey] ?? null;
+
+            $monthlyOpeningContent = round((float)($row['monthly_opening_qty_content'] ?? 0), 4);
+            $monthlyOpeningBuy = round((float)($row['monthly_opening_qty_buy'] ?? 0), 4);
+            $monthlyClosingContent = round((float)($row['monthly_closing_qty_content'] ?? 0), 4);
+            $netDeltaContent = round((float)($movement['net_non_opening_delta'] ?? 0), 4);
+            $netDeltaBuy = round((float)($movement['net_non_opening_delta_buy'] ?? 0), 4);
+            $predictedFromMonthly = round($monthlyOpeningContent + $netDeltaContent, 4);
+            $gapFromMonthly = round($monthlyClosingContent - $predictedFromMonthly, 4);
+
+            $snapshotOpeningContent = round((float)($snapshot['opening_qty_content'] ?? 0), 4);
+            $snapshotOpeningBuy = round((float)($snapshot['opening_qty_buy'] ?? 0), 4);
+            $predictedFromSnapshot = $snapshot !== null ? round($snapshotOpeningContent + $netDeltaContent, 4) : null;
+            $gapFromSnapshot = $snapshot !== null ? round($monthlyClosingContent - (float)$predictedFromSnapshot, 4) : null;
+
+            $prevClosingContent = round((float)($prev['prev_closing_qty_content'] ?? 0), 4);
+            $prevClosingBuy = round((float)($prev['prev_closing_qty_buy'] ?? 0), 4);
+            $predictedFromPrev = $prev !== null ? round($prevClosingContent + $netDeltaContent, 4) : null;
+            $gapFromPrev = $prev !== null ? round($monthlyClosingContent - (float)$predictedFromPrev, 4) : null;
+
+            $suggested = 'REVIEW_MOVEMENT_HISTORY';
+            if (abs($gapFromMonthly) <= 0.0001) {
+                $suggested = 'NO_GAP';
+            } elseif ($snapshot !== null && abs((float)$gapFromSnapshot) <= 0.0001) {
+                $suggested = 'RESTORE_OPENING_FROM_SNAPSHOT';
+            } elseif ($prev !== null && abs((float)$gapFromPrev) <= 0.0001) {
+                $suggested = 'SEED_OPENING_FROM_PREV_MONTH_CLOSING';
+            } elseif (empty($movement['month_movement_rows'])) {
+                $suggested = 'NO_MONTH_MOVEMENT_REVIEW_MONTHLY';
+            }
+
+            if (abs($gapFromMonthly) <= 0.0001 && $suggested === 'NO_GAP') {
+                continue;
+            }
+
+            $results[] = [
+                'monthly_id' => (int)($row['monthly_id'] ?? 0),
+                'division_id' => (int)($row['division_id'] ?? 0),
+                'destination_type' => (string)($row['destination_type'] ?? 'OTHER'),
+                'item_id' => (int)($row['item_id'] ?? 0),
+                'material_id' => (int)($row['material_id'] ?? 0),
+                'profile_key' => (string)($row['profile_key'] ?? ''),
+                'profile_name' => (string)($row['profile_name'] ?? ''),
+                'monthly_opening_qty_content' => $monthlyOpeningContent,
+                'monthly_opening_qty_buy' => $monthlyOpeningBuy,
+                'snapshot_opening_qty_content' => $snapshot !== null ? $snapshotOpeningContent : null,
+                'snapshot_opening_qty_buy' => $snapshot !== null ? $snapshotOpeningBuy : null,
+                'prev_closing_qty_content' => $prev !== null ? $prevClosingContent : null,
+                'prev_closing_qty_buy' => $prev !== null ? $prevClosingBuy : null,
+                'monthly_closing_qty_content' => $monthlyClosingContent,
+                'monthly_closing_qty_buy' => round((float)($row['monthly_closing_qty_buy'] ?? 0), 4),
+                'net_non_opening_delta' => $netDeltaContent,
+                'net_non_opening_delta_buy' => $netDeltaBuy,
+                'predicted_closing_from_monthly_opening' => $predictedFromMonthly,
+                'predicted_closing_from_snapshot' => $predictedFromSnapshot,
+                'predicted_closing_from_prev_month' => $predictedFromPrev,
+                'gap_from_monthly_opening' => $gapFromMonthly,
+                'gap_from_snapshot_opening' => $gapFromSnapshot,
+                'gap_from_prev_month' => $gapFromPrev,
+                'opening_repost_rows' => (int)($movement['opening_repost_rows'] ?? 0),
+                'month_movement_rows' => (int)($movement['month_movement_rows'] ?? 0),
+                'suggested_repair_path' => $suggested,
+            ];
+        }
+
+        usort($results, static function (array $a, array $b): int {
+            $cmp = abs((float)($b['gap_from_monthly_opening'] ?? 0)) <=> abs((float)($a['gap_from_monthly_opening'] ?? 0));
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+            return strcmp((string)($a['profile_key'] ?? ''), (string)($b['profile_key'] ?? ''));
+        });
+
+        return $results;
+    }
+
+    private function build_division_gap_scope_key(array $row): string
+    {
+        return implode('|', [
+            (int)($row['division_id'] ?? 0),
+            strtoupper((string)($row['destination_type'] ?? 'OTHER')),
+            (int)($row['item_id'] ?? 0),
+            (int)($row['material_id'] ?? 0),
+            (string)($row['profile_key'] ?? ''),
+        ]);
+    }
+
+    private function repair_division_material_log_gap_opening(string $asOfDate, array $filters): array
+    {
+        $gapProfiles = $this->analyze_division_material_log_gap_profiles($asOfDate, $filters);
+        if (empty($gapProfiles)) {
+            return ['ok' => true, 'message' => 'Tidak ada gap opening bulanan yang perlu direpair.'];
+        }
+
+        $updated = [];
+        foreach ($gapProfiles as $gap) {
+            $path = strtoupper((string)($gap['suggested_repair_path'] ?? ''));
+            if (!in_array($path, ['RESTORE_OPENING_FROM_SNAPSHOT', 'SEED_OPENING_FROM_PREV_MONTH_CLOSING'], true)) {
+                continue;
+            }
+            $applied = $this->apply_division_gap_opening_anchor_repair($gap, $path);
+            if ($applied !== null) {
+                $updated[] = $applied;
+            }
+        }
+
+        if (empty($updated)) {
+            return ['ok' => false, 'message' => 'Gap terdeteksi, tetapi belum ada anchor aman (opening snapshot / closing bulan lalu) untuk repair otomatis.', 'data' => ['gap_profiles' => $gapProfiles]];
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Repair opening monthly untuk gap movement log selesai dijalankan pada ' . count($updated) . ' profil.',
+            'data' => [
+                'updated_profiles' => $updated,
+                'gap_profiles' => $gapProfiles,
+            ],
+        ];
+    }
+
+    public function repair_division_material_log_gap_opening_batch(string $asOfDate, array $filters): array
+    {
+        $gapProfiles = $this->analyze_division_material_log_gap_profiles($asOfDate, $filters);
+        if (empty($gapProfiles)) {
+            return [
+                'ok' => true,
+                'message' => 'Tidak ada gap opening bulanan yang perlu direpair.',
+                'data' => ['processed' => 0, 'repaired' => 0, 'skipped' => 0, 'updated_profiles' => [], 'skipped_profiles' => []],
+            ];
+        }
+
+        $updated = [];
+        $skipped = [];
+        foreach ($gapProfiles as $gap) {
+            $path = strtoupper((string)($gap['suggested_repair_path'] ?? ''));
+            if (!in_array($path, ['RESTORE_OPENING_FROM_SNAPSHOT', 'SEED_OPENING_FROM_PREV_MONTH_CLOSING'], true)) {
+                $skipped[] = [
+                    'monthly_id' => (int)($gap['monthly_id'] ?? 0),
+                    'profile_key' => (string)($gap['profile_key'] ?? ''),
+                    'profile_name' => (string)($gap['profile_name'] ?? ''),
+                    'repair_path' => $path,
+                    'gap_from_monthly_opening' => round((float)($gap['gap_from_monthly_opening'] ?? 0), 4),
+                ];
+                continue;
+            }
+
+            $applied = $this->apply_division_gap_opening_anchor_repair($gap, $path);
+            if ($applied !== null) {
+                $updated[] = $applied;
+            }
+        }
+
+        $message = empty($updated)
+            ? 'Tidak ada gap yang punya anchor aman untuk batch repair.'
+            : ('Batch repair gap opening selesai: ' . count($updated) . ' profil direpair, ' . count($skipped) . ' profil masih perlu review manual.');
+
+        return [
+            'ok' => !empty($updated),
+            'message' => $message,
+            'data' => [
+                'processed' => count($gapProfiles),
+                'repaired' => count($updated),
+                'skipped' => count($skipped),
+                'updated_profiles' => $updated,
+                'skipped_profiles' => $skipped,
+            ],
+        ];
+    }
+
+    private function apply_division_gap_opening_anchor_repair(array $gap, string $path): ?array
+    {
+        $path = strtoupper(trim($path));
+        if (!in_array($path, ['RESTORE_OPENING_FROM_SNAPSHOT', 'SEED_OPENING_FROM_PREV_MONTH_CLOSING'], true)) {
+            return null;
+        }
+
+        $targetOpeningContent = $path === 'RESTORE_OPENING_FROM_SNAPSHOT'
+            ? (float)($gap['snapshot_opening_qty_content'] ?? 0)
+            : (float)($gap['prev_closing_qty_content'] ?? 0);
+        $targetOpeningBuy = $path === 'RESTORE_OPENING_FROM_SNAPSHOT'
+            ? (float)($gap['snapshot_opening_qty_buy'] ?? 0)
+            : (float)($gap['prev_closing_qty_buy'] ?? 0);
+        $note = $path === 'RESTORE_OPENING_FROM_SNAPSHOT'
+            ? 'Repair log gap opening from opening snapshot'
+            : 'Repair log gap opening from previous month closing';
+
+        $this->db
+            ->set('opening_qty_content', round($targetOpeningContent, 4))
+            ->set('opening_qty_buy', round($targetOpeningBuy, 4))
+            ->set('notes', 'CONCAT(COALESCE(notes, \'\'), CASE WHEN COALESCE(notes, \'\') = \'\' THEN \'\' ELSE \' | \' END, ' . $this->db->escape($note . ' ' . date('Y-m-d')) . ')', false)
+            ->set('updated_at', 'CURRENT_TIMESTAMP', false)
+            ->where('id', (int)($gap['monthly_id'] ?? 0))
+            ->update('inv_division_monthly_stock');
+
+        if ($this->db->affected_rows() < 0) {
+            return null;
+        }
+
+        return [
+            'monthly_id' => (int)($gap['monthly_id'] ?? 0),
+            'division_id' => (int)($gap['division_id'] ?? 0),
+            'item_id' => (int)($gap['item_id'] ?? 0),
+            'material_id' => (int)($gap['material_id'] ?? 0),
+            'profile_key' => (string)($gap['profile_key'] ?? ''),
+            'profile_name' => (string)($gap['profile_name'] ?? ''),
+            'repair_path' => $path,
+            'opening_qty_content' => round($targetOpeningContent, 4),
+            'opening_qty_buy' => round($targetOpeningBuy, 4),
+            'gap_from_monthly_opening' => round((float)($gap['gap_from_monthly_opening'] ?? 0), 4),
         ];
     }
 
@@ -5483,6 +5840,8 @@ class Purchase_model extends CI_Model
                         'audit_has_mismatch' => 0,
                         'audit_mismatch_qty_content' => 0.0,
                         'audit_mismatch_notes' => '',
+                        'log_has_gap' => 0,
+                        'log_gap_content' => 0.0,
                     ],
                 ];
             }
@@ -5500,6 +5859,13 @@ class Purchase_model extends CI_Model
                 $noteParts = array_filter(array_map('trim', explode(',', (string)($row['audit_mismatch_notes'] ?? ''))));
                 $existingParts = array_filter(array_map('trim', explode(',', (string)($map[$key]['_meta']['audit_mismatch_notes'] ?? ''))));
                 $map[$key]['_meta']['audit_mismatch_notes'] = implode(', ', array_values(array_unique(array_merge($existingParts, $noteParts))));
+            }
+            if (!empty($row['log_has_gap'])) {
+                $map[$key]['_meta']['log_has_gap'] = 1;
+                $map[$key]['_meta']['log_gap_content'] = round(
+                    (float)($map[$key]['_meta']['log_gap_content'] ?? 0) + (float)($row['log_gap_content'] ?? 0),
+                    4
+                );
             }
 
             if ($source === 'balance') {
@@ -10370,7 +10736,7 @@ class Purchase_model extends CI_Model
         $this->db
             ->select('s.id, "ITEM" AS stock_domain, s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id, i.item_code, i.item_name, s.profile_key, s.profile_name, s.profile_brand, s.profile_description', false)
             ->select('s.profile_content_per_buy, s.profile_buy_uom_code, s.profile_content_uom_code')
-            ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content')
+            ->select('s.opening_qty_buy AS qty_buy_opening, s.opening_qty_content AS qty_content_opening, s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content, s.total_value')
             ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
             ->select('s.profile_expired_date')
             ->from('inv_warehouse_monthly_stock s')

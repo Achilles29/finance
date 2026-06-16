@@ -91,6 +91,7 @@ if (!function_exists('_get_ri_icon')) {
             'production.component.opname.monthly' => 'ri-file-list-3-line',
             'inventory.stock.opname.warehouse.monthly' => 'ri-file-list-3-line',
             'inventory.stock.opname.division.monthly'  => 'ri-file-list-3-line',
+            'inventory.stock.opening.division.generated' => 'ri-archive-drawer-line',
             'grp.purchase'          => 'ri-shopping-cart-2-line',
             'purchase.stock.adjustment.warehouse' => 'ri-scales-3-line',
             'purchase.stock.adjustment.division' => 'ri-scales-3-line',
@@ -379,6 +380,20 @@ if (!function_exists('_regroup_inventory_children')) {
       'sort_order' => $scope === 'WAREHOUSE' ? 993 : 994,
       'children' => [],
     ];
+
+    if ($scope === 'DIVISION') {
+      $syntheticItems['inventory.stock.opening.division.generated'] = [
+        'id' => -2205,
+        'parent_id' => null,
+        'menu_code' => 'inventory.stock.opening.division.generated',
+        'menu_label' => 'Stok Awal Bahan Baku',
+        'icon' => 'ri-archive-drawer-line',
+        'url' => 'inventory/stock/stok-awal/division',
+        'page_id' => null,
+        'sort_order' => 996,
+        'children' => [],
+      ];
+    }
 
     $existingCodes = [];
     foreach ($children as $child) {

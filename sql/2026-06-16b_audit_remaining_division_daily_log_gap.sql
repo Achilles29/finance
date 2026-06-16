@@ -95,7 +95,7 @@ ORDER BY total_profiles DESC, repair_bucket;
 SELECT
   g.division_id,
   d.code AS division_code,
-  d.division_name,
+  d.name AS division_name,
   g.destination_type,
   g.material_id,
   m.material_code,

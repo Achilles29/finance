@@ -116,11 +116,23 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
   .pmd-filter-grid {
     display: grid;
-    grid-template-columns: 108px minmax(130px,1fr) 92px minmax(130px,1.1fr) 124px 116px 64px auto;
-    gap: 0.5rem;
+    grid-template-columns:
+      minmax(112px, 0.9fr)
+      minmax(180px, 1.35fr)
+      minmax(116px, 0.9fr)
+      minmax(220px, 1.6fr)
+      minmax(136px, 1fr)
+      minmax(136px, 1fr)
+      minmax(84px, 0.6fr)
+      minmax(164px, 0.9fr);
+    gap: 0.65rem;
     align-items: end;
   }
   .pmd-filter-field {
+    min-width: 0;
+  }
+  .pmd-filter-field .form-control,
+  .pmd-filter-field .form-select {
     min-width: 0;
   }
   .pmd-filter-field label {
@@ -145,7 +157,12 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     grid-column: span 1;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.4rem;
+    gap: 0.5rem;
+    align-self: stretch;
+  }
+  .pmd-filter-actions .btn {
+    min-height: 38px;
+    white-space: nowrap;
   }
   .pmd-pagination {
     display: flex;
@@ -940,8 +957,20 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
   @media (max-width: 1199.98px) {
     .pmd-filter-grid {
-      grid-template-columns: 100px minmax(120px,1fr) 88px minmax(120px,1fr) 116px 108px 60px auto;
-      gap: 0.4rem;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 0.55rem;
+    }
+    .pmd-filter-main,
+    .pmd-filter-destination,
+    .pmd-filter-date,
+    .pmd-filter-date-to,
+    .pmd-filter-limit,
+    .pmd-filter-actions {
+      grid-column: span 2;
+    }
+    .pmd-filter-division,
+    .pmd-filter-search {
+      grid-column: span 4;
     }
   }
   @media (max-width: 991.98px) {
@@ -969,7 +998,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
   @media (max-width: 767.98px) {
     .pmd-filter-grid {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr;
     }
     .pmd-filter-main,
     .pmd-filter-division,
@@ -980,6 +1009,9 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     .pmd-filter-limit,
     .pmd-filter-actions {
       grid-column: span 1;
+    }
+    .pmd-filter-actions {
+      grid-template-columns: 1fr 1fr;
     }
   }
 </style>

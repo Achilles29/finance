@@ -672,6 +672,46 @@ class Purchase extends MY_Controller
         $this->render('purchase/stock_opening_division_index', $data);
     }
 
+    public function stock_opening_division_generated()
+    {
+        if (!$this->can(self::PAGE_STOCK_DIVISION, 'view')) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $month       = trim((string)$this->input->get('month', true));
+        $q           = trim((string)$this->input->get('q', true));
+        $divisionId  = (int)$this->input->get('division_id', true);
+        $destination = strtoupper(trim((string)$this->input->get('destination', true)));
+        if ($destination === '') {
+            $destination = 'ALL';
+        }
+        $perPage = (int)$this->input->get('per_page', true);
+        if ($perPage < 10 || $perPage > 200) {
+            $perPage = 25;
+        }
+        $page = max(1, (int)$this->input->get('page', true));
+
+        $data = [
+            'title'       => 'Stok Awal Bahan Baku',
+            'active_menu' => 'inventory.stock.opening.division.generated',
+            'month'       => $month,
+            'q'           => $q,
+            'division_id' => $divisionId,
+            'destination' => $destination,
+            'per_page'    => $perPage,
+            'page'        => $page,
+            'rows'        => $this->Purchase_model->list_stock_opening_snapshots(
+                'DIVISION', $month, $q, 500,
+                $divisionId > 0 ? $divisionId : null,
+                $destination,
+                ['source_type' => 'AUTO_REBUILD']
+            ),
+            'divisions'   => $this->Purchase_model->list_active_operational_divisions(),
+        ];
+
+        $this->render('purchase/stock_opening_division_generated_index', $data);
+    }
+
     public function stock_opening_division_export_template()
     {
         if (!$this->can(self::PAGE_STOCK_DIVISION, 'view') && !$this->can(self::PAGE_STOCK_DIVISION, 'create')) {
@@ -2108,6 +2148,34 @@ class Purchase extends MY_Controller
                     'results'        => $results,
                 ],
             ]));
+    }
+
+    public function stock_division_reconcile_gap_repair_all()
+    {
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');
+
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $asOfDate = trim((string)($payload['as_of_date'] ?? date('Y-m-d')));
+        $divisionId = (int)($payload['division_id'] ?? 0);
+        $destinationFilter = strtoupper(trim((string)($payload['destination'] ?? 'ALL')));
+        if ($destinationFilter === '') {
+            $destinationFilter = 'ALL';
+        }
+
+        $result = $this->Purchase_model->repair_division_material_log_gap_opening_batch($asOfDate, [
+            'division_id' => $divisionId,
+            'destination' => $destinationFilter,
+        ]);
+
+        $status = (!empty($result['ok']) || !empty($result['data']['processed'])) ? 200 : 422;
+        $this->output
+            ->set_status_header($status)
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
     }
 
     public function stock_division_reconcile_repair_material_id()
