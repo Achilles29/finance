@@ -1072,9 +1072,11 @@ document.addEventListener('DOMContentLoaded', function () {
   function buildRefundPayload() {
     if (!refundPreview || !refundPreview.order || !refundPreview.order.header) throw new Error('Preview refund belum dimuat.');
     const orderLineMap = new Map((refundPreview.order.lines || []).map((line) => [Number(line.id || 0), line]));
+    const reasonCode = String(refundReasonCode?.value || 'OTHER').trim() || 'OTHER';
     const reason = finalRefundReason();
     const returnToStock = refundUsesStockReturn();
     const adjustmentMode = returnToStock ? 'NONE' : (document.getElementById('refund_adjustment_mode').value || 'NONE');
+    if (!returnToStock && adjustmentMode === 'NONE') throw new Error('Pilih tipe adjustment ketika stok tidak dikembalikan.');
     const lines = [];
     document.querySelectorAll('.pos-paid-refund-line').forEach((card) => {
       const orderLineId = Number(card.dataset.lineId || 0);
@@ -1115,6 +1117,7 @@ document.addEventListener('DOMContentLoaded', function () {
       order_id: Number(refundPreview.order.header.id || 0),
       return_to_stock: returnToStock ? 1 : 0,
       adjustment_mode: adjustmentMode,
+      reason_code: reasonCode,
       reason,
       payment_method_id: Number(refundMethodField.value || 0),
       reference_no: String(refundReferenceField.value || ''),
@@ -1135,6 +1138,9 @@ document.addEventListener('DOMContentLoaded', function () {
       try { printFailures = await triggerRefundDirectPrint(Number(json.id || 0)); }
       catch (e) { printFailures = [normalizePrintFailureEntry({ name: 'Printer', reason: e && e.message ? e.message : 'Gagal menyiapkan direct print refund' })]; }
       let message = `Refund berhasil disimpan.\nNo Refund: ${json.refund_no || '-'}`;
+      if (Number(json.adjustment_doc_count || 0) > 0) {
+        message += `\nAdjustment terposting: ${Number(json.adjustment_doc_count || 0)}`;
+      }
       if (printFailures.length) { message += '\n\nSebagian printer gagal menerima slip refund:\n'; message += printFailures.map((entry) => `- ${entry.name}: ${entry.reason}`).join('\n'); }
       alert(message);
       await loadRecents();

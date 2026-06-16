@@ -8,8 +8,9 @@ $posScopeRows     = is_array($pos_scope_rows   ?? null) ? $pos_scope_rows   : []
 $stockBreakdown   = is_array($stock_breakdown  ?? null) ? $stock_breakdown  : ['warehouse' => [], 'division' => [], 'component' => []];
 $stockProductLive = is_array($stock_product_live ?? null) ? $stock_product_live : ['summary' => [], 'rows' => []];
 $criticalStockRows  = is_array($critical_stock_rows   ?? null) ? $critical_stock_rows   : [];
-$negativeStockRows  = is_array($negative_stock_rows   ?? null) ? $negative_stock_rows   : [];
-$recentActivity     = is_array($recent_activity       ?? null) ? $recent_activity       : [];
+$negativeStockRows   = is_array($negative_stock_rows    ?? null) ? $negative_stock_rows    : [];
+$recentActivity      = is_array($recent_activity        ?? null) ? $recent_activity        : [];
+$prodLiveHiddenCats  = is_array($prod_live_hidden_cats  ?? null) ? $prod_live_hidden_cats  : [];
 
 $cur = static fn($v): string => 'Rp ' . number_format((float)$v, 0, ',', '.');
 
@@ -25,11 +26,17 @@ foreach ($posStatusRows as $r) {
     $sLabels[] = $c; $sTotals[] = (int)($r['total'] ?? 0); $sColors[] = $statusPalette[$c] ?? '#8d6e63';
 }
 
-// Group product live rows by division
+// Group product live rows by division (skip EVENT division)
 $productByDivision = [];
+$productCatsByDiv  = [];
 foreach (($stockProductLive['rows'] ?? []) as $r) {
     $div = (string)($r['division_name'] ?? 'LAIN');
+    if (strtoupper($div) === 'EVENT') continue;
     $productByDivision[$div][] = $r;
+    $cat = (string)($r['category_name'] ?? '');
+    if ($cat !== '' && !in_array($cat, $productCatsByDiv[$div] ?? [], true)) {
+        $productCatsByDiv[$div][] = $cat;
+    }
 }
 
 // Group stock breakdown division by location_name for sub-tabs
@@ -134,6 +141,9 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
     .fd-2scope { grid-template-columns:1fr; }
   }
   @media (max-width:767.98px) { .fd-kpi { grid-template-columns:1fr; } }
+  /* Category filter */
+  .fd-cat-cb { width:.85rem; height:.85rem; cursor:pointer; accent-color:#8f2d23; }
+  #prodCatFilterBtn.active { background:#8f2d23; color:#fff; border-color:#8f2d23; }
 </style>
 
 <div class="fd">
@@ -406,6 +416,135 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
     </div>
   </div>
 
+  <!-- Stok Produk (Live POS) -->
+  <section class="fd-card p-3">
+    <?php
+    $summ = $stockProductLive['summary'] ?? [];
+    $out  = (int)($summ['out']       ?? 0);
+    $lim  = (int)($summ['limited']   ?? 0);
+    $avl  = (int)($summ['available'] ?? 0);
+    $tot  = (int)($summ['total']     ?? 0);
+    ?>
+    <div class="fd-sec-head">
+      <div>
+        <h2 class="fd-sec-title">Stok Produk Live POS</h2>
+        <p class="fd-sec-sub">Ketersediaan produk berdasarkan stok bahan baku real-time. Klik produk untuk lihat breakdown resep &amp; bottleneck.</p>
+      </div>
+      <span class="fd-pill"><?= $tot ?> produk</span>
+    </div>
+    <div class="fd-prod-summ">
+      <div class="fd-prod-summ-card"><div class="fd-prod-summ-val red"><?= $out ?></div><div class="fd-prod-summ-lbl">Habis (OUT)</div></div>
+      <div class="fd-prod-summ-card"><div class="fd-prod-summ-val orange"><?= $lim ?></div><div class="fd-prod-summ-lbl">Terbatas (LIMITED)</div></div>
+      <div class="fd-prod-summ-card"><div class="fd-prod-summ-val"><?= $tot ?></div><div class="fd-prod-summ-lbl">Total Dipantau</div></div>
+      <div class="fd-prod-summ-card"><div class="fd-prod-summ-val green"><?= $avl ?></div><div class="fd-prod-summ-lbl">Aman</div></div>
+    </div>
+
+    <?php if (empty($productByDivision)): ?>
+      <div class="fd-empty">Data ketersediaan produk belum tersedia.</div>
+    <?php else: ?>
+      <div class="d-flex align-items-center gap-2" style="margin-bottom:.75rem">
+        <div class="fd-tabs mb-0 flex-grow-1" id="prodDivTabs" style="margin-bottom:0">
+          <?php $first = true; foreach (array_keys($productByDivision) as $divName): ?>
+            <?php
+            $divRows = $productByDivision[$divName];
+            $cntOut  = count(array_filter($divRows, fn($r) => strtoupper($r['availability_status']) === 'OUT'));
+            $cntLim  = count(array_filter($divRows, fn($r) => strtoupper($r['availability_status']) === 'LIMITED'));
+            ?>
+            <button class="fd-tab <?= $first ? 'on' : '' ?>" data-pdiv="<?= htmlspecialchars($divName) ?>">
+              <?= htmlspecialchars($divName) ?>
+              <?php if ($cntOut > 0): ?><span style="color:#c62828">(<?= $cntOut ?> habis)</span><?php elseif ($cntLim > 0): ?><span style="color:#e65100">(<?= $cntLim ?> terbatas)</span><?php endif; ?>
+            </button>
+            <?php $first = false; endforeach; ?>
+        </div>
+        <button type="button" id="prodCatFilterBtn" title="Filter Kategori"
+                style="flex-shrink:0;padding:.28rem .7rem;border-radius:999px;font-size:.74rem;font-weight:700;cursor:pointer;border:1px solid rgba(170,95,78,.2);background:#fff;color:#8b7772;transition:all .13s">
+          <i class="ri ri-filter-3-line"></i> Kategori
+        </button>
+      </div>
+
+      <?php foreach ($productByDivision as $divName => $_ignored): ?>
+        <?php $cats = $productCatsByDiv[$divName] ?? []; if (empty($cats)) continue; ?>
+        <div class="fd-cat-filter-wrap" data-pdiv-filter="<?= htmlspecialchars($divName) ?>" style="display:none;margin-bottom:.75rem">
+          <div style="background:#fff8f5;border:1px solid rgba(170,95,78,.18);border-radius:14px;padding:.7rem 1rem">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <span style="font-size:.73rem;font-weight:800;color:#6f2119;text-transform:uppercase;letter-spacing:.05em">
+                Kategori — <?= htmlspecialchars($divName) ?>
+              </span>
+              <div class="d-flex align-items-center gap-3">
+                <button type="button" onclick="fdCatAll('<?= htmlspecialchars($divName, ENT_QUOTES) ?>',true)"
+                        style="font-size:.72rem;font-weight:700;color:#2e7d32;background:none;border:none;cursor:pointer;padding:0">Pilih Semua</button>
+                <button type="button" onclick="fdCatAll('<?= htmlspecialchars($divName, ENT_QUOTES) ?>',false)"
+                        style="font-size:.72rem;font-weight:700;color:#8b7772;background:none;border:none;cursor:pointer;padding:0">Hapus Semua</button>
+              </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mb-3" data-pdiv-checks="<?= htmlspecialchars($divName) ?>">
+              <?php
+              $hiddenThisDiv = $prodLiveHiddenCats[$divName] ?? [];
+              foreach ($cats as $cat):
+                  $isChecked = !in_array($cat, $hiddenThisDiv, true);
+              ?>
+                <label style="display:flex;align-items:center;gap:.3rem;font-size:.74rem;cursor:pointer;background:#fff;border:1px solid rgba(170,95,78,.18);border-radius:999px;padding:.22rem .6rem;user-select:none">
+                  <input type="checkbox" class="fd-cat-cb" <?= $isChecked ? 'checked' : '' ?>
+                         data-div="<?= htmlspecialchars($divName, ENT_QUOTES) ?>"
+                         data-cat="<?= htmlspecialchars($cat, ENT_QUOTES) ?>"
+                         onchange="fdCatFilter('<?= htmlspecialchars($divName, ENT_QUOTES) ?>')">
+                  <?= htmlspecialchars($cat) ?>
+                </label>
+              <?php endforeach; ?>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+              <button type="button"
+                      onclick="fdCatSave('<?= htmlspecialchars($divName, ENT_QUOTES) ?>', this)"
+                      style="padding:.3rem .9rem;border-radius:999px;font-size:.74rem;font-weight:800;cursor:pointer;border:1px solid #8f2d23;background:#8f2d23;color:#fff">
+                <i class="ri ri-save-line"></i> Simpan Pengaturan
+              </button>
+              <span class="fd-cat-save-status" style="font-size:.72rem;font-weight:700;color:#2e7d32;opacity:0;transition:opacity .4s"></span>
+            </div>
+          </div>
+        </div>
+      <?php endforeach; ?>
+
+      <?php foreach ($productByDivision as $divName => $divRows): ?>
+        <div class="fd-prod-div-content fd-scroll" data-pdiv="<?= htmlspecialchars($divName) ?>"
+             style="<?= array_key_first($productByDivision) !== $divName ? 'display:none' : '' ?>">
+          <?php foreach ($divRows as $pr): ?>
+            <?php
+            $status     = strtoupper((string)($pr['availability_status'] ?? 'AVAILABLE'));
+            $qty        = (float)($pr['qty'] ?? 0);
+            $bn         = (string)($pr['bottleneck_name_snapshot'] ?? '');
+            $isDirty    = !empty($pr['is_dirty']);
+            $pillClass  = $status === 'OUT' ? 'minus' : ($status === 'LIMITED' ? 'kritis' : 'ok');
+            $statusLabel = $status === 'OUT' ? 'HABIS' : ($status === 'LIMITED' ? 'TERBATAS' : 'TERSEDIA');
+            $catName    = (string)($pr['category_name'] ?? '');
+            ?>
+            <div class="fd-prod-row" data-category="<?= htmlspecialchars($catName, ENT_QUOTES) ?>" style="margin-bottom:.5rem">
+              <div class="fd-prod-head" data-pid="<?= (int)($pr['product_id'] ?? 0) ?>" onclick="fdToggleRecipe(this)">
+                <div>
+                  <div class="fd-prod-name"><?= htmlspecialchars((string)($pr['product_name'] ?? '-')) ?></div>
+                  <div class="fd-prod-meta">
+                    <?php if ($catName !== ''): ?><span style="font-size:.73rem;color:#a06050;font-weight:700"><?= htmlspecialchars($catName) ?></span><?= $bn !== '' ? ' · ' : '' ?><?php endif; ?>
+                    <?= $bn !== '' ? 'Bottleneck: <strong>' . htmlspecialchars($bn) . '</strong> · ' : '' ?>Klik untuk lihat resep<?= $isDirty ? ' · <em>Cache lama</em>' : '' ?>
+                  </div>
+                </div>
+                <div class="fd-prod-right">
+                  <div>
+                    <div class="fd-prod-qty"><?= number_format($qty, 2, ',', '.') ?></div>
+                    <div class="fd-prod-uom"><?= htmlspecialchars((string)($pr['uom_code'] ?? '')) ?></div>
+                  </div>
+                  <span class="fd-pill <?= $pillClass ?>"><?= $statusLabel ?></span>
+                  <i class="ri-arrow-down-s-line" style="color:#8b7772"></i>
+                </div>
+              </div>
+              <div class="fd-prod-body" id="recipe-<?= (int)($pr['product_id'] ?? 0) ?>">
+                <div class="fd-item-meta">Memuat resep...</div>
+              </div>
+            </div>
+          <?php endforeach; ?>
+        </div>
+      <?php endforeach; ?>
+    <?php endif; ?>
+  </section>
+
   <!-- Scope -->
   <section class="fd-2scope">
     <?php if (empty($posScopeRows)): ?>
@@ -452,98 +591,6 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
       </div>
       <div id="fdStatusChart" style="min-height:320px;"></div>
     </div>
-  </section>
-
-  <!-- Stok Produk (Live POS) -->
-  <section class="fd-card p-3">
-    <div class="fd-sec-head">
-      <div>
-        <h2 class="fd-sec-title">Stok Produk Live POS</h2>
-        <p class="fd-sec-sub">Ketersediaan produk berdasarkan stok bahan baku real-time. Klik produk untuk lihat breakdown resep & bottleneck.</p>
-      </div>
-      <span class="fd-pill"><?= number_format((int)($stockProductLive['summary']['total'] ?? 0), 0, ',', '.') ?> produk</span>
-    </div>
-
-    <?php
-    $summ = $stockProductLive['summary'] ?? [];
-    $out = (int)($summ['out'] ?? 0);
-    $lim = (int)($summ['limited'] ?? 0);
-    $avl = (int)($summ['available'] ?? 0);
-    $tot = (int)($summ['total'] ?? 0);
-    ?>
-    <div class="fd-prod-summ">
-      <div class="fd-prod-summ-card">
-        <div class="fd-prod-summ-val red"><?= $out ?></div>
-        <div class="fd-prod-summ-lbl">Habis (OUT)</div>
-      </div>
-      <div class="fd-prod-summ-card">
-        <div class="fd-prod-summ-val orange"><?= $lim ?></div>
-        <div class="fd-prod-summ-lbl">Terbatas (LIMITED)</div>
-      </div>
-      <div class="fd-prod-summ-card">
-        <div class="fd-prod-summ-val"><?= $tot ?></div>
-        <div class="fd-prod-summ-lbl">Total Dipantau</div>
-      </div>
-      <div class="fd-prod-summ-card">
-        <div class="fd-prod-summ-val green"><?= $avl ?></div>
-        <div class="fd-prod-summ-lbl">Aman</div>
-      </div>
-    </div>
-
-    <?php if (empty($productByDivision)): ?>
-      <div class="fd-empty">Data ketersediaan produk belum tersedia.</div>
-    <?php else: ?>
-      <div class="fd-tabs" id="prodDivTabs">
-        <?php $first = true; foreach (array_keys($productByDivision) as $divName): ?>
-          <?php
-          $rows = $productByDivision[$divName];
-          $cntOut = count(array_filter($rows, fn($r) => strtoupper($r['availability_status']) === 'OUT'));
-          $cntLim = count(array_filter($rows, fn($r) => strtoupper($r['availability_status']) === 'LIMITED'));
-          ?>
-          <button class="fd-tab <?= $first ? 'on' : '' ?>" data-pdiv="<?= htmlspecialchars($divName) ?>">
-            <?= htmlspecialchars($divName) ?> <?php if ($cntOut > 0): ?><span style="color:#c62828">(<?= $cntOut ?> habis)</span><?php elseif ($cntLim > 0): ?><span style="color:#e65100">(<?= $cntLim ?> terbatas)</span><?php endif; ?>
-          </button>
-          <?php $first = false; endforeach; ?>
-      </div>
-
-      <?php foreach ($productByDivision as $divName => $rows): ?>
-        <div class="fd-prod-div-content fd-scroll" data-pdiv="<?= htmlspecialchars($divName) ?>" style="<?= array_key_first($productByDivision) !== $divName ? 'display:none' : '' ?>">
-          <?php foreach ($rows as $pr): ?>
-            <?php
-            $status = strtoupper((string)($pr['availability_status'] ?? 'AVAILABLE'));
-            $qty = (float)($pr['qty'] ?? 0);
-            $bn = (string)($pr['bottleneck_name_snapshot'] ?? '');
-            $isDirty = !empty($pr['is_dirty']);
-            $statusClass = $status === 'OUT' ? 'minus' : ($status === 'LIMITED' ? 'kritis' : '');
-            $statusLabel = $status === 'OUT' ? 'HABIS' : ($status === 'LIMITED' ? 'TERBATAS' : 'TERSEDIA');
-            $pillClass = $status === 'OUT' ? 'minus' : ($status === 'LIMITED' ? 'kritis' : 'ok');
-            ?>
-            <div class="fd-prod-row" style="margin-bottom:.5rem">
-              <div class="fd-prod-head" data-pid="<?= (int)($pr['product_id'] ?? 0) ?>" onclick="fdToggleRecipe(this)">
-                <div>
-                  <div class="fd-prod-name"><?= htmlspecialchars((string)($pr['product_name'] ?? '-')) ?></div>
-                  <div class="fd-prod-meta">
-                    <?= $bn !== '' ? 'Bottleneck: <strong>' . htmlspecialchars($bn) . '</strong> · ' : '' ?>
-                    Klik untuk lihat resep<?= $isDirty ? ' · <em>Cache lama</em>' : '' ?>
-                  </div>
-                </div>
-                <div class="fd-prod-right">
-                  <div>
-                    <div class="fd-prod-qty"><?= number_format($qty, 2, ',', '.') ?></div>
-                    <div class="fd-prod-uom"><?= htmlspecialchars((string)($pr['uom_code'] ?? '')) ?></div>
-                  </div>
-                  <span class="fd-pill <?= $pillClass ?>"><?= $statusLabel ?></span>
-                  <i class="ri-arrow-down-s-line" style="color:#8b7772"></i>
-                </div>
-              </div>
-              <div class="fd-prod-body" id="recipe-<?= (int)($pr['product_id'] ?? 0) ?>">
-                <div class="fd-item-meta">Memuat resep...</div>
-              </div>
-            </div>
-          <?php endforeach; ?>
-        </div>
-      <?php endforeach; ?>
-    <?php endif; ?>
   </section>
 
   <!-- Stok Minus & Kritis -->
@@ -801,16 +848,100 @@ window.addEventListener('load', function () {
   bindTabs('dvSubTabs', '.fd-dv-loc', 'dvloc');
   bindTabs('cpSubTabs', '.fd-cp-loc', 'cploc');
 
-  // ─── Product division tabs ────────────────────────────────
-  document.querySelectorAll('#prodDivTabs .fd-tab').forEach(function (btn) {
-    btn.addEventListener('click', function () {
+  // ─── Product division tabs + category filter (DB-shared) ────
+  var SAVE_CAT_URL = <?= json_encode(site_url('dashboard/save_prod_live_cats')) ?>;
+
+  function fdCatFilter(divName) {
+    var checks  = document.querySelectorAll('[data-pdiv-checks="' + divName + '"] .fd-cat-cb');
+    var enabled = new Set();
+    checks.forEach(function(cb) { if (cb.checked) enabled.add(cb.dataset.cat); });
+    var content = document.querySelector('.fd-prod-div-content[data-pdiv="' + divName + '"]');
+    if (content) {
+      content.querySelectorAll('.fd-prod-row').forEach(function(row) {
+        row.style.display = (enabled.size === 0 || enabled.has(row.dataset.category)) ? '' : 'none';
+      });
+    }
+  }
+
+  function fdCatSave(divName, btn) {
+    var checks  = document.querySelectorAll('[data-pdiv-checks="' + divName + '"] .fd-cat-cb');
+    var hidden  = [];
+    checks.forEach(function(cb) { if (!cb.checked) hidden.push(cb.dataset.cat); });
+
+    var wrap   = btn.closest('.fd-cat-filter-wrap');
+    var status = wrap ? wrap.querySelector('.fd-cat-save-status') : null;
+
+    btn.disabled = true;
+    btn.textContent = 'Menyimpan…';
+    if (status) { status.textContent = ''; status.style.opacity = '0'; }
+
+    var fd = new FormData();
+    fd.append('division', divName);
+    hidden.forEach(function(c) { fd.append('hidden_cats[]', c); });
+
+    fetch(SAVE_CAT_URL, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ri ri-save-line"></i> Simpan Pengaturan';
+        if (status) {
+          status.textContent = data.ok ? '✓ Tersimpan — berlaku untuk semua pengguna' : '✗ Gagal menyimpan';
+          status.style.color  = data.ok ? '#2e7d32' : '#c62828';
+          status.style.opacity = '1';
+          setTimeout(function() { status.style.opacity = '0'; }, 3000);
+        }
+      })
+      .catch(function() {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ri ri-save-line"></i> Simpan Pengaturan';
+        if (status) { status.textContent = '✗ Gagal'; status.style.color = '#c62828'; status.style.opacity = '1'; setTimeout(function() { status.style.opacity = '0'; }, 2500); }
+      });
+  }
+
+  function fdCatAll(divName, checked) {
+    document.querySelectorAll('[data-pdiv-checks="' + divName + '"] .fd-cat-cb').forEach(function(cb) { cb.checked = checked; });
+    fdCatFilter(divName);
+  }
+
+  // Apply filter on page load based on PHP-rendered checkbox state (from DB)
+  <?php foreach (array_keys($productByDivision) as $divName): ?>
+  fdCatFilter(<?= json_encode($divName) ?>);
+  <?php endforeach; ?>
+
+  document.querySelectorAll('#prodDivTabs .fd-tab').forEach(function(btn) {
+    btn.addEventListener('click', function() {
       document.querySelectorAll('#prodDivTabs .fd-tab').forEach(function(b) { b.classList.remove('on'); });
       btn.classList.add('on');
+      var pdiv = btn.dataset.pdiv;
       document.querySelectorAll('.fd-prod-div-content').forEach(function(el) {
-        el.style.display = el.dataset.pdiv === btn.dataset.pdiv ? '' : 'none';
+        el.style.display = el.dataset.pdiv === pdiv ? '' : 'none';
       });
+      // Move category filter panel to active division, keep visible state
+      var filterBtn = document.getElementById('prodCatFilterBtn');
+      var wasActive = filterBtn && filterBtn.classList.contains('active');
+      document.querySelectorAll('.fd-cat-filter-wrap').forEach(function(p) { p.style.display = 'none'; });
+      if (wasActive) {
+        var panel = document.querySelector('[data-pdiv-filter="' + pdiv + '"]');
+        if (panel) panel.style.display = '';
+      }
     });
   });
+
+  (function() {
+    var filterBtn = document.getElementById('prodCatFilterBtn');
+    if (!filterBtn) return;
+    filterBtn.addEventListener('click', function() {
+      var activePdiv = (document.querySelector('#prodDivTabs .fd-tab.on') || {}).dataset?.pdiv;
+      if (!activePdiv) return;
+      document.querySelectorAll('.fd-cat-filter-wrap').forEach(function(p) { p.style.display = 'none'; });
+      if (filterBtn.classList.contains('active')) {
+        filterBtn.classList.remove('active');
+      } else {
+        var panel = document.querySelector('[data-pdiv-filter="' + activePdiv + '"]');
+        if (panel) { panel.style.display = ''; filterBtn.classList.add('active'); }
+      }
+    });
+  })();
 
   // ─── Product recipe expand ────────────────────────────────
   const recipeCache = {};

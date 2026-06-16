@@ -4626,6 +4626,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!returnToStock && adjustmentMode === 'NONE') {
       throw new Error('Pilih tipe adjustment ketika stok tidak dikembalikan.');
     }
+    const reasonCode = String(reversalReasonCode?.value || 'OTHER').trim() || 'OTHER';
     const reason = finalReversalReason();
     const orderLineMap = new Map((reversalPreview.order.lines || []).map((line) => [Number(line.id || 0), line]));
     const lines = [];
@@ -4675,6 +4676,7 @@ document.addEventListener('DOMContentLoaded', function () {
       order_id: Number(reversalPreview.order.header.id || 0),
       return_to_stock: returnToStock ? 1 : 0,
       adjustment_mode: adjustmentMode,
+      reason_code: reasonCode,
       reason,
       lines
     };
@@ -4721,7 +4723,11 @@ document.addEventListener('DOMContentLoaded', function () {
       const json = await postJson(saveUrl, payload);
       if (reversalModal) reversalModal.hide();
       await triggerReversalDirectPrint(reversalMode, Number(json.id || 0));
-      showToast(`${successLabel} berhasil disimpan. No ${successLabel}: ${reversalMode === 'REFUND' ? (json.refund_no || '-') : (json.void_no || '-')}`, 'success', successLabel, 3200);
+      let successMessage = `${successLabel} berhasil disimpan. No ${successLabel}: ${reversalMode === 'REFUND' ? (json.refund_no || '-') : (json.void_no || '-')}`;
+      if (Number(json.adjustment_doc_count || 0) > 0) {
+        successMessage += ` | Adjustment terposting: ${Number(json.adjustment_doc_count || 0)}`;
+      }
+      showToast(successMessage, 'success', successLabel, 3600);
       const latestOrderStatus = String(json.order_status || '').toUpperCase();
       if (latestOrderStatus === 'VOID' || latestOrderStatus === 'REFUND_FULL' || latestOrderStatus === 'REFUNDED_FULL') {
         resetOrder();

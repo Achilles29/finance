@@ -1158,7 +1158,11 @@ document.addEventListener('DOMContentLoaded', function () {
       throw new Error('Preview reversal belum dimuat.');
     }
     const returnToStock = reversalUsesStockReturn();
-    const adjustmentMode = document.getElementById('reversal_adjustment_mode').value || 'NONE';
+    const adjustmentMode = returnToStock ? 'NONE' : (document.getElementById('reversal_adjustment_mode').value || 'NONE');
+    if (!returnToStock && adjustmentMode === 'NONE') {
+      throw new Error('Pilih tipe adjustment ketika stok tidak dikembalikan.');
+    }
+    const reasonCode = String(reversalReasonCode?.value || 'OTHER').trim() || 'OTHER';
     const reason = finalReversalReason();
     const orderLineMap = new Map((reversalPreview.order.lines || []).map((line) => [Number(line.id || 0), line]));
     const lines = [];
@@ -1213,6 +1217,7 @@ document.addEventListener('DOMContentLoaded', function () {
       order_id: Number(reversalPreview.order.header.id || 0),
       return_to_stock: returnToStock ? 1 : 0,
       adjustment_mode: adjustmentMode,
+      reason_code: reasonCode,
       reason,
       payment_method_id: kind === 'REFUND' ? Number(refundPaymentMethodField?.value || 0) : 0,
       reference_no: kind === 'REFUND' ? String(refundReferenceField?.value || '') : '',
@@ -1306,9 +1311,13 @@ document.addEventListener('DOMContentLoaded', function () {
       : '<?php echo site_url('pos/orders/refund/save'); ?>';
     const json = await postJson(endpoint, payload);
     if (reversalModal) reversalModal.hide();
-    alert(kind === 'VOID'
+    let message = kind === 'VOID'
       ? `Void berhasil disimpan.\nNo Void: ${json.void_no || '-'}`
-      : `Refund berhasil disimpan.\nNo Refund: ${json.refund_no || '-'}`);
+      : `Refund berhasil disimpan.\nNo Refund: ${json.refund_no || '-'}`;
+    if (Number(json.adjustment_doc_count || 0) > 0) {
+      message += `\nAdjustment terposting: ${Number(json.adjustment_doc_count || 0)}`;
+    }
+    alert(message);
     await loadDraft(order.id);
     await loadRecents();
   }

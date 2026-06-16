@@ -92,6 +92,8 @@ class PosOrderStockService
         try {
             $appliedDecisions = [];
             $physicalReturns = 0;
+            $materialAdjustmentGroups = [];
+            $componentAdjustmentGroups = [];
 
             foreach ($snapshot['lines'] as $line) {
                 $lineKey = $this->line_key($line);
@@ -106,14 +108,22 @@ class PosOrderStockService
                 }
 
                 $policy = strtoupper(trim((string)($decision['return_policy'] ?? 'RETURN_TO_STOCK')));
-                if ($policy === 'RETURN_TO_STOCK') {
+                if (in_array($policy, ['RETURN_TO_STOCK', 'ADJUSTMENT_ONLY'], true)) {
                     $result = strtoupper((string)($line['source_kind'] ?? 'MATERIAL')) === 'COMPONENT'
                         ? $this->reverse_component_usage($snapshot['header'], $line, $reverseQty, $meta)
                         : $this->reverse_material_usage($snapshot['header'], $line, $reverseQty, $meta);
                     if (!($result['ok'] ?? false)) {
                         throw new RuntimeException((string)($result['message'] ?? 'Gagal mengembalikan stok order POS.'));
                     }
-                    $physicalReturns++;
+                    if ($policy === 'RETURN_TO_STOCK') {
+                        $physicalReturns++;
+                    } else {
+                        if (strtoupper((string)($line['source_kind'] ?? 'MATERIAL')) === 'COMPONENT') {
+                            $this->collect_component_adjustment_only_line($componentAdjustmentGroups, $snapshot['header'], $line, $reverseQty, $meta);
+                        } else {
+                            $this->collect_material_adjustment_only_line($materialAdjustmentGroups, $snapshot['header'], $line, $reverseQty, $meta);
+                        }
+                    }
                 }
 
                 $appliedDecisions[] = [
@@ -122,6 +132,11 @@ class PosOrderStockService
                     'reverse_qty' => $reverseQty,
                     'notes' => (string)($decision['notes'] ?? ''),
                 ];
+            }
+
+            $adjustmentPosting = $this->post_adjustment_only_documents($materialAdjustmentGroups, $componentAdjustmentGroups, $meta);
+            if (!($adjustmentPosting['ok'] ?? false)) {
+                throw new RuntimeException((string)($adjustmentPosting['message'] ?? 'Gagal memposting adjustment dari reversal POS.'));
             }
 
             $apply = $this->ci->posstockcommitservice->apply_reversal_plan($commitId, $appliedDecisions, [
@@ -151,6 +166,7 @@ class PosOrderStockService
                 'physical_return_count' => $physicalReturns,
                 'commit_status' => (string)($apply['commit_status'] ?? ''),
                 'affected_lines' => (int)($apply['affected_lines'] ?? 0),
+                'adjustment_doc_count' => (int)($adjustmentPosting['adjustment_doc_count'] ?? 0),
             ];
         } catch (Throwable $e) {
             $db->trans_rollback();
@@ -160,19 +176,10 @@ class PosOrderStockService
 
     private function post_material_usage(array $header, array $line, array $meta): array
     {
-        $divisionId = $this->resolve_operational_division_id($line);
-        $destinationType = $this->resolve_destination_type($line, (string)($header['order_scope'] ?? 'REGULAR'));
-
-        if ($destinationType === 'OTHER') {
-            $recipeDiv = $this->resolve_recipe_source_division_for_line($line);
-            if ($recipeDiv) {
-                $divisionId = (int)$recipeDiv['id'];
-                $destinationType = $this->resolve_destination_type(
-                    array_merge($line, ['operational_division_code' => $recipeDiv['code'], 'operational_division_name' => $recipeDiv['name']]),
-                    (string)($header['order_scope'] ?? 'REGULAR')
-                );
-            }
-        }
+        $scope = $this->resolve_effective_stock_scope_for_line($line, (string)($header['order_scope'] ?? 'REGULAR'));
+        $line = $scope['line'];
+        $divisionId = $scope['division_id'];
+        $destinationType = $scope['destination_type'];
 
         $requiredQty = round((float)($line['committed_qty'] ?? $line['required_qty'] ?? 0), 4);
         if ($requiredQty <= 0) {
@@ -291,19 +298,10 @@ class PosOrderStockService
 
     private function reverse_material_usage(array $header, array $line, float $reverseQty, array $meta): array
     {
-        $divisionId = $this->resolve_operational_division_id($line);
-        $destinationType = $this->resolve_destination_type($line, (string)($header['order_scope'] ?? 'REGULAR'));
-
-        if ($destinationType === 'OTHER') {
-            $recipeDiv = $this->resolve_recipe_source_division_for_line($line);
-            if ($recipeDiv) {
-                $divisionId = (int)$recipeDiv['id'];
-                $destinationType = $this->resolve_destination_type(
-                    array_merge($line, ['operational_division_code' => $recipeDiv['code'], 'operational_division_name' => $recipeDiv['name']]),
-                    (string)($header['order_scope'] ?? 'REGULAR')
-                );
-            }
-        }
+        $scope = $this->resolve_effective_stock_scope_for_line($line, (string)($header['order_scope'] ?? 'REGULAR'));
+        $line = $scope['line'];
+        $divisionId = $scope['division_id'];
+        $destinationType = $scope['destination_type'];
         $fullReverse = abs($reverseQty - round((float)($line['committed_qty'] ?? 0), 4)) < 0.0001;
         $movementRefType = $this->resolve_material_movement_ref_type($header, $line);
 
@@ -376,8 +374,10 @@ class PosOrderStockService
 
     private function post_component_usage(array $header, array $line, array $meta): array
     {
+        $scope = $this->resolve_effective_stock_scope_for_line($line, (string)($header['order_scope'] ?? 'REGULAR'));
+        $line = $scope['line'];
         $locationType = $this->resolve_component_location_type($line, (string)($header['order_scope'] ?? 'REGULAR'));
-        $divisionId = $this->resolve_operational_division_id($line);
+        $divisionId = $scope['division_id'];
         $requiredQty = round((float)($line['committed_qty'] ?? $line['required_qty'] ?? 0), 4);
         if ($locationType === null || $requiredQty <= 0) {
             return ['ok' => false, 'message' => 'Lokasi/qty komponen tidak valid untuk posting POS.'];
@@ -441,8 +441,10 @@ class PosOrderStockService
 
     private function reverse_component_usage(array $header, array $line, float $reverseQty, array $meta): array
     {
+        $scope = $this->resolve_effective_stock_scope_for_line($line, (string)($header['order_scope'] ?? 'REGULAR'));
+        $line = $scope['line'];
         $locationType = $this->resolve_component_location_type($line, (string)($header['order_scope'] ?? 'REGULAR'));
-        $divisionId = $this->resolve_operational_division_id($line);
+        $divisionId = $scope['division_id'];
         $fullReverse = abs($reverseQty - round((float)($line['committed_qty'] ?? 0), 4)) < 0.0001;
         $movementRefType = $this->resolve_component_movement_ref_type($header, $line);
 
@@ -471,6 +473,269 @@ class PosOrderStockService
             'actor_employee_id' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : 0,
             'allow_negative' => true,
         ]);
+    }
+
+    private function collect_material_adjustment_only_line(array &$groups, array $header, array $line, float $reverseQty, array $meta): void
+    {
+        $scope = $this->resolve_effective_stock_scope_for_line($line, (string)($header['order_scope'] ?? 'REGULAR'));
+        $line = $scope['line'];
+        $divisionId = (int)($scope['division_id'] ?? 0);
+        $destinationType = (string)($scope['destination_type'] ?? 'OTHER');
+        if ($divisionId <= 0 || $destinationType === 'OTHER') {
+            return;
+        }
+
+        $identity = $this->infer_material_identity($line, $divisionId, $destinationType);
+        $key = $divisionId . '|' . $destinationType;
+        if (!isset($groups[$key])) {
+            $groups[$key] = [
+                'header' => [
+                    'adjustment_date' => date('Y-m-d'),
+                    'stock_scope' => 'DIVISION',
+                    'division_id' => $divisionId,
+                    'destination_type' => $destinationType,
+                    'notes' => $this->build_pos_adjustment_document_note($meta),
+                ],
+                'lines' => [],
+            ];
+        }
+
+        $linePayload = [
+            'item_id' => !empty($identity['item_id']) ? (int)$identity['item_id'] : null,
+            'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
+            'buy_uom_id' => !empty($identity['buy_uom_id']) ? (int)$identity['buy_uom_id'] : null,
+            'content_uom_id' => !empty($line['required_uom_id']) ? (int)$line['required_uom_id'] : (!empty($identity['content_uom_id']) ? (int)$identity['content_uom_id'] : null),
+            'profile_key' => $identity['profile_key'] ?? null,
+            'profile_name' => $identity['profile_name'] ?? ($line['profile_name'] ?? null),
+            'profile_brand' => $identity['profile_brand'] ?? null,
+            'profile_description' => $identity['profile_description'] ?? null,
+            'profile_expired_date' => $identity['profile_expired_date'] ?? null,
+            'profile_content_per_buy' => round((float)($identity['profile_content_per_buy'] ?? 1), 6),
+            'profile_buy_uom_code' => $identity['profile_buy_uom_code'] ?? null,
+            'profile_content_uom_code' => $identity['profile_content_uom_code'] ?? null,
+            'unit_cost' => round((float)($line['unit_cost_live'] ?? 0), 6),
+            'note' => $this->build_pos_adjustment_line_note($meta, $line, $reverseQty),
+        ];
+
+        $this->apply_material_adjustment_mode_to_line($linePayload, $reverseQty, (string)($meta['adjustment_mode'] ?? 'AUTO_ADJUSTMENT'), (string)($meta['reason_code'] ?? ''));
+        $groups[$key]['lines'][] = $linePayload;
+    }
+
+    private function collect_component_adjustment_only_line(array &$groups, array $header, array $line, float $reverseQty, array $meta): void
+    {
+        $scope = $this->resolve_effective_stock_scope_for_line($line, (string)($header['order_scope'] ?? 'REGULAR'));
+        $line = $scope['line'];
+        $locationType = $this->resolve_component_location_type($line, (string)($header['order_scope'] ?? 'REGULAR'));
+        $divisionId = isset($scope['division_id']) ? (int)$scope['division_id'] : null;
+        if ($locationType === null || empty($line['component_id']) || empty($line['required_uom_id'])) {
+            return;
+        }
+
+        $key = $locationType . '|' . (string)($divisionId ?? 0);
+        if (!isset($groups[$key])) {
+            $groups[$key] = [
+                'header' => [
+                    'adjustment_date' => date('Y-m-d'),
+                    'location_type' => $locationType,
+                    'division_id' => $divisionId,
+                    'notes' => $this->build_pos_adjustment_document_note($meta),
+                ],
+                'lines' => [],
+            ];
+        }
+
+        $linePayload = [
+            'component_id' => (int)$line['component_id'],
+            'uom_id' => (int)$line['required_uom_id'],
+            'selected_lot_id' => null,
+            'unit_cost' => round((float)($line['unit_cost_live'] ?? 0), 6),
+            'note' => $this->build_pos_adjustment_line_note($meta, $line, $reverseQty),
+        ];
+
+        $this->apply_component_adjustment_mode_to_line($linePayload, $reverseQty, (string)($meta['adjustment_mode'] ?? 'AUTO_ADJUSTMENT'), (string)($meta['reason_code'] ?? ''));
+        $groups[$key]['lines'][] = $linePayload;
+    }
+
+    private function post_adjustment_only_documents(array $materialGroups, array $componentGroups, array $meta): array
+    {
+        $adjustmentDocCount = 0;
+
+        if (!empty($materialGroups)) {
+            $this->ci->load->model('Purchase_model');
+            foreach (array_values($materialGroups) as $group) {
+                $save = $this->ci->Purchase_model->save_stock_adjustment(
+                    (array)($group['header'] ?? []),
+                    (array)($group['lines'] ?? []),
+                    0
+                );
+                if (!($save['ok'] ?? false)) {
+                    return $save;
+                }
+
+                $post = $this->ci->Purchase_model->post_stock_adjustment((int)($save['id'] ?? 0), 0);
+                if (!($post['ok'] ?? false)) {
+                    return $post;
+                }
+                $adjustmentDocCount++;
+            }
+        }
+
+        if (!empty($componentGroups)) {
+            $this->ci->load->model('Production_model');
+            $this->ci->load->library('ComponentStockWriter');
+            $actorEmployeeId = !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : 0;
+
+            foreach (array_values($componentGroups) as $group) {
+                $save = $this->ci->Production_model->save_component_adjustment(
+                    (array)($group['header'] ?? []),
+                    (array)($group['lines'] ?? []),
+                    $actorEmployeeId
+                );
+                if (!($save['ok'] ?? false)) {
+                    return $save;
+                }
+
+                $adjustmentId = (int)($save['id'] ?? 0);
+                $header = $this->ci->Production_model->get_component_adjustment($adjustmentId);
+                $lines = $this->ci->Production_model->get_component_adjustment_lines($adjustmentId);
+                $post = $this->ci->componentstockwriter->post_adjustment((array)$header, (array)$lines, $actorEmployeeId);
+                if (!($post['ok'] ?? false)) {
+                    return $post;
+                }
+
+                $this->ci->db->where('id', $adjustmentId)->update('inv_component_adjustment', [
+                    'status' => 'POSTED',
+                    'posted_at' => date('Y-m-d H:i:s'),
+                    'posted_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+                ]);
+                $adjustmentDocCount++;
+            }
+        }
+
+        return ['ok' => true, 'adjustment_doc_count' => $adjustmentDocCount];
+    }
+
+    private function apply_material_adjustment_mode_to_line(array &$linePayload, float $qtyContent, string $adjustmentMode, string $reasonCode): void
+    {
+        $normalizedMode = strtoupper(trim($adjustmentMode));
+        if ($normalizedMode === 'AUTO_WASTE') {
+            $linePayload['qty_waste_content'] = round($qtyContent, 4);
+            $linePayload['waste_reason_code'] = $this->map_pos_reason_to_material_adjustment_reason('WASTE', $reasonCode);
+            return;
+        }
+        if ($normalizedMode === 'AUTO_SPOIL') {
+            $linePayload['qty_spoil_content'] = round($qtyContent, 4);
+            $linePayload['spoil_reason_code'] = $this->map_pos_reason_to_material_adjustment_reason('SPOILAGE', $reasonCode);
+            return;
+        }
+
+        $linePayload['qty_variance_content'] = round($qtyContent, 4);
+        $linePayload['variance_reason_code'] = $this->map_pos_reason_to_material_adjustment_reason('VARIANCE', $reasonCode);
+    }
+
+    private function apply_component_adjustment_mode_to_line(array &$linePayload, float $qty, string $adjustmentMode, string $reasonCode): void
+    {
+        $normalizedMode = strtoupper(trim($adjustmentMode));
+        if ($normalizedMode === 'AUTO_WASTE') {
+            $linePayload['qty_waste'] = round($qty, 4);
+            $linePayload['waste_reason_code'] = $this->map_pos_reason_to_component_adjustment_reason('WASTE', $reasonCode);
+            return;
+        }
+        if ($normalizedMode === 'AUTO_SPOIL') {
+            $linePayload['qty_spoil'] = round($qty, 4);
+            $linePayload['spoil_reason_code'] = $this->map_pos_reason_to_component_adjustment_reason('SPOIL', $reasonCode);
+            return;
+        }
+
+        $linePayload['qty_adjust_neg'] = round($qty, 4);
+        $linePayload['adjustment_minus_reason_code'] = $this->map_pos_reason_to_component_adjustment_reason('ADJUSTMENT_MINUS', $reasonCode);
+    }
+
+    private function build_pos_adjustment_document_note(array $meta): string
+    {
+        $parts = [];
+        $documentType = strtoupper(trim((string)($meta['document_type'] ?? 'POS')));
+        $documentNo = trim((string)($meta['document_no'] ?? ''));
+        if ($documentType !== '') {
+            $parts[] = 'POS ' . $documentType . ($documentNo !== '' ? ' ' . $documentNo : '');
+        }
+        $reason = trim((string)($meta['reason'] ?? ''));
+        if ($reason !== '') {
+            $parts[] = 'tanpa return stok';
+            $parts[] = $reason;
+        } else {
+            $parts[] = 'tanpa return stok';
+        }
+
+        return implode(' | ', $parts);
+    }
+
+    private function build_pos_adjustment_line_note(array $meta, array $line, float $qty): string
+    {
+        $parts = [];
+        $documentType = strtoupper(trim((string)($meta['document_type'] ?? 'POS')));
+        $documentNo = trim((string)($meta['document_no'] ?? ''));
+        if ($documentType !== '') {
+            $parts[] = 'Reversal ' . $documentType . ($documentNo !== '' ? ' ' . $documentNo : '');
+        }
+        $lineName = trim((string)($line['item_name_snapshot'] ?? $line['profile_name'] ?? $line['component_name_snapshot'] ?? ''));
+        if ($lineName !== '') {
+            $parts[] = $lineName;
+        }
+        $parts[] = 'qty ' . rtrim(rtrim(number_format($qty, 4, '.', ''), '0'), '.');
+        $reason = trim((string)($meta['reason'] ?? ''));
+        if ($reason !== '') {
+            $parts[] = $reason;
+        }
+
+        return implode(' | ', $parts);
+    }
+
+    private function map_pos_reason_to_material_adjustment_reason(string $category, string $reasonCode): string
+    {
+        $category = strtoupper(trim($category));
+        $reasonCode = strtoupper(trim($reasonCode));
+
+        if ($category === 'WASTE') {
+            if (in_array($reasonCode, ['PERMINTAAN_CUSTOMER', 'SALAH_ITEM'], true)) {
+                return 'cancel_order';
+            }
+            return 'other';
+        }
+
+        if ($category === 'SPOILAGE') {
+            if (in_array($reasonCode, ['PRODUK_BERMASALAH', 'KUALITAS_PRODUK', 'KELUHAN_RASA'], true)) {
+                return 'contamination';
+            }
+            return 'other';
+        }
+
+        if ($category === 'VARIANCE') {
+            if (in_array($reasonCode, ['SALAH_INPUT', 'KOREKSI_SHIFT'], true)) {
+                return 'system_mismatch';
+            }
+            return 'other';
+        }
+
+        return 'other';
+    }
+
+    private function map_pos_reason_to_component_adjustment_reason(string $category, string $reasonCode): string
+    {
+        $category = strtoupper(trim($category));
+        $reasonCode = strtoupper(trim($reasonCode));
+
+        if ($category === 'WASTE' && in_array($reasonCode, ['PERMINTAAN_CUSTOMER', 'SALAH_ITEM'], true)) {
+            return 'cancel_order';
+        }
+        if ($category === 'ADJUSTMENT_MINUS' && in_array($reasonCode, ['SALAH_INPUT', 'KOREKSI_SHIFT'], true)) {
+            return 'system_mismatch';
+        }
+        if ($category === 'SPOIL' && in_array($reasonCode, ['PRODUK_BERMASALAH', 'KUALITAS_PRODUK', 'KELUHAN_RASA'], true)) {
+            return 'contamination';
+        }
+
+        return 'other';
     }
 
     private function post_component_aggregate_movement(array $p): array
@@ -717,6 +982,26 @@ class PosOrderStockService
         return max(0, (int)($line['operational_division_id'] ?? 0));
     }
 
+    private function resolve_effective_stock_scope_for_line(array $line, string $orderScope = 'REGULAR'): array
+    {
+        $divisionId = $this->resolve_operational_division_id($line);
+        $effectiveLine = $line;
+        $recipeDiv = $this->resolve_recipe_source_division_for_line($line);
+        if ($recipeDiv) {
+            $divisionId = (int)$recipeDiv['id'];
+            $effectiveLine['operational_division_id'] = $divisionId;
+            $effectiveLine['operational_division_code'] = (string)($recipeDiv['code'] ?? '');
+            $effectiveLine['operational_division_name'] = (string)($recipeDiv['name'] ?? '');
+        }
+
+        return [
+            'division_id' => $divisionId,
+            'destination_type' => $this->resolve_destination_type($effectiveLine, $orderScope),
+            'line' => $effectiveLine,
+            'recipe_division' => $recipeDiv,
+        ];
+    }
+
     private function resolve_destination_type(array $line, string $orderScope = 'REGULAR'): string
     {
         $divisionName = strtoupper(trim((string)($line['operational_division_code'] ?? ($line['operational_division_name'] ?? ''))));
@@ -732,13 +1017,36 @@ class PosOrderStockService
 
     private function resolve_recipe_source_division_for_line(array $line): ?array
     {
+        if (!empty($line['resolved_source_division_id'])) {
+            return [
+                'id' => (int)$line['resolved_source_division_id'],
+                'name' => (string)($line['resolved_source_division_name'] ?? $line['operational_division_name'] ?? ''),
+                'code' => (string)($line['resolved_source_division_code'] ?? $line['operational_division_code'] ?? ''),
+            ];
+        }
+
         $productId = !empty($line['product_id']) ? (int)$line['product_id'] : 0;
         if ($productId <= 0) {
             return null;
         }
 
-        $materialId = !empty($line['material_id']) ? (int)$line['material_id'] : 0;
         $row = [];
+        $componentId = !empty($line['component_id']) ? (int)$line['component_id'] : 0;
+        if ($componentId > 0) {
+            $row = $this->ci->db
+                ->select('od.id, od.name, od.code')
+                ->from('mst_product_recipe r')
+                ->join('mst_operational_division od', 'od.id = r.source_division_id', 'inner')
+                ->where('r.product_id', $productId)
+                ->where('r.component_id', $componentId)
+                ->where('r.source_division_id IS NOT NULL', null, false)
+                ->order_by('r.id', 'ASC')
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+        }
+
+        $materialId = !empty($line['material_id']) ? (int)$line['material_id'] : 0;
         if ($materialId > 0) {
             $row = $this->ci->db
                 ->select('od.id, od.name, od.code')

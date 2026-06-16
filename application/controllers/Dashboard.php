@@ -35,6 +35,7 @@ class Dashboard extends MY_Controller
             'pos_scope_rows' => $this->dashboard_pos_scope_rows($filters),
             'stock_breakdown' => $this->dashboard_stock_breakdown(),
             'stock_product_live' => $this->dashboard_stock_product_live(),
+            'prod_live_hidden_cats' => $this->dashboard_load_prod_live_hidden_cats(),
             'critical_stock_rows' => $this->dashboard_critical_stock_rows(0),
             'negative_stock_rows' => $this->dashboard_negative_stock_rows(),
             'recent_activity' => $this->dashboard_recent_activity($filters),
@@ -181,6 +182,7 @@ class Dashboard extends MY_Controller
             INNER JOIN mst_product p ON p.id = pac.product_id
             INNER JOIN mst_product_category pc ON pc.id = p.product_category_id
             INNER JOIN mst_product_division pd ON pd.id = pc.product_division_id
+            WHERE pd.name != 'EVENT'
             GROUP BY pac.availability_status, pd.name
             ORDER BY pd.name, pac.availability_status
         ");
@@ -211,6 +213,7 @@ class Dashboard extends MY_Controller
                 pac.product_id,
                 p.product_name,
                 pd.name AS division_name,
+                pc.name AS category_name,
                 pac.availability_status,
                 ROUND(pac.estimated_available_qty, 2) AS qty,
                 COALESCE(u.code, '') AS uom_code,
@@ -223,11 +226,13 @@ class Dashboard extends MY_Controller
             INNER JOIN mst_product_category pc ON pc.id = p.product_category_id
             INNER JOIN mst_product_division pd ON pd.id = pc.product_division_id
             LEFT JOIN mst_uom u ON u.id = p.uom_id
+            WHERE pd.name != 'EVENT'
             ORDER BY
                 FIELD(pac.availability_status, 'OUT', 'LIMITED', 'AVAILABLE'),
                 pd.name,
+                pc.name,
                 p.product_name
-            LIMIT 200
+            LIMIT 300
         ");
 
         $rows = $productRows ? $productRows->result_array() : [];
@@ -1140,6 +1145,66 @@ class Dashboard extends MY_Controller
         $this->dashboardTableReadyCache[$table] = $isReady;
 
         return $isReady;
+    }
+
+    // ── Prod Live category config ──────────────────────────────────────
+    private function dashboard_load_prod_live_hidden_cats(): array
+    {
+        $rows = $this->db
+            ->select('config_key, config_value')
+            ->from('sys_app_config')
+            ->where('config_group', 'dashboard')
+            ->get()->result_array();
+
+        $result = [];
+        foreach ($rows as $r) {
+            $key = (string)($r['config_key'] ?? '');
+            if (strpos($key, 'prod_live.hidden_cats.') !== 0) continue;
+            $div    = substr($key, strlen('prod_live.hidden_cats.'));
+            $hidden = json_decode((string)($r['config_value'] ?? '[]'), true);
+            $result[$div] = is_array($hidden) ? $hidden : [];
+        }
+        return $result;
+    }
+
+    public function save_prod_live_cats(): void
+    {
+        if (!$this->input->is_ajax_request() && $this->input->method() !== 'post') { show_404(); return; }
+
+        $division   = trim((string)($this->input->post('division') ?? ''));
+        $hiddenRaw  = $this->input->post('hidden_cats');
+        $hiddenCats = is_array($hiddenRaw) ? array_values(array_map('strval', $hiddenRaw)) : [];
+
+        if ($division === '') { $this->json_error('division wajib.'); return; }
+
+        $configKey = 'prod_live.hidden_cats.' . $division;
+        $existing  = $this->db->select('id')
+            ->from('sys_app_config')
+            ->where('config_group', 'dashboard')
+            ->where('config_key', $configKey)
+            ->limit(1)->get()->row_array();
+
+        $now    = date('Y-m-d H:i:s');
+        $userId = (int)($this->current_user['id'] ?? 0);
+
+        if ($existing) {
+            $this->db->update('sys_app_config', [
+                'config_value' => json_encode($hiddenCats),
+                'updated_by'   => $userId ?: null,
+                'updated_at'   => $now,
+            ], ['id' => (int)$existing['id']]);
+        } else {
+            $this->db->insert('sys_app_config', [
+                'config_group' => 'dashboard',
+                'config_key'   => $configKey,
+                'config_value' => json_encode($hiddenCats),
+                'description'  => 'Kategori tersembunyi Stok Produk Live POS — ' . $division,
+                'updated_by'   => $userId ?: null,
+                'updated_at'   => $now,
+            ]);
+        }
+
+        $this->json_ok(['saved' => true, 'division' => $division, 'hidden_count' => count($hiddenCats)]);
     }
 
     private function json_ok(array $data = []): void

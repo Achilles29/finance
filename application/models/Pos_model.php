@@ -6803,7 +6803,14 @@ class Pos_model extends CI_Model
                 ]);
             }
 
-            $reverse = $this->reverse_order_commit_decisions((array)($selection['decisions'] ?? []), $actorEmployeeId, 'Void POS #' . $voidId);
+            $reverse = $this->reverse_order_commit_decisions((array)($selection['decisions'] ?? []), $actorEmployeeId, 'Void POS #' . $voidId, [
+                'adjustment_mode' => (string)($voidPayload['adjustment_mode'] ?? 'NONE'),
+                'reason' => (string)($payload['reason'] ?? ''),
+                'reason_code' => (string)($payload['reason_code'] ?? ''),
+                'document_type' => 'VOID',
+                'document_id' => $voidId,
+                'document_no' => (string)($voidPayload['void_no'] ?? ''),
+            ]);
             if (!($reverse['ok'] ?? false)) {
                 throw new RuntimeException((string)($reverse['message'] ?? 'Gagal reversal stok untuk void POS.'));
             }
@@ -6827,7 +6834,13 @@ class Pos_model extends CI_Model
             }
             $this->db->trans_commit();
 
-            return ['ok' => true, 'id' => $voidId, 'void_no' => (string)$voidPayload['void_no'], 'order_status' => $newOrderStatus];
+            return [
+                'ok' => true,
+                'id' => $voidId,
+                'void_no' => (string)$voidPayload['void_no'],
+                'order_status' => $newOrderStatus,
+                'adjustment_doc_count' => (int)($reverse['adjustment_doc_count'] ?? 0),
+            ];
         } catch (Throwable $e) {
             $this->db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
@@ -6949,7 +6962,14 @@ class Pos_model extends CI_Model
                 ]);
             }
 
-            $reverse = $this->reverse_order_commit_decisions((array)($selection['decisions'] ?? []), $actorEmployeeId, 'Refund POS #' . $refundId);
+            $reverse = $this->reverse_order_commit_decisions((array)($selection['decisions'] ?? []), $actorEmployeeId, 'Refund POS #' . $refundId, [
+                'adjustment_mode' => (string)($refundPayload['adjustment_mode'] ?? 'NONE'),
+                'reason' => (string)($payload['reason'] ?? ''),
+                'reason_code' => (string)($payload['reason_code'] ?? ''),
+                'document_type' => 'REFUND',
+                'document_id' => $refundId,
+                'document_no' => (string)($refundPayload['refund_no'] ?? ''),
+            ]);
             if (!($reverse['ok'] ?? false)) {
                 throw new RuntimeException((string)($reverse['message'] ?? 'Gagal reversal stok untuk refund POS.'));
             }
@@ -6985,7 +7005,13 @@ class Pos_model extends CI_Model
             }
             $this->db->trans_commit();
 
-            return ['ok' => true, 'id' => $refundId, 'refund_no' => (string)$refundPayload['refund_no'], 'order_status' => $newOrderStatus];
+            return [
+                'ok' => true,
+                'id' => $refundId,
+                'refund_no' => (string)$refundPayload['refund_no'],
+                'order_status' => $newOrderStatus,
+                'adjustment_doc_count' => (int)($reverse['adjustment_doc_count'] ?? 0),
+            ];
         } catch (Throwable $e) {
             $this->db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
@@ -9181,7 +9207,7 @@ class Pos_model extends CI_Model
         ];
     }
 
-    private function reverse_order_commit_decisions(array $decisions, int $actorEmployeeId, string $note): array
+    private function reverse_order_commit_decisions(array $decisions, int $actorEmployeeId, string $note, array $extraMeta = []): array
     {
         $groupedDecisions = [];
         foreach ($decisions as $decision) {
@@ -9206,7 +9232,7 @@ class Pos_model extends CI_Model
             $reverse = $this->posorderstockservice->reverse_commit_snapshot($commitId, $commitDecisions, [
                 'actor_employee_id' => $actorEmployeeId,
                 'notes' => $note,
-            ]);
+            ] + $extraMeta);
             if (!($reverse['ok'] ?? false)) {
                 return $reverse;
             }

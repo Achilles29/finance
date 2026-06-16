@@ -97,3 +97,9 @@ di inv bahan baku divisi, matrix daily, daily-recon, stock, stock bulanan,  buat
 
 
 dashboard Hutang Stok Negatif nama bahan baku / component yang negatif, tambahkan button icon edit adjustment yang langsung menampilkan modal adjustmen seperti halaman adjustmen baik bahan baku maupun component
+
+
+
+dashboard bagian Stok Produk Live POS. pindah ke atas dibawah Hutang Stok Negatif
+- jangan tampilkan tab EVENT
+- tambahkan pengaturan di bagian itu masing masing di beverage dan food untu ceklist klasifikasi / kategori mana saja yang diampilkan
