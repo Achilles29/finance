@@ -1291,7 +1291,7 @@ class Pos_report_model extends CI_Model
 
     private function payment_method_summary_subquery(): string
     {
-        return "(\n            SELECT\n                p.order_id,\n                GROUP_CONCAT(DISTINCT pm.method_name ORDER BY pm.method_name ASC SEPARATOR ', ') AS method_names\n            FROM pos_payment p\n            INNER JOIN pos_payment_line pl ON pl.payment_id = p.id AND pl.status = 'PAID'\n            INNER JOIN pos_payment_method pm ON pm.id = pl.payment_method_id\n            WHERE p.payment_status = 'PAID' AND p.payment_type = 'FINAL'\n            GROUP BY p.order_id\n        )";
+        return "(\n            SELECT\n                p.order_id,\n                GROUP_CONCAT(DISTINCT pm.method_name ORDER BY pm.method_name ASC SEPARATOR ', ') AS method_names,\n                GROUP_CONCAT(DISTINCT pm.id ORDER BY pm.id ASC SEPARATOR ',') AS method_ids\n            FROM pos_payment p\n            INNER JOIN pos_payment_line pl ON pl.payment_id = p.id AND pl.status = 'PAID'\n            INNER JOIN pos_payment_method pm ON pm.id = pl.payment_method_id\n            WHERE p.payment_status = 'PAID' AND p.payment_type = 'FINAL'\n            GROUP BY p.order_id\n        )";
     }
 
     private function payment_line_summary_subquery(): string

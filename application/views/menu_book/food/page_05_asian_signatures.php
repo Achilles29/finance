@@ -107,7 +107,7 @@ body {
 .content {
     height: 232mm;
     display: grid;
-    grid-template-rows: 83mm 67mm 70mm 7mm;
+    grid-template-rows: 64mm 64mm 91mm 7mm;
     gap: 3mm;
 }
 
@@ -226,78 +226,93 @@ body {
     border-radius: 99px;
 }
 
-/* BROTH & BOWL */
+/* COMBO IMAGE SECTIONS */
 
-.broth-layout {
+.combo-card {
+    height: 53mm;
+}
+
+.combo-card img {
+    object-position: center center;
+}
+
+.combo-info {
+    padding: 15mm 4mm 3mm;
+}
+
+.combo-menu-list {
     display: grid;
-    grid-template-columns: 1.45fr 1fr 1fr;
-    grid-template-rows: repeat(2, 35mm);
+    grid-template-columns: 1fr 1fr;
+    gap: 1.2mm 4mm;
+    margin: .8mm 0 1mm;
+    font-family: Arial, sans-serif;
+}
+
+.combo-menu-list div {
+    display: flex;
+    justify-content: space-between;
+    gap: 2mm;
+    border-bottom: 1px solid rgba(255,255,255,.22);
+    padding-bottom: .7mm;
+}
+
+.combo-menu-list strong {
+    font-size: 7.4px;
+    color: #fff;
+    letter-spacing: .4px;
+    line-height: 1.05;
+}
+
+.combo-menu-list span {
+    font-size: 9px;
+    font-weight: 900;
+    color: #F1D28A;
+    white-space: nowrap;
+}
+
+/* WOK GRID */
+
+.wok-combo-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: 39mm 39mm;
     gap: 2.5mm;
 }
 
-.hero-ramen {
+.wok-feature {
+    grid-column: span 2;
     grid-row: span 2;
 }
 
-.hero-ramen .asian-info {
-    padding: 20mm 4mm 3.5mm;
+.wok-combo-grid .asian-info {
+    padding: 12mm 2.4mm 2mm;
 }
 
-.hero-ramen .asian-info h4 {
-    font-size: 17px;
+.wok-feature .asian-info {
+    padding: 16mm 3.2mm 2.8mm;
 }
 
-.hero-ramen .asian-desc {
-    font-size: 8px;
+.wok-feature .asian-info h4 {
+    font-size: 13px;
 }
 
-.hero-ramen .price {
-    font-size: 17px;
+.wok-feature .asian-desc {
+    font-size: 7.3px;
 }
 
-/* ROLLS */
-
-.rolls-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 2.5mm;
+.wok-feature .price {
+    font-size: 14px;
 }
 
-.rolls-grid .asian-card {
-    height: 55mm;
+.wok-combo-grid .asian-info h4 {
+    font-size: 8.5px;
 }
 
-/* WOK */
-
-.wok-grid {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    grid-template-rows: repeat(2, 30mm);
-    gap: 2.5mm;
+.wok-combo-grid .asian-desc {
+    font-size: 6.1px;
 }
 
-.wok-grid .asian-card {
-    grid-column: span 2;
-}
-
-.wok-grid .asian-card:nth-child(4),
-.wok-grid .asian-card:nth-child(5) {
-    grid-column: span 3;
-}
-
-.wok-grid .asian-info {
-    padding: 11mm 2.4mm 2mm;
-}
-
-.wok-grid .asian-info h4 {
-    font-size: 8.8px;
-}
-
-.wok-grid .asian-desc {
-    font-size: 6.3px;
-}
-
-.wok-grid .price {
+.wok-combo-grid .price {
     font-size: 10.5px;
 }
 
@@ -368,49 +383,39 @@ body {
             <p>Ramen · Ramyeon · Gyudon</p>
         </div>
 
-        <div class="broth-layout">
+        <article class="asian-card combo-card">
+            <img src="<?= base_url('assets/menu-book/products/foods/asian-course/broth-bowl-combo.png') ?>" alt="Broth and Bowl Combo">
 
-            <article class="asian-card hero-ramen">
-                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/soyu-ramen.png') ?>" alt="Soyu Ramen">
-                <div class="asian-info">
-                    <span class="mini-badge">Signature Ramen</span>
-                    <h4>SOYU RAMEN</h4>
-                    <div class="asian-desc">Japanese noodle ramen, ginger broth, boiled egg & beef shortplate.</div>
-                    <div class="price">38K</div>
+            <div class="asian-info combo-info">
+                <span class="mini-badge">4 Bowl Selection</span>
+
+                <div class="combo-menu-list">
+                    <div>
+                        <strong>SOYU RAMEN</strong>
+                        <span>38K</span>
+                    </div>
+
+                    <div>
+                        <strong>TORI PAITAN RAMEN</strong>
+                        <span>35K</span>
+                    </div>
+
+                    <div>
+                        <strong>SPICY RAMYEON</strong>
+                        <span>32K</span>
+                    </div>
+
+                    <div>
+                        <strong>GYU DON</strong>
+                        <span>32K</span>
+                    </div>
                 </div>
-            </article>
 
-            <article class="asian-card">
-                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/tori-paitan-ramen.png') ?>" alt="Tori Paitan Ramen">
-                <div class="asian-info">
-                    <span class="mini-badge">Ramen</span>
-                    <h4>TORI PAITAN RAMEN</h4>
-                    <div class="asian-desc">Chicken stock broth, mushroom, boiled egg & chicken katsu.</div>
-                    <div class="price">35K</div>
+                <div class="asian-desc">
+                    Ramen, ramyeon and Japanese rice bowl served warm in signature Asian style.
                 </div>
-            </article>
-
-            <article class="asian-card">
-                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/spicy-ramyeon.png') ?>" alt="Spicy Ramyeon">
-                <div class="asian-info">
-                    <span class="mini-badge">Spicy</span>
-                    <h4>SPICY RAMYEON</h4>
-                    <div class="asian-desc">Kani stick, chikuwa, enoki, chilli sauce, katsuobushi & sesame seed.</div>
-                    <div class="price">32K</div>
-                </div>
-            </article>
-
-            <article class="asian-card">
-                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/gyu-don.png') ?>" alt="Gyu Don">
-                <div class="asian-info">
-                    <span class="mini-badge">Rice Bowl</span>
-                    <h4>GYU DON</h4>
-                    <div class="asian-desc">Japanese rice bowl with beef shortplate teriyaki & poached egg.</div>
-                    <div class="price">32K</div>
-                </div>
-            </article>
-
-        </div>
+            </div>
+        </article>
     </section>
 
     <section>
@@ -419,49 +424,39 @@ body {
             <p>Sushi rolls · Korean wrap</p>
         </div>
 
-        <div class="rolls-grid">
+        <article class="asian-card combo-card">
+            <img src="<?= base_url('assets/menu-book/products/foods/asian-course/rolls-kimbap-combo.png') ?>" alt="Rolls and Kimbap Combo">
 
-            <article class="asian-card">
-                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/korean-beef-kimbab.png') ?>" alt="Korean Beef Kimbab">
-                <div class="asian-info">
-                    <span class="mini-badge">Kimbap</span>
-                    <h4>KOREAN BEEF KIMBAB</h4>
-                    <div class="asian-desc">Seaweed rice wrap filled beef bulgogi, cucumber & carrot.</div>
-                    <div class="price">31K</div>
+            <div class="asian-info combo-info">
+                <span class="mini-badge">Roll Selection</span>
+
+                <div class="combo-menu-list">
+                    <div>
+                        <strong>KOREAN BEEF KIMBAB</strong>
+                        <span>31K</span>
+                    </div>
+
+                    <div>
+                        <strong>CALIFORNIA ROLL</strong>
+                        <span>24K</span>
+                    </div>
+
+                    <div>
+                        <strong>VOLCANO ROLL</strong>
+                        <span>26K</span>
+                    </div>
+
+                    <div>
+                        <strong>YAKINIKU SUSHI ROLL</strong>
+                        <span>29K</span>
+                    </div>
                 </div>
-            </article>
 
-            <article class="asian-card">
-                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/california-roll.png') ?>" alt="California Roll">
-                <div class="asian-info">
-                    <span class="mini-badge">Sushi</span>
-                    <h4>CALIFORNIA ROLL</h4>
-                    <div class="asian-desc">Sushi roll filled crab stick, nori & tobiko.</div>
-                    <div class="price">24K</div>
+                <div class="asian-desc">
+                    Seaweed rice wrap and sushi rolls with beef, crab stick, tempura and yakiniku filling.
                 </div>
-            </article>
-
-            <article class="asian-card">
-                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/volcano-roll.png') ?>" alt="Volcano Roll">
-                <div class="asian-info">
-                    <span class="mini-badge">Sushi</span>
-                    <h4>VOLCANO ROLL</h4>
-                    <div class="asian-desc">Chicken tempura, cucumber, crab stick & volcano sauce on top.</div>
-                    <div class="price">26K</div>
-                </div>
-            </article>
-
-            <article class="asian-card">
-                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/yakiniku-sushi-roll.png') ?>" alt="Yakiniku Sushi Roll">
-                <div class="asian-info">
-                    <span class="mini-badge">Yakiniku</span>
-                    <h4>YAKINIKU SUSHI ROLL</h4>
-                    <div class="asian-desc">Beef shortplate yakiniku, cucumber, crackers & katsuobushi.</div>
-                    <div class="price">29K</div>
-                </div>
-            </article>
-
-        </div>
+            </div>
+        </article>
     </section>
 
     <section>
@@ -470,14 +465,27 @@ body {
             <p>Fried rice · noodles · katsu plates</p>
         </div>
 
-        <div class="wok-grid">
+        <div class="wok-combo-grid">
+
+            <article class="asian-card wok-feature">
+                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/mie-ayam-namua.png') ?>" alt="Mie Ayam Namua">
+                <div class="asian-info">
+                    <h4>MIE AYAM NAMUA</h4>
+                    <div class="asian-desc">
+                        Asian noodle blanch, chicken leg marinated, garlic oyster, fried wonton & broth side dish.
+                    </div>
+                    <div class="price">28K</div>
+                </div>
+            </article>
 
             <article class="asian-card">
-                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/yang-chow-fried-rice.png') ?>" alt="Yang Chow Fried Rice">
+                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/chicken-nori-yakimeshi.png') ?>" alt="Chicken Nori Yakimeshi">
                 <div class="asian-info">
-                    <h4>YANG CHOW FRIED RICE</h4>
-                    <div class="asian-desc">Chinese style fried rice, chicken inside, mix vegetable & crackers.</div>
-                    <div class="price">25K</div>
+                    <h4>CHICKEN NORI YAKIMESHI</h4>
+                    <div class="asian-desc">
+                        Deep fry chicken katsu, yakimeshi, mix salad & teriyaki sauce.
+                    </div>
+                    <div class="price">28K</div>
                 </div>
             </article>
 
@@ -485,7 +493,20 @@ body {
                 <img src="<?= base_url('assets/menu-book/products/foods/asian-course/chinese-fried-noodles.png') ?>" alt="Chinese Fried Noodles">
                 <div class="asian-info">
                     <h4>CHINESE FRIED NOODLES</h4>
-                    <div class="asian-desc">Chinese wok fried noodles, smoked beef, sunny side up egg & crackers.</div>
+                    <div class="asian-desc">
+                        Chinese style fried noodles, chicken inside, mix vegetable & crackers.
+                    </div>
+                    <div class="price">25K</div>
+                </div>
+            </article>
+
+            <article class="asian-card">
+                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/yang-chow-fried-rice.png') ?>" alt="Yang Chow Fried Rice">
+                <div class="asian-info">
+                    <h4>YANG CHOW FRIED RICE</h4>
+                    <div class="asian-desc">
+                        Chinese wok fried rice, smoked beef, sunny side up egg & crackers.
+                    </div>
                     <div class="price">25K</div>
                 </div>
             </article>
@@ -494,26 +515,10 @@ body {
                 <img src="<?= base_url('assets/menu-book/products/foods/asian-course/crispy-dory-ala-thai.png') ?>" alt="Crispy Dory Ala Thai">
                 <div class="asian-info">
                     <h4>CRISPY DORY ALA THAI</h4>
-                    <div class="asian-desc">Deep fry dory fish, mix flour, tomyam paste & Bangkok sauce.</div>
+                    <div class="asian-desc">
+                        Deep fry dory fish, mix flour, tomyam paste & Bangkok sauce.
+                    </div>
                     <div class="price">25K</div>
-                </div>
-            </article>
-
-            <article class="asian-card">
-                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/chicken-nori-yakimeshi.png') ?>" alt="Chicken Nori Yakimeshi">
-                <div class="asian-info">
-                    <h4>CHICKEN NORI YAKIMESHI</h4>
-                    <div class="asian-desc">Chicken katsu, yakimeshi, mix salad & teriyaki sauce.</div>
-                    <div class="price">28K</div>
-                </div>
-            </article>
-
-            <article class="asian-card">
-                <img src="<?= base_url('assets/menu-book/products/foods/asian-course/mie-ayam-namua.png') ?>" alt="Mie Ayam Namua">
-                <div class="asian-info">
-                    <h4>MIE AYAM NAMUA</h4>
-                    <div class="asian-desc">Asian noodle blanch, chicken leg marinated, fried wonton & broth side dish.</div>
-                    <div class="price">28K</div>
                 </div>
             </article>
 
