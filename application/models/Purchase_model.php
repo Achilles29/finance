@@ -2897,6 +2897,7 @@ class Purchase_model extends CI_Model
         // mismatch palsu dari source legacy yang sudah tidak diisi lagi.
         $matrixMap = $dailyMap;
         $movementMap = $this->aggregateDivisionMaterialCompareSource($movementRows, 'movement');
+        $gapMap = $this->buildDivisionMaterialLogGapGroupMap($asOfDate, $divisionId, $destinationFilter);
 
         $allKeys = array_fill_keys(array_merge(
             array_keys($balanceMap),
@@ -2915,6 +2916,13 @@ class Purchase_model extends CI_Model
             if (empty($meta['material_id'])) {
                 continue;
             }
+            $groupKey = implode('|', [
+                (int)($meta['division_id'] ?? 0),
+                strtoupper((string)($meta['destination_group'] ?? 'REGULER')),
+                (int)($meta['material_id'] ?? 0),
+                (int)($meta['item_id'] ?? 0),
+            ]);
+            $gapMeta = $gapMap[$groupKey] ?? null;
 
             $balanceContent = (float)($balance['qty_content'] ?? 0);
             $dailyContent = (float)($daily['qty_content'] ?? 0);
@@ -2927,6 +2935,8 @@ class Purchase_model extends CI_Model
             $deltaBalanceVsMovement = round($balanceContent - $movementContent, 4);
             $deltaDailyVsMovement = round($dailyContent - $movementContent, 4);
             $deltaMatrixVsMovement = round($matrixContent - $movementContent, 4);
+            $dailyLogGapContent = round((float)($gapMeta['gap_content'] ?? 0), 4);
+            $dailyLogHasGap = abs($dailyLogGapContent) > 0.0001;
             $verdict = $this->build_division_material_reconcile_verdict(
                 $balanceContent,
                 $dailyContent,
@@ -2934,15 +2944,14 @@ class Purchase_model extends CI_Model
                 [
                     'daily_date' => (string)($daily['_meta']['latest_date'] ?? ''),
                     'as_of_date' => $asOfDate,
-                    'log_has_gap' => (int)($daily['_meta']['log_has_gap'] ?? 0),
-                    'log_gap_content' => (float)($daily['_meta']['log_gap_content'] ?? 0),
+                    'log_has_gap' => $dailyLogHasGap ? 1 : 0,
+                    'log_gap_content' => $dailyLogGapContent,
                 ],
                 [
                     'movement_date' => (string)($movement['_meta']['latest_date'] ?? ''),
                 ]
             );
 
-            $dailyLogHasGap = !empty($daily['_meta']['log_has_gap']);
             $matches = abs($deltaBalanceVsMovement) < 0.0001
                 && abs($deltaDailyVsMovement) < 0.0001
                 && abs($deltaMatrixVsMovement) < 0.0001
@@ -2974,8 +2983,8 @@ class Purchase_model extends CI_Model
                 'daily_audit_has_mismatch' => (int)($daily['_meta']['audit_has_mismatch'] ?? 0),
                 'daily_audit_mismatch_qty_content' => (float)($daily['_meta']['audit_mismatch_qty_content'] ?? 0),
                 'daily_audit_mismatch_notes' => (string)($daily['_meta']['audit_mismatch_notes'] ?? ''),
-                'daily_log_has_gap' => (int)($daily['_meta']['log_has_gap'] ?? 0),
-                'daily_log_gap_content' => (float)($daily['_meta']['log_gap_content'] ?? 0),
+                'daily_log_has_gap' => $dailyLogHasGap ? 1 : 0,
+                'daily_log_gap_content' => $dailyLogGapContent,
                 'suspect_table' => (string)($verdict['suspect_table'] ?? 'MATCH'),
                 'suspect_reason' => (string)($verdict['reason'] ?? ''),
                 'is_match' => $matches ? 1 : 0,
@@ -3019,6 +3028,46 @@ class Purchase_model extends CI_Model
             'rows' => array_slice($rows, 0, $limit),
             'summary' => $summary,
         ];
+    }
+
+    private function buildDivisionMaterialLogGapGroupMap(string $asOfDate, ?int $divisionId, ?string $destinationFilter = null): array
+    {
+        $profiles = $this->analyze_division_material_log_gap_profiles($asOfDate, [
+            'division_id' => (int)($divisionId ?? 0),
+            'destination' => (string)($destinationFilter ?? 'ALL'),
+        ]);
+
+        $map = [];
+        foreach ($profiles as $profile) {
+            $destinationType = strtoupper((string)($profile['destination_type'] ?? 'OTHER'));
+            $destinationGroup = in_array($destinationType, ['BAR_EVENT', 'KITCHEN_EVENT'], true) ? 'EVENT' : 'REGULER';
+            $groupKey = implode('|', [
+                (int)($profile['division_id'] ?? 0),
+                $destinationGroup,
+                (int)($profile['material_id'] ?? 0),
+                (int)($profile['item_id'] ?? 0),
+            ]);
+            if (!isset($map[$groupKey])) {
+                $map[$groupKey] = [
+                    'gap_content' => 0.0,
+                    'profile_count' => 0,
+                    'profiles' => [],
+                ];
+            }
+            $map[$groupKey]['gap_content'] = round(
+                (float)$map[$groupKey]['gap_content'] + (float)($profile['gap_from_monthly_opening'] ?? 0),
+                4
+            );
+            $map[$groupKey]['profile_count']++;
+            $map[$groupKey]['profiles'][] = [
+                'profile_key' => (string)($profile['profile_key'] ?? ''),
+                'profile_name' => (string)($profile['profile_name'] ?? ''),
+                'gap_content' => round((float)($profile['gap_from_monthly_opening'] ?? 0), 4),
+                'suggested_repair_path' => (string)($profile['suggested_repair_path'] ?? ''),
+            ];
+        }
+
+        return $map;
     }
 
     private function attach_material_lot_totals(array &$rows, string $asOfDate = ''): void
