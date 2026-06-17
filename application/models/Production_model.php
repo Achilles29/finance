@@ -1230,6 +1230,7 @@ class Production_model extends CI_Model
                 'balance_qty' => $balanceQty,
                 'daily_qty' => $dailyQty,
                 'movement_qty' => $movementQty,
+                'balance_avg_cost' => round((float)($liveMap[$key]['balance_avg_cost'] ?? 0), 6),
                 'delta_balance_daily' => round($balanceQty - $dailyQty, 4),
                 'delta_balance_movement' => round($balanceQty - $movementQty, 4),
                 'delta_daily_movement' => round($dailyQty - $movementQty, 4),
@@ -3932,6 +3933,7 @@ class Production_model extends CI_Model
                 $usage = $this->component_batch_usage_detail((int)($row['id'] ?? 0), true);
                 $row['can_void'] = !empty($usage['can_void']);
                 $row['void_block_reason'] = (string)($usage['block_reason'] ?? '');
+                $row['void_projection'] = is_array($usage['void_projection'] ?? null) ? $usage['void_projection'] : [];
                 $row['usage_count'] = (int)($usage['summary']['usage_count'] ?? 0);
             }
         }
@@ -4005,6 +4007,13 @@ class Production_model extends CI_Model
         $materialInputs = [];
         $blockReason = '';
         $canVoid = strtoupper((string)($header['status'] ?? '')) === 'POSTED';
+        $voidProjection = [
+            'available' => false,
+            'current_global_qty' => 0.0,
+            'rollback_qty' => 0.0,
+            'projected_global_qty_after_void' => 0.0,
+            'would_go_negative' => false,
+        ];
 
         if ($canVoid && $this->db->table_exists('inv_component_movement_log')) {
             $outputMovement = $this->db->from('inv_component_movement_log')
@@ -4018,6 +4027,23 @@ class Production_model extends CI_Model
                 ->row_array();
 
             if ($outputMovement) {
+                $currentBalance = $this->load_component_current_balance_state(
+                    (string)($header['location_type'] ?? ''),
+                    !empty($header['division_id']) ? (int)$header['division_id'] : null,
+                    (int)($header['component_id'] ?? 0),
+                    (int)($header['output_uom_id'] ?? 0)
+                );
+                $currentGlobalQty = round((float)($currentBalance['qty_on_hand'] ?? 0), 4);
+                $rollbackQty = round((float)($outputMovement['qty_in'] ?? 0), 4);
+                $projectedGlobalQtyAfterVoid = round($currentGlobalQty - $rollbackQty, 4);
+                $voidProjection = [
+                    'available' => true,
+                    'current_global_qty' => $currentGlobalQty,
+                    'rollback_qty' => $rollbackQty,
+                    'projected_global_qty_after_void' => $projectedGlobalQtyAfterVoid,
+                    'would_go_negative' => $projectedGlobalQtyAfterVoid < -0.0001,
+                ];
+
                 $divisionNullSafe = !empty($header['division_id']) ? (string)(int)$header['division_id'] : 'NULL';
                 $movementUsages = $this->db->select('id, movement_no, movement_date, movement_type, source_module, source_table, source_id, notes, qty_out')
                     ->from('inv_component_movement_log')
@@ -4154,6 +4180,7 @@ class Production_model extends CI_Model
             'header' => $header,
             'can_void' => $canVoid,
             'block_reason' => $blockReason,
+            'void_projection' => $voidProjection,
             'summary' => [
                 'movement_usage_count' => count($movementUsages),
                 'batch_usage_count' => count($batchUsages),
@@ -5449,7 +5476,17 @@ class Production_model extends CI_Model
 
         $rebuildIdentities = [];
         foreach ($batchMovements as $movement) {
-            $reverse = $this->reverse_component_movement_row($movement, (string)($header['batch_date'] ?? date('Y-m-d')), $id, $actorEmployeeId);
+            $reverse = $this->reverse_component_movement_row(
+                $movement,
+                (string)($header['batch_date'] ?? date('Y-m-d')),
+                $id,
+                $actorEmployeeId,
+                [
+                    // Void batch mengikuti lot output batch. Jika histori monthly/ledger
+                    // sedang drift, rollback tetap boleh membuat saldo global minus dulu.
+                    'allow_negative_rollback' => true,
+                ]
+            );
             if (!($reverse['ok'] ?? false)) {
                 $this->db->trans_rollback();
                 return $reverse;
@@ -5575,7 +5612,13 @@ class Production_model extends CI_Model
         return ['ok' => true];
     }
 
-    private function reverse_component_movement_row(array $movement, string $movementDate, int $batchId, int $actorEmployeeId): array
+    private function reverse_component_movement_row(
+        array $movement,
+        string $movementDate,
+        int $batchId,
+        int $actorEmployeeId,
+        array $options = []
+    ): array
     {
         return $this->reverse_component_document_movement_row(
             $movement,
@@ -5583,7 +5626,8 @@ class Production_model extends CI_Model
             'inv_component_batch',
             $batchId,
             'PRODUCTION_BATCH_VOID',
-            $actorEmployeeId
+            $actorEmployeeId,
+            $options
         );
     }
 
@@ -5659,7 +5703,8 @@ class Production_model extends CI_Model
         string $sourceTable,
         int $sourceId,
         string $sourceModule,
-        int $actorEmployeeId
+        int $actorEmployeeId,
+        array $options = []
     ): array {
         $locationType = strtoupper(trim((string)($movement['location_type'] ?? '')));
         $divisionId = !empty($movement['division_id']) ? (int)$movement['division_id'] : null;
@@ -5686,6 +5731,8 @@ class Production_model extends CI_Model
             return ['ok' => true];
         }
 
+        $allowNegativeRollback = !empty($options['allow_negative_rollback']);
+
         $balance = $this->load_component_current_balance_state($locationType, $divisionId, $componentId, $uomId);
 
         $qtyBefore = (float)($balance['qty_on_hand'] ?? 0);
@@ -5693,7 +5740,7 @@ class Production_model extends CI_Model
         $valueBefore = round((float)($balance['total_value'] ?? ($qtyBefore * $avgBefore)), 2);
         $isIn = $reverseType === 'VOID_REVERSE';
         $qtyAfter = $isIn ? round($qtyBefore + $reverseQty, 4) : round($qtyBefore - $reverseQty, 4);
-        if ($qtyAfter < -0.0001) {
+        if (!$allowNegativeRollback && $qtyAfter < -0.0001) {
             return ['ok' => false, 'message' => 'VOID ditolak karena stok tidak cukup untuk rollback movement component.'];
         }
         if (abs($qtyAfter) < 0.0001) {
@@ -5741,6 +5788,7 @@ class Production_model extends CI_Model
                 'component_id' => $componentId,
                 'uom_id' => $uomId,
             ],
+            'allow_negative_rollback' => $allowNegativeRollback,
         ];
     }
 

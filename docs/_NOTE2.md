@@ -199,3 +199,11 @@ cek metode pembayaran self order
 cek gambar produk member
 cek extra member self order
 cek verifikasi self order sudah potong stok?
+
+
+=======================
+
+ok berarti ada beberapa masalah yang harus di selesaikan.
+
+saya punya ide lain. void itu bukan berdasarkan saldo monthly stock melainkan berdasarkan lot dari batch yg di generate. jadi ketika di void biarkan stock jadi minus lagi.
+baru selesaikan perbedaan stock dan movement

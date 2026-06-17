@@ -87,3 +87,5 @@ dan jangan lupa buatkan halaman stok opname dan masukkan tab bertingkat semua ha
 
 
 
+kita pindah ke component dulu., lakukan penyesuaian untuk /component-reconcile. ubah struktur kolom sperti pada /inventory/stock/division/reconcile.
+tambahkan juga logika logika pengecekan serta reparing seperti pada bahan baku yang sudah kita buat kemarin

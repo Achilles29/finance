@@ -461,6 +461,16 @@ $cbFmt = static function ($num): string {
                 <div class="mt-1">
                   <?php if (!empty($row['can_void'])): ?>
                     <span class="badge text-bg-success" title="Batch ini belum terdeteksi dipakai dokumen lain.">Siap Void</span>
+                    <?php
+                      $voidProjection = is_array($row['void_projection'] ?? null) ? $row['void_projection'] : [];
+                      $voidWillGoNegative = !empty($voidProjection['available']) && !empty($voidProjection['would_go_negative']);
+                    ?>
+                    <?php if ($voidWillGoNegative): ?>
+                      <div class="small text-warning-emphasis mt-1" title="Void tetap boleh, tetapi saldo global component akan minus sementara sampai drift stock vs movement dibereskan.">
+                        Void bikin saldo global minus sementara:
+                        <?php echo number_format((float)($voidProjection['projected_global_qty_after_void'] ?? 0), 2, ',', '.'); ?>
+                      </div>
+                    <?php endif; ?>
                   <?php else: ?>
                     <span class="badge text-bg-warning" title="<?php echo html_escape((string)($row['void_block_reason'] ?? 'Batch ini sudah dipakai.')); ?>">Tidak Bisa Void</span>
                   <?php endif; ?>
@@ -481,6 +491,15 @@ $cbFmt = static function ($num): string {
                 </div>
               <?php elseif ($rowStatus === 'POSTED'): ?>
                 <div class="component-action-stack">
+                  <?php
+                    $voidProjection = is_array($row['void_projection'] ?? null) ? $row['void_projection'] : [];
+                    $voidWillGoNegative = !empty($row['can_void']) && !empty($voidProjection['available']) && !empty($voidProjection['would_go_negative']);
+                    $voidTitle = !empty($row['can_void'])
+                      ? ($voidWillGoNegative
+                          ? 'Void tetap boleh, tetapi saldo global akan minus sementara: ' . number_format((float)($voidProjection['projected_global_qty_after_void'] ?? 0), 2, ',', '.')
+                          : 'Void')
+                      : (string)($row['void_block_reason'] ?? 'Tidak bisa di-void');
+                  ?>
                   <a href="<?php echo site_url('production/component-batches/detail/' . (int)$row['id']); ?>"
                      class="btn btn-outline-info action-icon-btn component-action-btn"
                      title="Buka Detail Batch" aria-label="Detail">
@@ -492,7 +511,7 @@ $cbFmt = static function ($num): string {
                   </button>
                   <button type="button" class="btn btn-outline-warning action-icon-btn component-action-btn btn-void"
                           data-id="<?php echo (int)$row['id']; ?>"
-                          title="<?php echo html_escape(!empty($row['can_void']) ? 'Void' : (string)($row['void_block_reason'] ?? 'Tidak bisa di-void')); ?>"
+                          title="<?php echo html_escape($voidTitle); ?>"
                           aria-label="Void"
                           <?php echo !empty($row['can_void']) ? '' : 'disabled'; ?>>
                     <i class="ri ri-close-circle-line"></i>
@@ -1280,10 +1299,19 @@ $cbFmt = static function ($num): string {
     const lotIssueUsages = Array.isArray(detail.lot_issue_usages) ? detail.lot_issue_usages : [];
     const header       = detail.header || {};
     const blockReason  = String(detail.block_reason || '');
+    const voidProjection = detail.void_projection || {};
     const detailUrl    = usageDetailBaseUrl + '/' + String(header.id || '0');
     const summaryBadge = detail.can_void
       ? '<span class="badge text-bg-success">Batch masih bisa di-void</span>'
       : '<span class="badge text-bg-warning" title="' + escapeHtml(blockReason) + '">Tidak bisa di-void</span>';
+    const voidProjectionAlert = detail.can_void && voidProjection.available && voidProjection.would_go_negative
+      ? '<div class="alert alert-warning mt-2 mb-0">' +
+          'Void tetap boleh, tetapi saldo global component akan minus sementara. ' +
+          'Stok global saat ini <strong>' + escapeHtml(formatQty(voidProjection.current_global_qty || 0)) + '</strong>, ' +
+          'rollback batch <strong>' + escapeHtml(formatQty(voidProjection.rollback_qty || 0)) + '</strong>, ' +
+          'proyeksi setelah void <strong>' + escapeHtml(formatQty(voidProjection.projected_global_qty_after_void || 0)) + '</strong>.' +
+        '</div>'
+      : '';
 
     usageModalBody.innerHTML =
       '<div class="mb-3">' +
@@ -1295,6 +1323,7 @@ $cbFmt = static function ($num): string {
           '</div>' +
           '<div><a href="' + escapeHtml(detailUrl) + '" class="btn btn-sm btn-outline-info"><i class="ri ri-eye-line me-1"></i>Buka Detail</a></div>' +
         '</div>' +
+        voidProjectionAlert +
         (blockReason ? '<div class="alert alert-warning mt-2 mb-0">' + escapeHtml(blockReason) + '</div>' : '') +
       '</div>' +
       '<div class="mb-3"><h6 class="mb-2">Input Bahan Baku Batch Ini</h6>' +

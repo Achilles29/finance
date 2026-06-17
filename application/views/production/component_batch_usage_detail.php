@@ -8,6 +8,8 @@ $traceRows = is_array($detail['trace_rows'] ?? null) ? $detail['trace_rows'] : [
 $materialInputs = is_array($detail['material_inputs'] ?? null) ? $detail['material_inputs'] : [];
 $canVoid = !empty($detail['can_void']);
 $blockReason = trim((string)($detail['block_reason'] ?? ''));
+$voidProjection = is_array($detail['void_projection'] ?? null) ? $detail['void_projection'] : [];
+$voidWillGoNegative = !empty($voidProjection['available']) && !empty($voidProjection['would_go_negative']);
 $locationLabel = static function ($locationType): string {
     $value = strtoupper(trim((string)$locationType));
     if ($value === 'BAR' || $value === 'KITCHEN') {
@@ -68,6 +70,14 @@ $locationLabel = static function ($locationType): string {
         </div>
         <?php if ($blockReason !== ''): ?>
           <div class="alert alert-warning mt-3 mb-0"><?php echo html_escape($blockReason); ?></div>
+        <?php endif; ?>
+        <?php if ($canVoid && $voidWillGoNegative): ?>
+          <div class="alert alert-warning mt-3 mb-0">
+            Void tetap boleh, tetapi saldo global component akan minus sementara.
+            Stok global saat ini <strong><?php echo number_format((float)($voidProjection['current_global_qty'] ?? 0), 4, ',', '.'); ?></strong>,
+            rollback batch <strong><?php echo number_format((float)($voidProjection['rollback_qty'] ?? 0), 4, ',', '.'); ?></strong>,
+            proyeksi setelah void <strong><?php echo number_format((float)($voidProjection['projected_global_qty_after_void'] ?? 0), 4, ',', '.'); ?></strong>.
+          </div>
         <?php endif; ?>
       </div>
     </div>
