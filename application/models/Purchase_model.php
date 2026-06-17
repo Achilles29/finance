@@ -2963,10 +2963,13 @@ class Purchase_model extends CI_Model
                 'division_code' => (string)($meta['division_code'] ?? ''),
                 'destination_group' => (string)($meta['destination_group'] ?? 'REGULER'),
                 'destination_name' => (string)($meta['destination_name'] ?? 'Reguler'),
+                'destination_type' => (string)($meta['destination_type'] ?? ''),
                 'item_id' => (int)($meta['item_id'] ?? 0),
                 'material_id' => (int)($meta['material_id'] ?? 0),
                 'material_code' => (string)($meta['material_code'] ?? ''),
                 'material_name' => (string)($meta['material_name'] ?? ''),
+                'content_uom_id' => (int)($meta['content_uom_id'] ?? 0),
+                'avg_cost_per_content' => (float)($meta['avg_cost_per_content'] ?? 0),
                 'balance_qty_content' => $balanceContent,
                 'balance_qty_pack' => (float)($balance['qty_pack'] ?? 0),
                 'daily_qty_content' => $dailyContent,
@@ -5881,10 +5884,13 @@ class Purchase_model extends CI_Model
                         'division_name' => (string)($row['division_name'] ?? ''),
                         'destination_group' => $destinationGroup,
                         'destination_name' => (string)($row['destination_name'] ?? ($destinationGroup === 'EVENT' ? 'Event' : 'Reguler')),
+                        'destination_type' => strtoupper(trim((string)($row['destination_type'] ?? ''))),
                         'item_id' => $itemId,
                         'material_id' => $materialId,
                         'material_code' => (string)($row['material_code'] ?? ''),
                         'material_name' => (string)($row['material_name'] ?? ($row['item_name'] ?? '')),
+                        'content_uom_id' => (int)($row['content_uom_id'] ?? 0),
+                        'avg_cost_per_content' => 0.0,
                         'latest_date' => (string)($row['movement_date'] ?? ''),
                         'audit_has_mismatch' => 0,
                         'audit_mismatch_qty_content' => 0.0,
@@ -5920,6 +5926,9 @@ class Purchase_model extends CI_Model
             if ($source === 'balance') {
                 $map[$key]['qty_content'] += (float)($row['qty_content_balance'] ?? 0);
                 $map[$key]['qty_pack'] += (float)($row['qty_buy_balance'] ?? 0);
+                if ((float)($row['avg_cost_per_content'] ?? 0) > 0) {
+                    $map[$key]['_meta']['avg_cost_per_content'] = (float)$row['avg_cost_per_content'];
+                }
             } elseif ($source === 'movement') {
                 $map[$key]['qty_content'] += (float)($row['qty_content_after'] ?? 0);
                 $map[$key]['qty_pack'] += (float)($row['qty_buy_after'] ?? 0);
@@ -8630,6 +8639,7 @@ class Purchase_model extends CI_Model
                 'adjustment_category' => 'ADJUSTMENT_PLUS',
                 'adjustment_reason_code' => $this->normalizeInventoryAdjustmentReasonCode((string)($line['adjustment_plus_reason_code'] ?? ''), 'ADJUSTMENT_PLUS') ?? 'other',
                 'notes' => $notes,
+                'allow_negative_balance' => $preBalance < -0.0001,
             ]);
             if (!($ledger['ok'] ?? false)) {
                 return ['ok' => false, 'message' => (string)($ledger['message'] ?? 'Gagal posting ledger adjustment plus.')];

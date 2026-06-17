@@ -181,6 +181,21 @@ saat simpan transaksi stok SO YIRGACHEFFE tidak terpotong
 sekarang cek resep produk /master/relation/product-recipe/ disana ada Source Divisi . contoh RUM DMC divisi produk ada di BAR, tapi di resepnya ada TING TING CRUMBLE yang merupakan bahan milik kitchen. jadi seharusnya saat simpan transaksi TING TING CRUMBLE yang dipotong adalah dari kitchen. CEK
 
 
+kenapa histori commit POS lama mem-post movement ke BAR?
+apakah sekarang mungkin terjadi lagi?
+bisakah dibuat sql repairnya untuk semua tabel yang terpengaruh?
+
+
+
 
 
 cek di POS saat void dan refund dengan Pilihan jangan kembalikan ke stok. saat dipilih jangan kembalikan ke stok, artinya stok berpindah dari usage out menjadi adjustment sesuai dengan alasan yang dipilih. jadi di mutasi bukan muncul sebagai usage out tapi adjustment. dan di ajutstmen muncul adjustment  baik untuk bahan baku maupun component.
+
+
+cek /component-reconcile
+
+missmatch taruh dashboard
+cek metode pembayaran self order
+cek gambar produk member
+cek extra member self order
+cek verifikasi self order sudah potong stok?

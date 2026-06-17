@@ -207,6 +207,16 @@ $fmtText    = static fn($v, string $fb = '-'): string => trim((string)$v) !== ''
 .rec-page-btn:hover   { background:#f5f5f5; border-color:#bbb; color:#333; }
 .rec-page-btn.active  { background:#312028; border-color:#312028; color:#fff; }
 .rec-page-btn.disabled { opacity:.4; pointer-events:none; }
+
+/* ── Icon action buttons ── */
+.rec-icon-btn {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:1.75rem; height:1.75rem; padding:0; font-size:.85rem;
+  border-radius:6px; border-width:1px; border-style:solid;
+  background:transparent; cursor:pointer; text-decoration:none;
+  transition:background .12s, color .12s;
+}
+.rec-icon-btn:hover { filter:brightness(.92); }
 </style>
 
 <!-- Header -->
@@ -633,20 +643,36 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                 <?php if (!empty($row['daily_log_has_gap'])): ?><div class="text-muted" style="font-size:.66rem;margin-top:.2rem">Gap movement log: opening + delta log tidak sama dengan closing monthly.</div><?php endif; ?>
               </td>
               <td>
-                <div class="d-flex gap-1 flex-wrap">
-                  <button type="button" class="btn btn-xs btn-outline-primary src-material-audit-btn"
-                    data-as-of-date="<?php echo $asOf; ?>"
-                    data-division-id="<?php echo $dataDivId; ?>"
-                    data-item-id="<?php echo $dataItemId; ?>"
-                    data-material-id="<?php echo $dataMatId; ?>"
-                    data-destination="<?php echo $dataDest; ?>">Audit</button>
-                  <button type="button" class="btn btn-xs btn-outline-danger src-material-repair-btn"
+                <div class="d-flex gap-1" style="flex-wrap:wrap">
+                  <button type="button" class="rec-icon-btn btn-outline-primary src-material-audit-btn"
                     data-as-of-date="<?php echo $asOf; ?>"
                     data-division-id="<?php echo $dataDivId; ?>"
                     data-item-id="<?php echo $dataItemId; ?>"
                     data-material-id="<?php echo $dataMatId; ?>"
                     data-destination="<?php echo $dataDest; ?>"
-                    title="<?php echo html_escape($parentRepairTitle); ?>"><?php echo html_escape($parentRepairLabel); ?></button>
+                    title="Audit selisih bahan ini"><i class="ri ri-search-eye-line"></i></button>
+                  <button type="button" class="rec-icon-btn btn-outline-danger src-material-repair-btn"
+                    data-as-of-date="<?php echo $asOf; ?>"
+                    data-division-id="<?php echo $dataDivId; ?>"
+                    data-item-id="<?php echo $dataItemId; ?>"
+                    data-material-id="<?php echo $dataMatId; ?>"
+                    data-destination="<?php echo $dataDest; ?>"
+                    title="<?php echo html_escape($parentRepairTitle); ?>"><i class="ri ri-tools-line"></i></button>
+                  <button type="button" class="rec-icon-btn btn-outline-warning src-quick-adj-btn"
+                    data-division-id="<?php echo $dataDivId; ?>"
+                    data-item-id="<?php echo $dataItemId; ?>"
+                    data-material-id="<?php echo $dataMatId; ?>"
+                    data-destination="<?php echo $dataDest; ?>"
+                    data-destination-type="<?php echo html_escape($row['destination_type'] ?? ''); ?>"
+                    data-content-uom-id="<?php echo (int)($row['content_uom_id'] ?? 0); ?>"
+                    data-material-name="<?php echo html_escape($row['material_name'] ?? ''); ?>"
+                    data-system-qty="<?php echo (float)($row['balance_qty_content'] ?? 0); ?>"
+                    data-avg-cost="<?php echo (float)($row['avg_cost_per_content'] ?? 0); ?>"
+                    title="Adjustment manual stok bahan ini"><i class="ri ri-scales-3-line"></i></button>
+                  <a href="<?php echo html_escape(site_url('inventory/stock/division/movement') . '?q=' . rawurlencode($row['material_name'] ?? '') . '&division_id=' . $dataDivId . '&destination=' . rawurlencode($dataDest)); ?>"
+                    class="rec-icon-btn btn-outline-info" target="_blank" title="Lihat movement log bahan ini"><i class="ri ri-history-line"></i></a>
+                  <a href="<?php echo html_escape(site_url('inventory/stock/division/lot') . '?q=' . rawurlencode($row['material_name'] ?? '') . '&division_id=' . $dataDivId . '&destination=' . rawurlencode($dataDest)); ?>"
+                    class="rec-icon-btn btn-outline-secondary" target="_blank" title="Lihat lot FIFO bahan ini"><i class="ri ri-stack-line"></i></a>
                 </div>
               </td>
             </tr>
@@ -733,6 +759,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                             <span class="rec-chip <?php echo $pbStatusCls; ?>" style="font-size:.59rem"><?php echo $pbStatusLbl; ?></span>
                           </td>
                           <td class="text-center" style="padding:.3rem .4rem">
+                            <div class="d-flex gap-1 justify-content-center flex-wrap">
                             <?php if ($pbMis): ?>
                             <button type="button" class="btn btn-xs btn-outline-warning src-profile-repair-btn"
                               data-as-of-date="<?php echo html_escape($asOfDate); ?>"
@@ -751,6 +778,21 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                               title="<?php echo html_escape($profileRepairTitle); ?>"
                               style="font-size:.59rem;padding:.1rem .35rem"><?php echo html_escape($profileRepairLabel); ?></button>
                             <?php endif; ?>
+                            <button type="button" class="btn btn-xs btn-outline-primary src-quick-adj-btn"
+                              data-division-id="<?php echo $dataDivId; ?>"
+                              data-item-id="<?php echo $dataItemId; ?>"
+                              data-material-id="<?php echo $dataMatId; ?>"
+                              data-destination="<?php echo html_escape($dataDest); ?>"
+                              data-destination-type="<?php echo html_escape($row['destination_type'] ?? ''); ?>"
+                              data-content-uom-id="<?php echo (int)($row['content_uom_id'] ?? 0); ?>"
+                              data-material-name="<?php echo html_escape($row['material_name'] ?? ''); ?>"
+                              data-system-qty="<?php echo $pbStock; ?>"
+                              data-avg-cost="<?php echo (float)($row['avg_cost_per_content'] ?? 0); ?>"
+                              data-profile-key="<?php echo html_escape($pbPk); ?>"
+                              data-profile-name="<?php echo html_escape($pbLabel); ?>"
+                              title="Adjustment manual profil ini"
+                              style="font-size:.59rem;padding:.1rem .35rem"><i class="ri ri-scales-3-line"></i> Adj</button>
+                            </div>
                           </td>
                         </tr>
                       <?php endforeach; ?>
@@ -1362,6 +1404,168 @@ document.addEventListener('DOMContentLoaded', function () {
   if (prToStockBtn) { prToStockBtn.addEventListener('click', function() { runProfileRepair('lot_repair'); }); }
   if (prToMvtBtn)   { prToMvtBtn.addEventListener('click',   function() { runProfileRepair('to_movement'); }); }
 
+  // ── Quick Adjustment Manual dari Reconcile ───────────────────────────────
+  var qAdjModal   = document.getElementById('quickAdjModal');
+  var qAdjModalBs = qAdjModal && typeof bootstrap !== 'undefined' ? new bootstrap.Modal(qAdjModal) : null;
+  var qAdjUrl     = <?php echo json_encode(site_url('inventory/stock/daily-recon/division/quick-adjust')); ?>;
+
+  var qaReasonMap = <?php echo json_encode([
+    'ADJUSTMENT_MINUS' => ['over_usage' => 'Over Usage', 'unrecorded_usage' => 'Unrecorded Usage', 'counting_error' => 'Counting Error', 'system_mismatch' => 'System Mismatch', 'other' => 'Other'],
+    'ADJUSTMENT_PLUS'  => ['opening_correction' => 'Opening Correction', 'stock_found' => 'Stock Found', 'manual_reclass' => 'Manual Reclass', 'other' => 'Other'],
+    'WASTE'            => ['cancel_order' => 'Cancel Order', 'kitchen_error' => 'Kitchen Error', 'overproduction' => 'Overproduction', 'spillage' => 'Spillage / Tumpah', 'prep_trim_excess' => 'Prep Trim Excess', 'expired_opened' => 'Expired Opened', 'other' => 'Other'],
+    'SPOIL'            => ['expired' => 'Expired', 'temperature_abuse' => 'Temperature Abuse', 'contamination' => 'Contamination', 'overstock' => 'Overstock', 'improper_storage' => 'Improper Storage', 'other' => 'Other'],
+    'PROCESS_LOSS'     => ['defrost_loss' => 'Defrost Loss', 'trimming_standard' => 'Trimming Standard', 'cooking_loss' => 'Cooking Loss', 'evaporation' => 'Evaporation', 'brew_loss' => 'Brew Loss', 'other' => 'Other'],
+    'VARIANCE'         => ['over_usage' => 'Over Usage', 'under_usage' => 'Under Usage', 'unrecorded_usage' => 'Unrecorded Usage', 'counting_error' => 'Counting Error', 'system_mismatch' => 'System Mismatch', 'unknown_shrinkage' => 'Unknown Shrinkage', 'other' => 'Other'],
+  ], JSON_UNESCAPED_UNICODE); ?>;
+
+  var validAdjDests = ['BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE','OTHER'];
+  function qaMapDest(d) { return validAdjDests.indexOf(String(d).toUpperCase()) >= 0 ? String(d).toUpperCase() : 'OTHER'; }
+
+  function qaUpdateReasonOpts(adjType) {
+    var sel = document.getElementById('qaReason');
+    if (!sel) return;
+    var opts = qaReasonMap[adjType] || {'other': 'Other'};
+    sel.innerHTML = Object.entries(opts).map(function(kv) {
+      return '<option value="' + kv[0] + '">' + kv[1] + '</option>';
+    }).join('');
+    sel.value = 'other';
+    var hppRow = document.getElementById('qaHppRow');
+    if (hppRow) hppRow.style.display = adjType === 'ADJUSTMENT_PLUS' ? '' : 'none';
+  }
+
+  function qaFmtQty(v) { var n = parseFloat(v); return isNaN(n) ? '0' : n.toLocaleString('id-ID', {maximumFractionDigits:4}); }
+
+  function qaUpdateSelisih() {
+    var sysQty  = parseFloat(qAdjModal?.dataset.systemQty || 0);
+    var physQty = parseFloat(document.getElementById('qaPhysicalQty')?.value || '');
+    var sdEl    = document.getElementById('qaSelisihDisplay');
+    var atEl    = document.getElementById('qaAdjType');
+    if (isNaN(physQty)) {
+      if (sdEl) sdEl.textContent = '—';
+      return;
+    }
+    var delta = physQty - sysQty;
+    if (sdEl) {
+      var sign = delta > 0 ? '+' : '';
+      sdEl.textContent = sign + qaFmtQty(delta);
+      sdEl.style.color = delta > 0 ? '#2563eb' : delta < 0 ? '#b42318' : '#6b7280';
+    }
+    // Auto-suggest adj type hanya bila user belum manually memilih
+    if (atEl && !atEl.dataset.manuallySet) {
+      var suggestedType;
+      if (delta > 0)      suggestedType = 'ADJUSTMENT_PLUS';
+      else if (delta < 0) suggestedType = 'ADJUSTMENT_MINUS';
+      else                suggestedType = atEl.value;
+      if (suggestedType !== atEl.value) {
+        atEl.value = suggestedType;
+        qaUpdateReasonOpts(suggestedType);
+      }
+    }
+  }
+
+  var qaPhysEl = document.getElementById('qaPhysicalQty');
+  if (qaPhysEl) { qaPhysEl.addEventListener('input', qaUpdateSelisih); }
+
+  var qaAdjTypeEl = document.getElementById('qaAdjType');
+  if (qaAdjTypeEl) {
+    qaAdjTypeEl.addEventListener('change', function() {
+      this.dataset.manuallySet = '1';
+      qaUpdateReasonOpts(this.value);
+    });
+  }
+
+  document.addEventListener('click', function(ev) {
+    var btn = ev.target.closest('.src-quick-adj-btn');
+    if (!btn) return;
+    var divId        = Number(btn.dataset.divisionId      || 0);
+    var matId        = Number(btn.dataset.materialId      || 0);
+    var itemId       = Number(btn.dataset.itemId          || 0);
+    var dest         = String(btn.dataset.destination     || 'OTHER');
+    var destType     = String(btn.dataset.destinationType || '');
+    var contentUomId = Number(btn.dataset.contentUomId    || 0);
+    var matName      = String(btn.dataset.materialName    || '');
+    var sysQty       = parseFloat(btn.dataset.systemQty  || 0);
+    var avgCost      = parseFloat(btn.dataset.avgCost     || 0);
+    var profileKey   = String(btn.dataset.profileKey      || '');
+    var profileName  = String(btn.dataset.profileName     || '');
+    var g = function(id) { return document.getElementById(id); };
+    if (g('qaMatName'))  g('qaMatName').textContent  = matName;
+    if (g('qaSubtitle')) g('qaSubtitle').textContent = profileName ? 'Profil: ' + profileName : '';
+    if (g('qaSaldoSaatIni')) g('qaSaldoSaatIni').textContent = qaFmtQty(sysQty);
+    if (g('qaSelisihDisplay')) g('qaSelisihDisplay').textContent = '—';
+    if (g('qaPhysicalQty')) { g('qaPhysicalQty').value = ''; }
+    if (g('qaNotes'))      g('qaNotes').value          = '';
+    if (g('qaDate'))       g('qaDate').value           = new Date().toISOString().slice(0, 10);
+    var defaultType = sysQty < 0 ? 'ADJUSTMENT_PLUS' : 'ADJUSTMENT_MINUS';
+    if (g('qaAdjType'))  { g('qaAdjType').value = defaultType; delete g('qaAdjType').dataset.manuallySet; }
+    qaUpdateReasonOpts(defaultType);
+    var ucEl = document.getElementById('qaUnitCost');
+    if (ucEl) ucEl.value = avgCost > 0 ? avgCost : '';
+    if (qAdjModal) {
+      qAdjModal.dataset.divisionId     = divId;
+      qAdjModal.dataset.materialId     = matId;
+      qAdjModal.dataset.itemId         = itemId;
+      qAdjModal.dataset.destination    = dest;
+      qAdjModal.dataset.destinationType = destType;
+      qAdjModal.dataset.contentUomId   = contentUomId;
+      qAdjModal.dataset.systemQty      = sysQty;
+      qAdjModal.dataset.profileKey     = profileKey;
+    }
+    if (qAdjModalBs) { qAdjModalBs.show(); } else if (qAdjModal) { qAdjModal.style.display = 'flex'; }
+    setTimeout(function() { var pq = document.getElementById('qaPhysicalQty'); if (pq) pq.focus(); }, 350);
+  });
+
+  var qaSubmitBtn = document.getElementById('qaSubmitBtn');
+  if (qaSubmitBtn) {
+    qaSubmitBtn.addEventListener('click', async function() {
+      var g        = function(id) { return document.getElementById(id); };
+      var physQty  = parseFloat(g('qaPhysicalQty')?.value || '');
+      var sysQty   = parseFloat(qAdjModal?.dataset.systemQty   || 0);
+      var adjType  = g('qaAdjType')?.value  || 'ADJUSTMENT_MINUS';
+      var reason   = g('qaReason')?.value   || 'other';
+      var unitCost = parseFloat(g('qaUnitCost')?.value || 0);
+      var notes    = (g('qaNotes')?.value   || '').trim();
+      var date     = g('qaDate')?.value     || new Date().toISOString().slice(0, 10);
+      var divId        = Number(qAdjModal?.dataset.divisionId       || 0);
+      var matId        = Number(qAdjModal?.dataset.materialId       || 0);
+      var itemId       = Number(qAdjModal?.dataset.itemId           || 0);
+      var contentUomId = Number(qAdjModal?.dataset.contentUomId     || 0);
+      var profileKey   = String(qAdjModal?.dataset.profileKey       || '');
+      var destType     = qaMapDest(qAdjModal?.dataset.destinationType || qAdjModal?.dataset.destination || 'OTHER');
+      if (divId <= 0) { await showAlert('Division tidak valid.', 'Adjustment'); return; }
+      if (contentUomId <= 0) { await showAlert('UOM bahan tidak ditemukan. Tidak bisa menyimpan adjustment.', 'Adjustment'); return; }
+      if (isNaN(physQty)) { await showAlert('Saldo target belum diisi.', 'Adjustment'); g('qaPhysicalQty')?.focus(); return; }
+      if (physQty === sysQty) { await showAlert('Saldo target sama dengan saldo saat ini. Selisih = 0, tidak ada yang di-adjust.', 'Adjustment'); return; }
+      if (adjType === 'ADJUSTMENT_PLUS' && unitCost <= 0) { await showAlert('HPP / Unit Cost wajib diisi untuk Adjustment Plus.', 'Adjustment'); g('qaUnitCost')?.focus(); return; }
+      setButtonLoading(qaSubmitBtn, 'Menyimpan...');
+      try {
+        var payload = {
+          opname_date:          date,
+          division_id:          divId,
+          destination_type:     destType,
+          identity_key:         'rec_' + matId + '_' + divId + '_' + destType + (profileKey ? '_' + profileKey : ''),
+          physical_qty_content: physQty,
+          system_qty_content:   sysQty,
+          adjustment_type:      adjType,
+          reason_code:          reason,
+          notes:                notes,
+          avg_cost_per_content: adjType === 'ADJUSTMENT_PLUS' ? unitCost : 0,
+          material_id:          matId  || null,
+          item_id:              itemId || null,
+          content_uom_id:       contentUomId,
+        };
+        if (profileKey) payload.profile_key = profileKey;
+        var json = await postJson(qAdjUrl, payload);
+        if (qAdjModalBs) { qAdjModalBs.hide(); } else if (qAdjModal) { qAdjModal.style.display = 'none'; }
+        await showAlert(json.message || 'Adjustment berhasil diposting.', 'Adjustment');
+        window.location.reload();
+      } catch(e) {
+        clearButtonLoading(qaSubmitBtn);
+        await showAlert(e.message || 'Gagal menyimpan adjustment.', 'Adjustment');
+      }
+    });
+  }
+
   if (repairDecisionModal) {
     repairDecisionModal.addEventListener('click', function(ev) {
       var cancelBtn = ev.target.closest('[data-role="cancel"]');
@@ -1421,4 +1625,74 @@ document.addEventListener('DOMContentLoaded', function () {
   </div>
 </div>
 
+<!-- Quick Adjustment Manual Modal -->
+<div class="modal fade" id="quickAdjModal" tabindex="-1" aria-labelledby="qaModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:460px">
+    <div class="modal-content">
+      <div class="modal-header py-2" style="background:linear-gradient(135deg,#78350f,#b45309)">
+        <div>
+          <h6 class="modal-title text-white mb-0" id="qaModalTitle">Adjustment Manual Stok</h6>
+          <div class="text-white" id="qaSubtitle" style="font-size:.72rem;opacity:.85;margin-top:.1rem"></div>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Tutup"></button>
+      </div>
+      <div class="modal-body pb-2">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <div class="fw-semibold" id="qaMatName" style="font-size:.95rem"></div>
+          <input type="date" class="form-control form-control-sm w-auto" id="qaDate">
+        </div>
+
+        <!-- Saldo info -->
+        <div class="rounded p-2 mb-3" style="background:#f8f9fa;border:1px solid #e2e8f0;font-size:.82rem">
+          <div class="d-flex justify-content-between mb-1">
+            <span class="text-muted">Saldo saat ini</span>
+            <span class="fw-semibold" id="qaSaldoSaatIni">0</span>
+          </div>
+          <div class="d-flex justify-content-between">
+            <span class="text-muted">Selisih adjustment</span>
+            <span class="fw-semibold" id="qaSelisihDisplay" style="color:#b45309">—</span>
+          </div>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label small mb-1 fw-semibold">Saldo Target <span class="text-muted fw-normal">(setelah adjustment)</span></label>
+          <input type="number" step="0.0001" class="form-control form-control-sm" id="qaPhysicalQty" placeholder="Masukkan saldo yang diinginkan">
+        </div>
+
+        <!-- Tipe & Alasan — auto-suggest tapi bisa diubah -->
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label small mb-1">Tipe</label>
+            <select class="form-select form-select-sm" id="qaAdjType">
+              <option value="ADJUSTMENT_MINUS">Adj Minus</option>
+              <option value="ADJUSTMENT_PLUS">Adj Plus</option>
+              <option value="WASTE">Waste</option>
+              <option value="SPOIL">Spoil</option>
+              <option value="PROCESS_LOSS">Process Loss</option>
+              <option value="VARIANCE">Variance</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-1">Alasan</label>
+            <select class="form-select form-select-sm" id="qaReason"></select>
+          </div>
+        </div>
+
+        <div class="mb-2" id="qaHppRow" style="display:none">
+          <label class="form-label small mb-1">HPP / Unit Cost <span class="text-danger">*</span></label>
+          <input type="number" step="0.000001" min="0.000001" class="form-control form-control-sm" id="qaUnitCost" placeholder="Harga per satuan isi">
+        </div>
+
+        <div class="mb-1">
+          <label class="form-label small mb-1">Catatan</label>
+          <input type="text" class="form-control form-control-sm" id="qaNotes" placeholder="Opsional">
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-sm btn-warning" id="qaSubmitBtn">Simpan Adjustment</button>
+      </div>
+    </div>
+  </div>
+</div>
 
