@@ -8639,7 +8639,7 @@ class Purchase_model extends CI_Model
                 'adjustment_category' => 'ADJUSTMENT_PLUS',
                 'adjustment_reason_code' => $this->normalizeInventoryAdjustmentReasonCode((string)($line['adjustment_plus_reason_code'] ?? ''), 'ADJUSTMENT_PLUS') ?? 'other',
                 'notes' => $notes,
-                'allow_negative_balance' => $preBalance < -0.0001,
+                'allow_negative_balance' => true,
             ]);
             if (!($ledger['ok'] ?? false)) {
                 return ['ok' => false, 'message' => (string)($ledger['message'] ?? 'Gagal posting ledger adjustment plus.')];
