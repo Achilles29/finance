@@ -18,13 +18,17 @@ $totalRows    = count($rows);
 $cntMatch     = 0; $cntMismatch = 0;
 $uniqueComps  = []; $maxAbsDelta = 0.0;
 foreach ($rows as $r) {
-    if (!empty($r['is_match'])) { $cntMatch++; } else { $cntMismatch++; }
+    $mQty  = (float)($r['monthly_qty']  ?? 0);
+    $lotQ  = (float)($r['lot_qty']      ?? 0);
+    $mvtQ  = (float)($r['movement_qty'] ?? 0);
+    $isM   = abs($mQty - $lotQ) < 0.0001 && abs($mQty - $mvtQ) < 0.0001 && abs($lotQ - $mvtQ) < 0.0001;
+    if ($isM) { $cntMatch++; } else { $cntMismatch++; }
     $cid = (int)($r['component_id'] ?? 0);
     if ($cid > 0) $uniqueComps[$cid] = true;
     $maxAbsDelta = max($maxAbsDelta,
-        abs((float)($r['delta_balance_daily'] ?? 0)),
-        abs((float)($r['delta_balance_movement'] ?? 0)),
-        abs((float)($r['delta_daily_movement'] ?? 0))
+        abs($mQty - $lotQ),
+        abs($mQty - $mvtQ),
+        abs($lotQ - $mvtQ)
     );
 }
 $matchRate    = $totalRows > 0 ? round($cntMatch / $totalRows * 100, 1) : 0;
@@ -47,7 +51,7 @@ $uniqueCompCount = count($uniqueComps);
 .recon-filter-card { border:1px solid rgba(226,212,200,.88);border-radius:16px;box-shadow:0 4px 14px rgba(58,38,30,.05); }
 .recon-table-card  { border:1px solid rgba(226,212,200,.88);border-radius:18px;box-shadow:0 14px 30px rgba(58,38,30,.06); }
 .recon-tbl-wrap    { overflow:auto;max-height:72vh; }
-.recon-tbl { table-layout:fixed;min-width:763px;margin-bottom:0;border-collapse:separate;border-spacing:0; }
+.recon-tbl { table-layout:fixed;min-width:710px;margin-bottom:0;border-collapse:separate;border-spacing:0; }
 .recon-tbl thead th {
   position:sticky;top:0;z-index:4;
   background:linear-gradient(180deg,#7c1f2d 0%,#9f2f3e 100%);
@@ -215,56 +219,61 @@ $uniqueCompCount = count($uniqueComps);
     <table class="table table-hover recon-tbl">
       <thead>
         <tr>
-          <th style="width:160px">Component</th>
-          <th style="width:96px">Divisi / Lokasi</th>
-          <th style="width:78px" class="text-end">Saldo Live</th>
-          <th style="width:78px" class="text-end">Proyeksi</th>
-          <th style="width:78px" class="text-end">Movement</th>
-          <th style="width:88px" class="text-end">Selisih</th>
-          <th style="width:85px">Status</th>
-          <th style="width:100px" class="text-center">Aksi</th>
+          <th style="width:24px"></th>
+          <th style="width:148px">Component</th>
+          <th style="width:88px">Divisi / Lokasi</th>
+          <th style="width:82px" class="text-end">Monthly Stock</th>
+          <th style="width:82px" class="text-end">Lot FIFO</th>
+          <th style="width:82px" class="text-end">Movement Log</th>
+          <th style="width:90px" class="text-end">Selisih</th>
+          <th style="width:82px">Status</th>
+          <th style="width:110px" class="text-center">Aksi</th>
         </tr>
       </thead>
       <tbody id="recon-tbody">
         <?php if (empty($rows)): ?>
-          <tr class="recon-row"><td colspan="8" class="text-center text-muted py-4">Belum ada data reconcile component.</td></tr>
+          <tr class="recon-row"><td colspan="9" class="text-center text-muted py-4">Belum ada data reconcile component.</td></tr>
         <?php else: ?>
           <?php foreach ($rows as $row): ?>
             <?php
-              $isMatch  = !empty($row['is_match']);
-              $d1       = round(abs((float)($row['delta_balance_daily']    ?? 0)), 4);
-              $d2       = round(abs((float)($row['delta_balance_movement'] ?? 0)), 4);
-              $d3       = round(abs((float)($row['delta_daily_movement']   ?? 0)), 4);
-              $d1bad    = $d1 > 0.0001;
-              $d2bad    = $d2 > 0.0001;
-              $d3bad    = $d3 > 0.0001;
-              // Primary selisih = Live vs Movement (most important)
-              $primaryDelta = (float)($row['delta_balance_movement'] ?? 0);
-              // Mismatch type label
+              $mQty      = (float)($row['monthly_qty']  ?? 0);
+              $lotQ      = (float)($row['lot_qty']       ?? 0);
+              $mvtQ      = (float)($row['movement_qty']  ?? 0);
+              $isMatch   = abs($mQty - $lotQ) < 0.0001 && abs($mQty - $mvtQ) < 0.0001 && abs($lotQ - $mvtQ) < 0.0001;
+              $dML       = round(abs($mQty - $lotQ), 4);    // Monthly vs Lot
+              $dMM       = round(abs($mQty - $mvtQ), 4);    // Monthly vs Movement
+              $dLM       = round(abs($lotQ - $mvtQ), 4);    // Lot vs Movement
+              $dMLbad    = $dML > 0.0001;
+              $dMMbad    = $dMM > 0.0001;
+              $dLMbad    = $dLM > 0.0001;
               if (!$isMatch) {
-                  if ($d2bad && $d3bad)        { $mismatchType = 'Live + Daily vs Mvmt'; }
-                  elseif ($d2bad)              { $mismatchType = 'Live vs Mvmt'; }
-                  elseif ($d3bad)              { $mismatchType = 'Daily vs Mvmt'; }
-                  elseif ($d1bad)              { $mismatchType = 'Live vs Daily'; }
-                  else                         { $mismatchType = 'Selisih'; }
-              } else {
-                  $mismatchType = '';
-              }
-              $compId   = (int)($row['component_id'] ?? 0);
-              $divId    = (int)($row['division_id']  ?? 0);
-              $uomId    = (int)($row['uom_id']       ?? 0);
-              $locType  = (string)($row['location_type'] ?? '');
-              $mvtUrl   = site_url('production/component-movements') . '?' . http_build_query(['component_id' => $compId, 'division_id' => $divId, 'location_type' => $locType]);
-              $searchStr = strtolower(implode(' ', [
-                $row['component_name'] ?? '',
-                $row['component_code'] ?? '',
-                $row['component_type'] ?? '',
-                $row['division_name']  ?? '',
-                $locType,
-                $isMatch ? 'match ok' : 'mismatch selisih',
-              ]));
+                  if ($dMLbad && $dMMbad && $dLMbad) { $mismatchType = 'Monthly + Lot vs Mvmt'; }
+                  elseif ($dMLbad && $dMMbad)         { $mismatchType = 'Monthly vs Lot + Mvmt'; }
+                  elseif ($dMMbad && $dLMbad)         { $mismatchType = 'Monthly + Lot vs Mvmt'; }
+                  elseif ($dMLbad)                    { $mismatchType = 'Monthly vs Lot'; }
+                  elseif ($dMMbad)                    { $mismatchType = 'Monthly vs Mvmt'; }
+                  elseif ($dLMbad)                    { $mismatchType = 'Lot vs Mvmt'; }
+                  else                                { $mismatchType = 'Selisih'; }
+              } else { $mismatchType = ''; }
+              $primaryDelta = round($mQty - $mvtQ, 4); // Monthly vs Movement as primary
+              $compId    = (int)($row['component_id'] ?? 0);
+              $divId     = (int)($row['division_id']  ?? 0);
+              $uomId     = (int)($row['uom_id']       ?? 0);
+              $locType   = (string)($row['location_type'] ?? '');
+              $lotCount  = (int)($row['lot_count']    ?? 0);
+              $lotRows   = is_array($row['lot_rows'] ?? null) ? $row['lot_rows'] : [];
+              $bKey      = 'cmp_' . $compId . '_' . $divId . '_' . $uomId . '_' . md5($locType);
+              $mvtUrl    = site_url('production/component-movements') . '?' . http_build_query(['component_id' => $compId, 'division_id' => $divId, 'location_type' => $locType]);
+              $searchStr = strtolower(implode(' ', [$row['component_name'] ?? '', $row['component_code'] ?? '', $row['component_type'] ?? '', $row['division_name'] ?? '', $locType, $isMatch ? 'match ok' : 'mismatch selisih']));
             ?>
             <tr class="recon-row" data-search="<?php echo html_escape($searchStr); ?>">
+              <td class="text-center" style="padding:.25rem .2rem">
+                <?php if ($lotCount > 1): ?>
+                <button type="button" class="btn btn-xs btn-outline-secondary comp-lot-expand-btn" data-bkey="<?php echo html_escape($bKey); ?>" style="width:1.4rem;height:1.4rem;padding:0;font-size:.65rem;border-radius:4px" title="Lihat <?php echo $lotCount; ?> lot"><i class="ri ri-arrow-right-s-line"></i></button>
+                <?php else: ?>
+                <span style="font-size:.6rem;color:#cbd5e1"><?php echo $lotCount > 0 ? '1' : '–'; ?></span>
+                <?php endif; ?>
+              </td>
               <td style="overflow:hidden">
                 <div class="fw-bold" style="font-size:.77rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?php echo html_escape((string)($row['component_name'] ?? '-')); ?>"><?php echo html_escape((string)($row['component_name'] ?? '-')); ?></div>
                 <div class="text-muted" style="font-size:.66rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape((string)($row['component_code'] ?? '-')); ?><?php if (!empty($row['uom_code'])): ?> · <?php echo html_escape((string)$row['uom_code']); ?><?php endif; ?></div>
@@ -273,19 +282,16 @@ $uniqueCompCount = count($uniqueComps);
                 <div style="font-size:.77rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></div>
                 <div class="text-muted" style="font-size:.66rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape($locType); ?></div>
               </td>
-              <td class="text-end" style="font-size:.77rem;white-space:nowrap;overflow:hidden;font-weight:600;<?php echo (float)($row['balance_qty'] ?? 0) < 0 ? 'color:#b42318' : ''; ?>"><?php echo $fmtQty($row['balance_qty'] ?? 0); ?></td>
-              <td class="text-end" style="overflow:hidden">
-                <div style="font-size:.77rem;white-space:nowrap"><?php echo $fmtQty($row['daily_qty'] ?? 0); ?></div>
-                <div class="text-muted" style="font-size:.64rem;white-space:nowrap;overflow:hidden"><?php echo html_escape((string)($row['daily_date'] ?? '')); ?></div>
+              <td class="text-end fw-semibold" style="font-size:.77rem;white-space:nowrap;<?php echo $mQty < 0 ? 'color:#b42318' : ''; ?>"><?php echo $fmtQty($mQty); ?></td>
+              <td class="text-end <?php echo $dMLbad ? 'text-danger fw-bold' : ''; ?>" style="font-size:.77rem;white-space:nowrap"><?php echo $fmtQty($lotQ); ?></td>
+              <td class="text-end <?php echo $dMMbad ? 'text-danger fw-bold' : ''; ?>" style="font-size:.77rem;white-space:nowrap">
+                <div><?php echo $fmtQty($mvtQ); ?></div>
+                <div class="text-muted" style="font-size:.6rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape((string)($row['movement_no'] ?? '')); ?></div>
               </td>
               <td class="text-end" style="overflow:hidden">
-                <div style="font-size:.77rem;white-space:nowrap"><?php echo $fmtQty($row['movement_qty'] ?? 0); ?></div>
-                <div class="text-muted" style="font-size:.64rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape((string)($row['movement_no'] ?? '')); ?></div>
-              </td>
-              <td class="text-end" style="overflow:hidden">
-                <div class="fw-bold <?php echo $d2bad ? 'text-danger' : 'text-success'; ?>" style="font-size:.77rem;white-space:nowrap"><?php echo ($primaryDelta > 0 ? '+' : '') . $fmtQty($primaryDelta); ?></div>
-                <?php if ($d3bad && $d3 !== $d2): ?>
-                <div class="text-muted" style="font-size:.6rem;white-space:nowrap" title="Daily vs Mvmt">D: <?php echo $fmtQty($row['delta_daily_movement'] ?? 0); ?></div>
+                <div class="fw-bold <?php echo abs($primaryDelta) > 0.0001 ? 'text-danger' : 'text-success'; ?>" style="font-size:.77rem;white-space:nowrap"><?php echo ($primaryDelta > 0 ? '+' : '') . $fmtQty($primaryDelta); ?></div>
+                <?php if ($dLMbad && $dLM !== $dMM): ?>
+                <div class="text-muted" style="font-size:.6rem;white-space:nowrap" title="Lot vs Mvmt">L: <?php echo $fmtQty(round($lotQ - $mvtQ, 4)); ?></div>
                 <?php endif; ?>
               </td>
               <td>
@@ -310,20 +316,59 @@ $uniqueCompCount = count($uniqueComps);
                     data-uom-id="<?php echo $uomId; ?>"
                     data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
                     data-mismatch-type="<?php echo html_escape($mismatchType); ?>"
-                    title="Repair (rebuild dari movement log)"><i class="ri ri-tools-line"></i></button>
-                  <a href="<?php echo html_escape($mvtUrl); ?>" class="rec-icon-btn btn-outline-info" target="_blank" title="Lihat movement log component ini"><i class="ri ri-history-line"></i></a>
+                    title="Repair Monthly Stock (rebuild dari movement log)"><i class="ri ri-refresh-line"></i></button>
+                  <button type="button" class="rec-icon-btn btn-outline-secondary comp-lot-repair-btn"
+                    data-location-type="<?php echo html_escape($locType); ?>"
+                    data-division-id="<?php echo $divId; ?>"
+                    data-component-id="<?php echo $compId; ?>"
+                    data-uom-id="<?php echo $uomId; ?>"
+                    data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
+                    title="Repair Lot FIFO (recalculate qty_balance)"><i class="ri ri-stack-line"></i></button>
+                  <a href="<?php echo html_escape($mvtUrl); ?>" class="rec-icon-btn btn-outline-info" target="_blank" title="Lihat movement log"><i class="ri ri-history-line"></i></a>
                   <button type="button" class="rec-icon-btn btn-outline-warning comp-quick-adj-btn"
                     data-component-id="<?php echo $compId; ?>"
                     data-uom-id="<?php echo $uomId; ?>"
                     data-division-id="<?php echo $divId; ?>"
                     data-location-type="<?php echo html_escape($locType); ?>"
                     data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
-                    data-system-qty="<?php echo $row['balance_qty']; ?>"
+                    data-system-qty="<?php echo $mQty; ?>"
                     data-avg-cost="<?php echo (float)($row['balance_avg_cost'] ?? 0); ?>"
                     title="Adjustment manual saldo component ini"><i class="ri ri-scales-3-line"></i></button>
                 </div>
               </td>
             </tr>
+            <?php if (!empty($lotRows)): ?>
+            <tr class="comp-lot-child-row" data-bkey="<?php echo html_escape($bKey); ?>" style="display:none">
+              <td colspan="9" style="padding:.2rem .5rem .5rem 2.2rem;background:#f0f4f8;border-top:none">
+                <div style="font-size:.62rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;padding:.3rem 0 .2rem">Lot FIFO — <?php echo count($lotRows); ?> lot</div>
+                <table class="table table-sm table-borderless mb-0" style="font-size:.68rem;min-width:600px">
+                  <thead><tr style="border-bottom:2px solid #cbd5e1;background:#e2e8f0">
+                    <th style="padding:.25rem .4rem;font-weight:700">Lot No</th>
+                    <th style="padding:.25rem .4rem;font-weight:700">Tgl Terima</th>
+                    <th class="text-end" style="padding:.25rem .4rem;font-weight:700">Qty In</th>
+                    <th class="text-end" style="padding:.25rem .4rem;font-weight:700">Qty Out</th>
+                    <th class="text-end" style="padding:.25rem .4rem;font-weight:700">Saldo</th>
+                    <th class="text-end" style="padding:.25rem .4rem;font-weight:700">Unit Cost</th>
+                    <th style="padding:.25rem .4rem;font-weight:700">Status</th>
+                  </tr></thead>
+                  <tbody>
+                  <?php foreach ($lotRows as $lot): ?>
+                    <?php $lotStatusCls = $lot['status'] === 'OPEN' ? 'color:#2f9e44' : 'color:#94a3b8'; ?>
+                    <tr style="border-bottom:1px solid #e2e8f0">
+                      <td style="padding:.2rem .4rem;font-family:monospace;font-size:.66rem"><?php echo html_escape($lot['lot_no']); ?></td>
+                      <td style="padding:.2rem .4rem"><?php echo html_escape($lot['receipt_date']); ?><?php if (!empty($lot['expiry_date'])): ?><div style="font-size:.58rem;color:#94a3b8">exp: <?php echo html_escape($lot['expiry_date']); ?></div><?php endif; ?></td>
+                      <td class="text-end" style="padding:.2rem .4rem"><?php echo $fmtQty($lot['qty_in']); ?></td>
+                      <td class="text-end" style="padding:.2rem .4rem"><?php echo $fmtQty($lot['qty_out']); ?></td>
+                      <td class="text-end fw-bold" style="padding:.2rem .4rem;<?php echo $lot['qty_balance'] < 0 ? 'color:#b42318' : ''; ?>"><?php echo $fmtQty($lot['qty_balance']); ?></td>
+                      <td class="text-end" style="padding:.2rem .4rem"><?php echo number_format((float)$lot['unit_cost'], 2, ',', '.'); ?></td>
+                      <td style="padding:.2rem .4rem;font-weight:600;<?php echo $lotStatusCls; ?>"><?php echo html_escape($lot['status']); ?></td>
+                    </tr>
+                  <?php endforeach; ?>
+                  </tbody>
+                </table>
+              </td>
+            </tr>
+            <?php endif; ?>
           <?php endforeach; ?>
         <?php endif; ?>
       </tbody>
@@ -678,14 +723,57 @@ $uniqueCompCount = count($uniqueComps);
     }
   });
 
+  const lotRepairUrl = <?php echo json_encode(site_url('production/component-reconcile/lot-repair')); ?>;
+
   document.addEventListener('click', function (event) {
     const auditBtn = event.target.closest('.comp-reconcile-audit-btn');
     if (auditBtn) { loadAudit(identityFromButton(auditBtn)).catch(e => setState(e.message, false)); return; }
+
     const repairBtn = event.target.closest('.comp-reconcile-repair-btn');
     if (repairBtn) { runRepair(repairIdentityFromButton(repairBtn), repairBtn).catch(e => { clearButtonLoading(repairBtn); setState(e.message, false); }); return; }
+
+    const lotRepairBtn = event.target.closest('.comp-lot-repair-btn');
+    if (lotRepairBtn) {
+      runLotRepair(lotRepairBtn).catch(e => { clearButtonLoading(lotRepairBtn); showAlert(e.message, 'Repair Lot'); });
+      return;
+    }
+
     const adjBtn = event.target.closest('.comp-quick-adj-btn');
-    if (adjBtn) { openCompAdj(adjBtn); }
+    if (adjBtn) { openCompAdj(adjBtn); return; }
+
+    const expandBtn = event.target.closest('.comp-lot-expand-btn');
+    if (expandBtn) {
+      const bKey    = expandBtn.dataset.bkey || '';
+      const childs  = document.querySelectorAll('.comp-lot-child-row[data-bkey="' + bKey + '"]');
+      const icon    = expandBtn.querySelector('i');
+      const isOpen  = childs.length > 0 && childs[0].style.display !== 'none';
+      childs.forEach(r => { r.style.display = isOpen ? 'none' : ''; });
+      if (icon) icon.className = isOpen ? 'ri ri-arrow-right-s-line' : 'ri ri-arrow-down-s-line';
+    }
   });
+
+  async function runLotRepair(button) {
+    const compName = String(button?.dataset.componentName || ('Component #' + (button?.dataset.componentId || '?')));
+    const confirmed = await askConfirm(
+      'Repair Lot FIFO untuk:\n' + compName + '\n\nIni akan recalculate qty_balance = qty_in - qty_out untuk semua lot identity ini.\nLanjutkan?',
+      { title: 'Repair Lot FIFO', confirmText: 'Repair', cancelText: 'Batal' }
+    );
+    if (!confirmed) return;
+    setButtonLoading(button, 'Repair...');
+    try {
+      const json = await postJson(lotRepairUrl, {
+        location_type: String(button?.dataset.locationType || ''),
+        division_id:   Number(button?.dataset.divisionId  || 0) || null,
+        component_id:  Number(button?.dataset.componentId || 0),
+        uom_id:        Number(button?.dataset.uomId       || 0),
+      });
+      await showAlert(json.message || 'Lot berhasil di-repair.', 'Repair Lot FIFO');
+      window.location.reload();
+    } catch (e) {
+      clearButtonLoading(button);
+      throw e;
+    }
+  }
 
   // ── Hanya Mismatch toggle ──────────────────────────────────────────────────
   const mismatchOnlyBtn = document.getElementById('recon-mismatch-only-btn');

@@ -89,3 +89,10 @@ dan jangan lupa buatkan halaman stok opname dan masukkan tab bertingkat semua ha
 
 kita pindah ke component dulu., lakukan penyesuaian untuk /component-reconcile. ubah struktur kolom sperti pada /inventory/stock/division/reconcile.
 tambahkan juga logika logika pengecekan serta reparing seperti pada bahan baku yang sudah kita buat kemarin
+
+buatkan reclass lintas profil / lintas lot di bahan baku dan component
+
+
+ubah data yang ditampilkna jadi montly stock, lot FIFO, movement log, selisih , status. lalu buat baris nya bisa di expand per child lot jika lebih dari 1 lot. dan buat fungsi repair stock, movement dan log nya per baris
+
+cek CHICKEN CUBE 40

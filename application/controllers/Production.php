@@ -215,6 +215,51 @@ class Production extends MY_Controller
         $this->json_ok($result);
     }
 
+    public function component_lot_repair()
+    {
+        $pageCode = $this->can('production.component.reconcile.index', 'edit')
+            ? 'production.component.reconcile.index'
+            : 'production.component.daily.index';
+        $this->require_permission($pageCode, 'edit');
+        $payload     = $this->request_payload();
+        $componentId = (int)($payload['component_id'] ?? 0);
+        $uomId       = (int)($payload['uom_id']       ?? 0);
+        $locationType = strtoupper(trim((string)($payload['location_type'] ?? '')));
+        $divisionId  = isset($payload['division_id']) && $payload['division_id'] !== null ? (int)$payload['division_id'] : null;
+
+        if ($componentId <= 0 || $uomId <= 0) {
+            $this->json_error('component_id dan uom_id wajib diisi.', 422);
+            return;
+        }
+        if (!$this->db->table_exists('inv_component_lot')) {
+            $this->json_error('Tabel inv_component_lot belum tersedia.', 422);
+            return;
+        }
+
+        $this->db->where('component_id', $componentId)->where('uom_id', $uomId);
+        if ($locationType !== '') $this->db->where('location_type', $locationType);
+        if ($divisionId !== null) $this->db->where('division_id', $divisionId);
+        else $this->db->where('division_id IS NULL', null, false);
+        $lots = $this->db->get('inv_component_lot')->result_array();
+
+        if (empty($lots)) {
+            $this->json_ok(['repaired' => 0], 'Tidak ada lot ditemukan untuk identity ini.');
+            return;
+        }
+        $repaired = 0;
+        foreach ($lots as $lot) {
+            $newBalance = round((float)$lot['qty_in_total'] - (float)$lot['qty_out_total'], 4);
+            $newStatus  = $newBalance > 0.0001 ? 'OPEN' : 'CLOSED';
+            $this->db->where('id', (int)$lot['id'])->update('inv_component_lot', [
+                'qty_balance' => $newBalance,
+                'status'      => $newStatus,
+                'updated_at'  => date('Y-m-d H:i:s'),
+            ]);
+            $repaired++;
+        }
+        $this->json_ok(['repaired' => $repaired], $repaired . ' lot berhasil di-repair (qty_balance = qty_in - qty_out).');
+    }
+
     public function component_lots()
     {
         $pageCode = $this->can('production.component.lot.index', 'view')

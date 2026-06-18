@@ -1053,6 +1053,7 @@ class Production_model extends CI_Model
                     'uom_id' => (int)($row['uom_id'] ?? 0),
                     'uom_code' => (string)($row['uom_code'] ?? ''),
                     'balance_qty' => round((float)($row['closing_qty'] ?? 0), 4),
+                    'monthly_closing_qty' => round((float)($row['closing_qty'] ?? 0), 4),
                     'balance_avg_cost' => round((float)($row['avg_cost'] ?? 0), 6),
                     'balance_total_value' => round((float)($row['total_value'] ?? 0), 2),
                     'balance_last_txn_at' => (string)($row['last_movement_at'] ?? ''),
@@ -1228,6 +1229,7 @@ class Production_model extends CI_Model
                 'uom_id' => (int)($base['uom_id'] ?? 0),
                 'uom_code' => (string)($base['uom_code'] ?? ''),
                 'balance_qty' => $balanceQty,
+                'monthly_qty' => round((float)($liveMap[$key]['monthly_closing_qty'] ?? $balanceQty), 4),
                 'daily_qty' => $dailyQty,
                 'movement_qty' => $movementQty,
                 'balance_avg_cost' => round((float)($liveMap[$key]['balance_avg_cost'] ?? 0), 6),
@@ -1273,19 +1275,14 @@ class Production_model extends CI_Model
 
     private function attach_component_lot_totals(array &$rows): void
     {
-        foreach ($rows as &$row) { $row['lot_qty'] = null; }
+        foreach ($rows as &$row) { $row['lot_qty'] = 0.0; $row['lot_count'] = 0; $row['lot_rows'] = []; }
         unset($row);
         if (!$this->db->table_exists('inv_component_lot') || empty($rows)) { return; }
-        $keys = [];
-        foreach ($rows as $row) {
-            $locType = strtoupper((string)($row['location_type'] ?? ''));
-            $divId   = $row['division_id'] !== null ? (int)$row['division_id'] : 0;
-            $cId     = (int)($row['component_id'] ?? 0);
-            $uomId   = (int)($row['uom_id'] ?? 0);
-            $keys[] = [$locType, $divId, $cId, $uomId];
-        }
-        if (empty($keys)) { return; }
-        $componentIds = array_values(array_unique(array_column($keys, 2)));
+        $componentIds = array_values(array_unique(array_filter(array_map(
+            static function ($r) { return isset($r['component_id']) ? (int)$r['component_id'] : null; }, $rows
+        ))));
+        if (empty($componentIds)) { return; }
+        // Aggregated lot totals
         $results = $this->db
             ->select('l.location_type, COALESCE(l.division_id,0) AS division_id, l.component_id, l.uom_id, SUM(l.qty_balance) AS lot_total', false)
             ->from('inv_component_lot l')
@@ -1300,13 +1297,38 @@ class Production_model extends CI_Model
                . '|C-' . (int)$r['component_id'] . '|U-' . (int)$r['uom_id'];
             $lotMap[$k] = round((float)($r['lot_total'] ?? 0), 4);
         }
+        // Individual lot rows (all statuses, for expandable child rows)
+        $lotDetailRows = $this->db
+            ->select('l.id, l.location_type, COALESCE(l.division_id,0) AS division_id, l.component_id, l.uom_id, l.lot_no, l.receipt_date, l.expiry_date, l.unit_cost, l.qty_in_total, l.qty_out_total, l.qty_balance, l.status', false)
+            ->from('inv_component_lot l')
+            ->where_in('l.component_id', $componentIds)
+            ->order_by('l.location_type')->order_by('l.division_id')->order_by('l.receipt_date')->order_by('l.id')
+            ->get()->result_array();
+        $lotRowsMap = [];
+        foreach ($lotDetailRows as $r) {
+            $k = strtoupper((string)$r['location_type']) . '|' . (int)$r['division_id']
+               . '|C-' . (int)$r['component_id'] . '|U-' . (int)$r['uom_id'];
+            $lotRowsMap[$k][] = [
+                'id'          => (int)$r['id'],
+                'lot_no'      => (string)$r['lot_no'],
+                'receipt_date'=> (string)$r['receipt_date'],
+                'expiry_date' => (string)($r['expiry_date'] ?? ''),
+                'unit_cost'   => round((float)$r['unit_cost'], 6),
+                'qty_in'      => round((float)$r['qty_in_total'], 4),
+                'qty_out'     => round((float)$r['qty_out_total'], 4),
+                'qty_balance' => round((float)$r['qty_balance'], 4),
+                'status'      => (string)$r['status'],
+            ];
+        }
         foreach ($rows as &$row) {
             $locType = strtoupper((string)($row['location_type'] ?? ''));
             $divId   = $row['division_id'] !== null ? (int)$row['division_id'] : 0;
             $k = $locType . '|' . $divId
                . '|C-' . (int)($row['component_id'] ?? 0)
                . '|U-' . (int)($row['uom_id'] ?? 0);
-            $row['lot_qty'] = $lotMap[$k] ?? 0.0;
+            $row['lot_qty']   = $lotMap[$k] ?? 0.0;
+            $row['lot_rows']  = $lotRowsMap[$k] ?? [];
+            $row['lot_count'] = count($row['lot_rows']);
         }
         unset($row);
     }
