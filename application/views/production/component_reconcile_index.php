@@ -323,17 +323,21 @@ $uniqueCompCount = count($uniqueComps);
                     data-component-id="<?php echo $compId; ?>"
                     data-uom-id="<?php echo $uomId; ?>"
                     data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
-                    title="Repair Lot FIFO (recalculate qty_balance)"><i class="ri ri-stack-line"></i></button>
+                    data-monthly-qty="<?php echo html_escape((string)$mQty); ?>"
+                    data-lot-qty="<?php echo html_escape((string)$lotQ); ?>"
+                    data-movement-qty="<?php echo html_escape((string)$mvtQ); ?>"
+                    title="Normalisasi Lot FIFO (qty_balance = qty_in - qty_out), bukan sinkron otomatis ke monthly stock"><i class="ri ri-stack-line"></i></button>
                   <a href="<?php echo html_escape($mvtUrl); ?>" class="rec-icon-btn btn-outline-info" target="_blank" title="Lihat movement log"><i class="ri ri-history-line"></i></a>
-                  <button type="button" class="rec-icon-btn btn-outline-warning comp-quick-adj-btn"
+                  <button type="button" class="btn btn-sm btn-outline-warning comp-quick-adj-btn"
                     data-component-id="<?php echo $compId; ?>"
                     data-uom-id="<?php echo $uomId; ?>"
                     data-division-id="<?php echo $divId; ?>"
                     data-location-type="<?php echo html_escape($locType); ?>"
+                    data-adjust-scope="STOCK"
                     data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
                     data-system-qty="<?php echo $mQty; ?>"
                     data-avg-cost="<?php echo (float)($row['balance_avg_cost'] ?? 0); ?>"
-                    title="Adjustment manual saldo component ini"><i class="ri ri-scales-3-line"></i></button>
+                    title="Adjustment manual saldo component ini"><i class="ri ri-scales-3-line me-1"></i>Adj Stok</button>
                 </div>
               </td>
             </tr>
@@ -350,6 +354,7 @@ $uniqueCompCount = count($uniqueComps);
                     <th class="text-end" style="padding:.25rem .4rem;font-weight:700">Saldo</th>
                     <th class="text-end" style="padding:.25rem .4rem;font-weight:700">Unit Cost</th>
                     <th style="padding:.25rem .4rem;font-weight:700">Status</th>
+                    <th class="text-center" style="padding:.25rem .4rem;font-weight:700">Aksi</th>
                   </tr></thead>
                   <tbody>
                   <?php foreach ($lotRows as $lot): ?>
@@ -362,6 +367,20 @@ $uniqueCompCount = count($uniqueComps);
                       <td class="text-end fw-bold" style="padding:.2rem .4rem;<?php echo $lot['qty_balance'] < 0 ? 'color:#b42318' : ''; ?>"><?php echo $fmtQty($lot['qty_balance']); ?></td>
                       <td class="text-end" style="padding:.2rem .4rem"><?php echo number_format((float)$lot['unit_cost'], 2, ',', '.'); ?></td>
                       <td style="padding:.2rem .4rem;font-weight:600;<?php echo $lotStatusCls; ?>"><?php echo html_escape($lot['status']); ?></td>
+                      <td class="text-center" style="padding:.2rem .4rem">
+                        <button type="button" class="btn btn-sm btn-outline-warning comp-quick-adj-btn"
+                          data-component-id="<?php echo $compId; ?>"
+                          data-uom-id="<?php echo $uomId; ?>"
+                          data-division-id="<?php echo $divId; ?>"
+                          data-location-type="<?php echo html_escape($locType); ?>"
+                          data-adjust-scope="LOT_ONLY"
+                          data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
+                          data-system-qty="<?php echo (float)($lot['qty_balance'] ?? 0); ?>"
+                          data-avg-cost="<?php echo (float)($lot['unit_cost'] ?? 0); ?>"
+                          data-lot-id="<?php echo (int)($lot['id'] ?? 0); ?>"
+                          data-lot-no="<?php echo html_escape((string)($lot['lot_no'] ?? '')); ?>"
+                          title="Adjustment lot saja, tanpa mengubah monthly/movement"><i class="ri ri-scales-3-line me-1"></i>Adj Lot</button>
+                      </td>
                     </tr>
                   <?php endforeach; ?>
                   </tbody>
@@ -449,6 +468,10 @@ $uniqueCompCount = count($uniqueComps);
         </div>
 
         <div class="rounded p-2 mb-3" style="background:#f8f9fa;border:1px solid #e2e8f0;font-size:.82rem">
+          <div class="d-flex justify-content-between mb-1" id="compAdjLotRow" style="display:none">
+            <span class="text-muted">Lot terpilih</span>
+            <span class="fw-semibold" id="compAdjLotNo">-</span>
+          </div>
           <div class="d-flex justify-content-between mb-1">
             <span class="text-muted">Saldo saat ini</span>
             <span class="fw-semibold" id="compAdjSaldoSaatIni">0</span>
@@ -464,7 +487,7 @@ $uniqueCompCount = count($uniqueComps);
           <input type="number" step="0.0001" class="form-control form-control-sm" id="compAdjTarget" placeholder="Masukkan saldo yang diinginkan">
         </div>
 
-        <div class="row g-2 mb-2">
+        <div class="row g-2 mb-2" id="compAdjTypeReasonRow">
           <div class="col-6">
             <label class="form-label small mb-1">Tipe</label>
             <select class="form-select form-select-sm" id="compAdjType">
@@ -488,6 +511,9 @@ $uniqueCompCount = count($uniqueComps);
         <div class="mb-1">
           <label class="form-label small mb-1">Catatan</label>
           <input type="text" class="form-control form-control-sm" id="compAdjNotes" placeholder="Opsional">
+        </div>
+        <div class="small text-muted mt-2" id="compAdjScopeHint">
+          Adjustment dari parent row akan mempengaruhi saldo stock component. Jika komponen punya banyak lot, gunakan tombol adjustment pada child lot untuk memilih lot yang tepat.
         </div>
       </div>
       <div class="modal-footer py-2">
@@ -754,8 +780,18 @@ $uniqueCompCount = count($uniqueComps);
 
   async function runLotRepair(button) {
     const compName = String(button?.dataset.componentName || ('Component #' + (button?.dataset.componentId || '?')));
+    const monthlyQty = Number(button?.dataset.monthlyQty || 0);
+    const lotQty = Number(button?.dataset.lotQty || 0);
+    const movementQty = Number(button?.dataset.movementQty || 0);
     const confirmed = await askConfirm(
-      'Repair Lot FIFO untuk:\n' + compName + '\n\nIni akan recalculate qty_balance = qty_in - qty_out untuk semua lot identity ini.\nLanjutkan?',
+      'Repair Lot FIFO untuk:\n' + compName
+      + '\n\nMonthly Stock: ' + compAdjFmt(monthlyQty)
+      + '\nLot FIFO: ' + compAdjFmt(lotQty)
+      + '\nMovement: ' + compAdjFmt(movementQty)
+      + '\n\nTindakan ini hanya menormalkan saldo internal lot menjadi qty_in - qty_out.'
+      + '\nIni TIDAK otomatis menyamakan lot ke monthly stock atau movement.'
+      + '\nKalau sumber masalahnya histori fallback / issue lot hilang, angka lot bisa tetap beda setelah repair.'
+      + '\n\nLanjutkan?',
       { title: 'Repair Lot FIFO', confirmText: 'Repair', cancelText: 'Batal' }
     );
     if (!confirmed) return;
@@ -788,6 +824,7 @@ $uniqueCompCount = count($uniqueComps);
 
   // ── Quick Adjustment Component ─────────────────────────────────────────────
   const compAdjUrl   = <?php echo json_encode(site_url('production/component-daily-recon/quick-adjust')); ?>;
+  const compLotAdjUrl = <?php echo json_encode(site_url('production/component-reconcile/lot-adjust')); ?>;
   const compAdjModal = document.getElementById('compAdjModal');
   const compAdjModalBs = compAdjModal && typeof bootstrap !== 'undefined' ? new bootstrap.Modal(compAdjModal) : null;
 
@@ -815,11 +852,17 @@ $uniqueCompCount = count($uniqueComps);
     const target  = parseFloat(document.getElementById('compAdjTarget')?.value || '');
     const sdEl    = document.getElementById('compAdjSelisih');
     const atEl    = document.getElementById('compAdjType');
+    const scope   = String(compAdjModal?.dataset.adjustScope || 'STOCK').toUpperCase();
     if (isNaN(target)) { if (sdEl) sdEl.textContent = '—'; return; }
     const delta = target - sysQty;
     if (sdEl) {
       sdEl.textContent = (delta > 0 ? '+' : '') + compAdjFmt(delta);
       sdEl.style.color = delta > 0 ? '#2563eb' : delta < 0 ? '#b42318' : '#6b7280';
+    }
+    if (scope === 'LOT_ONLY') {
+      const hppRow = document.getElementById('compAdjHppRow');
+      if (hppRow) hppRow.style.display = delta > 0 ? '' : 'none';
+      return;
     }
     if (atEl && !atEl.dataset.manuallySet) {
       const suggested = delta > 0 ? 'ADJUSTMENT_PLUS' : 'ADJUSTMENT_MINUS';
@@ -844,16 +887,24 @@ $uniqueCompCount = count($uniqueComps);
     const compName = String(btn.dataset.componentName || '');
     const sysQty   = parseFloat(btn.dataset.systemQty || 0);
     const avgCost  = parseFloat(btn.dataset.avgCost || 0);
+    const lotId    = Number(btn.dataset.lotId || 0);
+    const lotNo    = String(btn.dataset.lotNo || '');
+    const adjustScope = String(btn.dataset.adjustScope || 'STOCK').toUpperCase();
     const locDec   = compLocDecode(locType);
     if (!locDec) { showAlert('Lokasi component tidak dikenali: ' + locType + '. Hanya BAR / KITCHEN / BAR_EVENT / KITCHEN_EVENT yang didukung.', 'Adjustment'); return; }
     const g = id => document.getElementById(id);
+    if (g('compAdjModalTitle')) g('compAdjModalTitle').textContent = adjustScope === 'LOT_ONLY' ? 'Adjustment Lot Component' : 'Adjustment Stok Component';
     if (g('compAdjCompName'))   g('compAdjCompName').textContent = compName;
-    if (g('compAdjSubtitle'))   g('compAdjSubtitle').textContent = locType + (divId ? ' · Div #' + divId : '');
+    if (g('compAdjSubtitle'))   g('compAdjSubtitle').textContent = locType + (divId ? ' - Div #' + divId : '') + (lotId > 0 && lotNo ? ' - Lot ' + lotNo : '');
     if (g('compAdjSaldoSaatIni')) g('compAdjSaldoSaatIni').textContent = compAdjFmt(sysQty);
     if (g('compAdjSelisih'))    g('compAdjSelisih').textContent = '—';
     if (g('compAdjTarget'))     g('compAdjTarget').value = '';
     if (g('compAdjNotes'))      g('compAdjNotes').value = '';
     if (g('compAdjDate'))       g('compAdjDate').value = new Date().toISOString().slice(0, 10);
+    if (g('compAdjTypeReasonRow')) g('compAdjTypeReasonRow').style.display = adjustScope === 'LOT_ONLY' ? 'none' : '';
+    if (g('compAdjLotRow'))     g('compAdjLotRow').style.display = lotId > 0 ? '' : 'none';
+    if (g('compAdjLotNo'))      g('compAdjLotNo').textContent = lotId > 0 && lotNo ? lotNo : '-';
+    if (g('compAdjScopeHint'))  g('compAdjScopeHint').textContent = adjustScope === 'LOT_ONLY' ? 'Mode ini hanya mengubah saldo lot. Monthly stock dan movement log tidak ikut diubah. Cocok untuk bedah drift lot yang tertinggal.' : 'Adjustment dari parent row akan mempengaruhi saldo stock component. Jika komponen punya banyak lot, gunakan tombol adjustment pada child lot untuk memilih lot yang tepat.';
     const defaultType = sysQty < 0 ? 'ADJUSTMENT_PLUS' : 'ADJUSTMENT_MINUS';
     if (g('compAdjType'))       { g('compAdjType').value = defaultType; delete g('compAdjType').dataset.manuallySet; }
     compAdjUpdateReasonOpts(defaultType);
@@ -866,6 +917,9 @@ $uniqueCompCount = count($uniqueComps);
       compAdjModal.dataset.systemQty     = sysQty;
       compAdjModal.dataset.divisionCode  = locDec.division_code;
       compAdjModal.dataset.locationGroup = locDec.location_type;
+      compAdjModal.dataset.lotId         = lotId > 0 ? String(lotId) : '';
+      compAdjModal.dataset.lotNo         = lotNo;
+      compAdjModal.dataset.adjustScope   = adjustScope;
     }
     if (compAdjModalBs) compAdjModalBs.show();
     setTimeout(() => g('compAdjTarget')?.focus(), 350);
@@ -886,6 +940,8 @@ $uniqueCompCount = count($uniqueComps);
     const divId    = Number(compAdjModal?.dataset.divisionId   || 0);
     const divCode  = String(compAdjModal?.dataset.divisionCode  || '');
     const locGroup = String(compAdjModal?.dataset.locationGroup || '');
+    const lotId    = Number(compAdjModal?.dataset.lotId || 0);
+    const adjustScope = String(compAdjModal?.dataset.adjustScope || 'STOCK').toUpperCase();
     const adjType  = g('compAdjType')?.value  || 'ADJUSTMENT_MINUS';
     const reason   = g('compAdjReason')?.value || 'other';
     const unitCost = parseFloat(g('compAdjUnitCost')?.value || 0);
@@ -894,17 +950,25 @@ $uniqueCompCount = count($uniqueComps);
     if (compId <= 0 || uomId <= 0) { await showAlert('Component atau UOM tidak valid.', 'Adjustment'); return; }
     if (isNaN(target)) { await showAlert('Saldo target belum diisi.', 'Adjustment'); g('compAdjTarget')?.focus(); return; }
     if (Math.abs(target - sysQty) < 0.0001) { await showAlert('Saldo target sama dengan saldo saat ini. Selisih = 0.', 'Adjustment'); return; }
-    if (adjType === 'ADJUSTMENT_PLUS' && unitCost <= 0) { await showAlert('HPP / Unit Cost wajib diisi untuk Adjustment Plus.', 'Adjustment'); g('compAdjUnitCost')?.focus(); return; }
+    if (adjustScope === 'LOT_ONLY' && target > sysQty && unitCost <= 0) { await showAlert('Unit cost wajib diisi untuk Lot Plus.', 'Adjustment Lot'); g('compAdjUnitCost')?.focus(); return; }
+    if (adjustScope !== 'LOT_ONLY' && adjType === 'ADJUSTMENT_PLUS' && unitCost <= 0) { await showAlert('HPP / Unit Cost wajib diisi untuk Adjustment Plus.', 'Adjustment'); g('compAdjUnitCost')?.focus(); return; }
     const submitBtn = document.getElementById('compAdjSubmitBtn');
     setButtonLoading(submitBtn, 'Menyimpan...');
     try {
-      const json = await postJson(compAdjUrl, {
+      const json = adjustScope === 'LOT_ONLY' ? await postJson(compLotAdjUrl, {
+        adjustment_date: date,
+        lot_id: lotId > 0 ? lotId : null,
+        target_qty: target,
+        unit_cost: target > sysQty ? unitCost : 0,
+        notes: notes,
+      }) : await postJson(compAdjUrl, {
         opname_date:      date,
         division_id:      divId || null,
         division_code:    divCode,
         location_type:    locGroup,
         component_id:     compId,
         uom_id:           uomId,
+        lot_id:           lotId > 0 ? lotId : null,
         physical_qty:     target,
         system_qty:       sysQty,
         adjustment_type:  adjType,
@@ -913,7 +977,7 @@ $uniqueCompCount = count($uniqueComps);
         notes:            notes,
       });
       if (compAdjModalBs) compAdjModalBs.hide();
-      await showAlert(json.message || 'Adjustment berhasil diposting.', 'Adjustment');
+      await showAlert(json.message || (adjustScope === 'LOT_ONLY' ? 'Adjustment lot berhasil disimpan.' : 'Adjustment berhasil diposting.'), adjustScope === 'LOT_ONLY' ? 'Adjustment Lot' : 'Adjustment');
       window.location.reload();
     } catch (e) {
       clearButtonLoading(submitBtn);

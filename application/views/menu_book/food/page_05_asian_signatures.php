@@ -107,7 +107,7 @@ body {
 .content {
     height: 238mm;
     display: grid;
-    grid-template-rows: 66mm 66mm 85mm 5mm;
+    grid-template-rows: 74mm 60mm 79mm 5mm;
     gap: 2.5mm;
 }
 
@@ -137,7 +137,7 @@ body {
 }
 
 .combo-card {
-    height: 57.7mm;
+    height: 65mm;
     display: grid;
     grid-template-columns: 55% 45%;
     border-radius: 3mm;
@@ -172,7 +172,7 @@ body {
 
 .combo-media.portrait img {
     object-fit: cover;
-    object-position: center 42%;
+    object-position: center 18%;
 }
 
 .combo-media.landscape img {
@@ -267,10 +267,10 @@ body {
 }
 
 .wok-highlight {
-    height: 76mm;
+    height: 73mm;
     display: grid;
-    grid-template-columns: 1.15fr 1fr;
-    gap: 2.5mm;
+    grid-template-columns: 1.1fr .9fr;
+    gap: 2mm;
 }
 
 .wok-feature,
@@ -295,7 +295,7 @@ body {
 .wok-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 2.3mm;
+    gap: 2mm;
 }
 
 .wok-info {
@@ -303,7 +303,7 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    padding: 9mm 2.2mm 1.8mm;
+    padding: 8mm 2mm 1.6mm;
     background: linear-gradient(
         to top,
         rgba(38,22,14,.96) 0%,
@@ -314,20 +314,20 @@ body {
 }
 
 .wok-info h4 {
-    font-size: 7.2px;
+    font-size: 7px;
     line-height: 1.05;
     letter-spacing: .2px;
     text-transform: uppercase;
     color: #fff;
-    margin-bottom: .5mm;
+    margin-bottom: .4mm;
     text-shadow: 0 1px 3px rgba(0,0,0,.6);
 }
 
 .wok-desc {
-    margin-bottom: .6mm;
+    margin-bottom: .5mm;
     font-family: Arial, sans-serif;
-    font-size: 5.1px;
-    line-height: 1.15;
+    font-size: 5px;
+    line-height: 1.12;
     color: rgba(255,255,255,.82);
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -337,26 +337,26 @@ body {
 
 .price {
     font-family: Arial, sans-serif;
-    font-size: 9px;
+    font-size: 8.8px;
     font-weight: 900;
     color: #F1D28A;
     letter-spacing: .7px;
 }
 
 .wok-feature .wok-info {
-    padding: 13mm 3mm 2.3mm;
+    padding: 11.5mm 2.8mm 2.1mm;
 }
 
 .wok-feature .wok-info h4 {
-    font-size: 11.5px;
+    font-size: 10px;
 }
 
 .wok-feature .wok-desc {
-    font-size: 6.5px;
+    font-size: 6px;
 }
 
 .wok-feature .price {
-    font-size: 12.5px;
+    font-size: 11px;
 }
 
 .note-row {

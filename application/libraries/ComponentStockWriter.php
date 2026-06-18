@@ -1390,6 +1390,25 @@ class ComponentStockWriter
 
     private function current_avg_cost(string $locationType, ?int $divisionId, int $componentId, int $uomId): float
     {
+        if ($this->ci->db->table_exists('inv_component_lot')) {
+            $lotRow = $this->ci->db->query(
+                "SELECT
+                    ROUND(COALESCE(unit_cost, 0), 6) AS avg_cost
+                 FROM inv_component_lot
+                 WHERE component_id = ?
+                   AND uom_id = ?
+                   AND division_id <=> ?
+                   AND qty_balance > 0
+                 ORDER BY receipt_date ASC, id ASC
+                 LIMIT 1",
+                [$componentId, $uomId, $divisionId]
+            )->row_array();
+            $lotCost = round((float)($lotRow['avg_cost'] ?? 0), 6);
+            if ($lotCost > 0) {
+                return $lotCost;
+            }
+        }
+
         if ($this->ci->db->table_exists('inv_component_monthly_stock')) {
             $row = $this->ci->db->query(
                 'SELECT avg_cost FROM inv_component_monthly_stock WHERE location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? ORDER BY month_key DESC, updated_at DESC, last_movement_at DESC LIMIT 1',

@@ -316,6 +316,7 @@ $route['production/component-reconcile/audit'] = 'production/component_reconcile
 $route['production/component-reconcile/repair']     = 'production/component_reconcile_repair';
 $route['production/component-reconcile/repair-all'] = 'production/component_reconcile_repair_all';
 $route['production/component-reconcile/lot-repair'] = 'production/component_lot_repair';
+$route['production/component-reconcile/lot-adjust'] = 'production/component_lot_only_adjust';
 $route['production/component-lots'] = 'production/component_lots';
 $route['production/component-openings'] = 'production/component_openings';
 $route['production/component-openings/export-template'] = 'production/component_opening_export_template';

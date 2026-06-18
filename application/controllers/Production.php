@@ -236,6 +236,27 @@ class Production extends MY_Controller
             return;
         }
 
+        $snapshotFilters = [
+            'as_of_date' => date('Y-m-d'),
+            'location_type' => $locationType,
+            'division_id' => $divisionId ?? 0,
+            'component_id' => $componentId,
+            'uom_id' => $uomId,
+        ];
+        $beforeCompare = $this->Production_model->component_reconcile_rows($snapshotFilters, 500);
+        $beforeRow = null;
+        foreach ((array)($beforeCompare['rows'] ?? []) as $candidate) {
+            if (
+                strtoupper((string)($candidate['location_type'] ?? '')) === $locationType
+                && (int)($candidate['component_id'] ?? 0) === $componentId
+                && (int)($candidate['uom_id'] ?? 0) === $uomId
+                && (int)($candidate['division_id'] ?? 0) === (int)($divisionId ?? 0)
+            ) {
+                $beforeRow = $candidate;
+                break;
+            }
+        }
+
         $this->db->where('component_id', $componentId)->where('uom_id', $uomId);
         if ($locationType !== '') $this->db->where('location_type', $locationType);
         if ($divisionId !== null) $this->db->where('division_id', $divisionId);
@@ -257,7 +278,180 @@ class Production extends MY_Controller
             ]);
             $repaired++;
         }
-        $this->json_ok(['repaired' => $repaired], $repaired . ' lot berhasil di-repair (qty_balance = qty_in - qty_out).');
+
+        $afterCompare = $this->Production_model->component_reconcile_rows($snapshotFilters, 500);
+        $afterRow = null;
+        foreach ((array)($afterCompare['rows'] ?? []) as $candidate) {
+            if (
+                strtoupper((string)($candidate['location_type'] ?? '')) === $locationType
+                && (int)($candidate['component_id'] ?? 0) === $componentId
+                && (int)($candidate['uom_id'] ?? 0) === $uomId
+                && (int)($candidate['division_id'] ?? 0) === (int)($divisionId ?? 0)
+            ) {
+                $afterRow = $candidate;
+                break;
+            }
+        }
+
+        $monthlyQty = round((float)($afterRow['monthly_qty'] ?? $beforeRow['monthly_qty'] ?? 0), 4);
+        $movementQty = round((float)($afterRow['movement_qty'] ?? $beforeRow['movement_qty'] ?? 0), 4);
+        $beforeLotQty = round((float)($beforeRow['lot_qty'] ?? 0), 4);
+        $afterLotQty = round((float)($afterRow['lot_qty'] ?? 0), 4);
+        $remainingLotVsMovement = round($afterLotQty - $movementQty, 4);
+
+        $message = $repaired . ' lot berhasil dinormalisasi (qty_balance = qty_in - qty_out).';
+        if (abs($remainingLotVsMovement) > 0.0001) {
+            $message .= ' Setelah normalisasi, Lot masih selisih '
+                . number_format($remainingLotVsMovement, 4, '.', '')
+                . ' terhadap movement.'
+                . ' Ini berarti masalahnya bukan di rumus qty_balance, tetapi di histori lot issue / fallback.'
+                . ' Langkah berikutnya: audit lot adjustment atau repair histori issue, bukan ulang Repair Lot FIFO.';
+        }
+
+        $this->json_ok([
+            'repaired' => $repaired,
+            'before' => [
+                'monthly_qty' => $monthlyQty,
+                'movement_qty' => $movementQty,
+                'lot_qty' => $beforeLotQty,
+            ],
+            'after' => [
+                'monthly_qty' => $monthlyQty,
+                'movement_qty' => $movementQty,
+                'lot_qty' => $afterLotQty,
+                'delta_lot_vs_movement' => $remainingLotVsMovement,
+            ],
+        ], $message);
+    }
+
+    public function component_lot_only_adjust()
+    {
+        $pageCode = $this->can('production.component.reconcile.index', 'edit')
+            ? 'production.component.reconcile.index'
+            : 'production.component.daily.index';
+        $this->require_permission($pageCode, 'edit');
+
+        $payload = $this->request_payload();
+        $lotId = (int)($payload['lot_id'] ?? 0);
+        $targetQty = round((float)($payload['target_qty'] ?? $payload['physical_qty'] ?? 0), 4);
+        $adjustDate = trim((string)($payload['adjustment_date'] ?? $payload['opname_date'] ?? date('Y-m-d')));
+        $notes = trim((string)($payload['notes'] ?? ''));
+        $unitCostInput = round((float)($payload['unit_cost'] ?? 0), 6);
+
+        if ($lotId <= 0) {
+            $this->json_error('lot_id wajib diisi untuk adjustment lot.', 422);
+            return;
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $adjustDate)) {
+            $adjustDate = date('Y-m-d');
+        }
+
+        $lot = $this->db->where('id', $lotId)->get('inv_component_lot')->row_array();
+        if (!$lot) {
+            $this->json_error('Lot component tidak ditemukan.', 404);
+            return;
+        }
+
+        $currentQty = round((float)($lot['qty_balance'] ?? 0), 4);
+        $delta = round($targetQty - $currentQty, 4);
+        if (abs($delta) < 0.0001) {
+            $this->json_error('Saldo target sama dengan saldo lot saat ini.', 422);
+            return;
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $actorEmployeeId = (int)($this->current_user['employee_id'] ?? ($this->current_user['id'] ?? 0));
+
+        $this->db->trans_start();
+        if ($delta < 0) {
+            $outQty = round(abs($delta), 4);
+            $issueNo = 'ICLADJ' . date('YmdHis') . substr(md5((string)$lotId . '|' . $now), 0, 6);
+            $totalCost = round($outQty * (float)($lot['unit_cost'] ?? 0), 2);
+
+            $this->db->insert('inv_component_lot_issue_log', [
+                'issue_no' => $issueNo,
+                'issue_date' => $adjustDate,
+                'issue_datetime' => $now,
+                'location_type' => (string)($lot['location_type'] ?? ''),
+                'division_id' => !empty($lot['division_id']) ? (int)$lot['division_id'] : null,
+                'component_id' => (int)($lot['component_id'] ?? 0),
+                'uom_id' => (int)($lot['uom_id'] ?? 0),
+                'issue_qty' => $outQty,
+                'total_cost' => $totalCost,
+                'source_module' => 'COMPONENT_RECONCILE',
+                'source_table' => 'component_lot_manual_adjustment',
+                'source_id' => $lotId,
+                'source_line_id' => null,
+                'notes' => 'Lot-only adjustment from component reconcile' . ($notes !== '' ? ': ' . $notes : ''),
+                'status' => 'POSTED',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+            $issueId = (int)$this->db->insert_id();
+
+            $this->db->insert('inv_component_lot_issue_line', [
+                'issue_id' => $issueId,
+                'lot_id' => $lotId,
+                'qty_out' => $outQty,
+                'unit_cost' => round((float)($lot['unit_cost'] ?? 0), 6),
+                'total_cost' => $totalCost,
+                'source_balance_before' => $currentQty,
+                'source_balance_after' => $targetQty,
+                'created_at' => $now,
+            ]);
+
+            $this->db->where('id', $lotId)->update('inv_component_lot', [
+                'qty_out_total' => round((float)($lot['qty_out_total'] ?? 0) + $outQty, 4),
+                'qty_balance' => $targetQty,
+                'last_issue_at' => $now,
+                'status' => $targetQty > 0.0001 ? 'OPEN' : 'CLOSED',
+                'updated_at' => $now,
+            ]);
+        } else {
+            $inQty = round($delta, 4);
+            $unitCost = $unitCostInput > 0 ? $unitCostInput : round((float)($lot['unit_cost'] ?? 0), 6);
+            if ($unitCost <= 0) {
+                $this->db->trans_complete();
+                $this->json_error('Unit cost wajib diisi untuk adjustment lot plus.', 422);
+                return;
+            }
+            $lotNo = 'ICLADJ-' . date('YmdHis') . '-' . (int)($lot['component_id'] ?? 0) . '-' . $lotId;
+            $this->db->insert('inv_component_lot', [
+                'location_type' => (string)($lot['location_type'] ?? ''),
+                'division_id' => !empty($lot['division_id']) ? (int)$lot['division_id'] : null,
+                'component_id' => (int)($lot['component_id'] ?? 0),
+                'uom_id' => (int)($lot['uom_id'] ?? 0),
+                'lot_no' => substr($lotNo, 0, 64),
+                'receipt_date' => $adjustDate,
+                'expiry_date' => null,
+                'unit_cost' => $unitCost,
+                'qty_in_total' => $inQty,
+                'qty_out_total' => 0,
+                'qty_balance' => $inQty,
+                'source_module' => 'COMPONENT_RECONCILE',
+                'source_table' => 'component_lot_manual_adjustment',
+                'source_id' => $lotId,
+                'source_line_id' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+                'parent_lot_id' => $lotId,
+                'last_issue_at' => null,
+                'status' => 'OPEN',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            $this->json_error('Gagal menyimpan adjustment lot.', 422);
+            return;
+        }
+
+        $this->json_ok([
+            'lot_id' => $lotId,
+            'before_qty' => $currentQty,
+            'after_qty' => $targetQty,
+            'delta_qty' => $delta,
+        ], 'Adjustment lot berhasil disimpan. Monthly stock dan movement log tidak diubah.');
     }
 
     public function component_lots()
@@ -1875,6 +2069,7 @@ class Production extends MY_Controller
         $divCode       = strtoupper(trim((string)($payload['division_code'] ?? '')));
         $componentId   = (int)($payload['component_id'] ?? 0);
         $uomId         = (int)($payload['uom_id'] ?? 0);
+        $lotId         = !empty($payload['lot_id']) ? (int)$payload['lot_id'] : 0;
         $physQty       = (float)($payload['physical_qty'] ?? 0);
         $systemQty     = (float)($payload['system_qty'] ?? 0);
         $selisih       = round($physQty - $systemQty, 4);
@@ -1908,6 +2103,7 @@ class Production extends MY_Controller
         $line = [
             'component_id'                => $componentId,
             'uom_id'                      => $uomId,
+            'selected_lot_id'             => $lotId > 0 ? $lotId : null,
             'available_qty'               => $systemQty,
             'qty_waste'                   => 0,
             'waste_reason_code'           => '',
@@ -1989,7 +2185,11 @@ class Production extends MY_Controller
             $q->update('inv_component_stock_opname', ['adjustment_id' => $adjId]);
         }
 
-        $this->json_ok(['adjustment_id' => $adjId]);
+        $scopeLabel = $lotId > 0 ? 'lot component' : 'saldo component';
+        $this->json_ok(
+            ['adjustment_id' => $adjId],
+            'Adjustment ' . $scopeLabel . ' berhasil diposting. Adj #' . $adjId . ' sudah tercatat.'
+        );
     }
 
     private function stock_filters()
@@ -2519,10 +2719,10 @@ class Production extends MY_Controller
         return $result;
     }
 
-    private function json_ok(array $data = []): void
+    private function json_ok(array $data = [], string $message = ''): void
     {
         $this->clear_output_buffers();
-        $payload = ['ok' => true] + $data;
+        $payload = ['ok' => true] + ($message !== '' ? ['message' => $message] : []) + $data;
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE));

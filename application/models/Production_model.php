@@ -7415,6 +7415,15 @@ class Production_model extends CI_Model
             $standard = (float)($material['hpp_standard'] ?? 0);
             $live = 0.0;
             $hasStockLiveCost = false;
+            $lotLive = $this->resolve_formula_material_lot_cost($materialId, $divisionId);
+            if (($lotLive['unit_cost'] ?? 0) > 0) {
+                $live = (float)($lotLive['unit_cost'] ?? 0);
+                $hasStockLiveCost = true;
+                $this->materialBalanceCache[$divisionId . '|' . $materialId] = [
+                    'avg_cost_per_content' => $live,
+                    'qty_balance' => (float)($lotLive['qty_balance'] ?? 0),
+                ];
+            }
             if ($divisionId > 0 && $this->db->table_exists('inv_division_monthly_stock')) {
                 $balanceKey = $divisionId . '|' . $materialId;
                 if (!array_key_exists($balanceKey, $this->materialBalanceCache)) {
@@ -7459,8 +7468,8 @@ class Production_model extends CI_Model
                 'live_unit_cost' => round($live, 6),
                 'source_label' => 'MATERIAL',
                 'available_qty' => round($availableQty, 4),
-                'live_cost_source' => $hasStockLiveCost ? 'STOCK_DIVISION' : 'FALLBACK_STANDARD',
-                'live_cost_source_label' => $hasStockLiveCost ? 'Stok Divisi' : 'Fallback Std',
+                'live_cost_source' => $hasStockLiveCost ? (($lotLive['unit_cost'] ?? 0) > 0 ? 'LOT_FIFO_ACTIVE' : 'STOCK_DIVISION') : 'FALLBACK_STANDARD',
+                'live_cost_source_label' => $hasStockLiveCost ? (($lotLive['unit_cost'] ?? 0) > 0 ? 'Lot Aktif FIFO' : 'Stok Divisi') : 'Fallback Std',
             ];
             $this->formulaLineCostCache[$cacheKey] = $result;
             return $result;
@@ -7483,6 +7492,15 @@ class Production_model extends CI_Model
         $standard = (float)($sub['hpp_standard'] ?? 0);
         $live = 0.0;
         $hasStockLiveCost = false;
+        $lotLive = $this->resolve_formula_component_lot_cost($subComponentId, $divisionId);
+        if (($lotLive['unit_cost'] ?? 0) > 0) {
+            $live = (float)($lotLive['unit_cost'] ?? 0);
+            $hasStockLiveCost = true;
+            $this->componentBalanceCache[$divisionId . '|' . $subComponentId] = [
+                'avg_cost' => $live,
+                'qty_balance' => (float)($lotLive['qty_balance'] ?? 0),
+            ];
+        }
         if ($this->db->table_exists('inv_component_monthly_stock')) {
             $balanceKey = $divisionId . '|' . $subComponentId;
             if (!array_key_exists($balanceKey, $this->componentBalanceCache)) {
@@ -7530,11 +7548,73 @@ class Production_model extends CI_Model
             'live_unit_cost' => round($live, 6),
             'source_label' => 'COMPONENT',
             'available_qty' => round($availableQty, 4),
-            'live_cost_source' => $liveSource,
-            'live_cost_source_label' => $liveSource === 'STOCK_COMPONENT' ? 'Stok Component' : 'Fallback Std',
+            'live_cost_source' => $hasStockLiveCost ? (($lotLive['unit_cost'] ?? 0) > 0 ? 'LOT_FIFO_ACTIVE' : $liveSource) : 'FALLBACK_STANDARD',
+            'live_cost_source_label' => $hasStockLiveCost ? (($lotLive['unit_cost'] ?? 0) > 0 ? 'Lot Aktif FIFO' : 'Stok Component') : 'Fallback Std',
         ];
         $this->formulaLineCostCache[$cacheKey] = $result;
         return $result;
+    }
+
+    private function resolve_formula_material_lot_cost(int $materialId, int $divisionId): array
+    {
+        if ($materialId <= 0 || $divisionId <= 0 || !$this->db->table_exists('inv_material_fifo_lot')) {
+            return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        }
+
+        $sql = "
+            SELECT
+                bal.qty_balance,
+                COALESCE(front.unit_cost, 0) AS unit_cost
+            FROM (
+                SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                FROM inv_material_fifo_lot
+                WHERE location_scope = 'DIVISION'
+                  AND division_id = ?
+                  AND COALESCE(material_id, 0) = ?
+                  AND qty_balance > 0
+            ) bal
+            CROSS JOIN (
+                SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                FROM inv_material_fifo_lot
+                WHERE location_scope = 'DIVISION'
+                  AND division_id = ?
+                  AND COALESCE(material_id, 0) = ?
+                  AND qty_balance > 0
+                ORDER BY receipt_date ASC, id ASC
+                LIMIT 1
+            ) front
+        ";
+        return $this->db->query($sql, [$divisionId, $materialId, $divisionId, $materialId])->row_array() ?: ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+    }
+
+    private function resolve_formula_component_lot_cost(int $componentId, int $divisionId): array
+    {
+        if ($componentId <= 0 || !$this->db->table_exists('inv_component_lot')) {
+            return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        }
+
+        $sql = "
+            SELECT
+                bal.qty_balance,
+                COALESCE(front.unit_cost, 0) AS unit_cost
+            FROM (
+                SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                FROM inv_component_lot
+                WHERE component_id = ?
+                  AND division_id = ?
+                  AND qty_balance > 0
+            ) bal
+            CROSS JOIN (
+                SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                FROM inv_component_lot
+                WHERE component_id = ?
+                  AND division_id = ?
+                  AND qty_balance > 0
+                ORDER BY receipt_date ASC, id ASC
+                LIMIT 1
+            ) front
+        ";
+        return $this->db->query($sql, [$componentId, $divisionId, $componentId, $divisionId])->row_array() ?: ['unit_cost' => 0.0, 'qty_balance' => 0.0];
     }
 
     private function resolve_formula_uom_id(string $lineType, ?int $materialId, ?int $subComponentId): int

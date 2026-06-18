@@ -97,6 +97,10 @@ $REASONS = [
 .cmp-name-body  { min-width:0; }
 .cmp-adj-col    { min-width:200px; }
 .filter-on      { background:#2563eb !important; color:#fff !important; border-color:#2563eb !important; }
+.cmp-cost-cell  { font-size:.76rem; white-space:nowrap; }
+.cmp-value-cell { font-size:.76rem; white-space:nowrap; }
+.cmp-flash { border-radius:12px; border:1px solid #c7e7d3; background:#edf9f1; color:#166534; padding:.65rem .85rem; font-size:.82rem; }
+.cmp-flash.error { border-color:#f3c1c1; background:#fff1f2; color:#b42318; }
 </style>
 
 <!-- Filter -->
@@ -172,6 +176,7 @@ $REASONS = [
     <div id="cmpSpinner" class="spinner-border spinner-border-sm text-secondary" style="display:none"></div>
     <span id="cmpErrMsg" class="text-danger small" style="display:none"></span>
   </div>
+  <div id="cmpFlash" class="cmp-flash mb-2" style="display:none"></div>
 
   <!-- Table -->
   <div id="cmpTableWrap" class="table-responsive rounded border shadow-sm" style="max-height:68vh;overflow-y:auto">
@@ -183,14 +188,17 @@ $REASONS = [
           <th class="text-start" style="min-width:190px">Nama Component</th>
           <th style="width:54px">UOM</th>
           <th class="text-end" style="width:94px">Sistem</th>
+          <th class="text-end" style="width:92px">HPP Live</th>
+          <th class="text-end" style="width:112px">Nilai Sistem</th>
           <th class="text-end" style="width:100px">Fisik</th>
+          <th class="text-end" style="width:112px">Nilai Fisik</th>
           <th class="text-end" style="width:80px">Selisih</th>
           <th class="cmp-adj-col">Jenis &amp; Alasan</th>
           <th style="width:88px">Aksi</th>
         </tr>
       </thead>
       <tbody id="cmpTbody">
-        <tr><td colspan="9" class="text-center text-muted py-4">Memuat data…</td></tr>
+        <tr><td colspan="12" class="text-center text-muted py-4">Memuat data...</td></tr>
       </tbody>
     </table>
   </div>
@@ -224,7 +232,26 @@ const ADJ_TYPES_POS = [
 const el  = id => document.getElementById(id);
 const esc = s  => { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; };
 const fmt4 = v => isNaN(parseFloat(v)) ? '—' : Number(v).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+const fmtCost = v => isNaN(parseFloat(v)) ? '—' : Number(v).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtValue = v => isNaN(parseFloat(v)) ? '—' : Number(v).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 function cssid(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, '_'); }
+function round4(v) { return Math.round((parseFloat(v) || 0) * 10000) / 10000; }
+function calcValue(qty, unitCost) { return round4(qty) * (parseFloat(unitCost) || 0); }
+function showFlash(message, isError = false) {
+    const box = el('cmpFlash');
+    if (!box) return;
+    box.textContent = message || '';
+    box.classList.toggle('error', !!isError);
+    box.style.display = message ? '' : 'none';
+}
+async function parseJsonResponse(response) {
+    const raw = await response.text();
+    try {
+        return JSON.parse(raw);
+    } catch (err) {
+        throw new Error(raw && raw.trim() !== '' ? raw.trim().slice(0, 240) : 'Respons server bukan JSON valid.');
+    }
+}
 
 const profileMap = {};
 
@@ -251,11 +278,19 @@ function buildLabel(row) {
     const usageUrl = USAGE_BASE_URL + (parseInt(row.component_id, 10) || 0);
     let inner = `<div class="fw-semibold" style="font-size:.82rem"><a href="${usageUrl}" class="text-decoration-none text-body">${esc(row.component_name)}</a></div>`;
     const sub = [row.component_code, row.category_name].filter(Boolean);
-    if (sub.length) inner += `<div class="text-muted" style="font-size:.74rem">${esc(sub.join(' · '))}</div>`;
+    if (sub.length) inner += `<div class="text-muted" style="font-size:.74rem">${esc(sub.join(' / '))}</div>`;
     return `<div class="cmp-name-cell"><div class="cmp-name-body">${inner}</div></div>`;
 }
 
-// ── Adjustment col ─────────────────────────────────────────────
+function buildCostCell(unitCost, extraClass = '') {
+    return `<td class="text-end cmp-cost-cell ${extraClass}">${fmtCost(unitCost)}</td>`;
+}
+
+function buildValueCell(id, qty, unitCost, extraClass = '') {
+    return `<td id="${id}" class="text-end cmp-value-cell ${extraClass}">${fmtValue(calcValue(qty, unitCost))}</td>`;
+}
+
+// ?????? Adjustment col ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? ─────────────────────────────────────────────
 function adjColHtml(row, iid) {
     if (row.adjustment_id) {
         return `<td id="adjcol-${iid}" class="cmp-adj-col">
@@ -324,27 +359,37 @@ function renderTable(groups) {
 
     groups.forEach(function (grp) {
         grp.rows.forEach(function (row) {
-            const iid        = cssid(row.identity_key);
+            const iid = cssid(row.identity_key);
             const isMultiLot = row.lot_count > 1 && Array.isArray(row.lots) && row.lots.length > 1;
+            const rowAvgCost = parseFloat(row.balance_avg_cost || row.avg_cost || 0);
 
             profileMap[iid] = row;
+            profileMap[iid].avg_cost = rowAvgCost;
             total++;
             if (row.component_type === 'BASE') base++; else prep++;
 
             if (isMultiLot) {
-                // ── PARENT row (no input, expand button) ─────────────────
-                html += `<tr id="row-${iid}" class="" data-system-val="${row.system_qty}" data-div-id="${row.division_id}" style="background:#fdf6f0">
+                let parentPhysicalQty = null;
+                if (row.lots.every(function (lot) { return lot.physical_qty !== null && lot.physical_qty !== undefined && lot.physical_qty !== ''; })) {
+                    parentPhysicalQty = row.lots.reduce(function (sum, lot) {
+                        return sum + (parseFloat(lot.physical_qty) || 0);
+                    }, 0);
+                }
+
+                html += `<tr id="row-${iid}" data-system-val="${row.system_qty}" data-div-id="${row.division_id}" style="background:#fdf6f0">
                     <td class="cmp-div-cell">
                         <div>${esc(row.division_name)}</div>
                         <div class="mt-1">${tipeBadge(row.location_type)}</div>
                     </td>
                     <td>${jenisBadge(row.component_type)}</td>
                     <td class="text-start">${buildLabel(row)}</td>
-                    <td class="text-muted" style="font-size:.8rem">${esc(row.uom_code || '—')}</td>
+                    <td class="text-muted" style="font-size:.8rem">${esc(row.uom_code || '-')}</td>
                     <td class="text-end" style="font-size:.85rem;color:#64748b">${fmt4(row.system_qty)}</td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
+                    ${buildCostCell(rowAvgCost)}
+                    ${buildValueCell(`sysval-${iid}`, row.system_qty, rowAvgCost)}
+                    <td class="text-end cmp-value-cell text-muted">${parentPhysicalQty === null ? '-' : fmt4(parentPhysicalQty)}</td>
+                    <td id="pval-${iid}" class="text-end cmp-value-cell text-muted">${parentPhysicalQty === null ? '-' : fmtValue(calcValue(parentPhysicalQty, rowAvgCost))}</td>
+                    <td class="text-end text-muted small">Lot detail</td>
                     <td class="text-center">
                         <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
                                 id="expand-${iid}" data-expanded="false" data-lot-count="${row.lot_count}"
@@ -354,25 +399,24 @@ function renderTable(groups) {
                     </td>
                 </tr>`;
 
-                // ── CHILD rows (one per lot, hidden by default) ───────────
                 row.lots.forEach(function (lot) {
                     const lotIid = cssid(lot.identity_key);
                     profileMap[lotIid] = {
                         location_type: row.location_type,
-                        division_id:   row.division_id,
+                        division_id: row.division_id,
                         division_name: row.division_name,
                         division_code: row.division_code,
-                        component_id:  row.component_id,
-                        uom_id:        row.uom_id,
-                        uom_code:      row.uom_code,
+                        component_id: row.component_id,
+                        uom_id: row.uom_id,
+                        uom_code: row.uom_code,
                         component_type: row.component_type,
-                        lot_id:        lot.lot_id,
-                        lot_no:        lot.lot_no,
-                        identity_key:  lot.identity_key,
-                        system_qty:    lot.system_qty,
-                        avg_cost:      lot.unit_cost,
-                        physical_qty:  lot.physical_qty,
-                        selisih:       lot.selisih,
+                        lot_id: lot.lot_id,
+                        lot_no: lot.lot_no,
+                        identity_key: lot.identity_key,
+                        system_qty: lot.system_qty,
+                        avg_cost: lot.unit_cost,
+                        physical_qty: lot.physical_qty,
+                        selisih: lot.selisih,
                         adjustment_id: lot.adjustment_id,
                     };
 
@@ -380,39 +424,40 @@ function renderTable(groups) {
                     if (parseFloat(lot.system_qty) < -0.001) minus++;
 
                     const lotPhysVal = lot.physical_qty !== null ? lot.physical_qty : '';
-                    const lotCls     = parseFloat(lot.system_qty) < -0.001 ? 'cmp-row-minus' : '';
+                    const lotCls = parseFloat(lot.system_qty) < -0.001 ? 'cmp-row-minus' : '';
 
                     html += `<tr id="row-${lotIid}" class="lot-child lot-child-${iid} ${lotCls}"
                                  style="display:none" data-system-val="${lot.system_qty}" data-div-id="${row.division_id}">
                         <td class="cmp-div-cell" style="padding-left:20px;border-left:3px solid #e2e8f0">
-                            <div class="text-muted fw-semibold" style="font-size:.72rem">└ ${esc(lot.lot_no)}</div>
+                            <div class="text-muted fw-semibold" style="font-size:.72rem">Lot ${esc(lot.lot_no)}</div>
                             <div class="text-muted" style="font-size:.67rem">${esc(lot.receipt_date || '')}</div>
                         </td>
                         <td></td>
                         <td class="text-muted" style="font-size:.76rem;padding-left:4px">${esc(lot.lot_no)}</td>
-                        <td class="text-muted" style="font-size:.8rem">${esc(row.uom_code || '—')}</td>
+                        <td class="text-muted" style="font-size:.8rem">${esc(row.uom_code || '-')}</td>
                         <td class="text-end" style="font-size:.85rem">${fmt4(lot.system_qty)}</td>
+                        ${buildCostCell(lot.unit_cost)}
+                        ${buildValueCell(`sysval-${lotIid}`, lot.system_qty, lot.unit_cost)}
                         <td class="text-end">
                             <input type="number" class="form-control form-control-sm text-end"
                                    style="width:88px;display:inline-block"
-                                   step="0.01" value="${esc(lotPhysVal)}" placeholder="—"
+                                   step="0.01" value="${esc(lotPhysVal)}" placeholder="-"
                                    data-iid="${lotIid}" data-sys="${lot.system_qty}"
                                    oninput="cmpLiveCalc(this,'${lotIid}')"
                                    onchange="cmpSavePhys('${lotIid}')"
                                    ${!CAN_CREATE ? 'disabled' : ''}>
                         </td>
+                        <td id="pval-${lotIid}" class="text-end cmp-value-cell">${lot.physical_qty !== null && lot.physical_qty !== undefined && lot.physical_qty !== '' ? fmtValue(calcValue(lot.physical_qty, lot.unit_cost)) : '-'}</td>
                         <td class="text-end">${selisihHtml(lot.selisih, lotIid)}</td>
                         ${adjColHtml(profileMap[lotIid], lotIid)}
                         ${actionCell(profileMap[lotIid], lotIid)}
                     </tr>`;
                 });
-
             } else {
-                // ── NORMAL row (existing behavior) ────────────────────────
                 if (row.physical_qty !== null) counted++;
                 if (parseFloat(row.system_qty) < -0.001) minus++;
 
-                const rowCls  = parseFloat(row.system_qty) < -0.001 ? 'cmp-row-minus' : '';
+                const rowCls = parseFloat(row.system_qty) < -0.001 ? 'cmp-row-minus' : '';
                 const physVal = row.physical_qty !== null ? row.physical_qty : '';
 
                 html += `<tr id="row-${iid}" class="${rowCls}"
@@ -423,17 +468,20 @@ function renderTable(groups) {
                     </td>
                     <td>${jenisBadge(row.component_type)}</td>
                     <td class="text-start">${buildLabel(row)}</td>
-                    <td class="text-muted" style="font-size:.8rem">${esc(row.uom_code || '—')}</td>
+                    <td class="text-muted" style="font-size:.8rem">${esc(row.uom_code || '-')}</td>
                     <td class="text-end" style="font-size:.85rem">${fmt4(row.system_qty)}</td>
+                    ${buildCostCell(rowAvgCost)}
+                    ${buildValueCell(`sysval-${iid}`, row.system_qty, rowAvgCost)}
                     <td class="text-end">
                         <input type="number" class="form-control form-control-sm text-end"
                                style="width:88px;display:inline-block"
-                               step="0.01" value="${esc(physVal)}" placeholder="—"
+                               step="0.01" value="${esc(physVal)}" placeholder="-"
                                data-iid="${iid}" data-sys="${row.system_qty}"
                                oninput="cmpLiveCalc(this,'${iid}')"
                                onchange="cmpSavePhys('${iid}')"
                                ${!CAN_CREATE ? 'disabled' : ''}>
                     </td>
+                    <td id="pval-${iid}" class="text-end cmp-value-cell">${row.physical_qty !== null && row.physical_qty !== undefined && row.physical_qty !== '' ? fmtValue(calcValue(row.physical_qty, rowAvgCost)) : '-'}</td>
                     <td class="text-end">${selisihHtml(row.selisih, iid)}</td>
                     ${adjColHtml(row, iid)}
                     ${actionCell(row, iid)}
@@ -442,23 +490,23 @@ function renderTable(groups) {
         });
     });
 
-    tbody.innerHTML = html || `<tr><td colspan="9" class="text-center text-muted py-4">Tidak ada data.</td></tr>`;
+    tbody.innerHTML = html || `<tr><td colspan="12" class="text-center text-muted py-4">Tidak ada data.</td></tr>`;
 
     const s = (id, v) => { const e = el(id); if (e) e.textContent = v; };
-    s('smTotal',   total);
-    s('smBase',    base);
-    s('smPrep',    prep);
+    s('smTotal', total);
+    s('smBase', base);
+    s('smPrep', prep);
     s('smCounted', counted + ' / ' + total);
-    s('smMinus',   minus);
+    s('smMinus', minus);
     s('cmpBadgeTotal', total + ' item');
 
     const minusBadge = el('cmpMinusBadge');
-    const filterBtn  = el('btnFilterMinus');
+    const filterBtn = el('btnFilterMinus');
     if (minusBadge) { minusBadge.textContent = minus; minusBadge.style.display = minus > 0 ? '' : 'none'; }
-    if (filterBtn)  filterBtn.style.display = minus > 0 ? '' : 'none';
+    if (filterBtn) filterBtn.style.display = minus > 0 ? '' : 'none';
 }
 
-// ── Type / reason change ──────────────────────────────────────
+// ?????? Type / reason change ?????????????????????????????????????????????????????????????????????????????????????????????????????????????????? ──────────────────────────────────────
 window.cmpTypeChange = function (iid) {
     const typeSel   = el('adjtype-'   + iid);
     const reasonSel = el('adjreason-' + iid);
@@ -478,63 +526,78 @@ window.cmpTypeChange = function (iid) {
 
 // ── Live selisih ──────────────────────────────────────────────
 window.cmpLiveCalc = function (inp, iid) {
-    const row   = profileMap[iid];
-    const sys   = parseFloat(inp.dataset.sys) || 0;
-    const phys  = inp.value.trim() !== '' ? parseFloat(inp.value) : null;
+    const row = profileMap[iid];
+    const sys = parseFloat(inp.dataset.sys) || 0;
+    const phys = inp.value.trim() !== '' ? parseFloat(inp.value) : null;
     const selEl = el('sel-' + iid);
+    const pValEl = el('pval-' + iid);
     if (!selEl) return;
 
-    row.selisih      = phys !== null ? phys - sys : null;
+    row.selisih = phys !== null ? phys - sys : null;
     row.physical_qty = phys;
 
     if (phys === null) {
-        selEl.textContent = '—'; selEl.className = 'text-muted small';
+        selEl.textContent = '-';
+        selEl.className = 'text-muted small';
     } else {
         const diff = phys - sys;
         selEl.textContent = (diff > 0 ? '+' : '') + fmt4(diff);
-        selEl.className   = Math.abs(diff) < 0.001 ? 'text-success fw-bold'
-            : diff < 0 ? 'text-danger fw-bold' : 'text-warning fw-bold';
+        selEl.className = Math.abs(diff) < 0.001 ? 'text-success fw-bold' : diff < 0 ? 'text-danger fw-bold' : 'text-warning fw-bold';
     }
 
-    // Refresh adj col and action cell
+    if (pValEl) {
+        pValEl.textContent = phys === null ? '-' : fmtValue(calcValue(phys, row.avg_cost || row.balance_avg_cost || 0));
+    }
+
     const adjCell = el('adjcol-' + iid);
     if (adjCell) adjCell.outerHTML = adjColHtml(row, iid);
     const actCell = el('acell-' + iid);
     if (actCell) actCell.outerHTML = actionCell(row, iid);
 
-    // Row highlight
     const tr = el('row-' + iid);
     if (tr) tr.classList.toggle('cmp-row-minus', sys < -0.001);
 };
 
-// ── Save physical ─────────────────────────────────────────────
+// ?????? Save physical ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? ─────────────────────────────────────────────
 window.cmpSavePhys = function (iid) {
     if (!CAN_CREATE) return;
     const row = profileMap[iid];
     if (!row) return;
-    const inp  = document.querySelector(`input[data-iid="${iid}"]`);
+    const inp = document.querySelector(`input[data-iid="${iid}"]`);
     if (!inp) return;
     const physVal = inp.value.trim() !== '' ? parseFloat(inp.value) : null;
 
     fetch(SAVE_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         body: JSON.stringify({
-            opname_date:   RECON_DATE,
+            opname_date: RECON_DATE,
             location_type: row.location_type,
-            division_id:   row.division_id || null,
-            component_id:  row.component_id,
-            uom_id:        row.uom_id,
-            lot_id:        row.lot_id || 0,
-            system_qty:    row.system_qty,
-            physical_qty:  physVal,
+            division_id: row.division_id || null,
+            component_id: row.component_id,
+            uom_id: row.uom_id,
+            lot_id: row.lot_id || 0,
+            system_qty: row.system_qty,
+            physical_qty: physVal,
         }),
     })
-    .then(r => r.json())
-    .catch(err => console.error('Save error:', err));
+    .then(parseJsonResponse)
+    .then(data => {
+        if (!data.ok) {
+            showFlash(data.message || 'Gagal menyimpan stok fisik.', true);
+            return;
+        }
+        row.physical_qty = physVal;
+        row.selisih = data.selisih !== undefined ? data.selisih : (physVal !== null ? round4(physVal - row.system_qty) : null);
+        showFlash('Stok fisik tersimpan.', false);
+    })
+    .catch(err => {
+        console.error('Save error:', err);
+        showFlash('Gagal menyimpan stok fisik: ' + err.message, true);
+    });
 };
 
-// ── Post adjustment ───────────────────────────────────────────
+// ?????? Post adjustment ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? ───────────────────────────────────────────
 window.cmpPostAdj = function (iid) {
     const row = profileMap[iid];
     if (!row) return;
@@ -552,41 +615,45 @@ window.cmpPostAdj = function (iid) {
 
     fetch(ADJ_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         body: JSON.stringify({
-            opname_date:     RECON_DATE,
-            location_type:   row.location_type,
-            division_id:     row.division_id || null,
-            division_code:   row.division_code,
-            component_id:    row.component_id,
-            uom_id:          row.uom_id,
-            lot_id:          row.lot_id || 0,
-            system_qty:      row.system_qty,
-            physical_qty:    row.physical_qty,
-            avg_cost:        row.avg_cost,
+            opname_date: RECON_DATE,
+            location_type: row.location_type,
+            division_id: row.division_id || null,
+            division_code: row.division_code,
+            component_id: row.component_id,
+            uom_id: row.uom_id,
+            lot_id: row.lot_id || 0,
+            system_qty: row.system_qty,
+            physical_qty: row.physical_qty,
+            avg_cost: row.avg_cost,
             adjustment_type: typeVal,
-            reason_code:     el('adjreason-' + iid)?.value || 'other',
-            notes:           el('adjnotes-'  + iid)?.value?.trim() || '',
+            reason_code: el('adjreason-' + iid)?.value || 'other',
+            notes: el('adjnotes-' + iid)?.value?.trim() || '',
         }),
     })
-    .then(r => r.json())
+    .then(parseJsonResponse)
     .then(data => {
         if (btn) { btn.disabled = false; btn.innerHTML = orig; }
-        if (!data.ok) { alert('Gagal: ' + (data.message || 'Error.')); return; }
+        if (!data.ok) {
+            showFlash(data.message || 'Adjustment gagal diposting.', true);
+            return;
+        }
 
         row.adjustment_id = data.adjustment_id;
         const adjCell = el('adjcol-' + iid);
         if (adjCell) adjCell.outerHTML = adjColHtml(row, iid);
         const actCell = el('acell-' + iid);
         if (actCell) actCell.outerHTML = actionCell(row, iid);
+        showFlash(data.message || 'Adjustment berhasil diposting.', false);
     })
     .catch(err => {
         if (btn) { btn.disabled = false; btn.innerHTML = orig; }
-        alert('Request gagal: ' + err.message);
+        showFlash('Request gagal: ' + err.message, true);
     });
 };
 
-// ── Minus filter ──────────────────────────────────────────────
+// ?????? Minus filter ?????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? ──────────────────────────────────────────────
 let showOnlyMinus = false;
 function applyMinusFilter() {
     const btn  = el('btnFilterMinus');
@@ -605,26 +672,28 @@ document.addEventListener('click', function (e) {
 // ── Load data ─────────────────────────────────────────────────
 function loadData() {
     const spinner = el('cmpSpinner');
-    const errMsg  = el('cmpErrMsg');
-    const tbody   = el('cmpTbody');
+    const errMsg = el('cmpErrMsg');
+    const tbody = el('cmpTbody');
     if (spinner) spinner.style.display = '';
-    if (errMsg)  errMsg.style.display  = 'none';
+    if (errMsg) errMsg.style.display = 'none';
 
     const params = new URLSearchParams({
-        opname_date:   RECON_DATE,
+        opname_date: RECON_DATE,
         location_type: LOC_TYPE,
-        division_id:   DIV_ID,
-        type:          COMP_TYPE,
-        q:             COMP_Q,
+        division_id: DIV_ID,
+        type: COMP_TYPE,
+        q: COMP_Q,
     });
 
-    fetch(DATA_URL + '?' + params)
-        .then(r => r.json())
+    fetch(DATA_URL + '?' + params, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+        .then(parseJsonResponse)
         .then(data => {
             if (spinner) spinner.style.display = 'none';
             if (!data.ok) {
-                if (errMsg)  { errMsg.textContent = data.message || 'Gagal.'; errMsg.style.display = ''; }
-                if (tbody)   tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">Gagal memuat data.</td></tr>`;
+                if (errMsg) { errMsg.textContent = data.message || 'Gagal.'; errMsg.style.display = ''; }
+                if (tbody) tbody.innerHTML = `<tr><td colspan="12" class="text-center text-danger py-4">Gagal memuat data.</td></tr>`;
                 return;
             }
             renderTable(data.rows || []);
@@ -632,8 +701,8 @@ function loadData() {
         })
         .catch(err => {
             if (spinner) spinner.style.display = 'none';
-            if (errMsg)  { errMsg.textContent = 'Request gagal: ' + err.message; errMsg.style.display = ''; }
-            if (tbody)   tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">Request gagal.</td></tr>`;
+            if (errMsg) { errMsg.textContent = 'Request gagal: ' + err.message; errMsg.style.display = ''; }
+            if (tbody) tbody.innerHTML = `<tr><td colspan="12" class="text-center text-danger py-4">Request gagal.</td></tr>`;
         });
 }
 
@@ -641,3 +710,7 @@ loadData();
 </script>
 
 <?php $this->load->view('layout/footer'); ?>
+
+
+
+

@@ -2229,6 +2229,12 @@ class Master_relation extends MY_Controller
         $live = 0.0;
         $availableQty = 0.0;
         $hasStockLiveCost = false;
+        $lotLive = $this->resolveProductRecipeMaterialLotCost($materialId, $divisionId);
+        if (($lotLive['unit_cost'] ?? 0) > 0) {
+            $live = (float)($lotLive['unit_cost'] ?? 0);
+            $availableQty = (float)($lotLive['qty_balance'] ?? 0);
+            $hasStockLiveCost = true;
+        }
         if ($divisionId > 0 && $this->db->table_exists('inv_division_monthly_stock')) {
             $targetMonth = date('Y-m-01');
             $latestMonthSubquery = $this->db
@@ -2268,9 +2274,11 @@ class Master_relation extends MY_Controller
                 ->group_end()
                 ->get()
                 ->row_array();
-            $live = (float)($liveRow['avg_cost_per_content'] ?? 0);
-            $hasStockLiveCost = $live > 0;
-            $availableQty = (float)($qtyRow['qty_balance'] ?? 0);
+            if (!$hasStockLiveCost) {
+                $live = (float)($liveRow['avg_cost_per_content'] ?? 0);
+                $hasStockLiveCost = $live > 0;
+                $availableQty = (float)($qtyRow['qty_balance'] ?? 0);
+            }
         }
         if ($live <= 0) {
             $live = $standard;
@@ -2280,8 +2288,8 @@ class Master_relation extends MY_Controller
             'standard_unit_cost' => round($standard, 6),
             'live_unit_cost' => round($live, 6),
             'available_qty' => round($availableQty, 4),
-            'live_cost_source' => $hasStockLiveCost ? 'STOCK_DIVISION' : 'FALLBACK_STANDARD',
-            'live_cost_source_label' => $hasStockLiveCost ? 'Stok Divisi' : 'Fallback Std',
+            'live_cost_source' => $hasStockLiveCost ? (($lotLive['unit_cost'] ?? 0) > 0 ? 'LOT_FIFO_ACTIVE' : 'STOCK_DIVISION') : 'FALLBACK_STANDARD',
+            'live_cost_source_label' => $hasStockLiveCost ? (($lotLive['unit_cost'] ?? 0) > 0 ? 'Lot Aktif FIFO' : 'Stok Divisi') : 'Fallback Std',
             'cost_reference_label' => 'Bahan baku',
         ];
         $this->productRecipeMaterialCostCache[$cacheKey] = $result;
@@ -2307,6 +2315,12 @@ class Master_relation extends MY_Controller
         $live = 0.0;
         $availableQty = 0.0;
         $hasStockLiveCost = false;
+        $lotLive = $this->resolveProductRecipeComponentLotCost($componentId, $divisionId);
+        if (($lotLive['unit_cost'] ?? 0) > 0) {
+            $live = (float)($lotLive['unit_cost'] ?? 0);
+            $availableQty = (float)($lotLive['qty_balance'] ?? 0);
+            $hasStockLiveCost = true;
+        }
         if ($this->db->table_exists('inv_component_monthly_stock')) {
             $targetMonth = date('Y-m-01');
             $latestMonthSubquery = $this->db
@@ -2342,9 +2356,11 @@ class Master_relation extends MY_Controller
             }
             $qtyRow = $this->db->get()->row_array();
 
-            $live = (float)($liveRow['avg_cost'] ?? 0);
-            $hasStockLiveCost = $live > 0;
-            $availableQty = (float)($qtyRow['qty_balance'] ?? 0);
+            if (!$hasStockLiveCost) {
+                $live = (float)($liveRow['avg_cost'] ?? 0);
+                $hasStockLiveCost = $live > 0;
+                $availableQty = (float)($qtyRow['qty_balance'] ?? 0);
+            }
         }
         if ($live <= 0) {
             $live = $standard;
@@ -2354,13 +2370,75 @@ class Master_relation extends MY_Controller
             'standard_unit_cost' => round($standard, 6),
             'live_unit_cost' => round($live, 6),
             'available_qty' => round($availableQty, 4),
-            'live_cost_source' => $hasStockLiveCost ? 'STOCK_COMPONENT' : 'FALLBACK_STANDARD',
-            'live_cost_source_label' => $hasStockLiveCost ? 'Stok Component' : 'Fallback Std',
+            'live_cost_source' => $hasStockLiveCost ? (($lotLive['unit_cost'] ?? 0) > 0 ? 'LOT_FIFO_ACTIVE' : 'STOCK_COMPONENT') : 'FALLBACK_STANDARD',
+            'live_cost_source_label' => $hasStockLiveCost ? (($lotLive['unit_cost'] ?? 0) > 0 ? 'Lot Aktif FIFO' : 'Stok Component') : 'Fallback Std',
             'cost_reference_label' => 'Component',
         ];
         $this->productRecipeComponentCostCache[$cacheKey] = $result;
 
         return $result;
+    }
+
+    private function resolveProductRecipeMaterialLotCost(int $materialId, int $divisionId): array
+    {
+        if ($materialId <= 0 || $divisionId <= 0 || !$this->db->table_exists('inv_material_fifo_lot')) {
+            return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        }
+
+        $sql = "
+            SELECT
+                bal.qty_balance,
+                COALESCE(front.unit_cost, 0) AS unit_cost
+            FROM (
+                SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                FROM inv_material_fifo_lot
+                WHERE location_scope = 'DIVISION'
+                  AND division_id = ?
+                  AND COALESCE(material_id, 0) = ?
+                  AND qty_balance > 0
+            ) bal
+            CROSS JOIN (
+                SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                FROM inv_material_fifo_lot
+                WHERE location_scope = 'DIVISION'
+                  AND division_id = ?
+                  AND COALESCE(material_id, 0) = ?
+                  AND qty_balance > 0
+                ORDER BY receipt_date ASC, id ASC
+                LIMIT 1
+            ) front
+        ";
+        return $this->db->query($sql, [$divisionId, $materialId, $divisionId, $materialId])->row_array() ?: ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+    }
+
+    private function resolveProductRecipeComponentLotCost(int $componentId, int $divisionId): array
+    {
+        if ($componentId <= 0 || !$this->db->table_exists('inv_component_lot')) {
+            return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        }
+
+        $sql = "
+            SELECT
+                bal.qty_balance,
+                COALESCE(front.unit_cost, 0) AS unit_cost
+            FROM (
+                SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                FROM inv_component_lot
+                WHERE component_id = ?
+                  AND division_id = ?
+                  AND qty_balance > 0
+            ) bal
+            CROSS JOIN (
+                SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                FROM inv_component_lot
+                WHERE component_id = ?
+                  AND division_id = ?
+                  AND qty_balance > 0
+                ORDER BY receipt_date ASC, id ASC
+                LIMIT 1
+            ) front
+        ";
+        return $this->db->query($sql, [$componentId, $divisionId, $componentId, $divisionId])->row_array() ?: ['unit_cost' => 0.0, 'qty_balance' => 0.0];
     }
 
     private function productRecipeVariableCostContext(array $product): array

@@ -8976,6 +8976,10 @@ class Pos_model extends CI_Model
             ->row_array() ?: [];
 
         $fallback = round((float)($material['hpp_standard'] ?? 0), 6);
+        $lotLive = $this->resolve_order_material_active_lot_cost($materialId, $divisionId, $uomId);
+        if (($lotLive['unit_cost'] ?? 0) > 0) {
+            return ['unit_cost' => round((float)$lotLive['unit_cost'], 6), 'cost_source' => 'FIFO_ACTIVE_LOT'];
+        }
         if ($divisionId > 0 && $this->db->table_exists('inv_division_monthly_stock')) {
             $targetMonth = date('Y-m-01');
             $latestMonthSubquery = $this->db
@@ -9033,6 +9037,10 @@ class Pos_model extends CI_Model
             ->row_array() ?: [];
 
         $fallback = round((float)($component['hpp_standard'] ?? 0), 6);
+        $lotLive = $this->resolve_order_component_active_lot_cost($componentId, $divisionId);
+        if (($lotLive['unit_cost'] ?? 0) > 0) {
+            return ['unit_cost' => round((float)$lotLive['unit_cost'], 6), 'cost_source' => 'FIFO_ACTIVE_LOT'];
+        }
         if ($this->db->table_exists('inv_component_monthly_stock')) {
             $targetMonth = date('Y-m-01');
             $latestMonthSubquery = $this->db
@@ -9066,6 +9074,81 @@ class Pos_model extends CI_Model
         }
 
         return ['unit_cost' => $fallback, 'cost_source' => 'STANDARD_FALLBACK'];
+    }
+
+    private function resolve_order_material_active_lot_cost(int $materialId, int $divisionId, int $uomId = 0): array
+    {
+        if ($materialId <= 0 || $divisionId <= 0 || !$this->db->table_exists('inv_material_fifo_lot')) {
+            return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        }
+
+        $sql = "
+            SELECT
+                bal.qty_balance,
+                COALESCE(front.unit_cost, 0) AS unit_cost
+            FROM (
+                SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                FROM inv_material_fifo_lot
+                WHERE location_scope = 'DIVISION'
+                  AND division_id = ?
+                  AND COALESCE(material_id, 0) = ?
+                  AND qty_balance > 0
+            ) bal
+            CROSS JOIN (
+                SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                FROM inv_material_fifo_lot
+                WHERE location_scope = 'DIVISION'
+                  AND division_id = ?
+                  AND COALESCE(material_id, 0) = ?
+                  AND qty_balance > 0
+        ";
+        $params = [$divisionId, $materialId, $divisionId, $materialId];
+        if ($uomId > 0) {
+            $sql .= " AND content_uom_id = ? ";
+            $params[] = $uomId;
+        }
+        $sql .= " ORDER BY receipt_date ASC, id ASC LIMIT 1 ) front ";
+
+        return $this->db->query($sql, $params)->row_array() ?: ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+    }
+
+    private function resolve_order_component_active_lot_cost(int $componentId, int $divisionId = 0): array
+    {
+        if ($componentId <= 0 || !$this->db->table_exists('inv_component_lot')) {
+            return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        }
+
+        $sql = "
+            SELECT
+                bal.qty_balance,
+                COALESCE(front.unit_cost, 0) AS unit_cost
+            FROM (
+                SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                FROM inv_component_lot
+                WHERE component_id = ?
+                  AND qty_balance > 0
+            ) bal
+            CROSS JOIN (
+                SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                FROM inv_component_lot
+                WHERE component_id = ?
+                  AND qty_balance > 0
+        ";
+        $params = [$componentId, $componentId];
+        if ($divisionId > 0) {
+            $sql = str_replace(
+                'WHERE component_id = ?
+                  AND qty_balance > 0',
+                'WHERE component_id = ?
+                  AND division_id = ?
+                  AND qty_balance > 0',
+                $sql
+            );
+            $params = [$componentId, $divisionId, $componentId, $divisionId];
+        }
+        $sql .= " ORDER BY receipt_date ASC, id ASC LIMIT 1 ) front ";
+
+        return $this->db->query($sql, $params)->row_array() ?: ['unit_cost' => 0.0, 'qty_balance' => 0.0];
     }
 
     private function normalize_stock_source_role(string $role): string
