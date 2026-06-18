@@ -26,7 +26,7 @@ body {
     margin: 0 auto;
     position: relative;
     overflow: hidden;
-    padding: 7mm 9mm 12mm;
+    padding: 7mm 9mm 11mm;
     background:
         linear-gradient(rgba(250,246,238,.93), rgba(250,246,238,.97)),
         url('/finance/assets/menu-book/backgrounds/bg-asian-signatures.png') center / cover no-repeat,
@@ -50,18 +50,18 @@ body {
 }
 
 .menu-header {
-    height: 23mm;
+    height: 21mm;
     display: grid;
     grid-template-columns: 22mm 1fr 16mm;
     align-items: center;
     border-bottom: 1px solid rgba(125,31,31,.16);
-    padding-bottom: 2.5mm;
-    margin-bottom: 3mm;
+    padding-bottom: 2mm;
+    margin-bottom: 2.5mm;
 }
 
 .menu-logo {
-    width: 14mm;
-    height: 14mm;
+    width: 13mm;
+    height: 13mm;
     object-fit: contain;
 }
 
@@ -72,15 +72,15 @@ body {
 .label-category {
     display: block;
     font-family: Arial, sans-serif;
-    font-size: 6px;
+    font-size: 5.8px;
     letter-spacing: 3px;
     text-transform: uppercase;
     color: #b58b4b;
-    margin-bottom: 1mm;
+    margin-bottom: .8mm;
 }
 
 .page-title {
-    font-size: 24px;
+    font-size: 22px;
     line-height: .95;
     color: #7D1F1F;
     letter-spacing: 1.5px;
@@ -88,8 +88,8 @@ body {
 }
 
 .header-title-area h2 {
-    margin-top: 1.2mm;
-    font-size: 9.8px;
+    margin-top: 1mm;
+    font-size: 9px;
     font-style: italic;
     font-weight: 400;
     color: #6A4E3A;
@@ -104,30 +104,25 @@ body {
     font-weight: 700;
 }
 
-/* .content {
-    height: 237mm;
-    display: grid;
-    grid-template-rows: 58mm 62mm 103mm 5mm;
-    gap: 3mm;
-} */
 .content {
-    height: 237mm;
+    height: 238mm;
     display: grid;
-    grid-template-rows: 66mm 66mm 87mm 5mm;
-    gap: 3mm;
+    grid-template-rows: 66mm 66mm 85mm 5mm;
+    gap: 2.5mm;
 }
+
 .section-heading {
-    height: 7.5mm;
+    height: 6.8mm;
     display: flex;
     justify-content: space-between;
     align-items: end;
     border-bottom: 1px solid rgba(201,168,106,.45);
-    padding-bottom: 1mm;
-    margin-bottom: 2mm;
+    padding-bottom: .8mm;
+    margin-bottom: 1.5mm;
 }
 
 .section-heading h3 {
-    font-size: 13px;
+    font-size: 12.5px;
     color: #7D1F1F;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -135,17 +130,14 @@ body {
 
 .section-heading p {
     font-family: Arial, sans-serif;
-    font-size: 6.2px;
+    font-size: 5.8px;
     letter-spacing: 1.1px;
     text-transform: uppercase;
     color: #9a7440;
 }
 
-/* COMBO HIGHLIGHT */
-
 .combo-card {
-    /* height: 48.5mm; */
-    height: 56.5mm;
+    height: 57.7mm;
     display: grid;
     grid-template-columns: 55% 45%;
     border-radius: 3mm;
@@ -153,8 +145,18 @@ body {
     background: #fffaf2;
     border: 1px solid rgba(201,168,106,.45);
     box-shadow: 0 5px 16px rgba(70,40,25,.14);
+    position: relative;
 }
 
+.combo-card::after {
+    content: '';
+    position: absolute;
+    inset: 2mm;
+    border: 1px solid rgba(201,168,106,.35);
+    border-radius: 2.3mm;
+    pointer-events: none;
+    z-index: 5;
+}
 
 .combo-media {
     position: relative;
@@ -167,16 +169,6 @@ body {
     height: 100%;
     display: block;
 }
-
-/* .combo-media.portrait img {
-    object-fit: cover;
-    object-position: center 46%;
-}
-
-.combo-media.landscape img {
-    object-fit: cover;
-    object-position: center center;
-} */
 
 .combo-media.portrait img {
     object-fit: cover;
@@ -192,11 +184,12 @@ body {
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(to right, transparent 62%, rgba(255,250,242,.85));
+    background: linear-gradient(to right, transparent 62%, rgba(255,250,242,.86));
 }
 
 .combo-text {
-    padding: 4mm 4mm 3mm;
+    position: relative;
+    padding: 3.5mm 4mm 3mm;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -204,14 +197,26 @@ body {
         linear-gradient(135deg, rgba(255,250,242,.98), rgba(246,234,214,.98));
 }
 
+.combo-text::before {
+    content: 'SIGNATURE SET';
+    position: absolute;
+    top: 3mm;
+    right: 4mm;
+    font-family: Arial, sans-serif;
+    font-size: 5px;
+    letter-spacing: 1.5px;
+    color: rgba(125,31,31,.28);
+    font-weight: 900;
+}
+
 .combo-kicker {
     width: fit-content;
-    margin-bottom: 2mm;
+    margin-bottom: 1.8mm;
     padding: 2px 7px;
     background: #C9A86A;
     color: #2a170b;
     font-family: Arial, sans-serif;
-    font-size: 5.8px;
+    font-size: 5.6px;
     font-weight: 900;
     letter-spacing: .8px;
     text-transform: uppercase;
@@ -220,7 +225,7 @@ body {
 
 .combo-menu-list {
     display: grid;
-    gap: 1.6mm;
+    gap: 1.4mm;
     font-family: Arial, sans-serif;
 }
 
@@ -230,7 +235,7 @@ body {
     gap: 2mm;
     align-items: baseline;
     border-bottom: 1px dashed rgba(106,78,58,.28);
-    padding-bottom: .8mm;
+    padding-bottom: .7mm;
 }
 
 .combo-menu-list div:last-child {
@@ -238,15 +243,15 @@ body {
 }
 
 .combo-menu-list strong {
-    font-size: 8.7px;
+    font-size: 8.2px;
     color: #7D1F1F;
-    letter-spacing: .35px;
+    letter-spacing: .3px;
     line-height: 1.05;
     text-transform: uppercase;
 }
 
 .combo-menu-list span {
-    font-size: 10.8px;
+    font-size: 10.5px;
     font-weight: 900;
     color: #7D1F1F;
     text-align: right;
@@ -254,23 +259,22 @@ body {
 }
 
 .combo-desc {
-    margin-top: 2mm;
+    margin-top: 1.7mm;
     font-family: Arial, sans-serif;
-    font-size: 6.7px;
+    font-size: 6.2px;
     line-height: 1.25;
     color: #6A4E3A;
 }
 
-/* WOK HIGHLIGHT */
-
 .wok-highlight {
-    height: 93.5mm;
+    height: 76mm;
     display: grid;
     grid-template-columns: 1.15fr 1fr;
-    gap: 3mm;
+    gap: 2.5mm;
 }
 
-.wok-feature {
+.wok-feature,
+.wok-card {
     position: relative;
     overflow: hidden;
     border-radius: 3mm;
@@ -291,16 +295,7 @@ body {
 .wok-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 2.5mm;
-}
-
-.wok-card {
-    position: relative;
-    overflow: hidden;
-    border-radius: 3mm;
-    background: #fffaf2;
-    border: 1px solid rgba(201,168,106,.45);
-    box-shadow: 0 4px 13px rgba(70,40,25,.13);
+    gap: 2.3mm;
 }
 
 .wok-info {
@@ -308,7 +303,7 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    padding: 12mm 2.4mm 2mm;
+    padding: 9mm 2.2mm 1.8mm;
     background: linear-gradient(
         to top,
         rgba(38,22,14,.96) 0%,
@@ -319,20 +314,20 @@ body {
 }
 
 .wok-info h4 {
-    font-size: 8.3px;
+    font-size: 7.2px;
     line-height: 1.05;
-    letter-spacing: .25px;
+    letter-spacing: .2px;
     text-transform: uppercase;
     color: #fff;
-    margin-bottom: .6mm;
+    margin-bottom: .5mm;
     text-shadow: 0 1px 3px rgba(0,0,0,.6);
 }
 
 .wok-desc {
-    margin-bottom: .8mm;
+    margin-bottom: .6mm;
     font-family: Arial, sans-serif;
-    font-size: 5.9px;
-    line-height: 1.18;
+    font-size: 5.1px;
+    line-height: 1.15;
     color: rgba(255,255,255,.82);
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -342,26 +337,26 @@ body {
 
 .price {
     font-family: Arial, sans-serif;
-    font-size: 10.5px;
+    font-size: 9px;
     font-weight: 900;
     color: #F1D28A;
-    letter-spacing: .8px;
+    letter-spacing: .7px;
 }
 
 .wok-feature .wok-info {
-    padding: 17mm 3.5mm 3mm;
+    padding: 13mm 3mm 2.3mm;
 }
 
 .wok-feature .wok-info h4 {
-    font-size: 13.5px;
+    font-size: 11.5px;
 }
 
 .wok-feature .wok-desc {
-    font-size: 7.2px;
+    font-size: 6.5px;
 }
 
 .wok-feature .price {
-    font-size: 14px;
+    font-size: 12.5px;
 }
 
 .note-row {
@@ -370,29 +365,29 @@ body {
     align-items: center;
     gap: 5mm;
     font-family: Arial, sans-serif;
-    font-size: 6.5px;
+    font-size: 6px;
     letter-spacing: 1.2px;
     text-transform: uppercase;
     color: #7D1F1F;
     border-top: 1px solid rgba(125,31,31,.16);
-    padding-top: 1.5mm;
+    padding-top: 1.2mm;
 }
 
 .menu-footer {
     position: absolute;
     left: 9mm;
     right: 9mm;
-    bottom: 6.5mm;
+    bottom: 5.5mm;
     display: flex;
     justify-content: space-between;
     align-items: center;
     font-family: Arial, sans-serif;
-    font-size: 6.5px;
+    font-size: 6px;
     letter-spacing: 1.5px;
     text-transform: uppercase;
     color: rgba(106,78,58,.86);
     border-top: 1px solid rgba(201,168,106,.35);
-    padding-top: 2mm;
+    padding-top: 1.6mm;
 }
 
 @media print {
@@ -499,7 +494,6 @@ body {
             </article>
 
             <div class="wok-grid">
-
                 <article class="wok-card">
                     <img src="<?= base_url('assets/menu-book/products/foods/asian-course/chicken-nori-yakimeshi.png') ?>" alt="Chicken Nori Yakimeshi">
                     <div class="wok-info">
@@ -535,7 +529,6 @@ body {
                         <div class="price">25K</div>
                     </div>
                 </article>
-
             </div>
 
         </div>
