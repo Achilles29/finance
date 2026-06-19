@@ -994,8 +994,8 @@ window.addEventListener('load', function () {
     const REASONS = {
       ADJUSTMENT_PLUS:  { opening_correction: 'Opening Correction', stock_found: 'Stock Found', manual_reclass: 'Manual Reclass', other: 'Other' },
       WASTE:            { cancel_order: 'Cancel Order', kitchen_error: 'Kitchen Error', overproduction: 'Overproduction', spillage: 'Spillage / Tumpah', expired_opened: 'Expired Opened', other: 'Other' },
-      SPOILAGE:         { expired: 'Expired', temperature_abuse: 'Temperature Abuse', contamination: 'Contamination', improper_storage: 'Improper Storage', other: 'Other' },
-      ADJUSTMENT_MINUS: { counting_error: 'Counting Error', system_mismatch: 'System Mismatch', unrecorded_usage: 'Unrecorded Usage', process_loss: 'Process Loss', other: 'Other' },
+      SPOILAGE:         { expired: 'Expired', temperature_abuse: 'Temperature Abuse', contamination: 'Contamination', improper_storage: 'Improper Storage', overstock: 'Overstock', other: 'Other' },
+      ADJUSTMENT_MINUS: { counting_error: 'Counting Error', system_mismatch: 'System Mismatch', unrecorded_usage: 'Unrecorded Usage', process_loss: 'Process Loss', theft_suspected: 'Theft Suspected', other: 'Other' },
       VARIANCE:         { over_usage: 'Over Usage', under_usage: 'Under Usage', counting_error: 'Counting Error', system_mismatch: 'System Mismatch', unrecorded_usage: 'Unrecorded Usage', other: 'Other' },
     };
 

@@ -17,38 +17,9 @@ $prefillLocationType = (string)($prefill['location_type'] ?? '');
 $prefillDivisionId = (int)($prefill['division_id'] ?? 0);
 $prefillNotes = (string)($prefill['notes'] ?? '');
 $sourceOpeningNo = trim((string)($prefill['source_opening_no'] ?? ''));
-$adjustmentReasonOptions = [
-  'WASTE' => [
-    'cancel_order' => 'Cancel Order',
-    'kitchen_error' => 'Kitchen Error',
-    'overproduction' => 'Overproduction',
-    'spillage' => 'Spillage / Tumpah',
-    'expired_opened' => 'Expired Opened',
-    'other' => 'Other',
-  ],
-  'SPOILAGE' => [
-    'expired' => 'Expired',
-    'temperature_abuse' => 'Temperature Abuse',
-    'contamination' => 'Contamination',
-    'improper_storage' => 'Improper Storage',
-    'overstock' => 'Overstock',
-    'other' => 'Other',
-  ],
-  'ADJUSTMENT_PLUS' => [
-    'opening_correction' => 'Opening Correction',
-    'stock_found' => 'Stock Found',
-    'manual_reclass' => 'Manual Reclass',
-    'other' => 'Other',
-  ],
-  'ADJUSTMENT_MINUS' => [
-    'counting_error' => 'Counting Error',
-    'system_mismatch' => 'System Mismatch',
-    'unrecorded_usage' => 'Unrecorded Usage',
-    'process_loss' => 'Process Loss',
-    'theft_suspected' => 'Theft Suspected',
-    'other' => 'Other',
-  ],
-];
+$adjustmentReasonOptions = function_exists('component_adjustment_reason_options')
+  ? component_adjustment_reason_options()
+  : [];
 $summaryDraft = 0;
 $summaryPosted = 0;
 $summaryVoid = 0;

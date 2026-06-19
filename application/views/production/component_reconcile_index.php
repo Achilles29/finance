@@ -12,6 +12,9 @@ $perPage        = in_array((int)($filters['per_page'] ?? 25), [10, 25, 50, 100],
 $fmtQty = static function ($value): string {
     return number_format((float)$value, 2, ',', '.');
 };
+$componentAdjustmentReasonOptions = function_exists('component_adjustment_reason_options')
+    ? component_adjustment_reason_options()
+    : [];
 
 // — Summary computations —
 $totalRows    = count($rows);
@@ -49,6 +52,24 @@ $uniqueCompCount = count($uniqueComps);
 .recon-sum-card.amber  { border-color:#e0cc88;background:#fdfaf0; }
 .recon-sum-card.amber .val { color:#7a5e00; }
 .recon-filter-card { border:1px solid rgba(226,212,200,.88);border-radius:16px;box-shadow:0 4px 14px rgba(58,38,30,.05); }
+.recon-filter-toolbar { display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:.65rem 1rem; }
+.recon-filter-fields { min-width:0; }
+.recon-filter-row { display:flex;flex-wrap:nowrap;align-items:flex-end;gap:.6rem;min-width:0; }
+.recon-filter-item { flex:0 0 auto;min-width:0; }
+.recon-filter-item.search { flex:1 1 180px;max-width:220px; }
+.recon-filter-item.actions { flex:0 0 auto; }
+.recon-filter-actions-right { display:flex;align-items:flex-end;justify-content:flex-end; }
+.recon-inline-actions { display:flex;flex-wrap:nowrap;align-items:flex-end;gap:.4rem; }
+.recon-inline-actions .btn { white-space:nowrap; }
+.recon-primary-action { min-width:132px;justify-content:center;box-shadow:0 8px 18px rgba(180,35,24,.16); }
+.recon-child-panel { border:1px solid #d7e2ec;border-radius:12px;background:#f8fbff;padding:.55rem .7rem;margin:.2rem 0 .45rem; }
+.recon-child-summary { display:flex;flex-wrap:wrap;gap:.45rem;align-items:stretch;justify-content:space-between; }
+.recon-child-summary-left { display:flex;flex-wrap:wrap;gap:.45rem;flex:1 1 520px; }
+.recon-child-summary-right { display:flex;gap:.35rem;align-items:center;justify-content:flex-end;flex:0 0 auto; }
+.recon-mini-box { border:1px solid #d9e4ef;border-radius:10px;background:#fff;padding:.42rem .6rem;min-width:118px; }
+.recon-mini-box .lbl { display:block;font-size:.58rem;text-transform:uppercase;letter-spacing:.04em;color:#7b8a9b;font-weight:800; }
+.recon-mini-box .val { display:block;font-size:.8rem;font-weight:800;color:#22313f;margin-top:.1rem; }
+.recon-mini-box .sub { display:block;font-size:.58rem;color:#95a3b3;line-height:1.2;margin-top:.08rem; }
 .recon-table-card  { border:1px solid rgba(226,212,200,.88);border-radius:18px;box-shadow:0 14px 30px rgba(58,38,30,.06); }
 .recon-tbl-wrap    { overflow:auto;max-height:72vh; }
 .recon-tbl { table-layout:fixed;min-width:710px;margin-bottom:0;border-collapse:separate;border-spacing:0; }
@@ -79,6 +100,15 @@ $uniqueCompCount = count($uniqueComps);
 .recon-mismatch-tag { font-size:.59rem;color:#b42318;font-weight:600;margin-top:.1rem;white-space:nowrap; }
 @media (max-width:767.98px) {
   .recon-audit-summary { grid-template-columns:1fr 1fr; }
+  .recon-filter-toolbar { display:flex;flex-direction:column;align-items:stretch; }
+  .recon-filter-fields,
+  .recon-filter-actions-right { flex:1 1 100%; }
+  .recon-filter-row,
+  .recon-inline-actions { flex-wrap:wrap; }
+  .recon-filter-item.search { flex:1 1 100%;max-width:none; }
+  .recon-filter-actions-right { justify-content:flex-start; }
+  .recon-primary-action { width:100%; }
+  .recon-child-summary-right { width:100%;justify-content:flex-start; }
 }
 </style>
 
@@ -149,53 +179,59 @@ $uniqueCompCount = count($uniqueComps);
 <!-- Filter -->
 <div class="card mb-3 recon-filter-card border-0">
   <div class="card-body py-2">
-    <form method="get" action="<?php echo site_url('production/component-reconcile'); ?>" class="row g-2 align-items-end">
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.78rem">Dari</label>
-        <input type="date" name="date_from" class="form-control form-control-sm" value="<?php echo html_escape($dateFrom); ?>">
+    <form method="get" action="<?php echo site_url('production/component-reconcile'); ?>" class="recon-filter-toolbar">
+      <div class="recon-filter-fields">
+        <div class="recon-filter-row">
+          <div class="recon-filter-item">
+            <label class="form-label mb-1" style="font-size:.78rem">Dari</label>
+            <input type="date" name="date_from" class="form-control form-control-sm" value="<?php echo html_escape($dateFrom); ?>">
+          </div>
+          <div class="recon-filter-item">
+            <label class="form-label mb-1" style="font-size:.78rem">Sampai / Per</label>
+            <input type="date" name="date_to" class="form-control form-control-sm" value="<?php echo html_escape($dateTo); ?>">
+          </div>
+          <div class="recon-filter-item search">
+            <label class="form-label mb-1" style="font-size:.78rem">Cari</label>
+            <input type="text" name="q" id="recon-search" class="form-control form-control-sm" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Kode / nama">
+          </div>
+          <div class="recon-filter-item">
+            <label class="form-label mb-1" style="font-size:.78rem">Lokasi</label>
+            <select name="location_type" class="form-select form-select-sm" style="min-width:100px">
+              <?php foreach ($locationOptions as $value => $label): ?>
+                <option value="<?php echo html_escape((string)$value); ?>" <?php echo ((string)($filters['location_type'] ?? '') === (string)$value) ? 'selected' : ''; ?>><?php echo html_escape((string)$label); ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="recon-filter-item">
+            <label class="form-label mb-1" style="font-size:.78rem">Divisi</label>
+            <select name="division_id" class="form-select form-select-sm" style="min-width:100px">
+              <option value="0">Semua</option>
+              <?php foreach ($divisions as $division): ?>
+                <option value="<?php echo (int)($division['id'] ?? 0); ?>" <?php echo ((int)($filters['division_id'] ?? 0) === (int)($division['id'] ?? 0)) ? 'selected' : ''; ?>>
+                  <?php echo html_escape((string)($division['division_name'] ?? $division['division_code'] ?? ('Divisi #' . (int)($division['id'] ?? 0)))); ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="recon-filter-item">
+            <label class="form-label mb-1" style="font-size:.78rem">Per Hal</label>
+            <select name="per_page" class="form-select form-select-sm" style="min-width:70px">
+              <?php foreach ([10, 25, 50, 100] as $pp): ?>
+                <option value="<?php echo $pp; ?>" <?php echo $perPage === $pp ? 'selected' : ''; ?>><?php echo $pp; ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="recon-filter-item actions">
+            <div class="recon-inline-actions">
+              <button type="submit" class="btn btn-outline-secondary btn-sm">Filter</button>
+              <a href="<?php echo html_escape(site_url('production/component-reconcile')); ?>" class="btn btn-outline-danger btn-sm">Reset</a>
+              <button type="button" id="recon-mismatch-only-btn" class="btn btn-outline-warning btn-sm">Hanya Mismatch</button>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.78rem">Sampai / Per</label>
-        <input type="date" name="date_to" class="form-control form-control-sm" value="<?php echo html_escape($dateTo); ?>">
-      </div>
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.78rem">Cari</label>
-        <input type="text" name="q" id="recon-search" class="form-control form-control-sm" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Kode / nama" style="min-width:145px">
-      </div>
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.78rem">Lokasi</label>
-        <select name="location_type" class="form-select form-select-sm" style="min-width:100px">
-          <?php foreach ($locationOptions as $value => $label): ?>
-            <option value="<?php echo html_escape((string)$value); ?>" <?php echo ((string)($filters['location_type'] ?? '') === (string)$value) ? 'selected' : ''; ?>><?php echo html_escape((string)$label); ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.78rem">Divisi</label>
-        <select name="division_id" class="form-select form-select-sm" style="min-width:100px">
-          <option value="0">Semua</option>
-          <?php foreach ($divisions as $division): ?>
-            <option value="<?php echo (int)($division['id'] ?? 0); ?>" <?php echo ((int)($filters['division_id'] ?? 0) === (int)($division['id'] ?? 0)) ? 'selected' : ''; ?>>
-              <?php echo html_escape((string)($division['division_name'] ?? $division['division_code'] ?? ('Divisi #' . (int)($division['id'] ?? 0)))); ?>
-            </option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.78rem">Per Hal</label>
-        <select name="per_page" class="form-select form-select-sm" style="min-width:70px">
-          <?php foreach ([10, 25, 50, 100] as $pp): ?>
-            <option value="<?php echo $pp; ?>" <?php echo $perPage === $pp ? 'selected' : ''; ?>><?php echo $pp; ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-auto d-flex gap-1">
-        <button type="submit" class="btn btn-outline-secondary btn-sm">Filter</button>
-        <a href="<?php echo html_escape(site_url('production/component-reconcile')); ?>" class="btn btn-outline-danger btn-sm">Reset</a>
-        <button type="button" id="recon-mismatch-only-btn" class="btn btn-outline-warning btn-sm">Hanya Mismatch</button>
-      </div>
-      <div class="col-auto ms-auto">
-        <button type="button" id="recon-repair-all-btn" class="btn btn-danger btn-sm d-flex align-items-center gap-1">
+      <div class="recon-filter-actions-right">
+        <button type="button" id="recon-repair-all-btn" class="btn btn-danger btn-sm d-flex align-items-center gap-1 recon-primary-action">
           <i class="ri ri-refresh-line"></i> Repair All
         </button>
       </div>
@@ -262,13 +298,23 @@ $uniqueCompCount = count($uniqueComps);
               $locType   = (string)($row['location_type'] ?? '');
               $lotCount  = (int)($row['lot_count']    ?? 0);
               $lotRows   = is_array($row['lot_rows'] ?? null) ? $row['lot_rows'] : [];
+              $defaultAdjCost = (float)($row['balance_avg_cost'] ?? 0);
+              if ($defaultAdjCost <= 0 && !empty($lotRows)) {
+                  foreach ($lotRows as $lotRow) {
+                      $candidateCost = (float)($lotRow['unit_cost'] ?? 0);
+                      if ($candidateCost > 0) {
+                          $defaultAdjCost = $candidateCost;
+                          break;
+                      }
+                  }
+              }
               $bKey      = 'cmp_' . $compId . '_' . $divId . '_' . $uomId . '_' . md5($locType);
               $mvtUrl    = site_url('production/component-movements') . '?' . http_build_query(['component_id' => $compId, 'division_id' => $divId, 'location_type' => $locType]);
               $searchStr = strtolower(implode(' ', [$row['component_name'] ?? '', $row['component_code'] ?? '', $row['component_type'] ?? '', $row['division_name'] ?? '', $locType, $isMatch ? 'match ok' : 'mismatch selisih']));
             ?>
             <tr class="recon-row" data-search="<?php echo html_escape($searchStr); ?>">
               <td class="text-center" style="padding:.25rem .2rem">
-                <?php if ($lotCount > 1): ?>
+                <?php if ($lotCount > 0 && !empty($lotRows)): ?>
                 <button type="button" class="btn btn-xs btn-outline-secondary comp-lot-expand-btn" data-bkey="<?php echo html_escape($bKey); ?>" style="width:1.4rem;height:1.4rem;padding:0;font-size:.65rem;border-radius:4px" title="Lihat <?php echo $lotCount; ?> lot"><i class="ri ri-arrow-right-s-line"></i></button>
                 <?php else: ?>
                 <span style="font-size:.6rem;color:#cbd5e1"><?php echo $lotCount > 0 ? '1' : '–'; ?></span>
@@ -328,16 +374,32 @@ $uniqueCompCount = count($uniqueComps);
                     data-movement-qty="<?php echo html_escape((string)$mvtQ); ?>"
                     title="Normalisasi Lot FIFO (qty_balance = qty_in - qty_out), bukan sinkron otomatis ke monthly stock"><i class="ri ri-stack-line"></i></button>
                   <a href="<?php echo html_escape($mvtUrl); ?>" class="rec-icon-btn btn-outline-info" target="_blank" title="Lihat movement log"><i class="ri ri-history-line"></i></a>
-                  <button type="button" class="btn btn-sm btn-outline-warning comp-quick-adj-btn"
+                  <?php if (empty($lotRows)): ?>
+                  <button type="button" class="rec-icon-btn btn-outline-warning comp-quick-adj-btn"
+                    onclick="if(window.openCompAdjFromButton){window.openCompAdjFromButton(this);} return false;"
                     data-component-id="<?php echo $compId; ?>"
                     data-uom-id="<?php echo $uomId; ?>"
                     data-division-id="<?php echo $divId; ?>"
+                    data-division-code="<?php echo html_escape((string)($row['division_code'] ?? '')); ?>"
                     data-location-type="<?php echo html_escape($locType); ?>"
                     data-adjust-scope="STOCK"
                     data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
                     data-system-qty="<?php echo $mQty; ?>"
-                    data-avg-cost="<?php echo (float)($row['balance_avg_cost'] ?? 0); ?>"
-                    title="Adjustment manual saldo component ini"><i class="ri ri-scales-3-line me-1"></i>Adj Stok</button>
+                    data-avg-cost="<?php echo $defaultAdjCost; ?>"
+                    title="Adjustment manual saldo component ini"><i class="ri ri-scales-3-line"></i></button>
+                  <button type="button" class="rec-icon-btn btn-outline-secondary comp-quick-adj-btn"
+                    onclick="if(window.openCompAdjFromButton){window.openCompAdjFromButton(this);} return false;"
+                    data-component-id="<?php echo $compId; ?>"
+                    data-uom-id="<?php echo $uomId; ?>"
+                    data-division-id="<?php echo $divId; ?>"
+                    data-division-code="<?php echo html_escape((string)($row['division_code'] ?? '')); ?>"
+                    data-location-type="<?php echo html_escape($locType); ?>"
+                    data-adjust-scope="LOT_ONLY"
+                    data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
+                    data-system-qty="<?php echo $lotQ; ?>"
+                    data-avg-cost="<?php echo $defaultAdjCost; ?>"
+                    title="Adjustment lot tanpa child lot aktif"><i class="ri ri-stack-line"></i></button>
+                  <?php endif; ?>
                 </div>
               </td>
             </tr>
@@ -345,6 +407,60 @@ $uniqueCompCount = count($uniqueComps);
             <tr class="comp-lot-child-row" data-bkey="<?php echo html_escape($bKey); ?>" style="display:none">
               <td colspan="9" style="padding:.2rem .5rem .5rem 2.2rem;background:#f0f4f8;border-top:none">
                 <div style="font-size:.62rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;padding:.3rem 0 .2rem">Lot FIFO — <?php echo count($lotRows); ?> lot</div>
+                <div class="recon-child-panel">
+                  <div class="recon-child-summary">
+                    <div class="recon-child-summary-left">
+                      <div class="recon-mini-box">
+                        <span class="lbl">Stok Bulanan</span>
+                        <span class="val"><?php echo $fmtQty($mQty); ?></span>
+                        <span class="sub">saldo inti component</span>
+                      </div>
+                      <div class="recon-mini-box">
+                        <span class="lbl">Lot FIFO</span>
+                        <span class="val"><?php echo $fmtQty($lotQ); ?></span>
+                        <span class="sub"><?php echo count($lotRows); ?> lot pada identity ini</span>
+                      </div>
+                      <div class="recon-mini-box">
+                        <span class="lbl">Movement Log</span>
+                        <span class="val"><?php echo $fmtQty($mvtQ); ?></span>
+                        <span class="sub">closing log component</span>
+                      </div>
+                      <div class="recon-mini-box">
+                        <span class="lbl">Selisih Stok</span>
+                        <span class="val" style="<?php echo abs($primaryDelta) > 0.0001 ? 'color:#b42318' : 'color:#1f7a49'; ?>">
+                          <?php echo ($primaryDelta > 0 ? '+' : '') . $fmtQty($primaryDelta); ?>
+                        </span>
+                        <span class="sub">stok vs movement</span>
+                      </div>
+                    </div>
+                    <div class="recon-child-summary-right">
+                      <button type="button" class="rec-icon-btn btn-outline-warning comp-quick-adj-btn"
+                        onclick="if(window.openCompAdjFromButton){window.openCompAdjFromButton(this);} return false;"
+                        data-component-id="<?php echo $compId; ?>"
+                        data-uom-id="<?php echo $uomId; ?>"
+                        data-division-id="<?php echo $divId; ?>"
+                        data-division-code="<?php echo html_escape((string)($row['division_code'] ?? '')); ?>"
+                        data-location-type="<?php echo html_escape($locType); ?>"
+                        data-adjust-scope="STOCK"
+                        data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
+                        data-system-qty="<?php echo $mQty; ?>"
+                        data-avg-cost="<?php echo $defaultAdjCost; ?>"
+                        title="Adjustment stok component inti"><i class="ri ri-scales-3-line"></i></button>
+                      <button type="button" class="rec-icon-btn btn-outline-secondary comp-quick-adj-btn"
+                        onclick="if(window.openCompAdjFromButton){window.openCompAdjFromButton(this);} return false;"
+                        data-component-id="<?php echo $compId; ?>"
+                        data-uom-id="<?php echo $uomId; ?>"
+                        data-division-id="<?php echo $divId; ?>"
+                        data-division-code="<?php echo html_escape((string)($row['division_code'] ?? '')); ?>"
+                        data-location-type="<?php echo html_escape($locType); ?>"
+                        data-adjust-scope="LOT_ONLY"
+                        data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
+                        data-system-qty="<?php echo $lotQ; ?>"
+                        data-avg-cost="<?php echo $defaultAdjCost; ?>"
+                        title="Adjustment lot total untuk identity ini"><i class="ri ri-stack-line"></i></button>
+                    </div>
+                  </div>
+                </div>
                 <table class="table table-sm table-borderless mb-0" style="font-size:.68rem;min-width:600px">
                   <thead><tr style="border-bottom:2px solid #cbd5e1;background:#e2e8f0">
                     <th style="padding:.25rem .4rem;font-weight:700">Lot No</th>
@@ -368,18 +484,36 @@ $uniqueCompCount = count($uniqueComps);
                       <td class="text-end" style="padding:.2rem .4rem"><?php echo number_format((float)$lot['unit_cost'], 2, ',', '.'); ?></td>
                       <td style="padding:.2rem .4rem;font-weight:600;<?php echo $lotStatusCls; ?>"><?php echo html_escape($lot['status']); ?></td>
                       <td class="text-center" style="padding:.2rem .4rem">
-                        <button type="button" class="btn btn-sm btn-outline-warning comp-quick-adj-btn"
-                          data-component-id="<?php echo $compId; ?>"
-                          data-uom-id="<?php echo $uomId; ?>"
-                          data-division-id="<?php echo $divId; ?>"
-                          data-location-type="<?php echo html_escape($locType); ?>"
-                          data-adjust-scope="LOT_ONLY"
-                          data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
-                          data-system-qty="<?php echo (float)($lot['qty_balance'] ?? 0); ?>"
-                          data-avg-cost="<?php echo (float)($lot['unit_cost'] ?? 0); ?>"
-                          data-lot-id="<?php echo (int)($lot['id'] ?? 0); ?>"
-                          data-lot-no="<?php echo html_escape((string)($lot['lot_no'] ?? '')); ?>"
-                          title="Adjustment lot saja, tanpa mengubah monthly/movement"><i class="ri ri-scales-3-line me-1"></i>Adj Lot</button>
+                        <div class="recon-aksi-wrap justify-content-center">
+                          <button type="button" class="rec-icon-btn btn-outline-warning comp-quick-adj-btn"
+                            onclick="if(window.openCompAdjFromButton){window.openCompAdjFromButton(this);} return false;"
+                            data-component-id="<?php echo $compId; ?>"
+                            data-uom-id="<?php echo $uomId; ?>"
+                            data-division-id="<?php echo $divId; ?>"
+                            data-division-code="<?php echo html_escape((string)($row['division_code'] ?? '')); ?>"
+                            data-location-type="<?php echo html_escape($locType); ?>"
+                            data-adjust-scope="STOCK"
+                            data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
+                            data-system-qty="<?php echo (float)($lot['qty_balance'] ?? 0); ?>"
+                            data-avg-cost="<?php echo (float)($lot['unit_cost'] ?? 0); ?>"
+                            data-lot-id="<?php echo (int)($lot['id'] ?? 0); ?>"
+                            data-lot-no="<?php echo html_escape((string)($lot['lot_no'] ?? '')); ?>"
+                            title="Adjustment stok pada lot ini"><i class="ri ri-scales-3-line"></i></button>
+                          <button type="button" class="rec-icon-btn btn-outline-secondary comp-quick-adj-btn"
+                            onclick="if(window.openCompAdjFromButton){window.openCompAdjFromButton(this);} return false;"
+                            data-component-id="<?php echo $compId; ?>"
+                            data-uom-id="<?php echo $uomId; ?>"
+                            data-division-id="<?php echo $divId; ?>"
+                            data-division-code="<?php echo html_escape((string)($row['division_code'] ?? '')); ?>"
+                            data-location-type="<?php echo html_escape($locType); ?>"
+                            data-adjust-scope="LOT_ONLY"
+                            data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
+                            data-system-qty="<?php echo (float)($lot['qty_balance'] ?? 0); ?>"
+                            data-avg-cost="<?php echo (float)($lot['unit_cost'] ?? 0); ?>"
+                            data-lot-id="<?php echo (int)($lot['id'] ?? 0); ?>"
+                            data-lot-no="<?php echo html_escape((string)($lot['lot_no'] ?? '')); ?>"
+                            title="Adjustment lot saja, tanpa mengubah monthly/movement"><i class="ri ri-stack-line"></i></button>
+                        </div>
                       </td>
                     </tr>
                   <?php endforeach; ?>
@@ -503,9 +637,10 @@ $uniqueCompCount = count($uniqueComps);
           </div>
         </div>
 
-        <div class="mb-2" id="compAdjHppRow" style="display:none">
+        <div class="mb-2" id="compAdjHppRow">
           <label class="form-label small mb-1">HPP / Unit Cost <span class="text-danger">*</span></label>
-          <input type="number" step="0.000001" min="0.000001" class="form-control form-control-sm" id="compAdjUnitCost" placeholder="Harga per satuan">
+          <input type="number" step="0.000001" min="0.000001" class="form-control form-control-sm" id="compAdjUnitCost" placeholder="Otomatis dari HPP stok, tetap bisa diubah manual">
+          <div class="small text-muted mt-1" id="compAdjUnitCostHint">Default mengikuti HPP stok/component saat ini. Ubah bila memang ada koreksi harga untuk saldo masuk.</div>
         </div>
 
         <div class="mb-1">
@@ -826,14 +961,49 @@ $uniqueCompCount = count($uniqueComps);
   const compAdjUrl   = <?php echo json_encode(site_url('production/component-daily-recon/quick-adjust')); ?>;
   const compLotAdjUrl = <?php echo json_encode(site_url('production/component-reconcile/lot-adjust')); ?>;
   const compAdjModal = document.getElementById('compAdjModal');
-  const compAdjModalBs = compAdjModal && typeof bootstrap !== 'undefined' ? new bootstrap.Modal(compAdjModal) : null;
+  const compAdjModalBs = (compAdjModal && window.bootstrap && window.bootstrap.Modal)
+    ? new window.bootstrap.Modal(compAdjModal)
+    : null;
+  let compAdjFallbackBackdrop = null;
 
-  const compAdjReasonMap = {
-    ADJUSTMENT_MINUS: { counting_error: 'Counting Error', system_mismatch: 'System Mismatch', over_usage: 'Over Usage', other: 'Other' },
-    ADJUSTMENT_PLUS:  { opening_correction: 'Opening Correction', stock_found: 'Stock Found', other: 'Other' },
-    WASTE:            { cancel_order: 'Cancel Order', kitchen_error: 'Kitchen Error', spillage: 'Spillage', overproduction: 'Overproduction', other: 'Other' },
-    SPOILAGE:         { expired: 'Expired', contamination: 'Contamination', other: 'Other' },
-  };
+  function showCompAdjModal() {
+    if (!compAdjModal) return;
+    if (compAdjModalBs) {
+      compAdjModalBs.show();
+      return;
+    }
+    compAdjModal.style.display = 'block';
+    compAdjModal.classList.add('show');
+    compAdjModal.removeAttribute('aria-hidden');
+    compAdjModal.setAttribute('aria-modal', 'true');
+    document.body.classList.add('modal-open');
+    document.body.style.overflow = 'hidden';
+    if (!compAdjFallbackBackdrop) {
+      compAdjFallbackBackdrop = document.createElement('div');
+      compAdjFallbackBackdrop.className = 'modal-backdrop fade show';
+      document.body.appendChild(compAdjFallbackBackdrop);
+    }
+  }
+
+  function hideCompAdjModal() {
+    if (!compAdjModal) return;
+    if (compAdjModalBs) {
+      compAdjModalBs.hide();
+      return;
+    }
+    compAdjModal.classList.remove('show');
+    compAdjModal.style.display = 'none';
+    compAdjModal.setAttribute('aria-hidden', 'true');
+    compAdjModal.removeAttribute('aria-modal');
+    document.body.classList.remove('modal-open');
+    document.body.style.overflow = '';
+    if (compAdjFallbackBackdrop && compAdjFallbackBackdrop.parentNode) {
+      compAdjFallbackBackdrop.parentNode.removeChild(compAdjFallbackBackdrop);
+    }
+    compAdjFallbackBackdrop = null;
+  }
+
+  const compAdjReasonMap = <?php echo json_encode($componentAdjustmentReasonOptions, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
 
   function compAdjFmt(v) { const n = parseFloat(v); return isNaN(n) ? '0' : n.toLocaleString('id-ID', { maximumFractionDigits: 4 }); }
 
@@ -843,8 +1013,12 @@ $uniqueCompCount = count($uniqueComps);
     const opts = compAdjReasonMap[adjType] || { other: 'Other' };
     sel.innerHTML = Object.entries(opts).map(([k, v]) => '<option value="' + k + '">' + v + '</option>').join('');
     sel.value = 'other';
-    const hppRow = document.getElementById('compAdjHppRow');
-    if (hppRow) hppRow.style.display = adjType === 'ADJUSTMENT_PLUS' ? '' : 'none';
+    const hppHint = document.getElementById('compAdjUnitCostHint');
+    if (hppHint) {
+      hppHint.textContent = adjType === 'ADJUSTMENT_PLUS'
+        ? 'Default mengikuti HPP stok/component saat ini. Boleh diubah jika saldo masuk memang memakai harga baru.'
+        : 'Default mengikuti HPP stok/component saat ini. Untuk minus biasanya tidak wajib diubah, tapi tetap bisa disesuaikan bila diperlukan.';
+    }
   }
 
   function compAdjUpdateSelisih() {
@@ -860,8 +1034,12 @@ $uniqueCompCount = count($uniqueComps);
       sdEl.style.color = delta > 0 ? '#2563eb' : delta < 0 ? '#b42318' : '#6b7280';
     }
     if (scope === 'LOT_ONLY') {
-      const hppRow = document.getElementById('compAdjHppRow');
-      if (hppRow) hppRow.style.display = delta > 0 ? '' : 'none';
+      const hppHint = document.getElementById('compAdjUnitCostHint');
+      if (hppHint) {
+        hppHint.textContent = delta > 0
+          ? 'Lot plus membutuhkan unit cost. Default diambil dari HPP stok/lot aktif, lalu boleh diubah bila saldo masuk memakai cost baru.'
+          : 'Lot minus tidak wajib mengubah unit cost. Nilai tetap ditampilkan sebagai referensi cost lot saat ini.';
+      }
       return;
     }
     if (atEl && !atEl.dataset.manuallySet) {
@@ -870,12 +1048,16 @@ $uniqueCompCount = count($uniqueComps);
     }
   }
 
-  function compLocDecode(rawLocType) {
-    const loc = String(rawLocType).toUpperCase();
+  function compLocDecode(rawLocType, rawDivisionCode) {
+    const loc = String(rawLocType || '').toUpperCase().trim();
+    const div = String(rawDivisionCode || '').toUpperCase().trim();
     if (loc === 'BAR')             return { division_code: 'BAR',     location_type: 'REGULER' };
     if (loc === 'KITCHEN')         return { division_code: 'KITCHEN', location_type: 'REGULER' };
     if (loc === 'BAR_EVENT')       return { division_code: 'BAR',     location_type: 'EVENT' };
     if (loc === 'KITCHEN_EVENT')   return { division_code: 'KITCHEN', location_type: 'EVENT' };
+    if ((loc === 'REGULER' || loc === 'EVENT') && (div === 'BAR' || div === 'KITCHEN')) {
+      return { division_code: div, location_type: loc };
+    }
     return null;
   }
 
@@ -883,6 +1065,7 @@ $uniqueCompCount = count($uniqueComps);
     const compId   = Number(btn.dataset.componentId || 0);
     const uomId    = Number(btn.dataset.uomId || 0);
     const divId    = Number(btn.dataset.divisionId || 0);
+    const divCode  = String(btn.dataset.divisionCode || '');
     const locType  = String(btn.dataset.locationType || '');
     const compName = String(btn.dataset.componentName || '');
     const sysQty   = parseFloat(btn.dataset.systemQty || 0);
@@ -890,7 +1073,7 @@ $uniqueCompCount = count($uniqueComps);
     const lotId    = Number(btn.dataset.lotId || 0);
     const lotNo    = String(btn.dataset.lotNo || '');
     const adjustScope = String(btn.dataset.adjustScope || 'STOCK').toUpperCase();
-    const locDec   = compLocDecode(locType);
+    const locDec   = compLocDecode(locType, divCode);
     if (!locDec) { showAlert('Lokasi component tidak dikenali: ' + locType + '. Hanya BAR / KITCHEN / BAR_EVENT / KITCHEN_EVENT yang didukung.', 'Adjustment'); return; }
     const g = id => document.getElementById(id);
     if (g('compAdjModalTitle')) g('compAdjModalTitle').textContent = adjustScope === 'LOT_ONLY' ? 'Adjustment Lot Component' : 'Adjustment Stok Component';
@@ -921,9 +1104,21 @@ $uniqueCompCount = count($uniqueComps);
       compAdjModal.dataset.lotNo         = lotNo;
       compAdjModal.dataset.adjustScope   = adjustScope;
     }
-    if (compAdjModalBs) compAdjModalBs.show();
+    showCompAdjModal();
     setTimeout(() => g('compAdjTarget')?.focus(), 350);
   }
+  window.openCompAdjFromButton = openCompAdj;
+
+  compAdjModal?.addEventListener('click', function (event) {
+    if (event.target?.matches('[data-bs-dismiss="modal"]') || event.target === compAdjModal) {
+      hideCompAdjModal();
+    }
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && compAdjModal?.classList.contains('show')) {
+      hideCompAdjModal();
+    }
+  });
 
   document.getElementById('compAdjTarget')?.addEventListener('input', compAdjUpdateSelisih);
   document.getElementById('compAdjType')?.addEventListener('change', function () {
@@ -958,6 +1153,11 @@ $uniqueCompCount = count($uniqueComps);
       const json = adjustScope === 'LOT_ONLY' ? await postJson(compLotAdjUrl, {
         adjustment_date: date,
         lot_id: lotId > 0 ? lotId : null,
+        component_id: compId,
+        uom_id: uomId,
+        division_id: divId || null,
+        division_code: divCode,
+        location_type: locGroup,
         target_qty: target,
         unit_cost: target > sysQty ? unitCost : 0,
         notes: notes,
@@ -976,7 +1176,7 @@ $uniqueCompCount = count($uniqueComps);
         avg_cost:         adjType === 'ADJUSTMENT_PLUS' ? unitCost : 0,
         notes:            notes,
       });
-      if (compAdjModalBs) compAdjModalBs.hide();
+      hideCompAdjModal();
       await showAlert(json.message || (adjustScope === 'LOT_ONLY' ? 'Adjustment lot berhasil disimpan.' : 'Adjustment berhasil diposting.'), adjustScope === 'LOT_ONLY' ? 'Adjustment Lot' : 'Adjustment');
       window.location.reload();
     } catch (e) {

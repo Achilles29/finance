@@ -5,6 +5,7 @@ class Master_relation extends MY_Controller
 {
     private $productRecipeMaterialCostCache = [];
     private $productRecipeComponentCostCache = [];
+    private $divisionCodeCache = [];
 
     public function __construct()
     {
@@ -12,6 +13,41 @@ class Master_relation extends MY_Controller
         $this->load->model('Master_model');
         $this->load->library('form_validation');
         $this->load->library('PosBundlePricingService');
+    }
+
+    private function operationalDivisionCode(int $divisionId): string
+    {
+        if ($divisionId <= 0) {
+            return '';
+        }
+        if (array_key_exists($divisionId, $this->divisionCodeCache)) {
+            return $this->divisionCodeCache[$divisionId];
+        }
+        $row = $this->db->select('code')
+            ->from('mst_operational_division')
+            ->where('id', $divisionId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        $this->divisionCodeCache[$divisionId] = strtoupper(trim((string)($row['code'] ?? '')));
+        return $this->divisionCodeCache[$divisionId];
+    }
+
+    private function regularMaterialDestinationForDivision(int $divisionId): ?string
+    {
+        $code = $this->operationalDivisionCode($divisionId);
+        if ($code === 'BAR') {
+            return 'BAR';
+        }
+        if ($code === 'KITCHEN') {
+            return 'KITCHEN';
+        }
+        return null;
+    }
+
+    private function regularComponentLocationForDivision(int $divisionId): ?string
+    {
+        return $this->regularMaterialDestinationForDivision($divisionId);
     }
 
     public function product_recipe_hub()
@@ -2385,30 +2421,65 @@ class Master_relation extends MY_Controller
             return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
         }
 
-        $sql = "
-            SELECT
-                bal.qty_balance,
-                COALESCE(front.unit_cost, 0) AS unit_cost
-            FROM (
-                SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
-                FROM inv_material_fifo_lot
-                WHERE location_scope = 'DIVISION'
-                  AND division_id = ?
-                  AND COALESCE(material_id, 0) = ?
-                  AND qty_balance > 0
-            ) bal
-            CROSS JOIN (
-                SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
-                FROM inv_material_fifo_lot
-                WHERE location_scope = 'DIVISION'
-                  AND division_id = ?
-                  AND COALESCE(material_id, 0) = ?
-                  AND qty_balance > 0
-                ORDER BY receipt_date ASC, id ASC
-                LIMIT 1
-            ) front
-        ";
-        return $this->db->query($sql, [$divisionId, $materialId, $divisionId, $materialId])->row_array() ?: ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        $preferredDestination = $this->regularMaterialDestinationForDivision($divisionId);
+        if ($preferredDestination !== null) {
+            $frontPreferred = $this->db->query(
+                "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                 FROM inv_material_fifo_lot
+                 WHERE location_scope = 'DIVISION'
+                   AND division_id = ?
+                   AND destination_type = ?
+                   AND COALESCE(material_id, 0) = ?
+                   AND qty_balance > 0
+                 ORDER BY receipt_date ASC, id ASC
+                 LIMIT 1",
+                [$divisionId, $preferredDestination, $materialId]
+            )->row_array();
+            if (!empty($frontPreferred)) {
+                $qtyPreferred = $this->db->query(
+                    "SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                     FROM inv_material_fifo_lot
+                     WHERE location_scope = 'DIVISION'
+                       AND division_id = ?
+                       AND destination_type = ?
+                       AND COALESCE(material_id, 0) = ?
+                       AND qty_balance > 0",
+                    [$divisionId, $preferredDestination, $materialId]
+                )->row_array();
+                return [
+                    'unit_cost' => (float)($frontPreferred['unit_cost'] ?? 0),
+                    'qty_balance' => (float)($qtyPreferred['qty_balance'] ?? 0),
+                ];
+            }
+        }
+
+        $front = $this->db->query(
+            "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+             FROM inv_material_fifo_lot
+             WHERE location_scope = 'DIVISION'
+               AND division_id = ?
+               AND COALESCE(material_id, 0) = ?
+               AND qty_balance > 0
+             ORDER BY receipt_date ASC, id ASC
+             LIMIT 1",
+            [$divisionId, $materialId]
+        )->row_array();
+        if (empty($front)) {
+            return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        }
+        $qty = $this->db->query(
+            "SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+             FROM inv_material_fifo_lot
+             WHERE location_scope = 'DIVISION'
+               AND division_id = ?
+               AND COALESCE(material_id, 0) = ?
+               AND qty_balance > 0",
+            [$divisionId, $materialId]
+        )->row_array();
+        return [
+            'unit_cost' => (float)($front['unit_cost'] ?? 0),
+            'qty_balance' => (float)($qty['qty_balance'] ?? 0),
+        ];
     }
 
     private function resolveProductRecipeComponentLotCost(int $componentId, int $divisionId): array
@@ -2417,28 +2488,61 @@ class Master_relation extends MY_Controller
             return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
         }
 
-        $sql = "
-            SELECT
-                bal.qty_balance,
-                COALESCE(front.unit_cost, 0) AS unit_cost
-            FROM (
-                SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
-                FROM inv_component_lot
-                WHERE component_id = ?
-                  AND division_id = ?
-                  AND qty_balance > 0
-            ) bal
-            CROSS JOIN (
-                SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
-                FROM inv_component_lot
-                WHERE component_id = ?
-                  AND division_id = ?
-                  AND qty_balance > 0
-                ORDER BY receipt_date ASC, id ASC
-                LIMIT 1
-            ) front
-        ";
-        return $this->db->query($sql, [$componentId, $divisionId, $componentId, $divisionId])->row_array() ?: ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        $preferredLocation = $this->regularComponentLocationForDivision($divisionId);
+        if ($preferredLocation !== null) {
+            $frontPreferred = $this->db->query(
+                "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                 FROM inv_component_lot
+                 WHERE component_id = ?
+                   AND division_id = ?
+                   AND location_type = ?
+                   AND qty_balance > 0
+                 ORDER BY receipt_date ASC, id ASC
+                 LIMIT 1",
+                [$componentId, $divisionId, $preferredLocation]
+            )->row_array();
+            if (!empty($frontPreferred)) {
+                $qtyPreferred = $this->db->query(
+                    "SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                     FROM inv_component_lot
+                     WHERE component_id = ?
+                       AND division_id = ?
+                       AND location_type = ?
+                       AND qty_balance > 0",
+                    [$componentId, $divisionId, $preferredLocation]
+                )->row_array();
+                return [
+                    'unit_cost' => (float)($frontPreferred['unit_cost'] ?? 0),
+                    'qty_balance' => (float)($qtyPreferred['qty_balance'] ?? 0),
+                ];
+            }
+        }
+
+        $front = $this->db->query(
+            "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+             FROM inv_component_lot
+             WHERE component_id = ?
+               AND division_id = ?
+               AND qty_balance > 0
+             ORDER BY receipt_date ASC, id ASC
+             LIMIT 1",
+            [$componentId, $divisionId]
+        )->row_array();
+        if (empty($front)) {
+            return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        }
+        $qty = $this->db->query(
+            "SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+             FROM inv_component_lot
+             WHERE component_id = ?
+               AND division_id = ?
+               AND qty_balance > 0",
+            [$componentId, $divisionId]
+        )->row_array();
+        return [
+            'unit_cost' => (float)($front['unit_cost'] ?? 0),
+            'qty_balance' => (float)($qty['qty_balance'] ?? 0),
+        ];
     }
 
     private function productRecipeVariableCostContext(array $product): array

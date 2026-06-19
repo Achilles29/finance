@@ -1398,10 +1398,11 @@ class ComponentStockWriter
                  WHERE component_id = ?
                    AND uom_id = ?
                    AND division_id <=> ?
+                   AND location_type = ?
                    AND qty_balance > 0
                  ORDER BY receipt_date ASC, id ASC
                  LIMIT 1",
-                [$componentId, $uomId, $divisionId]
+                [$componentId, $uomId, $divisionId, $locationType]
             )->row_array();
             $lotCost = round((float)($lotRow['avg_cost'] ?? 0), 6);
             if ($lotCost > 0) {

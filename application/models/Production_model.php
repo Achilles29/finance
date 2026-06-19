@@ -11,6 +11,27 @@ class Production_model extends CI_Model
     private $materialBalanceCache = [];
     private $componentLookupCache = [];
     private $componentBalanceCache = [];
+    private $divisionCodeCache = [];
+
+    private function ensure_component_adjustment_reason_helper(): void
+    {
+        if (function_exists('normalize_component_adjustment_reason_code')) {
+            return;
+        }
+        $CI =& get_instance();
+        if ($CI && isset($CI->load)) {
+            $CI->load->helper('component_adjustment_reason');
+        }
+    }
+
+    private function normalizeComponentAdjustmentReasonCode(string $value, string $category): ?string
+    {
+        $this->ensure_component_adjustment_reason_helper();
+        if (!function_exists('normalize_component_adjustment_reason_code')) {
+            return null;
+        }
+        return normalize_component_adjustment_reason_code($value, $category);
+    }
 
     private function division_name_column()
     {
@@ -32,6 +53,46 @@ class Production_model extends CI_Model
             return 'division_code';
         }
         return null;
+    }
+
+    private function operational_division_code(int $divisionId): string
+    {
+        if ($divisionId <= 0) {
+            return '';
+        }
+        if (array_key_exists($divisionId, $this->divisionCodeCache)) {
+            return $this->divisionCodeCache[$divisionId];
+        }
+        $column = $this->division_code_column();
+        if ($column === null) {
+            $this->divisionCodeCache[$divisionId] = '';
+            return '';
+        }
+        $row = $this->db->select($column . ' AS code', false)
+            ->from('mst_operational_division')
+            ->where('id', $divisionId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        $this->divisionCodeCache[$divisionId] = strtoupper(trim((string)($row['code'] ?? '')));
+        return $this->divisionCodeCache[$divisionId];
+    }
+
+    private function regular_material_destination_for_division(int $divisionId): ?string
+    {
+        $code = $this->operational_division_code($divisionId);
+        if ($code === 'BAR') {
+            return 'BAR';
+        }
+        if ($code === 'KITCHEN') {
+            return 'KITCHEN';
+        }
+        return null;
+    }
+
+    private function regular_component_location_for_division(int $divisionId): ?string
+    {
+        return $this->regular_material_destination_for_division($divisionId);
     }
 
     private function component_type_sort_sql(string $column): string
@@ -3819,6 +3880,7 @@ class Production_model extends CI_Model
         if ($resolvedDivisionId !== (int)($resolvedContext['division_id'] ?? 0)) {
             return ['ok' => false, 'message' => 'Divisi adjustment harus sama dengan divisi operasional component yang dipilih.'];
         }
+        $this->ensure_component_adjustment_reason_helper();
 
         $id = (int)($header['id'] ?? 0);
         $payload = [
@@ -3852,6 +3914,10 @@ class Production_model extends CI_Model
             if ($componentId <= 0 || $uomId <= 0) {
                 continue;
             }
+            $qtySpoil = round((float)($line['qty_spoil'] ?? 0), 4);
+            $qtyWaste = round((float)($line['qty_waste'] ?? 0), 4);
+            $qtyPlus = round((float)($line['qty_adjust_pos'] ?? 0), 4);
+            $qtyMinus = round((float)($line['qty_adjust_neg'] ?? 0), 4);
             $this->db->insert('inv_component_adjustment_line', [
                 'adjustment_id' => $id,
                 'line_no' => $lineNo++,
@@ -3859,14 +3925,14 @@ class Production_model extends CI_Model
                 'uom_id' => $uomId,
                 'selected_lot_id' => !empty($line['selected_lot_id']) ? (int)$line['selected_lot_id'] : null,
                 'available_qty' => round((float)($line['available_qty'] ?? 0), 4),
-                'qty_spoil' => round((float)($line['qty_spoil'] ?? 0), 4),
-                'spoil_reason_code' => $this->nullable_string($line['spoil_reason_code'] ?? null),
-                'qty_waste' => round((float)($line['qty_waste'] ?? 0), 4),
-                'waste_reason_code' => $this->nullable_string($line['waste_reason_code'] ?? null),
-                'qty_adjust_pos' => round((float)($line['qty_adjust_pos'] ?? 0), 4),
-                'adjustment_plus_reason_code' => $this->nullable_string($line['adjustment_plus_reason_code'] ?? null),
-                'qty_adjust_neg' => round((float)($line['qty_adjust_neg'] ?? 0), 4),
-                'adjustment_minus_reason_code' => $this->nullable_string($line['adjustment_minus_reason_code'] ?? null),
+                'qty_spoil' => $qtySpoil,
+                'spoil_reason_code' => $qtySpoil > 0 ? ($this->normalizeComponentAdjustmentReasonCode((string)($line['spoil_reason_code'] ?? ''), 'SPOILAGE') ?? 'other') : null,
+                'qty_waste' => $qtyWaste,
+                'waste_reason_code' => $qtyWaste > 0 ? ($this->normalizeComponentAdjustmentReasonCode((string)($line['waste_reason_code'] ?? ''), 'WASTE') ?? 'other') : null,
+                'qty_adjust_pos' => $qtyPlus,
+                'adjustment_plus_reason_code' => $qtyPlus > 0 ? ($this->normalizeComponentAdjustmentReasonCode((string)($line['adjustment_plus_reason_code'] ?? ''), 'ADJUSTMENT_PLUS') ?? 'other') : null,
+                'qty_adjust_neg' => $qtyMinus,
+                'adjustment_minus_reason_code' => $qtyMinus > 0 ? ($this->normalizeComponentAdjustmentReasonCode((string)($line['adjustment_minus_reason_code'] ?? ''), 'ADJUSTMENT_MINUS') ?? 'other') : null,
                 'unit_cost' => round((float)($line['unit_cost'] ?? 0), 6),
                 'note' => $this->nullable_string($line['note'] ?? null),
             ]);
@@ -7561,30 +7627,65 @@ class Production_model extends CI_Model
             return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
         }
 
-        $sql = "
-            SELECT
-                bal.qty_balance,
-                COALESCE(front.unit_cost, 0) AS unit_cost
-            FROM (
-                SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
-                FROM inv_material_fifo_lot
-                WHERE location_scope = 'DIVISION'
-                  AND division_id = ?
-                  AND COALESCE(material_id, 0) = ?
-                  AND qty_balance > 0
-            ) bal
-            CROSS JOIN (
-                SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
-                FROM inv_material_fifo_lot
-                WHERE location_scope = 'DIVISION'
-                  AND division_id = ?
-                  AND COALESCE(material_id, 0) = ?
-                  AND qty_balance > 0
-                ORDER BY receipt_date ASC, id ASC
-                LIMIT 1
-            ) front
-        ";
-        return $this->db->query($sql, [$divisionId, $materialId, $divisionId, $materialId])->row_array() ?: ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        $preferredDestination = $this->regular_material_destination_for_division($divisionId);
+        if ($preferredDestination !== null) {
+            $frontPreferred = $this->db->query(
+                "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                 FROM inv_material_fifo_lot
+                 WHERE location_scope = 'DIVISION'
+                   AND division_id = ?
+                   AND destination_type = ?
+                   AND COALESCE(material_id, 0) = ?
+                   AND qty_balance > 0
+                 ORDER BY receipt_date ASC, id ASC
+                 LIMIT 1",
+                [$divisionId, $preferredDestination, $materialId]
+            )->row_array();
+            if (!empty($frontPreferred)) {
+                $qtyPreferred = $this->db->query(
+                    "SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                     FROM inv_material_fifo_lot
+                     WHERE location_scope = 'DIVISION'
+                       AND division_id = ?
+                       AND destination_type = ?
+                       AND COALESCE(material_id, 0) = ?
+                       AND qty_balance > 0",
+                    [$divisionId, $preferredDestination, $materialId]
+                )->row_array();
+                return [
+                    'unit_cost' => (float)($frontPreferred['unit_cost'] ?? 0),
+                    'qty_balance' => (float)($qtyPreferred['qty_balance'] ?? 0),
+                ];
+            }
+        }
+
+        $front = $this->db->query(
+            "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+             FROM inv_material_fifo_lot
+             WHERE location_scope = 'DIVISION'
+               AND division_id = ?
+               AND COALESCE(material_id, 0) = ?
+               AND qty_balance > 0
+             ORDER BY receipt_date ASC, id ASC
+             LIMIT 1",
+            [$divisionId, $materialId]
+        )->row_array();
+        if (empty($front)) {
+            return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        }
+        $qty = $this->db->query(
+            "SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+             FROM inv_material_fifo_lot
+             WHERE location_scope = 'DIVISION'
+               AND division_id = ?
+               AND COALESCE(material_id, 0) = ?
+               AND qty_balance > 0",
+            [$divisionId, $materialId]
+        )->row_array();
+        return [
+            'unit_cost' => (float)($front['unit_cost'] ?? 0),
+            'qty_balance' => (float)($qty['qty_balance'] ?? 0),
+        ];
     }
 
     private function resolve_formula_component_lot_cost(int $componentId, int $divisionId): array
@@ -7593,28 +7694,61 @@ class Production_model extends CI_Model
             return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
         }
 
-        $sql = "
-            SELECT
-                bal.qty_balance,
-                COALESCE(front.unit_cost, 0) AS unit_cost
-            FROM (
-                SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
-                FROM inv_component_lot
-                WHERE component_id = ?
-                  AND division_id = ?
-                  AND qty_balance > 0
-            ) bal
-            CROSS JOIN (
-                SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
-                FROM inv_component_lot
-                WHERE component_id = ?
-                  AND division_id = ?
-                  AND qty_balance > 0
-                ORDER BY receipt_date ASC, id ASC
-                LIMIT 1
-            ) front
-        ";
-        return $this->db->query($sql, [$componentId, $divisionId, $componentId, $divisionId])->row_array() ?: ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        $preferredLocation = $this->regular_component_location_for_division($divisionId);
+        if ($preferredLocation !== null) {
+            $frontPreferred = $this->db->query(
+                "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                 FROM inv_component_lot
+                 WHERE component_id = ?
+                   AND division_id = ?
+                   AND location_type = ?
+                   AND qty_balance > 0
+                 ORDER BY receipt_date ASC, id ASC
+                 LIMIT 1",
+                [$componentId, $divisionId, $preferredLocation]
+            )->row_array();
+            if (!empty($frontPreferred)) {
+                $qtyPreferred = $this->db->query(
+                    "SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                     FROM inv_component_lot
+                     WHERE component_id = ?
+                       AND division_id = ?
+                       AND location_type = ?
+                       AND qty_balance > 0",
+                    [$componentId, $divisionId, $preferredLocation]
+                )->row_array();
+                return [
+                    'unit_cost' => (float)($frontPreferred['unit_cost'] ?? 0),
+                    'qty_balance' => (float)($qtyPreferred['qty_balance'] ?? 0),
+                ];
+            }
+        }
+
+        $front = $this->db->query(
+            "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+             FROM inv_component_lot
+             WHERE component_id = ?
+               AND division_id = ?
+               AND qty_balance > 0
+             ORDER BY receipt_date ASC, id ASC
+             LIMIT 1",
+            [$componentId, $divisionId]
+        )->row_array();
+        if (empty($front)) {
+            return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
+        }
+        $qty = $this->db->query(
+            "SELECT ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+             FROM inv_component_lot
+             WHERE component_id = ?
+               AND division_id = ?
+               AND qty_balance > 0",
+            [$componentId, $divisionId]
+        )->row_array();
+        return [
+            'unit_cost' => (float)($front['unit_cost'] ?? 0),
+            'qty_balance' => (float)($qty['qty_balance'] ?? 0),
+        ];
     }
 
     private function resolve_formula_uom_id(string $lineType, ?int $materialId, ?int $subComponentId): int

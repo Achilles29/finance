@@ -8,6 +8,7 @@ class Production extends MY_Controller
         parent::__construct();
         $this->load->model('Production_model');
         $this->load->library('ComponentStockWriter');
+        $this->load->helper('component_adjustment_reason');
     }
 
     private function release_session_lock(): void
@@ -333,23 +334,60 @@ class Production extends MY_Controller
 
         $payload = $this->request_payload();
         $lotId = (int)($payload['lot_id'] ?? 0);
+        $componentId = (int)($payload['component_id'] ?? 0);
+        $uomId = (int)($payload['uom_id'] ?? 0);
+        $divisionId = !empty($payload['division_id']) ? (int)$payload['division_id'] : null;
+        $divisionCode = strtoupper(trim((string)($payload['division_code'] ?? '')));
+        $locationGroup = strtoupper(trim((string)($payload['location_type'] ?? 'REGULER')));
         $targetQty = round((float)($payload['target_qty'] ?? $payload['physical_qty'] ?? 0), 4);
         $adjustDate = trim((string)($payload['adjustment_date'] ?? $payload['opname_date'] ?? date('Y-m-d')));
         $notes = trim((string)($payload['notes'] ?? ''));
         $unitCostInput = round((float)($payload['unit_cost'] ?? 0), 6);
 
-        if ($lotId <= 0) {
-            $this->json_error('lot_id wajib diisi untuk adjustment lot.', 422);
-            return;
-        }
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $adjustDate)) {
             $adjustDate = date('Y-m-d');
         }
 
-        $lot = $this->db->where('id', $lotId)->get('inv_component_lot')->row_array();
-        if (!$lot) {
-            $this->json_error('Lot component tidak ditemukan.', 404);
-            return;
+        $specificLocation = '';
+        if ($divisionCode === 'BAR') {
+            $specificLocation = $locationGroup === 'EVENT' ? 'BAR_EVENT' : 'BAR';
+        } elseif ($divisionCode === 'KITCHEN') {
+            $specificLocation = $locationGroup === 'EVENT' ? 'KITCHEN_EVENT' : 'KITCHEN';
+        }
+
+        $lot = null;
+        if ($lotId > 0) {
+            $lot = $this->db->where('id', $lotId)->get('inv_component_lot')->row_array();
+            if (!$lot) {
+                $this->json_error('Lot component tidak ditemukan.', 404);
+                return;
+            }
+        } else {
+            if ($componentId <= 0 || $uomId <= 0) {
+                $this->json_error('lot_id atau identity component wajib diisi untuk adjustment lot.', 422);
+                return;
+            }
+            if ($specificLocation === '' || empty($divisionId)) {
+                $this->json_error('Lokasi lot component tidak dapat ditentukan (divisi harus BAR atau KITCHEN).', 422);
+                return;
+            }
+
+            $lot = $this->db
+                ->where('component_id', $componentId)
+                ->where('uom_id', $uomId)
+                ->where('location_type', $specificLocation)
+                ->where('division_id', $divisionId)
+                ->where('qty_balance >', 0)
+                ->order_by('receipt_date', 'ASC')
+                ->order_by('id', 'ASC')
+                ->limit(1)
+                ->get('inv_component_lot')
+                ->row_array();
+
+            if (!$lot && $targetQty < -0.0001) {
+                $this->json_error('Belum ada lot aktif untuk identity ini. Target lot tidak boleh minus.', 422);
+                return;
+            }
         }
 
         $currentQty = round((float)($lot['qty_balance'] ?? 0), 4);
@@ -361,26 +399,36 @@ class Production extends MY_Controller
 
         $now = date('Y-m-d H:i:s');
         $actorEmployeeId = (int)($this->current_user['employee_id'] ?? ($this->current_user['id'] ?? 0));
+        $baseLotId = (int)($lot['id'] ?? 0);
+        $baseComponentId = (int)($lot['component_id'] ?? $componentId);
+        $baseUomId = (int)($lot['uom_id'] ?? $uomId);
+        $baseDivisionId = !empty($lot['division_id']) ? (int)$lot['division_id'] : $divisionId;
+        $baseLocationType = (string)($lot['location_type'] ?? $specificLocation);
 
         $this->db->trans_start();
         if ($delta < 0) {
+            if ($baseLotId <= 0 || !$lot) {
+                $this->db->trans_complete();
+                $this->json_error('Lot aktif tidak ditemukan untuk adjustment minus.', 422);
+                return;
+            }
             $outQty = round(abs($delta), 4);
-            $issueNo = 'ICLADJ' . date('YmdHis') . substr(md5((string)$lotId . '|' . $now), 0, 6);
+            $issueNo = 'ICLADJ' . date('YmdHis') . substr(md5((string)$baseLotId . '|' . $now), 0, 6);
             $totalCost = round($outQty * (float)($lot['unit_cost'] ?? 0), 2);
 
             $this->db->insert('inv_component_lot_issue_log', [
                 'issue_no' => $issueNo,
                 'issue_date' => $adjustDate,
                 'issue_datetime' => $now,
-                'location_type' => (string)($lot['location_type'] ?? ''),
-                'division_id' => !empty($lot['division_id']) ? (int)$lot['division_id'] : null,
-                'component_id' => (int)($lot['component_id'] ?? 0),
-                'uom_id' => (int)($lot['uom_id'] ?? 0),
+                'location_type' => $baseLocationType,
+                'division_id' => $baseDivisionId,
+                'component_id' => $baseComponentId,
+                'uom_id' => $baseUomId,
                 'issue_qty' => $outQty,
                 'total_cost' => $totalCost,
                 'source_module' => 'COMPONENT_RECONCILE',
                 'source_table' => 'component_lot_manual_adjustment',
-                'source_id' => $lotId,
+                'source_id' => $baseLotId,
                 'source_line_id' => null,
                 'notes' => 'Lot-only adjustment from component reconcile' . ($notes !== '' ? ': ' . $notes : ''),
                 'status' => 'POSTED',
@@ -391,7 +439,7 @@ class Production extends MY_Controller
 
             $this->db->insert('inv_component_lot_issue_line', [
                 'issue_id' => $issueId,
-                'lot_id' => $lotId,
+                'lot_id' => $baseLotId,
                 'qty_out' => $outQty,
                 'unit_cost' => round((float)($lot['unit_cost'] ?? 0), 6),
                 'total_cost' => $totalCost,
@@ -400,7 +448,7 @@ class Production extends MY_Controller
                 'created_at' => $now,
             ]);
 
-            $this->db->where('id', $lotId)->update('inv_component_lot', [
+            $this->db->where('id', $baseLotId)->update('inv_component_lot', [
                 'qty_out_total' => round((float)($lot['qty_out_total'] ?? 0) + $outQty, 4),
                 'qty_balance' => $targetQty,
                 'last_issue_at' => $now,
@@ -415,12 +463,12 @@ class Production extends MY_Controller
                 $this->json_error('Unit cost wajib diisi untuk adjustment lot plus.', 422);
                 return;
             }
-            $lotNo = 'ICLADJ-' . date('YmdHis') . '-' . (int)($lot['component_id'] ?? 0) . '-' . $lotId;
+            $lotNo = 'ICLADJ-' . date('YmdHis') . '-' . $baseComponentId . '-' . max($baseLotId, 0);
             $this->db->insert('inv_component_lot', [
-                'location_type' => (string)($lot['location_type'] ?? ''),
-                'division_id' => !empty($lot['division_id']) ? (int)$lot['division_id'] : null,
-                'component_id' => (int)($lot['component_id'] ?? 0),
-                'uom_id' => (int)($lot['uom_id'] ?? 0),
+                'location_type' => $baseLocationType,
+                'division_id' => $baseDivisionId,
+                'component_id' => $baseComponentId,
+                'uom_id' => $baseUomId,
                 'lot_no' => substr($lotNo, 0, 64),
                 'receipt_date' => $adjustDate,
                 'expiry_date' => null,
@@ -430,9 +478,9 @@ class Production extends MY_Controller
                 'qty_balance' => $inQty,
                 'source_module' => 'COMPONENT_RECONCILE',
                 'source_table' => 'component_lot_manual_adjustment',
-                'source_id' => $lotId,
+                'source_id' => $baseLotId > 0 ? $baseLotId : null,
                 'source_line_id' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
-                'parent_lot_id' => $lotId,
+                'parent_lot_id' => $baseLotId > 0 ? $baseLotId : null,
                 'last_issue_at' => null,
                 'status' => 'OPEN',
                 'created_at' => $now,
@@ -447,7 +495,7 @@ class Production extends MY_Controller
         }
 
         $this->json_ok([
-            'lot_id' => $lotId,
+            'lot_id' => $baseLotId,
             'before_qty' => $currentQty,
             'after_qty' => $targetQty,
             'delta_qty' => $delta,

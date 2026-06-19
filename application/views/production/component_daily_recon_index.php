@@ -9,38 +9,9 @@ $divisionList = $divisions     ?? [];
 $canCreate    = !empty($can_create);
 
 // Sama persis dengan /production/component-adjustments
-$REASONS = [
-    'WASTE' => [
-        'cancel_order'   => 'Cancel Order',
-        'kitchen_error'  => 'Kitchen Error',
-        'overproduction' => 'Overproduction',
-        'spillage'       => 'Spillage / Tumpah',
-        'expired_opened' => 'Expired Opened',
-        'other'          => 'Other',
-    ],
-    'SPOILAGE' => [
-        'expired'           => 'Expired',
-        'temperature_abuse' => 'Temperature Abuse',
-        'contamination'     => 'Contamination',
-        'improper_storage'  => 'Improper Storage',
-        'overstock'         => 'Overstock',
-        'other'             => 'Other',
-    ],
-    'ADJUSTMENT_PLUS' => [
-        'opening_correction' => 'Opening Correction',
-        'stock_found'        => 'Stock Found',
-        'manual_reclass'     => 'Manual Reclass',
-        'other'              => 'Other',
-    ],
-    'ADJUSTMENT_MINUS' => [
-        'counting_error'    => 'Counting Error',
-        'system_mismatch'   => 'System Mismatch',
-        'unrecorded_usage'  => 'Unrecorded Usage',
-        'process_loss'      => 'Process Loss',
-        'theft_suspected'   => 'Theft Suspected',
-        'other'             => 'Other',
-    ],
-];
+$REASONS = function_exists('component_adjustment_reason_options')
+    ? component_adjustment_reason_options()
+    : [];
 ?>
 <?php $this->load->view('layout/header', ['title' => $page_title ?? 'Daily Recon Stok Component']); ?>
 
@@ -48,7 +19,7 @@ $REASONS = [
   <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
     <div>
       <h4 class="mb-1"><i class="ri ri-check-double-line page-title-icon"></i><?php echo html_escape($page_title ?? 'Daily Recon Stok Component'); ?></h4>
-      <small class="text-muted">Input stok fisik harian component · selisih vs sistem · posting adjustment langsung.</small>
+      <small class="text-muted">Input stok fisik harian component, bandingkan dengan stok sistem, lalu posting adjustment langsung.</small>
     </div>
   </div>
 </div>
@@ -135,7 +106,7 @@ $REASONS = [
     <div class="col">
       <label class="form-label form-label-sm mb-1">Cari</label>
       <input type="text" name="q" class="form-control form-control-sm"
-             placeholder="Nama / kode component…" value="<?php echo html_escape($selQ); ?>">
+             placeholder="Nama / kode component..." value="<?php echo html_escape($selQ); ?>">
     </div>
     <div class="col-auto">
       <button type="submit" class="btn btn-sm btn-primary">
@@ -151,19 +122,19 @@ $REASONS = [
   <!-- Summary cards -->
   <div class="row g-2 mb-3">
     <div class="col-md"><div class="card border-0 shadow-sm h-100"><div class="card-body py-2 px-3">
-      <div class="text-muted small">Total</div><div class="fw-bold fs-5" id="smTotal">—</div>
+      <div class="text-muted small">Total</div><div class="fw-bold fs-5" id="smTotal">-</div>
     </div></div></div>
     <div class="col-md"><div class="card border-0 shadow-sm h-100"><div class="card-body py-2 px-3">
-      <div class="text-muted small">BASE</div><div class="fw-bold fs-5 text-primary" id="smBase">—</div>
+      <div class="text-muted small">BASE</div><div class="fw-bold fs-5 text-primary" id="smBase">-</div>
     </div></div></div>
     <div class="col-md"><div class="card border-0 shadow-sm h-100"><div class="card-body py-2 px-3">
-      <div class="text-muted small">PREPARE</div><div class="fw-bold fs-5" style="color:#7c3aed" id="smPrep">—</div>
+      <div class="text-muted small">PREPARE</div><div class="fw-bold fs-5" style="color:#7c3aed" id="smPrep">-</div>
     </div></div></div>
     <div class="col-md"><div class="card border-0 shadow-sm h-100"><div class="card-body py-2 px-3">
-      <div class="text-muted small">Dihitung</div><div class="fw-bold fs-5 text-success" id="smCounted">—</div>
+      <div class="text-muted small">Dihitung</div><div class="fw-bold fs-5 text-success" id="smCounted">-</div>
     </div></div></div>
     <div class="col-md"><div class="card border-0 shadow-sm h-100"><div class="card-body py-2 px-3">
-      <div class="text-muted small">Stok Minus</div><div class="fw-bold fs-5 text-danger" id="smMinus">—</div>
+      <div class="text-muted small">Stok Minus</div><div class="fw-bold fs-5 text-danger" id="smMinus">-</div>
     </div></div></div>
   </div>
 
@@ -187,18 +158,17 @@ $REASONS = [
           <th style="width:68px">Jenis</th>
           <th class="text-start" style="min-width:190px">Nama Component</th>
           <th style="width:54px">UOM</th>
-          <th class="text-end" style="width:94px">Sistem</th>
+          <th class="text-end" style="width:94px">Stok</th>
           <th class="text-end" style="width:92px">HPP Live</th>
           <th class="text-end" style="width:112px">Nilai Sistem</th>
           <th class="text-end" style="width:100px">Fisik</th>
-          <th class="text-end" style="width:112px">Nilai Fisik</th>
-          <th class="text-end" style="width:80px">Selisih</th>
+                    <th class="text-end" style="width:80px">Selisih</th>
           <th class="cmp-adj-col">Jenis &amp; Alasan</th>
           <th style="width:88px">Aksi</th>
         </tr>
       </thead>
       <tbody id="cmpTbody">
-        <tr><td colspan="12" class="text-center text-muted py-4">Memuat data...</td></tr>
+        <tr><td colspan="11" class="text-center text-muted py-4">Memuat data...</td></tr>
       </tbody>
     </table>
   </div>
@@ -388,7 +358,6 @@ function renderTable(groups) {
                     ${buildCostCell(rowAvgCost)}
                     ${buildValueCell(`sysval-${iid}`, row.system_qty, rowAvgCost)}
                     <td class="text-end cmp-value-cell text-muted">${parentPhysicalQty === null ? '-' : fmt4(parentPhysicalQty)}</td>
-                    <td id="pval-${iid}" class="text-end cmp-value-cell text-muted">${parentPhysicalQty === null ? '-' : fmtValue(calcValue(parentPhysicalQty, rowAvgCost))}</td>
                     <td class="text-end text-muted small">Lot detail</td>
                     <td class="text-center">
                         <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
@@ -447,7 +416,6 @@ function renderTable(groups) {
                                    onchange="cmpSavePhys('${lotIid}')"
                                    ${!CAN_CREATE ? 'disabled' : ''}>
                         </td>
-                        <td id="pval-${lotIid}" class="text-end cmp-value-cell">${lot.physical_qty !== null && lot.physical_qty !== undefined && lot.physical_qty !== '' ? fmtValue(calcValue(lot.physical_qty, lot.unit_cost)) : '-'}</td>
                         <td class="text-end">${selisihHtml(lot.selisih, lotIid)}</td>
                         ${adjColHtml(profileMap[lotIid], lotIid)}
                         ${actionCell(profileMap[lotIid], lotIid)}
@@ -481,7 +449,6 @@ function renderTable(groups) {
                                onchange="cmpSavePhys('${iid}')"
                                ${!CAN_CREATE ? 'disabled' : ''}>
                     </td>
-                    <td id="pval-${iid}" class="text-end cmp-value-cell">${row.physical_qty !== null && row.physical_qty !== undefined && row.physical_qty !== '' ? fmtValue(calcValue(row.physical_qty, rowAvgCost)) : '-'}</td>
                     <td class="text-end">${selisihHtml(row.selisih, iid)}</td>
                     ${adjColHtml(row, iid)}
                     ${actionCell(row, iid)}
@@ -490,7 +457,7 @@ function renderTable(groups) {
         });
     });
 
-    tbody.innerHTML = html || `<tr><td colspan="12" class="text-center text-muted py-4">Tidak ada data.</td></tr>`;
+    tbody.innerHTML = html || `<tr><td colspan="11" class="text-center text-muted py-4">Tidak ada data.</td></tr>`;
 
     const s = (id, v) => { const e = el(id); if (e) e.textContent = v; };
     s('smTotal', total);
@@ -710,6 +677,7 @@ loadData();
 </script>
 
 <?php $this->load->view('layout/footer'); ?>
+
 
 
 

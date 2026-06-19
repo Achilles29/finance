@@ -172,7 +172,7 @@ body {
 
 .combo-media.portrait img {
     object-fit: cover;
-    object-position: center 18%;
+    object-position: center 28%;
 }
 
 .combo-media.landscape img {
