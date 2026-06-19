@@ -79,6 +79,7 @@ v laporan daily sales seperti core /pos-reports/daily-sales , kemudian cetak
 
 - halaman hutang piutang
 - halaman laporan keuangan
+- halaman item yang sering dibeli
 
 
 - buatkan modul generate stok opname dan stok awal Gudang, divisi, component. siapkan dulu database stok opaname. lalu buatkan modul generate dan tambahkan tombolnya di semua halaman stok (modul harus sama). ketika klik generate maka menggenerate sesuai stok pada montly_stock masing masing sampai dengan profile (line terkecil), lalu menggenerate stok opening untuk bulan berikutnya. untuk stok opening hanya ambil cukup ambil yang stok akhir / stok awal bulan berikutnya tidak sama dengan 0. genertae stok awal berarti menggenerate data di tabel opening dan tabel monthly_stock bulan berikutnya.
@@ -92,32 +93,6 @@ dan jangan lupa buatkan halaman stok opname dan masukkan tab bertingkat semua ha
 
 
 
-kita pindah di bahan baku
-/inventory/stock/division/reconcile tambahkan modul untuk joinkan profile. kasus seperti ICE CREAM VANILLA, ada orderan untuk bahan baku ICE CREAM VANILLA , stok fisik sudah ada namun belum diinput purchase sehingga secara sistem belum masuk. saat simpan transaksi otomatis stok jadi minus. kemudian saat purchase input dan stok masuk, dia membuat baris baru sehingga yang minus tetap minus, sementara baris baru masih utuh padahal riilnya sudah berkurang. bisa tidak dibuat rekon di tingkat parent untuk menggabungkan 2 atau lebih baris childe menjadi 1 ke salah satu child atau profile yang dipilih, dihitung ulang stok dan lot nya mengikuti cost profile yang dipilih. abaikan snapshot cost atau hpp live yang sudah terlanjut dibuat sebelum stok masuk. atau justru bisa juga dib repair sekalian?
-
-
-
-/inventory/fifo-audit:
-- masukkan tab bertingkat di semua rumoun inventory
-- rapikan tampilan
-- berikan baris judul kolom untuk datanya
-- tambahkan kolom pemakaian, agar jelas mana yang open mana yang close, yang open sisa berapa
-- hiperlingkan ke /inventory/stock/lot/usage/
-- lalu di /inventory/stock/lot/usage/ hiperlingkan catatan atau sumber ke detail masing-masing (PO / SR/ VOID / REFUD /Produksi / POS, dan lainnya)
-
-
-
-tabel inv_material_fifo_lot fungsinya untuk apa? kenapa banyak material_id yang kosong? sumbernya dari mana? kenapa ada yang non material bisa masuk? apakah sudah ditutup jalurnya?
-
-lakukan penyesuaian untuk /inventory-material-daily, /inventory/stock/adjustment/division, /inventory/stock/division/reconcile , /inventory/stock/daily-recon/division, ke 4 halaman itu mempunyai modal adjusmment bahan baku (periksa juga halaman lain barang kali ada), yang mengintervensi tabel inv_stock_adjustment dan inv_stock_adjustment_line.
-kodisi saat ini adjustmen reason masih liar karena tidak ada enum di masing masing jenis reason.
-lakukan inventarisasi di apa saja jenis nya sesuai dengan kolom di inv_stock_adjustment_line yang ada, lalu kita bakukan reason sesuai jenis, baru kita buat enumnya
-
-
-
-- /inventory/stock/daily-recon/division jika parent mempunyai child yang datanya minus, maka buat warna parent jadi merah
-
-- sesuaikan halaman /inventory/fifo-audit template tab bertingkat sama seperti halaman lain. hapus tab lama yang ada di atas tab bertingkat baru
-- /inventory/fifo-audit harusnya judul kolom dulu, baru data yang bisa di breakdown, bukan data dulu baru di breakdown muncul judul kolom. kebalik
-- /inventory/stock/lot/usage/ sumber POS harusnya hiperlink ke detail penjualnnya
-
+setelah join, maka terjadi gap.
+- data yang ditampilkan (gambar 2) tidak ada selisih kolom stock dan kolom movement, tapi gambar 1 ada seliish gap movement.
+- pada kondisi seperti ini sumber bagaimana saya bisa memilih sumber kebenaran dan melakukan penyesuaian untuk yang lain. misal yang benar adalah stock, dan saya ingin movement log menyesuakan stock. buatkan modulnya

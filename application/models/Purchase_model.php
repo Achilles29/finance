@@ -3815,15 +3815,39 @@ class Purchase_model extends CI_Model
                 $action = strtoupper((string)($gap['suggested_repair_path'] ?? ''));
                 return in_array($action, ['RESTORE_OPENING_FROM_SNAPSHOT', 'SEED_OPENING_FROM_PREV_MONTH_CLOSING'], true);
             }));
+
+            $choices = [
+                [
+                    'mode' => 'repair_log_gap_to_stock',
+                    'label' => 'Pakai Stok Saat Ini',
+                    'description' => 'Pertahankan closing stok / daily / movement yang saat ini sudah sama, lalu hitung ulang opening monthly agar opening + delta log foot ke closing.',
+                    'recommended' => true,
+                ],
+                [
+                    'mode' => 'rebuild_from_movement',
+                    'label' => 'Rebuild dari Movement',
+                    'description' => 'Bangun ulang histori monthly dari movement log identity ini. Cocok jika Anda yakin histori movement adalah sumber utama.',
+                    'recommended' => false,
+                ],
+            ];
+
             if (!empty($repairableGapProfiles)) {
-                return [
+                array_splice($choices, 1, 0, [[
                     'mode' => 'repair_log_gap_opening',
-                    'recommended_mode' => 'repair_log_gap_opening',
-                    'message' => 'Rekomendasi: perbaiki opening monthly profil yang hilang/pecah agar closing monthly kembali foot dengan histori movement log.',
-                    'choices' => [],
-                    'gap_profiles' => $gapProfiles,
-                ];
+                    'label' => 'Pakai Anchor Riwayat',
+                    'description' => 'Pulihkan opening monthly dari opening snapshot atau closing bulan sebelumnya bila anchor tersebut tersedia dan dipercaya.',
+                    'recommended' => false,
+                ]]);
             }
+
+            return [
+                'mode' => '',
+                'recommended_mode' => 'repair_log_gap_to_stock',
+                'needs_choice' => true,
+                'message' => 'Closing stok saat ini sudah match, tetapi histori opening + delta movement belum foot ke closing monthly. Pilih sumber kebenaran yang ingin dipakai untuk menormalkan histori.',
+                'choices' => $choices,
+                'gap_profiles' => $gapProfiles,
+            ];
         }
 
         if ($hasProfileMismatch && $profileMovementMismatch && !$profileLotMismatch && !$hasLotMismatch && count($profileBreakdown) === 1 && $profileTargetKey !== '') {
@@ -3958,6 +3982,9 @@ class Purchase_model extends CI_Model
 
             case 'repair_log_gap_opening':
                 return $this->repair_division_material_log_gap_opening($asOfDate, $filters);
+
+            case 'repair_log_gap_to_stock':
+                return $this->repair_division_material_log_gap_from_current_closing($asOfDate, $filters);
 
             case 'rebuild_from_movement':
                 return $this->execute_division_material_rebuild_from_movement($asOfDate, $filters);
@@ -4260,6 +4287,65 @@ class Purchase_model extends CI_Model
         return [
             'ok' => true,
             'message' => 'Repair opening monthly untuk gap movement log selesai dijalankan pada ' . count($updated) . ' profil.',
+            'data' => [
+                'updated_profiles' => $updated,
+                'gap_profiles' => $gapProfiles,
+            ],
+        ];
+    }
+
+    private function repair_division_material_log_gap_from_current_closing(string $asOfDate, array $filters): array
+    {
+        $gapProfiles = $this->analyze_division_material_log_gap_profiles($asOfDate, $filters);
+        if (empty($gapProfiles)) {
+            return ['ok' => true, 'message' => 'Tidak ada gap movement log yang perlu dinormalkan dari closing stok saat ini.'];
+        }
+
+        $updated = [];
+        foreach ($gapProfiles as $gap) {
+            $monthlyId = (int)($gap['monthly_id'] ?? 0);
+            if ($monthlyId <= 0) {
+                continue;
+            }
+
+            $targetOpeningContent = round(
+                (float)($gap['monthly_closing_qty_content'] ?? 0) - (float)($gap['net_non_opening_delta'] ?? 0),
+                4
+            );
+            $targetOpeningBuy = round(
+                (float)($gap['monthly_closing_qty_buy'] ?? 0) - (float)($gap['net_non_opening_delta_buy'] ?? 0),
+                4
+            );
+
+            $this->db
+                ->set('opening_qty_content', $targetOpeningContent)
+                ->set('opening_qty_buy', $targetOpeningBuy)
+                ->set('notes', 'CONCAT(COALESCE(notes, \'\'), CASE WHEN COALESCE(notes, \'\') = \'\' THEN \'\' ELSE \' | \' END, ' . $this->db->escape('Repair log gap from current closing ' . date('Y-m-d')) . ')', false)
+                ->set('updated_at', 'CURRENT_TIMESTAMP', false)
+                ->where('id', $monthlyId)
+                ->update('inv_division_monthly_stock');
+
+            if ($this->db->affected_rows() < 0) {
+                return ['ok' => false, 'message' => 'Gagal mengubah opening monthly saat menormalkan gap movement log.'];
+            }
+
+            $updated[] = [
+                'monthly_id' => $monthlyId,
+                'division_id' => (int)($gap['division_id'] ?? 0),
+                'item_id' => (int)($gap['item_id'] ?? 0),
+                'material_id' => (int)($gap['material_id'] ?? 0),
+                'profile_key' => (string)($gap['profile_key'] ?? ''),
+                'profile_name' => (string)($gap['profile_name'] ?? ''),
+                'repair_path' => 'REPAIR_LOG_GAP_TO_STOCK',
+                'opening_qty_content' => $targetOpeningContent,
+                'opening_qty_buy' => $targetOpeningBuy,
+                'gap_from_monthly_opening' => round((float)($gap['gap_from_monthly_opening'] ?? 0), 4),
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Gap movement log dinormalkan dengan menjadikan closing stok saat ini sebagai sumber kebenaran pada ' . count($updated) . ' profil.',
             'data' => [
                 'updated_profiles' => $updated,
                 'gap_profiles' => $gapProfiles,
@@ -5516,6 +5602,18 @@ class Purchase_model extends CI_Model
                 return $lotMergeResult;
             }
 
+            $openingSnapshotMerge = $this->merge_division_opening_snapshots_to_target_profile(
+                $divisionId,
+                $materialId,
+                $destination,
+                $sourceProfileKeys,
+                $targetIdentity
+            );
+            if (empty($openingSnapshotMerge['ok'])) {
+                $this->db->trans_rollback();
+                return $openingSnapshotMerge;
+            }
+
             foreach ($sourceProfileKeys as $sourceProfileKey) {
                 $profileEsc = $this->db->escape($sourceProfileKey);
 
@@ -5618,6 +5716,17 @@ class Purchase_model extends CI_Model
                 $this->purgeInventoryMonthlyStockForIdentity('DIVISION', $sourceIdentity, null);
             }
 
+            $gapNormalizeResult = $this->repair_division_material_log_gap_from_current_closing($asOfDate, [
+                'division_id' => $divisionId,
+                'item_id' => (int)($targetIdentity['item_id'] ?? 0),
+                'material_id' => $materialId,
+                'destination' => $destination,
+            ]);
+            if (empty($gapNormalizeResult['ok'])) {
+                $this->db->trans_rollback();
+                return $gapNormalizeResult;
+            }
+
             if ($this->db->trans_status() === false) {
                 $dbError = $this->db->error();
                 $this->db->trans_rollback();
@@ -5651,6 +5760,8 @@ class Purchase_model extends CI_Model
                     'monthly_days_rebuilt' => (int)($rebuildResult['data']['days_rebuilt'] ?? 0),
                     'lot_rows_merged' => (int)($lotMergeResult['data']['merged_lot_rows'] ?? 0),
                     'lot_groups_collapsed' => (int)($lotMergeResult['data']['collapsed_lot_groups'] ?? 0),
+                    'opening_snapshot_rows_merged' => (int)($openingSnapshotMerge['data']['merged_snapshot_rows'] ?? 0),
+                    'opening_gap_profiles_normalized' => (int)(is_array($gapNormalizeResult['data']['updated_profiles'] ?? null) ? count($gapNormalizeResult['data']['updated_profiles']) : 0),
                 ],
             ];
         } catch (Throwable $e) {
@@ -5659,6 +5770,135 @@ class Purchase_model extends CI_Model
         } finally {
             $this->db->db_debug = $oldDbDebug;
         }
+    }
+
+    private function merge_division_opening_snapshots_to_target_profile(
+        int $divisionId,
+        int $materialId,
+        string $destination,
+        array $sourceProfileKeys,
+        array $targetIdentity
+    ): array {
+        if (empty($sourceProfileKeys) || !$this->db->table_exists('inv_division_stock_opening_snapshot')) {
+            return ['ok' => true, 'data' => ['merged_snapshot_rows' => 0]];
+        }
+
+        $this->db
+            ->select('*')
+            ->from('inv_division_stock_opening_snapshot')
+            ->where('division_id', $divisionId)
+            ->where('COALESCE(material_id, 0) = ' . $materialId, null, false);
+
+        if ($destination === 'EVENT') {
+            $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+        } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)) {
+            $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+        } elseif (!in_array($destination, ['ALL', ''], true)) {
+            $this->db->where('destination_type', $destination);
+        }
+
+        $rows = $this->db->get()->result_array();
+        if (empty($rows)) {
+            return ['ok' => true, 'data' => ['merged_snapshot_rows' => 0]];
+        }
+
+        $sourceSet = array_fill_keys($sourceProfileKeys, true);
+        $targetProfileKey = (string)($targetIdentity['profile_key'] ?? '');
+        $targetRows = [];
+        foreach ($rows as $row) {
+            $rowProfileKey = (string)($row['profile_key'] ?? '');
+            if ($rowProfileKey === $targetProfileKey) {
+                $targetKey = implode('|', [
+                    (string)($row['snapshot_month'] ?? ''),
+                    (string)($row['division_id'] ?? 0),
+                    (string)($row['destination_type'] ?? 'OTHER'),
+                    (string)($targetIdentity['item_id'] ?? 0),
+                    (string)$materialId,
+                    (string)($targetIdentity['buy_uom_id'] ?? 0),
+                    (string)($targetIdentity['content_uom_id'] ?? 0),
+                    $targetProfileKey,
+                ]);
+                $targetRows[$targetKey] = $row;
+            }
+        }
+
+        $mergedCount = 0;
+        foreach ($rows as $row) {
+            $rowId = (int)($row['id'] ?? 0);
+            $rowProfileKey = (string)($row['profile_key'] ?? '');
+            if ($rowId <= 0 || !isset($sourceSet[$rowProfileKey])) {
+                continue;
+            }
+
+            $targetKey = implode('|', [
+                (string)($row['snapshot_month'] ?? ''),
+                (string)($row['division_id'] ?? 0),
+                (string)($row['destination_type'] ?? 'OTHER'),
+                (string)($targetIdentity['item_id'] ?? 0),
+                (string)$materialId,
+                (string)($targetIdentity['buy_uom_id'] ?? 0),
+                (string)($targetIdentity['content_uom_id'] ?? 0),
+                $targetProfileKey,
+            ]);
+            $keeper = $targetRows[$targetKey] ?? null;
+
+            if ($keeper !== null && (int)($keeper['id'] ?? 0) !== $rowId) {
+                $newQtyBuy = round((float)($keeper['opening_qty_buy'] ?? 0) + (float)($row['opening_qty_buy'] ?? 0), 4);
+                $newQtyContent = round((float)($keeper['opening_qty_content'] ?? 0) + (float)($row['opening_qty_content'] ?? 0), 4);
+                $newTotalValue = round((float)($keeper['opening_total_value'] ?? 0) + (float)($row['opening_total_value'] ?? 0), 2);
+                $newAvg = abs($newQtyContent) > 0.0001 ? round($newTotalValue / $newQtyContent, 6) : round((float)($keeper['opening_avg_cost_per_content'] ?? 0), 6);
+
+                $this->db
+                    ->where('id', (int)$keeper['id'])
+                    ->update('inv_division_stock_opening_snapshot', [
+                        'opening_qty_buy' => $newQtyBuy,
+                        'opening_qty_content' => $newQtyContent,
+                        'opening_total_value' => $newTotalValue,
+                        'opening_avg_cost_per_content' => $newAvg,
+                        'notes' => trim((string)($keeper['notes'] ?? '') . ' | Join profile snapshot merge ' . date('Y-m-d'), ' |'),
+                    ]);
+
+                $this->db->where('id', $rowId)->delete('inv_division_stock_opening_snapshot');
+                $targetRows[$targetKey]['opening_qty_buy'] = $newQtyBuy;
+                $targetRows[$targetKey]['opening_qty_content'] = $newQtyContent;
+                $targetRows[$targetKey]['opening_total_value'] = $newTotalValue;
+                $targetRows[$targetKey]['opening_avg_cost_per_content'] = $newAvg;
+                $mergedCount++;
+                continue;
+            }
+
+            $this->db
+                ->where('id', $rowId)
+                ->update('inv_division_stock_opening_snapshot', [
+                    'item_id' => $targetIdentity['item_id'],
+                    'material_id' => $materialId,
+                    'buy_uom_id' => $targetIdentity['buy_uom_id'],
+                    'content_uom_id' => $targetIdentity['content_uom_id'],
+                    'profile_key' => $targetProfileKey,
+                    'profile_name' => $targetIdentity['profile_name'],
+                    'profile_brand' => $targetIdentity['profile_brand'],
+                    'profile_description' => $targetIdentity['profile_description'],
+                    'profile_expired_date' => $targetIdentity['profile_expired_date'],
+                    'profile_content_per_buy' => $targetIdentity['profile_content_per_buy'],
+                    'profile_buy_uom_code' => $targetIdentity['profile_buy_uom_code'],
+                    'profile_content_uom_code' => $targetIdentity['profile_content_uom_code'],
+                    'notes' => trim((string)($row['notes'] ?? '') . ' | Join profile snapshot retarget ' . date('Y-m-d'), ' |'),
+                ]);
+
+            $row['item_id'] = $targetIdentity['item_id'];
+            $row['material_id'] = $materialId;
+            $row['buy_uom_id'] = $targetIdentity['buy_uom_id'];
+            $row['content_uom_id'] = $targetIdentity['content_uom_id'];
+            $row['profile_key'] = $targetProfileKey;
+            $targetRows[$targetKey] = $row;
+            $mergedCount++;
+        }
+
+        if ($this->db->trans_status() === false) {
+            return ['ok' => false, 'message' => 'Gagal menggabungkan opening snapshot saat join profile.'];
+        }
+
+        return ['ok' => true, 'data' => ['merged_snapshot_rows' => $mergedCount]];
     }
 
     private function merge_division_fifo_lots_to_target_profile(

@@ -299,7 +299,7 @@ $REWARD_LABELS = [
 </div>
 
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
   'use strict';
 
   const dataUrl      = <?php echo json_encode(site_url('loyalty/redeem-rules/data')); ?>;
@@ -656,5 +656,5 @@ $REWARD_LABELS = [
 
   // ── Init ──
   loadData();
-})();
+});
 </script>

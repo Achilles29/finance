@@ -531,7 +531,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
               }
               if (!empty($row['daily_log_has_gap']) && abs((float)($row['daily_log_gap_content'] ?? 0)) > 0.01) {
                   $sign = ((float)($row['daily_log_gap_content'] ?? 0)) > 0 ? '+' : '';
-                  $parentSelisihParts[] = 'Gap Log: ' . $sign . $fmtQty($row['daily_log_gap_content'] ?? 0);
+                  $parentSelisihParts[] = 'Gap Histori: ' . $sign . $fmtQty($row['daily_log_gap_content'] ?? 0);
               }
               if (empty($parentSelisihParts) && $hasProfileMismatch && !empty($profileBreakdown)) {
                   foreach ($profileBreakdown as $pb) {
@@ -564,7 +564,16 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
               $parentProfileLotMismatch = abs((float)$profileLotDeltaSum) > 0.01;
               $parentRepairLabel = 'Repair Bahan';
               $parentRepairTitle = 'Deteksi otomatis arah repair bahan ini.';
-              if ($hasProfileMismatch && $parentMovementMismatch && !$parentProfileLotMismatch && !$hasLotMismatch) {
+              $parentGapOnlyMismatch = !empty($row['daily_log_has_gap'])
+                && abs((float)($row['delta_balance_vs_movement'] ?? 0)) <= 0.01
+                && abs((float)($row['delta_daily_vs_movement'] ?? 0)) <= 0.01
+                && abs((float)($row['delta_matrix_vs_movement'] ?? 0)) <= 0.01
+                && !$hasLotMismatch
+                && !$hasProfileMismatch;
+              if ($parentGapOnlyMismatch) {
+                  $parentRepairLabel = 'Repair Gap Histori';
+                  $parentRepairTitle = 'Closing stok saat ini sudah match. Pilih bagaimana histori opening + delta movement dinormalkan.';
+              } elseif ($hasProfileMismatch && $parentMovementMismatch && !$parentProfileLotMismatch && !$hasLotMismatch) {
                   $parentRepairLabel = 'Repair Stok/Mvt';
                   $parentRepairTitle = 'Fokus ke selisih stok profil terhadap movement log.';
               } elseif ($hasProfileMismatch && !$parentMovementMismatch && $parentProfileLotMismatch) {
@@ -656,7 +665,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
               <td>
                 <span class="rec-chip <?php echo $isMatch ? 'rec-chip-ok' : 'rec-chip-bad'; ?>"><?php echo $isMatch ? 'Match' : 'Mismatch'; ?></span>
                 <?php if (!empty($row['daily_audit_has_mismatch'])): ?><div class="text-muted" style="font-size:.66rem;margin-top:.2rem">Log liar: <?php echo html_escape((string)($row['daily_audit_mismatch_notes'] ?? 'fallback identity')); ?></div><?php endif; ?>
-                <?php if (!empty($row['daily_log_has_gap'])): ?><div class="text-muted" style="font-size:.66rem;margin-top:.2rem">Gap movement log: opening + delta log tidak sama dengan closing monthly.</div><?php endif; ?>
+                <?php if (!empty($row['daily_log_has_gap'])): ?><div class="text-muted" style="font-size:.66rem;margin-top:.2rem">Closing saat ini sudah match. Yang masih gap adalah histori opening + delta movement bulan berjalan terhadap closing monthly.</div><?php endif; ?>
               </td>
               <td>
                 <div class="d-flex gap-1" style="flex-wrap:wrap">
@@ -1083,6 +1092,7 @@ document.addEventListener('DOMContentLoaded', function () {
       lot_repair: 'Repair Lot',
       profile_sync: 'Repair Profil',
       profile_to_movement: 'Repair Stok/Mvt per Profil',
+      repair_log_gap_to_stock: 'Pakai Stok Saat Ini',
       repair_log_gap_opening: 'Repair Gap Opening',
       rebuild_from_movement: 'Repair Stok dari Movement',
       rebuild_then_lot_repair: 'Ikuti Movement lalu Repair Lot',
