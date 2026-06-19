@@ -15,15 +15,82 @@ $buildSourceUrl = static function (array $row): string {
     $sourceTable = trim((string)($row['source_table'] ?? ''));
     $sourceId = (int)($row['source_id'] ?? 0);
     if ($sourceTable === 'pos_stock_commit' && $sourceId > 0) {
-        return site_url('pos/stock-live');
+        $orderId = (int)($row['source_order_id'] ?? 0);
+        if ($orderId > 0) {
+            return site_url('pos/reports/sales/' . $orderId);
+        }
+        return site_url('pos/stock-commit-audit') . '?q=' . rawurlencode((string)$sourceId);
     }
     if ($sourceTable === 'pur_store_request_fulfillment' && $sourceId > 0) {
-        return site_url('store-requests');
+        $requestId = (int)($row['source_store_request_id'] ?? 0);
+        if ($requestId > 0) {
+            return site_url('store-requests/detail/' . $requestId) . '#sr-fulfillment-' . $sourceId;
+        }
+        return site_url('store-requests') . '?q=' . rawurlencode((string)$sourceId);
     }
     if ($sourceTable === 'inv_stock_adjustment' && $sourceId > 0) {
-        return site_url('inventory/stock/adjustment/division');
+        return site_url('inventory/stock/adjustment/division') . '#stock-adjustment-' . $sourceId;
+    }
+    if ($sourceTable === 'pur_purchase_receipt' && $sourceId > 0) {
+        $purchaseOrderId = (int)($row['receipt_purchase_order_id'] ?? 0);
+        if ($purchaseOrderId > 0) {
+            return site_url('purchase-orders/detail/' . $purchaseOrderId) . '#po-receipt-' . $sourceId;
+        }
+        return site_url('purchase-orders/detail/' . $sourceId);
+    }
+    if ($sourceTable === 'pur_purchase_order' && $sourceId > 0) {
+        return site_url('purchase-orders/detail/' . $sourceId);
+    }
+    if ($sourceTable === 'pos_order_void' && $sourceId > 0) {
+        return site_url('pos/reports/voids/' . $sourceId);
+    }
+    if ($sourceTable === 'pos_order_refund' && $sourceId > 0) {
+        return site_url('pos/reports/refunds/' . $sourceId);
+    }
+    if (($sourceTable === 'production_component_batch' || $sourceTable === 'inv_component_batch') && $sourceId > 0) {
+        return site_url('production/component-batches/detail/' . $sourceId);
+    }
+    if ($sourceTable === 'inv_division_stock_opening_snapshot' && $sourceId > 0) {
+        return site_url('inventory/stock/opening/division');
     }
     return '';
+};
+
+$buildSourceLabel = static function (array $row): string {
+    $sourceTable = trim((string)($row['source_table'] ?? ''));
+    $sourceId = (int)($row['source_id'] ?? 0);
+    if ($sourceTable === 'pur_purchase_receipt') {
+        $receiptNo = trim((string)($row['receipt_no'] ?? ''));
+        return $receiptNo !== '' ? ('Receipt ' . $receiptNo) : ('Receipt #' . $sourceId);
+    }
+    if ($sourceTable === 'pur_store_request_fulfillment') {
+        $no = trim((string)($row['source_fulfillment_no'] ?? ''));
+        return $no !== '' ? ('Fulfillment ' . $no) : ('Fulfillment #' . $sourceId);
+    }
+    if ($sourceTable === 'inv_component_batch' || $sourceTable === 'production_component_batch') {
+        $batchNo = trim((string)($row['source_batch_no'] ?? ''));
+        return $batchNo !== '' ? ('Batch ' . $batchNo) : ('Batch #' . $sourceId);
+    }
+    if ($sourceTable === 'pos_order_void') {
+        return 'Void #' . $sourceId;
+    }
+    if ($sourceTable === 'pos_order_refund') {
+        return 'Refund #' . $sourceId;
+    }
+    if ($sourceTable === 'pos_stock_commit') {
+        $commitNo = trim((string)($row['source_commit_no'] ?? ''));
+        if ($commitNo !== '') {
+            return 'POS ' . $commitNo;
+        }
+        return 'Commit POS #' . $sourceId;
+    }
+    if ($sourceTable === 'inv_stock_adjustment') {
+        return 'Adjustment #' . $sourceId;
+    }
+    if ($sourceId > 0) {
+        return $sourceTable . ' #' . $sourceId;
+    }
+    return $sourceTable !== '' ? $sourceTable : '-';
 };
 ?>
 
@@ -100,7 +167,10 @@ $buildSourceUrl = static function (array $row): string {
               <tr><td colspan="8" class="text-center text-muted py-4">Lot ini belum pernah dipakai keluar.</td></tr>
             <?php else: ?>
               <?php foreach ($rows as $row): ?>
-                <?php $sourceUrl = $buildSourceUrl($row); ?>
+                <?php
+                  $sourceUrl = $buildSourceUrl($row);
+                  $sourceLabel = $buildSourceLabel($row);
+                ?>
                 <tr>
                   <td>
                     <div class="fw-semibold"><?php echo html_escape((string)($row['issue_date'] ?? '-')); ?></div>
@@ -112,9 +182,15 @@ $buildSourceUrl = static function (array $row): string {
                   </td>
                   <td>
                     <div><?php echo html_escape((string)($row['source_module'] ?? '-')); ?></div>
-                    <small class="text-muted"><?php echo html_escape((string)($row['source_table'] ?? '-')); ?><?php echo !empty($row['source_id']) ? ' #' . (int)$row['source_id'] : ''; ?></small>
+                    <small class="text-muted">
+                      <?php if ($sourceUrl !== ''): ?>
+                        <a href="<?php echo html_escape($sourceUrl); ?>"><?php echo html_escape($sourceLabel); ?></a>
+                      <?php else: ?>
+                        <?php echo html_escape($sourceLabel); ?>
+                      <?php endif; ?>
+                    </small>
                     <?php if ($sourceUrl !== ''): ?>
-                      <div><a href="<?php echo html_escape($sourceUrl); ?>" class="small">Buka sumber</a></div>
+                      <div><a href="<?php echo html_escape($sourceUrl); ?>" class="small">Buka detail sumber</a></div>
                     <?php endif; ?>
                   </td>
                   <td class="text-end fw-semibold"><?php echo number_format((float)($row['qty_out'] ?? 0), 2, ',', '.'); ?></td>
@@ -124,7 +200,12 @@ $buildSourceUrl = static function (array $row): string {
                     <div class="small">Sebelum: <?php echo number_format((float)($row['source_balance_before'] ?? 0), 2, ',', '.'); ?></div>
                     <div class="small text-muted">Sesudah: <?php echo number_format((float)($row['source_balance_after'] ?? 0), 2, ',', '.'); ?></div>
                   </td>
-                  <td><small><?php echo html_escape((string)($row['notes'] ?? '-')); ?></small></td>
+                  <td>
+                    <small><?php echo html_escape((string)($row['notes'] ?? '-')); ?></small>
+                    <?php if ($sourceUrl !== ''): ?>
+                      <div><a href="<?php echo html_escape($sourceUrl); ?>" class="small">Lihat detail sumber</a></div>
+                    <?php endif; ?>
+                  </td>
                 </tr>
               <?php endforeach; ?>
             <?php endif; ?>

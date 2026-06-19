@@ -2224,6 +2224,40 @@ class Purchase extends MY_Controller
             ->set_output(json_encode($result));
     }
 
+    public function stock_division_reconcile_profile_merge()
+    {
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');
+
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        try {
+            $result = $this->Purchase_model->merge_division_material_profiles([
+                'division_id' => (int)($payload['division_id'] ?? 0),
+                'material_id' => (int)($payload['material_id'] ?? 0),
+                'destination' => strtoupper(trim((string)($payload['destination'] ?? 'ALL'))),
+                'target_profile_key' => trim((string)($payload['target_profile_key'] ?? '')),
+                'source_profile_keys' => is_array($payload['source_profile_keys'] ?? null) ? $payload['source_profile_keys'] : [],
+                'as_of_date' => trim((string)($payload['as_of_date'] ?? date('Y-m-d'))),
+            ]);
+            $status = !empty($result['ok']) ? 200 : 422;
+        } catch (Throwable $e) {
+            log_message('error', 'stock_division_reconcile_profile_merge failed: ' . $e->getMessage());
+            $result = [
+                'ok' => false,
+                'message' => 'Join profile gagal di server: ' . $e->getMessage(),
+            ];
+            $status = 500;
+        }
+
+        $this->output
+            ->set_status_header($status)
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
     public function inventory_warehouse_daily_index()
     {
         if (!$this->can(self::PAGE_STOCK_WAREHOUSE_MATRIX, 'view')) {

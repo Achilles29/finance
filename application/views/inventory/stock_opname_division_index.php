@@ -12,6 +12,7 @@ $baseUrl      = site_url('inventory/stock/daily-recon/division');
 $dataUrl      = site_url('inventory/stock/daily-recon/division/data');
 $savePhysUrl  = site_url('inventory/stock/daily-recon/division/save-physical');
 $quickAdjUrl  = site_url('inventory/stock/daily-recon/division/quick-adjust');
+$profileMergeUrl = site_url('inventory/stock/division/reconcile/profile-merge');
 
 $destOptions = [
     'ALL'           => 'Semua Tujuan',
@@ -402,12 +403,46 @@ tr.opn-grp-header.expanded .opn-grp-arrow { transform: rotate(90deg); color: #3b
   </div>
 </div>
 
+<div class="modal fade" id="opnProfileMergeModal" tabindex="-1" aria-labelledby="opnProfileMergeTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header py-2" style="background:linear-gradient(135deg,#1f2937,#374151)">
+        <h6 class="modal-title text-white mb-0" id="opnProfileMergeTitle">Join Profile</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Tutup"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning py-2 small mb-3">
+          Pilih 1 profil target, lalu centang profil child yang akan dipindah ke target tersebut. Sistem akan menggabungkan movement, monthly stock, dan FIFO lot ke profil target.
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th class="text-center" style="width:80px">Target</th>
+                <th class="text-center" style="width:90px">Gabung</th>
+                <th>Profil</th>
+                <th class="text-end">Stok</th>
+              </tr>
+            </thead>
+            <tbody id="opnProfileMergeRows"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-sm btn-dark" id="opnProfileMergeSubmit">Join Profile</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
 
 const DATA_URL   = '<?= $dataUrl ?>';
 const SAVE_URL   = '<?= $savePhysUrl ?>';
 const ADJ_URL    = '<?= $quickAdjUrl ?>';
+const PROFILE_MERGE_URL = '<?= $profileMergeUrl ?>';
 const CAN_CREATE = <?= $canCreate ? 'true' : 'false' ?>;
 
 const REASONS = <?= json_encode($REASONS) ?>;
@@ -426,12 +461,14 @@ let saveTimers    = {};
 let divFilterId   = null;
 let showOnlyMinus = false;
 const profileMap  = {};
+const materialGroupMap = {};
 
 const el    = id => document.getElementById(id);
 const esc   = s  => { const d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; };
 const fmt4  = v  => v == null ? '—' : Number(v).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const fmtRp = v  => 'Rp ' + Number(v || 0).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 function cssid(s) { return String(s || '').replace(/[^a-zA-Z0-9_-]/g, '_'); }
+function buildProfileToken(v) { return String(v || '').trim() === '' ? '__EMPTY_PROFILE__' : String(v || ''); }
 
 function initTooltips(root) {
     (root || document).querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (e) {
@@ -635,6 +672,7 @@ function actionCell(p, iid) {
 /* ── Render table ─────────────────────────────────────────── */
 function renderTable(divisions) {
     const tbody = el('opnTbody');
+    Object.keys(materialGroupMap).forEach(function (key) { delete materialGroupMap[key]; });
     if (!divisions.length) {
         el('opnTableWrap').style.display   = 'none';
         el('opnNoResult').classList.remove('d-none');
@@ -708,8 +746,30 @@ function renderTable(divisions) {
                 var sysTotal  = mat.system_total;
                 var physTotal = mat.physical_total;
                 var selTotal  = physTotal !== null ? physTotal - sysTotal : null;
-                var grpNeg    = sysTotal !== null && parseFloat(sysTotal) < -0.001;
+                var grpNeg    = mat.profiles.some(function (profileRow) {
+                    return parseFloat(profileRow.system_qty_content || 0) < -0.001;
+                });
                 if (grpNeg) minusCount++;
+                materialGroupMap[grpIid] = {
+                    group_id: grpIid,
+                    division_id: div.division_id,
+                    division_name: div.division_name,
+                    material_id: mat.material_id,
+                    material_name: mat.material_name,
+                    destination: (mat.profiles[0] && mat.profiles[0].destination_type) ? mat.profiles[0].destination_type : 'ALL',
+                    profiles: mat.profiles.map(function (profileRow) {
+                        return {
+                            profile_key: profileRow.profile_key || '',
+                            profile_name: profileRow.profile_name || '',
+                            stock_balance: Number(profileRow.system_qty_content || 0),
+                            movement_balance: Number(profileRow.system_qty_content || 0),
+                            lot_balance: Number(profileRow.system_qty_content || 0)
+                        };
+                    })
+                };
+                var joinBtn = CAN_CREATE
+                    ? '<button type="button" class="btn btn-sm btn-outline-dark" onclick="event.stopPropagation();openOpmProfileMerge(\'' + grpIid + '\')"><i class="ri ri-links-line me-1"></i>Join</button>'
+                    : '';
                 html += '<tr id="grp-row-' + grpIid + '" class="opn-grp-header' + (grpNeg ? ' opn-row-minus' : '') + '"'
                     + ' data-system-val="' + sysTotal + '" data-div-id="' + esc(String(div.division_id)) + '"'
                     + ' onclick="opnToggleGrp(\'' + grpIid + '\')">'
@@ -724,7 +784,7 @@ function renderTable(divisions) {
                     + '<td class="text-end">' + fmt4(sysTotal) + '</td>'
                     + '<td></td>'
                     + '<td class="text-end">' + selisihHtml(selTotal, grpIid) + '</td>'
-                    + '<td></td><td></td></tr>';
+                    + '<td></td><td class="text-center">' + joinBtn + '</td></tr>';
             }
 
             mat.profiles.forEach(function (p) {
@@ -961,6 +1021,108 @@ window.opnPostAdj = function (iid) {
     })
     .catch(function (e) { btn.disabled = false; btn.innerHTML = orig; showAlert('danger', 'Error: ' + e.message); });
 };
+
+var opnProfileMergeModalEl = el('opnProfileMergeModal');
+var opnProfileMergeModal = opnProfileMergeModalEl && typeof bootstrap !== 'undefined'
+    ? new bootstrap.Modal(opnProfileMergeModalEl)
+    : null;
+
+window.openOpmProfileMerge = function (groupId) {
+    var group = materialGroupMap[groupId];
+    if (!group || !Array.isArray(group.profiles) || group.profiles.length < 2) {
+        showAlert('warning', 'Minimal harus ada 2 profil untuk digabung.');
+        return;
+    }
+    if (!opnProfileMergeModalEl) {
+        showAlert('danger', 'Modal Join Profile tidak tersedia.');
+        return;
+    }
+    opnProfileMergeModalEl.dataset.groupId = groupId;
+    var titleEl = el('opnProfileMergeTitle');
+    if (titleEl) titleEl.textContent = 'Join Profile — ' + (group.material_name || 'Material');
+    var rowsEl = el('opnProfileMergeRows');
+    if (rowsEl) {
+        rowsEl.innerHTML = group.profiles.map(function (profile, index) {
+            var token = buildProfileToken(profile.profile_key || '');
+            var pname = profile.profile_name || (token === '__EMPTY_PROFILE__' ? '(tanpa profil)' : token.substring(0, 12) + '...');
+            return '<tr>'
+                + '<td class="text-center"><input class="form-check-input" type="radio" name="opn_profile_target" value="' + esc(token) + '"' + (index === 0 ? ' checked' : '') + '></td>'
+                + '<td class="text-center"><input class="form-check-input" type="checkbox" name="opn_profile_source" value="' + esc(token) + '"' + (index === 0 ? '' : ' checked') + '></td>'
+                + '<td><div class="fw-semibold">' + esc(pname) + '</div><div class="text-muted small">' + esc(token === '__EMPTY_PROFILE__' ? '(tanpa profile_key)' : token) + '</div></td>'
+                + '<td class="text-end">' + fmt4(profile.stock_balance || 0) + '</td>'
+                + '</tr>';
+        }).join('');
+    }
+    if (opnProfileMergeModal) opnProfileMergeModal.show();
+    else if (typeof $ !== 'undefined') $(opnProfileMergeModalEl).modal('show');
+}
+
+var opnProfileMergeSubmit = el('opnProfileMergeSubmit');
+if (opnProfileMergeSubmit) {
+    opnProfileMergeSubmit.addEventListener('click', function () {
+        var groupId = opnProfileMergeModalEl ? (opnProfileMergeModalEl.dataset.groupId || '') : '';
+        var group = materialGroupMap[groupId];
+        if (!group) {
+            showAlert('warning', 'Data material tidak ditemukan. Muat ulang halaman ini.');
+            return;
+        }
+        var targetEl = document.querySelector('input[name="opn_profile_target"]:checked');
+        var sourceEls = Array.from(document.querySelectorAll('input[name="opn_profile_source"]:checked'));
+        var targetToken = targetEl ? String(targetEl.value || '') : '';
+        var sourceTokens = sourceEls.map(function (node) { return String(node.value || ''); }).filter(function (token) { return token !== targetToken; });
+        if (!targetToken) {
+            showAlert('warning', 'Pilih profil target terlebih dahulu.');
+            return;
+        }
+        if (!sourceTokens.length) {
+            showAlert('warning', 'Pilih minimal 1 profil child yang akan digabung.');
+            return;
+        }
+
+        var orig = opnProfileMergeSubmit.innerHTML;
+        opnProfileMergeSubmit.disabled = true;
+        opnProfileMergeSubmit.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Join...';
+
+        fetch(PROFILE_MERGE_URL, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({
+                division_id: Number(group.division_id || 0),
+                material_id: Number(group.material_id || 0),
+                destination: String(group.destination || 'ALL'),
+                target_profile_key: targetToken,
+                source_profile_keys: sourceTokens,
+                as_of_date: document.querySelector('#opnForm [name="opname_date"]').value || ''
+            })
+        })
+        .then(function (response) {
+            return response.text().then(function (text) {
+                try {
+                    return { status: response.status, json: JSON.parse(text) };
+                } catch (err) {
+                    throw new Error('Response tidak valid: ' + text.substring(0, 220));
+                }
+            });
+        })
+        .then(function (result) {
+            if (result.status >= 400 || !result.json || !result.json.ok) {
+                throw new Error((result.json && result.json.message) || 'Join Profile gagal.');
+            }
+            if (opnProfileMergeModal) opnProfileMergeModal.hide();
+            else if (typeof $ !== 'undefined') $(opnProfileMergeModalEl).modal('hide');
+            showAlert('success', result.json.message || 'Join Profile berhasil.');
+            loadData(true);
+        })
+        .catch(function (error) {
+            showAlert('danger', error.message || 'Join Profile gagal.');
+        })
+        .finally(function () {
+            opnProfileMergeSubmit.disabled = false;
+            opnProfileMergeSubmit.innerHTML = orig;
+        });
+    });
+}
 
 /* ── Minus filter ─────────────────────────────────────────── */
 function applyMinusFilter() {

@@ -5206,6 +5206,602 @@ class Purchase_model extends CI_Model
         ];
     }
 
+    public function merge_division_material_profiles(array $params): array
+    {
+        $divisionId = (int)($params['division_id'] ?? 0);
+        $materialId = (int)($params['material_id'] ?? 0);
+        $destination = strtoupper(trim((string)($params['destination'] ?? 'ALL')));
+        $targetProfileProvided = array_key_exists('target_profile_key', $params);
+        $profileTokenToKey = static function ($value): string {
+            $value = trim((string)$value);
+            return $value === '__EMPTY_PROFILE__' ? '' : $value;
+        };
+        $targetProfileKey = $profileTokenToKey($params['target_profile_key'] ?? '');
+        $sourceProfileKeys = array_values(array_unique(array_map(
+            static function ($value) use ($profileTokenToKey): string {
+                return $profileTokenToKey($value);
+            },
+            is_array($params['source_profile_keys'] ?? null) ? $params['source_profile_keys'] : []
+        )));
+        $sourceProfileKeys = array_values(array_unique(array_filter($sourceProfileKeys, static function (string $value) use ($targetProfileKey): bool {
+            return $value !== $targetProfileKey;
+        })));
+        $asOfDate = $this->normalizeDate((string)($params['as_of_date'] ?? '')) ?? date('Y-m-d');
+
+        if ($divisionId <= 0 || $materialId <= 0 || !$targetProfileProvided) {
+            return ['ok' => false, 'message' => 'division_id, material_id, dan target_profile_key wajib diisi.'];
+        }
+        if (
+            !$this->db->table_exists('inv_division_monthly_stock')
+            || !$this->db->table_exists('inv_stock_movement_log')
+            || !$this->db->table_exists('inv_material_fifo_lot')
+        ) {
+            return ['ok' => false, 'message' => 'Tabel monthly/movement/lot bahan baku belum lengkap untuk merge profile.'];
+        }
+
+        $oldDbDebug = $this->db->db_debug;
+        $this->db->db_debug = false;
+
+        try {
+            $stockDestWhere = '';
+            $movementDestWhere = '';
+            $lotDestWhere = '';
+            if ($destination === 'EVENT') {
+                $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+                $movementDestWhere = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+                $lotDestWhere = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+            } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)) {
+                $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+                $movementDestWhere = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+                $lotDestWhere = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+            } elseif (!in_array($destination, ['ALL', ''], true)) {
+                $destEsc = $this->db->escape($destination);
+                $stockDestWhere = " AND dms.destination_type = {$destEsc}";
+                $movementDestWhere = " AND destination_type = {$destEsc}";
+                $lotDestWhere = " AND destination_type = {$destEsc}";
+            }
+
+            $latestMonthSub = "
+                SELECT division_id, destination_type, identity_key, MAX(month_key) AS max_month
+                FROM inv_division_monthly_stock
+                WHERE division_id = {$divisionId} AND material_id = {$materialId}
+                GROUP BY division_id, destination_type, identity_key
+            ";
+
+            $profileRowsQuery = $this->db->query("
+                SELECT
+                    COALESCE(dms.profile_key, '') AS profile_key,
+                    MAX(COALESCE(dms.profile_name, '')) AS profile_name,
+                    MAX(COALESCE(dms.profile_brand, '')) AS profile_brand,
+                    MAX(COALESCE(dms.profile_description, '')) AS profile_description,
+                    MAX(dms.profile_expired_date) AS profile_expired_date,
+                    MAX(ROUND(COALESCE(NULLIF(dms.profile_content_per_buy, 0), 1), 6)) AS profile_content_per_buy,
+                    MAX(COALESCE(dms.profile_buy_uom_code, '')) AS profile_buy_uom_code,
+                    MAX(COALESCE(dms.profile_content_uom_code, '')) AS profile_content_uom_code,
+                    MAX(dms.destination_type) AS destination_type,
+                    MAX(dms.item_id) AS item_id,
+                    MAX(dms.buy_uom_id) AS buy_uom_id,
+                    MAX(dms.content_uom_id) AS content_uom_id,
+                    ROUND(SUM(COALESCE(dms.closing_qty_content, 0)), 4) AS stock_balance,
+                    ROUND(SUM(COALESCE(dms.closing_qty_buy, 0)), 4) AS stock_balance_buy,
+                    ROUND(MAX(COALESCE(dms.avg_cost_per_content, 0)), 6) AS avg_cost_per_content
+                FROM inv_division_monthly_stock dms
+                INNER JOIN ({$latestMonthSub}) lm
+                    ON lm.division_id = dms.division_id
+                   AND lm.destination_type = dms.destination_type
+                   AND lm.identity_key = dms.identity_key
+                   AND lm.max_month = dms.month_key
+                WHERE dms.division_id = {$divisionId}
+                  AND COALESCE(dms.material_id, 0) = {$materialId}
+                  {$stockDestWhere}
+                GROUP BY COALESCE(dms.profile_key, '')
+            ");
+            if ($profileRowsQuery === false) {
+                $dbError = $this->db->error();
+                return ['ok' => false, 'message' => 'Gagal membaca profil stok bulanan: ' . trim((string)($dbError['message'] ?? ''))];
+            }
+            $profileRows = $profileRowsQuery->result_array();
+
+            $lotRowsQuery = $this->db->query("
+                SELECT
+                    COALESCE(profile_key, '') AS profile_key,
+                    MAX(destination_type) AS destination_type,
+                    MAX(item_id) AS item_id,
+                    MAX(buy_uom_id) AS buy_uom_id,
+                    MAX(content_uom_id) AS content_uom_id,
+                    ROUND(SUM(COALESCE(qty_balance, 0)), 4) AS lot_balance,
+                    ROUND(MAX(COALESCE(unit_cost, 0)), 6) AS unit_cost
+                FROM inv_material_fifo_lot
+                WHERE location_scope = 'DIVISION'
+                  AND division_id = {$divisionId}
+                  AND COALESCE(material_id, 0) = {$materialId}
+                  {$lotDestWhere}
+                GROUP BY COALESCE(profile_key, '')
+            ");
+            if ($lotRowsQuery === false) {
+                $dbError = $this->db->error();
+                return ['ok' => false, 'message' => 'Gagal membaca saldo lot FIFO: ' . trim((string)($dbError['message'] ?? ''))];
+            }
+            $lotRows = $lotRowsQuery->result_array();
+
+            $movementRowsQuery = $this->db->query("
+                SELECT
+                    COALESCE(profile_key, '') AS profile_key,
+                    MAX(COALESCE(profile_name, '')) AS profile_name,
+                    MAX(COALESCE(profile_brand, '')) AS profile_brand,
+                    MAX(COALESCE(profile_description, '')) AS profile_description,
+                    MAX(profile_expired_date) AS profile_expired_date,
+                    MAX(ROUND(COALESCE(NULLIF(profile_content_per_buy, 0), 1), 6)) AS profile_content_per_buy,
+                    MAX(COALESCE(profile_buy_uom_code, '')) AS profile_buy_uom_code,
+                    MAX(COALESCE(profile_content_uom_code, '')) AS profile_content_uom_code,
+                    MAX(destination_type) AS destination_type,
+                    MAX(item_id) AS item_id,
+                    MAX(buy_uom_id) AS buy_uom_id,
+                    MAX(content_uom_id) AS content_uom_id,
+                    COUNT(*) AS movement_rows
+                FROM inv_stock_movement_log
+                WHERE movement_scope = 'DIVISION'
+                  AND division_id = {$divisionId}
+                  AND COALESCE(material_id, 0) = {$materialId}
+                  {$movementDestWhere}
+                GROUP BY COALESCE(profile_key, '')
+            ");
+            if ($movementRowsQuery === false) {
+                $dbError = $this->db->error();
+                return ['ok' => false, 'message' => 'Gagal membaca histori movement profile: ' . trim((string)($dbError['message'] ?? ''))];
+            }
+            $movementRows = $movementRowsQuery->result_array();
+
+            $profileMap = [];
+            foreach ($profileRows as $row) {
+                $profileKey = (string)($row['profile_key'] ?? '');
+                $profileMap[$profileKey] = array_merge([
+                    'profile_key' => $profileKey,
+                    'profile_name' => '',
+                    'profile_brand' => '',
+                    'profile_description' => '',
+                    'profile_expired_date' => null,
+                    'profile_content_per_buy' => 1.0,
+                    'profile_buy_uom_code' => '',
+                    'profile_content_uom_code' => '',
+                    'destination_type' => (string)($row['destination_type'] ?? 'OTHER'),
+                    'item_id' => $row['item_id'] ?? null,
+                    'buy_uom_id' => $row['buy_uom_id'] ?? null,
+                    'content_uom_id' => $row['content_uom_id'] ?? null,
+                    'stock_balance' => 0.0,
+                    'stock_balance_buy' => 0.0,
+                    'avg_cost_per_content' => 0.0,
+                    'lot_balance' => 0.0,
+                    'unit_cost' => 0.0,
+                    'movement_rows' => 0,
+                ], $row);
+            }
+            foreach ($lotRows as $row) {
+                $profileKey = (string)($row['profile_key'] ?? '');
+                if (!isset($profileMap[$profileKey])) {
+                    $profileMap[$profileKey] = [
+                        'profile_key' => $profileKey,
+                        'profile_name' => '',
+                        'profile_brand' => '',
+                        'profile_description' => '',
+                        'profile_expired_date' => null,
+                        'profile_content_per_buy' => 1.0,
+                        'profile_buy_uom_code' => '',
+                        'profile_content_uom_code' => '',
+                        'destination_type' => (string)($row['destination_type'] ?? 'OTHER'),
+                        'item_id' => $row['item_id'] ?? null,
+                        'buy_uom_id' => $row['buy_uom_id'] ?? null,
+                        'content_uom_id' => $row['content_uom_id'] ?? null,
+                        'stock_balance' => 0.0,
+                        'stock_balance_buy' => 0.0,
+                        'avg_cost_per_content' => 0.0,
+                        'lot_balance' => 0.0,
+                        'unit_cost' => 0.0,
+                        'movement_rows' => 0,
+                    ];
+                }
+                $profileMap[$profileKey]['lot_balance'] = round((float)($row['lot_balance'] ?? 0), 4);
+                $profileMap[$profileKey]['unit_cost'] = round((float)($row['unit_cost'] ?? 0), 6);
+                foreach (['destination_type', 'item_id', 'buy_uom_id', 'content_uom_id'] as $field) {
+                    if (empty($profileMap[$profileKey][$field]) && isset($row[$field])) {
+                        $profileMap[$profileKey][$field] = $row[$field];
+                    }
+                }
+            }
+            foreach ($movementRows as $row) {
+                $profileKey = (string)($row['profile_key'] ?? '');
+                if (!isset($profileMap[$profileKey])) {
+                    $profileMap[$profileKey] = [
+                        'profile_key' => $profileKey,
+                        'profile_name' => '',
+                        'profile_brand' => '',
+                        'profile_description' => '',
+                        'profile_expired_date' => null,
+                        'profile_content_per_buy' => 1.0,
+                        'profile_buy_uom_code' => '',
+                        'profile_content_uom_code' => '',
+                        'destination_type' => (string)($row['destination_type'] ?? 'OTHER'),
+                        'item_id' => $row['item_id'] ?? null,
+                        'buy_uom_id' => $row['buy_uom_id'] ?? null,
+                        'content_uom_id' => $row['content_uom_id'] ?? null,
+                        'stock_balance' => 0.0,
+                        'stock_balance_buy' => 0.0,
+                        'avg_cost_per_content' => 0.0,
+                        'lot_balance' => 0.0,
+                        'unit_cost' => 0.0,
+                        'movement_rows' => 0,
+                    ];
+                }
+                $profileMap[$profileKey]['movement_rows'] = (int)($row['movement_rows'] ?? 0);
+                foreach ([
+                    'profile_name',
+                    'profile_brand',
+                    'profile_description',
+                    'profile_expired_date',
+                    'profile_content_per_buy',
+                    'profile_buy_uom_code',
+                    'profile_content_uom_code',
+                    'destination_type',
+                    'item_id',
+                    'buy_uom_id',
+                    'content_uom_id',
+                ] as $field) {
+                    if (
+                        (empty($profileMap[$profileKey][$field]) || $profileMap[$profileKey][$field] === null)
+                        && isset($row[$field])
+                        && $row[$field] !== ''
+                        && $row[$field] !== null
+                    ) {
+                        $profileMap[$profileKey][$field] = $row[$field];
+                    }
+                }
+            }
+
+            if (!isset($profileMap[$targetProfileKey])) {
+                return ['ok' => false, 'message' => 'Profil target tidak ditemukan pada bahan ini.'];
+            }
+
+            if (empty($sourceProfileKeys)) {
+                foreach ($profileMap as $profileKey => $profileMeta) {
+                    if ($profileKey === $targetProfileKey) {
+                        continue;
+                    }
+                    $hasBalance = abs((float)($profileMeta['stock_balance'] ?? 0)) > 0.0001
+                        || abs((float)($profileMeta['lot_balance'] ?? 0)) > 0.0001
+                        || (int)($profileMeta['movement_rows'] ?? 0) > 0;
+                    if ($hasBalance) {
+                        $sourceProfileKeys[] = $profileKey;
+                    }
+                }
+                $sourceProfileKeys = array_values(array_unique($sourceProfileKeys));
+            }
+
+            if (empty($sourceProfileKeys)) {
+                return ['ok' => true, 'message' => 'Tidak ada profil lain yang perlu digabung ke profil target.'];
+            }
+
+            $targetMeta = $profileMap[$targetProfileKey];
+            $targetIdentity = [
+                'division_id' => $divisionId,
+                'destination_type' => (string)($targetMeta['destination_type'] ?? 'OTHER'),
+                'item_id' => $this->nullableInt($targetMeta['item_id'] ?? null),
+                'material_id' => $materialId,
+                'buy_uom_id' => $this->nullableInt($targetMeta['buy_uom_id'] ?? null),
+                'content_uom_id' => $this->nullableInt($targetMeta['content_uom_id'] ?? null),
+                'profile_key' => $targetProfileKey,
+                'profile_name' => $this->nullableString($targetMeta['profile_name'] ?? null),
+                'profile_brand' => $this->nullableString($targetMeta['profile_brand'] ?? null),
+                'profile_description' => $this->nullableString($targetMeta['profile_description'] ?? null),
+                'profile_expired_date' => $this->normalizeDate((string)($targetMeta['profile_expired_date'] ?? '')),
+                'profile_content_per_buy' => round((float)($targetMeta['profile_content_per_buy'] ?? 1), 6),
+                'profile_buy_uom_code' => $this->nullableString($targetMeta['profile_buy_uom_code'] ?? null),
+                'profile_content_uom_code' => $this->nullableString($targetMeta['profile_content_uom_code'] ?? null),
+                'stock_domain' => 'ITEM',
+            ];
+            $targetUnitCost = round((float)($targetMeta['unit_cost'] ?? $targetMeta['avg_cost_per_content'] ?? 0), 6);
+
+            $this->db->trans_begin();
+
+            $lotMergeResult = $this->merge_division_fifo_lots_to_target_profile(
+                $divisionId,
+                $materialId,
+                $destination,
+                $sourceProfileKeys,
+                $targetIdentity,
+                $targetUnitCost,
+                $lotDestWhere
+            );
+            if (empty($lotMergeResult['ok'])) {
+                $this->db->trans_rollback();
+                return $lotMergeResult;
+            }
+
+            foreach ($sourceProfileKeys as $sourceProfileKey) {
+                $profileEsc = $this->db->escape($sourceProfileKey);
+
+                $this->db->query("
+                    UPDATE inv_stock_movement_log
+                    SET item_id = ?,
+                        material_id = ?,
+                        buy_uom_id = ?,
+                        content_uom_id = ?,
+                        profile_key = ?,
+                        profile_name = ?,
+                        profile_brand = ?,
+                        profile_description = ?,
+                        profile_expired_date = ?,
+                        profile_content_per_buy = ?,
+                        profile_buy_uom_code = ?,
+                        profile_content_uom_code = ?
+                    WHERE movement_scope = 'DIVISION'
+                      AND division_id = ?
+                      AND COALESCE(material_id, 0) = ?
+                      {$movementDestWhere}
+                      AND COALESCE(profile_key, '') = {$profileEsc}
+                ", [
+                    $targetIdentity['item_id'],
+                    $materialId,
+                    $targetIdentity['buy_uom_id'],
+                    $targetIdentity['content_uom_id'],
+                    $targetProfileKey,
+                    $targetIdentity['profile_name'],
+                    $targetIdentity['profile_brand'],
+                    $targetIdentity['profile_description'],
+                    $targetIdentity['profile_expired_date'],
+                    $targetIdentity['profile_content_per_buy'],
+                    $targetIdentity['profile_buy_uom_code'],
+                    $targetIdentity['profile_content_uom_code'],
+                    $divisionId,
+                    $materialId,
+                ]);
+
+                if ($this->db->table_exists('inv_material_fifo_issue_log')) {
+                    $this->db->query("
+                        UPDATE inv_material_fifo_issue_log
+                        SET item_id = ?,
+                            material_id = ?,
+                            buy_uom_id = ?,
+                            content_uom_id = ?,
+                            profile_key = ?
+                        WHERE COALESCE(source_table, '') <> 'pur_purchase_receipt'
+                          AND (
+                            (location_scope = 'DIVISION' AND division_id = ? AND COALESCE(destination_type, 'OTHER') " . ($destination === 'EVENT'
+                                ? "IN ('BAR_EVENT','KITCHEN_EVENT')"
+                                : (in_array($destination, ['REGULER', 'REGULAR'], true)
+                                    ? "NOT IN ('BAR_EVENT','KITCHEN_EVENT')"
+                                    : '= ' . $this->db->escape($destination))) . ")
+                            OR
+                            (target_scope = 'DIVISION' AND target_division_id = ? AND COALESCE(target_destination_type, 'OTHER') " . ($destination === 'EVENT'
+                                ? "IN ('BAR_EVENT','KITCHEN_EVENT')"
+                                : (in_array($destination, ['REGULER', 'REGULAR'], true)
+                                    ? "NOT IN ('BAR_EVENT','KITCHEN_EVENT')"
+                                    : '= ' . $this->db->escape($destination))) . ")
+                          )
+                          AND COALESCE(material_id, 0) = ?
+                          AND COALESCE(profile_key, '') = {$profileEsc}
+                    ", [
+                        $targetIdentity['item_id'],
+                        $materialId,
+                        $targetIdentity['buy_uom_id'],
+                        $targetIdentity['content_uom_id'],
+                        $targetProfileKey,
+                        $divisionId,
+                        $divisionId,
+                        $materialId,
+                    ]);
+                }
+            }
+
+            $refreshResult = $this->refresh_division_material_movement_after_balances($asOfDate, $targetIdentity);
+            if (empty($refreshResult['ok'])) {
+                $this->db->trans_rollback();
+                return $refreshResult;
+            }
+
+            $rebuildResult = $this->rebuild_division_material_history_from_movements($asOfDate, $targetIdentity);
+            if (empty($rebuildResult['ok'])) {
+                $this->db->trans_rollback();
+                return $rebuildResult;
+            }
+
+            foreach ($sourceProfileKeys as $sourceProfileKey) {
+                $sourceMeta = $profileMap[$sourceProfileKey] ?? [];
+                $sourceIdentity = [
+                    'division_id' => $divisionId,
+                    'destination_type' => (string)($sourceMeta['destination_type'] ?? $targetIdentity['destination_type']),
+                    'item_id' => $this->nullableInt($sourceMeta['item_id'] ?? null),
+                    'material_id' => $materialId,
+                    'buy_uom_id' => $this->nullableInt($sourceMeta['buy_uom_id'] ?? null),
+                    'content_uom_id' => $this->nullableInt($sourceMeta['content_uom_id'] ?? null),
+                    'profile_key' => $sourceProfileKey,
+                ];
+                $this->purgeInventoryMonthlyStockForIdentity('DIVISION', $sourceIdentity, null);
+            }
+
+            if ($this->db->trans_status() === false) {
+                $dbError = $this->db->error();
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Gagal merge profile bahan baku. ' . trim((string)($dbError['message'] ?? ''))];
+            }
+
+            $this->db->trans_commit();
+
+            $sourceLabels = array_map(static function (string $profileKey) use ($profileMap): string {
+                $label = trim((string)($profileMap[$profileKey]['profile_name'] ?? ''));
+                if ($label !== '') {
+                    return $label;
+                }
+                return $profileKey !== '' ? substr($profileKey, 0, 12) . '...' : '(no profile)';
+            }, $sourceProfileKeys);
+            $targetLabel = trim((string)($targetMeta['profile_name'] ?? ''));
+            if ($targetLabel === '') {
+                $targetLabel = substr($targetProfileKey, 0, 12) . '...';
+            }
+
+            return [
+                'ok' => true,
+                'message' => 'Join profil selesai. Profil ' . implode(', ', $sourceLabels) . ' digabung ke profil target ' . $targetLabel . '.',
+                'data' => [
+                    'division_id' => $divisionId,
+                    'material_id' => $materialId,
+                    'destination' => $destination,
+                    'target_profile_key' => $targetProfileKey,
+                    'source_profile_keys' => $sourceProfileKeys,
+                    'movement_rows_refreshed' => (int)($refreshResult['data']['rows_refreshed'] ?? 0),
+                    'monthly_days_rebuilt' => (int)($rebuildResult['data']['days_rebuilt'] ?? 0),
+                    'lot_rows_merged' => (int)($lotMergeResult['data']['merged_lot_rows'] ?? 0),
+                    'lot_groups_collapsed' => (int)($lotMergeResult['data']['collapsed_lot_groups'] ?? 0),
+                ],
+            ];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Join profile gagal: ' . $e->getMessage()];
+        } finally {
+            $this->db->db_debug = $oldDbDebug;
+        }
+    }
+
+    private function merge_division_fifo_lots_to_target_profile(
+        int $divisionId,
+        int $materialId,
+        string $destination,
+        array $sourceProfileKeys,
+        array $targetIdentity,
+        float $targetUnitCost,
+        string $lotDestWhere
+    ): array {
+        if (empty($sourceProfileKeys) || !$this->db->table_exists('inv_material_fifo_lot')) {
+            return ['ok' => true, 'data' => ['merged_lot_rows' => 0, 'collapsed_lot_groups' => 0]];
+        }
+
+        $targetProfileKey = (string)($targetIdentity['profile_key'] ?? '');
+        $profileKeys = array_values(array_unique(array_merge([$targetProfileKey], $sourceProfileKeys)));
+        $profileListSql = implode(',', array_map([$this->db, 'escape'], $profileKeys));
+        if ($profileListSql === '') {
+            return ['ok' => true, 'data' => ['merged_lot_rows' => 0, 'collapsed_lot_groups' => 0]];
+        }
+
+        $rowsQuery = $this->db->query("
+            SELECT *
+            FROM inv_material_fifo_lot
+            WHERE location_scope = 'DIVISION'
+              AND division_id = {$divisionId}
+              AND COALESCE(material_id, 0) = {$materialId}
+              {$lotDestWhere}
+              AND COALESCE(profile_key, '') IN ({$profileListSql})
+            ORDER BY receipt_date ASC, id ASC
+            FOR UPDATE
+        ");
+        if ($rowsQuery === false) {
+            $dbError = $this->db->error();
+            return ['ok' => false, 'message' => 'Gagal membaca lot FIFO saat join profile: ' . trim((string)($dbError['message'] ?? ''))];
+        }
+        $rows = $rowsQuery->result_array();
+
+        if (empty($rows)) {
+            return ['ok' => true, 'data' => ['merged_lot_rows' => 0, 'collapsed_lot_groups' => 0]];
+        }
+
+        $grouped = [];
+        foreach ($rows as $row) {
+            $groupKey = implode('|', [
+                (string)($row['location_scope'] ?? 'DIVISION'),
+                (string)($row['division_id'] ?? $divisionId),
+                (string)($row['destination_type'] ?? 'OTHER'),
+                (string)($row['item_id'] ?? 0),
+                (string)($row['material_id'] ?? $materialId),
+                (string)($row['content_uom_id'] ?? 0),
+                (string)($row['lot_no'] ?? ''),
+            ]);
+            $grouped[$groupKey][] = $row;
+        }
+
+        $mergedLotRows = 0;
+        $collapsedLotGroups = 0;
+
+        foreach ($grouped as $groupRows) {
+            $keeper = null;
+            foreach ($groupRows as $candidate) {
+                if ((string)($candidate['profile_key'] ?? '') === $targetProfileKey) {
+                    $keeper = $candidate;
+                    break;
+                }
+            }
+            if ($keeper === null) {
+                $keeper = $groupRows[0];
+            }
+
+            $duplicateIds = [];
+            $sumQtyIn = 0.0;
+            $sumQtyOut = 0.0;
+            $sumQtyBalance = 0.0;
+
+            foreach ($groupRows as $candidate) {
+                $sumQtyIn += (float)($candidate['qty_in'] ?? 0);
+                $sumQtyOut += (float)($candidate['qty_out'] ?? 0);
+                $sumQtyBalance += (float)($candidate['qty_balance'] ?? 0);
+                if ((int)($candidate['id'] ?? 0) !== (int)($keeper['id'] ?? 0)) {
+                    $duplicateIds[] = (int)$candidate['id'];
+                }
+            }
+
+            $updated = $this->db->where('id', (int)$keeper['id'])->update('inv_material_fifo_lot', [
+                'item_id' => $targetIdentity['item_id'],
+                'material_id' => $materialId,
+                'buy_uom_id' => $targetIdentity['buy_uom_id'],
+                'content_uom_id' => $targetIdentity['content_uom_id'],
+                'profile_key' => $targetProfileKey,
+                'qty_in' => round($sumQtyIn, 4),
+                'qty_out' => round($sumQtyOut, 4),
+                'qty_balance' => round($sumQtyBalance, 4),
+                'unit_cost' => $targetUnitCost > 0 ? $targetUnitCost : (float)($keeper['unit_cost'] ?? 0),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            if ($updated === false) {
+                $dbError = $this->db->error();
+                return ['ok' => false, 'message' => 'Gagal menggabungkan lot keeper: ' . trim((string)($dbError['message'] ?? ''))];
+            }
+
+            if (empty($duplicateIds)) {
+                continue;
+            }
+
+            if ($this->db->table_exists('inv_material_fifo_issue_line')) {
+                if ($this->db->where_in('lot_id', $duplicateIds)->update('inv_material_fifo_issue_line', ['lot_id' => (int)$keeper['id']]) === false) {
+                    $dbError = $this->db->error();
+                    return ['ok' => false, 'message' => 'Gagal memindahkan referensi issue line lot: ' . trim((string)($dbError['message'] ?? ''))];
+                }
+                if ($this->db->field_exists('target_lot_id', 'inv_material_fifo_issue_line')) {
+                    if ($this->db->where_in('target_lot_id', $duplicateIds)->update('inv_material_fifo_issue_line', ['target_lot_id' => (int)$keeper['id']]) === false) {
+                        $dbError = $this->db->error();
+                        return ['ok' => false, 'message' => 'Gagal memindahkan target lot issue line: ' . trim((string)($dbError['message'] ?? ''))];
+                    }
+                }
+            }
+            if ($this->db->field_exists('parent_lot_id', 'inv_material_fifo_lot')) {
+                if ($this->db->where_in('parent_lot_id', $duplicateIds)->update('inv_material_fifo_lot', ['parent_lot_id' => (int)$keeper['id']]) === false) {
+                    $dbError = $this->db->error();
+                    return ['ok' => false, 'message' => 'Gagal memindahkan parent lot: ' . trim((string)($dbError['message'] ?? ''))];
+                }
+            }
+
+            if ($this->db->where_in('id', $duplicateIds)->delete('inv_material_fifo_lot') === false) {
+                $dbError = $this->db->error();
+                return ['ok' => false, 'message' => 'Gagal menghapus lot duplikat setelah merge: ' . trim((string)($dbError['message'] ?? ''))];
+            }
+            $mergedLotRows += count($duplicateIds);
+            $collapsedLotGroups++;
+        }
+
+        return [
+            'ok' => true,
+            'data' => [
+                'merged_lot_rows' => $mergedLotRows,
+                'collapsed_lot_groups' => $collapsedLotGroups,
+            ],
+        ];
+    }
+
     public function repair_material_monthly_stock_drift(string $asOfDate, array $params): array
     {
         if (!$this->db->table_exists('inv_division_monthly_stock')) {
@@ -6852,6 +7448,11 @@ class Purchase_model extends CI_Model
             ];
         }
 
+        $hasReceiptTable = $this->db->table_exists('pur_purchase_receipt');
+        $hasFulfillmentTable = $this->db->table_exists('pur_store_request_fulfillment');
+        $hasComponentBatchTable = $this->db->table_exists('inv_component_batch');
+        $hasPosCommitTable = $this->db->table_exists('pos_stock_commit');
+
         $sourceBalanceBeforeSelect = $this->db->field_exists('source_balance_before', 'inv_material_fifo_issue_line')
             ? 'il.source_balance_before'
             : 'NULL AS source_balance_before';
@@ -6874,7 +7475,41 @@ class Purchase_model extends CI_Model
             ->join('inv_material_fifo_issue_log ig', 'ig.id = il.issue_id', 'inner')
             ->join('inv_material_fifo_lot sl', 'sl.id = il.lot_id', 'left')
             ->join('inv_material_fifo_lot tl', 'tl.id = il.target_lot_id', 'left')
-            ->where('il.lot_id', $lotId)
+            ->where('il.lot_id', $lotId);
+
+        if ($hasReceiptTable) {
+            $this->db
+                ->select('pr.purchase_order_id AS receipt_purchase_order_id, pr.receipt_no AS receipt_no', false)
+                ->join('pur_purchase_receipt pr', "pr.id = IF(ig.source_id IS NOT NULL AND ig.source_id > 0, ig.source_id, 0) AND ig.source_table = 'pur_purchase_receipt'", 'left', false);
+        } else {
+            $this->db->select('NULL AS receipt_purchase_order_id, NULL AS receipt_no', false);
+        }
+
+        if ($hasFulfillmentTable) {
+            $this->db
+                ->select('sf.store_request_id AS source_store_request_id, sf.fulfillment_no AS source_fulfillment_no', false)
+                ->join('pur_store_request_fulfillment sf', "sf.id = ig.source_id AND ig.source_table = 'pur_store_request_fulfillment'", 'left', false);
+        } else {
+            $this->db->select('NULL AS source_store_request_id, NULL AS source_fulfillment_no', false);
+        }
+
+        if ($hasComponentBatchTable) {
+            $this->db
+                ->select('cb.batch_no AS source_batch_no', false)
+                ->join('inv_component_batch cb', "cb.id = ig.source_id AND ig.source_table = 'inv_component_batch'", 'left', false);
+        } else {
+            $this->db->select('NULL AS source_batch_no', false);
+        }
+
+        if ($hasPosCommitTable) {
+            $this->db
+                ->select('psc.order_id AS source_order_id, psc.commit_no AS source_commit_no', false)
+                ->join('pos_stock_commit psc', "psc.id = ig.source_id AND ig.source_table = 'pos_stock_commit'", 'left', false);
+        } else {
+            $this->db->select('NULL AS source_order_id, NULL AS source_commit_no', false);
+        }
+
+        $rows = $this->db
             ->order_by('ig.issue_date', 'DESC')
             ->order_by('ig.id', 'DESC')
             ->order_by('il.id', 'DESC')

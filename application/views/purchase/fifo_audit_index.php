@@ -60,6 +60,9 @@ $summaryIssueCount = count($issues);
 $summaryQty = 0.0;
 $summaryCost = 0.0;
 $summaryLineCount = 0;
+$lotUsageUrl = static function ($lotId): string {
+    return site_url('inventory/stock/lot/usage/' . (int)$lotId);
+};
 foreach ($issues as $issueRow) {
     $summaryQty += (float)($issueRow['issue_qty'] ?? 0);
     $summaryCost += (float)($issueRow['total_cost'] ?? 0);
@@ -72,12 +75,13 @@ foreach ($issues as $issueRow) {
     <h4 class="mb-1"><i class="ri ri-git-branch-line page-title-icon"></i><?php echo html_escape($title ?? 'Audit FIFO Material'); ?></h4>
     <small class="text-muted">Audit khusus lot FIFO material untuk transfer gudang ke divisi dan pemakaian FIFO di divisi.</small>
   </div>
-  <div class="d-flex gap-2 flex-wrap">
-    <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-outline-secondary">Snapshot Harian Gudang</a>
-    <a href="<?php echo site_url('inventory-material-daily'); ?>" class="btn btn-outline-secondary">Daily Material Matrix</a>
-    <a href="<?php echo site_url('inventory/stock/warehouse/movement'); ?>" class="btn btn-outline-secondary">Mutasi Gudang</a>
-    <a href="<?php echo site_url('inventory/stock/division/movement'); ?>" class="btn btn-outline-secondary">Mutasi Divisi</a>
-  </div>
+</div>
+
+<div class="d-flex flex-wrap gap-1 align-items-center mb-2">
+  <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'fifo_audit']); ?>
+</div>
+<div class="d-flex flex-wrap gap-1 align-items-center mb-3">
+  <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'fifo_audit']); ?>
 </div>
 
 <div class="card mb-3">
@@ -165,7 +169,23 @@ foreach ($issues as $issueRow) {
     <?php if (empty($issues)): ?>
       <div class="text-center text-muted py-4">Belum ada issue FIFO yang sesuai filter.</div>
     <?php else: ?>
-      <div class="accordion" id="fifoAuditAccordion">
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0 fin-audit-table">
+          <thead>
+            <tr>
+              <th style="width:52px"></th>
+              <th>Issue FIFO</th>
+              <th>Tanggal</th>
+              <th>Scope</th>
+              <th>Divisi Efektif</th>
+              <th>Objek</th>
+              <th class="text-end">Qty</th>
+              <th class="text-end">Total Cost</th>
+              <th>Status</th>
+              <th>Referensi</th>
+            </tr>
+          </thead>
+          <tbody>
         <?php foreach ($issues as $index => $issue): ?>
           <?php
             $issueId = (int)($issue['id'] ?? 0);
@@ -180,19 +200,46 @@ foreach ($issues as $issueRow) {
             if ($objectText === '-' || $objectText === '') {
                 $objectText = (string)($issue['profile_key'] ?? '-');
             }
+            $flowText = trim((string)($issue['location_scope'] ?? '-')) . ' ' . $destinationLabel((string)($issue['destination_type'] ?? ''));
+            if (!empty($issue['target_scope'])) {
+                $flowText .= ' → ' . trim((string)$issue['target_scope']) . ' ' . $destinationLabel((string)($issue['target_destination_type'] ?? ''));
+            }
+            $refText = trim((string)($issue['source_module'] ?? '-')) . ' | ' . trim((string)($issue['source_table'] ?? '-'));
+            if (!empty($issue['source_id'])) {
+                $refText .= ' #' . (int)$issue['source_id'];
+            }
           ?>
-          <div class="accordion-item">
-            <h2 class="accordion-header" id="<?php echo $collapseId; ?>-header">
-              <button class="accordion-button <?php echo $index === 0 ? '' : 'collapsed'; ?>" type="button" data-bs-toggle="collapse" data-bs-target="#<?php echo $collapseId; ?>" aria-expanded="<?php echo $index === 0 ? 'true' : 'false'; ?>" aria-controls="<?php echo $collapseId; ?>">
-                <span class="me-3"><strong><?php echo html_escape((string)($issue['issue_no'] ?? '-')); ?></strong></span>
-                <span class="me-3 small text-muted"><?php echo html_escape((string)($issue['issue_date'] ?? '-')); ?></span>
-                <span class="me-3"><span class="<?php echo $statusClass((string)($issue['status'] ?? '')); ?>"><?php echo html_escape((string)($issue['status'] ?? '-')); ?></span></span>
-                <span class="me-3 small text-muted"><?php echo html_escape($objectText); ?></span>
-                <span class="small text-muted">Qty <?php echo number_format((float)($issue['issue_qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($issue['content_uom_code'] ?? '')); ?></span>
+          <tr class="fifo-parent-row">
+            <td class="text-center">
+              <button type="button"
+                      class="btn btn-sm btn-outline-secondary fifo-toggle-btn"
+                      data-target="<?php echo $collapseId; ?>"
+                      aria-expanded="<?php echo $index === 0 ? 'true' : 'false'; ?>">
+                <i class="ri <?php echo $index === 0 ? 'ri-arrow-down-s-line' : 'ri-arrow-right-s-line'; ?>"></i>
               </button>
-            </h2>
-            <div id="<?php echo $collapseId; ?>" class="accordion-collapse collapse <?php echo $index === 0 ? 'show' : ''; ?>" aria-labelledby="<?php echo $collapseId; ?>-header" data-bs-parent="#fifoAuditAccordion">
-              <div class="accordion-body">
+            </td>
+            <td>
+              <div class="fw-semibold"><?php echo html_escape((string)($issue['issue_no'] ?? '-')); ?></div>
+              <div class="small text-muted"><?php echo number_format((int)($issue['line_count'] ?? count((array)($issue['line_rows'] ?? [])))); ?> line</div>
+            </td>
+            <td>
+              <div><?php echo html_escape((string)($issue['issue_date'] ?? '-')); ?></div>
+              <div class="small text-muted"><?php echo html_escape((string)($issue['issue_datetime'] ?? '')); ?></div>
+            </td>
+            <td><?php echo html_escape($flowText); ?></td>
+            <td><strong><?php echo html_escape($isDivisionTarget ? $targetDivisionLabel : $sourceDivisionLabel); ?></strong></td>
+            <td>
+              <div class="fw-semibold"><?php echo html_escape($objectText); ?></div>
+              <div class="small text-muted"><?php echo html_escape((string)($issue['profile_key'] ?? '-')); ?></div>
+            </td>
+            <td class="text-end"><?php echo number_format((float)($issue['issue_qty'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($issue['content_uom_code'] ?? '')); ?></td>
+            <td class="text-end">Rp <?php echo number_format((float)($issue['total_cost'] ?? 0), 2, ',', '.'); ?></td>
+            <td><span class="<?php echo $statusClass((string)($issue['status'] ?? '')); ?>"><?php echo html_escape((string)($issue['status'] ?? '-')); ?></span></td>
+            <td><small><?php echo html_escape($refText); ?></small></td>
+          </tr>
+          <tr id="<?php echo $collapseId; ?>" class="fifo-breakdown-row" <?php echo $index === 0 ? '' : 'style="display:none"'; ?>>
+            <td colspan="10" class="bg-white">
+              <div class="p-3">
                 <div class="row g-2 mb-3">
                   <div class="col-md-3"><small class="text-muted d-block">Flow</small><strong><?php echo html_escape((string)($issue['location_scope'] ?? '-')); ?></strong> <?php echo html_escape($destinationLabel((string)($issue['destination_type'] ?? ''))); ?><?php echo !empty($issue['target_scope']) ? ' -> ' . html_escape((string)$issue['target_scope']) . ' ' . html_escape($destinationLabel((string)($issue['target_destination_type'] ?? ''))) : ''; ?></div>
                   <div class="col-md-3"><small class="text-muted d-block">Divisi Efektif</small><strong><?php echo html_escape($isDivisionTarget ? $targetDivisionLabel : $sourceDivisionLabel); ?></strong></div>
@@ -208,10 +255,12 @@ foreach ($issues as $issueRow) {
                     <thead>
                       <tr>
                         <th>Lot Sumber</th>
+                        <th>Pemakaian</th>
                         <th class="text-end col-balance">Before</th>
                         <th class="text-end col-delta">Delta</th>
                         <th class="text-end col-balance">After</th>
                         <th>Lot Target</th>
+                        <th>Status Target</th>
                         <th class="text-end col-balance">Before</th>
                         <th class="text-end col-delta">Delta</th>
                         <th class="text-end col-balance">After</th>
@@ -222,13 +271,32 @@ foreach ($issues as $issueRow) {
                     <tbody>
                       <?php $lineRows = (array)($issue['line_rows'] ?? []); ?>
                       <?php if (empty($lineRows)): ?>
-                        <tr><td colspan="10" class="text-center text-muted py-3">Belum ada line alokasi FIFO.</td></tr>
+                        <tr><td colspan="12" class="text-center text-muted py-3">Belum ada line alokasi FIFO.</td></tr>
                       <?php else: ?>
                         <?php foreach ($lineRows as $lineRow): ?>
+                          <?php
+                            $sourceAfter = $lineRow['source_balance_after'] !== null ? (float)$lineRow['source_balance_after'] : null;
+                            $targetAfter = $lineRow['target_balance_after'] !== null ? (float)$lineRow['target_balance_after'] : null;
+                            $sourceUsageStatus = $sourceAfter !== null && abs($sourceAfter) > 0.0001
+                              ? 'OPEN · sisa ' . number_format($sourceAfter, 2, ',', '.')
+                              : 'CLOSED';
+                            $targetUsageStatus = !$lineRow['target_lot_id']
+                              ? '-'
+                              : (($targetAfter !== null && abs($targetAfter) > 0.0001)
+                                  ? 'OPEN · sisa ' . number_format($targetAfter, 2, ',', '.')
+                                  : 'CLOSED');
+                          ?>
                           <tr>
                             <td>
                               <div class="fw-semibold"><?php echo html_escape((string)($lineRow['source_lot_no'] ?? '-')); ?></div>
                               <div class="small text-muted">Receipt <?php echo html_escape((string)($lineRow['source_receipt_date'] ?? '-')); ?><?php echo !empty($lineRow['source_expiry_date']) ? ' | Exp ' . html_escape((string)$lineRow['source_expiry_date']) : ''; ?></div>
+                              <?php if (!empty($lineRow['source_lot_id'])): ?>
+                                <div><a href="<?php echo html_escape($lotUsageUrl((int)$lineRow['source_lot_id'])); ?>" class="small">Lihat usage lot</a></div>
+                              <?php endif; ?>
+                            </td>
+                            <td>
+                              <div class="fw-semibold"><?php echo html_escape($sourceUsageStatus); ?></div>
+                              <div class="small text-muted">Keluar <?php echo number_format((float)($lineRow['qty_out'] ?? 0), 2, ',', '.'); ?></div>
                             </td>
                             <td class="text-end col-balance"><?php echo $lineRow['source_balance_before'] !== null ? number_format((float)$lineRow['source_balance_before'], 2, ',', '.') : '-'; ?></td>
                             <td class="text-end col-delta fin-audit-delta-negative"><?php echo number_format((float)($lineRow['qty_out'] ?? 0) * -1, 2, ',', '.'); ?></td>
@@ -236,6 +304,12 @@ foreach ($issues as $issueRow) {
                             <td>
                               <div class="fw-semibold"><?php echo html_escape((string)($lineRow['target_lot_no'] ?? '-')); ?></div>
                               <div class="small text-muted"><?php echo !empty($lineRow['target_receipt_date']) ? 'Receipt ' . html_escape((string)$lineRow['target_receipt_date']) : 'Tidak ada lot target'; ?><?php echo !empty($lineRow['target_expiry_date']) ? ' | Exp ' . html_escape((string)$lineRow['target_expiry_date']) : ''; ?></div>
+                              <?php if (!empty($lineRow['target_lot_id'])): ?>
+                                <div><a href="<?php echo html_escape($lotUsageUrl((int)$lineRow['target_lot_id'])); ?>" class="small">Lihat usage lot</a></div>
+                              <?php endif; ?>
+                            </td>
+                            <td>
+                              <div class="fw-semibold"><?php echo html_escape($targetUsageStatus); ?></div>
                             </td>
                             <td class="text-end col-balance"><?php echo $lineRow['target_balance_before'] !== null ? number_format((float)$lineRow['target_balance_before'], 2, ',', '.') : '-'; ?></td>
                             <td class="text-end col-delta fin-audit-delta-positive"><?php echo $lineRow['target_lot_id'] ? number_format((float)($lineRow['qty_out'] ?? 0), 2, ',', '.') : '-'; ?></td>
@@ -249,9 +323,11 @@ foreach ($issues as $issueRow) {
                   </table>
                 </div>
               </div>
-            </div>
-          </div>
+            </td>
+          </tr>
         <?php endforeach; ?>
+          </tbody>
+        </table>
       </div>
     <?php endif; ?>
   </div>
@@ -288,5 +364,21 @@ foreach ($issues as $issueRow) {
 
   divisionEl.addEventListener('change', applyDestinationGuard);
   applyDestinationGuard();
+
+  document.querySelectorAll('.fifo-toggle-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var targetId = btn.getAttribute('data-target') || '';
+      if (!targetId) return;
+      var row = document.getElementById(targetId);
+      if (!row) return;
+      var isHidden = row.style.display === 'none';
+      row.style.display = isHidden ? '' : 'none';
+      btn.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+      var icon = btn.querySelector('i');
+      if (icon) {
+        icon.className = 'ri ' + (isHidden ? 'ri-arrow-down-s-line' : 'ri-arrow-right-s-line');
+      }
+    });
+  });
 })();
 </script>

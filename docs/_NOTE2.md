@@ -203,7 +203,22 @@ cek verifikasi self order sudah potong stok?
 
 =======================
 
-ok berarti ada beberapa masalah yang harus di selesaikan.
+aplikasi ini merupakan aplikasi member yang terintegrasi dengan finance, dikembangkan dengan perubahan database yang semula database core jadi database finance. seluruh poin pengguna ditarik ke sini. dan masih ada beberapa yang perlu dilakukan pengecekan dan perbaikan:
+1. Star Balance di /member beda dengan poin aktif di /poin. apakah memang beda? atau memang star balance itu konsep yang beda dengan poin? cek dan jelaskan
+2. Foto produk di /order tidak tampil. foto produk diambil dari direcotory finance. apakah akan menggunaakan link localhost atau link  domain? untuk stok kritis tidak perlu ditampilkan badge kritis. cukup stok habisa aja (sudah betul)
+3. tambah produk belum memberhatikan database extra dan logika database yang ada di   dan turunannya
 
-saya punya ide lain. void itu bukan berdasarkan saldo monthly stock melainkan berdasarkan lot dari batch yg di generate. jadi ketika di void biarkan stock jadi minus lagi.
-baru selesaikan perbedaan stock dan movement
+
+
+
+- foto produk harusnya ke core.namuacoffee.com/uploads/produk
+- terkait extra, kamu cek logika di finance /master/extra, dan rumpunya. serta logika POS saat menambahkan produk. gunakan logika yang sama dengan di POS dan baca database master extra dan relasinya
+- hapus badge kritis
+- tabel yang benar mst_product_extra_map, mst_extra, mst_extra_group, dan mst_extra_group_item
+- gunakan poin balance baru dan legacy. jumlahkan. karena kita baru pindah data, jadi history poin balance lama tidak tertarik.
+
+
+
+- /order ketersediaan stok dibaca dari mana? apakah sudah sama dengan logika /pos/stock-live?
+- foto produk di core.namuacoffee.com/uploads/produk
+- percantik lagi halaman /member. kejutkan saya!

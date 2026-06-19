@@ -8,6 +8,7 @@ $lotRepairAllUrl     = site_url('inventory/stock/division/reconcile/lot-repair-a
 $gapRepairAllUrl     = site_url('inventory/stock/division/reconcile/gap-repair-all');
 $repairMaterialIdUrl    = site_url('inventory/stock/division/reconcile/repair-material-id');
 $profileRepairUrl       = site_url('inventory/stock/division/reconcile/profile-repair');
+$profileMergeUrl        = site_url('inventory/stock/division/reconcile/profile-merge');
 
 $allRows     = is_array($rows ?? null) ? $rows : [];
 $divisions   = is_array($divisions ?? null) ? $divisions : [];
@@ -493,6 +494,21 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
               $dataDest  = html_escape((string)($row['destination_group'] ?? ($selDest !== 'ALL' ? $selDest : 'ALL')));
               $profileBreakdown = (array)($row['lot_profile_breakdown'] ?? []);
               $hasProfileMismatch = !empty($row['has_profile_lot_mismatch']);
+              $mergeProfilesPayload = [];
+              foreach ($profileBreakdown as $pbMerge) {
+                  $pbMergePk = (string)($pbMerge['profile_key'] ?? '');
+                  $pbMergeName = trim((string)($pbMerge['profile_name'] ?? ''));
+                  $mergeProfilesPayload[] = [
+                      'profile_key' => $pbMergePk !== '' ? $pbMergePk : '__EMPTY_PROFILE__',
+                      'profile_key_raw' => $pbMergePk,
+                      'label' => $pbMergeName !== '' ? $pbMergeName : ($pbMergePk !== '' ? substr($pbMergePk, 0, 8) . '…' : '(no profile)'),
+                      'stock' => round((float)($pbMerge['stock_balance'] ?? 0), 4),
+                      'lot' => round((float)($pbMerge['lot_balance'] ?? 0), 4),
+                      'daily' => round((float)($pbMerge['daily_content'] ?? ($pbMerge['stock_balance'] ?? 0)), 4),
+                      'movement' => isset($pbMerge['movement_content']) ? round((float)$pbMerge['movement_content'], 4) : null,
+                      'has_mismatch' => !empty($pbMerge['has_mismatch']),
+                  ];
+              }
               $bKey = $dataDivId . '-' . $dataMatId . '-' . $dataDest;
               $parentSelisihParts = [];
               $profileLotDeltaSum = 0.0;
@@ -658,6 +674,16 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                     data-material-id="<?php echo $dataMatId; ?>"
                     data-destination="<?php echo $dataDest; ?>"
                     title="<?php echo html_escape($parentRepairTitle); ?>"><i class="ri ri-tools-line"></i></button>
+                  <?php if (count($mergeProfilesPayload) >= 2): ?>
+                  <button type="button" class="rec-icon-btn btn-outline-dark src-profile-merge-btn"
+                    data-as-of-date="<?php echo $asOf; ?>"
+                    data-division-id="<?php echo $dataDivId; ?>"
+                    data-material-id="<?php echo $dataMatId; ?>"
+                    data-destination="<?php echo $dataDest; ?>"
+                    data-material-name="<?php echo html_escape((string)($row['material_name'] ?? '')); ?>"
+                    data-profiles="<?php echo html_escape(json_encode($mergeProfilesPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); ?>"
+                    title="Gabungkan beberapa child profile menjadi satu profile target"><i class="ri ri-links-line"></i></button>
+                  <?php endif; ?>
                   <button type="button" class="rec-icon-btn btn-outline-warning src-quick-adj-btn"
                     data-division-id="<?php echo $dataDivId; ?>"
                     data-item-id="<?php echo $dataItemId; ?>"
@@ -958,6 +984,50 @@ document.addEventListener('DOMContentLoaded', function () {
   function fmtDT(v) { if(!v)return'-'; var d=new Date(String(v).replace(' ','T')); return isNaN(d.getTime())?escHtml(String(v)):new Intl.DateTimeFormat('id-ID',{dateStyle:'medium',timeStyle:'short'}).format(d); }
   function showAlert(msg,title) { if(window.FinanceUI&&typeof window.FinanceUI.alert==='function')return Promise.resolve(window.FinanceUI.alert(msg,{title:title||'Informasi'})); return Promise.resolve(); }
   function askConfirm(msg,opts) { if(window.FinanceUI&&typeof window.FinanceUI.confirm==='function')return Promise.resolve(window.FinanceUI.confirm(msg,opts||{})); return showAlert('Modal konfirmasi tidak tersedia.','UI Belum Siap').then(function(){return false;}); }
+  function showFlare(message, type) {
+    var hostId = 'reconcile-flare-host';
+    var host = document.getElementById(hostId);
+    if (!host) {
+      host = document.createElement('div');
+      host.id = hostId;
+      host.style.position = 'fixed';
+      host.style.top = '18px';
+      host.style.right = '18px';
+      host.style.zIndex = '2000';
+      host.style.display = 'flex';
+      host.style.flexDirection = 'column';
+      host.style.gap = '10px';
+      document.body.appendChild(host);
+    }
+    var palette = type === 'danger'
+      ? { bg: '#7f1d1d', bd: '#ef4444' }
+      : { bg: '#14532d', bd: '#22c55e' };
+    var flare = document.createElement('div');
+    flare.style.minWidth = '280px';
+    flare.style.maxWidth = '420px';
+    flare.style.padding = '12px 14px';
+    flare.style.borderRadius = '14px';
+    flare.style.color = '#fff';
+    flare.style.background = palette.bg;
+    flare.style.border = '1px solid ' + palette.bd;
+    flare.style.boxShadow = '0 12px 34px rgba(15,23,42,.22)';
+    flare.style.fontSize = '.88rem';
+    flare.style.lineHeight = '1.45';
+    flare.style.opacity = '0';
+    flare.style.transform = 'translateY(-8px)';
+    flare.style.transition = 'all .22s ease';
+    flare.textContent = String(message || '');
+    host.appendChild(flare);
+    requestAnimationFrame(function () {
+      flare.style.opacity = '1';
+      flare.style.transform = 'translateY(0)';
+    });
+    setTimeout(function () {
+      flare.style.opacity = '0';
+      flare.style.transform = 'translateY(-8px)';
+      setTimeout(function () { flare.remove(); }, 240);
+    }, 1800);
+  }
   async function getJson(url) {
     var r = await fetch(url,{headers:{'X-Requested-With':'XMLHttpRequest'}});
     var t = await r.text(); var j=null; try{j=JSON.parse(t);}catch(e){throw new Error('Response tidak valid: '+String(t||'').slice(0,180));}
@@ -1281,12 +1351,17 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     var prb=ev.target.closest('.src-profile-repair-btn');
     if(prb){ openProfileRepairModal(prb); }
+    var pmb=ev.target.closest('.src-profile-merge-btn');
+    if(pmb){ openProfileMergeModal(pmb); }
   });
 
   // ── Profile Repair Modal ──────────────────────────────────────────────────
   var profileRepairUrl = <?php echo json_encode($profileRepairUrl); ?>;
+  var profileMergeUrl  = <?php echo json_encode($profileMergeUrl); ?>;
   var prModal = document.getElementById('profileRepairModal');
   var prModalBs = prModal ? (typeof bootstrap !== 'undefined' ? new bootstrap.Modal(prModal) : null) : null;
+  var pmModal = document.getElementById('profileMergeModal');
+  var pmModalBs = pmModal ? (typeof bootstrap !== 'undefined' ? new bootstrap.Modal(pmModal) : null) : null;
 
   function openProfileRepairModal(btn) {
     if (!prModal) { showAlert('Modal tidak tersedia.', 'Error'); return; }
@@ -1403,6 +1478,119 @@ document.addEventListener('DOMContentLoaded', function () {
   var prToMvtBtn   = document.getElementById('prRepairToMovement');
   if (prToStockBtn) { prToStockBtn.addEventListener('click', function() { runProfileRepair('lot_repair'); }); }
   if (prToMvtBtn)   { prToMvtBtn.addEventListener('click',   function() { runProfileRepair('to_movement'); }); }
+
+  function recalcProfileMergeSelection() {
+    if (!pmModal) return;
+    var targetKey = '';
+    var targetRadio = pmModal.querySelector('input[name="pm_target_profile"]:checked');
+    if (targetRadio) targetKey = String(targetRadio.value || '');
+    pmModal.querySelectorAll('.pm-source-check').forEach(function(cb) {
+      var isTarget = String(cb.value || '') === targetKey;
+      cb.disabled = isTarget;
+      if (isTarget) cb.checked = false;
+    });
+  }
+
+  function openProfileMergeModal(btn) {
+    if (!pmModal) {
+      showAlert('Modal join profile belum tersedia.', 'Join Profile');
+      return;
+    }
+    var profiles = [];
+    try { profiles = JSON.parse(btn.dataset.profiles || '[]'); } catch (e) { profiles = []; }
+    if (!Array.isArray(profiles) || profiles.length < 2) {
+      showAlert('Minimal harus ada 2 child profile untuk digabung.', 'Join Profile');
+      return;
+    }
+
+    pmModal.dataset.divisionId = btn.dataset.divisionId || '0';
+    pmModal.dataset.materialId = btn.dataset.materialId || '0';
+    pmModal.dataset.destination = btn.dataset.destination || 'ALL';
+    pmModal.dataset.asOfDate = btn.dataset.asOfDate || '';
+    pmModal.dataset.materialName = btn.dataset.materialName || '';
+
+    var titleEl = document.getElementById('pmModalTitle');
+    if (titleEl) {
+      titleEl.textContent = 'Join Profile — ' + (btn.dataset.materialName || 'Bahan');
+    }
+
+    var defaultTarget = profiles.slice().sort(function(a, b) {
+      return Math.abs(Number(b.stock || 0)) - Math.abs(Number(a.stock || 0));
+    })[0] || profiles[0];
+
+    var rowsHtml = profiles.map(function(profile) {
+      var key = String(profile.profile_key || '');
+      var rawKey = String(profile.profile_key_raw || '');
+      var isTarget = key === String(defaultTarget.profile_key || '');
+      return '<tr>'
+        + '<td class="text-center"><input type="radio" name="pm_target_profile" value="' + escHtml(key) + '" ' + (isTarget ? 'checked' : '') + '></td>'
+        + '<td class="text-center"><input type="checkbox" class="pm-source-check" value="' + escHtml(key) + '" ' + (!isTarget ? 'checked' : '') + '></td>'
+        + '<td><div class="fw-semibold">' + escHtml(profile.label || rawKey || '(no profile)') + '</div><code style="font-size:.62rem;color:#94a3b8">' + escHtml(rawKey || '(blank)') + '</code></td>'
+        + '<td class="text-end">' + escHtml(fmtQty(profile.stock || 0)) + '</td>'
+        + '<td class="text-end">' + escHtml(fmtQty(profile.lot || 0)) + '</td>'
+        + '<td class="text-end">' + (profile.movement === null ? '–' : escHtml(fmtQty(profile.movement || 0))) + '</td>'
+        + '</tr>';
+    }).join('');
+
+    var rowsEl = document.getElementById('pmModalRows');
+    if (rowsEl) rowsEl.innerHTML = rowsHtml;
+    var helpEl = document.getElementById('pmModalHelp');
+    if (helpEl) {
+      helpEl.innerHTML = 'Pilih <strong>1 profil target</strong>, lalu centang profil child yang akan dipindah ke target tersebut. Sistem akan memindahkan identity di <strong>movement log</strong>, <strong>monthly stock</strong>, dan <strong>FIFO lot</strong>. Snapshot cost / HPP live lama yang terlanjur terbentuk sebelum stok masuk akan diabaikan.';
+    }
+
+    pmModal.querySelectorAll('input[name="pm_target_profile"]').forEach(function(radio) {
+      radio.addEventListener('change', recalcProfileMergeSelection);
+    });
+    recalcProfileMergeSelection();
+
+    if (pmModalBs) { pmModalBs.show(); }
+    else if (typeof $ !== 'undefined') { $(pmModal).modal('show'); }
+    else { pmModal.style.display = 'block'; pmModal.classList.add('show'); }
+  }
+
+  async function runProfileMerge() {
+    if (!pmModal) return;
+    var targetRadio = pmModal.querySelector('input[name="pm_target_profile"]:checked');
+    if (!targetRadio) {
+      await showAlert('Pilih profil target terlebih dahulu.', 'Join Profile');
+      return;
+    }
+    var sourceProfileKeys = [];
+    pmModal.querySelectorAll('.pm-source-check:checked').forEach(function(cb) {
+      sourceProfileKeys.push(String(cb.value || ''));
+    });
+    if (!sourceProfileKeys.length) {
+      await showAlert('Pilih minimal 1 source profile yang mau digabung.', 'Join Profile');
+      return;
+    }
+
+    var submitBtn = document.getElementById('pmSubmitBtn');
+    setButtonLoading(submitBtn, 'Join...');
+    try {
+      var json = await postJson(profileMergeUrl, {
+        division_id: Number(pmModal.dataset.divisionId || 0),
+        material_id: Number(pmModal.dataset.materialId || 0),
+        destination: String(pmModal.dataset.destination || 'ALL'),
+        target_profile_key: String(targetRadio.value || ''),
+        source_profile_keys: sourceProfileKeys,
+        as_of_date: String(pmModal.dataset.asOfDate || '')
+      });
+      if (pmModalBs) { pmModalBs.hide(); }
+      else if (typeof $ !== 'undefined') { $(pmModal).modal('hide'); }
+      clearButtonLoading(submitBtn);
+      showFlare(json.message || 'Join profile selesai.', 'success');
+      setTimeout(function () { window.location.reload(); }, 900);
+    } catch (e) {
+      clearButtonLoading(submitBtn);
+      await showAlert(e.message || 'Gagal join profile.', 'Join Profile');
+    }
+  }
+
+  var pmSubmitBtn = document.getElementById('pmSubmitBtn');
+  if (pmSubmitBtn) {
+    pmSubmitBtn.addEventListener('click', runProfileMerge);
+  }
 
   // ── Quick Adjustment Manual dari Reconcile ───────────────────────────────
   var qAdjModal   = document.getElementById('quickAdjModal');
@@ -1605,6 +1793,39 @@ document.addEventListener('DOMContentLoaded', function () {
           <button type="button" id="prRepairToStock"    class="btn btn-sm btn-warning">Repair sesuai Stok</button>
           <button type="button" id="prRepairToMovement" class="btn btn-sm btn-info text-white">Repair sesuai Movement</button>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="profileMergeModal" tabindex="-1" aria-labelledby="pmModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header py-2" style="background:linear-gradient(135deg,#1f2937,#374151)">
+        <h6 class="modal-title text-white mb-0" id="pmModalTitle">Join Profile</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Tutup"></button>
+      </div>
+      <div class="modal-body">
+        <div id="pmModalHelp" class="alert alert-warning py-2 small mb-3"></div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th class="text-center" style="width:80px">Target</th>
+                <th class="text-center" style="width:90px">Gabung</th>
+                <th>Profil</th>
+                <th class="text-end">Stok</th>
+                <th class="text-end">Lot</th>
+                <th class="text-end">Movement</th>
+              </tr>
+            </thead>
+            <tbody id="pmModalRows"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-sm btn-dark" id="pmSubmitBtn">Join Profile</button>
       </div>
     </div>
   </div>

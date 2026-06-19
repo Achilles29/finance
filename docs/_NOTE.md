@@ -109,6 +109,15 @@ kita pindah di bahan baku
 
 tabel inv_material_fifo_lot fungsinya untuk apa? kenapa banyak material_id yang kosong? sumbernya dari mana? kenapa ada yang non material bisa masuk? apakah sudah ditutup jalurnya?
 
-lakukan penyesuaian untuk /production/component-reconcile,/production/component-daily, /production/component-daily-recon , /production/component-adjustments, ke 4 halaman itu mempunyai modal adjusmment component (periksa juga halaman lain barang kali ada), yang mengintervensi tabel inv_component_adjustment dan inv_component_adjustment_line.
+lakukan penyesuaian untuk /inventory-material-daily, /inventory/stock/adjustment/division, /inventory/stock/division/reconcile , /inventory/stock/daily-recon/division, ke 4 halaman itu mempunyai modal adjusmment bahan baku (periksa juga halaman lain barang kali ada), yang mengintervensi tabel inv_stock_adjustment dan inv_stock_adjustment_line.
 kodisi saat ini adjustmen reason masih liar karena tidak ada enum di masing masing jenis reason.
-lakukan inventarisasi di apa saja jenis nya sesuai dengan kolom di inv_component_adjustment_line yang ada, lalu kita bakukan reason sesuai jenis, baru kita buat enumnya
+lakukan inventarisasi di apa saja jenis nya sesuai dengan kolom di inv_stock_adjustment_line yang ada, lalu kita bakukan reason sesuai jenis, baru kita buat enumnya
+
+
+
+- /inventory/stock/daily-recon/division jika parent mempunyai child yang datanya minus, maka buat warna parent jadi merah
+
+- sesuaikan halaman /inventory/fifo-audit template tab bertingkat sama seperti halaman lain. hapus tab lama yang ada di atas tab bertingkat baru
+- /inventory/fifo-audit harusnya judul kolom dulu, baru data yang bisa di breakdown, bukan data dulu baru di breakdown muncul judul kolom. kebalik
+- /inventory/stock/lot/usage/ sumber POS harusnya hiperlink ke detail penjualnnya
+

@@ -22,6 +22,7 @@ if ($tabScope === 'DIVISION') {
         ['key' => 'opening',        'label' => 'Opening Manual Bahan Baku', 'url' => site_url('inventory/stock/opening/division')],
         ['key' => 'opname_monthly', 'label' => 'Opname Bahan Baku',     'url' => site_url('inventory/stock/opname/division/monthly')],
         ['key' => 'lot',            'label' => 'Lot Bahan Baku',         'url' => site_url('inventory/stock/division/lot')],
+        ['key' => 'fifo_audit',     'label' => 'FIFO Audit Bahan Baku',  'url' => site_url('inventory/fifo-audit')],
         ['key' => 'compare',        'label' => 'Audit Bahan Baku',       'url' => site_url('inventory/stock/division/reconcile')],
     ];
 } else {
@@ -33,6 +34,7 @@ if ($tabScope === 'DIVISION') {
         ['key' => 'movement',      'label' => 'Keluar Masuk Gudang',    'url' => site_url('inventory/stock/warehouse/movement')],
         ['key' => 'daily',         'label' => 'Stok Bulanan/Daily',     'url' => site_url('inventory/stock/warehouse/daily')],
         ['key' => 'lot',           'label' => 'Lot Gudang',             'url' => site_url('inventory/stock/warehouse/lot')],
+        ['key' => 'fifo_audit',    'label' => 'FIFO Audit Gudang',      'url' => site_url('inventory/fifo-audit')],
         ['key' => 'opname_monthly','label' => 'Opname Bulanan',         'url' => site_url('inventory/stock/opname/warehouse/monthly')],
     ];
 }

@@ -1664,6 +1664,9 @@ class MaterialFifoManager
 
         $itemId = $this->nullableInt($payload['item_id'] ?? null);
         $materialId = $this->nullableInt($payload['material_id'] ?? null);
+        if ($materialId === null && $itemId !== null) {
+            $materialId = $this->resolveMaterialIdFromItem($itemId);
+        }
         $contentUomId = $this->nullableInt($payload['content_uom_id'] ?? null);
         if ($itemId === null && $materialId === null) {
             return ['ok' => false, 'message' => 'Lot FIFO membutuhkan item_id atau material_id.'];
@@ -1684,6 +1687,24 @@ class MaterialFifoManager
             'profile_key' => $this->nullableString($payload['profile_key'] ?? null),
             'expiry_date' => $this->normalizeDate((string)($payload['expiry_date'] ?? ($payload['profile_expired_date'] ?? ''))),
         ];
+    }
+
+    private function resolveMaterialIdFromItem(int $itemId): ?int
+    {
+        if ($itemId <= 0 || !$this->ci->db->table_exists('mst_item')) {
+            return null;
+        }
+
+        $row = $this->ci->db
+            ->select('material_id')
+            ->from('mst_item')
+            ->where('id', $itemId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $materialId = $this->nullableInt($row['material_id'] ?? null);
+        return $materialId !== null && $materialId > 0 ? $materialId : null;
     }
 
     private function findOpenLots(array $identity): array
