@@ -249,6 +249,157 @@ class Loyalty extends MY_Controller
         $this->json_ok(['id' => (int)$id]);
     }
 
+    // ── Redeem ────────────────────────────────────────────────
+
+    public function redeem_index()
+    {
+        $this->require_permission('loyalty.redeem.index', 'view');
+        $this->render('loyalty/redeem_index', [
+            'page_title'  => 'Redeem Poin / Voucher / Stamp',
+            'active_menu' => 'loyalty.redeem.index',
+        ]);
+    }
+
+    public function redeem_data()
+    {
+        $this->require_permission('loyalty.redeem.index', 'view');
+        $filters = [
+            'q'         => trim((string)$this->input->get('q', true)),
+            'member_id' => (int)$this->input->get('member_id', true),
+            'type'      => strtoupper(trim((string)($this->input->get('type', true) ?: 'ALL'))),
+            'date_from' => trim((string)$this->input->get('date_from', true)),
+            'date_to'   => trim((string)$this->input->get('date_to', true)),
+            'page'      => max(1, (int)$this->input->get('page', true)),
+            'limit'     => max(1, min(100, (int)$this->input->get('limit', true) ?: 25)),
+        ];
+        $this->json_ok($this->Loyalty_model->redeem_rows($filters));
+    }
+
+    public function redeem_member_info()
+    {
+        $this->require_permission('loyalty.redeem.index', 'view');
+        $memberId = (int)$this->input->get('member_id', true);
+        if ($memberId <= 0) {
+            $this->json_error('member_id wajib diisi.', 422);
+            return;
+        }
+        $info = $this->Loyalty_model->get_member_redeem_info($memberId);
+        if (!$info) {
+            $this->json_error('Member tidak ditemukan.', 404);
+            return;
+        }
+        $this->json_ok($info);
+    }
+
+    public function redeem_point_process()
+    {
+        $this->require_permission('loyalty.redeem.index', 'create');
+        $payload = $this->request_payload();
+        $result  = $this->Loyalty_model->process_point_redeem($payload);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal memproses redeem poin.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)($result['id'] ?? 0), 'redeem_no' => (string)($result['redeem_no'] ?? ''), 'balance_after' => (float)($result['balance_after'] ?? 0)]);
+    }
+
+    public function redeem_stamp_process()
+    {
+        $this->require_permission('loyalty.redeem.index', 'create');
+        $payload = $this->request_payload();
+        $result  = $this->Loyalty_model->process_stamp_redeem($payload);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal memproses redeem stamp.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)($result['id'] ?? 0), 'redeem_no' => (string)($result['redeem_no'] ?? ''), 'balance_after' => (float)($result['balance_after'] ?? 0)]);
+    }
+
+    public function redeem_voucher_process()
+    {
+        $this->require_permission('loyalty.redeem.index', 'create');
+        $payload = $this->request_payload();
+        $result  = $this->Loyalty_model->process_voucher_redeem($payload);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal memproses redeem voucher.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)($result['id'] ?? 0), 'redeem_no' => (string)($result['redeem_no'] ?? '')]);
+    }
+
+    // ── Redeem Rules (Pengaturan Katalog Reward) ─────────────
+
+    public function redeem_rules()
+    {
+        $this->require_permission('loyalty.redeem_rule.index', 'view');
+        $filters = [
+            'q'           => trim((string)$this->input->get('q', true)),
+            'status'      => strtoupper(trim((string)$this->input->get('status', true) ?: 'ACTIVE')),
+            'cost_type'   => strtoupper(trim((string)$this->input->get('cost_type', true) ?: 'ALL')),
+            'reward_type' => strtoupper(trim((string)$this->input->get('reward_type', true) ?: 'ALL')),
+            'page'        => max(1, (int)$this->input->get('page', true)),
+            'limit'       => max(1, min(100, (int)$this->input->get('limit', true) ?: 25)),
+        ];
+        $this->render('loyalty/redeem_rules_index', [
+            'page_title'           => 'Pengaturan Redeem',
+            'active_menu'          => 'loyalty.redeem_rule.index',
+            'filters'              => $filters,
+            'stamp_campaign_opts'  => $this->Loyalty_model->stamp_campaign_select_options(),
+            'voucher_campaign_opts'=> $this->Loyalty_model->voucher_campaign_options(['PUBLIC','MANUAL','MEMBER_TARGETED','AUTO_FROM_TXN']),
+        ]);
+    }
+
+    public function redeem_rules_data()
+    {
+        $this->require_permission('loyalty.redeem_rule.index', 'view');
+        $filters = [
+            'q'           => trim((string)$this->input->get('q', true)),
+            'status'      => strtoupper(trim((string)$this->input->get('status', true) ?: 'ACTIVE')),
+            'cost_type'   => strtoupper(trim((string)$this->input->get('cost_type', true) ?: 'ALL')),
+            'reward_type' => strtoupper(trim((string)$this->input->get('reward_type', true) ?: 'ALL')),
+            'page'        => max(1, (int)$this->input->get('page', true)),
+            'limit'       => max(1, min(100, (int)$this->input->get('limit', true) ?: 25)),
+        ];
+        $this->json_ok($this->Loyalty_model->redeem_rule_rows($filters));
+    }
+
+    public function redeem_rule_save()
+    {
+        $payload = $this->request_payload();
+        $id = (int)($payload['id'] ?? 0);
+        $this->require_permission('loyalty.redeem_rule.index', $id > 0 ? 'edit' : 'create');
+        $result = $this->Loyalty_model->save_redeem_rule($payload);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan rule redeem.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id']]);
+    }
+
+    public function redeem_rule_toggle($id)
+    {
+        $this->require_permission('loyalty.redeem_rule.index', 'edit');
+        $result = $this->Loyalty_model->toggle_redeem_rule((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal mengubah status rule redeem.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id'], 'is_active' => (int)$result['is_active']]);
+    }
+
+    public function redeem_rule_delete($id)
+    {
+        $this->require_permission('loyalty.redeem_rule.index', 'delete');
+        $result = $this->Loyalty_model->delete_redeem_rule((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menghapus rule redeem.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$id]);
+    }
+
+    // ── Shared search ─────────────────────────────────────────
+
     public function product_search()
     {
         $this->require_permission('loyalty.point_rule.index', 'view');

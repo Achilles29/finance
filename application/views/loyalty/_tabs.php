@@ -6,6 +6,7 @@ $links = [
     ['key' => 'stamp-campaign', 'label' => 'Stamp', 'url' => site_url('loyalty/stamp-campaigns')],
     ['key' => 'voucher-issue', 'label' => 'Voucher', 'url' => site_url('loyalty/vouchers')],
     ['key' => 'voucher-campaign', 'label' => 'Promo Voucher', 'url' => site_url('loyalty/voucher-campaigns')],
+    ['key' => 'redeem', 'label' => 'Redeem', 'url' => site_url('loyalty/redeem')],
 ];
 ?>
 <style>

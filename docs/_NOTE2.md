@@ -171,54 +171,28 @@ setelah ini baru kita bahas laporan keuangannya
 kejutkan saya!
 
 
-POS simpan transaksi MANUAL BREW V60 JAPANESE dengan extra SO YIRGACHEFFE .
-cek master extranya di /master/extra/edit/19.
-
-saat simpan transaksi stok SO YIRGACHEFFE tidak terpotong
 
 
-
-sekarang cek resep produk /master/relation/product-recipe/ disana ada Source Divisi . contoh RUM DMC divisi produk ada di BAR, tapi di resepnya ada TING TING CRUMBLE yang merupakan bahan milik kitchen. jadi seharusnya saat simpan transaksi TING TING CRUMBLE yang dipotong adalah dari kitchen. CEK
-
-
-kenapa histori commit POS lama mem-post movement ke BAR?
-apakah sekarang mungkin terjadi lagi?
-bisakah dibuat sql repairnya untuk semua tabel yang terpengaruh?
-
-
-
-
-
-cek di POS saat void dan refund dengan Pilihan jangan kembalikan ke stok. saat dipilih jangan kembalikan ke stok, artinya stok berpindah dari usage out menjadi adjustment sesuai dengan alasan yang dipilih. jadi di mutasi bukan muncul sebagai usage out tapi adjustment. dan di ajutstmen muncul adjustment  baik untuk bahan baku maupun component.
-
-
-cek /component-reconcile
 
 missmatch taruh dashboard
 cek metode pembayaran self order
-cek gambar produk member
-cek extra member self order
+v cek gambar produk member
+v cek extra member self order
 cek verifikasi self order sudah potong stok?
 
 
 =======================
 
-aplikasi ini merupakan aplikasi member yang terintegrasi dengan finance, dikembangkan dengan perubahan database yang semula database core jadi database finance. seluruh poin pengguna ditarik ke sini. dan masih ada beberapa yang perlu dilakukan pengecekan dan perbaikan:
-1. Star Balance di /member beda dengan poin aktif di /poin. apakah memang beda? atau memang star balance itu konsep yang beda dengan poin? cek dan jelaskan
-2. Foto produk di /order tidak tampil. foto produk diambil dari direcotory finance. apakah akan menggunaakan link localhost atau link  domain? untuk stok kritis tidak perlu ditampilkan badge kritis. cukup stok habisa aja (sudah betul)
-3. tambah produk belum memberhatikan database extra dan logika database yang ada di   dan turunannya
+member , footer ikut ketarik ke atas ketika layar di scroll kebawah
+member . /order belum memberhatikan detail produk show in self order
+tambahkan modul pin produk unggulan di order
+
+modul redeem poin / voucher dan stamp
 
 
 
-
-- foto produk harusnya ke core.namuacoffee.com/uploads/produk
-- terkait extra, kamu cek logika di finance /master/extra, dan rumpunya. serta logika POS saat menambahkan produk. gunakan logika yang sama dengan di POS dan baca database master extra dan relasinya
-- hapus badge kritis
-- tabel yang benar mst_product_extra_map, mst_extra, mst_extra_group, dan mst_extra_group_item
-- gunakan poin balance baru dan legacy. jumlahkan. karena kita baru pindah data, jadi history poin balance lama tidak tertarik.
-
-
-
-- /order ketersediaan stok dibaca dari mana? apakah sudah sama dengan logika /pos/stock-live?
-- foto produk di core.namuacoffee.com/uploads/produk
-- percantik lagi halaman /member. kejutkan saya!
+extra!
+- Perbaiki input grup extra
+- perbaiki add master extra add
+- cek list produk extra ke grup extra dari grup
+- cek list produk ke extra grup dari grup 
