@@ -196,3 +196,12 @@ extra!
 - perbaiki add master extra add
 - cek list produk extra ke grup extra dari grup
 - cek list produk ke extra grup dari grup 
+- extra yang bahan baku 
+
+
+pos/self-order/settings tambahkan metode pembayaran, untuk menghubungkan qris dan rekening. karena yang terseting sekarang salah masuk rekening.
+
+/pos/self-order/orders tolak transaksi. verifikasi ke draft (agar bisa di edit)
+belum clear
+
+tambah extra oat

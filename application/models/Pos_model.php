@@ -519,6 +519,7 @@ class Pos_model extends CI_Model
             'midtrans_server_key' => '',
             'midtrans_client_key' => '',
             'midtrans_is_production' => 0,
+            'qris_payment_method_id' => 0,
             'qris_notes' => '',
         ];
 
@@ -548,6 +549,9 @@ class Pos_model extends CI_Model
                 $settings['midtrans_server_key'] = (string)($row['midtrans_server_key'] ?? '');
                 $settings['midtrans_client_key'] = (string)($row['midtrans_client_key'] ?? '');
                 $settings['midtrans_is_production'] = (int)($row['midtrans_is_production'] ?? 0);
+                if (array_key_exists('payment_method_id', $row)) {
+                    $settings['qris_payment_method_id'] = (int)($row['payment_method_id'] ?? 0);
+                }
             }
         }
 
@@ -571,8 +575,21 @@ class Pos_model extends CI_Model
         $db = $this->db;
         $memberBaseUrl = $this->normalize_member_base_url((string)($data['member_base_url'] ?? ''));
         $secret = trim((string)($data['table_qr_secret'] ?? ''));
+        $qrisPaymentMethodId = max(0, (int)($data['qris_payment_method_id'] ?? 0));
         if ($secret === '') {
             $secret = bin2hex(random_bytes(24));
+        }
+
+        if ($qrisPaymentMethodId > 0) {
+            $method = $this->find_payment_method($qrisPaymentMethodId);
+            if (!$method || (int)($method['is_active'] ?? 0) !== 1) {
+                return ['ok' => false, 'message' => 'Metode pembayaran self order tidak ditemukan atau tidak aktif.'];
+            }
+            if ($this->db->table_exists('fin_company_account') && (int)($method['company_account_id'] ?? 0) <= 0) {
+                return ['ok' => false, 'message' => 'Metode pembayaran self order wajib terhubung ke rekening perusahaan.'];
+            }
+        } elseif (!empty($data['midtrans_is_enabled'])) {
+            return ['ok' => false, 'message' => 'Pilih metode pembayaran self order agar settlement masuk ke rekening yang benar.'];
         }
 
         $db->trans_begin();
@@ -596,6 +613,7 @@ class Pos_model extends CI_Model
                 'midtrans_server_key' => trim((string)($data['midtrans_server_key'] ?? '')),
                 'midtrans_client_key' => trim((string)($data['midtrans_client_key'] ?? '')),
                 'midtrans_is_production' => !empty($data['midtrans_is_production']) ? 1 : 0,
+                'payment_method_id' => $qrisPaymentMethodId > 0 ? $qrisPaymentMethodId : null,
             ]));
 
             if ($db->trans_status() === false) {
@@ -608,6 +626,29 @@ class Pos_model extends CI_Model
             $db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
         }
+    }
+
+    public function self_order_qris_payment_method_options(): array
+    {
+        $db = $this->coredb;
+        if (!$db->table_exists('pos_payment_method')) {
+            return [];
+        }
+
+        $db->from('pos_payment_method pm');
+        $select = 'pm.id, pm.method_code, pm.method_name, pm.method_type, pm.company_account_id';
+        if ($db->table_exists('fin_company_account')) {
+            $db->join('fin_company_account acc', 'acc.id = pm.company_account_id', 'left');
+            $select .= ', acc.account_name, acc.account_type, acc.bank_name, acc.account_no, acc.account_holder';
+        }
+
+        return $db->select($select, false)
+            ->where('pm.is_active', 1)
+            ->where('pm.company_account_id IS NOT NULL', null, false)
+            ->order_by('pm.method_name', 'ASC')
+            ->order_by('pm.id', 'ASC')
+            ->get()
+            ->result_array();
     }
 
     public function self_order_table_rows(array $filters = []): array
@@ -775,7 +816,7 @@ class Pos_model extends CI_Model
             $paymentTab = 'ALL';
         }
         $statusTab = strtoupper(trim((string)($filters['status_tab'] ?? 'ALL')));
-        if (!in_array($statusTab, ['ALL', 'NEEDS_VERIFY', 'WAITING_PAYMENT', 'ACTIVE_CASHIER', 'PAID_ORDER'], true)) {
+        if (!in_array($statusTab, ['ALL', 'NEEDS_VERIFY', 'WAITING_PAYMENT', 'ACTIVE_CASHIER', 'PAID_ORDER', 'REJECTED'], true)) {
             $statusTab = 'ALL';
         }
         $page = max(1, (int)($filters['page'] ?? 1));
@@ -842,11 +883,15 @@ class Pos_model extends CI_Model
             ];
         }
 
-        $paymentMap = $this->self_order_final_payment_map(array_map('intval', array_column($rows, 'id')));
+        $orderIds = array_map('intval', array_column($rows, 'id'));
+        $paymentMap = $this->self_order_final_payment_map($orderIds);
+        $rejectionMap = $this->self_order_rejection_info_map($orderIds);
         $prepared = [];
         foreach ($rows as $row) {
             $orderId = (int)($row['id'] ?? 0);
             $payment = (array)($paymentMap[$orderId] ?? []);
+            $rejection = (array)($rejectionMap[$orderId] ?? []);
+            $row = $this->self_order_apply_reject_state($row, $rejection);
             $flow = $this->self_order_flow_state($row, $payment);
 
             $customerName = $this->resolve_order_customer_name($row['customer_name'] ?? '', $row['member_name'] ?? '');
@@ -877,6 +922,8 @@ class Pos_model extends CI_Model
                 'payment_reference' => (string)($payment['reference_no'] ?? ''),
                 'payment_method_name' => (string)($payment['method_name'] ?? ''),
                 'payment_method_type' => (string)($payment['method_type'] ?? ''),
+                'rejected_reason' => (string)($rejection['reason'] ?? ''),
+                'rejected_by_name' => (string)($rejection['actor_name'] ?? ''),
             ];
         }
 
@@ -953,6 +1000,41 @@ class Pos_model extends CI_Model
         ];
     }
 
+    public function self_order_rejection_context(int $orderId): array
+    {
+        if ($orderId <= 0) {
+            return ['ok' => false, 'message' => 'Order self order tidak valid.'];
+        }
+
+        $order = $this->find_self_order_order($orderId);
+        if (!$order) {
+            return ['ok' => false, 'message' => 'Order self order tidak ditemukan.'];
+        }
+
+        $header = (array)($order['header'] ?? []);
+        if (strtoupper(trim((string)($header['order_channel'] ?? ''))) !== 'SELF_ORDER') {
+            return ['ok' => false, 'message' => 'Order ini bukan order self order.'];
+        }
+
+        $paymentMap = $this->self_order_final_payment_map([$orderId]);
+        $payment = (array)($paymentMap[$orderId] ?? []);
+        $flow = $this->self_order_flow_state($header, $payment);
+        if (empty($flow['can_reject'])) {
+            return [
+                'ok' => false,
+                'message' => (string)($flow['reject_message'] ?? 'Order self order ini tidak bisa ditolak.'),
+                'flow' => $flow,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'header' => $header,
+            'payment' => $payment,
+            'flow' => $flow,
+        ];
+    }
+
     public function find_self_order_order(int $id): ?array
     {
         $order = $this->find_order_draft($id);
@@ -963,6 +1045,15 @@ class Pos_model extends CI_Model
         $header = (array)($order['header'] ?? []);
         if (strtoupper(trim((string)($header['order_channel'] ?? ''))) !== 'SELF_ORDER') {
             return null;
+        }
+
+        $rejection = $this->self_order_rejection_info_map([$id]);
+        $rejectInfo = (array)($rejection[$id] ?? []);
+        if (!empty($rejectInfo)) {
+            $order['header'] = $this->self_order_apply_reject_state((array)$order['header'], $rejectInfo);
+            $order['reject_info'] = $rejectInfo;
+            $order['header']['reject_reason'] = (string)($rejectInfo['reason'] ?? '');
+            $order['header']['reject_actor_name'] = (string)($rejectInfo['actor_name'] ?? '');
         }
 
         return $order;
@@ -977,7 +1068,14 @@ class Pos_model extends CI_Model
 
         $paymentMode = strtoupper(trim((string)($context['payment_mode'] ?? 'KASIR')));
         $isPaid = !empty($context['is_paid']);
-        $targetStatus = $isPaid ? 'PAID' : 'CONFIRMED';
+        $verifyDestination = strtoupper(trim((string)($context['verify_destination'] ?? '')));
+        if (!in_array($verifyDestination, ['ACTIVE_CASHIER', 'PAID_ORDER'], true)) {
+            $verifyDestination = $isPaid ? 'PAID_ORDER' : 'ACTIVE_CASHIER';
+        }
+        if ($paymentMode !== 'QRIS' || !$isPaid) {
+            $verifyDestination = 'ACTIVE_CASHIER';
+        }
+        $targetStatus = $verifyDestination === 'PAID_ORDER' ? 'PAID' : 'CONFIRMED';
         $stockCommitStatus = strtoupper(trim((string)($context['stock_commit_status'] ?? 'QUEUED')));
         if (!in_array($stockCommitStatus, ['PENDING', 'QUEUED', 'PROCESSING', 'POSTED', 'FAILED', 'REVERSED', 'NOT_REQUIRED'], true)) {
             $stockCommitStatus = 'QUEUED';
@@ -1006,9 +1104,13 @@ class Pos_model extends CI_Model
             }
 
             $this->db->where('id', $orderId)->update('pos_order', $this->filter_table_payload('pos_order', $payload));
-            $note = ($isPaid
-                ? 'Self order diverifikasi setelah pembayaran diterima.'
-                : 'Self order diverifikasi untuk dibayar di kasir.');
+            if ($isPaid && $verifyDestination === 'ACTIVE_CASHIER') {
+                $note = 'Self order QRIS diverifikasi ke order aktif meski pembayaran sudah diterima.';
+            } elseif ($isPaid) {
+                $note = 'Self order diverifikasi setelah pembayaran diterima.';
+            } else {
+                $note = 'Self order diverifikasi untuk dibayar di kasir.';
+            }
             if ($stockCommitStatus === 'NOT_REQUIRED' || $snapshotId <= 0) {
                 $note .= ' Snapshot stock commit dilewati karena recipe product belum tersedia.';
             } else {
@@ -1018,7 +1120,9 @@ class Pos_model extends CI_Model
                 $orderId,
                 (string)($row['status'] ?? 'PENDING'),
                 $targetStatus,
-                $isPaid ? 'SELF_ORDER_VERIFY_PAID' : 'SELF_ORDER_VERIFY_CASHIER',
+                $isPaid
+                    ? ($verifyDestination === 'ACTIVE_CASHIER' ? 'SELF_ORDER_VERIFY_PAID_ACTIVE' : 'SELF_ORDER_VERIFY_PAID')
+                    : 'SELF_ORDER_VERIFY_CASHIER',
                 $actorEmployeeId,
                 $note
             );
@@ -1031,12 +1135,79 @@ class Pos_model extends CI_Model
                 'ok' => true,
                 'id' => $orderId,
                 'target_status' => $targetStatus,
-                'workspace_bucket' => $isPaid ? 'PAID_ORDER' : 'ACTIVE_CASHIER',
+                'workspace_bucket' => $verifyDestination,
                 'payment_mode' => $paymentMode,
+                'is_paid' => $isPaid ? 1 : 0,
             ];
         } catch (Throwable $e) {
             $this->db->trans_rollback();
             $this->db->db_debug = $previousDbDebug;
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function reject_self_order_order(int $orderId, int $actorEmployeeId, string $reason = ''): array
+    {
+        $context = $this->self_order_rejection_context($orderId);
+        if (!($context['ok'] ?? false)) {
+            return $context;
+        }
+
+        $header = (array)($context['header'] ?? []);
+        $payment = (array)($context['payment'] ?? []);
+        $existingStatus = strtoupper(trim((string)($header['status'] ?? 'PENDING')));
+        if ($this->self_order_is_rejected_status($existingStatus)) {
+            return ['ok' => true, 'id' => $orderId, 'status' => 'REJECTED', 'reason' => trim($reason)];
+        }
+
+        $reason = trim($reason);
+        if ($reason === '') {
+            return ['ok' => false, 'message' => 'Alasan penolakan wajib diisi.'];
+        }
+
+        $paymentId = (int)($payment['id'] ?? 0);
+        $paymentMeta = $this->decode_json_assoc((string)($payment['notes'] ?? ''));
+        $paymentMeta['payment_status_label'] = 'VOID';
+        unset($paymentMeta['payment_qr_url'], $paymentMeta['payment_qr_string']);
+        $paymentNotes = $this->encode_self_order_payment_meta($paymentMeta);
+
+        $this->db->trans_begin();
+        try {
+            $orderPayload = [
+                'status' => 'VOID',
+                'kitchen_status' => 'VOID',
+                'paid_at' => null,
+                'paid_total' => 0,
+            ];
+            if ($actorEmployeeId > 0 && $this->db->field_exists('cashier_employee_id', 'pos_order')) {
+                $orderPayload['cashier_employee_id'] = $actorEmployeeId;
+            }
+            $this->db->where('id', $orderId)->update('pos_order', $this->filter_table_payload('pos_order', $orderPayload));
+
+            if ($paymentId > 0) {
+                $paymentPayload = ['payment_status' => 'VOID', 'paid_at' => null];
+                if ($paymentNotes !== null && $this->db->field_exists('notes', 'pos_payment')) {
+                    $paymentPayload['notes'] = $paymentNotes;
+                }
+                $this->db->where('id', $paymentId)->update('pos_payment', $this->filter_table_payload('pos_payment', $paymentPayload));
+                if ($this->db->table_exists('pos_payment_line')) {
+                    $linePayload = ['status' => 'VOID'];
+                    if ($this->db->field_exists('received_at', 'pos_payment_line')) {
+                        $linePayload['received_at'] = null;
+                    }
+                    $this->db->where('payment_id', $paymentId)->update('pos_payment_line', $this->filter_table_payload('pos_payment_line', $linePayload));
+                }
+            }
+
+            $note = 'Self order ditolak. Alasan penolakan: ' . $reason;
+            $this->insert_order_state_log($orderId, $existingStatus !== '' ? $existingStatus : 'PENDING', 'REJECTED', 'SELF_ORDER_REJECT', $actorEmployeeId, $note);
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan penolakan self order.');
+            }
+            $this->db->trans_commit();
+            return ['ok' => true, 'id' => $orderId, 'status' => 'REJECTED', 'reason' => $reason];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
         }
     }
@@ -1085,6 +1256,7 @@ class Pos_model extends CI_Model
             'WAITING_PAYMENT' => 0,
             'ACTIVE_CASHIER' => 0,
             'PAID_ORDER' => 0,
+            'REJECTED' => 0,
         ];
     }
 
@@ -1102,6 +1274,110 @@ class Pos_model extends CI_Model
         }
         $decoded = json_decode($raw, true);
         return is_array($decoded) ? $decoded : [];
+    }
+
+    private function encode_self_order_payment_meta(array $meta): ?string
+    {
+        $filtered = [];
+        foreach ($meta as $key => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $filtered[$key] = $value;
+        }
+        $json = json_encode($filtered, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            return null;
+        }
+        if (strlen($json) <= 255) {
+            return $json;
+        }
+        unset($filtered['rejected_reason'], $filtered['payment_qr_url'], $filtered['payment_qr_string']);
+        $json = json_encode($filtered, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            return null;
+        }
+        return strlen($json) <= 255 ? $json : substr($json, 0, 255);
+    }
+
+    private function self_order_rejected_statuses(): array
+    {
+        return ['REJECTED', 'CANCELLED', 'CANCEL', 'VOID'];
+    }
+
+    private function self_order_is_rejected_status(string $status): bool
+    {
+        return in_array(strtoupper(trim($status)), $this->self_order_rejected_statuses(), true);
+    }
+
+    private function self_order_extract_rejection_reason(string $note): string
+    {
+        $note = trim($note);
+        if ($note === '') {
+            return '';
+        }
+        $marker = 'Alasan penolakan:';
+        $pos = strpos($note, $marker);
+        if ($pos === false) {
+            return $note;
+        }
+        return trim(substr($note, $pos + strlen($marker)));
+    }
+
+    private function self_order_apply_reject_state(array $order, array $rejectInfo = []): array
+    {
+        if (empty($rejectInfo)) {
+            return $order;
+        }
+
+        $status = strtoupper(trim((string)($order['status'] ?? '')));
+        if ($status === '' || in_array($status, ['DRAFT', 'PENDING', 'REJECTED'], true)) {
+            $order['status'] = 'VOID';
+        }
+        if (empty($order['kitchen_status'])) {
+            $order['kitchen_status'] = 'VOID';
+        }
+
+        return $order;
+    }
+
+    private function self_order_rejection_info_map(array $orderIds): array
+    {
+        $orderIds = array_values(array_unique(array_filter(array_map('intval', $orderIds))));
+        if (empty($orderIds) || !$this->db->table_exists('pos_order_state_log')) {
+            return [];
+        }
+
+        $hasCreatedAt = $this->db->field_exists('created_at', 'pos_order_state_log');
+        $select = 'l.id, l.order_id, l.actor_employee_id, l.notes';
+        if ($hasCreatedAt) {
+            $select .= ', l.created_at';
+        }
+
+        $rows = $this->db->select($select . ', e.employee_name AS actor_name', false)
+            ->from('pos_order_state_log l')
+            ->join('org_employee e', 'e.id = l.actor_employee_id', 'left')
+            ->where_in('l.order_id', $orderIds)
+            ->where('l.event_code', 'SELF_ORDER_REJECT')
+            ->order_by('l.id', 'DESC')
+            ->get()
+            ->result_array();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $orderId = (int)($row['order_id'] ?? 0);
+            if ($orderId <= 0 || isset($map[$orderId])) {
+                continue;
+            }
+            $map[$orderId] = [
+                'reason' => $this->self_order_extract_rejection_reason((string)($row['notes'] ?? '')),
+                'note' => (string)($row['notes'] ?? ''),
+                'actor_name' => trim((string)($row['actor_name'] ?? '')),
+                'created_at' => (string)($row['created_at'] ?? ''),
+            ];
+        }
+
+        return $map;
     }
 
     private function self_order_final_payment_map(array $orderIds): array
@@ -1160,26 +1436,43 @@ class Pos_model extends CI_Model
         $paymentStatus = strtoupper(trim((string)($payment['payment_status_label'] ?? ($payment['payment_status'] ?? 'PENDING'))));
         $orderStatus = strtoupper(trim((string)($order['status'] ?? 'PENDING')));
         $stockCommitStatus = strtoupper(trim((string)($order['stock_commit_status'] ?? 'PENDING')));
+        $isRejected = $this->self_order_is_rejected_status($orderStatus);
 
         $isPaid = in_array($paymentStatus, ['PAID', 'SUCCESS', 'SETTLED'], true)
             || in_array($orderStatus, ['PAID', 'PAID_PARTIAL', 'READY', 'SERVED', 'REFUND_PARTIAL', 'REFUND_FULL', 'REFUNDED_FULL'], true)
             || round((float)($order['paid_total'] ?? 0), 2) >= round((float)($order['grand_total'] ?? 0), 2);
 
         $verified = in_array($stockCommitStatus, ['QUEUED', 'PROCESSING', 'POSTED', 'FAILED', 'REVERSED', 'NOT_REQUIRED'], true);
-        $canVerify = !$verified && ($paymentMode === 'KASIR' || ($paymentMode === 'QRIS' && $isPaid));
+        $canVerify = !$isRejected && !$verified && ($paymentMode === 'KASIR' || ($paymentMode === 'QRIS' && $isPaid));
+        $canReject = !$isRejected && !$verified && !$isPaid;
         $verifyMessage = '';
+        $rejectMessage = '';
+        $paidWorkspaceStatuses = ['PAID', 'PAID_PARTIAL', 'REFUND_PARTIAL', 'REFUND_FULL', 'REFUNDED_FULL'];
+        $isPaidWorkspace = in_array($orderStatus, $paidWorkspaceStatuses, true);
 
-        if ($verified) {
-            $flowCode = $isPaid ? 'PAID_ORDER' : 'ACTIVE_CASHIER';
-            $flowLabel = $isPaid ? 'Masuk Pesanan Terbayar' : 'Masuk Order Aktif';
+        if ($isRejected) {
+            $flowCode = 'REJECTED';
+            $flowLabel = 'Ditolak Kasir';
+            $verifyMessage = 'Order ini sudah ditolak dan tidak bisa diverifikasi lagi.';
+            $rejectMessage = 'Order ini sudah ditolak.';
+        } elseif ($verified) {
+            $flowCode = $isPaidWorkspace ? 'PAID_ORDER' : 'ACTIVE_CASHIER';
+            $flowLabel = $isPaidWorkspace ? 'Masuk Pesanan Terbayar' : 'Masuk Order Aktif';
+            $rejectMessage = 'Order sudah diverifikasi. Gunakan void/refund dari workspace POS bila perlu pembatalan lanjutan.';
         } elseif ($paymentMode === 'QRIS' && !$isPaid) {
             $flowCode = 'WAITING_PAYMENT';
             $flowLabel = 'Menunggu Pembayaran QRIS';
             $verifyMessage = 'Order ini masih menunggu pembayaran QRIS dari customer.';
+            $rejectMessage = 'Order bisa ditolak selama pembayaran QRIS belum masuk.';
         } else {
             $flowCode = 'NEEDS_VERIFY';
             $flowLabel = 'Perlu Verifikasi Kasir';
             $verifyMessage = 'Order siap diverifikasi untuk dicetak dan diproses.';
+            $rejectMessage = 'Order bisa ditolak sebelum diverifikasi.';
+        }
+
+        if (!$isRejected && !$verified && $isPaid) {
+            $rejectMessage = 'Order QRIS yang sudah dibayar tidak bisa ditolak dari halaman ini. Lanjutkan dengan verifikasi lalu refund bila memang harus dibatalkan.';
         }
 
         return [
@@ -1189,9 +1482,12 @@ class Pos_model extends CI_Model
             'flow_code' => $flowCode,
             'flow_label' => $flowLabel,
             'is_paid' => $isPaid ? 1 : 0,
+            'is_rejected' => $isRejected ? 1 : 0,
             'is_verified' => $verified ? 1 : 0,
             'can_verify' => $canVerify ? 1 : 0,
             'verify_message' => $verifyMessage,
+            'can_reject' => $canReject ? 1 : 0,
+            'reject_message' => $rejectMessage,
         ];
     }
 
@@ -5612,6 +5908,8 @@ class Pos_model extends CI_Model
         try {
             $existing = null;
             $existingOrder = null;
+            $existingPaidTotal = 0.0;
+            $existingHasSettlement = false;
             if ($id > 0) {
                 $existing = $this->db->query('SELECT * FROM pos_order WHERE id = ? LIMIT 1 FOR UPDATE', [$id])->row_array();
                 if (!$existing) {
@@ -5627,9 +5925,15 @@ class Pos_model extends CI_Model
                         throw new RuntimeException('Order POS tersimpan tidak ditemukan saat append transaksi.');
                     }
                 }
+                $existingPaidTotal = round((float)($existing['paid_total'] ?? 0), 2);
+                $existingHasSettlement = $existingPaidTotal > 0.009 || !empty($existing['paid_at']);
             }
 
             $headerTotals = $this->calculate_order_totals((array)($normalized['rows'] ?? []));
+            $nextPersistedStatus = $isConfirmedAppend ? 'CONFIRMED' : 'DRAFT';
+            if ($isConfirmedAppend && $existingHasSettlement && round((float)($headerTotals['grand_total'] ?? 0), 2) <= ($existingPaidTotal + 0.009)) {
+                $nextPersistedStatus = 'PAID';
+            }
             $headerPayload = [
                 'order_channel' => 'CASHIER',
                 'order_scope' => 'REGULAR',
@@ -5646,10 +5950,13 @@ class Pos_model extends CI_Model
                 'subtotal_amount' => $headerTotals['subtotal_amount'],
                 'grand_total' => $headerTotals['grand_total'],
                 'notes' => $this->nullable_text($payload['notes'] ?? ''),
-                'status' => $isConfirmedAppend ? 'CONFIRMED' : 'DRAFT',
+                'status' => $nextPersistedStatus,
                 'kitchen_status' => $isConfirmedAppend ? (string)($existing['kitchen_status'] ?? 'PENDING') : 'PENDING',
                 'stock_commit_status' => $isConfirmedAppend ? (string)($existing['stock_commit_status'] ?? 'POSTED') : 'PENDING',
             ];
+            if ($nextPersistedStatus === 'PAID' && empty($existing['paid_at'])) {
+                $headerPayload['paid_at'] = date('Y-m-d H:i:s');
+            }
             if ($hasSalesChannelSchema) {
                 $headerPayload['sales_channel_id'] = $salesChannelId > 0 ? $salesChannelId : null;
             }
@@ -5737,15 +6044,24 @@ class Pos_model extends CI_Model
             if ($id > 0) {
                 if ($isConfirmedAppend) {
                     $appendCount = count($appendedLineIds);
+                    $statusAfterSave = (string)($headerPayload['status'] ?? 'CONFIRMED');
                     $this->insert_order_state_log(
                         $id,
                         (string)($existing['status'] ?? 'CONFIRMED'),
-                        'CONFIRMED',
-                        'ORDER_APPEND_UPDATE',
+                        $statusAfterSave,
+                        $statusAfterSave === 'PAID' ? 'ORDER_APPEND_SETTLED' : 'ORDER_APPEND_UPDATE',
                         $actorEmployeeId,
-                        $headerOnlyUpdate
-                            ? 'Header order confirmed diperbarui tanpa item baru.'
-                            : ('Order confirmed diperbarui dengan ' . $appendCount . ' line baru dari kasir.')
+                        $statusAfterSave === 'PAID'
+                            ? (
+                                $headerOnlyUpdate
+                                    ? 'Header order confirmed diperbarui dan totalnya tetap tertutup pembayaran yang sudah ada, sehingga order masuk ke pesanan terbayar.'
+                                    : ('Order confirmed diperbarui dengan ' . $appendCount . ' line baru dan totalnya tertutup pembayaran yang sudah ada, sehingga order masuk ke pesanan terbayar.')
+                            )
+                            : (
+                                $headerOnlyUpdate
+                                    ? 'Header order confirmed diperbarui tanpa item baru.'
+                                    : ('Order confirmed diperbarui dengan ' . $appendCount . ' line baru dari kasir.')
+                            )
                     );
                 } else {
                     $this->insert_order_state_log($id, (string)($existing['status'] ?? 'DRAFT'), 'DRAFT', 'ORDER_DRAFT_UPDATE', $actorEmployeeId, 'Draft order diperbarui.');

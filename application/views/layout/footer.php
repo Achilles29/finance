@@ -12,7 +12,35 @@
 <script src="<?= base_url('assets/js/main.js') ?>"></script>
 <!-- Base URL untuk JS -->
 <script>const BASE_URL = '<?= base_url() ?>';</script>
+<?php
+$globalNotifierConfig = is_array($global_notifier_config ?? null) ? $global_notifier_config : [];
+if (!$globalNotifierConfig) {
+    $CI = &get_instance();
+    $sessionUser = [];
+    $sessionPerms = [];
+    if (isset($CI->session)) {
+        $sessionUser = (array)($CI->session->userdata('auth_user') ?? []);
+        $sessionPerms = (array)($CI->session->userdata('user_perms') ?? []);
+    }
+    $viewUser = is_array($current_user ?? null) ? $current_user : $sessionUser;
+    $viewPerms = is_array($user_perms ?? null) ? $user_perms : $sessionPerms;
+    $canGlobalSelfOrderNotify = !empty($viewUser['is_superadmin']) || !empty($viewPerms['pos.self_order.index']['can_view']);
+    $globalNotifierConfig = [
+        'enabled' => $canGlobalSelfOrderNotify,
+        'channel' => 'self_order',
+        'poll_ms' => 12000,
+        'current_path' => trim((string)uri_string(), '/'),
+        'skip_paths' => ['pos/self-order/orders'],
+        'endpoint' => site_url('pos/self-order/orders/data'),
+        'sound_url' => base_url('assets/sounds/notifikasi.mp3'),
+        'title' => 'Self Order',
+    ];
+}
+?>
+<script>
+window.FINANCE_GLOBAL_NOTIFIER_CONFIG = <?= json_encode($globalNotifierConfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+</script>
 <!-- Finance App JS -->
-<script src="<?= base_url('assets/js/app.js?v=20260511a') ?>"></script>
+<script src="<?= base_url('assets/js/app.js?v=20260620a') ?>"></script>
 </body>
 </html>

@@ -830,6 +830,147 @@ class Master_relation extends MY_Controller
         redirect('master/relation/extra-group/' . $groupId);
     }
 
+    public function extra_group_items_ajax(int $groupId)
+    {
+        $group = $this->Master_model->get_by_id('mst_extra_group', $groupId);
+        if (!$group) {
+            return $this->outputJson(['ok' => false, 'message' => 'Group extra tidak ditemukan.'], 404);
+        }
+
+        $q = trim((string)$this->input->get('q', true));
+        $rows = $this->loadExtraRowsForGroup($groupId, $q);
+
+        return $this->outputJson([
+            'ok' => true,
+            'group' => [
+                'id' => (int)$group['id'],
+                'group_code' => (string)($group['group_code'] ?? ''),
+                'group_name' => (string)($group['group_name'] ?? ''),
+            ],
+            'rows' => $rows,
+            'selected_ids' => array_values(array_map('intval', array_column(array_filter($rows, static function ($row) {
+                return !empty($row['mapped']);
+            }), 'id'))),
+        ]);
+    }
+
+    public function extra_group_items_save_ajax(int $groupId)
+    {
+        $group = $this->Master_model->get_by_id('mst_extra_group', $groupId);
+        if (!$group) {
+            return $this->outputJson(['ok' => false, 'message' => 'Group extra tidak ditemukan.'], 404);
+        }
+
+        $selected = $this->input->post('extra_ids');
+        if (!is_array($selected)) {
+            $selected = [];
+        }
+
+        $extraIds = [];
+        foreach ($selected as $extraId) {
+            $extraId = (int)$extraId;
+            if ($extraId > 0) {
+                $extraIds[$extraId] = true;
+            }
+        }
+        $extraIds = array_keys($extraIds);
+
+        $this->db->trans_start();
+        $this->db->where('extra_group_id', $groupId)->delete('mst_extra_group_item');
+
+        $sort = 10;
+        foreach ($extraIds as $extraId) {
+            $this->Master_model->insert('mst_extra_group_item', [
+                'extra_group_id' => $groupId,
+                'extra_id' => $extraId,
+                'sort_order' => $sort,
+            ]);
+            $sort += 10;
+        }
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            return $this->outputJson(['ok' => false, 'message' => 'Gagal menyimpan mapping master extra ke group extra.'], 500);
+        }
+
+        return $this->outputJson([
+            'ok' => true,
+            'message' => 'Mapping master extra ke group extra berhasil disimpan.',
+            'selected_count' => count($extraIds),
+        ]);
+    }
+
+    public function extra_group_products_ajax(int $groupId)
+    {
+        $group = $this->Master_model->get_by_id('mst_extra_group', $groupId);
+        if (!$group) {
+            return $this->outputJson(['ok' => false, 'message' => 'Group extra tidak ditemukan.'], 404);
+        }
+
+        $q = trim((string)$this->input->get('q', true));
+        $rows = $this->loadProductRowsForGroup($group, $q);
+
+        return $this->outputJson([
+            'ok' => true,
+            'group' => [
+                'id' => (int)$group['id'],
+                'group_code' => (string)($group['group_code'] ?? ''),
+                'group_name' => (string)($group['group_name'] ?? ''),
+                'product_division_id' => (int)($group['product_division_id'] ?? 0),
+            ],
+            'rows' => $rows,
+            'selected_ids' => array_values(array_map('intval', array_column(array_filter($rows, static function ($row) {
+                return !empty($row['mapped']);
+            }), 'id'))),
+        ]);
+    }
+
+    public function extra_group_products_save_ajax(int $groupId)
+    {
+        $group = $this->Master_model->get_by_id('mst_extra_group', $groupId);
+        if (!$group) {
+            return $this->outputJson(['ok' => false, 'message' => 'Group extra tidak ditemukan.'], 404);
+        }
+
+        $selected = $this->input->post('product_ids');
+        if (!is_array($selected)) {
+            $selected = [];
+        }
+
+        $productIds = [];
+        foreach ($selected as $productId) {
+            $productId = (int)$productId;
+            if ($productId > 0) {
+                $productIds[$productId] = true;
+            }
+        }
+        $productIds = array_keys($productIds);
+
+        $this->db->trans_start();
+        $this->db->where('extra_group_id', $groupId)->delete('mst_product_extra_map');
+
+        $sort = 10;
+        foreach ($productIds as $productId) {
+            $this->Master_model->insert('mst_product_extra_map', [
+                'extra_group_id' => $groupId,
+                'product_id' => $productId,
+                'sort_order' => $sort,
+            ]);
+            $sort += 10;
+        }
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            return $this->outputJson(['ok' => false, 'message' => 'Gagal menyimpan mapping produk untuk group extra.'], 500);
+        }
+
+        return $this->outputJson([
+            'ok' => true,
+            'message' => 'Mapping produk untuk group extra berhasil disimpan.',
+            'selected_count' => count($productIds),
+        ]);
+    }
+
     public function extra_item_group_hub()
     {
         $q = trim((string)$this->input->get('q', true));
@@ -935,6 +1076,86 @@ class Master_relation extends MY_Controller
         }
 
         redirect('master/relation/extra-item-group/' . $extraId);
+    }
+
+    private function loadExtraRowsForGroup(int $groupId, string $q = ''): array
+    {
+        $this->db->select('e.id, e.extra_code, e.extra_name, e.extra_type, e.source_kind, m.id AS map_id, m.sort_order AS map_sort_order');
+        $this->db->from('mst_extra e');
+        $this->db->join('mst_extra_group_item m', 'm.extra_id = e.id AND m.extra_group_id = ' . $groupId, 'left');
+        if ($q !== '') {
+            $this->db->group_start();
+            $this->db->like('e.extra_code', $q);
+            $this->db->or_like('e.extra_name', $q);
+            $this->db->group_end();
+        }
+        $this->db->order_by('e.extra_name', 'ASC');
+        $rows = $this->db->get()->result_array();
+
+        foreach ($rows as &$row) {
+            $row['mapped'] = !empty($row['map_id']);
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function loadProductRowsForGroup(array $group, string $q = ''): array
+    {
+        $groupId = (int)($group['id'] ?? 0);
+        $groupDivisionId = (int)($group['product_division_id'] ?? 0);
+
+        $this->db->select('
+            p.id,
+            p.product_code,
+            p.product_name,
+            pd.name AS product_division_name,
+            pc.name AS classification_name,
+            cat.name AS product_category_name,
+            m.id AS map_id,
+            m.sort_order AS map_sort_order
+        ');
+        $this->db->from('mst_product p');
+        $this->db->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left');
+        $this->db->join('mst_product_classification pc', 'pc.id = p.classification_id', 'left');
+        $this->db->join('mst_product_category cat', 'cat.id = p.product_category_id', 'left');
+        $this->db->join('mst_product_extra_map m', 'm.product_id = p.id AND m.extra_group_id = ' . $groupId, 'left');
+        $this->db->where('p.is_active', 1);
+        if ($groupDivisionId > 0) {
+            $this->db->where('p.product_division_id', $groupDivisionId);
+        }
+        if ($q !== '') {
+            $this->db->group_start();
+            $this->db->like('p.product_code', $q);
+            $this->db->or_like('p.product_name', $q);
+            $this->db->group_end();
+        }
+        $this->db->order_by('COALESCE(pd.sort_order, 999999)', 'ASC', false);
+        $this->db->order_by('pd.name', 'ASC');
+        $this->db->order_by('COALESCE(pc.sort_order, 999999)', 'ASC', false);
+        $this->db->order_by('pc.name', 'ASC');
+        $this->db->order_by('COALESCE(cat.sort_order, 999999)', 'ASC', false);
+        $this->db->order_by('cat.name', 'ASC');
+        $this->db->order_by('p.product_name', 'ASC');
+        $rows = $this->db->get()->result_array();
+
+        foreach ($rows as &$row) {
+            $row['mapped'] = !empty($row['map_id']);
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function outputJson(array $payload, int $statusCode = 200)
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        return $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
     }
 
     public function product_extra_create(int $productId)

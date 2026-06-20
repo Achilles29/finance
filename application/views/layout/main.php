@@ -6,6 +6,18 @@
 $activeMenuCode = (string)($active_menu ?? '');
 $isPurchaseScope = strpos($activeMenuCode, 'purchase.') === 0;
 $isMyScope = strpos($activeMenuCode, 'my.') === 0;
+$isSuperadmin = !empty($current_user['is_superadmin']);
+$canGlobalSelfOrderNotify = $isSuperadmin || !empty($user_perms['pos.self_order.index']['can_view']);
+$globalNotifierConfig = [
+  'enabled' => $canGlobalSelfOrderNotify,
+  'channel' => 'self_order',
+  'poll_ms' => 12000,
+  'current_path' => trim((string)uri_string(), '/'),
+  'skip_paths' => ['pos/self-order/orders'],
+  'endpoint' => site_url('pos/self-order/orders/data'),
+  'sound_url' => base_url('assets/sounds/notifikasi.mp3'),
+  'title' => 'Self Order',
+];
 $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
 ?>
 <!-- Layout wrapper -->
@@ -128,4 +140,4 @@ $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
   <div class="layout-overlay layout-menu-toggle"></div>
 </div><!-- /layout-wrapper -->
 
-<?php $this->load->view('layout/footer'); ?>
+<?php $this->load->view('layout/footer', ['global_notifier_config' => $globalNotifierConfig]); ?>

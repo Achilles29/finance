@@ -1,5 +1,6 @@
 <?php
 $settings = is_array($settings ?? null) ? $settings : [];
+$qrisPaymentMethodOptions = is_array($qris_payment_method_options ?? null) ? $qris_payment_method_options : [];
 ?>
 
 <div class="container-xxl py-3">
@@ -74,6 +75,34 @@ $settings = is_array($settings ?? null) ? $settings : [];
           </div>
 
           <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label small text-muted mb-1">Metode Pembayaran Self Order</label>
+              <select class="form-select" name="qris_payment_method_id">
+                <option value="">Pilih metode pembayaran...</option>
+                <?php foreach ($qrisPaymentMethodOptions as $method): ?>
+                  <?php
+                    $accountPieces = array_filter([
+                      (string)($method['account_name'] ?? ''),
+                      (string)($method['bank_name'] ?? ''),
+                      (string)($method['account_no'] ?? ''),
+                    ], static function ($value) {
+                      return trim((string)$value) !== '';
+                    });
+                    $optionLabel = (string)($method['method_name'] ?? '-');
+                    if (!empty($accountPieces)) {
+                      $optionLabel .= ' | ' . implode(' | ', $accountPieces);
+                    }
+                  ?>
+                  <option value="<?php echo (int)($method['id'] ?? 0); ?>" <?php echo (int)($settings['qris_payment_method_id'] ?? 0) === (int)($method['id'] ?? 0) ? 'selected' : ''; ?>>
+                    <?php echo html_escape($optionLabel); ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+              <div class="small text-muted mt-2">Pilih metode pembayaran aktif yang sudah terhubung ke rekening perusahaan. Di member tetap tampil sebagai QRIS, tetapi payment line POS akan memakai metode ini.</div>
+              <?php if (empty($qrisPaymentMethodOptions)): ?>
+                <div class="small text-danger mt-2">Belum ada payment method aktif yang terhubung ke rekening. Siapkan dulu di menu Payment Method POS.</div>
+              <?php endif; ?>
+            </div>
             <div class="col-md-6">
               <label class="form-label small text-muted mb-1">Server Key</label>
               <textarea class="form-control" name="midtrans_server_key" rows="3" placeholder="SB-Mid-server-..."><?php echo html_escape((string)($settings['midtrans_server_key'] ?? '')); ?></textarea>

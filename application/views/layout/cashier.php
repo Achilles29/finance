@@ -8,6 +8,17 @@ $canCashier = $_isSuper || !empty($user_perms['pos.cashier.index']['can_view']);
 $canPaid = $_isSuper || !empty($user_perms['pos.order.paid.index']['can_view']) || !empty($user_perms['pos.order.draft.index']['can_view']);
 $canPrinter = $_isSuper || !empty($user_perms['pos.printer.index']['can_view']);
 $canDraft = $_isSuper || !empty($user_perms['pos.order.draft.index']['can_view']);
+$canGlobalSelfOrderNotify = $_isSuper || !empty($user_perms['pos.self_order.index']['can_view']);
+$globalNotifierConfig = [
+    'enabled' => $canGlobalSelfOrderNotify,
+    'channel' => 'self_order',
+    'poll_ms' => 12000,
+    'current_path' => trim((string)uri_string(), '/'),
+    'skip_paths' => ['pos/self-order/orders'],
+    'endpoint' => site_url('pos/self-order/orders/data'),
+    'sound_url' => base_url('assets/sounds/notifikasi.mp3'),
+    'title' => 'Self Order',
+];
 ?>
 <style>
   .cashier-layout {
@@ -220,4 +231,4 @@ $canDraft = $_isSuper || !empty($user_perms['pos.order.draft.index']['can_view']
   </div>
 </div>
 
-<?php $this->load->view('layout/footer'); ?>
+<?php $this->load->view('layout/footer', ['global_notifier_config' => $globalNotifierConfig]); ?>

@@ -38,7 +38,7 @@ $extraTabActive = 'group-checklist';
           <th>Nama Group</th>
           <th>Divisi Produk</th>
           <th>Total Produk</th>
-          <th width="120">Aksi</th>
+          <th width="180">Aksi</th>
         </tr>
       </thead>
       <tbody>
@@ -55,6 +55,7 @@ $extraTabActive = 'group-checklist';
               <td><?php echo html_escape((string)($r['product_division_name'] ?? '-')); ?></td>
               <td class="number-cell"><?php echo (int)($r['total_product'] ?? 0); ?></td>
               <td class="action-cell">
+                <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Hubungkan Extra ke Group" aria-label="Hubungkan Extra ke Group" href="<?php echo site_url('master/relation/extra-item-group'); ?>?group_id=<?php echo (int)$r['id']; ?>"><i class="ri ri-links-line"></i></a>
                 <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Checklist Produk" aria-label="Checklist Produk" href="<?php echo site_url('master/relation/extra-group/' . (int)$r['id']); ?>"><i class="ri ri-checkbox-multiple-line"></i></a>
               </td>
             </tr>

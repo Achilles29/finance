@@ -784,6 +784,7 @@ class Pos extends MY_Controller
             'page_title' => 'Self Order POS',
             'active_menu' => 'pos.self_order.index',
             'settings' => $this->Pos_model->self_order_settings(),
+            'qris_payment_method_options' => $this->Pos_model->self_order_qris_payment_method_options(),
         ]);
     }
 
@@ -874,7 +875,25 @@ class Pos extends MY_Controller
     public function self_order_order_verify($id)
     {
         $this->require_permission('pos.self_order.index', 'edit');
-        $this->verify_self_order_and_respond((int)$id, $this->current_actor_employee_id());
+        $payload = $this->request_payload();
+        $this->verify_self_order_and_respond((int)$id, $this->current_actor_employee_id(), $payload);
+    }
+
+    public function self_order_order_reject($id)
+    {
+        $this->require_permission('pos.self_order.index', 'edit');
+        $payload = $this->request_payload();
+        $reason = trim((string)($payload['reason'] ?? ''));
+        $result = $this->Pos_model->reject_self_order_order((int)$id, $this->current_actor_employee_id(), $reason);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menolak order self order.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)($result['id'] ?? 0),
+            'status' => (string)($result['status'] ?? 'REJECTED'),
+            'reason' => (string)($result['reason'] ?? ''),
+        ]);
     }
 
     public function deposit_member_search()
@@ -3629,8 +3648,8 @@ class Pos extends MY_Controller
             $paymentTab = 'ALL';
         }
         $statusTab = strtoupper(trim((string)$this->input->get('status_tab', true)));
-        if (!in_array($statusTab, ['ALL', 'NEEDS_VERIFY', 'WAITING_PAYMENT', 'ACTIVE_CASHIER', 'PAID_ORDER'], true)) {
-            $statusTab = 'ALL';
+        if (!in_array($statusTab, ['ALL', 'NEEDS_VERIFY', 'WAITING_PAYMENT', 'ACTIVE_CASHIER', 'PAID_ORDER', 'REJECTED'], true)) {
+            $statusTab = 'NEEDS_VERIFY';
         }
         return [
             'q' => trim((string)$this->input->get('q', true)),
@@ -3644,7 +3663,7 @@ class Pos extends MY_Controller
         ];
     }
 
-    private function verify_self_order_and_respond(int $orderId, int $actorEmployeeId): void
+    private function verify_self_order_and_respond(int $orderId, int $actorEmployeeId, array $payload = []): void
     {
         $this->load->library('PosStockCommitService');
         $this->load->library('PosRuntimeJobService');
@@ -3663,6 +3682,7 @@ class Pos extends MY_Controller
             return;
         }
         $warningMessage = trim((string)($resolved['warning_message'] ?? ''));
+        $verifyDestination = strtoupper(trim((string)($payload['verify_destination'] ?? '')));
 
         if (empty($resolved['lines'])) {
             $finalize = $this->Pos_model->finalize_self_order_verification($orderId, 0, $actorEmployeeId, [
@@ -3670,6 +3690,7 @@ class Pos extends MY_Controller
                 'payment_status' => (string)($context['payment_status'] ?? 'PENDING'),
                 'is_paid' => !empty($context['is_paid']),
                 'stock_commit_status' => 'NOT_REQUIRED',
+                'verify_destination' => $verifyDestination,
             ]);
             if (!($finalize['ok'] ?? false)) {
                 $this->json_error((string)($finalize['message'] ?? 'Order self order gagal difinalkan.'), 422);
@@ -3733,6 +3754,7 @@ class Pos extends MY_Controller
             'payment_status' => (string)($context['payment_status'] ?? 'PENDING'),
             'is_paid' => !empty($context['is_paid']),
             'stock_commit_status' => 'QUEUED',
+            'verify_destination' => $verifyDestination,
         ]);
         if (!($finalize['ok'] ?? false)) {
             $this->posruntimejobservice->cancel_job((int)($queued['job_id'] ?? 0), 'Order self order gagal difinalkan setelah queue dibuat.');

@@ -451,6 +451,202 @@ $(function () {
         };
     }
 
+    function ensureGlobalNotifyUi() {
+        var existing = document.getElementById('financeGlobalNotifyRoot');
+        if (existing) {
+            return existing;
+        }
+
+        var style = document.createElement('style');
+        style.setAttribute('data-finance-global-notify-style', '1');
+        style.textContent = ''
+            + '.finance-global-notify-stack{position:fixed;top:84px;right:18px;z-index:2000;display:grid;gap:.6rem;width:min(360px,calc(100vw - 24px));pointer-events:none;}'
+            + '.finance-global-notify-toast{pointer-events:auto;display:flex;align-items:flex-start;gap:.7rem;padding:.9rem 1rem;border-radius:18px;box-shadow:0 18px 38px rgba(17,27,46,.18);background:linear-gradient(135deg,#17263f,#28456e);color:#fff;opacity:0;transform:translateY(-6px);transition:opacity .18s ease, transform .18s ease;}'
+            + '.finance-global-notify-toast.is-visible{opacity:1;transform:translateY(0);}'
+            + '.finance-global-notify-toast-title{font-size:.76rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.8;margin-bottom:.15rem;}'
+            + '.finance-global-notify-toast-body{font-size:.88rem;font-weight:600;line-height:1.4;}'
+            + '.finance-global-notify-toast-icon{flex:0 0 auto;width:2rem;height:2rem;border-radius:999px;background:rgba(255,255,255,.14);display:inline-flex;align-items:center;justify-content:center;font-size:1rem;}';
+        document.head.appendChild(style);
+
+        var root = document.createElement('div');
+        root.id = 'financeGlobalNotifyRoot';
+        root.className = 'finance-global-notify-stack';
+        root.setAttribute('aria-live', 'polite');
+        root.setAttribute('aria-atomic', 'true');
+        document.body.appendChild(root);
+        return root;
+    }
+
+    function showGlobalNotifyToast(message, title) {
+        var root = ensureGlobalNotifyUi();
+        if (!root) return;
+
+        var toast = document.createElement('div');
+        toast.className = 'finance-global-notify-toast';
+        toast.innerHTML = ''
+            + '<div class="finance-global-notify-toast-icon"><i class="ri-volume-up-line"></i></div>'
+            + '<div>'
+            + '  <div class="finance-global-notify-toast-title"></div>'
+            + '  <div class="finance-global-notify-toast-body"></div>'
+            + '</div>';
+        var titleEl = toast.querySelector('.finance-global-notify-toast-title');
+        var bodyEl = toast.querySelector('.finance-global-notify-toast-body');
+        if (titleEl) {
+            titleEl.textContent = String(title || 'Notifikasi');
+        }
+        if (bodyEl) {
+            bodyEl.textContent = String(message || '');
+        }
+        root.appendChild(toast);
+
+        window.requestAnimationFrame(function () {
+            toast.classList.add('is-visible');
+        });
+
+        window.setTimeout(function () {
+            toast.classList.remove('is-visible');
+            window.setTimeout(function () {
+                if (toast.parentNode) {
+                    toast.parentNode.removeChild(toast);
+                }
+            }, 220);
+        }, 3000);
+    }
+
+    function initGlobalSelfOrderNotifier() {
+        var cfg = window.FINANCE_GLOBAL_NOTIFIER_CONFIG || {};
+        if (!cfg || !cfg.enabled || !cfg.endpoint) {
+            return;
+        }
+
+        var currentPath = String(cfg.current_path || '').replace(/^\/+|\/+$/g, '');
+        var skipPaths = Array.isArray(cfg.skip_paths) ? cfg.skip_paths.map(function (path) {
+            return String(path || '').replace(/^\/+|\/+$/g, '');
+        }) : [];
+        if (skipPaths.indexOf(currentPath) >= 0) {
+            return;
+        }
+
+        var pollMs = Math.max(5000, Number(cfg.poll_ms || 12000));
+        var baselineReady = false;
+        var pollBusy = false;
+        var seenOrderIds = {};
+        var audioReady = false;
+        var audio = null;
+
+        function unlockAudio() {
+            audioReady = true;
+            if (!cfg.sound_url) {
+                return;
+            }
+            try {
+                if (!audio) {
+                    audio = new Audio(cfg.sound_url);
+                    audio.preload = 'auto';
+                }
+                var playPromise = audio.play();
+                if (playPromise && typeof playPromise.then === 'function') {
+                    playPromise.then(function () {
+                        audio.pause();
+                        audio.currentTime = 0;
+                    }).catch(function () {});
+                } else {
+                    audio.pause();
+                    audio.currentTime = 0;
+                }
+            } catch (error) {}
+        }
+
+        function playAudio() {
+            if (!audioReady || !cfg.sound_url) {
+                return;
+            }
+            try {
+                if (!audio) {
+                    audio = new Audio(cfg.sound_url);
+                    audio.preload = 'auto';
+                }
+                audio.pause();
+                audio.currentTime = 0;
+                var playPromise = audio.play();
+                if (playPromise && typeof playPromise.catch === 'function') {
+                    playPromise.catch(function () {});
+                }
+            } catch (error) {}
+        }
+
+        async function fetchRows() {
+            var qs = new URLSearchParams();
+            qs.set('q', '');
+            qs.set('outlet_id', '0');
+            qs.set('payment_tab', 'ALL');
+            qs.set('status_tab', 'ALL');
+            qs.set('date_from', '');
+            qs.set('date_to', '');
+            qs.set('page', '1');
+            qs.set('limit', '20');
+
+            var response = await fetch(String(cfg.endpoint) + '?' + qs.toString(), {
+                credentials: 'same-origin',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+            var json = await response.json();
+            if (!json || json.ok === false) {
+                throw new Error(json && json.message ? json.message : 'Gagal memuat notifikasi self order.');
+            }
+            return Array.isArray(json.rows) ? json.rows : [];
+        }
+
+        async function poll() {
+            if (pollBusy) {
+                return;
+            }
+            pollBusy = true;
+            try {
+                var rows = await fetchRows();
+                var newRows = [];
+                rows.forEach(function (row) {
+                    var orderId = Number(row && row.id ? row.id : 0);
+                    if (orderId <= 0) {
+                        return;
+                    }
+                    if (!seenOrderIds[orderId]) {
+                        if (baselineReady) {
+                            newRows.push(row);
+                        }
+                        seenOrderIds[orderId] = true;
+                    }
+                });
+
+                if (!baselineReady) {
+                    baselineReady = true;
+                    return;
+                }
+
+                if (newRows.length) {
+                    var newest = newRows[0] || {};
+                    var orderNo = String(newest.order_no || 'SELF-ORDER');
+                    var tableNo = String(newest.table_no || '').trim();
+                    var message = 'Order baru masuk: ' + orderNo + (tableNo ? ' | ' + tableNo : '');
+                    playAudio();
+                    showGlobalNotifyToast(message, cfg.title || 'Self Order');
+                }
+            } catch (error) {
+                // Fail silently so global polling never disturbs the current page.
+            } finally {
+                pollBusy = false;
+            }
+        }
+
+        document.addEventListener('pointerdown', unlockAudio, { once: true, passive: true });
+        document.addEventListener('keydown', unlockAudio, { once: true });
+        poll();
+        window.setInterval(poll, pollMs);
+    }
+
     function extractConfirmMessage(handlerValue) {
         if (!handlerValue) return '';
         var regex = /^\s*return\s+confirm\((['"])([\s\S]*?)\1\)\s*;?\s*$/i;
@@ -663,6 +859,7 @@ $(function () {
     harmonizeLegacyTables();
     applyAutoTableFit();
     initUiDialogs();
+    initGlobalSelfOrderNotifier();
     normalizeInlineConfirmToDataAttr();
     bindUiConfirmAndLoading();
     reinforceSidebarActivePath();

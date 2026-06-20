@@ -59,6 +59,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
   .self-order-status-chip.waiting { background:#e0f2fe; color:#075985; }
   .self-order-status-chip.active { background:#ede9fe; color:#5b21b6; }
   .self-order-status-chip.paid { background:#dcfce7; color:#166534; }
+  .self-order-status-chip.rejected { background:#fee2e2; color:#991b1b; }
   .self-order-payment-chip.cashier { background:#fff4dd; color:#8d5a00; }
   .self-order-payment-chip.qris { background:#ede9fe; color:#5b21b6; }
   .self-order-subtle { font-size:.78rem; color:#8b7a70; }
@@ -238,11 +239,45 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       </div>
       <div class="modal-body">
         <div class="self-order-detail-grid mb-3" id="self_order_verify_grid"></div>
+        <div class="mb-3 d-none" id="self_order_verify_destination_wrap">
+          <label class="form-label small text-muted mb-1" for="self_order_verify_destination">Tujuan Verifikasi</label>
+          <select class="form-select" id="self_order_verify_destination">
+            <option value="ACTIVE_CASHIER">Masuk Order Aktif Dulu</option>
+            <option value="PAID_ORDER">Langsung ke Pesanan Terbayar</option>
+          </select>
+          <div class="small text-muted mt-2" id="self_order_verify_destination_note">Order QRIS yang sudah lunas tetap bisa masuk order aktif dulu agar kasir sempat cek stok dan penyesuaian.</div>
+        </div>
         <div class="self-order-modal-note" id="self_order_verify_hint">Order yang diverifikasi akan langsung dicetak sesuai setting printer outlet.</div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
         <button type="button" class="btn btn-primary" id="self_order_submit_verify">Verifikasi &amp; Cetak</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="selfOrderRejectModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content border-0 shadow-lg" style="border-radius:24px;">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Tolak Order Self Order</h5>
+          <div class="small text-muted" id="self_order_reject_meta">Order belum dipilih.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="self-order-detail-grid mb-3" id="self_order_reject_grid"></div>
+        <div class="self-order-modal-note mb-3" id="self_order_reject_hint">Order yang ditolak tidak akan masuk ke workspace kasir.</div>
+        <div>
+          <label class="form-label small text-muted mb-1" for="self_order_reject_reason">Alasan Penolakan</label>
+          <textarea class="form-control" id="self_order_reject_reason" rows="4" placeholder="Contoh: menu habis, outlet tutup, atau pesanan tidak bisa diproses."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-danger" id="self_order_submit_reject">Tolak Transaksi</button>
       </div>
     </div>
   </div>
@@ -271,7 +306,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     q: <?php echo json_encode((string)($filters['q'] ?? ''), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,
     outlet_id: <?php echo (int)($filters['outlet_id'] ?? 0); ?>,
     payment_tab: <?php echo json_encode((string)($filters['payment_tab'] ?? 'ALL')); ?>,
-    status_tab: <?php echo json_encode((string)($filters['status_tab'] ?? 'ALL')); ?>,
+    status_tab: <?php echo json_encode((string)($filters['status_tab'] ?? 'NEEDS_VERIFY')); ?>,
     date_from: <?php echo json_encode((string)($filters['date_from'] ?? date('Y-m-d'))); ?>,
     date_to: <?php echo json_encode((string)($filters['date_to'] ?? date('Y-m-d'))); ?>,
     page: <?php echo (int)($filters['page'] ?? 1); ?>,
@@ -287,19 +322,23 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     { key: 'NEEDS_VERIFY', label: 'Perlu Verifikasi' },
     { key: 'WAITING_PAYMENT', label: 'Menunggu QRIS' },
     { key: 'ACTIVE_CASHIER', label: 'Order Aktif' },
-    { key: 'PAID_ORDER', label: 'Terbayar' }
+    { key: 'PAID_ORDER', label: 'Terbayar' },
+    { key: 'REJECTED', label: 'Ditolak' }
   ];
   const summaryDefs = [
     { key: 'ALL', label: 'Total Self Order', note: 'Semua order sesuai filter tanggal/outlet.' },
     { key: 'NEEDS_VERIFY', label: 'Perlu Verifikasi', note: 'Siap diproses kasir dan siap cetak KOT.' },
     { key: 'WAITING_PAYMENT', label: 'Menunggu QRIS', note: 'Customer belum menyelesaikan pembayaran QRIS.' },
     { key: 'ACTIVE_CASHIER', label: 'Masuk Order Aktif', note: 'Sudah diverifikasi, menunggu settlement di kasir.' },
-    { key: 'PAID_ORDER', label: 'Masuk Terbayar', note: 'Sudah lunas dan ikut workspace order terbayar.' }
+    { key: 'PAID_ORDER', label: 'Masuk Terbayar', note: 'Sudah lunas dan ikut workspace order terbayar.' },
+    { key: 'REJECTED', label: 'Ditolak', note: 'Transaksi dibatalkan sebelum diproses kasir.' }
   ];
 
-  let summaryCounts = { ALL: 0, NEEDS_VERIFY: 0, WAITING_PAYMENT: 0, ACTIVE_CASHIER: 0, PAID_ORDER: 0 };
+  let summaryCounts = { ALL: 0, NEEDS_VERIFY: 0, WAITING_PAYMENT: 0, ACTIVE_CASHIER: 0, PAID_ORDER: 0, REJECTED: 0 };
   let verifyRow = null;
   let verifyBusy = false;
+  let rejectRow = null;
+  let rejectBusy = false;
   let incomingPollBusy = false;
   let incomingBaselineReady = false;
   let audioReady = false;
@@ -308,9 +347,11 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
 
   const detailModalEl = document.getElementById('selfOrderDetailModal');
   const verifyModalEl = document.getElementById('selfOrderVerifyModal');
+  const rejectModalEl = document.getElementById('selfOrderRejectModal');
   const infoModalEl = document.getElementById('selfOrderInfoModal');
   const detailModal = (detailModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(detailModalEl) : null;
   const verifyModal = (verifyModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(verifyModalEl) : null;
+  const rejectModal = (rejectModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(rejectModalEl) : null;
   const infoModal = (infoModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(infoModalEl) : null;
 
   function showModal(modalEl, modalInstance) {
@@ -563,7 +604,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     const label = row.flow_label || '-';
     const cls = code === 'WAITING_PAYMENT'
       ? 'waiting'
-      : (code === 'ACTIVE_CASHIER' ? 'active' : (code === 'PAID_ORDER' ? 'paid' : 'verify'));
+      : (code === 'REJECTED' ? 'rejected' : (code === 'ACTIVE_CASHIER' ? 'active' : (code === 'PAID_ORDER' ? 'paid' : 'verify')));
     return `<span class="self-order-status-chip ${cls}">${escapeHtml(label)}</span>`;
   }
 
@@ -621,7 +662,10 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
         ? `<?php echo site_url('pos/orders/paid'); ?>?q=${encodeURIComponent(String(row.order_no || ''))}`
         : `<?php echo site_url('pos/orders/draft'); ?>?q=${encodeURIComponent(String(row.order_no || ''))}`;
       const canVerify = Number(row.can_verify || 0) === 1;
+      const canReject = Number(row.can_reject || 0) === 1;
       const verifyMessage = String(row.verify_message || 'Order self order belum siap diverifikasi.');
+      const isRejected = Number(row.is_rejected || 0) === 1;
+      const rejectReason = String(row.rejected_reason || '').trim();
       return `
         <tr>
           <td>
@@ -639,6 +683,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
           <td>
             ${orderFlowChip(row)}
             <div class="self-order-subtle mt-1">Stock ${escapeHtml(row.stock_commit_status || '-')}</div>
+            ${rejectReason ? `<div class="self-order-subtle mt-1 text-danger">Alasan: ${escapeHtml(rejectReason)}</div>` : ''}
           </td>
           <td class="text-end">
             <div class="fw-semibold">${money(row.grand_total || 0)}</div>
@@ -647,8 +692,9 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
           <td class="text-center">
             <div class="self-order-action-stack">
               <button type="button" class="btn btn-sm btn-outline-info btn-self-order-detail" data-id="${Number(row.id || 0)}">Detail</button>
-              <button type="button" class="btn btn-sm ${canVerify ? 'btn-primary' : 'btn-outline-secondary'} btn-self-order-verify" data-id="${Number(row.id || 0)}" data-can-verify="${canVerify ? '1' : '0'}" data-verify-message="${escapeHtml(verifyMessage)}">${canVerify ? 'Verifikasi' : 'Cek Status'}</button>
-              <a class="btn btn-sm btn-outline-secondary" href="${openHref}">Buka</a>
+              ${!isRejected ? `<button type="button" class="btn btn-sm ${canVerify ? 'btn-primary' : 'btn-outline-secondary'} btn-self-order-verify" data-id="${Number(row.id || 0)}" data-can-verify="${canVerify ? '1' : '0'}" data-verify-message="${escapeHtml(verifyMessage)}">${canVerify ? 'Verifikasi' : 'Cek Status'}</button>` : ''}
+              ${canReject ? `<button type="button" class="btn btn-sm btn-outline-danger btn-self-order-reject" data-id="${Number(row.id || 0)}">Tolak</button>` : ''}
+              ${!isRejected ? `<a class="btn btn-sm btn-outline-secondary" href="${openHref}">Buka</a>` : ''}
             </div>
           </td>
         </tr>
@@ -667,6 +713,11 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       }
       openVerify(row);
     }));
+    body.querySelectorAll('.btn-self-order-reject').forEach((btn) => btn.addEventListener('click', () => {
+      const row = rows.find((item) => Number(item.id || 0) === Number(btn.dataset.id || 0));
+      if (!row) return;
+      openReject(row);
+    }));
   }
 
   async function loadRows() {
@@ -680,7 +731,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     qs.set('page', String(state.page || 1));
     qs.set('limit', String(state.limit || 20));
     const json = await getJson('<?php echo site_url('pos/self-order/orders/data'); ?>?' + qs.toString());
-    summaryCounts = Object.assign({ ALL: 0, NEEDS_VERIFY: 0, WAITING_PAYMENT: 0, ACTIVE_CASHIER: 0, PAID_ORDER: 0 }, json.counts || {});
+    summaryCounts = Object.assign({ ALL: 0, NEEDS_VERIFY: 0, WAITING_PAYMENT: 0, ACTIVE_CASHIER: 0, PAID_ORDER: 0, REJECTED: 0 }, json.counts || {});
     renderPaymentTabs();
     renderStatusTabs();
     renderSummaryGrid();
@@ -752,7 +803,17 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       ['Grand Total', money(header.grand_total || 0)],
       ['Kasir', header.cashier_username || header.cashier_employee_name || '-']
     ].map((item) => `<div class="self-order-detail-item"><div class="self-order-detail-label">${escapeHtml(item[0])}</div><div class="self-order-detail-value">${escapeHtml(item[1])}</div></div>`).join('');
-    document.getElementById('self_order_detail_note').textContent = String(header.notes || '').trim() !== '' ? String(header.notes) : 'Tidak ada catatan order.';
+    const detailNotes = [];
+    if (String(header.notes || '').trim() !== '') {
+      detailNotes.push(String(header.notes).trim());
+    }
+    if (String(header.reject_reason || '').trim() !== '') {
+      const rejectActor = String(header.reject_actor_name || '').trim();
+      detailNotes.push(`Pesanan ditolak${rejectActor ? ' oleh ' + rejectActor : ''}: ${String(header.reject_reason).trim()}`);
+    } else if (String(header.status || '').toUpperCase() === 'REJECTED') {
+      detailNotes.push('Pesanan ini sudah ditolak kasir.');
+    }
+    document.getElementById('self_order_detail_note').textContent = detailNotes.length ? detailNotes.join(' | ') : 'Tidak ada catatan order.';
     document.getElementById('self_order_detail_lines').innerHTML = lines.length ? lines.map((line) => {
       const extras = Array.isArray(line.extras) ? line.extras : [];
       return `
@@ -795,30 +856,78 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
 
   function openVerify(row) {
     verifyRow = row;
+    const destinationWrap = document.getElementById('self_order_verify_destination_wrap');
+    const destinationEl = document.getElementById('self_order_verify_destination');
+    const hasPaidQris = row.payment_mode === 'QRIS' && Number(row.is_paid || 0) === 1;
     document.getElementById('self_order_verify_meta').textContent = `${row.order_no || '-'} | ${row.customer_name_display || 'Walk in'} | ${row.payment_mode === 'QRIS' ? 'QRIS' : 'Bayar di Kasir'}`;
+    if (destinationWrap) {
+      destinationWrap.classList.toggle('d-none', !hasPaidQris);
+    }
+    if (destinationEl) {
+      destinationEl.value = 'ACTIVE_CASHIER';
+    }
+    syncVerifyDestinationSummary();
+    document.getElementById('self_order_verify_hint').textContent = hasPaidQris
+      ? 'Order sudah terbayar. Pilih dulu apakah order masuk ke order aktif untuk cek stok dan penyesuaian, atau langsung ke pesanan terbayar.'
+      : (row.payment_mode === 'QRIS'
+      ? 'Order QRIS belum bisa diverifikasi sebelum pembayaran diterima.'
+      : 'Order akan masuk ke workspace order aktif. Kasir tetap bisa menagih customer di payment panel setelah pesanan diverifikasi.');
+    showModal(verifyModalEl, verifyModal);
+  }
+
+  function syncVerifyDestinationSummary() {
+    if (!verifyRow) return;
+    const destinationEl = document.getElementById('self_order_verify_destination');
+    const destination = destinationEl ? String(destinationEl.value || 'ACTIVE_CASHIER') : 'ACTIVE_CASHIER';
+    const destinationNoteEl = document.getElementById('self_order_verify_destination_note');
+    if (destinationNoteEl) {
+      destinationNoteEl.textContent = destination === 'PAID_ORDER'
+        ? 'Order QRIS yang sudah lunas akan langsung masuk ke workspace pesanan terbayar setelah diverifikasi.'
+        : 'Order QRIS yang sudah lunas akan masuk order aktif dulu agar kasir sempat cek stok, edit item, atau tagih selisih bila total berubah.';
+    }
     document.getElementById('self_order_verify_grid').innerHTML = [
+      ['Customer', verifyRow.customer_name_display || 'Walk in'],
+      ['Nomor Meja', verifyRow.table_no || 'Tanpa Meja'],
+      ['Pembayaran', verifyRow.payment_mode === 'QRIS' ? 'QRIS' : 'Bayar di Kasir'],
+      ['Status Bayar', verifyRow.payment_status || '-'],
+      ['Nominal', money(verifyRow.grand_total || 0)],
+      ['Order Akan Masuk', destination === 'PAID_ORDER' ? 'Pesanan Terbayar' : 'Order Aktif']
+    ].map((item) => `<div class="self-order-detail-item"><div class="self-order-detail-label">${escapeHtml(item[0])}</div><div class="self-order-detail-value">${escapeHtml(item[1])}</div></div>`).join('');
+  }
+
+  function openReject(row) {
+    rejectRow = row;
+    document.getElementById('self_order_reject_meta').textContent = `${row.order_no || '-'} | ${row.customer_name_display || 'Walk in'} | ${row.payment_mode === 'QRIS' ? 'QRIS' : 'Bayar di Kasir'}`;
+    document.getElementById('self_order_reject_grid').innerHTML = [
       ['Customer', row.customer_name_display || 'Walk in'],
       ['Nomor Meja', row.table_no || 'Tanpa Meja'],
       ['Pembayaran', row.payment_mode === 'QRIS' ? 'QRIS' : 'Bayar di Kasir'],
       ['Status Bayar', row.payment_status || '-'],
       ['Nominal', money(row.grand_total || 0)],
-      ['Order Akan Masuk', row.flow_code === 'PAID_ORDER' || Number(row.is_paid || 0) === 1 ? 'Pesanan Terbayar' : 'Order Aktif']
+      ['Flow Saat Ini', row.flow_label || 'Perlu Verifikasi Kasir']
     ].map((item) => `<div class="self-order-detail-item"><div class="self-order-detail-label">${escapeHtml(item[0])}</div><div class="self-order-detail-value">${escapeHtml(item[1])}</div></div>`).join('');
-    document.getElementById('self_order_verify_hint').textContent = row.payment_mode === 'QRIS'
-      ? 'Order sudah terbayar. Setelah diverifikasi, KOT akan langsung dicetak dan order masuk ke workspace pesanan terbayar.'
-      : 'Order akan masuk ke workspace order aktif. Kasir tetap bisa menagih customer di payment panel setelah pesanan diverifikasi.';
-    showModal(verifyModalEl, verifyModal);
+    document.getElementById('self_order_reject_hint').textContent = row.payment_mode === 'QRIS'
+      ? 'Tolak hanya dipakai saat QRIS belum dibayar. Order tidak akan lanjut ke workspace kasir.'
+      : 'Order kasir yang ditolak tidak akan masuk ke workspace order aktif.';
+    document.getElementById('self_order_reject_reason').value = '';
+    showModal(rejectModalEl, rejectModal);
   }
 
   async function submitVerify() {
     if (verifyBusy || !verifyRow) return;
     verifyBusy = true;
     const btn = document.getElementById('self_order_submit_verify');
+    const destinationEl = document.getElementById('self_order_verify_destination');
+    const verifyDestination = (verifyRow.payment_mode === 'QRIS' && Number(verifyRow.is_paid || 0) === 1 && destinationEl)
+      ? String(destinationEl.value || 'ACTIVE_CASHIER')
+      : 'ACTIVE_CASHIER';
     const originalHtml = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<span class="self-order-btn-spinner" aria-hidden="true"></span> Memproses';
     try {
-      const json = await postJson(`<?php echo site_url('pos/self-order/orders/verify'); ?>/${Number(verifyRow.id || 0)}`, {});
+      const json = await postJson(`<?php echo site_url('pos/self-order/orders/verify'); ?>/${Number(verifyRow.id || 0)}`, {
+        verify_destination: verifyDestination
+      });
       hideModal(verifyModalEl, verifyModal);
 
       let printFailures = [];
@@ -829,7 +938,12 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
         printFailures = [normalizePrintFailureEntry({ name: 'Printer', reason: e && e.message ? e.message : 'Gagal menyiapkan direct print' })];
       }
 
-      showToast('Order self order berhasil diverifikasi.', 'success');
+      showToast(
+        String(json.workspace_bucket || '') === 'PAID_ORDER'
+          ? 'Order self order berhasil diverifikasi dan masuk ke pesanan terbayar.'
+          : 'Order self order berhasil diverifikasi dan masuk ke order aktif.',
+        'success'
+      );
       if (Number(json.runtime_job_id || 0) > 0) {
         showToast('Sinkronisasi stok berjalan di background.', 'info');
         void kickoffRuntimeJobSync(Number(json.id || 0), Number(json.runtime_job_id || 0));
@@ -845,6 +959,37 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       showInfoModal(e && e.message ? e.message : 'Gagal memverifikasi order self order.', 'Verifikasi Gagal');
     } finally {
       verifyBusy = false;
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+
+  async function submitReject() {
+    if (rejectBusy || !rejectRow) return;
+    const reasonEl = document.getElementById('self_order_reject_reason');
+    const reason = String(reasonEl ? reasonEl.value : '').trim();
+    if (reason === '') {
+      showInfoModal('Alasan penolakan wajib diisi.', 'Alasan Penolakan');
+      if (reasonEl) reasonEl.focus();
+      return;
+    }
+    rejectBusy = true;
+    const btn = document.getElementById('self_order_submit_reject');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="self-order-btn-spinner" aria-hidden="true"></span> Memproses';
+    try {
+      await postJson(`<?php echo site_url('pos/self-order/orders/reject'); ?>/${Number(rejectRow.id || 0)}`, { reason });
+      hideModal(rejectModalEl, rejectModal);
+      showToast('Order self order berhasil ditolak.', 'warning');
+      state.payment_tab = 'ALL';
+      state.status_tab = 'REJECTED';
+      state.page = 1;
+      await loadRows();
+    } catch (e) {
+      showInfoModal(e && e.message ? e.message : 'Gagal menolak order self order.', 'Penolakan Gagal');
+    } finally {
+      rejectBusy = false;
       btn.disabled = false;
       btn.innerHTML = originalHtml;
     }
@@ -888,7 +1033,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       state.q = '';
       state.outlet_id = 0;
       state.payment_tab = 'ALL';
-      state.status_tab = 'ALL';
+      state.status_tab = 'NEEDS_VERIFY';
       state.date_from = '<?php echo date('Y-m-d'); ?>';
       state.date_to = '<?php echo date('Y-m-d'); ?>';
       state.page = 1;
@@ -900,7 +1045,12 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       limit.value = String(state.limit);
       loadRows().catch((e) => showInfoModal(e.message));
     });
+    const verifyDestination = document.getElementById('self_order_verify_destination');
+    if (verifyDestination) {
+      verifyDestination.addEventListener('change', syncVerifyDestinationSummary);
+    }
     document.getElementById('self_order_submit_verify').addEventListener('click', submitVerify);
+    document.getElementById('self_order_submit_reject').addEventListener('click', submitReject);
   }
 
   bindFilters();

@@ -188,6 +188,33 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 </style>
 <?php endif; ?>
 
+<?php if ($entity === 'extra-group'): ?>
+<style>
+  #extraGroupRelationModal .modal-dialog {
+    max-width: min(1280px, calc(100vw - 2rem));
+    margin: 1rem auto;
+  }
+  #extraGroupRelationModal .modal-content {
+    max-height: calc(100vh - 2rem);
+    overflow: hidden;
+  }
+  #extraGroupRelationModal .modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #extraGroupRelationModal #extraGroupRelationTableWrap {
+    max-height: calc(100vh - 18rem);
+    overflow: auto;
+  }
+  #extraGroupRelationModal #extraGroupRelationTableWrap table {
+    margin-bottom: 0;
+  }
+</style>
+<?php endif; ?>
+
 <?php if ($isReorderableMaster): ?>
 <style>
   .master-reorder-note {
@@ -477,7 +504,28 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                     <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Formula" aria-label="Formula" href="<?php echo site_url('production/component-formulas/detail/' . (int)$r['id']); ?>"><i class="ri ri-function-line"></i></a>
                   <?php endif; ?>
                   <?php if ($entity === 'extra-group'): ?>
-                    <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Checklist Produk" aria-label="Checklist Produk" href="<?php echo site_url('master/relation/extra-group/' . (int)$r['id']); ?>"><i class="ri ri-checkbox-multiple-line"></i></a>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-info action-icon-btn js-extra-group-modal-trigger"
+                      data-bs-toggle="modal"
+                      data-bs-target="#extraGroupRelationModal"
+                      title="Hubungkan Extra"
+                      aria-label="Hubungkan Extra"
+                      data-modal-kind="extra"
+                      data-group-id="<?php echo (int)$r['id']; ?>"
+                      data-group-name="<?php echo html_escape((string)($r['group_name'] ?? '')); ?>"
+                    ><i class="ri ri-links-line"></i></button>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-info action-icon-btn js-extra-group-modal-trigger"
+                      data-bs-toggle="modal"
+                      data-bs-target="#extraGroupRelationModal"
+                      title="Hubungkan Produk"
+                      aria-label="Hubungkan Produk"
+                      data-modal-kind="product"
+                      data-group-id="<?php echo (int)$r['id']; ?>"
+                      data-group-name="<?php echo html_escape((string)($r['group_name'] ?? '')); ?>"
+                    ><i class="ri ri-checkbox-multiple-line"></i></button>
                   <?php endif; ?>
                   <?php if ($entity === 'extra'): ?>
                     <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Hubungkan ke Group" aria-label="Hubungkan ke Group" href="<?php echo site_url('master/relation/extra-item-group/' . (int)$r['id']); ?>"><i class="ri ri-links-line"></i></a>
@@ -519,11 +567,59 @@ $buildPageItems = static function (int $page, int $totalPages): array {
     </div>
   <?php endif; ?>
 </div>
- </div>
+</div>
+
+<?php if ($entity === 'extra-group'): ?>
+<button
+  type="button"
+  id="extraGroupRelationModalOpener"
+  class="d-none"
+  data-bs-toggle="modal"
+  data-bs-target="#extraGroupRelationModal"
+  data-modal-kind=""
+  data-group-id="0"
+  data-group-name=""
+></button>
+<div class="modal fade" id="extraGroupRelationModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1" id="extraGroupRelationModalTitle">Relasi Group Extra</h5>
+          <div class="small text-muted" id="extraGroupRelationModalSubtitle"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-9">
+            <label class="form-label mb-1" id="extraGroupRelationSearchLabel">Pencarian</label>
+            <input type="text" class="form-control" id="extraGroupRelationSearch" placeholder="">
+          </div>
+          <div class="col-md-3 text-md-end">
+            <div class="small text-muted mb-1">Terpilih</div>
+            <div class="fw-semibold" id="extraGroupRelationSelectedCount">0 item</div>
+          </div>
+        </div>
+        <div class="border rounded-3 overflow-hidden">
+          <div class="table-responsive" id="extraGroupRelationTableWrap">
+            <div class="p-4 text-center text-muted">Memuat data...</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
+        <button type="button" class="btn btn-primary" id="extraGroupRelationSaveBtn">Simpan Checklist</button>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
 
 <script>
 (function () {
   var rootSelector = '[data-master-root]';
+  var modalBootTimer = null;
 
   function applyUiEnhancements(scope) {
     var host = scope || document;
@@ -537,17 +633,281 @@ $buildPageItems = static function (int $page, int $totalPages): array {
       if (td) td.classList.add('number-cell');
     });
 
-    if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
+    if (window.bootstrap && window.bootstrap.Tooltip) {
       host.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
-        bootstrap.Tooltip.getOrCreateInstance(el);
+        window.bootstrap.Tooltip.getOrCreateInstance(el);
       });
     }
+  }
+
+  function initExtraGroupRelationModal(root) {
+    var modalEl = document.getElementById('extraGroupRelationModal');
+    if (!modalEl || !window.bootstrap || !window.bootstrap.Modal) {
+      return;
+    }
+
+    if (modalEl.getAttribute('data-init-ready') === '1') {
+      window.openExtraGroupRelationModal = function (kind, groupId, groupName) {
+        var opener = document.getElementById('extraGroupRelationModalOpener');
+        if (opener) {
+          opener.setAttribute('data-modal-kind', kind || '');
+          opener.setAttribute('data-group-id', String(groupId || 0));
+          opener.setAttribute('data-group-name', groupName || '');
+          opener.click();
+          return;
+        }
+        window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        return;
+      };
+      return;
+    }
+
+    modalEl.setAttribute('data-init-ready', '1');
+
+    var modal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+    var titleEl = document.getElementById('extraGroupRelationModalTitle');
+    var subtitleEl = document.getElementById('extraGroupRelationModalSubtitle');
+    var searchLabelEl = document.getElementById('extraGroupRelationSearchLabel');
+    var searchInput = document.getElementById('extraGroupRelationSearch');
+    var selectedCountEl = document.getElementById('extraGroupRelationSelectedCount');
+    var tableWrap = document.getElementById('extraGroupRelationTableWrap');
+    var saveBtn = document.getElementById('extraGroupRelationSaveBtn');
+    var state = {
+      kind: '',
+      groupId: 0,
+      groupName: '',
+      q: '',
+      selectedIds: new Set(),
+      seedLoaded: false,
+      timer: null
+    };
+
+    function escapeHtml(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function requestJson(url, options) {
+      return fetch(url, options || {})
+        .then(function (response) {
+          return response.text().then(function (text) {
+            var payload = null;
+            try {
+              payload = text ? JSON.parse(text) : null;
+            } catch (error) {
+              var plain = String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+              throw new Error(plain || 'Respons backend bukan JSON yang valid.');
+            }
+            if (!response.ok) {
+              throw new Error((payload && payload.message) || ('HTTP ' + response.status));
+            }
+            return payload;
+          });
+        });
+    }
+
+    function endpointBase() {
+      return state.kind === 'extra'
+        ? '<?php echo site_url('master/relation/extra-group'); ?>/' + state.groupId + '/extras'
+        : '<?php echo site_url('master/relation/extra-group'); ?>/' + state.groupId + '/products';
+    }
+
+    function saveEndpoint() {
+      return state.kind === 'extra'
+        ? '<?php echo site_url('master/relation/extra-group'); ?>/' + state.groupId + '/extras/save'
+        : '<?php echo site_url('master/relation/extra-group'); ?>/' + state.groupId + '/products/save';
+    }
+
+    function selectedArray() {
+      return Array.from(state.selectedIds).map(function (value) { return Number(value); }).filter(function (value) { return value > 0; });
+    }
+
+    function updateSelectedCounter() {
+      selectedCountEl.textContent = state.selectedIds.size + ' item';
+    }
+
+    function attachRowHandlers() {
+      tableWrap.querySelectorAll('.js-extra-group-check').forEach(function (checkbox) {
+        checkbox.addEventListener('change', function () {
+          var id = Number(checkbox.getAttribute('data-id') || '0');
+          if (id <= 0) {
+            return;
+          }
+          if (checkbox.checked) {
+            state.selectedIds.add(id);
+          } else {
+            state.selectedIds.delete(id);
+          }
+          updateSelectedCounter();
+        });
+      });
+    }
+
+    function renderRows(rows) {
+      if (!Array.isArray(rows) || !rows.length) {
+        tableWrap.innerHTML = '<div class="p-4 text-center text-muted">Tidak ada data sesuai filter.</div>';
+        updateSelectedCounter();
+        return;
+      }
+
+      var head = state.kind === 'extra'
+        ? '<tr><th width="70">Pilih</th><th>Kode</th><th>Nama Extra</th><th>Tipe</th><th>Sumber</th></tr>'
+        : '<tr><th width="70">Pilih</th><th>Divisi</th><th>Klasifikasi</th><th>Kategori</th><th>Kode</th><th>Nama Produk</th></tr>';
+
+      var body = rows.map(function (row) {
+        var id = Number(row.id || 0);
+        var checked = state.selectedIds.has(id) ? ' checked' : '';
+        if (state.kind === 'extra') {
+          return '<tr>'
+            + '<td><input type="checkbox" class="form-check-input js-extra-group-check" data-id="' + id + '"' + checked + '></td>'
+            + '<td class="text-cell">' + escapeHtml(row.extra_code || '') + '</td>'
+            + '<td class="text-cell">' + escapeHtml(row.extra_name || '') + '</td>'
+            + '<td>' + escapeHtml(row.extra_type || '-') + '</td>'
+            + '<td>' + escapeHtml(row.source_kind || '-') + '</td>'
+            + '</tr>';
+        }
+        return '<tr>'
+          + '<td><input type="checkbox" class="form-check-input js-extra-group-check" data-id="' + id + '"' + checked + '></td>'
+          + '<td>' + escapeHtml(row.product_division_name || '-') + '</td>'
+          + '<td>' + escapeHtml(row.classification_name || '-') + '</td>'
+          + '<td>' + escapeHtml(row.product_category_name || '-') + '</td>'
+          + '<td class="text-cell">' + escapeHtml(row.product_code || '') + '</td>'
+          + '<td class="text-cell">' + escapeHtml(row.product_name || '') + '</td>'
+          + '</tr>';
+      }).join('');
+
+      tableWrap.innerHTML = '<table class="table table-striped table-hover mb-0"><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
+      updateSelectedCounter();
+      attachRowHandlers();
+    }
+
+    function fetchRows() {
+      if (state.groupId <= 0 || !state.kind) {
+        return;
+      }
+      tableWrap.innerHTML = '<div class="p-4 text-center text-muted">Memuat data...</div>';
+      requestJson(endpointBase() + '?q=' + encodeURIComponent(state.q || ''), {
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      })
+      .then(function (payload) {
+        if (!payload || payload.ok !== true) {
+          throw new Error((payload && payload.message) || 'Gagal memuat data relasi.');
+        }
+        if (!state.seedLoaded) {
+          state.selectedIds = new Set((payload.selected_ids || []).map(function (value) { return Number(value); }).filter(function (value) { return value > 0; }));
+          state.seedLoaded = true;
+        }
+        renderRows(payload.rows || []);
+      })
+      .catch(function (error) {
+        tableWrap.innerHTML = '<div class="p-4 text-center text-danger">' + escapeHtml(error && error.message ? error.message : 'Gagal memuat data.') + '</div>';
+      });
+    }
+
+    function openModal(kind, groupId, groupName) {
+      state.kind = kind;
+      state.groupId = Number(groupId || 0);
+      state.groupName = groupName || '';
+      state.q = '';
+      state.selectedIds = new Set();
+      state.seedLoaded = false;
+      searchInput.value = '';
+      titleEl.textContent = kind === 'extra' ? 'Hubungkan Master Extra ke Group' : 'Hubungkan Produk ke Group';
+      subtitleEl.textContent = 'Group: ' + state.groupName;
+      searchLabelEl.textContent = kind === 'extra' ? 'Cari Master Extra' : 'Cari Produk';
+      searchInput.placeholder = kind === 'extra'
+        ? 'Cari kode / nama master extra...'
+        : 'Cari kode / nama produk...';
+      updateSelectedCounter();
+      fetchRows();
+    }
+
+    window.openExtraGroupRelationModal = function (kind, groupId, groupName) {
+      var opener = document.getElementById('extraGroupRelationModalOpener');
+      if (opener) {
+        opener.setAttribute('data-modal-kind', kind || '');
+        opener.setAttribute('data-group-id', String(groupId || 0));
+        opener.setAttribute('data-group-name', groupName || '');
+        opener.click();
+        return;
+      }
+      openModal(kind, groupId, groupName);
+      modal.show();
+    };
+
+    modalEl.addEventListener('show.bs.modal', function (event) {
+      var trigger = event.relatedTarget || document.getElementById('extraGroupRelationModalOpener');
+      if (!trigger) {
+        return;
+      }
+      openModal(
+        trigger.getAttribute('data-modal-kind') || '',
+        trigger.getAttribute('data-group-id') || '0',
+        trigger.getAttribute('data-group-name') || ''
+      );
+    });
+
+    modalEl.addEventListener('shown.bs.modal', function () {
+      window.setTimeout(function () {
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.select();
+        }
+      }, 60);
+    });
+
+    searchInput.addEventListener('input', function () {
+      state.q = searchInput.value || '';
+      if (state.timer) {
+        clearTimeout(state.timer);
+      }
+      state.timer = setTimeout(fetchRows, 250);
+    });
+
+    saveBtn.addEventListener('click', function () {
+      var fieldName = state.kind === 'extra' ? 'extra_ids[]' : 'product_ids[]';
+      var formData = new FormData();
+      selectedArray().forEach(function (id) {
+        formData.append(fieldName, String(id));
+      });
+      saveBtn.disabled = true;
+      requestJson(saveEndpoint(), {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: formData
+      })
+      .then(function (payload) {
+        if (!payload || payload.ok !== true) {
+          throw new Error((payload && payload.message) || 'Gagal menyimpan relasi.');
+        }
+        modal.hide();
+        window.alert(payload.message || 'Relasi berhasil disimpan.');
+        window.location.reload();
+      })
+      .catch(function (error) {
+        window.alert(error && error.message ? error.message : 'Gagal menyimpan relasi.');
+      })
+      .finally(function () {
+        saveBtn.disabled = false;
+      });
+    });
   }
 
   function initMasterAjax() {
     var root = document.querySelector(rootSelector);
     if (!root) return;
     applyUiEnhancements(root);
+    initExtraGroupRelationModal(root);
 
     var form = document.getElementById('filterForm');
     var input = form ? form.querySelector('input[name="q"]') : null;
@@ -770,6 +1130,21 @@ $buildPageItems = static function (int $page, int $totalPages): array {
     }
   }
 
-  initMasterAjax();
+  function bootMasterPage() {
+    if (!window.bootstrap || !window.bootstrap.Modal) {
+      if (modalBootTimer) {
+        window.clearTimeout(modalBootTimer);
+      }
+      modalBootTimer = window.setTimeout(bootMasterPage, 120);
+      return;
+    }
+    initMasterAjax();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootMasterPage);
+  } else {
+    bootMasterPage();
+  }
 })();
 </script>
