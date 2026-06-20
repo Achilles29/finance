@@ -44,6 +44,10 @@ foreach ($rows as $row) {
   #recipe-table th,
   #recipe-table td {
     vertical-align: top;
+    overflow: visible;
+  }
+  #recipe-table td {
+    position: relative;
   }
   #recipe-table .col-type {
     width: 128px;
@@ -75,11 +79,20 @@ foreach ($rows as $row) {
   .recipe-ajax-box {
     position: relative;
     min-width: 0;
+    z-index: 2;
+  }
+  .recipe-ajax-box:focus-within {
+    z-index: 80;
   }
   .recipe-ajax-result {
-    position: absolute;
-    inset: calc(100% + 4px) 0 auto 0;
-    z-index: 35;
+    display: none;
+  }
+  .recipe-ajax-floating {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 280px;
+    z-index: 1085;
     display: none;
     background: #fff;
     border: 1px solid #e2d6cc;
@@ -88,7 +101,7 @@ foreach ($rows as $row) {
     max-height: 240px;
     overflow: auto;
   }
-  .recipe-ajax-result.is-open {
+  .recipe-ajax-floating.is-open {
     display: block;
   }
   .recipe-ajax-item {
@@ -132,6 +145,11 @@ foreach ($rows as $row) {
     font-size: .75rem;
     color: #7d6c64;
     margin-top: .1rem;
+  }
+  .recipe-table-wrap {
+    overflow-x: auto;
+    overflow-y: visible;
+    padding-bottom: 8rem;
   }
 </style>
 <div class="container-xxl py-3">
@@ -190,7 +208,7 @@ foreach ($rows as $row) {
           </div>
         </div>
 
-        <div class="table-responsive">
+        <div class="table-responsive recipe-table-wrap">
           <table class="table table-sm align-middle" id="recipe-table">
             <colgroup>
               <col class="col-type">
@@ -242,6 +260,10 @@ foreach ($rows as $row) {
   var sumMaterial = document.getElementById('sum-material');
   var sumComponent = document.getElementById('sum-component');
   var lookupTimer = null;
+  var activeLookupIndex = null;
+  var floatingLookup = document.createElement('div');
+  floatingLookup.className = 'recipe-ajax-floating';
+  document.body.appendChild(floatingLookup);
 
   var state = {
     lines: Array.isArray(initialLines) && initialLines.length ? initialLines : [emptyLine(10)]
@@ -374,10 +396,26 @@ foreach ($rows as $row) {
   }
 
   function closeSourceLookupResults() {
-    document.querySelectorAll('.recipe-ajax-result.is-open').forEach(function (el) {
-      el.classList.remove('is-open');
-      el.innerHTML = '';
-    });
+    activeLookupIndex = null;
+    floatingLookup.classList.remove('is-open');
+    floatingLookup.innerHTML = '';
+    floatingLookup.style.left = '0px';
+    floatingLookup.style.top = '0px';
+    floatingLookup.style.width = '280px';
+  }
+
+  function positionLookupResult(box) {
+    if (!box) {
+      return;
+    }
+    var input = box.querySelector('input[data-field="source_lookup"]');
+    if (!input) {
+      return;
+    }
+    var rect = input.getBoundingClientRect();
+    floatingLookup.style.left = Math.max(12, rect.left) + 'px';
+    floatingLookup.style.top = Math.max(12, rect.bottom + 4) + 'px';
+    floatingLookup.style.width = Math.max(260, rect.width) + 'px';
   }
 
   function getJson(url) {
@@ -413,23 +451,21 @@ foreach ($rows as $row) {
   }
 
   function renderSourceLookupResults(box, index, rows) {
-    var resultEl = box.querySelector('.recipe-ajax-result');
-    if (!resultEl) {
-      return;
-    }
+    activeLookupIndex = index;
+    positionLookupResult(box);
     if (!Array.isArray(rows) || !rows.length) {
-      resultEl.innerHTML = '<div class="recipe-ajax-item"><div class="recipe-ajax-item-title">Tidak ada hasil</div><div class="recipe-ajax-item-meta">Coba kata kunci lain.</div></div>';
-      resultEl.classList.add('is-open');
+      floatingLookup.innerHTML = '<div class="recipe-ajax-item"><div class="recipe-ajax-item-title">Tidak ada hasil</div><div class="recipe-ajax-item-meta">Coba kata kunci lain.</div></div>';
+      floatingLookup.classList.add('is-open');
       return;
     }
-    resultEl.innerHTML = rows.map(function (row) {
+    floatingLookup.innerHTML = rows.map(function (row) {
       return '' +
         '<div class="recipe-ajax-item" data-action="pick-source" data-index="' + index + '" data-value="' + esc(row.value) + '" data-label="' + esc(row.label || '') + '" data-meta="' + esc(row.meta || '') + '" data-uom-label="' + esc(row.uom_label || '-') + '" data-source-division-id="' + esc(row.source_division_id || 0) + '" data-source-division-name="' + esc(row.source_division_name || '-') + '">' +
           '<div class="recipe-ajax-item-title">' + esc(row.label || '-') + '</div>' +
           '<div class="recipe-ajax-item-meta">' + esc(row.meta || '-') + '</div>' +
         '</div>';
     }).join('');
-    resultEl.classList.add('is-open');
+    floatingLookup.classList.add('is-open');
   }
 
   function recalcSummary() {
@@ -570,28 +606,6 @@ foreach ($rows as $row) {
   });
 
   lineBody.addEventListener('click', function (event) {
-    var pickSource = event.target.closest('[data-action="pick-source"]');
-    if (pickSource) {
-      var sourceIndex = Number(pickSource.dataset.index || -1);
-      if (sourceIndex >= 0 && state.lines[sourceIndex]) {
-        var option = {
-          value: Number(pickSource.dataset.value || 0),
-          label: String(pickSource.dataset.label || ''),
-          meta: String(pickSource.dataset.meta || ''),
-          uom_label: String(pickSource.dataset.uomLabel || '-'),
-          source_division_id: Number(pickSource.dataset.sourceDivisionId || 0),
-          source_division_name: String(pickSource.dataset.sourceDivisionName || '-')
-        };
-        setLineSource(state.lines[sourceIndex], option);
-        if (Number(state.lines[sourceIndex].source_division_id || 0) <= 0) {
-          state.lines[sourceIndex].source_division_id = Number(option.source_division_id || suggestedSourceDivisionId(state.lines[sourceIndex]) || defaultSourceDivisionId || 0);
-        }
-        closeSourceLookupResults();
-        render();
-      }
-      return;
-    }
-
     var button = event.target.closest('button[data-action="remove"]');
     if (!button) {
       return;
@@ -613,10 +627,51 @@ foreach ($rows as $row) {
   });
 
   document.addEventListener('click', function (event) {
-    if (!event.target.closest('.recipe-ajax-box')) {
+    var pickSource = event.target.closest('[data-action="pick-source"]');
+    if (pickSource) {
+      var sourceIndex = Number(pickSource.dataset.index || -1);
+      if (sourceIndex >= 0 && state.lines[sourceIndex]) {
+        var option = {
+          value: Number(pickSource.dataset.value || 0),
+          label: String(pickSource.dataset.label || ''),
+          meta: String(pickSource.dataset.meta || ''),
+          uom_label: String(pickSource.dataset.uomLabel || '-'),
+          source_division_id: Number(pickSource.dataset.sourceDivisionId || 0),
+          source_division_name: String(pickSource.dataset.sourceDivisionName || '-')
+        };
+        setLineSource(state.lines[sourceIndex], option);
+        if (Number(state.lines[sourceIndex].source_division_id || 0) <= 0) {
+          state.lines[sourceIndex].source_division_id = Number(option.source_division_id || suggestedSourceDivisionId(state.lines[sourceIndex]) || defaultSourceDivisionId || 0);
+        }
+        closeSourceLookupResults();
+        render();
+      }
+      return;
+    }
+    if (!event.target.closest('.recipe-ajax-box') && !event.target.closest('.recipe-ajax-floating')) {
       closeSourceLookupResults();
     }
   });
+
+  window.addEventListener('resize', function () {
+    if (activeLookupIndex === null) {
+      return;
+    }
+    var box = document.querySelector('.recipe-ajax-box[data-index="' + activeLookupIndex + '"]');
+    if (box) {
+      positionLookupResult(box);
+    }
+  });
+
+  window.addEventListener('scroll', function () {
+    if (activeLookupIndex === null) {
+      return;
+    }
+    var box = document.querySelector('.recipe-ajax-box[data-index="' + activeLookupIndex + '"]');
+    if (box) {
+      positionLookupResult(box);
+    }
+  }, true);
 
   if (lineSearch) {
     lineSearch.addEventListener('input', render);

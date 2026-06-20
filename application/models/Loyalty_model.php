@@ -1395,6 +1395,8 @@ class Loyalty_model extends CI_Model
             $rewardType = 'DISCOUNT_AMOUNT';
         }
 
+        $prevDebug = $this->db->db_debug;
+        $this->db->db_debug = false;
         $this->db->trans_begin();
         try {
             $code = strtoupper(trim((string)($data['rule_code'] ?? '')));
@@ -1437,12 +1439,15 @@ class Loyalty_model extends CI_Model
             }
 
             if ($this->db->trans_status() === false) {
-                throw new RuntimeException('Gagal menyimpan rule redeem.');
+                $dbErr = $this->db->error();
+                throw new RuntimeException($dbErr['message'] ?: 'Gagal menyimpan rule redeem. Pastikan SQL migration sudah dijalankan.');
             }
             $this->db->trans_commit();
+            $this->db->db_debug = $prevDebug;
             return ['ok' => true, 'id' => $id];
         } catch (Throwable $e) {
             $this->db->trans_rollback();
+            $this->db->db_debug = $prevDebug;
             return ['ok' => false, 'message' => $e->getMessage()];
         }
     }
