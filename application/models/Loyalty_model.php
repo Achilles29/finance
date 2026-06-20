@@ -1421,8 +1421,7 @@ class Loyalty_model extends CI_Model
                 'reward_notes'        => $this->nullable_text($data['reward_notes'] ?? ''),
                 'min_spend_amount'    => $this->nullable_decimal($data['min_spend_amount'] ?? null),
                 'stock_qty'           => $this->nullable_int($data['stock_qty'] ?? null),
-                'valid_from'          => $this->nullable_date($data['valid_from'] ?? ''),
-                'valid_until'         => $this->nullable_date($data['valid_until'] ?? ''),
+                'valid_days'          => isset($data['valid_days']) && $data['valid_days'] > 0 ? (int)$data['valid_days'] : null,
                 'is_active'           => !empty($data['is_active']) ? 1 : 0,
             ];
 
@@ -1474,7 +1473,7 @@ class Loyalty_model extends CI_Model
             return [];
         }
         $db = $this->db
-            ->select('rr.id, rr.rule_name, rr.cost_type, rr.reward_type, rr.point_cost, rr.stamp_cost, rr.discount_amount, rr.discount_percent, rr.reward_notes, rr.valid_until, rr.stock_qty, rr.redeemed_count, sc.campaign_name AS stamp_campaign_name, vc.campaign_name AS voucher_campaign_name')
+            ->select('rr.id, rr.rule_name, rr.cost_type, rr.reward_type, rr.point_cost, rr.stamp_cost, rr.discount_amount, rr.discount_percent, rr.reward_notes, rr.valid_days, rr.stock_qty, rr.redeemed_count, sc.campaign_name AS stamp_campaign_name, vc.campaign_name AS voucher_campaign_name')
             ->from('pos_redeem_rule rr')
             ->join('pos_stamp_campaign sc', 'sc.id = rr.stamp_campaign_id', 'left')
             ->join('pos_voucher_campaign vc', 'vc.id = rr.voucher_campaign_id', 'left')

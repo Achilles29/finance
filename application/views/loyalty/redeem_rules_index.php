@@ -135,7 +135,7 @@ input[type=number] { -moz-appearance:textfield; }
             <th style="width:120px">Jenis Reward</th>
             <th>Nilai Reward</th>
             <th style="width:80px" class="text-center">Stok</th>
-            <th style="width:90px">Berlaku s/d</th>
+            <th style="width:90px">Berlaku</th>
             <th style="width:90px">Status</th>
             <th style="width:140px" class="text-center">Aksi</th>
           </tr>
@@ -337,12 +337,12 @@ input[type=number] { -moz-appearance:textfield; }
               <div class="form-text">Kosong = tidak terbatas</div>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Berlaku Mulai</label>
-              <input type="date" id="rr-valid-from" class="form-control">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Berlaku Sampai</label>
-              <input type="date" id="rr-valid-until" class="form-control">
+              <label class="form-label">Masa Berlaku <span class="text-muted fw-normal">(opsional)</span></label>
+              <div class="input-group">
+                <input type="number" id="rr-valid-days" class="form-control" min="1" step="1" placeholder="∞">
+                <span class="input-group-text">hari</span>
+              </div>
+              <div class="form-text">Kosong = berlaku selamanya</div>
             </div>
           </div>
         </div>
@@ -457,7 +457,7 @@ document.addEventListener('DOMContentLoaded', function () {
         <td><span class="rr-reward-badge">${esc(REWARD_LABELS[r.reward_type]||r.reward_type)}</span></td>
         <td style="font-size:.77rem">${rewardValueCell(r)}</td>
         <td class="text-center" style="font-size:.77rem">${stock}</td>
-        <td style="font-size:.75rem">${fmtDate(r.valid_until)}</td>
+        <td style="font-size:.75rem">${r.valid_days ? Number(r.valid_days).toLocaleString('id-ID') + ' hari' : '<span class="text-muted">∞</span>'}</td>
         <td>${statusBadge}</td>
         <td class="text-center">
           <div class="btn-group btn-group-sm">
@@ -633,8 +633,7 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('rr-reward-notes').value='';
     document.getElementById('rr-min-spend').value='';
     document.getElementById('rr-stock-qty').value='';
-    document.getElementById('rr-valid-from').value='';
-    document.getElementById('rr-valid-until').value='';
+    document.getElementById('rr-valid-days').value='';
     updateCostVisibility();
     updateRewardVisibility();
   }
@@ -666,8 +665,7 @@ document.addEventListener('DOMContentLoaded', function () {
       document.getElementById('rr-reward-notes').value = row.reward_notes || '';
       document.getElementById('rr-min-spend').value    = row.min_spend_amount || '';
       document.getElementById('rr-stock-qty').value    = row.stock_qty || '';
-      document.getElementById('rr-valid-from').value   = row.valid_from  || '';
-      document.getElementById('rr-valid-until').value  = row.valid_until || '';
+      document.getElementById('rr-valid-days').value   = row.valid_days  || '';
       updateCostVisibility();
       updateRewardVisibility();
     }
@@ -700,8 +698,7 @@ document.addEventListener('DOMContentLoaded', function () {
       reward_notes:       document.getElementById('rr-reward-notes').value.trim(),
       min_spend_amount:   parseFloat(document.getElementById('rr-min-spend').value) || null,
       stock_qty:          parseInt(document.getElementById('rr-stock-qty').value) || null,
-      valid_from:         document.getElementById('rr-valid-from').value || null,
-      valid_until:        document.getElementById('rr-valid-until').value || null,
+      valid_days:         parseInt(document.getElementById('rr-valid-days').value) || null,
     };
 
     const btn = this; btn.disabled=true;

@@ -537,7 +537,6 @@ body {
         <p>Bowls, rolls &amp; wok favourites.</p>
     </div>
 
-    <div class="page-number">05</div>
 </header>
 
 <main class="content">
