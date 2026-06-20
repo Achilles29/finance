@@ -1,0 +1,4 @@
+[2026-06-20 13:00:09] ====== Backup START: 20260620_130008 ======
+[2026-06-20 13:00:11] Database : db_finance@localhost:3306
+[2026-06-20 13:00:11] Output   : /www/wwwroot/finance/backup/dumps/backup_db_finance_20260620_130008.sql.gz
+[2026-06-20 13:00:11] [ERROR] mysqldump gagal!
