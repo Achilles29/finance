@@ -203,7 +203,7 @@ body {
 
 .section-head h2 {
     font-family: 'Playfair Display', Georgia, serif;
-    font-size: 16px;
+    font-size: 16.6px;
     color: #A8232C;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -212,7 +212,7 @@ body {
 }
 
 .section-head span {
-    font-size: 6.6px;
+    font-size: 7px;
     letter-spacing: 1.8px;
     color: #B68C39;
     text-transform: uppercase;
@@ -287,7 +287,7 @@ body {
     border-radius: 99px;
     background: linear-gradient(135deg, #e5c982, #c89b3f);
     color: #3b220f;
-    font-size: 6.5px;
+    font-size: 6.9px;
     letter-spacing: 1.15px;
     font-weight: 900;
     text-transform: uppercase;
@@ -309,7 +309,7 @@ body {
 .menu-row:last-child { border-bottom: none; }
 
 .menu-row strong {
-    font-size: 9.8px;
+    font-size: 10.2px;
     line-height: 1.08;
     color: #A8232C;
     text-transform: uppercase;
@@ -320,7 +320,7 @@ body {
 .menu-row b {
     text-align: right;
     font-family: 'Playfair Display', Georgia, serif;
-    font-size: 14px;
+    font-size: 14.8px;
     color: #A8232C;
     font-weight: 900;
     text-shadow: 0 1px 0 rgba(255,255,255,.5);
@@ -328,7 +328,7 @@ body {
 
 .combo-note {
     margin-top: 1.7mm;
-    font-size: 7px;
+    font-size: 7.3px;
     line-height: 1.36;
     color: #6A4E3A;
 }
@@ -390,7 +390,7 @@ body {
 
 .hero-caption h3 {
     font-family: 'Playfair Display', Georgia, serif;
-    font-size: 13px;
+    font-size: 13.6px;
     line-height: .95;
     text-transform: uppercase;
     color: #fff;
@@ -399,8 +399,8 @@ body {
 
 .hero-caption p {
     margin-top: .8mm;
-    font-size: 5.7px;
-    line-height: 1.18;
+    font-size: 6px;
+    line-height: 1.24;
     color: rgba(255,255,255,.88);
 }
 
@@ -408,7 +408,7 @@ body {
     display: block;
     margin-top: .9mm;
     font-family: 'Playfair Display', Georgia, serif;
-    font-size: 16px;
+    font-size: 17px;
     color: #F1D28A;
     font-weight: 900;
 }
@@ -462,7 +462,7 @@ body {
 
 .plate-body h3 {
     font-family: 'Playfair Display', Georgia, serif;
-    font-size: 8.6px;
+    font-size: 9px;
     line-height: 1.04;
     color: #A8232C;
     text-transform: uppercase;
@@ -471,8 +471,8 @@ body {
 }
 
 .plate-body p {
-    font-size: 5.1px;
-    line-height: 1.18;
+    font-size: 5.5px;
+    line-height: 1.22;
     color: #6A4E3A;
     overflow: hidden;
 }
@@ -494,7 +494,7 @@ body {
 
 .plate-foot b {
     font-family: 'Playfair Display', Georgia, serif;
-    font-size: 13px;
+    font-size: 13.6px;
     color: #A8232C;
     font-weight: 900;
 }
@@ -537,7 +537,7 @@ body {
 
     <div class="logo-wrap">
       <!-- ▼ LOGO — ganti path di sini -->
-      <img src="assets/menu-book/logo/logo.png" alt="NAMUA">
+      <img src="<?= base_url('assets/menu-book/logo/logo.png') ?>" alt="NAMUA">
     </div>
 
     <div class="title-area">
@@ -546,10 +546,7 @@ body {
       <p>Bowls, rolls &amp; wok favourites.</p>
     </div>
 
-    <div class="page-number">
-      <small>Page</small>
-      <strong>05</strong>
-    </div>
+
 
   </header>
 
@@ -567,7 +564,7 @@ body {
       <article class="combo">
         <div class="combo-photo">
           <!-- ▼ Ganti path gambar di sini -->
-          <img src="assets/menu-book/products/foods/asian-course/broth-bowl-combo.png" alt="Broth and Bowl Combo">
+          <img src="<?= base_url('assets/menu-book/products/foods/asian-course/broth-bowl-combo.png') ?>" alt="Broth and Bowl Combo">
         </div>
         <div class="combo-info">
           <div class="badge">4 Bowl Selection</div>
@@ -591,7 +588,7 @@ body {
       <article class="combo">
         <div class="combo-photo">
           <!-- ▼ Ganti path gambar di sini -->
-          <img src="assets/menu-book/products/foods/asian-course/rolls-kimbap-combo.png" alt="Rolls and Kimbap Combo">
+          <img src="<?= base_url('assets/menu-book/products/foods/asian-course/rolls-kimbap-combo.png') ?>" alt="Rolls and Kimbap Combo">
         </div>
         <div class="combo-info">
           <div class="badge">Roll Selection</div>
@@ -617,7 +614,7 @@ body {
         <!-- Hero product -->
         <article class="hero">
           <!-- ▼ Ganti path gambar di sini -->
-          <img src="assets/menu-book/products/foods/asian-course/mie-ayam-namua.png" alt="Mie Ayam Namua">
+          <img src="<?= base_url('assets/menu-book/products/foods/asian-course/mie-ayam-namua.png') ?>" alt="Mie Ayam Namua">
           <div class="hero-caption">
             <small>Namua Asian Hero</small>
             <h3>Mie Ayam Namua</h3>
@@ -632,7 +629,7 @@ body {
           <article class="plate">
             <div class="plate-photo">
               <!-- ▼ Ganti path gambar di sini -->
-              <img src="assets/menu-book/products/foods/asian-course/chicken-nori-yakimeshi.png" alt="Chicken Nori Yakimeshi">
+              <img src="<?= base_url('assets/menu-book/products/foods/asian-course/chicken-nori-yakimeshi.png') ?>" alt="Chicken Nori Yakimeshi">
             </div>
             <div class="plate-body">
               <h3>Chicken Nori Yakimeshi</h3>
@@ -644,7 +641,7 @@ body {
           <article class="plate">
             <div class="plate-photo">
               <!-- ▼ Ganti path gambar di sini -->
-              <img src="assets/menu-book/products/foods/asian-course/chinese-fried-noodles.png" alt="Chinese Fried Noodles">
+              <img src="<?= base_url('assets/menu-book/products/foods/asian-course/chinese-fried-noodles.png') ?>" alt="Chinese Fried Noodles">
             </div>
             <div class="plate-body">
               <h3>Chinese Fried Noodles</h3>
@@ -656,7 +653,7 @@ body {
           <article class="plate">
             <div class="plate-photo">
               <!-- ▼ Ganti path gambar di sini -->
-              <img src="assets/menu-book/products/foods/asian-course/yang-chow-fried-rice.png" alt="Yang Chow Fried Rice">
+              <img src="<?= base_url('assets/menu-book/products/foods/asian-course/yang-chow-fried-rice.png') ?>" alt="Yang Chow Fried Rice">
             </div>
             <div class="plate-body">
               <h3>Yang Chow Fried Rice</h3>
@@ -668,7 +665,7 @@ body {
           <article class="plate">
             <div class="plate-photo">
               <!-- ▼ Ganti path gambar di sini -->
-              <img src="assets/menu-book/products/foods/asian-course/crispy-dory-ala-thai.png" alt="Crispy Dory Ala Thai">
+              <img src="<?= base_url('assets/menu-book/products/foods/asian-course/crispy-dory-ala-thai.png') ?>" alt="Crispy Dory Ala Thai">
             </div>
             <div class="plate-body">
               <h3>Crispy Dory Ala Thai</h3>

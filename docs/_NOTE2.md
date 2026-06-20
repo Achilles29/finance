@@ -205,3 +205,7 @@ pos/self-order/settings tambahkan metode pembayaran, untuk menghubungkan qris da
 belum clear
 
 tambah extra oat
+
+
+cek dashboard stock habis harus sesuai sumber resep
+cek resep prepare

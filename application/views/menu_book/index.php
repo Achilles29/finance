@@ -318,9 +318,8 @@
                 <span class="cat-tag">Munch & Meat</span>
                 <span class="cat-tag">Classic Western</span>
                 <span class="cat-tag">12 Produk</span>
-                <span class="cat-tag">12 Gambar</span>
+                <span class="cat-tag">13 Gambar</span>
             </div>
-        </span>
         </a>
 
         <a href="<?= site_url('menu_book/food/asian_signatures') ?>" target="_blank" class="page-card wip">
@@ -333,7 +332,6 @@
                 <span class="cat-tag">13 Produk</span>
                 <span class="cat-tag">13 Gambar</span>
             </div>
-        </span>
         </a>
 
         
@@ -349,11 +347,10 @@
                 <span class="cat-tag">13 Produk</span>
                 <span class="cat-tag">4 Gambar</span>
             </div>
-        </span>
         </a>
 
-        <span class="page-card plan">
-            <span class="status-badge status-plan">Plan</span>
+        <a href="<?= site_url('menu_book/food/bites_of_joy') ?>" target="_blank" class="page-card wip">
+            <span class="status-badge status-done">Done</span>
             <div class="page-num">Halaman 07</div>
             <div class="page-title-name">Bites of Joy</div>
             <div class="page-subtitle">Snack &amp; Bites — Dim Sum · Crispy Bites · Sweet Treats</div>
@@ -364,10 +361,10 @@
                 <span class="cat-tag">19 Produk</span>
                 <span class="cat-tag">11 Gambar</span>
             </div>
-        </span>
+        </a>
 
-        <span class="page-card plan">
-            <span class="status-badge status-plan">Plan</span>
+        <a href="<?= site_url('menu_book/food/dessert_collection') ?>" target="_blank" class="page-card wip">
+            <span class="status-badge status-done">Done</span>
             <div class="page-num">Halaman 08</div>
             <div class="page-title-name">Dessert Collection</div>
             <div class="page-subtitle">Dessert</div>
@@ -376,10 +373,10 @@
                 <span class="cat-tag">5 Produk</span>
                 <span class="cat-tag">5 Gambar</span>
             </div>
-        </span>
+        </a>
 
-        <span class="page-card plan">
-            <span class="status-badge status-plan">Plan</span>
+        <a href="<?= site_url('menu_book/food/extras_sides') ?>" target="_blank" class="page-card wip">
+            <span class="status-badge status-done">Done</span>
             <div class="page-num">Halaman 09</div>
             <div class="page-title-name">Extras &amp; Sides</div>
             <div class="page-subtitle">Carbo · Other Condiment · Sauce Sambal Mayo</div>
@@ -390,7 +387,7 @@
                 <span class="cat-tag">23 Produk</span>
                 <span class="cat-tag">Tanpa Gambar</span>
             </div>
-        </span>
+        </a>
 
     </div>
 </section>

@@ -2435,16 +2435,18 @@ class Pos_model extends CI_Model
         foreach ($campaigns as $campaign) {
             $preview = $this->evaluate_cashier_voucher_discount($campaign, $order, $baseAmount, null);
             $rows[] = [
-                'value' => 'CAMPAIGN:' . (int)($campaign['id'] ?? 0),
-                'label' => trim((string)($campaign['campaign_code'] ?? '') . ' | ' . (string)($campaign['campaign_name'] ?? 'Promo voucher')),
-                'kind' => 'CAMPAIGN',
-                'campaign_id' => (int)($campaign['id'] ?? 0),
-                'voucher_code' => (string)($campaign['campaign_code'] ?? ''),
-                'campaign_name' => (string)($campaign['campaign_name'] ?? ''),
-                'expired_at' => (string)($campaign['end_date'] ?? ''),
-                'estimated_discount' => round((float)($preview['discount_amount'] ?? 0), 2),
-                'message' => (string)($preview['message'] ?? ''),
-                'valid' => !empty($preview['ok']),
+                'value'             => 'CAMPAIGN:' . (int)($campaign['id'] ?? 0),
+                'label'             => trim((string)($campaign['campaign_code'] ?? '') . ' | ' . (string)($campaign['campaign_name'] ?? 'Promo voucher')),
+                'notes'             => '',
+                'kind'              => 'CAMPAIGN',
+                'campaign_id'       => (int)($campaign['id'] ?? 0),
+                'voucher_code'      => (string)($campaign['campaign_code'] ?? ''),
+                'campaign_name'     => (string)($campaign['campaign_name'] ?? ''),
+                'expired_at'        => (string)($campaign['end_date'] ?? ''),
+                'estimated_discount'=> round((float)($preview['discount_amount'] ?? 0), 2),
+                'reward_kind'       => (string)($preview['reward_kind'] ?? 'DISCOUNT'),
+                'message'           => (string)($preview['message'] ?? ''),
+                'valid'             => !empty($preview['ok']),
             ];
         }
 
@@ -2458,34 +2460,38 @@ class Pos_model extends CI_Model
         }
 
         $now = date('Y-m-d H:i:s');
-        $issues = $this->db->select('v.*, c.campaign_name, c.campaign_code, c.voucher_type, c.discount_value, c.max_discount_amount, c.min_spend_amount, c.trigger_product_id, c.free_product_id, c.free_qty')
-            ->from('pos_voucher_issue v')
-            ->join('pos_voucher_campaign c', 'c.id = v.campaign_id', 'left')
-            ->where('v.member_id', $memberId)
-            ->where('v.voucher_status', 'OPEN')
-            ->group_start()
-                ->where('v.expired_at IS NULL', null, false)
-                ->or_where('v.expired_at >=', $now)
-            ->group_end()
-            ->order_by('v.issued_at', 'DESC')
-            ->get()
-            ->result_array();
+        $issues = $this->db->query("
+            SELECT v.*,
+                c.campaign_name, c.campaign_code, c.voucher_type, c.discount_value,
+                c.max_discount_amount,
+                COALESCE(v.min_spend_amount, c.min_spend_amount) AS min_spend_amount,
+                c.trigger_product_id, c.free_product_id, c.free_qty
+            FROM pos_voucher_issue v
+            LEFT JOIN pos_voucher_campaign c ON c.id = v.campaign_id
+            WHERE v.member_id = ? AND v.voucher_status = 'OPEN'
+              AND (v.expired_at IS NULL OR v.expired_at >= ?)
+            ORDER BY v.issued_at DESC
+        ", [$memberId, $now])->result_array();
 
         $rows = [];
         foreach ($issues as $issue) {
-            $preview = $this->evaluate_cashier_voucher_discount($issue, $order, $baseAmount, $issue);
+            $preview  = $this->evaluate_cashier_voucher_discount($issue, $order, $baseAmount, $issue);
+            $dispName = (string)($issue['campaign_name'] ?: ($issue['notes'] ?: 'Voucher member'));
             $rows[] = [
-                'value' => 'ISSUE:' . (int)($issue['id'] ?? 0),
-                'label' => trim((string)($issue['voucher_code'] ?? '') . ' | ' . (string)($issue['campaign_name'] ?? 'Voucher member')),
-                'kind' => 'ISSUE',
-                'voucher_issue_id' => (int)($issue['id'] ?? 0),
-                'campaign_id' => (int)($issue['campaign_id'] ?? 0),
-                'voucher_code' => (string)($issue['voucher_code'] ?? ''),
-                'campaign_name' => (string)($issue['campaign_name'] ?? ''),
-                'expired_at' => (string)($issue['expired_at'] ?? ''),
-                'estimated_discount' => round((float)($preview['discount_amount'] ?? 0), 2),
-                'message' => (string)($preview['message'] ?? ''),
-                'valid' => !empty($preview['ok']),
+                'value'             => 'ISSUE:' . (int)($issue['id'] ?? 0),
+                'label'             => trim((string)($issue['voucher_code'] ?? '') . ' | ' . $dispName),
+                'notes'             => (string)($issue['notes'] ?? ''),
+                'kind'              => 'ISSUE',
+                'voucher_issue_id'  => (int)($issue['id'] ?? 0),
+                'campaign_id'       => (int)($issue['campaign_id'] ?? 0),
+                'redeem_rule_id'    => (int)($issue['redeem_rule_id'] ?? 0),
+                'voucher_code'      => (string)($issue['voucher_code'] ?? ''),
+                'campaign_name'     => $dispName,
+                'expired_at'        => (string)($issue['expired_at'] ?? ''),
+                'estimated_discount'=> round((float)($preview['discount_amount'] ?? 0), 2),
+                'reward_kind'       => (string)($preview['reward_kind'] ?? 'DISCOUNT'),
+                'message'           => (string)($preview['message'] ?? ''),
+                'valid'             => !empty($preview['ok']),
             ];
         }
 
@@ -2521,16 +2527,18 @@ class Pos_model extends CI_Model
 
         foreach ($sourceRows as $row) {
             $candidate = [
-                'source_type' => (string)($row['kind'] ?? ''),
-                'source_id' => (int)(($row['voucher_issue_id'] ?? 0) ?: ($row['campaign_id'] ?? 0)),
+                'source_type'     => (string)($row['kind'] ?? ''),
+                'source_id'       => (int)(($row['voucher_issue_id'] ?? 0) ?: ($row['campaign_id'] ?? 0)),
                 'selection_value' => (string)($row['value'] ?? ''),
-                'voucher_code' => (string)($row['voucher_code'] ?? ''),
-                'label' => (string)($row['label'] ?? ''),
-                'rule_name' => (string)($row['campaign_name'] ?? ''),
+                'voucher_code'    => (string)($row['voucher_code'] ?? ''),
+                'label'           => (string)($row['label'] ?? ''),
+                'notes'           => (string)($row['notes'] ?? ''),
+                'rule_name'       => (string)($row['campaign_name'] ?? ''),
+                'reward_kind'     => (string)($row['reward_kind'] ?? 'DISCOUNT'),
                 'discount_amount' => round((float)($row['estimated_discount'] ?? 0), 2),
-                'ok' => !empty($row['valid']),
-                'message' => (string)($row['message'] ?? ''),
-                'expired_at' => (string)($row['expired_at'] ?? ''),
+                'ok'              => !empty($row['valid']),
+                'message'         => (string)($row['message'] ?? ''),
+                'expired_at'      => (string)($row['expired_at'] ?? ''),
             ];
             if ($keyword !== '') {
                 $haystack = strtoupper(implode(' ', [
@@ -2583,14 +2591,16 @@ class Pos_model extends CI_Model
         }
 
         if ($selectionCode !== '' && $selection === '') {
-            $issue = $this->db->select('v.*, c.campaign_name, c.campaign_code, c.voucher_type, c.discount_value, c.max_discount_amount, c.min_spend_amount, c.trigger_product_id, c.free_product_id, c.free_qty')
-                ->from('pos_voucher_issue v')
-                ->join('pos_voucher_campaign c', 'c.id = v.campaign_id', 'left')
-                ->where('UPPER(v.voucher_code)', strtoupper($selectionCode))
-                ->where('v.voucher_status', 'OPEN')
-                ->limit(1)
-                ->get()
-                ->row_array();
+            $issue = $this->db->query("
+                SELECT v.*,
+                    c.campaign_name, c.campaign_code, c.voucher_type, c.discount_value,
+                    c.max_discount_amount, c.trigger_product_id, c.free_product_id, c.free_qty,
+                    COALESCE(v.min_spend_amount, c.min_spend_amount) AS min_spend_amount
+                FROM pos_voucher_issue v
+                LEFT JOIN pos_voucher_campaign c ON c.id = v.campaign_id
+                WHERE UPPER(v.voucher_code) = UPPER(?) AND v.voucher_status = 'OPEN'
+                LIMIT 1
+            ", [strtoupper($selectionCode)])->row_array();
             if ($issue) {
                 $selection = 'ISSUE:' . (int)($issue['id'] ?? 0);
             } else {
@@ -2609,14 +2619,16 @@ class Pos_model extends CI_Model
 
         if (strpos($selection, 'ISSUE:') === 0) {
             $issueId = (int)substr($selection, 6);
-            $issue = $this->db->select('v.*, c.campaign_name, c.campaign_code, c.voucher_type, c.discount_value, c.max_discount_amount, c.min_spend_amount, c.trigger_product_id, c.free_product_id, c.free_qty')
-                ->from('pos_voucher_issue v')
-                ->join('pos_voucher_campaign c', 'c.id = v.campaign_id', 'left')
-                ->where('v.id', $issueId)
-                ->where('v.voucher_status', 'OPEN')
-                ->limit(1)
-                ->get()
-                ->row_array();
+            $issue = $this->db->query("
+                SELECT v.*,
+                    c.campaign_name, c.campaign_code, c.voucher_type, c.discount_value,
+                    c.max_discount_amount, c.trigger_product_id, c.free_product_id, c.free_qty,
+                    COALESCE(v.min_spend_amount, c.min_spend_amount) AS min_spend_amount
+                FROM pos_voucher_issue v
+                LEFT JOIN pos_voucher_campaign c ON c.id = v.campaign_id
+                WHERE v.id = ? AND v.voucher_status = 'OPEN'
+                LIMIT 1
+            ", [$issueId])->row_array();
             if (!$issue) {
                 return ['ok' => false, 'message' => 'Voucher member tidak ditemukan atau sudah tidak aktif.'];
             }
@@ -2633,15 +2645,18 @@ class Pos_model extends CI_Model
                 return $preview;
             }
 
+            $discountAmt = round((float)($preview['discount_amount'] ?? 0), 2);
             return [
-                'ok' => true,
-                'voucher_amount' => round((float)($preview['discount_amount'] ?? 0), 2),
-                'promo_amount' => 0,
-                'redemption' => [
+                'ok'             => true,
+                'voucher_amount' => $discountAmt,
+                'promo_amount'   => 0,
+                'reward_kind'    => (string)($preview['reward_kind'] ?? 'DISCOUNT'),
+                'notes'          => (string)($issue['notes'] ?? ''),
+                'redemption'     => [
                     'voucher_issue_id' => $issueId,
-                    'member_id' => $issueMemberId > 0 ? $issueMemberId : null,
-                    'redeem_amount' => round((float)($preview['discount_amount'] ?? 0), 2),
-                    'voucher_code' => (string)($issue['voucher_code'] ?? ''),
+                    'member_id'        => $issueMemberId > 0 ? $issueMemberId : null,
+                    'redeem_amount'    => $discountAmt,
+                    'voucher_code'     => (string)($issue['voucher_code'] ?? ''),
                 ],
             ];
         }
@@ -2674,8 +2689,75 @@ class Pos_model extends CI_Model
         return ['ok' => false, 'message' => 'Pilihan voucher tidak dikenali.'];
     }
 
+    private function evaluate_redeem_voucher_discount(array $issueRow, array $order, float $baseAmount): array
+    {
+        $minSpend = round((float)($issueRow['min_spend_amount'] ?? 0), 2);
+        if ($minSpend > 0 && $baseAmount < $minSpend) {
+            return ['ok' => false, 'discount_amount' => 0, 'reward_kind' => 'DISCOUNT',
+                'message' => 'Belum memenuhi minimal transaksi Rp ' . number_format($minSpend, 0, ',', '.') . '.'];
+        }
+
+        $amountSnapshot  = round((float)($issueRow['amount_snapshot']  ?? 0), 2);
+        $percentSnapshot = round((float)($issueRow['percent_snapshot'] ?? 0), 4);
+        $notes           = trim((string)($issueRow['notes'] ?? ''));
+
+        if ($amountSnapshot > 0) {
+            $discount = round(min($baseAmount, $amountSnapshot), 2);
+            return ['ok' => $discount > 0, 'discount_amount' => $discount, 'reward_kind' => 'DISCOUNT', 'message' => ''];
+        }
+
+        if ($percentSnapshot > 0) {
+            $discount = round($baseAmount * $percentSnapshot / 100, 2);
+            return ['ok' => $discount > 0, 'discount_amount' => $discount, 'reward_kind' => 'DISCOUNT', 'message' => ''];
+        }
+
+        if (stripos($notes, 'Gratis: ') === 0) {
+            $after      = substr($notes, strlen('Gratis: '));
+            $voucherQty = 1.0;
+            if (preg_match('/^(.+)\s+x([\d.]+)$/u', $after, $m)) {
+                $productName = trim($m[1]);
+                $voucherQty  = (float)$m[2];
+            } else {
+                $productName = $after;
+            }
+
+            $discount = 0.0;
+            $found    = false;
+            foreach ((array)($order['lines'] ?? []) as $line) {
+                if (strcasecmp(trim((string)($line['product_name'] ?? '')), $productName) === 0) {
+                    $lineQty   = (float)($line['qty']        ?? 0);
+                    $linePrice = (float)($line['unit_price'] ?? 0);
+                    if ($lineQty > 0 && $linePrice > 0) {
+                        $discount = round(min($lineQty, $voucherQty) * $linePrice, 2);
+                        $found    = true;
+                    }
+                    break;
+                }
+            }
+
+            if (!$found) {
+                return [
+                    'ok'             => false,
+                    'discount_amount' => 0,
+                    'reward_kind'    => 'FREE_PRODUCT',
+                    'message'        => 'Produk "' . $productName . '" belum ada di order. Tambahkan produk tersebut terlebih dahulu.',
+                ];
+            }
+
+            return ['ok' => true, 'discount_amount' => $discount, 'reward_kind' => 'FREE_PRODUCT', 'message' => ''];
+        }
+
+        $rewardKind = stripos($notes, 'Merchandise: ') === 0 ? 'MERCHANDISE' : 'OTHER';
+        return ['ok' => true, 'discount_amount' => 0, 'reward_kind' => $rewardKind, 'message' => ''];
+    }
+
     private function evaluate_cashier_voucher_discount(array $campaignRow, array $order, float $baseAmount, ?array $issueRow = null): array
     {
+        // Standalone redeem voucher (tidak dari campaign) – route ke evaluator khusus
+        if ($issueRow !== null && !empty($issueRow['redeem_rule_id']) && empty($issueRow['campaign_id'])) {
+            return $this->evaluate_redeem_voucher_discount($issueRow, $order, $baseAmount);
+        }
+
         $minSpend = round((float)($campaignRow['min_spend_amount'] ?? 0), 2);
         if ($minSpend > 0 && $baseAmount < $minSpend) {
             return ['ok' => false, 'message' => 'Voucher belum memenuhi minimal transaksi.'];
@@ -2734,6 +2816,7 @@ class Pos_model extends CI_Model
             'ok' => $discountAmount > 0,
             'message' => $discountAmount > 0 ? '' : 'Voucher tidak menghasilkan potongan nominal untuk order ini.',
             'discount_amount' => $discountAmount,
+            'reward_kind' => 'DISCOUNT',
         ];
     }
 

@@ -57,9 +57,15 @@ class Dashboard extends MY_Controller
             return;
         }
 
-        $hasMaterial = $this->dashboard_table_ready('inv_division_monthly_stock');
+        $hasMaterial  = $this->dashboard_table_ready('inv_division_monthly_stock');
         $hasComponent = $this->dashboard_table_ready('inv_component_monthly_stock');
-        $targetMonth = date('Y-m-01');
+        $targetMonth  = date('Y-m-01');
+
+        // Ambil default_operational_division_id produk sebagai fallback
+        $productRow = $this->db->query(
+            "SELECT default_operational_division_id FROM mst_product WHERE id = " . (int)$productId
+        )->row_array();
+        $defaultDivId = (int)($productRow['default_operational_division_id'] ?? 0);
 
         $sql = "
             SELECT
@@ -67,11 +73,13 @@ class Dashboard extends MY_Controller
                 r.line_type,
                 r.ingredient_role,
                 r.qty,
+                COALESCE(r.source_division_id, 0) AS source_division_id,
                 COALESCE(u.code, '') AS uom_code,
                 COALESCE(m.material_name, c.component_name, 'Unknown') AS ingredient_name,
                 COALESCE(m.material_code, '') AS material_code,
                 r.material_item_id,
-                r.component_id
+                r.component_id,
+                mi.material_id
             FROM mst_product_recipe r
             LEFT JOIN mst_uom u ON u.id = r.uom_id
             LEFT JOIN mst_item mi ON mi.id = r.material_item_id
@@ -86,72 +94,117 @@ class Dashboard extends MY_Controller
             return;
         }
 
-        $materialStockMap = [];
-        $componentStockMap = [];
+        // Kumpulkan kombinasi (material_id, division_id) dan (component_id, division_id) yang dibutuhkan
+        $matDivPairs  = []; // [materialId => [divId, ...]]
+        $compDivPairs = []; // [componentId => [divId, ...]]
+        foreach ($recipeRows->result_array() as $r) {
+            $divId = (int)$r['source_division_id'] > 0 ? (int)$r['source_division_id'] : $defaultDivId;
+            if ($r['line_type'] === 'MATERIAL' && !empty($r['material_id'])) {
+                $matId = (int)$r['material_id'];
+                $matDivPairs[$matId][$divId] = true;
+            } elseif ($r['line_type'] === 'COMPONENT' && !empty($r['component_id'])) {
+                $cmpId = (int)$r['component_id'];
+                $compDivPairs[$cmpId][$divId] = true;
+            }
+        }
 
-        if ($hasMaterial) {
+        // Query stok material per (material_id, division_id) — hormati source division resep
+        $materialStockMap = []; // [matId][divId] => qty
+        if ($hasMaterial && !empty($matDivPairs)) {
+            $matIds = array_map('intval', array_keys($matDivPairs));
+            $matIdList = implode(',', $matIds);
             $matSql = "
                 SELECT
                     COALESCE(s.material_id, mi2.material_id) AS material_id,
-                    ROUND(SUM(s.closing_qty_content), 4) AS total_qty,
-                    COALESCE(s.avg_cost_per_content, 0) AS avg_cost
+                    s.division_id,
+                    ROUND(SUM(s.closing_qty_content), 4) AS total_qty
                 FROM inv_division_monthly_stock s
                 LEFT JOIN mst_item mi2 ON mi2.id = s.item_id
                 INNER JOIN (
                     SELECT division_id, destination_type, identity_key, MAX(month_key) AS max_month
-                    FROM inv_division_monthly_stock WHERE month_key <= " . $this->db->escape($targetMonth) . "
+                    FROM inv_division_monthly_stock
+                    WHERE month_key <= " . $this->db->escape($targetMonth) . "
                     GROUP BY division_id, destination_type, identity_key
-                ) lm ON lm.division_id = s.division_id AND lm.destination_type = s.destination_type
-                    AND lm.identity_key = s.identity_key AND lm.max_month = s.month_key
-                WHERE COALESCE(s.material_id, mi2.material_id) IS NOT NULL
-                GROUP BY COALESCE(s.material_id, mi2.material_id)
+                ) lm ON lm.division_id = s.division_id
+                    AND lm.destination_type = s.destination_type
+                    AND lm.identity_key = s.identity_key
+                    AND lm.max_month = s.month_key
+                WHERE COALESCE(s.material_id, mi2.material_id) IN ({$matIdList})
+                GROUP BY COALESCE(s.material_id, mi2.material_id), s.division_id
             ";
             $matResult = $this->dashboard_safe_query($matSql);
             if ($matResult) {
-                foreach ($matResult->result_array() as $r) {
-                    $materialStockMap[(int)$r['material_id']] = ['qty' => (float)$r['total_qty'], 'avg_cost' => (float)$r['avg_cost']];
+                foreach ($matResult->result_array() as $row) {
+                    $materialStockMap[(int)$row['material_id']][(int)$row['division_id']] = (float)$row['total_qty'];
                 }
             }
         }
 
-        if ($hasComponent) {
+        // Query stok component per (component_id, division_id)
+        $componentStockMap = []; // [compId][divId] => qty
+        if ($hasComponent && !empty($compDivPairs)) {
+            $cmpIds    = array_map('intval', array_keys($compDivPairs));
+            $cmpIdList = implode(',', $cmpIds);
             $compSql = "
-                SELECT s.component_id, ROUND(SUM(s.closing_qty), 4) AS total_qty
+                SELECT s.component_id, s.division_id, ROUND(SUM(s.closing_qty), 4) AS total_qty
                 FROM inv_component_monthly_stock s
                 INNER JOIN (
                     SELECT location_type, division_id, component_id, uom_id, MAX(month_key) AS max_month
-                    FROM inv_component_monthly_stock WHERE month_key <= " . $this->db->escape($targetMonth) . "
+                    FROM inv_component_monthly_stock
+                    WHERE month_key <= " . $this->db->escape($targetMonth) . "
                     GROUP BY location_type, division_id, component_id, uom_id
-                ) lm ON lm.location_type = s.location_type AND lm.division_id <=> s.division_id
-                    AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.max_month = s.month_key
-                GROUP BY s.component_id
+                ) lm ON lm.location_type = s.location_type
+                    AND lm.division_id <=> s.division_id
+                    AND lm.component_id = s.component_id
+                    AND lm.uom_id = s.uom_id
+                    AND lm.max_month = s.month_key
+                WHERE s.component_id IN ({$cmpIdList})
+                GROUP BY s.component_id, s.division_id
             ";
             $compResult = $this->dashboard_safe_query($compSql);
             if ($compResult) {
-                foreach ($compResult->result_array() as $r) {
-                    $componentStockMap[(int)$r['component_id']] = (float)$r['total_qty'];
+                foreach ($compResult->result_array() as $row) {
+                    $componentStockMap[(int)$row['component_id']][(int)$row['division_id']] = (float)$row['total_qty'];
                 }
             }
         }
 
         $recipe = [];
         foreach ($recipeRows->result_array() as $r) {
+            // Tentukan division yang dipakai resep ini
+            $divId   = (int)$r['source_division_id'] > 0 ? (int)$r['source_division_id'] : $defaultDivId;
             $stockQty = 0.0;
-            if ($r['line_type'] === 'MATERIAL' && !empty($r['material_item_id'])) {
-                $matId = (int)$this->db->query("SELECT material_id FROM mst_item WHERE id = " . (int)$r['material_item_id'])->row('material_id');
-                $stockQty = (float)($materialStockMap[$matId]['qty'] ?? 0);
+
+            if ($r['line_type'] === 'MATERIAL' && !empty($r['material_id'])) {
+                $matId    = (int)$r['material_id'];
+                $byDiv    = $materialStockMap[$matId] ?? [];
+                if ($divId > 0 && isset($byDiv[$divId])) {
+                    // Ambil stok dari division yang ditentukan resep
+                    $stockQty = $byDiv[$divId];
+                } elseif ($divId <= 0) {
+                    // Tidak ada filter division — jumlah semua (fallback kompatibilitas)
+                    $stockQty = array_sum($byDiv);
+                }
+                // Jika divId > 0 tapi tidak ada stok di division itu → 0 (benar)
             } elseif ($r['line_type'] === 'COMPONENT' && !empty($r['component_id'])) {
-                $stockQty = (float)($componentStockMap[(int)$r['component_id']] ?? 0);
+                $cmpId    = (int)$r['component_id'];
+                $byDiv    = $componentStockMap[$cmpId] ?? [];
+                if ($divId > 0 && isset($byDiv[$divId])) {
+                    $stockQty = $byDiv[$divId];
+                } elseif ($divId <= 0) {
+                    $stockQty = array_sum($byDiv);
+                }
             }
 
             $recipe[] = [
                 'ingredient_name' => (string)$r['ingredient_name'],
-                'line_type' => (string)$r['line_type'],
+                'line_type'       => (string)$r['line_type'],
                 'ingredient_role' => (string)$r['ingredient_role'],
-                'qty_per_serve' => (float)$r['qty'],
-                'uom_code' => (string)$r['uom_code'],
-                'stock_qty' => $stockQty,
-                'is_bottleneck' => $stockQty <= 0,
+                'qty_per_serve'   => (float)$r['qty'],
+                'uom_code'        => (string)$r['uom_code'],
+                'stock_qty'       => $stockQty,
+                'division_id'     => $divId,
+                'is_bottleneck'   => $stockQty <= 0,
             ];
         }
 

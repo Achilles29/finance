@@ -61,6 +61,98 @@ class Loyalty extends MY_Controller
         $this->json_ok(['id' => (int)$id]);
     }
 
+    // ── Member Detail & Redeem ────────────────────────────────
+
+    public function member_detail($id)
+    {
+        $this->require_permission('loyalty.member.index', 'view');
+        $info = $this->Loyalty_model->get_member_redeem_info((int)$id);
+        if (!$info) {
+            show_404();
+        }
+        $this->render('loyalty/member_detail', [
+            'page_title'   => 'Profil Member',
+            'active_menu'  => 'loyalty.member.index',
+            'member'       => $info['member'],
+            'point_balance'=> $info['point_balance'],
+            'stamp_balance'=> $info['stamp_balance'],
+            'open_vouchers'=> $info['open_vouchers'],
+        ]);
+    }
+
+    public function member_redeem_rules($id)
+    {
+        $this->require_permission('loyalty.member.index', 'view');
+        $info = $this->Loyalty_model->get_member_redeem_info((int)$id);
+        if (!$info) {
+            $this->json_error('Member tidak ditemukan.', 404);
+            return;
+        }
+        $rules = $this->Loyalty_model->redeem_rule_options();
+        $pointBal = $info['point_balance'];
+        $stampBal = $info['stamp_balance'];
+        foreach ($rules as &$rule) {
+            $ct = $rule['cost_type'];
+            $canAfford = true;
+            if ($ct === 'POINT' || $ct === 'BOTH') {
+                $canAfford = $canAfford && ($pointBal >= (float)($rule['point_cost'] ?? 0));
+            }
+            if ($ct === 'STAMP' || $ct === 'BOTH') {
+                $canAfford = $canAfford && ($stampBal >= (float)($rule['stamp_cost'] ?? 0));
+            }
+            if ($rule['stock_qty'] !== null && (int)$rule['stock_qty'] <= (int)($rule['redeemed_count'] ?? 0)) {
+                $canAfford = false;
+            }
+            $rule['can_afford'] = $canAfford;
+        }
+        unset($rule);
+        $this->json_ok([
+            'rules'         => $rules,
+            'point_balance' => $pointBal,
+            'stamp_balance' => $stampBal,
+        ]);
+    }
+
+    public function member_redeem_process($id)
+    {
+        $this->require_permission('loyalty.member.index', 'create');
+        $payload = $this->request_payload();
+        $result  = $this->Loyalty_model->process_rule_redeem(
+            (int)$id,
+            (int)($payload['rule_id'] ?? 0),
+            trim((string)($payload['notes'] ?? '')),
+            (int)$this->session->userdata('user_id')
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal memproses redeem.'), 422);
+            return;
+        }
+        $this->json_ok($result);
+    }
+
+    public function member_redeem_history($id)
+    {
+        $this->require_permission('loyalty.member.index', 'view');
+        $filters = [
+            'member_id' => (int)$id,
+            'page'      => max(1, (int)$this->input->get('page', true)),
+            'limit'     => 15,
+        ];
+        $this->json_ok($this->Loyalty_model->redeem_rows($filters));
+    }
+
+    public function member_orders($id)
+    {
+        $this->require_permission('loyalty.member.index', 'view');
+        $this->json_ok($this->Loyalty_model->member_order_rows(
+            (int)$id,
+            max(1, (int)$this->input->get('page', true)),
+            15
+        ));
+    }
+
+    // ── Point rules ───────────────────────────────────────────
+
     public function point_rules()
     {
         $this->require_permission('loyalty.point_rule.index', 'view');

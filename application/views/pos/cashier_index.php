@@ -1148,14 +1148,16 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
     top:100%;
     left:0;
     right:0;
-    z-index:25;
-    max-height:280px;
+    z-index:1060;
+    max-height:300px;
     overflow:auto;
+    background:#fff;
     border:1px solid rgba(201, 183, 168, .72);
     border-radius:16px;
-    box-shadow:0 16px 36px rgba(61, 38, 27, .14);
+    box-shadow:0 16px 36px rgba(61, 38, 27, .18);
   }
   .suggest-box .list-group-item {
+    background:#fff;
     border:0;
     border-bottom:1px solid rgba(232,220,210,.9);
     padding:.9rem 1rem;
@@ -2850,9 +2852,8 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function paymentDepositPreviewRows(targetAmount) {
-    const sourceRows = Array.isArray(paymentContext && paymentContext.deposit_rows ? paymentContext.deposit_rows : [])
-      ? paymentContext.deposit_rows
-      : [];
+    if (!paymentContext) return [];
+    const sourceRows = Array.isArray(paymentContext.deposit_rows) ? paymentContext.deposit_rows : [];
     let remainingTarget = Math.max(0, Number(targetAmount || 0));
     return sourceRows.map((row) => {
       const remainingAmount = Math.max(0, Number(row.remaining_amount || 0));
@@ -2969,7 +2970,11 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     if (paymentVoucherCount) {
       const voucherCount = Number(paymentContext && paymentContext.loyalty_summary ? paymentContext.loyalty_summary.open_voucher_count || 0 : 0);
-      paymentVoucherCount.textContent = `${voucherCount} voucher tersedia`;
+      if (voucherCount > 0) {
+        paymentVoucherCount.innerHTML = `<span class="badge bg-success text-white" style="font-size:.75rem;border-radius:6px;padding:3px 8px;">🎟 ${voucherCount} voucher aktif</span>`;
+      } else {
+        paymentVoucherCount.innerHTML = '<span class="text-muted">Tidak ada voucher aktif</span>';
+      }
     }
     if (paymentDepositCard && paymentDepositMeta && paymentDepositRows) {
       if (totals.depositAvailableTotal > 0.009) {
@@ -3204,7 +3209,22 @@ document.addEventListener('DOMContentLoaded', function () {
       paymentSelectedVoucherCard.setAttribute('data-discount', String(Number(row.discount_amount || 0)));
     }
     if (paymentSelectedVoucherName) paymentSelectedVoucherName.textContent = row.label || row.voucher_code || 'Voucher';
-    if (paymentSelectedVoucherMeta) paymentSelectedVoucherMeta.textContent = `Potongan preview ${money(row.discount_amount || 0)}${row.expired_at ? ' - exp ' + row.expired_at : ''}`;
+    {
+      const rvKind  = String(row.reward_kind || 'DISCOUNT').toUpperCase();
+      const rvNotes = String(row.notes || '');
+      let metaText  = '';
+      if (rvKind === 'FREE_PRODUCT') {
+        metaText = rvNotes || 'Gratis produk';
+      } else if (rvKind === 'MERCHANDISE') {
+        metaText = rvNotes || 'Merchandise / hadiah fisik (non-diskon)';
+      } else if (rvKind === 'OTHER') {
+        metaText = rvNotes || 'Reward khusus';
+      } else {
+        metaText = `Potongan preview ${money(row.discount_amount || 0)}`;
+      }
+      if (row.expired_at) metaText += ' - exp ' + row.expired_at;
+      if (paymentSelectedVoucherMeta) paymentSelectedVoucherMeta.textContent = metaText;
+    }
     if (paymentSelectedVoucherMessage) paymentSelectedVoucherMessage.textContent = row.message || '';
     if (paymentVoucherStatus) {
       paymentVoucherStatus.textContent = row.message || 'Voucher siap dipakai.';
@@ -3241,12 +3261,24 @@ document.addEventListener('DOMContentLoaded', function () {
       const action = row.ok
         ? `<button type="button" class="btn btn-sm btn-primary" data-voucher-idx="${idx}">Pakai</button>`
         : '<button type="button" class="btn btn-sm cashier-payment-btn-neutral" disabled>Tidak Bisa</button>';
+      const rewardKind  = String(row.reward_kind || 'DISCOUNT').toUpperCase();
+      const voucherNotes = String(row.notes || '');
+      let previewLine = '';
+      if (rewardKind === 'FREE_PRODUCT') {
+        previewLine = voucherNotes || 'Gratis produk';
+      } else if (rewardKind === 'MERCHANDISE') {
+        previewLine = voucherNotes || 'Merchandise / hadiah fisik';
+      } else if (rewardKind === 'OTHER') {
+        previewLine = voucherNotes || 'Reward khusus';
+      } else {
+        previewLine = `Preview potongan ${money(row.discount_amount || 0)}`;
+      }
       return `<div class="list-group-item text-start">
         <div class="d-flex justify-content-between align-items-start gap-2">
           <div class="flex-fill min-w-0">
             <div class="d-flex justify-content-between gap-2"><strong>${escapeHtml(row.label || row.voucher_code || '-')}</strong>${badge}</div>
-            <div class="small text-muted mt-1">${escapeHtml(row.message || '-')}</div>
-            <div class="small text-muted">Preview potongan ${money(row.discount_amount || 0)}</div>
+            <div class="small text-muted mt-1">${escapeHtml(row.message || previewLine)}</div>
+            <div class="small text-muted">${escapeHtml(previewLine)}</div>
           </div>
           <div class="flex-shrink-0">${action}</div>
         </div>
@@ -3282,7 +3314,10 @@ document.addEventListener('DOMContentLoaded', function () {
       paymentVoucherStatus.className = 'small text-muted mt-1';
     }
     try {
-      const payload = await getJson('<?php echo site_url('pos/orders/payment/voucher-search'); ?>?order_id=' + encodeURIComponent(paymentContext.order_id) + '&q=' + encodeURIComponent(query));
+      const snapshotOrderId = paymentContext.order_id;
+      const payload = await getJson('<?php echo site_url('pos/orders/payment/voucher-search'); ?>?order_id=' + encodeURIComponent(snapshotOrderId) + '&q=' + encodeURIComponent(query));
+      // Re-check: modal mungkin sudah ditutup saat await berlangsung
+      if (!paymentContext || paymentContext.order_id !== snapshotOrderId) return;
       const rows = payload.rows || [];
       if (!rows.length && options.showIfEmpty) {
         renderPaymentVoucherSuggestions(rows);
@@ -3354,6 +3389,11 @@ document.addEventListener('DOMContentLoaded', function () {
       renderPaymentRows();
       renderPaymentSummary();
       if (paymentModal) paymentModal.show();
+      // Auto-tampilkan voucher member jika ada voucher aktif
+      const autoVoucherCount = Number(paymentContext && paymentContext.loyalty_summary ? paymentContext.loyalty_summary.open_voucher_count || 0 : 0);
+      if (autoVoucherCount > 0 && paymentContext && paymentContext.can_edit_adjustment) {
+        setTimeout(() => searchPaymentVouchers({ preferExact: false }), 120);
+      }
     } finally {
       paymentPrepareInFlight = false;
       updateActionState();

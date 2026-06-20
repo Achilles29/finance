@@ -105,9 +105,11 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
               <th>Tier</th>
               <th>Joined</th>
               <th>Expired</th>
-              <th class="text-center">Status Member</th>
-              <th class="text-center">Status</th>
-              <th class="text-center" style="width:132px;">Aksi</th>
+              <th class="text-center" style="width:110px">Status</th>
+              <th class="text-end" style="width:90px" title="Saldo Poin"><i class="ri ri-star-line"></i> Poin</th>
+              <th class="text-end" style="width:80px" title="Saldo Stamp"><i class="ri ri-stamp-line"></i> Stamp</th>
+              <th class="text-center" style="width:65px" title="Voucher Aktif"><i class="ri ri-coupon-3-line"></i></th>
+              <th class="text-center" style="width:120px">Aksi</th>
             </tr>
           </thead>
           <tbody id="table-body"></tbody>
@@ -233,17 +235,12 @@ document.addEventListener('DOMContentLoaded', function () {
     return new Intl.DateTimeFormat('id-ID', {dateStyle: 'medium', timeStyle: 'short'}).format(dt);
   }
 
-  function statusBadge(status) {
-    const v = String(status || '').toUpperCase();
-    if (v === 'SUSPENDED') return '<span class="badge bg-warning-subtle text-warning-emphasis">SUSPENDED</span>';
-    if (v === 'CLOSED') return '<span class="badge bg-danger-subtle text-danger-emphasis">CLOSED</span>';
-    return '<span class="badge bg-success-subtle text-success-emphasis">ACTIVE</span>';
-  }
-
-  function activeBadge(flag) {
-    return Number(flag || 0) === 1
-      ? '<span class="badge bg-success-subtle text-success-emphasis">Aktif</span>'
-      : '<span class="badge bg-danger-subtle text-danger-emphasis">Nonaktif</span>';
+  function memberStatusBadge(memberStatus, isActive) {
+    if (!Number(isActive)) return '<span class="badge bg-secondary-subtle text-secondary-emphasis">Nonaktif</span>';
+    const v = String(memberStatus || '').toUpperCase();
+    if (v === 'SUSPENDED') return '<span class="badge bg-warning-subtle text-warning-emphasis">Ditangguhkan</span>';
+    if (v === 'CLOSED')    return '<span class="badge bg-danger-subtle text-danger-emphasis">Ditutup</span>';
+    return '<span class="badge bg-success-subtle text-success-emphasis">Aktif</span>';
   }
 
   function qsFromState() {
@@ -294,8 +291,12 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
     emptyState.classList.add('d-none');
-    tableBody.innerHTML = rows.map((r) => `
-      <tr>
+    tableBody.innerHTML = rows.map((r) => {
+      const poin    = Number(r.point_balance  || r.point_balance_cache  || 0).toLocaleString('id-ID', {maximumFractionDigits:0});
+      const stamp   = Number(r.stamp_balance  || r.stamp_balance_cache  || 0).toLocaleString('id-ID', {maximumFractionDigits:0});
+      const voucher = Number(r.open_voucher_count   || 0);
+      const isActive = Number(r.is_active || 0) === 1;
+      return `<tr>
         <td class="text-nowrap">
           <div>${escapeHtml(r.member_no || '-')}</div>
         </td>
@@ -307,19 +308,41 @@ document.addEventListener('DOMContentLoaded', function () {
         <td>${escapeHtml(r.member_tier || '-')}</td>
         <td class="text-nowrap">${fmtDateTime(r.joined_at)}</td>
         <td class="text-nowrap">${fmtDateTime(r.expired_at)}</td>
-        <td class="text-center">${statusBadge(r.member_status)}</td>
-        <td class="text-center">${activeBadge(r.is_active)}</td>
+        <td class="text-center">${memberStatusBadge(r.member_status, r.is_active)}</td>
+        <td class="text-end text-nowrap" style="font-size:.8rem;font-weight:600;color:#7a5800">${poin}</td>
+        <td class="text-end text-nowrap" style="font-size:.8rem;font-weight:600;color:#1a4a7a">${stamp}</td>
+        <td class="text-center">
+          ${voucher > 0 ? `<span class="badge rounded-pill bg-success-subtle text-success-emphasis">${voucher}</span>` : '<span class="text-muted" style="font-size:.75rem">—</span>'}
+        </td>
         <td class="text-center">
           <div class="d-inline-flex gap-1">
-            <button type="button" class="btn btn-sm btn-outline-primary btn-edit" data-row='${JSON.stringify(r).replace(/'/g, '&#039;')}'>Edit</button>
-            <button type="button" class="btn btn-sm ${Number(r.is_active || 0) === 1 ? 'btn-outline-danger' : 'btn-outline-success'} btn-toggle" data-id="${Number(r.id || 0)}">
-              ${Number(r.is_active || 0) === 1 ? 'Nonaktifkan' : 'Aktifkan'}
+            <a href="<?php echo site_url('loyalty/members'); ?>/${Number(r.id||0)}"
+               class="btn btn-sm btn-outline-secondary" title="Profil &amp; Redeem">
+              <i class="ri ri-gift-2-line"></i>
+            </a>
+            <button type="button" class="btn btn-sm btn-outline-info btn-history"
+              data-id="${Number(r.id||0)}" data-name="${escapeHtml(r.member_name||'')}"
+              title="Riwayat Redeem">
+              <i class="ri ri-history-line"></i>
             </button>
-            <button type="button" class="btn btn-sm btn-outline-dark btn-delete" data-id="${Number(r.id || 0)}">Hapus</button>
+            <button type="button" class="btn btn-sm btn-outline-primary btn-edit"
+              data-row='${JSON.stringify(r).replace(/'/g, '&#039;')}' title="Edit">
+              <i class="ri ri-edit-line"></i>
+            </button>
+            <button type="button"
+              class="btn btn-sm ${isActive ? 'btn-outline-danger' : 'btn-outline-success'} btn-toggle"
+              data-id="${Number(r.id||0)}"
+              title="${isActive ? 'Nonaktifkan' : 'Aktifkan'}">
+              <i class="ri ${isActive ? 'ri-pause-circle-line' : 'ri-play-circle-line'}"></i>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-dark btn-delete"
+              data-id="${Number(r.id||0)}" title="Hapus">
+              <i class="ri ri-delete-bin-line"></i>
+            </button>
           </div>
         </td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
   }
 
   function renderPagination(meta) {
@@ -401,6 +424,12 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   tableBody.addEventListener('click', async (e) => {
+    const histBtn = e.target.closest('.btn-history');
+    if (histBtn) {
+      openHistory(histBtn.dataset.id, histBtn.dataset.name);
+      return;
+    }
+
     const editBtn = e.target.closest('.btn-edit');
     if (editBtn) {
       openEdit(JSON.parse(editBtn.dataset.row));
@@ -451,7 +480,215 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   loadRows().catch((err) => alert(err.message));
+
+  // ── History modal ──
+  const histModal  = new bootstrap.Modal(document.getElementById('histModal'));
+  const histTitle  = document.getElementById('hist-modal-name');
+  let histMemberId = 0;
+  let activeHTab   = 'orders';
+  const baseUrl    = '<?php echo site_url('loyalty/members'); ?>';
+
+  const esc  = v => String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+  const fmtN = v => Number(v||0).toLocaleString('id-ID',{maximumFractionDigits:0});
+  const fmtM = v => 'Rp ' + Number(v||0).toLocaleString('id-ID',{maximumFractionDigits:0});
+  const fmtD = v => v ? new Date(v.replace(' ','T')).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+
+  const ORDER_STATUS = {
+    PAID:'<span class="badge bg-success-subtle text-success-emphasis">Lunas</span>',
+    PAID_PARTIAL:'<span class="badge bg-warning-subtle text-warning-emphasis">Lunas Sebagian</span>',
+    SERVED:'<span class="badge bg-success-subtle text-success-emphasis">Selesai</span>',
+    VOID:'<span class="badge bg-danger-subtle text-danger-emphasis">Void</span>',
+    DRAFT:'<span class="badge bg-secondary-subtle text-secondary-emphasis">Draft</span>',
+    CONFIRMED:'<span class="badge bg-info-subtle text-info-emphasis">Dikonfirmasi</span>',
+  };
+  const REDEEM_TYPE = {
+    POINT:'<span class="badge bg-warning-subtle text-warning-emphasis">Poin</span>',
+    STAMP:'<span class="badge bg-primary-subtle text-primary-emphasis">Stamp</span>',
+    VOUCHER:'<span class="badge bg-success-subtle text-success-emphasis">Voucher</span>',
+  };
+
+  function setPg(pgEl, meta, loader) {
+    pgEl.innerHTML = '';
+    if ((meta.total_pages||1) <= 1) return;
+    if (meta.page > 1) {
+      const b = document.createElement('button');
+      b.className='btn btn-outline-secondary btn-sm'; b.textContent='‹';
+      b.onclick=()=>loader(meta.page-1); pgEl.appendChild(b);
+    }
+    if (meta.page < (meta.total_pages||1)) {
+      const b = document.createElement('button');
+      b.className='btn btn-outline-secondary btn-sm'; b.textContent='›';
+      b.onclick=()=>loader(meta.page+1); pgEl.appendChild(b);
+    }
+  }
+
+  async function loadOrders(pg) {
+    const tbody = document.getElementById('hist-orders-body');
+    const info  = document.getElementById('hist-orders-info');
+    const pgEl  = document.getElementById('hist-orders-pg');
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Memuat…</td></tr>';
+    try {
+      const d    = await getJson(`${baseUrl}/${histMemberId}/orders?page=${pg}`);
+      const rows = d.rows || [], meta = d.meta || {};
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Belum ada transaksi</td></tr>';
+      } else {
+        tbody.innerHTML = rows.map(r => `<tr>
+          <td class="ps-3"><span style="font-size:.78rem;font-weight:600">${esc(r.order_no||'')}</span></td>
+          <td style="font-size:.78rem">${fmtD(r.ordered_at)}</td>
+          <td>${ORDER_STATUS[r.status] || `<span class="badge bg-secondary-subtle text-secondary-emphasis">${esc(r.status)}</span>`}</td>
+          <td class="text-end" style="font-size:.78rem">${fmtM(r.subtotal_amount)}</td>
+          <td class="text-end" style="font-size:.78rem;color:#c0434d">${r.discount_amount > 0 ? '-'+fmtM(r.discount_amount) : '—'}</td>
+          <td class="text-end pe-3" style="font-size:.8rem;font-weight:700">${fmtM(r.grand_total)}</td>
+        </tr>`).join('');
+      }
+      info.textContent = `${rows.length} dari ${(meta.total||0).toLocaleString('id-ID')} transaksi`;
+      setPg(pgEl, meta, loadOrders);
+    } catch(e) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-3" style="font-size:.8rem">Gagal: ${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  async function loadRedeem(pg) {
+    const tbody = document.getElementById('hist-redeem-body');
+    const info  = document.getElementById('hist-redeem-info');
+    const pgEl  = document.getElementById('hist-redeem-pg');
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Memuat…</td></tr>';
+    try {
+      const d    = await getJson(`${baseUrl}/${histMemberId}/redeem/history?page=${pg}`);
+      const rows = d.rows || [], meta = d.meta || {};
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Belum ada riwayat redeem</td></tr>';
+      } else {
+        tbody.innerHTML = rows.map(r => `<tr>
+          <td class="ps-3"><span style="font-size:.78rem;font-weight:600">${esc(r.redeem_no||'')}</span></td>
+          <td>${REDEEM_TYPE[r.redeem_type]||r.redeem_type}</td>
+          <td style="font-size:.78rem">${esc(r.reward_desc||r.reward_type||'—')}</td>
+          <td style="font-size:.78rem;color:#7a6055">
+            ${r.points_used ? fmtN(r.points_used)+' poin' : ''}
+            ${r.stamps_used ? fmtN(r.stamps_used)+' stamp' : ''}
+          </td>
+          <td style="font-size:.78rem">${fmtD(r.created_at)}</td>
+        </tr>`).join('');
+      }
+      info.textContent = `${rows.length} dari ${(meta.total||0).toLocaleString('id-ID')} transaksi`;
+      setPg(pgEl, meta, loadRedeem);
+    } catch(e) {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3" style="font-size:.8rem">Gagal: ${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  // Tab switching
+  document.querySelectorAll('.hist-tab').forEach(btn => {
+    btn.addEventListener('click', function() {
+      activeHTab = this.dataset.htab;
+      document.querySelectorAll('.hist-tab').forEach(b => {
+        const on = b.dataset.htab === activeHTab;
+        b.style.borderBottomColor = on ? '#1a3a5a' : 'transparent';
+        b.style.color = on ? '#1a3a5a' : '#888';
+        b.style.fontWeight = on ? '700' : '600';
+      });
+      document.getElementById('htab-orders').classList.toggle('d-none', activeHTab !== 'orders');
+      document.getElementById('htab-redeem').classList.toggle('d-none', activeHTab !== 'redeem');
+      if (activeHTab === 'redeem') loadRedeem(1);
+    });
+  });
+
+  async function openHistory(id, name) {
+    histMemberId = parseInt(id);
+    histTitle.textContent = name || 'Member';
+    document.getElementById('hist-detail-link').href = `${baseUrl}/${id}`;
+    // reset to orders tab
+    activeHTab = 'orders';
+    document.querySelectorAll('.hist-tab').forEach(b => {
+      const on = b.dataset.htab === 'orders';
+      b.style.borderBottomColor = on ? '#1a3a5a' : 'transparent';
+      b.style.color = on ? '#1a3a5a' : '#888';
+      b.style.fontWeight = on ? '700' : '600';
+    });
+    document.getElementById('htab-orders').classList.remove('d-none');
+    document.getElementById('htab-redeem').classList.add('d-none');
+    histModal.show();
+    loadOrders(1);
+  }
 });
 </script>
+
+<!-- ── History Modal ── -->
+<div class="modal fade" id="histModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content border-0 shadow" style="border-radius:16px;overflow:hidden">
+      <div class="modal-header" style="background:linear-gradient(135deg,#1a3a5a,#2a5a8a);color:#fff;padding:.85rem 1.2rem">
+        <div class="d-flex align-items-center gap-2">
+          <i class="ri ri-history-line" style="font-size:1.1rem"></i>
+          <div>
+            <h6 class="modal-title mb-0 fw-bold">Riwayat</h6>
+            <div style="font-size:.75rem;opacity:.8" id="hist-modal-name"></div>
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" style="filter:invert(1) brightness(2)"></button>
+      </div>
+      <!-- Tab nav -->
+      <div class="px-3 pt-2 pb-0" style="background:#f8f5f2;border-bottom:1px solid #e8ddd6">
+        <div class="d-flex gap-1">
+          <button class="btn btn-sm hist-tab active" data-htab="orders" style="border-radius:8px 8px 0 0;font-size:.8rem;font-weight:700;border-bottom:2px solid #1a3a5a;color:#1a3a5a;background:none">
+            <i class="ri ri-shopping-bag-3-line me-1"></i>Transaksi POS
+          </button>
+          <button class="btn btn-sm hist-tab" data-htab="redeem" style="border-radius:8px 8px 0 0;font-size:.8rem;font-weight:600;border-bottom:2px solid transparent;color:#888;background:none">
+            <i class="ri ri-gift-2-line me-1"></i>Riwayat Redeem
+          </button>
+        </div>
+      </div>
+      <!-- Tab: Transaksi POS -->
+      <div id="htab-orders" class="modal-body p-0">
+        <table class="table table-sm table-hover mb-0" style="font-size:.82rem">
+          <thead style="background:#f8f5f2;position:sticky;top:0">
+            <tr>
+              <th class="ps-3" style="font-size:.7rem;color:#4a6080;text-transform:uppercase;letter-spacing:.03em">No. Order</th>
+              <th style="font-size:.7rem;color:#4a6080;text-transform:uppercase;letter-spacing:.03em">Tanggal</th>
+              <th style="font-size:.7rem;color:#4a6080;text-transform:uppercase;letter-spacing:.03em">Status</th>
+              <th class="text-end" style="font-size:.7rem;color:#4a6080;text-transform:uppercase;letter-spacing:.03em">Subtotal</th>
+              <th class="text-end" style="font-size:.7rem;color:#4a6080;text-transform:uppercase;letter-spacing:.03em">Diskon</th>
+              <th class="text-end pe-3" style="font-size:.7rem;color:#4a6080;text-transform:uppercase;letter-spacing:.03em">Total</th>
+            </tr>
+          </thead>
+          <tbody id="hist-orders-body">
+            <tr><td colspan="6" class="text-center text-muted py-3">Memuat…</td></tr>
+          </tbody>
+        </table>
+        <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top" style="background:#fafafa">
+          <small id="hist-orders-info" class="text-muted"></small>
+          <div id="hist-orders-pg" class="d-flex gap-1"></div>
+        </div>
+      </div>
+      <!-- Tab: Riwayat Redeem -->
+      <div id="htab-redeem" class="modal-body p-0 d-none">
+        <table class="table table-sm table-hover mb-0" style="font-size:.82rem">
+          <thead style="background:#f8f5f2;position:sticky;top:0">
+            <tr>
+              <th class="ps-3" style="font-size:.7rem;color:#7a6055;text-transform:uppercase;letter-spacing:.03em">No. Redeem</th>
+              <th style="font-size:.7rem;color:#7a6055;text-transform:uppercase;letter-spacing:.03em">Tipe</th>
+              <th style="font-size:.7rem;color:#7a6055;text-transform:uppercase;letter-spacing:.03em">Reward</th>
+              <th style="font-size:.7rem;color:#7a6055;text-transform:uppercase;letter-spacing:.03em">Digunakan</th>
+              <th style="font-size:.7rem;color:#7a6055;text-transform:uppercase;letter-spacing:.03em">Tanggal</th>
+            </tr>
+          </thead>
+          <tbody id="hist-redeem-body">
+            <tr><td colspan="5" class="text-center text-muted py-3">Memuat…</td></tr>
+          </tbody>
+        </table>
+        <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top" style="background:#fafafa">
+          <small id="hist-redeem-info" class="text-muted"></small>
+          <div id="hist-redeem-pg" class="d-flex gap-1"></div>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-top:1px solid #e8ddd6;padding:.55rem 1.2rem;justify-content:flex-end">
+        <a id="hist-detail-link" href="#" class="btn btn-sm btn-outline-secondary">
+          <i class="ri ri-external-link-line me-1"></i>Profil &amp; Redeem Lengkap
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
 
 
