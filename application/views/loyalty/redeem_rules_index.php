@@ -15,32 +15,66 @@ $REWARD_LABELS = [
 ];
 ?>
 <style>
-/* reuse loyalty promo styles */
-.loyalty-shell { background:linear-gradient(180deg,#fffaf5 0%,#fff 100%);border:1px solid #f0dfd2;border-radius:26px;box-shadow:0 18px 48px rgba(126,73,35,.08); }
 .loyalty-filter-strip,.loyalty-table-card { border:1px solid #f0dfd2;border-radius:22px;background:#fff;box-shadow:0 14px 36px rgba(126,73,35,.06); }
 .loyalty-status-tab.active,.loyalty-status-tab:hover { background:#8f353a;color:#fff;border-color:#8f353a; }
 .loyalty-status-tab { border-radius:999px;border:1px solid #dcb7ab;background:#fffaf6;color:#81584d;font-weight:700; }
 .loyalty-table thead th { color:#7a6055;font-size:.8rem;text-transform:uppercase;letter-spacing:.03em;border-bottom-color:#eddcd0; }
 .loyalty-table tbody td { padding-top:.85rem;padding-bottom:.85rem;border-bottom-color:#f4e8df; }
 /* cost / reward badges */
-.rr-cost-badge  { display:inline-flex;padding:.18rem .5rem;border-radius:999px;font-size:.65rem;font-weight:800; }
+.rr-cost-badge  { display:inline-flex;padding:.18rem .55rem;border-radius:999px;font-size:.65rem;font-weight:800;letter-spacing:.02em; }
 .rr-cost-badge.point   { background:#fff8e0;color:#7a5800; }
 .rr-cost-badge.stamp   { background:#e8f0fb;color:#1a4a7a; }
 .rr-cost-badge.both    { background:#f0e8fb;color:#5a1a7a; }
-.rr-reward-badge { display:inline-flex;padding:.18rem .5rem;border-radius:999px;font-size:.65rem;font-weight:800;background:#e8f7ee;color:#1a5a3a; }
-/* form section headings inside modal */
-.rr-form-section { font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#7c1f2d;padding:.35rem 0 .15rem;border-bottom:1px solid #f0dfd2;margin-bottom:.5rem; }
-/* conditional field rows */
+.rr-reward-badge { display:inline-flex;padding:.18rem .55rem;border-radius:999px;font-size:.65rem;font-weight:800;background:#e8f7ee;color:#1a5a3a;letter-spacing:.02em; }
+/* ── Modal section headers ── */
+.rr-section-head {
+  display:flex;align-items:center;gap:.5rem;
+  background:linear-gradient(90deg,#fdf0ec 0%,#fff8f5 100%);
+  border-left:3px solid #c0434d;border-radius:0 10px 10px 0;
+  padding:.55rem .9rem;margin-bottom:1rem;
+  font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#7c1f2d;
+}
+.rr-section-head i { font-size:.95rem;opacity:.75; }
+/* ── Field cards (Cost / Reward / Kondisi) ── */
+.rr-block {
+  background:#fffaf7;border:1px solid #f0dfd2;border-radius:14px;
+  padding:1.1rem 1.1rem .85rem;margin-bottom:1.25rem;
+}
+/* ── Conditional field rows ── */
 .rr-field-row { display:none; }
 .rr-field-row.is-visible { display:flex; }
-/* ajax product lookup (reuse loyalty pattern) */
+/* ── Number input — hide browser spinners ── */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance:none;margin:0; }
+input[type=number] { -moz-appearance:textfield; }
+/* ── Modal header accent ── */
+#rrModal .modal-header {
+  background:linear-gradient(135deg,#7c1f2d 0%,#a03040 100%);
+  color:#fff;border-radius:calc(var(--bs-modal-border-radius) - 1px) calc(var(--bs-modal-border-radius) - 1px) 0 0;
+  padding:1.1rem 1.4rem;
+}
+#rrModal .modal-header .btn-close { filter:invert(1) brightness(2); }
+#rrModal .modal-header .modal-subtitle { color:rgba(255,255,255,.72);font-size:.8rem;margin-top:.15rem; }
+/* ── ajax product lookup ── */
 .loyalty-ajax-box { position:relative; }
 .loyalty-ajax-result { position:absolute;z-index:20;inset:calc(100% + 6px) 0 auto 0;background:#fff;border:1px solid #ead7c8;border-radius:16px;box-shadow:0 18px 38px rgba(70,44,31,.14);max-height:240px;overflow:auto;display:none; }
 .loyalty-ajax-result.is-open { display:block; }
-.loyalty-ajax-item { padding:.8rem .9rem;border-bottom:1px solid #f4e7de;cursor:pointer;font-size:.82rem; }
+.loyalty-ajax-item { padding:.75rem .9rem;border-bottom:1px solid #f4e7de;cursor:pointer;font-size:.82rem; }
+.loyalty-ajax-item:last-child { border-bottom:none; }
 .loyalty-ajax-item:hover { background:#fff7f0; }
-.loyalty-ajax-selected { display:none;margin-top:.5rem;padding:.6rem .75rem;border:1px solid #ead7c8;border-radius:12px;background:#fffaf6;font-size:.8rem; }
-.loyalty-ajax-selected.is-show { display:block; }
+.loyalty-ajax-selected { display:none;margin-top:.4rem;padding:.5rem .75rem;border:1px solid #bde6cc;border-radius:10px;background:#f0faf4;font-size:.8rem;color:#1a5a3a; }
+.loyalty-ajax-selected.is-show { display:flex;align-items:center;gap:.4rem; }
+.loyalty-ajax-selected::before { content:"✓";font-weight:700;color:#2e8b57; }
+/* ── Switch toggle styling ── */
+.rr-switch-wrap { background:#f8f8f8;border:1px solid #e8e0da;border-radius:12px;padding:.65rem .9rem;display:flex;align-items:center;gap:.6rem;height:100%; }
+.rr-switch-wrap .form-check-input { width:2.2em;height:1.15em;cursor:pointer; }
+.rr-switch-wrap .form-check-input:checked { background-color:#2e8b57;border-color:#2e8b57; }
+/* ── Form label style ── */
+#rrModal .form-label { font-size:.78rem;font-weight:600;color:#5a4540;margin-bottom:.3rem; }
+#rrModal .form-text  { font-size:.68rem;color:#9a8880;margin-top:.25rem; }
+#rrModal .form-control, #rrModal .form-select { font-size:.85rem;border-color:#ddd0c8;border-radius:8px; }
+#rrModal .form-control:focus, #rrModal .form-select:focus { border-color:#c0434d;box-shadow:0 0 0 3px rgba(192,67,77,.12); }
+#rrModal .input-group-text { font-size:.82rem;background:#f5ede8;border-color:#ddd0c8;color:#7a5850; }
 </style>
 
 <div class="container-xxl py-3">
@@ -118,182 +152,212 @@ $REWARD_LABELS = [
 </div>
 
 <!-- ── Modal Form Rule Redeem ─────────────────────────────── -->
-<div class="modal fade finance-ui-modal" id="rrModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="rrModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
-    <div class="modal-content">
+    <div class="modal-content border-0 shadow-lg" style="border-radius:18px;overflow:hidden">
+
+      <!-- Header -->
       <div class="modal-header">
-        <div>
-          <h5 class="modal-title" id="rrModalTitle">Tambah Rule Redeem</h5>
-          <div class="small text-muted">Tentukan biaya (berapa poin/stamp) dan reward yang didapat member.</div>
+        <div class="d-flex align-items-center gap-2">
+          <i class="ri ri-gift-2-line" style="font-size:1.35rem;opacity:.85"></i>
+          <div>
+            <h5 class="modal-title mb-0 fw-bold" id="rrModalTitle" style="font-size:1rem;letter-spacing:.01em">Tambah Rule Redeem</h5>
+            <div class="modal-subtitle">Tentukan biaya (poin/stamp) dan reward yang diterima member</div>
+          </div>
         </div>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
       </div>
-      <div class="modal-body">
+
+      <!-- Body -->
+      <div class="modal-body px-4 py-3" style="background:#f9f5f2">
         <input type="hidden" id="rr-id" value="">
 
-        <!-- Identitas -->
-        <div class="rr-form-section">Identitas Rule</div>
-        <div class="row g-3 mb-3">
-          <div class="col-md-3">
-            <label class="form-label form-label-sm mb-1">Kode Internal</label>
-            <input type="text" id="rr-code" class="form-control form-control-sm" placeholder="Otomatis jika kosong">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label form-label-sm mb-1">Nama Rule <span class="text-danger">*</span></label>
-            <input type="text" id="rr-name" class="form-control form-control-sm" placeholder="Contoh: Tukar 500 poin dapat Voucher 50rb">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label form-label-sm mb-1">Status</label>
-            <div class="form-check form-switch border rounded-3 px-3 py-2 h-100 d-flex align-items-center">
-              <input class="form-check-input" type="checkbox" id="rr-active" checked>
-              <label class="form-check-label ms-2" for="rr-active">Aktif</label>
+        <!-- ① Identitas -->
+        <div class="rr-section-head"><i class="ri ri-price-tag-3-line"></i> Identitas Rule</div>
+        <div class="rr-block">
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label">Kode Internal</label>
+              <input type="text" id="rr-code" class="form-control" placeholder="Otomatis jika kosong">
+              <div class="form-text">Biarkan kosong agar kode digenerate otomatis</div>
             </div>
-          </div>
-          <div class="col-12">
-            <label class="form-label form-label-sm mb-1">Deskripsi</label>
-            <textarea id="rr-desc" class="form-control form-control-sm" rows="2" placeholder="Penjelasan singkat untuk operator, misal: syarat, kondisi, catatan khusus…"></textarea>
-          </div>
-        </div>
-
-        <!-- Cara Bayar -->
-        <div class="rr-form-section">Cara Bayar (Cost)</div>
-        <div class="row g-3 mb-3">
-          <div class="col-md-3">
-            <label class="form-label form-label-sm mb-1">Member Bayar Dengan <span class="text-danger">*</span></label>
-            <select id="rr-cost-type" class="form-select form-select-sm">
-              <option value="POINT">Poin saja</option>
-              <option value="STAMP">Stamp saja</option>
-              <option value="BOTH">Poin + Stamp</option>
-            </select>
-          </div>
-          <!-- Point fields -->
-          <div class="col-md-3 rr-field-row rr-cost-point" id="field-point-cost">
-            <label class="form-label form-label-sm mb-1">Poin Dibutuhkan <span class="text-danger">*</span></label>
-            <div class="input-group input-group-sm">
-              <input type="number" id="rr-point-cost" class="form-control" min="0" step="0.01" placeholder="Contoh: 100">
-              <span class="input-group-text">poin</span>
+            <div class="col-md-6">
+              <label class="form-label">Nama Rule <span class="text-danger">*</span></label>
+              <input type="text" id="rr-name" class="form-control" placeholder="Contoh: Tukar 500 Poin → Voucher Rp 50.000">
             </div>
-          </div>
-          <!-- Stamp fields -->
-          <div class="col-md-4 rr-field-row rr-cost-stamp" id="field-stamp-campaign">
-            <label class="form-label form-label-sm mb-1">Campaign Stamp <span class="text-danger">*</span></label>
-            <select id="rr-stamp-campaign" class="form-select form-select-sm">
-              <option value="">— pilih campaign stamp —</option>
-              <?php foreach ($stampCampaignOpts as $sc): ?>
-                <option value="<?php echo (int)$sc['value']; ?>"><?php echo html_escape($sc['label']); ?></option>
-              <?php endforeach; ?>
-            </select>
-            <div class="form-text" style="font-size:.68rem">Campaign stamp yang berlaku untuk rule ini</div>
-          </div>
-          <div class="col-md-2 rr-field-row rr-cost-stamp" id="field-stamp-cost">
-            <label class="form-label form-label-sm mb-1">Stamp Dibutuhkan <span class="text-danger">*</span></label>
-            <div class="input-group input-group-sm">
-              <input type="number" id="rr-stamp-cost" class="form-control" min="0" step="0.0001" placeholder="Contoh: 8">
-              <span class="input-group-text">stamp</span>
+            <div class="col-md-3">
+              <label class="form-label">Status</label>
+              <div class="rr-switch-wrap form-check form-switch ms-0 ps-0">
+                <input class="form-check-input ms-0" type="checkbox" role="switch" id="rr-active" checked>
+                <label class="form-check-label ms-2 fw-semibold" for="rr-active" style="font-size:.85rem">Aktif</label>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Deskripsi</label>
+              <textarea id="rr-desc" class="form-control" rows="2" placeholder="Penjelasan singkat untuk operator, misal: syarat, kondisi, atau catatan khusus…"></textarea>
             </div>
           </div>
         </div>
 
-        <!-- Reward yang didapat -->
-        <div class="rr-form-section">Reward yang Didapat Member</div>
-        <div class="row g-3 mb-3">
-          <div class="col-md-4">
-            <label class="form-label form-label-sm mb-1">Jenis Reward <span class="text-danger">*</span></label>
-            <select id="rr-reward-type" class="form-select form-select-sm">
-              <option value="DISCOUNT_AMOUNT">Diskon nominal (Rp)</option>
-              <option value="DISCOUNT_PERCENT">Diskon persen (%)</option>
-              <option value="VOUCHER">Voucher (dari campaign)</option>
-              <option value="PRODUCT">Produk / item</option>
-              <option value="FREE_PRODUCT">Produk Gratis</option>
-              <option value="MERCHANDISE">Merchandise</option>
-              <option value="OTHER">Reward lainnya</option>
-            </select>
-          </div>
-
-          <!-- Diskon Nominal -->
-          <div class="col-md-4 rr-field-row rr-reward-discount-amt" id="field-discount-amount">
-            <label class="form-label form-label-sm mb-1">Nilai Diskon <span class="text-danger">*</span></label>
-            <div class="input-group input-group-sm">
-              <span class="input-group-text">Rp</span>
-              <input type="number" id="rr-discount-amount" class="form-control" min="0" step="1000" placeholder="Contoh: 50000">
+        <!-- ② Cara Bayar -->
+        <div class="rr-section-head"><i class="ri ri-coins-line"></i> Cara Bayar (Cost)</div>
+        <div class="rr-block">
+          <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+              <label class="form-label">Member Bayar Dengan <span class="text-danger">*</span></label>
+              <select id="rr-cost-type" class="form-select">
+                <option value="POINT">🟡 Poin saja</option>
+                <option value="STAMP">🔵 Stamp saja</option>
+                <option value="BOTH">🟣 Poin + Stamp</option>
+              </select>
             </div>
-          </div>
 
-          <!-- Diskon Persen -->
-          <div class="col-md-4 rr-field-row rr-reward-discount-pct" id="field-discount-percent">
-            <label class="form-label form-label-sm mb-1">Persentase Diskon <span class="text-danger">*</span></label>
-            <div class="input-group input-group-sm">
-              <input type="number" id="rr-discount-percent" class="form-control" min="0" max="100" step="0.5" placeholder="Contoh: 10">
-              <span class="input-group-text">%</span>
+            <!-- Poin -->
+            <div class="col-md-3 rr-field-row rr-cost-point" id="field-point-cost">
+              <label class="form-label">Poin Dibutuhkan <span class="text-danger">*</span></label>
+              <div class="input-group">
+                <input type="number" id="rr-point-cost" class="form-control" min="0" step="1" placeholder="500">
+                <span class="input-group-text">poin</span>
+              </div>
             </div>
-          </div>
 
-          <!-- Voucher Campaign -->
-          <div class="col-md-6 rr-field-row rr-reward-voucher" id="field-voucher-campaign">
-            <label class="form-label form-label-sm mb-1">Campaign Voucher <span class="text-danger">*</span></label>
-            <select id="rr-voucher-campaign" class="form-select form-select-sm">
-              <option value="">— pilih campaign voucher —</option>
-              <?php foreach ($voucherCampaignOpts as $vc): ?>
-                <option value="<?php echo (int)$vc['value']; ?>"><?php echo html_escape($vc['label']); ?></option>
-              <?php endforeach; ?>
-            </select>
-            <div class="form-text" style="font-size:.68rem">Sistem akan menerbitkan voucher dari campaign ini ke member</div>
-          </div>
-
-          <!-- Produk -->
-          <div class="col-md-6 rr-field-row rr-reward-product" id="field-product">
-            <label class="form-label form-label-sm mb-1">Produk Reward <span class="text-danger">*</span></label>
-            <div class="loyalty-ajax-box" id="product-ajax-box">
-              <input type="hidden" id="rr-product-id" value="">
-              <input type="text" id="rr-product-q" class="form-control form-control-sm" placeholder="Ketik nama produk…" autocomplete="off">
-              <div class="loyalty-ajax-result" id="product-ajax-result"></div>
-              <div class="loyalty-ajax-selected" id="product-ajax-selected"></div>
+            <!-- Stamp campaign -->
+            <div class="col-md-4 rr-field-row rr-cost-stamp" id="field-stamp-campaign">
+              <label class="form-label">Campaign Stamp <span class="text-danger">*</span></label>
+              <select id="rr-stamp-campaign" class="form-select">
+                <option value="">— pilih campaign stamp —</option>
+                <?php foreach ($stampCampaignOpts as $sc): ?>
+                  <option value="<?php echo (int)$sc['value']; ?>"><?php echo html_escape($sc['label']); ?></option>
+                <?php endforeach; ?>
+              </select>
+              <div class="form-text">Campaign stamp yang berlaku untuk rule ini</div>
             </div>
-          </div>
-          <div class="col-md-2 rr-field-row rr-reward-product" id="field-product-qty">
-            <label class="form-label form-label-sm mb-1">Jumlah <span class="text-danger">*</span></label>
-            <input type="number" id="rr-product-qty" class="form-control form-control-sm" min="0.0001" step="0.0001" placeholder="1">
-          </div>
-
-          <!-- Merchandise / Other notes -->
-          <div class="col-md-8 rr-field-row rr-reward-notes" id="field-reward-notes">
-            <label class="form-label form-label-sm mb-1">Deskripsi Reward <span class="text-danger">*</span></label>
-            <input type="text" id="rr-reward-notes" class="form-control form-control-sm" placeholder="Contoh: Tote bag branded, 1 pcs T-shirt ukuran M, Gratis 1 bulan langganan">
+            <!-- Stamp cost -->
+            <div class="col-md-2 rr-field-row rr-cost-stamp" id="field-stamp-cost">
+              <label class="form-label">Stamp Dibutuhkan <span class="text-danger">*</span></label>
+              <div class="input-group">
+                <input type="number" id="rr-stamp-cost" class="form-control" min="0" step="1" placeholder="8">
+                <span class="input-group-text">stamp</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <!-- Kondisi & Masa Berlaku -->
-        <div class="rr-form-section">Kondisi & Masa Berlaku</div>
-        <div class="row g-3">
-          <div class="col-md-3">
-            <label class="form-label form-label-sm mb-1">Min. Belanja (opsional)</label>
-            <div class="input-group input-group-sm">
-              <span class="input-group-text">Rp</span>
-              <input type="number" id="rr-min-spend" class="form-control" min="0" step="1000" placeholder="Kosong = tidak ada syarat">
+        <!-- ③ Reward -->
+        <div class="rr-section-head"><i class="ri ri-trophy-line"></i> Reward yang Diterima Member</div>
+        <div class="rr-block">
+          <div class="row g-3 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label">Jenis Reward <span class="text-danger">*</span></label>
+              <select id="rr-reward-type" class="form-select">
+                <option value="DISCOUNT_AMOUNT">💰 Diskon nominal (Rp)</option>
+                <option value="DISCOUNT_PERCENT">📉 Diskon persen (%)</option>
+                <option value="VOUCHER">🎫 Voucher (dari campaign)</option>
+                <option value="PRODUCT">📦 Produk / item</option>
+                <option value="FREE_PRODUCT">🎁 Produk Gratis</option>
+                <option value="MERCHANDISE">🛍️ Merchandise</option>
+                <option value="OTHER">✨ Reward lainnya</option>
+              </select>
             </div>
-            <div class="form-text" style="font-size:.68rem">Min. nominal transaksi agar member bisa gunakan rule ini</div>
+
+            <!-- Diskon Nominal -->
+            <div class="col-md-4 rr-field-row rr-reward-discount-amt" id="field-discount-amount">
+              <label class="form-label">Nilai Diskon <span class="text-danger">*</span></label>
+              <div class="input-group">
+                <span class="input-group-text">Rp</span>
+                <input type="number" id="rr-discount-amount" class="form-control" min="0" step="1000" placeholder="50000">
+              </div>
+            </div>
+
+            <!-- Diskon Persen -->
+            <div class="col-md-4 rr-field-row rr-reward-discount-pct" id="field-discount-percent">
+              <label class="form-label">Persentase Diskon <span class="text-danger">*</span></label>
+              <div class="input-group">
+                <input type="number" id="rr-discount-percent" class="form-control" min="0" max="100" step="0.5" placeholder="10">
+                <span class="input-group-text">%</span>
+              </div>
+            </div>
+
+            <!-- Voucher Campaign -->
+            <div class="col-md-7 rr-field-row rr-reward-voucher" id="field-voucher-campaign">
+              <label class="form-label">Campaign Voucher <span class="text-danger">*</span></label>
+              <select id="rr-voucher-campaign" class="form-select">
+                <option value="">— pilih campaign voucher —</option>
+                <?php foreach ($voucherCampaignOpts as $vc): ?>
+                  <option value="<?php echo (int)$vc['value']; ?>"><?php echo html_escape($vc['label']); ?></option>
+                <?php endforeach; ?>
+              </select>
+              <div class="form-text">Sistem akan menerbitkan voucher dari campaign ini ke member saat redeem</div>
+            </div>
+
+            <!-- Produk search -->
+            <div class="col-md-6 rr-field-row rr-reward-product" id="field-product">
+              <label class="form-label">Produk Reward <span class="text-danger">*</span></label>
+              <div class="loyalty-ajax-box" id="product-ajax-box">
+                <input type="hidden" id="rr-product-id" value="">
+                <input type="text" id="rr-product-q" class="form-control" placeholder="Ketik nama atau kode produk…" autocomplete="off">
+                <div class="loyalty-ajax-result" id="product-ajax-result"></div>
+                <div class="loyalty-ajax-selected" id="product-ajax-selected"></div>
+              </div>
+            </div>
+            <div class="col-md-2 rr-field-row rr-reward-product" id="field-product-qty">
+              <label class="form-label">Jumlah <span class="text-danger">*</span></label>
+              <div class="input-group">
+                <input type="number" id="rr-product-qty" class="form-control" min="0.0001" step="1" placeholder="1">
+                <span class="input-group-text">unit</span>
+              </div>
+            </div>
+
+            <!-- Merchandise / Other -->
+            <div class="col-md-8 rr-field-row rr-reward-notes" id="field-reward-notes">
+              <label class="form-label">Deskripsi Reward <span class="text-danger">*</span></label>
+              <input type="text" id="rr-reward-notes" class="form-control" placeholder="Contoh: Tote bag branded, T-shirt M, Gratis 1 bulan berlangganan…">
+            </div>
           </div>
-          <div class="col-md-2">
-            <label class="form-label form-label-sm mb-1">Stok Reward (opsional)</label>
-            <input type="number" id="rr-stock-qty" class="form-control form-control-sm" min="0" step="1" placeholder="Kosong = tak terbatas">
-            <div class="form-text" style="font-size:.68rem">Misal: 100 buah merchandise tersedia</div>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label form-label-sm mb-1">Berlaku Mulai</label>
-            <input type="date" id="rr-valid-from" class="form-control form-control-sm">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label form-label-sm mb-1">Berlaku Sampai</label>
-            <input type="date" id="rr-valid-until" class="form-control form-control-sm">
+        </div>
+
+        <!-- ④ Kondisi & Masa Berlaku -->
+        <div class="rr-section-head"><i class="ri ri-calendar-check-line"></i> Kondisi &amp; Masa Berlaku</div>
+        <div class="rr-block mb-0">
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label">Min. Belanja <span class="text-muted fw-normal">(opsional)</span></label>
+              <div class="input-group">
+                <span class="input-group-text">Rp</span>
+                <input type="number" id="rr-min-spend" class="form-control" min="0" step="1000" placeholder="Kosong = tanpa syarat">
+              </div>
+              <div class="form-text">Min. nilai transaksi agar member bisa pakai rule ini</div>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Stok Reward <span class="text-muted fw-normal">(opsional)</span></label>
+              <div class="input-group">
+                <input type="number" id="rr-stock-qty" class="form-control" min="0" step="1" placeholder="∞">
+                <span class="input-group-text">buah</span>
+              </div>
+              <div class="form-text">Kosong = tidak terbatas</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Berlaku Mulai</label>
+              <input type="date" id="rr-valid-from" class="form-control">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Berlaku Sampai</label>
+              <input type="date" id="rr-valid-until" class="form-control">
+            </div>
           </div>
         </div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Batal</button>
-        <button type="button" id="btn-save" class="btn btn-primary btn-sm">
-          <span class="btn-save-label">Simpan Rule</span>
+
+      <!-- Footer -->
+      <div class="modal-footer" style="background:#fff;border-top:1px solid #f0dfd2;padding:.9rem 1.4rem">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+          <i class="ri ri-close-line me-1"></i>Batal
+        </button>
+        <button type="button" id="btn-save" class="btn btn-primary px-4">
+          <i class="ri ri-save-line me-1"></i><span class="btn-save-label">Simpan Rule</span>
         </button>
       </div>
+
     </div>
   </div>
 </div>
