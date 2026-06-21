@@ -3,337 +3,359 @@
 <head>
 <meta charset="UTF-8">
 <title>Dessert Collection - NAMUA</title>
-
 <style>
 @page { size:A4 portrait; margin:0; }
-*{ box-sizing:border-box; }
+*{box-sizing:border-box}
 
 body{
-  margin:0;
-  background:#ddd;
+    margin:0;
+    background:#d8d8d8;
 }
 
 .page{
-  width:210mm;
-  height:297mm;
-  margin:auto;
-  position:relative;
-  overflow:hidden;
-  font-family:Georgia, "Times New Roman", serif;
-  color:#6b0909;
-  background:url("<?= base_url('assets/menu-book/backgrounds/bg-nusantara-comfort.png') ?>") center/cover no-repeat;
+    width:210mm;
+    height:297mm;
+    margin:auto;
+    position:relative;
+    overflow:hidden;
+    background:url("<?= base_url('assets/menu-book/backgrounds/bg-dessert.png'); ?>") center/cover no-repeat;
+    font-family:Arial, sans-serif;
+    color:#2b120b;
 }
 
-/* LOGO */
-.logo-wrap{
-  position:absolute;
-  top:10mm;
-  left:12mm;
-  width:34mm;
-  height:34mm;
-  border-radius:50%;
-  background:#fffaf1;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  z-index:30;
-  box-shadow:
-    0 0 0 1.2mm #d3ad55,
-    0 3mm 8mm rgba(50,0,0,.28);
+.wrap{
+    height:100%;
+    padding:14mm 12mm 9mm;
+    position:relative;
 }
 
-.logo{
-  width:27mm;
-}
-
-/* HEADER */
 .header{
-  position:absolute;
-  top:10mm;
-  left:50mm;
-  right:10mm;
-  text-align:center;
-  z-index:20;
+    display:grid;
+    grid-template-columns:42% 58%;
+    gap:7mm;
+    align-items:center;
+    margin-bottom:7mm;
 }
 
-.script{
-  font-size:11mm;
-  font-style:italic;
-  color:#b7832f;
-  line-height:.8;
+.title-main{
+    font-family:Georgia, serif;
+    font-size:43pt;
+    line-height:.82;
+    font-weight:900;
+    letter-spacing:-2px;
 }
 
-.header h1{
-  margin:1mm 0 0;
-  font-size:19mm;
-  line-height:.9;
-  letter-spacing:1.4mm;
-  color:#780909;
-}
-
-.header h2{
-  margin:2mm 0 0;
-  font-size:6mm;
-  letter-spacing:3mm;
-  color:#b7832f;
+.title-sub{
+    font-family:Georgia, serif;
+    font-size:40pt;
+    line-height:.82;
+    font-style:italic;
+    color:#ad8540;
+    margin-top:1mm;
 }
 
 .tagline{
-  margin-top:3mm;
-  font:700 2.6mm Arial, sans-serif;
-  letter-spacing:1.1mm;
-  color:#5d1111;
+    margin-top:7mm;
+    font-size:9pt;
+    letter-spacing:6px;
+    font-weight:900;
 }
 
-/* CARD */
-.item{
-  position:absolute;
-  z-index:10;
-  width:58mm;
+.hero{
+    position:relative;
+    background:#fff8ea;
+    padding:3mm;
+    border-radius:2mm;
+    box-shadow:0 9px 24px rgba(54,29,12,.18);
+    transform:rotate(.7deg);
 }
 
-.photo{
-  width:100%;
-  height:34mm;
-  border-radius:6mm 6mm 0 0;
-  overflow:hidden;
-  border:1mm solid #d0a653;
-  border-bottom:none;
-  background:#fff8ee;
+.hero::before{
+    content:"";
+    position:absolute;
+    top:-3mm;
+    left:50%;
+    width:30mm;
+    height:7mm;
+    transform:translateX(-50%) rotate(-2deg);
+    background:rgba(168,126,70,.42);
 }
 
-.photo img{
-  width:100%;
-  height:100%;
-  object-fit:cover;
-  display:block;
+.img{
+    width:100%;
+    object-fit:cover;
+    display:block;
+    border-radius:1.5mm;
 }
 
-.info{
-  min-height:32mm;
-  padding:2.7mm 3mm 3mm;
-  border-radius:0 0 5mm 5mm;
-  background:rgba(255,248,237,.96);
-  border:1mm solid #d0a653;
-  border-top:none;
-  box-shadow:0 3mm 7mm rgba(70,0,0,.18);
+.hero .img{
+    height:50mm;
 }
 
-.info h3{
-  margin:0;
-  font-size:4.4mm;
-  line-height:.95;
-  color:#720909;
-  text-transform:uppercase;
+.menu-info{
+    position:relative;
+    display:grid;
+    grid-template-columns:1fr auto;
+    gap:3mm;
+    background:#fff3df;
+    margin:-1mm 3mm 0;
+    padding:4mm 5mm;
+    border-radius:0 0 2mm 2mm;
 }
 
-.price{
-  display:inline-block;
-  margin:1.7mm 0 1.5mm;
-  padding:1mm 3.8mm;
-  background:linear-gradient(135deg,#936014,#d5aa46);
-  color:white;
-  font:800 4.3mm Arial, sans-serif;
-  border-radius:1mm;
+.number{
+    position:absolute;
+    top:-13mm;
+    left:-5mm;
+    width:16mm;
+    height:16mm;
+    border-radius:50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:linear-gradient(145deg,#c79943,#9f7431);
+    color:#fffaf0;
+    font-family:Georgia, serif;
+    font-size:18pt;
+    font-weight:900;
+    border:1.5mm solid #fff4df;
+    box-shadow:0 4px 12px rgba(40,18,8,.22);
+}
+
+.name{
+    font-size:13pt;
+    line-height:1.02;
+    font-weight:950;
 }
 
 .desc{
-  font:700 2.05mm/1.35 Arial, sans-serif;
-  color:#371010;
-  text-transform:uppercase;
+    margin-top:2mm;
+    font-size:8.4pt;
+    line-height:1.3;
+    text-transform:uppercase;
 }
 
-.no{
-  position:absolute;
-  top:29mm;
-  right:-4mm;
-  width:8.5mm;
-  height:8.5mm;
-  background:#760909;
-  color:#fff7e8;
-  transform:rotate(45deg);
-  display:grid;
-  place-items:center;
-  font:800 3.2mm Arial, sans-serif;
-  z-index:15;
-  box-shadow:0 1.5mm 4mm rgba(0,0,0,.25);
+.price{
+    font-family:Georgia, serif;
+    font-size:21pt;
+    font-weight:900;
+    white-space:nowrap;
 }
 
-.no span{
-  transform:rotate(-45deg);
+.grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:6.5mm 7mm;
 }
 
-/* LAYOUT AMAN */
-.i1{ top:65mm; left:13mm; }
-.i2{ top:65mm; right:13mm; }
-
-.i3{ top:140mm; left:13mm; }
-.i4{ top:140mm; right:13mm; }
-
-.i5{ top:213mm; left:76mm; }
-
-/* CENTER TEXT */
-.center-note{
-  position:absolute;
-  top:88mm;
-  left:76mm;
-  width:58mm;
-  padding:5mm 4mm;
-  text-align:center;
-  background:rgba(255,248,237,.88);
-  border:.4mm solid rgba(185,135,48,.7);
-  border-radius:5mm;
-  z-index:5;
+.card{
+    position:relative;
+    background:#fff8ea;
+    padding:3mm;
+    border-radius:4mm;
+    box-shadow:0 9px 22px rgba(54,29,12,.15);
+    min-height:74mm;
 }
 
-.center-note .small{
-  font:800 2.3mm Arial, sans-serif;
-  letter-spacing:.9mm;
-  color:#7a0909;
+.card:nth-child(1){transform:rotate(-.6deg)}
+.card:nth-child(2){transform:rotate(.5deg)}
+.card:nth-child(3){transform:rotate(.55deg)}
+.card:nth-child(4){transform:rotate(-.55deg)}
+
+.card::before{
+    content:"♡";
+    position:absolute;
+    top:6mm;
+    right:7mm;
+    color:#bd9148;
+    font-size:22pt;
+    font-family:Georgia, serif;
+    opacity:.7;
+    z-index:3;
 }
 
-.center-note .big{
-  margin-top:2mm;
-  font-size:8mm;
-  line-height:.85;
-  font-style:italic;
-  color:#b7832f;
+.card .img{
+    height:45mm;
 }
 
-.center-note .copy{
-  margin-top:3mm;
-  font:700 2.15mm/1.35 Arial, sans-serif;
-  color:#431313;
+.card .menu-info{
+    margin:-1mm 1mm 0;
+    padding:4mm 5mm 4.5mm;
 }
 
-/* QUOTE */
-.quote{
-  position:absolute;
-  right:16mm;
-  bottom:28mm;
-  text-align:center;
-  z-index:6;
+.card .number{
+    top:-12mm;
+    left:-4mm;
+    width:15mm;
+    height:15mm;
+    font-size:16pt;
 }
 
-.q1{
-  font-size:9mm;
-  line-height:.75;
-  font-style:italic;
-  color:#b7832f;
+.card .name{
+    font-size:12pt;
 }
 
-.q2{
-  font-size:9mm;
-  line-height:.9;
-  font-weight:900;
-  color:#7a0909;
+.card .desc{
+    font-size:8pt;
 }
 
-/* FOOTER */
+.card .price{
+    font-size:19pt;
+}
+
 .footer{
-  position:absolute;
-  bottom:5mm;
-  left:0;
-  width:100%;
-  text-align:center;
-  font:700 2.6mm Arial, sans-serif;
-  color:#7a0909;
-  letter-spacing:.4mm;
-  z-index:20;
+    position:absolute;
+    left:0;
+    right:0;
+    bottom:7mm;
+    text-align:center;
+    font-family:Georgia, serif;
+    color:#2b120b;
+}
+
+.footer-bg{
+    display:inline-block;
+    min-width:65mm;
+    padding:2mm 7mm 3mm;
+    background:rgba(190,147,78,.22);
+    border-radius:50%;
+}
+
+.hashtag{
+    font-size:14pt;
+    font-style:italic;
+}
+
+.ig{
+    margin-top:1mm;
+    font-size:13pt;
+    font-style:italic;
+}
+
+.ig-icon{
+    display:inline-block;
+    width:14px;
+    height:14px;
+    border:2px solid #2b120b;
+    border-radius:4px;
+    position:relative;
+    top:2px;
+    margin-right:5px;
+}
+
+.ig-icon::before{
+    content:"";
+    position:absolute;
+    width:5px;
+    height:5px;
+    border:1.8px solid #2b120b;
+    border-radius:50%;
+    left:2.5px;
+    top:2.5px;
+}
+
+.ig-icon::after{
+    content:"";
+    position:absolute;
+    width:2px;
+    height:2px;
+    background:#2b120b;
+    border-radius:50%;
+    right:2px;
+    top:2px;
+}
+
+@media print{
+    body{background:#fff}
+    .page{margin:0}
 }
 </style>
 </head>
 
 <body>
 <div class="page">
+<div class="wrap">
 
-  <div class="logo-wrap">
-    <img class="logo" src="<?= base_url('assets/menu-book/logo/logo.png') ?>" alt="NAMUA Logo">
-  </div>
+    <div class="header">
+        <div>
+            <div class="title-main">DESSERT</div>
+            <div class="title-sub">Collection</div>
+            <div class="tagline">SWEET MOMENTS</div>
+        </div>
 
-  <div class="header">
-    <div class="script">Indulge in Our</div>
-    <h1>DESSERT</h1>
-    <h2>COLLECTION</h2>
-    <div class="tagline">SWEET MOMENTS, PERFECTLY MADE.</div>
-  </div>
-
-  <div class="center-note">
-    <div class="small">NAMUA SWEET ESCAPE</div>
-    <div class="big">crafted for<br>happy moments</div>
-    <div class="copy">A premium dessert selection with soft cream, chocolate, buttery bread, crepes, crumble, and ice cream.</div>
-  </div>
-
-  <div class="item i1">
-    <div class="photo">
-      <img src="<?= base_url('assets/menu-book/products/foods/dessert/CHOCO-BANANA-CREPES.png') ?>">
+        <div class="hero">
+            <img class="img" src="<?= base_url('assets/menu-book/products/foods/dessert/choco-banana-crepes.png'); ?>">
+            <div class="menu-info">
+                <div class="number">01</div>
+                <div>
+                    <div class="name">CHOCO BANANA CREPES</div>
+                    <div class="desc">Roll crepes fill banana crush inside, ting-ting crumble & ice cream</div>
+                </div>
+                <div class="price">22 K</div>
+            </div>
+        </div>
     </div>
-    <div class="no"><span>01</span></div>
-    <div class="info">
-      <h3>Choco<br>Banana Crepes</h3>
-      <div class="price">22 K</div>
-      <div class="desc">Roll crepes fill banana crush inside, ting-ting crumble & ice cream</div>
-    </div>
-  </div>
 
-  <div class="item i2">
-    <div class="photo">
-      <img src="<?= base_url('assets/menu-book/products/foods/dessert/CHOCO-SWEET-BREAD.png') ?>">
-    </div>
-    <div class="no"><span>02</span></div>
-    <div class="info">
-      <h3>Choco<br>Sweet Bread</h3>
-      <div class="price">26 K</div>
-      <div class="desc">Bread coated Nutella, sweet cream, choco ball & ice cream</div>
-    </div>
-  </div>
+    <div class="grid">
 
-  <div class="item i3">
-    <div class="photo">
-      <img src="<?= base_url('assets/menu-book/products/foods/dessert/NAMUA-SIGNATURE-SWEET-BREAD.png') ?>">
-    </div>
-    <div class="no"><span>03</span></div>
-    <div class="info">
-      <h3>Namua<br>Signature<br>Sweet Bread</h3>
-      <div class="price">28 K</div>
-      <div class="desc">Bread toast, sweet cream redvelvet, Oreo crumble, biscuit & ice cream</div>
-    </div>
-  </div>
+        <div class="card">
+            <img class="img" src="<?= base_url('assets/menu-book/products/foods/dessert/choco-sweet-bread.png'); ?>">
+            <div class="menu-info">
+                <div class="number">02</div>
+                <div>
+                    <div class="name">CHOCO SWEET BREAD</div>
+                    <div class="desc">Bread coated Nutella, sweet cream, choco ball & ice cream</div>
+                </div>
+                <div class="price">26 K</div>
+            </div>
+        </div>
 
-  <div class="item i4">
-    <div class="photo">
-      <img src="<?= base_url('assets/menu-book/products/foods/dessert/vellova-mille.png') ?>">
-    </div>
-    <div class="no"><span>04</span></div>
-    <div class="info">
-      <h3>Vellova<br>Mille</h3>
-      <div class="price">27 K</div>
-      <div class="desc">Crepes red velvet with whippy cream & ice cream</div>
-    </div>
-  </div>
+        <div class="card">
+            <img class="img" src="<?= base_url('assets/menu-book/products/foods/dessert/namua-signature-sweet-bread.png'); ?>">
+            <div class="menu-info">
+                <div class="number">03</div>
+                <div>
+                    <div class="name">NAMUA SIGNATURE SWEET BREAD</div>
+                    <div class="desc">Bread toast, sweet cream redvelvet, Oreo crumble, biscuit & ice cream</div>
+                </div>
+                <div class="price">28 K</div>
+            </div>
+        </div>
 
-  <div class="item i5">
-    <div class="photo">
-      <img src="<?= base_url('assets/menu-book/products/foods/dessert/choco-mille.png') ?>">
+        <div class="card">
+            <img class="img" src="<?= base_url('assets/menu-book/products/foods/dessert/vellova-mille.png'); ?>">
+            <div class="menu-info">
+                <div class="number">04</div>
+                <div>
+                    <div class="name">VELLOVA MILLE</div>
+                    <div class="desc">Crepes red velvet with wippy cream & ice cream</div>
+                </div>
+                <div class="price">27 K</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img class="img" src="<?= base_url('assets/menu-book/products/foods/dessert/choco-mille.png'); ?>">
+            <div class="menu-info">
+                <div class="number">05</div>
+                <div>
+                    <div class="name">CHOCO MILLE</div>
+                    <div class="desc">Crepes chocolate with wippy cream & ice cream</div>
+                </div>
+                <div class="price">25 K</div>
+            </div>
+        </div>
+
     </div>
-    <div class="no"><span>05</span></div>
-    <div class="info">
-      <h3>Choco<br>Mille</h3>
-      <div class="price">25 K</div>
-      <div class="desc">Crepes chocolate with whippy cream & ice cream</div>
+
+    <div class="footer">
+        <div class="footer-bg">
+            <div class="hashtag">#kembalikenamua</div>
+            <div class="ig"><span class="ig-icon"></span>@namuacoffee</div>
+        </div>
     </div>
-  </div>
 
-  <div class="quote">
-    <div class="q1">Life is</div>
-    <div class="q2">SWEETER</div>
-    <div class="q1">with Dessert</div>
-  </div>
-
-  <div class="footer">
-    @namua.coffee &nbsp; • &nbsp; namua coffee &nbsp; • &nbsp; #kembalikenamua
-  </div>
-
+</div>
 </div>
 </body>
 </html>

@@ -39,7 +39,20 @@ halaman 9 -    CARBO (9 product),  OTHER CONDIMENT (10 product), SAUCE,SAMBAL & 
 SEKARANG KITA MASUK KE BEVERAGE.
 BUATKAN ROADMAP BUKU MENUNYA. BUATKAN NAMA YANG MENARIK DAN RELEVAN UNTUK MASING MASING HALAMAN:
 
+
+
 HALAMAN 1 : 
+
+buatkan untuk menu beverages NAMUA SIGNATURES
+
+- buat 2 section, section atas kopi, section bawah artisan tea
+- foto produk gambar 1 dan seterusnya
+- tambahan label "Upgrade Oatmilk Available" di area bawah yang kosong
+- tidak usah logo
+- hastag #kembalikenamua italic dan  ig @namuacoffee dengan icon instagram di bawah
+- buat desain dan htmlnya
+
+
     NAMUA SIGNATURES
     The drinks that define us.
 
@@ -53,6 +66,25 @@ HALAMAN 1 :
         NIRVANA BLOOM	18 K	CHAMOMILE FLOWERS, GOJI BERRY, DRIED LIME
         SATTVA WHITE	18 K	WHITE TEA, DRIED APPLE FUJI
         
+
+
+
+
+
+buatkan untuk menu beverages HOUSE MASTERPIECES
+    Crafted beyond ordinary coffee.
+    Nuansa:
+    Premium, experimental, artisan beverages.
+
+
+- buat 2 section, section Masterpiece Line (5 produk), section bawah Favorite Grandma (3 produk)
+- semua produk ada fotonya dan di highligt
+- jangan boros empty space di area nama produk
+- background bg-masterpieces
+- tidak usah logo
+- hastag #kembalikenamua italic dan  ig @namuacoffee dengan icon instagram di bawah
+- buat desain dan htmlnya
+
 
 HALAMAN 2:    
     HOUSE MASTERPIECES
@@ -73,12 +105,30 @@ HALAMAN 2:
         KOPI SUSU GULA AREN	19 K	SINGLE ESPRESSO, MILK, AREN SUGAR
         
 
+
+buatkan untuk menu beverages 
+    THE COFFEE ATELIER
+    From hand-brewed rituals to timeless espresso.
+    Nuansa:
+    Coffee enthusiast page.
+
+
+- tidak semua produk ada fotonya. cukup tampilkan beberapa foto sebagai highligt
+- gambar 1 dan 2 sebagai contoh acuan layout dan peletakan foto produk. kembangkan yang lebih menarik
+- background bg-classics
+- tidak usah logo
+- hastag #kembalikenamua italic dan  ig @namuacoffee dengan icon instagram di bawah
+- buat desain dan htmlnya
+- kejutkan saya!
+
+
 HALAMAN 3:
     THE COFFEE ATELIER
     From hand-brewed rituals to timeless espresso.
     Nuansa:
     Coffee enthusiast page.
-    Manual Brew
+
+    Manual Brew   => tambah keterangan "ASK OUR BARISTA FOR BEAN CHOICE"
         MANUAL BREW V60	20 K
         MANUAL BREW V60 JAPANESE	21 K
         MANUAL BREW KALITA	20 K
@@ -102,6 +152,22 @@ HALAMAN 3:
         KOPI LELET SUSU	12 K
         
 
+
+
+buatkan untuk menu beverages 
+COLD & CREAMY CREATIONS
+    Cold brew elegance and espresso indulgence.
+
+    Nuansa:
+    Modern café drinks.
+
+
+- tidak semua produk ada fotonya. cukup tampilkan beberapa foto sebagai highligt, hanya yang saya kasih keterangan [GAMBAR]. yang lainnya list saja
+- background bg-cold
+- tidak usah logo
+- hastag #kembalikenamua italic dan  ig @namuacoffee dengan icon instagram di bawah
+- buat desain dan htmlnya
+
 HALAMAN 4:
     COLD & CREAMY CREATIONS
     Cold brew elegance and espresso indulgence.
@@ -111,25 +177,39 @@ HALAMAN 4:
 
     Cold Brew Series
         COLD BREW	20 K	
-        RTD COLD BREW	22 K	
-        GOLDEN NUT ELIXIR	22 K	COLD BREW, HAZELNUT, LEMON JUICE
-        LIME BE BREW	22 K	COLD BREW, HONEY, LIME JUICE
-        ORANGE ZEST COLD BREW	22 K	COLD BREW, ORANGE JUICE, TONIC WATER
-        SPICE CLOUD ELIXIR	22 K	COLD BREW, INFUSE CINNAMON, OAT FUSION MILK DISTILLATION, SEA SALT HAZELNUT
-        SWEET DREAMS	22 K	COLD BREW, SWEET CREAM VANILLA, CARAMEL CRUMB
+        RTD COLD BREW	22 K [GAMBAR]	
+        GOLDEN NUT ELIXIR	22 K	COLD BREW, HAZELNUT, LEMON JUICE [GAMBAR]
+        LIME BE BREW	22 K	COLD BREW, HONEY, LIME JUICE [GAMBAR]
+        ORANGE ZEST COLD BREW	22 K	COLD BREW, ORANGE JUICE, TONIC WATER [GAMBAR]
+        SPICE CLOUD ELIXIR	22 K	COLD BREW, INFUSE CINNAMON, OAT FUSION MILK DISTILLATION, SEA SALT HAZELNUT [GAMBAR]
+        SWEET DREAMS	22 K	COLD BREW, SWEET CREAM VANILLA, CARAMEL CRUMB [GAMBAR]
         COLD BREW LATTE ICE	20 K	COLD BREW COFFEE WITH MILK
         
     LATTE SERIES
-        CARAMEL MACCHIATO	25 K	MIX ESPRESSO, CARAMEL FLAVOUR, WHIPPING CREAM ON TOP, CARAMEL CRUMB
+        CARAMEL MACCHIATO	25 K	MIX ESPRESSO, CARAMEL FLAVOUR, WHIPPING CREAM ON TOP, CARAMEL CRUMB [GAMBAR]
         MOCHACINO HOT	SINGLE SHOOT ESPRESSO, BLEND WITH CHOCOLATE AND WHIPPING CREAM ON TOP , 21 K , 22 K	
-        CREME BRULE	21 K	SINGLE ESPRESSO, SYRUP CARAMEL, STEAM MILK FOAM, SUGAR MELTING
+        CREME BRULE	21 K	SINGLE ESPRESSO, SYRUP CARAMEL, STEAM MILK FOAM, SUGAR MELTING [GAMBAR]
         VANILLA LATTE SINGLE SHOOT ESPRESSO WITH STEAM MILK AND VANILLA , HOT	21 K	, ICE	23 K
         CARAMEL LATTE SINGLE SHOOT ESPRESSO WITH STEAM MILK AND CARAMEL HOT	21 K , 23 K	
         MATCHA COFFEE	24 K	GREEN TEA MIX WITH SINGLE SHOOT ESPRESSO
         STRAWBERRY LATTE	21 K	STRAWBERRY MILK MIX WITH SINGLE SHOOT ESPRESSO
-        RUMBULLION ROSE	20 K	SINGLE SHOOT ESPRESSO WITH OAT MILK AND ROSE, RUM FLAVOUR
+        RUMBULLION ROSE	20 K	SINGLE SHOOT ESPRESSO WITH OAT MILK AND ROSE, RUM FLAVOUR [GAMBAR]
         REDPRESSO	23 K	RED VELVET MIX WITH SINGLE SHOOT ESPRESSO
         
+
+buatkan untuk menu beverages 
+    SPARK & REFRESH
+    Mocktails, fizz and refreshing creations.
+    Nuansa:
+    Warna-warni, fresh, summer vibe.
+    
+
+- tidak semua produk ada fotonya. cukup tampilkan beberapa foto sebagai highligt, hanya yang saya kasih keterangan [GAMBAR]. yang lainnya list saja
+- background bg-spark
+- tidak usah logo
+- hastag #kembalikenamua italic dan  ig @namuacoffee dengan icon instagram di bawah
+- buat desain dan htmlnya
+
 
 HALAMAN 5:
     SPARK & REFRESH
@@ -138,20 +218,33 @@ HALAMAN 5:
     Warna-warni, fresh, summer vibe.
     
     Mocktail
-        BLACK AND YELLOW	21 K	ASIAN NOODLE BLANCH, CHICKEN LEG MARINATED, GARLIC OYSTER, FRIED WONTON & BROTH SIDE DISH
-        KOOHI	20 K	ESPRESSO, KAWISTA SYRUP, SPARKLING SODA
-        OLD YELLOW BRICK	20 K	PINEAPPLE BLEND, SPARKLING SODA, CREAM
-        PINK LADY	21 K	WATERMELON BLEND, WATER, ESPRESSO
-        SHOCK PRESSO	20 K	DOUBLE ESPRESSO, LIME JUICE, VANILLA
+        BLACK AND YELLOW	21 K	ORANGE SYRUP, SPARKLING SODA, ESPRESSO [GAMBAR]
+        KOOHI	20 K	ESPRESSO, KAWISTA SYRUP, SPARKLING SODA [GAMBAR]
+        OLD YELLOW BRICK	20 K	PINEAPPLE BLEND, SPARKLING SODA, CREAM [GAMBAR]
+        PINK LADY	21 K	WATERMELON BLEND, WATER, ESPRESSO [GAMBAR]
+        SHOCK PRESSO	20 K	DOUBLE ESPRESSO, LIME JUICE, VANILLA 
         
     Refreshing Drinks
         CLASSIC MOJITOS	18 K	EXTRACT BROWN SUGAR, LYCHEE FLAVOUR, LIME JUICE WITH SPARKLING SODA
-        LIME MINT HONEY	20 K	LIME, MINT FLAVOUR, HONEY
+        LIME MINT HONEY	20 K	LIME, MINT FLAVOUR, HONEY [GAMBAR]
         PERFECT SENSE	22 K	WATERMELON FRUIT, LYCHEE FLAVOUR, LIME JUICE, BLUE PEA TEA, MOJITO, LYCHEE FRUIT
         SPARKLING LYCHEE	18 K	LYCHEE FLAVOUR, WITH SPARKLING SODA & LYCHEE FRUIT ON TOP
-        SPARKLING STRAWBERRY	18 K	SPARKLING WATER, SODA, STRAWBERRY FLAVOUR, STRAWBERRY FRUIT ON TOP
+        SPARKLING STRAWBERRY	18 K	SPARKLING WATER, SODA, STRAWBERRY FLAVOUR, STRAWBERRY FRUIT ON TOP [GAMBAR]
         VIRGIN MOJITOS	18 K	SPARKLING WATER, SODA, LIME WEDGES
         
+
+
+buatkan untuk menu beverages 
+    BLENDED DELIGHTS
+    Smooth, creamy and irresistibly sweet.
+    Nuansa:
+    Dessert drinks
+
+- tidak semua produk ada fotonya. cukup tampilkan beberapa foto sebagai highligt, hanya yang saya kasih keterangan [GAMBAR]. yang lainnya list saja
+- background bg-blend
+- tidak usah logo
+- hastag #kembalikenamua italic dan  ig @namuacoffee dengan icon instagram di bawah
+- buat desain dan htmlnya
 
 HALAMAN 6:
     BLENDED DELIGHTS
@@ -161,27 +254,37 @@ HALAMAN 6:
     
     Blend & Smoothies
         BANANA CREME BRULE	23 K	BANANA FRUIT BLEND, CARAMEL CRUMB, BROWN SUGAR
-        BANANA KING	23 K	BANANA FRUIT BLEND WITH ESPRESSO, CARAMEL FLAVOUR, WHIPPING CREAM ON TOP
+        BANANA KING	23 K	BANANA FRUIT BLEND WITH ESPRESSO, CARAMEL FLAVOUR, WHIPPING CREAM ON TOP [GAMBAR]
         CHEESE SNOW	20 K	
-        COOKIES AND CREAM	22 K	OREO CRUMB, VANILLA FLAVOUR, WHIPPING CREAM ON TOP
-        GREEN SAVANNA	23 K	MIX POKCOY AND LYCHEE FRUIT
-        HAVANA COOKIES	23 K	OREO CRUMB, VANILLA FLAVOUR, ESPRESSO, WHIPPING CREAM ON TOP
-        STRAWBERRY CREAM CHEESE	22 K	STRAWBERRY FLAVOUR, STRAWBERRY, CHEESE WHIPPING CREAM ON TOP
-        STRAWBERRY SMOOTHIES	21 K	STRAWBERRY FRUIT, FRESH MILK, STRAWBERRY FRUIT ON TOP
+        COOKIES AND CREAM	22 K	OREO CRUMB, VANILLA FLAVOUR, WHIPPING CREAM ON TOP [GAMBAR]
+        GREEN SAVANNA	23 K	MIX POKCOY AND LYCHEE FRUIT [GAMBAR]
+        HAVANA COOKIES	23 K	OREO CRUMB, VANILLA FLAVOUR, ESPRESSO, WHIPPING CREAM ON TOP [GAMBAR]
+        STRAWBERRY CREAM CHEESE	22 K	STRAWBERRY FLAVOUR, STRAWBERRY, CHEESE WHIPPING CREAM ON TOP [GAMBAR]
+        STRAWBERRY SMOOTHIES	21 K	STRAWBERRY FRUIT, FRESH MILK, STRAWBERRY FRUIT ON TOP [GAMBAR]
         STRAWPINEAPPLE	20 K	MIX STRAWBERRY AND PINEAPPLE FRUIT
         
     Sweet & Milk Series
-        CHOCO BERRY	20 K	
-        CHOCOLATE HOT	19 K	
-        CHOCOLATE ICE	20 K	
-        MATCHA HOT	19 K	
-        MATCHA ICE	20 K	
-        PRESTIGE CHOCO INCH	22 K	DARK COCO, ALMOND, HAZELNUT, OAT MILK, WHIPPING CREAM
-        RED VELVET HOT	19 K	
-        RED VELVET ICE	20 K	
-        TIRAMISU HOT	19 K	
-        TIRAMISU ICE	20 K	
+        CHOCO BERRY	20 K [GAMBAR]
+        CHOCOLATE HOT	19 K ICE	20 K	
+        MATCHA HOT	19 K  ICE	20 K	
+        PRESTIGE CHOCO INCH	22 K	DARK COCO, ALMOND, HAZELNUT, OAT MILK, WHIPPING CREAM [GAMBAR]
+        RED VELVET HOT	19 K	ICE	20 K	
+        TIRAMISU HOT	19 K	ICE	20 K	
         
+
+
+buatkan untuk menu beverages 
+    TEA & TRADITION
+    From modern tea refreshers to Indonesian warmth.
+    Nuansa:
+    Tea house + budaya Jawa.
+
+- tidak semua produk ada fotonya. cukup tampilkan beberapa foto sebagai highligt, hanya yang saya kasih keterangan [GAMBAR]. yang lainnya list saja
+- background bg-tea, overlay agar warna background grayscale
+- tidak usah logo
+- hastag #kembalikenamua italic dan  ig @namuacoffee dengan icon instagram di bawah
+- buat desain dan htmlnya
+- buatkan html nya full
 
 HALMAAN 7:
     TEA & TRADITION
@@ -190,18 +293,34 @@ HALMAAN 7:
     Tea house + budaya Jawa.
     Tea Series
         BLACK TEA HOT	9 K, ICE	10 K	BASED TEA WITH SUGAR
-        BLUE PEA TEA HOT	17 K, ICE	18 K	BASED BLUEPEA TEA WITH LEMON JUICE
+        BLUE PEA TEA HOT	17 K, ICE	18 K	BASED BLUEPEA TEA WITH LEMON JUICE [GAMBAR]
         LEMON TEA HOT	15 K, ICE 16 k	BASED TEA WITH LEMON JUICE
-        LEMONGRASS TEA HOT	16 K , ICE 17 K	BASED TEA WITH LEMONGRASS JUICE       
+        LEMONGRASS TEA HOT	16 K , ICE 17 K	BASED TEA WITH LEMONGRASS JUICE [GAMBAR]       
         LYCHEE TEA ICE	17 K	BASED TEA, LYCHEE FLAVOUR AND LYCHEE FRUIT ON TOP
-        STRAWBERRY TEA ICE	17 K	BASED TEA, STRAWBERRY FLAVOUR AND STRAWBERRY FRUIT ON TOP
+        STRAWBERRY TEA ICE	17 K	BASED TEA, STRAWBERRY FLAVOUR AND STRAWBERRY FRUIT ON TOP [GAMBAR]
         
     Wedangan
         ADU RAMU	18 K
         WEDANG UWUH	15 K
         WEDANG JAHE	14 K
         WEDANG JAHE SUSU	15 K
-        
+
+
+
+buatkan untuk menu beverages
+    SWEET SCOOPS
+
+    Ice cream creations.
+    Simple, playful, dessert corner.
+    Ice Cream
+
+
+- semua produk ada fotonya dan di highligt
+- jangan boros empty space di area nama produk
+- background bg-ice
+- tidak usah logo
+- hastag #kembalikenamua italic dan  ig @namuacoffee dengan icon instagram di bawah
+- buat desain dan htmlnya
 
 HALAMAN 8:
     SWEET SCOOPS
@@ -213,7 +332,7 @@ HALAMAN 8:
         CHOCO OREO ICE CREAM	20 K
         DELUXE CHOCO ALMOND	20 K
         STRAWBERRY ICE CREAM	20 K
-        
+
 
 HALAMAN 9
     EXTRAS & ENHANCERS
@@ -226,7 +345,7 @@ HALAMAN 9
         ADD ICE CREAM CHOCOLATE	9 K
         ADD ICE CREAM VANILLA	9 K
         EXTRA ESPRESSO ARABIKA	8 K
-        EXTRA ESPRESSO HB	6 K
+        EXTRA ESPRESSO HOUSEBLEND	6 K
         MILK LIFE	20 K
         MINERAL WATER	4 K
         OATSIDE (ADD)	7 K
@@ -664,7 +783,16 @@ ARABIAN GRILL LAMB CHOP :Middle east cuisine pan grill lamb chop, tar-tar mayo &
 SPICY TONGSENG LAMB CHOP :Pan grill lamb chop, spicy tongseng broth, cabbage served with rice & condiment side dish.
 
 
-sekarang buatkan untuk Nusantara & COMFORT FOOD
+buatkan untuk Nusantara & COMFORT FOOD
+
+- ilustrasi layout seperti gambar 1. kembangkan lagi
+- foto produk gambar 3 dan seterusnya
+- tambahan label "Upgrade Rice" seperti gambar 9, di area bawah yang kosong
+- tidak usah logo
+- hastag #kembalikenamua italic dan  ig @namuacoffee dengan icon instagram di bawah
+- penulisan harga ribuan dengan K
+- buat desain dan htmlnya
+
 
 KATEGORI	NAMA PRODUK	DESKRIPSI	TANPA NASI	DENGAN NASI	HARGA
 INDONESIAN HERITAGE	SUP IGA REMPAH	8 hour slow cook beef short ribs, clear beef broth, potato, carrot, emping crackers & sambal bawang	46 K	48 K	
@@ -684,17 +812,20 @@ CRAVE CORNER	AYAM GORENG REMPAH KREMES	chicken marinated, sambal bawang, fresh l
 
 
 
-
-
-
+TRAY 3 PRODUK tray-combo.png:
 DRY-RUB PAPPER STEAK		65 K		SIRLOIN MELTIQUE, HAND CUT FRIES, MAC N CHEESE, COLE SLAW, BBQ SAUCE 
 US SMOKED BRISKET		50 K		BEEF SHORTPLATE, HAND CUT FRIES, MAC N CHEESE, COLE SLAW, BBQ SAUCE 
-SOUTHERN STYLE FRIED CHICKEN		40 K		CHICKEN BREAST, MIX FLOUR, HAND CUT FRIES, MAC N CHEESE, COLE SLAW, BBQ SAUCE
+SOUTHERN STYLE FRIED CHICKEN		40 K		CHICKEN BREAST, MIX FLOUR, HAND CUT FRIES, MAC N CHEESE, COLE 
+SLAW, BBQ SAUCE
+
+
 NAMUA SIGNATURE BURGER		30 K		BEEF PATTY WITH ORIGINAL FRENCH FRIES, CHILI SAUCE & TOMATO SAUCE
 NAMUA CRUNCH BURGER		28 K		Chicken katsu with original French fries , chilli sauce & tomato sauce
 CHICKEN CORDON BLEU		32 K		CHICKEN BREAST ROLL FILL SMOKED BEEF & MOZZARELLA CHEESE, MIX SALAD, BARBEQUE SAUCE & CHEESE SAUCE
 FISH & CHIPS		28 K		DEEP FRY DORY FISH, HAND CUT FRIES & TAR-TAR MAYO
 SIRLOIN STEAK MELTIQUE		90 K		SIRLOIN MELTIQUE BLUE LABEL, HAND CUT FRIES, SALAD & DRESSING, BARBEQUE SAUCE
+
+SPAGETI : spageti.png
 SPAGHETTI AGLIO E O LIO CON POLLO		25 K		GARLIC & PAPRIKA AROMATIC, DEEP FRY CHICKEN
 SPAGHETTI ALFREDO DI CREMA		32 K		CREAMY & CHEESE BASE WITH SMOKED BEEF
 SPAGHETTI BOLOGNESE		28 K		MIX BEEF RAGU BOLOGNESE & CHEESE ON TOP
@@ -704,9 +835,21 @@ gambar highlight sesuai yang saya kirim. coba dulu
 
 
 
+buatkan halaman DENGAN POLA YANG SAMA
+FLAME & FLAVOR
+Western classics, steaks, burgers & pasta.
+
+- backgorund dominan putih 
+- foto produk gambar 3 dan seterusnya
+- tidak usah logo
+- hastag #kembalikenamua italic dan  ig @namuacoffee dengan icon instagram di bawah
+- penulisan harga ribuan dengan K
+- buat desain dan htmlnya
+
+
 DRY-RUB PEPPER STEAK, US SMOKED BRISKET, dan SOUTHERN STYLE FRIED CHICKEN => tray 3 makanan + mac n cheese
 NAMUA SIGNATURE BURGER	NAMUA SIGNATURE BURGER.png
-NAMUA CRUNCH BURGER	burger background maroon
+NAMUA CRUNCH BURGER	burger background
 CHICKEN CORDON BLEU	IMG_8082
 FISH & CHIPS	FISH N CHIP
 SPAGHETTI AGLIO E OLIO CON POLLO	pasta trio (kanan atas)
@@ -781,6 +924,16 @@ ROTI BAKAR COKLAT	16 K => GAMBAR
 ROTI BAKAR COKLAT + KEJU	18 K 
 ROTI BAKAR KEJU	17 K	
 
+
+buatkan untuk DESSERT COLLECTION
+
+- ilustrasi layout seperti gambar 1. kembangkan lagi
+- foto produk gambar 2 dan seterusnya
+- background di bg-dessert.png
+- tidak usah logo
+- hastag #kembalikenamua italic dan  ig @namuacoffee dengan icon instagram di bawah
+- penulisan harga ribuan dengan K
+- buat desain dan htmlnya
 
 CHOCO BANANA CREPES	22 K	ROLL CREPES FILL BANANA CRUSH INSIDE, TING-TING CRUMBLE & ICE CREAM
 CHOCO SWEET BREAD	26 K	BREAD COATED NUTELLA, SWEET CREAM, CHOCO BALL & ICE CREAM

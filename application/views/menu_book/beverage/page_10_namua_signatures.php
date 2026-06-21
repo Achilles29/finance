@@ -1,409 +1,448 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
 <meta charset="UTF-8">
-<title>NAMUA Signatures</title>
+<title>NAMUA Signatures - Beverages</title>
 
 <style>
-@page { size: A4; margin: 0; }
+@page{size:A4 portrait;margin:0}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#2b1b15}
 
-* {
-  box-sizing: border-box;
+.page{
+    width:210mm;
+    height:297mm;
+    margin:auto;
+    position:relative;
+    overflow:hidden;
+    background:url("<?= base_url('assets/menu-book/backgrounds/bg-signatures.png'); ?>") center/cover no-repeat;
+    font-family:Georgia,"Times New Roman",serif;
+    color:#781924;
+    padding:6mm;
 }
 
-body {
-  margin: 0;
-  background: #ddd;
-  font-family: "Poppins", Arial, sans-serif;
+.sheet{
+    height:100%;
+    border:1px solid rgba(158,107,42,.75);
+    padding:5mm;
+    position:relative;
 }
 
-.page {
-  width: 210mm;
-  height: 297mm;
-  margin: auto;
-  position: relative;
-  overflow: hidden;
-  padding: 10mm;
-  background:
-    radial-gradient(circle at top left, rgba(255,255,255,.8), transparent 35%),
-    linear-gradient(135deg, #f8ead0 0%, #fff7e7 48%, #ead0a8 100%);
-  color: #4a261f;
+.sheet:before{
+    content:"";
+    position:absolute;
+    inset:2mm;
+    border:.6px solid rgba(120,25,36,.38);
+    pointer-events:none;
 }
 
-.page::before {
-  content: "";
-  position: absolute;
-  inset: 7mm;
-  border: 1.2px solid rgba(123,31,43,.22);
-  border-radius: 24px;
-  pointer-events: none;
+.header{
+    height:30mm;
+    text-align:center;
+    position:relative;
+    z-index:2;
 }
 
-.page::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 8% 18%, rgba(123,31,43,.12), transparent 18%),
-    radial-gradient(circle at 92% 88%, rgba(194,138,61,.16), transparent 24%);
-  pointer-events: none;
+.brand{
+    font-size:43px;
+    line-height:.82;
+    letter-spacing:9px;
+    font-weight:900;
 }
 
-.content {
-  position: relative;
-  z-index: 2;
-  height: 100%;
+.title{
+    font-size:25px;
+    letter-spacing:8px;
+    color:#8b642b;
 }
 
-.header {
-  height: 31mm;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 3mm 3mm 0;
+.subtitle{
+    margin-top:2mm;
+    font-size:13px;
+    font-style:italic;
+    color:#4d261d;
 }
 
-.eyebrow {
-  font-size: 9px;
-  letter-spacing: 3px;
-  font-weight: 800;
-  color: #a36b32;
+.content{
+    position:relative;
+    z-index:2;
 }
 
-h1 {
-  margin: 3px 0 0;
-  color: #7b1f2b;
-  font-size: 37px;
-  line-height: .9;
-  font-weight: 900;
-  letter-spacing: -1px;
+.section-title{
+    display:inline-block;
+    background:#7d1722;
+    color:#fff8e8;
+    padding:2.5mm 8mm 2.5mm 5mm;
+    font-size:18px;
+    font-weight:900;
+    letter-spacing:1.8px;
+    text-transform:uppercase;
+    border-radius:0 999px 999px 0;
+    margin-bottom:3mm;
 }
 
-.subtitle {
-  margin-top: 7px;
-  color: #765143;
-  font-size: 13px;
-  font-style: italic;
+/* FEATURE COFFEE */
+.coffee-wrap{
+    border:1px solid rgba(171,124,47,.72);
+    border-radius:16px;
+    background:rgba(255,248,227,.72);
+    overflow:hidden;
+    padding:4mm;
+    margin-bottom:4mm;
 }
 
-.badge {
-  margin-top: 4px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: #7b1f2b;
-  color: #fff2dc;
-  font-size: 11px;
-  font-weight: 800;
+.coffee-layout{
+    display:grid;
+    grid-template-columns:50% 50%;
+    gap:3mm;
 }
 
-.signature-coffee {
-  height: 154mm;
-  margin-top: 2mm;
-  padding: 5mm;
-  border-radius: 24px;
-  background: rgba(255,248,235,.72);
-  box-shadow: 0 12px 28px rgba(70,35,20,.12);
-  border: 1px solid rgba(123,31,43,.12);
+.hero-drink{
+    height:107mm;
+    border-radius:15px;
+    overflow:hidden;
+    position:relative;
+    border:1px solid rgba(171,124,47,.55);
+    background:#eee;
 }
 
-.section-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 4mm;
+.hero-drink img{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    display:block;
 }
 
-.section-head h2 {
-  margin: 0;
-  color: #7b1f2b;
-  font-size: 20px;
-  font-weight: 900;
-  letter-spacing: .5px;
+.hero-info{
+    position:absolute;
+    left:0;
+    right:0;
+    bottom:0;
+    padding:16mm 4mm 4mm;
+    background:linear-gradient(transparent,rgba(40,18,12,.93));
+    color:#fff8e8;
 }
 
-.section-head span {
-  flex: 1;
-  height: 1px;
-  background: rgba(123,31,43,.28);
+.hero-info .tag{
+    display:inline-block;
+    background:#7d1722;
+    border-radius:999px;
+    padding:1.3mm 3mm;
+    font-family:Arial,sans-serif;
+    font-size:7px;
+    letter-spacing:1px;
+    text-transform:uppercase;
+    margin-bottom:2mm;
 }
 
-.coffee-layout {
-  display: grid;
-  grid-template-columns: 111mm 1fr;
-  gap: 5mm;
-  height: calc(100% - 14mm);
+.hero-info h2{
+    margin:0;
+    font-size:22px;
+    line-height:1;
+    text-transform:uppercase;
 }
 
-.photo-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4mm;
+.hero-info p{
+    margin:1.5mm 0 0;
+    font-family:Arial,sans-serif;
+    font-size:8.4px;
+    line-height:1.3;
+    text-transform:uppercase;
+    letter-spacing:.4px;
 }
 
-.photo-card {
-  position: relative;
-  overflow: hidden;
-  border-radius: 18px;
-  background: #fff;
-  box-shadow: 0 9px 18px rgba(58,31,18,.2);
-  border: 2px solid rgba(255,255,255,.82);
+.hero-info .price{
+    text-align:right;
+    font-size:27px;
+    font-weight:900;
+    color:#ffe4a0;
 }
 
-.photo-card img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.mini-coffee{
+    display:grid;
+    grid-template-rows:1fr 1fr 1fr;
+    gap:3mm;
 }
 
-.photo-card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, rgba(45,16,14,.58), transparent 48%);
+.mini-card{
+    height:33.7mm;
+    border:1px solid rgba(171,124,47,.55);
+    border-radius:14px;
+    overflow:hidden;
+    background:rgba(255,252,238,.9);
+    display:grid;
+    grid-template-columns:43% 57%;
 }
 
-.photo-label {
-  position: absolute;
-  z-index: 2;
-  left: 11px;
-  right: 11px;
-  bottom: 10px;
-  color: #fff6e8;
+.mini-photo{
+    overflow:hidden;
+    background:#ddd;
 }
 
-.photo-label b {
-  display: block;
-  font-size: 12px;
-  line-height: 1.1;
+.mini-photo img{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    display:block;
+
+  }
+
+.mini-body{
+    padding:3mm 3mm 2mm;
+    display:flex;
+    flex-direction:column;
 }
 
-.photo-label small {
-  font-size: 8.5px;
-  opacity: .9;
+.mini-body h3{
+    margin:0;
+    font-size:12.2px;
+    line-height:1;
+    text-transform:uppercase;
 }
 
-.menu-list {
-  padding: 3mm 3mm 0;
+.mini-body p{
+    margin:1.3mm 0 0;
+    font-family:Arial,sans-serif;
+    font-size:6.8px;
+    line-height:1.25;
+    letter-spacing:.35px;
+    color:#5c2d24;
+    text-transform:uppercase;
 }
 
-.item {
-  padding: 9px 0;
-  border-bottom: 1px dashed rgba(123,31,43,.22);
+.mini-body .price{
+    margin-top:auto;
+    font-size:18px;
+    font-weight:900;
 }
 
-.item:last-child {
-  border-bottom: none;
+/* TEA */
+.tea-wrap{
+    height:79mm;
+    border:1px solid rgba(171,124,47,.72);
+    border-radius:16px;
+    overflow:hidden;
+    background:rgba(255,248,227,.72);
+    display:grid;
+    grid-template-columns:55% 45%;
 }
 
-.item-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  align-items: baseline;
+.tea-photo{
+    height:79mm;
+    overflow:hidden;
+    position:relative;
 }
 
-.name {
-  font-size: 13px;
-  font-weight: 900;
-  color: #4c231e;
+.tea-photo img{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    display:block;
 }
 
-.price {
-  font-size: 15px;
-  font-weight: 900;
-  color: #a66c2f;
-  white-space: nowrap;
+.tea-photo:after{
+    content:"ARTISAN TEA";
+    position:absolute;
+    left:4mm;
+    bottom:4mm;
+    color:#fff8e8;
+    font-size:22px;
+    font-weight:900;
+    letter-spacing:1.2px;
+    text-shadow:0 3px 12px rgba(0,0,0,.65);
 }
 
-.desc {
-  margin-top: 4px;
-  font-size: 9.3px;
-  line-height: 1.35;
-  color: #725244;
-  text-transform: uppercase;
+.tea-menu{
+    padding:7mm 6mm;
+    background:linear-gradient(135deg,rgba(255,250,235,.96),rgba(239,231,196,.9));
 }
 
-.artisan-tea {
-  height: 89mm;
-  margin-top: 6mm;
-  padding: 5mm;
-  border-radius: 24px;
-  background: rgba(255,248,235,.68);
-  box-shadow: 0 12px 28px rgba(70,35,20,.12);
-  border: 1px solid rgba(123,31,43,.12);
+.green-title{
+    display:inline-block;
+    background:#4e5a25;
+    color:#fff8e8;
+    padding:2.3mm 6mm 2.3mm 4mm;
+    font-size:17px;
+    font-weight:900;
+    letter-spacing:1.3px;
+    text-transform:uppercase;
+    border-radius:0 999px 999px 0;
+    margin-bottom:8mm;
 }
 
-.tea-layout {
-  display: grid;
-  grid-template-columns: 118mm 1fr;
-  gap: 5mm;
-  height: calc(100% - 13mm);
+.tea-item{
+    display:grid;
+    grid-template-columns:1fr auto;
+    gap:4mm;
+    padding:4mm 0;
+    border-bottom:1px dotted rgba(79,84,37,.55);
 }
 
-.tea-image {
-  border-radius: 19px;
-  overflow: hidden;
-  box-shadow: 0 9px 18px rgba(58,31,18,.18);
-  border: 2px solid rgba(255,255,255,.78);
+.tea-item:last-child{border-bottom:0}
+
+.tea-item h3{
+    margin:0;
+    font-size:15px;
+    color:#4d5a24;
+    text-transform:uppercase;
+    line-height:1;
 }
 
-.tea-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.tea-item p{
+    margin:1.3mm 0 0;
+    font-family:Arial,sans-serif;
+    font-size:8.5px;
+    line-height:1.3;
+    color:#424126;
+    text-transform:uppercase;
+    letter-spacing:.5px;
 }
 
-.tea-menu {
-  padding: 2mm 1mm;
+.tea-price{
+    font-size:21px;
+    font-weight:900;
+    color:#4d5a24;
 }
 
-.tea-menu .item {
-  padding: 8px 0;
+.oat{
+    width:120mm;
+    margin:4mm auto 0;
+    text-align:center;
+    border:1px solid rgba(171,124,47,.68);
+    border-radius:999px;
+    padding:2.5mm 8mm;
+    color:#714d21;
+    font-family:Arial,sans-serif;
+    font-size:12px;
+    letter-spacing:3px;
+    font-weight:900;
+    text-transform:uppercase;
+    background:rgba(255,244,217,.86);
 }
 
-.footer-note {
-  position: absolute;
-  left: 13mm;
-  right: 13mm;
-  bottom: 8mm;
-  text-align: center;
-  color: #8d6148;
-  font-size: 9px;
-  letter-spacing: 1px;
+.footer{
+    position:absolute;
+    left:11mm;
+    right:11mm;
+    bottom:5mm;
+    border-top:1px solid rgba(132,91,42,.5);
+    padding-top:2mm;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    color:#7b1b24;
+    font-size:10px;
+    z-index:3;
 }
+
+.ig{font-family:Arial,sans-serif}
+.mid{color:#8a642c;letter-spacing:4px;font-size:6.5px;text-transform:uppercase}
+.hash{font-style:italic}
 </style>
 </head>
 
 <body>
-<section class="page">
-  <div class="content">
+<div class="page">
+<div class="sheet">
 
-    <div class="header">
-      <div>
-        <div class="eyebrow">NAMUA BEVERAGE COLLECTION</div>
-        <h1>NAMUA SIGNATURES</h1>
+    <header class="header">
+        <div class="brand">NAMUA</div>
+        <div class="title">SIGNATURES</div>
         <div class="subtitle">The drinks that define us.</div>
-      </div>
-      <div class="badge">Coffee · Tea · Creamy</div>
-    </div>
+    </header>
 
-    <!-- BAGIAN ATAS: SIGNATURE COFFEE -->
-    <div class="signature-coffee">
-      <div class="section-head">
-        <h2>SIGNATURE COFFEE</h2>
-        <span></span>
-      </div>
+    <main class="content">
 
-      <div class="coffee-layout">
+        <section class="coffee-wrap">
+            <div class="section-title">Signature Coffee</div>
 
-        <div class="photo-grid">
-          <div class="photo-card">
-            <img src="<?= base_url('assets/menu-book/products/beverages/KOPSU NAMUA(4).jpg'); ?>">
-            <div class="photo-label">
-              <b>KOPI SUSU NAMUA</b>
-              <small>Kawista · Milk · Jelly Chocolate</small>
+            <div class="coffee-layout">
+
+                <div class="hero-drink">
+                    <img src="<?= base_url('assets/menu-book/products/beverages/signatures/kopi-susu-namua.png'); ?>" alt="Kopi Susu Namua">
+                    <div class="hero-info">
+                        <div class="tag">Best Seller</div>
+                        <h2>Kopi Susu Namua</h2>
+                        <p>Single espresso with kawista flavour, milk &amp; jelly chocolate</p>
+                        <div class="price">22 K</div>
+                    </div>
+                </div>
+
+                <div class="mini-coffee">
+
+                    <div class="mini-card">
+                        <div class="mini-photo">
+                            <img src="<?= base_url('assets/menu-book/products/beverages/signatures/jazzy-almond.png'); ?>" alt="Jazzy Almond">
+                        </div>
+                        <div class="mini-body">
+                            <h3>Jazzy Almond</h3>
+                            <p>Espresso, fresh milk, hazelnut, cream cheese, almond</p>
+                            <div class="price">22 K</div>
+                        </div>
+                    </div>
+
+                    <div class="mini-card">
+                        <div class="mini-photo">
+                            <img src="<?= base_url('assets/menu-book/products/beverages/signatures/namanya-kopi-susu.png'); ?>" alt="Namanya Kopi Susu">
+                        </div>
+                        <div class="mini-body">
+                            <h3>Namanya Kopi Susu</h3>
+                            <p>Espresso, oat milk, and sweet creamy flavour</p>
+                            <div class="price">19 K</div>
+                        </div>
+                    </div>
+
+                    <div class="mini-card">
+                        <div class="mini-photo">
+                            <img src="<?= base_url('assets/menu-book/products/beverages/signatures/bts-coffee.png'); ?>" alt="BTS Coffee">
+                        </div>
+                        <div class="mini-body">
+                            <h3>BTS Coffee</h3>
+                            <p>Espresso, fresh milk, vanilla ice cream, butterscotch</p>
+                            <div class="price">24 K</div>
+                        </div>
+                    </div>
+
+                </div>
             </div>
-          </div>
+        </section>
 
-          <div class="photo-card">
-            <img src="<?= base_url('assets/menu-book/products/beverages/JAZZY ALMOND(4).jpg'); ?>">
-            <div class="photo-label">
-              <b>JAZZY ALMOND</b>
-              <small>Hazelnut · Cream Cheese</small>
+        <section class="tea-wrap">
+            <div class="tea-photo">
+                <img src="<?= base_url('assets/menu-book/products/beverages/artisan-tea/artisan-tea.png'); ?>" alt="Artisan Tea">
             </div>
-          </div>
 
-          <div class="photo-card">
-            <img src="<?= base_url('assets/menu-book/products/beverages/Namanya Kopi Susu(2).jpeg'); ?>">
-            <div class="photo-label">
-              <b>NAMANYA KOPI SUSU</b>
-              <small>Oat Milk · Sweet Creamy</small>
+            <div class="tea-menu">
+                <div class="green-title">Artisan Tea</div>
+
+                <div class="tea-item">
+                    <div>
+                        <h3>Nirvana Bloom</h3>
+                        <p>Chamomile flowers, goji berry, dried lime</p>
+                    </div>
+                    <div class="tea-price">18 K</div>
+                </div>
+
+                <div class="tea-item">
+                    <div>
+                        <h3>Sattva White</h3>
+                        <p>White tea, dried apple fuji</p>
+                    </div>
+                    <div class="tea-price">18 K</div>
+                </div>
+
             </div>
-          </div>
+        </section>
 
-          <div class="photo-card">
-            <img src="<?= base_url('assets/menu-book/products/beverages/BTS COFFEE(4).png'); ?>">
-            <div class="photo-label">
-              <b>BTS COFFEE</b>
-              <small>Vanilla Ice Cream · Butterscotch</small>
-            </div>
-          </div>
-        </div>
+    </main>
 
-        <div class="menu-list">
-          <div class="item">
-            <div class="item-head">
-              <div class="name">KOPI SUSU NAMUA</div>
-              <div class="price">22K</div>
-            </div>
-            <div class="desc">Single espresso with kawista flavour, milk & jelly chocolate</div>
-          </div>
+    <footer class="footer">
+        <div class="ig">◎ @namuacoffee</div>
+        <div class="mid">Drink Your Moment</div>
+        <div class="hash">#kembalikenamua</div>
+    </footer>
 
-          <div class="item">
-            <div class="item-head">
-              <div class="name">JAZZY ALMOND</div>
-              <div class="price">22K</div>
-            </div>
-            <div class="desc">Single espresso, fresh milk, hazelnut, cream cheese, topping almond</div>
-          </div>
-
-          <div class="item">
-            <div class="item-head">
-              <div class="name">NAMANYA KOPI SUSU</div>
-              <div class="price">19K</div>
-            </div>
-            <div class="desc">Single espresso, oat milk, and sweet creamy flavour</div>
-          </div>
-
-          <div class="item">
-            <div class="item-head">
-              <div class="name">BTS COFFEE</div>
-              <div class="price">24K</div>
-            </div>
-            <div class="desc">Espresso, fresh milk, ice cream vanilla, butterscotch</div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- BAGIAN BAWAH: ARTISAN TEA -->
-    <div class="artisan-tea">
-      <div class="section-head">
-        <h2>ARTISAN TEA</h2>
-        <span></span>
-      </div>
-
-      <div class="tea-layout">
-        <div class="tea-image">
-          <img src="<?= base_url('assets/menu-book/products/beverages/artisan-tea2.png'); ?>">
-        </div>
-
-        <div class="tea-menu">
-          <div class="item">
-            <div class="item-head">
-              <div class="name">NIRVANA BLOOM</div>
-              <div class="price">18K</div>
-            </div>
-            <div class="desc">Chamomile flowers, goji berry, dried lime</div>
-          </div>
-
-          <div class="item">
-            <div class="item-head">
-              <div class="name">SATTVA WHITE</div>
-              <div class="price">18K</div>
-            </div>
-            <div class="desc">White tea, dried apple Fuji</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="footer-note">
-      #KEMBALIKENAMUA · GOOD COFFEE GOOD MOOD
-    </div>
-
-  </div>
-</section>
+</div>
+</div>
 </body>
-</html> 
+</html>

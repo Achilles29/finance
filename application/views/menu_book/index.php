@@ -409,9 +409,8 @@
             ['14', 'spark_refresh', 'Spark & Refresh', 'Mocktail · Refreshing Drinks', ['Mocktail', 'Refreshing Drinks']],
             ['15', 'blended_delights', 'Blended Delights', 'Blend & Smoothies · Sweet & Milk Series', ['Blend & Smoothies', 'Sweet & Milk Series']],
             ['16', 'tea_tradition', 'Tea & Tradition', 'Tea Series · Wedangan', ['Tea Series', 'Wedangan']],
-            ['17', 'seasonal_special_selection', 'Seasonal & Special Selection', 'Limited creations and featured beverages', ['Seasonal', 'Special']],
-            ['18', 'sweet_scoops', 'Sweet Scoops', 'Ice cream creations', ['Ice Cream', '4 Produk']],
-            ['19', 'extras_enhancers', 'Extras & Enhancers', 'Customize your perfect drink', ['Beverage Add-On', '9 Produk']],
+            ['17', 'sweet_scoops', 'Sweet Scoops', 'Ice cream creations', ['Ice Cream', '4 Produk']],
+            ['18', 'extras_enhancers', 'Extras & Enhancers', 'Customize your perfect drink', ['Beverage Add-On', '9 Produk']],
         ];
 
         foreach ($beverage_pages as $page):

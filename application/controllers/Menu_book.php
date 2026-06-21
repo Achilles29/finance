@@ -52,9 +52,8 @@ class Menu_book extends CI_Controller
             'spark_refresh'               => 'menu_book/beverage/page_14_spark_refresh',
             'blended_delights'            => 'menu_book/beverage/page_15_blended_delights',
             'tea_tradition'               => 'menu_book/beverage/page_16_tea_tradition',
-            'seasonal_special_selection'  => 'menu_book/beverage/page_17_seasonal_special_selection',
-            'sweet_scoops'                => 'menu_book/beverage/page_18_sweet_scoops',
-            'extras_enhancers'            => 'menu_book/beverage/page_19_extras_enhancers',
+            'sweet_scoops'                => 'menu_book/beverage/page_17_sweet_scoops',
+            'extras_enhancers'            => 'menu_book/beverage/page_18_extras_enhancers',
         ];
 
         $this->_load_menu_page($page, $allowed_pages);

@@ -28,13 +28,14 @@ body {
 
 .content {
     position: absolute;
-    inset: 14mm 14mm 15mm 14mm;
+    inset: 11mm 11mm 13mm 11mm;
 }
 
 .header {
     text-align: center;
-    margin-bottom: 10mm;
+    margin-bottom: 5mm;
 }
+
 
 .header small {
     display: block;
@@ -46,8 +47,8 @@ body {
 
 .header h1 {
     margin: 1mm 0 0;
-    font-size: 33pt;
-    line-height: .95;
+    font-size: 28pt;
+    line-height: .9;
     font-weight: 900;
     color: #3b160d;
     letter-spacing: 1px;
@@ -63,14 +64,18 @@ body {
     font-style: italic;
 }
 
+
+
+
 .card {
-    height: 65mm;
-    margin-bottom: 7mm;
+
+    height: 69mm;
+    margin-bottom: 5.2mm;
+    grid-template-columns: 41% 59%;
     border: 1.5px solid #c89124;
     border-radius: 10mm 3mm 10mm 3mm;
     background: rgba(255,255,255,.78);
     display: grid;
-    grid-template-columns: 42% 58%;
     overflow: hidden;
     box-shadow: 0 5px 16px rgba(94, 52, 20, .14);
 }
@@ -84,6 +89,7 @@ body {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center;
 }
 
 .cat-number {
@@ -103,12 +109,10 @@ body {
     font-weight: 900;
 }
 
-.card-menu {
-    padding: 8mm 8mm 6mm;
-}
 
 .cat-title {
-    font-size: 19pt;
+    font-size: 17pt;
+    margin-bottom: 3mm;
     line-height: 1;
     margin: 0 0 4mm;
     color: #3b160d;
@@ -120,25 +124,28 @@ body {
     color: #c89124;
 }
 
+
+
 .menu-row {
+    grid-template-columns: 1fr 15mm;
+    gap: 3mm;
+    padding: 1.25mm 0;
     display: grid;
-    grid-template-columns: 1fr 16mm;
-    gap: 4mm;
-    padding: 1.7mm 0;
     border-bottom: 1px dotted rgba(184,122,30,.65);
 }
 
 .name {
-    font-size: 10.8pt;
+    font-size: 9.4pt;
+    line-height: 1;
     font-weight: 900;
     text-transform: uppercase;
-    line-height: 1.1;
 }
 
 .desc {
-    font-size: 6.8pt;
-    line-height: 1.2;
-    margin-top: .7mm;
+    font-size: 5.7pt;
+    line-height: 1.15;
+    margin-top: .5mm;
+    letter-spacing: -.1px;
     font-family: Arial, sans-serif;
     color: #5d3829;
     text-transform: uppercase;
@@ -154,7 +161,7 @@ body {
 
 .footer {
     position: absolute;
-    bottom: 5mm;
+    bottom: 2.8mm;
     left: 0;
     right: 0;
     text-align: center;

@@ -23,6 +23,7 @@ $settings = is_array($settings ?? null) ? $settings : [];
         </div>
         <div class="d-flex gap-2">
           <a href="<?php echo site_url('pos/self-order/tables/print'); ?>" target="_blank" class="btn btn-outline-secondary btn-sm">Print QR</a>
+          <button id="btn-bulk-new" type="button" class="btn btn-outline-primary btn-sm">Bulk Tambah</button>
           <button id="btn-new" type="button" class="btn btn-primary btn-sm">Tambah Meja</button>
         </div>
       </div>
@@ -103,6 +104,63 @@ $settings = is_array($settings ?? null) ? $settings : [];
         <button type="button" class="btn btn-light" data-bs-dismiss="modal">Batal</button>
         <button type="button" class="btn btn-primary" id="btn-save">
           <span class="btn-label">Simpan</span>
+          <span class="spinner-border spinner-border-sm ms-2 d-none" role="status" aria-hidden="true"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Tambah Modal -->
+<div class="modal fade finance-ui-modal" id="bulkModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:480px">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title">Bulk Tambah Meja</h5>
+          <div class="small text-muted">Buat beberapa meja sekaligus dengan penomoran otomatis.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="form-bulk" class="row g-3">
+          <div class="col-12">
+            <label class="form-label small text-muted mb-1">Prefix Nama Meja <span class="text-danger">*</span></label>
+            <input class="form-control" id="bulk-prefix" placeholder="Contoh: Meja, Table, T" required>
+            <div class="form-text">Nama meja akan menjadi <em>[prefix] [nomor]</em>, misal: Meja 1, Meja 2, …</div>
+          </div>
+          <div class="col-6">
+            <label class="form-label small text-muted mb-1">Dari Nomor</label>
+            <input type="number" min="1" step="1" class="form-control" id="bulk-from" value="1">
+          </div>
+          <div class="col-6">
+            <label class="form-label small text-muted mb-1">Sampai Nomor</label>
+            <input type="number" min="1" step="1" class="form-control" id="bulk-to" value="10">
+          </div>
+          <div class="col-6">
+            <label class="form-label small text-muted mb-1">Kapasitas</label>
+            <input type="number" min="0" step="1" class="form-control" id="bulk-capacity" value="0">
+          </div>
+          <div class="col-6">
+            <label class="form-label small text-muted mb-1">Urutan Awal</label>
+            <input type="number" min="0" step="1" class="form-control" id="bulk-sort-start" value="0">
+          </div>
+          <div class="col-12">
+            <div class="form-check form-switch border rounded-3 px-3 py-2">
+              <input class="form-check-input" type="checkbox" role="switch" id="bulk-is-active" checked>
+              <label class="form-check-label ms-2" for="bulk-is-active">Aktif</label>
+            </div>
+          </div>
+          <div class="col-12" id="bulk-preview-wrap" style="display:none">
+            <div class="small text-muted mb-1 fw-semibold">Preview nama meja yang akan dibuat:</div>
+            <div id="bulk-preview" class="border rounded-3 p-2 bg-light" style="font-size:.82rem;max-height:140px;overflow-y:auto;line-height:1.8"></div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-primary" id="btn-bulk-save">
+          <span class="btn-bulk-label">Buat Meja</span>
           <span class="spinner-border spinner-border-sm ms-2 d-none" role="status" aria-hidden="true"></span>
         </button>
       </div>
@@ -279,6 +337,92 @@ document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('q').addEventListener('input', function () { state.q = this.value; loadRows().catch((e) => alert(e.message || 'Gagal memuat meja')); });
   document.getElementById('btn-clear-filter').addEventListener('click', function () { state.q = ''; state.status = 'ACTIVE'; loadRows().catch((e) => alert(e.message || 'Gagal memuat meja')); });
   document.querySelectorAll('.pos-status-tab').forEach((btn) => btn.addEventListener('click', function () { state.status = this.dataset.status; loadRows().catch((e) => alert(e.message || 'Gagal memuat meja')); }));
+
+  // ── Bulk Tambah ────────────────────────────────────────────────────────────
+  const bulkModalEl = document.getElementById('bulkModal');
+  const bulkModal   = (window.bootstrap && window.bootstrap.Modal) ? new window.bootstrap.Modal(bulkModalEl) : null;
+  const bulkSaveBtn = document.getElementById('btn-bulk-save');
+  const bulkLabel   = bulkSaveBtn.querySelector('.btn-bulk-label');
+  const bulkSpinner = bulkSaveBtn.querySelector('.spinner-border');
+
+  function bulkGenNames() {
+    const prefix = document.getElementById('bulk-prefix').value.trim();
+    const from   = parseInt(document.getElementById('bulk-from').value, 10) || 1;
+    const to     = parseInt(document.getElementById('bulk-to').value, 10)   || 1;
+    if (!prefix || from < 1 || to < from) return [];
+    const count = Math.min(to - from + 1, 100);
+    const names = [];
+    for (let i = 0; i < count; i++) names.push(prefix + ' ' + (from + i));
+    return names;
+  }
+
+  function bulkUpdatePreview() {
+    const names   = bulkGenNames();
+    const wrap    = document.getElementById('bulk-preview-wrap');
+    const preview = document.getElementById('bulk-preview');
+    const btn     = document.getElementById('btn-bulk-save');
+    const lbl     = btn.querySelector('.btn-bulk-label');
+    if (!names.length) {
+      wrap.style.display = 'none';
+      lbl.textContent = 'Buat Meja';
+      return;
+    }
+    wrap.style.display = '';
+    lbl.textContent = 'Buat ' + names.length + ' Meja';
+    preview.innerHTML = names.map((n, i) => {
+      const sort = (parseInt(document.getElementById('bulk-sort-start').value, 10) || 0) + i;
+      return '<span class="badge bg-secondary-subtle text-secondary-emphasis me-1 mb-1" style="font-size:.8rem">' +
+        n.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])) +
+        (sort > 0 ? ' <span class="text-muted">#' + sort + '</span>' : '') +
+        '</span>';
+    }).join('');
+  }
+
+  ['bulk-prefix', 'bulk-from', 'bulk-to', 'bulk-sort-start'].forEach(id =>
+    document.getElementById(id)?.addEventListener('input', bulkUpdatePreview)
+  );
+
+  document.getElementById('btn-bulk-new').addEventListener('click', function () {
+    document.getElementById('bulk-prefix').value    = 'Meja';
+    document.getElementById('bulk-from').value      = '1';
+    document.getElementById('bulk-to').value        = '10';
+    document.getElementById('bulk-capacity').value  = '0';
+    document.getElementById('bulk-sort-start').value = '0';
+    document.getElementById('bulk-is-active').checked = true;
+    bulkUpdatePreview();
+    bulkModal ? bulkModal.show() : (bulkModalEl.style.display = 'block');
+  });
+
+  async function runBulkSave() {
+    const prefix    = document.getElementById('bulk-prefix').value.trim();
+    const from      = parseInt(document.getElementById('bulk-from').value, 10) || 1;
+    const to        = parseInt(document.getElementById('bulk-to').value, 10)   || 1;
+    const capacity  = parseInt(document.getElementById('bulk-capacity').value, 10)   || 0;
+    const sortStart = parseInt(document.getElementById('bulk-sort-start').value, 10) || 0;
+    const isActive  = document.getElementById('bulk-is-active').checked ? 1 : 0;
+
+    if (!prefix) throw new Error('Prefix nama meja wajib diisi.');
+    if (from < 1 || to < from) throw new Error('Rentang nomor tidak valid (Dari harus ≤ Sampai).');
+    if (to - from >= 100) throw new Error('Maksimal 100 meja sekaligus.');
+
+    bulkSaveBtn.disabled = true;
+    bulkLabel.textContent = 'Menyimpan...';
+    bulkSpinner.classList.remove('d-none');
+    try {
+      const json = await postJson('<?php echo site_url('pos/self-order/tables/bulk-save'); ?>', {
+        prefix, from, to, capacity, sort_order_start: sortStart, is_active: isActive
+      });
+      bulkModal ? bulkModal.hide() : (bulkModalEl.style.display = 'none');
+      await loadRows();
+      alert(json.message || (json.data?.count || (to - from + 1)) + ' meja berhasil dibuat.');
+    } finally {
+      bulkSaveBtn.disabled = false;
+      bulkSpinner.classList.add('d-none');
+      bulkUpdatePreview();
+    }
+  }
+
+  bulkSaveBtn.addEventListener('click', () => runBulkSave().catch(e => alert(e.message || 'Gagal bulk tambah meja')));
 
   loadRows().catch((e) => alert(e.message || 'Gagal memuat meja'));
 });

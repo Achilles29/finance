@@ -818,6 +818,42 @@ class Pos extends MY_Controller
         $this->json_ok(['id' => (int)($result['id'] ?? 0)]);
     }
 
+    public function self_order_table_bulk_save()
+    {
+        $this->require_permission('pos.self_order.index', 'create');
+        $payload = $this->request_payload();
+
+        $prefix      = trim((string)($payload['prefix'] ?? ''));
+        $from        = (int)($payload['from'] ?? 1);
+        $to          = (int)($payload['to'] ?? 1);
+        $capacity    = max(0, (int)($payload['capacity'] ?? 0));
+        $sortStart   = max(0, (int)($payload['sort_order_start'] ?? 0));
+        $isActive    = !isset($payload['is_active']) || (int)$payload['is_active'] === 1 ? 1 : 0;
+
+        if ($prefix === '') { $this->json_error('Prefix nama meja wajib diisi.', 422); return; }
+        if ($from < 1 || $to < $from) { $this->json_error('Rentang nomor tidak valid.', 422); return; }
+        if ($to - $from >= 100) { $this->json_error('Maksimal 100 meja sekaligus.', 422); return; }
+
+        $items = [];
+        for ($i = $from; $i <= $to; $i++) {
+            $items[] = [
+                'nama_meja'  => $prefix . ' ' . $i,
+                'qr_label'   => '',
+                'capacity'   => $capacity,
+                'sort_order' => $sortStart + ($i - $from),
+                'is_active'  => $isActive,
+            ];
+        }
+
+        $result = $this->Pos_model->bulk_save_self_order_tables($items);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan meja.'), 422);
+            return;
+        }
+        $this->json_ok(['count' => (int)($result['count'] ?? 0)],
+            (int)($result['count'] ?? 0) . ' meja berhasil dibuat.');
+    }
+
     public function self_order_table_delete($id)
     {
         $this->require_permission('pos.self_order.index', 'delete');

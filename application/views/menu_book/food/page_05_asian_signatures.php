@@ -2,695 +2,495 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Asian Signatures — NAMUA Coffee &amp; Eatery</title>
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Pinyon+Script&family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;0,900;1,400;1,600&family=Jost:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<title>Asian Signatures - NAMUA</title>
 
 <style>
-/* ================================================
-   NAMUA Coffee & Eatery — Asian Signatures Menu
-   Page 05 | Edit image paths below as needed
-   ================================================ */
-
 @page { size: A4 portrait; margin: 0; }
 
-*, *::before, *::after {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-}
+* { box-sizing: border-box; }
 
 html, body {
-    background: #21160f;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-    text-rendering: geometricPrecision;
+    margin: 0;
+    padding: 0;
+    background: #2a211b;
 }
 
-body {
-    font-family: 'Jost', Arial, sans-serif;
-    color: #4f3422;
-}
-
-/* ── PAGE SHELL ── */
-.menu-page {
+.page {
     width: 210mm;
     height: 297mm;
     margin: 0 auto;
-    position: relative;
     overflow: hidden;
-    padding: 8mm;
-    background:
-        radial-gradient(circle at 20% 8%, rgba(201,162,78,.26), transparent 30%),
-        radial-gradient(circle at 88% 85%, rgba(168,35,44,.12), transparent 34%),
-        linear-gradient(135deg, rgba(255,252,244,.98), rgba(244,235,217,.99)),
-        #F6EFE1;
-    box-shadow: 0 26px 60px rgba(24,12,7,.38), inset 0 0 0 1px rgba(255,255,255,.3);
-}
-
-/* Gold outer border */
-.menu-page::before {
-    content: "";
-    position: absolute;
-    inset: 5mm;
-    border: 1.4px solid rgba(201,162,78,.72);
-    pointer-events: none;
-    z-index: 10;
-}
-
-/* Maroon inner border */
-.menu-page::after {
-    content: "";
-    position: absolute;
-    inset: 6.8mm;
-    border: .8px solid rgba(168,35,44,.35);
-    pointer-events: none;
-    z-index: 10;
-}
-
-.page-inner {
     position: relative;
-    z-index: 2;
-    height: 100%;
-    display: grid;
-    grid-template-rows: 22mm 1fr 6.5mm;
-    gap: 2.5mm;
+    background: url("<?= base_url('assets/menu-book/backgrounds/bg-asian.png'); ?>") center/cover no-repeat;
+    font-family: Georgia, "Times New Roman", serif;
+    color: #8d1f28;
+    padding: 5mm;
 }
 
-/* ── HEADER ── */
-.header {
-    display: grid;
-    grid-template-columns: 22mm 1fr 20mm;
-    align-items: center;
-    border-bottom: 1px solid rgba(201,162,78,.58);
-    padding-bottom: 2.5mm;
-    position: relative;
-}
-
-.header::after {
-    content: "";
-    position: absolute;
-    left: 23mm;
-    right: 21mm;
-    bottom: -1px;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(168,35,44,.2), transparent);
-}
-
-.logo-wrap {
-    width: 18mm;
-    height: 18mm;
-    border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.95), rgba(248,236,214,.9) 60%, rgba(228,205,161,.9));
-    display: grid;
-    place-items: center;
-    border: 1px solid rgba(201,162,78,.58);
-    box-shadow: 0 5px 14px rgba(84,46,27,.14), inset 0 0 0 1px rgba(255,255,255,.72);
-}
-
-.logo-wrap img {
-    width: 15.5mm;
-    height: 15.5mm;
-    object-fit: contain;
-    display: block;
-}
-
-.title-area { text-align: center; }
-
-.title-area .script {
-    display: block;
-    font-family: 'Pinyon Script', cursive;
-    font-size: 22px;
-    line-height: .75;
-    color: #C9A24E;
-    margin-bottom: -1mm;
-}
-
-.title-area h1 {
-    font-family: 'Playfair Display', Georgia, serif;
-    font-size: 33px;
-    line-height: .92;
-    letter-spacing: 2.5px;
-    color: #A8232C;
-    text-transform: uppercase;
-    font-weight: 800;
-    text-shadow: 0 1px 0 rgba(255,255,255,.45);
-}
-
-.title-area p {
-    margin-top: 1.2mm;
-    font-family: 'Playfair Display', Georgia, serif;
-    font-size: 10.5px;
-    font-style: italic;
-    color: #6A4E3A;
-    letter-spacing: .2px;
-}
-
-.page-number {
-    width: 17mm;
-    height: 17mm;
-    justify-self: end;
-    border-radius: 50%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    color: #fff6e8;
-    font-weight: 800;
-    background: radial-gradient(circle at 35% 30%, rgba(186,48,61,.9), rgba(123,22,34,.98) 65%);
-    border: 1px solid rgba(201,162,78,.65);
-    box-shadow: 0 8px 18px rgba(122,27,37,.24), inset 0 0 0 1px rgba(255,255,255,.12);
-}
-
-.page-number small {
-    font-size: 5px;
-    letter-spacing: 2.5px;
-    text-transform: uppercase;
-    display: block;
-    margin-bottom: .5mm;
-    color: rgba(255,246,232,.75);
-}
-
-.page-number strong {
-    font-family: 'Playfair Display', Georgia, serif;
-    font-size: 20px;
-    font-weight: 900;
-    line-height: 1;
-}
-
-/* ── CONTENT GRID ── */
-.content {
-    min-height: 0;
-    overflow: hidden;
-    display: grid;
-    grid-template-rows: 72mm 72mm 1fr;
-    gap: 3mm;
-}
-
-.section-head {
-    height: 7mm;
-    display: flex;
-    justify-content: space-between;
-    align-items: end;
-    border-bottom: 1px solid rgba(201,162,78,.62);
-    margin-bottom: 1.5mm;
-    padding-bottom: .8mm;
-}
-
-.section-head h2 {
-    font-family: 'Playfair Display', Georgia, serif;
-    font-size: 16.6px;
-    color: #A8232C;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-weight: 800;
-    line-height: 1;
-}
-
-.section-head span {
-    font-size: 7px;
-    letter-spacing: 1.8px;
-    color: #B68C39;
-    text-transform: uppercase;
-    font-weight: 800;
-    padding: 1mm 2.2mm .8mm;
-    border-radius: 999px;
-    background: rgba(255,248,233,.92);
-    border: 1px solid rgba(201,162,78,.35);
-}
-
-/* ── COMBO CARDS (Broth & Rolls) ── */
-.combo {
-    height: 63mm;
-    display: grid;
-    grid-template-columns: 60% 40%;
-    overflow: hidden;
-    border-radius: 4mm;
-    background: #fffaf0;
-    border: 1px solid rgba(201,162,78,.65);
-    box-shadow: 0 10px 24px rgba(70,40,25,.13), inset 0 0 0 1px rgba(255,255,255,.5);
-    position: relative;
-}
-
-.combo::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: linear-gradient(180deg, rgba(255,255,255,.14), transparent 24%, transparent 78%, rgba(171,108,47,.06));
-}
-
-.combo-photo {
-    background:
-        radial-gradient(circle at 18% 18%, rgba(255,255,255,.7), transparent 28%),
-        linear-gradient(135deg, #f8edd7, #ead8b5);
-    overflow: hidden;
-    display: grid;
-    place-items: center;
-}
-
-.combo-photo img {
+.inner {
     width: 100%;
     height: 100%;
-    object-fit: contain;
-    object-position: center;
-    display: block;
-    filter: saturate(1.03) contrast(1.02) brightness(1.01);
-}
-
-.combo-info {
-    padding: 4.5mm 5mm;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    background: linear-gradient(145deg, rgba(255,252,245,.98), rgba(241,226,194,.94));
+    border: 1.2px solid #b98a43;
+    padding: 4mm 5mm 3mm;
     position: relative;
 }
 
-.combo-info::before {
+.inner::before {
     content: "";
     position: absolute;
-    left: 0;
-    top: 4mm;
-    bottom: 4mm;
-    width: 1px;
-    background: linear-gradient(180deg, transparent, rgba(201,162,78,.42), transparent);
+    inset: 2mm;
+    border: .6px solid rgba(141,31,40,.45);
+    pointer-events: none;
 }
 
-.badge {
-    width: fit-content;
-    padding: 3px 11px;
-    border-radius: 99px;
-    background: linear-gradient(135deg, #e5c982, #c89b3f);
-    color: #3b220f;
-    font-size: 6.9px;
-    letter-spacing: 1.15px;
-    font-weight: 900;
-    text-transform: uppercase;
-    margin-bottom: 2mm;
-    box-shadow: 0 4px 10px rgba(169,116,39,.18);
+.header {
+    height: 24mm;
+    text-align: center;
+    position: relative;
+    z-index: 2;
 }
 
-.menu-list { display: grid; gap: 1.35mm; }
-
-.menu-row {
-    display: grid;
-    grid-template-columns: 1fr 14mm;
-    align-items: baseline;
-    gap: 2mm;
-    padding-bottom: .75mm;
-    border-bottom: 1px dotted rgba(106,78,58,.35);
+.header .script {
+    font-size: 20px;
+    font-style: italic;
+    color: #330202;
+    margin-bottom: 1mm;
 }
 
-.menu-row:last-child { border-bottom: none; }
-
-.menu-row strong {
-    font-size: 10.2px;
-    line-height: 1.08;
-    color: #A8232C;
-    text-transform: uppercase;
-    font-weight: 800;
-    letter-spacing: .2px;
+.header h1 {
+    margin: 0;
+    font-size: 41px;
+    line-height: .92;
+    letter-spacing: 2px;
 }
 
-.menu-row b {
-    text-align: right;
-    font-family: 'Playfair Display', Georgia, serif;
-    font-size: 14.8px;
-    color: #A8232C;
-    font-weight: 900;
-    text-shadow: 0 1px 0 rgba(255,255,255,.5);
+.header p {
+    margin: 1.5mm 0 0;
+    font-size: 12px;
+    font-weight: bold;
+    color: #5b3d25;
 }
 
-.combo-note {
-    margin-top: 1.7mm;
-    font-size: 7.3px;
-    line-height: 1.36;
-    color: #6A4E3A;
+.content {
+    position: relative;
+    z-index: 2;
 }
 
-/* ── WOK SECTION ── */
-.wok-section {
+.section {
+    border: 1px solid rgba(185,138,67,.85);
+    border-radius: 4mm;
+    overflow: hidden;
+    background: rgba(255,250,236,.76);
+    margin-bottom: 2.4mm;
+}
+
+.section-title {
+    height: 10mm;
+    padding: 1.7mm 4mm;
     display: flex;
-    flex-direction: column;
-    min-height: 0;
-    overflow: hidden;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(255,248,227,.68);
+    border-bottom: 1px solid rgba(185,138,67,.55);
 }
 
-.wok-layout {
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-    display: grid;
-    grid-template-columns: 55mm 1fr;
-    gap: 2.5mm;
+.section-title h2 {
+    margin: 0;
+    font-size: 17px;
+    line-height: 1;
+    letter-spacing: .7px;
+}
+
+.section-title span {
+    font-size: 5.7px;
+    letter-spacing: 1.5px;
+    color: #8b672f;
+    border: 1px solid rgba(185,138,67,.65);
+    border-radius: 20px;
+    padding: 1mm 3mm;
+    background: rgba(255,255,245,.8);
 }
 
 .hero {
-    position: relative;
-    overflow: hidden;
-    border-radius: 4mm;
-    background: linear-gradient(160deg, #fbf0dc, #ead7b2);
-    border: 1px solid rgba(201,162,78,.65);
-    box-shadow: 0 10px 24px rgba(70,40,25,.15), inset 0 0 0 1px rgba(255,255,255,.45);
+    height: 67mm;
+    display: grid;
+    grid-template-columns: 66% 34%;
 }
 
-.hero img {
+.hero-img {
+    height: 67mm;
+    overflow: hidden;
+}
+
+.hero-img img,
+.food-img img {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: center 48%;
     display: block;
-    filter: saturate(1.04) contrast(1.03);
 }
 
-.hero-caption {
+.broth-img img { object-position: center 48%; }
+.roll-img img { object-position: center 52%; }
+
+.panel {
+    padding: 5mm 4.5mm;
+    background: linear-gradient(135deg, rgba(255,250,235,.96), rgba(244,229,195,.88));
+    border-left: 1px solid rgba(185,138,67,.58);
+}
+
+.badge {
+    display: inline-block;
+    margin-bottom: 3mm;
+    padding: 1.2mm 3.6mm;
+    border-radius: 20px;
+    background: #b18539;
+    color: #fff7d7;
+    font-size: 12px;
+    font-weight: bold;
+    letter-spacing: 1.5px;
+}
+
+.item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2.5mm;
+    padding: 1.65mm 0;
+    border-bottom: 1px dotted rgba(70,45,24,.55);
+}
+
+.item:last-child {
+    border-bottom: 0;
+}
+
+.item b {
+    display: block;
+    font-size: 12px;
+    line-height: 1.1;
+    letter-spacing: .4px;
+}
+
+.item small {
+    display: block;
+    margin-top: .6mm;
+    font-size: 8px;
+    line-height: 1.2;
+    color: #4d3925;
+}
+
+.item strong {
+    align-self: center;
+    font-size: 14.5px;
+    line-height: 1;
+}
+
+.wok {
+    height: 86mm;
+}
+
+.wok-layout {
+    height: 76mm;
+    display: grid;
+    grid-template-columns: 38% 62%;
+    gap: 2.5mm;
+    padding: 2.5mm;
+}
+
+.feature-card {
+    height: 70mm;
+    border: 1px solid rgba(185,138,67,.7);
+    border-radius: 3mm;
+    overflow: hidden;
+    position: relative;
+    align-self: center;
+}
+
+.feature-card .food-img {
+    height: 100%;
+}
+
+.feature-card img {
+    object-position: center center;
+}
+
+.feature-caption {
     position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
-    padding: 11mm 3.2mm 2.8mm;
-    background: linear-gradient(to top, rgba(35,20,10,.98), rgba(35,20,10,.80) 56%, rgba(35,20,10,0));
-    color: white;
+    padding: 8mm 3.5mm 2.5mm;
+    color: #fff8e6;
+    background: linear-gradient(transparent, rgba(30,22,13,.92));
 }
 
-.hero-caption small {
-    display: block;
-    color: #C9A24E;
-    font-size: 5.3px;
-    letter-spacing: 1.3px;
-    font-weight: 900;
-    text-transform: uppercase;
-    margin-bottom: .6mm;
+.feature-caption h3 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: .4px;
 }
 
-.hero-caption h3 {
-    font-family: 'Playfair Display', Georgia, serif;
-    font-size: 13.6px;
-    line-height: .95;
-    text-transform: uppercase;
-    color: #fff;
-    text-shadow: 0 2px 8px rgba(0,0,0,.2);
+.feature-caption p {
+    margin: .8mm 0 0;
+    font-size: 10px;
+    line-height: 1.2;
 }
 
-.hero-caption p {
-    margin-top: .8mm;
-    font-size: 6px;
-    line-height: 1.24;
-    color: rgba(255,255,255,.88);
-}
-
-.hero-caption b {
-    display: block;
-    margin-top: .9mm;
-    font-family: 'Playfair Display', Georgia, serif;
+.feature-caption .price {
+    text-align: right;
     font-size: 17px;
-    color: #F1D28A;
-    font-weight: 900;
+    font-weight: bold;
+    color: #ffe39b;
 }
 
-.plates {
+.mini-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 2.2mm;
-    overflow: hidden;
+    gap: 2.5mm;
 }
 
-.plate {
+.mini-card {
+    height: 33mm;
     overflow: hidden;
-    border-radius: 3.3mm;
-    background: #fffaf0;
-    border: 1px solid rgba(201,162,78,.62);
-    box-shadow: 0 7px 16px rgba(70,40,25,.11), inset 0 0 0 1px rgba(255,255,255,.52);
-    display: grid;
-    grid-template-rows: 26mm 1fr;
+    border: 1px solid rgba(185,138,67,.7);
+    border-radius: 3mm;
+    background: rgba(255,250,238,.9);
+}
+
+.mini-card .food-img {
+    height: 18mm;
+}
+
+.mini-card img {
+    object-position: center 50%;
+}
+
+.mini-text {
+    height: 15mm;
+    padding: 1.6mm 2mm 1mm;
     position: relative;
 }
 
-.plate::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: linear-gradient(180deg, rgba(255,255,255,.08), transparent 25%);
+.mini-text h3 {
+    margin: 0;
+    padding-right: 12mm;
+    font-size: 12px;
+    line-height: 1.05;
 }
 
-.plate-photo {
-    background: linear-gradient(160deg, #f9ecd4, #ead7b4);
-    overflow: hidden;
-}
-
-.plate-photo img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: center 46%;
-    display: block;
-    filter: saturate(1.03) contrast(1.02);
-}
-
-.plate-body {
-    padding: 1.9mm 2.3mm;
-    display: grid;
-    grid-template-rows: auto 1fr auto;
-    background: linear-gradient(180deg, #fffaf2, #f4e4c4);
-}
-
-.plate-body h3 {
-    font-family: 'Playfair Display', Georgia, serif;
+.mini-text p {
+    margin: .6mm 0 0;
+    padding-right: 11mm;
     font-size: 9px;
-    line-height: 1.04;
-    color: #A8232C;
-    text-transform: uppercase;
-    font-weight: 800;
-    margin-bottom: .45mm;
+    line-height: 1.1;
+    color: #4d3925;
 }
 
-.plate-body p {
-    font-size: 5.5px;
-    line-height: 1.22;
-    color: #6A4E3A;
-    overflow: hidden;
+.mini-price {
+    position: absolute;
+    right: 2mm;
+    bottom: 1mm;
+    font-size: 13px;
+    font-weight: bold;
 }
 
-.plate-foot {
-    display: flex;
-    justify-content: space-between;
-    align-items: end;
-    margin-top: .35mm;
-}
-
-.plate-foot span {
-    font-size: 4.9px;
-    letter-spacing: .9px;
-    color: #B68C39;
-    text-transform: uppercase;
-    font-weight: 900;
-}
-
-.plate-foot b {
-    font-family: 'Playfair Display', Georgia, serif;
-    font-size: 13.6px;
-    color: #A8232C;
-    font-weight: 900;
-}
-
-/* ── FOOTER ── */
 .footer {
-    border-top: 1px solid rgba(201,162,78,.60);
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    align-items: center;
-    padding-top: 1.2mm;
-    font-size: 6.2px;
-    letter-spacing: 1.7px;
-    color: #8B6A32;
-    text-transform: uppercase;
-    font-weight: 800;
-    opacity: .94;
+    height: 10mm;
+    text-align: center;
+    color: #8d1f28;
+    padding-top: .8mm;
 }
 
-.footer span:nth-child(2) { color: #B68C39; text-align: center; }
-.footer span:last-child { text-align: right; }
+.footer .hash {
+    font-size: 13.5px;
+    font-weight: bold;
+    font-style: italic;
+    line-height: 1;
+}
 
-@media print {
-    html, body { background: transparent; }
-    .menu-page { margin: 0; }
+.footer .ig {
+    margin-top: .8mm;
+    font-size: 8px;
+    color: #5c3e25;
+}
+
+.footer svg {
+    width: 9px;
+    height: 9px;
+    fill: #8d1f28;
+    vertical-align: -1.5px;
+    margin-right: 1mm;
 }
 </style>
 </head>
+
 <body>
 
-<div style="background:#21160f; min-height:100vh; display:flex; align-items:flex-start; justify-content:center; padding:32px 20px;">
+<div class="page">
+    <div class="inner">
 
-<section class="menu-page">
-<div class="page-inner">
+        <div class="header">
+            <div class="script">Asian</div>
+            <h1>SIGNATURES</h1>
+            <p>Bowls, rolls & wok favourites.</p>
+        </div>
 
-  <!-- ══════════════════════════════════════════
-       HEADER
-       ══════════════════════════════════════════ -->
-  <header class="header">
+        <div class="content">
 
-    <div class="logo-wrap">
-      <!-- ▼ LOGO — ganti path di sini -->
-      <img src="<?= base_url('assets/menu-book/logo/logo.png') ?>" alt="NAMUA">
+            <div class="section">
+                <div class="section-title">
+                    <h2>✤ BROTH & BOWL</h2>
+                    <span>RAMEN · RAMYEON · GYUDON</span>
+                </div>
+
+                <div class="hero">
+                    <div class="hero-img broth-img">
+                        <img src="<?= base_url('assets/menu-book/products/foods/asian-signature/broth-bowl-combo.png'); ?>" alt="Broth Bowl Combo">
+                    </div>
+
+                    <div class="panel">
+                        <div class="badge">BEST PICKS</div>
+
+                        <div class="item">
+                            <div><b>SOYU RAMEN</b><small>Classic soy ramen with chicken, egg, and scallions.</small></div>
+                            <strong>38K</strong>
+                        </div>
+
+                        <div class="item">
+                            <div><b>TORI PAITAN RAMEN</b><small>Creamy chicken broth ramen with tender chicken.</small></div>
+                            <strong>35K</strong>
+                        </div>
+
+                        <div class="item">
+                            <div><b>SPICY RAMYEON</b><small>Spicy Korean-style ramen with rich flavours.</small></div>
+                            <strong>32K</strong>
+                        </div>
+
+                        <div class="item">
+                            <div><b>GYU DON</b><small>Beef donburi with savoury sweet sauce.</small></div>
+                            <strong>32K</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">
+                    <h2>✤ ROLLS & KIMBAP</h2>
+                    <span>SUSHI ROLLS · KOREAN WRAP</span>
+                </div>
+
+                <div class="hero">
+                    <div class="hero-img roll-img">
+                        <img src="<?= base_url('assets/menu-book/products/foods/asian-signature/rolls-kimbap-combo.png'); ?>" alt="Rolls Kimbap Combo">
+                    </div>
+
+                    <div class="panel">
+                        <div class="badge">ROLL SELECTION</div>
+
+                        <div class="item">
+                            <div><b>KOREAN BEEF KIMBAB</b><small>Korean beef, pickled radish, carrot, spinach, egg.</small></div>
+                            <strong>31K</strong>
+                        </div>
+
+                        <div class="item">
+                            <div><b>CALIFORNIA ROLL</b><small>Crab stick, avocado, cucumber, mayonnaise.</small></div>
+                            <strong>24K</strong>
+                        </div>
+
+                        <div class="item">
+                            <div><b>VOLCANO ROLL</b><small>Spicy tuna, tempura crunch, avocado, spicy mayo.</small></div>
+                            <strong>26K</strong>
+                        </div>
+
+                        <div class="item">
+                            <div><b>YAKINIKU SUSHI ROLL</b><small>Grilled beef, lettuce, cucumber, teriyaki sauce.</small></div>
+                            <strong>29K</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section wok">
+                <div class="section-title">
+                    <h2>✤ WOK & ASIAN PLATES</h2>
+                    <span>NOODLES · FRIED RICE · THAI PLATE</span>
+                </div>
+
+                <div class="wok-layout">
+
+                    <div class="feature-card">
+                        <div class="food-img">
+                            <img src="<?= base_url('assets/menu-book/products/foods/asian-signature/mie-ayam-namua.png'); ?>" alt="Mie Ayam Namua">
+                        </div>
+                        <div class="feature-caption">
+                            <h3>MIE AYAM NAMUA</h3>
+                            <p>Chicken noodles with sweet soy sauce, vegetables, and crispy wonton.</p>
+                            <div class="price">28K</div>
+                        </div>
+                    </div>
+
+                    <div class="mini-grid">
+
+                        <div class="mini-card">
+                            <div class="food-img">
+                                <img src="<?= base_url('assets/menu-book/products/foods/asian-signature/chicken-nori-yakimeshi.png'); ?>" alt="Chicken Nori Yakimeshi">
+                            </div>
+                            <div class="mini-text">
+                                <h3>CHICKEN NORI YAKIMESHI</h3>
+                                <p>Japanese Fried Rice</p>
+                                <div class="mini-price">28K</div>
+                            </div>
+                        </div>
+
+                        <div class="mini-card">
+                            <div class="food-img">
+                                <img src="<?= base_url('assets/menu-book/products/foods/asian-signature/chinese-fried-noodles.png'); ?>" alt="Chinese Fried Noodles">
+                            </div>
+                            <div class="mini-text">
+                                <h3>CHINESE FRIED NOODLES</h3>
+                                <p>Wok Fried Noodles</p>
+                                <div class="mini-price">25K</div>
+                            </div>
+                        </div>
+
+                        <div class="mini-card">
+                            <div class="food-img">
+                                <img src="<?= base_url('assets/menu-book/products/foods/asian-signature/yang-chow-fried-rice.png'); ?>" alt="Yang Chow Fried Rice">
+                            </div>
+                            <div class="mini-text">
+                                <h3>YANG CHOW FRIED RICE</h3>
+                                <p>Chinese Style Fried Rice</p>
+                                <div class="mini-price">25K</div>
+                            </div>
+                        </div>
+
+                        <div class="mini-card">
+                            <div class="food-img">
+                                <img src="<?= base_url('assets/menu-book/products/foods/asian-signature/crispy-dory-ala-thai.png'); ?>" alt="Crispy Dory Ala Thai">
+                            </div>
+                            <div class="mini-text">
+                                <h3>CRISPY DORY ALA THAI</h3>
+                                <p>Thai Inspired Dory Plate</p>
+                                <div class="mini-price">25K</div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer">
+                <div class="hash">#kembalikenamua</div>
+                <div class="ig">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M7 2h10a5 5 0 0 1 5 5v10a5 5 0 0 1-5 5H7a5 5 0 0 1-5-5V7a5 5 0 0 1 5-5zm0 2a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3H7zm5 3.5A5.5 5.5 0 1 1 12 18.5 5.5 5.5 0 0 1 12 7.5zm0 2A3.5 3.5 0 1 0 12 16.5 3.5 3.5 0 0 0 12 9.5zM18 6.4a1.2 1.2 0 1 1-1.2 1.2A1.2 1.2 0 0 1 18 6.4z"/>
+                    </svg>
+                    @namuacoffee
+                </div>
+            </div>
+
+        </div>
     </div>
-
-    <div class="title-area">
-      <span class="script">Asian</span>
-      <h1>Signatures</h1>
-      <p>Bowls, rolls &amp; wok favourites.</p>
-    </div>
-
-
-
-  </header>
-
-  <!-- ══════════════════════════════════════════
-       MAIN CONTENT
-       ══════════════════════════════════════════ -->
-  <main class="content">
-
-    <!-- ── SECTION 1: BROTH & BOWL ── -->
-    <section>
-      <div class="section-head">
-        <h2>Broth &amp; Bowl</h2>
-        <span>Ramen · Ramyeon · Gyudon</span>
-      </div>
-      <article class="combo">
-        <div class="combo-photo">
-          <!-- ▼ Ganti path gambar di sini -->
-          <img src="<?= base_url('assets/menu-book/products/foods/asian-course/broth-bowl-combo.png') ?>" alt="Broth and Bowl Combo">
-        </div>
-        <div class="combo-info">
-          <div class="badge">4 Bowl Selection</div>
-          <div class="menu-list">
-            <div class="menu-row"><strong>Soyu Ramen</strong><b>38K</b></div>
-            <div class="menu-row"><strong>Tori Paitan Ramen</strong><b>35K</b></div>
-            <div class="menu-row"><strong>Spicy Ramyeon</strong><b>32K</b></div>
-            <div class="menu-row"><strong>Gyu Don</strong><b>32K</b></div>
-          </div>
-          <div class="combo-note">Warm ramen, ramyeon and Japanese rice bowl in one signature Asian selection.</div>
-        </div>
-      </article>
-    </section>
-
-    <!-- ── SECTION 2: ROLLS & KIMBAP ── -->
-    <section>
-      <div class="section-head">
-        <h2>Rolls &amp; Kimbap</h2>
-        <span>Sushi Rolls · Korean Wrap</span>
-      </div>
-      <article class="combo">
-        <div class="combo-photo">
-          <!-- ▼ Ganti path gambar di sini -->
-          <img src="<?= base_url('assets/menu-book/products/foods/asian-course/rolls-kimbap-combo.png') ?>" alt="Rolls and Kimbap Combo">
-        </div>
-        <div class="combo-info">
-          <div class="badge">Roll Selection</div>
-          <div class="menu-list">
-            <div class="menu-row"><strong>Korean Beef Kimbab</strong><b>31K</b></div>
-            <div class="menu-row"><strong>California Roll</strong><b>24K</b></div>
-            <div class="menu-row"><strong>Volcano Roll</strong><b>26K</b></div>
-            <div class="menu-row"><strong>Yakiniku Sushi Roll</strong><b>29K</b></div>
-          </div>
-          <div class="combo-note">Sushi rolls and Korean kimbap with beef, crab stick, tempura and yakiniku filling.</div>
-        </div>
-      </article>
-    </section>
-
-    <!-- ── SECTION 3: WOK & ASIAN PLATES ── -->
-    <section class="wok-section">
-      <div class="section-head">
-        <h2>Wok &amp; Asian Plates</h2>
-        <span>Fried Rice · Noodles · Katsu Plates</span>
-      </div>
-      <div class="wok-layout">
-
-        <!-- Hero product -->
-        <article class="hero">
-          <!-- ▼ Ganti path gambar di sini -->
-          <img src="<?= base_url('assets/menu-book/products/foods/asian-course/mie-ayam-namua.png') ?>" alt="Mie Ayam Namua">
-          <div class="hero-caption">
-            <small>Namua Asian Hero</small>
-            <h3>Mie Ayam Namua</h3>
-            <p>Asian noodle blanch, chicken leg marinated, garlic oyster, fried wonton &amp; broth side dish.</p>
-            <b>28K</b>
-          </div>
-        </article>
-
-        <!-- 4 supporting plates -->
-        <div class="plates">
-
-          <article class="plate">
-            <div class="plate-photo">
-              <!-- ▼ Ganti path gambar di sini -->
-              <img src="<?= base_url('assets/menu-book/products/foods/asian-course/chicken-nori-yakimeshi.png') ?>" alt="Chicken Nori Yakimeshi">
-            </div>
-            <div class="plate-body">
-              <h3>Chicken Nori Yakimeshi</h3>
-              <p>Deep fry chicken katsu, yakimeshi, mix salad &amp; teriyaki sauce.</p>
-              <div class="plate-foot"><span>Rice Plate</span><b>28K</b></div>
-            </div>
-          </article>
-
-          <article class="plate">
-            <div class="plate-photo">
-              <!-- ▼ Ganti path gambar di sini -->
-              <img src="<?= base_url('assets/menu-book/products/foods/asian-course/chinese-fried-noodles.png') ?>" alt="Chinese Fried Noodles">
-            </div>
-            <div class="plate-body">
-              <h3>Chinese Fried Noodles</h3>
-              <p>Chinese style fried noodles, chicken inside, mix vegetable &amp; crackers.</p>
-              <div class="plate-foot"><span>Noodles</span><b>25K</b></div>
-            </div>
-          </article>
-
-          <article class="plate">
-            <div class="plate-photo">
-              <!-- ▼ Ganti path gambar di sini -->
-              <img src="<?= base_url('assets/menu-book/products/foods/asian-course/yang-chow-fried-rice.png') ?>" alt="Yang Chow Fried Rice">
-            </div>
-            <div class="plate-body">
-              <h3>Yang Chow Fried Rice</h3>
-              <p>Chinese wok fried rice, smoked beef, sunny side up egg &amp; crackers.</p>
-              <div class="plate-foot"><span>Fried Rice</span><b>25K</b></div>
-            </div>
-          </article>
-
-          <article class="plate">
-            <div class="plate-photo">
-              <!-- ▼ Ganti path gambar di sini -->
-              <img src="<?= base_url('assets/menu-book/products/foods/asian-course/crispy-dory-ala-thai.png') ?>" alt="Crispy Dory Ala Thai">
-            </div>
-            <div class="plate-body">
-              <h3>Crispy Dory Ala Thai</h3>
-              <p>Deep fry dory fish, tomyam paste &amp; Bangkok sauce.</p>
-              <div class="plate-foot"><span>Thai Plate</span><b>25K</b></div>
-            </div>
-          </article>
-
-        </div>
-      </div>
-    </section>
-
-  </main>
-
-  <!-- ══════════════════════════════════════════
-       FOOTER
-       ══════════════════════════════════════════ -->
-  <footer class="footer">
-    <span>NAMUA Coffee &amp; Eatery</span>
-    <span>◆ Asian Course ◆</span>
-    <span>#kembalikenamua</span>
-  </footer>
-
-</div>
-</section>
 </div>
 
 </body>

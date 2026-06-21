@@ -752,6 +752,49 @@ class Pos_model extends CI_Model
         }
     }
 
+    public function bulk_save_self_order_tables(array $items): array
+    {
+        $tableName = $this->self_order_table_master();
+        if ($tableName === null) {
+            return ['ok' => false, 'message' => 'Schema meja self order belum tersedia.'];
+        }
+        if (empty($items)) {
+            return ['ok' => false, 'message' => 'Tidak ada meja untuk disimpan.'];
+        }
+
+        $rows = [];
+        foreach ($items as $item) {
+            $name = trim((string)($item['nama_meja'] ?? ''));
+            if ($name === '') continue;
+            $row = [
+                'nama_meja'  => $name,
+                'qr_label'   => $this->nullable_text($item['qr_label'] ?? ''),
+                'capacity'   => max(0, (int)($item['capacity'] ?? 0)),
+                'sort_order' => max(0, (int)($item['sort_order'] ?? 0)),
+                'is_active'  => !isset($item['is_active']) || (int)$item['is_active'] === 1 ? 1 : 0,
+            ];
+            $rows[] = $this->filter_table_payload($tableName, $row);
+        }
+        if (empty($rows)) {
+            return ['ok' => false, 'message' => 'Semua nama meja kosong, tidak ada yang disimpan.'];
+        }
+
+        $this->db->trans_begin();
+        try {
+            foreach ($rows as $row) {
+                $this->db->insert($tableName, $row);
+            }
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan meja (bulk insert).');
+            }
+            $this->db->trans_commit();
+            return ['ok' => true, 'count' => count($rows)];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
     public function delete_self_order_table(int $id): array
     {
         $tableName = $this->self_order_table_master();
