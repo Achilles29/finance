@@ -2896,10 +2896,25 @@ class Attendance_model extends CI_Model
             ->where('ss.schedule_date', $date)
             ->limit(1)
             ->get()->row_array();
+        if (!is_array($schedule)) {
+            $schedule = [];
+        }
 
         $shiftId = (int)($daily['shift_id'] ?? 0);
         if ($shiftId <= 0) {
             $shiftId = (int)($schedule['shift_id'] ?? 0);
+        }
+        if ($shiftId > 0 && empty($schedule)) {
+            $fallbackShift = $this->db
+                ->select('id AS shift_id, start_time, end_time, is_overnight, grace_late_minute')
+                ->from('att_shift')
+                ->where('id', $shiftId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            if (is_array($fallbackShift)) {
+                $schedule = $fallbackShift;
+            }
         }
 
         $checkinAt = (string)($daily['checkin_at'] ?? '');
