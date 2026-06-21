@@ -357,7 +357,7 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
-    public function list_account_mutations(int $accountId, string $dateFrom, string $dateTo, int $limit, int $offset = 0, string $scope = 'all'): array
+    public function list_account_mutations(int $accountId, string $dateFrom, string $dateTo, int $limit, int $offset = 0, string $scope = 'all', string $mutationType = 'all'): array
     {
         if (!$this->db->table_exists('fin_account_mutation_log')) {
             return [];
@@ -373,6 +373,7 @@ class Purchase_model extends CI_Model
 
         $this->applyAccountMutationDateFilters('m', $accountId, $dateFrom, $dateTo);
         $this->applyAccountMutationScopeFilter('m', $scope);
+        $this->applyAccountMutationTypeFilter('m', $mutationType);
 
         return $this->db
             ->order_by('m.mutation_date', 'DESC')
@@ -382,7 +383,7 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
-    public function count_account_mutations(int $accountId, string $dateFrom, string $dateTo, string $scope = 'all'): int
+    public function count_account_mutations(int $accountId, string $dateFrom, string $dateTo, string $scope = 'all', string $mutationType = 'all'): int
     {
         if (!$this->db->table_exists('fin_account_mutation_log')) {
             return 0;
@@ -393,6 +394,7 @@ class Purchase_model extends CI_Model
 
         $this->applyAccountMutationDateFilters('m', $accountId, $dateFrom, $dateTo);
         $this->applyAccountMutationScopeFilter('m', $scope);
+        $this->applyAccountMutationTypeFilter('m', $mutationType);
 
         $row = $this->db
             ->select('COUNT(*) AS total_rows', false)
@@ -427,7 +429,16 @@ class Purchase_model extends CI_Model
         }
     }
 
-    public function get_account_mutation_summary(int $accountId, string $dateFrom, string $dateTo, string $scope = 'all'): array
+    private function applyAccountMutationTypeFilter(string $alias, string $mutationType): void
+    {
+        $mutationType = strtoupper(trim($mutationType));
+        $fieldPrefix = $alias !== '' ? ($alias . '.') : '';
+        if (in_array($mutationType, ['IN', 'OUT'], true)) {
+            $this->db->where($fieldPrefix . 'mutation_type', $mutationType);
+        }
+    }
+
+    public function get_account_mutation_summary(int $accountId, string $dateFrom, string $dateTo, string $scope = 'all', string $mutationType = 'all'): array
     {
         $summary = [
             'in_total' => 0.0,
@@ -459,6 +470,7 @@ class Purchase_model extends CI_Model
         }
 
         $this->applyAccountMutationScopeFilter('', $scope);
+        $this->applyAccountMutationTypeFilter('', $mutationType);
 
         $row = $this->db->get()->row_array();
         if (!$row) {
@@ -472,7 +484,7 @@ class Purchase_model extends CI_Model
         return $summary;
     }
 
-    public function get_account_mutation_per_account_breakdown(string $dateFrom, string $dateTo, string $scope = 'all'): array
+    public function get_account_mutation_per_account_breakdown(string $dateFrom, string $dateTo, string $scope = 'all', string $mutationType = 'all'): array
     {
         if (!$this->db->table_exists('fin_account_mutation_log') || !$this->db->table_exists('fin_company_account')) {
             return [];
@@ -490,6 +502,10 @@ class Purchase_model extends CI_Model
         }
         if (strtolower(trim($scope)) === 'manual') {
             $whereParts[] = "ref_module IN ('FINANCE','FINANCE_TRANSFER')";
+        }
+        $mutationType = strtoupper(trim($mutationType));
+        if (in_array($mutationType, ['IN', 'OUT'], true)) {
+            $whereParts[] = "mutation_type = " . $this->db->escape($mutationType);
         }
         $subWhere = implode(' AND ', $whereParts);
         $mSub = "(SELECT account_id, mutation_type, amount FROM fin_account_mutation_log WHERE $subWhere)";
@@ -2922,13 +2938,20 @@ class Purchase_model extends CI_Model
             array_keys($movementMap)
         ), true);
 
+        // Include items that have active FIFO lots but stock=0 (or no stock record at all).
+        $preLotMap     = $this->buildReconcileLotPreMap($divisionId, $destinationFilter);
+        $orphanMetaMap = $this->buildOrphanLotMetaMap($divisionId, $destinationFilter, $preLotMap, $allKeys, $q);
+        foreach (array_keys($orphanMetaMap) as $orphanKey) {
+            $allKeys[$orphanKey] = true;
+        }
+
         $rows = [];
         foreach (array_keys($allKeys) as $key) {
             $balance = $balanceMap[$key] ?? null;
             $daily = $dailyMap[$key] ?? null;
             $matrix = $matrixMap[$key] ?? null;
             $movement = $movementMap[$key] ?? null;
-            $meta = $balance['_meta'] ?? $daily['_meta'] ?? $matrix['_meta'] ?? $movement['_meta'] ?? [];
+            $meta = $balance['_meta'] ?? $daily['_meta'] ?? $matrix['_meta'] ?? $movement['_meta'] ?? ($orphanMetaMap[$key]['_meta'] ?? []);
             if (empty($meta['material_id'])) {
                 continue;
             }
@@ -2944,7 +2967,9 @@ class Purchase_model extends CI_Model
             $dailyContent = (float)($daily['qty_content'] ?? 0);
             $matrixContent = (float)($matrix['qty_content'] ?? 0);
             $movementContent = (float)($movement['qty_content'] ?? 0);
-            if (abs($balanceContent) < 0.0001) {
+            // Skip only when BOTH stock balance and FIFO lot total are zero.
+            $matLotKey = (int)($meta['division_id'] ?? 0) . '|' . strtoupper((string)($meta['destination_group'] ?? 'REGULER')) . '|M-' . (int)($meta['material_id'] ?? 0);
+            if (abs($balanceContent) < 0.0001 && ($preLotMap[$matLotKey] ?? 0) < 0.0001) {
                 continue;
             }
 
@@ -3087,6 +3112,125 @@ class Purchase_model extends CI_Model
         }
 
         return $map;
+    }
+
+    /** Pre-fetch FIFO lot totals keyed by "divId|destGroup|M-matId" for use in filter & orphan detection. */
+    private function buildReconcileLotPreMap(?int $divisionId, ?string $destinationFilter): array
+    {
+        if (!$this->db->table_exists('inv_material_fifo_lot')) {
+            return [];
+        }
+        $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+        $sql  = "SELECT l.division_id, ({$destGroupExpr}) AS destination_group,
+                        COALESCE(l.material_id,0) AS material_id, SUM(l.qty_balance) AS lot_total
+                 FROM inv_material_fifo_lot l
+                 WHERE l.location_scope = 'DIVISION' AND l.status = 'OPEN' AND l.qty_balance > 0.0001";
+        $params = [];
+        if ($divisionId !== null && $divisionId > 0) {
+            $sql     .= ' AND l.division_id = ?';
+            $params[] = $divisionId;
+        }
+        if ($destinationFilter === 'EVENT') {
+            $sql .= " AND l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+        } elseif ($destinationFilter === 'REGULER') {
+            $sql .= " AND l.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+        }
+        $sql .= ' GROUP BY l.division_id, destination_group, l.material_id';
+        $map = [];
+        foreach ($this->db->query($sql, $params)->result_array() as $r) {
+            $k       = (int)$r['division_id'] . '|' . strtoupper((string)($r['destination_group'] ?? 'REGULER')) . '|M-' . (int)$r['material_id'];
+            $map[$k] = round((float)($r['lot_total'] ?? 0), 4);
+        }
+        return $map;
+    }
+
+    /**
+     * Find materials that have active FIFO lots but no entry in allKeys (no monthly-stock or movement record).
+     * Returns a map keyed by "divId|destGroup|M-matId|I-0" with synthetic balance-map-style entries.
+     */
+    private function buildOrphanLotMetaMap(?int $divisionId, ?string $destinationFilter, array $preLotMap, array $allKeys, string $q = ''): array
+    {
+        if (empty($preLotMap) || !$this->db->table_exists('inv_material_fifo_lot')) {
+            return [];
+        }
+        // Build material-level key set already present in allKeys (strip |I-xxx suffix)
+        $covered = [];
+        foreach (array_keys($allKeys) as $fk) {
+            $p = strrpos($fk, '|');
+            if ($p !== false) {
+                $covered[substr($fk, 0, $p)] = true;
+            }
+        }
+        // Collect orphan material IDs
+        $orphanMaterialIds = [];
+        foreach ($preLotMap as $matKey => $lotTotal) {
+            if (isset($covered[$matKey]) || $lotTotal < 0.0001) {
+                continue;
+            }
+            if (preg_match('/^(\d+)\|(\w+)\|M-(\d+)$/', $matKey, $m)) {
+                $orphanMaterialIds[(int)$m[3]] = true;
+            }
+        }
+        if (empty($orphanMaterialIds)) {
+            return [];
+        }
+        $matIdsStr  = implode(',', array_map('intval', array_keys($orphanMaterialIds)));
+        $divCodeCol = $this->db->field_exists('division_code', 'mst_operational_division') ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $divNameCol = $this->db->field_exists('division_name', 'mst_operational_division') ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $divCodeSelect = $divCodeCol ? "d.{$divCodeCol} AS division_code" : 'CAST(l.division_id AS CHAR) AS division_code';
+        $divNameSelect = $divNameCol ? "d.{$divNameCol} AS division_name"  : 'NULL AS division_name';
+        $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+        $divFilter = ($divisionId !== null && $divisionId > 0) ? ('AND l.division_id = ' . (int)$divisionId) : '';
+        $qFilter = '';
+        if ($q !== '') {
+            $likeVal = $this->db->escape('%' . $this->db->escape_like_str($q) . '%');
+            $qFilter = " AND (m.material_name LIKE {$likeVal} OR m.material_code LIKE {$likeVal})";
+        }
+        $sql = "
+            SELECT l.division_id, ({$destGroupExpr}) AS destination_group, l.destination_type,
+                   COALESCE(l.material_id,0) AS material_id,
+                   m.material_code, m.material_name, m.content_uom_id,
+                   {$divCodeSelect}, {$divNameSelect}
+            FROM inv_material_fifo_lot l
+            LEFT JOIN mst_material m ON m.id = l.material_id
+            LEFT JOIN mst_operational_division d ON d.id = l.division_id
+            WHERE l.location_scope = 'DIVISION' AND l.status = 'OPEN' AND l.qty_balance > 0.0001
+              {$divFilter} AND l.material_id IN ({$matIdsStr}) {$qFilter}
+            GROUP BY l.division_id, destination_group, l.material_id
+        ";
+        $metaMap = [];
+        foreach ($this->db->query($sql)->result_array() as $r) {
+            $destGroup = strtoupper((string)($r['destination_group'] ?? 'REGULER'));
+            $matKey    = (int)$r['division_id'] . '|' . $destGroup . '|M-' . (int)$r['material_id'];
+            $allKey    = $matKey . '|I-0';
+            $metaMap[$allKey] = [
+                'qty_content' => 0.0,
+                'qty_pack'    => 0.0,
+                '_meta'       => [
+                    'division_id'                  => (int)$r['division_id'],
+                    'division_code'                => (string)($r['division_code'] ?? ''),
+                    'division_name'                => (string)($r['division_name'] ?? ''),
+                    'destination_group'            => $destGroup,
+                    'destination_name'             => $destGroup === 'EVENT' ? 'Event' : 'Reguler',
+                    'destination_type'             => strtoupper((string)($r['destination_type'] ?? '')),
+                    'item_id'                      => 0,
+                    'material_id'                  => (int)$r['material_id'],
+                    'material_code'                => (string)($r['material_code'] ?? ''),
+                    'material_name'                => (string)($r['material_name'] ?? ''),
+                    'content_uom_id'               => (int)($r['content_uom_id'] ?? 0),
+                    'avg_cost_per_content'         => 0.0,
+                    'latest_date'                  => '',
+                    'audit_has_mismatch'           => 0,
+                    'audit_mismatch_qty_content'   => 0.0,
+                    'audit_mismatch_notes'         => '',
+                    'log_has_gap'                  => 0,
+                    'log_gap_content'              => 0.0,
+                ],
+            ];
+        }
+        return $metaMap;
     }
 
     private function attach_material_lot_totals(array &$rows, string $asOfDate = ''): void

@@ -664,20 +664,22 @@ ARABIAN GRILL LAMB CHOP :Middle east cuisine pan grill lamb chop, tar-tar mayo &
 SPICY TONGSENG LAMB CHOP :Pan grill lamb chop, spicy tongseng broth, cabbage served with rice & condiment side dish.
 
 
+sekarang buatkan untuk Nusantara & COMFORT FOOD
+
 KATEGORI	NAMA PRODUK	DESKRIPSI	TANPA NASI	DENGAN NASI	HARGA
-INDONESIAN HERITAGE	SUP IGA REMPAH	8 hour slow cook beef short ribs, clear beef broth, potato, carrot, emping crackers & sambal bawang	46000	48000	
-INDONESIAN HERITAGE	IGA BAKAR MADU	grill beef short ribs glazed bumbu bakar madu, abon sapi, emping crackers, sambal matah & dabu-dabu, beef broth	50000	52000	
-INDONESIAN HERITAGE	MIE ACEH BEEF SHORTPLATE	noodles, spicy paste kaldu, beef shortplate, bean sprout, emping crackers, katsuobushi			43000
-INDONESIAN HERITAGE	SOTO BETAWI	beef milk broth, potato, tomato, lime, sambal & emping crackers	48000	50000	
-INDONESIAN HERITAGE	NASI CAMPUR BALI	base gede rice, chicken sate lilit, chicken shredded bali, lawar, sambal matah & sunny side up egg			29000
-INDONESIAN HERITAGE	NASI GORENG KAMPOENG	bumbu rempah paste “terasi” fried rice, sunny side up, chicken skewer & crackers			23000
-CRAVE CORNER	BEBEK GORENG BUMBU REMPAH	slow cook 6 hour duck marinated, serundeng, sambal idjo & sambal tomat	41000	43000	
-CRAVE CORNER	BEEF LOMBOK IJO	grill beef shortplate glazed lombok idjo			32000
-CRAVE CORNER	GRILL BEEF SHORTPLATE PARAPE	grill beef shortplate glazed bumbu bakar parape, sambal matah, garlic kemangi rice			31000
-CRAVE CORNER	GRILL SEAFOOD PLATTER PANTURA	prawn, smoked fish parape, grill squid, nasi kemangi & sambal matah			31000
-CRAVE CORNER	AYAM BUMBU IRENG	chicken marinated, bumbu ireng, sambal tomat, serundeng	31000	33000	
-CRAVE CORNER	AYAM BAKAR SAMBAL DABU-DABU	chicken marinated, sambal dabu-dabu, fresh lalapan	26000	28000	
-CRAVE CORNER	AYAM GORENG REMPAH KREMES	chicken marinated, sambal bawang, fresh lalapan	23000	25000	
+INDONESIAN HERITAGE	SUP IGA REMPAH	8 hour slow cook beef short ribs, clear beef broth, potato, carrot, emping crackers & sambal bawang	46 K	48 K	
+INDONESIAN HERITAGE	IGA BAKAR MADU	grill beef short ribs glazed bumbu bakar madu, abon sapi, emping crackers, sambal matah & dabu-dabu, beef broth	5 K0	52 K	
+INDONESIAN HERITAGE	MIE ACEH BEEF SHORTPLATE	noodles, spicy paste kaldu, beef shortplate, bean sprout, emping crackers, katsuobushi			43 K
+INDONESIAN HERITAGE	SOTO BETAWI	beef milk broth, potato, tomato, lime, sambal & emping crackers	48 K	5 K0	
+INDONESIAN HERITAGE	NASI CAMPUR BALI	base gede rice, chicken sate lilit, chicken shredded bali, lawar, sambal matah & sunny side up egg			29 K
+INDONESIAN HERITAGE	NASI GORENG KAMPOENG	bumbu rempah paste “terasi” fried rice, sunny side up, chicken skewer & crackers			23 K
+CRAVE CORNER	BEBEK GORENG BUMBU REMPAH	slow cook 6 hour duck marinated, serundeng, sambal idjo & sambal tomat	41 K	43 K	
+CRAVE CORNER	BEEF LOMBOK IJO	grill beef shortplate glazed lombok idjo			32 K
+CRAVE CORNER	GRILL BEEF SHORTPLATE PARAPE	grill beef shortplate glazed bumbu bakar parape, sambal matah, garlic kemangi rice			31 K
+CRAVE CORNER	GRILL SEAFOOD PLATTER PANTURA	prawn, smoked fish parape, grill squid, nasi kemangi & sambal matah			31 K
+CRAVE CORNER	AYAM BUMBU IRENG	chicken marinated, bumbu ireng, sambal tomat, serundeng	31 K	33 K	
+CRAVE CORNER	AYAM BAKAR SAMBAL DABU-DABU	chicken marinated, sambal dabu-dabu, fresh lalapan	26 K	28 K	
+CRAVE CORNER	AYAM GORENG REMPAH KREMES	chicken marinated, sambal bawang, fresh lalapan	23 K	25 K	
 
 
 

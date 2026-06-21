@@ -5,10 +5,12 @@ $pg       = $pg ?? ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' =
 $summary  = (array)($summary ?? []);
 $accountBreakdown = (array)($account_breakdown ?? []);
 $scope    = (string)($scope ?? 'all');
+$filterMutationType = strtoupper((string)($filter_mutation_type ?? 'ALL'));
 
-$buildQuery = static function ($overrides = []) use ($filter_account_id, $date_from, $date_to, $pg, $scope): string {
+$buildQuery = static function ($overrides = []) use ($filter_account_id, $date_from, $date_to, $pg, $scope, $filterMutationType): string {
     $base = [
         'scope'      => $scope,
+        'mutation_type' => $filterMutationType,
         'account_id' => $filter_account_id ?? '',
         'date_from'  => $date_from ?? '',
         'date_to'    => $date_to ?? '',
@@ -471,6 +473,14 @@ $scopeTabs = [
       <div class="card-body py-2 px-3">
         <form method="get" action="<?php echo $baseUrl; ?>" class="row g-2 align-items-end">
           <input type="hidden" name="scope" value="<?php echo html_escape($scope); ?>">
+          <div class="col-md-2 col-lg-2">
+            <label class="form-label mb-1">Jenis</label>
+            <select name="mutation_type" class="form-select form-select-sm">
+              <option value="ALL" <?php echo $filterMutationType === 'ALL' ? 'selected' : ''; ?>>Semua</option>
+              <option value="IN" <?php echo $filterMutationType === 'IN' ? 'selected' : ''; ?>>IN</option>
+              <option value="OUT" <?php echo $filterMutationType === 'OUT' ? 'selected' : ''; ?>>OUT</option>
+            </select>
+          </div>
           <div class="col-md-4 col-lg-3">
             <label class="form-label mb-1">Rekening</label>
             <select name="account_id" class="form-select form-select-sm">

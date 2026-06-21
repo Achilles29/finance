@@ -108,4 +108,14 @@ nah seharusnya ada guarding adjustmen di ke 4 halaman itu, jika adjustmen dari m
 lakukan penyesuaian jika analisaku benar. bantah jika tidak tepat
 
 
-/inventory/stock/division/reconcile produk yang tidak ada stock tapi ada lot aktif tetap tampil
+sekarang halaman /inventory/stock/division/reconcile produk yang tidak ada stock tapi ada lot aktif, tetap dimunculkan dengan stock 0 dan lot ada. sehingga dapat dilakukan adj lot
+nah sekarang jadi kelihatan dan lebih lebar lagi missmatchnya. ini penting karena miss lot ini juga harus di repair.
+perbaiki:
+- kolom pencarian belum berfungsi
+- button "repair lot semua" seharusnya juga langsung me repair lot yang aktif tapi stok nya 0
+
+
+sekarang pindah ke component. apakah 4 halamana adjustmen component /production/component-daily-recon, /production/component-daily, /production/component-reconcile, dan /production/component-adjustments juga ketika stok minus kemudian di adjustmen menjadi 0 atau lebih dari 0, lot nya juga ikut naik sejumlah kenaikan stock sehingga ada perbedaan antara stock dan lot?
+Periksa, kalau iya maka lakukan penyesuaian seperti bahan baku, guarding adjustmen di ke 4 halaman itu, jika adjustmen dari minus, maka menyesuaikan kenaikan mulai dari 0 saja.
+
+lalu di /production/component-reconcile component yang tidak ada stock tapi ada lot aktif, tetap dimunculkan dengan stock 0 dan lot ada. sehingga dapat dilakukan adj lot. buatkan repair lot per child dan repair lot semmua untuk kasus serupa

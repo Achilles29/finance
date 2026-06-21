@@ -518,6 +518,10 @@ class Purchase extends MY_Controller
         if (!in_array($scope, ['all', 'manual'], true)) {
             $scope = 'all';
         }
+        $mutationType = strtoupper(trim((string)$this->input->get('mutation_type', true)));
+        if (!in_array($mutationType, ['ALL', 'IN', 'OUT'], true)) {
+            $mutationType = 'ALL';
+        }
         $dateFromRaw = trim((string)$this->input->get('date_from', true));
         $dateToRaw = trim((string)$this->input->get('date_to', true));
         $range = $this->resolveDateRange('', $dateFromRaw, $dateToRaw);
@@ -526,19 +530,20 @@ class Purchase extends MY_Controller
 
         $perPage = $this->mutation_per_page();
         $page = max(1, (int)$this->input->get('page', true));
-        $totalRows = $this->Purchase_model->count_account_mutations($accountId, $dateFrom, $dateTo, $scope);
+        $totalRows = $this->Purchase_model->count_account_mutations($accountId, $dateFrom, $dateTo, $scope, $mutationType);
         $pg = $this->build_pagination($totalRows, $perPage, $page);
 
         $data = [
             'title' => 'Mutasi Keuangan Rekening',
             'active_menu' => 'finance.mutation',
             'accounts' => $this->Purchase_model->list_active_company_accounts(),
-            'summary' => $this->Purchase_model->get_account_mutation_summary($accountId, $dateFrom, $dateTo, $scope),
-            'account_breakdown' => $this->Purchase_model->get_account_mutation_per_account_breakdown($dateFrom, $dateTo, $scope),
-            'rows' => $this->Purchase_model->list_account_mutations($accountId, $dateFrom, $dateTo, $pg['per_page'], $pg['offset'], $scope),
+            'summary' => $this->Purchase_model->get_account_mutation_summary($accountId, $dateFrom, $dateTo, $scope, $mutationType),
+            'account_breakdown' => $this->Purchase_model->get_account_mutation_per_account_breakdown($dateFrom, $dateTo, $scope, $mutationType),
+            'rows' => $this->Purchase_model->list_account_mutations($accountId, $dateFrom, $dateTo, $pg['per_page'], $pg['offset'], $scope, $mutationType),
             'pg' => $pg,
             'filter_account_id' => $accountId,
             'scope' => $scope,
+            'filter_mutation_type' => $mutationType,
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
             'month' => $range['month'],

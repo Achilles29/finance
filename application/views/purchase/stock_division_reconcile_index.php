@@ -30,7 +30,10 @@ $mismatchOnly = !empty($_GET['mismatch_only']);
 
 // ── Filter zero-balance rows ──────────────────────────────────────────────────
 $rows = array_values(array_filter($allRows, static function (array $row) use ($mismatchOnly): bool {
-    if (abs(round((float)($row['balance_qty_content'] ?? 0), 2)) < 0.01) return false;
+    $balQty = abs(round((float)($row['balance_qty_content'] ?? 0), 2));
+    $lotQty = round((float)($row['lot_qty_content'] ?? 0), 2);
+    // Skip only when BOTH stock balance AND FIFO lot total are zero.
+    if ($balQty < 0.01 && $lotQty < 0.01) return false;
     if ($mismatchOnly && !empty($row['is_match'])) return false;
     return true;
 }));
@@ -473,7 +476,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
       </thead>
       <tbody>
         <?php if (empty($pagedRows)): ?>
-          <tr><td colspan="9" class="text-center text-muted py-4 small">Tidak ada baris aktif untuk filter ini. Row dengan stok akhir 0 disembunyikan agar fokus audit tetap ke stok aktif dan minus.</td></tr>
+          <tr><td colspan="9" class="text-center text-muted py-4 small">Tidak ada baris untuk filter ini.</td></tr>
         <?php else: ?>
           <?php $shownBreakdownKeys = []; ?>
           <?php foreach ($pagedRows as $row): ?>
