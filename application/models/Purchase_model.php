@@ -357,7 +357,7 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
-    public function list_account_mutations(int $accountId, string $dateFrom, string $dateTo, int $limit, int $offset = 0): array
+    public function list_account_mutations(int $accountId, string $dateFrom, string $dateTo, int $limit, int $offset = 0, string $scope = 'all'): array
     {
         if (!$this->db->table_exists('fin_account_mutation_log')) {
             return [];
@@ -372,6 +372,7 @@ class Purchase_model extends CI_Model
             ->join('pos_payment_line ppl', "ppl.id = m.ref_id AND m.ref_table = 'pos_payment_line'", 'left', false);
 
         $this->applyAccountMutationDateFilters('m', $accountId, $dateFrom, $dateTo);
+        $this->applyAccountMutationScopeFilter('m', $scope);
 
         return $this->db
             ->order_by('m.mutation_date', 'DESC')
@@ -381,7 +382,7 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
-    public function count_account_mutations(int $accountId, string $dateFrom, string $dateTo): int
+    public function count_account_mutations(int $accountId, string $dateFrom, string $dateTo, string $scope = 'all'): int
     {
         if (!$this->db->table_exists('fin_account_mutation_log')) {
             return 0;
@@ -391,6 +392,7 @@ class Purchase_model extends CI_Model
             ->from('fin_account_mutation_log m');
 
         $this->applyAccountMutationDateFilters('m', $accountId, $dateFrom, $dateTo);
+        $this->applyAccountMutationScopeFilter('m', $scope);
 
         $row = $this->db
             ->select('COUNT(*) AS total_rows', false)
@@ -416,7 +418,16 @@ class Purchase_model extends CI_Model
         }
     }
 
-    public function get_account_mutation_summary(int $accountId, string $dateFrom, string $dateTo): array
+    private function applyAccountMutationScopeFilter(string $alias, string $scope): void
+    {
+        $scope = strtolower(trim($scope));
+        $fieldPrefix = $alias !== '' ? ($alias . '.') : '';
+        if ($scope === 'manual') {
+            $this->db->where_in($fieldPrefix . 'ref_module', ['FINANCE', 'FINANCE_TRANSFER']);
+        }
+    }
+
+    public function get_account_mutation_summary(int $accountId, string $dateFrom, string $dateTo, string $scope = 'all'): array
     {
         $summary = [
             'in_total' => 0.0,
@@ -447,6 +458,8 @@ class Purchase_model extends CI_Model
             $this->db->where('mutation_date <=', $to);
         }
 
+        $this->applyAccountMutationScopeFilter('', $scope);
+
         $row = $this->db->get()->row_array();
         if (!$row) {
             return $summary;
@@ -459,7 +472,7 @@ class Purchase_model extends CI_Model
         return $summary;
     }
 
-    public function get_account_mutation_per_account_breakdown(string $dateFrom, string $dateTo): array
+    public function get_account_mutation_per_account_breakdown(string $dateFrom, string $dateTo, string $scope = 'all'): array
     {
         if (!$this->db->table_exists('fin_account_mutation_log') || !$this->db->table_exists('fin_company_account')) {
             return [];
@@ -474,6 +487,9 @@ class Purchase_model extends CI_Model
         }
         if ($to !== null) {
             $whereParts[] = "mutation_date <= " . $this->db->escape($to);
+        }
+        if (strtolower(trim($scope)) === 'manual') {
+            $whereParts[] = "ref_module IN ('FINANCE','FINANCE_TRANSFER')";
         }
         $subWhere = implode(' AND ', $whereParts);
         $mSub = "(SELECT account_id, mutation_type, amount FROM fin_account_mutation_log WHERE $subWhere)";

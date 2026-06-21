@@ -2,16 +2,13 @@
 $menu_sections = [
     [
         'title' => 'Dim Sum',
-        'eyebrow' => 'Steam / Mentai / Mozzarella',
-        'spotlights' => [
-            [
-                'label' => 'Chef Pick',
-                'title' => 'Dimsum Mentai',
-                'price' => '28K',
-                'desc' => 'Dimsum fill, kulit pangsit, red ginger pickled, sauce mentai with nori.',
-                'image' => 'assets/menu-book/products/foods/bites-of-joy/dimsum-mentai.png',
-            ],
-        ],
+        'eyebrow' => 'Steam craft / Mentai / Mozzarella',
+        'tag' => 'Soft, juicy, sauce-forward',
+        'hero_label' => 'Asian Steam Signature',
+        'hero_title' => 'Dimsum Mentai',
+        'hero_price' => '28K',
+        'hero_desc' => 'Creamy mentai finish with nori on top, placed as the strongest dim sum statement on this page.',
+        'hero_image' => 'assets/menu-book/products/foods/bites-of-joy/dimsum.png',
         'items' => [
             ['name' => 'Dim Sum', 'price' => '19K', 'desc' => 'Chinese steam wonton fill chicken inside, sauce Bangkok.'],
             ['name' => 'Dimsum Mozarella Cheese', 'price' => '21K', 'desc' => 'Dimsum fill kulit lumpia, red onion pickle, leek, mozzarella.'],
@@ -21,15 +18,12 @@ $menu_sections = [
     [
         'title' => 'Crispy Bites',
         'eyebrow' => 'Platters / Fries / Tofu / Crunch',
-        'spotlights' => [
-            ['label' => 'Best Seller', 'title' => 'Mix Platter Namua', 'price' => '35K', 'image' => 'assets/menu-book/products/foods/bites-of-joy/mix-platter-namua.png'],
-            ['label' => 'Best Seller', 'title' => 'Tahu Cabe Garam', 'price' => '18K', 'image' => 'assets/menu-book/products/foods/bites-of-joy/tahu-cabe-garam.png'],
-            ['label' => 'Best Seller', 'title' => 'Mendoan Magnolia', 'price' => '18K', 'image' => 'assets/menu-book/products/foods/bites-of-joy/mendoan-magnolia.png'],
-            ['label' => 'Best Seller', 'title' => 'Fried Tofu With Chicken Inside', 'price' => '18K', 'image' => 'assets/menu-book/products/foods/bites-of-joy/fried-tofu-with-chicken-inside.png'],
-            ['label' => 'Best Seller', 'title' => 'Chikuwa Cheese', 'price' => '26K', 'image' => 'assets/menu-book/products/foods/bites-of-joy/chikuwa-cheese.png'],
-            ['label' => 'Best Seller', 'title' => 'French Fries Bolognese', 'price' => '25K', 'image' => 'assets/menu-book/products/foods/bites-of-joy/french-fries-bolognese.png'],
-            ['label' => 'Best Seller', 'title' => 'Wonton Nachos', 'price' => '18K', 'image' => 'assets/menu-book/products/foods/bites-of-joy/wonton-nachos.png'],
-        ],
+        'tag' => 'Big energy, shareable plates',
+        'hero_label' => 'Best Seller Focus',
+        'hero_title' => 'Mix Platter Namua',
+        'hero_price' => '35K',
+        'hero_desc' => 'A loud, crunchy centrepiece for the page: fries, onion ring, enoki, cireng and crispy bites in one plate.',
+        'hero_image' => 'assets/menu-book/products/foods/bites-of-joy/crispy-bites.png',
         'items' => [
             ['name' => 'Mix Platter Namua', 'price' => '35K', 'desc' => 'Chicken skin, french fries, cireng, enoky, onion ring with tar-tar mayo & hot volcano mayo.', 'badge' => 'Best Seller'],
             ['name' => 'Duo Platter', 'price' => '18K', 'desc' => 'Crispy chicken leg, onion ring with seaweed powder & tar-tar mayo.'],
@@ -47,10 +41,12 @@ $menu_sections = [
     [
         'title' => 'Sweet Treats',
         'eyebrow' => 'Banana / Toast / Chocolate / Cheese',
-        'spotlights' => [
-            ['label' => 'Spotlight', 'title' => 'Pikameel', 'price' => '15K', 'image' => 'assets/menu-book/products/foods/bites-of-joy/pikameel.png'],
-            ['label' => 'Spotlight', 'title' => 'Roti Bakar Coklat', 'price' => '16K', 'image' => 'assets/menu-book/products/foods/bites-of-joy/roti-bakar-coklat.png'],
-        ],
+        'tag' => 'Warm finish, caramel comfort',
+        'hero_label' => 'Dessert Spotlight',
+        'hero_title' => 'Pikameel & Toast Pairing',
+        'hero_price' => '15K - 18K',
+        'hero_desc' => 'Sweet side of the page with toasted chocolate, cheese and banana-based comfort bites.',
+        'hero_image' => 'assets/menu-book/products/foods/bites-of-joy/sweet-treats.png',
         'items' => [
             ['name' => 'Pinokio', 'price' => '22K', 'desc' => 'Banana spring roll with Nutella sauce on side dish.'],
             ['name' => 'Pikameel', 'price' => '15K', 'desc' => 'Banana crumbling bread crumb with caramel.', 'badge' => 'Highlight'],
@@ -60,14 +56,6 @@ $menu_sections = [
         ],
     ],
 ];
-
-$resolve_image = static function ($relativePath) {
-    $absolute = FCPATH . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relativePath);
-    if (is_file($absolute)) {
-        return base_url($relativePath);
-    }
-    return null;
-};
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -92,7 +80,7 @@ $resolve_image = static function ($relativePath) {
 }
 
 html, body {
-    background: #21140d;
+    background: #1f130d;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
     text-rendering: geometricPrecision;
@@ -100,7 +88,7 @@ html, body {
 
 body {
     font-family: 'Jost', Arial, sans-serif;
-    color: #4a2f23;
+    color: #4f3422;
 }
 
 .menu-page {
@@ -109,12 +97,12 @@ body {
     margin: 0 auto;
     position: relative;
     overflow: hidden;
-    padding: 8mm;
+    padding: 7mm 8mm 7.5mm;
     background:
-        radial-gradient(circle at 16% 8%, rgba(222,180,90,.18), transparent 26%),
-        radial-gradient(circle at 82% 16%, rgba(168,35,44,.07), transparent 24%),
-        radial-gradient(circle at 78% 86%, rgba(201,162,78,.12), transparent 28%),
-        linear-gradient(135deg, rgba(255,251,243,.98), rgba(244,233,216,.98)),
+        radial-gradient(circle at 18% 9%, rgba(222,180,90,.18), transparent 28%),
+        radial-gradient(circle at 82% 18%, rgba(168,35,44,.08), transparent 24%),
+        radial-gradient(circle at 76% 84%, rgba(201,162,78,.14), transparent 28%),
+        linear-gradient(135deg, rgba(255,251,243,.99), rgba(244,232,214,.99)),
         url('<?= base_url('assets/menu-book/backgrounds/bg-bites.png') ?>') center / cover no-repeat,
         #f7efe1;
     box-shadow:
@@ -143,8 +131,8 @@ body {
     z-index: 2;
     height: 100%;
     display: grid;
-    grid-template-rows: 22mm 1fr 6.5mm;
-    gap: 2.8mm;
+    grid-template-rows: 24mm 1fr 7mm;
+    gap: 2.4mm;
 }
 
 .header {
@@ -152,7 +140,7 @@ body {
     grid-template-columns: 22mm 1fr 22mm;
     align-items: center;
     border-bottom: 1px solid rgba(201,162,78,.55);
-    padding-bottom: 2.4mm;
+    padding-bottom: 2.2mm;
     position: relative;
 }
 
@@ -193,17 +181,17 @@ body {
 .title-area .script {
     display: block;
     font-family: 'Pinyon Script', cursive;
-    font-size: 24px;
-    line-height: .7;
+    font-size: 25px;
+    line-height: .72;
     color: #C9A24E;
     margin-bottom: -1.1mm;
 }
 
 .title-area h1 {
     font-family: 'Playfair Display', Georgia, serif;
-    font-size: 35px;
+    font-size: 37px;
     line-height: .9;
-    letter-spacing: 2.3px;
+    letter-spacing: 2.2px;
     color: #A8232C;
     text-transform: uppercase;
     font-weight: 800;
@@ -213,7 +201,7 @@ body {
 .title-area p {
     margin-top: 1.2mm;
     font-family: 'Playfair Display', Georgia, serif;
-    font-size: 10.8px;
+    font-size: 11.6px;
     font-style: italic;
     color: #6A4E3A;
 }
@@ -221,8 +209,8 @@ body {
 .content {
     min-height: 0;
     display: grid;
-    grid-template-rows: 47mm 1fr 44mm;
-    gap: 3mm;
+    grid-template-rows: 62mm 102mm 76mm;
+    gap: 2.7mm;
 }
 
 .section {
@@ -237,12 +225,12 @@ body {
     justify-content: space-between;
     align-items: end;
     border-bottom: 1px solid rgba(201,162,78,.58);
-    padding-bottom: .8mm;
+    padding-bottom: .9mm;
 }
 
 .section-head h2 {
     font-family: 'Playfair Display', Georgia, serif;
-    font-size: 16px;
+    font-size: 17px;
     color: #A8232C;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -251,178 +239,160 @@ body {
 }
 
 .section-head span {
-    font-size: 6.7px;
-    letter-spacing: 1.2px;
+    font-size: 7.1px;
+    letter-spacing: 1.25px;
     color: #B68C39;
     text-transform: uppercase;
     font-weight: 800;
-    padding: .8mm 2.1mm .7mm;
+    padding: .85mm 2.2mm .72mm;
     border-radius: 999px;
     background: rgba(255,248,233,.92);
     border: 1px solid rgba(201,162,78,.34);
 }
 
-.section-card {
+.section-shell {
     min-height: 0;
-    border-radius: 4mm;
+    border-radius: 4.4mm;
     border: 1px solid rgba(201,162,78,.56);
-    background:
-        linear-gradient(145deg, rgba(255,252,246,.98), rgba(244,229,196,.95));
+    background: linear-gradient(145deg, rgba(255,252,246,.98), rgba(244,229,196,.95));
     box-shadow:
-        0 10px 22px rgba(70,40,25,.12),
+        0 12px 24px rgba(70,40,25,.12),
         inset 0 0 0 1px rgba(255,255,255,.34);
-    padding: 2.6mm 2.8mm;
+    overflow: hidden;
+}
+
+.feature-grid {
     display: grid;
-    gap: 2.1mm;
+    height: 100%;
 }
 
-.dimsum-card {
-    grid-template-columns: 49mm 1fr;
+.feature-grid.top {
+    grid-template-columns: 58% 42%;
 }
 
-.crispy-card {
-    grid-template-rows: auto 1fr;
+.feature-grid.middle {
+    grid-template-columns: 46% 54%;
 }
 
-.sweet-card {
-    grid-template-columns: 58mm 1fr;
+.feature-grid.bottom {
+    grid-template-columns: 42% 58%;
 }
 
-.spotlight-stack,
-.spotlight-strip,
-.sweet-spotlights {
-    min-height: 0;
-}
-
-.spotlight-stack {
-    display: grid;
-}
-
-.spotlight-strip {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1.8mm;
-}
-
-.sweet-spotlights {
-    display: grid;
-    grid-template-rows: 1fr 1fr;
-    gap: 1.8mm;
-}
-
-.spotlight {
+.hero-photo {
     position: relative;
     overflow: hidden;
-    border-radius: 3.2mm;
-    min-height: 0;
-    border: 1px solid rgba(201,162,78,.52);
-    box-shadow:
-        0 8px 18px rgba(70,40,25,.12),
-        inset 0 0 0 1px rgba(255,255,255,.25);
-    background:
-        radial-gradient(circle at 18% 18%, rgba(255,255,255,.70), transparent 28%),
-        linear-gradient(145deg, #f7e6c0, #e4bd73 58%, #bf7e31);
 }
 
-.spotlight.has-image img {
+.hero-photo img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
-    filter: saturate(1.05) contrast(1.03);
+    filter: saturate(1.04) contrast(1.02);
 }
 
-.spotlight::after {
+.hero-photo::after {
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(to top, rgba(35,20,10,.92), rgba(35,20,10,.42) 42%, transparent 74%);
+    background:
+        linear-gradient(to top, rgba(35,20,10,.76), rgba(35,20,10,.08) 42%, transparent 70%),
+        linear-gradient(to right, rgba(255,248,236,.10), transparent 30%);
 }
 
-.spotlight.no-image::before {
-    content: attr(data-watermark);
-    position: absolute;
-    right: -1mm;
-    top: 2mm;
-    font-family: 'Playfair Display', Georgia, serif;
-    font-size: 16px;
-    line-height: .86;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: rgba(255,247,232,.18);
-    text-align: right;
-    width: 70%;
-    z-index: 1;
-}
-
-.spotlight-body {
+.hero-caption {
     position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 2;
-    padding: 8.5mm 2.5mm 2.3mm;
-    color: #fff;
+    padding: 12mm 4.2mm 3.3mm;
+    color: #fff7ea;
 }
 
-.spotlight-body small {
+.hero-caption small {
     display: block;
     color: #F1D28A;
-    font-size: 4.8px;
-    letter-spacing: 1.1px;
+    font-size: 5.5px;
+    letter-spacing: 1.25px;
     text-transform: uppercase;
     font-weight: 900;
-    margin-bottom: .55mm;
+    margin-bottom: .7mm;
 }
 
-.spotlight-body h3 {
+.hero-caption h3 {
     font-family: 'Playfair Display', Georgia, serif;
-    font-size: 9.4px;
-    line-height: .98;
+    font-size: 14px;
+    line-height: .95;
     text-transform: uppercase;
     color: #fff;
 }
 
-.spotlight-body p {
-    margin-top: .75mm;
-    font-size: 5.2px;
-    line-height: 1.18;
-    color: rgba(255,245,233,.88);
-}
-
-.spotlight-body b {
+.hero-caption b {
     display: block;
-    margin-top: .75mm;
+    margin-top: .9mm;
     font-family: 'Playfair Display', Georgia, serif;
-    font-size: 11.8px;
+    font-size: 14px;
     color: #F1D28A;
     font-weight: 900;
 }
 
-.list-panel {
+.feature-copy {
     min-height: 0;
-    border-radius: 3.2mm;
-    background: rgba(255,250,241,.72);
-    border: 1px solid rgba(201,162,78,.34);
-    padding: 2.3mm 2.4mm;
+    padding: 3.5mm 3.6mm;
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    gap: 2.15mm;
+    background:
+        linear-gradient(180deg, rgba(255,251,243,.92), rgba(244,228,196,.82)),
+        radial-gradient(circle at top right, rgba(255,255,255,.35), transparent 30%);
+}
+
+.section-tag {
+    width: fit-content;
+    padding: 2.1px 8px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #e6ca87, #c89b43);
+    color: #2b170b;
+    font-size: 5.3px;
+    letter-spacing: .95px;
+    font-weight: 900;
+    text-transform: uppercase;
+    box-shadow: 0 3px 8px rgba(169,116,39,.18);
+}
+
+.feature-copy h4 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 15px;
+    line-height: .96;
+    text-transform: uppercase;
+    color: #A8232C;
+    font-weight: 800;
+}
+
+.feature-copy p.lead {
+    font-size: 6.5px;
+    line-height: 1.34;
+    color: #6A4E3A;
 }
 
 .menu-list {
     display: grid;
-    gap: 1.15mm;
+    gap: 1.4mm;
+    align-content: start;
 }
 
 .menu-list.two-col {
     grid-template-columns: 1fr 1fr;
-    column-gap: 3.1mm;
-    row-gap: 1.15mm;
+    column-gap: 3.4mm;
+    row-gap: 1.35mm;
 }
 
 .menu-row {
     display: grid;
-    grid-template-columns: 1fr 13.5mm;
+    grid-template-columns: 1fr 13.8mm;
     gap: 1.7mm;
-    padding-bottom: 1mm;
+    padding-bottom: 1.15mm;
     border-bottom: 1px dotted rgba(106,78,58,.28);
 }
 
@@ -431,26 +401,26 @@ body {
     padding-bottom: 0;
 }
 
-.menu-row h3 {
+.menu-row h5 {
     font-family: 'Playfair Display', Georgia, serif;
-    font-size: 8.8px;
+    font-size: 9.6px;
     line-height: 1.02;
     color: #A8232C;
     text-transform: uppercase;
     font-weight: 800;
-    margin-bottom: .45mm;
+    margin-bottom: .42mm;
 }
 
 .menu-row p {
-    font-size: 5.4px;
-    line-height: 1.18;
+    font-size: 5.9px;
+    line-height: 1.24;
     color: #6A4E3A;
 }
 
 .menu-row b {
     text-align: right;
     font-family: 'Playfair Display', Georgia, serif;
-    font-size: 12px;
+    font-size: 12.8px;
     color: #A8232C;
     font-weight: 900;
     align-self: start;
@@ -458,42 +428,17 @@ body {
 
 .badge {
     display: inline-block;
-    margin-left: 1.1mm;
-    padding: 1.2px 5px;
-    border-radius: 99px;
-    background: linear-gradient(135deg, #e6ca87, #c89b43);
+    margin-left: 1.05mm;
+    padding: 1.1px 5px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #f0d58c, #d29a42);
     color: #2b170b;
-    font-size: 4.6px;
+    font-size: 4.8px;
     letter-spacing: .75px;
     font-family: 'Jost', Arial, sans-serif;
     font-weight: 900;
     text-transform: uppercase;
     vertical-align: middle;
-    box-shadow: 0 3px 8px rgba(169,116,39,.18);
-}
-
-.crispy-note {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 2mm;
-    padding: 0 .4mm;
-}
-
-.crispy-note strong {
-    font-family: 'Playfair Display', Georgia, serif;
-    font-size: 10.2px;
-    color: #A8232C;
-    text-transform: uppercase;
-    letter-spacing: .8px;
-}
-
-.crispy-note span {
-    font-size: 6px;
-    color: #9a7440;
-    text-transform: uppercase;
-    letter-spacing: 1.2px;
-    font-weight: 800;
 }
 
 .footer {
@@ -502,7 +447,7 @@ body {
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
     padding-top: 1.2mm;
-    font-size: 6.2px;
+    font-size: 6.5px;
     letter-spacing: 1.7px;
     color: #8B6A32;
     text-transform: uppercase;
@@ -528,7 +473,6 @@ body {
 </head>
 
 <body>
-
 <section class="menu-page">
 <div class="page-inner">
 
@@ -547,44 +491,39 @@ body {
 </header>
 
 <main class="content">
-
     <section class="section">
         <div class="section-head">
             <h2><?= html_escape($menu_sections[0]['title']) ?></h2>
             <span><?= html_escape($menu_sections[0]['eyebrow']) ?></span>
         </div>
-
-        <div class="section-card dimsum-card">
-            <div class="spotlight-stack">
-                <?php $dimsum = $menu_sections[0]['spotlights'][0]; ?>
-                <?php $dimsumImage = $resolve_image($dimsum['image']); ?>
-                <article class="spotlight<?= $dimsumImage ? ' has-image' : ' no-image' ?>" data-watermark="<?= html_escape($dimsum['title']) ?>">
-                    <?php if ($dimsumImage): ?>
-                        <img src="<?= $dimsumImage ?>" alt="<?= html_escape($dimsum['title']) ?>">
-                    <?php endif; ?>
-                    <div class="spotlight-body">
-                        <small><?= html_escape($dimsum['label']) ?></small>
-                        <h3><?= html_escape($dimsum['title']) ?></h3>
-                        <p><?= html_escape($dimsum['desc']) ?></p>
-                        <b><?= html_escape($dimsum['price']) ?></b>
+        <div class="section-shell">
+            <div class="feature-grid top">
+                <div class="hero-photo">
+                    <img src="<?= base_url($menu_sections[0]['hero_image']) ?>" alt="<?= html_escape($menu_sections[0]['hero_title']) ?>">
+                    <div class="hero-caption">
+                        <small><?= html_escape($menu_sections[0]['hero_label']) ?></small>
+                        <h3><?= html_escape($menu_sections[0]['hero_title']) ?></h3>
+                        <b><?= html_escape($menu_sections[0]['hero_price']) ?></b>
                     </div>
-                </article>
-            </div>
-
-            <div class="list-panel">
-                <div class="menu-list">
-                    <?php foreach ($menu_sections[0]['items'] as $item): ?>
-                        <div class="menu-row">
-                            <div>
-                                <h3>
-                                    <?= html_escape($item['name']) ?>
-                                    <?php if (!empty($item['badge'])): ?><span class="badge"><?= html_escape($item['badge']) ?></span><?php endif; ?>
-                                </h3>
-                                <p><?= html_escape($item['desc']) ?></p>
+                </div>
+                <div class="feature-copy">
+                    <span class="section-tag"><?= html_escape($menu_sections[0]['tag']) ?></span>
+                    <h4><?= html_escape($menu_sections[0]['hero_title']) ?></h4>
+                    <p class="lead"><?= html_escape($menu_sections[0]['hero_desc']) ?></p>
+                    <div class="menu-list">
+                        <?php foreach ($menu_sections[0]['items'] as $item): ?>
+                            <div class="menu-row">
+                                <div>
+                                    <h5>
+                                        <?= html_escape($item['name']) ?>
+                                        <?php if (!empty($item['badge'])): ?><span class="badge"><?= html_escape($item['badge']) ?></span><?php endif; ?>
+                                    </h5>
+                                    <p><?= html_escape($item['desc']) ?></p>
+                                </div>
+                                <b><?= html_escape($item['price']) ?></b>
                             </div>
-                            <b><?= html_escape($item['price']) ?></b>
-                        </div>
-                    <?php endforeach; ?>
+                        <?php endforeach; ?>
+                    </div>
                 </div>
             </div>
         </div>
@@ -595,42 +534,34 @@ body {
             <h2><?= html_escape($menu_sections[1]['title']) ?></h2>
             <span><?= html_escape($menu_sections[1]['eyebrow']) ?></span>
         </div>
-
-        <div class="section-card crispy-card">
-            <div class="spotlight-strip">
-                <?php foreach (array_slice($menu_sections[1]['spotlights'], 0, 4) as $card): ?>
-                    <?php $cardImage = $resolve_image($card['image']); ?>
-                    <article class="spotlight<?= $cardImage ? ' has-image' : ' no-image' ?>" data-watermark="<?= html_escape($card['title']) ?>">
-                        <?php if ($cardImage): ?>
-                            <img src="<?= $cardImage ?>" alt="<?= html_escape($card['title']) ?>">
-                        <?php endif; ?>
-                        <div class="spotlight-body">
-                            <small><?= html_escape($card['label']) ?></small>
-                            <h3><?= html_escape($card['title']) ?></h3>
-                            <b><?= html_escape($card['price']) ?></b>
-                        </div>
-                    </article>
-                <?php endforeach; ?>
-            </div>
-
-            <div class="list-panel">
-                <div class="crispy-note">
-                    <strong>Best Sellers &amp; Crispy Picks</strong>
-                    <span>Highlights tetap tampil meski foto belum diunggah</span>
-                </div>
-                <div class="menu-list two-col" style="margin-top: 1.7mm;">
-                    <?php foreach ($menu_sections[1]['items'] as $item): ?>
-                        <div class="menu-row">
-                            <div>
-                                <h3>
-                                    <?= html_escape($item['name']) ?>
-                                    <?php if (!empty($item['badge'])): ?><span class="badge"><?= html_escape($item['badge']) ?></span><?php endif; ?>
-                                </h3>
-                                <p><?= html_escape($item['desc']) ?></p>
+        <div class="section-shell">
+            <div class="feature-grid middle">
+                <div class="feature-copy">
+                    <span class="section-tag"><?= html_escape($menu_sections[1]['tag']) ?></span>
+                    <h4><?= html_escape($menu_sections[1]['hero_title']) ?></h4>
+                    <p class="lead"><?= html_escape($menu_sections[1]['hero_desc']) ?></p>
+                    <div class="menu-list two-col">
+                        <?php foreach ($menu_sections[1]['items'] as $item): ?>
+                            <div class="menu-row">
+                                <div>
+                                    <h5>
+                                        <?= html_escape($item['name']) ?>
+                                        <?php if (!empty($item['badge'])): ?><span class="badge"><?= html_escape($item['badge']) ?></span><?php endif; ?>
+                                    </h5>
+                                    <p><?= html_escape($item['desc']) ?></p>
+                                </div>
+                                <b><?= html_escape($item['price']) ?></b>
                             </div>
-                            <b><?= html_escape($item['price']) ?></b>
-                        </div>
-                    <?php endforeach; ?>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <div class="hero-photo">
+                    <img src="<?= base_url($menu_sections[1]['hero_image']) ?>" alt="<?= html_escape($menu_sections[1]['hero_title']) ?>">
+                    <div class="hero-caption">
+                        <small><?= html_escape($menu_sections[1]['hero_label']) ?></small>
+                        <h3><?= html_escape($menu_sections[1]['hero_title']) ?></h3>
+                        <b><?= html_escape($menu_sections[1]['hero_price']) ?></b>
+                    </div>
                 </div>
             </div>
         </div>
@@ -641,43 +572,38 @@ body {
             <h2><?= html_escape($menu_sections[2]['title']) ?></h2>
             <span><?= html_escape($menu_sections[2]['eyebrow']) ?></span>
         </div>
-
-        <div class="section-card sweet-card">
-            <div class="sweet-spotlights">
-                <?php foreach ($menu_sections[2]['spotlights'] as $card): ?>
-                    <?php $cardImage = $resolve_image($card['image']); ?>
-                    <article class="spotlight<?= $cardImage ? ' has-image' : ' no-image' ?>" data-watermark="<?= html_escape($card['title']) ?>">
-                        <?php if ($cardImage): ?>
-                            <img src="<?= $cardImage ?>" alt="<?= html_escape($card['title']) ?>">
-                        <?php endif; ?>
-                        <div class="spotlight-body">
-                            <small><?= html_escape($card['label']) ?></small>
-                            <h3><?= html_escape($card['title']) ?></h3>
-                            <b><?= html_escape($card['price']) ?></b>
-                        </div>
-                    </article>
-                <?php endforeach; ?>
-            </div>
-
-            <div class="list-panel">
-                <div class="menu-list two-col">
-                    <?php foreach ($menu_sections[2]['items'] as $item): ?>
-                        <div class="menu-row">
-                            <div>
-                                <h3>
-                                    <?= html_escape($item['name']) ?>
-                                    <?php if (!empty($item['badge'])): ?><span class="badge"><?= html_escape($item['badge']) ?></span><?php endif; ?>
-                                </h3>
-                                <?php if (!empty($item['desc'])): ?><p><?= html_escape($item['desc']) ?></p><?php endif; ?>
+        <div class="section-shell">
+            <div class="feature-grid bottom">
+                <div class="hero-photo">
+                    <img src="<?= base_url($menu_sections[2]['hero_image']) ?>" alt="<?= html_escape($menu_sections[2]['hero_title']) ?>">
+                    <div class="hero-caption">
+                        <small><?= html_escape($menu_sections[2]['hero_label']) ?></small>
+                        <h3><?= html_escape($menu_sections[2]['hero_title']) ?></h3>
+                        <b><?= html_escape($menu_sections[2]['hero_price']) ?></b>
+                    </div>
+                </div>
+                <div class="feature-copy">
+                    <span class="section-tag"><?= html_escape($menu_sections[2]['tag']) ?></span>
+                    <h4><?= html_escape($menu_sections[2]['hero_title']) ?></h4>
+                    <p class="lead"><?= html_escape($menu_sections[2]['hero_desc']) ?></p>
+                    <div class="menu-list two-col">
+                        <?php foreach ($menu_sections[2]['items'] as $item): ?>
+                            <div class="menu-row">
+                                <div>
+                                    <h5>
+                                        <?= html_escape($item['name']) ?>
+                                        <?php if (!empty($item['badge'])): ?><span class="badge"><?= html_escape($item['badge']) ?></span><?php endif; ?>
+                                    </h5>
+                                    <p><?= html_escape($item['desc']) ?></p>
+                                </div>
+                                <b><?= html_escape($item['price']) ?></b>
                             </div>
-                            <b><?= html_escape($item['price']) ?></b>
-                        </div>
-                    <?php endforeach; ?>
+                        <?php endforeach; ?>
+                    </div>
                 </div>
             </div>
         </div>
     </section>
-
 </main>
 
 <footer class="footer">
@@ -688,6 +614,5 @@ body {
 
 </div>
 </section>
-
 </body>
 </html>

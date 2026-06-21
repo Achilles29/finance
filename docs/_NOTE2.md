@@ -183,13 +183,6 @@ cek verifikasi self order sudah potong stok?
 
 =======================
 
-member , footer ikut ketarik ke atas ketika layar di scroll kebawah
-member . /order belum memberhatikan detail produk show in self order
-tambahkan modul pin produk unggulan di order
-
-modul redeem poin / voucher dan stamp
-
-
 
 extra!
 - Perbaiki input grup extra
@@ -199,7 +192,6 @@ extra!
 - extra yang bahan baku 
 
 
-pos/self-order/settings tambahkan metode pembayaran, untuk menghubungkan qris dan rekening. karena yang terseting sekarang salah masuk rekening.
 
 /pos/self-order/orders tolak transaksi. verifikasi ke draft (agar bisa di edit)
 belum clear
@@ -209,3 +201,5 @@ tambah extra oat
 
 cek dashboard stock habis harus sesuai sumber resep
 cek resep prepare
+
+/master/product/edit/ edit gambar tidak tersimpan. cek 

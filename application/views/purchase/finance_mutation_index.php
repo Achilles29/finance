@@ -4,9 +4,11 @@ $baseUrl  = site_url('finance/mutations');
 $pg       = $pg ?? ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
 $summary  = (array)($summary ?? []);
 $accountBreakdown = (array)($account_breakdown ?? []);
+$scope    = (string)($scope ?? 'all');
 
-$buildQuery = static function ($overrides = []) use ($filter_account_id, $date_from, $date_to, $pg): string {
+$buildQuery = static function ($overrides = []) use ($filter_account_id, $date_from, $date_to, $pg, $scope): string {
     $base = [
+        'scope'      => $scope,
         'account_id' => $filter_account_id ?? '',
         'date_from'  => $date_from ?? '',
         'date_to'    => $date_to ?? '',
@@ -87,6 +89,16 @@ $acctTypeMeta = static function (string $type): array {
 
 $netFlow     = (float)($summary['in_total'] ?? 0) - (float)($summary['out_total'] ?? 0);
 $totalBalance = array_sum(array_column($accountBreakdown, 'current_balance'));
+$scopeTabs = [
+    'all' => [
+        'label' => 'Semua',
+        'desc' => 'Semua mutasi rekening, manual dan hasil sistem.',
+    ],
+    'manual' => [
+        'label' => 'Mutasi Manual',
+        'desc' => 'Hanya mutasi yang diinput dari halaman ini: antar rekening, mutasi IN, dan mutasi OUT.',
+    ],
+];
 ?>
 
 <style>
@@ -329,6 +341,20 @@ $totalBalance = array_sum(array_column($accountBreakdown, 'current_balance'));
         &bull; Rekening: <strong><?php echo html_escape($acctName); ?></strong>
         <?php endif; ?>
       </div>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <?php foreach ($scopeTabs as $tabKey => $tabMeta): ?>
+          <?php $isActiveScope = $scope === $tabKey; ?>
+          <a
+            href="<?php echo site_url('finance/mutations?' . $buildQuery(['scope' => $tabKey, 'page' => 1])); ?>"
+            class="btn btn-sm <?php echo $isActiveScope ? 'btn-danger' : 'btn-outline-danger'; ?> fw-bold"
+          >
+            <?php echo html_escape($tabMeta['label']); ?>
+          </a>
+        <?php endforeach; ?>
+      </div>
+      <div class="mut-hero-sub mt-2">
+        <?php echo html_escape((string)($scopeTabs[$scope]['desc'] ?? '')); ?>
+      </div>
     </div>
     <div class="mut-hero-actions">
       <a href="<?php echo site_url('finance/accounts'); ?>" class="btn btn-sm btn-outline-secondary">
@@ -444,6 +470,7 @@ $totalBalance = array_sum(array_column($accountBreakdown, 'current_balance'));
     <div class="mut-filter-card card mb-3">
       <div class="card-body py-2 px-3">
         <form method="get" action="<?php echo $baseUrl; ?>" class="row g-2 align-items-end">
+          <input type="hidden" name="scope" value="<?php echo html_escape($scope); ?>">
           <div class="col-md-4 col-lg-3">
             <label class="form-label mb-1">Rekening</label>
             <select name="account_id" class="form-select form-select-sm">

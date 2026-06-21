@@ -514,6 +514,10 @@ class Purchase extends MY_Controller
         $this->require_permission(self::PAGE_ORDER, 'view');
 
         $accountId = (int)$this->input->get('account_id', true);
+        $scope = strtolower(trim((string)$this->input->get('scope', true)));
+        if (!in_array($scope, ['all', 'manual'], true)) {
+            $scope = 'all';
+        }
         $dateFromRaw = trim((string)$this->input->get('date_from', true));
         $dateToRaw = trim((string)$this->input->get('date_to', true));
         $range = $this->resolveDateRange('', $dateFromRaw, $dateToRaw);
@@ -522,18 +526,19 @@ class Purchase extends MY_Controller
 
         $perPage = $this->mutation_per_page();
         $page = max(1, (int)$this->input->get('page', true));
-        $totalRows = $this->Purchase_model->count_account_mutations($accountId, $dateFrom, $dateTo);
+        $totalRows = $this->Purchase_model->count_account_mutations($accountId, $dateFrom, $dateTo, $scope);
         $pg = $this->build_pagination($totalRows, $perPage, $page);
 
         $data = [
             'title' => 'Mutasi Keuangan Rekening',
             'active_menu' => 'finance.mutation',
             'accounts' => $this->Purchase_model->list_active_company_accounts(),
-            'summary' => $this->Purchase_model->get_account_mutation_summary($accountId, $dateFrom, $dateTo),
-            'account_breakdown' => $this->Purchase_model->get_account_mutation_per_account_breakdown($dateFrom, $dateTo),
-            'rows' => $this->Purchase_model->list_account_mutations($accountId, $dateFrom, $dateTo, $pg['per_page'], $pg['offset']),
+            'summary' => $this->Purchase_model->get_account_mutation_summary($accountId, $dateFrom, $dateTo, $scope),
+            'account_breakdown' => $this->Purchase_model->get_account_mutation_per_account_breakdown($dateFrom, $dateTo, $scope),
+            'rows' => $this->Purchase_model->list_account_mutations($accountId, $dateFrom, $dateTo, $pg['per_page'], $pg['offset'], $scope),
             'pg' => $pg,
             'filter_account_id' => $accountId,
+            'scope' => $scope,
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
             'month' => $range['month'],

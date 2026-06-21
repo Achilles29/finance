@@ -96,3 +96,16 @@ dan jangan lupa buatkan halaman stok opname dan masukkan tab bertingkat semua ha
 setelah join, maka terjadi gap.
 - data yang ditampilkan (gambar 2) tidak ada selisih kolom stock dan kolom movement, tapi gambar 1 ada seliish gap movement.
 - pada kondisi seperti ini sumber bagaimana saya bisa memilih sumber kebenaran dan melakukan penyesuaian untuk yang lain. misal yang benar adalah stock, dan saya ingin movement log menyesuakan stock. buatkan modulnya
+
+
+
+/inventory/stock/daily-recon/division, /inventory-material-daily, /inventory/stock/adjustment/division, /inventory/stock/division/reconcile
+4 halaman itu ada modul adjustmen. 
+ketika stok minus kemudian di adjustmen menjadi 0 atau lebih dari 0, lot nya juga ikut naik sejumlah kenaikan stock sehingga ada perbedaan antara stock dan lot.
+Periksa apakah kondisi saat ini sesuai dengan analisaku>?
+
+nah seharusnya ada guarding adjustmen di ke 4 halaman itu, jika adjustmen dari minus, maka menyesuaikan kenaikan mulai dari 0 saja. misal JERUK NIPIS stock -5, di adj jadi 0, maka lot tidak ikut bertambah. jika JERUK NIPIS stock -5 di adj jadi 3, maka lot hanya naik 3.
+lakukan penyesuaian jika analisaku benar. bantah jika tidak tepat
+
+
+/inventory/stock/division/reconcile produk yang tidak ada stock tapi ada lot aktif tetap tampil

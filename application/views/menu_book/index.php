@@ -395,44 +395,42 @@
 <section class="division-block">
     <div class="division-title">
         <h3>Beverage Division</h3>
-        <span>Page 10–25</span>
+        <span>Page 10–19</span>
     </div>
 
     <div class="page-grid">
 
         <?php
         $beverage_pages = [
-            ['10', 'Signature Coffee', 'House signature coffee selections', ['Signature Coffee']],
-            ['11', 'Masterpiece Line', 'Premium beverage creations', ['Masterpiece Line']],
-            ['12', 'Classic Coffee', 'Espresso based classics', ['Classic Coffee']],
-            ['13', 'Manual Brew', 'Single origin and hand brew', ['Manual Brew']],
-            ['14', 'Cold Brew Series', 'Slow brewed cold coffee', ['Cold Brew Series']],
-            ['15', 'Favorite Grandma', 'Nostalgic comfort drinks', ['Favorite Grandma']],
-            ['16', 'Latte Series', 'Flavoured latte collection', ['Latte Series']],
-            ['17', 'Artisan Tea', 'Premium tea selections', ['Artisan Tea']],
-            ['18', 'Tea Series', 'Daily tea refreshments', ['Tea Series']],
-            ['19', 'Mocktail', 'Fresh non-alcoholic creations', ['Mocktail']],
-            ['20', 'Refreshing Drinks', 'Light and fresh beverages', ['Refreshing Drinks']],
-            ['21', 'Blend & Smoothies', 'Blended drinks and smoothies', ['Blend & Smoothies']],
-            ['22', 'Sweet & Milk Series', 'Creamy sweet beverages', ['Sweet & Milk Series']],
-            ['23', 'Wedangan', 'Traditional warm drinks', ['Wedangan']],
-            ['24', 'Ice Cream', 'Ice cream selections', ['Ice Cream']],
-            ['25', 'Beverage Add-On', 'Additional toppings and options', ['Beverage Add-On']],
+            ['10', 'namua_signatures', 'NAMUA Signatures', 'Signature Coffee · Artisan Tea', ['Signature Coffee', 'Artisan Tea', '6 Produk']],
+            ['11', 'house_masterpieces', 'House Masterpieces', 'Masterpiece Line · Favorite Grandma', ['Masterpiece Line', 'Favorite Grandma', '8 Produk']],
+            ['12', 'coffee_atelier', 'The Coffee Atelier', 'Manual Brew · Classic Coffee', ['Manual Brew', 'Classic Coffee']],
+            ['13', 'cold_creamy_creations', 'Cold & Creamy Creations', 'Cold Brew Series · Latte Series', ['Cold Brew Series', 'Latte Series']],
+            ['14', 'spark_refresh', 'Spark & Refresh', 'Mocktail · Refreshing Drinks', ['Mocktail', 'Refreshing Drinks']],
+            ['15', 'blended_delights', 'Blended Delights', 'Blend & Smoothies · Sweet & Milk Series', ['Blend & Smoothies', 'Sweet & Milk Series']],
+            ['16', 'tea_tradition', 'Tea & Tradition', 'Tea Series · Wedangan', ['Tea Series', 'Wedangan']],
+            ['17', 'seasonal_special_selection', 'Seasonal & Special Selection', 'Limited creations and featured beverages', ['Seasonal', 'Special']],
+            ['18', 'sweet_scoops', 'Sweet Scoops', 'Ice cream creations', ['Ice Cream', '4 Produk']],
+            ['19', 'extras_enhancers', 'Extras & Enhancers', 'Customize your perfect drink', ['Beverage Add-On', '9 Produk']],
         ];
 
         foreach ($beverage_pages as $page):
         ?>
-            <span class="page-card plan">
-                <span class="status-badge status-plan">Plan</span>
+            <a href="<?= site_url('menu_book/beverage/' . $page[1]) ?>" target="_blank" class="page-card wip">
+                <span class="status-badge status-wip">WIP</span>
+
                 <div class="page-num">Halaman <?= $page[0] ?></div>
-                <div class="page-title-name"><?= $page[1] ?></div>
-                <div class="page-subtitle"><?= $page[2] ?></div>
+                <div class="page-title-name"><?= $page[2] ?></div>
+                <div class="page-subtitle"><?= $page[3] ?></div>
+
                 <div class="page-categories">
-                    <?php foreach ($page[3] as $tag): ?>
+                    <?php foreach ($page[4] as $tag): ?>
                         <span class="cat-tag"><?= $tag ?></span>
                     <?php endforeach; ?>
                 </div>
-            </span>
+
+                <div class="open-icon">&#8599; Buka halaman</div>
+            </a>
         <?php endforeach; ?>
 
     </div>
