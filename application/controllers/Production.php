@@ -325,6 +325,101 @@ class Production extends MY_Controller
         ], $message);
     }
 
+    /** Sync a single component's FIFO lot total to match its monthly stock balance. */
+    public function component_lot_sync_to_stock()
+    {
+        $pageCode = $this->can('production.component.reconcile.index', 'edit')
+            ? 'production.component.reconcile.index'
+            : 'production.component.daily.index';
+        $this->require_permission($pageCode, 'edit');
+
+        $payload      = $this->request_payload();
+        $locationType = strtoupper(trim((string)($payload['location_type'] ?? '')));
+        $divisionId   = isset($payload['division_id']) && $payload['division_id'] !== null ? (int)$payload['division_id'] : null;
+        $componentId  = (int)($payload['component_id'] ?? 0);
+        $uomId        = (int)($payload['uom_id'] ?? 0);
+
+        if ($componentId <= 0 || $uomId <= 0) {
+            $this->json_error('component_id dan uom_id wajib diisi.', 422);
+            return;
+        }
+
+        $result = $this->Production_model->repair_component_lot_balance_to_stock($locationType, $divisionId, $componentId, $uomId);
+        if (!empty($result['ok'])) {
+            $this->json_ok($result['data'] ?? [], (string)($result['message'] ?? 'Selesai.'));
+        } else {
+            $this->json_error((string)($result['message'] ?? 'Gagal.'), 422);
+        }
+    }
+
+    /** Sync ALL component FIFO lots that over-state stock (lot > monthly_stock) to match stock. */
+    public function component_lot_sync_all()
+    {
+        $pageCode = $this->can('production.component.reconcile.index', 'edit')
+            ? 'production.component.reconcile.index'
+            : 'production.component.daily.index';
+        $this->require_permission($pageCode, 'edit');
+
+        $payload = $this->request_payload();
+        $filters = [
+            'as_of_date'    => trim((string)($payload['as_of_date'] ?? date('Y-m-d'))),
+            'location_type' => strtoupper(trim((string)($payload['location_type'] ?? ''))),
+            'division_id'   => !empty($payload['division_id']) ? (int)$payload['division_id'] : 0,
+            'q'             => trim((string)($payload['q'] ?? '')),
+            'type'          => strtoupper(trim((string)($payload['type'] ?? ''))),
+        ];
+
+        $compare = $this->Production_model->component_reconcile_rows($filters, 2000);
+        $allRows = is_array($compare['rows'] ?? null) ? $compare['rows'] : [];
+
+        // Only process rows where lot_qty > balance_qty (lot over-states stock)
+        $toRepair = array_values(array_filter($allRows, static function (array $r): bool {
+            return round((float)($r['lot_qty'] ?? 0), 4) - round((float)($r['balance_qty'] ?? 0), 4) > 0.01;
+        }));
+
+        if (empty($toRepair)) {
+            $this->json_ok(['processed' => 0, 'repaired' => 0, 'skipped' => 0, 'failed' => 0, 'results' => []],
+                'Tidak ada lot yang melebihi stok, tidak ada yang perlu disesuaikan.');
+            return;
+        }
+
+        $repaired = 0; $skipped = 0; $failed = 0; $results = [];
+        foreach ($toRepair as $row) {
+            $locType  = strtoupper((string)($row['location_type'] ?? ''));
+            $divId    = $row['division_id'] !== null ? (int)$row['division_id'] : null;
+            $compId   = (int)($row['component_id'] ?? 0);
+            $uom      = (int)($row['uom_id'] ?? 0);
+            $label    = trim((string)($row['component_name'] ?? 'Component #' . $compId));
+
+            if ($compId <= 0 || $uom <= 0) {
+                $failed++;
+                $results[] = ['label' => $label, 'status' => 'skipped', 'message' => 'Data tidak lengkap.'];
+                continue;
+            }
+            $r = $this->Production_model->repair_component_lot_balance_to_stock($locType, $divId, $compId, $uom);
+            if (!empty($r['ok'])) {
+                if (!empty($r['skipped'])) {
+                    $skipped++;
+                    $results[] = ['label' => $label, 'status' => 'skipped', 'message' => (string)($r['message'] ?? '')];
+                } else {
+                    $repaired++;
+                    $results[] = ['label' => $label, 'status' => 'repaired'];
+                }
+            } else {
+                $failed++;
+                $results[] = ['label' => $label, 'status' => 'failed', 'message' => (string)($r['message'] ?? '')];
+            }
+        }
+
+        $total   = count($toRepair);
+        $message = "Repair Lot Semua selesai: {$repaired} disesuaikan, {$skipped} dilewati, {$failed} gagal dari {$total} item.";
+        if ($failed > 0) {
+            $this->json_ok(['processed' => $total, 'repaired' => $repaired, 'skipped' => $skipped, 'failed' => $failed, 'results' => $results], $message);
+        } else {
+            $this->json_ok(['processed' => $total, 'repaired' => $repaired, 'skipped' => $skipped, 'failed' => 0, 'results' => $results], $message);
+        }
+    }
+
     public function component_lot_only_adjust()
     {
         $pageCode = $this->can('production.component.reconcile.index', 'edit')

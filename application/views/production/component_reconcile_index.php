@@ -231,9 +231,14 @@ $uniqueCompCount = count($uniqueComps);
         </div>
       </div>
       <div class="recon-filter-actions-right">
-        <button type="button" id="recon-repair-all-btn" class="btn btn-danger btn-sm d-flex align-items-center gap-1 recon-primary-action">
-          <i class="ri ri-refresh-line"></i> Repair All
-        </button>
+        <div class="d-flex gap-2">
+          <button type="button" id="recon-lot-sync-all-btn" class="btn btn-warning btn-sm d-flex align-items-center gap-1" title="Sesuaikan semua lot yang melebihi stok bulanan ke nilai stok">
+            <i class="ri ri-arrow-down-circle-line"></i> Repair Lot Semua
+          </button>
+          <button type="button" id="recon-repair-all-btn" class="btn btn-danger btn-sm d-flex align-items-center gap-1 recon-primary-action">
+            <i class="ri ri-refresh-line"></i> Repair All
+          </button>
+        </div>
       </div>
     </form>
   </div>
@@ -373,6 +378,17 @@ $uniqueCompCount = count($uniqueComps);
                     data-lot-qty="<?php echo html_escape((string)$lotQ); ?>"
                     data-movement-qty="<?php echo html_escape((string)$mvtQ); ?>"
                     title="Normalisasi Lot FIFO (qty_balance = qty_in - qty_out), bukan sinkron otomatis ke monthly stock"><i class="ri ri-stack-line"></i></button>
+                  <?php if (round($lotQ, 4) - round($mQty, 4) > 0.01): ?>
+                  <button type="button" class="rec-icon-btn btn-outline-warning comp-lot-sync-btn"
+                    data-location-type="<?php echo html_escape($locType); ?>"
+                    data-division-id="<?php echo $divId; ?>"
+                    data-component-id="<?php echo $compId; ?>"
+                    data-uom-id="<?php echo $uomId; ?>"
+                    data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
+                    data-monthly-qty="<?php echo html_escape((string)$mQty); ?>"
+                    data-lot-qty="<?php echo html_escape((string)$lotQ); ?>"
+                    title="Sesuaikan Lot ke Stok — kurangi lot FIFO agar tidak melebihi stok bulanan"><i class="ri ri-arrow-down-circle-line"></i></button>
+                  <?php endif; ?>
                   <a href="<?php echo html_escape($mvtUrl); ?>" class="rec-icon-btn btn-outline-info" target="_blank" title="Lihat movement log"><i class="ri ri-history-line"></i></a>
                   <?php if (empty($lotRows)): ?>
                   <button type="button" class="rec-icon-btn btn-outline-warning comp-quick-adj-btn"
@@ -899,6 +915,12 @@ $uniqueCompCount = count($uniqueComps);
       return;
     }
 
+    const lotSyncBtn = event.target.closest('.comp-lot-sync-btn');
+    if (lotSyncBtn) {
+      runLotSyncToStock(lotSyncBtn).catch(e => { clearButtonLoading(lotSyncBtn); showAlert(e.message, 'Sesuaikan Lot ke Stok'); });
+      return;
+    }
+
     const adjBtn = event.target.closest('.comp-quick-adj-btn');
     if (adjBtn) { openCompAdj(adjBtn); return; }
 
@@ -945,6 +967,82 @@ $uniqueCompCount = count($uniqueComps);
       throw e;
     }
   }
+
+  const lotSyncUrl    = <?php echo json_encode(site_url('production/component-reconcile/lot-sync')); ?>;
+  const lotSyncAllUrl = <?php echo json_encode(site_url('production/component-reconcile/lot-sync-all')); ?>;
+
+  async function runLotSyncToStock(button) {
+    const compName  = String(button?.dataset.componentName || ('Component #' + (button?.dataset.componentId || '?')));
+    const monthlyQty = Number(button?.dataset.monthlyQty || 0);
+    const lotQty     = Number(button?.dataset.lotQty || 0);
+    const gap        = Math.round((lotQty - monthlyQty) * 10000) / 10000;
+    const confirmed  = await askConfirm(
+      'Sesuaikan Lot ke Stok untuk:\n' + compName
+      + '\n\nStok Bulanan: ' + compAdjFmt(monthlyQty)
+      + '\nLot FIFO: ' + compAdjFmt(lotQty)
+      + '\nSelisih (lot - stok): ' + compAdjFmt(gap)
+      + '\n\nTindakan ini akan mengurangi lot FIFO tertua (FIFO) sebesar ' + compAdjFmt(gap) + ' agar lot = stok.'
+      + '\nLot yang sudah 0 akan ditutup otomatis.'
+      + '\n\nLanjutkan?',
+      { title: 'Sesuaikan Lot ke Stok', confirmText: 'Sesuaikan', cancelText: 'Batal' }
+    );
+    if (!confirmed) return;
+    setButtonLoading(button, 'Proses...');
+    try {
+      const json = await postJson(lotSyncUrl, {
+        location_type: String(button?.dataset.locationType || ''),
+        division_id:   Number(button?.dataset.divisionId  || 0) || null,
+        component_id:  Number(button?.dataset.componentId || 0),
+        uom_id:        Number(button?.dataset.uomId       || 0),
+      });
+      await showAlert(json.message || 'Lot berhasil disesuaikan ke stok.', 'Sesuaikan Lot ke Stok');
+      window.location.reload();
+    } catch (e) {
+      clearButtonLoading(button);
+      throw e;
+    }
+  }
+
+  document.getElementById('recon-lot-sync-all-btn')?.addEventListener('click', async function () {
+    const btn = this;
+    const confirmed = await askConfirm(
+      'Repair Lot Semua akan mengurangi lot FIFO yang melebihi stok bulanan untuk SEMUA component yang terfilter saat ini.\n\nHanya lot yang over-state stok (lot > stok) yang diproses. Lot yang under-state atau sudah sesuai tidak akan diubah.\n\nLanjutkan?',
+      { title: 'Repair Lot Semua', confirmText: 'Repair Lot Semua', cancelText: 'Batal' }
+    );
+    if (!confirmed) return;
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Repair Lot Semua...';
+    const toast    = document.getElementById('repair-all-toast');
+    const toastMsg = document.getElementById('repair-all-toast-msg');
+    toastMsg.textContent = 'Sedang menyesuaikan lot semua component...';
+    toast.classList.remove('d-none');
+    try {
+      const params = {};
+      const locSel  = document.querySelector('select[name="location_type"]');
+      const divSel  = document.querySelector('select[name="division_id"]');
+      const dateTo  = document.querySelector('input[name="date_to"]');
+      const typeSel = document.querySelector('select[name="type"]');
+      const qInput  = document.getElementById('recon-search');
+      if (locSel?.value)                                params.location_type = locSel.value;
+      if (divSel?.value && divSel.value !== '0')        params.division_id   = parseInt(divSel.value, 10);
+      if (dateTo?.value)                                params.as_of_date    = dateTo.value;
+      if (typeSel?.value)                               params.type          = typeSel.value;
+      if (qInput?.value?.trim())                        params.q             = qInput.value.trim();
+      const json = await postJson(lotSyncAllUrl, params);
+      toastMsg.textContent = json.message || 'Repair Lot Semua selesai.';
+      const d = json.data || {};
+      const detail = (d.processed !== undefined)
+        ? ('\nDiproses: ' + d.processed + '  |  Disesuaikan: ' + d.repaired + '  |  Dilewati: ' + d.skipped + '  |  Gagal: ' + d.failed)
+        : '';
+      await showAlert((json.message || 'Repair Lot Semua selesai.') + detail, 'Repair Lot Semua');
+      window.location.reload();
+    } catch (e) {
+      toastMsg.textContent = 'Repair Lot Semua gagal: ' + e.message;
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  });
 
   // ── Hanya Mismatch toggle ──────────────────────────────────────────────────
   const mismatchOnlyBtn = document.getElementById('recon-mismatch-only-btn');

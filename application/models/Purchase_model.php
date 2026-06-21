@@ -357,7 +357,7 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
-    public function list_account_mutations(int $accountId, string $dateFrom, string $dateTo, int $limit, int $offset = 0, string $scope = 'all', string $mutationType = 'all'): array
+    public function list_account_mutations(int $accountId, string $dateFrom, string $dateTo, int $limit, int $offset = 0, string $scope = 'all', string $mutationType = 'all', string $moduleFilter = 'all'): array
     {
         if (!$this->db->table_exists('fin_account_mutation_log')) {
             return [];
@@ -374,6 +374,7 @@ class Purchase_model extends CI_Model
         $this->applyAccountMutationDateFilters('m', $accountId, $dateFrom, $dateTo);
         $this->applyAccountMutationScopeFilter('m', $scope);
         $this->applyAccountMutationTypeFilter('m', $mutationType);
+        $this->applyAccountMutationModuleFilter('m', $moduleFilter);
 
         return $this->db
             ->order_by('m.mutation_date', 'DESC')
@@ -383,7 +384,7 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
-    public function count_account_mutations(int $accountId, string $dateFrom, string $dateTo, string $scope = 'all', string $mutationType = 'all'): int
+    public function count_account_mutations(int $accountId, string $dateFrom, string $dateTo, string $scope = 'all', string $mutationType = 'all', string $moduleFilter = 'all'): int
     {
         if (!$this->db->table_exists('fin_account_mutation_log')) {
             return 0;
@@ -395,6 +396,7 @@ class Purchase_model extends CI_Model
         $this->applyAccountMutationDateFilters('m', $accountId, $dateFrom, $dateTo);
         $this->applyAccountMutationScopeFilter('m', $scope);
         $this->applyAccountMutationTypeFilter('m', $mutationType);
+        $this->applyAccountMutationModuleFilter('m', $moduleFilter);
 
         $row = $this->db
             ->select('COUNT(*) AS total_rows', false)
@@ -438,7 +440,16 @@ class Purchase_model extends CI_Model
         }
     }
 
-    public function get_account_mutation_summary(int $accountId, string $dateFrom, string $dateTo, string $scope = 'all', string $mutationType = 'all'): array
+    private function applyAccountMutationModuleFilter(string $alias, string $moduleFilter): void
+    {
+        $moduleFilter = strtoupper(trim($moduleFilter));
+        $fieldPrefix = $alias !== '' ? ($alias . '.') : '';
+        if ($moduleFilter !== '' && $moduleFilter !== 'ALL') {
+            $this->db->where($fieldPrefix . 'ref_module', $moduleFilter);
+        }
+    }
+
+    public function get_account_mutation_summary(int $accountId, string $dateFrom, string $dateTo, string $scope = 'all', string $mutationType = 'all', string $moduleFilter = 'all'): array
     {
         $summary = [
             'in_total' => 0.0,
@@ -471,6 +482,7 @@ class Purchase_model extends CI_Model
 
         $this->applyAccountMutationScopeFilter('', $scope);
         $this->applyAccountMutationTypeFilter('', $mutationType);
+        $this->applyAccountMutationModuleFilter('', $moduleFilter);
 
         $row = $this->db->get()->row_array();
         if (!$row) {
@@ -484,7 +496,7 @@ class Purchase_model extends CI_Model
         return $summary;
     }
 
-    public function get_account_mutation_per_account_breakdown(string $dateFrom, string $dateTo, string $scope = 'all', string $mutationType = 'all'): array
+    public function get_account_mutation_per_account_breakdown(string $dateFrom, string $dateTo, string $scope = 'all', string $mutationType = 'all', string $moduleFilter = 'all'): array
     {
         if (!$this->db->table_exists('fin_account_mutation_log') || !$this->db->table_exists('fin_company_account')) {
             return [];
@@ -506,6 +518,10 @@ class Purchase_model extends CI_Model
         $mutationType = strtoupper(trim($mutationType));
         if (in_array($mutationType, ['IN', 'OUT'], true)) {
             $whereParts[] = "mutation_type = " . $this->db->escape($mutationType);
+        }
+        $moduleFilter = strtoupper(trim($moduleFilter));
+        if ($moduleFilter !== '' && $moduleFilter !== 'ALL') {
+            $whereParts[] = "ref_module = " . $this->db->escape($moduleFilter);
         }
         $subWhere = implode(' AND ', $whereParts);
         $mSub = "(SELECT account_id, mutation_type, amount FROM fin_account_mutation_log WHERE $subWhere)";

@@ -1334,6 +1334,85 @@ class Production_model extends CI_Model
         ];
     }
 
+    /**
+     * Sync FIFO lot total to match monthly stock balance.
+     * If lot > stock: deduct from oldest lots (FIFO) to bring total down.
+     * If stock < 0: targetLot = 0 (close all lots).
+     * If gap <= 0.01: no action needed.
+     */
+    public function repair_component_lot_balance_to_stock(string $locationType, ?int $divisionId, int $componentId, int $uomId): array
+    {
+        if (!$this->db->table_exists('inv_component_lot')) {
+            return ['ok' => false, 'message' => 'Tabel inv_component_lot belum tersedia.'];
+        }
+
+        $divSql    = $divisionId !== null ? ('ms.division_id = ' . (int)$divisionId) : 'ms.division_id IS NULL';
+        $divLotSql = $divisionId !== null ? ('l.division_id = ' . (int)$divisionId)  : 'l.division_id IS NULL';
+
+        $monthRow = $this->db->query(
+            "SELECT COALESCE(ms.closing_qty, 0) AS closing_qty
+             FROM inv_component_monthly_stock ms
+             WHERE ms.location_type = ? AND {$divSql} AND ms.component_id = ? AND ms.uom_id = ?
+             ORDER BY ms.month_key DESC LIMIT 1",
+            [$locationType, $componentId, $uomId]
+        )->row_array();
+        $stockBalance = round((float)($monthRow['closing_qty'] ?? 0), 4);
+        $targetLot    = max(0.0, $stockBalance);
+
+        $lotRow = $this->db->query(
+            "SELECT SUM(l.qty_balance) AS lot_total
+             FROM inv_component_lot l
+             WHERE l.location_type = ? AND {$divLotSql} AND l.component_id = ? AND l.uom_id = ?
+               AND l.status = 'OPEN' AND l.qty_balance > 0.0001",
+            [$locationType, $componentId, $uomId]
+        )->row_array();
+        $lotTotal = round((float)($lotRow['lot_total'] ?? 0), 4);
+
+        $gap = round($lotTotal - $targetLot, 4);
+
+        if (abs($gap) <= 0.01) {
+            return ['ok' => true, 'message' => 'Lot dan stok sudah sesuai.', 'data' => [
+                'stock_balance' => $stockBalance, 'lot_total' => $lotTotal, 'gap' => $gap,
+            ]];
+        }
+
+        if ($gap < -0.01) {
+            return ['ok' => true, 'skipped' => true, 'message' => 'Lot lebih kecil dari stok (' . round($lotTotal, 2) . ' vs ' . round($stockBalance, 2) . '). Repair otomatis tidak dilakukan; gunakan adjustment manual.', 'data' => [
+                'stock_balance' => $stockBalance, 'lot_total' => $lotTotal, 'gap' => $gap,
+            ]];
+        }
+
+        // gap > 0: lot over-states stock — deduct oldest lots first (FIFO)
+        $openLots = $this->db->query(
+            "SELECT id, qty_balance FROM inv_component_lot l
+             WHERE l.location_type = ? AND {$divLotSql} AND l.component_id = ? AND l.uom_id = ?
+               AND l.status = 'OPEN' AND l.qty_balance > 0.0001
+             ORDER BY l.receipt_date ASC, l.id ASC",
+            [$locationType, $componentId, $uomId]
+        )->result_array();
+
+        $remaining = $gap;
+        $now = date('Y-m-d H:i:s');
+        foreach ($openLots as $lot) {
+            if ($remaining <= 0.0001) {
+                break;
+            }
+            $lotQty  = round((float)$lot['qty_balance'], 4);
+            $deduct  = round(min($remaining, $lotQty), 4);
+            $newBal  = round($lotQty - $deduct, 4);
+            $this->db->where('id', (int)$lot['id'])->update('inv_component_lot', [
+                'qty_balance' => $newBal,
+                'status'      => $newBal < 0.0001 ? 'CLOSED' : 'OPEN',
+                'updated_at'  => $now,
+            ]);
+            $remaining = round($remaining - $deduct, 4);
+        }
+
+        return ['ok' => true, 'message' => 'Lot berhasil disesuaikan ke stok.', 'data' => [
+            'stock_balance' => $stockBalance, 'lot_total' => $lotTotal, 'target_lot' => $targetLot, 'gap' => $gap,
+        ]];
+    }
+
     private function attach_component_lot_totals(array &$rows): void
     {
         foreach ($rows as &$row) { $row['lot_qty'] = 0.0; $row['lot_count'] = 0; $row['lot_rows'] = []; }

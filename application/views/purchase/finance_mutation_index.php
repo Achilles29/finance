@@ -6,11 +6,13 @@ $summary  = (array)($summary ?? []);
 $accountBreakdown = (array)($account_breakdown ?? []);
 $scope    = (string)($scope ?? 'all');
 $filterMutationType = strtoupper((string)($filter_mutation_type ?? 'ALL'));
+$filterModule = strtoupper((string)($filter_module ?? 'ALL'));
 
-$buildQuery = static function ($overrides = []) use ($filter_account_id, $date_from, $date_to, $pg, $scope, $filterMutationType): string {
+$buildQuery = static function ($overrides = []) use ($filter_account_id, $date_from, $date_to, $pg, $scope, $filterMutationType, $filterModule): string {
     $base = [
         'scope'      => $scope,
         'mutation_type' => $filterMutationType,
+        'module_filter' => $filterModule,
         'account_id' => $filter_account_id ?? '',
         'date_from'  => $date_from ?? '',
         'date_to'    => $date_to ?? '',
@@ -100,6 +102,16 @@ $scopeTabs = [
         'label' => 'Mutasi Manual',
         'desc' => 'Hanya mutasi yang diinput dari halaman ini: antar rekening, mutasi IN, dan mutasi OUT.',
     ],
+];
+$moduleFilterOptions = [
+    'ALL' => 'Semua Modul',
+    'POS' => 'POS',
+    'PURCHASE' => 'PO / Purchase',
+    'FINANCE' => 'Manual',
+    'FINANCE_TRANSFER' => 'Transfer',
+    'FINANCE_PAYABLE' => 'Utang',
+    'FINANCE_RECEIVABLE' => 'Piutang',
+    'PAYROLL' => 'Payroll',
 ];
 ?>
 
@@ -474,11 +486,21 @@ $scopeTabs = [
         <form method="get" action="<?php echo $baseUrl; ?>" class="row g-2 align-items-end">
           <input type="hidden" name="scope" value="<?php echo html_escape($scope); ?>">
           <div class="col-md-2 col-lg-2">
-            <label class="form-label mb-1">Jenis</label>
+            <label class="form-label mb-1">IN / OUT</label>
             <select name="mutation_type" class="form-select form-select-sm">
               <option value="ALL" <?php echo $filterMutationType === 'ALL' ? 'selected' : ''; ?>>Semua</option>
               <option value="IN" <?php echo $filterMutationType === 'IN' ? 'selected' : ''; ?>>IN</option>
               <option value="OUT" <?php echo $filterMutationType === 'OUT' ? 'selected' : ''; ?>>OUT</option>
+            </select>
+          </div>
+          <div class="col-md-3 col-lg-2">
+            <label class="form-label mb-1">Jenis Modul</label>
+            <select name="module_filter" class="form-select form-select-sm">
+              <?php foreach ($moduleFilterOptions as $moduleKey => $moduleOptionLabel): ?>
+                <option value="<?php echo html_escape($moduleKey); ?>" <?php echo $filterModule === $moduleKey ? 'selected' : ''; ?>>
+                  <?php echo html_escape($moduleOptionLabel); ?>
+                </option>
+              <?php endforeach; ?>
             </select>
           </div>
           <div class="col-md-4 col-lg-3">
