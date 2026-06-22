@@ -2166,6 +2166,202 @@ class Purchase extends MY_Controller
             ]));
     }
 
+    public function stock_division_reconcile_lot_only_adjust()
+    {
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');
+
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $lotId         = (int)($payload['lot_id'] ?? 0);
+        $divisionId    = (int)($payload['division_id'] ?? 0);
+        $materialId    = (int)($payload['material_id'] ?? 0);
+        $destination   = strtoupper(trim((string)($payload['destination'] ?? '')));
+        $profileKey    = trim((string)($payload['profile_key'] ?? ''));
+        $targetQty     = round((float)($payload['target_qty'] ?? 0), 4);
+        $adjustDate    = trim((string)($payload['adjustment_date'] ?? date('Y-m-d')));
+        $notes         = trim((string)($payload['notes'] ?? ''));
+        $unitCostInput = round((float)($payload['unit_cost'] ?? 0), 6);
+        $contentUomId  = (int)($payload['content_uom_id'] ?? 0);
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $adjustDate)) {
+            $adjustDate = date('Y-m-d');
+        }
+
+        // Resolve lot
+        $lot = null;
+        if ($lotId > 0) {
+            $lot = $this->db->where('id', $lotId)->get('inv_material_fifo_lot')->row_array() ?: null;
+            if (!$lot) {
+                $this->output->set_status_header(404)->set_content_type('application/json')
+                    ->set_output(json_encode(['ok' => false, 'message' => 'Lot tidak ditemukan.']));
+                return;
+            }
+        } else {
+            if ($materialId <= 0 || $divisionId <= 0 || $destination === '') {
+                $this->output->set_status_header(422)->set_content_type('application/json')
+                    ->set_output(json_encode(['ok' => false, 'message' => 'Identitas lot (division_id, material_id, destination) wajib diisi.']));
+                return;
+            }
+            $q = $this->db->where('location_scope', 'DIVISION')
+                ->where('division_id', $divisionId)
+                ->where('destination_type', $destination)
+                ->where('material_id', $materialId)
+                ->where('status', 'OPEN');
+            if ($profileKey !== '') {
+                $q->where('profile_key', $profileKey);
+            }
+            $lot = $q->order_by('receipt_date', 'ASC')->order_by('id', 'ASC')
+                ->limit(1)->get('inv_material_fifo_lot')->row_array() ?: null;
+
+            if (!$lot && $targetQty <= 0) {
+                $this->output->set_status_header(422)->set_content_type('application/json')
+                    ->set_output(json_encode(['ok' => false, 'message' => 'Tidak ada lot aktif untuk identity ini. Target harus > 0 untuk membuat lot baru.']));
+                return;
+            }
+        }
+
+        $currentQty = $lot ? round((float)($lot['qty_balance'] ?? 0), 4) : 0.0;
+        $delta      = round($targetQty - $currentQty, 4);
+
+        if (abs($delta) < 0.0001) {
+            $this->output->set_status_header(422)->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'Saldo target sama dengan saldo lot saat ini. Tidak ada perubahan.']));
+            return;
+        }
+
+        $now    = date('Y-m-d H:i:s');
+        $result = ['ok' => false, 'message' => 'Gagal menyimpan adjustment lot.'];
+
+        $this->db->trans_begin();
+
+        if ($delta < 0) {
+            if (!$lot) {
+                $this->db->trans_rollback();
+                $this->output->set_status_header(422)->set_content_type('application/json')
+                    ->set_output(json_encode(['ok' => false, 'message' => 'Lot tidak ditemukan untuk adjustment minus.']));
+                return;
+            }
+            $baseLotId = (int)$lot['id'];
+            $outQty    = round(abs($delta), 4);
+            $issueNo   = 'MFLADJ' . date('YmdHis') . substr(md5($baseLotId . '|' . $now), 0, 6);
+            $totalCost = round($outQty * (float)($lot['unit_cost'] ?? 0), 2);
+
+            $this->db->insert('inv_material_fifo_issue_log', [
+                'issue_no'      => $issueNo,
+                'issue_date'    => $adjustDate,
+                'issue_datetime'=> $now,
+                'location_scope'=> 'DIVISION',
+                'division_id'   => (int)($lot['division_id'] ?? $divisionId),
+                'destination_type' => (string)($lot['destination_type'] ?? $destination),
+                'item_id'       => !empty($lot['item_id']) ? (int)$lot['item_id'] : null,
+                'material_id'   => (int)($lot['material_id'] ?? $materialId),
+                'buy_uom_id'    => !empty($lot['buy_uom_id']) ? (int)$lot['buy_uom_id'] : null,
+                'content_uom_id'=> (int)$lot['content_uom_id'],
+                'profile_key'   => $lot['profile_key'] ?? ($profileKey !== '' ? $profileKey : null),
+                'issue_qty'     => $outQty,
+                'total_cost'    => $totalCost,
+                'source_module' => 'DIVISION_RECONCILE',
+                'source_table'  => 'inv_material_fifo_lot',
+                'source_id'     => $baseLotId,
+                'notes'         => 'Lot-only adj rekonsiliasi divisi' . ($notes !== '' ? ': ' . $notes : ''),
+                'status'        => 'POSTED',
+                'created_at'    => $now,
+            ]);
+            $issueId = (int)$this->db->insert_id();
+
+            $this->db->insert('inv_material_fifo_issue_line', [
+                'issue_id'             => $issueId,
+                'lot_id'               => $baseLotId,
+                'qty_out'              => $outQty,
+                'unit_cost'            => round((float)($lot['unit_cost'] ?? 0), 6),
+                'total_cost'           => $totalCost,
+                'source_balance_before'=> $currentQty,
+                'source_balance_after' => $targetQty,
+                'created_at'           => $now,
+            ]);
+
+            $this->db->where('id', $baseLotId)->update('inv_material_fifo_lot', [
+                'qty_out'    => round((float)($lot['qty_out'] ?? 0) + $outQty, 4),
+                'qty_balance'=> $targetQty,
+                'status'     => $targetQty > 0.0001 ? 'OPEN' : 'CLOSED',
+                'updated_at' => $now,
+            ]);
+
+            $result = ['ok' => true, 'before_qty' => $currentQty, 'after_qty' => $targetQty, 'delta_qty' => $delta,
+                'message' => 'Adjustment lot minus berhasil. Monthly stock tidak diubah.'];
+        } else {
+            $unitCost = $unitCostInput > 0 ? $unitCostInput
+                : ($lot ? round((float)($lot['unit_cost'] ?? 0), 6) : 0.0);
+            if ($unitCost <= 0) {
+                $this->db->trans_rollback();
+                $this->output->set_status_header(422)->set_content_type('application/json')
+                    ->set_output(json_encode(['ok' => false, 'message' => 'Unit cost wajib diisi untuk adjustment lot plus.']));
+                return;
+            }
+
+            $baseLotId       = $lot ? (int)$lot['id'] : 0;
+            $inQty           = round($delta, 4);
+            $lotNo           = substr('MFLADJ-' . date('YmdHis') . '-' . $materialId . '-' . $baseLotId, 0, 80);
+            $baseDiv         = $lot ? (int)($lot['division_id'] ?? $divisionId) : $divisionId;
+            $baseDest        = $lot ? (string)($lot['destination_type'] ?? $destination) : $destination;
+            $baseItemId      = ($lot && !empty($lot['item_id'])) ? (int)$lot['item_id'] : null;
+            $baseMaterialId  = $lot ? (int)($lot['material_id'] ?? $materialId) : $materialId;
+            $baseBuyUomId    = ($lot && !empty($lot['buy_uom_id'])) ? (int)$lot['buy_uom_id'] : null;
+            $baseContentUomId= $lot ? (int)$lot['content_uom_id'] : $contentUomId;
+            $basePk          = $lot ? ($lot['profile_key'] ?? ($profileKey !== '' ? $profileKey : null))
+                                    : ($profileKey !== '' ? $profileKey : null);
+
+            if ($baseContentUomId <= 0) {
+                $this->db->trans_rollback();
+                $this->output->set_status_header(422)->set_content_type('application/json')
+                    ->set_output(json_encode(['ok' => false, 'message' => 'content_uom_id tidak diketahui. Sertakan identitas lot atau content_uom_id dalam payload.']));
+                return;
+            }
+
+            $this->db->insert('inv_material_fifo_lot', [
+                'lot_no'          => $lotNo,
+                'location_scope'  => 'DIVISION',
+                'receipt_date'    => $adjustDate,
+                'expiry_date'     => null,
+                'division_id'     => $baseDiv,
+                'destination_type'=> $baseDest,
+                'item_id'         => $baseItemId,
+                'material_id'     => $baseMaterialId,
+                'buy_uom_id'      => $baseBuyUomId,
+                'content_uom_id'  => $baseContentUomId,
+                'profile_key'     => $basePk,
+                'qty_in'          => $inQty,
+                'qty_out'         => 0,
+                'qty_balance'     => $inQty,
+                'unit_cost'       => $unitCost,
+                'source_table'    => 'div_lot_manual_adj',
+                'source_id'       => $baseLotId > 0 ? $baseLotId : null,
+                'parent_lot_id'   => $baseLotId > 0 ? $baseLotId : null,
+                'status'          => 'OPEN',
+                'created_at'      => $now,
+                'updated_at'      => $now,
+            ]);
+
+            $result = ['ok' => true, 'before_qty' => $currentQty, 'after_qty' => $targetQty, 'delta_qty' => $delta,
+                'message' => 'Lot koreksi berhasil dibuat. Monthly stock tidak diubah.'];
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            $this->output->set_status_header(422)->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'Gagal menyimpan adjustment lot (transaksi DB gagal).']));
+            return;
+        }
+
+        $this->db->trans_commit();
+        $status = !empty($result['ok']) ? 200 : 422;
+        $this->output->set_status_header($status)->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
     public function stock_division_reconcile_gap_repair_all()
     {
         $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');

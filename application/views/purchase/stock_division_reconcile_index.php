@@ -9,6 +9,7 @@ $gapRepairAllUrl     = site_url('inventory/stock/division/reconcile/gap-repair-a
 $repairMaterialIdUrl    = site_url('inventory/stock/division/reconcile/repair-material-id');
 $profileRepairUrl       = site_url('inventory/stock/division/reconcile/profile-repair');
 $profileMergeUrl        = site_url('inventory/stock/division/reconcile/profile-merge');
+$lotAdjUrl              = site_url('inventory/stock/division/reconcile/lot-only-adjust');
 
 $allRows     = is_array($rows ?? null) ? $rows : [];
 $divisions   = is_array($divisions ?? null) ? $divisions : [];
@@ -711,6 +712,17 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                     class="rec-icon-btn btn-outline-info" target="_blank" title="Lihat movement log bahan ini"><i class="ri ri-history-line"></i></a>
                   <a href="<?php echo html_escape(site_url('inventory/stock/division/lot') . '?q=' . rawurlencode($row['material_name'] ?? '') . '&division_id=' . $dataDivId . '&destination=' . rawurlencode($dataDest)); ?>"
                     class="rec-icon-btn btn-outline-secondary" target="_blank" title="Lihat lot FIFO bahan ini"><i class="ri ri-stack-line"></i></a>
+                  <?php if ($hasLotData): ?>
+                  <button type="button" class="rec-icon-btn btn-outline-dark src-lot-adj-btn"
+                    data-division-id="<?php echo $dataDivId; ?>"
+                    data-material-id="<?php echo $dataMatId; ?>"
+                    data-destination="<?php echo html_escape($dataDest); ?>"
+                    data-content-uom-id="<?php echo (int)($row['content_uom_id'] ?? 0); ?>"
+                    data-material-name="<?php echo html_escape($row['material_name'] ?? ''); ?>"
+                    data-lot-qty="<?php echo (float)($row['lot_qty_content'] ?? 0); ?>"
+                    data-avg-cost="<?php echo (float)($row['avg_cost_per_content'] ?? 0); ?>"
+                    title="Adjustment lot FIFO saja (monthly stock tidak berubah)"><i class="ri ri-stack-line"></i></button>
+                  <?php endif; ?>
                 </div>
               </td>
             </tr>
@@ -830,6 +842,18 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                               data-profile-name="<?php echo html_escape($pbLabel); ?>"
                               title="Adjustment manual profil ini"
                               style="font-size:.59rem;padding:.1rem .35rem"><i class="ri ri-scales-3-line"></i> Adj</button>
+                            <button type="button" class="btn btn-xs btn-outline-dark src-lot-adj-btn"
+                              data-division-id="<?php echo $dataDivId; ?>"
+                              data-material-id="<?php echo $dataMatId; ?>"
+                              data-destination="<?php echo html_escape($dataDest); ?>"
+                              data-content-uom-id="<?php echo (int)($row['content_uom_id'] ?? 0); ?>"
+                              data-material-name="<?php echo html_escape($row['material_name'] ?? ''); ?>"
+                              data-profile-key="<?php echo html_escape($pbPk); ?>"
+                              data-profile-name="<?php echo html_escape($pbLabel); ?>"
+                              data-lot-qty="<?php echo $pbLot; ?>"
+                              data-avg-cost="<?php echo (float)($row['avg_cost_per_content'] ?? 0); ?>"
+                              title="Adjustment lot FIFO saja untuk profil ini (monthly stock tidak berubah)"
+                              style="font-size:.59rem;padding:.1rem .35rem"><i class="ri ri-stack-line"></i> Lot</button>
                             </div>
                           </td>
                         </tr>
@@ -1767,6 +1791,112 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // ── Lot-Only Adjustment ──────────────────────────────────────────────────
+  var laModal   = document.getElementById('lotAdjModal');
+  var laModalBs = laModal && typeof bootstrap !== 'undefined' ? new bootstrap.Modal(laModal) : null;
+  var laAdjUrl  = <?php echo json_encode($lotAdjUrl); ?>;
+
+  function laFmt(v) { var n = parseFloat(v); return isNaN(n) ? '0' : n.toLocaleString('id-ID', {maximumFractionDigits:4}); }
+
+  function laUpdateSelisih() {
+    var curQty = parseFloat(laModal?.dataset.lotQty || 0);
+    var target = parseFloat(document.getElementById('laTargetQty')?.value || '');
+    var sdEl   = document.getElementById('laSelisihDisplay');
+    if (isNaN(target)) { if (sdEl) sdEl.textContent = '—'; return; }
+    var delta = target - curQty;
+    if (sdEl) {
+      sdEl.textContent = (delta > 0 ? '+' : '') + laFmt(delta);
+      sdEl.style.color = delta > 0 ? '#1d4ed8' : delta < 0 ? '#b42318' : '#6b7280';
+    }
+    var hppRow = document.getElementById('laHppRow');
+    if (hppRow) hppRow.style.opacity = delta > 0 ? '1' : '0.5';
+  }
+
+  document.addEventListener('click', function(ev) {
+    var btn = ev.target.closest('.src-lot-adj-btn');
+    if (!btn) return;
+    var divId      = Number(btn.dataset.divisionId || 0);
+    var matId      = Number(btn.dataset.materialId || 0);
+    var dest       = String(btn.dataset.destination || '');
+    var contentUomId = Number(btn.dataset.contentUomId || 0);
+    var matName    = String(btn.dataset.materialName || '');
+    var profileKey = String(btn.dataset.profileKey || '');
+    var profileName= String(btn.dataset.profileName || '');
+    var lotQty     = Number(btn.dataset.lotQty || 0);
+    var avgCost    = Number(btn.dataset.avgCost || 0);
+
+    var g = function(id) { return document.getElementById(id); };
+    var subtitle = dest + (divId ? ' · Div #' + divId : '') + (profileName ? ' · ' + profileName : '');
+    if (g('laModalTitle')) g('laModalTitle').textContent = 'Adjustment Lot FIFO';
+    if (g('laSubtitle'))   g('laSubtitle').textContent = subtitle;
+    if (g('laMatName'))    g('laMatName').textContent = matName;
+    if (g('laSaldoSaatIni')) g('laSaldoSaatIni').textContent = laFmt(lotQty);
+    if (g('laSelisihDisplay')) { g('laSelisihDisplay').textContent = '—'; }
+    if (g('laTargetQty'))  g('laTargetQty').value = '';
+    if (g('laNotes'))      g('laNotes').value = '';
+    if (g('laUnitCost'))   g('laUnitCost').value = avgCost > 0 ? avgCost : '';
+    if (g('laDate'))       g('laDate').value = new Date().toISOString().slice(0, 10);
+    if (laModal) {
+      laModal.dataset.divisionId    = divId;
+      laModal.dataset.materialId    = matId;
+      laModal.dataset.destination   = dest;
+      laModal.dataset.contentUomId  = contentUomId;
+      laModal.dataset.profileKey    = profileKey;
+      laModal.dataset.lotQty        = lotQty;
+    }
+    if (laModalBs) { laModalBs.show(); } else if (laModal) { laModal.style.display = 'flex'; }
+    setTimeout(function() { var tq = g('laTargetQty'); if (tq) tq.focus(); }, 350);
+  });
+
+  if (document.getElementById('laTargetQty')) {
+    document.getElementById('laTargetQty').addEventListener('input', laUpdateSelisih);
+  }
+
+  var laSubmitBtn = document.getElementById('laSubmitBtn');
+  if (laSubmitBtn) {
+    laSubmitBtn.addEventListener('click', async function() {
+      var g        = function(id) { return document.getElementById(id); };
+      var targetQty = parseFloat(g('laTargetQty')?.value || '');
+      var curQty    = parseFloat(laModal?.dataset.lotQty || 0);
+      var unitCost  = parseFloat(g('laUnitCost')?.value || 0);
+      var notes     = (g('laNotes')?.value || '').trim();
+      var date      = g('laDate')?.value || new Date().toISOString().slice(0, 10);
+      var divId     = Number(laModal?.dataset.divisionId  || 0);
+      var matId     = Number(laModal?.dataset.materialId  || 0);
+      var dest      = String(laModal?.dataset.destination || '');
+      var contentUomId = Number(laModal?.dataset.contentUomId || 0);
+      var profileKey   = String(laModal?.dataset.profileKey   || '');
+
+      if (divId <= 0) { await showAlert('Division tidak valid.', 'Adj Lot'); return; }
+      if (isNaN(targetQty)) { await showAlert('Saldo target belum diisi.', 'Adj Lot'); g('laTargetQty')?.focus(); return; }
+      if (Math.abs(targetQty - curQty) < 0.0001) { await showAlert('Saldo target sama dengan saldo lot saat ini.', 'Adj Lot'); return; }
+      var delta = targetQty - curQty;
+      if (delta > 0 && unitCost <= 0) { await showAlert('Unit cost wajib diisi untuk lot plus.', 'Adj Lot'); g('laUnitCost')?.focus(); return; }
+
+      setButtonLoading(laSubmitBtn, 'Menyimpan...');
+      try {
+        var payload = {
+          adjustment_date: date,
+          division_id:     divId,
+          material_id:     matId,
+          destination:     dest,
+          content_uom_id:  contentUomId || null,
+          target_qty:      targetQty,
+          unit_cost:       unitCost || null,
+          notes:           notes,
+        };
+        if (profileKey) payload.profile_key = profileKey;
+        var json = await postJson(laAdjUrl, payload);
+        if (laModalBs) { laModalBs.hide(); } else if (laModal) { laModal.style.display = 'none'; }
+        await showAlert(json.message || 'Adjustment lot berhasil.', 'Adj Lot');
+        window.location.reload();
+      } catch(e) {
+        clearButtonLoading(laSubmitBtn);
+        await showAlert(e.message || 'Gagal menyimpan adjustment lot.', 'Adj Lot');
+      }
+    });
+  }
+
   if (repairDecisionModal) {
     repairDecisionModal.addEventListener('click', function(ev) {
       var cancelBtn = ev.target.closest('[data-role="cancel"]');
@@ -1854,6 +1984,56 @@ document.addEventListener('DOMContentLoaded', function () {
       <div class="modal-body">
         <div id="repairDecisionBody"></div>
         <div id="repairDecisionActions" class="d-flex flex-wrap gap-2 justify-content-end align-items-start"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Lot-Only Adjustment Modal -->
+<div class="modal fade" id="lotAdjModal" tabindex="-1" aria-labelledby="laModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:420px">
+    <div class="modal-content">
+      <div class="modal-header py-2" style="background:linear-gradient(135deg,#1e3a5f,#2563eb)">
+        <div>
+          <h6 class="modal-title text-white mb-0" id="laModalTitle">Adjustment Lot FIFO</h6>
+          <div class="text-white" id="laSubtitle" style="font-size:.72rem;opacity:.85;margin-top:.1rem"></div>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Tutup"></button>
+      </div>
+      <div class="modal-body pb-2">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <div class="fw-semibold" id="laMatName" style="font-size:.95rem"></div>
+          <input type="date" class="form-control form-control-sm w-auto" id="laDate">
+        </div>
+        <div class="small text-info mb-3" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:.5rem .75rem">
+          Mode ini hanya mengubah saldo lot FIFO. Monthly stock dan movement log <strong>tidak</strong> ikut diubah. Cocok untuk koreksi drift lot tanpa mempengaruhi laporan stok.
+        </div>
+        <div class="rounded p-2 mb-3" style="background:#f8f9fa;border:1px solid #e2e8f0;font-size:.82rem">
+          <div class="d-flex justify-content-between mb-1">
+            <span class="text-muted">Saldo lot saat ini</span>
+            <span class="fw-semibold" id="laSaldoSaatIni">0</span>
+          </div>
+          <div class="d-flex justify-content-between">
+            <span class="text-muted">Selisih</span>
+            <span class="fw-semibold" id="laSelisihDisplay" style="color:#1d4ed8">—</span>
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1 fw-semibold">Saldo Target Lot <span class="text-muted fw-normal">(setelah adj)</span></label>
+          <input type="number" step="0.0001" class="form-control form-control-sm" id="laTargetQty" placeholder="Masukkan saldo lot yang diinginkan">
+        </div>
+        <div class="mb-2" id="laHppRow">
+          <label class="form-label small mb-1">HPP / Unit Cost <span class="text-muted fw-normal small">(wajib untuk lot plus)</span></label>
+          <input type="number" step="0.000001" min="0" class="form-control form-control-sm" id="laUnitCost" placeholder="Otomatis dari HPP lot, ubah bila perlu">
+        </div>
+        <div class="mb-1">
+          <label class="form-label small mb-1">Catatan</label>
+          <input type="text" class="form-control form-control-sm" id="laNotes" placeholder="Opsional">
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-sm btn-primary" id="laSubmitBtn">Simpan Adj Lot</button>
       </div>
     </div>
   </div>

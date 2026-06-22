@@ -2149,6 +2149,16 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         }
       });
 
+      // Profiles can have different content_per_buy, so summing per-profile packs gives wrong totals
+      // (e.g. profile A closing=-818 and profile B closing=+818 cancel to 0 content but pack sum ≠ 0).
+      // Use the opening ratio as a consistent effective pack size for the group.
+      if (agg.opening_pack > 0.0001 && agg.opening_content > 0.0001) {
+        var _grpRate = agg.opening_pack / agg.opening_content;
+        agg.closing_pack = agg.closing_content * _grpRate;
+      } else if (agg.opening_content <= 0.0001 && agg.closing_content <= 0.0001) {
+        agg.closing_pack = 0;
+      }
+
       group.children.sort(function(a, b){
         var aNonPositive = Number((a.metrics && a.metrics.closing_content) || 0) <= 0.0001;
         var bNonPositive = Number((b.metrics && b.metrics.closing_content) || 0) <= 0.0001;
