@@ -111,6 +111,12 @@ class Inventory_division extends Purchase
 
         $divWhereMain = $divisionId > 0 ? 'AND dms.division_id = ' . (int)$divisionId : '';
 
+        $hasCatTable  = $this->db->table_exists('mst_item_category');
+        $catJoin      = $hasCatTable ? 'LEFT JOIN mst_item_category cat ON cat.id = m.item_category_id' : '';
+        $catNameExpr  = $hasCatTable ? "COALESCE(cat.name, '')" : "''";
+        $catIdExpr    = $hasCatTable ? 'COALESCE(cat.id, 0)' : '0';
+        $catOrderExpr = $hasCatTable ? 'COALESCE(cat.id, 99999),' : '';
+
         $sql = "
             SELECT
                 dms.division_id,
@@ -137,7 +143,10 @@ class Inventory_division extends Purchase
                 dms.closing_qty_buy                           AS system_qty_buy,
                 dms.avg_cost_per_content,
                 dms.total_value,
-                dms.last_movement_date
+                dms.last_movement_date,
+                {$catNameExpr}                                AS category_name,
+                {$catIdExpr}                                  AS category_id,
+                0                                             AS is_recipe_only
             FROM inv_division_monthly_stock dms
             INNER JOIN ({$latestSub}) lm
                 ON  lm.division_id      = dms.division_id
@@ -147,16 +156,109 @@ class Inventory_division extends Purchase
             LEFT JOIN mst_item     i  ON i.id = dms.item_id
             LEFT JOIN mst_material m  ON m.id = COALESCE(dms.material_id, i.material_id)
             LEFT JOIN mst_operational_division dv ON dv.id = dms.division_id
+            {$catJoin}
             WHERE dms.material_id IS NOT NULL
               {$divWhereMain}
               {$destWhere}
               {$qWhere}
             ORDER BY {$divNameExpr},
+                     {$catOrderExpr}
                      COALESCE(m.material_name, i.item_name),
                      dms.profile_name
         ";
 
         $stockRows = ($r = $this->db->query($sql)) ? $r->result_array() : [];
+
+        // ── Append recipe-only materials (active in recipes but no stock record) ──
+        if ($destination !== 'EVENT' && $this->db->table_exists('mst_product_recipe')) {
+            $existingKeys = [];
+            foreach ($stockRows as $stockR) {
+                if (!empty($stockR['material_id']) && !empty($stockR['division_id'])) {
+                    $existingKeys[(int)$stockR['division_id'] . '|' . (int)$stockR['material_id']] = true;
+                }
+            }
+
+            $recDivNameExpr = $divNameCol ? ('dv.' . $divNameCol) : 'CAST(r.source_division_id AS CHAR)';
+            $recCatJoin     = $hasCatTable ? 'LEFT JOIN mst_item_category cat ON cat.id = m.item_category_id' : '';
+            $recCatExpr     = $hasCatTable ? "COALESCE(MIN(cat.name), '')" : "''";
+            $recCatIdExpr   = $hasCatTable ? 'MIN(COALESCE(cat.id, 0))' : '0';
+
+            $matIsActive  = $this->db->field_exists('is_active', 'mst_material') ? 'AND m.is_active = 1' : '';
+            $itemIsActive = $this->db->field_exists('is_active', 'mst_item')     ? 'AND i.is_active = 1' : '';
+
+            $recDivWhere = $divisionId > 0 ? 'AND r.source_division_id = ' . (int)$divisionId : '';
+            $recQWhere   = '';
+            if ($q !== '') {
+                $qLike = $this->db->escape('%' . $q . '%');
+                $recQWhere = "AND (m.material_name LIKE {$qLike} OR m.material_code LIKE {$qLike})";
+            }
+
+            $recSql = "
+                SELECT
+                    r.source_division_id            AS division_id,
+                    MIN({$recDivNameExpr})           AS division_name,
+                    'OTHER'                          AS destination_type,
+                    MIN(i.id)                        AS item_id,
+                    m.id                             AS material_id,
+                    m.content_uom_id                 AS buy_uom_id,
+                    m.content_uom_id                 AS content_uom_id,
+                    ''                               AS profile_key,
+                    ''                               AS identity_key,
+                    m.material_name                  AS profile_name,
+                    ''                               AS profile_brand,
+                    ''                               AS profile_description,
+                    NULL                             AS profile_expired_date,
+                    1                                AS profile_content_per_buy,
+                    MIN(u.code)                      AS profile_buy_uom_code,
+                    MIN(u.code)                      AS profile_content_uom_code,
+                    MIN(i.item_code)                 AS item_code,
+                    MIN(i.item_name)                 AS item_name,
+                    m.material_code                  AS material_code,
+                    m.material_name                  AS material_name,
+                    0                                AS system_qty_content,
+                    0                                AS system_qty_buy,
+                    0                                AS avg_cost_per_content,
+                    0                                AS total_value,
+                    NULL                             AS last_movement_date,
+                    {$recCatExpr}                    AS category_name,
+                    {$recCatIdExpr}                  AS category_id,
+                    1                                AS is_recipe_only
+                FROM mst_product_recipe r
+                JOIN mst_item i ON i.id = r.material_item_id {$itemIsActive}
+                JOIN mst_material m ON m.id = i.material_id {$matIsActive}
+                JOIN mst_operational_division dv ON dv.id = r.source_division_id
+                LEFT JOIN mst_uom u ON u.id = m.content_uom_id
+                {$recCatJoin}
+                WHERE r.source_division_id IS NOT NULL
+                  AND r.material_item_id IS NOT NULL
+                  AND i.material_id IS NOT NULL
+                  {$recDivWhere}
+                  {$recQWhere}
+                GROUP BY r.source_division_id, m.id, m.content_uom_id, m.material_code, m.material_name
+            ";
+
+            $addedAny = false;
+            $recRows  = ($rq = $this->db->query($recSql)) ? $rq->result_array() : [];
+            foreach ($recRows as $rRec) {
+                $key = (int)$rRec['division_id'] . '|' . (int)$rRec['material_id'];
+                if (!isset($existingKeys[$key])) {
+                    $stockRows[]        = $rRec;
+                    $existingKeys[$key] = true;
+                    $addedAny           = true;
+                }
+            }
+
+            if ($addedAny) {
+                usort($stockRows, static function (array $a, array $b): int {
+                    $dc = strcmp((string)($a['division_name'] ?? ''), (string)($b['division_name'] ?? ''));
+                    if ($dc !== 0) return $dc;
+                    $catA = (int)($a['category_id'] ?? 0);
+                    $catB = (int)($b['category_id'] ?? 0);
+                    if ($catA !== $catB) return $catA <=> $catB;
+                    return strcmp((string)($a['material_name'] ?? ''), (string)($b['material_name'] ?? ''));
+                });
+            }
+        }
 
         // Load opname records for this date (all or specific division)
         $opnameQuery = $this->db->table_exists('inv_division_stock_opname')
@@ -208,6 +310,8 @@ class Inventory_division extends Purchase
                 'avg_cost_per_content'=> (float)$r['avg_cost_per_content'],
                 'total_value'         => (float)$r['total_value'],
                 'last_movement_date'  => (string)($r['last_movement_date'] ?? ''),
+                'category_name'       => (string)($r['category_name'] ?? ''),
+                'is_recipe_only'      => !empty($r['is_recipe_only']),
                 'physical_qty_content'=> null,
                 'selisih'             => null,
                 'opname_notes'        => '',
@@ -227,11 +331,12 @@ class Inventory_division extends Purchase
                     'material_id'   => (int)$r['material_id'],
                     'material_code' => $r['material_code'],
                     'material_name' => $r['material_name'] ?: $r['item_name'],
-                    'item_id'       => (int)$r['item_id'],
+                    'item_id'          => (int)$r['item_id'],
                     'content_uom_code' => $r['profile_content_uom_code'],
-                    'profiles'      => [],
-                    'system_total'  => 0.0,
-                    'physical_total'=> null,
+                    'category_name'    => (string)($r['category_name'] ?? ''),
+                    'profiles'         => [],
+                    'system_total'     => 0.0,
+                    'physical_total'   => null,
                 ];
             }
             $divisionGroups[$divId]['materials'][$matKey]['profiles'][] = $profile;
@@ -400,6 +505,33 @@ class Inventory_division extends Purchase
             $line['adjustment_plus_reason_code'] = $rc;
             $line['unit_cost']                   = $unitCost > 0 ? $unitCost : null;
         }
+
+        // ── Guard: repair lot gap before negative adjustment ─────────────────────
+        // syncDivisionMonthlyStockFromLots (run inside post_stock_adjustment) overwrites
+        // monthly stock from lot balance. If lot = 0 and stock > 0, the sync zeros the
+        // stock, then the FIFO consume fails. Pre-repair brings the lot up to stock first.
+        if ($selisih < 0 && !empty($payload['material_id'])
+            && $this->db->table_exists('inv_material_fifo_lot')
+        ) {
+            $matId = (int)$payload['material_id'];
+            $lotRow = $this->db->query(
+                "SELECT COALESCE(SUM(qty_balance), 0) AS lot_total
+                 FROM inv_material_fifo_lot
+                 WHERE location_scope = 'DIVISION'
+                   AND division_id = ? AND material_id = ?
+                   AND status = 'OPEN' AND qty_balance > 0.0001",
+                [$divisionId, $matId]
+            )->row_array();
+            $lotAvail = round((float)($lotRow['lot_total'] ?? 0), 4);
+            if ($lotAvail < $absQty - 0.01) {
+                $this->Purchase_model->repair_division_material_lot_balance([
+                    'division_id' => $divisionId,
+                    'material_id' => $matId,
+                    'destination' => 'ALL',
+                ]);
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────────────
 
         $result = $this->Purchase_model->save_stock_adjustment([
             'id'               => 0,

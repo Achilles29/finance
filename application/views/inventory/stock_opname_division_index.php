@@ -15,13 +15,9 @@ $quickAdjUrl  = site_url('inventory/stock/daily-recon/division/quick-adjust');
 $profileMergeUrl = site_url('inventory/stock/division/reconcile/profile-merge');
 
 $destOptions = [
-    'ALL'           => 'Semua Tujuan',
-    'BAR'           => 'Bar Reguler',
-    'KITCHEN'       => 'Kitchen Reguler',
-    'BAR_EVENT'     => 'Bar Event',
-    'KITCHEN_EVENT' => 'Kitchen Event',
-    'OFFICE'        => 'Office',
-    'OTHER'         => 'Other',
+    'ALL'     => 'Semua',
+    'REGULER' => 'Reguler',
+    'EVENT'   => 'Event',
 ];
 
 $REASONS = [
@@ -225,7 +221,9 @@ tr.opn-grp-header.expanded .opn-grp-arrow { transform: rotate(90deg); color: #3b
 .opn-tipe-event   { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
 .opn-tipe-reguler { background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
 .opn-kat-cell { font-size:.72rem; color:#374151; white-space:nowrap; }
-.opn-div-cell { font-size:.72rem; color:#1e40af; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:90px; }
+.opn-mat-link { color:#1e40af; text-decoration:none; font-weight:600; }
+.opn-mat-link:hover { text-decoration:underline; color:#1d4ed8; }
+.opn-div-cell { font-size:.72rem; color:#1e40af; font-weight:600; white-space:nowrap; max-width:110px; vertical-align:middle; }
 #btnFilterMinus.filter-on { background:#dc3545; border-color:#dc3545; color:#fff; }
 </style>
 
@@ -385,9 +383,8 @@ tr.opn-grp-header.expanded .opn-grp-arrow { transform: rotate(90deg); color: #3b
       <table class="table table-hover align-middle mb-0">
         <thead>
           <tr>
-            <th style="width:82px">Divisi</th>
-            <th style="width:66px">Tipe</th>
-            <th style="width:72px">Destinasi</th>
+            <th style="width:108px">Divisi / Tipe</th>
+            <th style="width:86px">Kategori</th>
             <th class="text-start" style="min-width:190px">Bahan Baku / Profil</th>
             <th style="width:60px">UOM</th>
             <th class="text-end" style="width:96px">Sistem</th>
@@ -443,6 +440,7 @@ const DATA_URL   = '<?= $dataUrl ?>';
 const SAVE_URL   = '<?= $savePhysUrl ?>';
 const ADJ_URL    = '<?= $quickAdjUrl ?>';
 const PROFILE_MERGE_URL = '<?= $profileMergeUrl ?>';
+const MATERIAL_USAGE_BASE = '<?= site_url('master/material/usage/') ?>';
 const CAN_CREATE = <?= $canCreate ? 'true' : 'false' ?>;
 
 const REASONS = <?= json_encode($REASONS) ?>;
@@ -706,10 +704,15 @@ function renderTable(divisions) {
             ? '<span class="opn-tipe-event">Event</span>'
             : '<span class="opn-tipe-reguler">Reguler</span>';
     }
-    function katCell(destType) { return '<td class="opn-kat-cell">' + esc(destInfo(destType).kat) + '</td>'; }
+    function katCell(categoryName) { return '<td class="opn-kat-cell">' + esc(categoryName || '—') + '</td>'; }
 
     function buildLabelSingle(p, contentUom) {
-        var inner = '<div class="fw-semibold">' + esc(p.material_name || p.item_name) + '</div>';
+        var matId   = Number(p.material_id || 0);
+        var matName = esc(p.material_name || p.item_name);
+        var nameStr = matId > 0
+            ? '<a href="' + MATERIAL_USAGE_BASE + matId + '" class="opn-mat-link" target="_blank">' + matName + '</a>'
+            : matName;
+        var inner   = '<div class="fw-semibold">' + nameStr + '</div>';
         var subParts = [p.profile_name, p.profile_brand, p.profile_description].filter(Boolean);
         var expBadge = p.profile_expired_date
             ? ' <span class="badge bg-danger-subtle text-danger" style="font-size:.62rem">exp ' + esc(p.profile_expired_date) + '</span>' : '';
@@ -720,6 +723,9 @@ function renderTable(divisions) {
         }
         if (p.avg_cost_per_content > 0) {
             inner += '<div class="text-muted" style="font-size:.72rem">' + fmtRp(p.avg_cost_per_content) + '/' + contentUom + '</div>';
+        }
+        if (p.is_recipe_only) {
+            inner += '<div><span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size:.6rem">dari resep</span></div>';
         }
         return '<div class="opn-name-cell"><span class="opn-arrow-wrap"></span><div class="opn-name-body">' + inner + '</div></div>';
     }
@@ -773,11 +779,15 @@ function renderTable(divisions) {
                 html += '<tr id="grp-row-' + grpIid + '" class="opn-grp-header' + (grpNeg ? ' opn-row-minus' : '') + '"'
                     + ' data-system-val="' + sysTotal + '" data-div-id="' + esc(String(div.division_id)) + '"'
                     + ' onclick="opnToggleGrp(\'' + grpIid + '\')">'
-                    + '<td class="opn-div-cell">' + esc(div.division_name) + '</td>'
-                    + '<td></td><td></td>'
+                    + '<td class="opn-div-cell">' + esc(div.division_name)
+                    + (mat.profiles.length ? '<div style="margin-top:2px">' + tipeBadge(mat.profiles[0].destination_type) + '</div>' : '')
+                    + '</td>'
+                    + '<td class="opn-kat-cell" style="font-size:.8rem">' + esc(mat.category_name || '—') + '</td>'
                     + '<td class="text-start" style="font-size:.8rem"><div class="opn-name-cell">'
                     + '<span class="opn-arrow-wrap"><i id="grp-icon-' + grpIid + '" class="ri ri-arrow-right-s-line opn-grp-arrow text-muted" style="font-size:1.05rem"></i></span>'
-                    + '<div class="opn-name-body"><span class="fw-semibold">' + esc(mat.material_name) + '</span>'
+                    + '<div class="opn-name-body"><span class="fw-semibold">'
+                    + (mat.material_id > 0 ? '<a href="' + MATERIAL_USAGE_BASE + mat.material_id + '" class="opn-mat-link" target="_blank">' + esc(mat.material_name) + '</a>' : esc(mat.material_name))
+                    + '</span>'
                     + '<span class="text-muted fw-normal ms-1" style="font-size:.74rem">(' + mat.profiles.length + ' profil)</span>'
                     + '</div></div></td>'
                     + '<td></td>'
@@ -818,10 +828,22 @@ function renderTable(divisions) {
                     ? 'class="' + profClass + '" data-grp="' + grpIid + '" data-system-val="' + p.system_qty_content + '" data-div-id="' + esc(String(div.division_id)) + '" style="display:none"'
                     : 'class="' + profClass + '" data-system-val="' + p.system_qty_content + '" data-div-id="' + esc(String(div.division_id)) + '"';
 
+                if (p.is_recipe_only) {
+                    html += '<tr id="row-' + iid + '" ' + profAttrs + '>'
+                        + '<td class="opn-div-cell">' + esc(div.division_name) + '<div style="margin-top:2px">' + tipeBadge(p.destination_type) + '</div></td>'
+                        + katCell(p.category_name)
+                        + '<td class="text-start">' + matLabel + '</td>'
+                        + uomCell
+                        + '<td class="text-end text-muted" style="font-size:.82rem">0</td>'
+                        + '<td class="text-center"><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle" style="font-size:.65rem">Stok Kosong</span></td>'
+                        + '<td></td><td></td><td></td>'
+                        + '</tr>';
+                    return;
+                }
+
                 html += '<tr id="row-' + iid + '" ' + profAttrs + '>'
-                    + '<td class="opn-div-cell">' + esc(div.division_name) + '</td>'
-                    + '<td>' + tipeBadge(p.destination_type) + '</td>'
-                    + katCell(p.destination_type)
+                    + '<td class="opn-div-cell">' + esc(div.division_name) + '<div style="margin-top:2px">' + tipeBadge(p.destination_type) + '</div></td>'
+                    + katCell(p.category_name)
                     + '<td class="text-start">' + matLabel + '</td>'
                     + uomCell + sistemCell
                     + '<td class="text-end">'

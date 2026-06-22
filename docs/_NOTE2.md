@@ -175,10 +175,10 @@ kejutkan saya!
 
 
 missmatch taruh dashboard
-cek metode pembayaran self order
+v cek metode pembayaran self order
 v cek gambar produk member
 v cek extra member self order
-cek verifikasi self order sudah potong stok?
+v cek verifikasi self order sudah potong stok?
 
 
 =======================
@@ -203,3 +203,30 @@ cek dashboard stock habis harus sesuai sumber resep
 cek resep prepare
 
 /master/product/edit/ edit gambar tidak tersimpan. cek 
+
+
+
+lakukan penyesuaian /inventory/stock/daily-recon/division
+- kolom 1 berisi divisi/tipe. tidak usah destinasi, bukankah destinasi ini makusdnya sama dengan tipe ? yaitu even atau reguler?
+- sesuaikan juga dropdown pilih tujuan, cukup reguler dan event
+- tambahkan kolom kategori (bahan baku) setelah divisi
+- data yang tampil adalah semua data yang ada stok nya, dan data di master bahan baku aktif yang digunakan dalam resep masing masing , BAR dan KITCHEN. gunanya untuk kontrol bahan mana yang kosong.
+- ubah urutan tampilan : DIVISI dan Tipe, KATEGORI, NAMA BARANG 
+- NAMA barang jadi hiperlink menuju ke halaman penggunaan resep
+
+- nama bahan baku inventory/stock/daily-recon/division yang merupakan  parent belum hiperlink ke halaman penggunaan
+
+- coba cek adjutsmen bahan baku KULIT AYAM. di stok masih ada 990, tapi mau di 0 kan tidak bisa. coba cek apa penyebabnya!
+
+
+kopi susu botol belum ada
+
+di /inventory/stock/division/reconcile sepertinya kemarin sudah dibuat adjutsmen lot di tinggal child atau parent yang tidak punya child, seperti di /production/component-reconcile. kok nggak ada ya? atau memang belum? kalau memang belum coba buatkan!
+
+kok masih ada kolom "stock_domain" dan ENUM('ITEM','MATERIAL') ? itu di tabel mana? atau halaman mana? karena stock_domain sudah kita nonaktifkan dan seperitnya sudah dihapus. lalu Enum item material maksudnya bagaimana? yang jelas kalau bahan baku kan material id tidak boleh null
+bulan juni ada KULIT AYAM kok. apkah karena data ini legacy sebelum perbaikan item centric?
+coba jelaskan dulu, saya belum eksekusi sql.
+
+
+lanjutkan dengan tambahan catatan:
+IAD20260622-0694 status nya POSTED lho bukan draft

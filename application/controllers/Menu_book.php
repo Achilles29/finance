@@ -54,6 +54,8 @@ class Menu_book extends CI_Controller
             'tea_tradition'               => 'menu_book/beverage/page_16_tea_tradition',
             'sweet_scoops'                => 'menu_book/beverage/page_17_sweet_scoops',
             'extras_enhancers'            => 'menu_book/beverage/page_18_extras_enhancers',
+            'kopsu_literan'            => 'menu_book/beverage/page_19_kopsu',
+            'namua_bundle_club'            => 'menu_book/beverage/page_20_namua_bundle_club',
         ];
 
         $this->_load_menu_page($page, $allowed_pages);

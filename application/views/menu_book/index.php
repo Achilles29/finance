@@ -411,6 +411,8 @@
             ['16', 'tea_tradition', 'Tea & Tradition', 'Tea Series · Wedangan', ['Tea Series', 'Wedangan']],
             ['17', 'sweet_scoops', 'Sweet Scoops', 'Ice cream creations', ['Ice Cream', '4 Produk']],
             ['18', 'extras_enhancers', 'Extras & Enhancers', 'Customize your perfect drink', ['Beverage Add-On', '9 Produk']],
+            ['19', 'kopsu_literan', 'Kopi Susu Literan', 'Customize your perfect drink', ['Beverage Add-On', '9 Produk']],
+            ['20', 'namua_bundle_club', 'Bundling Hemar', 'Customize your perfect drink', ['Beverage Add-On', '9 Produk']],
         ];
 
         foreach ($beverage_pages as $page):

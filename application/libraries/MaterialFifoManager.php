@@ -889,6 +889,19 @@ class MaterialFifoManager
             'allow_any_profile_key' => false,
         ]);
 
+        // Fallback: when strict search finds no lots and profile_key is set, relax buy_uom
+        // matching. Profile_key already uniquely identifies the catalog so buy_uom is redundant.
+        // This handles legacy rows where buy_uom_id was null in the stock row but the actual
+        // lots carry a specific buy_uom_id (common for data migrated before buy_uom tracking).
+        if (empty($lots) && ($identity['profile_key'] ?? null) !== null && ($identity['material_id'] ?? null) !== null) {
+            $lots = $this->findIssueSourceLots($identity, [
+                'allow_any_item_id' => true,
+                'allow_any_buy_uom' => true,
+                'allow_any_content_uom' => false,
+                'allow_any_profile_key' => false,
+            ]);
+        }
+
         $qtyBalance = 0.0;
         $totalValue = 0.0;
         foreach ($lots as $lot) {
@@ -927,7 +940,50 @@ class MaterialFifoManager
                 (int)$identity['content_uom_id'],
                 $this->nullableString($identity['profile_key'] ?? null),
             ]
-        )->row_array();
+        )->row_array() ?: null;
+
+        // Fallback tier 1: search by the computed identity_key directly.
+        // Catches the case where a previous sync already normalised this row's identity_key
+        // (e.g. from a prior partially-successful adjustment), avoiding a UNIQUE collision
+        // if we later try to UPDATE a legacy row with the same identity_key.
+        if (!$existing) {
+            $existing = $this->ci->db->query(
+                'SELECT * FROM inv_division_monthly_stock
+                 WHERE month_key = ? AND division_id = ? AND destination_type = ?
+                   AND identity_key = ?
+                 ORDER BY id DESC LIMIT 1 FOR UPDATE',
+                [
+                    $monthKey,
+                    (int)$identity['division_id'],
+                    (string)$identity['destination_type'],
+                    $identityKey,
+                ]
+            )->row_array() ?: null;
+        }
+
+        // Fallback tier 2: search by profile_key for legacy rows whose identity_key or
+        // buy_uom_id differs from the current payload (e.g. rows created before buy_uom
+        // tracking was added). Only used when tier 1 also found nothing, so there is no
+        // risk of a UNIQUE collision on identity_key.
+        if (!$existing && ($identity['profile_key'] ?? null) !== null) {
+            $existing = $this->ci->db->query(
+                'SELECT * FROM inv_division_monthly_stock
+                 WHERE month_key = ?
+                   AND division_id = ?
+                   AND destination_type = ?
+                   AND material_id <=> ?
+                   AND profile_key = ?
+                 ORDER BY closing_qty_content DESC, id DESC
+                 LIMIT 1 FOR UPDATE',
+                [
+                    $monthKey,
+                    (int)$identity['division_id'],
+                    (string)$identity['destination_type'],
+                    $this->nullableInt($identity['material_id'] ?? null),
+                    (string)$identity['profile_key'],
+                ]
+            )->row_array() ?: null;
+        }
 
         $sameUom = ($identity['buy_uom_id'] ?? null) !== null
             && (int)($identity['buy_uom_id'] ?? 0) === (int)($identity['content_uom_id'] ?? 0);

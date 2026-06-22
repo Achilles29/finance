@@ -868,10 +868,12 @@ class Pos extends MY_Controller
     public function self_order_tables_print()
     {
         $this->require_permission('pos.self_order.index', 'view');
-        $rows = $this->Pos_model->self_order_print_rows();
+        $rows     = $this->Pos_model->self_order_print_rows();
+        $settings = $this->Pos_model->self_order_settings();
         $this->load->view('pos/self_order_tables_print', [
-            'title' => 'Print QR Meja Self Order',
-            'rows' => $rows,
+            'title'    => 'Print QR Meja Self Order',
+            'rows'     => $rows,
+            'settings' => $settings,
         ]);
     }
 
