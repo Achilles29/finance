@@ -428,7 +428,39 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                   }
                 ?>
                 <td class="<?php echo html_escape(implode(' ', $cellClasses)); ?>">
-                  <?php if ($entity === 'product' && $key === 'stock_mode'): ?>
+                  <?php if ($entity === 'product' && $type === 'product_taxonomy'): ?>
+                    <div class="d-flex flex-column gap-0" style="line-height:1.3;">
+                      <span class="fw-semibold"><?php echo html_escape((string)($r['product_division_id_label'] ?? '-')); ?></span>
+                      <small class="text-muted"><?php echo html_escape((string)($r['classification_id_label'] ?? '-')); ?> &middot; <?php echo html_escape((string)($r['product_category_id_label'] ?? '-')); ?></small>
+                    </div>
+                  <?php elseif ($entity === 'product' && $type === 'product_hpp_profit'): ?>
+                    <?php
+                      $hppPct  = (float)($r['hpp_live_percent_total'] ?? 0);
+                      $profit  = (float)($r['estimated_profit'] ?? 0);
+                      $profitClass = $profit >= 0 ? 'text-success' : 'text-danger';
+                    ?>
+                    <div class="d-flex flex-column gap-0" style="line-height:1.3;">
+                      <span class="fw-semibold"><?php echo number_format($hppPct, 2, ',', '.'); ?>%</span>
+                      <small class="<?php echo $profitClass; ?>">Rp <?php echo number_format($profit, 0, ',', '.'); ?></small>
+                    </div>
+                  <?php elseif ($entity === 'product' && $type === 'product_stock_status'): ?>
+                    <div class="d-flex flex-column gap-1" style="line-height:1.3;">
+                      <button
+                        type="button"
+                        class="btn btn-xs master-inline-pill <?php echo html_escape((string)($r['stock_mode_button_class'] ?? 'btn-outline-primary')); ?>"
+                        style="font-size:0.72rem;padding:1px 7px;"
+                        data-master-stock-mode-url="<?php echo site_url('master/' . $entity . '/stock-mode/' . (int)$r['id']); ?>"
+                        title="Klik untuk ubah mode stok"
+                      ><?php echo html_escape((string)($r['stock_mode_label'] ?? (string)($r['stock_mode'] ?? '-'))); ?></button>
+                      <button
+                        type="button"
+                        class="btn btn-xs master-inline-pill <?php echo (int)($r['is_active'] ?? 0) === 1 ? 'btn-success' : 'btn-outline-secondary'; ?>"
+                        style="font-size:0.72rem;padding:1px 7px;"
+                        data-master-status-toggle-url="<?php echo site_url('master/' . $entity . '/toggle/' . (int)$r['id']); ?>"
+                        title="Klik untuk ubah status"
+                      ><?php echo (int)($r['is_active'] ?? 0) === 1 ? 'Aktif' : 'Nonaktif'; ?></button>
+                    </div>
+                  <?php elseif ($entity === 'product' && $key === 'stock_mode'): ?>
                     <button
                       type="button"
                       class="btn btn-sm master-inline-pill <?php echo html_escape((string)($r['stock_mode_button_class'] ?? 'btn-outline-primary')); ?>"
@@ -490,16 +522,27 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                   <?php endif; ?>
                 </td>
               <?php endforeach; ?>
-              <td class="action-cell">
+              <td class="action-cell" <?php echo $entity === 'product' ? 'style="white-space:nowrap;width:120px;"' : ''; ?>>
+                <?php if ($entity === 'product'): ?>
+                  <div class="d-flex flex-column gap-1">
+                    <div class="d-flex gap-1">
+                      <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Detail" aria-label="Detail" href="<?php echo site_url('master/product/detail/' . (int)$r['id']); ?>"><i class="ri ri-eye-line"></i></a>
+                      <a class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit" href="<?php echo site_url('master/product/edit/' . (int)$r['id']); ?>"><i class="ri ri-edit-line"></i></a>
+                      <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Recipe" aria-label="Recipe" href="<?php echo site_url('master/relation/product-recipe/' . (int)$r['id']); ?>"><i class="ri ri-file-list-3-line"></i></a>
+                    </div>
+                    <div class="d-flex gap-1">
+                      <a class="btn btn-sm btn-outline-success action-icon-btn" data-bs-toggle="tooltip" title="COGS Stok" aria-label="COGS Stok" href="<?php echo site_url('master/product/hpp-stock/' . (int)$r['id']); ?>"><i class="ri ri-bar-chart-box-line"></i></a>
+                      <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Extra" aria-label="Extra" href="<?php echo site_url('master/relation/product-extra/' . (int)$r['id']); ?>"><i class="ri ri-links-line"></i></a>
+                    </div>
+                  </div>
+                <?php else: ?>
                 <div class="<?php echo $isPayrollMaster ? 'payroll-actions' : 'master-action-group'; ?>">
-                  <?php if (in_array($entity, ['org-employee', 'product'], true)): ?>
+                  <?php if (in_array($entity, ['org-employee'], true)): ?>
                     <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Detail" aria-label="Detail" href="<?php echo site_url('master/' . $entity . '/detail/' . (int)$r['id']); ?>"><i class="ri ri-eye-line"></i></a>
                   <?php endif; ?>
                   <a class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit" href="<?php echo site_url('master/' . $entity . '/edit/' . (int)$r['id']); ?>"><i class="ri ri-edit-line"></i></a>
-                  <?php if ($entity === 'product'): ?>
-                    <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Recipe" aria-label="Recipe" href="<?php echo site_url('master/relation/product-recipe/' . (int)$r['id']); ?>"><i class="ri ri-file-list-3-line"></i></a>
-                    <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Extra" aria-label="Extra" href="<?php echo site_url('master/relation/product-extra/' . (int)$r['id']); ?>"><i class="ri ri-links-line"></i></a>
-                  <?php endif; ?>
+                  <?php if (false): // product handled above
+                  endif; ?>
                   <?php if ($entity === 'component'): ?>
                     <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Formula" aria-label="Formula" href="<?php echo site_url('production/component-formulas/detail/' . (int)$r['id']); ?>"><i class="ri ri-function-line"></i></a>
                   <?php endif; ?>
@@ -534,6 +577,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                     <a class="btn btn-sm btn-outline-warning action-icon-btn" data-bs-toggle="tooltip" title="Toggle Status" aria-label="Toggle Status" href="<?php echo site_url('master/' . $entity . '/toggle/' . (int)$r['id']); ?>" onclick="return confirm('Ubah status data ini?')"><i class="ri ri-refresh-line"></i></a>
                   <?php endif; ?>
                 </div>
+                <?php endif; ?>
               </td>
             </tr>
           <?php endforeach; ?>

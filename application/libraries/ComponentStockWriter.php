@@ -383,7 +383,9 @@ class ComponentStockWriter
                     continue;
                 }
                 if ($sourceKind === 'MATERIAL') {
-                    $materialUsage = $this->post_material_input_usage($header, $line, $movementDate, $locationType, (int)$divisionId, (string)$destinationType, $actorEmployeeId);
+                    $lineDivisionId = !empty($line['division_id']) ? (int)$line['division_id'] : (int)$divisionId;
+                    $lineDestType = $this->resolve_inventory_destination_type($locationType) ?? (string)$destinationType;
+                    $materialUsage = $this->post_material_input_usage($header, $line, $movementDate, $locationType, $lineDivisionId, $lineDestType, $actorEmployeeId);
                     if (!($materialUsage['ok'] ?? false)) {
                         throw new RuntimeException((string)($materialUsage['message'] ?? 'Posting material usage gagal.'));
                     }
@@ -411,7 +413,8 @@ class ComponentStockWriter
                     continue;
                 }
 
-                $unitCost = isset($line['unit_cost']) ? round((float)$line['unit_cost'], 6) : $this->current_avg_cost($locationType, $divisionId, $componentId, $uomId);
+                $compDivisionId = !empty($line['division_id']) ? (int)$line['division_id'] : $divisionId;
+                $unitCost = isset($line['unit_cost']) ? round((float)$line['unit_cost'], 6) : $this->current_avg_cost($locationType, $compDivisionId, $componentId, $uomId);
                 $lineCost = round($qty * $unitCost, 2);
                 if ($planRole !== 'INLINE_COMPONENT_USAGE') {
                     $totalInputCost += $lineCost;
@@ -420,7 +423,7 @@ class ComponentStockWriter
                 $this->post_single_movement([
                     'movement_date' => $movementDate,
                     'location_type' => $locationType,
-                    'division_id' => $divisionId,
+                    'division_id' => $compDivisionId,
                     'component_id' => $componentId,
                     'uom_id' => $uomId,
                     'movement_type' => 'PRODUCTION_OUT',

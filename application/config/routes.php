@@ -619,6 +619,7 @@ $route['master/relation/product-recipe/(:num)/store']           = 'master_relati
 $route['master/relation/product-recipe/edit/(:num)']            = 'master_relation/product_recipe_edit/$1';
 $route['master/relation/product-recipe/edit/(:num)/update']     = 'master_relation/product_recipe_update/$1';
 $route['master/relation/product-recipe/delete/(:num)']          = 'master_relation/product_recipe_delete/$1';
+$route['master/product/hpp-stock/(:num)']                        = 'master_relation/product_hpp_stock/$1';
 $route['product/availability']                                  = 'master_relation/product_availability';
 
 $route['master/relation/component-formula']                      = 'master_relation/component_formula_hub';

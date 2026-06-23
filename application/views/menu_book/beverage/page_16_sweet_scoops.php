@@ -6,7 +6,9 @@
 
 <!-- SWEET SCOOPS - A4 PORTRAIT -->
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Cormorant+Garamond:ital,wght@0,500;1,500&family=Montserrat:wght@500;600;700;800&display=swap');
+@page{size:A4 portrait;margin:0}
+*{box-sizing:border-box}
+body{margin:0;background:#2b1b15}
 
   * { box-sizing: border-box; }
 

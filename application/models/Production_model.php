@@ -4713,9 +4713,10 @@ class Production_model extends CI_Model
             }
             if ($sourceKind === 'COMPONENT') {
                 $componentContext = $this->component_operational_context((int)$componentId);
-                if ((int)($componentContext['operational_division_id'] ?? 0) !== $resolvedDivisionId) {
+                $lineDivId = !empty($line['division_id']) ? (int)$line['division_id'] : $resolvedDivisionId;
+                if ((int)($componentContext['operational_division_id'] ?? 0) !== $lineDivId) {
                     $this->db->trans_complete();
-                    return ['ok' => false, 'message' => 'Input component batch harus berasal dari divisi yang sama dengan output component.'];
+                    return ['ok' => false, 'message' => 'Input component batch harus berasal dari divisi yang sesuai dengan formula.'];
                 }
             }
             $unitCost = round((float)($line['unit_cost'] ?? 0), 6);
@@ -4723,11 +4724,13 @@ class Production_model extends CI_Model
             if ($planRole !== 'INLINE_OUTPUT' && $planRole !== 'INLINE_COMPONENT_USAGE') {
                 $totalInputCost += $lineCost;
             }
+            $lineDivId = !empty($line['division_id']) ? (int)$line['division_id'] : null;
             $row = [
                 'batch_id' => $id,
                 'line_no' => $lineNo++,
                 'plan_role' => $this->db->field_exists('plan_role', 'inv_component_batch_input') ? $planRole : null,
                 'source_kind' => $sourceKind,
+                'division_id' => $this->db->field_exists('division_id', 'inv_component_batch_input') ? ($lineDivId > 0 ? $lineDivId : null) : null,
                 'item_id' => $this->db->field_exists('item_id', 'inv_component_batch_input') ? $itemId : null,
                 'material_id' => $materialId,
                 'component_id' => $componentId,
@@ -4739,6 +4742,9 @@ class Production_model extends CI_Model
             ];
             if (!$this->db->field_exists('plan_role', 'inv_component_batch_input')) {
                 unset($row['plan_role']);
+            }
+            if (!$this->db->field_exists('division_id', 'inv_component_batch_input')) {
+                unset($row['division_id']);
             }
             if (!$this->db->field_exists('item_id', 'inv_component_batch_input')) {
                 unset($row['item_id']);
@@ -4779,6 +4785,9 @@ class Production_model extends CI_Model
         }
         if (!$this->db->field_exists('fifo_issue_no', $table)) {
             $this->db->query("ALTER TABLE {$table} ADD COLUMN fifo_issue_no VARCHAR(60) NULL AFTER fifo_issue_id");
+        }
+        if (!$this->db->field_exists('division_id', $table)) {
+            $this->db->query("ALTER TABLE {$table} ADD COLUMN division_id BIGINT(20) UNSIGNED NULL AFTER source_kind");
         }
     }
 
@@ -4972,8 +4981,9 @@ class Production_model extends CI_Model
         }
         $itemId = !empty($line['material_item_id']) ? (int)$line['material_item_id'] : null;
         $uomId = (int)($line['uom_id'] ?? $this->resolve_formula_uom_id('MATERIAL', $materialId, null));
-        $stockState = $this->component_batch_material_stock_state($materialId, $itemId, $uomId, $divisionId, $locationType);
-        $stockKey = (string)($stockState['stock_key'] ?? ($materialId . '|' . $itemId . '|' . $uomId . '|' . $divisionId . '|' . $locationType));
+        $effectiveDivisionId = !empty($line['source_division_id']) ? (int)$line['source_division_id'] : $divisionId;
+        $stockState = $this->component_batch_material_stock_state($materialId, $itemId, $uomId, $effectiveDivisionId, $locationType);
+        $stockKey = (string)($stockState['stock_key'] ?? ($materialId . '|' . $itemId . '|' . $uomId . '|' . $effectiveDivisionId . '|' . $locationType));
         $availableQty = array_key_exists($stockKey, $state['material_stock'])
             ? (float)$state['material_stock'][$stockKey]['available_qty']
             : (float)$stockState['available_qty'];
@@ -4985,7 +4995,7 @@ class Production_model extends CI_Model
         ];
 
         if ($shortageQty > 0) {
-            $issueKey = 'M|' . $materialId . '|' . $divisionId . '|' . $locationType . '|' . $depth . '|' . $stageComponent['id'];
+            $issueKey = 'M|' . $materialId . '|' . $effectiveDivisionId . '|' . $locationType . '|' . $depth . '|' . $stageComponent['id'];
             if (!isset($state['material_issue_keys'][$issueKey])) {
                 $state['material_issue_keys'][$issueKey] = true;
                 $state['issues'][] = 'Bahan ' . (string)($line['material_name'] ?? ('#' . $materialId)) . ' kurang ' . number_format($shortageQty, 2, '.', '') . ' ' . (string)($line['uom_code'] ?? '');
@@ -5022,6 +5032,7 @@ class Production_model extends CI_Model
             'uom_id' => $uomId,
             'qty' => round($requiredQty, 4),
             'unit_cost' => round($unitCost, 6),
+            'division_id' => $effectiveDivisionId > 0 ? $effectiveDivisionId : null,
             'notes' => 'Pakai bahan untuk ' . (string)($stageComponent['component_name'] ?? 'batch'),
         ];
 
@@ -5043,8 +5054,9 @@ class Production_model extends CI_Model
         if (!$subComponent) {
             return ['cost_contribution' => 0.0];
         }
-        if ((int)($subComponent['operational_division_id'] ?? 0) !== $divisionId) {
-            $issueKey = 'CD|' . $subComponentId . '|' . $divisionId;
+        $effectiveDivisionId = !empty($line['source_division_id']) ? (int)$line['source_division_id'] : $divisionId;
+        if ((int)($subComponent['operational_division_id'] ?? 0) !== $effectiveDivisionId) {
+            $issueKey = 'CD|' . $subComponentId . '|' . $effectiveDivisionId;
             if (!isset($state['component_issue_keys'][$issueKey])) {
                 $state['component_issue_keys'][$issueKey] = true;
                 $state['issues'][] = 'Component ' . (string)($subComponent['component_name'] ?? ('#' . $subComponentId)) . ' beda divisi dengan batch.';
@@ -5053,8 +5065,8 @@ class Production_model extends CI_Model
         }
 
         $uomId = (int)($line['uom_id'] ?? $subComponent['uom_id'] ?? 0);
-        $stockState = $this->component_batch_component_stock_state($subComponentId, $uomId, $divisionId, $locationType);
-        $stockKey = $subComponentId . '|' . $uomId . '|' . $divisionId . '|' . $locationType;
+        $stockState = $this->component_batch_component_stock_state($subComponentId, $uomId, $effectiveDivisionId, $locationType);
+        $stockKey = $subComponentId . '|' . $uomId . '|' . $effectiveDivisionId . '|' . $locationType;
         $availableQty = array_key_exists($stockKey, $state['component_stock'])
             ? (float)$state['component_stock'][$stockKey]['available_qty']
             : (float)$stockState['available_qty'];
@@ -5097,6 +5109,7 @@ class Production_model extends CI_Model
                 'uom_id' => $uomId,
                 'qty' => round($directQty, 4),
                 'unit_cost' => round($unitCost, 6),
+                'division_id' => $effectiveDivisionId > 0 ? $effectiveDivisionId : null,
                 'notes' => 'Pakai component untuk ' . (string)($stageComponent['component_name'] ?? 'batch'),
             ];
         }
@@ -5114,7 +5127,7 @@ class Production_model extends CI_Model
             $subComponent,
             $shortageQty,
             $locationType,
-            $divisionId,
+            $effectiveDivisionId,
             $state,
             $path,
             $depth + 1,
@@ -5122,7 +5135,7 @@ class Production_model extends CI_Model
             $stageComponent
         );
         if (!($inlinePlan['ok'] ?? false)) {
-            $issueKey = 'CF|' . $subComponentId . '|' . $divisionId . '|' . $locationType;
+            $issueKey = 'CF|' . $subComponentId . '|' . $effectiveDivisionId . '|' . $locationType;
             if (!isset($state['component_issue_keys'][$issueKey])) {
                 $state['component_issue_keys'][$issueKey] = true;
                 $state['issues'][] = (string)($inlinePlan['message'] ?? ('Formula component ' . (string)($subComponent['component_name'] ?? ('#' . $subComponentId)) . ' belum siap untuk inline produksi.'));
@@ -5150,7 +5163,7 @@ class Production_model extends CI_Model
         }
 
         if (!empty($inlinePlan['has_shortage'])) {
-            $issueKey = 'CS|' . $subComponentId . '|' . $divisionId . '|' . $locationType;
+            $issueKey = 'CS|' . $subComponentId . '|' . $effectiveDivisionId . '|' . $locationType;
             if (!isset($state['component_issue_keys'][$issueKey])) {
                 $state['component_issue_keys'][$issueKey] = true;
                 $state['issues'][] = 'Component ' . (string)($subComponent['component_name'] ?? ('#' . $subComponentId)) . ' masih kurang bahan untuk inline produksi.';

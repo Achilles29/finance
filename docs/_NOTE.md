@@ -122,6 +122,12 @@ lalu di /production/component-reconcile component yang tidak ada stock tapi ada 
 
 
 
-lakukan pengecekan di halaman adjustmen seperti daily matrix, daily recon, reconcile, adjustmen , yang mungkin bisa mempengaruhi bahan baku juga
+lakukan pengecekan di halaman adjustmen seperti daily matrix, daily recon, reconcile, adjustment , yang mungkin bisa mempengaruhi bahan baku juga
 
-buat halaman cost berdasarkan stok component, bukan resep, karena beda
+buat halaman cost berdasarkan stok component, bukan resep, karena beda, kalau ini untuk cost produk
+
+
+/master/product divisi, klasifikasi dan kategori jadikan 1 kolom, mode stok dan status  jadikan 1 kolom, % hpp dan estimasi profit jadikan  1 kolom, icon kolom aksi jadikan 2 baris
+
+
+/master/product/edit/ edit foto tidak bisa. foto tidak tampil. cek

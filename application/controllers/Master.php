@@ -3044,15 +3044,11 @@ class Master extends MY_Controller
                 'columns' => [
                     ['key' => 'photo_path', 'label' => 'Foto', 'type' => 'image'],
                     ['key' => 'product_name', 'label' => 'Nama'],
-                    ['key' => 'product_division_id_label', 'label' => 'Divisi Produk'],
-                    ['key' => 'classification_id_label', 'label' => 'Klasifikasi'],
-                    ['key' => 'product_category_id_label', 'label' => 'Kategori'],
+                    ['key' => 'product_division_id_label', 'label' => 'Divisi / Klasifikasi / Kategori', 'type' => 'product_taxonomy'],
                     ['key' => 'selling_price', 'label' => 'Harga', 'type' => 'money'],
                     ['key' => 'hpp_live_total', 'label' => 'HPP Live', 'type' => 'money'],
-                    ['key' => 'hpp_live_percent_total', 'label' => '% HPP Live', 'type' => 'percent'],
-                    ['key' => 'estimated_profit', 'label' => 'Estimasi Profit', 'type' => 'money'],
-                    ['key' => 'stock_mode', 'label' => 'Mode Stok'],
-                    ['key' => 'is_active', 'label' => 'Status', 'type' => 'status'],
+                    ['key' => 'hpp_live_percent_total', 'label' => '% HPP / Profit', 'type' => 'product_hpp_profit'],
+                    ['key' => 'stock_mode', 'label' => 'Stok / Status', 'type' => 'product_stock_status'],
                 ],
             ],
             'vendor' => [

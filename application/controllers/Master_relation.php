@@ -229,6 +229,225 @@ class Master_relation extends MY_Controller
         ]);
     }
 
+    public function product_hpp_stock(int $productId)
+    {
+        $product = $this->loadProductRecipeParent($productId);
+        if (!$product) show_404();
+
+        $this->load->model('Production_model');
+
+        $recipeRows = $this->db
+            ->select('r.line_type, r.qty, r.uom_id, r.component_id, r.material_item_id, r.source_division_id,
+                      i.item_name, i.material_id,
+                      c.component_name, c.hpp_standard AS component_hpp_standard, c.operational_division_id AS component_div_id,
+                      u.name AS uom_name,
+                      od.name AS source_division_name,
+                      codiv.name AS component_div_name,
+                      m.material_name')
+            ->from('mst_product_recipe r')
+            ->join('mst_item i', 'i.id = r.material_item_id', 'left')
+            ->join('mst_material m', 'm.id = i.material_id', 'left')
+            ->join('mst_component c', 'c.id = r.component_id', 'left')
+            ->join('mst_uom u', 'u.id = r.uom_id', 'left')
+            ->join('mst_operational_division od', 'od.id = r.source_division_id', 'left')
+            ->join('mst_operational_division codiv', 'codiv.id = c.operational_division_id', 'left')
+            ->where('r.product_id', $productId)
+            ->order_by('r.sort_order ASC, r.id ASC')
+            ->get()->result_array();
+
+        $varCtx = $this->productRecipeVariableCostContext($product);
+        $effectivePct = $varCtx['effective_percent'] / 100;
+        $directStock = 0.0;
+        $directFormula = 0.0;
+        $lines = [];
+
+        foreach ($recipeRows as $row) {
+            $lineType = strtoupper(trim((string)($row['line_type'] ?? 'MATERIAL')));
+            $qty = (float)($row['qty'] ?? 0);
+            if ($qty <= 0) continue;
+
+            $sourceDivId = !empty($row['source_division_id']) ? (int)$row['source_division_id'] : 0;
+
+            if ($lineType === 'COMPONENT') {
+                $componentId = (int)($row['component_id'] ?? 0);
+                $divisionId = $sourceDivId > 0 ? $sourceDivId : (int)($row['component_div_id'] ?? 0);
+
+                $stockCost = $this->resolveComponentStockCostForHpp($componentId, $divisionId);
+                $formulaCost = $this->resolveComponentFormulaCostForHpp($componentId, $divisionId);
+
+                $effectiveCostByStock = $stockCost['unit_cost'] > 0 ? $stockCost['unit_cost'] : $formulaCost['unit_cost'];
+                $stockSource = $stockCost['unit_cost'] > 0 ? $stockCost['source'] : 'FALLBACK_FORMULA';
+                $stockSourceLabel = $stockCost['unit_cost'] > 0 ? $stockCost['source_label'] : 'Fallback Resep';
+
+                $lineTotalStock = round($qty * $effectiveCostByStock, 6);
+                $lineTotalFormula = round($qty * $formulaCost['unit_cost'], 6);
+                $directStock += $lineTotalStock;
+                $directFormula += $lineTotalFormula;
+
+                $lines[] = [
+                    'line_type' => 'COMPONENT',
+                    'reference_name' => (string)($row['component_name'] ?? '-'),
+                    'qty' => $qty,
+                    'uom_name' => (string)($row['uom_name'] ?? '-'),
+                    'source_division_name' => (string)($row['source_division_name'] ?? $row['component_div_name'] ?? '-'),
+                    'cost_by_stock' => $stockCost['unit_cost'],
+                    'cost_by_formula' => $formulaCost['unit_cost'],
+                    'effective_cost' => $effectiveCostByStock,
+                    'stock_qty' => $stockCost['qty_balance'],
+                    'stock_source' => $stockSource,
+                    'stock_source_label' => $stockSourceLabel,
+                    'line_total_stock' => $lineTotalStock,
+                    'line_total_formula' => $lineTotalFormula,
+                    'has_stock' => $stockCost['unit_cost'] > 0,
+                    'has_formula' => $formulaCost['unit_cost'] > 0,
+                    'formula_has_no_lines' => $formulaCost['no_lines'] ?? false,
+                ];
+            } else {
+                $materialId = (int)($row['material_id'] ?? 0);
+                $divisionId = $sourceDivId > 0 ? $sourceDivId : $this->resolveProductRecipeDefaultDivisionIdForProduct($product);
+                $mat = $this->resolveProductRecipeMaterialCost($materialId, $divisionId);
+                $unitCost = (float)$mat['live_unit_cost'];
+                $lineTotal = round($qty * $unitCost, 6);
+                $directStock += $lineTotal;
+                $directFormula += $lineTotal;
+
+                $lines[] = [
+                    'line_type' => 'MATERIAL',
+                    'reference_name' => (string)($row['material_name'] ?? $row['item_name'] ?? '-'),
+                    'qty' => $qty,
+                    'uom_name' => (string)($row['uom_name'] ?? '-'),
+                    'source_division_name' => (string)($row['source_division_name'] ?? '-'),
+                    'cost_by_stock' => $unitCost,
+                    'cost_by_formula' => $unitCost,
+                    'effective_cost' => $unitCost,
+                    'stock_qty' => (float)$mat['available_qty'],
+                    'stock_source' => (string)$mat['live_cost_source'],
+                    'stock_source_label' => (string)$mat['live_cost_source_label'],
+                    'line_total_stock' => $lineTotal,
+                    'line_total_formula' => $lineTotal,
+                    'has_stock' => (float)$mat['available_qty'] > 0,
+                    'has_formula' => false,
+                    'formula_has_no_lines' => false,
+                ];
+            }
+        }
+
+        $sellingPrice = $varCtx['selling_price'];
+        $summary = [
+            'line_count' => count($lines),
+            'direct_cost_stock' => round($directStock, 6),
+            'direct_cost_formula' => round($directFormula, 6),
+            'variable_cost_mode' => $varCtx['mode'],
+            'variable_cost_percent' => $varCtx['effective_percent'],
+            'variable_cost_stock' => round($directStock * $effectivePct, 6),
+            'variable_cost_formula' => round($directFormula * $effectivePct, 6),
+            'total_hpp_stock' => round($directStock * (1 + $effectivePct), 6),
+            'total_hpp_formula' => round($directFormula * (1 + $effectivePct), 6),
+            'selling_price' => $sellingPrice,
+        ];
+        $summary['hpp_pct_stock'] = $sellingPrice > 0 ? round($summary['total_hpp_stock'] / $sellingPrice * 100, 2) : 0.0;
+        $summary['hpp_pct_formula'] = $sellingPrice > 0 ? round($summary['total_hpp_formula'] / $sellingPrice * 100, 2) : 0.0;
+
+        $this->render('master/product_hpp_stock', [
+            'title' => 'COGS Stok — ' . (string)($product['product_name'] ?? ''),
+            'active_menu' => 'grp.master',
+            'product' => $product,
+            'lines' => $lines,
+            'summary' => $summary,
+            'variable_cost' => $varCtx,
+        ]);
+    }
+
+    private function resolveComponentStockCostForHpp(int $componentId, int $divisionId): array
+    {
+        if ($componentId <= 0) {
+            return ['unit_cost' => 0.0, 'qty_balance' => 0.0, 'source' => 'NO_DATA', 'source_label' => '-'];
+        }
+        $unitCost = 0.0;
+        $qtyBalance = 0.0;
+        $source = 'NO_DATA';
+        $sourceLabel = '-';
+
+        // 1) FIFO lot active cost
+        $lotCost = $this->resolveProductRecipeComponentLotCost($componentId, $divisionId);
+        if (($lotCost['unit_cost'] ?? 0) > 0) {
+            $unitCost = (float)$lotCost['unit_cost'];
+            $qtyBalance = (float)($lotCost['qty_balance'] ?? 0);
+            $source = 'LOT_FIFO';
+            $sourceLabel = 'Lot Aktif FIFO';
+        }
+
+        // 2) Monthly avg from component stock
+        if ($unitCost <= 0 && $this->db->table_exists('inv_component_monthly_stock')) {
+            $targetMonth = date('Y-m-01');
+            $latestSub = $this->db
+                ->select('location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key', false)
+                ->from('inv_component_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
+                ->get_compiled_select();
+            $costQ = $this->db->select("
+                    COALESCE(
+                        CASE WHEN ABS(SUM(COALESCE(s.closing_qty,0))) > 0.000001
+                            THEN SUM(COALESCE(s.closing_qty,0)*COALESCE(s.avg_cost,0))/SUM(COALESCE(s.closing_qty,0))
+                            ELSE MAX(COALESCE(s.avg_cost,0))
+                        END, 0) AS avg_cost,
+                    COALESCE(SUM(COALESCE(s.closing_qty,0)),0) AS qty_balance
+                ", false)
+                ->from('inv_component_monthly_stock s')
+                ->join("($latestSub) lm", 'lm.location_type=s.location_type AND lm.division_id<=>s.division_id AND lm.component_id=s.component_id AND lm.uom_id=s.uom_id AND lm.month_key=s.month_key', 'inner', false)
+                ->where('s.component_id', $componentId);
+            if ($divisionId > 0) $costQ->where('s.division_id', $divisionId);
+            $row = $costQ->get()->row_array();
+            if ((float)($row['avg_cost'] ?? 0) > 0) {
+                $unitCost = (float)$row['avg_cost'];
+                $qtyBalance = (float)($row['qty_balance'] ?? 0);
+                $source = 'STOCK_MONTHLY';
+                $sourceLabel = 'Stok Bulanan';
+            }
+        }
+
+        return [
+            'unit_cost' => round($unitCost, 6),
+            'qty_balance' => round($qtyBalance, 4),
+            'source' => $source,
+            'source_label' => $sourceLabel,
+        ];
+    }
+
+    private function resolveComponentFormulaCostForHpp(int $componentId, int $divisionId): array
+    {
+        static $cache = [];
+        $key = $componentId . '|' . $divisionId;
+        if (array_key_exists($key, $cache)) return $cache[$key];
+
+        if ($componentId <= 0) {
+            return $cache[$key] = ['unit_cost' => 0.0, 'source' => 'NO_DATA', 'no_lines' => true];
+        }
+
+        $detail = $this->Production_model->component_formula_detail($componentId);
+        if (!($detail['ok'] ?? false) || empty($detail['lines'])) {
+            $std = (float)($this->db->select('hpp_standard')->from('mst_component')->where('id', $componentId)->limit(1)->get()->row_array()['hpp_standard'] ?? 0);
+            return $cache[$key] = ['unit_cost' => round($std, 6), 'source' => $std > 0 ? 'FALLBACK_STD' : 'NO_DATA', 'no_lines' => true];
+        }
+
+        $outputQty = max(1.0, (float)($detail['summary']['output_qty'] ?? 1));
+        $directLive = (float)($detail['summary']['direct_cost_live'] ?? 0);
+        $perUnit = round($directLive / $outputQty, 6);
+
+        return $cache[$key] = ['unit_cost' => $perUnit, 'source' => 'FORMULA', 'no_lines' => false];
+    }
+
+    private function resolveProductRecipeDefaultDivisionIdForProduct(array $product): int
+    {
+        $divisionKey = strtoupper(trim((string)($product['product_division_code'] ?? $product['product_division_name'] ?? '')));
+        $map = ['BEVERAGE' => 'BAR', 'FOOD' => 'KITCHEN'];
+        $preferred = $map[$divisionKey] ?? '';
+        if ($preferred === '') return 0;
+        $row = $this->db->select('id')->from('mst_operational_division')->where('UPPER(name)', $preferred)->limit(1)->get()->row_array();
+        return (int)($row['id'] ?? 0);
+    }
+
     public function product_recipe_bulk_edit(int $productId)
     {
         $product = $this->loadProductRecipeParent($productId);

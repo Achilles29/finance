@@ -1,6 +1,13 @@
-<!-- HOUSE MASTERPIECES - A4 PORTRAIT -->
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>House Of Masterpiece</title>
+
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Cormorant+Garamond:ital,wght@0,500;1,500&family=Montserrat:wght@400;500;600;700;800&display=swap');
+@page{size:A4 portrait;margin:0}
+*{box-sizing:border-box}
+body{margin:0;background:#2b1b15}
 
   * {
     box-sizing: border-box;
