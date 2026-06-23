@@ -7166,7 +7166,7 @@ class Pos_model extends CI_Model
                 ? strtoupper(trim((string)$payload['processed_state']))
                 : '',
         ]);
-        if (empty($selection['decisions'])) {
+        if (empty($selection['product_lines']) && empty($selection['extra_lines'])) {
             return ['ok' => false, 'message' => 'Tidak ada line void yang valid.'];
         }
 
@@ -7339,7 +7339,7 @@ class Pos_model extends CI_Model
                 ? strtoupper(trim((string)$payload['processed_state']))
                 : '',
         ]);
-        if (empty($selection['decisions'])) {
+        if (empty($selection['product_lines']) && empty($selection['extra_lines'])) {
             return ['ok' => false, 'message' => 'Tidak ada line refund yang valid.'];
         }
 
@@ -9851,7 +9851,7 @@ class Pos_model extends CI_Model
         }
 
         if (empty($groupedDecisions)) {
-            return ['ok' => false, 'message' => 'Snapshot stok untuk item yang dipilih tidak ditemukan lagi. Muat ulang order lalu coba lagi.'];
+            return ['ok' => true, 'affected_lines' => 0, 'adjustment_doc_count' => 0];
         }
 
         $affectedLines = 0;
