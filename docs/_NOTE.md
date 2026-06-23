@@ -119,3 +119,9 @@ sekarang pindah ke component. apakah 4 halamana adjustmen component /production/
 Periksa, kalau iya maka lakukan penyesuaian seperti bahan baku, guarding adjustmen di ke 4 halaman itu, jika adjustmen dari minus, maka menyesuaikan kenaikan mulai dari 0 saja.
 
 lalu di /production/component-reconcile component yang tidak ada stock tapi ada lot aktif, tetap dimunculkan dengan stock 0 dan lot ada. sehingga dapat dilakukan adj lot. buatkan repair lot per child dan repair lot semmua untuk kasus serupa
+
+
+
+lakukan pengecekan di halaman adjustmen seperti daily matrix, daily recon, reconcile, adjustmen , yang mungkin bisa mempengaruhi bahan baku juga
+
+buat halaman cost berdasarkan stok component, bukan resep, karena beda
