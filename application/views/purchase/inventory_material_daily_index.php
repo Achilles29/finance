@@ -2149,14 +2149,26 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         }
       });
 
-      // Profiles can have different content_per_buy, so summing per-profile packs gives wrong totals
-      // (e.g. profile A closing=-818 and profile B closing=+818 cancel to 0 content but pack sum ≠ 0).
-      // Use the opening ratio as a consistent effective pack size for the group.
-      if (agg.opening_pack > 0.0001 && agg.opening_content > 0.0001) {
-        var _grpRate = agg.opening_pack / agg.opening_content;
-        agg.closing_pack = agg.closing_content * _grpRate;
-      } else if (agg.opening_content <= 0.0001 && agg.closing_content <= 0.0001) {
-        agg.closing_pack = 0;
+      // Profiles with different content_per_buy must not have their per-profile packs simply summed —
+      // the sums are incoherent (e.g. profile A closing=-818 pack=-0.5 and profile B closing=+818
+      // pack≈0 gives total content=0 but total pack=-0.5). Recompute using the group-level effective
+      // pack rate derived from opening balances, then apply the same rate to every date cell.
+      var _grpRate = (agg.opening_pack > 0.0001 && agg.opening_content > 0.0001)
+        ? agg.opening_pack / agg.opening_content
+        : 0;
+      agg.closing_pack = _grpRate > 0 ? agg.closing_content * _grpRate : 0;
+      if (_grpRate > 0) {
+        dates.forEach(function(dk) {
+          if (summaryDaily[dk]) {
+            summaryDaily[dk].closing_pack = summaryDaily[dk].closing * _grpRate;
+          }
+        });
+      } else {
+        dates.forEach(function(dk) {
+          if (summaryDaily[dk] && Math.abs(summaryDaily[dk].closing) < 0.0001) {
+            summaryDaily[dk].closing_pack = 0;
+          }
+        });
       }
 
       group.children.sort(function(a, b){
