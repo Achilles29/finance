@@ -1,0 +1,5 @@
+[2026-06-23 11:00:02] ====== Backup START: 20260623_110002 ======
+[2026-06-23 11:00:02] Database : db_finance@localhost:3306
+[2026-06-23 11:00:02] Output   : /www/wwwroot/finance/backup/dumps/backup_db_finance_20260623_110002.sql.gz
+[2026-06-23 11:00:04] Dump OK  : 5.0M
+[2026-06-23 11:00:04] Cleanup  : 2 file lama dihapus (> 3 hari)
