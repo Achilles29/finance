@@ -230,3 +230,8 @@ coba jelaskan dulu, saya belum eksekusi sql.
 
 lanjutkan dengan tambahan catatan:
 IAD20260622-0694 status nya POSTED lho bukan draft
+
+padahal movement log harusnya tetap jadi pegangan, jika ada miss harus ada solusi repairnya. coba kamu cek dulu database yang saya sampaikan tadi. kalau benar harus ada solusi repair di /inventory/stock/division/reconcile. saat ini belum ada solusi repair log, baru repair stock untuk menyesuaikan log. harusnya harus ada repair log atas hasil audit seperti kasus c8d1469527b56bc35e473bbc59d8fc0513d66774. bisa repair adj manual, bisa otomatis
+
+
+sekarang kalau saya cek di inv_stock_movement_log, material id 123 , profile key c8d1469527b56bc35e473bbc59d8fc0513d66774, kalau dijumlah jadi minus. betul tidak?

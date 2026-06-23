@@ -10,6 +10,7 @@ $repairMaterialIdUrl    = site_url('inventory/stock/division/reconcile/repair-ma
 $profileRepairUrl       = site_url('inventory/stock/division/reconcile/profile-repair');
 $profileMergeUrl        = site_url('inventory/stock/division/reconcile/profile-merge');
 $lotAdjUrl              = site_url('inventory/stock/division/reconcile/lot-only-adjust');
+$logRepairUrl           = site_url('inventory/stock/division/reconcile/log-repair');
 
 $allRows     = is_array($rows ?? null) ? $rows : [];
 $divisions   = is_array($divisions ?? null) ? $divisions : [];
@@ -740,6 +741,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                         <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Lot FIFO</th>
                         <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Mat. Daily</th>
                         <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Movement</th>
+                        <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px" title="Selisih closing monthly_stock vs (opening + Σ movement_log). Bukan nol = ada movement phantom atau hilang.">Log Gap</th>
                         <th style="font-weight:700;padding:.3rem .4rem;min-width:140px">Selisih</th>
                         <th class="text-center" style="font-weight:700;padding:.3rem .4rem;min-width:72px">Status</th>
                         <th class="text-center" style="font-weight:700;padding:.3rem .4rem;min-width:64px">Aksi</th>
@@ -751,16 +753,18 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                           $pbPk     = (string)($pb['profile_key'] ?? '');
                           $pbName   = trim((string)($pb['profile_name'] ?? ''));
                           $pbLabel  = $pbName !== '' ? $pbName : ($pbPk !== '' ? substr($pbPk, 0, 8).'…' : '(no profile)');
-                          $pbStock  = (float)($pb['stock_balance'] ?? 0);
-                          $pbLot    = (float)($pb['lot_balance'] ?? 0);
-                          $pbDaily  = isset($pb['daily_content']) ? (float)$pb['daily_content'] : $pbStock;
-                          $pbMvt    = isset($pb['movement_content']) ? (float)$pb['movement_content'] : 0.0;
-                          $pbHasMvt = isset($pb['movement_content']);
-                          $pbDStk   = round($pbStock - $pbMvt, 4);
-                          $pbDLot   = round($pbStock - $pbLot, 4);
-                          $dStkBad  = $pbHasMvt && abs($pbDStk) > 0.01;
-                          $dLotBad  = abs($pbDLot) > 0.01;
-                          $pbMis    = $dStkBad || $dLotBad;
+                          $pbStock    = (float)($pb['stock_balance'] ?? 0);
+                          $pbLot      = (float)($pb['lot_balance'] ?? 0);
+                          $pbDaily    = isset($pb['daily_content']) ? (float)$pb['daily_content'] : $pbStock;
+                          $pbMvt      = isset($pb['movement_content']) ? (float)$pb['movement_content'] : 0.0;
+                          $pbHasMvt   = isset($pb['movement_content']);
+                          $pbLogGap   = round((float)($pb['log_gap_content'] ?? 0), 4);
+                          $pbLogBad   = !empty($pb['log_has_gap']);
+                          $pbDStk     = round($pbStock - $pbMvt, 4);
+                          $pbDLot     = round($pbStock - $pbLot, 4);
+                          $dStkBad    = $pbHasMvt && abs($pbDStk) > 0.01;
+                          $dLotBad    = abs($pbDLot) > 0.01;
+                          $pbMis      = $dStkBad || $dLotBad || $pbLogBad;
 
                           // Build smart Selisih text
                           $selisihParts = [];
@@ -771,6 +775,10 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                           if ($dStkBad) {
                               $sign = $pbDStk > 0 ? '+' : '';
                               $selisihParts[] = 'Stok vs Mvt: ' . $sign . $fmtQty($pbDStk);
+                          }
+                          if ($pbLogBad) {
+                              $sign = $pbLogGap > 0 ? '+' : '';
+                              $selisihParts[] = 'Log Gap: ' . $sign . $fmtQty($pbLogGap);
                           }
                           $selisihText = empty($selisihParts) ? '–' : implode('; ', $selisihParts);
 
@@ -798,6 +806,14 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                           <td class="text-end" style="padding:.3rem .4rem;<?php echo $dLotBad ? 'color:#b42318;font-weight:600' : ''; ?>"><?php echo $fmtQty($pbLot); ?></td>
                           <td class="text-end" style="padding:.3rem .4rem"><?php echo $fmtQty($pbDaily); ?></td>
                           <td class="text-end" style="padding:.3rem .4rem<?php echo !$pbHasMvt ? ';color:#94a3b8' : ''; ?>"><?php echo $pbHasMvt ? $fmtQty($pbMvt) : '–'; ?></td>
+                          <td class="text-end" style="padding:.3rem .4rem;<?php
+                            echo $pbLogBad
+                              ? ($pbLogGap > 0 ? 'color:#1d4ed8;font-weight:600' : 'color:#b42318;font-weight:600')
+                              : 'color:#94a3b8'; ?>">
+                            <?php if ($pbLogBad): ?>
+                              <?php echo ($pbLogGap > 0 ? '+' : '') . $fmtQty($pbLogGap); ?>
+                            <?php else: ?>–<?php endif; ?>
+                          </td>
                           <td style="padding:.3rem .4rem;font-size:.65rem">
                             <?php if (!$pbMis): ?>
                               <span style="color:#2f9e44">–</span>
@@ -854,6 +870,21 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                               data-avg-cost="<?php echo (float)($row['avg_cost_per_content'] ?? 0); ?>"
                               title="Adjustment lot FIFO saja untuk profil ini (monthly stock tidak berubah)"
                               style="font-size:.59rem;padding:.1rem .35rem"><i class="ri ri-stack-line"></i> Lot</button>
+                            <?php if ($pbLogBad): ?>
+                            <button type="button" class="btn btn-xs btn-outline-danger src-log-repair-btn"
+                              data-division-id="<?php echo $dataDivId; ?>"
+                              data-material-id="<?php echo $dataMatId; ?>"
+                              data-destination="<?php echo html_escape($dataDest); ?>"
+                              data-content-uom-id="<?php echo (int)($row['content_uom_id'] ?? 0); ?>"
+                              data-material-name="<?php echo html_escape($row['material_name'] ?? ''); ?>"
+                              data-profile-key="<?php echo html_escape($pbPk); ?>"
+                              data-profile-name="<?php echo html_escape($pbLabel); ?>"
+                              data-log-gap="<?php echo $pbLogGap; ?>"
+                              data-stock="<?php echo $pbStock; ?>"
+                              data-avg-cost="<?php echo (float)($row['avg_cost_per_content'] ?? 0); ?>"
+                              title="Repair log gap: tambah entry ADJUSTMENT ke movement_log supaya opening + Σ delta foot ke closing monthly_stock"
+                              style="font-size:.59rem;padding:.1rem .35rem"><i class="ri ri-git-pull-request-line"></i> Repair Log</button>
+                            <?php endif; ?>
                             </div>
                           </td>
                         </tr>
@@ -1897,6 +1928,110 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // ── Log Gap Repair ───────────────────────────────────────────────────────
+  var lrModal   = document.getElementById('logRepairModal');
+  var lrModalBs = lrModal && typeof bootstrap !== 'undefined' ? new bootstrap.Modal(lrModal) : null;
+  var lrRepairUrl = <?php echo json_encode($logRepairUrl); ?>;
+
+  function lrFmt(v) { var n = parseFloat(v); return isNaN(n) ? '0' : n.toLocaleString('id-ID', {maximumFractionDigits:4}); }
+  function lrUpdateCorr() {
+    var v = parseFloat(document.getElementById('lrCorrQty')?.value || '');
+    var el = document.getElementById('lrCorrDisplay');
+    if (el) { el.textContent = isNaN(v) ? '—' : (v > 0 ? '+' : '') + lrFmt(v); el.style.color = v > 0 ? '#1d4ed8' : v < 0 ? '#b42318' : '#6b7280'; }
+  }
+
+  document.addEventListener('click', function(ev) {
+    var btn = ev.target.closest('.src-log-repair-btn');
+    if (!btn) return;
+    var divId     = Number(btn.dataset.divisionId || 0);
+    var matId     = Number(btn.dataset.materialId || 0);
+    var dest      = String(btn.dataset.destination || '');
+    var contentUomId = Number(btn.dataset.contentUomId || 0);
+    var matName   = String(btn.dataset.materialName || '');
+    var profileKey = String(btn.dataset.profileKey || '');
+    var profileName= String(btn.dataset.profileName || '');
+    var logGap    = Number(btn.dataset.logGap || 0);
+    var stock     = Number(btn.dataset.stock || 0);
+    var avgCost   = Number(btn.dataset.avgCost || 0);
+
+    var g = function(id) { return document.getElementById(id); };
+    var subtitle = dest + (divId ? ' · Div #' + divId : '') + (profileName ? ' · ' + profileName : '');
+    if (g('lrModalTitle')) g('lrModalTitle').textContent = 'Repair Log Gap';
+    if (g('lrSubtitle'))   g('lrSubtitle').textContent  = subtitle;
+    if (g('lrMatName'))    g('lrMatName').textContent   = matName;
+    if (g('lrGapDisplay')) { g('lrGapDisplay').textContent = (logGap > 0 ? '+' : '') + lrFmt(logGap); g('lrGapDisplay').style.color = logGap > 0 ? '#1d4ed8' : '#b42318'; }
+    if (g('lrStockDisplay')) g('lrStockDisplay').textContent = lrFmt(stock);
+    if (g('lrCorrDisplay')) { g('lrCorrDisplay').textContent = (logGap > 0 ? '+' : '') + lrFmt(logGap); g('lrCorrDisplay').style.color = logGap > 0 ? '#1d4ed8' : '#b42318'; }
+    if (g('lrCorrQty'))    g('lrCorrQty').value = logGap !== 0 ? logGap : '';
+    if (g('lrUnitCost'))   g('lrUnitCost').value = avgCost > 0 ? avgCost : '';
+    if (g('lrNotes'))      g('lrNotes').value = '';
+    if (g('lrDate'))       g('lrDate').value = new Date().toISOString().slice(0, 10);
+    if (lrModal) {
+      lrModal.dataset.divisionId   = divId;
+      lrModal.dataset.materialId   = matId;
+      lrModal.dataset.destination  = dest;
+      lrModal.dataset.contentUomId = contentUomId;
+      lrModal.dataset.profileKey   = profileKey;
+      lrModal.dataset.logGap       = logGap;
+    }
+    if (lrModalBs) { lrModalBs.show(); } else if (lrModal) { lrModal.style.display = 'flex'; }
+    setTimeout(function() { var cq = g('lrCorrQty'); if (cq) cq.focus(); }, 350);
+  });
+
+  if (document.getElementById('lrCorrQty')) {
+    document.getElementById('lrCorrQty').addEventListener('input', lrUpdateCorr);
+  }
+
+  var lrAutoFillBtn = document.getElementById('lrAutoFillBtn');
+  if (lrAutoFillBtn) {
+    lrAutoFillBtn.addEventListener('click', function() {
+      var gap = Number(lrModal?.dataset.logGap || 0);
+      var el = document.getElementById('lrCorrQty');
+      if (el) { el.value = gap; lrUpdateCorr(); el.focus(); }
+    });
+  }
+
+  var lrSubmitBtn = document.getElementById('lrSubmitBtn');
+  if (lrSubmitBtn) {
+    lrSubmitBtn.addEventListener('click', async function() {
+      var g           = function(id) { return document.getElementById(id); };
+      var corrQty     = parseFloat(g('lrCorrQty')?.value || '');
+      var unitCost    = parseFloat(g('lrUnitCost')?.value || 0);
+      var notes       = (g('lrNotes')?.value || '').trim();
+      var date        = g('lrDate')?.value || new Date().toISOString().slice(0, 10);
+      var divId       = Number(lrModal?.dataset.divisionId  || 0);
+      var matId       = Number(lrModal?.dataset.materialId  || 0);
+      var dest        = String(lrModal?.dataset.destination || '');
+      var contentUomId = Number(lrModal?.dataset.contentUomId || 0);
+      var profileKey  = String(lrModal?.dataset.profileKey  || '');
+
+      if (divId <= 0) { await showAlert('Division tidak valid.', 'Repair Log'); return; }
+      if (isNaN(corrQty) || Math.abs(corrQty) < 0.0001) { await showAlert('Qty koreksi tidak boleh nol.', 'Repair Log'); g('lrCorrQty')?.focus(); return; }
+
+      setButtonLoading(lrSubmitBtn, 'Menyimpan...');
+      try {
+        var payload = {
+          adjustment_date: date,
+          division_id:     divId,
+          material_id:     matId,
+          destination:     dest,
+          content_uom_id:  contentUomId || null,
+          correction_qty:  corrQty,
+          unit_cost:       unitCost || null,
+          notes:           notes,
+        };
+        if (profileKey) payload.profile_key = profileKey;
+        var json = await postJson(lrRepairUrl, payload);
+        if (lrModalBs) { lrModalBs.hide(); } else if (lrModal) { lrModal.style.display = 'none'; }
+        await showAlert(json.message || 'Repair log berhasil.', 'Repair Log');
+        window.location.reload();
+      } catch(e) {
+        clearButtonLoading(lrSubmitBtn);
+        await showAlert(e.message || 'Gagal menyimpan repair log.', 'Repair Log');
+      }
+    });
+  }
+
   if (repairDecisionModal) {
     repairDecisionModal.addEventListener('click', function(ev) {
       var cancelBtn = ev.target.closest('[data-role="cancel"]');
@@ -2034,6 +2169,65 @@ document.addEventListener('DOMContentLoaded', function () {
       <div class="modal-footer py-2">
         <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
         <button type="button" class="btn btn-sm btn-primary" id="laSubmitBtn">Simpan Adj Lot</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Log Gap Repair Modal -->
+<div class="modal fade" id="logRepairModal" tabindex="-1" aria-labelledby="lrModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:440px">
+    <div class="modal-content">
+      <div class="modal-header py-2" style="background:linear-gradient(135deg,#7f1d1d,#dc2626)">
+        <div>
+          <h6 class="modal-title text-white mb-0" id="lrModalTitle">Repair Log Gap</h6>
+          <div class="text-white" id="lrSubtitle" style="font-size:.72rem;opacity:.85;margin-top:.1rem"></div>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Tutup"></button>
+      </div>
+      <div class="modal-body pb-2">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <div class="fw-semibold" id="lrMatName" style="font-size:.95rem"></div>
+          <input type="date" class="form-control form-control-sm w-auto" id="lrDate">
+        </div>
+        <div class="small text-danger mb-3" style="background:#fff1f2;border:1px solid #fecaca;border-radius:6px;padding:.5rem .75rem">
+          Mode ini menambah entry <strong>ADJUSTMENT</strong> ke movement log agar
+          <code>opening + Σ delta</code> foot ke <code>closing monthly_stock</code>.
+          Monthly stock dan lot FIFO <strong>tidak</strong> diubah.
+        </div>
+        <div class="rounded p-2 mb-3" style="background:#f8f9fa;border:1px solid #e2e8f0;font-size:.82rem">
+          <div class="d-flex justify-content-between mb-1">
+            <span class="text-muted">Log Gap (closing − predicted)</span>
+            <span class="fw-semibold" id="lrGapDisplay" style="color:#b42318">—</span>
+          </div>
+          <div class="d-flex justify-content-between mb-1">
+            <span class="text-muted">Closing monthly_stock</span>
+            <span class="fw-semibold" id="lrStockDisplay">—</span>
+          </div>
+          <div class="d-flex justify-content-between">
+            <span class="text-muted">Correction qty (akan diinsert)</span>
+            <span class="fw-semibold" id="lrCorrDisplay" style="color:#1d4ed8">—</span>
+          </div>
+        </div>
+        <div class="mb-2">
+          <div class="d-flex align-items-center gap-2 mb-1">
+            <label class="form-label small mb-0 fw-semibold">Qty Koreksi</label>
+            <button type="button" class="btn btn-xs btn-outline-secondary" id="lrAutoFillBtn" style="font-size:.65rem;padding:.05rem .4rem">Auto dari Gap</button>
+          </div>
+          <input type="number" step="0.0001" class="form-control form-control-sm" id="lrCorrQty" placeholder="Positif = tambah, negatif = kurangi">
+        </div>
+        <div class="mb-2" id="lrCostRow">
+          <label class="form-label small mb-1">Unit Cost <span class="text-muted fw-normal small">(opsional, untuk koreksi plus)</span></label>
+          <input type="number" step="0.000001" min="0" class="form-control form-control-sm" id="lrUnitCost" placeholder="0">
+        </div>
+        <div class="mb-1">
+          <label class="form-label small mb-1">Catatan</label>
+          <input type="text" class="form-control form-control-sm" id="lrNotes" placeholder="Alasan koreksi log gap">
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-sm btn-danger" id="lrSubmitBtn">Simpan Repair Log</button>
       </div>
     </div>
   </div>

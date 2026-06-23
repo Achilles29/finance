@@ -3357,11 +3357,19 @@ class Purchase_model extends CI_Model
                 ? $this->buildDivisionProfileMovementClosingMap($asOfDate, $divisionIds)
                 : [];
 
+            // Log gap: monthly_stock.closing vs (monthly_stock.opening + Σ movement_log non-opening delta).
+            // Detects phantom movements (e.g. double opname) that qty_content_after cannot catch because
+            // the after-balance is clamped to 0 even when the cumulative delta would go negative.
+            $profileLogGapMap = !empty($asOfDate)
+                ? $this->buildDivisionProfileLogGapMap($asOfDate, $divisionIds)
+                : [];
+
             foreach ($profileBreakdownMap as $matK => &$profiles) {
                 foreach ($profiles as $pk => &$profile) {
                     $stockBal  = (float)$profile['stock_balance'];
                     $mvtBal    = (float)($profileMovementMap[$matK][$pk] ?? 0.0);
                     $lotBal    = (float)$profile['lot_balance'];
+                    $logGap    = (float)($profileLogGapMap[$matK][$pk] ?? 0.0);
                     $profile['movement_content'] = round($mvtBal, 4);
                     // daily/snapshot: same source as Stok Divisi at per-profile level (monthly_stock closing)
                     $profile['daily_content']    = round($stockBal, 4);
@@ -3369,9 +3377,11 @@ class Purchase_model extends CI_Model
                     $profile['delta_stock_vs_mvt']    = round($stockBal - $mvtBal, 4);
                     $profile['delta_daily_vs_mvt']    = round($stockBal - $mvtBal, 4);
                     $profile['delta_snapshot_vs_mvt'] = round($stockBal - $mvtBal, 4);
+                    $profile['log_gap_content']   = round($logGap, 4);
+                    $profile['log_has_gap']       = abs($logGap) > 0.001 ? 1 : 0;
                     $delta = $stockBal - $lotBal;
                     $profile['delta'] = round($delta, 4);
-                    $profile['has_mismatch'] = abs($delta) > 0.01 || abs($stockBal - $mvtBal) > 0.01;
+                    $profile['has_mismatch'] = abs($delta) > 0.01 || abs($logGap) > 0.001;
                 }
                 unset($profile);
                 ksort($profiles);
@@ -3609,6 +3619,71 @@ class Purchase_model extends CI_Model
                     4
                 );
             }
+        }
+
+        return $map;
+    }
+
+    private function buildDivisionProfileLogGapMap(string $asOfDate, array $divisionIds): array
+    {
+        $map = [];
+        if (empty($divisionIds) || !$this->db->table_exists('inv_division_monthly_stock')
+            || !$this->db->table_exists('inv_stock_movement_log')) {
+            return $map;
+        }
+
+        $targetMonth = date('Y-m-01', strtotime($asOfDate ?: date('Y-m-d')));
+        $nextMonth   = date('Y-m-01', strtotime($targetMonth . ' +1 month'));
+        $divIdsStr   = implode(',', array_map('intval', $divisionIds));
+
+        $rows = $this->db->query("
+            SELECT
+                s.division_id,
+                CASE WHEN s.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
+                COALESCE(s.material_id, 0) AS material_id,
+                COALESCE(s.profile_key, '') AS profile_key,
+                ROUND(
+                    s.closing_qty_content
+                    - (s.opening_qty_content + COALESCE(m.net_non_opening_delta, 0)),
+                4) AS log_gap_content
+            FROM inv_division_monthly_stock s
+            LEFT JOIN (
+                SELECT
+                    division_id,
+                    destination_type,
+                    COALESCE(material_id, 0)  AS material_id,
+                    COALESCE(profile_key, '') AS profile_key,
+                    ROUND(SUM(
+                        CASE WHEN COALESCE(ref_table,'') IN (
+                            'inv_division_stock_opening_snapshot',
+                            'inv_warehouse_stock_opening_snapshot'
+                        ) THEN 0 ELSE COALESCE(qty_content_delta,0) END
+                    ), 4) AS net_non_opening_delta
+                FROM inv_stock_movement_log
+                WHERE movement_scope = 'DIVISION'
+                  AND movement_date >= '{$targetMonth}'
+                  AND movement_date <  '{$nextMonth}'
+                GROUP BY division_id, destination_type, material_id, profile_key
+            ) m ON  m.division_id      = s.division_id
+                AND m.destination_type = s.destination_type
+                AND m.material_id      = COALESCE(s.material_id, 0)
+                AND m.profile_key      = COALESCE(s.profile_key, '')
+            WHERE s.month_key = '{$targetMonth}'
+              AND s.division_id IN ({$divIdsStr})
+              AND s.material_id IS NOT NULL
+        ")->result_array();
+
+        foreach ($rows as $row) {
+            $divId  = (int)($row['division_id'] ?? 0);
+            $destGrp = strtoupper((string)($row['destination_group'] ?? 'REGULER'));
+            $matId  = (int)($row['material_id'] ?? 0);
+            $pk     = (string)($row['profile_key'] ?? '');
+            $gap    = round((float)($row['log_gap_content'] ?? 0), 4);
+            if ($matId <= 0) {
+                continue;
+            }
+            $matKey = $divId . '|' . $destGrp . '|M-' . $matId;
+            $map[$matKey][$pk] = $gap;
         }
 
         return $map;

@@ -2362,6 +2362,134 @@ class Purchase extends MY_Controller
             ->set_output(json_encode($result));
     }
 
+    public function stock_division_reconcile_log_repair()
+    {
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');
+
+        $payload = json_decode((string)$this->input->raw_input_stream, true);
+        if (!is_array($payload)) {
+            $payload = $this->input->post(null, true) ?: [];
+        }
+
+        $divisionId    = (int)($payload['division_id'] ?? 0);
+        $materialId    = (int)($payload['material_id'] ?? 0);
+        $destination   = strtoupper(trim((string)($payload['destination'] ?? '')));
+        $profileKey    = trim((string)($payload['profile_key'] ?? ''));
+        $correctionQty = round((float)($payload['correction_qty'] ?? 0), 4);
+        $adjustDate    = trim((string)($payload['adjustment_date'] ?? date('Y-m-d')));
+        $notes         = trim((string)($payload['notes'] ?? ''));
+        $unitCost      = round((float)($payload['unit_cost'] ?? 0), 6);
+
+        if ($divisionId <= 0) {
+            $this->output->set_status_header(422)->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'division_id wajib diisi.']));
+            return;
+        }
+        if ($materialId <= 0) {
+            $this->output->set_status_header(422)->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'material_id wajib diisi.']));
+            return;
+        }
+        if (abs($correctionQty) < 0.0001) {
+            $this->output->set_status_header(422)->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'correction_qty tidak boleh nol.']));
+            return;
+        }
+
+        // Resolve material + division data
+        $matRow = $this->db->select('id, buy_uom_id, content_uom_id')->from('mst_material')
+            ->where('id', $materialId)->get()->row_array();
+        if (empty($matRow)) {
+            $this->output->set_status_header(422)->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'Material tidak ditemukan.']));
+            return;
+        }
+        $buyUomId     = (int)($matRow['buy_uom_id'] ?? 0);
+        $contentUomId = (int)($payload['content_uom_id'] ?? $matRow['content_uom_id'] ?? 0);
+
+        $divRow = $this->db->select('id, destination_type')->from('mst_operational_division')
+            ->where('id', $divisionId)->get()->row_array();
+        if (empty($divRow)) {
+            $this->output->set_status_header(422)->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'Division tidak ditemukan.']));
+            return;
+        }
+        $destType = $destination ?: strtoupper(trim((string)($divRow['destination_type'] ?? 'OTHER')));
+
+        // Fetch profile info if profile_key given
+        $profileName = null;
+        if ($profileKey !== '') {
+            $pkRow = $this->db->select('profile_name, profile_content_per_buy')
+                ->from('inv_division_monthly_stock')
+                ->where('division_id', $divisionId)->where('material_id', $materialId)
+                ->where('profile_key', $profileKey)
+                ->order_by('month_key', 'DESC')->limit(1)->get()->row_array();
+            $profileName = $pkRow['profile_name'] ?? null;
+        }
+
+        // Generate movement_no
+        $timestamp  = date('YmdHis');
+        $hash       = substr(md5($divisionId . $materialId . $profileKey . $timestamp . rand()), 0, 6);
+        $movementNo = 'LOGADJ' . $timestamp . strtoupper($hash);
+
+        $movementType = $correctionQty > 0 ? 'ADJUSTMENT_IN' : 'ADJUSTMENT';
+
+        // Compute qty_content_after from last movement log entry for this profile
+        $lastRow = $this->db
+            ->select('qty_content_after')
+            ->from('inv_stock_movement_log')
+            ->where('division_id', $divisionId)
+            ->where('material_id', $materialId)
+            ->where('movement_scope', 'DIVISION');
+        if ($profileKey !== '') {
+            $lastRow = $lastRow->where('profile_key', $profileKey);
+        }
+        $lastRow = $lastRow->where('movement_date <=', $adjustDate)
+            ->order_by('movement_date', 'DESC')->order_by('id', 'DESC')
+            ->limit(1)->get()->row_array();
+        $prevAfter = round((float)($lastRow['qty_content_after'] ?? 0), 4);
+        $newAfter  = round($prevAfter + $correctionQty, 4);
+
+        $logEntry = [
+            'movement_no'          => $movementNo,
+            'movement_date'        => $adjustDate,
+            'movement_scope'       => 'DIVISION',
+            'division_id'          => $divisionId,
+            'destination_type'     => $destType,
+            'movement_type'        => $movementType,
+            'adjustment_category'  => 'ADJUSTMENT_PLUS',
+            'adjustment_reason_code' => 'LOG_GAP_REPAIR',
+            'ref_table'            => 'div_log_repair',
+            'material_id'          => $materialId,
+            'buy_uom_id'           => $buyUomId ?: null,
+            'content_uom_id'       => $contentUomId,
+            'qty_buy_delta'        => 0,
+            'qty_content_delta'    => $correctionQty,
+            'qty_buy_after'        => 0,
+            'qty_content_after'    => $newAfter,
+            'profile_key'          => $profileKey ?: null,
+            'profile_name'         => $profileName,
+            'unit_cost'            => $unitCost > 0 ? $unitCost : 0,
+            'notes'                => 'Log gap repair: ' . ($notes ?: 'Adj manual dari reconcile audit'),
+            'created_by'           => $this->auth->get_user_id() ?: null,
+        ];
+
+        if (!$this->db->insert('inv_stock_movement_log', $logEntry)) {
+            $this->output->set_status_header(500)->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'Gagal insert movement log.']));
+            return;
+        }
+
+        $sign = $correctionQty > 0 ? '+' : '';
+        $this->output->set_status_header(200)->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok'            => true,
+                'correction_qty' => $correctionQty,
+                'movement_no'   => $movementNo,
+                'message'       => 'Log gap repair berhasil. Entry ADJUSTMENT ' . $sign . number_format($correctionQty, 4) . ' ditambahkan ke movement log (' . $movementNo . ').',
+            ]));
+    }
+
     public function stock_division_reconcile_gap_repair_all()
     {
         $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');

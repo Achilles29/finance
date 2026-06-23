@@ -265,6 +265,43 @@
 
 <section class="division-block">
     <div class="division-title">
+        <h3>Opening Section</h3>
+        <span>Page 00–01</span>
+    </div>
+
+    <div class="page-grid">
+
+        <a href="<?= site_url('menu_book/page/cover') ?>" target="_blank" class="page-card done">
+            <span class="status-badge status-done">Done</span>
+            <div class="page-num">Halaman 00</div>
+            <div class="page-title-name">Cover</div>
+            <div class="page-subtitle">NAMUA Coffee &amp; Eatery opening cover</div>
+            <div class="page-categories">
+                <span class="cat-tag">Cover</span>
+                <span class="cat-tag">Branding</span>
+                <span class="cat-tag">A4</span>
+            </div>
+            <div class="open-icon">&#8599; Buka halaman</div>
+        </a>
+
+        <a href="<?= site_url('menu_book/page/opening') ?>" target="_blank" class="page-card done">
+            <span class="status-badge status-done">Done</span>
+            <div class="page-num">Halaman 01</div>
+            <div class="page-title-name">Opening Words</div>
+            <div class="page-subtitle">Kata pembuka untuk buku menu NAMUA</div>
+            <div class="page-categories">
+                <span class="cat-tag">Opening</span>
+                <span class="cat-tag">Story</span>
+                <span class="cat-tag">Brand Message</span>
+            </div>
+            <div class="open-icon">&#8599; Buka halaman</div>
+        </a>
+
+    </div>
+</section>
+
+<section class="division-block">
+    <div class="division-title">
         <h3>Food Division</h3>
         <span>Page 01–09</span>
     </div>
@@ -391,6 +428,8 @@
 
     </div>
 </section>
+
+
 
 <section class="division-block">
     <div class="division-title">

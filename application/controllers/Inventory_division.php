@@ -19,6 +19,7 @@ class Inventory_division extends Purchase
     public function reconcile_lot_repair_all()    { parent::stock_division_reconcile_lot_repair_all(); }
     public function reconcile_gap_repair_all()    { parent::stock_division_reconcile_gap_repair_all(); }
     public function reconcile_lot_only_adjust()   { parent::stock_division_reconcile_lot_only_adjust(); }
+    public function reconcile_log_repair()        { parent::stock_division_reconcile_log_repair(); }
     public function reconcile_repair_material_id() { parent::stock_division_reconcile_repair_material_id(); }
     public function reconcile_profile_repair()     { parent::stock_division_reconcile_profile_repair(); }
     public function reconcile_profile_merge()      { parent::stock_division_reconcile_profile_merge(); }

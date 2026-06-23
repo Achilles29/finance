@@ -18,6 +18,20 @@ class Menu_book extends CI_Controller
         $this->load->view('menu_book/index', $data);
     }
 
+    public function page($page = null)
+    {
+        if ($page === null) {
+            redirect('menu_book');
+        }
+
+        $allowed_pages = [
+            'cover'        => 'menu_book/page_00_cover',
+            'opening'      => 'menu_book/page_01_opening',
+        ];
+
+        $this->_load_menu_page($page, $allowed_pages);
+    }
+
     public function food($page = null)
     {
         if ($page === null) {
@@ -45,17 +59,17 @@ class Menu_book extends CI_Controller
         }
 
         $allowed_pages = [
-            'namua_signatures'            => 'menu_book/beverage/page_10_namua_signatures',
-            'house_masterpieces'          => 'menu_book/beverage/page_11_house_masterpieces',
-            'coffee_atelier'              => 'menu_book/beverage/page_12_coffee_atelier',
-            'cold_creamy_creations'       => 'menu_book/beverage/page_13_cold_creamy_creations',
-            'spark_refresh'               => 'menu_book/beverage/page_14_spark_refresh',
-            'blended_delights'            => 'menu_book/beverage/page_15_blended_delights',
-            'tea_tradition'               => 'menu_book/beverage/page_16_tea_tradition',
-            'sweet_scoops'                => 'menu_book/beverage/page_17_sweet_scoops',
-            'extras_enhancers'            => 'menu_book/beverage/page_18_extras_enhancers',
-            'kopsu_literan'            => 'menu_book/beverage/page_19_kopsu',
-            'namua_bundle_club'            => 'menu_book/beverage/page_20_namua_bundle_club',
+            'namua_signatures'       => 'menu_book/beverage/page_10_namua_signatures',
+            'house_masterpieces'     => 'menu_book/beverage/page_11_house_masterpieces',
+            'coffee_atelier'         => 'menu_book/beverage/page_12_coffee_atelier',
+            'cold_creamy_creations'  => 'menu_book/beverage/page_13_cold_creamy_creations',
+            'spark_refresh'          => 'menu_book/beverage/page_14_spark_refresh',
+            'blended_delights'       => 'menu_book/beverage/page_15_blended_delights',
+            'tea_tradition'          => 'menu_book/beverage/page_16_tea_tradition',
+            'sweet_scoops'           => 'menu_book/beverage/page_17_sweet_scoops',
+            'extras_enhancers'       => 'menu_book/beverage/page_18_extras_enhancers',
+            'kopsu_literan'          => 'menu_book/beverage/page_19_kopsu',
+            'namua_bundle_club'      => 'menu_book/beverage/page_20_namua_bundle_club',
         ];
 
         $this->_load_menu_page($page, $allowed_pages);
