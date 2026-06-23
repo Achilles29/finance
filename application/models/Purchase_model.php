@@ -9124,6 +9124,9 @@ class Purchase_model extends CI_Model
         $preparedLines = [];
         foreach ($lines as $line) {
             $prepared = $this->normalizeStockAdjustmentLine($scope, $divisionId, $destinationType, $line);
+            if (is_array($prepared) && !empty($prepared['_validation_error'])) {
+                return ['ok' => false, 'message' => (string)$prepared['_validation_error']];
+            }
             if ($prepared === null) {
                 continue;
             }
@@ -9874,6 +9877,9 @@ class Purchase_model extends CI_Model
             return null;
         }
 
+        $profileContentPerBuy = round(max(0.000001, (float)($line['profile_content_per_buy'] ?? 1)), 6);
+        $profileBuyUomCode = $this->nullableString($line['profile_buy_uom_code'] ?? null);
+        $profileContentUomCode = $this->nullableString($line['profile_content_uom_code'] ?? null);
         $balance = $this->fetchStockAdjustmentCurrentBalance([
             'stock_scope' => $scope,
             'division_id' => $divisionId,
@@ -9884,6 +9890,23 @@ class Purchase_model extends CI_Model
             'content_uom_id' => $contentUomId,
             'profile_key' => $profileKey,
         ]);
+        $unitCost = round((float)($line['unit_cost'] ?? ($balance['avg_cost_per_content'] ?? 0)), 6);
+        $unitCostValidation = $this->validateDivisionStockAdjustmentPlusUnitCost([
+            'stock_scope' => $scope,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'item_name' => $line['item_name'] ?? null,
+            'material_name' => $line['material_name'] ?? null,
+            'qty_adjustment_plus_content' => $qtyPlus,
+            'unit_cost' => $unitCost,
+            'profile_content_per_buy' => $profileContentPerBuy,
+            'profile_buy_uom_code' => $profileBuyUomCode,
+            'profile_content_uom_code' => $profileContentUomCode,
+            'balance_avg_cost_per_content' => (float)($balance['avg_cost_per_content'] ?? 0),
+        ]);
+        if ($unitCostValidation !== null) {
+            return ['_validation_error' => $unitCostValidation];
+        }
 
         return [
             'stock_domain' => null,
@@ -9896,12 +9919,12 @@ class Purchase_model extends CI_Model
             'profile_brand' => $this->nullableString($line['profile_brand'] ?? null),
             'profile_description' => $this->nullableString($line['profile_description'] ?? null),
             'profile_expired_date' => $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
-            'profile_content_per_buy' => round(max(0.000001, (float)($line['profile_content_per_buy'] ?? 1)), 6),
-            'profile_buy_uom_code' => $this->nullableString($line['profile_buy_uom_code'] ?? null),
-            'profile_content_uom_code' => $this->nullableString($line['profile_content_uom_code'] ?? null),
+            'profile_content_per_buy' => $profileContentPerBuy,
+            'profile_buy_uom_code' => $profileBuyUomCode,
+            'profile_content_uom_code' => $profileContentUomCode,
             'available_qty_buy' => round((float)($balance['qty_buy_balance'] ?? 0), 4),
             'available_qty_content' => round((float)($balance['qty_content_balance'] ?? 0), 4),
-            'unit_cost' => round((float)($line['unit_cost'] ?? ($balance['avg_cost_per_content'] ?? 0)), 6),
+            'unit_cost' => $unitCost,
             'qty_waste_content' => $qtyWaste,
             'waste_reason_code' => $qtyWaste > 0 ? ($this->normalizeInventoryAdjustmentReasonCode((string)($line['waste_reason_code'] ?? ''), 'WASTE') ?? 'other') : null,
             'qty_spoil_content' => $qtySpoil,
@@ -9916,6 +9939,87 @@ class Purchase_model extends CI_Model
             'inbound_expiry_date' => $this->normalizeDate((string)($line['inbound_expiry_date'] ?? '')),
             'note' => $this->nullableString($line['note'] ?? null),
         ];
+    }
+
+    private function validateDivisionStockAdjustmentPlusUnitCost(array $context): ?string
+    {
+        $scope = strtoupper(trim((string)($context['stock_scope'] ?? 'WAREHOUSE')));
+        if ($scope !== 'DIVISION') {
+            return null;
+        }
+
+        $qtyPlus = round((float)($context['qty_adjustment_plus_content'] ?? 0), 4);
+        $unitCost = round((float)($context['unit_cost'] ?? 0), 6);
+        $contentPerBuy = max(1.0, round((float)($context['profile_content_per_buy'] ?? 1), 6));
+        if ($qtyPlus <= 0 || $unitCost <= 0 || $contentPerBuy <= 1.0) {
+            return null;
+        }
+
+        $referenceCost = max(
+            0.0,
+            round((float)($context['balance_avg_cost_per_content'] ?? 0), 6),
+            $this->resolveStockAdjustmentReferencePerContentCost(
+                $this->nullableInt($context['item_id'] ?? null),
+                $this->nullableInt($context['material_id'] ?? null)
+            )
+        );
+        if ($referenceCost <= 0) {
+            return null;
+        }
+
+        $rawRatio = $referenceCost > 0 ? ($unitCost / $referenceCost) : 0.0;
+        if ($rawRatio < 50) {
+            return null;
+        }
+
+        $convertedPerContent = round($unitCost / $contentPerBuy, 6);
+        $convertedRatio = $referenceCost > 0 ? ($convertedPerContent / $referenceCost) : 0.0;
+        $itemLabel = trim((string)($context['material_name'] ?? $context['item_name'] ?? 'item ini'));
+        $contentUom = trim((string)($context['profile_content_uom_code'] ?? 'isi'));
+        $buyUom = trim((string)($context['profile_buy_uom_code'] ?? 'pack'));
+        $referenceText = number_format($referenceCost, 2, ',', '.');
+        $convertedText = number_format($convertedPerContent, 2, ',', '.');
+        $rawText = number_format($unitCost, 2, ',', '.');
+
+        if ($convertedRatio >= 0.25 && $convertedRatio <= 4.0) {
+            return 'Unit cost untuk ' . $itemLabel . ' terlihat memakai harga per ' . $buyUom
+                . ', bukan per ' . $contentUom . '. Nilai input saat ini ' . $rawText
+                . ' per ' . $contentUom . ' dengan konversi ' . number_format($contentPerBuy, 0, ',', '.')
+                . ' ' . $contentUom . ' per ' . $buyUom . '. Gunakan sekitar '
+                . $convertedText . ' per ' . $contentUom . ' sebelum simpan.';
+        }
+
+        return 'Unit cost adjustment plus untuk ' . $itemLabel . ' terlalu besar: '
+            . $rawText . ' per ' . $contentUom . ', jauh di atas referensi '
+            . $referenceText . ' per ' . $contentUom . '. Periksa apakah harga yang diinput masih harga per '
+            . $buyUom . ' atau salah satuan.';
+    }
+
+    private function resolveStockAdjustmentReferencePerContentCost(?int $itemId, ?int $materialId): float
+    {
+        if ($materialId === null || $materialId <= 0) {
+            if ($itemId !== null && $itemId > 0 && $this->db->table_exists('mst_item')) {
+                $itemRow = $this->db->select('material_id')
+                    ->from('mst_item')
+                    ->where('id', $itemId)
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                $materialId = !empty($itemRow['material_id']) ? (int)$itemRow['material_id'] : null;
+            }
+        }
+        if ($materialId === null || $materialId <= 0 || !$this->db->table_exists('mst_material')) {
+            return 0.0;
+        }
+
+        $row = $this->db->select('hpp_standard')
+            ->from('mst_material')
+            ->where('id', $materialId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        return round(max(0.0, (float)($row['hpp_standard'] ?? 0)), 6);
     }
 
     private function normalizeInventoryAdjustmentReasonCode(string $value, string $category): ?string

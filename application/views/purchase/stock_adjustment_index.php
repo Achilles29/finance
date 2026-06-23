@@ -783,6 +783,13 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
                     <div class="col-md-4 d-none" id="adjustment-plus-cost-wrap">
                       <label class="form-label"><?php echo html_escape($costInputLabel); ?></label>
                       <input type="number" class="form-control" id="unit_cost" min="0" step="0.01" value="0">
+                      <div class="form-text" id="unit_cost_hint">
+                        <?php if ($isDivisionScope): ?>
+                          Untuk stok divisi, isi harga per isi, bukan per pack.
+                        <?php else: ?>
+                          Isi harga per satuan beli.
+                        <?php endif; ?>
+                      </div>
                     </div>
                     <div class="col-md-4 d-none" id="adjustment-plus-lot-wrap">
                       <label class="form-label">Lot Masuk Manual</label>
@@ -1158,6 +1165,7 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
   const adjustmentPlusLotWrapEl  = document.getElementById('adjustment-plus-lot-wrap');
   const adjustmentPlusExpWrapEl  = document.getElementById('adjustment-plus-exp-wrap');
   const unitCostInputEl          = document.getElementById('unit_cost');
+  const unitCostHintEl           = document.getElementById('unit_cost_hint');
   const inboundLotInputEl        = document.getElementById('inbound_lot_no');
   const inboundExpiryInputEl     = document.getElementById('inbound_expiry_date');
   const adjustmentKindConfig = {
@@ -1167,6 +1175,53 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
     MINUS:        {qtyField:'qty_variance_content',         reasonField:'variance_reason_code',         qtyLabel:'Variance',     reasonLabel:'Alasan Variance',     reasonCategory:'VARIANCE'},
     PLUS:         {qtyField:'qty_adjustment_plus_content',  reasonField:'adjustment_plus_reason_code',  qtyLabel:'Adj Plus',     reasonLabel:'Alasan Plus',         reasonCategory:'ADJUSTMENT_PLUS', needsInbound:true},
   };
+  const renderUnitCostHint = () => {
+    if (!unitCostHintEl) return;
+    const kind = String(adjustmentKindEl?.value || '').toUpperCase();
+    if (kind !== 'PLUS') {
+      unitCostHintEl.textContent = isDivisionScope
+        ? 'Untuk stok divisi, isi harga per isi, bukan per pack.'
+        : 'Isi harga per satuan beli.';
+      return;
+    }
+    if (!selectedItem) {
+      unitCostHintEl.textContent = isDivisionScope
+        ? 'Untuk stok divisi, isi harga per isi, bukan per pack.'
+        : 'Isi harga per satuan beli.';
+      return;
+    }
+    const contentUom = selectedItem?.profile_content_uom_code || selectedItem?.default_content_uom_code || 'isi';
+    const buyUom = selectedItem?.profile_buy_uom_code || selectedItem?.default_buy_uom_code || 'pack';
+    const contentPerBuy = contentPerBuyValue(selectedItem);
+    const avgCostPerContent = Number(selectedItem?.avg_cost_per_content || 0);
+    if (!isDivisionScope) {
+      unitCostHintEl.textContent = 'Isi harga per ' + buyUom + '.';
+      return;
+    }
+    if (avgCostPerContent > 0 && contentPerBuy > 1) {
+      unitCostHintEl.textContent = 'Input harga per ' + contentUom + '. Avg live saat ini '
+        + fmt6(avgCostPerContent) + ' / ' + contentUom + ', setara '
+        + fmtMoney(avgCostPerContent * contentPerBuy) + ' / ' + buyUom + '.';
+      return;
+    }
+    unitCostHintEl.textContent = 'Untuk stok divisi, isi harga per ' + contentUom + ', bukan per ' + buyUom + '.';
+  };
+  const detectDivisionPackCostInput = (row, rawCost) => {
+    if (!isDivisionScope) return '';
+    const refCost = Number(row?.avg_cost_per_content || 0);
+    const contentPerBuy = contentPerBuyValue(row);
+    if (rawCost <= 0 || refCost <= 0 || contentPerBuy <= 1) return '';
+    const normalizedCost = rawCost / contentPerBuy;
+    const rawRatio = rawCost / refCost;
+    const normalizedRatio = normalizedCost / refCost;
+    if (rawRatio >= 50 && normalizedRatio >= 0.25 && normalizedRatio <= 4) {
+      const contentUom = row?.profile_content_uom_code || row?.default_content_uom_code || 'isi';
+      const buyUom = row?.profile_buy_uom_code || row?.default_buy_uom_code || 'pack';
+      return 'Unit cost tampak masih harga per ' + buyUom + '. Untuk divisi, isi harga per ' + contentUom
+        + '. Perkiraan input yang benar sekitar ' + fmt6(normalizedCost) + ' / ' + contentUom + '.';
+    }
+    return '';
+  };
   const renderAdjustmentKindForm = () => {
     const kind = String(adjustmentKindEl?.value||'').toUpperCase();
     const config = adjustmentKindConfig[kind] || null;
@@ -1175,6 +1230,7 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
       adjustmentKindPanelEl.classList.add('d-none'); adjustmentQtyInputEl.value='0';
       adjustmentReasonInputEl.innerHTML='<option value="other">Other</option>'; adjustmentReasonInputEl.value='other';
       adjustmentPlusCostWrapEl?.classList.add('d-none'); adjustmentPlusLotWrapEl?.classList.add('d-none'); adjustmentPlusExpWrapEl?.classList.add('d-none');
+      renderUnitCostHint();
       return;
     }
     adjustmentKindPanelEl.classList.remove('d-none');
@@ -1190,6 +1246,7 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
     adjustmentPlusExpWrapEl?.classList.toggle('d-none',!needsInbound);
     if (unitCostInputEl) unitCostInputEl.value = selectedItem ? String(costByScope(selectedItem,Number(selectedItem.avg_cost_per_content||0))) : '0';
     if (!needsInbound) { if (inboundLotInputEl) inboundLotInputEl.value=''; if (inboundExpiryInputEl) inboundExpiryInputEl.value=''; }
+    renderUnitCostHint();
   };
   const clearLineInputs = () => {
     if (adjustmentKindEl) adjustmentKindEl.value = '';
@@ -1310,6 +1367,7 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
 
   searchInput?.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(performSearch, 250); });
   adjustmentKindEl?.addEventListener('change', renderAdjustmentKindForm);
+  unitCostInputEl?.addEventListener('input', renderUnitCostHint);
   renderAdjustmentKindForm();
 
   document.getElementById('btn-add-line')?.addEventListener('click', () => {
@@ -1351,6 +1409,10 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
     const totalQty = line.qty_waste_content+line.qty_spoil_content+line.qty_process_loss_content+line.qty_variance_content+line.qty_adjustment_plus_content;
     if (totalQty<=0) { showFormAlert('warning','Isi qty adjustment lebih dari nol.'); return; }
     if (line.qty_adjustment_plus_content>0 && line.unit_cost<=0) { showFormAlert('warning','Adjustment plus wajib punya unit cost lebih dari nol.'); return; }
+    if (line.qty_adjustment_plus_content>0) {
+      const divisionCostWarning = detectDivisionPackCostInput(line, rawCost);
+      if (divisionCostWarning) { showFormAlert('warning', divisionCostWarning); return; }
+    }
     lines.push(line); renderDraftLines(); clearLineInputs();
     showFormAlert('success','Line ditambahkan ke draft.');
   });
