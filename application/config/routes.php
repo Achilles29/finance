@@ -681,6 +681,24 @@ $route['purchase/item-price-history/item-search'] = 'purchase/item_price_history
 $route['purchase/item-price-history/data']      = 'purchase/item_price_history_data';
 $route['purchase/item-price-history/(:num)']    = 'purchase/item_price_history/$1';
 
+// Landing Page Settings
+$route['landing-page']                        = 'landing_page/index';
+$route['landing-page/config/update']          = 'landing_page/config_update';
+$route['landing-page/menu/store']             = 'landing_page/menu_store';
+$route['landing-page/menu/update/(:num)']     = 'landing_page/menu_update/$1';
+$route['landing-page/menu/delete/(:num)']     = 'landing_page/menu_delete/$1';
+$route['landing-page/menu/toggle/(:num)']     = 'landing_page/menu_toggle/$1';
+$route['landing-page/menu/reorder']           = 'landing_page/menu_reorder';
+$route['landing-page/gallery/store']          = 'landing_page/gallery_store';
+$route['landing-page/gallery/update/(:num)']  = 'landing_page/gallery_update/$1';
+$route['landing-page/gallery/delete/(:num)']  = 'landing_page/gallery_delete/$1';
+$route['landing-page/gallery/toggle/(:num)']  = 'landing_page/gallery_toggle/$1';
+$route['landing-page/gallery/reorder']        = 'landing_page/gallery_reorder';
+$route['landing-page/embed/store']            = 'landing_page/embed_store';
+$route['landing-page/embed/update/(:num)']    = 'landing_page/embed_update/$1';
+$route['landing-page/embed/delete/(:num)']    = 'landing_page/embed_delete/$1';
+$route['landing-page/embed/toggle/(:num)']    = 'landing_page/embed_toggle/$1';
+
 $route['master/(:any)']                  = 'master/index/$1';
 $route['master/(:any)/create']           = 'master/create/$1';
 $route['master/(:any)/detail/(:num)']    = 'master/detail/$1/$2';

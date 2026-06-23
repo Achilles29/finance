@@ -248,7 +248,7 @@ body{
 
     <!-- FOTO CAFE -->
     <div class="hero">
-        <img src="<?= base_url('assets/menu-book/opening/cafe.jpg');?>" alt="">
+        <img src="<?= base_url('assets/menu-book/opening/cafe.png');?>" alt="">
     </div>
 
     <div class="gold-dot dot1"></div>
