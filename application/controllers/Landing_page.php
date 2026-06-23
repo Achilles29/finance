@@ -16,7 +16,7 @@ class Landing_page extends MY_Controller
 
     public function index(): void
     {
-        $tab = in_array($this->input->get('tab', true), ['config', 'menu', 'gallery', 'embed'], true)
+        $tab = in_array($this->input->get('tab', true), ['config', 'menu', 'gallery', 'embed', 'links'], true)
             ? $this->input->get('tab', true)
             : 'config';
 
@@ -27,6 +27,7 @@ class Landing_page extends MY_Controller
             'menus'     => $this->lp->get_menu(true),
             'galleries' => $this->lp->get_gallery(true),
             'embeds'    => $this->lp->get_embed(true),
+            'links'     => $this->lp->get_links(true),
         ];
         $this->render('landing_page/index', $data);
     }
@@ -260,6 +261,72 @@ class Landing_page extends MY_Controller
             'embed_type' => in_array($type, ['reel', 'photo'], true) ? $type : 'photo',
             'embed_html' => trim((string)$this->input->post('embed_html')), // sengaja tidak XSS-filter HTML embed
             'is_active'  => $this->input->post('is_active', true) !== '0' ? 1 : 0,
+        ];
+    }
+
+    // ── LINKS ─────────────────────────────────────────────────────────
+
+    public function links_store(): void
+    {
+        $this->require_permission(self::PAGE_CODE, 'create');
+        $input = $this->_link_input();
+        if ($input['label'] === '') { $this->json_error('Label tidak boleh kosong.', 422); return; }
+        if ($input['url']   === '') { $this->json_error('URL tidak boleh kosong.', 422);   return; }
+
+        $input['sort_order'] = $this->lp->next_link_sort();
+        $input['created_by'] = (int)$this->current_user['id'];
+        $input['updated_by'] = (int)$this->current_user['id'];
+        $this->lp->insert_link($input);
+        $this->json_ok(['message' => 'Link berhasil ditambahkan.']);
+    }
+
+    public function links_update(int $id): void
+    {
+        $this->require_permission(self::PAGE_CODE, 'edit');
+        if ($id <= 0 || !$this->lp->find_link($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
+
+        $input = $this->_link_input();
+        if ($input['label'] === '') { $this->json_error('Label tidak boleh kosong.', 422); return; }
+        if ($input['url']   === '') { $this->json_error('URL tidak boleh kosong.', 422);   return; }
+
+        $input['updated_by'] = (int)$this->current_user['id'];
+        $this->lp->update_link($id, $input);
+        $this->json_ok(['message' => 'Link berhasil diperbarui.']);
+    }
+
+    public function links_delete(int $id): void
+    {
+        $this->require_permission(self::PAGE_CODE, 'delete');
+        if ($id <= 0 || !$this->lp->find_link($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
+        $this->lp->delete_link($id);
+        $this->json_ok(['message' => 'Link berhasil dihapus.']);
+    }
+
+    public function links_toggle(int $id): void
+    {
+        $this->require_permission(self::PAGE_CODE, 'edit');
+        if ($id <= 0 || !$this->lp->find_link($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
+        $new = $this->lp->toggle_link($id);
+        $this->json_ok(['message' => 'Status berhasil diubah.', 'is_active' => $new]);
+    }
+
+    public function links_reorder(): void
+    {
+        $this->require_permission(self::PAGE_CODE, 'edit');
+        $body = json_decode(file_get_contents('php://input'), true);
+        $ids  = array_filter(array_map('intval', (array)($body['ids'] ?? [])));
+        if (empty($ids)) { $this->json_error('Data urutan tidak valid.', 422); return; }
+        $this->lp->reorder_links(array_values($ids));
+        $this->json_ok(['message' => 'Urutan link berhasil disimpan.']);
+    }
+
+    private function _link_input(): array
+    {
+        return [
+            'label'     => trim((string)$this->input->post('label', true)),
+            'url'       => trim((string)$this->input->post('url', true)),
+            'icon'      => trim((string)$this->input->post('icon', true)),
+            'is_active' => $this->input->post('is_active', true) !== '0' ? 1 : 0,
         ];
     }
 }
