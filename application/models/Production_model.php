@@ -6141,7 +6141,8 @@ class Production_model extends CI_Model
                 $mode = strtoupper((string)($row['variable_cost_mode'] ?? 'DEFAULT'));
                 $percent = (float)($row['variable_cost_percent'] ?? 0);
                 $summary = $this->component_formula_cost_summary((int)($row['id'] ?? 0), (int)($row['operational_division_id'] ?? 0), $mode, $percent);
-                $row['hpp_live'] = (float)($summary['hpp_live'] ?? 0);
+                $yieldQty = max(1.0, (float)($row['yield_qty'] ?? $row['std_batch_qty'] ?? 1));
+                $row['hpp_live'] = round((float)($summary['hpp_live'] ?? 0) / $yieldQty, 6);
             }
             $row['usage_count'] = (int)($row['component_usage_count'] ?? 0) + (int)($row['product_usage_count'] ?? 0);
         }
@@ -6183,7 +6184,7 @@ class Production_model extends CI_Model
             unset($payload['std_batch_qty']);
         }
         if ($this->db->field_exists('yield_qty', 'mst_component')) {
-            $payload['yield_qty'] = (float)($payload['std_batch_qty'] ?? ($data['yield_qty'] ?? 1));
+            $payload['yield_qty'] = (float)($data['std_batch_qty'] ?? $data['yield_qty'] ?? 1);
         }
         if (!$this->db->field_exists('process_loss_percent', 'mst_component')) {
             unset($payload['process_loss_percent']);
@@ -6881,8 +6882,9 @@ class Production_model extends CI_Model
             $mode = strtoupper((string)($row['variable_cost_mode'] ?? 'DEFAULT'));
             $percent = (float)($row['variable_cost_percent'] ?? 0);
             $summary = $this->component_formula_cost_summary((int)($row['id'] ?? 0), (int)($row['operational_division_id'] ?? 0), $mode, $percent);
-            $row['hpp_live'] = (float)($summary['hpp_live'] ?? 0);
-            $row['hpp_total'] = (float)($summary['hpp_total'] ?? 0);
+            $yieldQty = max(1.0, (float)($row['output_batch_qty'] ?? $row['yield_qty'] ?? 1));
+            $row['hpp_live'] = round((float)($summary['hpp_live'] ?? 0) / $yieldQty, 6);
+            $row['hpp_total'] = round((float)($summary['hpp_total'] ?? 0) / $yieldQty, 6);
             $row['usage_count'] = (int)($row['component_usage_count'] ?? 0) + (int)($row['product_usage_count'] ?? 0);
         }
         unset($row);
