@@ -4,12 +4,14 @@ $cfg        = $cfg        ?? [];
 $menus      = $menus      ?? [];
 $galleries  = $galleries  ?? [];
 $embeds     = $embeds     ?? [];
+$links      = $links      ?? [];
 
 $baseUrl    = site_url('landing-page');
 $cfgUrl     = site_url('landing-page/config/update');
 $menuUrl    = site_url('landing-page/menu');
 $galleryUrl = site_url('landing-page/gallery');
 $embedUrl   = site_url('landing-page/embed');
+$linkUrl    = site_url('landing-page/links');
 
 // Helpers
 function lp_img(string $src, string $alt = '', string $style = 'width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid #dee2e6'): string {
@@ -43,7 +45,7 @@ function lp_badge(int $active): string {
     <small class="text-muted">Kelola konten halaman utama Namua Coffee &amp; Eatery</small>
   </div>
   <a href="http://localhost/namuacoffee/" target="_blank" class="btn btn-outline-secondary btn-sm">
-    <i class="ri-external-link-line me-1"></i>Lihat Landing Page
+    <i class="ri ri-external-link-line me-1"></i>Lihat Landing Page
   </a>
 </div>
 
@@ -51,24 +53,30 @@ function lp_badge(int $active): string {
 <ul class="nav nav-tabs lp-tab-bar mb-0">
   <li class="nav-item">
     <a class="nav-link <?= $tab === 'config'  ? 'active' : '' ?>" href="<?= $baseUrl ?>?tab=config">
-      <i class="ri-settings-3-line me-1"></i>Pengaturan Umum
+      <i class="ri ri-settings-3-line me-1"></i>Pengaturan Umum
     </a>
   </li>
   <li class="nav-item">
     <a class="nav-link <?= $tab === 'menu'    ? 'active' : '' ?>" href="<?= $baseUrl ?>?tab=menu">
-      <i class="ri-restaurant-2-line me-1"></i>Menu
+      <i class="ri ri-restaurant-2-line me-1"></i>Menu
       <span class="badge bg-secondary ms-1"><?= count($menus) ?></span>
     </a>
   </li>
   <li class="nav-item">
     <a class="nav-link <?= $tab === 'gallery' ? 'active' : '' ?>" href="<?= $baseUrl ?>?tab=gallery">
-      <i class="ri-image-2-line me-1"></i>Gallery
+      <i class="ri ri-image-2-line me-1"></i>Gallery
       <span class="badge bg-secondary ms-1"><?= count($galleries) ?></span>
     </a>
   </li>
   <li class="nav-item">
+    <a class="nav-link <?= $tab === 'links'   ? 'active' : '' ?>" href="<?= $baseUrl ?>?tab=links">
+      <i class="ri ri-links-line me-1"></i>Halaman Links
+      <span class="badge bg-secondary ms-1"><?= count($links) ?></span>
+    </a>
+  </li>
+  <li class="nav-item">
     <a class="nav-link <?= $tab === 'embed'   ? 'active' : '' ?>" href="<?= $baseUrl ?>?tab=embed">
-      <i class="ri-instagram-line me-1"></i>Instagram Embed
+      <i class="ri ri-instagram-line me-1"></i>Instagram Embed
       <span class="badge bg-secondary ms-1"><?= count($embeds) ?></span>
     </a>
   </li>
@@ -85,7 +93,7 @@ function lp_badge(int $active): string {
 
       <!-- Hero -->
       <div class="card lp-cfg-card">
-        <div class="card-header"><i class="ri-image-line me-1"></i>Hero Section</div>
+        <div class="card-header"><i class="ri ri-image-line me-1"></i>Hero Section</div>
         <div class="card-body">
           <div class="mb-3">
             <label class="form-label">Judul Utama</label>
@@ -108,7 +116,7 @@ function lp_badge(int $active): string {
 
       <!-- About -->
       <div class="card lp-cfg-card">
-        <div class="card-header"><i class="ri-store-2-line me-1"></i>Tentang Kami</div>
+        <div class="card-header"><i class="ri ri-store-2-line me-1"></i>Tentang Kami</div>
         <div class="card-body">
           <div class="mb-3">
             <label class="form-label">Judul About</label>
@@ -131,7 +139,7 @@ function lp_badge(int $active): string {
 
       <!-- CTA & Footer -->
       <div class="card lp-cfg-card">
-        <div class="card-header"><i class="ri-megaphone-line me-1"></i>CTA &amp; Footer</div>
+        <div class="card-header"><i class="ri ri-megaphone-line me-1"></i>CTA &amp; Footer</div>
         <div class="card-body">
           <div class="row g-3">
             <div class="col-md-6">
@@ -156,7 +164,7 @@ function lp_badge(int $active): string {
 
       <!-- Kontak -->
       <div class="card lp-cfg-card">
-        <div class="card-header"><i class="ri-map-pin-line me-1"></i>Kontak &amp; Lokasi</div>
+        <div class="card-header"><i class="ri ri-map-pin-line me-1"></i>Kontak &amp; Lokasi</div>
         <div class="card-body">
           <div class="mb-3">
             <label class="form-label">Alamat</label>
@@ -175,7 +183,7 @@ function lp_badge(int $active): string {
 
       <!-- URL -->
       <div class="card lp-cfg-card">
-        <div class="card-header"><i class="ri-link-m me-1"></i>URL Tautan</div>
+        <div class="card-header"><i class="ri ri-link-m me-1"></i>URL Tautan</div>
         <div class="card-body">
           <?php foreach ([
             'order_url'    => 'Order URL',
@@ -194,7 +202,7 @@ function lp_badge(int $active): string {
 
       <!-- Sumber Data -->
       <div class="card lp-cfg-card">
-        <div class="card-header"><i class="ri-database-2-line me-1"></i>Sumber Data</div>
+        <div class="card-header"><i class="ri ri-database-2-line me-1"></i>Sumber Data</div>
         <div class="card-body">
           <div class="mb-3">
             <label class="form-label mb-1 small fw-semibold">Sumber Menu</label>
@@ -243,7 +251,7 @@ function lp_badge(int $active): string {
 
   <div class="d-flex justify-content-end gap-2 mt-2">
     <button type="submit" class="btn btn-primary">
-      <i class="ri-save-line me-1"></i>Simpan Pengaturan
+      <i class="ri ri-save-line me-1"></i>Simpan Pengaturan
     </button>
   </div>
 </form>
@@ -253,7 +261,7 @@ function lp_badge(int $active): string {
 <div class="d-flex justify-content-between align-items-center mb-3">
   <small class="text-muted">Total: <?= count($menus) ?> item &nbsp;·&nbsp; Drag baris untuk atur urutan</small>
   <button class="btn btn-primary btn-sm" data-lp-open-modal="menu" data-lp-mode="add">
-    <i class="ri-add-line me-1"></i>Tambah Menu
+    <i class="ri ri-add-line me-1"></i>Tambah Menu
   </button>
 </div>
 <div class="card border-0 shadow-sm">
@@ -278,13 +286,13 @@ function lp_badge(int $active): string {
         <?php else: ?>
         <?php foreach ($menus as $i => $m): ?>
         <tr class="lp-sort-row" draggable="true" data-row-id="<?= (int)$m['id'] ?>">
-          <td class="lp-reorder-handle text-center"><i class="ri-drag-move-2-line"></i></td>
+          <td class="lp-reorder-handle text-center"><i class="ri ri-drag-move-2-line"></i></td>
           <td class="text-muted small"><?= $i + 1 ?></td>
           <td><?= lp_img((string)($m['image'] ?? ''), html_escape($m['title'])) ?></td>
           <td class="fw-semibold"><?= html_escape($m['title']) ?></td>
           <td class="text-muted small" style="max-width:220px"><?= html_escape(mb_strimwidth((string)($m['description'] ?? ''), 0, 80, '...')) ?></td>
           <td class="small"><?= $m['price'] !== null ? 'Rp '.number_format((float)$m['price'],0,',','.') : '<span class="text-muted">—</span>' ?></td>
-          <td class="text-center"><?= (int)$m['is_best_seller'] ? '<i class="ri-star-fill text-warning"></i>' : '<span class="text-muted">—</span>' ?></td>
+          <td class="text-center"><?= (int)$m['is_best_seller'] ? '<i class="ri ri-star-fill text-warning"></i>' : '<span class="text-muted">—</span>' ?></td>
           <td>
             <button class="btn btn-sm <?= (int)$m['is_active'] ? 'btn-success' : 'btn-outline-secondary' ?>"
               data-lp-toggle="menu" data-id="<?= (int)$m['id'] ?>" style="min-width:70px">
@@ -302,11 +310,11 @@ function lp_badge(int $active): string {
                 data-price="<?= $m['price'] !== null ? (int)$m['price'] : '' ?>"
                 data-is_best_seller="<?= (int)$m['is_best_seller'] ?>"
                 data-is_active="<?= (int)$m['is_active'] ?>">
-                <i class="ri-edit-line"></i>
+                <i class="ri ri-edit-line"></i>
               </button>
               <button class="btn btn-sm btn-outline-danger action-icon-btn" title="Hapus"
                 data-lp-delete="menu" data-id="<?= (int)$m['id'] ?>" data-name="<?= html_escape($m['title']) ?>">
-                <i class="ri-delete-bin-line"></i>
+                <i class="ri ri-delete-bin-line"></i>
               </button>
             </div>
           </td>
@@ -323,7 +331,7 @@ function lp_badge(int $active): string {
 <div class="d-flex justify-content-between align-items-center mb-3">
   <small class="text-muted">Total: <?= count($galleries) ?> foto &nbsp;·&nbsp; Drag baris untuk atur urutan</small>
   <button class="btn btn-primary btn-sm" data-lp-open-modal="gallery" data-lp-mode="add">
-    <i class="ri-add-line me-1"></i>Tambah Foto
+    <i class="ri ri-add-line me-1"></i>Tambah Foto
   </button>
 </div>
 <div class="card border-0 shadow-sm">
@@ -345,7 +353,7 @@ function lp_badge(int $active): string {
         <?php else: ?>
         <?php foreach ($galleries as $i => $g): ?>
         <tr class="lp-sort-row" draggable="true" data-row-id="<?= (int)$g['id'] ?>">
-          <td class="lp-reorder-handle text-center"><i class="ri-drag-move-2-line"></i></td>
+          <td class="lp-reorder-handle text-center"><i class="ri ri-drag-move-2-line"></i></td>
           <td class="text-muted small"><?= $i + 1 ?></td>
           <td><?= lp_img((string)($g['image'] ?? ''), html_escape($g['caption'] ?? '')) ?></td>
           <td><?= html_escape($g['caption'] ?? '') ?: '<span class="text-muted">—</span>' ?></td>
@@ -363,11 +371,80 @@ function lp_badge(int $active): string {
                 data-image="<?= html_escape($g['image'] ?? '') ?>"
                 data-caption="<?= html_escape($g['caption'] ?? '') ?>"
                 data-is_active="<?= (int)$g['is_active'] ?>">
-                <i class="ri-edit-line"></i>
+                <i class="ri ri-edit-line"></i>
               </button>
               <button class="btn btn-sm btn-outline-danger action-icon-btn" title="Hapus"
                 data-lp-delete="gallery" data-id="<?= (int)$g['id'] ?>" data-name="<?= html_escape($g['caption'] ?? 'foto ini') ?>">
-                <i class="ri-delete-bin-line"></i>
+                <i class="ri ri-delete-bin-line"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+        <?php endforeach; ?>
+        <?php endif; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════════════ TAB LINKS ═══════════════════ -->
+<?php elseif ($tab === 'links'): ?>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <small class="text-muted">
+    Total: <?= count($links) ?> link &nbsp;·&nbsp; Drag untuk atur urutan &nbsp;·&nbsp;
+    <a href="http://localhost/namuacoffee/links.php" target="_blank" class="text-decoration-none">
+      <i class="ri ri-external-link-line"></i> Preview halaman
+    </a>
+  </small>
+  <button class="btn btn-primary btn-sm" data-lp-open-modal="link" data-lp-mode="add">
+    <i class="ri ri-add-line me-1"></i>Tambah Link
+  </button>
+</div>
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th width="36"></th>
+          <th width="44">No</th>
+          <th width="60">Ikon</th>
+          <th>Label</th>
+          <th>URL</th>
+          <th width="90">Status</th>
+          <th width="110">Aksi</th>
+        </tr>
+      </thead>
+      <tbody id="linksTbody">
+        <?php if (empty($links)): ?>
+        <tr><td colspan="7" class="text-center text-muted py-4">Belum ada link.</td></tr>
+        <?php else: ?>
+        <?php foreach ($links as $i => $lnk): ?>
+        <tr class="lp-sort-row" draggable="true" data-row-id="<?= (int)$lnk['id'] ?>">
+          <td class="lp-reorder-handle text-center"><i class="ri ri-drag-move-2-line"></i></td>
+          <td class="text-muted small"><?= $i + 1 ?></td>
+          <td class="text-center" style="font-size:1.4rem"><?= html_escape($lnk['icon'] ?? '') ?: '<span class="text-muted">—</span>' ?></td>
+          <td class="fw-semibold"><?= html_escape($lnk['label']) ?></td>
+          <td class="small text-muted" style="max-width:260px;word-break:break-all"><?= html_escape($lnk['url']) ?></td>
+          <td>
+            <button class="btn btn-sm <?= (int)$lnk['is_active'] ? 'btn-success' : 'btn-outline-secondary' ?>"
+              data-lp-toggle="link" data-id="<?= (int)$lnk['id'] ?>" style="min-width:70px">
+              <?= (int)$lnk['is_active'] ? 'Aktif' : 'Nonaktif' ?>
+            </button>
+          </td>
+          <td>
+            <div class="d-flex gap-1">
+              <button class="btn btn-sm btn-outline-primary action-icon-btn" title="Edit"
+                data-lp-open-modal="link" data-lp-mode="edit"
+                data-id="<?= (int)$lnk['id'] ?>"
+                data-label="<?= html_escape($lnk['label']) ?>"
+                data-url="<?= html_escape($lnk['url']) ?>"
+                data-icon="<?= html_escape($lnk['icon'] ?? '') ?>"
+                data-is_active="<?= (int)$lnk['is_active'] ?>">
+                <i class="ri ri-edit-line"></i>
+              </button>
+              <button class="btn btn-sm btn-outline-danger action-icon-btn" title="Hapus"
+                data-lp-delete="link" data-id="<?= (int)$lnk['id'] ?>" data-name="<?= html_escape($lnk['label']) ?>">
+                <i class="ri ri-delete-bin-line"></i>
               </button>
             </div>
           </td>
@@ -384,7 +461,7 @@ function lp_badge(int $active): string {
 <div class="d-flex justify-content-between align-items-center mb-3">
   <small class="text-muted">Total: <?= count($embeds) ?> embed</small>
   <button class="btn btn-primary btn-sm" data-lp-open-modal="embed" data-lp-mode="add">
-    <i class="ri-add-line me-1"></i>Tambah Embed
+    <i class="ri ri-add-line me-1"></i>Tambah Embed
   </button>
 </div>
 <div class="card border-0 shadow-sm">
@@ -426,11 +503,11 @@ function lp_badge(int $active): string {
                 data-embed_type="<?= html_escape($e['embed_type']) ?>"
                 data-embed_html="<?= html_escape($e['embed_html']) ?>"
                 data-is_active="<?= (int)$e['is_active'] ?>">
-                <i class="ri-edit-line"></i>
+                <i class="ri ri-edit-line"></i>
               </button>
               <button class="btn btn-sm btn-outline-danger action-icon-btn" title="Hapus"
                 data-lp-delete="embed" data-id="<?= (int)$e['id'] ?>" data-name="embed #<?= (int)$e['id'] ?>">
-                <i class="ri-delete-bin-line"></i>
+                <i class="ri ri-delete-bin-line"></i>
               </button>
             </div>
           </td>
@@ -567,6 +644,44 @@ function lp_badge(int $active): string {
   </div>
 </div>
 
+<!-- ══════════════ MODAL: LINK ══════════════ -->
+<div class="modal fade" id="linkModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="linkModalTitle">Tambah Link</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="linkId">
+        <div class="mb-3">
+          <label class="form-label">Ikon <small class="text-muted">(emoji, misal: ☕ 🏪 💬 🛵)</small></label>
+          <input type="text" id="linkIcon" class="form-control" placeholder="☕" maxlength="10" style="font-size:1.4rem">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Label Tombol <span class="text-danger">*</span></label>
+          <input type="text" id="linkLabel" class="form-control" placeholder="MENU BOOK">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">URL Tujuan <span class="text-danger">*</span></label>
+          <input type="url" id="linkUrl" class="form-control" placeholder="https://...">
+        </div>
+        <div class="mb-0">
+          <label class="form-label">Status</label>
+          <select id="linkIsActive" class="form-select">
+            <option value="1">Aktif</option>
+            <option value="0">Nonaktif</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-primary" id="linkSaveBtn">Simpan</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   'use strict';
@@ -575,6 +690,8 @@ function lp_badge(int $active): string {
   var GALLERY_STORE= <?= json_encode(site_url('landing-page/gallery/store')) ?>;
   var GALLERY_URL  = <?= json_encode(site_url('landing-page/gallery')) ?>;
   var EMBED_STORE  = <?= json_encode(site_url('landing-page/embed/store')) ?>;
+  var LINK_STORE   = <?= json_encode(site_url('landing-page/links/store')) ?>;
+  var LINK_URL     = <?= json_encode(site_url('landing-page/links')) ?>;
   var EMBED_URL    = <?= json_encode(site_url('landing-page/embed')) ?>;
   var TAB          = <?= json_encode($tab) ?>;
 
@@ -611,7 +728,7 @@ function lp_badge(int $active): string {
     btn.addEventListener('click', function () {
       var entity = btn.getAttribute('data-lp-toggle');
       var id     = btn.getAttribute('data-id');
-      var baseUrl = entity === 'menu' ? MENU_URL : entity === 'gallery' ? GALLERY_URL : EMBED_URL;
+      var baseUrl = entity === 'menu' ? MENU_URL : entity === 'gallery' ? GALLERY_URL : entity === 'link' ? LINK_URL : EMBED_URL;
       btn.disabled = true;
       req(baseUrl + '/toggle/' + id, { method: 'POST' })
         .then(function (p) {
@@ -628,7 +745,7 @@ function lp_badge(int $active): string {
       var entity = btn.getAttribute('data-lp-delete');
       var id     = btn.getAttribute('data-id');
       var name   = btn.getAttribute('data-name') || 'item ini';
-      var baseUrl = entity === 'menu' ? MENU_URL : entity === 'gallery' ? GALLERY_URL : EMBED_URL;
+      var baseUrl = entity === 'menu' ? MENU_URL : entity === 'gallery' ? GALLERY_URL : entity === 'link' ? LINK_URL : EMBED_URL;
       if (!confirm('Hapus ' + name + '?')) return;
       btn.disabled = true;
       req(baseUrl + '/delete/' + id, { method: 'POST' })
@@ -755,7 +872,47 @@ function lp_badge(int $active): string {
       .catch(function (e) { toast(e.message || 'Gagal menyimpan.', false); document.getElementById('embedSaveBtn').disabled = false; });
   });
 
-  // ── Drag-to-reorder (menu & gallery) ──────────────────────────────
+  // ── Modal: Link ────────────────────────────────────────────────────
+  document.querySelectorAll('[data-lp-open-modal="link"]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var mode = btn.getAttribute('data-lp-mode');
+      document.getElementById('linkModalTitle').textContent = mode === 'edit' ? 'Edit Link' : 'Tambah Link';
+      document.getElementById('linkId').value       = mode === 'edit' ? btn.getAttribute('data-id') : '';
+      document.getElementById('linkIcon').value     = mode === 'edit' ? (btn.getAttribute('data-icon') || '') : '';
+      document.getElementById('linkLabel').value    = mode === 'edit' ? (btn.getAttribute('data-label') || '') : '';
+      document.getElementById('linkUrl').value      = mode === 'edit' ? (btn.getAttribute('data-url') || '') : '';
+      document.getElementById('linkIsActive').value = mode === 'edit' ? btn.getAttribute('data-is_active') : '1';
+      var m = getModal('linkModal'); if (m) m.show();
+    });
+  });
+
+  document.getElementById('linkSaveBtn').addEventListener('click', function () {
+    var id    = document.getElementById('linkId').value;
+    var label = document.getElementById('linkLabel').value.trim();
+    var url   = document.getElementById('linkUrl').value.trim();
+    if (!label) { alert('Label tidak boleh kosong.'); return; }
+    if (!url)   { alert('URL tidak boleh kosong.'); return; }
+
+    var payload = {
+      icon:      document.getElementById('linkIcon').value,
+      label:     label,
+      url:       url,
+      is_active: document.getElementById('linkIsActive').value,
+    };
+
+    var reqUrl = id ? LINK_URL + '/update/' + id : LINK_STORE;
+    document.getElementById('linkSaveBtn').disabled = true;
+    req(reqUrl, { method: 'POST', body: formData(payload) })
+      .then(function (p) {
+        if (!p || !p.ok) throw new Error(p && p.message ? p.message : 'Gagal');
+        var m = getModal('linkModal'); if (m) m.hide();
+        toast(p.message || 'Berhasil.', true);
+        reload();
+      })
+      .catch(function (e) { toast(e.message || 'Gagal menyimpan.', false); document.getElementById('linkSaveBtn').disabled = false; });
+  });
+
+  // ── Drag-to-reorder (menu, gallery, links) ────────────────────────
   function initReorder(tbodyId, reorderUrl) {
     var tbody = document.getElementById(tbodyId);
     if (!tbody) return;
@@ -823,8 +980,9 @@ function lp_badge(int $active): string {
     });
   }
 
-  initReorder('menuTbody',   <?= json_encode(site_url('landing-page/menu/reorder')) ?>);
+  initReorder('menuTbody',    <?= json_encode(site_url('landing-page/menu/reorder')) ?>);
   initReorder('galleryTbody', <?= json_encode(site_url('landing-page/gallery/reorder')) ?>);
+  initReorder('linksTbody',   <?= json_encode(site_url('landing-page/links/reorder')) ?>);
 
 })();
 </script>

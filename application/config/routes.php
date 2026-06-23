@@ -698,6 +698,11 @@ $route['landing-page/embed/store']            = 'landing_page/embed_store';
 $route['landing-page/embed/update/(:num)']    = 'landing_page/embed_update/$1';
 $route['landing-page/embed/delete/(:num)']    = 'landing_page/embed_delete/$1';
 $route['landing-page/embed/toggle/(:num)']    = 'landing_page/embed_toggle/$1';
+$route['landing-page/links/store']            = 'landing_page/links_store';
+$route['landing-page/links/update/(:num)']    = 'landing_page/links_update/$1';
+$route['landing-page/links/delete/(:num)']    = 'landing_page/links_delete/$1';
+$route['landing-page/links/toggle/(:num)']    = 'landing_page/links_toggle/$1';
+$route['landing-page/links/reorder']          = 'landing_page/links_reorder';
 
 $route['master/(:any)']                  = 'master/index/$1';
 $route['master/(:any)/create']           = 'master/create/$1';

@@ -180,4 +180,57 @@ class Landing_page_model extends CI_Model
         $row = $this->db->select_max('sort_order')->where('embed_type', $type)->get('lp_embed')->row_array();
         return (int)($row['sort_order'] ?? -1) + 1;
     }
+
+    // ── LINKS ─────────────────────────────────────────────────────────
+
+    public function get_links(bool $all = false): array
+    {
+        $q = $this->db->order_by('sort_order', 'ASC')->order_by('id', 'ASC');
+        if (!$all) $q->where('is_active', 1);
+        return $q->get('lp_links')->result_array();
+    }
+
+    public function find_link(int $id): ?array
+    {
+        $row = $this->db->where('id', $id)->get('lp_links')->row_array();
+        return $row ?: null;
+    }
+
+    public function insert_link(array $data): int
+    {
+        $this->db->insert('lp_links', $data);
+        return (int)$this->db->insert_id();
+    }
+
+    public function update_link(int $id, array $data): void
+    {
+        $this->db->where('id', $id)->update('lp_links', $data);
+    }
+
+    public function delete_link(int $id): void
+    {
+        $this->db->where('id', $id)->delete('lp_links');
+    }
+
+    public function toggle_link(int $id): int
+    {
+        $row = $this->db->select('is_active')->where('id', $id)->get('lp_links')->row_array();
+        if (!$row) return 0;
+        $new = (int)$row['is_active'] === 1 ? 0 : 1;
+        $this->db->where('id', $id)->update('lp_links', ['is_active' => $new]);
+        return $new;
+    }
+
+    public function reorder_links(array $ids): void
+    {
+        foreach ($ids as $order => $id) {
+            $this->db->where('id', (int)$id)->update('lp_links', ['sort_order' => (int)$order]);
+        }
+    }
+
+    public function next_link_sort(): int
+    {
+        $row = $this->db->select_max('sort_order')->get('lp_links')->row_array();
+        return (int)($row['sort_order'] ?? -1) + 1;
+    }
 }
