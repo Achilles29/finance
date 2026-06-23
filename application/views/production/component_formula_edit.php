@@ -1,10 +1,11 @@
-﻿<?php
+<?php
 $detail = is_array($detail ?? null) ? $detail : [];
 $component = is_array($detail['component'] ?? null) ? $detail['component'] : [];
 $summary = is_array($detail['summary'] ?? null) ? $detail['summary'] : [];
 $lines = is_array($detail['lines'] ?? null) ? $detail['lines'] : [];
 $materials = is_array($materials ?? null) ? $materials : [];
 $components = is_array($components ?? null) ? $components : [];
+$source_divisions = is_array($source_divisions ?? null) ? $source_divisions : [];
 ?>
 <div class="container-xxl py-3">
   <div class="fin-page-header mb-3">
@@ -37,7 +38,7 @@ $components = is_array($components ?? null) ? $components : [];
       <div class="row g-2 mb-3">
         <div class="col-12">
           <div class="alert alert-light border py-2 mb-1">
-            <strong>Catatan:</strong> UOM otomatis mengikuti sumber (material/content UOM atau component UOM). Hasil 1x produksi diambil dari master component dan akan menjadi patokan saat batch produksi.
+            <strong>Catatan:</strong> UOM otomatis mengikuti sumber. Kolom <strong>Divisi Sumber</strong> menentukan dari divisi mana bahan dikurangi saat batch produksi — kosongkan untuk pakai divisi default component.
           </div>
         </div>
         <div class="col-md-4">
@@ -63,9 +64,10 @@ $components = is_array($components ?? null) ? $components : [];
           <thead>
             <tr>
               <th style="width:140px;">Tipe</th>
-              <th style="width:420px;">Sumber</th>
+              <th style="width:152px;">Divisi Sumber</th>
+              <th style="width:360px;">Sumber</th>
               <th style="width:130px;">Qty</th>
-              <th style="width:120px;">UOM</th>
+              <th style="width:100px;">UOM</th>
               <th>Catatan</th>
               <th style="width:90px;"></th>
             </tr>
@@ -81,6 +83,7 @@ $components = is_array($components ?? null) ? $components : [];
 document.addEventListener('DOMContentLoaded', function () {
   const componentId = <?php echo (int)($component['id'] ?? 0); ?>;
   const seedLines = <?php echo json_encode($lines, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+  const sourceDivisions = <?php echo json_encode(array_values($source_divisions), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
 
   const body = document.getElementById('line-body');
   const searchEl = document.getElementById('line-search');
@@ -96,18 +99,34 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function esc(v) { return String(v ?? '').replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
 
+  function sourceDivisionOptionsHtml(selected) {
+    const current = Number(selected || 0);
+    let html = '<option value="0">- default -</option>';
+    sourceDivisions.forEach(function (opt) {
+      const sel = Number(opt.value || 0) === current ? ' selected' : '';
+      html += `<option value="${esc(String(opt.value))}"${sel}>${esc(opt.label || '-')}</option>`;
+    });
+    return html;
+  }
+
   function rowTemplate(line = {}) {
     const t = String(line.line_type || 'MATERIAL').toUpperCase();
     const sourceName = t === 'MATERIAL' ? (line.material_name || '') : (line.sub_component_name || '');
     const sourceId = t === 'MATERIAL' ? Number(line.material_id || 0) : Number(line.sub_component_id || 0);
     const materialItemId = t === 'MATERIAL' ? Number(line.material_item_id || 0) : 0;
     const uomLabel = esc(line.uom_code || '-');
+    const sourceDivId = Number(line.source_division_id || 0);
     return `
       <tr data-source-uom="${uomLabel}">
         <td>
           <select class="form-select form-select-sm line-type">
             <option value="MATERIAL" ${t==='MATERIAL'?'selected':''}>MATERIAL</option>
             <option value="COMPONENT" ${t==='COMPONENT'?'selected':''}>COMPONENT</option>
+          </select>
+        </td>
+        <td>
+          <select class="form-select form-select-sm line-source-division">
+            ${sourceDivisionOptionsHtml(sourceDivId)}
           </select>
         </td>
         <td>
@@ -124,12 +143,15 @@ document.addEventListener('DOMContentLoaded', function () {
       </tr>`;
   }
 
-  async function searchSource(lineType, q) {
+  async function searchSource(lineType, q, sourceDivisionId) {
     const p = new URLSearchParams();
     p.set('line_type', lineType);
     p.set('q', q || '');
     p.set('component_id', String(componentId));
     p.set('limit', '20');
+    if (Number(sourceDivisionId || 0) > 0) {
+      p.set('source_division_id', String(Number(sourceDivisionId)));
+    }
     const r = await fetch('<?php echo site_url('production/component-formulas/source-search'); ?>?' + p.toString(), {headers: {'X-Requested-With':'XMLHttpRequest'}});
     const t = await r.text();
     let j = {};
@@ -194,8 +216,10 @@ document.addEventListener('DOMContentLoaded', function () {
     let componentCount = 0;
     body.querySelectorAll('tr').forEach((tr, idx) => {
       const lineType = tr.querySelector('.line-type').value;
+      const sourceDivId = Number(tr.querySelector('.line-source-division')?.value || 0);
       const row = {
         line_type: lineType,
+        source_division_id: sourceDivId > 0 ? sourceDivId : 0,
         qty: Number(tr.querySelector('.line-qty').value || 0),
         notes: tr.querySelector('.line-notes').value || '',
         sort_order: idx
@@ -263,7 +287,8 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
     const lineType = tr.querySelector('.line-type').value;
-    const rows = await searchSource(lineType, keyword);
+    const sourceDivId = Number(tr.querySelector('.line-source-division')?.value || 0);
+    const rows = await searchSource(lineType, keyword, sourceDivId);
     sourceOverlay.innerHTML = rows.map((r) => `<button type="button" class="list-group-item list-group-item-action py-1 js-pick-source bg-white" data-id="${Number(r.id||0)}" data-name="${esc(r.name||'')}" data-uom="${esc(r.uom_code||'-')}">${esc((r.name||'-') + ' (' + (r.uom_code||'-') + ')')}</button>`).join('');
     placeSourceBox(tr);
     sourceOverlay.classList.toggle('d-none', rows.length === 0);

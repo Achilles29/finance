@@ -197,7 +197,7 @@ if ($isProductRecipe) {
             <th>Line</th>
             <th>Type</th>
             <th>Referensi</th>
-            <?php if ($isProductRecipe): ?><th>Source Divisi Operasional</th><?php endif; ?>
+            <?php if ($isProductRecipe || $isComponentFormula): ?><th>Divisi Sumber</th><?php endif; ?>
             <th>Qty</th>
             <th>UOM</th>
             <th>Sort</th>
@@ -228,7 +228,7 @@ if ($isProductRecipe) {
                     <?php echo html_escape((string)($r['component_name'] ?? '-')); ?>
                   <?php endif; ?>
                 </td>
-                <?php if ($isProductRecipe): ?><td><?php echo html_escape((string)($r['source_division_name'] ?? '-')); ?></td><?php endif; ?>
+                <?php if ($isProductRecipe || $isComponentFormula): ?><td><?php echo html_escape((string)($r['source_division_name'] ?? '-')); ?></td><?php endif; ?>
                 <td class="number-cell"><span data-decimal="1" data-value="<?php echo html_escape((string)$r['qty']); ?>"><?php echo html_escape((string)$r['qty']); ?></span></td>
                 <td><?php echo html_escape((string)($r['uom_name'] ?? '-')); ?></td>
                 <td class="number-cell"><?php echo (int)$r['sort_order']; ?></td>

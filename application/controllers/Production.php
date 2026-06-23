@@ -1784,12 +1784,21 @@ class Production extends MY_Controller
             show_error((string)($detail['message'] ?? 'Formula tidak ditemukan.'), 404, 'Not Found');
             return;
         }
+        $sourceDivisionRows = $this->db
+            ->select('id, name')
+            ->from('mst_operational_division')
+            ->where('is_active', 1)
+            ->order_by('sort_order', 'ASC')
+            ->order_by('name', 'ASC')
+            ->get()->result_array();
+        $sourceDivisions = array_map(fn($d) => ['value' => (int)$d['id'], 'label' => (string)$d['name']], $sourceDivisionRows);
         $this->render('production/component_formula_edit', [
             'page_title' => 'Edit Formula Component',
             'detail' => $detail,
             'uoms' => $this->active_uoms(),
             'materials' => $this->active_materials(),
             'components' => $this->active_components(),
+            'source_divisions' => $sourceDivisions,
         ]);
     }
 

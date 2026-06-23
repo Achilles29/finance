@@ -65,6 +65,7 @@ $totalLive = (float)($summary['total_cogs_live'] ?? 0);
             <tr>
               <th style="width:70px;">No</th>
               <th>Sumber</th>
+              <th style="width:130px;">Divisi Sumber</th>
               <th class="text-end" style="width:120px;">Qty</th>
               <th style="width:120px;">Satuan</th>
               <th class="text-end" style="width:140px;">Stok Tersedia</th>
@@ -85,6 +86,7 @@ $totalLive = (float)($summary['total_cogs_live'] ?? 0);
               <tr>
                 <td><?php echo (int)($i + 1); ?></td>
                 <td><?php echo html_escape($sourceName); ?></td>
+                <td><?php echo html_escape((string)($line['source_division_name'] ?? '-')); ?></td>
                 <td class="text-end"><?php echo number_format((float)($line['qty'] ?? 0), 2, ',', '.'); ?></td>
                 <td><?php echo html_escape((string)($line['uom_code'] ?? '-')); ?></td>
                 <td class="text-end"><?php echo number_format((float)($line['available_qty'] ?? 0), 2, ',', '.'); ?></td>
@@ -101,17 +103,17 @@ $totalLive = (float)($summary['total_cogs_live'] ?? 0);
               </tr>
             <?php endforeach; ?>
             <tr>
-              <td colspan="8" class="text-end fw-semibold">Subtotal Direct Cost</td>
+              <td colspan="9" class="text-end fw-semibold">Subtotal Direct Cost</td>
               <td class="text-end fw-semibold"><?php echo number_format($directStd, 2, ',', '.'); ?></td>
               <td class="text-end fw-semibold"><?php echo number_format($directLive, 2, ',', '.'); ?></td>
             </tr>
             <tr>
-              <td colspan="8" class="text-end fw-semibold">Biaya Variabel - <?php echo html_escape((string)($summary['variable_cost_mode'] ?? 'DEFAULT')); ?> (<?php echo number_format((float)($summary['variable_cost_percent'] ?? 0), 2, ',', '.'); ?>%)</td>
+              <td colspan="9" class="text-end fw-semibold">Biaya Variabel - <?php echo html_escape((string)($summary['variable_cost_mode'] ?? 'DEFAULT')); ?> (<?php echo number_format((float)($summary['variable_cost_percent'] ?? 0), 2, ',', '.'); ?>%)</td>
               <td class="text-end fw-semibold"><?php echo number_format($variableStd, 2, ',', '.'); ?></td>
               <td class="text-end fw-semibold"><?php echo number_format($variableLive, 2, ',', '.'); ?></td>
             </tr>
             <tr>
-              <td colspan="8" class="text-end fw-bold">Total COGS</td>
+              <td colspan="9" class="text-end fw-bold">Total COGS</td>
               <td class="text-end fw-bold"><?php echo number_format($totalStd, 2, ',', '.'); ?></td>
               <td class="text-end fw-bold"><?php echo number_format($totalLive, 2, ',', '.'); ?></td>
             </tr>

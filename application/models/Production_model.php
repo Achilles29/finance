@@ -6762,14 +6762,20 @@ class Production_model extends CI_Model
         if (!$this->db->field_exists('material_id', 'mst_component_formula')) {
             $materialExpr = "i.material_id";
         }
-        $rows = $this->db->select("f.*, {$materialExpr} AS material_id, m.material_name AS material_name, c.component_name AS sub_component_name, {$uomSelect}", false)
+        $divJoin = $this->db->field_exists('source_division_id', 'mst_component_formula')
+            ? ', od.name AS source_division_name'
+            : '';
+        $rows = $this->db->select("f.*, {$materialExpr} AS material_id, m.material_name AS material_name, c.component_name AS sub_component_name, {$uomSelect}{$divJoin}", false)
             ->from('mst_component_formula f')
             ->join('mst_item i', 'i.id = f.material_item_id', 'left')
             ->join('mst_material m', "m.id = {$materialExpr}", 'left')
             ->join('mst_component c', 'c.id = f.sub_component_id', 'left')
             ->join('mst_uom mu', 'mu.id = m.content_uom_id', 'left')
-            ->join('mst_uom cu', 'cu.id = c.uom_id', 'left')
-            ->where('f.component_id', $componentId)
+            ->join('mst_uom cu', 'cu.id = c.uom_id', 'left');
+        if ($this->db->field_exists('source_division_id', 'mst_component_formula')) {
+            $this->db->join('mst_operational_division od', 'od.id = f.source_division_id', 'left');
+        }
+        $rows = $this->db->where('f.component_id', $componentId)
             ->order_by('f.line_no', 'ASC')
             ->get()->result_array();
         $this->componentFormulaLinesCache[$componentId] = $rows;
@@ -7306,6 +7312,10 @@ class Production_model extends CI_Model
             if ($this->db->field_exists('material_item_id', 'mst_component_formula')) {
                 $row['material_item_id'] = $lineType === 'MATERIAL' ? ($materialItemId ?: null) : null;
             }
+            if ($this->db->field_exists('source_division_id', 'mst_component_formula')) {
+                $sourceDivId = !empty($line['source_division_id']) ? (int)$line['source_division_id'] : null;
+                $row['source_division_id'] = $sourceDivId > 0 ? $sourceDivId : null;
+            }
             $normalized[] = $row;
         }
         if (count($normalized) <= 0) {
@@ -7534,6 +7544,10 @@ class Production_model extends CI_Model
 
     private function resolve_formula_line_cost(array $line, int $divisionId): array
     {
+        $lineDivisionId = !empty($line['source_division_id']) ? (int)$line['source_division_id'] : 0;
+        if ($lineDivisionId > 0) {
+            $divisionId = $lineDivisionId;
+        }
         $lineType = strtoupper((string)($line['line_type'] ?? ''));
         if ($lineType === 'MATERIAL') {
             $materialCol = $this->formula_material_column();

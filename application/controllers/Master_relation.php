@@ -514,11 +514,12 @@ class Master_relation extends MY_Controller
         $component = $this->Master_model->get_by_id('mst_component', $componentId);
         if (!$component) show_404();
 
-        $this->db->select('f.*, i.item_name, c.component_name, u.name AS uom_name');
+        $this->db->select('f.*, i.item_name, c.component_name, u.name AS uom_name, od.name AS source_division_name');
         $this->db->from('mst_component_formula f');
         $this->db->join('mst_item i', 'i.id = f.material_item_id', 'left');
         $this->db->join('mst_component c', 'c.id = f.sub_component_id', 'left');
         $this->db->join('mst_uom u', 'u.id = f.uom_id', 'left');
+        $this->db->join('mst_operational_division od', 'od.id = f.source_division_id', 'left');
         $this->db->where('f.component_id', $componentId);
         $this->db->order_by('f.sort_order ASC, f.id ASC');
         $rows = $this->db->get()->result_array();
