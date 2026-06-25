@@ -978,6 +978,62 @@ mysql -u root -p db_finance < backup.sql</div>
   </div>
 </div>
 
+<!-- BAB 9 -->
+<div class="guide-chapter">
+  <div class="guide-chapter-header" onclick="toggleChap(this)">
+    <div class="chap-title"><span class="chap-num">9</span>Sinkron IP Domain Cloudflare (DDNS)</div>
+    <i class="ri ri-arrow-down-s-line guide-toggle-icon"></i>
+  </div>
+  <div class="guide-chapter-body">
+    <p class="small text-muted mb-3">Gunakan ini jika IP publik server bisa berubah dan semua domain Cloudflare perlu mengikuti IP server secara otomatis.</p>
+
+    <ol class="guide-step-list">
+      <li>
+        <div class="snum">1</div>
+        <div class="sbody">
+          <div class="stitle">Pakai script baru di folder finance</div>
+          <div class="sdesc">Lokasi script: <code>scripts/cloudflare/ddns_sync.sh</code>. Script ini hanya memproses record <code>A</code>, jadi record bertipe <strong>Tunnel</strong> otomatis dilewati.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">2</div>
+        <div class="sbody">
+          <div class="stitle">Buat file konfigurasi</div>
+          <div class="sdesc">Salin template lalu isi token dan zone Cloudflare:</div>
+          <div class="dbt-code">cd <?php echo rtrim(FCPATH, '/'); ?>/scripts/cloudflare
+cp .env.example .env
+chmod 600 .env</div>
+          <div class="guide-note mt-1">Jika semua record <code>A</code> di zone memang milik server ini, biarkan <code>CF_INCLUDE_NAMES</code> kosong. Jika zone dipakai beberapa server, isi <code>CF_INCLUDE_NAMES</code> atau <code>CF_EXCLUDE_NAMES</code> agar tidak semua host dipindah ke IP server ini.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">3</div>
+        <div class="sbody">
+          <div class="stitle">Tes manual sekali</div>
+          <div class="dbt-code">chmod +x <?php echo rtrim(FCPATH, '/'); ?>/scripts/cloudflare/ddns_sync.sh
+<?php echo rtrim(FCPATH, '/'); ?>/scripts/cloudflare/ddns_sync.sh --force</div>
+          <div class="sdesc">Gunakan <code>--force</code> saat pertama kali agar script tetap cek dan sinkron walaupun cache IP lama belum ada.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">4</div>
+        <div class="sbody">
+          <div class="stitle">Pasang cron tiap 5 menit</div>
+          <div class="dbt-code">*/5 * * * * <?php echo rtrim(FCPATH, '/'); ?>/scripts/cloudflare/ddns_sync.sh >> <?php echo rtrim(FCPATH, '/'); ?>/backup/logs/cloudflare_ddns.log 2>&amp;1</div>
+          <div class="sdesc">Cukup satu cron ini saja. Tidak perlu lagi memakai script lama di <code>/usr/local/bin</code>.</div>
+        </div>
+      </li>
+      <li>
+        <div class="snum">5</div>
+        <div class="sbody">
+          <div class="stitle">Saat pindah server</div>
+          <div class="sdesc">Cukup salin folder <code>scripts/cloudflare/</code>, isi ulang file <code>.env</code> di server baru, lalu pasang cron yang sama. Tidak perlu edit script inti lagi.</div>
+        </div>
+      </li>
+    </ol>
+  </div>
+</div>
+
 </div><!-- /tab-panduan -->
 
 <script>

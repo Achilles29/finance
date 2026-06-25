@@ -188,6 +188,33 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 </style>
 <?php endif; ?>
 
+<?php if ($entity === 'product'): ?>
+<style>
+  .master-index--product-scroll .master-table-wrap {
+    max-height: calc(100vh - 280px);
+    overflow: auto;
+  }
+  .master-index--product-scroll .master-table-wrap table {
+    margin-bottom: 0;
+  }
+  .master-index--product-scroll .master-table-wrap thead th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: #fff;
+    box-shadow: inset 0 -1px 0 rgba(222, 226, 230, 0.9);
+  }
+  .master-index--product-scroll .master-table-wrap thead th:last-child {
+    z-index: 6;
+  }
+  @media (max-width: 991.98px) {
+    .master-index--product-scroll .master-table-wrap {
+      max-height: calc(100vh - 240px);
+    }
+  }
+</style>
+<?php endif; ?>
+
 <?php if ($entity === 'extra-group'): ?>
 <style>
   #extraGroupRelationModal .modal-dialog {
@@ -246,7 +273,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 </style>
 <?php endif; ?>
 
-<div data-master-root data-master-entity="<?php echo html_escape($entity); ?>" data-master-reorder-url="<?php echo html_escape(site_url('master/' . $entity . '/reorder')); ?>" class="master-index <?php echo $isPayrollMaster ? 'master-index--payroll' : ''; ?> <?php echo $useLargeActionIcons ? 'master-index--action-upgrade' : ''; ?> <?php echo $isProductHierarchyMaster ? 'master-index--product-hierarchy' : ''; ?>">
+<div data-master-root data-master-entity="<?php echo html_escape($entity); ?>" data-master-reorder-url="<?php echo html_escape(site_url('master/' . $entity . '/reorder')); ?>" class="master-index <?php echo $isPayrollMaster ? 'master-index--payroll' : ''; ?> <?php echo $useLargeActionIcons ? 'master-index--action-upgrade' : ''; ?> <?php echo $isProductHierarchyMaster ? 'master-index--product-hierarchy' : ''; ?> <?php echo $entity === 'product' ? 'master-index--product-scroll' : ''; ?>">
 <?php if ($entity === 'extra' || $entity === 'extra-group'): ?>
   <?php $extraTabActive = $entity === 'extra' ? 'master-extra' : 'extra-group'; ?>
   <?php $this->load->view('master/_extra_tabs', compact('extraTabActive')); ?>
@@ -386,7 +413,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 </div>
 
 <div class="card master-card" id="masterListCard">
-  <div class="table-responsive">
+  <div class="table-responsive <?php echo $entity === 'product' ? 'master-table-wrap' : ''; ?>">
     <table class="table table-striped table-hover mb-0 master-table">
       <thead>
         <tr>

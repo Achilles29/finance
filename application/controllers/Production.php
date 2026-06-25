@@ -2403,6 +2403,7 @@ class Production extends MY_Controller
             'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
             'division_id'   => (int)$this->input->get('division_id', true),
             'type'          => $this->normalize_component_type_filter($this->input->get('type', true)),
+            'component_id'  => (int)$this->input->get('component_id', true),
             'per_page'      => $perPage,
         ];
     }

@@ -8,6 +8,7 @@ $initialQ = (string)($q ?? '');
 $initialDateFrom = (string)($date_from ?? '');
 $initialDateTo = (string)($date_to ?? '');
 $initialDivisionId = (int)($division_id ?? 0);
+$initialMaterialId = (int)($material_id ?? 0);
 $initialDestination = strtoupper(trim((string)($destination ?? 'ALL')));
 if ($initialDestination === '') {
   $initialDestination = 'ALL';
@@ -1333,6 +1334,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   var state = {
     month: defaultMonth,
     division_id: <?php echo (int)$initialDivisionId; ?>,
+    material_id: <?php echo (int)$initialMaterialId; ?>,
     destination: <?php echo json_encode($initialDestination); ?>,
     q: <?php echo json_encode($initialQ); ?>,
     date_from: <?php echo json_encode($initialDateFrom); ?>,
@@ -1491,6 +1493,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     document.getElementById('pmdDateTo').value = '';
     document.getElementById('pmdLimit').value = '120';
     readFilters();
+    state.material_id = 0;
   }
 
   function applyDestinationGuard(){
@@ -1538,6 +1541,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     if (state.date_from) { p.set('date_from', state.date_from); }
     if (state.date_to) { p.set('date_to', state.date_to); }
     if (state.division_id > 0) { p.set('division_id', String(state.division_id)); }
+    if (state.material_id > 0) { p.set('material_id', String(state.material_id)); }
     if (state.destination && state.destination !== 'ALL') { p.set('destination', state.destination); }
     p.set('limit', String(state.limit));
     if (state.offset > 0) { p.set('offset', String(state.offset)); }

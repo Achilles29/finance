@@ -655,6 +655,7 @@ class Purchase extends MY_Controller
         $month      = trim((string)$this->input->get('month', true));
         $q          = trim((string)$this->input->get('q', true));
         $divisionId = (int)$this->input->get('division_id', true);
+        $materialId = (int)$this->input->get('material_id', true);
         $destination = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destination === '') {
             $destination = 'ALL';
@@ -1884,6 +1885,7 @@ class Purchase extends MY_Controller
         $dateFrom = $range['date_from'];
         $dateTo = $range['date_to'];
         $divisionId = (int)$this->input->get('division_id', true);
+        $materialId = (int)$this->input->get('material_id', true);
         $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destinationFilter === '') {
             $destinationFilter = 'ALL';
@@ -1903,6 +1905,7 @@ class Purchase extends MY_Controller
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
             'division_id' => $divisionId,
+            'material_id' => $materialId,
             'destination' => $destinationFilter,
             'limit' => $limit,
             'page' => $page,
@@ -1974,6 +1977,7 @@ class Purchase extends MY_Controller
         }
 
         $divisionId = (int)$this->input->get('division_id', true);
+        $materialId = (int)$this->input->get('material_id', true);
         $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destinationFilter === '') {
             $destinationFilter = 'ALL';
@@ -2653,6 +2657,7 @@ class Purchase extends MY_Controller
         $dateFrom = $range['date_from'];
         $dateTo = $range['date_to'];
         $divisionId = (int)$this->input->get('division_id', true);
+        $materialId = (int)$this->input->get('material_id', true);
         $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destinationFilter === '') {
             $destinationFilter = 'ALL';
@@ -2671,6 +2676,7 @@ class Purchase extends MY_Controller
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
             'division_id' => $divisionId,
+            'material_id' => $materialId,
             'destination' => $destinationFilter,
             'limit' => $limit,
             'divisions' => $divisions,
@@ -2711,6 +2717,7 @@ class Purchase extends MY_Controller
             $status = 'POSTED';
         }
         $divisionId = (int)$this->input->get('division_id', true);
+        $materialId = (int)$this->input->get('material_id', true);
         $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destinationFilter === '') {
             $destinationFilter = 'ALL';
@@ -2787,6 +2794,7 @@ class Purchase extends MY_Controller
             $status = 'OPEN';
         }
         $divisionId = (int)$this->input->get('division_id', true);
+        $materialId = (int)$this->input->get('material_id', true);
         $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destinationFilter === '') {
             $destinationFilter = 'ALL';
@@ -3026,6 +3034,7 @@ class Purchase extends MY_Controller
         $dateFrom = $range['date_from'];
         $dateTo = $range['date_to'];
         $divisionId = (int)$this->input->get('division_id', true);
+        $materialId = (int)$this->input->get('material_id', true);
         $destinationFilter = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destinationFilter === '') {
             $destinationFilter = 'ALL';
@@ -3045,7 +3054,8 @@ class Purchase extends MY_Controller
             $dateTo,
             $limit,
             $destinationFilter,
-            $offset
+            $offset,
+            $materialId > 0 ? $materialId : null
         );
 
         $this->output

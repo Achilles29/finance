@@ -286,9 +286,14 @@ class Master_relation extends MY_Controller
 
                 $lines[] = [
                     'line_type' => 'COMPONENT',
+                    'component_id' => $componentId,
+                    'material_id' => 0,
+                    'item_id' => 0,
                     'reference_name' => (string)($row['component_name'] ?? '-'),
                     'qty' => $qty,
                     'uom_name' => (string)($row['uom_name'] ?? '-'),
+                    'source_division_id' => $sourceDivId,
+                    'resolved_division_id' => $divisionId,
                     'source_division_name' => (string)($row['source_division_name'] ?? $row['component_div_name'] ?? '-'),
                     'cost_by_stock' => $stockCost['unit_cost'],
                     'cost_by_formula' => $formulaCost['unit_cost'],
@@ -313,9 +318,14 @@ class Master_relation extends MY_Controller
 
                 $lines[] = [
                     'line_type' => 'MATERIAL',
+                    'component_id' => 0,
+                    'material_id' => $materialId,
+                    'item_id' => (int)($row['material_item_id'] ?? 0),
                     'reference_name' => (string)($row['material_name'] ?? $row['item_name'] ?? '-'),
                     'qty' => $qty,
                     'uom_name' => (string)($row['uom_name'] ?? '-'),
+                    'source_division_id' => $sourceDivId,
+                    'resolved_division_id' => $divisionId,
                     'source_division_name' => (string)($row['source_division_name'] ?? '-'),
                     'cost_by_stock' => $unitCost,
                     'cost_by_formula' => $unitCost,

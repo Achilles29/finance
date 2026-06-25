@@ -21,6 +21,8 @@ $varMode        = (string)($summary['variable_cost_mode'] ?? 'DEFAULT');
   .hpp-stock-page .diff-positive { color: #388e3c; font-weight: 600; }
   .hpp-stock-page .diff-negative { color: #c62828; font-weight: 600; }
   .hpp-stock-page .diff-zero     { color: #9e9e9e; }
+  .hpp-stock-page .hpp-link { color: inherit; text-decoration: none; }
+  .hpp-stock-page .hpp-link:hover { text-decoration: underline; }
 </style>
 
 <div class="hpp-stock-page container-xxl py-3">
@@ -121,8 +123,39 @@ $varMode        = (string)($summary['variable_cost_mode'] ?? 'DEFAULT');
             <?php else: ?>
               <?php foreach ($lines as $i => $line):
                 $isComponent = (string)($line['line_type'] ?? '') === 'COMPONENT';
+                $referenceName = (string)($line['reference_name'] ?? '-');
+                $resolvedDivisionId = (int)($line['resolved_division_id'] ?? 0);
+                $componentId = (int)($line['component_id'] ?? 0);
+                $materialId = (int)($line['material_id'] ?? 0);
+                $itemId = (int)($line['item_id'] ?? 0);
                 $costDiff = (float)($line['cost_by_stock'] ?? 0) - (float)($line['cost_by_formula'] ?? 0);
                 $src = (string)($line['stock_source'] ?? 'NO_DATA');
+                $usageUrl = '';
+                $stockUrl = '';
+                if ($isComponent && $componentId > 0) {
+                  $usageUrl = site_url('production/component-masters/usage/' . $componentId);
+                  $stockParams = [
+                    'component_id' => $componentId,
+                    'q' => $referenceName,
+                  ];
+                  if ($resolvedDivisionId > 0) {
+                    $stockParams['division_id'] = $resolvedDivisionId;
+                  }
+                  $stockUrl = site_url('production/component-daily') . '?' . http_build_query($stockParams);
+                } elseif (!$isComponent && $materialId > 0) {
+                  $usageUrl = site_url('master/material/usage/' . $materialId);
+                  $stockParams = [
+                    'material_id' => $materialId,
+                    'q' => $referenceName,
+                  ];
+                  if ($resolvedDivisionId > 0) {
+                    $stockParams['division_id'] = $resolvedDivisionId;
+                  }
+                  if ($itemId > 0) {
+                    $stockParams['item_id'] = $itemId;
+                  }
+                  $stockUrl = site_url('inventory-material-daily') . '?' . http_build_query($stockParams);
+                }
                 if (strpos($src, 'LOT') !== false) $badgeClass = 'badge-source-lot';
                 elseif (strpos($src, 'STOCK') !== false) $badgeClass = 'badge-source-stock';
                 elseif (strpos($src, 'FALLBACK_FORMULA') !== false) $badgeClass = 'badge-source-fallback';
@@ -137,7 +170,11 @@ $varMode        = (string)($summary['variable_cost_mode'] ?? 'DEFAULT');
                   </span>
                 </td>
                 <td>
-                  <strong><?php echo html_escape((string)($line['reference_name'] ?? '-')); ?></strong>
+                  <?php if ($usageUrl !== ''): ?>
+                    <a href="<?php echo html_escape($usageUrl); ?>" class="hpp-link fw-semibold"><?php echo html_escape($referenceName); ?></a>
+                  <?php else: ?>
+                    <strong><?php echo html_escape($referenceName); ?></strong>
+                  <?php endif; ?>
                   <?php if ($isComponent && !empty($line['formula_has_no_lines'])): ?>
                     <span class="badge bg-light text-warning border border-warning ms-1" title="Tidak ada formula">No Formula</span>
                   <?php endif; ?>
@@ -150,7 +187,11 @@ $varMode        = (string)($summary['variable_cost_mode'] ?? 'DEFAULT');
                     $stockQty = (float)($line['stock_qty'] ?? 0);
                     $stockClass = $stockQty > 0 ? 'text-success' : 'text-danger';
                   ?>
-                  <span class="<?php echo $stockClass; ?>"><?php echo number_format($stockQty, 2, ',', '.'); ?></span>
+                  <?php if ($stockUrl !== ''): ?>
+                    <a href="<?php echo html_escape($stockUrl); ?>" class="hpp-link <?php echo $stockClass; ?> fw-semibold"><?php echo number_format($stockQty, 2, ',', '.'); ?></a>
+                  <?php else: ?>
+                    <span class="<?php echo $stockClass; ?>"><?php echo number_format($stockQty, 2, ',', '.'); ?></span>
+                  <?php endif; ?>
                 </td>
                 <td class="text-end">
                   <?php echo number_format((float)($line['cost_by_stock'] ?? 0), 2, ',', '.'); ?>

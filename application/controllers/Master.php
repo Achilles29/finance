@@ -6,6 +6,7 @@ class Master extends MY_Controller
     private $productListLiveHppCache = [];
     private $productRecipeMaterialCostCache = [];
     private $productRecipeComponentCostCache = [];
+    private $divisionCodeCache = [];
 
     public function __construct()
     {
@@ -1940,6 +1941,44 @@ class Master extends MY_Controller
         return $cache[$key];
     }
 
+    private function operationalDivisionCode(int $divisionId): string
+    {
+        if ($divisionId <= 0) {
+            return '';
+        }
+        if (array_key_exists($divisionId, $this->divisionCodeCache)) {
+            return $this->divisionCodeCache[$divisionId];
+        }
+
+        $row = $this->db
+            ->select('code')
+            ->from('mst_operational_division')
+            ->where('id', $divisionId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $this->divisionCodeCache[$divisionId] = strtoupper(trim((string)($row['code'] ?? '')));
+        return $this->divisionCodeCache[$divisionId];
+    }
+
+    private function regularMaterialDestinationForDivision(int $divisionId): ?string
+    {
+        $code = $this->operationalDivisionCode($divisionId);
+        if ($code === 'BAR') {
+            return 'BAR';
+        }
+        if ($code === 'KITCHEN') {
+            return 'KITCHEN';
+        }
+        return null;
+    }
+
+    private function regularComponentLocationForDivision(int $divisionId): ?string
+    {
+        return $this->regularMaterialDestinationForDivision($divisionId);
+    }
+
     private function resolveProductListMaterialLiveCost(int $materialId, int $divisionId): float
     {
         $cacheKey = $divisionId . '|' . $materialId;
@@ -1950,6 +1989,48 @@ class Master extends MY_Controller
         $material = $this->db->select('id, hpp_standard')->from('mst_material')->where('id', $materialId)->limit(1)->get()->row_array();
         $standard = (float)($material['hpp_standard'] ?? 0);
         $live = 0.0;
+        $hasStockLiveCost = false;
+
+        if ($materialId > 0 && $divisionId > 0 && $this->db->table_exists('inv_material_fifo_lot')) {
+            $preferredDestination = $this->regularMaterialDestinationForDivision($divisionId);
+            if ($preferredDestination !== null) {
+                $frontPreferred = $this->db->query(
+                    "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                     FROM inv_material_fifo_lot
+                     WHERE location_scope = 'DIVISION'
+                       AND division_id = ?
+                       AND destination_type = ?
+                       AND COALESCE(material_id, 0) = ?
+                       AND qty_balance > 0
+                     ORDER BY receipt_date ASC, id ASC
+                     LIMIT 1",
+                    [$divisionId, $preferredDestination, $materialId]
+                )->row_array();
+                if (!empty($frontPreferred)) {
+                    $live = (float)($frontPreferred['unit_cost'] ?? 0);
+                    $hasStockLiveCost = $live > 0;
+                }
+            }
+
+            if (!$hasStockLiveCost) {
+                $front = $this->db->query(
+                    "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                     FROM inv_material_fifo_lot
+                     WHERE location_scope = 'DIVISION'
+                       AND division_id = ?
+                       AND COALESCE(material_id, 0) = ?
+                       AND qty_balance > 0
+                     ORDER BY receipt_date ASC, id ASC
+                     LIMIT 1",
+                    [$divisionId, $materialId]
+                )->row_array();
+                if (!empty($front)) {
+                    $live = (float)($front['unit_cost'] ?? 0);
+                    $hasStockLiveCost = $live > 0;
+                }
+            }
+        }
+
         if ($divisionId > 0 && $this->db->table_exists('inv_division_monthly_stock')) {
             $targetMonth = date('Y-m-01');
             $latestMonthSubquery = $this->db
@@ -1958,14 +2039,29 @@ class Master extends MY_Controller
                 ->where('month_key <=', $targetMonth)
                 ->group_by(['division_id', 'destination_type', 'identity_key'])
                 ->get_compiled_select();
-            $liveRow = $this->db->select('AVG(COALESCE(s.avg_cost_per_content,0)) AS avg_cost_per_content', false)
+            $liveRow = $this->db->select("
+                    COALESCE(
+                        CASE
+                            WHEN ABS(SUM(COALESCE(s.closing_qty_content, 0))) > 0.000001
+                                THEN SUM(COALESCE(s.closing_qty_content, 0) * COALESCE(s.avg_cost_per_content, 0)) / SUM(COALESCE(s.closing_qty_content, 0))
+                            ELSE MAX(COALESCE(s.avg_cost_per_content, 0))
+                        END,
+                        0
+                    ) AS avg_cost_per_content
+                ", false)
                 ->from('inv_division_monthly_stock s')
+                ->join('mst_item mi', 'mi.id = s.item_id', 'left')
                 ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
                 ->where('s.division_id', $divisionId)
-                ->where('s.material_id', $materialId)
+                ->group_start()
+                    ->where('s.material_id', $materialId)
+                    ->or_where('mi.material_id', $materialId)
+                ->group_end()
                 ->get()
                 ->row_array();
-            $live = (float)($liveRow['avg_cost_per_content'] ?? 0);
+            if (!$hasStockLiveCost) {
+                $live = (float)($liveRow['avg_cost_per_content'] ?? 0);
+            }
         }
         if ($live <= 0) {
             $live = $standard;
@@ -1985,6 +2081,46 @@ class Master extends MY_Controller
         $component = $this->db->select('id, hpp_standard')->from('mst_component')->where('id', $componentId)->limit(1)->get()->row_array();
         $standard = (float)($component['hpp_standard'] ?? 0);
         $live = 0.0;
+        $hasStockLiveCost = false;
+
+        if ($componentId > 0 && $this->db->table_exists('inv_component_lot')) {
+            $preferredLocation = $this->regularComponentLocationForDivision($divisionId);
+            if ($preferredLocation !== null) {
+                $frontPreferred = $this->db->query(
+                    "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                     FROM inv_component_lot
+                     WHERE component_id = ?
+                       AND division_id = ?
+                       AND location_type = ?
+                       AND qty_balance > 0
+                     ORDER BY receipt_date ASC, id ASC
+                     LIMIT 1",
+                    [$componentId, $divisionId, $preferredLocation]
+                )->row_array();
+                if (!empty($frontPreferred)) {
+                    $live = (float)($frontPreferred['unit_cost'] ?? 0);
+                    $hasStockLiveCost = $live > 0;
+                }
+            }
+
+            if (!$hasStockLiveCost) {
+                $front = $this->db->query(
+                    "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
+                     FROM inv_component_lot
+                     WHERE component_id = ?
+                       AND division_id = ?
+                       AND qty_balance > 0
+                     ORDER BY receipt_date ASC, id ASC
+                     LIMIT 1",
+                    [$componentId, $divisionId]
+                )->row_array();
+                if (!empty($front)) {
+                    $live = (float)($front['unit_cost'] ?? 0);
+                    $hasStockLiveCost = $live > 0;
+                }
+            }
+        }
+
         if ($this->db->table_exists('inv_component_monthly_stock')) {
             $targetMonth = date('Y-m-01');
             $latestMonthSubquery = $this->db
@@ -1993,7 +2129,16 @@ class Master extends MY_Controller
                 ->where('month_key <=', $targetMonth)
                 ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
                 ->get_compiled_select();
-            $this->db->select('AVG(COALESCE(s.avg_cost,0)) AS avg_cost', false)
+            $this->db->select("
+                    COALESCE(
+                        CASE
+                            WHEN ABS(SUM(COALESCE(s.closing_qty, 0))) > 0.000001
+                                THEN SUM(COALESCE(s.closing_qty, 0) * COALESCE(s.avg_cost, 0)) / SUM(COALESCE(s.closing_qty, 0))
+                            ELSE MAX(COALESCE(s.avg_cost, 0))
+                        END,
+                        0
+                    ) AS avg_cost
+                ", false)
                 ->from('inv_component_monthly_stock s')
                 ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
                 ->where('s.component_id', $componentId);
@@ -2001,14 +2146,49 @@ class Master extends MY_Controller
                 $this->db->where('s.division_id', $divisionId);
             }
             $liveRow = $this->db->get()->row_array();
-            $live = (float)($liveRow['avg_cost'] ?? 0);
+            if (!$hasStockLiveCost) {
+                $live = (float)($liveRow['avg_cost'] ?? 0);
+            }
         }
         if ($live <= 0) {
-            $live = $standard;
+            $formulaLive = $this->resolveProductListComponentFormulaCost($componentId);
+            if ($formulaLive > 0) {
+                $live = $formulaLive;
+            } else {
+                $live = $standard;
+            }
         }
 
         $this->productRecipeComponentCostCache[$cacheKey] = round($live, 6);
         return (float)$this->productRecipeComponentCostCache[$cacheKey];
+    }
+
+    private function resolveProductListComponentFormulaCost(int $componentId): float
+    {
+        static $cache = [];
+        if (array_key_exists($componentId, $cache)) {
+            return (float)$cache[$componentId];
+        }
+
+        if ($componentId <= 0) {
+            $cache[$componentId] = 0.0;
+            return 0.0;
+        }
+
+        $this->load->model('Production_model');
+        $detail = $this->Production_model->component_formula_detail($componentId);
+        if (!($detail['ok'] ?? false) || empty($detail['summary'])) {
+            $cache[$componentId] = 0.0;
+            return 0.0;
+        }
+
+        $outputQty = max(1.0, (float)($detail['summary']['output_qty'] ?? 1));
+        $directLive = (float)($detail['summary']['direct_cost_live'] ?? 0);
+        $variableLive = (float)($detail['summary']['variable_cost_live'] ?? 0);
+        $totalLive = $directLive + $variableLive;
+        $cache[$componentId] = round($totalLive / $outputQty, 6);
+
+        return (float)$cache[$componentId];
     }
 
     private function productStockModeMeta(string $mode): array

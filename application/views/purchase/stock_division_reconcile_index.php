@@ -492,6 +492,8 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
               $hasLotData   = $lotQty !== null;
               $lotDelta     = (float)($row['lot_vs_balance_delta'] ?? 0);
               $hasLotMismatch = !empty($row['has_lot_mismatch']);
+              $lotValueDelta = (float)($row['lot_vs_balance_value_delta'] ?? 0);
+              $hasLotValueMismatch = !empty($row['has_lot_value_mismatch']);
               $asOf      = html_escape($asOfDate);
               $dataDivId = (int)($row['division_id'] ?? 0);
               $dataItemId= (int)($row['item_id']     ?? 0);
@@ -521,6 +523,10 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
               if ($hasLotMismatch) {
                   $sign = $lotDelta > 0 ? '+' : '';
                   $parentSelisihParts[] = 'Lot vs Stok: ' . $sign . $fmtQty($lotDelta);
+              }
+              if ($hasLotValueMismatch) {
+                  $sign = $lotValueDelta > 0 ? '+' : '';
+                  $parentSelisihParts[] = 'Nilai Lot vs Stok: ' . $sign . 'Rp ' . number_format(abs($lotValueDelta), 2, ',', '.');
               }
               if (abs($dBVsM) > 0.01) {
                   $sign = $dBVsM > 0 ? '+' : '';
@@ -557,6 +563,20 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                       $parentSelisihParts[] = 'Stok vs Mvt: ' . $sign . $fmtQty($profileStockDeltaSum) . ' (antar profil)';
                   }
                   if (empty($parentSelisihParts)) {
+                      $profileValueDeltaSum = 0.0;
+                      foreach ($profileBreakdown as $pb) {
+                          if (empty($pb['has_value_mismatch'])) {
+                              continue;
+                          }
+                          $profileValueDeltaSum += (float)($pb['value_delta'] ?? 0);
+                      }
+                      $profileValueDeltaSum = round($profileValueDeltaSum, 2);
+                      if (abs($profileValueDeltaSum) > 0.01) {
+                          $sign = $profileValueDeltaSum > 0 ? '+' : '';
+                          $parentSelisihParts[] = 'Nilai Lot vs Stok: ' . $sign . 'Rp ' . number_format(abs($profileValueDeltaSum), 2, ',', '.') . ' (antar profil)';
+                      }
+                  }
+                  if (empty($parentSelisihParts)) {
                       $parentSelisihParts[] = 'Mismatch antar profil';
                   }
               }
@@ -581,12 +601,15 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
               } elseif ($hasProfileMismatch && $parentMovementMismatch && !$parentProfileLotMismatch && !$hasLotMismatch) {
                   $parentRepairLabel = 'Repair Stok/Mvt';
                   $parentRepairTitle = 'Fokus ke selisih stok profil terhadap movement log.';
-              } elseif ($hasProfileMismatch && !$parentMovementMismatch && $parentProfileLotMismatch) {
+              } elseif ($hasProfileMismatch && !$parentMovementMismatch && ($parentProfileLotMismatch || $hasLotValueMismatch)) {
                   $parentRepairLabel = 'Repair Profil';
-                  $parentRepairTitle = 'Samakan distribusi lot per profil ke stok divisi.';
+                  $parentRepairTitle = 'Samakan distribusi qty / nilai lot per profil ke stok divisi.';
               } elseif ($hasLotMismatch && $parentMovementMismatch) {
                   $parentRepairLabel = 'Pilih Repair';
                   $parentRepairTitle = 'Pilih apakah truth source-nya stok saat ini atau movement log.';
+              } elseif ($hasLotValueMismatch) {
+                  $parentRepairLabel = 'Repair Nilai Lot';
+                  $parentRepairTitle = 'Sinkronkan unit cost lot agar nilai FIFO mengikuti stok divisi.';
               } elseif ($parentMovementMismatch) {
                   $parentRepairLabel = 'Repair Stok/Mvt';
                   $parentRepairTitle = 'Samakan stok bahan dengan movement log.';
@@ -606,9 +629,9 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                 <div class="text-muted" style="font-size:.68rem"><?php echo $fmtQty($row['balance_qty_pack'] ?? 0); ?> pack</div>
                 <?php if ($isMinus): ?><span class="rec-chip rec-chip-warn" style="margin-top:.2rem">Minus</span><?php endif; ?>
               </td>
-              <td class="text-end small <?php echo ($hasLotMismatch || $hasProfileMismatch) ? 'table-warning' : ''; ?>">
+              <td class="text-end small <?php echo ($hasLotMismatch || $hasLotValueMismatch || $hasProfileMismatch) ? 'table-warning' : ''; ?>">
                 <?php if ($hasLotData): ?>
-                  <div class="fw-semibold <?php echo $hasLotMismatch ? 'text-danger' : ''; ?>"><?php echo $fmtQty($lotQty); ?></div>
+                  <div class="fw-semibold <?php echo ($hasLotMismatch || $hasLotValueMismatch) ? 'text-danger' : ''; ?>"><?php echo $fmtQty($lotQty); ?></div>
                   <?php if ($hasLotMismatch): ?>
                     <div style="font-size:.66rem;color:#b45309;" title="Selisih lot FIFO vs stok ledger">Δ <?php echo $fmtQty(abs($lotDelta)); ?></div>
                     <span class="rec-chip rec-chip-bad" style="margin-top:.15rem;font-size:.6rem">Lot Beda</span>
@@ -619,6 +642,10 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                         data-destination="<?php echo $dataDest; ?>"
                         style="font-size:.6rem;padding:.1rem .35rem">Repair Lot</button>
                     </div>
+                  <?php endif; ?>
+                  <?php if ($hasLotValueMismatch && !$hasLotMismatch): ?>
+                    <div style="font-size:.66rem;color:#b45309;" title="Selisih nilai lot FIFO vs stok ledger">Δ Rp <?php echo number_format(abs($lotValueDelta), 2, ',', '.'); ?></div>
+                    <span class="rec-chip rec-chip-bad" style="margin-top:.15rem;font-size:.6rem">Nilai Beda</span>
                   <?php endif; ?>
                   <?php if ($hasProfileMismatch && !$hasLotMismatch): ?>
                     <span class="rec-chip rec-chip-bad" style="margin-top:.15rem;font-size:.6rem">Profil Beda</span>
@@ -762,9 +789,13 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                           $pbLogBad   = !empty($pb['log_has_gap']);
                           $pbDStk     = round($pbStock - $pbMvt, 4);
                           $pbDLot     = round($pbStock - $pbLot, 4);
+                          $pbStockValue = round((float)($pb['stock_value'] ?? 0), 2);
+                          $pbLotValue   = round((float)($pb['lot_value'] ?? 0), 2);
+                          $pbDVal       = round((float)($pb['value_delta'] ?? 0), 2);
+                          $pbValBad     = !empty($pb['has_value_mismatch']);
                           $dStkBad    = $pbHasMvt && abs($pbDStk) > 0.01;
                           $dLotBad    = abs($pbDLot) > 0.01;
-                          $pbMis      = $dStkBad || $dLotBad || $pbLogBad;
+                          $pbMis      = $dStkBad || $dLotBad || $pbLogBad || $pbValBad;
 
                           // Build smart Selisih text
                           $selisihParts = [];
@@ -780,19 +811,25 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                               $sign = $pbLogGap > 0 ? '+' : '';
                               $selisihParts[] = 'Log Gap: ' . $sign . $fmtQty($pbLogGap);
                           }
+                          if ($pbValBad) {
+                              $sign = $pbDVal > 0 ? '+' : '';
+                              $selisihParts[] = 'Nilai Lot vs Stok: ' . $sign . 'Rp ' . number_format(abs($pbDVal), 2, ',', '.');
+                          }
                           $selisihText = empty($selisihParts) ? '–' : implode('; ', $selisihParts);
 
                           $pbStatusLbl = $pbMis ? 'Mismatch' : 'Match';
                           $pbStatusCls = $pbMis ? 'rec-chip-bad' : 'rec-chip-ok';
                           $profileRepairLabel = 'Repair';
                           $profileRepairTitle = 'Repair profil ini.';
-                          if ($dLotBad && !$dStkBad) {
+                          if (($dLotBad || $pbValBad) && !$dStkBad) {
                               $profileRepairLabel = 'Repair Lot';
-                              $profileRepairTitle = 'Samakan lot profil ini ke stok divisi.';
-                          } elseif (!$dLotBad && $dStkBad) {
+                              $profileRepairTitle = $pbValBad && !$dLotBad
+                                  ? 'Samakan nilai lot profil ini ke stok divisi.'
+                                  : 'Samakan lot profil ini ke stok divisi.';
+                          } elseif (!$dLotBad && !$pbValBad && $dStkBad) {
                               $profileRepairLabel = 'Repair Mvt';
                               $profileRepairTitle = 'Samakan stok profil ini ke movement log.';
-                          } elseif ($dLotBad && $dStkBad) {
+                          } elseif (($dLotBad || $pbValBad) && $dStkBad) {
                               $profileRepairLabel = 'Pilih Repair';
                               $profileRepairTitle = 'Pilih apakah profil ini mengikuti stok saat ini atau movement log.';
                           }
@@ -841,6 +878,9 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                               data-has-mvt="<?php echo $pbHasMvt ? '1' : '0'; ?>"
                               data-d-lot="<?php echo $pbDLot; ?>"
                               data-d-stk="<?php echo $pbDStk; ?>"
+                              data-stock-value="<?php echo $pbStockValue; ?>"
+                              data-lot-value="<?php echo $pbLotValue; ?>"
+                              data-d-value="<?php echo $pbDVal; ?>"
                               title="<?php echo html_escape($profileRepairTitle); ?>"
                               style="font-size:.59rem;padding:.1rem .35rem"><?php echo html_escape($profileRepairLabel); ?></button>
                             <?php endif; ?>
@@ -1438,12 +1478,16 @@ document.addEventListener('DOMContentLoaded', function () {
     var stock    = Number(btn.dataset.stock  || 0);
     var lot      = Number(btn.dataset.lot    || 0);
     var daily    = Number(btn.dataset.daily  || 0);
+    var stockValue = Number(btn.dataset.stockValue || 0);
+    var lotValue   = Number(btn.dataset.lotValue   || 0);
     var hasMvt   = btn.dataset.hasMvt === '1';
     var mvt      = hasMvt ? Number(btn.dataset.movement || 0) : null;
     var dLot     = Number(btn.dataset.dLot || 0);  // stock - lot
     var dStk     = hasMvt ? Number(btn.dataset.dStk || 0) : null; // stock - mvt
+    var dVal     = Number(btn.dataset.dValue || 0); // stock value - lot value
     var lotBad   = Math.abs(dLot) > 0.01;
     var mvtBad   = hasMvt && Math.abs(dStk) > 0.01;
+    var valBad   = Math.abs(dVal) > 0.01;
 
     // Store context on modal for use in repair
     prModal.dataset.divisionId  = btn.dataset.divisionId  || '0';
@@ -1460,6 +1504,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var rows = [
       ['Stok Divisi', fmtQty(stock), '(monthly_stock closing)'],
       ['Lot FIFO',    fmtQty(lot),   lotBad ? '<span style="color:#b42318;font-weight:700">Selisih ' + (dLot > 0 ? '+' : '') + fmtQty(dLot) + '</span>' : 'OK'],
+      ['Nilai Stok',  'Rp ' + fmtQty(stockValue), '(monthly_stock total_value)'],
+      ['Nilai Lot',   'Rp ' + fmtQty(lotValue), valBad ? '<span style="color:#b42318;font-weight:700">Selisih ' + (dVal > 0 ? '+' : '') + 'Rp ' + fmtQty(Math.abs(dVal)) + '</span>' : 'OK'],
       ['Mat. Daily',  fmtQty(daily), '(= Stok Divisi)'],
       ['Movement',    hasMvt ? fmtQty(mvt) : '–', hasMvt && mvtBad ? '<span style="color:#b42318;font-weight:700">Selisih ' + (dStk > 0 ? '+' : '') + fmtQty(dStk) + '</span>' : (hasMvt ? 'OK' : 'Tidak ada data movement')],
     ];
@@ -1477,19 +1523,25 @@ document.addEventListener('DOMContentLoaded', function () {
     var explanEl     = document.getElementById('prModalExplanation');
 
     if (actionEl && toStockBtn && toMvtBtn && explanEl) {
-      if (!lotBad && !mvtBad) {
+      if (!lotBad && !mvtBad && !valBad) {
         // Shouldn't happen (button only shows when mismatch)
         explanEl.innerHTML = '<div class="alert alert-success py-2 mb-0">Tidak ada selisih yang perlu direpair.</div>';
         toStockBtn.style.display = 'none';
         toMvtBtn.style.display   = 'none';
-      } else if (lotBad && !mvtBad) {
+      } else if ((lotBad || valBad) && !mvtBad) {
         // Only lot mismatch — unambiguous: repair lot to match stock
-        var dir = dLot > 0 ? 'dikurangi ' + fmtQty(dLot) : 'ditambah CORR lot ' + fmtQty(Math.abs(dLot));
-        explanEl.innerHTML = '<div class="alert alert-warning py-2 mb-0 small">Lot FIFO tidak sesuai stok. Lot akan '+ escHtml(dir) +' agar cocok dengan stok <strong>' + escHtml(fmtQty(stock)) + '</strong>.</div>';
+        var dir = lotBad
+          ? (dLot > 0 ? 'dikurangi ' + fmtQty(dLot) : 'ditambah CORR lot ' + fmtQty(Math.abs(dLot)))
+          : ('diubah cost-nya sebesar Rp ' + fmtQty(Math.abs(dVal)));
+        explanEl.innerHTML = '<div class="alert alert-warning py-2 mb-0 small">'
+          + (lotBad
+              ? 'Lot FIFO tidak sesuai stok. Lot akan ' + escHtml(dir) + ' agar cocok dengan stok <strong>' + escHtml(fmtQty(stock)) + '</strong>.'
+              : 'Qty lot sudah sama, tetapi nilai lot FIFO tidak sesuai stok. Sistem akan sinkronkan <strong>unit cost</strong> lot agar nilai lot cocok dengan stok <strong>Rp ' + escHtml(fmtQty(stockValue)) + '</strong>.')
+          + '</div>';
         toStockBtn.style.display = '';
-        toStockBtn.textContent   = 'Repair Lot -> Ikuti Stok';
+        toStockBtn.textContent   = valBad && !lotBad ? 'Repair Nilai Lot -> Ikuti Stok' : 'Repair Lot -> Ikuti Stok';
         toMvtBtn.style.display   = 'none';
-      } else if (!lotBad && mvtBad) {
+      } else if (!lotBad && !valBad && mvtBad) {
         // Only stock vs movement mismatch: only movement-based repair changes data
         explanEl.innerHTML = '<div class="alert alert-info py-2 mb-0 small">Lot sudah sama dengan stok. Yang perlu dibetulkan adalah <strong>stok profil</strong> agar mengikuti closing <strong>movement</strong> (<strong>' + escHtml(fmtQty(mvt)) + '</strong>).</div>';
         toStockBtn.style.display = 'none';
@@ -1497,9 +1549,13 @@ document.addEventListener('DOMContentLoaded', function () {
         toMvtBtn.textContent     = 'Repair Stok -> Movement (' + fmtQty(mvt) + ')';
       } else {
         // Both mismatched
-        explanEl.innerHTML = '<div class="alert alert-danger py-2 mb-0 small">Lot (<strong>' + escHtml(fmtQty(lot)) + '</strong>) tidak cocok stok (<strong>' + escHtml(fmtQty(stock)) + '</strong>), dan stok berbeda dari movement (<strong>' + escHtml(fmtQty(mvt)) + '</strong>). Pilih referensi:</div>';
+        explanEl.innerHTML = '<div class="alert alert-danger py-2 mb-0 small">'
+          + (valBad && !lotBad
+              ? 'Nilai lot (<strong>Rp ' + escHtml(fmtQty(lotValue)) + '</strong>) tidak cocok stok (<strong>Rp ' + escHtml(fmtQty(stockValue)) + '</strong>), dan stok berbeda dari movement (<strong>' + escHtml(fmtQty(mvt)) + '</strong>). Pilih referensi:'
+              : 'Lot (<strong>' + escHtml(fmtQty(lot)) + '</strong>) tidak cocok stok (<strong>' + escHtml(fmtQty(stock)) + '</strong>), dan stok berbeda dari movement (<strong>' + escHtml(fmtQty(mvt)) + '</strong>). Pilih referensi:')
+          + '</div>';
         toStockBtn.style.display = '';
-        toStockBtn.textContent   = 'Pertahankan Stok (' + fmtQty(stock) + ')';
+        toStockBtn.textContent   = valBad && !lotBad ? 'Pertahankan Nilai Stok' : 'Pertahankan Stok (' + fmtQty(stock) + ')';
         toMvtBtn.style.display   = '';
         toMvtBtn.textContent     = 'Ikuti Movement (' + fmtQty(mvt) + ')';
       }
@@ -2303,4 +2359,3 @@ document.addEventListener('DOMContentLoaded', function () {
     </div>
   </div>
 </div>
-
