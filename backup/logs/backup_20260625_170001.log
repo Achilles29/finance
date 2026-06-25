@@ -3,3 +3,11 @@
 [2026-06-25 17:00:01] Output   : /www/wwwroot/finance/backup/dumps/backup_db_finance_20260625_170001.sql.gz
 [2026-06-25 17:00:03] Dump OK  : 5.3M
 [2026-06-25 17:00:03] Cleanup  : 0 file lama dihapus (> 3 hari)
+[2026-06-25 17:00:07] [WARN] Git merge gagal: error: Your local changes to the following files would be overwritten by merge:
+	docs/_NOTE.md
+Please commit your changes or stash them before you merge.
+Aborting
+Merge with strategy ort failed.
+[2026-06-25 17:00:07] [WARN] Backup lokal tersimpan.
+[2026-06-25 17:00:07] ====== Backup SELESAI ======
+[2026-06-25 17:00:07] 
