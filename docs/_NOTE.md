@@ -137,15 +137,5 @@ cek backup git
 cek ganti ip
 cek server
 
-
-saya coba request /procurement/division-po-sr/create SIRUP LYCHEE
-di gudang aa stok. tapi ketika mau verifikasi kenapa malah jadi PO?
-
-saya test kode request DREQ202606250953
-
-
-
-yang sudah dilakukan apa? apakah ada sql yang harus saya eksekusi?
-
-kita sudah tidak menggunakan stock domain lho. apakah masih ada tabel atau script yang menggunakan stock domain atau line kind?
-
+sekarang pindah ke dbtools. kita bahas satu per satu
+backup otomatis dan push ke git sudah berjalan. tapi ketika saya cek file bakcupnya backup_db_finance_******.gz isinya 0kb. jadi ketika mau saya import ke lokal tidak bisa. coba cek backup nya

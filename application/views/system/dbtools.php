@@ -821,9 +821,21 @@ autossh -M 0 -fN -L 3307:127.0.0.1:3306 user@IP_SERVER_UTAMA</div>
         <div class="guide-scenario">
           <div class="guide-scenario-title">📦 Restore dari Backup</div>
           <div class="sdesc small">
-            Jika perlu restore: ambil file <code>.sql.gz</code> dari GitHub atau folder <code>backup/dumps/</code>, lalu:
+            Jika perlu restore: ambil file <code>.sql.gz</code> dari GitHub atau folder <code>backup/dumps/</code>.
+            <div class="mt-2"><strong>Untuk Windows / localhost:</strong></div>
+            <div class="mt-1">Opsi 1, ekstrak dulu dengan 7-Zip atau WinRAR sampai menjadi file <code>.sql</code>, lalu import:</div>
+            <div class="dbt-code mt-1">C:\xampp\mysql\bin\mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS db_finance CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
+C:\xampp\mysql\bin\mysql -u root -p db_finance < C:\path\to\backup_db_finance_xxxxxx.sql</div>
+            <div class="mt-1">Opsi 2, import langsung dari file <code>.gz</code> tanpa ekstrak:</div>
+            <div class="dbt-code mt-1">"C:\Program Files\7-Zip\7z.exe" x -so C:\path\to\backup_db_finance_xxxxxx.sql.gz | C:\xampp\mysql\bin\mysql -u root -p db_finance</div>
+            <div class="guide-note mt-1">Jika tidak memakai XAMPP, ganti path <code>mysql.exe</code> sesuai instalasi MySQL lokal Anda. Alternatif GUI: ekstrak dulu lalu import lewat phpMyAdmin, HeidiSQL, atau DBeaver.</div>
+
+            <div class="mt-3"><strong>Untuk Linux / server:</strong></div>
+            <div class="mt-1">Ekstrak dulu lalu import:</div>
             <div class="dbt-code mt-1">gunzip backup.sql.gz
-mysql -u root db_finance < backup.sql</div>
+mysql -u root -p db_finance < backup.sql</div>
+            <div class="mt-1">Atau import langsung tanpa ekstrak:</div>
+            <div class="dbt-code mt-1">gunzip -c backup.sql.gz | mysql -u root -p db_finance</div>
           </div>
         </div>
       </div>
