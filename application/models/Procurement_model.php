@@ -1256,7 +1256,23 @@ class Procurement_model extends CI_Model
                 if ($itemId <= 0 && $materialId <= 0 && $profileName !== '') {
                     $storedSourceType = 'MANUAL';
                 } else {
-                    $storedSourceType = 'CATALOG';
+                    // source_type was never persisted to DB — check current warehouse stock
+                    $currentStock = $this->get_warehouse_available_content(
+                        $itemId > 0 ? $itemId : null,
+                        $materialId > 0 ? $materialId : null,
+                        (int)($line['buy_uom_id'] ?? 0),
+                        (int)($line['content_uom_id'] ?? 0),
+                        $profileKey
+                    );
+                    if ($currentStock > 0) {
+                        $storedSourceType = 'WAREHOUSE';
+                        // Update snapshot so verify form shows correct SR route in JS
+                        if ((float)($line['qty_content_available_snapshot'] ?? 0) <= 0) {
+                            $line['qty_content_available_snapshot'] = $currentStock;
+                        }
+                    } else {
+                        $storedSourceType = 'CATALOG';
+                    }
                 }
             }
 
@@ -3891,10 +3907,6 @@ class Procurement_model extends CI_Model
                               AND content_uom_id = ?
                               AND ' . $identityCheck['column'] . ' = ?';
                     $params = [$targetMonth, $buyUomId, $contentUomId, $identityCheck['value']];
-                    if ($hasStockDomain) {
-                        $sql .= ' AND (stock_domain = ? OR stock_domain IS NULL)';
-                        $params[] = $stockDomain;
-                    }
                     if ($useProfileKey && trim($profileKey) !== '') {
                         $sql .= ' AND profile_key <=> ?';
                         $params[] = $profileKey;

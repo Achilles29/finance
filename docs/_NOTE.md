@@ -131,3 +131,21 @@ buat halaman cost berdasarkan stok component, bukan resep, karena beda, kalau in
 
 
 /master/product/edit/ edit foto tidak bisa. foto tidak tampil. cek
+
+
+cek backup git
+cek ganti ip
+cek server
+
+
+saya coba request /procurement/division-po-sr/create SIRUP LYCHEE
+di gudang aa stok. tapi ketika mau verifikasi kenapa malah jadi PO?
+
+saya test kode request DREQ202606250953
+
+
+
+yang sudah dilakukan apa? apakah ada sql yang harus saya eksekusi?
+
+kita sudah tidak menggunakan stock domain lho. apakah masih ada tabel atau script yang menggunakan stock domain atau line kind?
+
