@@ -161,5 +161,7 @@ finalkan generate keuangan
 
 
 /pos/stock-commit-audit ada job gagal POS-20260609-0006. status draft yang seharusnya bisa di void atau hapus. tapi tidak bisa karena belum ada halaman khusus menampilkan draft
+
+modifikasi:
 - finance/pos/orders/draft berikan filter range tanggal
 - /pos/stock-commit-audit untuk job gagal draft berikan opsi untuk dihapus 

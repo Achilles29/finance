@@ -6253,6 +6253,16 @@ class Pos_model extends CI_Model
                 throw new RuntimeException('Hanya draft order POS yang bisa dihapus. Jika order sudah confirmed, gunakan void atau refund sesuai status transaksinya.');
             }
 
+            if ($this->db->table_exists('pos_runtime_job')) {
+                $activeJobCount = (int)$this->db->from('pos_runtime_job')
+                    ->where('order_id', $orderId)
+                    ->where_in('status', ['QUEUED', 'PROCESSING'])
+                    ->count_all_results();
+                if ($activeJobCount > 0) {
+                    throw new RuntimeException('Draft ini masih punya job stock commit yang sedang queued/processing, jadi belum aman dihapus.');
+                }
+            }
+
             $paymentCount = 0;
             if ($this->db->table_exists('pos_payment')) {
                 $paymentCount = (int)$this->db->from('pos_payment')
@@ -6261,6 +6271,33 @@ class Pos_model extends CI_Model
             }
             if ($paymentCount > 0) {
                 throw new RuntimeException('Draft ini sudah memiliki jejak pembayaran, jadi tidak bisa dihapus langsung.');
+            }
+
+            if ($this->db->table_exists('pos_stock_commit')) {
+                $snapshotRows = $this->db->select('id, commit_status')
+                    ->from('pos_stock_commit')
+                    ->where('order_id', $orderId)
+                    ->get()
+                    ->result_array();
+                $snapshotIds = [];
+                foreach ($snapshotRows as $snapshotRow) {
+                    $snapshotIds[] = (int)($snapshotRow['id'] ?? 0);
+                    $commitStatus = strtoupper(trim((string)($snapshotRow['commit_status'] ?? 'DRAFT')));
+                    if (in_array($commitStatus, ['COMMITTED', 'PARTIAL_REVERSED', 'REVERSED', 'VOID'], true)) {
+                        throw new RuntimeException('Draft ini sudah punya snapshot stock commit yang terlanjur memengaruhi stok, jadi tidak bisa dihapus langsung.');
+                    }
+                }
+                $snapshotIds = array_values(array_filter($snapshotIds));
+                if (!empty($snapshotIds) && $this->db->table_exists('pos_stock_commit_line')) {
+                    $this->db->where_in('commit_id', $snapshotIds)->delete('pos_stock_commit_line');
+                }
+                if (!empty($snapshotIds)) {
+                    $this->db->where('order_id', $orderId)->delete('pos_stock_commit');
+                }
+            }
+
+            if ($this->db->table_exists('pos_runtime_job')) {
+                $this->db->where('order_id', $orderId)->delete('pos_runtime_job');
             }
 
             if ($this->db->table_exists('pos_order_monitor_task')) {

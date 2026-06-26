@@ -2577,6 +2577,116 @@ class Pos extends MY_Controller
         ]);
     }
 
+    public function order_runtime_failed_job_delete_draft($jobId)
+    {
+        $pageCode = $this->can('pos.stock.commit.audit.index', 'edit')
+            ? 'pos.stock.commit.audit.index'
+            : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'edit');
+
+        $jobId = (int)$jobId;
+        if ($jobId <= 0) {
+            $this->json_error('Job runtime POS tidak valid untuk hapus draft.', 422);
+            return;
+        }
+
+        if (!$this->db->table_exists('pos_runtime_job')) {
+            $this->json_error('Queue runtime POS belum siap.', 422);
+            return;
+        }
+
+        $job = $this->db->select('j.id, j.status, j.order_id, o.order_no, o.status AS order_status')
+            ->from('pos_runtime_job j')
+            ->join('pos_order o', 'o.id = j.order_id', 'inner')
+            ->where('j.id', $jobId)
+            ->where('j.job_type', 'ORDER_CONFIRM_STOCK_COMMIT')
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$job) {
+            $this->json_error('Job runtime POS tidak ditemukan.', 404);
+            return;
+        }
+
+        $jobStatus = strtoupper(trim((string)($job['status'] ?? '')));
+        if (!in_array($jobStatus, ['FAILED', 'CANCELLED'], true)) {
+            $this->json_error('Hanya job FAILED/CANCELLED yang boleh dipakai untuk hapus draft dari audit ini.', 422);
+            return;
+        }
+
+        $orderStatus = strtoupper(trim((string)($job['order_status'] ?? '')));
+        if (!in_array($orderStatus, ['DRAFT', 'PENDING'], true)) {
+            $this->json_error('Order ini sudah bukan draft, jadi tidak bisa dihapus dari audit job gagal.', 422);
+            return;
+        }
+
+        $deleted = $this->Pos_model->delete_order_draft((int)($job['order_id'] ?? 0), $this->current_actor_employee_id());
+        if (!($deleted['ok'] ?? false)) {
+            $this->json_error((string)($deleted['message'] ?? 'Draft order POS gagal dihapus dari audit.'), 422);
+            return;
+        }
+
+        $this->json_ok([
+            'message' => 'Draft order ' . (string)($job['order_no'] ?? '-') . ' berhasil dihapus beserta artefak job/snapshot gagalnya.',
+            'order_id' => (int)($job['order_id'] ?? 0),
+            'job_id' => $jobId,
+        ]);
+    }
+
+    public function order_runtime_failed_job_dismiss($jobId)
+    {
+        $pageCode = $this->can('pos.stock.commit.audit.index', 'edit')
+            ? 'pos.stock.commit.audit.index'
+            : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'edit');
+        $this->load->library('PosRuntimeJobService');
+
+        $jobId = (int)$jobId;
+        if ($jobId <= 0) {
+            $this->json_error('Job runtime POS tidak valid untuk ditutup.', 422);
+            return;
+        }
+
+        if (!$this->db->table_exists('pos_runtime_job')) {
+            $this->json_error('Queue runtime POS belum siap.', 422);
+            return;
+        }
+
+        $job = $this->db->select('j.id, j.status, j.order_id, o.order_no, o.status AS order_status')
+            ->from('pos_runtime_job j')
+            ->join('pos_order o', 'o.id = j.order_id', 'left')
+            ->where('j.id', $jobId)
+            ->where('j.job_type', 'ORDER_CONFIRM_STOCK_COMMIT')
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$job) {
+            $this->json_error('Job runtime POS tidak ditemukan.', 404);
+            return;
+        }
+
+        $jobStatus = strtoupper(trim((string)($job['status'] ?? '')));
+        if ($jobStatus !== 'FAILED') {
+            $this->json_error('Hanya job FAILED yang bisa ditutup dari audit.', 422);
+            return;
+        }
+
+        $closed = $this->posruntimejobservice->cancel_job(
+            $jobId,
+            'Ditutup manual dari audit stock commit POS karena order sudah tidak perlu diproses ulang.'
+        );
+        if (!($closed['ok'] ?? false)) {
+            $this->json_error((string)($closed['message'] ?? 'Job runtime POS gagal ditutup.'), 422);
+            return;
+        }
+
+        $this->json_ok([
+            'message' => 'Job gagal untuk order ' . (string)($job['order_no'] ?? '-') . ' berhasil ditutup.',
+            'job_id' => $jobId,
+            'order_id' => (int)($job['order_id'] ?? 0),
+        ]);
+    }
+
     public function order_runtime_jobs_process_all()
     {
         $pageCode = $this->can('pos.stock.live.index', 'edit')
@@ -4028,13 +4138,15 @@ class Pos extends MY_Controller
         }
 
         $today = date('Y-m-d');
+        $monthStart = date('Y-m-01');
+        $monthEnd = date('Y-m-t');
         $dateFrom = trim((string)$this->input->get('date_from', true));
         $dateTo   = trim((string)$this->input->get('date_to', true));
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
-            $dateFrom = $workspaceMode === 'PAID' ? $today : '';
+            $dateFrom = $workspaceMode === 'PAID' ? $today : $monthStart;
         }
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
-            $dateTo = $workspaceMode === 'PAID' ? $today : '';
+            $dateTo = $workspaceMode === 'PAID' ? $today : $monthEnd;
         }
 
         return [

@@ -265,10 +265,10 @@ $isPaidWorkspace = $workspaceMode === 'PAID';
         </div>
 
         <form class="row g-2 mb-3">
-          <div class="col-md-6">
+          <div class="col-lg-4">
             <input id="recent_q" class="form-control" placeholder="Cari order no / outlet / terminal / cashier">
           </div>
-          <div class="col-md-3">
+          <div class="col-lg-2 col-md-4">
             <select id="recent_outlet_id" class="form-select">
               <option value="0">Semua Outlet</option>
               <?php foreach ($outlets as $outlet): ?>
@@ -276,14 +276,20 @@ $isPaidWorkspace = $workspaceMode === 'PAID';
               <?php endforeach; ?>
             </select>
           </div>
-          <div class="col-md-1">
+          <div class="col-6 col-lg-2 col-md-4">
+            <input type="date" id="recent_date_from" class="form-control" placeholder="Dari tanggal">
+          </div>
+          <div class="col-6 col-lg-2 col-md-4">
+            <input type="date" id="recent_date_to" class="form-control" placeholder="Sampai tanggal">
+          </div>
+          <div class="col-lg-1 col-md-2">
             <select id="recent_limit" class="form-select">
               <option value="10">10</option>
               <option value="20" selected>20</option>
               <option value="50">50</option>
             </select>
           </div>
-          <div class="col-md-2 d-grid">
+          <div class="col-lg-1 col-md-2 d-grid">
             <button type="button" id="btn-clear-recent" class="btn btn-outline-danger">Clear</button>
           </div>
         </form>
@@ -405,6 +411,8 @@ document.addEventListener('DOMContentLoaded', function () {
     q: initialFilters.q || '',
     status: initialFilters.status || (isPaidWorkspace ? 'PAID' : 'DRAFT'),
     outlet_id: parseInt(initialFilters.outlet_id || 0, 10) || 0,
+    date_from: initialFilters.date_from || '',
+    date_to: initialFilters.date_to || '',
     page: parseInt(initialFilters.page || 1, 10) || 1,
     limit: parseInt(initialFilters.limit || 20, 10) || 20
   };
@@ -812,7 +820,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function recentQs() {
     const p = new URLSearchParams();
-    p.set('q', recentState.q); p.set('status', recentState.status); p.set('workspace_mode', workspaceMode); p.set('outlet_id', recentState.outlet_id); p.set('page', recentState.page); p.set('limit', recentState.limit);
+    p.set('q', recentState.q);
+    p.set('status', recentState.status);
+    p.set('workspace_mode', workspaceMode);
+    p.set('outlet_id', recentState.outlet_id);
+    p.set('date_from', recentState.date_from || '');
+    p.set('date_to', recentState.date_to || '');
+    p.set('page', recentState.page);
+    p.set('limit', recentState.limit);
     return p.toString();
   }
 
@@ -895,6 +910,8 @@ document.addEventListener('DOMContentLoaded', function () {
   function syncRecentControls() {
     document.getElementById('recent_q').value = recentState.q;
     document.getElementById('recent_outlet_id').value = String(recentState.outlet_id || 0);
+    document.getElementById('recent_date_from').value = recentState.date_from || '';
+    document.getElementById('recent_date_to').value = recentState.date_to || '';
     document.getElementById('recent_limit').value = String(recentState.limit || 20);
     document.querySelectorAll('.order-status-tab').forEach((btn) => btn.classList.toggle('active', btn.dataset.status === recentState.status));
   }
@@ -1325,8 +1342,10 @@ document.addEventListener('DOMContentLoaded', function () {
   document.querySelectorAll('.order-status-tab').forEach((btn) => btn.addEventListener('click', () => { recentState.status = btn.dataset.status; recentState.page = 1; loadRecents(); }));
   document.getElementById('recent_q').addEventListener('input', (e) => { recentState.q = e.target.value; recentState.page = 1; loadRecents(); });
   document.getElementById('recent_outlet_id').addEventListener('change', (e) => { recentState.outlet_id = Number(e.target.value || 0); recentState.page = 1; loadRecents(); });
+  document.getElementById('recent_date_from').addEventListener('change', (e) => { recentState.date_from = e.target.value || ''; recentState.page = 1; loadRecents(); });
+  document.getElementById('recent_date_to').addEventListener('change', (e) => { recentState.date_to = e.target.value || ''; recentState.page = 1; loadRecents(); });
   document.getElementById('recent_limit').addEventListener('change', (e) => { recentState.limit = Number(e.target.value || 20); recentState.page = 1; loadRecents(); });
-  document.getElementById('btn-clear-recent').addEventListener('click', () => { recentState.q = ''; recentState.status = isPaidWorkspace ? 'PAID' : 'DRAFT'; recentState.outlet_id = 0; recentState.page = 1; recentState.limit = 20; loadRecents(); });
+  document.getElementById('btn-clear-recent').addEventListener('click', () => { recentState.q = ''; recentState.status = isPaidWorkspace ? 'PAID' : 'DRAFT'; recentState.outlet_id = 0; recentState.date_from = isPaidWorkspace ? '<?php echo date('Y-m-d'); ?>' : '<?php echo date('Y-m-01'); ?>'; recentState.date_to = isPaidWorkspace ? '<?php echo date('Y-m-d'); ?>' : '<?php echo date('Y-m-t'); ?>'; recentState.page = 1; recentState.limit = 20; loadRecents(); });
 
   outletSelect.addEventListener('change', () => { filterTerminalOptions(); syncHeaderToOrder(); });
   terminalSelect.addEventListener('change', syncHeaderToOrder);

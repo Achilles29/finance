@@ -624,6 +624,22 @@ $GLOBALS['auditTab'] = $auditTab;
                     <div class="mt-3 d-flex gap-2 flex-wrap">
                       <button type="button" class="btn btn-sm btn-outline-primary sca_retry_job_btn" data-job-id="<?php echo (int)($job['id'] ?? 0); ?>">Retry</button>
                       <a href="<?php echo html_escape(site_url('pos/orders/draft?q=' . rawurlencode((string)($job['order_no'] ?? '')))); ?>" class="btn btn-sm btn-outline-secondary">Buka Order</a>
+                      <?php $jobOrderStatus = strtoupper(trim((string)($job['order_status'] ?? ''))); ?>
+                      <?php if (in_array($jobOrderStatus, ['DRAFT', 'PENDING'], true)): ?>
+                        <button type="button"
+                                class="btn btn-sm btn-outline-danger sca_delete_draft_job_btn"
+                                data-job-id="<?php echo (int)($job['id'] ?? 0); ?>"
+                                data-order-no="<?php echo html_escape((string)($job['order_no'] ?? '-')); ?>">
+                          Hapus Draft
+                        </button>
+                      <?php else: ?>
+                        <button type="button"
+                                class="btn btn-sm btn-outline-warning sca_dismiss_failed_job_btn"
+                                data-job-id="<?php echo (int)($job['id'] ?? 0); ?>"
+                                data-order-no="<?php echo html_escape((string)($job['order_no'] ?? '-')); ?>">
+                          Tutup Job
+                        </button>
+                      <?php endif; ?>
                     </div>
                   </div>
                 <?php endforeach; ?>
@@ -716,6 +732,52 @@ document.addEventListener('DOMContentLoaded', function () {
         window.location.reload();
       } catch (e) {
         await showAlert(e.message || 'Gagal retry job stock commit POS.', 'Retry Stock Commit POS');
+      } finally {
+        clearButtonLoading(this);
+      }
+    });
+  });
+
+  document.querySelectorAll('.sca_delete_draft_job_btn').forEach((button) => {
+    button.addEventListener('click', async function () {
+      const jobId = Number(this.dataset.jobId || 0);
+      const orderNo = String(this.dataset.orderNo || '-');
+      if (jobId <= 0) return;
+      const confirmed = await askConfirm(
+        'Hapus draft ' + orderNo + ' beserta snapshot/job stock commit yang gagal? Aksi ini dipakai untuk order yang masih DRAFT/PENDING.',
+        { title: 'Hapus Draft dari Audit' }
+      );
+      if (!confirmed) return;
+      setButtonLoading(this, 'Menghapus...');
+      try {
+        const json = await postJson('<?php echo site_url('pos/orders/runtime-jobs/delete-draft'); ?>/' + jobId, {});
+        await showAlert(json.message || 'Draft berhasil dihapus.', 'Hapus Draft dari Audit');
+        window.location.reload();
+      } catch (e) {
+        await showAlert(e.message || 'Draft gagal dihapus dari audit.', 'Hapus Draft dari Audit');
+      } finally {
+        clearButtonLoading(this);
+      }
+    });
+  });
+
+  document.querySelectorAll('.sca_dismiss_failed_job_btn').forEach((button) => {
+    button.addEventListener('click', async function () {
+      const jobId = Number(this.dataset.jobId || 0);
+      const orderNo = String(this.dataset.orderNo || '-');
+      if (jobId <= 0) return;
+      const confirmed = await askConfirm(
+        'Tutup job gagal untuk order ' + orderNo + '? Gunakan ini jika order sudah VOID / tidak perlu diproses ulang.',
+        { title: 'Tutup Job Gagal POS' }
+      );
+      if (!confirmed) return;
+      setButtonLoading(this, 'Menutup...');
+      try {
+        const json = await postJson('<?php echo site_url('pos/orders/runtime-jobs/dismiss'); ?>/' + jobId, {});
+        await showAlert(json.message || 'Job gagal berhasil ditutup.', 'Tutup Job Gagal POS');
+        window.location.reload();
+      } catch (e) {
+        await showAlert(e.message || 'Job gagal tidak bisa ditutup.', 'Tutup Job Gagal POS');
       } finally {
         clearButtonLoading(this);
       }
