@@ -152,7 +152,7 @@ cek
 
 
 /inventory/stock/division/lot?scope=DIVISION&status=ALL&division_id=3&destination=REGULER&profile_key=453b7bda160d911890165ce6e775dbf62a8f22dd5b04ad807c6fa268a27d16c9 BALANCE 0, tapi di stock ada.
-
+cek monthly stcok
 
 
 finalkan generate stok gudang, bahan baku. component. pastikan cutoff dan membuat data baru stok dan lot nya sesuai
