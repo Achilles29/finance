@@ -3,3 +3,9 @@
 [2026-06-26 09:00:01] Output   : /www/wwwroot/finance/backup/dumps/backup_db_finance_20260626_090001.sql.gz
 [2026-06-26 09:00:03] Dump OK  : 5.4M
 [2026-06-26 09:00:03] Cleanup  : 0 file lama dihapus (> 3 hari)
+[2026-06-26 09:01:00] [WARN] Git push gagal (exit 1): To github.com:Achilles29/finance.git
+ ! [remote rejected] main -> main (cannot lock ref 'refs/heads/main': is at e322b514e241a3afb13ac49c4265f59658da276a but expected 1c63283e7b1763946a0101cfb2095421cd505b42)
+error: failed to push some refs to 'github.com:Achilles29/finance.git'
+[2026-06-26 09:01:00] [WARN] Backup lokal tetap tersimpan.
+[2026-06-26 09:01:00] ====== Backup SELESAI ======
+[2026-06-26 09:01:00] 
