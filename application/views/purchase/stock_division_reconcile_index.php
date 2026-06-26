@@ -1848,7 +1848,6 @@ document.addEventListener('DOMContentLoaded', function () {
       if (contentUomId <= 0) { await showAlert('UOM bahan tidak ditemukan. Tidak bisa menyimpan adjustment.', 'Adjustment'); return; }
       if (isNaN(physQty)) { await showAlert('Saldo target belum diisi.', 'Adjustment'); g('qaPhysicalQty')?.focus(); return; }
       if (physQty === sysQty) { await showAlert('Saldo target sama dengan saldo saat ini. Selisih = 0, tidak ada yang di-adjust.', 'Adjustment'); return; }
-      if (adjType === 'ADJUSTMENT_PLUS' && unitCost <= 0) { await showAlert('HPP / Unit Cost wajib diisi untuk Adjustment Plus.', 'Adjustment'); g('qaUnitCost')?.focus(); return; }
       setButtonLoading(qaSubmitBtn, 'Menyimpan...');
       try {
         var payload = {

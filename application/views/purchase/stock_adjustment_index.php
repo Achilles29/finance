@@ -1408,7 +1408,6 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
     line[adjConfig.reasonField] = selectedReason;
     const totalQty = line.qty_waste_content+line.qty_spoil_content+line.qty_process_loss_content+line.qty_variance_content+line.qty_adjustment_plus_content;
     if (totalQty<=0) { showFormAlert('warning','Isi qty adjustment lebih dari nol.'); return; }
-    if (line.qty_adjustment_plus_content>0 && line.unit_cost<=0) { showFormAlert('warning','Adjustment plus wajib punya unit cost lebih dari nol.'); return; }
     if (line.qty_adjustment_plus_content>0) {
       const divisionCostWarning = detectDivisionPackCostInput(line, rawCost);
       if (divisionCostWarning) { showFormAlert('warning', divisionCostWarning); return; }

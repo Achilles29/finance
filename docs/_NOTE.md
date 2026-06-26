@@ -160,8 +160,31 @@ finalkan generate keuangan
 
 
 
-/pos/stock-commit-audit ada job gagal POS-20260609-0006. status draft yang seharusnya bisa di void atau hapus. tapi tidak bisa karena belum ada halaman khusus menampilkan draft
 
-modifikasi:
-- finance/pos/orders/draft berikan filter range tanggal
-- /pos/stock-commit-audit untuk job gagal draft berikan opsi untuk dihapus 
+masuk ke bahan baku atau inv divisi
+BOTOL PLASTIK 1 L ada baris minus 1, karena belum pernah PO / SR ke BAR, tapi ada transaksi jadinya minus.
+
+
+inventory-material-daily:
+BOTOL PLASTIK 1 L adjustmen plus gagal "Adjustment plus membutuhkan unit_cost yang valid."
+kemungkinkan ini terjadi karena BOTOL PLASTIK 1 L belum pernah ada, dan tidak ada hpp nya. sementara inventory-material-daily adjustmen plus "HPP Profile Otomatis". seharusnya hpp profile otomatis tapi tidak kaku. artinya otomatis muncul sesuai line di database, tapi tetap bisa di edit, jadi ketika ada kasus hpp 0 tidak gagal.
+
+/inventory/stock/adjustment/division:
+BOTOL PLASTIK 1 L adjustmen plus gagal "Belum ada line draft untuk disimpan."
+
+/inventory/stock/daily-recon/division:
+BOTOL PLASTIK 1 L adjustmen plus gagal ?Tersimpan tapi gagal posting: Adjustment plus membutuhkan unit_cost yang valid."
+
+/inventory/stock/division/reconcile: 
+Adjustmen PLUS berhasil diposting tapi muncul missmatch (screenshot 1).
+setelah saya adjustment jadi 0 Lot FIFO jadi muncul 1. (/inventory/stock/division/lot?status=OPEN&division_id=&destination=ALL&date_from=2026-06-01&date_to=2026-06-30&q=BOTOL+PLASTIK&per_page=25)
+
+PADAHAL kemarin sudah ada instruksi untuk adjustmen di ke 4 halaman adjustmen:
+- jika minus jadi 0, maka tidak ada penambahan LOT
+- jika minus jad surplus, maka penambahan lot hanya surplus dikurangi 0 nya saja, bukan dikurangi dari minusnya
+
+perbaiki pola ke 4 halaman itu
+
+
+setelah saya void, lalu saya adjustment plus lagi, inv_division_monthly_stock BOTOL PLASTIK 1 L cosing_qty_buy jadi 0, closing_qty_content dan avg_cost_per_content dan total_value jadi 1, padahal seharusnya 0, karena dari -1 +1 harunsya 0.
+tapi di /inventory-material-daily stock akhir tertulis 0, seharusnya stok akhir membaca dari inv_division_monthly_stock. jadi ada 2 masalah yang harus diselesaikan disini

@@ -1247,7 +1247,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
           </div>
           <div class="col-md-4 d-none" id="pmdAutoCostWrap">
             <label class="form-label">HPP Profile Otomatis</label>
-            <input type="text" class="form-control" id="pmdAutoCostDisplay" readonly value="0">
+            <input type="number" class="form-control" id="pmdAutoCostDisplay" min="0" step="0.01" value="0">
           </div>
           <div class="col-md-4 d-none pmd-plus-only">
             <label class="form-label">Lot Masuk Manual</label>
@@ -1258,7 +1258,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
             <input type="date" class="form-control" id="pmdInboundExpiryDate">
           </div>
           <div class="col-12 d-none" id="pmdAutoCostHint">
-            <div class="form-text">Untuk plus, HPP akan mengikuti profile line yang dipilih dari daily matrix. Input harga manual tidak diperlukan.</div>
+            <div class="form-text">Untuk plus, HPP otomatis terisi dari profile line dan tetap bisa diubah manual. Jika koreksi hanya menutup saldo minus sampai 0, lot baru tidak dibuat.</div>
           </div>
         </form>
       </div>
@@ -1766,7 +1766,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
 
     var action = String((document.getElementById('pmdAdjustAction').value || '')).toUpperCase();
     var qtyInput = Number(document.getElementById('pmdQtyInput').value || 0);
-    var unitCostInput = Number(adjustContext.defaultUnitCostInput || 0);
+    var unitCostInput = Number(document.getElementById('pmdAutoCostDisplay').value || adjustContext.defaultUnitCostInput || 0);
     if (!adjustActionMeta[action]) {
       throw new Error('Pilih dulu salah satu jenis koreksi: spoil, waste, minus, atau plus.');
     }
@@ -1900,9 +1900,10 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         inQty = Number(raw.in || 0);
         outQty = Number(raw.out || 0);
         adjQty = Number(raw.adjustment || 0);
-        var rawClosing = Number(raw.closing || opening);
+        var hasRawClosing = raw.closing !== undefined && raw.closing !== null && raw.closing !== '';
+        var rawClosing = hasRawClosing ? Number(raw.closing) : opening;
         var computedClosing = opening + inQty - outQty + adjQty;
-        closing = Math.abs(rawClosing - computedClosing) > 0.0001 ? computedClosing : rawClosing;
+        closing = hasRawClosing ? rawClosing : computedClosing;
         mutations = Number(raw.mutations || 0);
         totalValue = Number(raw.total_value || totalValue);
       }

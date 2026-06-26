@@ -10071,52 +10071,52 @@ class Purchase_model extends CI_Model
         $qtyPlus = round((float)($line['qty_adjustment_plus_content'] ?? 0), 4);
         if ($qtyPlus > 0) {
             $qtyBuyPlus = $this->convertStockAdjustmentQtyBuy($qtyPlus, $contentPerBuy, !empty($line['buy_uom_id']));
-            $unitCost = round((float)($line['unit_cost'] ?? 0), 6);
-            if ($unitCost <= 0) {
-                $unitCost = round((float)($currentBalance['avg_cost_per_content'] ?? 0), 6);
-            }
-            if ($unitCost <= 0) {
-                return ['ok' => false, 'message' => 'Adjustment plus membutuhkan unit_cost yang valid.'];
-            }
-
-            $notes = $this->buildStockAdjustmentMovementNote((string)($header['adjustment_no'] ?? ''), 'ADJUSTMENT_PLUS', (string)($line['note'] ?? ''), (string)($header['notes'] ?? ''));
-            $lot = $this->materialfifomanager->registerReceiptInboundLot([
-                'location_scope' => $scope,
-                'division_id' => $scope === 'DIVISION' ? $divisionId : null,
-                'destination_type' => $scope === 'DIVISION' ? $destinationType : 'GUDANG',
-                'receipt_date' => $movementDate,
-                'movement_date' => $movementDate,
-                'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
-                'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
-                'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
-                'content_uom_id' => !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null,
-                'profile_key' => $this->nullableString($line['profile_key'] ?? null),
-                'lot_no' => $this->nullableString($line['inbound_lot_no'] ?? null),
-                'expiry_date' => $this->normalizeDate((string)($line['inbound_expiry_date'] ?? '')),
-                'qty_content_in' => $qtyPlus,
-                'unit_cost' => $unitCost,
-                'source_table' => 'inv_stock_adjustment',
-                'source_id' => (int)($header['id'] ?? 0),
-                'source_line_id' => (int)($line['id'] ?? 0),
-            ]);
-            if (!($lot['ok'] ?? false)) {
-                return ['ok' => false, 'message' => (string)($lot['message'] ?? 'Gagal membuat lot inbound adjustment.')];
-            }
-
-            // Rekonsiliasi: jika saldo bulanan sebelum adjustment negatif, lot hanya boleh
-            // ada sebesar saldo positif baru. Sisa mengisi "hutang" stok, tidak jadi lot fisik.
             $preBalance = round((float)($currentBalance['qty_content_balance'] ?? 0), 4);
-            if ($preBalance < -0.0001) {
-                $newBalance    = round($preBalance + $qtyPlus, 4);
-                $effectiveQty  = max(0.0, $newBalance);
-                $lotId         = (int)($lot['data']['lot_id'] ?? 0);
-                if ($lotId > 0 && $effectiveQty < $qtyPlus - 0.0001) {
-                    $this->db->where('id', $lotId)->update('inv_material_fifo_lot', [
-                        'qty_out'     => round($qtyPlus - $effectiveQty, 4),
-                        'qty_balance' => round($effectiveQty, 4),
-                        'status'      => $effectiveQty < 0.0001 ? 'CLOSED' : 'OPEN',
-                        'updated_at'  => date('Y-m-d H:i:s'),
-                    ]);
+            $plusAllocation = $this->resolveStockAdjustmentPlusAllocation($preBalance, $qtyPlus);
+            $lotQtyPlus = round((float)($plusAllocation['lot_qty_content'] ?? 0), 4);
+            $ledgerUnitCost = 0.0;
+            $mutationValueOverride = 0.0;
+            $forceAvgCost = null;
+            $notes = $this->buildStockAdjustmentMovementNote((string)($header['adjustment_no'] ?? ''), 'ADJUSTMENT_PLUS', (string)($line['note'] ?? ''), (string)($header['notes'] ?? ''));
+
+            if ($lotQtyPlus > 0) {
+                $unitCost = round((float)($line['unit_cost'] ?? 0), 6);
+                if ($unitCost <= 0) {
+                    $unitCost = round((float)($currentBalance['avg_cost_per_content'] ?? 0), 6);
+                }
+                if ($unitCost <= 0) {
+                    return ['ok' => false, 'message' => 'Adjustment plus membutuhkan unit_cost yang valid untuk saldo yang benar-benar menambah stok.'];
+                }
+
+                $lot = $this->materialfifomanager->registerReceiptInboundLot([
+                    'location_scope' => $scope,
+                    'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+                    'destination_type' => $scope === 'DIVISION' ? $destinationType : 'GUDANG',
+                    'receipt_date' => $movementDate,
+                    'movement_date' => $movementDate,
+                    'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
+                    'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
+                    'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
+                    'content_uom_id' => !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null,
+                    'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+                    'lot_no' => $this->nullableString($line['inbound_lot_no'] ?? null),
+                    'expiry_date' => $this->normalizeDate((string)($line['inbound_expiry_date'] ?? '')),
+                    'qty_content_in' => $lotQtyPlus,
+                    'unit_cost' => $unitCost,
+                    'source_table' => 'inv_stock_adjustment',
+                    'source_id' => (int)($header['id'] ?? 0),
+                    'source_line_id' => (int)($line['id'] ?? 0),
+                ]);
+                if (!($lot['ok'] ?? false)) {
+                    return ['ok' => false, 'message' => (string)($lot['message'] ?? 'Gagal membuat lot inbound adjustment.')];
+                }
+
+                $lineUpdates['adjustment_plus_lot_id'] = (int)($lot['data']['lot_id'] ?? 0) > 0 ? (int)$lot['data']['lot_id'] : null;
+                $mutationValueOverride = round($lotQtyPlus * $unitCost, 2);
+                $ledgerUnitCost = round($mutationValueOverride / max(0.0001, $qtyPlus), 6);
+
+                if ($preBalance < -0.0001 && round((float)($plusAllocation['result_qty_content'] ?? 0), 4) > 0.0001) {
+                    $forceAvgCost = $unitCost;
                 }
             }
 
@@ -10124,7 +10124,9 @@ class Purchase_model extends CI_Model
                 'movement_type' => 'ADJUSTMENT_IN',
                 'qty_buy_delta' => $qtyBuyPlus,
                 'qty_content_delta' => $qtyPlus,
-                'unit_cost' => $unitCost,
+                'unit_cost' => $ledgerUnitCost,
+                'mutation_value_override' => $mutationValueOverride,
+                'force_avg_cost_per_content' => $forceAvgCost,
                 'adjustment_category' => 'ADJUSTMENT_PLUS',
                 'adjustment_reason_code' => $this->normalizeInventoryAdjustmentReasonCode((string)($line['adjustment_plus_reason_code'] ?? ''), 'ADJUSTMENT_PLUS') ?? 'other',
                 'notes' => $notes,
@@ -10133,11 +10135,26 @@ class Purchase_model extends CI_Model
             if (!($ledger['ok'] ?? false)) {
                 return ['ok' => false, 'message' => (string)($ledger['message'] ?? 'Gagal posting ledger adjustment plus.')];
             }
-
-            $lineUpdates['adjustment_plus_lot_id'] = (int)($lot['data']['lot_id'] ?? 0) > 0 ? (int)$lot['data']['lot_id'] : null;
         }
 
         return ['ok' => true, 'data' => ['line_updates' => $lineUpdates]];
+    }
+
+    private function resolveStockAdjustmentPlusAllocation(float $currentQtyContent, float $qtyPlusContent): array
+    {
+        $currentQtyContent = round($currentQtyContent, 4);
+        $qtyPlusContent = round(max(0, $qtyPlusContent), 4);
+        $debtQty = $currentQtyContent < 0 ? abs($currentQtyContent) : 0.0;
+        $qtyToZero = round(min($qtyPlusContent, $debtQty), 4);
+        $lotQty = round(max(0, $qtyPlusContent - $qtyToZero), 4);
+        $resultQty = round($currentQtyContent + $qtyPlusContent, 4);
+
+        return [
+            'current_qty_content' => $currentQtyContent,
+            'qty_to_zero' => $qtyToZero,
+            'lot_qty_content' => $lotQty,
+            'result_qty_content' => $resultQty,
+        ];
     }
 
     private function syncPostedStockAdjustmentProfiles(array $header, array $lines): array
@@ -11290,20 +11307,16 @@ class Purchase_model extends CI_Model
     {
         $qtyBuyAfter = round($currentBuy + $qtyBuyDelta, 4);
         $qtyContentAfter = round($currentContent + $qtyContentDelta, 4);
-        if ($qtyBuyAfter < 0) {
-            $qtyBuyAfter = 0.0;
-        }
-        if ($qtyContentAfter < 0) {
-            $qtyContentAfter = 0.0;
-        }
 
         $avgAfter = $currentAvg;
-        if ($qtyContentAfter <= 0) {
+        if (abs($qtyContentAfter) < 0.0001) {
             $avgAfter = 0.0;
         } elseif ($qtyContentDelta > 0) {
             $oldValue = $currentContent * $currentAvg;
             $inValue = $qtyContentDelta * max(0, round($unitCost, 6));
             $avgAfter = round(($oldValue + $inValue) / max(0.000001, $qtyContentAfter), 6);
+        } elseif ($qtyContentAfter < 0 && $currentAvg > 0) {
+            $avgAfter = round($currentAvg, 6);
         }
 
         return [

@@ -389,7 +389,11 @@ class InventoryLedger
         }
 
         $mutationValueBase = max($avgAfter, $unitCost, $oldAvg, 0);
-        $mutationValue = round(abs($qtyContentDelta) * $mutationValueBase, 2);
+        if (array_key_exists('mutation_value_override', $payload) && $payload['mutation_value_override'] !== null && $payload['mutation_value_override'] !== '') {
+            $mutationValue = round(max(0, (float)$payload['mutation_value_override']), 2);
+        } else {
+            $mutationValue = round(abs($qtyContentDelta) * $mutationValueBase, 2);
+        }
         $delta = $this->buildMonthlyMovementDelta($movementType, $qtyBuyDelta, $qtyContentDelta, $mutationValue, $this->normalizeAdjustmentCategory((string)($payload['adjustment_category'] ?? '')), $isOpeningSnapshotMovement);
 
         $openingQtyBuy = round((float)($existing['opening_qty_buy'] ?? 0), 4);
