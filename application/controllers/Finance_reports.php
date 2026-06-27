@@ -265,6 +265,11 @@ class Finance_reports extends MY_Controller
     {
         $this->require_permission('finance.target.index', 'view');
 
+        $tab = strtolower(trim((string)$this->input->get('tab', true)));
+        if (!in_array($tab, ['list', 'progress', 'guide'], true)) {
+            $tab = 'list';
+        }
+
         $filters = [
             'q' => trim((string)$this->input->get('q', true)),
             'status' => strtoupper(trim((string)$this->input->get('status', true))),
@@ -277,14 +282,17 @@ class Finance_reports extends MY_Controller
         $total = $this->Finance_report_model->count_target_plans($filters);
         $pg = $this->build_pagination($total, $perPage, $page);
         $rows = $this->Finance_report_model->list_target_plans($filters, $pg['per_page'], $pg['offset']);
+        $progressRows = $this->Finance_report_model->list_target_progress_dashboard($filters, $pg['per_page'], $pg['offset'], date('Y-m-d'));
         $summary = $this->Finance_report_model->summarize_target_plans($filters);
 
         $this->render('finance/target_plan_index', [
             'page_title' => 'Target Keuangan',
             'active_menu' => 'finance.target',
+            'tab' => $tab,
             'filters' => $filters,
             'pg' => $pg,
             'rows' => $rows,
+            'progress_rows' => $progressRows,
             'summary' => $summary,
             'division_options' => $this->Finance_report_model->division_options(),
             'company_accounts' => $this->Finance_report_model->active_company_accounts(),

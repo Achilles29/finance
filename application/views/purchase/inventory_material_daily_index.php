@@ -2215,7 +2215,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     return (isNonPositiveMetrics(metrics) || Number(auditHasMismatch || 0) > 0) ? ' pmd-stock-alert' : '';
   }
 
-  function calcStats(groups){
+  function calcStats(groups, serverSummary){
     var profileCount = 0;
     var divisionSet = {};
     var materialSet = {};
@@ -2236,6 +2236,14 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       totalAdj   += Number(m.adjustment_total || 0);
       if (Number(m.closing_content || 0) <= 0.0001) { alertCount++; }
     });
+
+    // Server computes totals across ALL rows (not just loaded page) — use when available
+    if (serverSummary) {
+      if (Number(serverSummary.total_value || 0) > 0)              { totalValue = Number(serverSummary.total_value); }
+      if (Number(serverSummary.in_qty_content  || 0) !== 0)        { totalIn  = Number(serverSummary.in_qty_content); }
+      if (Number(serverSummary.out_qty_content || 0) !== 0)        { totalOut = Number(serverSummary.out_qty_content); }
+      if (Number(serverSummary.adjustment_qty_content || 0) !== 0) { totalAdj = Number(serverSummary.adjustment_qty_content); }
+    }
 
     document.getElementById('pmdStatProfiles').textContent  = profileCount.toLocaleString('id-ID');
     document.getElementById('pmdStatDivisions').textContent = Object.keys(divisionSet).length.toLocaleString('id-ID');
@@ -2851,7 +2859,8 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         if (state.totalCount === 0 && state.groups.length > 0) {
           state.totalCount = state.groups.length;
         }
-        calcStats(state.groups);
+        var serverSummary = (data && data.summary) ? data.summary : null;
+        calcStats(state.groups, serverSummary);
         render({ focusToday: state.offset === 0 });
         renderPagination();
         renderSparkline(state.groups, state.dates);

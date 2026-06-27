@@ -472,7 +472,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
           <th class="text-end" style="min-width:100px">Snapshot Harian</th>
           <th class="text-end" style="min-width:100px">Movement</th>
           <th style="min-width:180px">Selisih</th>
-          <th style="min-width:100px">Status</th>
+          <th style="min-width:100px;max-width:160px;white-space:normal">Status</th>
           <th style="min-width:140px">Aksi</th>
         </tr>
       </thead>
@@ -694,10 +694,10 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                   <span class="rec-delta-bad" style="font-weight:600"><?php echo html_escape($parentSelisihText); ?></span>
                 <?php endif; ?>
               </td>
-              <td>
+              <td style="max-width:160px;word-break:break-word">
                 <span class="rec-chip <?php echo $isMatch ? 'rec-chip-ok' : 'rec-chip-bad'; ?>"><?php echo $isMatch ? 'Match' : 'Mismatch'; ?></span>
                 <?php if (!empty($row['daily_audit_has_mismatch'])): ?><div class="text-muted" style="font-size:.66rem;margin-top:.2rem">Log liar: <?php echo html_escape((string)($row['daily_audit_mismatch_notes'] ?? 'fallback identity')); ?></div><?php endif; ?>
-                <?php if (!empty($row['daily_log_has_gap'])): ?><div class="text-muted" style="font-size:.66rem;margin-top:.2rem">Closing saat ini sudah match. Yang masih gap adalah histori opening + delta movement bulan berjalan terhadap closing monthly.</div><?php endif; ?>
+                <?php if (!empty($row['daily_log_has_gap'])): ?><div class="text-muted" style="font-size:.66rem;margin-top:.2rem" title="Closing saat ini sudah match. Yang masih gap adalah histori opening + delta movement bulan berjalan terhadap closing monthly.">Gap histori log</div><?php endif; ?>
               </td>
               <td>
                 <div class="d-flex gap-1" style="flex-wrap:wrap">

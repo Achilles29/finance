@@ -202,36 +202,58 @@ tambah extra oat
 cek dashboard stock habis harus sesuai sumber resep
 cek resep prepare
 
-/master/product/edit/ edit gambar tidak tersimpan. cek 
 
 
 
-lakukan penyesuaian /inventory/stock/daily-recon/division
-- kolom 1 berisi divisi/tipe. tidak usah destinasi, bukankah destinasi ini makusdnya sama dengan tipe ? yaitu even atau reguler?
-- sesuaikan juga dropdown pilih tujuan, cukup reguler dan event
-- tambahkan kolom kategori (bahan baku) setelah divisi
-- data yang tampil adalah semua data yang ada stok nya, dan data di master bahan baku aktif yang digunakan dalam resep masing masing , BAR dan KITCHEN. gunanya untuk kontrol bahan mana yang kosong.
-- ubah urutan tampilan : DIVISI dan Tipe, KATEGORI, NAMA BARANG 
-- NAMA barang jadi hiperlink menuju ke halaman penggunaan resep
-
-- nama bahan baku inventory/stock/daily-recon/division yang merupakan  parent belum hiperlink ke halaman penggunaan
-
-- coba cek adjutsmen bahan baku KULIT AYAM. di stok masih ada 990, tapi mau di 0 kan tidak bisa. coba cek apa penyebabnya!
 
 
-kopi susu botol belum ada
-
-di /inventory/stock/division/reconcile sepertinya kemarin sudah dibuat adjutsmen lot di tinggal child atau parent yang tidak punya child, seperti di /production/component-reconcile. kok nggak ada ya? atau memang belum? kalau memang belum coba buatkan!
-
-kok masih ada kolom "stock_domain" dan ENUM('ITEM','MATERIAL') ? itu di tabel mana? atau halaman mana? karena stock_domain sudah kita nonaktifkan dan seperitnya sudah dihapus. lalu Enum item material maksudnya bagaimana? yang jelas kalau bahan baku kan material id tidak boleh null
-bulan juni ada KULIT AYAM kok. apkah karena data ini legacy sebelum perbaikan item centric?
-coba jelaskan dulu, saya belum eksekusi sql.
-
-
-lanjutkan dengan tambahan catatan:
-IAD20260622-0694 status nya POSTED lho bukan draft
-
-padahal movement log harusnya tetap jadi pegangan, jika ada miss harus ada solusi repairnya. coba kamu cek dulu database yang saya sampaikan tadi. kalau benar harus ada solusi repair di /inventory/stock/division/reconcile. saat ini belum ada solusi repair log, baru repair stock untuk menyesuaikan log. harusnya harus ada repair log atas hasil audit seperti kasus c8d1469527b56bc35e473bbc59d8fc0513d66774. bisa repair adj manual, bisa otomatis
+OKe kita perbaiki target dulu 
+- Bonus disiapkan dan % laba untuk bonus itu bagaimana ? diisi apa? bagaimana jika saya ingin membagi bonus 3% dari omzet harian yang target harian yang tercapai, tapi baru bisa cair jika target bulanan tercapai? misal minimal omzet 3 juta maka 3% untuk pegawai dibagai proporsional sesuai ketentuan bonus. tapi bonus baru dapat cair jika target bulanan tercapai
+- sesuaikan halaman tabel, buat scrollabel dan freeze di judul kolom
+- sesuaikan ukuran form input agar tidak terpotong
+- bagaimana jika saya ingin membuat indikator bahan baku mengendap di akhir bulan? baik gudang maupun divisi
+- bagaimana jika saya ingin membuat persentase profit di akhir bulan berdasarkan estimasi harian belanja, pendapatan , dan estimasi gaji?
+- bagaimana jika saya ingin pegawai dapat melihat target dan realisasi dari yang sudah ditetapkan agar bisa melakukan evaluasi untuk mencapai target bonus dapat cair?
 
 
-sekarang kalau saya cek di inv_stock_movement_log, material id 123 , profile key c8d1469527b56bc35e473bbc59d8fc0513d66774, kalau dijumlah jadi minus. betul tidak?
+ok sekarang coba buatkan sql untuk skema bonus yang saya maksud sebagai contoh agar tidak bingun kedepan. skemanya:
+1. target harian 3.000.000
+2. target bulanan estimasi keuangan (omzet - purchase - gaji) 10.000.000. 
+3. laba dibagi 3% dari omzet harian yang mencapai target
+
+
+Lalu tambahkan aturan bonus pegawai seperti pada directory core (database core), /payroll-bonus/rules?page=1&per_page=25&q=  dan /payroll-bonus/rules/edit/1?ctx=employee
+sesuaikan dengan pola dan database yang sudah kita buat
+
+lalui dimana generate pool hariannya?
+
+
+
+Template Target Harian Omzet  DAILY status nya masih dibuat DRAFT. kenapa demikian?
+
+bobot ala ctx=employee  dihalaman mana? saya belum menemukan.
+
+revisi dulu halaman halaman berikut agar lebih enak baca:
+/payroll/bonus?month=2026-06&tab=overview
+/payroll/bonus?month=2026-06&tab=rules
+/payroll/bonus?month=2026-06&tab=penalties
+
+buat tampilannya agar lebih enak dibaca.
+tampilan utama hanya tabel data, untuk form input dibuat dalam bentuk modal
+tambahka juga button detail di kolom aksi selain button yang sudah ada untuk dapat melihat detial data yang sudah diinput
+buat tampilan tabelnya scrollable dan freeze di judul tabel
+khusus /payroll/bonus? perlu dilakukan pemisahan tampilan (mungkin dengan tab) agar tidak terlalu jauh kebawah
+
+
+
+
+/payroll/bonus?month=2026-06&tab=penalties tab master penalti, lakukan penyesuaian tampilan seperti yang lainnya agar lebih enak dibaca
+
+buatkan buatkan UI khusus Bobot Bonus untuk divisi / jabatan / pegawai / shift
+
+
+ubah target DAILY agar benar-benar bisa dipakai engine, jadi statusnya masuk akal untuk ACTIVE bukan sekadar template
+
+
+lalu buatkan halaman khusus di tab /finance-reports/targets yang menampilkan target dan realisasi, berupa data dan grafik. data ini nanti yang digunakan sebagai acuan bonus pegawai.
+tambahan : untuk target berupa Profit estimasi (yang sudah kita buat), data diambil seperti pada halaman /finance-reports/financial-estimation ketika gaji bulan itu belum tergenerate, dan ketika gaji sudah tergenerate data diambil dari Pendapatan (dikurangi refund) dikurangi pengeluaran termasuk gaji 

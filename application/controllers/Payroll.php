@@ -648,12 +648,13 @@ class Payroll extends MY_Controller
             $month = date('Y-m');
         }
         $tab = strtolower(trim((string)$this->input->get('tab', true)));
-        if (!in_array($tab, ['overview', 'rules', 'penalties', 'peer', 'service', 'monthly', 'guide'], true)) {
+        if (!in_array($tab, ['overview', 'rules', 'weights', 'penalties', 'peer', 'service', 'monthly', 'guide'], true)) {
             $tab = 'overview';
         }
 
         $poolFilters = ['q' => trim((string)$this->input->get('pool_q', true))];
         $ruleFilters = ['q' => trim((string)$this->input->get('rule_q', true))];
+        $weightFilters = ['q' => trim((string)$this->input->get('weight_q', true))];
         $penaltyTypeFilters = ['q' => trim((string)$this->input->get('penalty_type_q', true))];
         $penaltyEventFilters = ['q' => trim((string)$this->input->get('penalty_event_q', true))];
         $peerFilters = ['q' => trim((string)$this->input->get('peer_q', true))];
@@ -669,6 +670,11 @@ class Payroll extends MY_Controller
             $this->Payroll_model->count_bonus_rules($ruleFilters['q']),
             $this->per_page('rule_per_page'),
             $this->page('rule_page')
+        );
+        $weightPg = $this->build_pagination(
+            $this->Payroll_model->count_bonus_weight_rules($weightFilters['q']),
+            $this->per_page('weight_per_page'),
+            $this->page('weight_page')
         );
         $penaltyTypePg = $this->build_pagination(
             $this->Payroll_model->count_bonus_penalty_types($penaltyTypeFilters['q']),
@@ -704,6 +710,7 @@ class Payroll extends MY_Controller
             'summary' => $this->Payroll_model->get_bonus_workspace_summary($month),
             'pool_filters' => $poolFilters,
             'rule_filters' => $ruleFilters,
+            'weight_filters' => $weightFilters,
             'penalty_type_filters' => $penaltyTypeFilters,
             'penalty_event_filters' => $penaltyEventFilters,
             'peer_filters' => $peerFilters,
@@ -711,6 +718,7 @@ class Payroll extends MY_Controller
             'monthly_filters' => $monthlyFilters,
             'pool_pg' => $poolPg,
             'rule_pg' => $rulePg,
+            'weight_pg' => $weightPg,
             'penalty_type_pg' => $penaltyTypePg,
             'penalty_event_pg' => $penaltyEventPg,
             'peer_pg' => $peerPg,
@@ -719,11 +727,13 @@ class Payroll extends MY_Controller
             'config_rows' => $this->Payroll_model->list_bonus_config_options(),
             'outlet_rows' => $this->Payroll_model->list_bonus_outlet_options(),
             'division_rows' => $this->Payroll_model->get_division_options(),
+            'position_rows' => $this->Payroll_model->get_position_options(),
             'employee_rows' => $this->Payroll_model->get_employee_options(),
             'shift_rows' => $this->Payroll_model->get_shift_options(),
             'bonus_rule_option_rows' => $this->Payroll_model->list_bonus_rule_options(),
             'target_plan_rows' => $this->Payroll_model->list_bonus_target_plan_options(),
             'rule_rows' => $this->Payroll_model->list_bonus_rules($ruleFilters['q'], $rulePg['per_page'], $rulePg['offset']),
+            'weight_rows' => $this->Payroll_model->list_bonus_weight_rules($weightFilters['q'], $weightPg['per_page'], $weightPg['offset']),
             'penalty_type_rows' => $this->Payroll_model->list_bonus_penalty_types($penaltyTypeFilters['q'], $penaltyTypePg['per_page'], $penaltyTypePg['offset']),
             'penalty_event_rows' => $this->Payroll_model->list_bonus_penalty_events($month, $penaltyEventFilters['q'], $penaltyEventPg['per_page'], $penaltyEventPg['offset']),
             'pool_rows' => $this->Payroll_model->list_bonus_recent_pools($month, $poolFilters['q'], $poolPg['per_page'], $poolPg['offset']),
@@ -835,6 +845,26 @@ class Payroll extends MY_Controller
 
         $query = http_build_query([
             'tab' => 'rules',
+            'month' => trim((string)($payload['month'] ?? date('Y-m'))),
+        ]);
+        redirect('payroll/bonus' . ($query !== '' ? ('?' . $query) : ''));
+    }
+
+    public function bonus_weight_save()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $payload = $this->input->post(null, true) ?? [];
+        $id = (int)($payload['id'] ?? 0);
+        $this->require_permission('payroll.bonus.index', $id > 0 ? 'edit' : 'create');
+
+        $result = $this->Payroll_model->save_bonus_weight_rule($payload);
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan bobot bonus.'));
+
+        $query = http_build_query([
+            'tab' => 'weights',
             'month' => trim((string)($payload['month'] ?? date('Y-m'))),
         ]);
         redirect('payroll/bonus' . ($query !== '' ? ('?' . $query) : ''));

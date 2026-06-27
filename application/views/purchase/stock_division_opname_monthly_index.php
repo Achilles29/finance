@@ -19,7 +19,8 @@ $summaryValue     = 0.0;
 foreach ($rows as $r) {
   $closing = (float)($r['closing_qty_content'] ?? 0);
   $summaryClosing += $closing;
-  $summaryValue   += $closing * (float)($r['avg_cost_per_content'] ?? 0);
+  $storedVal = isset($r['total_value']) ? (float)$r['total_value'] : 0.0;
+  $summaryValue += $storedVal > 0 ? $storedVal : ($closing * (float)($r['avg_cost_per_content'] ?? 0));
 }
 
 $activeMonth = (string)($filters['month'] ?? date('Y-m'));

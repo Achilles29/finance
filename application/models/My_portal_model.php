@@ -538,10 +538,80 @@ class My_portal_model extends CI_Model
             'late_minutes' => 0,
             'early_leave_minutes' => 0,
             'overtime_minutes' => 0,
+            'overtime_pay' => 0,
+            'daily_salary_amount' => 0,
             'source_type' => 'AUTO',
             'remarks' => 'Auto hadir PH saat buka halaman absen',
             'created_at' => date('Y-m-d H:i:s'),
         ]);
+
+        $insertedId = (int)$this->db->insert_id();
+        if ($insertedId > 0) {
+            $this->compute_and_store_ph_salary($insertedId, $employeeId, $date, $policy);
+        }
+    }
+
+    private function compute_and_store_ph_salary(int $dailyId, int $employeeId, string $date, array $policy): void
+    {
+        $employee = $this->db->select('basic_salary, position_allowance, objective_allowance, meal_rate')
+            ->from('org_employee')
+            ->where('id', $employeeId)
+            ->limit(1)
+            ->get()->row_array();
+        if (!$employee) {
+            return;
+        }
+
+        $workDays       = max(1, (int)($policy['default_work_days_per_month'] ?? 26));
+        $basicSalary    = (float)($employee['basic_salary']      ?? 0);
+        $posAllowance   = (float)($employee['position_allowance']  ?? 0);
+        $objAllowance   = (float)($employee['objective_allowance'] ?? 0);
+        $mealRate       = (float)($employee['meal_rate']           ?? 0);
+
+        $basicDailyRate    = $basicSalary / $workDays;
+        $allowanceDailyRate = ($posAllowance + $objAllowance) / $workDays;
+        $mealMode          = strtoupper((string)($policy['meal_calc_mode'] ?? 'MONTHLY'));
+        $phGetsMeal        = (int)($policy['ph_gets_meal_allowance'] ?? 0) === 1;
+
+        $basicEst  = $basicDailyRate;
+        $allowEst  = $allowanceDailyRate;
+        $mealEst   = ($mealMode === 'CUSTOM' && $phGetsMeal) ? $mealRate : 0.0;
+        $gross     = round($basicEst + $allowEst + $mealEst, 2);
+        $net       = $gross; // No deductions on PH
+
+        $manualAdj = $this->get_manual_adjustment_totals_by_date($employeeId, $date);
+
+        $payload = [
+            'overtime_pay'          => 0,
+            'daily_salary_amount'   => round($net + (float)($manualAdj['net'] ?? 0), 2),
+        ];
+        if ($this->att_daily_has_field('basic_amount')) {
+            $payload['basic_amount']            = round($basicEst, 2);
+            $payload['allowance_amount']        = round($allowEst, 2);
+            $payload['meal_amount']             = round($mealEst, 2);
+            $payload['late_deduction_amount']   = 0;
+            $payload['alpha_deduction_amount']  = 0;
+            $payload['gross_amount']            = $gross;
+            $payload['net_amount']              = round($net, 2);
+        }
+        if ($this->att_daily_has_field('manual_addition_amount')) {
+            $payload['manual_addition_amount'] = round((float)($manualAdj['addition'] ?? 0), 2);
+        }
+        if ($this->att_daily_has_field('manual_deduction_amount')) {
+            $payload['manual_deduction_amount'] = round((float)($manualAdj['deduction'] ?? 0), 2);
+        }
+        if ($this->att_daily_has_field('manual_adjustment_net_amount')) {
+            $payload['manual_adjustment_net_amount'] = round((float)($manualAdj['net'] ?? 0), 2);
+        }
+        if ($this->att_daily_has_field('snapshot_basic_salary')) {
+            $payload['snapshot_basic_salary']         = round($basicSalary, 2);
+            $payload['snapshot_position_allowance']   = round($posAllowance, 2);
+            $payload['snapshot_objective_allowance']  = round($objAllowance, 2);
+            $payload['snapshot_meal_rate']            = round($mealRate, 2);
+        }
+        $payload += $this->build_daily_policy_lock_payload($policy);
+
+        $this->db->where('id', $dailyId)->update('att_daily', $payload);
     }
 
     public function mark_attendance(

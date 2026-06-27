@@ -3545,6 +3545,9 @@ class Production_model extends CI_Model
             if (!($lotReady['ok'] ?? false)) {
                 return $lotReady;
             }
+            if ($hasMonthlyStockTable) {
+                $this->load->library('ComponentStockWriter');
+            }
         }
 
         $generatedRows = 0;
@@ -3582,6 +3585,17 @@ class Production_model extends CI_Model
                     'mutation_count'               => (int)($row['mutation_count'] ?? 0),
                     'source_mode'                  => 'OPNAME_GENERATE',
                 ], ['month_key', 'location_type', 'division_id', 'component_id', 'uom_id']);
+
+                // Cutoff: reconcile FIFO lots for M to match monthly_stock.closing_qty (stock is authority)
+                if ($hasLotTable) {
+                    $this->componentstockwriter->cutoff_lots_to_monthly_stock(
+                        (string)$row['location_type'],
+                        $row['division_id'],
+                        (int)$row['component_id'],
+                        (int)$row['uom_id'],
+                        $monthStart
+                    );
+                }
             }
 
             if ((float)$row['closing_qty'] <= 0) {
@@ -3954,10 +3968,7 @@ class Production_model extends CI_Model
 
         $resolvedDivisionId = !empty($header['division_id']) ? (int)$header['division_id'] : (int)($resolvedContext['division_id'] ?? 0);
         if ($resolvedDivisionId <= 0) {
-            return ['ok' => false, 'message' => 'Divisi adjustment tidak berhasil ditentukan dari component yang dipilih.'];
-        }
-        if ($resolvedDivisionId !== (int)($resolvedContext['division_id'] ?? 0)) {
-            return ['ok' => false, 'message' => 'Divisi adjustment harus sama dengan divisi operasional component yang dipilih.'];
+            return ['ok' => false, 'message' => 'Divisi adjustment tidak berhasil ditentukan. Pilih divisi di header adjustment.'];
         }
         $this->ensure_component_adjustment_reason_helper();
 

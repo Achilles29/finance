@@ -2615,8 +2615,8 @@ class Pos extends MY_Controller
         }
 
         $orderStatus = strtoupper(trim((string)($job['order_status'] ?? '')));
-        if (!in_array($orderStatus, ['DRAFT', 'PENDING'], true)) {
-            $this->json_error('Order ini sudah bukan draft, jadi tidak bisa dihapus dari audit job gagal.', 422);
+        if (!in_array($orderStatus, ['DRAFT', 'PENDING', 'CONFIRMED'], true)) {
+            $this->json_error('Order ini sudah diproses (status: ' . $orderStatus . '), tidak bisa dihapus dari audit job gagal.', 422);
             return;
         }
 
