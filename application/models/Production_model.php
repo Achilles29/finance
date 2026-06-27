@@ -4993,8 +4993,18 @@ class Production_model extends CI_Model
         $itemId = !empty($line['material_item_id']) ? (int)$line['material_item_id'] : null;
         $uomId = (int)($line['uom_id'] ?? $this->resolve_formula_uom_id('MATERIAL', $materialId, null));
         $effectiveDivisionId = !empty($line['source_division_id']) ? (int)$line['source_division_id'] : $divisionId;
-        $stockState = $this->component_batch_material_stock_state($materialId, $itemId, $uomId, $effectiveDivisionId, $locationType);
-        $stockKey = (string)($stockState['stock_key'] ?? ($materialId . '|' . $itemId . '|' . $uomId . '|' . $effectiveDivisionId . '|' . $locationType));
+        $effectiveLocationType = $locationType;
+        if ($effectiveDivisionId !== $divisionId) {
+            $srcCode = $this->operational_division_code($effectiveDivisionId);
+            $isEvent = in_array(strtoupper($locationType), ['BAR_EVENT', 'KITCHEN_EVENT'], true);
+            if ($srcCode === 'BAR') {
+                $effectiveLocationType = $isEvent ? 'BAR_EVENT' : 'BAR';
+            } elseif ($srcCode === 'KITCHEN') {
+                $effectiveLocationType = $isEvent ? 'KITCHEN_EVENT' : 'KITCHEN';
+            }
+        }
+        $stockState = $this->component_batch_material_stock_state($materialId, $itemId, $uomId, $effectiveDivisionId, $effectiveLocationType);
+        $stockKey = (string)($stockState['stock_key'] ?? ($materialId . '|' . $itemId . '|' . $uomId . '|' . $effectiveDivisionId . '|' . $effectiveLocationType));
         $availableQty = array_key_exists($stockKey, $state['material_stock'])
             ? (float)$state['material_stock'][$stockKey]['available_qty']
             : (float)$stockState['available_qty'];
@@ -5006,7 +5016,7 @@ class Production_model extends CI_Model
         ];
 
         if ($shortageQty > 0) {
-            $issueKey = 'M|' . $materialId . '|' . $effectiveDivisionId . '|' . $locationType . '|' . $depth . '|' . $stageComponent['id'];
+            $issueKey = 'M|' . $materialId . '|' . $effectiveDivisionId . '|' . $effectiveLocationType . '|' . $depth . '|' . $stageComponent['id'];
             if (!isset($state['material_issue_keys'][$issueKey])) {
                 $state['material_issue_keys'][$issueKey] = true;
                 $state['issues'][] = 'Bahan ' . (string)($line['material_name'] ?? ('#' . $materialId)) . ' kurang ' . number_format($shortageQty, 2, '.', '') . ' ' . (string)($line['uom_code'] ?? '');

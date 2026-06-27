@@ -2170,7 +2170,36 @@ class Finance_report_model extends CI_Model
             $bonusGateMode = 'WEIGHTED_SCORE';
         }
 
+        $targetName = trim((string)($payload['target_name'] ?? ($row['target_name'] ?? '')));
+        if ($targetName === '') {
+            return ['ok' => false, 'message' => 'Nama target wajib diisi.'];
+        }
+
+        $scope = strtoupper(trim((string)($row['target_scope'] ?? 'MONTHLY')));
+        $dateStart = trim((string)($payload['date_start'] ?? ($row['date_start'] ?? '')));
+        $dateEnd = trim((string)($payload['date_end'] ?? ($row['date_end'] ?? '')));
+        if ($dateStart === '' || $dateEnd === '') {
+            return ['ok' => false, 'message' => 'Tanggal mulai dan selesai target wajib diisi.'];
+        }
+        if ($dateStart > $dateEnd) {
+            return ['ok' => false, 'message' => 'Tanggal selesai target tidak boleh lebih kecil dari tanggal mulai.'];
+        }
+        if ($scope === 'DAILY') {
+            $dateEnd = $dateStart;
+        }
+
+        $targetYear = (int)date('Y', strtotime($dateStart));
+        $targetMonth = $scope !== 'YEARLY' ? (int)date('m', strtotime($dateStart)) : null;
+        $targetDate = $scope === 'DAILY' ? $dateStart : null;
+        $datesChanged = $dateStart !== (string)($row['date_start'] ?? '') || $dateEnd !== (string)($row['date_end'] ?? '');
+
         $update = [
+            'target_name' => $targetName,
+            'target_year' => $targetYear,
+            'target_month' => $targetMonth,
+            'target_date' => $targetDate,
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
             'status' => $status,
             'bonus_gate_mode' => $bonusGateMode,
             'min_bonus_score' => round((float)($payload['min_bonus_score'] ?? ($row['min_bonus_score'] ?? 100)), 2),
@@ -2179,9 +2208,23 @@ class Finance_report_model extends CI_Model
             'notes' => trim((string)($payload['notes'] ?? ($row['notes'] ?? ''))) ?: null,
         ];
 
+        $this->db->trans_start();
         $this->db->where('id', $targetPlanId)->update('fin_target_plan', $update);
+        if ($datesChanged && $this->db->table_exists('fin_target_realization')) {
+            $this->db->where('target_plan_id', $targetPlanId)->delete('fin_target_realization');
+        }
+        $this->db->trans_complete();
 
-        return ['ok' => true, 'message' => 'Header target berhasil diperbarui.'];
+        if (!$this->db->trans_status()) {
+            return ['ok' => false, 'message' => 'Gagal memperbarui target.'];
+        }
+
+        return [
+            'ok' => true,
+            'message' => $datesChanged
+                ? 'Target berhasil diperbarui. Snapshot realisasi lama dibersihkan, silakan hitung ulang bila ingin menyimpan snapshot baru.'
+                : 'Header target berhasil diperbarui.',
+        ];
     }
 
     public function save_target_plan_lines(int $targetPlanId, array $payload, int $actorUserId = 0): array
@@ -2467,7 +2510,7 @@ class Finance_report_model extends CI_Model
             'avg_score_percent' => $avgScore,
             'all_required_passed' => $requiredFailedCount === 0,
             'required_failed_count' => $requiredFailedCount,
-            'notes' => 'Progress target ' . $effectiveStart . ' s/d ' . $effectiveEnd,
+            'notes' => 'Dibaca live dari database untuk periode ' . $effectiveStart . ' s/d ' . $effectiveEnd . '.',
             'lines' => $lineResults,
         ];
     }

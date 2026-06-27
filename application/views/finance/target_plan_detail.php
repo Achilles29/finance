@@ -88,7 +88,7 @@ $status = strtoupper((string)($row['status'] ?? 'DRAFT'));
 <div class="container-xxl py-3">
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
     <div>
-      <h4 class="mb-1">Detail Target</h4>
+      <h4 class="mb-1">Detail & Edit Target</h4>
       <div class="text-muted">
         <?php echo html_escape((string)($row['target_name'] ?? '-')); ?> |
         <?php echo html_escape((string)($row['date_start'] ?? '-')); ?> s/d <?php echo html_escape((string)($row['date_end'] ?? '-')); ?> |
@@ -139,11 +139,24 @@ $status = strtoupper((string)($row['status'] ?? 'DRAFT'));
         <div class="card fintdetail-card">
         <div class="card-body">
           <h5 class="mb-3">Pengaturan Dasar</h5>
-          <form method="post" action="<?php echo site_url('finance-reports/targets/update/' . (int)($row['id'] ?? 0)); ?>">
-            <div class="row g-3">
-              <div class="col-md-3">
-                <label class="form-label">Status</label>
-                <select name="status" class="form-select">
+            <div class="small text-muted mb-3">Bagian ini dipakai untuk mengubah nama target, tanggal target, status target, aturan bonus, skor minimum, cadangan bonus, persen laba untuk bonus, dan catatan target.</div>
+            <form method="post" action="<?php echo site_url('finance-reports/targets/update/' . (int)($row['id'] ?? 0)); ?>">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Nama target</label>
+                  <input type="text" name="target_name" class="form-control" value="<?php echo html_escape((string)($row['target_name'] ?? '')); ?>" required>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Tanggal mulai target</label>
+                  <input type="date" name="date_start" class="form-control" value="<?php echo html_escape((string)($row['date_start'] ?? '')); ?>" required>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Tanggal selesai target</label>
+                  <input type="date" name="date_end" class="form-control" value="<?php echo html_escape((string)($row['date_end'] ?? '')); ?>" required>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Status</label>
+                  <select name="status" class="form-select">
                   <?php foreach (['DRAFT' => 'Draft', 'ACTIVE' => 'Active', 'LOCKED' => 'Locked', 'VOID' => 'Void'] as $key => $label): ?>
                     <option value="<?php echo $key; ?>" <?php echo $status === $key ? 'selected' : ''; ?>><?php echo $label; ?></option>
                   <?php endforeach; ?>
@@ -192,6 +205,8 @@ $status = strtoupper((string)($row['status'] ?? 'DRAFT'));
                     <strong>Cadangan bonus</strong> adalah plafon manajerial yang ingin Anda siapkan jika target lolos.
                     <strong>% laba untuk bonus</strong> adalah pagar agar bonus tidak melebihi porsi laba yang Anda anggap aman.
                     Jika Anda ingin skema seperti <strong>3% omzet harian</strong> tapi <strong>cair setelah target bulanan lolos</strong>, maka target ini berfungsi sebagai gerbangnya, sedangkan angka 3% dan ambang omzet harian tetap diatur di rule bonus.
+                    <br><br>
+                    Jika Anda mengubah tanggal target, snapshot realisasi lama akan dibersihkan supaya ringkasan tidak tercampur dengan rentang tanggal yang lama.
                   </div>
                 </div>
               </div>

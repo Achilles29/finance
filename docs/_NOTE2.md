@@ -257,3 +257,11 @@ ubah target DAILY agar benar-benar bisa dipakai engine, jadi statusnya masuk aka
 
 lalu buatkan halaman khusus di tab /finance-reports/targets yang menampilkan target dan realisasi, berupa data dan grafik. data ini nanti yang digunakan sebagai acuan bonus pegawai.
 tambahan : untuk target berupa Profit estimasi (yang sudah kita buat), data diambil seperti pada halaman /finance-reports/financial-estimation ketika gaji bulan itu belum tergenerate, dan ketika gaji sudah tergenerate data diambil dari Pendapatan (dikurangi refund) dikurangi pengeluaran termasuk gaji 
+
+
+kita bahas satu per satu.
+pertama target keuangannya dulu
+- tab target vs realisasi tidak menyala merah ketika di klik halamannya
+- bagaimana cara edit target keuangannya? 
+
+
