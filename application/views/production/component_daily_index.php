@@ -1082,9 +1082,9 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
               </div>
             </div>
             <div class="component-adjust-field mt-3 d-none" id="qdaCostWrap">
-              <label class="form-label">HPP Profile Otomatis</label>
-              <input type="text" class="form-control" id="qdaUnitCostDisplay" value="0" readonly>
-              <div class="form-text">Untuk plus, HPP mengikuti profile atau lot yang dipilih dari matrix. Tidak perlu input manual.</div>
+              <label class="form-label">HPP / Unit Cost</label>
+              <input type="number" min="0" step="0.000001" class="form-control" id="qdaUnitCostDisplay" value="0" placeholder="Masukkan HPP jika belum terisi">
+              <div class="form-text">Terisi otomatis dari profile/lot. Bisa diubah manual jika HPP perlu dikoreksi.</div>
             </div>
           </div>
           <div class="component-adjust-section">
@@ -1439,9 +1439,10 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
       renderAlert('danger', 'Qty koreksi harus lebih dari 0.');
       return;
     }
-    const derivedUnitCost = Number.isFinite(state.defaultUnitCost) ? state.defaultUnitCost : 0;
+    const derivedUnitCost = parseFloat(fields.unitCostDisplay.value) || 0;
     if (action === 'PLUS' && derivedUnitCost <= 0) {
-      renderAlert('danger', 'HPP profile untuk line ini belum tersedia, jadi plus belum bisa dipost dari daily matrix.');
+      renderAlert('danger', 'HPP / Unit Cost wajib diisi untuk adjustment plus. Masukkan nilai HPP di field yang tersedia.');
+      fields.unitCostDisplay.focus();
       return;
     }
 

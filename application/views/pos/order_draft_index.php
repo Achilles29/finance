@@ -277,9 +277,11 @@ $isPaidWorkspace = $workspaceMode === 'PAID';
             </select>
           </div>
           <div class="col-6 col-lg-2 col-md-4">
+            <label for="recent_date_from" class="form-label mb-1" style="font-size:.78rem">Dari tanggal</label>
             <input type="date" id="recent_date_from" class="form-control" placeholder="Dari tanggal">
           </div>
           <div class="col-6 col-lg-2 col-md-4">
+            <label for="recent_date_to" class="form-label mb-1" style="font-size:.78rem">Sampai tanggal</label>
             <input type="date" id="recent_date_to" class="form-control" placeholder="Sampai tanggal">
           </div>
           <div class="col-lg-1 col-md-2">

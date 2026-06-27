@@ -2495,7 +2495,7 @@ class Production extends MY_Controller
     }
     private function location_options()
     {
-        return ['' => 'Semua Lokasi', 'BAR' => 'BAR', 'KITCHEN' => 'KITCHEN', 'BAR_EVENT' => 'BAR_EVENT', 'KITCHEN_EVENT' => 'KITCHEN_EVENT'];
+        return ['' => 'Semua Tujuan', 'REGULER' => 'Reguler', 'EVENT' => 'Event'];
     }
 
     private function component_opening_redirect_url(array $state = []): string

@@ -6249,8 +6249,8 @@ class Pos_model extends CI_Model
             }
 
             $status = strtoupper(trim((string)($row['status'] ?? 'DRAFT')));
-            if (!in_array($status, ['DRAFT', 'PENDING'], true)) {
-                throw new RuntimeException('Hanya draft order POS yang bisa dihapus. Jika order sudah confirmed, gunakan void atau refund sesuai status transaksinya.');
+            if (!in_array($status, ['DRAFT', 'PENDING', 'CONFIRMED'], true)) {
+                throw new RuntimeException('Order POS dengan status ' . $status . ' tidak bisa dihapus dari sini.');
             }
 
             if ($this->db->table_exists('pos_runtime_job')) {

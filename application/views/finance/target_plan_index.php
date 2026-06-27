@@ -2,6 +2,8 @@
 $filters = is_array($filters ?? null) ? $filters : [];
 $rows = is_array($rows ?? null) ? $rows : [];
 $summary = is_array($summary ?? null) ? $summary : [];
+$progressRows = is_array($progress_rows ?? null) ? $progress_rows : [];
+$tab = in_array(($tab ?? 'list'), ['list', 'progress', 'guide'], true) ? $tab : 'list';
 $pg = is_array($pg ?? null) ? $pg : ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
 $divisionOptions = is_array($division_options ?? null) ? $division_options : [];
 $companyAccounts = is_array($company_accounts ?? null) ? $company_accounts : [];
@@ -13,6 +15,7 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
         'status' => (string)($filters['status'] ?? ''),
         'target_scope' => (string)($filters['target_scope'] ?? ''),
         'division_id' => (int)($filters['division_id'] ?? 0),
+        'tab' => $tab,
         'per_page' => (int)($pg['per_page'] ?? 25),
         'page' => (int)($pg['page'] ?? 1),
     ];
@@ -105,8 +108,43 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
     color: #6f5d56;
     line-height: 1.6;
   }
+  .fintarget-progress-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+  .fintarget-progress-card {
+    border: 1px solid rgba(143, 53, 58, .10);
+    border-radius: 20px;
+    background: linear-gradient(180deg, #fff, #fff8f5);
+    padding: 1rem 1.1rem;
+  }
+  .fintarget-progress-bar {
+    height: 10px;
+    border-radius: 999px;
+    background: #f3dfd8;
+    overflow: hidden;
+  }
+  .fintarget-progress-bar > span {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, #8f353a, #d56752);
+    border-radius: 999px;
+  }
+  .fintarget-line-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .34rem .6rem;
+    border-radius: 999px;
+    background: #fff3ef;
+    border: 1px solid rgba(143, 53, 58, .10);
+    font-size: .78rem;
+    color: #7a4a3b;
+  }
   @media (max-width: 991.98px) {
     .fintarget-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .fintarget-progress-grid { grid-template-columns: 1fr; }
   }
   @media (max-width: 575.98px) {
     .fintarget-summary-grid { grid-template-columns: 1fr; }
@@ -153,15 +191,18 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
     <div class="card-body">
       <ul class="nav nav-pills gap-2 mb-3" id="targetPageTabs" role="tablist">
         <li class="nav-item" role="presentation">
-          <button class="btn btn-sm btn-primary active" id="target-list-tab" data-bs-toggle="pill" data-bs-target="#target-list-pane" type="button" role="tab" aria-controls="target-list-pane" aria-selected="true">Daftar Target</button>
+          <button class="btn btn-sm <?php echo $tab === 'list' ? 'btn-primary' : 'btn-outline-primary'; ?> <?php echo $tab === 'list' ? 'active' : ''; ?>" id="target-list-tab" data-bs-toggle="pill" data-bs-target="#target-list-pane" type="button" role="tab" aria-controls="target-list-pane" aria-selected="<?php echo $tab === 'list' ? 'true' : 'false'; ?>">Daftar Target</button>
         </li>
         <li class="nav-item" role="presentation">
-          <button class="btn btn-sm btn-outline-primary" id="target-guide-tab" data-bs-toggle="pill" data-bs-target="#target-guide-pane" type="button" role="tab" aria-controls="target-guide-pane" aria-selected="false">Panduan</button>
+          <button class="btn btn-sm <?php echo $tab === 'progress' ? 'btn-primary' : 'btn-outline-primary'; ?> <?php echo $tab === 'progress' ? 'active' : ''; ?>" id="target-progress-tab" data-bs-toggle="pill" data-bs-target="#target-progress-pane" type="button" role="tab" aria-controls="target-progress-pane" aria-selected="<?php echo $tab === 'progress' ? 'true' : 'false'; ?>">Target vs Realisasi</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="btn btn-sm <?php echo $tab === 'guide' ? 'btn-primary' : 'btn-outline-primary'; ?> <?php echo $tab === 'guide' ? 'active' : ''; ?>" id="target-guide-tab" data-bs-toggle="pill" data-bs-target="#target-guide-pane" type="button" role="tab" aria-controls="target-guide-pane" aria-selected="<?php echo $tab === 'guide' ? 'true' : 'false'; ?>">Panduan</button>
         </li>
       </ul>
 
       <div class="tab-content" id="targetPageTabsContent">
-        <div class="tab-pane fade show active" id="target-list-pane" role="tabpanel" aria-labelledby="target-list-tab" tabindex="0">
+        <div class="tab-pane fade <?php echo $tab === 'list' ? 'show active' : ''; ?>" id="target-list-pane" role="tabpanel" aria-labelledby="target-list-tab" tabindex="0">
           <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
             <div>
               <h5 class="mb-1">Daftar Target</h5>
@@ -289,7 +330,114 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
           </div>
         </div>
 
-        <div class="tab-pane fade" id="target-guide-pane" role="tabpanel" aria-labelledby="target-guide-tab" tabindex="0">
+        <div class="tab-pane fade <?php echo $tab === 'progress' ? 'show active' : ''; ?>" id="target-progress-pane" role="tabpanel" aria-labelledby="target-progress-tab" tabindex="0">
+          <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+            <div>
+              <h5 class="mb-1">Target vs Realisasi</h5>
+              <div class="small text-muted">Tab ini membaca target yang sudah dibuat lalu membandingkannya dengan angka real saat ini. Inilah panel yang paling enak dipakai untuk evaluasi bonus tim.</div>
+            </div>
+            <div class="fintarget-helper">
+              <div class="title mb-1">Khusus Profit Estimasi</div>
+              <div class="body">Jika payroll bulan ini belum tergenerate, sistem memakai angka seperti halaman Financial Estimation. Jika payroll sudah tergenerate, nilai profit otomatis beralih ke pendapatan dikurangi refund dan seluruh pengeluaran termasuk gaji aktual.</div>
+            </div>
+          </div>
+
+          <div class="fintarget-progress-grid mb-3">
+            <?php if (empty($progressRows)): ?>
+              <div class="fintarget-progress-card">
+                <div class="text-muted">Belum ada target yang bisa dibaca realisasinya.</div>
+              </div>
+            <?php else: ?>
+              <?php foreach ($progressRows as $row): ?>
+                <?php $score = max(0, min(100, (float)($row['progress_score_percent'] ?? 0))); ?>
+                <div class="fintarget-progress-card">
+                  <div class="d-flex justify-content-between gap-3 align-items-start mb-2">
+                    <div>
+                      <div class="fw-semibold"><?php echo html_escape((string)($row['target_name'] ?? '-')); ?></div>
+                      <div class="small text-muted"><?php echo html_escape((string)($row['target_scope'] ?? '-')); ?> • <?php echo html_escape((string)($row['date_start'] ?? '-')); ?> s/d <?php echo html_escape((string)($row['date_end'] ?? '-')); ?></div>
+                    </div>
+                    <a href="<?php echo site_url('finance-reports/targets/detail/' . (int)$row['id']); ?>" class="btn btn-sm btn-outline-secondary">Detail</a>
+                  </div>
+                  <div class="d-flex justify-content-between small mb-2">
+                    <span>Skor saat ini</span>
+                    <strong><?php echo number_format($score, 2, ',', '.'); ?>%</strong>
+                  </div>
+                  <div class="fintarget-progress-bar mb-3"><span style="width: <?php echo $score; ?>%;"></span></div>
+                  <div class="small text-muted mb-2">
+                    <?php echo html_escape((string)($row['progress_notes'] ?? 'Belum ada bacaan realisasi.')); ?>
+                  </div>
+                  <div class="d-flex flex-wrap gap-2 mb-2">
+                    <?php if (!empty($row['progress_lines'])): ?>
+                      <?php foreach ($row['progress_lines'] as $line): ?>
+                        <span class="fintarget-line-pill">
+                          <?php echo html_escape((string)($line['metric_label'] ?? '-')); ?>
+                          <strong><?php echo number_format((float)($line['actual_value'] ?? 0), 2, ',', '.'); ?></strong>
+                        </span>
+                      <?php endforeach; ?>
+                    <?php else: ?>
+                      <span class="small text-muted">Belum ada detail indikator yang bisa dibaca.</span>
+                    <?php endif; ?>
+                  </div>
+                  <div class="small text-muted">
+                    As of: <?php echo html_escape((string)($row['progress_as_of_date'] ?? '-')); ?>
+                    <?php if ((int)($row['progress_required_failed_count'] ?? 0) > 0): ?>
+                      • Wajib belum lolos: <?php echo (int)$row['progress_required_failed_count']; ?> baris
+                    <?php endif; ?>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            <?php endif; ?>
+          </div>
+
+          <div class="table-responsive fintarget-table fintarget-table-wrap">
+            <table class="table table-hover align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Target</th>
+                  <th>Scope</th>
+                  <th>As Of</th>
+                  <th>Skor</th>
+                  <th>Status Bonus</th>
+                  <th>Catatan</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php if (empty($progressRows)): ?>
+                  <tr><td colspan="6" class="text-center text-muted py-4">Belum ada data target vs realisasi.</td></tr>
+                <?php else: ?>
+                  <?php foreach ($progressRows as $row): ?>
+                    <tr>
+                      <td>
+                        <div class="fw-semibold"><?php echo html_escape((string)($row['target_name'] ?? '-')); ?></div>
+                        <div class="small text-muted"><?php echo html_escape((string)($row['target_code'] ?? '-')); ?></div>
+                      </td>
+                      <td><?php echo html_escape((string)($row['division_name'] ?? 'Semua divisi')); ?></td>
+                      <td><?php echo html_escape((string)($row['progress_as_of_date'] ?? '-')); ?></td>
+                      <td><?php echo number_format((float)($row['progress_score_percent'] ?? 0), 2, ',', '.'); ?>%</td>
+                      <td>
+                        <span class="badge bg-light text-dark border">
+                          <?php echo !empty($row['progress_all_required_passed']) ? 'Siap dibaca bonus' : 'Masih ada syarat tertahan'; ?>
+                        </span>
+                      </td>
+                      <td class="small text-muted"><?php echo html_escape((string)($row['progress_notes'] ?? '-')); ?></td>
+                    </tr>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+            <div class="small text-muted">Target yang dibaca mengikuti halaman aktif ini. Default tetap 25 baris per halaman.</div>
+            <div class="btn-group">
+              <a class="btn btn-sm btn-outline-secondary <?php echo (($pg['page'] ?? 1) <= 1) ? 'disabled' : ''; ?>" href="<?php echo (($pg['page'] ?? 1) <= 1) ? '#' : $buildUrl(['page' => max(1, (int)$pg['page'] - 1)]); ?>">Prev</a>
+              <button class="btn btn-sm btn-outline-secondary disabled">Hal <?php echo (int)($pg['page'] ?? 1); ?> / <?php echo (int)($pg['total_pages'] ?? 1); ?></button>
+              <a class="btn btn-sm btn-outline-secondary <?php echo (($pg['page'] ?? 1) >= ($pg['total_pages'] ?? 1)) ? 'disabled' : ''; ?>" href="<?php echo (($pg['page'] ?? 1) >= ($pg['total_pages'] ?? 1)) ? '#' : $buildUrl(['page' => (int)$pg['page'] + 1]); ?>">Next</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-pane fade <?php echo $tab === 'guide' ? 'show active' : ''; ?>" id="target-guide-pane" role="tabpanel" aria-labelledby="target-guide-tab" tabindex="0">
           <div class="row g-3">
             <div class="col-lg-4">
               <div class="fintarget-guide-box">
@@ -370,6 +518,7 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
         <div class="modal-body">
           <div class="alert alert-light border mb-3">
             Isi bagian dasarnya dulu di sini. Setelah tersimpan, Anda bisa buka detail target untuk mengatur angka target, bobot, dan syarat bonus lebih lengkap.
+            <div class="small text-muted mt-2">Khusus target harian, sistem akan menyimpannya dalam status aktif supaya bisa langsung dibaca engine bonus atau monitoring realisasi harian.</div>
           </div>
           <div class="row g-3">
             <div class="col-md-6">

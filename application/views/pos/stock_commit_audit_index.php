@@ -625,12 +625,13 @@ $GLOBALS['auditTab'] = $auditTab;
                       <button type="button" class="btn btn-sm btn-outline-primary sca_retry_job_btn" data-job-id="<?php echo (int)($job['id'] ?? 0); ?>">Retry</button>
                       <a href="<?php echo html_escape(site_url('pos/orders/draft?q=' . rawurlencode((string)($job['order_no'] ?? '')))); ?>" class="btn btn-sm btn-outline-secondary">Buka Order</a>
                       <?php $jobOrderStatus = strtoupper(trim((string)($job['order_status'] ?? ''))); ?>
-                      <?php if (in_array($jobOrderStatus, ['DRAFT', 'PENDING'], true)): ?>
+                      <?php if (in_array($jobOrderStatus, ['DRAFT', 'PENDING', 'CONFIRMED'], true)): ?>
                         <button type="button"
                                 class="btn btn-sm btn-outline-danger sca_delete_draft_job_btn"
                                 data-job-id="<?php echo (int)($job['id'] ?? 0); ?>"
-                                data-order-no="<?php echo html_escape((string)($job['order_no'] ?? '-')); ?>">
-                          Hapus Draft
+                                data-order-no="<?php echo html_escape((string)($job['order_no'] ?? '-')); ?>"
+                                data-order-status="<?php echo html_escape($jobOrderStatus); ?>">
+                          <?php echo $jobOrderStatus === 'CONFIRMED' ? 'Hapus Order' : 'Hapus Draft'; ?>
                         </button>
                       <?php else: ?>
                         <button type="button"
@@ -742,19 +743,22 @@ document.addEventListener('DOMContentLoaded', function () {
     button.addEventListener('click', async function () {
       const jobId = Number(this.dataset.jobId || 0);
       const orderNo = String(this.dataset.orderNo || '-');
+      const orderStatus = String(this.dataset.orderStatus || '');
       if (jobId <= 0) return;
-      const confirmed = await askConfirm(
-        'Hapus draft ' + orderNo + ' beserta snapshot/job stock commit yang gagal? Aksi ini dipakai untuk order yang masih DRAFT/PENDING.',
-        { title: 'Hapus Draft dari Audit' }
-      );
+      const isConfirmed = orderStatus === 'CONFIRMED';
+      const confirmMsg = isConfirmed
+        ? 'Hapus order ' + orderNo + ' (CONFIRMED, belum bayar) beserta job stock commit yang gagal? Pastikan tidak ada pembayaran terkait order ini.'
+        : 'Hapus draft ' + orderNo + ' beserta snapshot/job stock commit yang gagal? Aksi ini dipakai untuk order yang masih DRAFT/PENDING.';
+      const confirmTitle = isConfirmed ? 'Hapus Order dari Audit' : 'Hapus Draft dari Audit';
+      const confirmed = await askConfirm(confirmMsg, { title: confirmTitle });
       if (!confirmed) return;
       setButtonLoading(this, 'Menghapus...');
       try {
         const json = await postJson('<?php echo site_url('pos/orders/runtime-jobs/delete-draft'); ?>/' + jobId, {});
-        await showAlert(json.message || 'Draft berhasil dihapus.', 'Hapus Draft dari Audit');
+        await showAlert(json.message || 'Order berhasil dihapus.', confirmTitle);
         window.location.reload();
       } catch (e) {
-        await showAlert(e.message || 'Draft gagal dihapus dari audit.', 'Hapus Draft dari Audit');
+        await showAlert(e.message || 'Order gagal dihapus dari audit.', confirmTitle);
       } finally {
         clearButtonLoading(this);
       }

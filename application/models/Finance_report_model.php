@@ -1164,6 +1164,7 @@ class Finance_report_model extends CI_Model
         $summary = [
             'store_request_pending_value' => 0.0,
             'salary_estimate_running' => 0.0,
+            'salary_source_mode' => 'ESTIMATE',
         ];
 
         if (file_exists(APPPATH . 'models/Procurement_model.php')) {
@@ -1197,6 +1198,12 @@ class Finance_report_model extends CI_Model
                     $summary['salary_estimate_running'] = round($sum, 2);
                 }
             }
+        }
+
+        $payrollActual = $this->actual_payroll_generated_summary($dateStart, $dateEnd, 0);
+        if (!empty($payrollActual['has_generated'])) {
+            $summary['salary_estimate_running'] = round((float)($payrollActual['amount'] ?? 0), 2);
+            $summary['salary_source_mode'] = 'ACTUAL';
         }
 
         return $summary;
@@ -1651,6 +1658,38 @@ class Finance_report_model extends CI_Model
         ];
     }
 
+    public function list_target_progress_dashboard(array $filters = [], int $limit = 25, int $offset = 0, string $asOfDate = ''): array
+    {
+        $rows = $this->list_target_plans($filters, $limit, $offset);
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
+            $asOfDate = date('Y-m-d');
+        }
+
+        foreach ($rows as &$row) {
+            $planStart = (string)($row['date_start'] ?? $asOfDate);
+            $planEnd = (string)($row['date_end'] ?? $asOfDate);
+            $progressDate = $asOfDate;
+            if ($progressDate < $planStart) {
+                $progressDate = $planStart;
+            }
+            if ($progressDate > $planEnd) {
+                $progressDate = $planEnd;
+            }
+
+            $progress = $this->get_target_progress_snapshot((int)($row['id'] ?? 0), $progressDate);
+            $row['progress_as_of_date'] = $progressDate;
+            $row['progress_ok'] = !empty($progress['ok']) && !empty($progress['applicable']) ? 1 : 0;
+            $row['progress_score_percent'] = !empty($progress['ok']) ? round((float)($progress['avg_score_percent'] ?? 0), 2) : 0.0;
+            $row['progress_required_failed_count'] = !empty($progress['ok']) ? (int)($progress['required_failed_count'] ?? 0) : 0;
+            $row['progress_all_required_passed'] = !empty($progress['ok']) && !empty($progress['all_required_passed']) ? 1 : 0;
+            $row['progress_notes'] = (string)($progress['notes'] ?? 'Belum ada bacaan realisasi.');
+            $row['progress_lines'] = !empty($progress['lines']) ? array_slice((array)$progress['lines'], 0, 4) : [];
+        }
+        unset($row);
+
+        return $rows;
+    }
+
     public function save_target_plan(array $payload, int $actorUserId = 0): array
     {
         if (!$this->db->table_exists('fin_target_plan')) {
@@ -1683,6 +1722,12 @@ class Finance_report_model extends CI_Model
         $nextSeq = ((int)($maxIdRow['max_id'] ?? 0)) + 1;
         $targetCode = 'FIN-TARGET-' . date('Ym', strtotime($dateStart)) . '-' . str_pad((string)$nextSeq, 4, '0', STR_PAD_LEFT);
 
+        $requestedStatus = strtoupper(trim((string)($payload['status'] ?? '')));
+        $defaultStatus = $scope === 'DAILY' ? 'ACTIVE' : 'DRAFT';
+        if (!in_array($requestedStatus, ['DRAFT', 'ACTIVE', 'LOCKED', 'VOID'], true)) {
+            $requestedStatus = $defaultStatus;
+        }
+
         $row = [
             'target_code' => $targetCode,
             'target_name' => $targetName,
@@ -1694,7 +1739,7 @@ class Finance_report_model extends CI_Model
             'date_end' => $dateEnd,
             'division_id' => (int)($payload['division_id'] ?? 0) > 0 ? (int)$payload['division_id'] : null,
             'company_account_id' => (int)($payload['company_account_id'] ?? 0) > 0 ? (int)$payload['company_account_id'] : null,
-            'status' => 'DRAFT',
+            'status' => $requestedStatus,
             'bonus_gate_mode' => in_array(strtoupper(trim((string)($payload['bonus_gate_mode'] ?? 'WEIGHTED_SCORE'))), ['NONE', 'ALL_REQUIRED', 'WEIGHTED_SCORE'], true)
                 ? strtoupper(trim((string)($payload['bonus_gate_mode'] ?? 'WEIGHTED_SCORE')))
                 : 'WEIGHTED_SCORE',
@@ -2591,7 +2636,21 @@ class Finance_report_model extends CI_Model
 
         $planning = $this->planning_summary($dateStart, $dateEnd);
         $this->metric_add($bucket, 'GLOBAL', 0, 'PROCUREMENT', 'SR_PENDING_VALUE', 'SR Pending', (float)($planning['store_request_pending_value'] ?? 0), 0, 'pur_store_request', 'Estimasi store request yang masih pending');
-        $this->metric_add($bucket, 'GLOBAL', 0, 'PAYROLL', 'PAYROLL_ESTIMATE_RUNNING', 'Estimasi Gaji Berjalan', (float)($planning['salary_estimate_running'] ?? 0), 0, 'payroll_preview', 'Estimasi payroll berjalan');
+        $payrollSourceMode = strtoupper((string)($planning['salary_source_mode'] ?? 'ESTIMATE'));
+        $this->metric_add(
+            $bucket,
+            'GLOBAL',
+            0,
+            'PAYROLL',
+            'PAYROLL_ESTIMATE_RUNNING',
+            'Estimasi Gaji Berjalan',
+            (float)($planning['salary_estimate_running'] ?? 0),
+            0,
+            $payrollSourceMode === 'ACTUAL' ? 'pay_payroll_result' : 'payroll_preview',
+            $payrollSourceMode === 'ACTUAL'
+                ? 'Nilai diisi dari payroll yang sudah tergenerate.'
+                : 'Nilai masih memakai estimasi payroll berjalan.'
+        );
 
         foreach ($this->division_metric_rows($dateStart, $dateEnd, $monthStart, $monthEnd) as $row) {
             $this->metric_add(
@@ -2638,7 +2697,9 @@ class Finance_report_model extends CI_Model
             ? round(($globalEstimatedProfit / $globalNetRevenue) * 100, 2)
             : 0.00;
 
-        $this->metric_add($bucket, 'GLOBAL', 0, 'PROFITABILITY', 'ESTIMATED_PROFIT_VALUE', 'Profit Estimasi', $globalEstimatedProfit, 0, 'derived_global', 'Estimasi profit = omzet bersih - HPP live - beban operasional - estimasi gaji - adjustment.');
+        $this->metric_add($bucket, 'GLOBAL', 0, 'PROFITABILITY', 'ESTIMATED_PROFIT_VALUE', 'Profit Estimasi', $globalEstimatedProfit, 0, 'derived_global', $payrollSourceMode === 'ACTUAL'
+            ? 'Profit memakai payroll aktual: omzet bersih - HPP live - beban operasional - payroll aktual - adjustment.'
+            : 'Profit memakai estimasi payroll: omzet bersih - HPP live - beban operasional - estimasi gaji - adjustment.');
         $this->metric_add($bucket, 'GLOBAL', 0, 'PROFITABILITY', 'ESTIMATED_PROFIT_PERCENT', 'Margin Profit Estimasi %', $globalEstimatedProfitPct, 0, 'derived_global', 'Margin estimasi dihitung dari profit estimasi dibanding omzet bersih.');
 
         return array_values($bucket);
@@ -2674,8 +2735,10 @@ class Finance_report_model extends CI_Model
                     'metric_label' => 'Estimasi Gaji Berjalan',
                     'metric_amount' => (float)($planning['salary_estimate_running'] ?? 0),
                     'metric_qty' => 0,
-                    'source_ref' => 'payroll_preview',
-                    'notes' => 'Estimasi payroll per divisi',
+                    'source_ref' => strtoupper((string)($planning['salary_source_mode'] ?? 'ESTIMATE')) === 'ACTUAL' ? 'pay_payroll_result' : 'payroll_preview',
+                    'notes' => strtoupper((string)($planning['salary_source_mode'] ?? 'ESTIMATE')) === 'ACTUAL'
+                        ? 'Payroll aktual per divisi yang sudah tergenerate'
+                        : 'Estimasi payroll per divisi',
                 ];
             }
         }
@@ -2904,11 +2967,41 @@ class Finance_report_model extends CI_Model
         return $rows;
     }
 
+    private function actual_payroll_generated_summary(string $dateStart, string $dateEnd, int $divisionId = 0): array
+    {
+        $result = [
+            'has_generated' => false,
+            'amount' => 0.0,
+        ];
+
+        if (!$this->db->table_exists('pay_payroll_result') || !$this->db->table_exists('pay_payroll_period')) {
+            return $result;
+        }
+
+        $db = $this->db->select('COUNT(*) AS total_rows, COALESCE(SUM(pr.net_pay), 0) AS total_amount', false)
+            ->from('pay_payroll_result pr')
+            ->join('pay_payroll_period pp', 'pp.id = pr.payroll_period_id', 'inner')
+            ->where('pp.period_start >=', $dateStart)
+            ->where('pp.period_end <=', $dateEnd);
+
+        if ($divisionId > 0 && $this->db->table_exists('org_employee')) {
+            $db->join('org_employee e', 'e.id = pr.employee_id', 'inner')
+                ->where('e.division_id', $divisionId);
+        }
+
+        $row = $db->get()->row_array() ?: [];
+        $result['has_generated'] = (int)($row['total_rows'] ?? 0) > 0;
+        $result['amount'] = round((float)($row['total_amount'] ?? 0), 2);
+
+        return $result;
+    }
+
     private function planning_summary_by_division(string $dateStart, string $dateEnd, int $divisionId = 0): array
     {
         $summary = [
             'store_request_pending_value' => 0.0,
             'salary_estimate_running' => 0.0,
+            'salary_source_mode' => 'ESTIMATE',
         ];
 
         if (file_exists(APPPATH . 'models/Procurement_model.php')) {
@@ -2943,6 +3036,12 @@ class Finance_report_model extends CI_Model
                     $summary['salary_estimate_running'] = round($sum, 2);
                 }
             }
+        }
+
+        $payrollActual = $this->actual_payroll_generated_summary($dateStart, $dateEnd, $divisionId);
+        if (!empty($payrollActual['has_generated'])) {
+            $summary['salary_estimate_running'] = round((float)($payrollActual['amount'] ?? 0), 2);
+            $summary['salary_source_mode'] = 'ACTUAL';
         }
 
         return $summary;

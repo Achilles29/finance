@@ -1371,6 +1371,99 @@ class ComponentStockWriter
         }
     }
 
+    /**
+     * Reconcile FIFO lots to match inv_component_monthly_stock.closing_qty
+     * for a specific month_key. Called after generate to ensure lots = stock.
+     * Trims excess (LIFO) or registers a OPNAME_CUTOFF lot for any deficit.
+     */
+    public function cutoff_lots_to_monthly_stock(
+        string $locationType,
+        ?int $divisionId,
+        int $componentId,
+        int $uomId,
+        string $monthKey
+    ): void {
+        $db = $this->ci->db;
+
+        if (!$db->table_exists('inv_component_monthly_stock') || !$db->table_exists('inv_component_lot')) {
+            return;
+        }
+
+        $divSql    = $divisionId !== null ? 'ms.division_id = ' . (int)$divisionId : 'ms.division_id IS NULL';
+        $divLotSql = $divisionId !== null ? 'l.division_id  = ' . (int)$divisionId  : 'l.division_id  IS NULL';
+
+        $monthRow = $db->query(
+            "SELECT COALESCE(ms.closing_qty, 0) AS closing_qty, COALESCE(ms.avg_cost, 0) AS avg_cost
+               FROM inv_component_monthly_stock ms
+              WHERE ms.location_type = ?
+                AND {$divSql}
+                AND ms.component_id  = ?
+                AND ms.uom_id        = ?
+                AND ms.month_key     = ?
+              LIMIT 1",
+            [$locationType, $componentId, $uomId, $monthKey]
+        )->row_array();
+
+        if (empty($monthRow)) {
+            return;
+        }
+
+        $closingQty = round((float)($monthRow['closing_qty'] ?? 0), 4);
+        $targetLot  = max(0.0, $closingQty);
+        $avgCost    = round((float)($monthRow['avg_cost']    ?? 0), 6);
+
+        $openLots = $db->query(
+            "SELECT id, qty_balance
+               FROM inv_component_lot l
+              WHERE l.location_type = ?
+                AND {$divLotSql}
+                AND l.component_id  = ?
+                AND l.uom_id        = ?
+                AND l.status        = 'OPEN'
+                AND l.qty_balance   > 0.0001
+              ORDER BY l.receipt_date DESC, l.id DESC",
+            [$locationType, $componentId, $uomId]
+        )->result_array();
+
+        $totalBalance = empty($openLots) ? 0.0 : round(array_sum(array_column($openLots, 'qty_balance')), 4);
+        $now = date('Y-m-d H:i:s');
+
+        if ($totalBalance > $targetLot + 0.0001) {
+            // Trim excess lots LIFO (newest first) to match stock closing_qty
+            $remaining = round($totalBalance - $targetLot, 4);
+            foreach ($openLots as $lot) {
+                if ($remaining <= 0.0001) {
+                    break;
+                }
+                $lotQty = round((float)($lot['qty_balance'] ?? 0), 4);
+                $trim   = min($lotQty, $remaining);
+                $newQty = round($lotQty - $trim, 4);
+                $db->where('id', (int)$lot['id'])->update('inv_component_lot', [
+                    'qty_balance' => $newQty,
+                    'status'      => $newQty < 0.0001 ? 'CLOSED' : 'OPEN',
+                    'updated_at'  => $now,
+                ]);
+                $remaining = round($remaining - $trim, 4);
+            }
+        } elseif ($targetLot > $totalBalance + 0.0001 && $avgCost > 0) {
+            // Add correction lot for deficit (lots less than stock authoritative closing)
+            $deficitQty = round($targetLot - $totalBalance, 4);
+            $this->ci->load->library('ComponentLotManager');
+            $this->ci->componentlotmanager->registerProductionInboundLot([
+                'location_type' => $locationType,
+                'division_id'   => $divisionId,
+                'component_id'  => $componentId,
+                'uom_id'        => $uomId,
+                'qty_in'        => $deficitQty,
+                'unit_cost'     => $avgCost,
+                'receipt_date'  => $monthKey,
+                'lot_no'        => 'CUTOFF-' . str_replace('-', '', substr($monthKey, 0, 7)) . '-' . $componentId,
+                'source_module' => 'OPNAME_CUTOFF',
+                'source_table'  => 'inv_component_monthly_stock',
+            ]);
+        }
+    }
+
     private function load_balance_state(string $locationType, ?int $divisionId, int $componentId, int $uomId, string $movementDate): array
     {
         if ($this->ci->db->table_exists('inv_component_monthly_stock')) {

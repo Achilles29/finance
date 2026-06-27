@@ -160,6 +160,7 @@ class Inventory_division extends Purchase
             LEFT JOIN mst_operational_division dv ON dv.id = dms.division_id
             {$catJoin}
             WHERE dms.material_id IS NOT NULL
+              AND (dms.profile_key IS NULL OR dms.identity_key = dms.profile_key)
               {$divWhereMain}
               {$destWhere}
               {$qWhere}

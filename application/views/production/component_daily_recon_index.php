@@ -281,6 +281,9 @@ function adjColHtml(row, iid) {
                         onchange="cmpTypeChange('${iid}')">
                     ${typeOpts}
                 </select>
+                <input type="number" id="adjcost-${iid}" class="form-control form-control-sm d-none"
+                       min="0" step="0.000001" placeholder="HPP / Unit Cost"
+                       style="font-size:.72rem" title="HPP wajib diisi untuk adjustment plus">
                 <select id="adjreason-${iid}" class="form-select form-select-sm d-none" style="font-size:.72rem"></select>
                 <input type="text" id="adjnotes-${iid}" class="form-control form-control-sm d-none"
                        placeholder="Catatan (opsional)" style="font-size:.72rem">
@@ -476,13 +479,24 @@ function renderTable(groups) {
 // ?????? Type / reason change ?????????????????????????????????????????????????????????????????????????????????????????????????????????????????? ──────────────────────────────────────
 window.cmpTypeChange = function (iid) {
     const typeSel   = el('adjtype-'   + iid);
+    const costInp   = el('adjcost-'   + iid);
     const reasonSel = el('adjreason-' + iid);
     const notesInp  = el('adjnotes-'  + iid);
     if (!typeSel || !reasonSel) return;
     if (!typeSel.value) {
+        if (costInp) costInp.classList.add('d-none');
         reasonSel.classList.add('d-none');
         if (notesInp) notesInp.classList.add('d-none');
         return;
+    }
+    const isPlus = typeSel.value === 'ADJUSTMENT_PLUS';
+    if (costInp) {
+        costInp.classList.toggle('d-none', !isPlus);
+        if (isPlus && !costInp.value) {
+            const row = profileMap[iid];
+            const autoHpp = parseFloat(row?.avg_cost || row?.balance_avg_cost || 0);
+            if (autoHpp > 0) costInp.value = String(autoHpp);
+        }
     }
     const opts = REASONS[typeSel.value] || { other: 'Other' };
     reasonSel.innerHTML = Object.entries(opts)
@@ -576,6 +590,16 @@ window.cmpPostAdj = function (iid) {
         return;
     }
 
+    const isPlus = typeVal === 'ADJUSTMENT_PLUS';
+    const costInp = el('adjcost-' + iid);
+    const userHpp = parseFloat(costInp?.value || 0);
+    if (isPlus && !(userHpp > 0)) {
+        alert('HPP / Unit Cost wajib diisi untuk adjustment plus. Masukkan nilai HPP terlebih dahulu.');
+        costInp?.focus();
+        return;
+    }
+    const avgCostToSend = isPlus ? userHpp : (parseFloat(row.avg_cost || row.balance_avg_cost || 0));
+
     const btn = el('adjbtn-' + iid);
     const orig = btn?.innerHTML;
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
@@ -593,7 +617,7 @@ window.cmpPostAdj = function (iid) {
             lot_id: row.lot_id || 0,
             system_qty: row.system_qty,
             physical_qty: row.physical_qty,
-            avg_cost: row.avg_cost,
+            avg_cost: avgCostToSend,
             adjustment_type: typeVal,
             reason_code: el('adjreason-' + iid)?.value || 'other',
             notes: el('adjnotes-' + iid)?.value?.trim() || '',

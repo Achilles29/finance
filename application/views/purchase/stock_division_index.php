@@ -100,7 +100,8 @@ foreach ($rowsData as $row) {
   $qtyBuy = (float)($row['qty_buy_balance'] ?? 0);
   $qtyContent = (float)($row['qty_content_balance'] ?? 0);
   $avgCost = (float)($row['avg_cost_per_content'] ?? 0);
-  $rowValue = $qtyContent * $avgCost;
+  $storedVal = isset($row['total_value']) ? (float)$row['total_value'] : 0.0;
+  $rowValue = $storedVal > 0 ? $storedVal : ($qtyContent * $avgCost);
   $updatedAt = (string)($row['updated_at'] ?? '');
 
   $parentMap[$parentKey]['qty_buy_balance'] += $qtyBuy;

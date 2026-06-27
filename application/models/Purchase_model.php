@@ -1717,6 +1717,7 @@ class Purchase_model extends CI_Model
                 'dates'       => $dates,
                 'rows'        => $rows,
                 'total_count' => (int)($result['total_count'] ?? count($rows)),
+                'summary'     => $result['summary'] ?? null,
             ];
         }
 
@@ -1784,7 +1785,7 @@ class Purchase_model extends CI_Model
                 $dateFrom,
                 $dateTo,
                 $destinationFilter,
-                false
+                true
             );
             $movementRows = $this->normalizeDivisionProfileKeyRows($movementRows);
         }
@@ -1862,7 +1863,10 @@ class Purchase_model extends CI_Model
             $monthlyOpeningBuy = round((float)($baseRow['qty_buy_opening'] ?? 0), 4);
             $monthlyOpeningContent = round((float)($baseRow['qty_content_opening'] ?? 0), 4);
             $avgCost = round((float)($baseRow['avg_cost_per_content'] ?? 0), 6);
-            $totalValue = round((float)($baseRow['qty_content_balance'] ?? 0) * $avgCost, 2);
+            $storedValue = isset($baseRow['total_value']) ? (float)$baseRow['total_value'] : 0.0;
+            $totalValue = $storedValue > 0
+                ? round($storedValue, 2)
+                : round((float)($baseRow['qty_content_balance'] ?? 0) * $avgCost, 2);
 
             for ($i = count($dates) - 1; $i >= 0; $i--) {
                 $day = (string)$dates[$i];
@@ -1995,11 +1999,13 @@ class Purchase_model extends CI_Model
         ?int $materialId = null
     ): array {
         $totalCount = $this->count_material_daily_monthly_base_rows($q, $divisionId, $dateTo, $destinationFilter, $materialId);
+        $summary    = $this->sum_material_daily_monthly_base_rows($q, $divisionId, $dateTo, $destinationFilter, $materialId);
         $baseRows = $this->fetch_material_daily_monthly_base_rows($q, $divisionId, $dateTo, $limit, $destinationFilter, $offset, $materialId);
         if (empty($baseRows)) {
             return [
-                'rows' => [],
+                'rows'        => [],
                 'total_count' => $totalCount,
+                'summary'     => $summary,
             ];
         }
 
@@ -2169,7 +2175,28 @@ class Purchase_model extends CI_Model
             }
         }
 
-        return ['rows' => $this->pivotDailyRows($dailyRows, $limit), 'total_count' => $totalCount];
+        $sumIn = $sumOut = $sumWaste = $sumDiscarded = $sumSpoil = $sumProcessLoss = $sumVariance = $sumAdjPlus = $sumAdj = 0.0;
+        foreach ($dailyRows as $dr) {
+            $sumIn          += (float)($dr['in_qty_content']              ?? 0);
+            $sumOut         += (float)($dr['out_qty_content']             ?? 0);
+            $sumWaste       += (float)($dr['waste_qty_content']           ?? 0);
+            $sumDiscarded   += (float)($dr['discarded_qty_content']       ?? 0);
+            $sumSpoil       += (float)($dr['spoil_qty_content']           ?? 0);
+            $sumProcessLoss += (float)($dr['process_loss_qty_content']    ?? 0);
+            $sumVariance    += (float)($dr['variance_qty_content']        ?? 0);
+            $sumAdjPlus     += (float)($dr['adjustment_plus_qty_content'] ?? 0);
+            $sumAdj         += (float)($dr['adjustment_qty_content']      ?? 0);
+        }
+        $summary['in_qty_content']              = round($sumIn, 4);
+        $summary['out_qty_content']             = round($sumOut, 4);
+        $summary['waste_qty_content']           = round($sumWaste + $sumDiscarded, 4);
+        $summary['spoil_qty_content']           = round($sumSpoil, 4);
+        $summary['process_loss_qty_content']    = round($sumProcessLoss, 4);
+        $summary['variance_qty_content']        = round($sumVariance, 4);
+        $summary['adjustment_plus_qty_content'] = round($sumAdjPlus, 4);
+        $summary['adjustment_qty_content']      = round($sumAdj, 4);
+
+        return ['rows' => $this->pivotDailyRows($dailyRows, $limit), 'total_count' => $totalCount, 'summary' => $summary];
     }
 
     private function fetch_material_daily_monthly_base_rows(
@@ -2272,6 +2299,69 @@ class Purchase_model extends CI_Model
             ->order_by('s.profile_name', 'ASC')
             ->limit($limit, $offset);
         return $query->get()->result_array();
+    }
+
+    private function sum_material_daily_monthly_base_rows(
+        string $q,
+        ?int $divisionId,
+        string $dateTo,
+        ?string $destinationFilter = null,
+        ?int $materialId = null
+    ): array {
+        if (!$this->db->table_exists('inv_division_monthly_stock')) {
+            return ['total_value' => 0.0, 'closing_qty_content' => 0.0];
+        }
+        $targetMonth = date('Y-m-01', strtotime($dateTo ?: date('Y-m-d')));
+        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+        $latestMonthSubquery = $this->db
+            ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
+            ->from('inv_division_monthly_stock')
+            ->where('month_key <=', $targetMonth)
+            ->group_by(['division_id', 'destination_type', 'identity_key'])
+            ->get_compiled_select();
+
+        $this->db
+            ->select('SUM(COALESCE(s.total_value, ROUND(s.closing_qty_content * COALESCE(s.avg_cost_per_content, 0), 2))) AS total_value', false)
+            ->select('SUM(s.closing_qty_content) AS closing_qty_content', false)
+            ->from('inv_division_monthly_stock s')
+            ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+            ->join('mst_item i', 'i.id = s.item_id', 'left')
+            ->join('mst_material m', 'm.id = COALESCE(s.material_id, i.material_id)', 'left')
+            ->where('COALESCE(s.material_id, i.material_id) IS NOT NULL', null, false)
+            ->where('(s.profile_key IS NULL OR s.identity_key = s.profile_key)', null, false);
+
+        if ($divisionId !== null && $divisionId > 0) {
+            $this->db->where('s.division_id', $divisionId);
+        }
+        if ($materialId !== null && $materialId > 0) {
+            $this->db->where('COALESCE(s.material_id, i.material_id) =', $materialId, false);
+        }
+        if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
+            if ($destinationFilter === 'REGULER') {
+                $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } elseif ($destinationFilter === 'EVENT') {
+                $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            } else {
+                $this->db->where('s.destination_type', $destinationFilter);
+            }
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('i.item_code', $q)
+                ->or_like('i.item_name', $q)
+                ->or_like('m.material_code', $q)
+                ->or_like('m.material_name', $q)
+                ->or_like('s.profile_name', $q)
+                ->or_like('s.profile_brand', $q)
+                ->or_like('s.profile_description', $q)
+                ->or_like('s.profile_key', $q)
+                ->group_end();
+        }
+        $row = $this->db->get()->row_array();
+        return [
+            'total_value'          => round((float)($row['total_value'] ?? 0), 2),
+            'closing_qty_content'  => round((float)($row['closing_qty_content'] ?? 0), 4),
+        ];
     }
 
     private function count_material_daily_monthly_base_rows(
@@ -12580,14 +12670,16 @@ class Purchase_model extends CI_Model
             ->select('i.item_code, i.item_name, m.material_code, m.material_name')
             ->select('s.profile_key, s.profile_name, s.profile_brand, s.profile_description')
             ->select('s.profile_content_per_buy, s.profile_buy_uom_code, s.profile_content_uom_code')
-            ->select('s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content')
+            ->select('s.opening_qty_buy AS qty_buy_opening, s.opening_qty_content AS qty_content_opening, s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content, COALESCE(s.total_value, ROUND(s.closing_qty_content * COALESCE(s.avg_cost_per_content, 0), 2)) AS total_value', false)
             ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
             ->select('s.profile_expired_date')
             ->from('inv_division_monthly_stock s')
             ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
             ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
             ->join('mst_item i', 'i.id = s.item_id', 'left')
-            ->join('mst_material m', 'm.id = s.material_id', 'left');
+            ->join('mst_material m', 'm.id = COALESCE(s.material_id, i.material_id)', 'left')
+            ->where('(s.profile_key IS NULL OR s.identity_key = s.profile_key)', null, false)
+            ->where('COALESCE(s.material_id, i.material_id) IS NOT NULL', null, false);
 
         if ($from !== null) {
             $this->db->where($activityDateExpr . ' >= ' . $this->db->escape($from), null, false);

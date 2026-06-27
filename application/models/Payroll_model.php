@@ -212,6 +212,21 @@ class Payroll_model extends CI_Model
             ->get()->result_array();
     }
 
+    public function get_position_options(): array
+    {
+        if (!$this->db->table_exists('org_position')) {
+            return [];
+        }
+
+        $db = $this->db->select('id AS value, position_name AS label')
+            ->from('org_position');
+        if ($this->table_has_field('org_position', 'is_active')) {
+            $db->where('is_active', 1);
+        }
+
+        return $db->order_by('position_name', 'ASC')->get()->result_array();
+    }
+
     public function get_employee_options(?int $divisionId = null): array
     {
         $this->db->select("e.id AS value, CONCAT(e.employee_code, ' - ', e.employee_name) AS label", false)
@@ -3338,6 +3353,7 @@ class Payroll_model extends CI_Model
             'config_count' => 0,
             'active_rule_count' => 0,
             'target_linked_rule_count' => 0,
+            'weight_rule_count' => 0,
             'penalty_type_count' => 0,
             'penalty_event_count' => 0,
             'pending_peer_review_count' => 0,
@@ -3356,6 +3372,9 @@ class Payroll_model extends CI_Model
             if ($this->table_has_field('pay_bonus_rule', 'linked_target_plan_id')) {
                 $summary['target_linked_rule_count'] = (int)$this->db->from('pay_bonus_rule')->where('linked_target_plan_id IS NOT NULL', null, false)->count_all_results();
             }
+        }
+        if ($this->db->table_exists('pay_bonus_weight_rule')) {
+            $summary['weight_rule_count'] = (int)$this->db->from('pay_bonus_weight_rule')->where('is_active', 1)->count_all_results();
         }
         if ($this->db->table_exists('pay_bonus_penalty_type')) {
             $summary['penalty_type_count'] = (int)$this->db->from('pay_bonus_penalty_type')->where('is_active', 1)->count_all_results();
@@ -3413,7 +3432,8 @@ class Payroll_model extends CI_Model
                 c.config_name,
                 o.outlet_name,
                 d.division_name,
-                " . $this->target_plan_name_expr('tp') . " AS target_plan_name
+                " . $this->target_plan_name_expr('tp') . " AS target_plan_name,
+                " . ($this->db->table_exists('fin_target_plan') ? $this->target_plan_name_expr('tdp') : "'-'") . " AS daily_target_plan_name
             ", false)
             ->from('pay_bonus_rule r')
             ->join('pay_bonus_config c', 'c.id = r.config_id', 'left');
@@ -3424,6 +3444,9 @@ class Payroll_model extends CI_Model
         $db->join('org_division d', 'd.id = r.division_id', 'left');
         if ($this->db->table_exists('fin_target_plan')) {
             $db->join('fin_target_plan tp', 'tp.id = r.linked_target_plan_id', 'left');
+            if ($this->table_has_field('pay_bonus_rule', 'daily_target_plan_id')) {
+                $db->join('fin_target_plan tdp', 'tdp.id = r.daily_target_plan_id', 'left');
+            }
         }
 
         if ($q !== '') {
@@ -3434,11 +3457,90 @@ class Payroll_model extends CI_Model
             if ($this->db->table_exists('pos_outlet')) {
                 $db->or_like('o.outlet_name', $q);
             }
-            $db->or_like('d.division_name', $q)
+            $db->or_like('d.division_name', $q);
+            if ($this->db->table_exists('fin_target_plan')) {
+                if ($this->table_has_field('fin_target_plan', 'target_name')) {
+                    $db->or_like('tp.target_name', $q);
+                    if ($this->table_has_field('pay_bonus_rule', 'daily_target_plan_id')) {
+                        $db->or_like('tdp.target_name', $q);
+                    }
+                } elseif ($this->table_has_field('fin_target_plan', 'plan_name')) {
+                    $db->or_like('tp.plan_name', $q);
+                    if ($this->table_has_field('pay_bonus_rule', 'daily_target_plan_id')) {
+                        $db->or_like('tdp.plan_name', $q);
+                    }
+                }
+            }
+            $db->group_end();
+        }
+
+        return $db;
+    }
+
+    private function build_bonus_weight_rule_query(string $q = ''): CI_DB_query_builder
+    {
+        if (!$this->db->table_exists('pay_bonus_weight_rule') || !$this->db->table_exists('pay_bonus_rule')) {
+            return $this->db;
+        }
+
+        $scopeLabelSql = "
+            CASE
+              WHEN w.weight_scope = 'DIVISION' THEN d.division_name
+              WHEN w.weight_scope = 'POSITION' THEN p.position_name
+              WHEN w.weight_scope = 'EMPLOYEE' THEN e.employee_name
+              WHEN w.weight_scope = 'SHIFT' THEN CONCAT(COALESCE(s.shift_code,''), ' - ', COALESCE(s.shift_name,''))
+              ELSE CONCAT('Scope #', w.scope_id)
+            END
+        ";
+
+        $db = $this->db->select("
+                w.*,
+                r.rule_name,
+                r.rule_code,
+                {$scopeLabelSql} AS scope_label
+            ", false)
+            ->from('pay_bonus_weight_rule w')
+            ->join('pay_bonus_rule r', 'r.id = w.rule_id', 'inner')
+            ->join('org_division d', "w.weight_scope = 'DIVISION' AND d.id = w.scope_id", 'left', false)
+            ->join('org_position p', "w.weight_scope = 'POSITION' AND p.id = w.scope_id", 'left', false)
+            ->join('org_employee e', "w.weight_scope = 'EMPLOYEE' AND e.id = w.scope_id", 'left', false)
+            ->join('att_shift s', "w.weight_scope = 'SHIFT' AND s.id = w.scope_id", 'left', false);
+
+        if ($q !== '') {
+            $db->group_start()
+                ->like('r.rule_name', $q)
+                ->or_like('r.rule_code', $q)
+                ->or_like('w.weight_scope', strtoupper($q))
+                ->or_like($scopeLabelSql, $q, 'both', false)
                 ->group_end();
         }
 
         return $db;
+    }
+
+    public function count_bonus_weight_rules(string $q = ''): int
+    {
+        if (!$this->db->table_exists('pay_bonus_weight_rule')) {
+            return 0;
+        }
+
+        $this->build_bonus_weight_rule_query($q);
+        return (int)$this->db->count_all_results();
+    }
+
+    public function list_bonus_weight_rules(string $q = '', int $limit = 25, int $offset = 0): array
+    {
+        if (!$this->db->table_exists('pay_bonus_weight_rule')) {
+            return [];
+        }
+
+        return $this->build_bonus_weight_rule_query($q)
+            ->order_by('w.is_active', 'DESC')
+            ->order_by('w.rule_id', 'ASC')
+            ->order_by('w.weight_scope', 'ASC')
+            ->order_by('w.scope_id', 'ASC')
+            ->limit($limit, $offset)
+            ->get()->result_array();
     }
 
     public function count_bonus_rules(string $q = ''): int
@@ -4155,7 +4257,7 @@ class Payroll_model extends CI_Model
             return [];
         }
 
-        return $this->db->select('tp.id, ' . $this->target_plan_name_expr('tp') . ' AS target_name, tp.status, tp.date_start, tp.date_end', false)
+        return $this->db->select('tp.id, tp.target_scope, ' . $this->target_plan_name_expr('tp') . ' AS target_name, tp.status, tp.date_start, tp.date_end', false)
             ->from('fin_target_plan tp')
             ->where_in('status', ['ACTIVE', 'DRAFT', 'LOCKED'])
             ->order_by('tp.date_end', 'DESC')
@@ -4247,6 +4349,73 @@ class Payroll_model extends CI_Model
             'target_notes' => $notes,
             'target_progress_start' => (string)($progress['date_start'] ?? ''),
             'target_progress_end' => (string)($progress['date_end'] ?? ''),
+        ];
+    }
+
+    private function calculate_bonus_daily_threshold_context(array $rule, string $bonusDate = ''): array
+    {
+        $default = [
+            'target_plan_id' => null,
+            'threshold_amount' => round((float)($rule['threshold_amount'] ?? 0), 2),
+            'target_name' => '',
+            'notes' => 'Ambang omzet harian memakai angka langsung dari rule bonus.',
+        ];
+
+        if (
+            !$this->table_has_field('pay_bonus_rule', 'daily_target_plan_id')
+            || !$this->db->table_exists('fin_target_plan')
+            || !$this->db->table_exists('fin_target_plan_line')
+        ) {
+            return $default;
+        }
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $bonusDate)) {
+            $bonusDate = date('Y-m-d');
+        }
+
+        $planId = (int)($rule['daily_target_plan_id'] ?? 0);
+        if ($planId <= 0) {
+            return $default;
+        }
+
+        $plan = $this->db->select('tp.id, tp.target_scope, tp.status, tp.date_start, tp.date_end, ' . $this->target_plan_name_expr('tp') . ' AS target_name', false)
+            ->from('fin_target_plan tp')
+            ->where('tp.id', $planId)
+            ->limit(1)
+            ->get()->row_array();
+        if (!$plan) {
+            return $default;
+        }
+
+        $default['target_plan_id'] = (int)($plan['id'] ?? 0);
+        $default['target_name'] = (string)($plan['target_name'] ?? '');
+
+        $status = strtoupper((string)($plan['status'] ?? 'DRAFT'));
+        $scope = strtoupper((string)($plan['target_scope'] ?? 'MONTHLY'));
+        $dateStart = (string)($plan['date_start'] ?? '');
+        $dateEnd = (string)($plan['date_end'] ?? '');
+        if ($status !== 'ACTIVE' || $scope !== 'DAILY' || $dateStart === '' || $dateEnd === '' || $bonusDate < $dateStart || $bonusDate > $dateEnd) {
+            $default['notes'] = 'Target harian terhubung belum aktif / belum berlaku, jadi engine fallback ke ambang di rule.';
+            return $default;
+        }
+
+        $line = $this->db->select('metric_code, metric_label, target_value')
+            ->from('fin_target_plan_line')
+            ->where('target_plan_id', $planId)
+            ->where_in('metric_code', ['POS_REVENUE', 'POS_NET_REVENUE', 'NET_REVENUE'])
+            ->order_by("FIELD(metric_code, 'POS_REVENUE', 'POS_NET_REVENUE', 'NET_REVENUE')", '', false)
+            ->limit(1)
+            ->get()->row_array();
+        if (!$line) {
+            $default['notes'] = 'Target harian aktif, tetapi line omzet belum ada, jadi engine fallback ke ambang di rule.';
+            return $default;
+        }
+
+        return [
+            'target_plan_id' => (int)($plan['id'] ?? 0),
+            'threshold_amount' => round((float)($line['target_value'] ?? 0), 2),
+            'target_name' => (string)($plan['target_name'] ?? ''),
+            'notes' => 'Ambang omzet harian diambil dari target aktif: ' . (string)($line['metric_label'] ?? 'Omzet POS') . '.',
         ];
     }
 
@@ -4827,7 +4996,8 @@ class Payroll_model extends CI_Model
         }
 
         $netSalesAmount = round(max(0, $grossSalesAmount - $refundAmount), 2);
-        $thresholdAmount = round((float)($rule['threshold_amount'] ?? 0), 2);
+        $dailyThresholdCtx = $this->calculate_bonus_daily_threshold_context($rule, $bonusDate);
+        $thresholdAmount = round((float)($dailyThresholdCtx['threshold_amount'] ?? 0), 2);
         $basePoolAmount = 0.00;
         if ($thresholdAmount <= 0 || $netSalesAmount >= $thresholdAmount) {
             $formulaType = strtoupper((string)($rule['pool_formula_type'] ?? 'PERCENTAGE'));
@@ -5093,7 +5263,7 @@ class Payroll_model extends CI_Model
             'total_employee_point' => round($totalPointWeight, 4),
             'total_employee_amount' => $payoutAmount,
             'approval_status' => 'DRAFT',
-            'notes' => trim($targetCtx['target_notes'] . ' | Omzet bersih ' . number_format($netSalesAmount, 2, ',', '.') . ' | Service ' . number_format($serviceScorePercent, 2, ',', '.') . '%'),
+            'notes' => trim($targetCtx['target_notes'] . ' | ' . (string)($dailyThresholdCtx['notes'] ?? 'Ambang omzet harian') . ' | Omzet bersih ' . number_format($netSalesAmount, 2, ',', '.') . ' | Service ' . number_format($serviceScorePercent, 2, ',', '.') . '%'),
             'created_by' => $actorUserId > 0 ? $actorUserId : null,
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
@@ -5252,6 +5422,7 @@ class Payroll_model extends CI_Model
         $outletId = (int)($payload['outlet_id'] ?? 0);
         $divisionId = (int)($payload['division_id'] ?? 0);
         $targetPlanId = (int)($payload['linked_target_plan_id'] ?? 0);
+        $dailyTargetPlanId = (int)($payload['daily_target_plan_id'] ?? 0);
         $targetGateMode = strtoupper(trim((string)($payload['target_gate_mode'] ?? 'WEIGHTED_SCORE')));
         $phBonusMode = strtoupper(trim((string)($payload['ph_bonus_mode'] ?? 'EXCLUDE')));
         $notes = trim((string)($payload['notes'] ?? ''));
@@ -5292,6 +5463,9 @@ class Payroll_model extends CI_Model
             'is_active' => !empty($payload['is_active']) ? 1 : 0,
             'notes' => $notes !== '' ? $notes : null,
         ];
+        if ($this->table_has_field('pay_bonus_rule', 'daily_target_plan_id')) {
+            $dbPayload['daily_target_plan_id'] = ($dailyTargetPlanId > 0 && $this->db->table_exists('fin_target_plan')) ? $dailyTargetPlanId : null;
+        }
         if ($this->table_has_field('pay_bonus_rule', 'threshold_amount')) {
             $dbPayload['threshold_amount'] = round((float)($payload['threshold_amount'] ?? 0), 2);
         }
@@ -5336,6 +5510,62 @@ class Payroll_model extends CI_Model
         }
         $this->db->insert('pay_bonus_rule', $dbPayload);
         return ['ok' => true, 'message' => 'Aturan bonus berhasil ditambahkan.', 'id' => (int)$this->db->insert_id()];
+    }
+
+    public function save_bonus_weight_rule(array $payload): array
+    {
+        if (!$this->db->table_exists('pay_bonus_weight_rule') || !$this->db->table_exists('pay_bonus_rule')) {
+            return ['ok' => false, 'message' => 'Tabel bobot bonus belum tersedia. Jalankan SQL foundation bonus dulu.'];
+        }
+
+        $id = (int)($payload['id'] ?? 0);
+        $ruleId = (int)($payload['rule_id'] ?? 0);
+        $weightScope = strtoupper(trim((string)($payload['weight_scope'] ?? '')));
+        $scopeId = (int)($payload['scope_id'] ?? 0);
+        $validScopes = ['DIVISION', 'POSITION', 'EMPLOYEE', 'SHIFT'];
+
+        if ($ruleId <= 0 || !$this->db->where('id', $ruleId)->count_all_results('pay_bonus_rule')) {
+            return ['ok' => false, 'message' => 'Aturan bonus wajib dipilih.'];
+        }
+        if (!in_array($weightScope, $validScopes, true)) {
+            return ['ok' => false, 'message' => 'Jenis bobot bonus belum valid.'];
+        }
+        if ($scopeId <= 0) {
+            return ['ok' => false, 'message' => 'Target bobot bonus wajib dipilih.'];
+        }
+
+        $dbPayload = [
+            'rule_id' => $ruleId,
+            'weight_scope' => $weightScope,
+            'scope_id' => $scopeId,
+            'point_weight' => round((float)($payload['point_weight'] ?? 1), 4),
+            'pool_weight' => round((float)($payload['pool_weight'] ?? 1), 4),
+            'is_active' => !empty($payload['is_active']) ? 1 : 0,
+            'notes' => trim((string)($payload['notes'] ?? '')) ?: null,
+        ];
+
+        $exists = $this->db->from('pay_bonus_weight_rule')
+            ->where('rule_id', $ruleId)
+            ->where('weight_scope', $weightScope)
+            ->where('scope_id', $scopeId);
+        if ($id > 0) {
+            $exists->where('id <>', $id);
+        }
+        if ($exists->count_all_results() > 0) {
+            return ['ok' => false, 'message' => 'Bobot untuk rule dan scope ini sudah ada. Edit yang lama saja supaya tidak dobel.'];
+        }
+
+        if ($id > 0) {
+            $current = $this->db->from('pay_bonus_weight_rule')->where('id', $id)->limit(1)->get()->row_array();
+            if (!$current) {
+                return ['ok' => false, 'message' => 'Bobot bonus yang ingin diubah tidak ditemukan.'];
+            }
+            $this->db->where('id', $id)->update('pay_bonus_weight_rule', $dbPayload);
+            return ['ok' => true, 'message' => 'Bobot bonus berhasil diperbarui.', 'id' => $id];
+        }
+
+        $this->db->insert('pay_bonus_weight_rule', $dbPayload);
+        return ['ok' => true, 'message' => 'Bobot bonus berhasil ditambahkan.', 'id' => (int)$this->db->insert_id()];
     }
 
     public function save_bonus_penalty_type(array $payload): array

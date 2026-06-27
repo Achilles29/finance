@@ -101,6 +101,7 @@ $route['payroll/bonus/approve-pool/(:num)'] = 'payroll/bonus_pool_approve/$1';
 $route['payroll/bonus/generate-service-metric'] = 'payroll/bonus_service_metric_generate';
 $route['payroll/bonus/generate-monthly-summary'] = 'payroll/bonus_monthly_summary_generate';
 $route['payroll/bonus/rule-save'] = 'payroll/bonus_rule_save';
+$route['payroll/bonus/weight-save'] = 'payroll/bonus_weight_save';
 $route['payroll/bonus/penalty-save'] = 'payroll/bonus_penalty_type_save';
 $route['payroll/bonus/penalty-event-save'] = 'payroll/bonus_penalty_event_save';
 $route['payroll/bonus/peer-moderate/(:num)'] = 'payroll/bonus_peer_moderate/$1';

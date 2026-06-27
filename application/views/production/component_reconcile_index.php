@@ -54,9 +54,9 @@ $uniqueCompCount = count($uniqueComps);
 .recon-filter-card { border:1px solid rgba(226,212,200,.88);border-radius:16px;box-shadow:0 4px 14px rgba(58,38,30,.05); }
 .recon-filter-toolbar { display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:.65rem 1rem; }
 .recon-filter-fields { min-width:0; }
-.recon-filter-row { display:flex;flex-wrap:nowrap;align-items:flex-end;gap:.6rem;min-width:0; }
+.recon-filter-row { display:flex;flex-wrap:wrap;align-items:flex-end;gap:.6rem;min-width:0; }
 .recon-filter-item { flex:0 0 auto;min-width:0; }
-.recon-filter-item.search { flex:1 1 180px;max-width:220px; }
+.recon-filter-item.search { flex:1 1 240px;max-width:400px; }
 .recon-filter-item.actions { flex:0 0 auto; }
 .recon-filter-actions-right { display:flex;align-items:flex-end;justify-content:flex-end; }
 .recon-inline-actions { display:flex;flex-wrap:nowrap;align-items:flex-end;gap:.4rem; }
@@ -195,21 +195,21 @@ $uniqueCompCount = count($uniqueComps);
             <input type="text" name="q" id="recon-search" class="form-control form-control-sm" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Kode / nama">
           </div>
           <div class="recon-filter-item">
-            <label class="form-label mb-1" style="font-size:.78rem">Lokasi</label>
-            <select name="location_type" class="form-select form-select-sm" style="min-width:100px">
-              <?php foreach ($locationOptions as $value => $label): ?>
-                <option value="<?php echo html_escape((string)$value); ?>" <?php echo ((string)($filters['location_type'] ?? '') === (string)$value) ? 'selected' : ''; ?>><?php echo html_escape((string)$label); ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="recon-filter-item">
             <label class="form-label mb-1" style="font-size:.78rem">Divisi</label>
             <select name="division_id" class="form-select form-select-sm" style="min-width:100px">
               <option value="0">Semua</option>
               <?php foreach ($divisions as $division): ?>
                 <option value="<?php echo (int)($division['id'] ?? 0); ?>" <?php echo ((int)($filters['division_id'] ?? 0) === (int)($division['id'] ?? 0)) ? 'selected' : ''; ?>>
-                  <?php echo html_escape((string)($division['division_name'] ?? $division['division_code'] ?? ('Divisi #' . (int)($division['id'] ?? 0)))); ?>
+                  <?php echo html_escape((string)($division['name'] ?? $division['code'] ?? ('Divisi #' . (int)($division['id'] ?? 0)))); ?>
                 </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="recon-filter-item">
+            <label class="form-label mb-1" style="font-size:.78rem">Tujuan</label>
+            <select name="location_type" class="form-select form-select-sm" style="min-width:100px">
+              <?php foreach ($locationOptions as $value => $label): ?>
+                <option value="<?php echo html_escape((string)$value); ?>" <?php echo ((string)($filters['location_type'] ?? '') === (string)$value) ? 'selected' : ''; ?>><?php echo html_escape((string)$label); ?></option>
               <?php endforeach; ?>
             </select>
           </div>

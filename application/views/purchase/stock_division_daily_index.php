@@ -358,9 +358,9 @@ $paginationQs = http_build_query($pParams);
 @media (max-width:767px)  { .sdd-filter-grid { grid-template-columns: 1fr 1fr; } .sdd-filter-btn { grid-column: span 2; } }
 
 /* ── KPI ── */
-.sdd-kpi-row { display:grid; grid-template-columns:repeat(6,1fr); gap:.6rem; margin-bottom:1rem; }
-@media (max-width:1199px) { .sdd-kpi-row { grid-template-columns:repeat(3,1fr); } }
-@media (max-width:575px)  { .sdd-kpi-row { grid-template-columns:repeat(2,1fr); } }
+.sdd-kpi-row { display:grid; grid-template-columns:repeat(7,1fr); gap:.6rem; margin-bottom:1rem; }
+@media (max-width:1399px) { .sdd-kpi-row { grid-template-columns:repeat(4,1fr); } }
+@media (max-width:767px)  { .sdd-kpi-row { grid-template-columns:repeat(2,1fr); } }
 .sdd-kpi {
   border-radius:14px; padding:1rem 1.15rem .9rem; color:#fff;
   position:relative; overflow:hidden; box-shadow:0 4px 18px rgba(0,0,0,.13);
@@ -572,6 +572,11 @@ $paginationQs = http_build_query($pParams);
     <div class="sdd-kpi-val"><?php echo number_format($summaryClosing, 1, ',', '.'); ?></div>
     <div class="sdd-kpi-sub"><?php echo number_format($summaryClosingPack, 1, ',', '.'); ?> pack</div>
     <div class="sdd-kpi-lbl">Stok Akhir (Isi)</div>
+  </div>
+  <div class="sdd-kpi" style="background:linear-gradient(135deg,#7c3aed,#a855f7)">
+    <span class="sdd-kpi-icon"><i class="ri ri-money-dollar-circle-line"></i></span>
+    <div class="sdd-kpi-val" style="font-size:1.1rem">Rp <?php echo number_format($summaryValue, 0, ',', '.'); ?></div>
+    <div class="sdd-kpi-lbl">Total Nilai HPP</div>
   </div>
   <div class="sdd-kpi sdd-kpi-6">
     <span class="sdd-kpi-icon"><i class="ri ri-fire-line"></i></span>

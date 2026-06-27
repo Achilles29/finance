@@ -159,32 +159,35 @@ finalkan generate stok gudang, bahan baku. component. pastikan cutoff dan membua
 finalkan generate keuangan
 
 
+masih di component.
+sekarang lakukan untuk bahan baku inv division
+posisi sekarang component banyak missmatch dan drift karena data legacy UI lama.
+di modul generate Opname dan STock awal, pastikan dalam generate stock awal, ada cutoff data sehingga data yang di generate untuk awal bulan merupakan data yang bersih tidak ada missmatch antar stock, log, profile dan lot. semua data menyesuaikan stock
+setelah kamu pastikan aman baru saya tes generate
 
 
-masuk ke bahan baku atau inv divisi
-BOTOL PLASTIK 1 L ada baris minus 1, karena belum pernah PO / SR ke BAR, tapi ada transaksi jadinya minus.
+/inventory-material-daily dan halaman rumpunnya, seharusnya menampilkan data ringkasan yang sama untuk sisa stock dan nilai RP nya, untuk range bulan yang sama. karena itu adalah nilai persediaan perusahaan.
+periksa semua halaman terkait karena masih banyak data yang tidak sama
 
 
-inventory-material-daily:
-BOTOL PLASTIK 1 L adjustmen plus gagal "Adjustment plus membutuhkan unit_cost yang valid."
-kemungkinkan ini terjadi karena BOTOL PLASTIK 1 L belum pernah ada, dan tidak ada hpp nya. sementara inventory-material-daily adjustmen plus "HPP Profile Otomatis". seharusnya hpp profile otomatis tapi tidak kaku. artinya otomatis muncul sesuai line di database, tapi tetap bisa di edit, jadi ketika ada kasus hpp 0 tidak gagal.
-
-/inventory/stock/adjustment/division:
-BOTOL PLASTIK 1 L adjustmen plus gagal "Belum ada line draft untuk disimpan."
-
-/inventory/stock/daily-recon/division:
-BOTOL PLASTIK 1 L adjustmen plus gagal ?Tersimpan tapi gagal posting: Adjustment plus membutuhkan unit_cost yang valid."
-
-/inventory/stock/division/reconcile: 
-Adjustmen PLUS berhasil diposting tapi muncul missmatch (screenshot 1).
-setelah saya adjustment jadi 0 Lot FIFO jadi muncul 1. (/inventory/stock/division/lot?status=OPEN&division_id=&destination=ALL&date_from=2026-06-01&date_to=2026-06-30&q=BOTOL+PLASTIK&per_page=25)
-
-PADAHAL kemarin sudah ada instruksi untuk adjustmen di ke 4 halaman adjustmen:
-- jika minus jadi 0, maka tidak ada penambahan LOT
-- jika minus jad surplus, maka penambahan lot hanya surplus dikurangi 0 nya saja, bukan dikurangi dari minusnya
-
-perbaiki pola ke 4 halaman itu
 
 
-setelah saya void, lalu saya adjustment plus lagi, inv_division_monthly_stock BOTOL PLASTIK 1 L cosing_qty_buy jadi 0, closing_qty_content dan avg_cost_per_content dan total_value jadi 1, padahal seharusnya 0, karena dari -1 +1 harunsya 0.
-tapi di /inventory-material-daily stock akhir tertulis 0, seharusnya stok akhir membaca dari inv_division_monthly_stock. jadi ada 2 masalah yang harus diselesaikan disini
+nilai total bulan ini inv_division_monthly_stock  berapa? 
+closing_qty × avg_cost seharusnya sama dengan total_value , jika pun ada selisih semestinya hanya hitungan 0,0 sekian jadi tidak masalah.
+maka nilai sisa bulan ini di semua halaman seharusnya cukup diambil dari total_value
+sekarang halaman stok divisi masih menampilkan beberapa data yang berbeda.
+
+/ inventory-material-daily ringkasan Nilai Sisa 6.093.488,03
+/inventory/stock/daily-recon/division Nilai Stok Sistem Rp 27.241.907
+/finance/inventory/stock/division Rp 27.241.907 Total Nilai HPP
+/finance/inventory/stock/division/daily 2.893.583,8 Stok Akhir (Isi)
+
+- itu baru 4 halaman ada 3 versi data untuk sisa stok ada stok akhir padahal seharusnya sama
+periksa juga  stok masuk, stok keluar, spoil waste dan lainnya. mestinya juga sama. karena sumber data sama, hanya penyajiannya yang berbeda. perbaiki!
+
+
+
+presensi pegawai yang PH seharusnya mendapatkan gaji penuh pada hari itu.
+periksa bulan ini siapa saja dan tanggal berapa saja pegawai yang jadwal nya PH tapi belum ada gajinya.
+
+lalu lakukan pengecekan logika pada /my/attendance kenapa PH terlewat tidak mendapatkan gaji

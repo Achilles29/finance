@@ -573,6 +573,37 @@ class PosOrderStockService
             return ['ok' => false, 'message' => 'Lokasi/qty komponen tidak valid untuk posting POS.'];
         }
 
+        // Division guard: only commit component usage when the resolved location matches
+        // the component's home division. If recipe lookup returned null (no explicit mapping),
+        // the fallback might have resolved to the wrong division — skip to prevent phantom stock.
+        if ($scope['recipe_division'] === null) {
+            $componentId = (int)($line['component_id'] ?? 0);
+            if ($componentId > 0 && $this->ci->db->table_exists('mst_component')) {
+                $homeRow = $this->ci->db
+                    ->select('c.operational_division_id, d.code AS division_code')
+                    ->from('mst_component c')
+                    ->join('mst_operational_division d', 'd.id = c.operational_division_id', 'left')
+                    ->where('c.id', $componentId)
+                    ->limit(1)->get()->row_array();
+                $homeCode = strtoupper(trim((string)($homeRow['division_code'] ?? '')));
+                $resolvedGroup = strpos($locationType, 'KITCHEN') !== false ? 'KITCHEN'
+                    : (strpos($locationType, 'BAR') !== false ? 'BAR' : '');
+                $homeGroup = in_array($homeCode, ['KITCHEN', 'FOOD'], true) ? 'KITCHEN'
+                    : (in_array($homeCode, ['BAR', 'BEVERAGE'], true) ? 'BAR' : '');
+                if ($homeGroup !== '' && $resolvedGroup !== '' && $homeGroup !== $resolvedGroup) {
+                    return [
+                        'ok' => true,
+                        'movement_ref_type' => 'SKIPPED',
+                        'movement_ref_id' => 0,
+                        'unit_cost_live' => 0.0,
+                        'total_cost_live' => 0.0,
+                        'cost_source' => 'SKIP_DIVISION_MISMATCH',
+                        'notes' => 'Dilewati: komponen #' . $componentId . ' milik divisi ' . $homeGroup . ' tapi resolve ke ' . $resolvedGroup . '. Tidak ada recipe override.',
+                    ];
+                }
+            }
+        }
+
         $lotIssueId = null;
         $lotError = '';
         if (file_exists(APPPATH . 'libraries/ComponentLotManager.php')) {
