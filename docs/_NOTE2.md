@@ -265,3 +265,4 @@ pertama target keuangannya dulu
 - bagaimana cara edit target keuangannya? 
 
 
+untu target daily, seharusnya bisa opsi generate sekali klik untuk range terpilih. jadi tidak perlu generate 1 per 1.
