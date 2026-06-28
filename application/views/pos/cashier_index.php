@@ -2810,21 +2810,44 @@ document.addEventListener('DOMContentLoaded', function () {
     orderReprintPrinterSelect.value = hasCurrent ? currentValue : '';
   }
 
+  function selectedOrderReprintPrinterMeta() {
+    if (!orderReprintPrinterSelect) {
+      return null;
+    }
+    const printerId = Number(orderReprintPrinterSelect.value || 0);
+    if (printerId <= 0) {
+      return null;
+    }
+    return orderReprintPrinters.find((printer) => Number(printer.id || 0) === printerId) || null;
+  }
+
   function refreshOrderReprintModalState() {
+    const selectedPrinter = selectedOrderReprintPrinterMeta();
+    const isCashierBillPrinter = !!selectedPrinter && String(selectedPrinter.printer_role || '').toUpperCase() === 'KASIR';
     if (orderReprintMeta) {
       if (order.id) {
         const orderLabel = order.order_no || `Order #${Number(order.id || 0)}`;
         const customerLabel = String(order.customer_name || order.member_name || 'Walk in').trim() || 'Walk in';
         const statusLabel = String(order.status || 'DRAFT').toUpperCase();
-        orderReprintMeta.textContent = `${orderLabel} • ${customerLabel} • ${statusLabel}`;
+        orderReprintMeta.textContent = `${orderLabel} • ${customerLabel} • ${statusLabel}${isCashierBillPrinter ? ' • BILL KASIR' : ''}`;
       } else {
         orderReprintMeta.textContent = 'Pilih satu order aktif dulu dari panel kiri.';
       }
     }
+    if (orderReprintScopeSelect) {
+      if (isCashierBillPrinter) {
+        orderReprintScopeSelect.value = 'ALL';
+        orderReprintScopeSelect.disabled = true;
+      } else {
+        orderReprintScopeSelect.disabled = false;
+      }
+    }
     if (orderReprintHint) {
-      orderReprintHint.textContent = String(order.status || '').toUpperCase() === 'DRAFT'
+      orderReprintHint.textContent = isCashierBillPrinter
+        ? 'Printer kasir akan mencetak bill sementara seluruh order yang belum terbayar. Mode item terbaru tidak dipakai untuk bill kasir.'
+        : (String(order.status || '').toUpperCase() === 'DRAFT'
         ? 'Mode "Pesanan baru saja" hanya bisa dipakai jika order ini sudah pernah confirm dan punya snapshot item terbaru.'
-        : 'Mode "Pesanan baru saja" akan mengambil snapshot item paling akhir. Gunakan "Semua pesanan" untuk mengirim ulang seluruh line order.';
+        : 'Mode "Pesanan baru saja" akan mengambil snapshot item paling akhir. Gunakan "Semua pesanan" untuk mengirim ulang seluruh line order.');
     }
   }
 
@@ -3534,10 +3557,127 @@ document.addEventListener('DOMContentLoaded', function () {
       const extraTotal = (Array.isArray(line.extras) ? line.extras : []).reduce((carry, extra) => carry + (Number(extra.qty || 0) * Number(extra.unit_price || 0)), 0);
       return sum + (Number(line.qty || 0) * Number(line.unit_price || 0)) + extraTotal;
     }, 0);
+    const cartEntries = buildCartEntries();
     document.getElementById('cashier_grand_total').textContent = money(total);
-    document.getElementById('cashier_summary_info').textContent = order.lines.length
-      ? `${order.lines.length} baris item | Guest ${order.guest_count || 1} | DP diproses saat payment`
+    document.getElementById('cashier_summary_info').textContent = cartEntries.length
+      ? `${cartEntries.length} item keranjang | ${order.lines.length} line simpan | Guest ${order.guest_count || 1} | DP diproses saat payment`
       : 'Belum ada baris item';
+  }
+
+  function normalizeBundleComponentQty(line) {
+    const baseQty = Number(line && line.bundle_component_qty ? line.bundle_component_qty : 0);
+    if (baseQty > 0) {
+      return baseQty;
+    }
+    const currentQty = Number(line && line.qty ? line.qty : 0);
+    return currentQty > 0 ? currentQty : 1;
+  }
+
+  function buildBundleEntry(lines, indexes, groupKey) {
+    const first = lines[0] || {};
+    const componentCount = lines.length;
+    const bundleQty = lines.reduce((minQty, line) => {
+      const componentQty = normalizeBundleComponentQty(line);
+      const ratio = componentQty > 0 ? (Number(line.qty || 0) / componentQty) : 1;
+      const normalizedRatio = ratio > 0 ? ratio : 1;
+      return minQty === null ? normalizedRatio : Math.min(minQty, normalizedRatio);
+    }, null);
+    const extras = [];
+    let productTotal = 0;
+    let extraTotal = 0;
+    let availabilityStatus = 'AVAILABLE';
+    let lockedExistingLine = false;
+    const notes = [];
+    const components = lines.map((line) => {
+      const componentQty = normalizeBundleComponentQty(line);
+      const productAmount = Number(line.qty || 0) * Number(line.unit_price || 0);
+      const lineExtras = Array.isArray(line.extras) ? line.extras : [];
+      const lineExtraTotal = lineExtras.reduce((carry, extra) => carry + (Number(extra.qty || 0) * Number(extra.unit_price || 0)), 0);
+      productTotal += productAmount;
+      extraTotal += lineExtraTotal;
+      lineExtras.forEach((extra) => {
+        extras.push(Object.assign({}, extra, {
+          product_name: line.product_name || '',
+        }));
+      });
+      if (String(line.availability_status || '').toUpperCase() === 'OUT') {
+        availabilityStatus = 'OUT';
+      } else if (availabilityStatus !== 'OUT' && String(line.availability_status || '').toUpperCase() !== 'AVAILABLE') {
+        availabilityStatus = 'CHECK';
+      }
+      if (isLockedExistingLine(line)) {
+        lockedExistingLine = true;
+      }
+      const lineNote = String(line.notes || '').trim();
+      if (lineNote !== '') {
+        notes.push(lineNote);
+      }
+      return {
+        product_code: line.product_code || '',
+        product_name: line.product_name || '',
+        component_qty: componentQty,
+        line_qty: Number(line.qty || 0),
+        unit_price: Number(line.unit_price || 0),
+      };
+    });
+    return {
+      kind: 'bundle',
+      group_key: groupKey,
+      line_indexes: indexes,
+      lines,
+      bundle_id: Number(first.bundle_id || 0) || null,
+      bundle_name: first.bundle_name || 'Bundle',
+      product_code: first.bundle_code || first.product_code || '',
+      qty: Math.max(1, Math.round(Number(bundleQty || 1))),
+      unit_price: Number(productTotal || 0) / Math.max(1, Number(bundleQty || 1)),
+      product_total: productTotal,
+      extra_total: extraTotal,
+      subtotal: productTotal + extraTotal,
+      extras,
+      availability_status: availabilityStatus,
+      locked: lockedExistingLine,
+      notes: notes.length ? notes[0] : '',
+      component_count: componentCount,
+      components,
+    };
+  }
+
+  function buildCartEntries() {
+    const entries = [];
+    const bundleGroups = {};
+    order.lines.forEach((line, idx) => {
+      const bundleId = Number(line.bundle_id || 0);
+      if (bundleId > 0) {
+        const rawKey = String(line.bundle_key || '').trim();
+        const groupKey = rawKey !== '' ? rawKey : `bundle-saved-${bundleId}`;
+        if (!bundleGroups[groupKey]) {
+          bundleGroups[groupKey] = {
+            lines: [],
+            indexes: [],
+          };
+          entries.push({
+            kind: 'bundle-group-ref',
+            group_key: groupKey,
+          });
+        }
+        bundleGroups[groupKey].lines.push(line);
+        bundleGroups[groupKey].indexes.push(idx);
+        return;
+      }
+      entries.push({
+        kind: 'line',
+        group_key: `line-${idx}`,
+        line_indexes: [idx],
+        line,
+      });
+    });
+    return entries.map((entry) => {
+      if (entry.kind !== 'bundle-group-ref') {
+        return entry;
+      }
+      const group = bundleGroups[entry.group_key] || { lines: [], indexes: [] };
+      return buildBundleEntry(group.lines, group.indexes, entry.group_key);
+    });
   }
 
   function renderCart() {
@@ -3549,29 +3689,51 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
     cartEmpty.classList.add('d-none');
-    cartList.innerHTML = order.lines.map((line, idx) => {
-      const lockedExistingLine = isLockedExistingLine(line);
-      const bundleChip = line.bundle_id ? `<span class="cashier-chip bundle mt-2"><i class="ri-gift-2-line"></i>${escapeHtml(line.bundle_name || 'Bundle')}</span>` : '';
+    const cartEntries = buildCartEntries();
+    cartList.innerHTML = cartEntries.map((entry, entryIndex) => {
+      const isBundle = entry.kind === 'bundle';
+      const line = isBundle ? null : entry.line;
+      const lockedExistingLine = !!entry.locked || isLockedExistingLine(line);
+      const bundleChip = isBundle
+        ? `<span class="cashier-chip bundle mt-2"><i class="ri-gift-2-line"></i>${escapeHtml(entry.bundle_name || 'Bundle')}</span>`
+        : (line && line.bundle_id ? `<span class="cashier-chip bundle mt-2"><i class="ri-gift-2-line"></i>${escapeHtml(line.bundle_name || 'Bundle')}</span>` : '');
       const lineStateChip = lockedExistingLine
         ? '<span class="cashier-chip info mt-2">Item tersimpan</span>'
         : (isConfirmedOrder() ? '<span class="cashier-chip ok mt-2">Item baru</span>' : '');
-      const extras = Array.isArray(line.extras) ? line.extras : [];
-      const productTotal = Number(line.qty || 0) * Number(line.unit_price || 0);
-      const extraTotal = extras.reduce((carry, extra) => carry + (Number(extra.qty || 0) * Number(extra.unit_price || 0)), 0);
-      const lineSubtotal = productTotal + extraTotal;
+      const extras = isBundle ? (Array.isArray(entry.extras) ? entry.extras : []) : (Array.isArray(line.extras) ? line.extras : []);
+      const productTotal = isBundle ? Number(entry.product_total || 0) : (Number(line.qty || 0) * Number(line.unit_price || 0));
+      const extraTotal = isBundle
+        ? Number(entry.extra_total || 0)
+        : extras.reduce((carry, extra) => carry + (Number(extra.qty || 0) * Number(extra.unit_price || 0)), 0);
+      const lineSubtotal = isBundle ? Number(entry.subtotal || 0) : (productTotal + extraTotal);
       const extraSummary = extras.length
-        ? `<div class="cashier-cart-extras">${extras.map((extra) => `<span class="cashier-extra-pill">${escapeHtml(extra.extra_name || '-')} x${number(extra.qty || 0, 0)}${Number(extra.unit_price || 0) > 0 ? ' • ' + money((Number(extra.qty || 0) * Number(extra.unit_price || 0))) : ''}</span>`).join('')}</div>`
+        ? `<div class="cashier-cart-extras">${extras.map((extra) => {
+            const extraPrefix = extra.product_name ? `${escapeHtml(extra.product_name)}: ` : '';
+            return `<span class="cashier-extra-pill">${extraPrefix}${escapeHtml(extra.extra_name || '-')} x${number(extra.qty || 0, 0)}${Number(extra.unit_price || 0) > 0 ? ' • ' + money((Number(extra.qty || 0) * Number(extra.unit_price || 0))) : ''}</span>`;
+          }).join('')}</div>`
+        : '';
+      const bundleComponents = isBundle
+        ? `<div class="cashier-cart-extras">${(entry.components || []).map((component) => `<span class="cashier-extra-pill">${escapeHtml(component.product_name || '-')} x${number(component.component_qty || 0, 0)}</span>`).join('')}</div>`
         : '';
       const extraCountChip = `<span class="cashier-cart-extra-count">Extra ${extras.length}</span>`;
       const removeButton = lockedExistingLine
         ? '<span class="cashier-chip warn">Void untuk ubah/hapus</span>'
-        : `<button type="button" class="btn btn-sm btn-outline-danger cashier-remove-line" data-index="${idx}">Hapus</button>`;
+        : `<button type="button" class="btn btn-sm btn-outline-danger cashier-remove-line" data-entry-index="${entryIndex}">Hapus</button>`;
+      const displayTitle = isBundle ? (entry.bundle_name || 'Bundle') : (line.product_name || '-');
+      const displaySub = isBundle
+        ? `${entry.component_count || 0} produk`
+        : (line.product_code || '-');
+      const qtyValue = isBundle ? Number(entry.qty || 1) : Number(line.qty || 1);
+      const noteValue = isBundle ? (entry.notes || '') : (line.notes || '');
+      const aturButton = isBundle
+        ? ''
+        : `<button type="button" class="btn btn-sm btn-outline-warning cashier-edit-extra" data-index="${entry.line_indexes[0]}" ${lockedExistingLine ? 'disabled title="Item lama tidak bisa diubah dari kasir"' : ''}>Atur</button>`;
       return `
         <div class="cashier-cart-item${lockedExistingLine ? ' is-locked' : ''}">
           <div class="cashier-cart-item-head">
             <div>
-              <div class="cashier-cart-item-title">${escapeHtml(line.product_name || '-')}</div>
-              <div class="cashier-cart-item-sub">${escapeHtml(line.product_code || '-')}</div>
+              <div class="cashier-cart-item-title">${escapeHtml(displayTitle)}</div>
+              <div class="cashier-cart-item-sub">${escapeHtml(displaySub)}</div>
               ${bundleChip}
               ${lineStateChip}
             </div>
@@ -3581,16 +3743,17 @@ document.addEventListener('DOMContentLoaded', function () {
             <div>
               <label class="form-label small text-muted mb-1">Qty</label>
               <div class="cashier-qty-stepper">
-                <button type="button" class="cashier-line-qty-minus" data-index="${idx}" ${lockedExistingLine ? 'disabled' : ''}>-</button>
-                <input type="number" min="1" step="1" class="cashier-line-qty" data-index="${idx}" value="${Number(line.qty || 1)}" ${lockedExistingLine ? 'readonly disabled' : ''}>
-                <button type="button" class="cashier-line-qty-plus" data-index="${idx}" ${lockedExistingLine ? 'disabled' : ''}>+</button>
+                <button type="button" class="cashier-line-qty-minus" data-entry-index="${entryIndex}" ${lockedExistingLine ? 'disabled' : ''}>-</button>
+                <input type="number" min="1" step="1" class="cashier-line-qty" data-entry-index="${entryIndex}" value="${qtyValue}" ${lockedExistingLine ? 'readonly disabled' : ''}>
+                <button type="button" class="cashier-line-qty-plus" data-entry-index="${entryIndex}" ${lockedExistingLine ? 'disabled' : ''}>+</button>
               </div>
             </div>
             <div>
               <label class="form-label small text-muted mb-1">Catatan</label>
-              <input type="text" class="form-control form-control-sm cashier-line-note cashier-inline-note" data-index="${idx}" value="${escapeHtml(line.notes || '')}" placeholder="Catatan line" ${lockedExistingLine ? 'readonly' : ''}>
+              <input type="text" class="form-control form-control-sm cashier-line-note cashier-inline-note" data-entry-index="${entryIndex}" value="${escapeHtml(noteValue)}" placeholder="Catatan line" ${lockedExistingLine ? 'readonly' : ''}>
             </div>
           </div>
+          ${bundleComponents}
           ${extraSummary}
           <div class="cashier-cart-price-breakdown">
             <div class="cashier-cart-price-metric">
@@ -3609,8 +3772,8 @@ document.addEventListener('DOMContentLoaded', function () {
           <div class="cashier-cart-line-bottom">
             <div class="cashier-cart-line-left">
               ${extraCountChip}
-              ${availabilityChip(line.availability_status)}
-              <button type="button" class="btn btn-sm btn-outline-warning cashier-edit-extra" data-index="${idx}" ${lockedExistingLine ? 'disabled title="Item lama tidak bisa diubah dari kasir"' : ''}>Atur</button>
+              ${availabilityChip(isBundle ? entry.availability_status : line.availability_status)}
+              ${aturButton}
             </div>
             <div class="fw-bold">${money(lineSubtotal)}</div>
           </div>
@@ -3618,51 +3781,72 @@ document.addEventListener('DOMContentLoaded', function () {
       `;
     }).join('');
 
-    function syncLineQty(idx, nextQty) {
-      if (!canEditCartLine(order.lines[idx])) {
+    function syncEntryQty(entryIndex, nextQty) {
+      const entry = cartEntries[entryIndex];
+      if (!entry) return;
+      if (entry.kind === 'bundle') {
+        const bundleQty = Math.max(1, Number(nextQty || 1));
+        entry.line_indexes.forEach((lineIndex) => {
+          const targetLine = order.lines[lineIndex];
+          if (!targetLine || !canEditCartLine(targetLine)) {
+            return;
+          }
+          const componentQty = normalizeBundleComponentQty(targetLine);
+          targetLine.qty = Math.max(componentQty, componentQty * bundleQty);
+          (Array.isArray(targetLine.extras) ? targetLine.extras : []).forEach((extra) => {
+            extra.qty = Math.max(1, Number(targetLine.qty || 1));
+          });
+        });
+        renderCart();
         return;
       }
-      order.lines[idx].qty = Math.max(1, Number(nextQty || 1));
-      (Array.isArray(order.lines[idx].extras) ? order.lines[idx].extras : []).forEach((extra) => {
-        extra.qty = Math.max(1, Number(order.lines[idx].qty || 1));
+      const lineIndex = Number(entry.line_indexes[0] || 0);
+      if (!canEditCartLine(order.lines[lineIndex])) {
+        return;
+      }
+      order.lines[lineIndex].qty = Math.max(1, Number(nextQty || 1));
+      (Array.isArray(order.lines[lineIndex].extras) ? order.lines[lineIndex].extras : []).forEach((extra) => {
+        extra.qty = Math.max(1, Number(order.lines[lineIndex].qty || 1));
       });
       renderCart();
     }
     cartList.querySelectorAll('.cashier-line-qty').forEach((el) => el.addEventListener('input', () => {
-      const idx = Number(el.dataset.index || 0);
-      syncLineQty(idx, el.value || 1);
+      const entryIndex = Number(el.dataset.entryIndex || 0);
+      syncEntryQty(entryIndex, el.value || 1);
     }));
     cartList.querySelectorAll('.cashier-line-qty-minus').forEach((el) => el.addEventListener('click', () => {
-      const idx = Number(el.dataset.index || 0);
-      syncLineQty(idx, Math.max(1, Number(order.lines[idx].qty || 1) - 1));
+      const entryIndex = Number(el.dataset.entryIndex || 0);
+      const entry = cartEntries[entryIndex];
+      const currentQty = entry ? Number(entry.qty || (entry.line ? entry.line.qty : 1) || 1) : 1;
+      syncEntryQty(entryIndex, Math.max(1, currentQty - 1));
     }));
     cartList.querySelectorAll('.cashier-line-qty-plus').forEach((el) => el.addEventListener('click', () => {
-      const idx = Number(el.dataset.index || 0);
-      syncLineQty(idx, Math.max(1, Number(order.lines[idx].qty || 1) + 1));
+      const entryIndex = Number(el.dataset.entryIndex || 0);
+      const entry = cartEntries[entryIndex];
+      const currentQty = entry ? Number(entry.qty || (entry.line ? entry.line.qty : 1) || 1) : 1;
+      syncEntryQty(entryIndex, Math.max(1, currentQty + 1));
     }));
     cartList.querySelectorAll('.cashier-line-note').forEach((el) => el.addEventListener('input', () => {
-      const idx = Number(el.dataset.index || 0);
-      if (!canEditCartLine(order.lines[idx])) {
-        return;
-      }
-      order.lines[idx].notes = el.value || '';
+      const entryIndex = Number(el.dataset.entryIndex || 0);
+      const entry = cartEntries[entryIndex];
+      if (!entry) return;
+      const noteValue = el.value || '';
+      entry.line_indexes.forEach((lineIndex) => {
+        if (!canEditCartLine(order.lines[lineIndex])) {
+          return;
+        }
+        order.lines[lineIndex].notes = noteValue;
+      });
     }));
     cartList.querySelectorAll('.cashier-remove-line').forEach((el) => el.addEventListener('click', () => {
-      const idx = Number(el.dataset.index || 0);
-      const line = order.lines[idx];
-      if (!canEditCartLine(line)) {
+      const entryIndex = Number(el.dataset.entryIndex || 0);
+      const entry = cartEntries[entryIndex];
+      if (!entry) return;
+      const removableIndexes = entry.line_indexes.filter((lineIndex) => canEditCartLine(order.lines[lineIndex]));
+      if (!removableIndexes.length) {
         return;
       }
-      if (line && line.bundle_id) {
-        const bundleKey = String(line.bundle_key || '').trim();
-        if (bundleKey !== '') {
-          order.lines = order.lines.filter((row) => String(row.bundle_key || '').trim() !== bundleKey);
-        } else {
-          order.lines = order.lines.filter((row) => Number(row.bundle_id || 0) !== Number(line.bundle_id || 0) || !canEditCartLine(row));
-        }
-      } else {
-        order.lines.splice(idx, 1);
-      }
+      order.lines = order.lines.filter((row, rowIndex) => removableIndexes.indexOf(rowIndex) === -1);
       renderCart();
     }));
     cartList.querySelectorAll('.cashier-edit-extra').forEach((el) => el.addEventListener('click', () => {
@@ -3759,6 +3943,8 @@ document.addEventListener('DOMContentLoaded', function () {
       bundle_id: line.bundle_id ? Number(line.bundle_id) : null,
       bundle_key: line.bundle_key || '',
       bundle_name: line.bundle_name || '',
+      bundle_code: line.bundle_code || '',
+      bundle_component_qty: normalizeBundleComponentQty(line),
       product_code: line.product_code || '',
       product_name: line.product_name || '',
       product_division_name: line.product_division_name || '-',
@@ -3786,6 +3972,8 @@ document.addEventListener('DOMContentLoaded', function () {
       bundle_id: null,
       bundle_key: '',
       bundle_name: '',
+      bundle_code: '',
+      bundle_component_qty: null,
       product_code: row.product_code || '',
       product_name: row.product_name || '',
       product_division_name: row.product_division_name || '-',
@@ -3973,6 +4161,8 @@ document.addEventListener('DOMContentLoaded', function () {
           bundle_id: bundleId,
           bundle_key: bundleKey,
           bundle_name: bundle.bundle_name || '',
+          bundle_code: bundle.bundle_code || '',
+          bundle_component_qty: Number(item.qty || 0) > 0 ? Number(item.qty || 0) : 1,
           product_code: item.product_code || '',
           product_name: item.product_name || '',
           product_division_name: item.product_division_name || '-',
@@ -4079,8 +4269,10 @@ document.addEventListener('DOMContentLoaded', function () {
       id: Number(line.id || 0) || null,
       product_id: Number(line.product_id || 0),
       bundle_id: Number(line.bundle_id || 0) || null,
-      bundle_key: Number(line.bundle_id || 0) > 0 ? `saved-${Number(line.id || 0)}` : '',
+      bundle_key: Number(line.bundle_id || 0) > 0 ? `saved-bundle-${Number(line.bundle_id || 0)}` : '',
       bundle_name: line.bundle_name || '',
+      bundle_code: line.bundle_code || '',
+      bundle_component_qty: Number(line.bundle_component_qty || 0) > 0 ? Number(line.bundle_component_qty || 0) : null,
       product_code: line.product_code || '',
       product_name: line.product_name || '',
       product_division_name: line.product_division_name || '-',
@@ -4259,9 +4451,13 @@ document.addEventListener('DOMContentLoaded', function () {
           : 'Tidak ada printer aktif yang cocok untuk order ini.');
       }
       const printResult = await directPrintTargets(targets);
-      const successLabel = lineScope === 'LATEST'
+      const selectedPrinter = selectedOrderReprintPrinterMeta();
+      const isCashierBillPrinter = !!selectedPrinter && String(selectedPrinter.printer_role || '').toUpperCase() === 'KASIR';
+      const successLabel = isCashierBillPrinter
+        ? 'Bill sementara berhasil dikirim ke printer kasir.'
+        : (lineScope === 'LATEST'
         ? 'Item terbaru berhasil dikirim ulang ke printer.'
-        : 'Order berhasil dikirim ulang ke printer.';
+        : 'Order berhasil dikirim ulang ke printer.');
       showToast(successLabel, 'success', 'Cetak Ulang', 2800);
       showPrintFailureModal('Cetak Ulang Order', printResult.failed || []);
       if (orderReprintModal) {
@@ -4990,6 +5186,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (orderReprintButton) orderReprintButton.addEventListener('click', () => {
     try { openOrderReprintModal(); } catch (e) { alert(e.message); }
   });
+  if (orderReprintPrinterSelect) orderReprintPrinterSelect.addEventListener('change', refreshOrderReprintModalState);
   if (orderReprintSubmitButton) orderReprintSubmitButton.addEventListener('click', async () => {
     try { await submitOrderReprint(); } catch (e) { alert(e.message); }
   });

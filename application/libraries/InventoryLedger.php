@@ -340,6 +340,23 @@ class InventoryLedger
                 ->where('destination_type', $destinationType);
         }
         $existing = $qb->limit(1)->get()->row_array();
+        if (!$existing) {
+            $existing = $this->findLegacyMonthlyStockRow($table, $scope, [
+                'month_key' => $monthKey,
+                'division_id' => $divisionId,
+                'destination_type' => $destinationType,
+                'item_id' => $itemId,
+                'material_id' => $materialId,
+                'buy_uom_id' => $buyUomId,
+                'content_uom_id' => $contentUomId,
+                'profile_key' => $profileKey,
+                'profile_name' => $profileName,
+                'profile_brand' => $profileBrand,
+                'profile_description' => $profileDescription,
+                'profile_expired_date' => $profileExpiredDate,
+                'profile_content_per_buy' => $profileContentPerBuy,
+            ]);
+        }
 
         $oldQtyBuy = round((float)($existing['closing_qty_buy'] ?? 0), 4);
         $oldQtyContent = round((float)($existing['closing_qty_content'] ?? 0), 4);
@@ -488,6 +505,80 @@ class InventoryLedger
             'unit_cost' => $unitCost,
             'identity_key' => $identityKey,
         ];
+    }
+
+    private function findLegacyMonthlyStockRow(string $table, string $scope, array $identity): ?array
+    {
+        $monthKey = $this->normalizeDate((string)($identity['month_key'] ?? ''));
+        $contentUomId = $this->nullableInt($identity['content_uom_id'] ?? null);
+        if ($monthKey === null || $contentUomId === null) {
+            return null;
+        }
+
+        $qb = $this->ci->db
+            ->from($table)
+            ->where('month_key', $monthKey)
+            ->where('content_uom_id', $contentUomId);
+
+        if ($scope === 'DIVISION') {
+            $divisionId = $this->nullableInt($identity['division_id'] ?? null);
+            if ($divisionId === null) {
+                return null;
+            }
+            $qb->where('division_id', $divisionId)
+                ->where('destination_type', (string)($identity['destination_type'] ?? 'OTHER'));
+        }
+
+        $itemId = $this->nullableInt($identity['item_id'] ?? null);
+        $materialId = $this->nullableInt($identity['material_id'] ?? null);
+        $buyUomId = $this->nullableInt($identity['buy_uom_id'] ?? null);
+        $profileKey = $this->nullableString($identity['profile_key'] ?? null);
+        $profileName = $this->nullableString($identity['profile_name'] ?? null);
+        $profileBrand = $this->nullableString($identity['profile_brand'] ?? null);
+        $profileDescription = $this->nullableString($identity['profile_description'] ?? null);
+        $profileExpiredDate = $this->normalizeDate((string)($identity['profile_expired_date'] ?? ''));
+        $profileContentPerBuy = round((float)($identity['profile_content_per_buy'] ?? 0), 6);
+
+        if ($itemId !== null) {
+            $qb->where('item_id', $itemId);
+        } else {
+            $qb->where('item_id IS NULL', null, false);
+        }
+        if ($materialId !== null) {
+            $qb->where('material_id', $materialId);
+        } else {
+            $qb->where('material_id IS NULL', null, false);
+        }
+        if ($buyUomId !== null) {
+            $qb->where('buy_uom_id', $buyUomId);
+        }
+
+        if ($profileKey !== null) {
+            $qb->where('profile_key', $profileKey);
+        } else {
+            $qb->where('profile_key IS NULL', null, false);
+            if ($profileName !== null) {
+                $qb->where('COALESCE(profile_name, \'\') = ' . $this->ci->db->escape($profileName), null, false);
+            }
+            if ($profileBrand !== null) {
+                $qb->where('COALESCE(profile_brand, \'\') = ' . $this->ci->db->escape($profileBrand), null, false);
+            }
+            if ($profileDescription !== null) {
+                $qb->where('COALESCE(profile_description, \'\') = ' . $this->ci->db->escape($profileDescription), null, false);
+            }
+            if ($profileExpiredDate !== null) {
+                $qb->where('profile_expired_date', $profileExpiredDate);
+            }
+            if ($profileContentPerBuy > 0) {
+                $qb->where('ROUND(COALESCE(profile_content_per_buy, 0), 6) = ' . $this->ci->db->escape($profileContentPerBuy), null, false);
+            }
+        }
+
+        return $qb
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->get()
+            ->row_array() ?: null;
     }
 
     private function buildInventoryMonthlyIdentityKey(array $payload): string

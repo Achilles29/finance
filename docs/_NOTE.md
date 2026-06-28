@@ -159,3 +159,8 @@ finalkan generate stok gudang, bahan baku. component. pastikan cutoff dan membua
 finalkan generate keuangan
 
 /dashboard Stok Produk Live POS tambahkan kolom jenis sumber (bahan baku / base / prepare)
+
+
+masuk /pos/cashier Produk bundle merupakan satu kesatuan, jadi ketika di kolom keranjang tampilannya jadi 1 bukan terpisah masing masing keranjang. kalau ada penambahan dan pengurangan juga langsung semua produk dalam bundle nya bukan masing masing. perbaiku
+
+/pos/cashier cetak ulang order dipilih tambahkan printer kasir, untuk mencetak bill yang belum terbayar .

@@ -11,6 +11,33 @@ class ComponentStockWriter
         $this->ci =& get_instance();
     }
 
+    private function resolve_inventory_destination_type_for_division(string $fallbackLocationType, ?int $divisionId): ?string
+    {
+        $fallbackLocationType = strtoupper(trim($fallbackLocationType));
+        if ($divisionId === null || $divisionId <= 0) {
+            return $this->resolve_inventory_destination_type($fallbackLocationType);
+        }
+
+        $division = $this->ci->db
+            ->select('code, name')
+            ->from('mst_operational_division')
+            ->where('id', (int)$divisionId)
+            ->limit(1)
+            ->get()
+            ->row_array() ?: [];
+
+        $divisionCode = strtoupper(trim((string)($division['code'] ?? $division['name'] ?? '')));
+        $isEvent = in_array($fallbackLocationType, ['BAR_EVENT', 'KITCHEN_EVENT'], true);
+        if ($divisionCode === 'BAR') {
+            return $isEvent ? 'BAR_EVENT' : 'BAR';
+        }
+        if ($divisionCode === 'KITCHEN') {
+            return $isEvent ? 'KITCHEN_EVENT' : 'KITCHEN';
+        }
+
+        return $this->resolve_inventory_destination_type($fallbackLocationType);
+    }
+
     public function post_opening(array $header, array $lines, int $actorEmployeeId = 0): array
     {
         $this->ci->load->library('ComponentLotManager');
@@ -384,7 +411,7 @@ class ComponentStockWriter
                 }
                 if ($sourceKind === 'MATERIAL') {
                     $lineDivisionId = !empty($line['division_id']) ? (int)$line['division_id'] : (int)$divisionId;
-                    $lineDestType = $this->resolve_inventory_destination_type($locationType) ?? (string)$destinationType;
+                    $lineDestType = $this->resolve_inventory_destination_type_for_division($locationType, $lineDivisionId) ?? (string)$destinationType;
                     $materialUsage = $this->post_material_input_usage($header, $line, $movementDate, $locationType, $lineDivisionId, $lineDestType, $actorEmployeeId);
                     if (!($materialUsage['ok'] ?? false)) {
                         throw new RuntimeException((string)($materialUsage['message'] ?? 'Posting material usage gagal.'));
@@ -967,7 +994,7 @@ class ComponentStockWriter
         $affectedMaterialIds = [];
 
         foreach ($allocations as $allocation) {
-            $snapshot = $this->resolve_inventory_snapshot_for_allocation($allocation, $divisionId, $destinationType);
+            $snapshot = $this->resolve_inventory_snapshot_for_allocation($allocation, $divisionId, $destinationType, $movementDate);
             $contentPerBuy = max(0.000001, round((float)($snapshot['profile_content_per_buy'] ?? 1), 6));
             $qtyContent = round((float)($allocation['qty_content'] ?? 0), 4);
             $qtyBuy = round($qtyContent / $contentPerBuy, 4);
@@ -1217,7 +1244,7 @@ class ComponentStockWriter
         ]);
     }
 
-    private function resolve_inventory_snapshot_for_allocation(array $allocation, int $divisionId, string $destinationType): array
+    private function resolve_inventory_snapshot_for_allocation(array $allocation, int $divisionId, string $destinationType, string $movementDate): array
     {
         $sourceLot = (array)($allocation['source_lot'] ?? []);
         $snapshot = [
@@ -1254,6 +1281,42 @@ class ComponentStockWriter
                     'DIVISION',
                     $divisionId,
                     $destinationType,
+                    $snapshot['item_id'],
+                    $snapshot['material_id'],
+                    $snapshot['buy_uom_id'],
+                    (int)$snapshot['content_uom_id'],
+                    $snapshot['profile_key'],
+                ]
+            )->row_array();
+            if ($row) {
+                $snapshot = array_merge($snapshot, $row);
+            }
+        }
+
+        $needsProfileHydration =
+            empty($snapshot['profile_name'])
+            || empty($snapshot['buy_uom_id'])
+            || empty($snapshot['content_uom_id'])
+            || round((float)($snapshot['profile_content_per_buy'] ?? 0), 6) <= 0.000001;
+        if ($needsProfileHydration && $this->ci->db->table_exists('inv_division_monthly_stock')) {
+            $targetMonth = date('Y-m-01', strtotime($movementDate));
+            $row = $this->ci->db->query(
+                'SELECT item_id, material_id, buy_uom_id, content_uom_id, profile_key, profile_name, profile_brand, profile_description, profile_expired_date, profile_content_per_buy, profile_buy_uom_code, profile_content_uom_code
+                 FROM inv_division_monthly_stock
+                 WHERE division_id = ?
+                   AND destination_type = ?
+                   AND month_key <= ?
+                   AND item_id <=> ?
+                   AND material_id <=> ?
+                   AND buy_uom_id <=> ?
+                   AND content_uom_id = ?
+                   AND profile_key <=> ?
+                 ORDER BY month_key DESC, updated_at DESC, id DESC
+                 LIMIT 1',
+                [
+                    $divisionId,
+                    $destinationType,
+                    $targetMonth,
                     $snapshot['item_id'],
                     $snapshot['material_id'],
                     $snapshot['buy_uom_id'],
