@@ -965,12 +965,14 @@ window.addEventListener('load', function () {
           return;
         }
         let html = '<table style="width:100%;font-size:.83rem;border-collapse:collapse">';
-        html += '<tr style="color:#8b7772;font-weight:700"><th style="padding:.3rem 0;text-align:left">Bahan</th><th style="padding:.3rem;text-align:center">Peran</th><th style="padding:.3rem;text-align:right">Per Saji</th><th style="padding:.3rem;text-align:right">Stok Live</th></tr>';
+        html += '<tr style="color:#8b7772;font-weight:700"><th style="padding:.3rem 0;text-align:left">Bahan</th><th style="padding:.3rem;text-align:center">Jenis Sumber</th><th style="padding:.3rem;text-align:center">Peran</th><th style="padding:.3rem;text-align:right">Per Saji</th><th style="padding:.3rem;text-align:right">Stok Live</th></tr>';
         data.data.recipe.forEach(function(r) {
           const stockCls = r.stock_qty <= 0 ? 'bad' : 'ok';
           const stockFmt = Number(r.stock_qty).toLocaleString('id-ID', {minimumFractionDigits:2,maximumFractionDigits:2});
+          const srcType  = r.source_type || '-';
           html += '<tr style="border-top:1px solid rgba(170,95,78,.1)">';
           html += '<td style="padding:.32rem 0"><span class="fd-item-title">' + (r.ingredient_name||'-') + '</span></td>';
+          html += '<td style="padding:.32rem;text-align:center"><span class="fd-pill" style="font-size:.7rem;' + (srcType==='bahan baku'?'background:#e8f5e9;color:#1b5e20':srcType==='base'?'background:#e3f2fd;color:#0d47a1':srcType==='prepare'?'background:#fff3e0;color:#e65100':'') + '">' + srcType + '</span></td>';
           html += '<td style="padding:.32rem;text-align:center"><span class="fd-pill" style="font-size:.7rem">' + (r.ingredient_role||'-') + '</span></td>';
           html += '<td style="padding:.32rem;text-align:right">' + Number(r.qty_per_serve).toLocaleString('id-ID',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' ' + (r.uom_code||'') + '</td>';
           html += '<td style="padding:.32rem;text-align:right"><span class="fd-recipe-stock ' + stockCls + '">' + stockFmt + '</span></td>';

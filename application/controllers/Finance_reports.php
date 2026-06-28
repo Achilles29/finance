@@ -281,8 +281,13 @@ class Finance_reports extends MY_Controller
         $page = $this->page();
         $total = $this->Finance_report_model->count_target_plans($filters);
         $pg = $this->build_pagination($total, $perPage, $page);
-        $rows = $this->Finance_report_model->list_target_plans($filters, $pg['per_page'], $pg['offset']);
-        $progressRows = $this->Finance_report_model->list_target_progress_dashboard($filters, $pg['per_page'], $pg['offset'], date('Y-m-d'));
+        $rows = [];
+        $progressRows = [];
+        if ($tab === 'progress') {
+            $progressRows = $this->Finance_report_model->list_target_progress_dashboard($filters, $pg['per_page'], $pg['offset'], date('Y-m-d'));
+        } else {
+            $rows = $this->Finance_report_model->list_target_plans($filters, $pg['per_page'], $pg['offset']);
+        }
         $summary = $this->Finance_report_model->summarize_target_plans($filters);
 
         $this->render('finance/target_plan_index', [
@@ -327,6 +332,18 @@ class Finance_reports extends MY_Controller
         $this->require_permission('finance.target.index', 'create');
         $result = $this->Finance_report_model->save_target_plan($this->input->post(NULL, true) ?: [], $this->actor_user_id());
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan draft target keuangan.'));
+        redirect('finance-reports/targets');
+    }
+
+    public function target_generate_daily_range()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_permission('finance.target.index', 'create');
+        $result = $this->Finance_report_model->bulk_generate_daily_targets($this->input->post(NULL, true) ?: [], $this->actor_user_id());
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal generate target harian per rentang tanggal.'));
         redirect('finance-reports/targets');
     }
 

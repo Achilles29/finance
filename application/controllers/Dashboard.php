@@ -79,7 +79,8 @@ class Dashboard extends MY_Controller
                 COALESCE(m.material_code, '') AS material_code,
                 r.material_item_id,
                 r.component_id,
-                mi.material_id
+                mi.material_id,
+                COALESCE(c.component_type, '') AS component_type
             FROM mst_product_recipe r
             LEFT JOIN mst_uom u ON u.id = r.uom_id
             LEFT JOIN mst_item mi ON mi.id = r.material_item_id
@@ -196,10 +197,22 @@ class Dashboard extends MY_Controller
                 }
             }
 
+            $lineType      = strtoupper((string)$r['line_type']);
+            $componentType = strtoupper((string)$r['component_type']);
+            if ($lineType === 'MATERIAL') {
+                $sourceType = 'bahan baku';
+            } elseif ($lineType === 'COMPONENT' && $componentType === 'BASE') {
+                $sourceType = 'base';
+            } elseif ($lineType === 'COMPONENT' && $componentType === 'PREPARE') {
+                $sourceType = 'prepare';
+            } else {
+                $sourceType = strtolower($lineType);
+            }
             $recipe[] = [
                 'ingredient_name' => (string)$r['ingredient_name'],
                 'line_type'       => (string)$r['line_type'],
                 'ingredient_role' => (string)$r['ingredient_role'],
+                'source_type'     => $sourceType,
                 'qty_per_serve'   => (float)$r['qty'],
                 'uom_code'        => (string)$r['uom_code'],
                 'stock_qty'       => $stockQty,

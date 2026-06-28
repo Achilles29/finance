@@ -159,35 +159,3 @@ finalkan generate stok gudang, bahan baku. component. pastikan cutoff dan membua
 finalkan generate keuangan
 
 
-masih di component.
-sekarang lakukan untuk bahan baku inv division
-posisi sekarang component banyak missmatch dan drift karena data legacy UI lama.
-di modul generate Opname dan STock awal, pastikan dalam generate stock awal, ada cutoff data sehingga data yang di generate untuk awal bulan merupakan data yang bersih tidak ada missmatch antar stock, log, profile dan lot. semua data menyesuaikan stock
-setelah kamu pastikan aman baru saya tes generate
-
-
-/inventory-material-daily dan halaman rumpunnya, seharusnya menampilkan data ringkasan yang sama untuk sisa stock dan nilai RP nya, untuk range bulan yang sama. karena itu adalah nilai persediaan perusahaan.
-periksa semua halaman terkait karena masih banyak data yang tidak sama
-
-
-
-
-nilai total bulan ini inv_division_monthly_stock  berapa? 
-closing_qty × avg_cost seharusnya sama dengan total_value , jika pun ada selisih semestinya hanya hitungan 0,0 sekian jadi tidak masalah.
-maka nilai sisa bulan ini di semua halaman seharusnya cukup diambil dari total_value
-sekarang halaman stok divisi masih menampilkan beberapa data yang berbeda.
-
-/ inventory-material-daily ringkasan Nilai Sisa 6.093.488,03
-/inventory/stock/daily-recon/division Nilai Stok Sistem Rp 27.241.907
-/finance/inventory/stock/division Rp 27.241.907 Total Nilai HPP
-/finance/inventory/stock/division/daily 2.893.583,8 Stok Akhir (Isi)
-
-- itu baru 4 halaman ada 3 versi data untuk sisa stok ada stok akhir padahal seharusnya sama
-periksa juga  stok masuk, stok keluar, spoil waste dan lainnya. mestinya juga sama. karena sumber data sama, hanya penyajiannya yang berbeda. perbaiki!
-
-
-
-presensi pegawai yang PH seharusnya mendapatkan gaji penuh pada hari itu.
-periksa bulan ini siapa saja dan tanggal berapa saja pegawai yang jadwal nya PH tapi belum ada gajinya.
-
-lalu lakukan pengecekan logika pada /my/attendance kenapa PH terlewat tidak mendapatkan gaji

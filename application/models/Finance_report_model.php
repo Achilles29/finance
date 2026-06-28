@@ -1715,21 +1715,121 @@ class Finance_report_model extends CI_Model
             return ['ok' => false, 'message' => 'Tanggal akhir target tidak boleh lebih kecil dari tanggal awal.'];
         }
 
+        $row = $this->build_target_plan_insert_row($payload, $targetName, $scope, $dateStart, $dateEnd, $actorUserId);
+        $this->db->insert('fin_target_plan', $row);
+        $targetPlanId = (int)$this->db->insert_id();
+
+        $this->attach_target_plan_metric_lines($targetPlanId, $payload['metric_codes'] ?? [], $payload);
+
+        return [
+            'ok' => true,
+            'id' => $targetPlanId,
+            'message' => 'Draft target keuangan berhasil dibuat.',
+        ];
+    }
+
+    public function bulk_generate_daily_targets(array $payload, int $actorUserId = 0): array
+    {
+        if (!$this->db->table_exists('fin_target_plan')) {
+            return ['ok' => false, 'message' => 'Tabel target keuangan belum tersedia. Jalankan SQL foundation terlebih dahulu.'];
+        }
+
+        $targetName = trim((string)($payload['target_name'] ?? ''));
+        if ($targetName === '') {
+            return ['ok' => false, 'message' => 'Nama target harian wajib diisi.'];
+        }
+
+        $dateStart = trim((string)($payload['date_start'] ?? ''));
+        $dateEnd = trim((string)($payload['date_end'] ?? ''));
+        if ($dateStart === '' || $dateEnd === '') {
+            return ['ok' => false, 'message' => 'Tanggal awal dan akhir generator wajib diisi.'];
+        }
+        if ($dateStart > $dateEnd) {
+            return ['ok' => false, 'message' => 'Tanggal akhir generator tidak boleh lebih kecil dari tanggal awal.'];
+        }
+
+        $metricCodes = $this->normalize_metric_codes($payload['metric_codes'] ?? []);
+        if (empty($metricCodes)) {
+            return ['ok' => false, 'message' => 'Pilih minimal satu indikator agar target harian yang digenerate tidak kosong.'];
+        }
+
+        $divisionId = (int)($payload['division_id'] ?? 0) > 0 ? (int)$payload['division_id'] : null;
+        $companyAccountId = (int)($payload['company_account_id'] ?? 0) > 0 ? (int)$payload['company_account_id'] : null;
+        $createdIds = [];
+        $createdDates = [];
+        $skippedDates = [];
+
+        $cursor = strtotime($dateStart);
+        $end = strtotime($dateEnd);
+        if ($cursor === false || $end === false) {
+            return ['ok' => false, 'message' => 'Format tanggal generator tidak valid.'];
+        }
+
+        $this->db->trans_start();
+        while ($cursor <= $end) {
+            $targetDate = date('Y-m-d', $cursor);
+            $existing = $this->find_existing_daily_target($targetName, $targetDate, $divisionId, $companyAccountId);
+            if ($existing) {
+                $skippedDates[] = $targetDate;
+                $cursor = strtotime('+1 day', $cursor);
+                continue;
+            }
+
+            $row = $this->build_target_plan_insert_row(
+                $payload,
+                $targetName,
+                'DAILY',
+                $targetDate,
+                $targetDate,
+                $actorUserId
+            );
+            $this->db->insert('fin_target_plan', $row);
+            $targetPlanId = (int)$this->db->insert_id();
+            if ($targetPlanId > 0) {
+                $this->attach_target_plan_metric_lines($targetPlanId, $metricCodes, $payload);
+                $createdIds[] = $targetPlanId;
+                $createdDates[] = $targetDate;
+            }
+
+            $cursor = strtotime('+1 day', $cursor);
+        }
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status()) {
+            return ['ok' => false, 'message' => 'Gagal generate target harian per rentang tanggal.'];
+        }
+
+        if (empty($createdIds) && !empty($skippedDates)) {
+            return ['ok' => false, 'message' => 'Semua tanggal dalam rentang ini sudah punya target harian dengan identitas yang sama. Tidak ada data baru yang dibuat.'];
+        }
+
+        $message = 'Berhasil membuat ' . count($createdIds) . ' target harian.';
+        if (!empty($skippedDates)) {
+            $message .= ' ' . count($skippedDates) . ' tanggal dilewati karena target serupa sudah ada.';
+        }
+
+        return [
+            'ok' => true,
+            'ids' => $createdIds,
+            'created_dates' => $createdDates,
+            'skipped_dates' => $skippedDates,
+            'message' => $message,
+        ];
+    }
+
+    private function build_target_plan_insert_row(array $payload, string $targetName, string $scope, string $dateStart, string $dateEnd, int $actorUserId = 0): array
+    {
         $targetYear = (int)date('Y', strtotime($dateStart));
         $targetMonth = $scope !== 'YEARLY' ? (int)date('m', strtotime($dateStart)) : null;
         $targetDate = $scope === 'DAILY' ? $dateStart : null;
-        $maxIdRow = $this->db->select('MAX(id) AS max_id', false)->from('fin_target_plan')->get()->row_array();
-        $nextSeq = ((int)($maxIdRow['max_id'] ?? 0)) + 1;
-        $targetCode = 'FIN-TARGET-' . date('Ym', strtotime($dateStart)) . '-' . str_pad((string)$nextSeq, 4, '0', STR_PAD_LEFT);
-
         $requestedStatus = strtoupper(trim((string)($payload['status'] ?? '')));
         $defaultStatus = $scope === 'DAILY' ? 'ACTIVE' : 'DRAFT';
         if (!in_array($requestedStatus, ['DRAFT', 'ACTIVE', 'LOCKED', 'VOID'], true)) {
             $requestedStatus = $defaultStatus;
         }
 
-        $row = [
-            'target_code' => $targetCode,
+        return [
+            'target_code' => $this->generate_target_code($dateStart),
             'target_name' => $targetName,
             'target_scope' => $scope,
             'target_year' => $targetYear,
@@ -1750,50 +1850,104 @@ class Finance_report_model extends CI_Model
             'created_by' => $actorUserId > 0 ? $actorUserId : null,
             'created_at' => date('Y-m-d H:i:s'),
         ];
+    }
 
-        $this->db->insert('fin_target_plan', $row);
-        $targetPlanId = (int)$this->db->insert_id();
+    private function generate_target_code(string $dateStart): string
+    {
+        $maxIdRow = $this->db->select('MAX(id) AS max_id', false)->from('fin_target_plan')->get()->row_array();
+        $nextSeq = ((int)($maxIdRow['max_id'] ?? 0)) + 1;
+        return 'FIN-TARGET-' . date('Ym', strtotime($dateStart)) . '-' . str_pad((string)$nextSeq, 4, '0', STR_PAD_LEFT);
+    }
 
-        $metricCodes = $payload['metric_codes'] ?? [];
+    private function normalize_metric_codes($metricCodes): array
+    {
         if (!is_array($metricCodes)) {
             $metricCodes = [$metricCodes];
         }
-        $metricCodes = array_values(array_unique(array_filter(array_map(static function ($v) {
+
+        return array_values(array_unique(array_filter(array_map(static function ($v) {
             return strtoupper(trim((string)$v));
         }, $metricCodes))));
+    }
 
-        if ($targetPlanId > 0 && !empty($metricCodes) && $this->db->table_exists('fin_metric_catalog') && $this->db->table_exists('fin_target_plan_line')) {
-            $catalogRows = $this->db->select('metric_group, metric_code, metric_label, comparator_hint')
-                ->from('fin_metric_catalog')
-                ->where_in('metric_code', $metricCodes)
-                ->where('is_active', 1)
-                ->order_by('metric_group', 'ASC')
-                ->order_by('metric_label', 'ASC')
-                ->get()->result_array();
-            $lineCount = count($catalogRows);
-            $weight = $lineCount > 0 ? round(100 / $lineCount, 4) : 0;
-            foreach ($catalogRows as $catalogRow) {
-                $this->db->insert('fin_target_plan_line', [
-                    'target_plan_id' => $targetPlanId,
-                    'metric_group' => (string)($catalogRow['metric_group'] ?? 'OTHER'),
-                    'metric_code' => (string)($catalogRow['metric_code'] ?? ''),
-                    'metric_label' => (string)($catalogRow['metric_label'] ?? ''),
-                    'comparator' => in_array((string)($catalogRow['comparator_hint'] ?? 'MAX'), ['MIN', 'MAX', 'RANGE', 'EQUAL'], true)
-                        ? (string)$catalogRow['comparator_hint']
-                        : 'MAX',
-                    'target_value' => 0,
-                    'weight_percent' => $weight,
-                    'is_required' => 0,
-                    'created_at' => date('Y-m-d H:i:s'),
-                ]);
-            }
+    private function attach_target_plan_metric_lines(int $targetPlanId, $metricCodes, array $payload = []): void
+    {
+        $metricCodes = $this->normalize_metric_codes($metricCodes);
+        if (
+            $targetPlanId <= 0
+            || empty($metricCodes)
+            || !$this->db->table_exists('fin_metric_catalog')
+            || !$this->db->table_exists('fin_target_plan_line')
+        ) {
+            return;
         }
 
-        return [
-            'ok' => true,
-            'id' => $targetPlanId,
-            'message' => 'Draft target keuangan berhasil dibuat.',
-        ];
+        $catalogRows = $this->db->select('metric_group, metric_code, metric_label, comparator_hint')
+            ->from('fin_metric_catalog')
+            ->where_in('metric_code', $metricCodes)
+            ->where('is_active', 1)
+            ->order_by('metric_group', 'ASC')
+            ->order_by('metric_label', 'ASC')
+            ->get()->result_array();
+        $lineCount = count($catalogRows);
+        $weight = $lineCount > 0 ? round(100 / $lineCount, 4) : 0;
+        $comparatorMap = is_array($payload['line_comparator'] ?? null) ? $payload['line_comparator'] : [];
+        $targetValueMap = is_array($payload['line_target_value'] ?? null) ? $payload['line_target_value'] : [];
+        $minimumValueMap = is_array($payload['line_minimum_value'] ?? null) ? $payload['line_minimum_value'] : [];
+        $maximumValueMap = is_array($payload['line_maximum_value'] ?? null) ? $payload['line_maximum_value'] : [];
+        $warningValueMap = is_array($payload['line_warning_value'] ?? null) ? $payload['line_warning_value'] : [];
+        $weightMap = is_array($payload['line_weight_percent'] ?? null) ? $payload['line_weight_percent'] : [];
+        $requiredMap = is_array($payload['line_is_required'] ?? null) ? $payload['line_is_required'] : [];
+        $notesMap = is_array($payload['line_notes'] ?? null) ? $payload['line_notes'] : [];
+        foreach ($catalogRows as $catalogRow) {
+            $metricCode = (string)($catalogRow['metric_code'] ?? '');
+            $selectedComparator = strtoupper(trim((string)($comparatorMap[$metricCode] ?? '')));
+            if (!in_array($selectedComparator, ['MIN', 'MAX', 'RANGE', 'EQUAL'], true)) {
+                $selectedComparator = in_array((string)($catalogRow['comparator_hint'] ?? 'MAX'), ['MIN', 'MAX', 'RANGE', 'EQUAL'], true)
+                    ? (string)$catalogRow['comparator_hint']
+                    : 'MAX';
+            }
+            $selectedWeight = $weightMap[$metricCode] ?? '';
+            $finalWeight = is_numeric($selectedWeight) ? round((float)$selectedWeight, 4) : $weight;
+            $this->db->insert('fin_target_plan_line', [
+                'target_plan_id' => $targetPlanId,
+                'metric_group' => (string)($catalogRow['metric_group'] ?? 'OTHER'),
+                'metric_code' => $metricCode,
+                'metric_label' => (string)($catalogRow['metric_label'] ?? ''),
+                'comparator' => $selectedComparator,
+                'target_value' => is_numeric($targetValueMap[$metricCode] ?? null) ? round((float)$targetValueMap[$metricCode], 2) : 0,
+                'minimum_value' => ($minimumValueMap[$metricCode] ?? '') !== '' ? round((float)$minimumValueMap[$metricCode], 2) : null,
+                'maximum_value' => ($maximumValueMap[$metricCode] ?? '') !== '' ? round((float)$maximumValueMap[$metricCode], 2) : null,
+                'warning_value' => ($warningValueMap[$metricCode] ?? '') !== '' ? round((float)$warningValueMap[$metricCode], 2) : null,
+                'weight_percent' => $finalWeight,
+                'is_required' => array_key_exists($metricCode, $requiredMap) ? 1 : 0,
+                'notes' => trim((string)($notesMap[$metricCode] ?? '')) ?: null,
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+    }
+
+    private function find_existing_daily_target(string $targetName, string $targetDate, ?int $divisionId, ?int $companyAccountId): ?array
+    {
+        $this->db->select('id, target_code, status')
+            ->from('fin_target_plan')
+            ->where('target_scope', 'DAILY')
+            ->where('target_name', $targetName)
+            ->where('target_date', $targetDate);
+
+        if ($divisionId === null) {
+            $this->db->where('division_id IS NULL', null, false);
+        } else {
+            $this->db->where('division_id', $divisionId);
+        }
+
+        if ($companyAccountId === null) {
+            $this->db->where('company_account_id IS NULL', null, false);
+        } else {
+            $this->db->where('company_account_id', $companyAccountId);
+        }
+
+        return $this->db->limit(1)->get()->row_array() ?: null;
     }
 
     public function get_period_close_by_id(int $id): ?array

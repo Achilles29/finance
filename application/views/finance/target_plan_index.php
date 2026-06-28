@@ -9,7 +9,7 @@ $divisionOptions = is_array($division_options ?? null) ? $division_options : [];
 $companyAccounts = is_array($company_accounts ?? null) ? $company_accounts : [];
 $metricCatalog = is_array($metric_catalog ?? null) ? $metric_catalog : [];
 $baseUrl = site_url('finance-reports/targets');
-$buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl) {
+$buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl, $tab) {
     $query = [
         'q' => (string)($filters['q'] ?? ''),
         'status' => (string)($filters['status'] ?? ''),
@@ -173,6 +173,33 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
       font-weight: 600;
       border: 1px solid rgba(35, 117, 72, .12);
     }
+  .fintarget-config-box {
+    border: 1px solid rgba(143, 53, 58, .10);
+    border-radius: 18px;
+    background: #fffaf7;
+    padding: .9rem;
+  }
+  .fintarget-config-table-wrap {
+    max-height: 320px;
+    overflow: auto;
+    border: 1px solid rgba(143, 53, 58, .08);
+    border-radius: 16px;
+  }
+  .fintarget-config-table {
+    min-width: 1100px;
+    margin-bottom: 0;
+  }
+  .fintarget-config-table thead th {
+    position: sticky;
+    top: 0;
+    background: #8f353a;
+    color: #fff;
+    z-index: 2;
+    white-space: nowrap;
+  }
+  .fintarget-config-table td {
+    vertical-align: middle;
+  }
   @media (max-width: 991.98px) {
     .fintarget-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .fintarget-progress-grid { grid-template-columns: 1fr; }
@@ -240,7 +267,10 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
                 <div class="small text-muted">Buat target baru, lihat target yang sudah berjalan, lalu cek apakah hasil nyatanya sudah sesuai harapan.</div>
                 <div class="small text-muted mt-1">Untuk mengubah target yang sudah dibuat, klik tombol <strong>Detail / Edit</strong> di kolom aksi.</div>
               </div>
-            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#targetModal">Buat Target Baru</button>
+            <div class="d-flex flex-wrap gap-2">
+              <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#dailyRangeModal">Generate Target Harian</button>
+              <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#targetModal">Buat Target Baru</button>
+            </div>
           </div>
 
           <form method="get" class="row g-2 align-items-end mb-3">
@@ -288,6 +318,13 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
             <div class="body">
               Kolom bonus di halaman target ini dipakai sebagai <strong>patokan manajerial</strong>: berapa bonus yang ingin disiapkan dan berapa porsi laba yang layak dibuka untuk bonus.
               Untuk skema teknis seperti <strong>3% omzet harian</strong>, <strong>ambang omzet minimum</strong>, dan <strong>cair hanya jika target bulanan lolos</strong>, pengaturan detailnya tetap dilanjutkan di <strong>rule bonus</strong> agar lebih aman dan fleksibel.
+            </div>
+          </div>
+
+          <div class="fintarget-helper mb-3">
+            <div class="title mb-1">Kapan pakai generate harian?</div>
+            <div class="body">
+              Jika Anda ingin membuat target <strong>harian</strong> untuk banyak tanggal sekaligus, gunakan tombol <strong>Generate Target Harian</strong>. Sistem akan membuat satu target DAILY per tanggal dalam rentang yang dipilih, lalu otomatis melewati tanggal yang target serupanya sudah ada.
             </div>
           </div>
 
@@ -613,6 +650,7 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
           <div class="alert alert-light border mb-3">
             Isi bagian dasarnya dulu di sini. Setelah tersimpan, Anda bisa buka detail target untuk mengatur angka target, bobot, dan syarat bonus lebih lengkap.
             <div class="small text-muted mt-2">Khusus target harian, sistem akan menyimpannya dalam status aktif supaya bisa langsung dibaca engine bonus atau monitoring realisasi harian.</div>
+            <div class="small text-muted mt-1">Kalau butuh membuat target harian untuk banyak tanggal sekaligus, gunakan modal <strong>Generate Target Harian</strong> agar tidak perlu input satu per satu.</div>
           </div>
           <div class="row g-3">
             <div class="col-md-6">
@@ -720,3 +758,197 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
     </div>
   </div>
 </div>
+
+<div class="modal fade" id="dailyRangeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="<?php echo site_url('finance-reports/targets/generate-daily-range'); ?>">
+        <div class="modal-header">
+          <h5 class="modal-title">Generate Target Harian per Rentang</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-light border mb-3">
+            Gunakan form ini jika Anda ingin membuat banyak target harian sekaligus. Sistem akan membuat <strong>1 target DAILY per tanggal</strong> sesuai rentang yang dipilih.
+            <div class="small text-muted mt-2">Jika pada tanggal tertentu sudah ada target harian dengan nama, divisi, dan rekening yang sama, tanggal itu akan dilewati agar tidak dobel.</div>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Nama target harian</label>
+              <input type="text" name="target_name" class="form-control" required placeholder="Contoh: Target Harian Omzet Outlet BAR">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Tanggal mulai</label>
+              <input type="date" name="date_start" class="form-control" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Tanggal selesai</label>
+              <input type="date" name="date_end" class="form-control" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Divisi yang dinilai</label>
+              <select name="division_id" class="form-select">
+                <option value="0">Semua divisi</option>
+                <?php foreach ($divisionOptions as $division): ?>
+                  <option value="<?php echo (int)$division['id']; ?>"><?php echo html_escape((string)$division['name']); ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Rekening fokus</label>
+              <select name="company_account_id" class="form-select">
+                <option value="0">Semua rekening</option>
+                <?php foreach ($companyAccounts as $account): ?>
+                  <option value="<?php echo (int)$account['id']; ?>"><?php echo html_escape((string)$account['account_name'] . ' - ' . (string)$account['bank_name']); ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Aturan bonus</label>
+              <select name="bonus_gate_mode" class="form-select">
+                <option value="WEIGHTED_SCORE">Dinilai dari total skor</option>
+                <option value="ALL_REQUIRED">Semua indikator wajib lolos</option>
+                <option value="NONE">Tidak dipakai untuk bonus</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Skor minimal bonus</label>
+              <input type="number" step="0.01" name="min_bonus_score" class="form-control" value="100">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Cadangan bonus</label>
+              <input type="number" step="0.01" name="bonus_pool_amount" class="form-control" value="0">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">% laba untuk bonus</label>
+              <input type="number" step="0.0001" name="bonus_percent_of_profit" class="form-control" value="0">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Status target</label>
+              <input type="text" class="form-control" value="ACTIVE otomatis untuk target harian" readonly>
+              <div class="form-text">Generator ini langsung membuat target harian yang siap dibaca engine.</div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Catatan singkat</label>
+              <input type="text" name="notes" class="form-control" placeholder="Opsional, misal target harian untuk monitoring bonus outlet BAR">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Pilih indikator yang ingin disalin ke semua tanggal</label>
+              <select name="metric_codes[]" class="form-select js-daily-metric-select" multiple size="8" required>
+                <?php foreach ($metricCatalog as $metric): ?>
+                  <option value="<?php echo html_escape((string)$metric['metric_code']); ?>">
+                    <?php echo html_escape((string)$metric['metric_label']); ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+              <div class="form-text">Pilihan indikator ini akan ditempel ke setiap target DAILY yang dibuat dalam rentang tersebut.</div>
+            </div>
+            <div class="col-12">
+              <div class="fintarget-config-box">
+                <div class="d-flex justify-content-between align-items-start gap-3 mb-2 flex-wrap">
+                  <div>
+                    <div class="fw-semibold">Angka target yang langsung dipakai saat generate</div>
+                    <div class="small text-muted">Jadi setelah target harian terbentuk, Anda tidak perlu masuk satu per satu hanya untuk mengisi target, arah nilai, bobot, atau indikator wajib.</div>
+                  </div>
+                  <span class="badge bg-light text-dark border">Disalin ke semua tanggal terpilih</span>
+                </div>
+                <div class="fintarget-config-table-wrap">
+                  <table class="table table-sm align-middle fintarget-config-table">
+                    <thead>
+                      <tr>
+                        <th>Indikator</th>
+                        <th>Arah Nilai</th>
+                        <th>Target</th>
+                        <th>Min</th>
+                        <th>Max</th>
+                        <th>Warning</th>
+                        <th>Bobot %</th>
+                        <th>Wajib</th>
+                        <th>Catatan</th>
+                      </tr>
+                    </thead>
+                    <tbody id="dailyMetricConfigBody">
+                      <tr class="js-empty-config-row">
+                        <td colspan="9" class="text-center text-muted py-3">Pilih indikator dulu, nanti tabel pengisiannya muncul di sini.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+          <button type="submit" class="btn btn-primary">Generate Target Harian</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var select = document.querySelector('.js-daily-metric-select');
+    var body = document.getElementById('dailyMetricConfigBody');
+    if (!select || !body) {
+      return;
+    }
+
+    function esc(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function rowHtml(code, label) {
+      var safeCode = esc(code);
+      var safeLabel = esc(label);
+      return '' +
+        '<tr>' +
+          '<td><div class="fw-semibold">' + safeLabel + '</div><div class="small text-muted">' + safeCode + '</div></td>' +
+          '<td>' +
+            '<select name="line_comparator[' + safeCode + ']" class="form-select form-select-sm">' +
+              '<option value="MAX">Semakin besar semakin baik</option>' +
+              '<option value="MIN">Semakin kecil semakin baik</option>' +
+              '<option value="RANGE">Harus di rentang tertentu</option>' +
+              '<option value="EQUAL">Harus sama persis</option>' +
+            '</select>' +
+          '</td>' +
+          '<td><input type="number" step="0.01" name="line_target_value[' + safeCode + ']" class="form-control form-control-sm" value="0"></td>' +
+          '<td><input type="number" step="0.01" name="line_minimum_value[' + safeCode + ']" class="form-control form-control-sm"></td>' +
+          '<td><input type="number" step="0.01" name="line_maximum_value[' + safeCode + ']" class="form-control form-control-sm"></td>' +
+          '<td><input type="number" step="0.01" name="line_warning_value[' + safeCode + ']" class="form-control form-control-sm"></td>' +
+          '<td><input type="number" step="0.0001" name="line_weight_percent[' + safeCode + ']" class="form-control form-control-sm" value="100"></td>' +
+          '<td class="text-center"><input type="checkbox" name="line_is_required[' + safeCode + ']" value="1"></td>' +
+          '<td><input type="text" name="line_notes[' + safeCode + ']" class="form-control form-control-sm" placeholder="Opsional"></td>' +
+        '</tr>';
+    }
+
+    function rebuildRows() {
+      var selected = Array.prototype.slice.call(select.options).filter(function (option) {
+        return option.selected;
+      });
+
+      if (!selected.length) {
+        body.innerHTML = '<tr class="js-empty-config-row"><td colspan="9" class="text-center text-muted py-3">Pilih indikator dulu, nanti tabel pengisiannya muncul di sini.</td></tr>';
+        return;
+      }
+
+      var defaultWeight = (100 / selected.length).toFixed(4);
+      body.innerHTML = selected.map(function (option) {
+        return rowHtml(option.value, option.text);
+      }).join('');
+
+      Array.prototype.slice.call(body.querySelectorAll('input[name^="line_weight_percent["]')).forEach(function (input) {
+        input.value = defaultWeight;
+      });
+    }
+
+    select.addEventListener('change', rebuildRows);
+    rebuildRows();
+  })();
+</script>
