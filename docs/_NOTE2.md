@@ -266,3 +266,58 @@ pertama target keuangannya dulu
 
 
 untu target daily, seharusnya bisa opsi generate sekali klik untuk range terpilih. jadi tidak perlu generate 1 per 1.
+
+
+/finance-reports/targets?tab=progress&page=1 
+- cukup tampilkan dengan status aktif
+- urutkan jenis dulu bulanan baru harian
+- simplify tampilan : Tanggal (bulanan tampil pertama) ,Target , Realisasi (progress dan snapshoot), %. 
+- hapus "Tab ini membaca data target lalu membandingkannya dengan dua sumber: angka berjalan dari database aktif dan snapshot hasil yang pernah disimpan.
+Jadi kita bisa memantau posisi hari ini tanpa menunggu snapshot, lalu membandingkannya dengan hasil yang sudah pernah dikunci."
+- hapus "Cara baca cepat
+Kolom Realisasi Berjalan membaca data live. Kolom Snapshot Tersimpan menunjukkan hasil hitung yang pernah disimpan sebelumnya."
+- hapus Status dan Aksi
+
+
+
+perbaiki lagi tampilan:
+/finance-reports/targets
+
+- hapus "Buat target baru, lihat target yang sudah berjalan, lalu cek apakah hasil nyatanya sudah sesuai harapan.
+Untuk mengubah target yang sudah dibuat, klik tombol Detail / Edit di kolom aksi."
+- hapus "
+Catatan bonus
+Kolom bonus di halaman target ini dipakai sebagai patokan manajerial: berapa bonus yang ingin disiapkan dan berapa porsi laba yang layak dibuka untuk bonus. Untuk skema teknis seperti 3% omzet harian, ambang omzet minimum, dan cair hanya jika target bulanan lolos, pengaturan detailnya tetap dilanjutkan di rule bonus agar lebih aman dan fleksibel.
+Kapan pakai generate harian?
+Jika Anda ingin membuat target harian untuk banyak tanggal sekaligus, gunakan tombol Generate Target Harian. Sistem akan membuat satu target DAILY per tanggal dalam rentang yang dipilih, lalu otomatis melewati tanggal yang target serupanya sudah ada.
+"
+- berikan filter baris halaman, default 50 baris
+- berikan tab aktif, nonaktif, semua , pada tabel
+- berikan filter range tanggal target , default bulan ini
+- berikan ceklist bulk hitung hasil. jika ada beberapa tanggal yang memang belum bisa dihitung berikan notif khusus target tersebut. target yang sudah dihitung bisa dihitung ulang (ditimpa)
+
+saya coba hitung hasil target daily tanggal 1 juni, target 3000000 , realisasi 1.304.000,00, skor 200 % lolos. kok bisa????
+
+
+/finance-reports/targets?tab=progress&page=1
+- berikan filter baris halaman, default 50 baris
+- berikan filter range tanggal target , default bulan ini
+- kolom tanggal dan taget di wrap (enter untuk yang range) agar tidak terlalu lebar
+
+Progress Profit Estimasi : -16.825.575,59 dihitung dari mana? seharusnya kan dari omzet (dikurangi refund), dikurangi belanja, digurangi estimasi gaji. atau ada cara hitung lain?
+sementara untuk profit snapshot nanti bukan menghitung estimasi gaji melainkan gaji yang sudah dicairkan
+
+
+
+/finance-reports/targets?tab=progress&page=1 tambahkan kolom bonus (nilai bonus yang dibagikan berdasarkan syarat)
+
+"Belum ada snapshot. " 
+
+
+SEKARANG pindah ke bonus /payroll/bonus?month
+sekarang kendala baru pindah kesini, apa harus buat aturan 1 per 1 tiap tanggal untuk gerbang daily??
+dan nanti harus generate pol 1 per 1 lagi?
+
+berikan saya ide agar bisa 1 kali klik untuk mengakomodir aturan daily
+
+saya rasa pola bonus perlu di rombak total agar lebih operasional

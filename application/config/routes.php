@@ -218,6 +218,7 @@ $route['finance-reports/targets'] = 'finance_reports/targets';
 $route['finance-reports/targets/detail/(:num)'] = 'finance_reports/target_detail/$1';
 $route['finance-reports/targets/store'] = 'finance_reports/target_store';
 $route['finance-reports/targets/generate-daily-range'] = 'finance_reports/target_generate_daily_range';
+$route['finance-reports/targets/realize-bulk'] = 'finance_reports/target_realize_bulk';
 $route['finance-reports/targets/realize/(:num)'] = 'finance_reports/target_realize/$1';
 $route['finance-reports/targets/update/(:num)'] = 'finance_reports/target_update/$1';
 $route['finance-reports/targets/lines-save/(:num)'] = 'finance_reports/target_lines_save/$1';

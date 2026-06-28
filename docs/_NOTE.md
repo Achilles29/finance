@@ -136,31 +136,7 @@ cek backup git
 cek ganti ip
 cek server
 
-
-masuk /master/product
-- buatk tabelnya jadi scrollabel atas bawah, di freeze di judul kolom ketika di scroll di bawah
-
-- cek AYAM BAKAR SAMBAL DABU-DABU  kenapa hpp live nya tinggi sekali? bahan apa yang bikin tinggi? bukankah seharusnya niai yang tampil di hpp live sama seperti /master/product/hpp-stock/ ?
-
-
-
-cek /master/product/hpp-stock/251 BEEF PATTIES kenapa cost nya 400? darimana?
-
-sekalia juga cek di monthly stock untuk BEEF PATTIES ada 2 baris, tapi /inventory/stock/division/lot cuma ada 1.
-lalu di /inventory/stock/division/reconcile seolah tidak ada masalah untuk BEEF PATTIES
-cek
-
-
-/inventory/stock/division/lot?scope=DIVISION&status=ALL&division_id=3&destination=REGULER&profile_key=453b7bda160d911890165ce6e775dbf62a8f22dd5b04ad807c6fa268a27d16c9 BALANCE 0, tapi di stock ada.
-cek monthly stcok
-
-
 finalkan generate stok gudang, bahan baku. component. pastikan cutoff dan membuat data baru stok dan lot nya sesuai
 finalkan generate keuangan
 
 /dashboard Stok Produk Live POS tambahkan kolom jenis sumber (bahan baku / base / prepare)
-
-
-masuk /pos/cashier Produk bundle merupakan satu kesatuan, jadi ketika di kolom keranjang tampilannya jadi 1 bukan terpisah masing masing keranjang. kalau ada penambahan dan pengurangan juga langsung semua produk dalam bundle nya bukan masing masing. perbaiku
-
-/pos/cashier cetak ulang order dipilih tambahkan printer kasir, untuk mencetak bill yang belum terbayar .

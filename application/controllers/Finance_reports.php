@@ -9,10 +9,10 @@ class Finance_reports extends MY_Controller
         $this->load->model('Finance_report_model');
     }
 
-    private function per_page(): int
+    private function per_page(int $default = 25): int
     {
         $pp = (int)$this->input->get('per_page', true);
-        return in_array($pp, [10, 25, 50, 100], true) ? $pp : 25;
+        return in_array($pp, [10, 25, 50, 100], true) ? $pp : $default;
     }
 
     private function page(): int
@@ -270,25 +270,44 @@ class Finance_reports extends MY_Controller
             $tab = 'list';
         }
 
+        $defaultDateStart = date('Y-m-01');
+        $defaultDateEnd = date('Y-m-t');
         $filters = [
             'q' => trim((string)$this->input->get('q', true)),
             'status' => strtoupper(trim((string)$this->input->get('status', true))),
             'target_scope' => strtoupper(trim((string)$this->input->get('target_scope', true))),
             'division_id' => (int)$this->input->get('division_id', true),
+            'date_start' => trim((string)$this->input->get('date_start', true)),
+            'date_end' => trim((string)$this->input->get('date_end', true)),
         ];
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $filters['date_start'])) {
+            $filters['date_start'] = $defaultDateStart;
+        }
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $filters['date_end'])) {
+            $filters['date_end'] = $defaultDateEnd;
+        }
+        if ($filters['date_start'] > $filters['date_end']) {
+            [$filters['date_start'], $filters['date_end']] = [$filters['date_end'], $filters['date_start']];
+        }
 
-        $perPage = $this->per_page();
+        $effectiveFilters = $filters;
+        if ($tab === 'progress') {
+            $effectiveFilters['status'] = 'ACTIVE';
+            $effectiveFilters['sort_mode'] = 'PROGRESS';
+        }
+
+        $perPage = $this->per_page(50);
         $page = $this->page();
-        $total = $this->Finance_report_model->count_target_plans($filters);
+        $total = $this->Finance_report_model->count_target_plans($effectiveFilters);
         $pg = $this->build_pagination($total, $perPage, $page);
         $rows = [];
         $progressRows = [];
         if ($tab === 'progress') {
-            $progressRows = $this->Finance_report_model->list_target_progress_dashboard($filters, $pg['per_page'], $pg['offset'], date('Y-m-d'));
+            $progressRows = $this->Finance_report_model->list_target_progress_dashboard($effectiveFilters, $pg['per_page'], $pg['offset'], date('Y-m-d'));
         } else {
             $rows = $this->Finance_report_model->list_target_plans($filters, $pg['per_page'], $pg['offset']);
         }
-        $summary = $this->Finance_report_model->summarize_target_plans($filters);
+        $summary = $this->Finance_report_model->summarize_target_plans($effectiveFilters);
 
         $this->render('finance/target_plan_index', [
             'page_title' => 'Target Keuangan',
@@ -303,6 +322,51 @@ class Finance_reports extends MY_Controller
             'company_accounts' => $this->Finance_report_model->active_company_accounts(),
             'metric_catalog' => $this->Finance_report_model->metric_catalog_options(),
         ]);
+    }
+
+    public function target_realize_bulk()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_permission('finance.target.index', 'edit');
+        $ids = $this->input->post('target_ids');
+        $targetIds = array_values(array_unique(array_filter(array_map('intval', is_array($ids) ? $ids : []))));
+        $redirectTo = trim((string)$this->input->post('redirect_to', true));
+        if ($redirectTo === '') {
+            $redirectTo = 'finance-reports/targets';
+        }
+
+        if (empty($targetIds)) {
+            $this->session->set_flashdata('error', 'Pilih minimal satu target yang ingin dihitung.');
+            redirect($redirectTo);
+        }
+
+        $success = [];
+        $failed = [];
+        foreach ($targetIds as $targetId) {
+            $targetRow = $this->Finance_report_model->get_target_plan_by_id($targetId);
+            $targetLabel = trim((string)($targetRow['target_name'] ?? ''));
+            if ($targetLabel === '') {
+                $targetLabel = 'Target #' . $targetId;
+            }
+            $result = $this->Finance_report_model->generate_target_realization($targetId, $this->actor_user_id());
+            if (!empty($result['ok'])) {
+                $success[] = $targetLabel;
+            } else {
+                $failed[] = $targetLabel . ': ' . (string)($result['message'] ?? 'Gagal dihitung');
+            }
+        }
+
+        if (!empty($success)) {
+            $this->session->set_flashdata('success', count($success) . ' target berhasil dihitung / ditimpa ulang.');
+        }
+        if (!empty($failed)) {
+            $this->session->set_flashdata('error', implode(' | ', $failed));
+        }
+
+        redirect($redirectTo);
     }
 
     public function target_detail($id = 0)

@@ -270,13 +270,46 @@ $status = strtoupper((string)($row['status'] ?? 'DRAFT'));
                       <tr>
                         <td>
                           <input type="hidden" name="line_id[]" value="<?php echo $lineId; ?>">
+                          <input type="hidden" name="metric_code[]" value="<?php echo html_escape((string)($line['metric_code'] ?? '')); ?>">
                           <div class="fw-semibold"><?php echo html_escape((string)($line['metric_label'] ?? '-')); ?></div>
                           <div class="small text-muted"><?php echo html_escape((string)($line['metric_group'] ?? '-')); ?> | <?php echo html_escape((string)($line['metric_code'] ?? '-')); ?></div>
                         </td>
                         <td>
+                          <?php
+                            $metricCode = strtoupper(trim((string)($line['metric_code'] ?? '')));
+                            $displayComparator = strtoupper(trim((string)($line['comparator'] ?? 'MIN')));
+                            $forceMinDisplay = [
+                              'POS_REVENUE',
+                              'ESTIMATED_PROFIT_VALUE',
+                              'ESTIMATED_PROFIT_PERCENT',
+                              'PAYROLL_ESTIMATE_RUNNING',
+                              'RAW_MATERIAL_IN_VALUE',
+                              'RAW_MATERIAL_USAGE_VALUE',
+                            ];
+                            $forceMaxDisplay = [
+                              'POS_REFUND',
+                              'PURCHASE_RAW_MATERIAL',
+                              'PURCHASE_OPERATIONAL',
+                              'PURCHASE_UTILITY',
+                              'PURCHASE_ASSET',
+                              'PURCHASE_OTHER',
+                              'PAYABLE_OUTSTANDING',
+                              'RECEIVABLE_OUTSTANDING',
+                              'CASH_ADVANCE_OUTSTANDING',
+                              'LIVE_HPP_VALUE',
+                              'WAREHOUSE_ADJUSTMENT_VALUE',
+                              'DIVISION_ADJUSTMENT_VALUE',
+                              'COMPONENT_ADJUSTMENT_VALUE',
+                            ];
+                            if (in_array($metricCode, $forceMinDisplay, true)) {
+                              $displayComparator = 'MIN';
+                            } elseif (in_array($metricCode, $forceMaxDisplay, true)) {
+                              $displayComparator = 'MAX';
+                            }
+                          ?>
                           <select name="comparator[]" class="form-select form-select-sm">
                             <?php foreach (['MIN' => 'Semakin besar semakin baik', 'MAX' => 'Semakin kecil semakin baik', 'RANGE' => 'Harus di rentang tertentu', 'EQUAL' => 'Harus sama persis'] as $comp => $label): ?>
-                              <option value="<?php echo $comp; ?>" <?php echo strtoupper((string)($line['comparator'] ?? 'MIN')) === $comp ? 'selected' : ''; ?>><?php echo $label; ?></option>
+                              <option value="<?php echo $comp; ?>" <?php echo $displayComparator === $comp ? 'selected' : ''; ?>><?php echo $label; ?></option>
                             <?php endforeach; ?>
                           </select>
                         </td>

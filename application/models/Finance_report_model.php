@@ -1621,9 +1621,22 @@ class Finance_report_model extends CI_Model
                 ->select('NULL AS last_realization_date', false);
         }
         $this->apply_target_plan_filters($db, $filters);
-        return $db->order_by('tp.date_end', 'DESC')
-            ->order_by('tp.id', 'DESC')
-            ->limit(max(1, $limit), max(0, $offset))
+        $sortMode = strtoupper(trim((string)($filters['sort_mode'] ?? 'DEFAULT')));
+        if ($sortMode === 'PROGRESS') {
+            $db->order_by("CASE
+                    WHEN tp.target_scope = 'MONTHLY' THEN 0
+                    WHEN tp.target_scope = 'DAILY' THEN 1
+                    ELSE 2
+                END", '', false)
+                ->order_by('tp.date_start', 'ASC')
+                ->order_by('tp.date_end', 'ASC')
+                ->order_by('tp.id', 'DESC');
+        } else {
+            $db->order_by('tp.date_end', 'DESC')
+                ->order_by('tp.id', 'DESC');
+        }
+
+        return $db->limit(max(1, $limit), max(0, $offset))
             ->get()->result_array();
     }
 
@@ -1661,33 +1674,499 @@ class Finance_report_model extends CI_Model
     public function list_target_progress_dashboard(array $filters = [], int $limit = 25, int $offset = 0, string $asOfDate = ''): array
     {
         $rows = $this->list_target_plans($filters, $limit, $offset);
+        if (empty($rows)) {
+            return [];
+        }
+
         if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
             $asOfDate = date('Y-m-d');
         }
 
-        foreach ($rows as &$row) {
-            $planStart = (string)($row['date_start'] ?? $asOfDate);
-            $planEnd = (string)($row['date_end'] ?? $asOfDate);
-            $progressDate = $asOfDate;
-            if ($progressDate < $planStart) {
-                $progressDate = $planStart;
+        $targetPlanIds = array_values(array_filter(array_map(static function (array $row): int {
+            return (int)($row['id'] ?? 0);
+        }, $rows)));
+        $linesMap = $this->list_target_plan_lines_map($targetPlanIds);
+
+        $rangeMetricMap = [];
+        foreach ($rows as $row) {
+            $range = $this->normalize_progress_effective_range($row, $asOfDate);
+            $rangeKey = $range['date_start'] . '|' . $range['date_end'];
+            if (!isset($rangeMetricMap[$rangeKey])) {
+                $rangeMetricMap[$rangeKey] = [];
             }
-            if ($progressDate > $planEnd) {
-                $progressDate = $planEnd;
+            foreach (($linesMap[(int)($row['id'] ?? 0)] ?? []) as $line) {
+                $metricCode = strtoupper(trim((string)($line['metric_code'] ?? '')));
+                if ($metricCode !== '') {
+                    $rangeMetricMap[$rangeKey][$metricCode] = $metricCode;
+                }
+            }
+        }
+
+        $liveMetricCache = [];
+        foreach ($rangeMetricMap as $rangeKey => $metricCodes) {
+            [$rangeStart, $rangeEnd] = explode('|', $rangeKey, 2);
+            $liveMetricCache[$rangeKey] = $this->collect_progress_live_metric_index($rangeStart, $rangeEnd, array_values($metricCodes));
+        }
+
+        foreach ($rows as &$row) {
+            $range = $this->normalize_progress_effective_range($row, $asOfDate);
+            $rangeKey = $range['date_start'] . '|' . $range['date_end'];
+            $rowLines = $linesMap[(int)($row['id'] ?? 0)] ?? [];
+            $metricIndex = $liveMetricCache[$rangeKey] ?? [];
+
+            $liveWeightedScoreSum = 0.0;
+            $liveWeightTotal = 0.0;
+            $liveRequiredFailedCount = 0;
+            $snapshotWeightedScoreSum = 0.0;
+            $snapshotWeightTotal = 0.0;
+            $snapshotRequiredFailedCount = 0;
+            $liveProfitValue = null;
+            $snapshotProfitValue = null;
+            $liveSummary = [];
+            $targetSummary = [];
+            $snapshotSummary = [];
+
+            foreach ($rowLines as $line) {
+                $metricCode = strtoupper(trim((string)($line['metric_code'] ?? '')));
+                $targetValue = round((float)($line['target_value'] ?? 0), 2);
+                $targetSummary[] = [
+                    'metric_label' => (string)($line['metric_label'] ?? ''),
+                    'target_value' => $targetValue,
+                ];
+
+                $resolvedLive = $this->resolve_progress_metric_from_index($row, $line, $metricIndex);
+                $liveScore = $this->calculate_target_score($line, (float)($resolvedLive['actual_value'] ?? 0));
+                $weight = round((float)($line['weight_percent'] ?? 0), 4);
+                if ($weight <= 0) {
+                    $weight = 1.0;
+                }
+
+                $liveWeightedScoreSum += ((float)($liveScore['score_percent'] ?? 0) * $weight);
+                $liveWeightTotal += $weight;
+                if ((int)($line['is_required'] ?? 0) === 1 && empty($liveScore['bonus_gate_passed'])) {
+                    $liveRequiredFailedCount++;
+                }
+                if ($metricCode === 'ESTIMATED_PROFIT_VALUE') {
+                    $liveProfitValue = round((float)($resolvedLive['actual_value'] ?? 0), 2);
+                }
+
+                $liveSummary[] = [
+                    'metric_label' => (string)($line['metric_label'] ?? ''),
+                    'actual_value' => round((float)($resolvedLive['actual_value'] ?? 0), 2),
+                    'score_percent' => round((float)($liveScore['score_percent'] ?? 0), 2),
+                ];
+
+                if ($line['latest_actual_value'] !== null) {
+                    $snapshotScore = $this->calculate_target_score($line, (float)$line['latest_actual_value']);
+                    $snapshotWeightedScoreSum += ((float)($snapshotScore['score_percent'] ?? 0) * $weight);
+                    $snapshotWeightTotal += $weight;
+                    if ((int)($line['is_required'] ?? 0) === 1 && empty($snapshotScore['bonus_gate_passed'])) {
+                        $snapshotRequiredFailedCount++;
+                    }
+                    if ($metricCode === 'ESTIMATED_PROFIT_VALUE') {
+                        $snapshotProfitValue = round((float)($line['latest_actual_value'] ?? 0), 2);
+                    }
+                    $snapshotSummary[] = [
+                        'metric_label' => (string)($line['metric_label'] ?? ''),
+                        'actual_value' => round((float)($line['latest_actual_value'] ?? 0), 2),
+                        'score_percent' => round((float)($snapshotScore['score_percent'] ?? 0), 2),
+                    ];
+                }
             }
 
-            $progress = $this->get_target_progress_snapshot((int)($row['id'] ?? 0), $progressDate);
-            $row['progress_as_of_date'] = $progressDate;
-            $row['progress_ok'] = !empty($progress['ok']) && !empty($progress['applicable']) ? 1 : 0;
-            $row['progress_score_percent'] = !empty($progress['ok']) ? round((float)($progress['avg_score_percent'] ?? 0), 2) : 0.0;
-            $row['progress_required_failed_count'] = !empty($progress['ok']) ? (int)($progress['required_failed_count'] ?? 0) : 0;
-            $row['progress_all_required_passed'] = !empty($progress['ok']) && !empty($progress['all_required_passed']) ? 1 : 0;
-            $row['progress_notes'] = (string)($progress['notes'] ?? 'Belum ada bacaan realisasi.');
-            $row['progress_lines'] = !empty($progress['lines']) ? array_slice((array)$progress['lines'], 0, 4) : [];
+            $liveAvgScore = $liveWeightTotal > 0 ? round($liveWeightedScoreSum / $liveWeightTotal, 2) : null;
+            $hasSnapshot = (int)($row['realization_count'] ?? 0) > 0;
+            $snapshotAvgScore = $snapshotWeightTotal > 0 ? round($snapshotWeightedScoreSum / $snapshotWeightTotal, 2) : null;
+            $lastSnapshotDate = null;
+            foreach ($rowLines as $line) {
+                $lineDate = trim((string)($line['latest_realization_date'] ?? ''));
+                if ($lineDate !== '' && ($lastSnapshotDate === null || $lineDate > $lastSnapshotDate)) {
+                    $lastSnapshotDate = $lineDate;
+                }
+            }
+
+            $row['progress_as_of_date'] = $range['as_of_date'];
+            $row['progress_live_date_start'] = $range['date_start'];
+            $row['progress_live_date_end'] = $range['date_end'];
+            $row['progress_target_summary'] = array_slice($targetSummary, 0, 4);
+            $row['progress_live_summary'] = array_slice($liveSummary, 0, 4);
+            $row['progress_snapshot_summary'] = array_slice($snapshotSummary, 0, 4);
+            $row['progress_live_score_percent'] = $liveAvgScore;
+            $row['progress_snapshot_score_percent'] = $hasSnapshot ? $snapshotAvgScore : null;
+            $row['progress_snapshot_date'] = $lastSnapshotDate;
+            $row['progress_required_failed_count'] = $liveRequiredFailedCount;
+            $row['progress_all_required_passed'] = $liveRequiredFailedCount === 0;
+            $row['progress_live_line_count'] = count($liveSummary);
+            $row['progress_snapshot_line_count'] = count($snapshotSummary);
+            $row['progress_status_label'] = $hasSnapshot ? 'Snapshot tersimpan' : 'Belum ada snapshot';
+            $row['progress_notes'] = $liveRequiredFailedCount > 0
+                ? 'Masih ada indikator wajib yang belum lolos di data berjalan.'
+                : 'Data berjalan sudah bisa dibaca langsung dari database aktif.';
+            $row['progress_live_bonus'] = $this->build_target_bonus_preview(
+                $row,
+                $liveAvgScore,
+                $liveRequiredFailedCount === 0,
+                $liveProfitValue,
+                false
+            );
+            $row['progress_snapshot_bonus'] = $hasSnapshot
+                ? $this->build_target_bonus_preview(
+                    $row,
+                    $snapshotAvgScore,
+                    $snapshotRequiredFailedCount === 0,
+                    $snapshotProfitValue,
+                    true
+                )
+                : [
+                    'amount' => null,
+                    'is_open' => false,
+                    'label' => 'Belum ada snapshot',
+                    'detail' => '',
+                ];
         }
         unset($row);
 
         return $rows;
+    }
+
+    private function build_target_bonus_preview(array $plan, ?float $scorePercent, bool $allRequiredPassed, ?float $profitValue, bool $isSnapshot): array
+    {
+        $gateMode = strtoupper(trim((string)($plan['bonus_gate_mode'] ?? 'WEIGHTED_SCORE')));
+        $minBonusScore = round((float)($plan['min_bonus_score'] ?? 100), 2);
+        $fixedPool = round((float)($plan['bonus_pool_amount'] ?? 0), 2);
+        $profitPercent = round((float)($plan['bonus_percent_of_profit'] ?? 0), 4);
+
+        if ($gateMode === 'NONE') {
+            return [
+                'amount' => null,
+                'is_open' => false,
+                'label' => 'Tidak dipakai bonus',
+                'detail' => 'Target ini hanya untuk monitoring, bukan pembuka bonus.',
+            ];
+        }
+
+        $isOpen = false;
+        if ($gateMode === 'ALL_REQUIRED') {
+            $isOpen = $allRequiredPassed;
+        } else {
+            $isOpen = $scorePercent !== null && $scorePercent >= $minBonusScore && $allRequiredPassed;
+        }
+
+        if (!$isOpen) {
+            $reason = $gateMode === 'ALL_REQUIRED'
+                ? 'Masih ada indikator wajib yang belum lolos.'
+                : 'Skor belum mencapai batas bonus ' . number_format($minBonusScore, 2, ',', '.') . '%.';
+            return [
+                'amount' => 0.0,
+                'is_open' => false,
+                'label' => 'Tertahan',
+                'detail' => $reason,
+            ];
+        }
+
+        $amount = 0.0;
+        $parts = [];
+        if ($fixedPool > 0) {
+            $amount += $fixedPool;
+            $parts[] = 'Pool tetap Rp ' . number_format($fixedPool, 2, ',', '.');
+        }
+        if ($profitPercent > 0) {
+            if ($profitValue !== null && $profitValue > 0) {
+                $profitBonus = round($profitValue * ($profitPercent / 100), 2);
+                $amount += $profitBonus;
+                $parts[] = rtrim(rtrim(number_format($profitPercent, 4, '.', ''), '0'), '.') . '% profit = Rp ' . number_format($profitBonus, 2, ',', '.');
+            } else {
+                $parts[] = rtrim(rtrim(number_format($profitPercent, 4, '.', ''), '0'), '.') . '% profit belum menghasilkan nilai positif';
+            }
+        }
+
+        if ($amount <= 0) {
+            return [
+                'amount' => 0.0,
+                'is_open' => true,
+                'label' => 'Lolos syarat',
+                'detail' => empty($parts)
+                    ? ($isSnapshot ? 'Bonus final mengikuti rule / pool bonus lain.' : 'Bonus mengikuti rule / pool bonus lain.')
+                    : implode(' | ', $parts),
+            ];
+        }
+
+        return [
+            'amount' => round($amount, 2),
+            'is_open' => true,
+            'label' => 'Rp ' . number_format($amount, 2, ',', '.'),
+            'detail' => implode(' | ', $parts),
+        ];
+    }
+
+    private function list_target_plan_lines_map(array $targetPlanIds): array
+    {
+        $targetPlanIds = array_values(array_filter(array_map('intval', $targetPlanIds)));
+        if (empty($targetPlanIds) || !$this->db->table_exists('fin_target_plan_line')) {
+            return [];
+        }
+
+        $db = $this->db->select('tl.*');
+        if ($this->db->table_exists('fin_target_realization')) {
+            $db->select('lr.actual_value AS latest_actual_value, lr.score_percent AS latest_score_percent, lr.is_passed AS latest_is_passed, lr.realization_date AS latest_realization_date')
+                ->join('(
+                    SELECT r1.target_plan_line_id, r1.actual_value, r1.score_percent, r1.is_passed, r1.realization_date
+                    FROM fin_target_realization r1
+                    INNER JOIN (
+                        SELECT target_plan_line_id, MAX(realization_date) AS latest_date
+                        FROM fin_target_realization
+                        GROUP BY target_plan_line_id
+                    ) rx
+                      ON rx.target_plan_line_id = r1.target_plan_line_id
+                     AND rx.latest_date = r1.realization_date
+                ) lr', 'lr.target_plan_line_id = tl.id', 'left', false);
+        } else {
+            $db->select('NULL AS latest_actual_value, NULL AS latest_score_percent, NULL AS latest_is_passed, NULL AS latest_realization_date', false);
+        }
+
+        $rows = $db->from('fin_target_plan_line tl')
+            ->where_in('tl.target_plan_id', $targetPlanIds)
+            ->order_by('tl.target_plan_id', 'ASC')
+            ->order_by('tl.metric_group', 'ASC')
+            ->order_by('tl.metric_label', 'ASC')
+            ->get()->result_array();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int)($row['target_plan_id'] ?? 0)][] = $row;
+        }
+
+        return $map;
+    }
+
+    private function normalize_progress_effective_range(array $plan, string $asOfDate): array
+    {
+        $planStart = (string)($plan['date_start'] ?? $asOfDate);
+        $planEnd = (string)($plan['date_end'] ?? $asOfDate);
+        $progressDate = $asOfDate;
+        if ($progressDate < $planStart) {
+            $progressDate = $planStart;
+        }
+        if ($progressDate > $planEnd) {
+            $progressDate = $planEnd;
+        }
+
+        $scope = strtoupper(trim((string)($plan['target_scope'] ?? 'MONTHLY')));
+        if ($scope === 'DAILY') {
+            return [
+                'as_of_date' => $progressDate,
+                'date_start' => $progressDate,
+                'date_end' => $progressDate,
+            ];
+        }
+
+        return [
+            'as_of_date' => $progressDate,
+            'date_start' => $planStart,
+            'date_end' => $progressDate,
+        ];
+    }
+
+    private function resolve_progress_metric_from_index(array $plan, array $line, array $metricIndex): array
+    {
+        $metricCode = strtoupper(trim((string)($line['metric_code'] ?? '')));
+        foreach ($this->target_scope_candidates($plan) as $scope) {
+            $key = $scope['scope_type'] . '|' . (int)$scope['scope_ref_id'] . '|' . $metricCode;
+            if (isset($metricIndex[$key])) {
+                return [
+                    'actual_value' => round((float)($metricIndex[$key]['metric_amount'] ?? 0), 2),
+                    'notes' => (string)($metricIndex[$key]['notes'] ?? ''),
+                ];
+            }
+        }
+
+        return [
+            'actual_value' => 0.0,
+            'notes' => 'Belum ada nilai berjalan untuk indikator ini.',
+        ];
+    }
+
+    private function collect_progress_live_metric_index(string $dateStart, string $dateEnd, array $metricCodes): array
+    {
+        $metricCodes = array_values(array_unique(array_filter(array_map(static function ($code): string {
+            return strtoupper(trim((string)$code));
+        }, $metricCodes))));
+        if (empty($metricCodes)) {
+            return [];
+        }
+
+        $bucket = [];
+        $monthStart = date('Y-m-01', strtotime($dateStart));
+        $monthEnd = date('Y-m-01', strtotime($dateEnd));
+
+        $needsSnapshot = array_intersect($metricCodes, [
+            'PAYABLE_OUTSTANDING',
+            'RECEIVABLE_OUTSTANDING',
+            'CASH_ADVANCE_OUTSTANDING',
+            'REAL_BALANCE_VALUE',
+            'PHYSICAL_BALANCE_VALUE',
+            'WAREHOUSE_ENDING_STOCK_VALUE',
+            'DIVISION_ENDING_STOCK_VALUE',
+        ]);
+        if (!empty($needsSnapshot)) {
+            $snapshotRows = $this->collect_account_snapshot_rows($dateStart, $dateEnd, $this->active_company_accounts());
+            $physicalTotal = 0.0;
+            $realTotal = 0.0;
+            $payableTotal = 0.0;
+            $receivableTotal = 0.0;
+            $cashAdvanceTotal = 0.0;
+            foreach ($snapshotRows as $row) {
+                $accountId = (int)($row['company_account_id'] ?? 0);
+                $physical = round((float)($row['closing_balance_physical'] ?? 0), 2);
+                $real = round((float)($row['closing_balance_real'] ?? 0), 2);
+                $payable = round((float)($row['payable_outstanding'] ?? 0), 2);
+                $receivable = round((float)($row['receivable_outstanding'] ?? 0), 2);
+                $cashAdvance = round((float)($row['cash_advance_outstanding'] ?? 0), 2);
+
+                $this->metric_add($bucket, 'ACCOUNT', $accountId, 'CASH_POSITION', 'PHYSICAL_BALANCE_VALUE', 'Saldo Fisik', $physical, 0, 'snapshot_account', 'Snapshot saldo fisik per rekening');
+                $this->metric_add($bucket, 'ACCOUNT', $accountId, 'CASH_POSITION', 'REAL_BALANCE_VALUE', 'Saldo Riil', $real, 0, 'snapshot_account', 'Snapshot saldo riil per rekening');
+                $this->metric_add($bucket, 'ACCOUNT', $accountId, 'EXPOSURE', 'PAYABLE_OUTSTANDING', 'Utang Outstanding', $payable, 0, 'snapshot_account', 'Utang aktif per rekening');
+                $this->metric_add($bucket, 'ACCOUNT', $accountId, 'EXPOSURE', 'RECEIVABLE_OUTSTANDING', 'Piutang Outstanding', $receivable, 0, 'snapshot_account', 'Piutang aktif per rekening');
+
+                $physicalTotal += $physical;
+                $realTotal += $real;
+                $payableTotal += $payable;
+                $receivableTotal += $receivable;
+                $cashAdvanceTotal += $cashAdvance;
+            }
+
+            $this->metric_add($bucket, 'GLOBAL', 0, 'CASH_POSITION', 'PHYSICAL_BALANCE_VALUE', 'Saldo Fisik', $physicalTotal, 0, 'snapshot_global', 'Akumulasi saldo fisik semua rekening');
+            $this->metric_add($bucket, 'GLOBAL', 0, 'CASH_POSITION', 'REAL_BALANCE_VALUE', 'Saldo Riil', $realTotal, 0, 'snapshot_global', 'Akumulasi saldo riil semua rekening');
+            $this->metric_add($bucket, 'GLOBAL', 0, 'EXPOSURE', 'PAYABLE_OUTSTANDING', 'Utang Outstanding', $payableTotal, 0, 'snapshot_global', 'Akumulasi utang outstanding');
+            $this->metric_add($bucket, 'GLOBAL', 0, 'EXPOSURE', 'RECEIVABLE_OUTSTANDING', 'Piutang Outstanding', $receivableTotal, 0, 'snapshot_global', 'Akumulasi piutang outstanding');
+            $this->metric_add($bucket, 'GLOBAL', 0, 'EXPOSURE', 'CASH_ADVANCE_OUTSTANDING', 'Kasbon Outstanding', $cashAdvanceTotal, 0, 'snapshot_global', 'Akumulasi kasbon outstanding');
+        }
+
+        if (
+            !empty(array_intersect($metricCodes, ['POS_REVENUE', 'POS_REFUND', 'PAYROLL_DISBURSED']))
+            && $this->db->table_exists('fin_account_mutation_log')
+        ) {
+            $row = $this->db->select("
+                    COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'IN' THEN amount ELSE 0 END), 0) AS pos_revenue,
+                    COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS pos_refund,
+                    COALESCE(SUM(CASE WHEN ref_module = 'PAYROLL' AND ref_table = 'pay_salary_disbursement' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS payroll_disbursed
+                ", false)
+                ->from('fin_account_mutation_log')
+                ->where('mutation_date >=', $dateStart)
+                ->where('mutation_date <=', $dateEnd)
+                ->get()->row_array();
+
+            $this->metric_add($bucket, 'GLOBAL', 0, 'REVENUE', 'POS_REVENUE', 'Omzet POS', (float)($row['pos_revenue'] ?? 0), 0, 'fin_account_mutation_log', 'Akumulasi mutasi masuk POS');
+            $this->metric_add($bucket, 'GLOBAL', 0, 'REVENUE', 'POS_REFUND', 'Refund POS', (float)($row['pos_refund'] ?? 0), 0, 'fin_account_mutation_log', 'Akumulasi mutasi refund POS');
+            $this->metric_add($bucket, 'GLOBAL', 0, 'PAYROLL', 'PAYROLL_DISBURSED', 'Pencairan Gaji', (float)($row['payroll_disbursed'] ?? 0), 0, 'fin_account_mutation_log', 'Akumulasi gaji cair');
+        }
+
+        if (
+            !empty(array_intersect($metricCodes, [
+                'PURCHASE_RAW_MATERIAL', 'PURCHASE_OPERATIONAL', 'PURCHASE_UTILITY', 'PURCHASE_ASSET', 'PURCHASE_OTHER',
+            ]))
+            && $this->db->table_exists('pur_purchase_order')
+            && $this->db->table_exists('pur_purchase_order_line')
+            && $this->db->table_exists('mst_purchase_type')
+            && $this->db->table_exists('mst_posting_type')
+        ) {
+            $rows = $this->db->select("
+                    pt.type_code,
+                    pt.type_name,
+                    pst.affects_inventory,
+                    pst.affects_asset,
+                    pst.affects_expense,
+                    pst.affects_service,
+                    COALESCE(SUM(l.line_subtotal), 0) AS total_value
+                ", false)
+                ->from('pur_purchase_order po')
+                ->join('pur_purchase_order_line l', 'l.purchase_order_id = po.id', 'inner')
+                ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
+                ->join('mst_posting_type pst', 'pst.id = pt.posting_type_id', 'left')
+                ->where('po.request_date >=', $dateStart)
+                ->where('po.request_date <=', $dateEnd)
+                ->where('po.status <>', 'VOID')
+                ->group_by(['pt.type_code', 'pt.type_name', 'pst.affects_inventory', 'pst.affects_asset', 'pst.affects_expense', 'pst.affects_service'])
+                ->get()->result_array();
+
+            foreach ($rows as $row) {
+                $metricCode = $this->purchase_metric_code_for_row($row);
+                $metricLabel = $this->metric_label_for_code($metricCode);
+                $this->metric_add($bucket, 'GLOBAL', 0, 'PURCHASE', $metricCode, $metricLabel, (float)($row['total_value'] ?? 0), 0, 'pur_purchase_order', 'Akumulasi belanja per purchase type');
+            }
+        }
+
+        if (!empty(array_intersect($metricCodes, ['SR_PENDING_VALUE', 'PAYROLL_ESTIMATE_RUNNING', 'ESTIMATED_PROFIT_VALUE', 'ESTIMATED_PROFIT_PERCENT']))) {
+            $planning = $this->planning_summary($dateStart, $dateEnd);
+            $payrollSourceMode = strtoupper((string)($planning['salary_source_mode'] ?? 'ESTIMATE'));
+            $this->metric_add($bucket, 'GLOBAL', 0, 'PROCUREMENT', 'SR_PENDING_VALUE', 'SR Pending', (float)($planning['store_request_pending_value'] ?? 0), 0, 'pur_store_request', 'Estimasi store request yang masih pending');
+            $this->metric_add(
+                $bucket,
+                'GLOBAL',
+                0,
+                'PAYROLL',
+                'PAYROLL_ESTIMATE_RUNNING',
+                'Estimasi Gaji Berjalan',
+                (float)($planning['salary_estimate_running'] ?? 0),
+                0,
+                $payrollSourceMode === 'ACTUAL' ? 'pay_payroll_result' : 'payroll_preview',
+                $payrollSourceMode === 'ACTUAL'
+                    ? 'Nilai diisi dari payroll yang sudah tergenerate.'
+                    : 'Nilai masih memakai estimasi payroll berjalan.'
+            );
+        }
+
+        if (!empty(array_intersect($metricCodes, [
+            'SR_PENDING_VALUE', 'PAYROLL_ESTIMATE_RUNNING', 'RAW_MATERIAL_IN_VALUE', 'RAW_MATERIAL_USAGE_VALUE',
+            'DIVISION_ADJUSTMENT_VALUE', 'DIVISION_ENDING_STOCK_VALUE', 'COMPONENT_ADJUSTMENT_VALUE',
+            'LIVE_HPP_VALUE', 'CASH_ADVANCE_OUTSTANDING'
+        ]))) {
+            foreach ($this->division_metric_rows($dateStart, $dateEnd, $monthStart, $monthEnd) as $row) {
+                $this->metric_add(
+                    $bucket,
+                    'DIVISION',
+                    (int)$row['scope_ref_id'],
+                    (string)$row['metric_group'],
+                    (string)$row['metric_code'],
+                    (string)$row['metric_label'],
+                    (float)$row['metric_amount'],
+                    (float)$row['metric_qty'],
+                    (string)$row['source_ref'],
+                    (string)$row['notes']
+                );
+            }
+        }
+
+        if (!empty(array_intersect($metricCodes, ['WAREHOUSE_ADJUSTMENT_VALUE', 'WAREHOUSE_ENDING_STOCK_VALUE', 'LIVE_HPP_VALUE']))) {
+            foreach ($this->global_inventory_metric_rows($dateStart, $dateEnd, $monthStart, $monthEnd) as $row) {
+                $this->metric_add(
+                    $bucket,
+                    'GLOBAL',
+                    0,
+                    (string)$row['metric_group'],
+                    (string)$row['metric_code'],
+                    (string)$row['metric_label'],
+                    (float)$row['metric_amount'],
+                    (float)$row['metric_qty'],
+                    (string)$row['source_ref'],
+                    (string)$row['notes']
+                );
+            }
+        }
+
+        if (!empty(array_intersect($metricCodes, ['ESTIMATED_PROFIT_VALUE', 'ESTIMATED_PROFIT_PERCENT']))) {
+            $profitSummary = $this->estimated_profit_summary($dateStart, $dateEnd);
+            $this->metric_add($bucket, 'GLOBAL', 0, 'PROFITABILITY', 'ESTIMATED_PROFIT_VALUE', 'Profit Estimasi', (float)($profitSummary['estimated_profit_value'] ?? 0), 0, 'derived_global', (string)($profitSummary['notes'] ?? 'Profit estimasi dari data berjalan.'));
+            $this->metric_add($bucket, 'GLOBAL', 0, 'PROFITABILITY', 'ESTIMATED_PROFIT_PERCENT', 'Margin Profit Estimasi %', (float)($profitSummary['estimated_profit_percent'] ?? 0), 0, 'derived_global', 'Margin estimasi dari data berjalan.');
+        }
+
+        $index = [];
+        foreach ($bucket as $row) {
+            $key = strtoupper((string)($row['scope_type'] ?? 'GLOBAL')) . '|' . (int)($row['scope_ref_id'] ?? 0) . '|' . strtoupper((string)($row['metric_code'] ?? ''));
+            $index[$key] = $row;
+        }
+
+        return $index;
     }
 
     public function save_target_plan(array $payload, int $actorUserId = 0): array
@@ -1907,6 +2386,7 @@ class Finance_report_model extends CI_Model
                     ? (string)$catalogRow['comparator_hint']
                     : 'MAX';
             }
+            $selectedComparator = $this->normalize_target_line_comparator($metricCode, $selectedComparator);
             $selectedWeight = $weightMap[$metricCode] ?? '';
             $finalWeight = is_numeric($selectedWeight) ? round((float)$selectedWeight, 4) : $weight;
             $this->db->insert('fin_target_plan_line', [
@@ -2399,6 +2879,7 @@ class Finance_report_model extends CI_Model
         }
 
         $comparator = $payload['comparator'] ?? [];
+        $metricCodeArr = $payload['metric_code'] ?? [];
         $targetValue = $payload['target_value'] ?? [];
         $minimumValue = $payload['minimum_value'] ?? [];
         $maximumValue = $payload['maximum_value'] ?? [];
@@ -2419,6 +2900,8 @@ class Finance_report_model extends CI_Model
             if (!in_array($comp, ['MIN', 'MAX', 'RANGE', 'EQUAL'], true)) {
                 $comp = 'MIN';
             }
+            $metricCode = strtoupper(trim((string)($metricCodeArr[$idx] ?? '')));
+            $comp = $this->normalize_target_line_comparator($metricCode, $comp);
 
             $update = [
                 'comparator' => $comp,
@@ -2879,25 +3362,9 @@ class Finance_report_model extends CI_Model
             );
         }
 
-        $globalNetRevenue = $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'POS_REVENUE')
-            - $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'POS_REFUND');
-        $globalEstimatedCost = $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'LIVE_HPP_VALUE')
-            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'PURCHASE_OPERATIONAL')
-            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'PURCHASE_UTILITY')
-            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'PURCHASE_OTHER')
-            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'PAYROLL_ESTIMATE_RUNNING')
-            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'WAREHOUSE_ADJUSTMENT_VALUE')
-            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'DIVISION_ADJUSTMENT_VALUE')
-            + $this->bucket_metric_amount($bucket, 'GLOBAL', 0, 'COMPONENT_ADJUSTMENT_VALUE');
-        $globalEstimatedProfit = round($globalNetRevenue - $globalEstimatedCost, 2);
-        $globalEstimatedProfitPct = $globalNetRevenue > 0
-            ? round(($globalEstimatedProfit / $globalNetRevenue) * 100, 2)
-            : 0.00;
-
-        $this->metric_add($bucket, 'GLOBAL', 0, 'PROFITABILITY', 'ESTIMATED_PROFIT_VALUE', 'Profit Estimasi', $globalEstimatedProfit, 0, 'derived_global', $payrollSourceMode === 'ACTUAL'
-            ? 'Profit memakai payroll aktual: omzet bersih - HPP live - beban operasional - payroll aktual - adjustment.'
-            : 'Profit memakai estimasi payroll: omzet bersih - HPP live - beban operasional - estimasi gaji - adjustment.');
-        $this->metric_add($bucket, 'GLOBAL', 0, 'PROFITABILITY', 'ESTIMATED_PROFIT_PERCENT', 'Margin Profit Estimasi %', $globalEstimatedProfitPct, 0, 'derived_global', 'Margin estimasi dihitung dari profit estimasi dibanding omzet bersih.');
+        $profitSummary = $this->estimated_profit_summary($dateStart, $dateEnd);
+        $this->metric_add($bucket, 'GLOBAL', 0, 'PROFITABILITY', 'ESTIMATED_PROFIT_VALUE', 'Profit Estimasi', (float)($profitSummary['estimated_profit_value'] ?? 0), 0, 'derived_global', (string)($profitSummary['notes'] ?? 'Profit estimasi dari data berjalan.'));
+        $this->metric_add($bucket, 'GLOBAL', 0, 'PROFITABILITY', 'ESTIMATED_PROFIT_PERCENT', 'Margin Profit Estimasi %', (float)($profitSummary['estimated_profit_percent'] ?? 0), 0, 'derived_global', 'Margin estimasi dihitung dari profit estimasi dibanding omzet bersih.');
 
         return array_values($bucket);
     }
@@ -3242,6 +3709,54 @@ class Finance_report_model extends CI_Model
         }
 
         return $summary;
+    }
+
+    private function estimated_profit_summary(string $dateStart, string $dateEnd): array
+    {
+        $netRevenue = 0.0;
+        $expenseTotal = 0.0;
+        if ($this->db->table_exists('fin_account_mutation_log')) {
+            $row = $this->db->select("
+                    COALESCE(SUM(CASE
+                        WHEN ref_module = 'POS'
+                         AND mutation_type = 'IN'
+                        THEN amount ELSE 0 END), 0) AS sales_total,
+                    COALESCE(SUM(CASE
+                        WHEN ref_module = 'POS'
+                         AND mutation_type = 'OUT'
+                         AND ref_table = 'pos_refund'
+                        THEN amount ELSE 0 END), 0) AS refund_total,
+                    COALESCE(SUM(CASE
+                        WHEN mutation_type = 'OUT'
+                         AND NOT (ref_module = 'POS' AND ref_table = 'pos_refund')
+                         AND COALESCE(ref_module, '') NOT IN ('FINANCE_TRANSFER', 'FINANCE_PAYABLE', 'FINANCE_RECEIVABLE', 'PAYROLL')
+                        THEN amount ELSE 0 END), 0) AS expense_total
+                ", false)
+                ->from('fin_account_mutation_log')
+                ->where('mutation_date >=', $dateStart)
+                ->where('mutation_date <=', $dateEnd)
+                ->get()->row_array();
+
+            $netRevenue = round((float)($row['sales_total'] ?? 0) - (float)($row['refund_total'] ?? 0), 2);
+            $expenseTotal = round((float)($row['expense_total'] ?? 0), 2);
+        }
+
+        $planning = $this->planning_summary($dateStart, $dateEnd);
+        $salaryTotal = round((float)($planning['salary_estimate_running'] ?? 0), 2);
+        $estimatedProfit = round($netRevenue - $expenseTotal - $salaryTotal, 2);
+        $estimatedProfitPercent = $netRevenue > 0 ? round(($estimatedProfit / $netRevenue) * 100, 2) : 0.00;
+        $payrollSourceMode = strtoupper((string)($planning['salary_source_mode'] ?? 'ESTIMATE'));
+
+        return [
+            'net_revenue' => $netRevenue,
+            'expense_total' => $expenseTotal,
+            'salary_total' => $salaryTotal,
+            'estimated_profit_value' => $estimatedProfit,
+            'estimated_profit_percent' => $estimatedProfitPercent,
+            'notes' => $payrollSourceMode === 'ACTUAL'
+                ? 'Profit estimasi = omzet bersih - pengeluaran - gaji aktual yang sudah tergenerate.'
+                : 'Profit estimasi = omzet bersih - pengeluaran - estimasi gaji berjalan.',
+        ];
     }
 
     private function metric_add(array &$bucket, string $scopeType, int $scopeRefId, string $metricGroup, string $metricCode, string $metricLabel, float $amount, float $qty = 0.0, string $sourceRef = '', string $notes = ''): void
@@ -3602,7 +4117,8 @@ class Finance_report_model extends CI_Model
 
     private function calculate_target_score(array $line, float $actualValue): array
     {
-        $comparator = strtoupper(trim((string)($line['comparator'] ?? 'MIN')));
+        $metricCode = strtoupper(trim((string)($line['metric_code'] ?? '')));
+        $comparator = $this->normalize_target_line_comparator($metricCode, (string)($line['comparator'] ?? 'MIN'));
         $targetValue = round((float)($line['target_value'] ?? 0), 2);
         $minimumValue = $line['minimum_value'] !== null ? round((float)$line['minimum_value'], 2) : null;
         $maximumValue = $line['maximum_value'] !== null ? round((float)$line['maximum_value'], 2) : null;
@@ -3672,6 +4188,8 @@ class Finance_report_model extends CI_Model
         $status = strtoupper(trim((string)($filters['status'] ?? '')));
         $scope = strtoupper(trim((string)($filters['target_scope'] ?? '')));
         $divisionId = (int)($filters['division_id'] ?? 0);
+        $dateStart = trim((string)($filters['date_start'] ?? ''));
+        $dateEnd = trim((string)($filters['date_end'] ?? ''));
 
         if ($q !== '') {
             $db->group_start()
@@ -3682,6 +4200,8 @@ class Finance_report_model extends CI_Model
         }
         if (in_array($status, ['DRAFT', 'ACTIVE', 'LOCKED', 'VOID'], true)) {
             $db->where('tp.status', $status);
+        } elseif ($status === 'NONACTIVE') {
+            $db->where('tp.status <>', 'ACTIVE');
         }
         if (in_array($scope, ['DAILY', 'MONTHLY', 'YEARLY'], true)) {
             $db->where('tp.target_scope', $scope);
@@ -3689,5 +4209,54 @@ class Finance_report_model extends CI_Model
         if ($divisionId > 0) {
             $db->where('tp.division_id', $divisionId);
         }
+        if (preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateStart) && preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateEnd)) {
+            if ($dateStart > $dateEnd) {
+                [$dateStart, $dateEnd] = [$dateEnd, $dateStart];
+            }
+            $db->where('tp.date_start <=', $dateEnd)
+                ->where('tp.date_end >=', $dateStart);
+        }
+    }
+
+    private function normalize_target_line_comparator(string $metricCode, string $comparator): string
+    {
+        $metricCode = strtoupper(trim($metricCode));
+        $comparator = strtoupper(trim($comparator));
+        if (!in_array($comparator, ['MIN', 'MAX', 'RANGE', 'EQUAL'], true)) {
+            $comparator = 'MIN';
+        }
+
+        $forceMin = [
+            'POS_REVENUE',
+            'ESTIMATED_PROFIT_VALUE',
+            'ESTIMATED_PROFIT_PERCENT',
+            'PAYROLL_ESTIMATE_RUNNING',
+            'RAW_MATERIAL_IN_VALUE',
+            'RAW_MATERIAL_USAGE_VALUE',
+        ];
+        $forceMax = [
+            'POS_REFUND',
+            'PURCHASE_RAW_MATERIAL',
+            'PURCHASE_OPERATIONAL',
+            'PURCHASE_UTILITY',
+            'PURCHASE_ASSET',
+            'PURCHASE_OTHER',
+            'PAYABLE_OUTSTANDING',
+            'RECEIVABLE_OUTSTANDING',
+            'CASH_ADVANCE_OUTSTANDING',
+            'LIVE_HPP_VALUE',
+            'WAREHOUSE_ADJUSTMENT_VALUE',
+            'DIVISION_ADJUSTMENT_VALUE',
+            'COMPONENT_ADJUSTMENT_VALUE',
+        ];
+
+        if (in_array($metricCode, $forceMin, true)) {
+            return 'MIN';
+        }
+        if (in_array($metricCode, $forceMax, true)) {
+            return 'MAX';
+        }
+
+        return $comparator;
     }
 }
