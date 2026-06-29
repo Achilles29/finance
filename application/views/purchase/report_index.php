@@ -13,6 +13,7 @@ $matrixDates = (array)($matrix_dates ?? []);
 $matrixRows = (array)($matrix_rows ?? []);
 $matrixDetailMap = (array)($matrix_detail_map ?? []);
 $detailRows = (array)($detail_rows ?? []);
+$reportDetailBaseUrl = site_url('purchase-orders/report/detail');
 ?>
 
 <style>
@@ -24,6 +25,39 @@ $detailRows = (array)($detail_rows ?? []);
   .pur-report-tablink { font-weight: 700; }
   .pur-filter-row .form-label { font-size: .78rem; font-weight: 700; margin-bottom: .35rem; }
   .pur-filter-actions { display: flex; gap: .5rem; align-items: end; justify-content: flex-end; }
+  .pur-summary-card { height: 100%; }
+  .pur-summary-table-wrap {
+    max-height: 520px;
+    min-height: 520px;
+    overflow: auto;
+    border: 1px solid #eadfd8;
+    border-radius: 12px;
+    background: #fff;
+  }
+  .pur-summary-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #fff;
+    box-shadow: inset 0 -1px 0 #eadfd8;
+  }
+  .pur-report-link { color: inherit; text-decoration: none; font-weight: 600; }
+  .pur-report-link:hover { text-decoration: underline; }
+  .pur-daily-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    flex-wrap: wrap;
+    margin-top: .85rem;
+  }
+  .pur-daily-pager-buttons {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+    flex-wrap: wrap;
+  }
+  .pur-daily-pager-buttons .btn { min-width: 40px; }
   .pur-matrix th, .pur-matrix td { white-space: nowrap; font-size: .74rem; }
   .pur-matrix-wrap {
     max-height: 68vh;
@@ -49,7 +83,7 @@ $detailRows = (array)($detail_rows ?? []);
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
     <h4 class="mb-1"><i class="ri ri-file-chart-line page-title-icon"></i>Laporan Purchase</h4>
-    <small class="text-muted">Ringkasan bulanan, harian, dan detail per tipe purchase per tanggal.</small>
+    <small class="text-muted">Ringkasan bulanan, harian, dan akses cepat ke rincian belanja per tipe purchase.</small>
   </div>
 </div>
 
@@ -143,22 +177,35 @@ $detailRows = (array)($detail_rows ?? []);
 
 <div class="row g-3">
   <div class="col-lg-6">
-    <div class="card pur-report-card">
+    <div class="card pur-report-card pur-summary-card">
       <div class="card-body">
         <h6 class="mb-3">Ringkasan Bulanan</h6>
-        <div class="table-responsive">
-          <table class="table table-sm table-striped pur-report-table">
+        <div class="pur-summary-table-wrap">
+          <table class="table table-sm table-striped pur-report-table pur-summary-table mb-0">
             <thead><tr><th>Bulan</th><th>Tipe</th><th class="text-end">PO</th><th class="text-end">Qty</th><th class="text-end">Nilai</th></tr></thead>
             <tbody>
             <?php if (empty($monthlyRows)): ?>
               <tr><td colspan="5" class="text-center text-muted">Belum ada data.</td></tr>
             <?php else: foreach ($monthlyRows as $r): ?>
+              <?php
+                $monthKey = (string)($r['month_key'] ?? '');
+                $monthStart = preg_match('/^\d{4}-\d{2}$/', $monthKey) ? ($monthKey . '-01') : $dateFrom;
+                $monthEnd = $monthStart !== '' ? date('Y-m-t', strtotime($monthStart)) : $dateTo;
+                $detailUrl = $reportDetailBaseUrl . '?' . http_build_query([
+                  'date_from' => $monthStart,
+                  'date_to' => $monthEnd,
+                  'status' => $status,
+                  'purchase_type_id' => (int)($r['purchase_type_id'] ?? 0),
+                  'per_page' => 50,
+                  'page' => 1,
+                ]);
+              ?>
               <tr>
                 <td><?php echo html_escape((string)($r['month_key'] ?? '-')); ?></td>
-                <td><?php echo html_escape((string)($r['purchase_type_name'] ?? '-')); ?></td>
+                <td><a class="pur-report-link" href="<?php echo html_escape($detailUrl); ?>"><?php echo html_escape((string)($r['purchase_type_name'] ?? '-')); ?></a></td>
                 <td class="text-end"><?php echo number_format((int)($r['total_po'] ?? 0)); ?></td>
                 <td class="text-end"><?php echo number_format((float)($r['total_qty_buy'] ?? 0), 2, ',', '.'); ?></td>
-                <td class="text-end"><?php echo number_format((float)($r['total_value'] ?? 0), 2, ',', '.'); ?></td>
+                <td class="text-end"><a class="pur-report-link" href="<?php echo html_escape($detailUrl); ?>">Rp <?php echo number_format((float)($r['total_value'] ?? 0), 2, ',', '.'); ?></a></td>
               </tr>
             <?php endforeach; endif; ?>
             </tbody>
@@ -169,77 +216,21 @@ $detailRows = (array)($detail_rows ?? []);
   </div>
 
   <div class="col-lg-6">
-    <div class="card pur-report-card">
+    <div class="card pur-report-card pur-summary-card">
       <div class="card-body">
         <h6 class="mb-3">Ringkasan Harian</h6>
-        <div class="table-responsive">
-          <table class="table table-sm table-striped pur-report-table">
+        <div class="pur-summary-table-wrap">
+          <table class="table table-sm table-striped pur-report-table pur-summary-table mb-0">
             <thead><tr><th>Tanggal</th><th>Tipe</th><th class="text-end">PO</th><th class="text-end">Qty</th><th class="text-end">Nilai</th></tr></thead>
-            <tbody>
-            <?php if (empty($dailyRows)): ?>
-              <tr><td colspan="5" class="text-center text-muted">Belum ada data.</td></tr>
-            <?php else: foreach ($dailyRows as $r): ?>
-              <tr>
-                <td>
-                  <a href="<?php echo site_url('purchase-orders/report') . '?' . http_build_query([
-                    'date_from' => $dateFrom,
-                    'date_to' => $dateTo,
-                    'status' => $status,
-                    'purchase_type_id' => $purchaseTypeId,
-                    'detail_date' => (string)($r['request_date'] ?? ''),
-                    'detail_purchase_type_id' => (int)($r['purchase_type_id'] ?? 0),
-                  ]); ?>">
-                    <?php echo html_escape((string)($r['request_date'] ?? '-')); ?>
-                  </a>
-                </td>
-                <td><?php echo html_escape((string)($r['purchase_type_name'] ?? '-')); ?></td>
-                <td class="text-end"><?php echo number_format((int)($r['total_po'] ?? 0)); ?></td>
-                <td class="text-end"><?php echo number_format((float)($r['total_qty_buy'] ?? 0), 2, ',', '.'); ?></td>
-                <td class="text-end"><?php echo number_format((float)($r['total_value'] ?? 0), 2, ',', '.'); ?></td>
-              </tr>
-            <?php endforeach; endif; ?>
-            </tbody>
+            <tbody id="purDailyRows"></tbody>
           </table>
+        </div>
+        <div class="pur-daily-pager">
+          <div class="text-muted small" id="purDailyPagerText">Memuat data...</div>
+          <div class="pur-daily-pager-buttons" id="purDailyPagerButtons"></div>
         </div>
       </div>
     </div>
-  </div>
-</div>
-
-<div class="card pur-report-card mt-3">
-  <div class="card-body">
-    <h6 class="mb-3">Detail Tipe per Tanggal</h6>
-    <?php if ($detailDate === '' || $detailPurchaseTypeId <= 0): ?>
-      <div class="text-muted">Pilih tanggal pada tabel harian untuk melihat detail.</div>
-    <?php else: ?>
-      <div class="small text-muted mb-2">Tanggal: <strong><?php echo html_escape($detailDate); ?></strong> | Tipe ID: <strong><?php echo (int)$detailPurchaseTypeId; ?></strong></div>
-      <div class="table-responsive">
-        <table class="table table-sm table-striped pur-report-table">
-          <thead><tr><th>PO</th><th>Vendor</th><th>Rincian</th><th>Merk</th><th>Ket</th><th class="text-end">Qty</th><th class="text-end">UOM Isi</th><th class="text-end">Nilai</th><th>Status</th></tr></thead>
-          <tbody>
-          <?php if (empty($detailRows)): ?>
-            <tr><td colspan="9" class="text-center text-muted">Tidak ada data detail.</td></tr>
-          <?php else: foreach ($detailRows as $d):
-            $name = trim((string)($d['snapshot_item_name'] ?? ''));
-            if ($name === '') { $name = trim((string)($d['snapshot_material_name'] ?? '-')); }
-            if ($name === '' || $name === '-') { $name = trim((string)($d['snapshot_line_description'] ?? '-')); }
-          ?>
-            <tr>
-              <td><a href="<?php echo site_url('purchase-orders/detail/' . (int)($d['purchase_order_id'] ?? 0)); ?>"><?php echo html_escape((string)($d['po_no'] ?? '-')); ?></a></td>
-              <td><?php echo html_escape((string)($d['vendor_name'] ?? '-')); ?></td>
-              <td><?php echo html_escape($name); ?></td>
-              <td><?php echo html_escape((string)($d['snapshot_brand_name'] ?? '-')); ?></td>
-              <td><?php echo html_escape((string)($d['snapshot_line_description'] ?? '-')); ?></td>
-              <td class="text-end"><?php echo number_format((float)($d['qty_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($d['snapshot_buy_uom_code'] ?? '-')); ?></td>
-              <td class="text-end"><?php echo number_format((float)($d['content_per_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($d['snapshot_content_uom_code'] ?? '-')); ?></td>
-              <td class="text-end"><?php echo number_format((float)($d['line_subtotal'] ?? 0), 2, ',', '.'); ?></td>
-              <td><?php echo html_escape((string)($d['status'] ?? '-')); ?></td>
-            </tr>
-          <?php endforeach; endif; ?>
-          </tbody>
-        </table>
-      </div>
-    <?php endif; ?>
   </div>
 </div>
 <?php else: ?>
@@ -279,14 +270,13 @@ $detailRows = (array)($detail_rows ?? []);
                         $v = (float)($c['total_value'] ?? 0);
                         if ($v <= 0) { continue; }
                         $hasExpand = true;
-                        $link = site_url('purchase-orders/report') . '?' . http_build_query([
-                          'report_tab' => 'ringkasan',
-                          'date_from' => $dateFrom,
-                          'date_to' => $dateTo,
+                        $link = $reportDetailBaseUrl . '?' . http_build_query([
+                          'date_from' => $d,
+                          'date_to' => $d,
                           'status' => $status,
-                          'purchase_type_id' => $purchaseTypeId,
-                          'detail_date' => $d,
-                          'detail_purchase_type_id' => $typeId,
+                          'purchase_type_id' => $typeId,
+                          'per_page' => 50,
+                          'page' => 1,
                         ]);
                         echo '<div><a href="' . html_escape($link) . '">' . html_escape($d) . '</a> | PO ' . number_format((int)($c['total_po'] ?? 0)) . ' | Rp ' . number_format($v, 2, ',', '.') . '</div>';
                         $productRows = (array)($matrixDetailMap[$typeId][$d] ?? []);
@@ -320,4 +310,89 @@ $detailRows = (array)($detail_rows ?? []);
     </div>
   </div>
 </div>
+<?php endif; ?>
+
+<?php if ($reportTab === 'ringkasan'): ?>
+<script>
+(function () {
+  const rows = <?php echo json_encode(array_values($dailyRows), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?> || [];
+  const tbody = document.getElementById('purDailyRows');
+  const pagerText = document.getElementById('purDailyPagerText');
+  const pagerButtons = document.getElementById('purDailyPagerButtons');
+  const detailBaseUrl = <?php echo json_encode($reportDetailBaseUrl); ?>;
+  const state = { page: 1, perPage: 15 };
+  const numberFmt = new Intl.NumberFormat('id-ID');
+  const decimalFmt = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function buildDetailUrl(row) {
+    const params = new URLSearchParams();
+    params.set('date_from', row.request_date || '');
+    params.set('date_to', row.request_date || '');
+    params.set('status', <?php echo json_encode($status); ?> || 'ALL');
+    params.set('purchase_type_id', String(Number(row.purchase_type_id || 0)));
+    params.set('per_page', '50');
+    params.set('page', '1');
+    return detailBaseUrl + '?' + params.toString();
+  }
+
+  function renderRows() {
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Belum ada data.</td></tr>';
+      pagerText.textContent = 'Tidak ada data';
+      pagerButtons.innerHTML = '';
+      return;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(rows.length / state.perPage));
+    if (state.page > totalPages) {
+      state.page = totalPages;
+    }
+    const start = (state.page - 1) * state.perPage;
+    const end = Math.min(rows.length, start + state.perPage);
+    const pageRows = rows.slice(start, end);
+
+    tbody.innerHTML = pageRows.map(function (row) {
+      const detailUrl = buildDetailUrl(row);
+      return '<tr>'
+        + '<td><a class="pur-report-link" href="' + escapeHtml(detailUrl) + '">' + escapeHtml(row.request_date || '-') + '</a></td>'
+        + '<td><a class="pur-report-link" href="' + escapeHtml(detailUrl) + '">' + escapeHtml(row.purchase_type_name || '-') + '</a></td>'
+        + '<td class="text-end">' + numberFmt.format(Number(row.total_po || 0)) + '</td>'
+        + '<td class="text-end">' + decimalFmt.format(Number(row.total_qty_buy || 0)) + '</td>'
+        + '<td class="text-end"><a class="pur-report-link" href="' + escapeHtml(detailUrl) + '">Rp ' + decimalFmt.format(Number(row.total_value || 0)) + '</a></td>'
+        + '</tr>';
+    }).join('');
+
+    pagerText.textContent = 'Menampilkan ' + numberFmt.format(start + 1) + '-' + numberFmt.format(end) + ' dari ' + numberFmt.format(rows.length) + ' baris';
+    const buttons = [];
+    buttons.push('<button type="button" class="btn btn-sm btn-outline-secondary" data-page="' + Math.max(1, state.page - 1) + '" ' + (state.page <= 1 ? 'disabled' : '') + '>Prev</button>');
+    const firstPage = Math.max(1, state.page - 2);
+    const lastPage = Math.min(totalPages, state.page + 2);
+    for (let p = firstPage; p <= lastPage; p += 1) {
+      buttons.push('<button type="button" class="btn btn-sm ' + (p === state.page ? 'btn-primary' : 'btn-outline-secondary') + '" data-page="' + p + '">' + p + '</button>');
+    }
+    buttons.push('<button type="button" class="btn btn-sm btn-outline-secondary" data-page="' + Math.min(totalPages, state.page + 1) + '" ' + (state.page >= totalPages ? 'disabled' : '') + '>Next</button>');
+    pagerButtons.innerHTML = buttons.join('');
+    pagerButtons.querySelectorAll('button[data-page]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.disabled) {
+          return;
+        }
+        state.page = Number(btn.getAttribute('data-page') || 1);
+        renderRows();
+      });
+    });
+  }
+
+  renderRows();
+})();
+</script>
 <?php endif; ?>

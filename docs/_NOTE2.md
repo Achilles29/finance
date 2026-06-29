@@ -321,3 +321,25 @@ dan nanti harus generate pol 1 per 1 lagi?
 berikan saya ide agar bisa 1 kali klik untuk mengakomodir aturan daily
 
 saya rasa pola bonus perlu di rombak total agar lebih operasional
+
+
+
+
+modifikasi halaman /purchase-orders/report?report_tab
+
+- tabel Ringkasan Bulanan , tipe atau nominal agar hiperlink menuju halaman baru (buatkan halamannya). halaman yang menampilkan rincain belanja sesuai tipe yang dipilih dalam. halaman mempunyai filter range tanggal, filter baris (default 50), pencarian ajax, pagination. serta card ringkasan. tabel scrollable dan freeze di judul kolom
+
+- tabel Ringkasan Harian , menampilkan data per hari, ada pagination ke halaman selanjutnya tabel scrolabel dengan tinggi tabel sesuai dengan tabel sebelahnya (Ringkasan Bulanan). hiperlink ke halaman yang dibuat di atas tadi (poin pertama)
+
+
+perusahaan mempunyai hutang dan wajib membayar cicilan. bagaimana agar cicilan masuk dalam laporan pengeluaran
+
+cost produksi
+
+belanja untuk bahan baku
+
+laporan penggunaan bahan baku , batch produksi, spoil waste dan lainnya, pos
+
+
+laporan profit net, di penjualan dan produk berdasarkan hpp live
+¬

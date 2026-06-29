@@ -1850,7 +1850,7 @@ class Attendance_model extends CI_Model
     {
         $hasStandardSchema = $this->has_overtime_standard_schema();
         if ($withSelect) {
-            $select = 'oe.*, e.employee_code, e.employee_name, d.division_name, p.position_name, au.username AS approved_by_username';
+            $select = 'oe.*, e.employee_code, e.employee_name, d.division_name, p.position_name, ap.employee_name AS approved_by_username, ap.employee_name AS approved_by_name, ap.employee_code AS approved_by_employee_code';
             if ($hasStandardSchema) {
                 $select .= ', os.standard_name AS overtime_standard_name, os.hourly_rate AS overtime_standard_rate';
             }
@@ -1860,7 +1860,7 @@ class Attendance_model extends CI_Model
             ->join('org_employee e', 'e.id = oe.employee_id', 'inner')
             ->join('org_division d', 'd.id = e.division_id', 'left')
             ->join('org_position p', 'p.id = e.position_id', 'left')
-            ->join('auth_user au', 'au.id = oe.approved_by', 'left');
+            ->join('org_employee ap', 'ap.id = oe.approved_by', 'left');
         if ($hasStandardSchema) {
             $this->db->join('att_overtime_standard os', 'os.id = oe.overtime_standard_id', 'left');
         }
@@ -1898,14 +1898,21 @@ class Attendance_model extends CI_Model
         }
         $hasStandardSchema = $this->has_overtime_standard_schema();
         if ($hasStandardSchema) {
-            $this->db->select('oe.*, os.standard_name AS overtime_standard_name, os.hourly_rate AS overtime_standard_rate')
+            $this->db->select('oe.*, os.standard_name AS overtime_standard_name, os.hourly_rate AS overtime_standard_rate, ap.employee_name AS approved_by_name, ap.employee_code AS approved_by_employee_code')
                 ->from('att_overtime_entry oe')
                 ->join('att_overtime_standard os', 'os.id = oe.overtime_standard_id', 'left')
+                ->join('org_employee ap', 'ap.id = oe.approved_by', 'left')
                 ->where('oe.id', $id)
                 ->limit(1);
             return $this->db->get()->row_array() ?: null;
         }
-        return $this->db->from('att_overtime_entry')->where('id', $id)->limit(1)->get()->row_array() ?: null;
+        return $this->db->select('oe.*, ap.employee_name AS approved_by_name, ap.employee_code AS approved_by_employee_code')
+            ->from('att_overtime_entry oe')
+            ->join('org_employee ap', 'ap.id = oe.approved_by', 'left')
+            ->where('oe.id', $id)
+            ->limit(1)
+            ->get()
+            ->row_array() ?: null;
     }
 
     public function get_overtime_standard_options(): array
@@ -1921,7 +1928,7 @@ class Attendance_model extends CI_Model
             ->get()->result_array();
     }
 
-    public function save_overtime_entry(array $payload, int $actorUserId = 0): array
+    public function save_overtime_entry(array $payload, int $actorEmployeeId = 0): array
     {
         $id = (int)($payload['id'] ?? 0);
         $employeeId = (int)($payload['employee_id'] ?? 0);
@@ -1948,6 +1955,9 @@ class Attendance_model extends CI_Model
         }
         if (!in_array($status, ['PENDING', 'APPROVED', 'REJECTED'], true)) {
             $status = 'PENDING';
+        }
+        if ($status === 'APPROVED' && $actorEmployeeId <= 0) {
+            return ['ok' => false, 'message' => 'Akun login belum tertaut ke data pegawai, sehingga tidak bisa menjadi approver lembur APPROVED. Hubungkan user ke pegawai atau simpan sebagai PENDING dulu.'];
         }
 
         $employee = $this->db->select('id, overtime_rate')->from('org_employee')->where('id', $employeeId)->where('is_active', 1)->limit(1)->get()->row_array();
@@ -2011,7 +2021,7 @@ class Attendance_model extends CI_Model
         }
 
         if ($status === 'APPROVED') {
-            $dbPayload['approved_by'] = $actorUserId > 0 ? $actorUserId : null;
+            $dbPayload['approved_by'] = $actorEmployeeId > 0 ? $actorEmployeeId : null;
             $dbPayload['approved_at'] = date('Y-m-d H:i:s');
         } else {
             $dbPayload['approved_by'] = null;

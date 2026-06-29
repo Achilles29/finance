@@ -13189,6 +13189,176 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
+    public function get_purchase_report_detail_overview(string $dateFrom, string $dateTo, string $status, int $purchaseTypeId = 0, string $q = ''): array
+    {
+        $summary = [
+            'total_po' => 0,
+            'total_line' => 0,
+            'total_vendor' => 0,
+            'total_qty_buy' => 0.0,
+            'total_value' => 0.0,
+        ];
+
+        if (!$this->db->table_exists('pur_purchase_order') || !$this->db->table_exists('pur_purchase_order_line')) {
+            return $summary;
+        }
+
+        $from = $this->normalizeDate($dateFrom);
+        $to = $this->normalizeDate($dateTo);
+        $status = strtoupper(trim($status));
+        $q = trim($q);
+
+        $this->db
+            ->select('COUNT(DISTINCT po.id) AS total_po', false)
+            ->select('COUNT(l.id) AS total_line', false)
+            ->select('COUNT(DISTINCT po.vendor_id) AS total_vendor', false)
+            ->select('COALESCE(SUM(l.qty_buy), 0) AS total_qty_buy', false)
+            ->select('COALESCE(SUM(l.line_subtotal), 0) AS total_value', false)
+            ->from('pur_purchase_order po')
+            ->join('pur_purchase_order_line l', 'l.purchase_order_id = po.id', 'inner')
+            ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
+            ->join('mst_vendor v', 'v.id = po.vendor_id', 'left');
+
+        if ($from !== null) {
+            $this->db->where('po.request_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('po.request_date <=', $to);
+        }
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('po.status', $status);
+        }
+        if ($purchaseTypeId > 0) {
+            $this->db->where('po.purchase_type_id', $purchaseTypeId);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('po.po_no', $q)
+                ->or_like('v.vendor_name', $q)
+                ->or_like('pt.type_name', $q)
+                ->or_like('l.snapshot_item_name', $q)
+                ->or_like('l.snapshot_material_name', $q)
+                ->or_like('l.snapshot_brand_name', $q)
+                ->or_like('l.snapshot_line_description', $q)
+                ->group_end();
+        }
+
+        $row = $this->db->get()->row_array();
+        if (!$row) {
+            return $summary;
+        }
+
+        $summary['total_po'] = (int)($row['total_po'] ?? 0);
+        $summary['total_line'] = (int)($row['total_line'] ?? 0);
+        $summary['total_vendor'] = (int)($row['total_vendor'] ?? 0);
+        $summary['total_qty_buy'] = round((float)($row['total_qty_buy'] ?? 0), 2);
+        $summary['total_value'] = round((float)($row['total_value'] ?? 0), 2);
+        return $summary;
+    }
+
+    public function count_purchase_report_detail_rows(string $dateFrom, string $dateTo, string $status, int $purchaseTypeId = 0, string $q = ''): int
+    {
+        if (!$this->db->table_exists('pur_purchase_order') || !$this->db->table_exists('pur_purchase_order_line')) {
+            return 0;
+        }
+
+        $from = $this->normalizeDate($dateFrom);
+        $to = $this->normalizeDate($dateTo);
+        $status = strtoupper(trim($status));
+        $q = trim($q);
+
+        $this->db
+            ->select('COUNT(l.id) AS total_rows', false)
+            ->from('pur_purchase_order po')
+            ->join('pur_purchase_order_line l', 'l.purchase_order_id = po.id', 'inner')
+            ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
+            ->join('mst_vendor v', 'v.id = po.vendor_id', 'left');
+
+        if ($from !== null) {
+            $this->db->where('po.request_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('po.request_date <=', $to);
+        }
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('po.status', $status);
+        }
+        if ($purchaseTypeId > 0) {
+            $this->db->where('po.purchase_type_id', $purchaseTypeId);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('po.po_no', $q)
+                ->or_like('v.vendor_name', $q)
+                ->or_like('pt.type_name', $q)
+                ->or_like('l.snapshot_item_name', $q)
+                ->or_like('l.snapshot_material_name', $q)
+                ->or_like('l.snapshot_brand_name', $q)
+                ->or_like('l.snapshot_line_description', $q)
+                ->group_end();
+        }
+
+        $row = $this->db->get()->row_array();
+        return (int)($row['total_rows'] ?? 0);
+    }
+
+    public function list_purchase_report_detail_rows(string $dateFrom, string $dateTo, string $status, int $purchaseTypeId = 0, string $q = '', int $limit = 50, int $offset = 0): array
+    {
+        if (!$this->db->table_exists('pur_purchase_order') || !$this->db->table_exists('pur_purchase_order_line')) {
+            return [];
+        }
+
+        $from = $this->normalizeDate($dateFrom);
+        $to = $this->normalizeDate($dateTo);
+        $status = strtoupper(trim($status));
+        $q = trim($q);
+        $limit = max(1, $limit);
+        $offset = max(0, $offset);
+
+        $this->db
+            ->select('po.id AS purchase_order_id, po.po_no, po.request_date, po.status')
+            ->select('po.purchase_type_id, pt.type_name AS purchase_type_name, v.vendor_name')
+            ->select('l.line_no, l.line_kind, l.qty_buy, l.content_per_buy, l.line_subtotal')
+            ->select('l.snapshot_item_name, l.snapshot_material_name, l.snapshot_brand_name, l.snapshot_line_description')
+            ->select('l.snapshot_buy_uom_code, l.snapshot_content_uom_code')
+            ->from('pur_purchase_order po')
+            ->join('pur_purchase_order_line l', 'l.purchase_order_id = po.id', 'inner')
+            ->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left')
+            ->join('mst_vendor v', 'v.id = po.vendor_id', 'left');
+
+        if ($from !== null) {
+            $this->db->where('po.request_date >=', $from);
+        }
+        if ($to !== null) {
+            $this->db->where('po.request_date <=', $to);
+        }
+        if ($status !== '' && $status !== 'ALL') {
+            $this->db->where('po.status', $status);
+        }
+        if ($purchaseTypeId > 0) {
+            $this->db->where('po.purchase_type_id', $purchaseTypeId);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('po.po_no', $q)
+                ->or_like('v.vendor_name', $q)
+                ->or_like('pt.type_name', $q)
+                ->or_like('l.snapshot_item_name', $q)
+                ->or_like('l.snapshot_material_name', $q)
+                ->or_like('l.snapshot_brand_name', $q)
+                ->or_like('l.snapshot_line_description', $q)
+                ->group_end();
+        }
+
+        return $this->db
+            ->order_by('po.request_date', 'DESC')
+            ->order_by('po.po_no', 'DESC')
+            ->order_by('l.line_no', 'ASC')
+            ->limit($limit, $offset)
+            ->get()
+            ->result_array();
+    }
+
     public function list_purchase_report_matrix_product_details(string $dateFrom, string $dateTo, string $status, int $purchaseTypeId = 0): array
     {
         if (!$this->db->table_exists('pur_purchase_order') || !$this->db->table_exists('pur_purchase_order_line')) {

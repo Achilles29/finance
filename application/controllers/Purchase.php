@@ -275,6 +275,137 @@ class Purchase extends MY_Controller
         $this->render('purchase/report_index', $data);
     }
 
+    public function report_detail_index()
+    {
+        if (!$this->can(self::PAGE_REPORT, 'view')) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $today = date('Y-m-d');
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo = trim((string)$this->input->get('date_to', true));
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        $purchaseTypeId = (int)$this->input->get('purchase_type_id', true);
+        $q = trim((string)$this->input->get('q', true));
+        $perPage = $this->report_detail_per_page();
+        $page = max(1, (int)$this->input->get('page', true));
+
+        if ($dateFrom === '') {
+            $dateFrom = date('Y-m-01');
+        }
+        if ($dateTo === '') {
+            $dateTo = date('Y-m-t');
+        }
+        if ($status === '') {
+            $status = 'PAID';
+        }
+
+        $purchaseTypes = $this->Purchase_model->list_active_purchase_types();
+        $selectedPurchaseTypeName = 'Semua Tipe';
+        foreach ($purchaseTypes as $pt) {
+            if ((int)($pt['id'] ?? 0) === $purchaseTypeId) {
+                $selectedPurchaseTypeName = (string)($pt['type_name'] ?? 'Semua Tipe');
+                break;
+            }
+        }
+        if ($purchaseTypeId > 0 && $selectedPurchaseTypeName === 'Semua Tipe') {
+            $selectedPurchaseTypeName = 'TYPE #' . $purchaseTypeId;
+        }
+
+        $totalRows = $this->Purchase_model->count_purchase_report_detail_rows($dateFrom, $dateTo, $status, $purchaseTypeId, $q);
+        $pg = $this->build_pagination($totalRows, $perPage, $page);
+        $summary = $this->Purchase_model->get_purchase_report_detail_overview($dateFrom, $dateTo, $status, $purchaseTypeId, $q);
+        $rows = $this->Purchase_model->list_purchase_report_detail_rows($dateFrom, $dateTo, $status, $purchaseTypeId, $q, $pg['per_page'], $pg['offset']);
+
+        $payload = [
+            'summary' => $summary,
+            'rows' => $rows,
+            'meta' => [
+                'total' => $pg['total'],
+                'page' => $pg['page'],
+                'total_pages' => $pg['total_pages'],
+                'limit' => $pg['per_page'],
+            ],
+            'selected_purchase_type_name' => $selectedPurchaseTypeName,
+        ];
+
+        $data = [
+            'title' => 'Laporan Purchase / Rincian Tipe',
+            'active_menu' => 'purchase.report',
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'status' => $status,
+            'purchase_type_id' => $purchaseTypeId,
+            'q' => $q,
+            'page' => $pg['page'],
+            'per_page' => $pg['per_page'],
+            'status_options' => ['ALL', 'DRAFT', 'APPROVED', 'ORDERED', 'REJECTED', 'PARTIAL_RECEIVED', 'RECEIVED', 'PAID', 'VOID'],
+            'purchase_types' => $purchaseTypes,
+            'selected_purchase_type_name' => $selectedPurchaseTypeName,
+            'detail_data_url' => site_url('purchase-orders/report/detail-data'),
+            'initial_payload' => $payload,
+        ];
+
+        $this->render('purchase/report_detail_index', $data);
+    }
+
+    public function report_detail_data()
+    {
+        if (!$this->can(self::PAGE_REPORT, 'view')) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo = trim((string)$this->input->get('date_to', true));
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        $purchaseTypeId = (int)$this->input->get('purchase_type_id', true);
+        $q = trim((string)$this->input->get('q', true));
+        $perPage = $this->report_detail_per_page();
+        $page = max(1, (int)$this->input->get('page', true));
+
+        if ($dateFrom === '') {
+            $dateFrom = date('Y-m-01');
+        }
+        if ($dateTo === '') {
+            $dateTo = date('Y-m-t');
+        }
+        if ($status === '') {
+            $status = 'PAID';
+        }
+
+        $purchaseTypes = $this->Purchase_model->list_active_purchase_types();
+        $selectedPurchaseTypeName = 'Semua Tipe';
+        foreach ($purchaseTypes as $pt) {
+            if ((int)($pt['id'] ?? 0) === $purchaseTypeId) {
+                $selectedPurchaseTypeName = (string)($pt['type_name'] ?? 'Semua Tipe');
+                break;
+            }
+        }
+        if ($purchaseTypeId > 0 && $selectedPurchaseTypeName === 'Semua Tipe') {
+            $selectedPurchaseTypeName = 'TYPE #' . $purchaseTypeId;
+        }
+
+        $totalRows = $this->Purchase_model->count_purchase_report_detail_rows($dateFrom, $dateTo, $status, $purchaseTypeId, $q);
+        $pg = $this->build_pagination($totalRows, $perPage, $page);
+
+        $payload = [
+            'ok' => true,
+            'summary' => $this->Purchase_model->get_purchase_report_detail_overview($dateFrom, $dateTo, $status, $purchaseTypeId, $q),
+            'rows' => $this->Purchase_model->list_purchase_report_detail_rows($dateFrom, $dateTo, $status, $purchaseTypeId, $q, $pg['per_page'], $pg['offset']),
+            'meta' => [
+                'total' => $pg['total'],
+                'page' => $pg['page'],
+                'total_pages' => $pg['total_pages'],
+                'limit' => $pg['per_page'],
+            ],
+            'selected_purchase_type_name' => $selectedPurchaseTypeName,
+        ];
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
     public function rebuild_impact_index()
     {
         if (!$this->can(self::PAGE_REBUILD_IMPACT, 'view')) {
@@ -3589,6 +3720,15 @@ class Purchase extends MY_Controller
             'total_pages' => $totalPages,
             'offset' => ($page - 1) * $perPage,
         ];
+    }
+
+    private function report_detail_per_page(): int
+    {
+        $pp = (int)$this->input->get('per_page', true);
+        if (!in_array($pp, [25, 50, 100, 200], true)) {
+            $pp = 50;
+        }
+        return $pp;
     }
 
     private function requestPayload(): array

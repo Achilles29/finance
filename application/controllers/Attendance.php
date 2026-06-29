@@ -575,7 +575,7 @@ class Attendance extends MY_Controller
             'overtime_rate' => (float)$this->input->post('overtime_rate', true),
             'status' => strtoupper(trim((string)$this->input->post('status', true))),
             'notes' => trim((string)$this->input->post('notes', true)),
-        ], (int)($this->current_user['id'] ?? 0));
+        ], $this->actor_employee_id());
 
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan lembur.'));
         redirect('attendance/overtime-entries');
@@ -598,7 +598,7 @@ class Attendance extends MY_Controller
             'overtime_rate' => (float)$this->input->post('overtime_rate', true),
             'status' => strtoupper(trim((string)$this->input->post('status', true))),
             'notes' => trim((string)$this->input->post('notes', true)),
-        ], (int)($this->current_user['id'] ?? 0));
+        ], $this->actor_employee_id());
 
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal memperbarui lembur.'));
         redirect('attendance/overtime-entries');
