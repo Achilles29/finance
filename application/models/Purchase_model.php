@@ -12393,6 +12393,7 @@ class Purchase_model extends CI_Model
 
         $dateFrom = $monthKey;
         $dateTo = date('Y-m-t', strtotime($monthKey));
+        $opnameMonthKey = $dateTo;
         $nextMonth = date('Y-m-01', strtotime('+1 month', strtotime($monthKey)));
 
         $divisionId = null;
@@ -12589,7 +12590,7 @@ class Purchase_model extends CI_Model
 
             if (!isset($aggregated[$groupKey])) {
                 $aggregated[$groupKey] = [
-                    'month_key' => $monthKey,
+                    'month_key' => $opnameMonthKey,
                     'division_id' => $stockScope === 'DIVISION' ? (int)($row['division_id'] ?? 0) : null,
                     'destination_type' => $stockScope === 'DIVISION' ? strtoupper((string)($row['destination_type'] ?? 'OTHER')) : null,
                     'stock_domain' => strtoupper((string)($row['stock_domain'] ?? 'ITEM')),
@@ -12744,9 +12745,12 @@ class Purchase_model extends CI_Model
         $this->db->trans_begin();
 
         if ($stockScope === 'WAREHOUSE') {
-            $this->db->where('month_key', $monthKey)->delete('inv_warehouse_monthly_opname');
+            $this->db->where('month_key >=', $monthKey)
+                ->where('month_key <=', $opnameMonthKey)
+                ->delete('inv_warehouse_monthly_opname');
         } else {
-            $this->db->where('month_key', $monthKey);
+            $this->db->where('month_key >=', $monthKey);
+            $this->db->where('month_key <=', $opnameMonthKey);
             if ($divisionId !== null) {
                 $this->db->where('division_id', $divisionId);
             }
@@ -23219,12 +23223,14 @@ class Purchase_model extends CI_Model
         if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
             $month = date('Y-m');
         }
-        $monthKey = $month . '-01';
+        $monthStart = $month . '-01';
+        $monthEnd = date('Y-m-t', strtotime($monthStart));
 
         $this->db->select('o.*, e.employee_name AS generated_by_name', false)
             ->from('inv_warehouse_monthly_opname o')
             ->join('org_employee e', 'e.id = o.generated_by', 'left')
-            ->where('o.month_key', $monthKey);
+            ->where('o.month_key >=', $monthStart)
+            ->where('o.month_key <=', $monthEnd);
 
         $q = trim((string)($filters['q'] ?? ''));
         if ($q !== '') {
@@ -23251,13 +23257,15 @@ class Purchase_model extends CI_Model
         if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
             $month = date('Y-m');
         }
-        $monthKey = $month . '-01';
+        $monthStart = $month . '-01';
+        $monthEnd = date('Y-m-t', strtotime($monthStart));
 
         $this->db->select('o.*, d.division_name, e.employee_name AS generated_by_name', false)
             ->from('inv_division_monthly_opname o')
             ->join('org_division d', 'd.id = o.division_id', 'left')
             ->join('org_employee e', 'e.id = o.generated_by', 'left')
-            ->where('o.month_key', $monthKey);
+            ->where('o.month_key >=', $monthStart)
+            ->where('o.month_key <=', $monthEnd);
 
         $divisionId = (int)($filters['division_id'] ?? 0);
         if ($divisionId > 0) {
