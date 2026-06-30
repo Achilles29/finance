@@ -363,4 +363,4 @@ diskusikan dan perbaiki yang bisa diperbaiki
 - jadi skema bonus ini tidak langsung mengurangi uang kas, bonus ini hanya perhitungan dulu. mengurangi kas jika nanti di generate pencairan seperti halnya gaji dan uang makan.
 - jadi estimasi bonus masing masing pegawai nanti dapat dilihat di dashboard masing masing berdasarkan hasil generate poolnya.
 
-- harus ada 
+setelah itu lakukan refractur database dan UI sesuai saranmu. pastikan operasionalable dan user friendly. tampilan tidak membingungkan. form input dengan modal bukan dengan form samping. modul CRUD ada semua.
