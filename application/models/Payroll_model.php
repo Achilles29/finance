@@ -1689,6 +1689,75 @@ class Payroll_model extends CI_Model
             ->get()->result_array();
     }
 
+    public function get_salary_disbursement_account_recap(int $disbursementId): array
+    {
+        if ($disbursementId <= 0 || !$this->db->table_exists('pay_salary_disbursement_line')) {
+            return [];
+        }
+
+        $lineHasSource = $this->table_has_field('pay_salary_disbursement_line', 'company_account_id');
+        $sourceExpr = $lineHasSource
+            ? 'COALESCE(l.company_account_id, h.company_account_id, 0)'
+            : 'COALESCE(h.company_account_id, 0)';
+
+        $hasAccount = $this->db->table_exists('fin_company_account');
+        $selectAccount = $hasAccount
+            ? "
+                COALESCE(a.account_code, '') AS account_code,
+                COALESCE(a.account_name, '') AS account_name,
+                COALESCE(a.bank_name, '') AS bank_name,
+                COALESCE(a.account_no, '') AS account_no,
+                COALESCE(a.account_type, '') AS account_type,
+                COALESCE(a.current_balance, 0) AS current_balance,
+                COALESCE(a.is_active, 0) AS account_is_active,
+            "
+            : "
+                '' AS account_code,
+                '' AS account_name,
+                '' AS bank_name,
+                '' AS account_no,
+                '' AS account_type,
+                0 AS current_balance,
+                0 AS account_is_active,
+            ";
+
+        $this->db->select("
+                {$sourceExpr} AS company_account_id,
+                {$selectAccount}
+                COUNT(*) AS line_count,
+                SUM(CASE WHEN COALESCE(l.transfer_status, '') <> 'VOID' THEN 1 ELSE 0 END) AS active_line_count,
+                ROUND(SUM(CASE WHEN COALESCE(l.transfer_status, '') <> 'VOID' THEN COALESCE(l.transfer_amount, 0) ELSE 0 END), 2) AS total_amount,
+                ROUND(SUM(CASE WHEN COALESCE(l.transfer_status, '') = 'PAID' THEN COALESCE(l.transfer_amount, 0) ELSE 0 END), 2) AS paid_amount,
+                ROUND(SUM(CASE WHEN COALESCE(l.transfer_status, '') IN ('PENDING', 'FAILED') THEN COALESCE(l.transfer_amount, 0) ELSE 0 END), 2) AS pay_now_amount,
+                ROUND(SUM(CASE WHEN COALESCE(l.transfer_status, '') = 'FAILED' THEN COALESCE(l.transfer_amount, 0) ELSE 0 END), 2) AS failed_amount,
+                ROUND(SUM(CASE WHEN COALESCE(l.transfer_status, '') = 'PENDING' THEN COALESCE(l.transfer_amount, 0) ELSE 0 END), 2) AS pending_amount
+            ", false)
+            ->from('pay_salary_disbursement_line l')
+            ->join('pay_salary_disbursement h', 'h.id = l.disbursement_id', 'inner');
+
+        if ($hasAccount) {
+            $this->db->join('fin_company_account a', 'a.id = ' . $sourceExpr, 'left', false);
+        }
+
+        $rows = $this->db->where('l.disbursement_id', $disbursementId)
+            ->group_by($sourceExpr, false)
+            ->order_by('account_name', 'ASC')
+            ->get()->result_array();
+
+        foreach ($rows as &$row) {
+            $balance = round((float)($row['current_balance'] ?? 0), 2);
+            $payNow = round((float)($row['pay_now_amount'] ?? 0), 2);
+            $row['balance_after_pay_now'] = round($balance - $payNow, 2);
+            $row['shortfall_amount'] = round(max(0, $payNow - $balance), 2);
+            $row['payment_ready'] = ((int)($row['company_account_id'] ?? 0) > 0)
+                && ((int)($row['account_is_active'] ?? 0) === 1)
+                && ((float)$row['shortfall_amount'] <= 0.009);
+        }
+        unset($row);
+
+        return $rows;
+    }
+
     public function list_salary_disbursement_line_breakdown(int $disbursementId): array
     {
         if ($disbursementId <= 0) {
@@ -2404,8 +2473,13 @@ class Payroll_model extends CI_Model
                 }
                 $balanceBefore = round((float)($account['current_balance'] ?? 0), 2);
                 if ($balanceBefore < $lineAmount) {
+                    $accountLabel = trim((string)($account['account_code'] ?? '') . ' - ' . (string)($account['account_name'] ?? ''));
+                    if ($accountLabel === '-' || $accountLabel === '') {
+                        $accountLabel = 'rekening #' . (int)$lineAccountId;
+                    }
+                    $shortfall = round($lineAmount - $balanceBefore, 2);
                     $this->db->trans_complete();
-                    return ['ok' => false, 'message' => 'Saldo rekening tidak cukup untuk menandai batch PAID.'];
+                    return ['ok' => false, 'message' => 'Saldo ' . $accountLabel . ' kurang Rp ' . number_format($shortfall, 2, ',', '.') . ' untuk menandai batch PAID.'];
                 }
                 $balanceAfter = round($balanceBefore - $lineAmount, 2);
 

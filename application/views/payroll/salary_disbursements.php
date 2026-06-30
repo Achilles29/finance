@@ -4,6 +4,7 @@ $rows = $rows ?? [];
 $pg = $pg ?? ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
 $detailHeader = $detail_header ?? null;
 $detailLineBreakdown = $detail_line_breakdown ?? [];
+$detailAccountRecap = $detail_account_recap ?? [];
 $periodOptions = $payroll_period_options ?? [];
 $accounts = $company_account_options ?? [];
 $gen = $gen ?? ['payroll_period_id' => 0, 'disbursement_date' => date('Y-m-d'), 'notes' => ''];
@@ -182,6 +183,121 @@ $buildQuery = static function ($overrides = []) use ($filters, $pg) {
 </div>
 
 <?php if (!empty($detailHeader)): ?>
+<?php
+  $recapTotalPayNow = 0.0;
+  $recapTotalPaid = 0.0;
+  $recapTotalAmount = 0.0;
+  $recapTotalBalance = 0.0;
+  $recapTotalShortfall = 0.0;
+  foreach ($detailAccountRecap as $ar) {
+      $recapTotalPayNow += (float)($ar['pay_now_amount'] ?? 0);
+      $recapTotalPaid += (float)($ar['paid_amount'] ?? 0);
+      $recapTotalAmount += (float)($ar['total_amount'] ?? 0);
+      $recapTotalBalance += (float)($ar['current_balance'] ?? 0);
+      $recapTotalShortfall += (float)($ar['shortfall_amount'] ?? 0);
+  }
+?>
+<div class="card mt-3 border-0 shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <strong>Rekap Rekening Pembayaran Gaji</strong>
+      <div class="small text-muted">Nominal yang masih harus dibayar disandingkan dengan saldo master rekening saat ini.</div>
+    </div>
+    <?php if ($recapTotalShortfall > 0.009): ?>
+      <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+        Total kurang: Rp <?php echo number_format($recapTotalShortfall, 2, ',', '.'); ?>
+      </span>
+    <?php else: ?>
+      <span class="badge bg-success-subtle text-success border border-success-subtle">Saldo rekening cukup</span>
+    <?php endif; ?>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Rekening Pembayaran</th>
+          <th>Bank / No Rek</th>
+          <th class="text-end">Baris</th>
+          <th class="text-end">Total Batch</th>
+          <th class="text-end">Sudah Paid</th>
+          <th class="text-end">Harus Dibayar Sekarang</th>
+          <th class="text-end">Saldo Master Rekening</th>
+          <th class="text-end">Sisa / Kurang</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php if (empty($detailAccountRecap)): ?>
+          <tr><td colspan="9" class="text-center text-muted py-3">Belum ada rekening sumber pada batch ini.</td></tr>
+        <?php else: foreach ($detailAccountRecap as $ar): ?>
+          <?php
+            $accountId = (int)($ar['company_account_id'] ?? 0);
+            $accountLabel = trim((string)($ar['account_code'] ?? '') . ' - ' . (string)($ar['account_name'] ?? ''));
+            if ($accountLabel === '-' || $accountLabel === '') {
+                $accountLabel = $accountId > 0 ? 'Rekening tidak ditemukan / nonaktif' : 'Belum ada rekening sumber';
+            }
+            $payNow = (float)($ar['pay_now_amount'] ?? 0);
+            $balance = (float)($ar['current_balance'] ?? 0);
+            $after = (float)($ar['balance_after_pay_now'] ?? ($balance - $payNow));
+            $shortfall = (float)($ar['shortfall_amount'] ?? 0);
+            $isReady = !empty($ar['payment_ready']);
+          ?>
+          <tr class="<?php echo $payNow > 0.009 && ($shortfall > 0.009 || !$isReady) ? 'table-danger' : ''; ?>">
+            <td>
+              <div class="fw-semibold"><?php echo html_escape($accountLabel); ?></div>
+              <?php if ($accountId <= 0): ?>
+                <div class="small text-danger">Baris gaji ini belum punya rekening sumber.</div>
+              <?php elseif ((int)($ar['account_is_active'] ?? 0) !== 1): ?>
+                <div class="small text-danger">Rekening sumber tidak aktif / tidak ditemukan.</div>
+              <?php endif; ?>
+            </td>
+            <td>
+              <?php echo html_escape(trim((string)($ar['bank_name'] ?? '')) !== '' ? (string)$ar['bank_name'] : '-'); ?>
+              <div class="small text-muted"><?php echo html_escape(trim((string)($ar['account_no'] ?? '')) !== '' ? (string)$ar['account_no'] : '-'); ?></div>
+            </td>
+            <td class="text-end"><?php echo (int)($ar['active_line_count'] ?? $ar['line_count'] ?? 0); ?></td>
+            <td class="text-end"><?php echo number_format((float)($ar['total_amount'] ?? 0), 2, ',', '.'); ?></td>
+            <td class="text-end text-success"><?php echo number_format((float)($ar['paid_amount'] ?? 0), 2, ',', '.'); ?></td>
+            <td class="text-end fw-semibold"><?php echo number_format($payNow, 2, ',', '.'); ?></td>
+            <td class="text-end"><?php echo number_format($balance, 2, ',', '.'); ?></td>
+            <td class="text-end <?php echo $shortfall > 0.009 ? 'text-danger fw-semibold' : 'text-success fw-semibold'; ?>">
+              <?php if ($shortfall > 0.009): ?>
+                Kurang Rp <?php echo number_format($shortfall, 2, ',', '.'); ?>
+              <?php else: ?>
+                Sisa Rp <?php echo number_format($after, 2, ',', '.'); ?>
+              <?php endif; ?>
+            </td>
+            <td>
+              <?php if ($payNow <= 0.009): ?>
+                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Tidak ada pending</span>
+              <?php elseif ($isReady): ?>
+                <span class="badge bg-success-subtle text-success border border-success-subtle">Siap Paid</span>
+              <?php else: ?>
+                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Belum siap</span>
+              <?php endif; ?>
+            </td>
+          </tr>
+        <?php endforeach; endif; ?>
+      </tbody>
+      <?php if (!empty($detailAccountRecap)): ?>
+        <tfoot>
+          <tr class="fw-semibold">
+            <td colspan="3" class="text-end">TOTAL REKAP</td>
+            <td class="text-end"><?php echo number_format($recapTotalAmount, 2, ',', '.'); ?></td>
+            <td class="text-end text-success"><?php echo number_format($recapTotalPaid, 2, ',', '.'); ?></td>
+            <td class="text-end"><?php echo number_format($recapTotalPayNow, 2, ',', '.'); ?></td>
+            <td class="text-end"><?php echo number_format($recapTotalBalance, 2, ',', '.'); ?></td>
+            <td class="text-end <?php echo $recapTotalShortfall > 0.009 ? 'text-danger' : 'text-success'; ?>">
+              <?php echo $recapTotalShortfall > 0.009 ? 'Kurang Rp ' . number_format($recapTotalShortfall, 2, ',', '.') : '-'; ?>
+            </td>
+            <td></td>
+          </tr>
+        </tfoot>
+      <?php endif; ?>
+    </table>
+  </div>
+</div>
+
 <div class="card mt-3">
   <div class="card-header d-flex justify-content-between align-items-center">
     <strong>Detail Batch <?php echo html_escape((string)$detailHeader['disbursement_no']); ?></strong>
