@@ -1570,6 +1570,19 @@ class Purchase_model extends CI_Model
 
     public function list_warehouse_daily_snapshot(string $month, string $q, string $dateFrom, string $dateTo, int $limit): array
     {
+        if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
+            $window = $this->resolveDailyWindow($month, $dateFrom, $dateTo);
+            $rows = $this->build_warehouse_daily_rows_from_monthly_base(
+                $q,
+                $window['date_from'],
+                $window['date_to'],
+                $limit
+            );
+            if (!empty($rows)) {
+                return $this->limitRowsByProfile($rows, $limit);
+            }
+        }
+
         if ($this->db->table_exists('inv_stock_movement_log')) {
             $window = $this->resolveDailyWindow($month, $dateFrom, $dateTo);
             $rows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
@@ -1610,6 +1623,22 @@ class Purchase_model extends CI_Model
         $window = $this->resolveDailyWindow($month, $dateFrom, $dateTo);
         $dates = $this->buildDateSeries($window['date_from'], $window['date_to']);
 
+        if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
+            $rows = $this->build_warehouse_daily_rows_from_monthly_base(
+                $q,
+                $window['date_from'],
+                $window['date_to'],
+                $limit
+            );
+            if (!empty($rows)) {
+                return [
+                    'window' => $window,
+                    'dates' => $dates,
+                    'rows' => $this->pivotDailyRows($rows, $limit),
+                ];
+            }
+        }
+
         if ($this->db->table_exists('inv_stock_movement_log')) {
             $rows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
                 'WAREHOUSE',
@@ -1638,6 +1667,188 @@ class Purchase_model extends CI_Model
             'dates' => [],
             'rows' => [],
         ];
+    }
+
+    private function build_warehouse_daily_rows_from_monthly_base(
+        string $q,
+        string $dateFrom,
+        string $dateTo,
+        int $limit
+    ): array {
+        $dates = $this->buildDateSeries($dateFrom, $dateTo);
+        if (empty($dates)) {
+            return [];
+        }
+
+        $baseRows = $this->list_warehouse_stock_monthly($q, $limit, '', $dateTo, true);
+        if (empty($baseRows)) {
+            return [];
+        }
+
+        $movementRows = [];
+        if ($this->db->table_exists('inv_stock_movement_log')) {
+            $movementRows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
+                'WAREHOUSE',
+                '',
+                null,
+                $dateFrom,
+                $dateTo,
+                null,
+                false
+            );
+        }
+
+        $movementByIdentity = [];
+        foreach ($movementRows as $movementRow) {
+            $identityKey = $this->buildInventoryDailyMatrixIdentityKey('WAREHOUSE', $movementRow);
+            $movementDate = (string)($movementRow['movement_date'] ?? '');
+            if ($movementDate === '') {
+                continue;
+            }
+            if (!isset($movementByIdentity[$identityKey])) {
+                $movementByIdentity[$identityKey] = [];
+            }
+            $movementByIdentity[$identityKey][$movementDate] = $movementRow;
+        }
+
+        $dailyRows = [];
+        foreach ($baseRows as $baseRow) {
+            $identityKey = $this->buildInventoryDailyMatrixIdentityKey('WAREHOUSE', $baseRow);
+            $dayMap = $movementByIdentity[$identityKey] ?? [];
+
+            $nextClosingBuy = round((float)($baseRow['qty_buy_balance'] ?? 0), 4);
+            $nextClosingContent = round((float)($baseRow['qty_content_balance'] ?? 0), 4);
+            $monthlyOpeningBuy = round((float)($baseRow['qty_buy_opening'] ?? 0), 4);
+            $monthlyOpeningContent = round((float)($baseRow['qty_content_opening'] ?? 0), 4);
+            $avgCost = round((float)($baseRow['avg_cost_per_content'] ?? 0), 6);
+            $storedValue = isset($baseRow['total_value']) ? (float)$baseRow['total_value'] : 0.0;
+            $totalValue = $storedValue > 0
+                ? round($storedValue, 2)
+                : round((float)($baseRow['qty_content_balance'] ?? 0) * $avgCost, 2);
+
+            for ($i = count($dates) - 1; $i >= 0; $i--) {
+                $day = (string)$dates[$i];
+                $existingRow = $dayMap[$day] ?? null;
+                $row = $this->build_warehouse_daily_base_day_row($baseRow, $day, $existingRow);
+                $adjustmentContent = round($this->resolveDailyMatrixAdjustmentQtyContent($row), 4);
+                $adjustmentBuy = round($this->resolveDailyMatrixAdjustmentQtyBuy($row), 4);
+                $deltaContent = round(
+                    (float)($row['in_qty_content'] ?? 0)
+                    - (float)($row['out_qty_content'] ?? 0)
+                    + $adjustmentContent,
+                    4
+                );
+                $deltaBuy = round(
+                    (float)($row['in_qty_buy'] ?? 0)
+                    - (float)($row['out_qty_buy'] ?? 0)
+                    + $adjustmentBuy,
+                    4
+                );
+
+                $row['closing_qty_buy'] = $nextClosingBuy;
+                $row['closing_qty_content'] = $nextClosingContent;
+                $row['opening_qty_buy'] = round($nextClosingBuy - $deltaBuy, 4);
+                $row['opening_qty_content'] = round($nextClosingContent - $deltaContent, 4);
+                $row['closing_qty_pack'] = round((float)$row['closing_qty_buy'], 4);
+                $row['opening_qty_pack'] = round((float)$row['opening_qty_buy'], 4);
+                $row['adjustment_qty_pack'] = round((float)$adjustmentBuy, 4);
+                $row['avg_cost_per_content'] = $avgCost;
+                $row['total_value'] = $i === count($dates) - 1
+                    ? $totalValue
+                    : round((float)$row['closing_qty_content'] * $avgCost, 2);
+
+                $dailyRows[] = $row;
+                $nextClosingBuy = round((float)$row['opening_qty_buy'], 4);
+                $nextClosingContent = round((float)$row['opening_qty_content'], 4);
+            }
+
+            $logGapContent = round($monthlyOpeningContent - $nextClosingContent, 4);
+            $logGapBuy = round($monthlyOpeningBuy - $nextClosingBuy, 4);
+            $logHasGap = abs($logGapContent) > 0.001 || abs($logGapBuy) > 0.001;
+            if ($logHasGap) {
+                $firstIndex = count($dailyRows) - count($dates);
+                for ($j = $firstIndex; $j < count($dailyRows); $j++) {
+                    if (!isset($dailyRows[$j])) {
+                        continue;
+                    }
+                    $dailyRows[$j]['log_has_gap'] = 1;
+                    $dailyRows[$j]['log_gap_content'] = $logGapContent;
+                }
+            }
+        }
+
+        return $dailyRows;
+    }
+
+    private function build_warehouse_daily_base_day_row(array $baseRow, string $day, ?array $existingRow = null): array
+    {
+        $row = $existingRow ?? [];
+        $row['movement_date'] = $day;
+        $row['stock_domain'] = strtoupper((string)($baseRow['stock_domain'] ?? 'ITEM'));
+        $row['item_id'] = isset($baseRow['item_id']) ? (int)$baseRow['item_id'] : null;
+        $row['material_id'] = isset($baseRow['material_id']) ? (int)$baseRow['material_id'] : null;
+        $row['buy_uom_id'] = isset($baseRow['buy_uom_id']) ? (int)$baseRow['buy_uom_id'] : null;
+        $row['content_uom_id'] = isset($baseRow['content_uom_id']) ? (int)$baseRow['content_uom_id'] : 0;
+        $row['item_code'] = (string)($baseRow['item_code'] ?? '');
+        $row['item_name'] = (string)($baseRow['item_name'] ?? '');
+        $row['material_code'] = (string)($baseRow['material_code'] ?? '');
+        $row['material_name'] = (string)($baseRow['material_name'] ?? '');
+        $row['profile_key'] = (string)($baseRow['profile_key'] ?? '');
+        $row['profile_name'] = (string)($baseRow['profile_name'] ?? '');
+        $row['profile_brand'] = (string)($baseRow['profile_brand'] ?? '');
+        $row['profile_description'] = (string)($baseRow['profile_description'] ?? '');
+        $row['profile_expired_date'] = (string)($baseRow['profile_expired_date'] ?? '');
+        $row['profile_content_per_buy'] = round((float)($baseRow['profile_content_per_buy'] ?? 0), 6);
+        $row['profile_buy_uom_code'] = (string)($baseRow['profile_buy_uom_code'] ?? '');
+        $row['profile_content_uom_code'] = (string)($baseRow['profile_content_uom_code'] ?? '');
+
+        $defaults = [
+            'opening_qty_buy' => 0.0,
+            'opening_qty_content' => 0.0,
+            'opening_qty_pack' => 0.0,
+            'in_qty_buy' => 0.0,
+            'in_qty_content' => 0.0,
+            'in_qty_pack' => 0.0,
+            'out_qty_buy' => 0.0,
+            'out_qty_content' => 0.0,
+            'out_qty_pack' => 0.0,
+            'discarded_qty_buy' => 0.0,
+            'discarded_qty_content' => 0.0,
+            'spoil_qty_buy' => 0.0,
+            'spoil_qty_content' => 0.0,
+            'waste_qty_buy' => 0.0,
+            'waste_qty_content' => 0.0,
+            'process_loss_qty_buy' => 0.0,
+            'process_loss_qty_content' => 0.0,
+            'variance_qty_buy' => 0.0,
+            'variance_qty_content' => 0.0,
+            'adjustment_plus_qty_buy' => 0.0,
+            'adjustment_plus_qty_content' => 0.0,
+            'adjustment_qty_buy' => 0.0,
+            'adjustment_qty_content' => 0.0,
+            'adjustment_qty_pack' => 0.0,
+            'closing_qty_buy' => 0.0,
+            'closing_qty_content' => 0.0,
+            'closing_qty_pack' => 0.0,
+            'avg_cost_per_content' => 0.0,
+            'total_value' => 0.0,
+            'waste_total_value' => 0.0,
+            'spoilage_total_value' => 0.0,
+            'process_loss_total_value' => 0.0,
+            'variance_total_value' => 0.0,
+            'adjustment_plus_total_value' => 0.0,
+            'mutation_count' => 0,
+            'log_has_gap' => 0,
+            'log_gap_content' => 0.0,
+        ];
+
+        foreach ($defaults as $field => $defaultValue) {
+            if (!isset($row[$field])) {
+                $row[$field] = $defaultValue;
+            }
+        }
+
+        return $row;
     }
 
     public function list_division_daily_snapshot(string $month, string $q, ?int $divisionId, string $dateFrom, string $dateTo, int $limit, ?string $destinationFilter = null): array
@@ -13060,30 +13271,35 @@ class Purchase_model extends CI_Model
         return [];
     }
 
-    private function list_warehouse_stock_monthly(string $q, int $limit, string $dateFrom = '', string $dateTo = ''): array
+    private function list_warehouse_stock_monthly(string $q, int $limit, string $dateFrom = '', string $dateTo = '', bool $strictMonth = false): array
     {
         $from = $this->normalizeDate($dateFrom);
         $to = $this->normalizeDate($dateTo);
         $targetMonth = date('Y-m-01', strtotime($to ?: date('Y-m-d')));
 
-        $latestMonthSubquery = $this->db
-            ->select('identity_key, MAX(month_key) AS month_key', false)
-            ->from('inv_warehouse_monthly_stock')
-            ->where('month_key <=', $targetMonth)
-            ->group_by('identity_key')
-            ->get_compiled_select();
-
         $activityDateExpr = 'COALESCE(s.last_movement_date, DATE(s.updated_at), s.month_key)';
 
         $this->db
-            ->select('s.id, "ITEM" AS stock_domain, s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id, i.item_code, i.item_name, s.profile_key, s.profile_name, s.profile_brand, s.profile_description', false)
+            ->select('s.id, "ITEM" AS stock_domain, s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id, i.item_code, i.item_name, m.material_code, m.material_name, s.profile_key, s.profile_name, s.profile_brand, s.profile_description', false)
             ->select('s.profile_content_per_buy, s.profile_buy_uom_code, s.profile_content_uom_code')
             ->select('s.opening_qty_buy AS qty_buy_opening, s.opening_qty_content AS qty_content_opening, s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content, s.total_value')
             ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
             ->select('s.profile_expired_date')
             ->from('inv_warehouse_monthly_stock s')
-            ->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
-            ->join('mst_item i', 'i.id = s.item_id', 'left');
+            ->join('mst_item i', 'i.id = s.item_id', 'left')
+            ->join('mst_material m', 'm.id = COALESCE(s.material_id, i.material_id)', 'left');
+
+        if ($strictMonth) {
+            $this->db->where('s.month_key', $targetMonth);
+        } else {
+            $latestMonthSubquery = $this->db
+                ->select('identity_key, MAX(month_key) AS month_key', false)
+                ->from('inv_warehouse_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by('identity_key')
+                ->get_compiled_select();
+            $this->db->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false);
+        }
 
         if ($from !== null) {
             $this->db->where($activityDateExpr . ' >= ' . $this->db->escape($from), null, false);

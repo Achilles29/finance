@@ -2525,6 +2525,61 @@ class Production_model extends CI_Model
         return array_values($best);
     }
 
+    private function fetch_component_monthly_generate_source_rows(array $filters, string $monthStart): array
+    {
+        if (!$this->db->table_exists('inv_component_monthly_stock')) {
+            return [];
+        }
+
+        $q = trim((string)($filters['q'] ?? ''));
+        $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
+        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
+        $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
+        $componentIdFilter = !empty($filters['component_id']) ? (int)$filters['component_id'] : 0;
+        $uomIdFilter = !empty($filters['uom_id']) ? (int)$filters['uom_id'] : 0;
+        $divisionNameColumn = $this->division_name_column();
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $this->db
+            ->select('s.month_key, s.location_type, s.division_id, ' . $divisionNameSelect . ', s.component_id, c.component_code, c.component_name, c.component_type, s.uom_id, u.code AS uom_code', false)
+            ->select('s.opening_qty, s.opening_total_value, s.in_qty, s.in_total_value, s.out_qty, s.out_total_value, s.waste_qty, s.waste_total_value, s.spoil_qty, s.spoil_total_value, s.adjustment_plus_qty, s.adjustment_plus_total_value, s.adjustment_minus_qty, s.adjustment_minus_total_value, s.closing_qty, s.avg_cost, s.total_value, s.movement_day_count, s.mutation_count, s.source_mode', false)
+            ->from('inv_component_monthly_stock s')
+            ->join('mst_component c', 'c.id = s.component_id', 'inner')
+            ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
+            ->join('mst_uom u', 'u.id = s.uom_id', 'left')
+            ->where('s.month_key', $monthStart);
+
+        $this->apply_component_location_filter('s.location_type', $locationType);
+        if ($divisionId > 0) {
+            $this->db->where('s.division_id', $divisionId);
+        }
+        if ($componentIdFilter > 0) {
+            $this->db->where('s.component_id', $componentIdFilter);
+        }
+        if ($uomIdFilter > 0) {
+            $this->db->where('s.uom_id', $uomIdFilter);
+        }
+        if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
+            $this->db->where('c.component_type', $componentType);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('c.component_code', $q)
+                ->or_like('c.component_name', $q);
+            if ($divisionNameColumn !== null) {
+                $this->db->or_like('d.' . $divisionNameColumn, $q);
+            }
+            $this->db->group_end();
+        }
+
+        return $this->db
+            ->order_by('s.location_type', 'ASC')
+            ->order_by('s.division_id', 'ASC')
+            ->order_by('c.component_name', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
     private function fetch_component_daily_projection_rows(array $filters, string $startDate, string $endDate): ?array
     {
         $hasMonthlyProjection = $this->db->table_exists('inv_component_monthly_stock');
@@ -3343,11 +3398,16 @@ class Production_model extends CI_Model
         $nextMonth = date('Y-m', strtotime('+1 month', strtotime($monthStart)));
         $nextMonthStart = $nextMonth . '-01';
 
-        $rows = $this->component_daily_rows([
+        $sourceFilters = [
             'month' => $monthKey,
             'location_type' => $locationType,
             'division_id' => $divisionId,
-        ], 0);
+        ];
+        $rows = $this->fetch_component_monthly_generate_source_rows($sourceFilters, $monthStart);
+        $usingMonthlyTruth = !empty($rows);
+        if (!$usingMonthlyTruth) {
+            $rows = $this->component_daily_rows($sourceFilters, 0);
+        }
 
         if (empty($rows)) {
             return [
@@ -3356,56 +3416,70 @@ class Production_model extends CI_Model
             ];
         }
 
-        // Kumpulkan closing AKHIR BULAN per identity (baris terakhir per identity)
-        // dan catat hari-hari yang sempat minus (untuk warning nilai tidak akurat)
-        $finalClosing    = [];   // identity → last row (month-end closing)
-        $midMonthNegative = [];  // identity → info hari minus di tengah bulan
-
-        foreach ($rows as $row) {
-            $negKey = strtoupper((string)($row['location_type'] ?? ''))
-                . '|' . (int)($row['division_id'] ?? 0)
-                . '|' . (int)($row['component_id'] ?? 0)
-                . '|' . (int)($row['uom_id'] ?? 0);
-
-            // Selalu overwrite → pada akhir loop, berisi baris dengan tanggal terbesar
-            $finalClosing[$negKey] = $row;
-
-            // Catat hari minus di tengah bulan (untuk warning nilai)
-            $dayClosing = round((float)($row['closing_qty'] ?? 0), 2);
-            if ($dayClosing < 0) {
-                if (!isset($midMonthNegative[$negKey])) {
-                    $midMonthNegative[$negKey] = [
-                        'component_code' => (string)($row['component_code'] ?? '-'),
-                        'component_name' => (string)($row['component_name'] ?? '-'),
-                        'location_type'  => (string)($row['location_type'] ?? '-'),
-                        'division_name'  => (string)($row['division_name'] ?? '-'),
-                        'negative_days'  => 0,
-                        'worst_closing'  => 0.0,
-                        'worst_date'     => '',
+        $negativeAtMonthEnd = [];
+        if ($usingMonthlyTruth) {
+            foreach ($rows as $row) {
+                $endClosing = round((float)($row['closing_qty'] ?? 0), 2);
+                if ($endClosing < 0) {
+                    $negativeAtMonthEnd[] = [
+                        'code'          => (string)($row['component_code'] ?? '-'),
+                        'name'          => (string)($row['component_name'] ?? '-'),
+                        'location_type' => (string)($row['location_type'] ?? '-'),
+                        'division_name' => (string)($row['division_name'] ?? '-'),
+                        'negative_days' => 1,
+                        'worst_closing' => $endClosing,
+                        'worst_date'    => $monthEnd,
                     ];
                 }
-                $midMonthNegative[$negKey]['negative_days']++;
-                if ($dayClosing < $midMonthNegative[$negKey]['worst_closing']) {
-                    $midMonthNegative[$negKey]['worst_closing'] = $dayClosing;
-                    $midMonthNegative[$negKey]['worst_date']    = trim((string)($row['movement_date'] ?? ''));
+            }
+        } else {
+            // Kumpulkan closing AKHIR BULAN per identity (baris terakhir per identity)
+            // dan catat hari-hari yang sempat minus (untuk warning nilai tidak akurat)
+            $finalClosing    = [];
+            $midMonthNegative = [];
+
+            foreach ($rows as $row) {
+                $negKey = strtoupper((string)($row['location_type'] ?? ''))
+                    . '|' . (int)($row['division_id'] ?? 0)
+                    . '|' . (int)($row['component_id'] ?? 0)
+                    . '|' . (int)($row['uom_id'] ?? 0);
+
+                $finalClosing[$negKey] = $row;
+
+                $dayClosing = round((float)($row['closing_qty'] ?? 0), 2);
+                if ($dayClosing < 0) {
+                    if (!isset($midMonthNegative[$negKey])) {
+                        $midMonthNegative[$negKey] = [
+                            'component_code' => (string)($row['component_code'] ?? '-'),
+                            'component_name' => (string)($row['component_name'] ?? '-'),
+                            'location_type'  => (string)($row['location_type'] ?? '-'),
+                            'division_name'  => (string)($row['division_name'] ?? '-'),
+                            'negative_days'  => 0,
+                            'worst_closing'  => 0.0,
+                            'worst_date'     => '',
+                        ];
+                    }
+                    $midMonthNegative[$negKey]['negative_days']++;
+                    if ($dayClosing < $midMonthNegative[$negKey]['worst_closing']) {
+                        $midMonthNegative[$negKey]['worst_closing'] = $dayClosing;
+                        $midMonthNegative[$negKey]['worst_date']    = trim((string)($row['movement_date'] ?? ''));
+                    }
                 }
             }
-        }
 
-        // HARD BLOCK: hanya jika closing AKHIR BULAN masih minus
-        $negativeAtMonthEnd = [];
-        foreach ($finalClosing as $negKey => $row) {
-            $endClosing = round((float)($row['closing_qty'] ?? 0), 2);
-            if ($endClosing < 0) {
-                $negativeAtMonthEnd[] = [
-                    'code'          => (string)($row['component_code'] ?? '-'),
-                    'name'          => (string)($row['component_name'] ?? '-'),
-                    'location_type' => (string)($row['location_type'] ?? '-'),
-                    'division_name' => (string)($row['division_name'] ?? '-'),
-                    'negative_days' => $midMonthNegative[$negKey]['negative_days'] ?? 1,
-                    'worst_closing' => $endClosing,
-                    'worst_date'    => trim((string)($row['movement_date'] ?? '')),
-                ];
+            foreach ($finalClosing as $negKey => $row) {
+                $endClosing = round((float)($row['closing_qty'] ?? 0), 2);
+                if ($endClosing < 0) {
+                    $negativeAtMonthEnd[] = [
+                        'code'          => (string)($row['component_code'] ?? '-'),
+                        'name'          => (string)($row['component_name'] ?? '-'),
+                        'location_type' => (string)($row['location_type'] ?? '-'),
+                        'division_name' => (string)($row['division_name'] ?? '-'),
+                        'negative_days' => $midMonthNegative[$negKey]['negative_days'] ?? 1,
+                        'worst_closing' => $endClosing,
+                        'worst_date'    => trim((string)($row['movement_date'] ?? '')),
+                    ];
+                }
             }
         }
         if (!empty($negativeAtMonthEnd)) {
@@ -3417,15 +3491,14 @@ class Production_model extends CI_Model
         }
 
         $aggregated = [];
-        foreach ($rows as $row) {
-            $groupKey = implode('|', [
-                strtoupper((string)($row['location_type'] ?? '')),
-                (int)($row['division_id'] ?? 0),
-                (int)($row['component_id'] ?? 0),
-                (int)($row['uom_id'] ?? 0),
-            ]);
-
-            if (!isset($aggregated[$groupKey])) {
+        if ($usingMonthlyTruth) {
+            foreach ($rows as $row) {
+                $groupKey = implode('|', [
+                    strtoupper((string)($row['location_type'] ?? '')),
+                    (int)($row['division_id'] ?? 0),
+                    (int)($row['component_id'] ?? 0),
+                    (int)($row['uom_id'] ?? 0),
+                ]);
                 $aggregated[$groupKey] = [
                     'month_key' => $monthStart,
                     'location_type' => strtoupper((string)($row['location_type'] ?? '')),
@@ -3433,65 +3506,103 @@ class Production_model extends CI_Model
                     'component_id' => (int)($row['component_id'] ?? 0),
                     'uom_id' => (int)($row['uom_id'] ?? 0),
                     'opening_qty' => round((float)($row['opening_qty'] ?? 0), 4),
-                    'opening_total_value' => round(((float)($row['opening_qty'] ?? 0) * (float)($row['avg_cost'] ?? 0)), 2),
-                    'in_qty' => 0.0,
-                    'in_total_value' => 0.0,
-                    'out_qty' => 0.0,
-                    'out_total_value' => 0.0,
-                    'waste_qty' => 0.0,
-                    'waste_total_value' => 0.0,
-                    'spoil_qty' => 0.0,
-                    'spoil_total_value' => 0.0,
-                    'adjustment_plus_qty' => 0.0,
-                    'adjustment_plus_total_value' => 0.0,
-                    'adjustment_minus_qty' => 0.0,
-                    'adjustment_minus_total_value' => 0.0,
-                    'closing_qty' => 0.0,
-                    'avg_cost' => 0.0,
-                    'total_value' => 0.0,
-                    'movement_day_count' => 0,
-                    'mutation_count' => 0,
+                    'opening_total_value' => round((float)($row['opening_total_value'] ?? ((float)($row['opening_qty'] ?? 0) * (float)($row['avg_cost'] ?? 0))), 2),
+                    'in_qty' => round((float)($row['in_qty'] ?? 0), 4),
+                    'in_total_value' => round((float)($row['in_total_value'] ?? 0), 2),
+                    'out_qty' => round((float)($row['out_qty'] ?? 0), 4),
+                    'out_total_value' => round((float)($row['out_total_value'] ?? 0), 2),
+                    'waste_qty' => round((float)($row['waste_qty'] ?? 0), 4),
+                    'waste_total_value' => round((float)($row['waste_total_value'] ?? 0), 2),
+                    'spoil_qty' => round((float)($row['spoil_qty'] ?? 0), 4),
+                    'spoil_total_value' => round((float)($row['spoil_total_value'] ?? 0), 2),
+                    'adjustment_plus_qty' => round((float)($row['adjustment_plus_qty'] ?? 0), 4),
+                    'adjustment_plus_total_value' => round((float)($row['adjustment_plus_total_value'] ?? 0), 2),
+                    'adjustment_minus_qty' => round((float)($row['adjustment_minus_qty'] ?? 0), 4),
+                    'adjustment_minus_total_value' => round((float)($row['adjustment_minus_total_value'] ?? 0), 2),
+                    'closing_qty' => round((float)($row['closing_qty'] ?? 0), 4),
+                    'avg_cost' => round((float)($row['avg_cost'] ?? 0), 6),
+                    'total_value' => round((float)($row['total_value'] ?? 0), 2),
+                    'movement_day_count' => (int)($row['movement_day_count'] ?? 0),
+                    'mutation_count' => (int)($row['mutation_count'] ?? 0),
                     'generated_by' => $userId > 0 ? $userId : null,
-                    '_first_date' => '9999-12-31',
-                    '_last_date' => '0000-00-00',
                 ];
             }
+        } else {
+            foreach ($rows as $row) {
+                $groupKey = implode('|', [
+                    strtoupper((string)($row['location_type'] ?? '')),
+                    (int)($row['division_id'] ?? 0),
+                    (int)($row['component_id'] ?? 0),
+                    (int)($row['uom_id'] ?? 0),
+                ]);
 
-            $movementDate = (string)($row['movement_date'] ?? '');
-            $aggregated[$groupKey]['movement_day_count']++;
-            $aggregated[$groupKey]['mutation_count'] += (int)($row['mutation_count'] ?? 0);
-            $aggregated[$groupKey]['in_qty'] += round((float)($row['in_qty'] ?? 0), 4);
-            $aggregated[$groupKey]['out_qty'] += round((float)($row['out_qty'] ?? 0), 4);
-            $aggregated[$groupKey]['waste_qty'] += round((float)($row['waste_qty'] ?? 0), 4);
-            $aggregated[$groupKey]['spoil_qty'] += round((float)($row['spoil_qty'] ?? 0), 4);
-            $adjustmentQty = round((float)($row['adjustment_qty'] ?? 0), 4);
-            if ($adjustmentQty >= 0) {
-                $aggregated[$groupKey]['adjustment_plus_qty'] += $adjustmentQty;
-            } else {
-                $aggregated[$groupKey]['adjustment_minus_qty'] += abs($adjustmentQty);
-            }
-            if ($movementDate < $aggregated[$groupKey]['_first_date']) {
-                $aggregated[$groupKey]['_first_date'] = $movementDate;
-                $aggregated[$groupKey]['opening_qty'] = round((float)($row['opening_qty'] ?? 0), 4);
-                $aggregated[$groupKey]['opening_total_value'] = round(((float)($row['opening_qty'] ?? 0) * (float)($row['avg_cost'] ?? 0)), 2);
-            }
-            if ($movementDate >= $aggregated[$groupKey]['_last_date']) {
-                $aggregated[$groupKey]['_last_date'] = $movementDate;
-                $aggregated[$groupKey]['closing_qty'] = round((float)($row['closing_qty'] ?? 0), 4);
-                $aggregated[$groupKey]['avg_cost'] = round((float)($row['avg_cost'] ?? 0), 6);
-                $aggregated[$groupKey]['total_value'] = round((float)($row['total_value'] ?? 0), 2);
-            }
-        }
+                if (!isset($aggregated[$groupKey])) {
+                    $aggregated[$groupKey] = [
+                        'month_key' => $monthStart,
+                        'location_type' => strtoupper((string)($row['location_type'] ?? '')),
+                        'division_id' => !empty($row['division_id']) ? (int)$row['division_id'] : null,
+                        'component_id' => (int)($row['component_id'] ?? 0),
+                        'uom_id' => (int)($row['uom_id'] ?? 0),
+                        'opening_qty' => round((float)($row['opening_qty'] ?? 0), 4),
+                        'opening_total_value' => round(((float)($row['opening_qty'] ?? 0) * (float)($row['avg_cost'] ?? 0)), 2),
+                        'in_qty' => 0.0,
+                        'in_total_value' => 0.0,
+                        'out_qty' => 0.0,
+                        'out_total_value' => 0.0,
+                        'waste_qty' => 0.0,
+                        'waste_total_value' => 0.0,
+                        'spoil_qty' => 0.0,
+                        'spoil_total_value' => 0.0,
+                        'adjustment_plus_qty' => 0.0,
+                        'adjustment_plus_total_value' => 0.0,
+                        'adjustment_minus_qty' => 0.0,
+                        'adjustment_minus_total_value' => 0.0,
+                        'closing_qty' => 0.0,
+                        'avg_cost' => 0.0,
+                        'total_value' => 0.0,
+                        'movement_day_count' => 0,
+                        'mutation_count' => 0,
+                        'generated_by' => $userId > 0 ? $userId : null,
+                        '_first_date' => '9999-12-31',
+                        '_last_date' => '0000-00-00',
+                    ];
+                }
 
-        foreach ($aggregated as $groupKey => $row) {
-            $avgCost = (float)($row['avg_cost'] ?? 0);
-            $aggregated[$groupKey]['in_total_value'] = round((float)$row['in_qty'] * $avgCost, 2);
-            $aggregated[$groupKey]['out_total_value'] = round((float)$row['out_qty'] * $avgCost, 2);
-            $aggregated[$groupKey]['waste_total_value'] = round((float)$row['waste_qty'] * $avgCost, 2);
-            $aggregated[$groupKey]['spoil_total_value'] = round((float)$row['spoil_qty'] * $avgCost, 2);
-            $aggregated[$groupKey]['adjustment_plus_total_value'] = round((float)$row['adjustment_plus_qty'] * $avgCost, 2);
-            $aggregated[$groupKey]['adjustment_minus_total_value'] = round((float)$row['adjustment_minus_qty'] * $avgCost, 2);
-            unset($aggregated[$groupKey]['_first_date'], $aggregated[$groupKey]['_last_date']);
+                $movementDate = (string)($row['movement_date'] ?? '');
+                $aggregated[$groupKey]['movement_day_count']++;
+                $aggregated[$groupKey]['mutation_count'] += (int)($row['mutation_count'] ?? 0);
+                $aggregated[$groupKey]['in_qty'] += round((float)($row['in_qty'] ?? 0), 4);
+                $aggregated[$groupKey]['out_qty'] += round((float)($row['out_qty'] ?? 0), 4);
+                $aggregated[$groupKey]['waste_qty'] += round((float)($row['waste_qty'] ?? 0), 4);
+                $aggregated[$groupKey]['spoil_qty'] += round((float)($row['spoil_qty'] ?? 0), 4);
+                $adjustmentQty = round((float)($row['adjustment_qty'] ?? 0), 4);
+                if ($adjustmentQty >= 0) {
+                    $aggregated[$groupKey]['adjustment_plus_qty'] += $adjustmentQty;
+                } else {
+                    $aggregated[$groupKey]['adjustment_minus_qty'] += abs($adjustmentQty);
+                }
+                if ($movementDate < $aggregated[$groupKey]['_first_date']) {
+                    $aggregated[$groupKey]['_first_date'] = $movementDate;
+                    $aggregated[$groupKey]['opening_qty'] = round((float)($row['opening_qty'] ?? 0), 4);
+                    $aggregated[$groupKey]['opening_total_value'] = round(((float)($row['opening_qty'] ?? 0) * (float)($row['avg_cost'] ?? 0)), 2);
+                }
+                if ($movementDate >= $aggregated[$groupKey]['_last_date']) {
+                    $aggregated[$groupKey]['_last_date'] = $movementDate;
+                    $aggregated[$groupKey]['closing_qty'] = round((float)($row['closing_qty'] ?? 0), 4);
+                    $aggregated[$groupKey]['avg_cost'] = round((float)($row['avg_cost'] ?? 0), 6);
+                    $aggregated[$groupKey]['total_value'] = round((float)($row['total_value'] ?? 0), 2);
+                }
+            }
+            foreach ($aggregated as $groupKey => $row) {
+                $avgCost = (float)($row['avg_cost'] ?? 0);
+                $aggregated[$groupKey]['in_total_value'] = round((float)$row['in_qty'] * $avgCost, 2);
+                $aggregated[$groupKey]['out_total_value'] = round((float)$row['out_qty'] * $avgCost, 2);
+                $aggregated[$groupKey]['waste_total_value'] = round((float)$row['waste_qty'] * $avgCost, 2);
+                $aggregated[$groupKey]['spoil_total_value'] = round((float)$row['spoil_qty'] * $avgCost, 2);
+                $aggregated[$groupKey]['adjustment_plus_total_value'] = round((float)$row['adjustment_plus_qty'] * $avgCost, 2);
+                $aggregated[$groupKey]['adjustment_minus_total_value'] = round((float)$row['adjustment_minus_qty'] * $avgCost, 2);
+                unset($aggregated[$groupKey]['_first_date'], $aggregated[$groupKey]['_last_date']);
+            }
         }
 
         $conflictQuery = $this->db->from('inv_component_monthly_opening')

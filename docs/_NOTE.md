@@ -157,3 +157,6 @@ gagal generate e/production/component-daily?q=&month=2026-06&division_id=0&locat
 saya mau melakukan generate stok opname dan stok awal component.
 pastikan data yang di generate bersih, tidak ada missmatch meskipun data awal ada missmatch, data hasil generate harus bersih mengikuti stock. jika ada perbedaan profile atau lot atau movemen log,  harus dibersihkan mengikut data stock
 jika generate dilakukan lebih dari sekali maka ditimpa
+
+
+
