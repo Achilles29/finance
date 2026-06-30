@@ -11742,6 +11742,33 @@ class Purchase_model extends CI_Model
                     ]));
                 }
 
+    private function buildDivisionMonthlyGenerateSourceRows(?int $divisionId, string $dateFrom, string $dateTo, ?string $destinationFilter = null): array
+    {
+        $rows = $this->build_division_daily_rows_from_monthly_base(
+            '',
+            $divisionId,
+            $dateFrom,
+            $dateTo,
+            50000,
+            $destinationFilter
+        );
+        $rows = $this->filterZeroOpeningClosingDailyRows($rows);
+        if (!empty($rows)) {
+            return $rows;
+        }
+
+        // Fallback for legacy months that still rely on movement log only.
+        return $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
+            'DIVISION',
+            '',
+            $divisionId,
+            $dateFrom,
+            $dateTo,
+            $destinationFilter,
+            false
+        );
+    }
+
     public function generate_monthly_opname_and_opening(array $payload, int $userId, string $sourceIp = ''): array
     {
         $stockScope = strtoupper(trim((string)($payload['stock_scope'] ?? 'WAREHOUSE')));
@@ -11908,20 +11935,24 @@ class Purchase_model extends CI_Model
             }
         }
 
-        $rows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
-            $stockScope,
-            '',
-            $divisionId,
-            $dateFrom,
-            $dateTo,
-            $destinationFilter,
-            false
-        );
+        $rows = $stockScope === 'DIVISION'
+            ? $this->buildDivisionMonthlyGenerateSourceRows($divisionId, $dateFrom, $dateTo, $destinationFilter)
+            : $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
+                $stockScope,
+                '',
+                $divisionId,
+                $dateFrom,
+                $dateTo,
+                $destinationFilter,
+                false
+            );
 
         if (empty($rows)) {
             return [
                 'ok' => false,
-                'message' => 'Data movement bulan ' . date('Y-m', strtotime($monthKey)) . ' tidak ditemukan untuk digenerate.',
+                'message' => $stockScope === 'DIVISION'
+                    ? 'Data stock bulanan divisi bulan ' . date('Y-m', strtotime($monthKey)) . ' tidak ditemukan untuk digenerate.'
+                    : 'Data movement bulan ' . date('Y-m', strtotime($monthKey)) . ' tidak ditemukan untuk digenerate.',
             ];
         }
 
@@ -11988,7 +12019,7 @@ class Purchase_model extends CI_Model
             }
 
             $day = (string)($row['movement_date'] ?? '');
-            if ($day !== '') {
+            if ($day !== '' && (int)($row['mutation_count'] ?? 0) > 0) {
                 $aggregated[$groupKey]['_day_map'][$day] = true;
             }
             $aggregated[$groupKey]['mutation_count'] += (int)($row['mutation_count'] ?? 0);
@@ -12289,13 +12320,16 @@ class Purchase_model extends CI_Model
 
         return [
             'ok' => true,
-            'message' => 'Generate opname bulanan berhasil. Opening bulan berikutnya juga sudah dibuat untuk saldo akhir > 0.',
+            'message' => $stockScope === 'DIVISION'
+                ? 'Generate opname bulanan berhasil. Opening bulan berikutnya juga sudah dibuat untuk saldo akhir > 0 dengan source of truth mengikuti stock bulanan final.'
+                : 'Generate opname bulanan berhasil. Opening bulan berikutnya juga sudah dibuat untuk saldo akhir > 0.',
             'data' => [
                 'stock_scope' => $stockScope,
                 'month' => $monthKey,
                 'next_month' => $nextMonth,
                 'division_id' => $divisionId,
                 'destination_filter' => $destinationFilter,
+                'source_mode' => $stockScope === 'DIVISION' ? 'MONTHLY_STOCK_TRUTH' : 'MOVEMENT_LOG',
                 'opname_rows' => $generatedRows,
                 'opening_rows' => $carriedRows,
             ],
