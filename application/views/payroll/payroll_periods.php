@@ -6,6 +6,7 @@ $periodDetailRows = $period_detail_rows ?? [];
 $periodBreakdownRows = $period_breakdown_rows ?? [];
 $periodAudit = $period_audit ?? null;
 $periodDetailId = (int)($period_detail_id ?? 0);
+$detailTabDefault = $periodDetailId > 0 ? 'audit' : 'periods';
 
 $buildQuery = static function ($overrides = []) use ($periodFilters, $periodPg) {
     $base = [
@@ -49,33 +50,53 @@ $buildQuery = static function ($overrides = []) use ($periodFilters, $periodPg) 
   </div>
 </div>
 
-<div class="card">
-  <div class="card-header"><strong>Daftar Payroll Period</strong></div>
-  <div class="table-responsive">
-    <table class="table table-sm table-striped mb-0">
-      <thead><tr><th>Periode</th><th>Status</th><th class="text-end">Pegawai</th><th class="text-end">Net</th><th class="text-center">Aksi</th></tr></thead>
-      <tbody>
-        <?php if (empty($periodRows)): ?><tr><td colspan="5" class="text-center text-muted py-3">Belum ada payroll period.</td></tr><?php else: foreach($periodRows as $p): ?>
-        <tr>
-          <td><a href="<?php echo site_url('payroll/payroll-periods?' . $buildQuery(['period_detail_id' => (int)$p['id']])); ?>"><?php echo html_escape((string)$p['period_code']); ?></a><div class="small text-muted"><?php echo html_escape((string)$p['period_start']); ?> s/d <?php echo html_escape((string)$p['period_end']); ?></div></td>
-          <td><?php echo html_escape((string)$p['status']); ?></td>
-          <td class="text-end"><?php echo (int)($p['employee_count'] ?? 0); ?></td>
-          <td class="text-end"><?php echo number_format((float)($p['net_pay_total'] ?? 0), 2, ',', '.'); ?></td>
-          <td class="action-cell text-center">
-            <a href="<?php echo site_url('payroll/payroll-periods?' . $buildQuery(['period_detail_id' => (int)$p['id']])); ?>" class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Detail"><i class="ri ri-eye-line"></i></a>
-            <form method="post" action="<?php echo site_url('payroll/salary-disbursements/period-void/' . (int)$p['id']); ?>" class="d-inline" data-confirm="Reset period ini ke DRAFT?">
-              <button type="submit" class="btn btn-sm btn-outline-warning action-icon-btn" data-bs-toggle="tooltip" title="Reset/VOID"><i class="ri ri-restart-line"></i></button>
-            </form>
-            <form method="post" action="<?php echo site_url('payroll/salary-disbursements/period-delete/' . (int)$p['id']); ?>" class="d-inline" data-confirm="Hapus period ini?">
-              <button type="submit" class="btn btn-sm btn-outline-danger action-icon-btn" data-bs-toggle="tooltip" title="Hapus"><i class="ri ri-delete-bin-line"></i></button>
-            </form>
-          </td>
-        </tr>
-        <?php endforeach; endif; ?>
-      </tbody>
-    </table>
+<ul class="nav nav-tabs mb-3" id="payrollPeriodDetailTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link <?php echo $detailTabDefault === 'periods' ? 'active' : ''; ?>" data-bs-toggle="tab" data-bs-target="#payroll-tab-periods" type="button" role="tab">Daftar Payroll Period</button>
+  </li>
+  <?php if ($periodDetailId > 0): ?>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link <?php echo $detailTabDefault === 'audit' ? 'active' : ''; ?>" data-bs-toggle="tab" data-bs-target="#payroll-tab-audit" type="button" role="tab">Ringkasan Audit</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#payroll-tab-summary" type="button" role="tab">Summary Result Period #<?php echo $periodDetailId; ?></button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#payroll-tab-breakdown" type="button" role="tab">Breakdown Komponen Period #<?php echo $periodDetailId; ?></button>
+  </li>
+  <?php endif; ?>
+</ul>
+
+<div class="tab-content">
+  <div class="tab-pane fade <?php echo $detailTabDefault === 'periods' ? 'show active' : ''; ?>" id="payroll-tab-periods" role="tabpanel">
+    <div class="card">
+      <div class="card-header"><strong>Daftar Payroll Period</strong></div>
+      <div class="table-responsive">
+        <table class="table table-sm table-striped mb-0">
+          <thead><tr><th>Periode</th><th>Status</th><th class="text-end">Pegawai</th><th class="text-end">Net</th><th class="text-center">Aksi</th></tr></thead>
+          <tbody>
+            <?php if (empty($periodRows)): ?><tr><td colspan="5" class="text-center text-muted py-3">Belum ada payroll period.</td></tr><?php else: foreach($periodRows as $p): ?>
+            <tr>
+              <td><a href="<?php echo site_url('payroll/payroll-periods?' . $buildQuery(['period_detail_id' => (int)$p['id']])); ?>"><?php echo html_escape((string)$p['period_code']); ?></a><div class="small text-muted"><?php echo html_escape((string)$p['period_start']); ?> s/d <?php echo html_escape((string)$p['period_end']); ?></div></td>
+              <td><?php echo html_escape((string)$p['status']); ?></td>
+              <td class="text-end"><?php echo (int)($p['employee_count'] ?? 0); ?></td>
+              <td class="text-end"><?php echo number_format((float)($p['net_pay_total'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="action-cell text-center">
+                <a href="<?php echo site_url('payroll/payroll-periods?' . $buildQuery(['period_detail_id' => (int)$p['id']])); ?>" class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Detail"><i class="ri ri-eye-line"></i></a>
+                <form method="post" action="<?php echo site_url('payroll/salary-disbursements/period-void/' . (int)$p['id']); ?>" class="d-inline" data-confirm="Reset period ini ke DRAFT?">
+                  <button type="submit" class="btn btn-sm btn-outline-warning action-icon-btn" data-bs-toggle="tooltip" title="Reset/VOID"><i class="ri ri-restart-line"></i></button>
+                </form>
+                <form method="post" action="<?php echo site_url('payroll/salary-disbursements/period-delete/' . (int)$p['id']); ?>" class="d-inline" data-confirm="Hapus period ini?">
+                  <button type="submit" class="btn btn-sm btn-outline-danger action-icon-btn" data-bs-toggle="tooltip" title="Hapus"><i class="ri ri-delete-bin-line"></i></button>
+                </form>
+              </td>
+            </tr>
+            <?php endforeach; endif; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
-</div>
 
 <?php if ($periodDetailId > 0): ?>
 <?php
@@ -84,7 +105,8 @@ $buildQuery = static function ($overrides = []) use ($periodFilters, $periodPg) 
   $auditDupResult = (array)($periodAudit['duplicates_result'] ?? []);
   $auditDupDisb = (array)($periodAudit['duplicates_disbursement'] ?? []);
 ?>
-<div class="card mt-3 border-<?php echo (
+<div class="tab-pane fade <?php echo $detailTabDefault === 'audit' ? 'show active' : ''; ?>" id="payroll-tab-audit" role="tabpanel">
+<div class="card border-<?php echo (
     ((int)($auditSummary['mismatch_rows'] ?? 0) > 0)
     || ((int)($auditSummary['result_duplicates'] ?? 0) > 0)
     || ((int)($auditSummary['active_disbursement_duplicates'] ?? 0) > 0)
@@ -148,8 +170,10 @@ $buildQuery = static function ($overrides = []) use ($periodFilters, $periodPg) 
   </div>
   <?php endif; ?>
 </div>
+</div>
 
-<div class="card mt-3">
+<div class="tab-pane fade" id="payroll-tab-summary" role="tabpanel">
+<div class="card">
   <div class="card-header"><strong>Summary Result Period #<?php echo $periodDetailId; ?></strong></div>
   <div class="table-responsive">
     <table class="table table-sm table-striped mb-0">
@@ -178,8 +202,10 @@ $buildQuery = static function ($overrides = []) use ($periodFilters, $periodPg) 
     </table>
   </div>
 </div>
+</div>
 
-<div class="card mt-3">
+<div class="tab-pane fade" id="payroll-tab-breakdown" role="tabpanel">
+<div class="card">
   <div class="card-header"><strong>Breakdown Komponen Period #<?php echo $periodDetailId; ?></strong></div>
   <div class="table-responsive">
     <table class="table table-sm table-striped mb-0">
@@ -225,4 +251,6 @@ $buildQuery = static function ($overrides = []) use ($periodFilters, $periodPg) 
     </table>
   </div>
 </div>
+</div>
 <?php endif; ?>
+</div>

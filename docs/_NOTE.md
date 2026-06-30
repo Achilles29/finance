@@ -140,3 +140,10 @@ finalkan generate stok gudang, bahan baku. component. pastikan cutoff dan membua
 finalkan generate keuangan
 
 /payroll/payroll-periods
+
+
+untuk kasus pak fajar:
+- buatkan sql untuk repair databasenya
+- apakah UI absen sekarang sudah mengakomodir jam shift lintas hari untuk security?  baik absen manual dan pengajuan
+
+
