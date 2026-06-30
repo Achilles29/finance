@@ -21,9 +21,16 @@ class Auth extends CI_Controller
 
     public function index()
     {
-        // Jika sudah login, langsung ke dashboard
+        // Jika sudah login, langsung ke halaman pertama yang memang boleh diakses
         if ($this->session->userdata('auth_user')) {
-            redirect('dashboard');
+            $perms = (array)$this->session->userdata('user_perms');
+            $target = $this->resolve_post_login_redirect($perms);
+            if ($target === '') {
+                $this->session->sess_destroy();
+                $this->session->set_flashdata('login_error', 'Akun belum memiliki akses halaman. Hubungi admin.');
+                redirect('login');
+            }
+            redirect($target);
         }
 
         $data = [
@@ -37,7 +44,14 @@ class Auth extends CI_Controller
     public function do_login()
     {
         if ($this->session->userdata('auth_user')) {
-            redirect('dashboard');
+            $perms = (array)$this->session->userdata('user_perms');
+            $target = $this->resolve_post_login_redirect($perms);
+            if ($target === '') {
+                $this->session->sess_destroy();
+                $this->session->set_flashdata('login_error', 'Akun belum memiliki akses halaman. Hubungi admin.');
+                redirect('login');
+            }
+            redirect($target);
         }
 
         // Validasi input
@@ -82,9 +96,18 @@ class Auth extends CI_Controller
         );
         $this->session->set_userdata('session_log_id', $log_id);
 
-        // Redirect ke halaman sebelumnya jika ada
+        // Redirect ke halaman sebelumnya jika ada, fallback ke halaman pertama yang boleh diakses
         $redirect_to = $this->session->flashdata('redirect_after_login');
-        redirect($redirect_to ?: 'dashboard');
+        if ($redirect_to === '') {
+            $redirect_to = $this->resolve_post_login_redirect($perms);
+        }
+        if ($redirect_to === '') {
+            $this->Auth_model->log_logout($log_id);
+            $this->session->sess_destroy();
+            $this->session->set_flashdata('login_error', 'Akun berhasil diverifikasi, tetapi belum memiliki akses halaman. Hubungi admin.');
+            redirect('login');
+        }
+        redirect($redirect_to);
     }
 
     // ---------------------------------------------------------------
@@ -97,5 +120,29 @@ class Auth extends CI_Controller
         $this->Auth_model->log_logout($log_id);
         $this->session->sess_destroy();
         redirect('login');
+    }
+
+    private function resolve_post_login_redirect(array $perms): string
+    {
+        if (isset($perms['__superadmin__'])) {
+            return 'dashboard';
+        }
+
+        $candidates = [
+            'dashboard.index' => 'dashboard',
+            'my.home.index' => 'my',
+            'my.attendance.index' => 'my/attendance',
+            'my.profile.index' => 'my/profile',
+            'purchase.order.index' => 'purchase-orders',
+            'payroll.cash_advance.index' => 'payroll/cash-advances',
+        ];
+
+        foreach ($candidates as $pageCode => $url) {
+            if (!empty($perms[$pageCode]['can_view'])) {
+                return $url;
+            }
+        }
+
+        return '';
     }
 }

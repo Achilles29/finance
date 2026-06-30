@@ -210,6 +210,80 @@ class PosRuntimeJobService
         return ['ok' => true, 'rows' => array_map([$this, 'format_job_row'], $rows)];
     }
 
+    public function failed_commit_snapshots(array $filters = []): array
+    {
+        if (!$this->queue_tables_ready()) {
+            return ['ok' => false, 'message' => 'Queue runtime POS belum siap.'];
+        }
+
+        $outletId = max(0, (int)($filters['outlet_id'] ?? 0));
+        $q = trim((string)($filters['q'] ?? ''));
+        $limit = max(1, min(100, (int)($filters['limit'] ?? 20)));
+        $dateFrom = trim((string)($filters['date_from'] ?? ''));
+        $dateTo = trim((string)($filters['date_to'] ?? ''));
+
+        $db = $this->CI->db->from('pos_stock_commit s')
+            ->join('pos_order o', 'o.id = s.order_id', 'inner')
+            ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
+            ->join('org_employee e', 'e.id = o.cashier_employee_id', 'left')
+            ->join(
+                "(
+                    SELECT j1.snapshot_id,
+                           j1.id AS latest_job_id,
+                           j1.job_code AS latest_job_code,
+                           j1.status AS latest_job_status,
+                           j1.last_error AS latest_job_error,
+                           j1.updated_at AS latest_job_updated_at
+                    FROM pos_runtime_job j1
+                    INNER JOIN (
+                        SELECT snapshot_id, MAX(id) AS max_id
+                        FROM pos_runtime_job
+                        WHERE job_type = 'ORDER_CONFIRM_STOCK_COMMIT'
+                        GROUP BY snapshot_id
+                    ) j2 ON j2.max_id = j1.id
+                ) lj",
+                'lj.snapshot_id = s.id',
+                'left',
+                false
+            )
+            ->where('s.commit_status', 'FAILED');
+
+        if ($outletId > 0) {
+            $db->where('o.outlet_id', $outletId);
+        }
+        if ($dateFrom !== '' && preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateFrom)) {
+            $db->where("DATE(COALESCE(o.confirmed_at, o.ordered_at, s.committed_at, s.created_at)) >= " . $this->CI->db->escape($dateFrom), null, false);
+        }
+        if ($dateTo !== '' && preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dateTo)) {
+            $db->where("DATE(COALESCE(o.confirmed_at, o.ordered_at, s.committed_at, s.created_at)) <= " . $this->CI->db->escape($dateTo), null, false);
+        }
+        if ($q !== '') {
+            $db->group_start()
+                ->like('o.order_no', $q)
+                ->or_like('s.commit_no', $q)
+                ->or_like('po.outlet_name', $q)
+                ->or_like('e.employee_name', $q)
+                ->or_like('lj.latest_job_error', $q)
+                ->or_like('s.notes', $q)
+            ->group_end();
+        }
+
+        $rows = $db->select("
+                s.id, s.commit_no, s.order_id, s.commit_status, s.commit_reason, s.process_state_snapshot,
+                s.committed_at, s.reversed_at, s.last_rebuild_at, s.notes, s.created_at, s.updated_at,
+                o.order_no, o.status AS order_status, o.stock_commit_status, o.confirmed_at, o.ordered_at, o.outlet_id,
+                po.outlet_name,
+                e.employee_name AS cashier_employee_name,
+                lj.latest_job_id, lj.latest_job_code, lj.latest_job_status, lj.latest_job_error, lj.latest_job_updated_at
+            ", false)
+            ->order_by('COALESCE(s.updated_at, s.created_at)', 'DESC', false)
+            ->limit($limit)
+            ->get()
+            ->result_array();
+
+        return ['ok' => true, 'rows' => array_map([$this, 'format_snapshot_row'], $rows)];
+    }
+
     public function retry_job(int $jobId, int $actorEmployeeId = 0): array
     {
         if ($jobId <= 0 || !$this->queue_tables_ready()) {
@@ -631,6 +705,18 @@ class PosRuntimeJobService
         $row['payload'] = $this->decode_json((string)($row['payload_json'] ?? ''));
         $row['result'] = $this->decode_json((string)($row['result_json'] ?? ''));
         unset($row['payload_json'], $row['result_json']);
+        return $row;
+    }
+
+    protected function format_snapshot_row(array $row): array
+    {
+        if (!$row) {
+            return [];
+        }
+        $row['id'] = (int)($row['id'] ?? 0);
+        $row['order_id'] = (int)($row['order_id'] ?? 0);
+        $row['outlet_id'] = (int)($row['outlet_id'] ?? 0);
+        $row['latest_job_id'] = (int)($row['latest_job_id'] ?? 0);
         return $row;
     }
 }

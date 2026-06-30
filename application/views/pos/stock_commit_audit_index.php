@@ -23,7 +23,10 @@ $domainAuditRows = is_array($domainAudit['rows'] ?? null) ? $domainAudit['rows']
 $domainAuditSummary = is_array($domainAudit['summary'] ?? null) ? $domainAudit['summary'] : [];
 $failedJobs = is_array($failed_jobs ?? null) ? $failed_jobs : [];
 $activeJobs = is_array($active_jobs ?? null) ? $active_jobs : [];
+$failedCommitSnapshots = is_array($failed_commit_snapshots ?? null) ? $failed_commit_snapshots : [];
 $divisionOptions = is_array($division_options ?? null) ? $division_options : [];
+$auditMonthFrom = (string)($audit_month_from ?? date('Y-m-01', strtotime($asOfDate)));
+$auditMonthTo = (string)($audit_month_to ?? date('Y-m-t', strtotime($asOfDate)));
 
 $fmtQty = static function ($value): string {
     return number_format((float)$value, 2, ',', '.');
@@ -252,10 +255,95 @@ $GLOBALS['auditTab'] = $auditTab;
     <div class="sca-kpis">
       <div class="sca-kpi"><span class="label">Job Aktif</span><div class="value" id="sca_active_job_count"><?php echo number_format(count($activeJobs)); ?></div></div>
       <div class="sca-kpi"><span class="label">Job Gagal</span><div class="value" id="sca_failed_job_count"><?php echo number_format(count($failedJobs)); ?></div></div>
+      <div class="sca-kpi"><span class="label">Snapshot FAILED</span><div class="value"><?php echo number_format(count($failedCommitSnapshots)); ?></div></div>
       <div class="sca-kpi"><span class="label">Mismatch Bahan Baku</span><div class="value"><?php echo number_format((int)($materialSummaryAll['mismatch_rows'] ?? 0)); ?></div></div>
       <div class="sca-kpi"><span class="label">Mismatch Base/Prepare</span><div class="value"><?php echo number_format((int)($componentSummaryAll['mismatched'] ?? 0)); ?></div></div>
       <div class="sca-kpi"><span class="label">Drift Monthly Bahan</span><div class="value"><?php echo number_format((int)($materialSummaryAll['drift_rows'] ?? 0)); ?></div></div>
       <div class="sca-kpi"><span class="label">Drift Monthly Base</span><div class="value"><?php echo number_format((int)($componentSummaryAll['drift_rows'] ?? 0)); ?></div></div>
+    </div>
+
+    <div class="sca-card">
+      <div class="card-body p-3 p-lg-4">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+          <div>
+            <div class="small text-uppercase fw-bold text-muted">Blokir Generate Opname</div>
+            <h5 class="mb-1 mt-2">Snapshot Stock Commit FAILED Bulan Berjalan</h5>
+            <div class="text-muted small">
+              Daftar ini dibaca langsung dari tabel <code>pos_stock_commit</code> untuk periode
+              <strong><?php echo html_escape($auditMonthFrom); ?></strong> s/d
+              <strong><?php echo html_escape($auditMonthTo); ?></strong>.
+              Jika masih ada status <code>FAILED</code> di sini, generate stock opname inventory divisi akan ditolak.
+            </div>
+          </div>
+          <div class="text-muted small">
+            Database: <strong>pos_stock_commit</strong><br>
+            Queue terkait: <strong>pos_runtime_job</strong>
+          </div>
+        </div>
+        <div class="sca-job-list" id="sca_failed_snapshot_list">
+          <?php if (empty($failedCommitSnapshots)): ?>
+            <div class="text-muted small">Tidak ada snapshot stock commit FAILED pada bulan berjalan.</div>
+          <?php else: ?>
+            <?php foreach ($failedCommitSnapshots as $snapshot): ?>
+              <?php
+                $snapshotOrderStatus = strtoupper(trim((string)($snapshot['order_status'] ?? '')));
+                $snapshotOrderCommitStatus = strtoupper(trim((string)($snapshot['stock_commit_status'] ?? '')));
+                $latestJobStatus = strtoupper(trim((string)($snapshot['latest_job_status'] ?? '')));
+                $canRetrySnapshot = !in_array($snapshotOrderStatus, ['VOID'], true)
+                  && in_array($snapshotOrderCommitStatus, ['PENDING', 'FAILED', 'QUEUED', 'PROCESSING'], true);
+                $canDismissSnapshot = $snapshotOrderStatus === 'VOID'
+                  || in_array($snapshotOrderCommitStatus, ['POSTED', 'REVERSED', 'NOT_REQUIRED'], true);
+                $snapshotError = trim((string)($snapshot['latest_job_error'] ?? ''));
+                if ($snapshotError === '') {
+                    $snapshotError = trim((string)($snapshot['notes'] ?? ''));
+                }
+                if ($snapshotError === '') {
+                    $snapshotError = 'Snapshot FAILED tanpa detail error tambahan.';
+                }
+              ?>
+              <div class="sca-job-card">
+                <div class="sca-job-top">
+                  <div>
+                    <div class="sca-job-title"><?php echo html_escape((string)($snapshot['order_no'] ?? '-')); ?> | <?php echo html_escape((string)($snapshot['commit_no'] ?? '-')); ?></div>
+                    <div class="sca-job-meta">
+                      <?php echo html_escape((string)($snapshot['outlet_name'] ?? '-')); ?>
+                      <?php if (trim((string)($snapshot['cashier_employee_name'] ?? '')) !== ''): ?>
+                        | <?php echo html_escape((string)($snapshot['cashier_employee_name'] ?? '-')); ?>
+                      <?php endif; ?>
+                      | Ref: <?php echo html_escape((string)($snapshot['confirmed_at'] ?? ($snapshot['ordered_at'] ?? ($snapshot['committed_at'] ?? '-')))); ?>
+                    </div>
+                    <div class="sca-job-meta">
+                      Order: <?php echo html_escape($snapshotOrderStatus !== '' ? $snapshotOrderStatus : '-'); ?>
+                      | Stock: <?php echo html_escape($snapshotOrderCommitStatus !== '' ? $snapshotOrderCommitStatus : '-'); ?>
+                      | Snapshot: <?php echo html_escape((string)($snapshot['commit_status'] ?? 'FAILED')); ?>
+                      | Latest Job: <?php echo html_escape($latestJobStatus !== '' ? $latestJobStatus : 'BELUM ADA'); ?>
+                    </div>
+                  </div>
+                  <div class="sca-job-badges">
+                    <span class="sca-job-badge failed"><?php echo html_escape((string)($snapshot['commit_status'] ?? 'FAILED')); ?></span>
+                    <span class="sca-job-badge order"><?php echo html_escape($snapshotOrderCommitStatus !== '' ? $snapshotOrderCommitStatus : '-'); ?></span>
+                    <?php if ($latestJobStatus !== ''): ?>
+                      <span class="sca-job-badge <?php echo strtolower($latestJobStatus) === 'failed' ? 'failed' : (strtolower($latestJobStatus) === 'queued' ? 'queued' : 'processing'); ?>">
+                        <?php echo html_escape($latestJobStatus); ?>
+                      </span>
+                    <?php endif; ?>
+                  </div>
+                </div>
+                <div class="sca-job-error"><?php echo nl2br(html_escape($snapshotError)); ?></div>
+                <div class="mt-3 d-flex gap-2 flex-wrap">
+                  <?php if ($canRetrySnapshot): ?>
+                    <button type="button" class="btn btn-sm btn-outline-primary sca_retry_snapshot_btn" data-snapshot-id="<?php echo (int)($snapshot['id'] ?? 0); ?>">Retry Snapshot</button>
+                  <?php endif; ?>
+                  <?php if ($canDismissSnapshot): ?>
+                    <button type="button" class="btn btn-sm btn-outline-warning sca_dismiss_snapshot_btn" data-snapshot-id="<?php echo (int)($snapshot['id'] ?? 0); ?>" data-order-no="<?php echo html_escape((string)($snapshot['order_no'] ?? '-')); ?>" data-close-as="<?php echo html_escape($snapshotOrderStatus === 'VOID' ? 'VOID' : 'REVERSED'); ?>">Tutup Snapshot</button>
+                  <?php endif; ?>
+                  <a href="<?php echo html_escape(site_url('pos/stock-commit-audit?as_of_date=' . rawurlencode($asOfDate) . '&q=' . rawurlencode((string)($snapshot['order_no'] ?? '')))); ?>" class="btn btn-sm btn-outline-secondary">Filter Order Ini</a>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          <?php endif; ?>
+        </div>
+      </div>
     </div>
 
     <div class="sca-card">
@@ -782,6 +870,52 @@ document.addEventListener('DOMContentLoaded', function () {
         window.location.reload();
       } catch (e) {
         await showAlert(e.message || 'Job gagal tidak bisa ditutup.', 'Tutup Job Gagal POS');
+      } finally {
+        clearButtonLoading(this);
+      }
+    });
+  });
+
+  document.querySelectorAll('.sca_retry_snapshot_btn').forEach((button) => {
+    button.addEventListener('click', async function () {
+      const snapshotId = Number(this.dataset.snapshotId || 0);
+      if (snapshotId <= 0) return;
+      const confirmed = await askConfirm(
+        'Refresh snapshot FAILED ini dari order terbaru, lalu antrekan ulang stock commit sekarang?',
+        { title: 'Retry Snapshot FAILED POS' }
+      );
+      if (!confirmed) return;
+      setButtonLoading(this, 'Retry snapshot...');
+      try {
+        const json = await postJson('<?php echo site_url('pos/orders/runtime-snapshots/retry'); ?>/' + snapshotId, {});
+        await showAlert(json.message || 'Snapshot FAILED berhasil diproses ulang.', 'Retry Snapshot FAILED POS');
+        window.location.reload();
+      } catch (e) {
+        await showAlert(e.message || 'Snapshot FAILED tidak bisa di-retry.', 'Retry Snapshot FAILED POS');
+      } finally {
+        clearButtonLoading(this);
+      }
+    });
+  });
+
+  document.querySelectorAll('.sca_dismiss_snapshot_btn').forEach((button) => {
+    button.addEventListener('click', async function () {
+      const snapshotId = Number(this.dataset.snapshotId || 0);
+      const orderNo = String(this.dataset.orderNo || '-');
+      const closeAs = String(this.dataset.closeAs || 'REVERSED');
+      if (snapshotId <= 0) return;
+      const confirmed = await askConfirm(
+        'Tutup snapshot FAILED untuk order ' + orderNo + ' sebagai ' + closeAs + '? Gunakan ini hanya bila order sudah final dan memang tidak perlu diproses ulang.',
+        { title: 'Tutup Snapshot FAILED POS' }
+      );
+      if (!confirmed) return;
+      setButtonLoading(this, 'Menutup snapshot...');
+      try {
+        const json = await postJson('<?php echo site_url('pos/orders/runtime-snapshots/dismiss'); ?>/' + snapshotId, {});
+        await showAlert(json.message || 'Snapshot FAILED berhasil ditutup.', 'Tutup Snapshot FAILED POS');
+        window.location.reload();
+      } catch (e) {
+        await showAlert(e.message || 'Snapshot FAILED tidak bisa ditutup.', 'Tutup Snapshot FAILED POS');
       } finally {
         clearButtonLoading(this);
       }

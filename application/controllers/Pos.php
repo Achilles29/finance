@@ -83,6 +83,8 @@ class Pos extends MY_Controller
         if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
             $asOfDate = date('Y-m-d');
         }
+        $auditMonthFrom = date('Y-m-01', strtotime($asOfDate));
+        $auditMonthTo = date('Y-m-t', strtotime($asOfDate));
         $tab = strtolower(trim((string)$this->input->get('tab', true)));
         if (!in_array($tab, ['material', 'component'], true)) {
             $tab = 'material';
@@ -198,6 +200,12 @@ class Pos extends MY_Controller
 
         $failedJobs = $this->posruntimejobservice->failed_jobs(['limit' => 15]);
         $activeJobs = $this->posruntimejobservice->active_jobs(['limit' => 15]);
+        $failedCommitSnapshots = $this->posruntimejobservice->failed_commit_snapshots([
+            'limit' => 20,
+            'q' => $q,
+            'date_from' => $auditMonthFrom,
+            'date_to' => $auditMonthTo,
+        ]);
 
         $this->render('pos/stock_commit_audit_index', [
             'page_title' => 'Audit Commit Stok POS',
@@ -205,12 +213,15 @@ class Pos extends MY_Controller
             'pos_master_tab_active' => 'stock-commit-audit',
             'audit_tab' => $tab,
             'as_of_date' => $asOfDate,
+            'audit_month_from' => $auditMonthFrom,
+            'audit_month_to' => $auditMonthTo,
             'material_compare' => $materialCompare,
             'domain_audit' => !empty($domainAudit['ok']) ? (array)($domainAudit['data'] ?? []) : ['summary' => [], 'rows' => []],
             'component_compare' => $componentCompare,
             'division_options' => $divisionOptions,
             'failed_jobs' => !empty($failedJobs['ok']) ? (array)($failedJobs['rows'] ?? []) : [],
             'active_jobs' => !empty($activeJobs['ok']) ? (array)($activeJobs['rows'] ?? []) : [],
+            'failed_commit_snapshots' => !empty($failedCommitSnapshots['ok']) ? (array)($failedCommitSnapshots['rows'] ?? []) : [],
         ]);
     }
 
@@ -2684,6 +2695,175 @@ class Pos extends MY_Controller
             'message' => 'Job gagal untuk order ' . (string)($job['order_no'] ?? '-') . ' berhasil ditutup.',
             'job_id' => $jobId,
             'order_id' => (int)($job['order_id'] ?? 0),
+        ]);
+    }
+
+    public function order_runtime_failed_snapshot_retry($snapshotId)
+    {
+        $pageCode = $this->can('pos.stock.commit.audit.index', 'edit')
+            ? 'pos.stock.commit.audit.index'
+            : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'edit');
+        $this->load->library('PosRuntimeJobService', null, 'posruntimejobservice');
+        $this->load->library('PosStockCommitService', null, 'posstockcommitservice');
+
+        $snapshotId = (int)$snapshotId;
+        if ($snapshotId <= 0) {
+            $this->json_error('Snapshot stock commit POS tidak valid untuk retry.', 422);
+            return;
+        }
+
+        $snapshot = $this->db->select('s.*, o.order_no, o.status AS order_status, o.stock_commit_status')
+            ->from('pos_stock_commit s')
+            ->join('pos_order o', 'o.id = s.order_id', 'left')
+            ->where('s.id', $snapshotId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$snapshot) {
+            $this->json_error('Snapshot stock commit POS tidak ditemukan.', 404);
+            return;
+        }
+
+        $snapshotStatus = strtoupper(trim((string)($snapshot['commit_status'] ?? '')));
+        if ($snapshotStatus !== 'FAILED') {
+            $this->json_error('Hanya snapshot FAILED yang bisa di-retry dari audit ini.', 422);
+            return;
+        }
+
+        $orderId = (int)($snapshot['order_id'] ?? 0);
+        if ($orderId <= 0) {
+            $this->json_error('Order sumber snapshot tidak valid untuk retry.', 422);
+            return;
+        }
+
+        $orderStatus = strtoupper(trim((string)($snapshot['order_status'] ?? '')));
+        if ($orderStatus === 'VOID') {
+            $this->json_error('Order ini sudah VOID. Tutup snapshot gagal ini, jangan di-retry lagi.', 422);
+            return;
+        }
+
+        $orderCommitStatus = strtoupper(trim((string)($snapshot['stock_commit_status'] ?? '')));
+        if (in_array($orderCommitStatus, ['POSTED', 'REVERSED', 'NOT_REQUIRED'], true)) {
+            $this->json_error('Status stock order sudah ' . $orderCommitStatus . '. Snapshot gagal ini lebih aman ditutup, bukan di-retry.', 422);
+            return;
+        }
+
+        $refreshed = $this->posstockcommitservice->refresh_snapshot_from_order($snapshotId, $this->current_actor_employee_id());
+        if (!($refreshed['ok'] ?? false)) {
+            $this->json_error((string)($refreshed['message'] ?? 'Snapshot gagal direfresh sebelum retry.'), 422);
+            return;
+        }
+
+        $this->posstockcommitservice->mark_queued($snapshotId);
+        $this->Pos_model->update_order_stock_commit_state($orderId, 'QUEUED', [
+            'actor_employee_id' => $this->current_actor_employee_id(),
+            'event_code' => 'ORDER_CONFIRM_STOCK_RETRY_AUDIT',
+            'note' => 'Retry manual snapshot FAILED dari audit stock commit POS.',
+        ]);
+
+        $queued = $this->posruntimejobservice->queue_order_confirm_commit($orderId, $snapshotId, $this->current_actor_employee_id(), [
+            'event_source' => 'ORDER_CONFIRM_AUDIT_RETRY',
+            'event_id' => $snapshotId,
+        ]);
+        if (!($queued['ok'] ?? false)) {
+            $this->json_error((string)($queued['message'] ?? 'Job runtime POS gagal dibuat ulang untuk snapshot FAILED.'), 422);
+            return;
+        }
+
+        $jobId = (int)($queued['job_id'] ?? 0);
+        $processed = $this->process_runtime_job_now($orderId, $jobId, 1);
+        if (!($processed['ok'] ?? false)) {
+            $this->json_error((string)($processed['message'] ?? 'Snapshot FAILED berhasil diantrikan ulang, tetapi proses job masih gagal.'), 422, [
+                'result' => $processed,
+                'job_id' => $jobId,
+                'order_id' => $orderId,
+                'snapshot_id' => $snapshotId,
+            ]);
+            return;
+        }
+
+        $latest = $this->posruntimejobservice->latest_job_for_order($orderId);
+        $this->json_ok([
+            'message' => 'Snapshot FAILED untuk order ' . (string)($snapshot['order_no'] ?? '-') . ' berhasil direfresh, diantrikan ulang, dan diproses.',
+            'order_id' => $orderId,
+            'snapshot_id' => $snapshotId,
+            'job' => (array)($latest['job'] ?? []),
+            'processed_count' => (int)($processed['processed_count'] ?? 0),
+            'success_count' => (int)($processed['success_count'] ?? 0),
+            'failed_count' => (int)($processed['failed_count'] ?? 0),
+            'jobs' => (array)($processed['jobs'] ?? []),
+        ]);
+    }
+
+    public function order_runtime_failed_snapshot_dismiss($snapshotId)
+    {
+        $pageCode = $this->can('pos.stock.commit.audit.index', 'edit')
+            ? 'pos.stock.commit.audit.index'
+            : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
+        $this->require_permission($pageCode, 'edit');
+        $this->load->library('PosStockCommitService', null, 'posstockcommitservice');
+
+        $snapshotId = (int)$snapshotId;
+        if ($snapshotId <= 0) {
+            $this->json_error('Snapshot stock commit POS tidak valid untuk ditutup.', 422);
+            return;
+        }
+
+        $snapshot = $this->db->select('s.*, o.order_no, o.status AS order_status, o.stock_commit_status')
+            ->from('pos_stock_commit s')
+            ->join('pos_order o', 'o.id = s.order_id', 'left')
+            ->where('s.id', $snapshotId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$snapshot) {
+            $this->json_error('Snapshot stock commit POS tidak ditemukan.', 404);
+            return;
+        }
+
+        $snapshotStatus = strtoupper(trim((string)($snapshot['commit_status'] ?? '')));
+        if ($snapshotStatus !== 'FAILED') {
+            $this->json_error('Hanya snapshot FAILED yang bisa ditutup dari audit ini.', 422);
+            return;
+        }
+
+        $orderStatus = strtoupper(trim((string)($snapshot['order_status'] ?? '')));
+        $orderCommitStatus = strtoupper(trim((string)($snapshot['stock_commit_status'] ?? '')));
+        $closeAs = '';
+        if ($orderStatus === 'VOID') {
+            $closeAs = 'VOID';
+        } elseif (in_array($orderCommitStatus, ['POSTED', 'REVERSED', 'NOT_REQUIRED'], true)) {
+            $closeAs = 'REVERSED';
+        }
+
+        if ($closeAs === '') {
+            $this->json_error('Snapshot FAILED ini masih butuh retry/rebuild. Tutup manual hanya diizinkan bila order sudah VOID atau stock commit order sudah final.', 422);
+            return;
+        }
+
+        $closed = $this->posstockcommitservice->mark_reversed($snapshotId, $closeAs);
+        if (!($closed['ok'] ?? false)) {
+            $this->json_error((string)($closed['message'] ?? 'Snapshot FAILED tidak bisa ditutup.'), 422);
+            return;
+        }
+
+        if ($this->db->table_exists('pos_runtime_job')) {
+            $this->db->where('snapshot_id', $snapshotId)
+                ->where('job_type', 'ORDER_CONFIRM_STOCK_COMMIT')
+                ->where_in('status', ['QUEUED', 'PROCESSING', 'FAILED'])
+                ->update('pos_runtime_job', [
+                    'status' => 'CANCELLED',
+                    'finished_at' => date('Y-m-d H:i:s'),
+                    'last_error' => 'Ditutup manual dari audit stock commit POS karena snapshot gagal sudah tidak perlu diproses ulang.',
+                ]);
+        }
+
+        $this->json_ok([
+            'message' => 'Snapshot gagal untuk order ' . (string)($snapshot['order_no'] ?? '-') . ' berhasil ditutup sebagai ' . $closeAs . '.',
+            'snapshot_id' => $snapshotId,
+            'order_id' => (int)($snapshot['order_id'] ?? 0),
+            'commit_status' => $closeAs,
         ]);
     }
 

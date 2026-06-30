@@ -11843,10 +11843,65 @@ class Purchase_model extends CI_Model
 
                     $failedTotal = (int)($failedCount['cnt'] ?? 0);
                     if ($failedTotal > 0) {
+                        $latestErrorSelect = "'-' AS latest_error";
+                        if ($this->db->table_exists('pos_runtime_job')) {
+                            $latestErrorSelect = "COALESCE(
+                                (
+                                    SELECT j.last_error
+                                    FROM pos_runtime_job j
+                                    WHERE j.snapshot_id = sc.id
+                                      AND j.job_type = 'ORDER_CONFIRM_STOCK_COMMIT'
+                                    ORDER BY j.id DESC
+                                    LIMIT 1
+                                ),
+                                '-'
+                            ) AS latest_error";
+                        }
+                        $failedSamples = $this->db
+                            ->select("
+                                o.order_no,
+                                o.status AS order_status,
+                                o.stock_commit_status,
+                                sc.commit_no,
+                                sc.commit_reason,
+                                COALESCE(NULLIF(sc.notes, ''), '-') AS notes,
+                                " . $latestErrorSelect . "
+                            ", false)
+                            ->from('pos_stock_commit sc')
+                            ->join('pos_order o', 'o.id = sc.order_id', 'inner')
+                            ->where('o.' . $dateCol . ' >=', $dateFrom . ' 00:00:00')
+                            ->where('o.' . $dateCol . ' <=', $dateTo . ' 23:59:59')
+                            ->where('sc.commit_status', 'FAILED')
+                            ->order_by('sc.updated_at', 'DESC')
+                            ->limit(3)
+                            ->get()->result_array();
+
+                        $sampleLabels = [];
+                        foreach ($failedSamples as $sample) {
+                            $sampleLabels[] = trim(
+                                (string)($sample['order_no'] ?? '-') . ' / '
+                                . (string)($sample['commit_no'] ?? '-') . ' / '
+                                . (string)($sample['order_status'] ?? '-') . ' / stok '
+                                . (string)($sample['stock_commit_status'] ?? '-')
+                            );
+                        }
+                        $auditUrl = site_url('pos/stock-commit-audit?as_of_date=' . rawurlencode($dateTo));
+                        $message = 'Generate ditolak — ada ' . $failedTotal . ' snapshot stock commit POS FAILED pada bulan '
+                            . date('Y-m', strtotime($monthKey))
+                            . '. Buka POS > Audit Commit untuk melihat detail dan tindakan perbaikan.';
+                        if (!empty($sampleLabels)) {
+                            $message .= ' Contoh: ' . implode('; ', $sampleLabels) . '.';
+                        }
+                        $message .= ' Halaman audit: ' . $auditUrl;
+
                         return [
                             'ok'      => false,
-                            'message' => 'Generate ditolak — ada ' . $failedTotal . ' transaksi POS bulan ' . date('Y-m', strtotime($monthKey)) . ' dengan commit FAILED. Perbaiki atau batalkan commit gagal tersebut sebelum generate.',
-                            'data'    => ['failed_commit_count' => $failedTotal],
+                            'message' => $message,
+                            'data'    => [
+                                'failed_commit_count' => $failedTotal,
+                                'failed_commit_samples' => $failedSamples,
+                                'failed_commit_audit_url' => $auditUrl,
+                            ],
                         ];
                     }
                 }
