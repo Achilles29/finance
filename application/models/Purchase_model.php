@@ -13276,6 +13276,15 @@ class Purchase_model extends CI_Model
         $from = $this->normalizeDate($dateFrom);
         $to = $this->normalizeDate($dateTo);
         $targetMonth = date('Y-m-01', strtotime($to ?: date('Y-m-d')));
+        $latestMonthSubquery = '';
+        if (!$strictMonth) {
+            $latestMonthSubquery = $this->db
+                ->select('identity_key, MAX(month_key) AS month_key', false)
+                ->from('inv_warehouse_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by('identity_key')
+                ->get_compiled_select();
+        }
 
         $activityDateExpr = 'COALESCE(s.last_movement_date, DATE(s.updated_at), s.month_key)';
 
@@ -13292,12 +13301,6 @@ class Purchase_model extends CI_Model
         if ($strictMonth) {
             $this->db->where('s.month_key', $targetMonth);
         } else {
-            $latestMonthSubquery = $this->db
-                ->select('identity_key, MAX(month_key) AS month_key', false)
-                ->from('inv_warehouse_monthly_stock')
-                ->where('month_key <=', $targetMonth)
-                ->group_by('identity_key')
-                ->get_compiled_select();
             $this->db->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false);
         }
 
