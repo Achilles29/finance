@@ -342,4 +342,25 @@ laporan penggunaan bahan baku , batch produksi, spoil waste dan lainnya, pos
 
 
 laporan profit net, di penjualan dan produk berdasarkan hpp live
-¬
+
+
+saya pikir pola bonus perlu di rubah.
+- target kan sudah dibuat di keuangan, jadi bisa langsung generate pool capaian berdasarkan target keuangan. jadi tidak perlu buat rule bonus atau pengaturan bonus baru. karena bisa jadi crash kalau indikatornya berbeda dengan target keuangan. Atau  target keungan memang hanya untuk target, dan bonus ini tidak terhubung dengan target? tapi untuk apa? jadi menurut saya tetap rule nya menggunakan variabel target yang sudah ditetapkan
+- jadi saat generate Pool, munculkan modal target keuangan, kemudian tinggal di ceklist untuk harian untuk menghitung nilai bonus masing masing pegawai sesuai bobot yang sudah ditentukan.
+- target bulanan otomatis menjadi acuan tanpa perlu generate pool 
+- tambah bobot dibuat lebih general, tanpa mengkhususkan ke rule tertentu. artinya bobot berlaku untuk semua target
+- nilai bonus yang diterima pegawai memperhatinkan jam orderan sesuais shift nya. jadi dalam 1 hari, nilai bobot sama, bisa saja nilai bonus berbeda tergantung ramainya shift pegawai.  
+- saat generate pool daily (baik manual maupun bulk), maka otomatis menghitung pinalti pegawai yang sifatnya otomatis seperti absensi
+- belum ada kesepekatan konversi nilai poin penalti ke rupiah, baiknya bagaimana?
+
+
+- /finance-reports/targets "Hitung Hasil Terpilih" bulk masih muter muter belum berhasi.
+
+diskusikan dan perbaiki yang bisa diperbaiki
+
+
+- terkait pinalti. kalau pakai poin dan nominal, lalu konversinya bagaimana? konversi poinnya langsung jaid fair, ini menurut saya, walaupun tidak langsung dikonversi tapi ketentuannya ada.
+- jadi skema bonus ini tidak langsung mengurangi uang kas, bonus ini hanya perhitungan dulu. mengurangi kas jika nanti di generate pencairan seperti halnya gaji dan uang makan.
+- jadi estimasi bonus masing masing pegawai nanti dapat dilihat di dashboard masing masing berdasarkan hasil generate poolnya.
+
+- harus ada 

@@ -3,6 +3,7 @@ $month = $month ?? date('Y-m');
 $tab = $tab ?? 'overview';
 $summary = $summary ?? [];
 $configRows = $config_rows ?? [];
+$configTableRows = $config_table_rows ?? [];
 $outletRows = $outlet_rows ?? [];
 $divisionRows = $division_rows ?? [];
 $positionRows = $position_rows ?? [];
@@ -19,6 +20,7 @@ $pendingPeerRows = $pending_peer_rows ?? [];
 $serviceMetricRows = $service_metric_rows ?? [];
 $monthlySummaryRows = $monthly_summary_rows ?? [];
 $poolFilters = $pool_filters ?? ['q' => ''];
+$configFilters = $config_filters ?? ['q' => ''];
 $ruleFilters = $rule_filters ?? ['q' => ''];
 $weightFilters = $weight_filters ?? ['q' => ''];
 $penaltyTypeFilters = $penalty_type_filters ?? ['q' => ''];
@@ -27,6 +29,7 @@ $peerFilters = $peer_filters ?? ['q' => ''];
 $serviceFilters = $service_filters ?? ['q' => ''];
 $monthlyFilters = $monthly_filters ?? ['q' => ''];
 $poolPg = $pool_pg ?? ['total' => count($poolRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1, 'offset' => 0];
+$configPg = $config_pg ?? ['total' => count($configTableRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1, 'offset' => 0];
 $rulePg = $rule_pg ?? ['total' => count($ruleRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1, 'offset' => 0];
 $weightPg = $weight_pg ?? ['total' => count($weightRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1, 'offset' => 0];
 $penaltyTypePg = $penalty_type_pg ?? ['total' => count($penaltyTypeRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1, 'offset' => 0];
@@ -143,13 +146,16 @@ $buildUrl = static function (array $overrides = []) use ($month, $tab) {
         'tab' => $tab,
     ], $overrides));
 };
-$buildTableUrl = static function (array $overrides = []) use ($month, $tab, $poolFilters, $ruleFilters, $weightFilters, $penaltyTypeFilters, $penaltyEventFilters, $peerFilters, $serviceFilters, $monthlyFilters, $poolPg, $rulePg, $weightPg, $penaltyTypePg, $penaltyEventPg, $peerPg, $servicePg, $monthlyPg) {
+$buildTableUrl = static function (array $overrides = []) use ($month, $tab, $poolFilters, $configFilters, $ruleFilters, $weightFilters, $penaltyTypeFilters, $penaltyEventFilters, $peerFilters, $serviceFilters, $monthlyFilters, $poolPg, $configPg, $rulePg, $weightPg, $penaltyTypePg, $penaltyEventPg, $peerPg, $servicePg, $monthlyPg) {
     $base = [
         'month' => $month,
         'tab' => $tab,
         'pool_q' => $poolFilters['q'] ?? '',
         'pool_page' => $poolPg['page'] ?? 1,
         'pool_per_page' => $poolPg['per_page'] ?? 25,
+        'config_q' => $configFilters['q'] ?? '',
+        'config_page' => $configPg['page'] ?? 1,
+        'config_per_page' => $configPg['per_page'] ?? 25,
         'rule_q' => $ruleFilters['q'] ?? '',
         'rule_page' => $rulePg['page'] ?? 1,
         'rule_per_page' => $rulePg['per_page'] ?? 25,
@@ -175,6 +181,10 @@ $buildTableUrl = static function (array $overrides = []) use ($month, $tab, $poo
     return site_url('payroll/bonus') . '?' . http_build_query(array_merge($base, $overrides));
 };
 $defaultBonusDate = date('Y-m-d', strtotime($month . '-01'));
+$activeDailyTargetRows = array_values(array_filter($targetPlanRows, static function ($row) {
+    return strtoupper((string)($row['status'] ?? '')) === 'ACTIVE'
+        && strtoupper((string)($row['target_scope'] ?? '')) === 'DAILY';
+}));
 $renderPager = static function (array $pg, callable $urlBuilder, string $pageParam, string $perPageParam) {
     if (($pg['total'] ?? 0) <= 0) {
         return;
@@ -255,6 +265,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
   .bonus-detail-item .label { display:block; font-size:.76rem; text-transform:uppercase; color:#8d7368; letter-spacing:.04em; margin-bottom:.35rem; }
   .bonus-detail-item .value { color:#5f1720; font-weight:700; }
   .bonus-table-actions { display:flex; flex-wrap:wrap; gap:.45rem; }
+  .bonus-table-actions form { margin: 0; }
   .bonus-empty-note { border:1px dashed rgba(122,24,36,.18); border-radius:18px; padding:1rem 1.1rem; background:#fffaf8; color:#7e6a60; }
   .bonus-subcopy { color:#8d7368; font-size:.88rem; }
   @media (max-width: 991.98px) { .bonus-kpi-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
@@ -269,8 +280,8 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
     <div style="max-width:760px;">
       <div class="text-uppercase small fw-semibold text-muted mb-2">Payroll Workspace</div>
-      <h3 class="mb-2">Bonus Pegawai yang nyambung ke target, layanan, absensi, dan budaya tim.</h3>
-      <p class="mb-0 text-muted">Halaman ini sengaja dibuat bukan hanya untuk bagi hasil. Di sini kita baca apakah target usaha tercapai, shift mana yang paling kuat, siapa yang layak dapat bobot lebih tinggi, penalti apa yang masuk, dan apakah ada sinyal perilaku tim dari penilaian 360.</p>
+      <h3 class="mb-2">Bonus Pegawai yang membaca target usaha, performa shift, absensi, dan budaya tim.</h3>
+      <p class="mb-0 text-muted">Arah barunya sederhana: target usaha disusun di Keuangan, lalu halaman bonus ini dipakai untuk membagi pool ke pegawai secara adil. Jadi target tidak dobel, bobot pegawai lebih konsisten, dan estimasi bonus bisa dipantau tanpa langsung menggerakkan kas.</p>
     </div>
     <form method="get" action="<?php echo site_url('payroll/bonus'); ?>" class="d-flex gap-2 align-items-end flex-wrap">
       <input type="hidden" name="tab" value="<?php echo html_escape($tab); ?>">
@@ -287,8 +298,8 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
 
 <ul class="nav nav-pills bonus-pill-nav gap-2 mb-4">
   <li class="nav-item"><a class="nav-link <?php echo $tab === 'overview' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'overview']); ?>">Ringkasan</a></li>
-  <li class="nav-item"><a class="nav-link <?php echo $tab === 'rules' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'rules']); ?>">Aturan Bonus</a></li>
-  <li class="nav-item"><a class="nav-link <?php echo $tab === 'weights' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'weights']); ?>">Bobot Bonus</a></li>
+  <li class="nav-item"><a class="nav-link <?php echo $tab === 'rules' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'rules']); ?>">Skema Distribusi</a></li>
+  <li class="nav-item"><a class="nav-link <?php echo $tab === 'weights' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'weights']); ?>">Bobot Global</a></li>
   <li class="nav-item"><a class="nav-link <?php echo $tab === 'penalties' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'penalties']); ?>">Penalti</a></li>
   <li class="nav-item"><a class="nav-link <?php echo $tab === 'peer' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'peer']); ?>">Penilaian 360</a></li>
   <li class="nav-item"><a class="nav-link <?php echo $tab === 'service' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'service']); ?>">Metric Layanan</a></li>
@@ -469,7 +480,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               <div class="small text-muted">Tahap berikutnya yang paling penting:</div>
               <ol class="small mb-0 mt-2 ps-3">
                 <li>Isi konfigurasi bonus global lebih dulu.</li>
-                <li>Hubungkan rule bonus ke target keuangan yang relevan.</li>
+                <li>Hubungkan skema distribusi ke target keuangan yang relevan.</li>
                 <li>Finalkan master penalti personal dan tim.</li>
                 <li>Aktifkan form penilaian 360 lewat portal pegawai.</li>
               </ol>
@@ -484,16 +495,113 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     <div class="card-body">
       <div class="bonus-toolbar">
         <div class="copy">
-          <h5 class="mb-1">Aturan bonus yang sudah tercatat</h5>
-          <div class="bonus-subcopy">Halaman ini sekarang fokus ke daftar aturan. Form tambah dan edit dipindah ke modal supaya tabel tetap enak dibaca. Detail rule juga bisa dibuka tanpa mengubah data.</div>
+          <h5 class="mb-1">Skema distribusi bonus yang sudah tercatat</h5>
+          <div class="bonus-subcopy">Halaman ini fokus ke cara pembagian bonus, bukan ke target usahanya. Target tetap disusun di Keuangan, lalu skema di sini membaca target itu sebagai gerbang atau pengali.</div>
         </div>
         <div class="d-flex flex-wrap gap-2">
-          <button type="button" class="btn btn-primary" id="openRuleCreateModalBtn">Tambah aturan bonus</button>
+          <button type="button" class="btn btn-outline-primary" id="openConfigCreateModalBtn">Tambah kebijakan bonus</button>
+          <button type="button" class="btn btn-primary" id="openRuleCreateModalBtn">Tambah skema distribusi</button>
         </div>
       </div>
+          <div class="card border-0 bg-light-subtle mb-3">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div>
+                  <h6 class="mb-1">Master kebijakan bonus</h6>
+                  <div class="small text-muted">Dropdown "Kebijakan bonus" mengambil data dari sini. Jadi kalau ingin menambah, mengubah, atau menonaktifkan opsi dropdown, kelolanya di tabel ini.</div>
+                </div>
+              </div>
+              <form method="get" action="<?php echo site_url('payroll/bonus'); ?>" class="bonus-filter-bar mb-3">
+                <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+                <input type="hidden" name="tab" value="rules">
+                <input type="hidden" name="rule_q" value="<?php echo html_escape((string)($ruleFilters['q'] ?? '')); ?>">
+                <input type="hidden" name="rule_page" value="<?php echo (int)($rulePg['page'] ?? 1); ?>">
+                <input type="hidden" name="rule_per_page" value="<?php echo (int)($rulePg['per_page'] ?? 25); ?>">
+                <div class="row g-3 align-items-end">
+                  <div class="col-md-8">
+                    <label class="form-label">Cari kebijakan bonus</label>
+                    <input type="text" name="config_q" class="form-control" value="<?php echo html_escape((string)($configFilters['q'] ?? '')); ?>" placeholder="Cari nama, kode, status, atau catatan singkat">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label">Baris</label>
+                    <select name="config_per_page" class="form-select">
+                      <?php foreach ([10, 25, 50, 100] as $size): ?>
+                        <option value="<?php echo $size; ?>" <?php echo (int)($configPg['per_page'] ?? 25) === $size ? 'selected' : ''; ?>><?php echo $size; ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="col-md-2 d-grid">
+                    <button type="submit" class="btn btn-outline-primary">Filter</button>
+                  </div>
+                </div>
+              </form>
+              <div class="bonus-table-wrap bonus-table mb-2">
+                <table class="table align-middle mb-0">
+                  <thead><tr><th>Kebijakan</th><th>Scope</th><th>Pool</th><th>Faktor aktif</th><th>Status</th><th>Aksi</th></tr></thead>
+                  <tbody>
+                  <?php if (empty($configTableRows)): ?>
+                    <tr><td colspan="6" class="text-center text-muted py-4">Belum ada kebijakan bonus.</td></tr>
+                  <?php else: foreach ($configTableRows as $row): ?>
+                    <?php $cfgStatus = strtoupper((string)($row['status'] ?? 'DRAFT')); ?>
+                    <tr>
+                      <td><strong><?php echo html_escape((string)($row['config_name'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape((string)($row['config_code'] ?? '-')); ?></div></td>
+                      <td><?php echo html_escape((string)($row['distribution_scope'] ?? 'GLOBAL')); ?></td>
+                      <td><div><?php echo html_escape((string)($row['pool_source_mode'] ?? 'TARGET_LINKED')); ?></div><div class="small text-muted">Payout <?php echo number_format((float)($row['payout_percent'] ?? 100), 2, ',', '.'); ?>%</div></td>
+                      <td><div class="small text-muted">Shift <?php echo !empty($row['include_shift_revenue_factor']) ? 'Ya' : 'Tidak'; ?> | Layanan <?php echo !empty($row['include_service_time_factor']) ? 'Ya' : 'Tidak'; ?> | Peer <?php echo !empty($row['include_peer_review_factor']) ? 'Ya' : 'Tidak'; ?> | Absensi <?php echo !empty($row['include_attendance_factor']) ? 'Ya' : 'Tidak'; ?> | Penalti manual <?php echo !empty($row['include_manual_penalty_factor']) ? 'Ya' : 'Tidak'; ?></div></td>
+                      <td><span class="bonus-soft-badge <?php echo $cfgStatus === 'ACTIVE' ? 'ok' : ($cfgStatus === 'INACTIVE' ? 'muted' : 'warn'); ?>"><?php echo html_escape($cfgStatus); ?></span></td>
+                      <td>
+                        <div class="bonus-table-actions">
+                          <button type="button" class="btn btn-sm btn-outline-secondary bonus-config-detail-btn"
+                                  data-config-name="<?php echo html_escape((string)($row['config_name'] ?? '-')); ?>"
+                                  data-config-code="<?php echo html_escape((string)($row['config_code'] ?? '-')); ?>"
+                                  data-description="<?php echo html_escape((string)($row['description'] ?? '-')); ?>"
+                                  data-distribution-scope="<?php echo html_escape((string)($row['distribution_scope'] ?? 'GLOBAL')); ?>"
+                                  data-pool-source-mode="<?php echo html_escape((string)($row['pool_source_mode'] ?? 'TARGET_LINKED')); ?>"
+                                  data-pool-source-value="<?php echo html_escape((string)($row['pool_source_value'] ?? '0')); ?>"
+                                  data-payout-percent="<?php echo html_escape((string)($row['payout_percent'] ?? '100')); ?>"
+                                  data-point-penalty-mode="<?php echo html_escape((string)($row['point_penalty_currency_mode'] ?? 'PERCENT_SHARE')); ?>"
+                                  data-point-penalty-value="<?php echo html_escape((string)($row['point_penalty_currency_value'] ?? '5')); ?>"
+                                  data-status="<?php echo html_escape($cfgStatus); ?>"
+                                  data-notes="<?php echo html_escape((string)($row['notes'] ?? '-')); ?>">Detail</button>
+                          <button type="button" class="btn btn-sm btn-outline-primary bonus-config-edit-btn"
+                                  data-id="<?php echo (int)($row['id'] ?? 0); ?>"
+                                  data-config-name="<?php echo html_escape((string)($row['config_name'] ?? '')); ?>"
+                                  data-config-code="<?php echo html_escape((string)($row['config_code'] ?? '')); ?>"
+                                  data-description="<?php echo html_escape((string)($row['description'] ?? '')); ?>"
+                                  data-distribution-scope="<?php echo html_escape((string)($row['distribution_scope'] ?? 'GLOBAL')); ?>"
+                                  data-pool-source-mode="<?php echo html_escape((string)($row['pool_source_mode'] ?? 'TARGET_LINKED')); ?>"
+                                  data-pool-source-value="<?php echo html_escape((string)($row['pool_source_value'] ?? '0')); ?>"
+                                  data-payout-percent="<?php echo html_escape((string)($row['payout_percent'] ?? '100')); ?>"
+                                  data-point-penalty-mode="<?php echo html_escape((string)($row['point_penalty_currency_mode'] ?? 'PERCENT_SHARE')); ?>"
+                                  data-point-penalty-value="<?php echo html_escape((string)($row['point_penalty_currency_value'] ?? '5')); ?>"
+                                  data-linked-target-required="<?php echo (int)($row['linked_target_required'] ?? 1); ?>"
+                                  data-include-shift-revenue-factor="<?php echo (int)($row['include_shift_revenue_factor'] ?? 1); ?>"
+                                  data-include-service-time-factor="<?php echo (int)($row['include_service_time_factor'] ?? 1); ?>"
+                                  data-include-peer-review-factor="<?php echo (int)($row['include_peer_review_factor'] ?? 1); ?>"
+                                  data-include-attendance-factor="<?php echo (int)($row['include_attendance_factor'] ?? 1); ?>"
+                                  data-include-manual-penalty-factor="<?php echo (int)($row['include_manual_penalty_factor'] ?? 1); ?>"
+                                  data-status-value="<?php echo html_escape((string)($row['status'] ?? 'ACTIVE')); ?>"
+                                  data-notes="<?php echo html_escape((string)($row['notes'] ?? '')); ?>">Edit</button>
+                          <form method="post" action="<?php echo site_url('payroll/bonus/config-delete/' . (int)($row['id'] ?? 0)); ?>" onsubmit="return confirm('Nonaktifkan kebijakan bonus ini?');">
+                            <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Nonaktifkan</button>
+                          </form>
+                        </div>
+                      </td>
+                    </tr>
+                  <?php endforeach; endif; ?>
+                  </tbody>
+                </table>
+              </div>
+              <?php $renderPager($configPg, static function ($overrides) use ($buildTableUrl) { return $buildTableUrl(array_merge(['tab' => 'rules'], $overrides)); }, 'config_page', 'config_per_page'); ?>
+            </div>
+          </div>
           <form method="get" action="<?php echo site_url('payroll/bonus'); ?>" class="bonus-filter-bar mb-3">
             <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
             <input type="hidden" name="tab" value="rules">
+            <input type="hidden" name="config_q" value="<?php echo html_escape((string)($configFilters['q'] ?? '')); ?>">
+            <input type="hidden" name="config_page" value="<?php echo (int)($configPg['page'] ?? 1); ?>">
+            <input type="hidden" name="config_per_page" value="<?php echo (int)($configPg['per_page'] ?? 25); ?>">
             <input type="hidden" name="pool_q" value="<?php echo html_escape((string)($poolFilters['q'] ?? '')); ?>">
             <input type="hidden" name="pool_page" value="<?php echo (int)($poolPg['page'] ?? 1); ?>">
             <input type="hidden" name="pool_per_page" value="<?php echo (int)($poolPg['per_page'] ?? 25); ?>">
@@ -508,8 +616,8 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
             <input type="hidden" name="peer_per_page" value="<?php echo (int)($peerPg['per_page'] ?? 25); ?>">
             <div class="row g-3 align-items-end">
               <div class="col-md-7">
-                <label class="form-label">Cari aturan bonus</label>
-                <input type="text" name="rule_q" class="form-control" value="<?php echo html_escape((string)($ruleFilters['q'] ?? '')); ?>" placeholder="Cari nama aturan, kode, outlet, divisi, atau target">
+                <label class="form-label">Cari skema distribusi</label>
+                <input type="text" name="rule_q" class="form-control" value="<?php echo html_escape((string)($ruleFilters['q'] ?? '')); ?>" placeholder="Cari nama skema, kode, outlet, divisi, atau target">
               </div>
               <div class="col-md-3">
                 <label class="form-label">Baris</label>
@@ -526,10 +634,10 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
           </form>
           <div class="bonus-table-wrap bonus-table">
             <table class="table align-middle mb-0">
-              <thead><tr><th>Aturan</th><th>Scope</th><th>Target Bulanan</th><th>Target Harian</th><th>Pool Bonus</th><th>PH</th><th>Status</th><th>Aksi</th></tr></thead>
+              <thead><tr><th>Skema</th><th>Scope</th><th>Target Bulanan</th><th>Target Harian</th><th>Pool Bonus</th><th>PH</th><th>Status</th><th>Aksi</th></tr></thead>
               <tbody>
               <?php if (empty($ruleRows)): ?>
-                <tr><td colspan="8" class="text-center text-muted py-4">Belum ada aturan bonus. Jalankan SQL foundation lalu mulai dari aturan default.</td></tr>
+                <tr><td colspan="8" class="text-center text-muted py-4">Belum ada skema distribusi bonus. Jalankan SQL foundation lalu mulai dari skema default.</td></tr>
               <?php else: foreach ($ruleRows as $row): ?>
                 <tr>
                   <td><strong><?php echo html_escape((string)($row['rule_name'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape((string)($row['rule_code'] ?? '-')); ?></div></td>
@@ -619,6 +727,10 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
                         data-notes="<?php echo html_escape((string)($row['notes'] ?? '')); ?>"
                         data-is-active="<?php echo (int)($row['is_active'] ?? 0); ?>"
                       >Edit</button>
+                      <form method="post" action="<?php echo site_url('payroll/bonus/rule-delete/' . (int)($row['id'] ?? 0)); ?>" onsubmit="return confirm('Nonaktifkan skema distribusi ini?');">
+                        <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Nonaktifkan</button>
+                      </form>
                     </div>
                   </td>
                 </tr>
@@ -634,15 +746,15 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     <div class="card-body">
       <div class="bonus-toolbar">
         <div class="copy">
-          <h5 class="mb-1">Bobot bonus per divisi, jabatan, pegawai, dan shift</h5>
-          <div class="bonus-subcopy">Di sinilah kita mengatur siapa yang mendapat porsi lebih besar atau lebih kecil. Engine sudah membaca bobot ini saat pool harian digenerate.</div>
+          <h5 class="mb-1">Bobot bonus umum per divisi, jabatan, pegawai, dan shift</h5>
+          <div class="bonus-subcopy">Bobot di sini berlaku sebagai dasar umum. Jadi kita tidak perlu membuat pembobotan ulang tiap target harian, cukup atur sekali lalu engine membaca saat pool digenerate.</div>
         </div>
         <div class="d-flex flex-wrap gap-2">
           <button type="button" class="btn btn-primary" id="openWeightCreateModalBtn">Tambah bobot bonus</button>
         </div>
       </div>
       <div class="bonus-empty-note mb-3">
-        Gunakan tab ini jika pembagian bonus tidak ingin rata. Contoh: supervisor punya bobot lebih tinggi daripada crew, atau shift malam mendapat porsi khusus.
+        Gunakan tab ini jika pembagian bonus tidak ingin rata. Contoh: supervisor punya bobot lebih tinggi daripada crew, atau shift malam mendapat porsi khusus. Kalau perlu khusus untuk satu skema distribusi saja, isi kolom skema saat membuat bobot.
       </div>
       <form method="get" action="<?php echo site_url('payroll/bonus'); ?>" class="bonus-filter-bar mb-3">
         <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
@@ -650,7 +762,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
         <div class="row g-3 align-items-end">
           <div class="col-md-7">
             <label class="form-label">Cari bobot bonus</label>
-            <input type="text" name="weight_q" class="form-control" value="<?php echo html_escape((string)($weightFilters['q'] ?? '')); ?>" placeholder="Cari nama rule, jenis bobot, atau target scope">
+            <input type="text" name="weight_q" class="form-control" value="<?php echo html_escape((string)($weightFilters['q'] ?? '')); ?>" placeholder="Cari nama skema, frekuensi target, jenis bobot, atau target scope">
           </div>
           <div class="col-md-3">
             <label class="form-label">Baris</label>
@@ -667,13 +779,14 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       </form>
       <div class="bonus-table-wrap bonus-table">
         <table class="table align-middle mb-0">
-          <thead><tr><th>Rule</th><th>Jenis Bobot</th><th>Target</th><th class="text-end">Bobot Poin</th><th class="text-end">Bobot Pool</th><th>Status</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Skema</th><th>Frekuensi</th><th>Jenis Bobot</th><th>Target</th><th class="text-end">Bobot Poin</th><th class="text-end">Bobot Pool</th><th>Status</th><th>Aksi</th></tr></thead>
           <tbody>
           <?php if (empty($weightRows)): ?>
-            <tr><td colspan="7" class="text-center text-muted py-4">Belum ada bobot bonus yang disimpan.</td></tr>
+            <tr><td colspan="8" class="text-center text-muted py-4">Belum ada bobot bonus yang disimpan.</td></tr>
           <?php else: foreach ($weightRows as $row): ?>
             <tr>
-              <td><strong><?php echo html_escape((string)($row['rule_name'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape((string)($row['rule_code'] ?? '-')); ?></div></td>
+              <td><strong><?php echo html_escape((string)($row['rule_name'] ?? 'Semua skema bonus')); ?></strong><div class="small text-muted"><?php echo html_escape((string)($row['rule_code'] ?? 'GLOBAL')); ?></div></td>
+              <td><?php echo html_escape((string)($row['target_frequency_label'] ?? 'ALL')); ?></td>
               <td><?php echo html_escape($weightScopeLabels[strtoupper((string)($row['weight_scope'] ?? ''))] ?? (string)($row['weight_scope'] ?? '-')); ?></td>
               <td><?php echo html_escape((string)($row['scope_label'] ?? ('Scope #' . (int)($row['scope_id'] ?? 0)))); ?></td>
               <td class="text-end"><?php echo number_format((float)($row['point_weight'] ?? 1), 4, ',', '.'); ?></td>
@@ -682,8 +795,9 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               <td>
                 <div class="bonus-table-actions">
                   <button type="button" class="btn btn-sm btn-outline-secondary bonus-weight-detail-btn"
-                    data-rule-name="<?php echo html_escape((string)($row['rule_name'] ?? '-')); ?>"
-                    data-rule-code="<?php echo html_escape((string)($row['rule_code'] ?? '-')); ?>"
+                    data-rule-name="<?php echo html_escape((string)($row['rule_name'] ?? 'Semua skema bonus')); ?>"
+                    data-rule-code="<?php echo html_escape((string)($row['rule_code'] ?? 'GLOBAL')); ?>"
+                    data-target-frequency="<?php echo html_escape((string)($row['target_frequency_label'] ?? 'ALL')); ?>"
                     data-weight-scope="<?php echo html_escape($weightScopeLabels[strtoupper((string)($row['weight_scope'] ?? ''))] ?? (string)($row['weight_scope'] ?? '-')); ?>"
                     data-scope-label="<?php echo html_escape((string)($row['scope_label'] ?? ('Scope #' . (int)($row['scope_id'] ?? 0)))); ?>"
                     data-point-weight="<?php echo number_format((float)($row['point_weight'] ?? 1), 4, ',', '.'); ?>"
@@ -694,6 +808,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
                   <button type="button" class="btn btn-sm btn-outline-primary bonus-weight-edit-btn"
                     data-id="<?php echo (int)($row['id'] ?? 0); ?>"
                     data-rule-id="<?php echo (int)($row['rule_id'] ?? 0); ?>"
+                    data-target-frequency="<?php echo html_escape((string)($row['target_frequency_label'] ?? 'ALL')); ?>"
                     data-weight-scope="<?php echo html_escape((string)($row['weight_scope'] ?? 'DIVISION')); ?>"
                     data-scope-id="<?php echo (int)($row['scope_id'] ?? 0); ?>"
                     data-point-weight="<?php echo html_escape((string)($row['point_weight'] ?? '1')); ?>"
@@ -701,6 +816,10 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
                     data-is-active="<?php echo (int)($row['is_active'] ?? 0); ?>"
                     data-notes="<?php echo html_escape((string)($row['notes'] ?? '')); ?>"
                   >Edit</button>
+                  <form method="post" action="<?php echo site_url('payroll/bonus/weight-delete/' . (int)($row['id'] ?? 0)); ?>" onsubmit="return confirm('Nonaktifkan bobot bonus ini?');">
+                    <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Nonaktifkan</button>
+                  </form>
                 </div>
               </td>
             </tr>
@@ -780,7 +899,16 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
                       <td class="text-end"><?php echo number_format((float)($row['default_points_deducted'] ?? 0), 2, ',', '.'); ?><div class="small text-muted">Rp <?php echo number_format((float)($row['default_amount_deducted'] ?? 0), 2, ',', '.'); ?></div></td>
                       <td><span class="bonus-soft-badge <?php echo $autoSource !== '' ? 'ok' : 'muted'; ?>"><?php echo html_escape($autoSourceLabels[$autoSource] ?? ($autoSource !== '' ? $autoSource : 'Tidak')); ?></span><div class="small text-muted"><?php echo html_escape($verificationCycleLabels[strtoupper((string)($row['verification_cycle'] ?? 'PER_EVENT'))] ?? 'Per kejadian'); ?></div></td>
                       <td><span class="bonus-soft-badge <?php echo (int)($row['approval_required'] ?? 0) === 1 ? 'warn' : 'muted'; ?>"><?php echo (int)($row['approval_required'] ?? 0) === 1 ? 'Ya' : 'Tidak'; ?></span></td>
-                      <td><div class="bonus-table-actions"><button type="button" class="btn btn-sm btn-outline-secondary bonus-penalty-detail-btn" data-penalty-name="<?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?>" data-penalty-code="<?php echo html_escape((string)($row['penalty_code'] ?? '-')); ?>" data-category="<?php echo html_escape($penaltyCategoryLabels[strtoupper((string)($row['category'] ?? '-'))] ?? (string)($row['category'] ?? '-')); ?>" data-scope="<?php echo html_escape($penaltyScopeLabels[strtoupper((string)($row['applies_scope'] ?? '-'))] ?? (string)($row['applies_scope'] ?? '-')); ?>" data-mode="<?php echo html_escape($penaltyBehaviorLabels[strtoupper((string)($row['behavior_mode'] ?? 'MANUAL'))] ?? 'Manual'); ?>" data-deduction-mode="<?php echo html_escape($penaltyDeductionLabels[strtoupper((string)($row['deduction_mode'] ?? 'FIXED_POINT'))] ?? 'Potong poin tetap'); ?>" data-auto-source="<?php echo html_escape($autoSourceLabels[$autoSource] ?? ($autoSource !== '' ? $autoSource : 'Tidak')); ?>" data-attendance-trigger="<?php echo html_escape((string)($row['attendance_trigger'] ?? '-')); ?>" data-verification-cycle="<?php echo html_escape($verificationCycleLabels[strtoupper((string)($row['verification_cycle'] ?? 'PER_EVENT'))] ?? 'Per kejadian'); ?>" data-points="<?php echo number_format((float)($row['default_points_deducted'] ?? 0), 2, ',', '.'); ?>" data-amount="Rp <?php echo number_format((float)($row['default_amount_deducted'] ?? 0), 2, ',', '.'); ?>" data-approval="<?php echo (int)($row['approval_required'] ?? 0) === 1 ? 'Ya' : 'Tidak'; ?>" data-evidence="<?php echo (int)($row['requires_evidence'] ?? 0) === 1 ? 'Ya' : 'Tidak'; ?>" data-status="<?php echo (int)($row['is_active'] ?? 0) === 1 ? 'Aktif' : 'Nonaktif'; ?>" data-notes="<?php echo html_escape((string)($row['notes'] ?? '-')); ?>">Detail</button><button type="button" class="btn btn-sm btn-outline-primary bonus-penalty-edit-btn" data-id="<?php echo (int)($row['id'] ?? 0); ?>" data-penalty-name="<?php echo html_escape((string)($row['penalty_name'] ?? '')); ?>" data-penalty-code="<?php echo html_escape((string)($row['penalty_code'] ?? '')); ?>" data-category="<?php echo html_escape((string)($row['category'] ?? 'OTHER')); ?>" data-applies-scope="<?php echo html_escape((string)($row['applies_scope'] ?? 'BOTH')); ?>" data-deduction-mode="<?php echo html_escape((string)($row['deduction_mode'] ?? 'FIXED_POINT')); ?>" data-behavior-mode="<?php echo html_escape((string)($row['behavior_mode'] ?? 'MANUAL')); ?>" data-auto-source="<?php echo html_escape((string)($row['auto_source'] ?? '')); ?>" data-attendance-trigger="<?php echo html_escape((string)($row['attendance_trigger'] ?? '')); ?>" data-verification-cycle="<?php echo html_escape((string)($row['verification_cycle'] ?? 'PER_EVENT')); ?>" data-default-points-deducted="<?php echo html_escape((string)($row['default_points_deducted'] ?? '0')); ?>" data-default-amount-deducted="<?php echo html_escape((string)($row['default_amount_deducted'] ?? '0')); ?>" data-is-manual-only="<?php echo (int)($row['is_manual_only'] ?? 0); ?>" data-approval-required="<?php echo (int)($row['approval_required'] ?? 1); ?>" data-requires-evidence="<?php echo (int)($row['requires_evidence'] ?? 0); ?>" data-is-active="<?php echo (int)($row['is_active'] ?? 0); ?>" data-sort-order="<?php echo (int)($row['sort_order'] ?? 0); ?>" data-notes="<?php echo html_escape((string)($row['notes'] ?? '')); ?>">Edit</button></div></td>
+                      <td>
+                        <div class="bonus-table-actions">
+                          <button type="button" class="btn btn-sm btn-outline-secondary bonus-penalty-detail-btn" data-penalty-name="<?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?>" data-penalty-code="<?php echo html_escape((string)($row['penalty_code'] ?? '-')); ?>" data-category="<?php echo html_escape($penaltyCategoryLabels[strtoupper((string)($row['category'] ?? '-'))] ?? (string)($row['category'] ?? '-')); ?>" data-scope="<?php echo html_escape($penaltyScopeLabels[strtoupper((string)($row['applies_scope'] ?? '-'))] ?? (string)($row['applies_scope'] ?? '-')); ?>" data-mode="<?php echo html_escape($penaltyBehaviorLabels[strtoupper((string)($row['behavior_mode'] ?? 'MANUAL'))] ?? 'Manual'); ?>" data-deduction-mode="<?php echo html_escape($penaltyDeductionLabels[strtoupper((string)($row['deduction_mode'] ?? 'FIXED_POINT'))] ?? 'Potong poin tetap'); ?>" data-auto-source="<?php echo html_escape($autoSourceLabels[$autoSource] ?? ($autoSource !== '' ? $autoSource : 'Tidak')); ?>" data-attendance-trigger="<?php echo html_escape((string)($row['attendance_trigger'] ?? '-')); ?>" data-verification-cycle="<?php echo html_escape($verificationCycleLabels[strtoupper((string)($row['verification_cycle'] ?? 'PER_EVENT'))] ?? 'Per kejadian'); ?>" data-points="<?php echo number_format((float)($row['default_points_deducted'] ?? 0), 2, ',', '.'); ?>" data-amount="Rp <?php echo number_format((float)($row['default_amount_deducted'] ?? 0), 2, ',', '.'); ?>" data-approval="<?php echo (int)($row['approval_required'] ?? 0) === 1 ? 'Ya' : 'Tidak'; ?>" data-evidence="<?php echo (int)($row['requires_evidence'] ?? 0) === 1 ? 'Ya' : 'Tidak'; ?>" data-status="<?php echo (int)($row['is_active'] ?? 0) === 1 ? 'Aktif' : 'Nonaktif'; ?>" data-notes="<?php echo html_escape((string)($row['notes'] ?? '-')); ?>">Detail</button>
+                          <button type="button" class="btn btn-sm btn-outline-primary bonus-penalty-edit-btn" data-id="<?php echo (int)($row['id'] ?? 0); ?>" data-penalty-name="<?php echo html_escape((string)($row['penalty_name'] ?? '')); ?>" data-penalty-code="<?php echo html_escape((string)($row['penalty_code'] ?? '')); ?>" data-category="<?php echo html_escape((string)($row['category'] ?? 'OTHER')); ?>" data-applies-scope="<?php echo html_escape((string)($row['applies_scope'] ?? 'BOTH')); ?>" data-deduction-mode="<?php echo html_escape((string)($row['deduction_mode'] ?? 'FIXED_POINT')); ?>" data-behavior-mode="<?php echo html_escape((string)($row['behavior_mode'] ?? 'MANUAL')); ?>" data-auto-source="<?php echo html_escape((string)($row['auto_source'] ?? '')); ?>" data-attendance-trigger="<?php echo html_escape((string)($row['attendance_trigger'] ?? '')); ?>" data-verification-cycle="<?php echo html_escape((string)($row['verification_cycle'] ?? 'PER_EVENT')); ?>" data-default-points-deducted="<?php echo html_escape((string)($row['default_points_deducted'] ?? '0')); ?>" data-default-amount-deducted="<?php echo html_escape((string)($row['default_amount_deducted'] ?? '0')); ?>" data-is-manual-only="<?php echo (int)($row['is_manual_only'] ?? 0); ?>" data-approval-required="<?php echo (int)($row['approval_required'] ?? 1); ?>" data-requires-evidence="<?php echo (int)($row['requires_evidence'] ?? 0); ?>" data-is-active="<?php echo (int)($row['is_active'] ?? 0); ?>" data-sort-order="<?php echo (int)($row['sort_order'] ?? 0); ?>" data-notes="<?php echo html_escape((string)($row['notes'] ?? '')); ?>">Edit</button>
+                          <form method="post" action="<?php echo site_url('payroll/bonus/penalty-delete/' . (int)($row['id'] ?? 0)); ?>" onsubmit="return confirm('Nonaktifkan master penalti ini?');">
+                            <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Nonaktifkan</button>
+                          </form>
+                        </div>
+                      </td>
                     </tr>
                   <?php endforeach; endif; ?>
                   </tbody>
@@ -1010,8 +1138,8 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
         <input type="hidden" name="service_per_page" value="<?php echo (int)($servicePg['per_page'] ?? 25); ?>">
         <div class="row g-3 align-items-end">
           <div class="col-md-8">
-            <label class="form-label">Cari pegawai / paket bonus</label>
-            <input type="text" name="monthly_q" class="form-control" value="<?php echo html_escape((string)($monthlyFilters['q'] ?? '')); ?>" placeholder="Cari nama pegawai, paket bonus, outlet, divisi, atau status">
+            <label class="form-label">Cari pegawai / kebijakan bonus</label>
+            <input type="text" name="monthly_q" class="form-control" value="<?php echo html_escape((string)($monthlyFilters['q'] ?? '')); ?>" placeholder="Cari nama pegawai, kebijakan bonus, outlet, divisi, atau status">
           </div>
           <div class="col-md-2">
             <label class="form-label">Baris</label>
@@ -1134,12 +1262,125 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
   </div>
 </div>
 
+<div class="modal fade bonus-modal" id="bonusConfigDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Detail Kebijakan Bonus</h5>
+          <div class="small text-muted">Ini adalah header kebijakan yang dipakai beberapa skema distribusi.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="bonus-detail-grid" id="bonusConfigDetailBody"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bonus-modal" id="bonusConfigModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1" id="bonusConfigModalTitle">Form Kebijakan Bonus</h5>
+          <div class="small text-muted">Atur policy umum bonus di sini. Skema distribusi nanti tinggal memilih kebijakan yang sesuai.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form method="post" action="<?php echo site_url('payroll/bonus/config-save'); ?>" id="bonusConfigForm">
+          <input type="hidden" name="id" value="">
+          <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+          <div class="bonus-form-scroll">
+            <div class="row g-3">
+              <div class="col-md-8">
+                <label class="form-label">Nama kebijakan bonus</label>
+                <input type="text" name="config_name" class="form-control" placeholder="Contoh: Bonus Operasional Default" required>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Kode kebijakan</label>
+                <input type="text" name="config_code" class="form-control" placeholder="Kosongkan agar dibuat otomatis">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Scope kebijakan</label>
+                <select name="distribution_scope" class="form-select">
+                  <option value="GLOBAL">Global</option>
+                  <option value="OUTLET">Per outlet</option>
+                  <option value="DIVISION">Per divisi</option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Sumber pool default</label>
+                <select name="pool_source_mode" class="form-select">
+                  <option value="TARGET_LINKED">Ikut target keuangan</option>
+                  <option value="FIXED">Pool tetap</option>
+                  <option value="PERCENT_REVENUE">% omzet</option>
+                  <option value="PERCENT_PROFIT">% profit</option>
+                  <option value="MANUAL">Manual</option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Nilai sumber pool</label>
+                <input type="number" step="0.0001" name="pool_source_value" class="form-control" value="0">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Payout %</label>
+                <input type="number" step="0.0001" name="payout_percent" class="form-control" value="100">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Mode konversi penalti poin</label>
+                <select name="point_penalty_currency_mode" class="form-select">
+                  <option value="PERCENT_SHARE">Potong % dari jatah bonus</option>
+                  <option value="FIXED_RUPIAH">Potong rupiah tetap per poin</option>
+                  <option value="NONE">Tidak dikonversi ke rupiah</option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Nilai konversi penalti poin</label>
+                <input type="number" step="0.0001" name="point_penalty_currency_value" class="form-control" value="5">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Status</label>
+                <select name="status" class="form-select">
+                  <option value="ACTIVE">Aktif</option>
+                  <option value="DRAFT">Draft</option>
+                  <option value="INACTIVE">Nonaktif</option>
+                </select>
+              </div>
+              <div class="col-12">
+                <label class="form-label">Deskripsi singkat</label>
+                <input type="text" name="description" class="form-control" placeholder="Opsional, jelaskan kapan kebijakan ini dipakai">
+              </div>
+              <div class="col-md-4"><div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="linked_target_required" value="1" id="cfgLinkedTargetRequired" checked><label class="form-check-label" for="cfgLinkedTargetRequired">Wajib terhubung ke target</label></div></div>
+              <div class="col-md-4"><div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="include_shift_revenue_factor" value="1" id="cfgShiftFactor" checked><label class="form-check-label" for="cfgShiftFactor">Pakai faktor omzet shift</label></div></div>
+              <div class="col-md-4"><div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="include_service_time_factor" value="1" id="cfgServiceFactor" checked><label class="form-check-label" for="cfgServiceFactor">Pakai faktor waktu saji</label></div></div>
+              <div class="col-md-4"><div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="include_peer_review_factor" value="1" id="cfgPeerFactor" checked><label class="form-check-label" for="cfgPeerFactor">Pakai faktor peer review</label></div></div>
+              <div class="col-md-4"><div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="include_attendance_factor" value="1" id="cfgAttendanceFactor" checked><label class="form-check-label" for="cfgAttendanceFactor">Pakai faktor absensi</label></div></div>
+              <div class="col-md-4"><div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="include_manual_penalty_factor" value="1" id="cfgManualPenaltyFactor" checked><label class="form-check-label" for="cfgManualPenaltyFactor">Pakai penalti manual</label></div></div>
+              <div class="col-12">
+                <label class="form-label">Catatan</label>
+                <textarea name="notes" class="form-control" rows="3" placeholder="Opsional"></textarea>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer px-0 pb-0 mt-4">
+            <button type="button" class="btn btn-outline-secondary" id="bonusConfigResetBtn">Reset</button>
+            <button type="submit" class="btn btn-primary">Simpan Kebijakan</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade bonus-modal" id="bonusRuleDetailModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
         <div>
-          <h5 class="modal-title mb-1">Detail Aturan Bonus</h5>
+          <h5 class="modal-title mb-1">Detail Skema Distribusi</h5>
           <div class="small text-muted">Baca isi rule tanpa membuka form edit.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -1199,8 +1440,8 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     <div class="modal-content">
       <div class="modal-header">
         <div>
-          <h5 class="modal-title mb-1" id="bonusRuleModalTitle">Form Aturan Bonus</h5>
-          <div class="small text-muted">Gunakan bahasa operasional: target minimum, cara baca PH, dan bobot layanan per rule.</div>
+          <h5 class="modal-title mb-1" id="bonusRuleModalTitle">Form Skema Distribusi</h5>
+          <div class="small text-muted">Isi di sini hanya cara membagi bonus: target minimum, cara baca PH, faktor layanan, dan logika distribusi.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
@@ -1210,13 +1451,14 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
           <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
           <div class="bonus-form-scroll">
             <div class="mb-3">
-              <label class="form-label">Paket bonus</label>
+              <label class="form-label">Kebijakan bonus</label>
               <select name="config_id" class="form-select" required>
-                <option value="">Pilih paket bonus...</option>
+                <option value="">Pilih kebijakan bonus...</option>
                 <?php foreach ($configRows as $row): ?>
                   <option value="<?php echo (int)($row['id'] ?? 0); ?>"><?php echo html_escape((string)($row['config_name'] ?? '-')); ?></option>
                 <?php endforeach; ?>
               </select>
+              <div class="small text-muted mt-1">Ini adalah policy/header bonus bersama. Satu kebijakan bisa dipakai beberapa skema distribusi agar setting umum tidak perlu diulang.</div>
             </div>
             <div class="row g-3">
               <div class="col-md-8">
@@ -1409,8 +1651,8 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     <div class="modal-content">
       <div class="modal-header">
         <div>
-          <h5 class="modal-title mb-1" id="bonusWeightModalTitle">Form Bobot Bonus</h5>
-          <div class="small text-muted">Atur porsi poin dan porsi pool untuk divisi, jabatan, pegawai, atau shift tertentu.</div>
+          <h5 class="modal-title mb-1" id="bonusWeightModalTitle">Form Bobot Bonus Global</h5>
+          <div class="small text-muted">Bobot ini berlaku lintas target. Gunakan untuk membedakan porsi divisi, jabatan, pegawai, atau shift tanpa harus buat rule per target.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
@@ -1420,13 +1662,22 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
           <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
           <div class="bonus-form-scroll">
             <div class="row g-3">
-              <div class="col-md-12">
-                <label class="form-label">Aturan bonus</label>
-                <select name="rule_id" class="form-select" required>
-                  <option value="">Pilih aturan bonus...</option>
+              <div class="col-md-6">
+                <label class="form-label">Skema distribusi khusus</label>
+                <select name="rule_id" class="form-select">
+                  <option value="">Semua skema bonus</option>
                   <?php foreach ($bonusRuleOptionRows as $row): ?>
                     <option value="<?php echo (int)($row['id'] ?? 0); ?>"><?php echo html_escape((string)($row['rule_name'] ?? '-')); ?></option>
                   <?php endforeach; ?>
+                </select>
+                <div class="small text-muted mt-1">Kosongkan agar bobot berlaku umum untuk semua pool bonus.</div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Berlaku untuk target</label>
+                <select name="target_frequency" class="form-select">
+                  <option value="ALL">Semua target</option>
+                  <option value="DAILY">Hanya target harian</option>
+                  <option value="MONTHLY">Hanya target bulanan</option>
                 </select>
               </div>
               <div class="col-md-4">
@@ -1445,12 +1696,12 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               <div class="col-md-6">
                 <label class="form-label">Bobot poin</label>
                 <input type="number" step="0.0001" name="point_weight" class="form-control" value="1">
-                <div class="small text-muted mt-1">Mempengaruhi total poin pegawai sebelum dikonversi ke nominal.</div>
+                <div class="small text-muted mt-1">Mempengaruhi besar kecilnya jatah poin pegawai saat pool dibagi.</div>
               </div>
               <div class="col-md-6">
                 <label class="form-label">Bobot pool</label>
                 <input type="number" step="0.0001" name="pool_weight" class="form-control" value="1">
-                <div class="small text-muted mt-1">Mempengaruhi jatah nominal pool yang jatuh ke scope ini.</div>
+                <div class="small text-muted mt-1">Disimpan untuk tahap distribusi nominal yang lebih detail. Untuk sekarang tetap ikut dicatat agar pola pembobotan kita konsisten.</div>
               </div>
               <div class="col-12">
                 <label class="form-label">Catatan</label>
@@ -1489,7 +1740,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
             <div class="row g-3">
               <div class="col-md-3"><label class="form-label">Tanggal kejadian</label><input type="date" name="penalty_date" class="form-control" value="<?php echo date('Y-m-d'); ?>" required></div>
               <div class="col-md-3"><label class="form-label">Jenis penalti</label><select name="penalty_type_id" id="penaltyTypeEventSelect" class="form-select" required><option value="">Pilih jenis penalti...</option><?php foreach ($penaltyTypeRows as $row): ?><?php if (!$isPenaltySelectableForEvent($row)) { continue; } ?><option value="<?php echo (int)($row['id'] ?? 0); ?>" data-points="<?php echo html_escape((string)($row['default_points_deducted'] ?? '0')); ?>" data-amount="<?php echo html_escape((string)($row['default_amount_deducted'] ?? '0')); ?>" data-scope="<?php echo html_escape((string)($row['applies_scope'] ?? 'BOTH')); ?>" data-behavior="<?php echo html_escape((string)($row['behavior_mode'] ?? 'MANUAL')); ?>"><?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?> - <?php echo html_escape($penaltyBehaviorLabels[strtoupper((string)($row['behavior_mode'] ?? 'MANUAL'))] ?? 'Manual'); ?></option><?php endforeach; ?></select></div>
-              <div class="col-md-3"><label class="form-label">Aturan bonus terkait</label><select name="rule_id" class="form-select"><option value="">Tanpa aturan spesifik</option><?php foreach ($bonusRuleOptionRows as $row): ?><option value="<?php echo (int)($row['id'] ?? 0); ?>"><?php echo html_escape((string)($row['rule_name'] ?? '-')); ?></option><?php endforeach; ?></select></div>
+              <div class="col-md-3"><label class="form-label">Skema distribusi terkait</label><select name="rule_id" class="form-select"><option value="">Tanpa skema spesifik</option><?php foreach ($bonusRuleOptionRows as $row): ?><option value="<?php echo (int)($row['id'] ?? 0); ?>"><?php echo html_escape((string)($row['rule_name'] ?? '-')); ?></option><?php endforeach; ?></select></div>
               <div class="col-md-3"><label class="form-label">Scope penalti</label><select name="penalty_scope" id="penaltyScopeSelect" class="form-select"><option value="PERSONAL">Personal</option><option value="TEAM">Tim</option></select></div>
               <div class="col-md-4"><label class="form-label">Pegawai</label><select name="employee_id" id="penaltyEmployeeSelect" class="form-select"><option value="">Pilih pegawai...</option><?php foreach ($employeeRows as $row): ?><option value="<?php echo (int)($row['value'] ?? 0); ?>"><?php echo html_escape((string)($row['label'] ?? '-')); ?></option><?php endforeach; ?></select></div>
               <div class="col-md-4"><label class="form-label">Divisi tim</label><select name="division_id" id="penaltyDivisionSelect" class="form-select"><option value="">Pilih divisi...</option><?php foreach ($divisionRows as $row): ?><option value="<?php echo (int)($row['value'] ?? 0); ?>"><?php echo html_escape((string)($row['label'] ?? '-')); ?></option><?php endforeach; ?></select></div>
@@ -1527,14 +1778,36 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
 </div>
 
 <div class="modal fade bonus-modal" id="bonusGeneratePoolModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header"><h5 class="modal-title">Generate Draft Pool Bonus</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         <form method="post" action="<?php echo site_url('payroll/bonus/generate-pool'); ?>">
-          <div class="mb-3"><label class="form-label">Tanggal bonus</label><input type="date" name="bonus_date" class="form-control" value="<?php echo html_escape($defaultBonusDate); ?>"></div>
-          <div class="mb-3"><label class="form-label">Aturan bonus</label><select name="rule_id" class="form-select" required><option value="">Pilih aturan...</option><?php foreach ($bonusRuleOptionRows as $row): ?><option value="<?php echo (int)($row['id'] ?? 0); ?>"><?php echo html_escape((string)($row['rule_name'] ?? '-')); ?></option><?php endforeach; ?></select></div>
-          <div class="small text-muted">Draft pool akan menghitung target, omzet shift, bobot hadir, peer review, penalti, dan metric waktu saji yang sudah tersedia.</div>
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label">Tanggal mulai</label><input type="date" name="bonus_date_start" class="form-control" value="<?php echo html_escape($defaultBonusDate); ?>"></div>
+            <div class="col-md-6"><label class="form-label">Tanggal akhir</label><input type="date" name="bonus_date_end" class="form-control" value="<?php echo html_escape($defaultBonusDate); ?>"></div>
+            <div class="col-md-12">
+              <label class="form-label">Target keuangan harian</label>
+              <select name="target_plan_id" class="form-select">
+                <option value="0">Pakai target harian yang sudah tertaut di skema</option>
+                <?php foreach ($activeDailyTargetRows as $row): ?>
+                  <option value="<?php echo (int)($row['id'] ?? 0); ?>"><?php echo html_escape((string)($row['target_name'] ?? '-')); ?> | <?php echo html_escape((string)($row['date_start'] ?? '-')); ?></option>
+                <?php endforeach; ?>
+              </select>
+              <div class="small text-muted mt-1">Ini yang membuat alur bonus jadi target-centric. Kalau dipilih, engine akan membaca ambang harian dari target keuangan ini untuk seluruh tanggal dalam range.</div>
+            </div>
+            <div class="col-md-12">
+              <label class="form-label">Skema distribusi bonus</label>
+              <select name="rule_id" class="form-select" required>
+                <option value="">Pilih skema distribusi...</option>
+                <?php foreach ($bonusRuleOptionRows as $row): ?>
+                  <option value="<?php echo (int)($row['id'] ?? 0); ?>"><?php echo html_escape((string)($row['rule_name'] ?? '-')); ?></option>
+                <?php endforeach; ?>
+              </select>
+              <div class="small text-muted mt-1">Skema distribusi menentukan pembagian pool: cara baca target bulanan, faktor waktu saji, perlakuan PH, dan scope outlet/divisi.</div>
+            </div>
+          </div>
+          <div class="small text-muted mt-3">Saat draft pool dibuat, sistem otomatis menarik penalti absensi yang sifatnya AUTO, membaca omzet shift, membagi bonus berdasarkan bobot global, lalu menyimpan estimasi bonus pegawai tanpa mengubah kas. Kas baru bergerak saat nanti dibuat pencairan bonus.</div>
           <div class="modal-footer px-0 pb-0 mt-4"><button type="submit" class="btn btn-primary">Generate Draft</button></div>
         </form>
       </div>
@@ -1612,6 +1885,9 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       }).join('');
     }
 
+    var configForm = document.getElementById('bonusConfigForm');
+    var configResetBtn = document.getElementById('bonusConfigResetBtn');
+    var configModalTitle = document.getElementById('bonusConfigModalTitle');
     var ruleForm = document.getElementById('bonusRuleForm');
     var ruleResetBtn = document.getElementById('bonusRuleResetBtn');
     var ruleModalTitle = document.getElementById('bonusRuleModalTitle');
@@ -1637,6 +1913,28 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       field.value = value == null ? '' : value;
     }
 
+    function resetConfigForm() {
+      if (!configForm) return;
+      configForm.reset();
+      fillValue(configForm, 'id', '');
+      fillValue(configForm, 'distribution_scope', 'GLOBAL');
+      fillValue(configForm, 'pool_source_mode', 'TARGET_LINKED');
+      fillValue(configForm, 'pool_source_value', '0');
+      fillValue(configForm, 'payout_percent', '100');
+      fillValue(configForm, 'point_penalty_currency_mode', 'PERCENT_SHARE');
+      fillValue(configForm, 'point_penalty_currency_value', '5');
+      fillValue(configForm, 'status', 'ACTIVE');
+      fillValue(configForm, 'linked_target_required', '1');
+      fillValue(configForm, 'include_shift_revenue_factor', '1');
+      fillValue(configForm, 'include_service_time_factor', '1');
+      fillValue(configForm, 'include_peer_review_factor', '1');
+      fillValue(configForm, 'include_attendance_factor', '1');
+      fillValue(configForm, 'include_manual_penalty_factor', '1');
+      if (configModalTitle) {
+        configModalTitle.textContent = 'Form Kebijakan Bonus';
+      }
+    }
+
     function resetRuleForm() {
         if (!ruleForm) return;
         ruleForm.reset();
@@ -1658,7 +1956,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       fillValue(ruleForm, 'manual_penalty_weight', '1');
       fillValue(ruleForm, 'is_active', '1');
       if (ruleModalTitle) {
-        ruleModalTitle.textContent = 'Form Aturan Bonus';
+        ruleModalTitle.textContent = 'Form Skema Distribusi';
       }
         if (typeof syncPoolFormulaHint === 'function') {
           syncPoolFormulaHint();
@@ -1687,13 +1985,15 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
         if (!weightForm) return;
         weightForm.reset();
         fillValue(weightForm, 'id', '');
+        fillValue(weightForm, 'rule_id', '');
+        fillValue(weightForm, 'target_frequency', 'ALL');
         fillValue(weightForm, 'weight_scope', 'DIVISION');
         fillValue(weightForm, 'point_weight', '1');
         fillValue(weightForm, 'pool_weight', '1');
         fillValue(weightForm, 'is_active', '1');
         syncWeightScopeOptions('DIVISION', '');
         if (weightModalTitle) {
-          weightModalTitle.textContent = 'Form Bobot Bonus';
+          weightModalTitle.textContent = 'Form Bobot Bonus Global';
         }
     }
 
@@ -1729,6 +2029,68 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       }
     }
 
+    if (configResetBtn && configForm) {
+      configResetBtn.addEventListener('click', resetConfigForm);
+    }
+
+    var openConfigCreateModalBtn = document.getElementById('openConfigCreateModalBtn');
+    if (openConfigCreateModalBtn) {
+      openConfigCreateModalBtn.addEventListener('click', function () {
+        resetConfigForm();
+        if (configModalTitle) {
+          configModalTitle.textContent = 'Tambah Kebijakan Bonus';
+        }
+        openModal('bonusConfigModal');
+      });
+    }
+
+    document.querySelectorAll('.bonus-config-edit-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        resetConfigForm();
+        fillValue(configForm, 'id', btn.dataset.id || '');
+        fillValue(configForm, 'config_name', btn.dataset.configName || '');
+        fillValue(configForm, 'config_code', btn.dataset.configCode || '');
+        fillValue(configForm, 'description', btn.dataset.description || '');
+        fillValue(configForm, 'distribution_scope', btn.dataset.distributionScope || 'GLOBAL');
+        fillValue(configForm, 'pool_source_mode', btn.dataset.poolSourceMode || 'TARGET_LINKED');
+        fillValue(configForm, 'pool_source_value', btn.dataset.poolSourceValue || '0');
+        fillValue(configForm, 'payout_percent', btn.dataset.payoutPercent || '100');
+        fillValue(configForm, 'point_penalty_currency_mode', btn.dataset.pointPenaltyMode || 'PERCENT_SHARE');
+        fillValue(configForm, 'point_penalty_currency_value', btn.dataset.pointPenaltyValue || '5');
+        fillValue(configForm, 'linked_target_required', btn.dataset.linkedTargetRequired || '1');
+        fillValue(configForm, 'include_shift_revenue_factor', btn.dataset.includeShiftRevenueFactor || '1');
+        fillValue(configForm, 'include_service_time_factor', btn.dataset.includeServiceTimeFactor || '1');
+        fillValue(configForm, 'include_peer_review_factor', btn.dataset.includePeerReviewFactor || '1');
+        fillValue(configForm, 'include_attendance_factor', btn.dataset.includeAttendanceFactor || '1');
+        fillValue(configForm, 'include_manual_penalty_factor', btn.dataset.includeManualPenaltyFactor || '1');
+        fillValue(configForm, 'status', btn.dataset.statusValue || 'ACTIVE');
+        fillValue(configForm, 'notes', btn.dataset.notes || '');
+        if (configModalTitle) {
+          configModalTitle.textContent = 'Edit Kebijakan Bonus';
+        }
+        openModal('bonusConfigModal');
+      });
+    });
+
+    document.querySelectorAll('.bonus-config-detail-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        renderDetailGrid('bonusConfigDetailBody', [
+          { label: 'Nama kebijakan', value: btn.dataset.configName },
+          { label: 'Kode kebijakan', value: btn.dataset.configCode },
+          { label: 'Deskripsi', value: btn.dataset.description },
+          { label: 'Scope', value: btn.dataset.distributionScope },
+          { label: 'Sumber pool', value: btn.dataset.poolSourceMode },
+          { label: 'Nilai pool', value: btn.dataset.poolSourceValue },
+          { label: 'Payout %', value: btn.dataset.payoutPercent },
+          { label: 'Mode penalti poin', value: btn.dataset.pointPenaltyMode },
+          { label: 'Nilai penalti poin', value: btn.dataset.pointPenaltyValue },
+          { label: 'Status', value: btn.dataset.status },
+          { label: 'Catatan', value: btn.dataset.notes }
+        ]);
+        openModal('bonusConfigDetailModal');
+      });
+    });
+
     if (ruleResetBtn && ruleForm) {
       ruleResetBtn.addEventListener('click', resetRuleForm);
     }
@@ -1738,7 +2100,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       openRuleCreateModalBtn.addEventListener('click', function () {
         resetRuleForm();
         if (ruleModalTitle) {
-          ruleModalTitle.textContent = 'Tambah Aturan Bonus';
+          ruleModalTitle.textContent = 'Tambah Skema Distribusi';
         }
         openModal('bonusRuleModal');
       });
@@ -1772,7 +2134,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
         fillValue(ruleForm, 'notes', btn.dataset.notes || '');
         fillValue(ruleForm, 'is_active', btn.dataset.isActive || '0');
         if (ruleModalTitle) {
-          ruleModalTitle.textContent = 'Edit Aturan Bonus';
+          ruleModalTitle.textContent = 'Edit Skema Distribusi';
         }
         if (typeof syncPoolFormulaHint === 'function') {
           syncPoolFormulaHint();
@@ -1786,7 +2148,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
         renderDetailGrid('bonusRuleDetailBody', [
           { label: 'Nama aturan', value: btn.dataset.ruleName },
           { label: 'Kode aturan', value: btn.dataset.ruleCode },
-          { label: 'Paket bonus', value: btn.dataset.configName },
+          { label: 'Kebijakan bonus', value: btn.dataset.configName },
           { label: 'Scope', value: btn.dataset.scopeName },
           { label: 'Target bulanan / gerbang bonus', value: btn.dataset.targetName },
           { label: 'Target harian pembaca omzet', value: btn.dataset.dailyTargetName },
@@ -1825,7 +2187,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       openWeightCreateModalBtn.addEventListener('click', function () {
         resetWeightForm();
         if (weightModalTitle) {
-          weightModalTitle.textContent = 'Tambah Bobot Bonus';
+          weightModalTitle.textContent = 'Tambah Bobot Bonus Global';
         }
         openModal('bonusWeightModal');
       });
@@ -1836,6 +2198,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
         resetWeightForm();
         fillValue(weightForm, 'id', btn.dataset.id || '');
         fillValue(weightForm, 'rule_id', btn.dataset.ruleId || '');
+        fillValue(weightForm, 'target_frequency', btn.dataset.targetFrequency || 'ALL');
         fillValue(weightForm, 'weight_scope', btn.dataset.weightScope || 'DIVISION');
         fillValue(weightForm, 'point_weight', btn.dataset.pointWeight || '1');
         fillValue(weightForm, 'pool_weight', btn.dataset.poolWeight || '1');
@@ -1843,7 +2206,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
         fillValue(weightForm, 'notes', btn.dataset.notes || '');
         syncWeightScopeOptions(btn.dataset.weightScope || 'DIVISION', btn.dataset.scopeId || '');
         if (weightModalTitle) {
-          weightModalTitle.textContent = 'Edit Bobot Bonus';
+          weightModalTitle.textContent = 'Edit Bobot Bonus Global';
         }
         openModal('bonusWeightModal');
       });
@@ -1852,8 +2215,9 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     document.querySelectorAll('.bonus-weight-detail-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         renderDetailGrid('bonusWeightDetailBody', [
-          { label: 'Aturan bonus', value: btn.dataset.ruleName },
-          { label: 'Kode aturan', value: btn.dataset.ruleCode },
+          { label: 'Skema distribusi', value: btn.dataset.ruleName || 'Semua skema bonus' },
+          { label: 'Kode skema', value: btn.dataset.ruleCode || '-' },
+          { label: 'Berlaku untuk target', value: btn.dataset.targetFrequency || 'ALL' },
           { label: 'Jenis bobot', value: btn.dataset.weightScope },
           { label: 'Target bobot', value: btn.dataset.scopeLabel },
           { label: 'Bobot poin', value: btn.dataset.pointWeight },
@@ -1965,7 +2329,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       btn.addEventListener('click', function () {
         renderDetailGrid('bonusPoolDetailBody', [
           { label: 'Tanggal bonus', value: btn.dataset.bonusDate },
-          { label: 'Aturan bonus', value: btn.dataset.ruleName },
+          { label: 'Skema distribusi', value: btn.dataset.ruleName },
           { label: 'Scope', value: btn.dataset.scopeName },
           { label: 'Target', value: btn.dataset.targetName },
           { label: 'Skor target', value: btn.dataset.targetScore },

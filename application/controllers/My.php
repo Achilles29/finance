@@ -880,7 +880,7 @@ class My extends MY_Controller
         $dailyFilters = ['q' => trim((string)$this->input->get('daily_q', true))];
         $historyFilters = ['q' => trim((string)$this->input->get('history_q', true))];
         $dailyPg = $this->build_pagination(
-            $this->Payroll_model->count_my_bonus_daily_rows((int)$employee['id'], $month, $dailyFilters['q'], true),
+            $this->Payroll_model->count_my_bonus_daily_rows((int)$employee['id'], $month, $dailyFilters['q'], false),
             $this->per_page('daily_per_page'),
             $this->page('daily_page')
         );
@@ -904,7 +904,7 @@ class My extends MY_Controller
             'daily_pg' => $dailyPg,
             'history_pg' => $historyPg,
             'summary' => $this->Payroll_model->get_employee_bonus_overview((int)$employee['id'], $month),
-            'daily_rows' => $this->Payroll_model->list_my_bonus_daily_rows((int)$employee['id'], $month, $dailyFilters['q'], $dailyPg['per_page'], $dailyPg['offset'], true),
+            'daily_rows' => $this->Payroll_model->list_my_bonus_daily_rows((int)$employee['id'], $month, $dailyFilters['q'], $dailyPg['per_page'], $dailyPg['offset'], false),
             'pending_peer_feedback' => $this->Payroll_model->get_pending_peer_feedback_targets((int)$employee['id'], $date),
             'peer_history_rows' => $this->Payroll_model->list_my_peer_feedback_history((int)$employee['id'], $month, $historyFilters['q'], $historyPg['per_page'], $historyPg['offset']),
         ]);

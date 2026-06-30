@@ -329,6 +329,7 @@ class Finance_reports extends MY_Controller
         if ($this->input->method() !== 'post') {
             show_404();
         }
+        @set_time_limit(300);
 
         $this->require_permission('finance.target.index', 'edit');
         $ids = $this->input->post('target_ids');
@@ -343,27 +344,14 @@ class Finance_reports extends MY_Controller
             redirect($redirectTo);
         }
 
-        $success = [];
-        $failed = [];
-        foreach ($targetIds as $targetId) {
-            $targetRow = $this->Finance_report_model->get_target_plan_by_id($targetId);
-            $targetLabel = trim((string)($targetRow['target_name'] ?? ''));
-            if ($targetLabel === '') {
-                $targetLabel = 'Target #' . $targetId;
+        $result = $this->Finance_report_model->generate_target_realization_bulk($targetIds, $this->actor_user_id());
+        if (!empty($result['ok'])) {
+            $this->session->set_flashdata('success', (string)($result['message'] ?? 'Target terpilih berhasil dihitung / ditimpa ulang.'));
+            if (!empty($result['failed_rows'])) {
+                $this->session->set_flashdata('error', implode(' | ', (array)$result['failed_rows']));
             }
-            $result = $this->Finance_report_model->generate_target_realization($targetId, $this->actor_user_id());
-            if (!empty($result['ok'])) {
-                $success[] = $targetLabel;
-            } else {
-                $failed[] = $targetLabel . ': ' . (string)($result['message'] ?? 'Gagal dihitung');
-            }
-        }
-
-        if (!empty($success)) {
-            $this->session->set_flashdata('success', count($success) . ' target berhasil dihitung / ditimpa ulang.');
-        }
-        if (!empty($failed)) {
-            $this->session->set_flashdata('error', implode(' | ', $failed));
+        } else {
+            $this->session->set_flashdata('error', (string)($result['message'] ?? 'Gagal menghitung target terpilih.'));
         }
 
         redirect($redirectTo);
@@ -416,6 +404,7 @@ class Finance_reports extends MY_Controller
         if ($this->input->method() !== 'post') {
             show_404();
         }
+        @set_time_limit(180);
 
         $this->require_permission('finance.target.index', 'edit');
         $result = $this->Finance_report_model->generate_target_realization((int)$id, $this->actor_user_id());

@@ -100,9 +100,14 @@ $route['payroll/bonus/sync-auto-penalties'] = 'payroll/bonus_auto_penalty_sync';
 $route['payroll/bonus/approve-pool/(:num)'] = 'payroll/bonus_pool_approve/$1';
 $route['payroll/bonus/generate-service-metric'] = 'payroll/bonus_service_metric_generate';
 $route['payroll/bonus/generate-monthly-summary'] = 'payroll/bonus_monthly_summary_generate';
+$route['payroll/bonus/config-save'] = 'payroll/bonus_config_save';
+$route['payroll/bonus/config-delete/(:num)'] = 'payroll/bonus_config_delete/$1';
 $route['payroll/bonus/rule-save'] = 'payroll/bonus_rule_save';
+$route['payroll/bonus/rule-delete/(:num)'] = 'payroll/bonus_rule_delete/$1';
 $route['payroll/bonus/weight-save'] = 'payroll/bonus_weight_save';
+$route['payroll/bonus/weight-delete/(:num)'] = 'payroll/bonus_weight_delete/$1';
 $route['payroll/bonus/penalty-save'] = 'payroll/bonus_penalty_type_save';
+$route['payroll/bonus/penalty-delete/(:num)'] = 'payroll/bonus_penalty_type_delete/$1';
 $route['payroll/bonus/penalty-event-save'] = 'payroll/bonus_penalty_event_save';
 $route['payroll/bonus/peer-moderate/(:num)'] = 'payroll/bonus_peer_moderate/$1';
 

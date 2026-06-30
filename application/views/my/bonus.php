@@ -16,7 +16,9 @@ $historyPg = $history_pg ?? ['total' => count($peerHistoryRows), 'per_page' => 2
 $isPublished = !empty($summary['is_published']);
 $displayFinalAmount = $isPublished ? (float)($summary['total_final_amount'] ?? 0) : 0;
 $displayPenaltyAmount = $isPublished ? (float)($summary['total_penalty_amount'] ?? 0) : 0;
-$displayStatus = $isPublished ? (string)($summary['payout_status'] ?? 'APPROVED') : 'MENUNGGU PENGUMUMAN';
+$estimatedFinalAmount = (float)($summary['estimated_final_amount'] ?? 0);
+$estimatedPenaltyAmount = (float)($summary['estimated_penalty_amount'] ?? 0);
+$displayStatus = $isPublished ? (string)($summary['payout_status'] ?? 'APPROVED') : (($estimatedFinalAmount > 0 || $estimatedPenaltyAmount > 0) ? 'ESTIMASI POOL' : 'MENUNGGU POOL');
 $buildUrl = static function (array $overrides = []) use ($selectedEmployeeId, $month, $date, $tab) {
     $base = [
         'employee_id' => $selectedEmployeeId ?: '',
@@ -94,20 +96,21 @@ $buildUrl = static function (array $overrides = []) use ($selectedEmployeeId, $m
 
   <?php if ($tab === 'summary'): ?>
     <div class="row g-3 mb-4">
-      <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Bonus Final</div><div class="value"><?php echo $isPublished ? ('Rp ' . number_format($displayFinalAmount, 2, ',', '.')) : 'Menunggu'; ?></div><div class="small text-muted"><?php echo $isPublished ? 'Nilai bonus bersih bulan ini' : 'Angka final dibuka setelah dipublikasikan'; ?></div></div></div>
-      <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Potongan Bonus</div><div class="value text-danger"><?php echo $isPublished ? ('Rp ' . number_format($displayPenaltyAmount, 2, ',', '.')) : 'Menunggu'; ?></div><div class="small text-muted"><?php echo $isPublished ? 'Akumulasi penalti bonus' : 'Potongan baru terlihat saat bonus diumumkan'; ?></div></div></div>
+      <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Estimasi Bonus Pool</div><div class="value"><?php echo 'Rp ' . number_format($estimatedFinalAmount, 2, ',', '.'); ?></div><div class="small text-muted">Terbaca dari pool bonus yang sudah digenerate bulan ini</div></div></div>
+      <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Bonus Diumumkan</div><div class="value"><?php echo $isPublished ? ('Rp ' . number_format($displayFinalAmount, 2, ',', '.')) : 'Belum dibuka'; ?></div><div class="small text-muted"><?php echo $isPublished ? 'Angka resmi yang sudah dipublikasikan' : 'Belum memotong / menambah kas sebelum pencairan'; ?></div></div></div>
+      <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Estimasi Potongan</div><div class="value text-danger"><?php echo 'Rp ' . number_format($estimatedPenaltyAmount, 2, ',', '.'); ?></div><div class="small text-muted">Gabungan penalti otomatis dan manual yang sudah masuk pool</div></div></div>
       <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Nilai Rekan</div><div class="value"><?php echo number_format((float)($summary['peer_avg_star'] ?? 0), 2, ',', '.'); ?></div><div class="small text-muted">Rata-rata bintang yang masuk</div></div></div>
-      <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Status Rekap</div><div class="value"><?php echo html_escape($displayStatus); ?></div><div class="small text-muted">Belum otomatis jadi transfer gaji</div></div></div>
+      <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Status Rekap</div><div class="value"><?php echo html_escape($displayStatus); ?></div><div class="small text-muted">Bonus tetap perhitungan dulu, kas baru bergerak saat pencairan dibuat</div></div></div>
     </div>
 
     <?php if (empty($summary['is_published'])): ?>
-      <div class="alert alert-warning border-0 shadow-sm">Bonus bulan ini belum diumumkan sebagai angka final. Angka yang benar-benar muncul ke pegawai baru dibuka setelah pool bonus disetujui admin.</div>
+      <div class="alert alert-warning border-0 shadow-sm">Bonus bulan ini belum diumumkan sebagai angka final. Sementara ini yang tampil adalah estimasi dari pool bonus yang sudah digenerate admin, jadi bisa dipakai untuk memantau arah bonus tanpa langsung dianggap final.</div>
     <?php endif; ?>
 
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-white border-0 pb-0">
         <h6 class="mb-1">Detail bonus harian</h6>
-        <div class="small text-muted">Hanya bonus yang sudah lolos persetujuan yang ditampilkan di sini.</div>
+        <div class="small text-muted">Baris draft ikut ditampilkan sebagai estimasi, sedangkan baris approved adalah angka yang sudah diumumkan.</div>
       </div>
       <div class="card-body">
         <form method="get" action="<?php echo site_url('my/bonus'); ?>" class="row g-2 align-items-end mb-3">

@@ -139,4 +139,3 @@ cek server
 finalkan generate stok gudang, bahan baku. component. pastikan cutoff dan membuat data baru stok dan lot nya sesuai
 finalkan generate keuangan
 
-/dashboard Stok Produk Live POS tambahkan kolom jenis sumber (bahan baku / base / prepare)

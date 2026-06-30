@@ -1939,6 +1939,29 @@ class Finance_report_model extends CI_Model
         return $map;
     }
 
+    private function list_target_plan_lines_plain_map(array $targetPlanIds): array
+    {
+        $targetPlanIds = array_values(array_filter(array_map('intval', $targetPlanIds)));
+        if (empty($targetPlanIds) || !$this->db->table_exists('fin_target_plan_line')) {
+            return [];
+        }
+
+        $rows = $this->db->select('tl.*')
+            ->from('fin_target_plan_line tl')
+            ->where_in('tl.target_plan_id', $targetPlanIds)
+            ->order_by('tl.target_plan_id', 'ASC')
+            ->order_by('tl.metric_group', 'ASC')
+            ->order_by('tl.metric_label', 'ASC')
+            ->get()->result_array();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int)($row['target_plan_id'] ?? 0)][] = $row;
+        }
+
+        return $map;
+    }
+
     private function normalize_progress_effective_range(array $plan, string $asOfDate): array
     {
         $planStart = (string)($plan['date_start'] ?? $asOfDate);
@@ -2978,11 +3001,14 @@ class Finance_report_model extends CI_Model
 
         $rawMetricRows = [];
         if (empty($closedPeriods)) {
-            $rawMetricRows = $this->collect_management_metric_rows(
-                $dateStart,
-                $dateEnd,
-                $this->collect_account_snapshot_rows($dateStart, $dateEnd, $this->active_company_accounts())
-            );
+            $metricCodes = [];
+            foreach ($lines as $line) {
+                $metricCode = strtoupper(trim((string)($line['metric_code'] ?? '')));
+                if ($metricCode !== '') {
+                    $metricCodes[] = $metricCode;
+                }
+            }
+            $rawMetricRows = $this->collect_progress_live_metric_index($dateStart, $dateEnd, $metricCodes);
         }
 
         $this->db->trans_start();
@@ -3026,6 +3052,193 @@ class Finance_report_model extends CI_Model
         }
 
         return ['ok' => true, 'message' => 'Realisasi target berhasil dihitung untuk ' . count($lines) . ' metric.'];
+    }
+
+    public function generate_target_realization_bulk(array $targetPlanIds, int $actorUserId = 0): array
+    {
+        unset($actorUserId);
+
+        $targetPlanIds = array_values(array_unique(array_filter(array_map('intval', $targetPlanIds))));
+        if (
+            empty($targetPlanIds)
+            || !$this->db->table_exists('fin_target_plan')
+            || !$this->db->table_exists('fin_target_plan_line')
+            || !$this->db->table_exists('fin_target_realization')
+        ) {
+            return ['ok' => false, 'message' => 'Fondasi target keuangan belum lengkap.'];
+        }
+
+        $planRows = $this->db->select('tp.*')
+            ->from('fin_target_plan tp')
+            ->where_in('tp.id', $targetPlanIds)
+            ->get()->result_array();
+        if (empty($planRows)) {
+            return ['ok' => false, 'message' => 'Target yang dipilih tidak ditemukan.'];
+        }
+
+        $planMap = [];
+        foreach ($planRows as $planRow) {
+            $planMap[(int)($planRow['id'] ?? 0)] = $planRow;
+        }
+
+        $linesMap = $this->list_target_plan_lines_plain_map($targetPlanIds);
+        $closedPeriodCache = [];
+        $liveMetricNeedMap = [];
+        $successIds = [];
+        $failedRows = [];
+
+        foreach ($targetPlanIds as $targetPlanId) {
+            $plan = $planMap[$targetPlanId] ?? null;
+            if (!$plan) {
+                $failedRows[] = 'Target #' . $targetPlanId . ': target tidak ditemukan.';
+                continue;
+            }
+
+            $targetLabel = trim((string)($plan['target_name'] ?? ''));
+            if ($targetLabel === '') {
+                $targetLabel = 'Target #' . $targetPlanId;
+            }
+
+            if (strtoupper(trim((string)($plan['status'] ?? 'DRAFT'))) === 'VOID') {
+                $failedRows[] = $targetLabel . ': target berstatus VOID.';
+                continue;
+            }
+
+            $lines = $linesMap[$targetPlanId] ?? [];
+            if (empty($lines)) {
+                $failedRows[] = $targetLabel . ': belum punya metric line.';
+                continue;
+            }
+
+            $dateStart = (string)($plan['date_start'] ?? '');
+            $dateEnd = (string)($plan['date_end'] ?? '');
+            $rangeKey = $dateStart . '|' . $dateEnd;
+            if (!array_key_exists($rangeKey, $closedPeriodCache)) {
+                if ($this->db->table_exists('fin_period_close')) {
+                    $closedPeriodCache[$rangeKey] = $this->db->select('id, period_start, period_end, period_type')
+                        ->from('fin_period_close')
+                        ->where('status', 'CLOSED')
+                        ->where('period_start >=', $dateStart)
+                        ->where('period_end <=', $dateEnd)
+                        ->order_by('period_end', 'ASC')
+                        ->get()->result_array();
+                } else {
+                    $closedPeriodCache[$rangeKey] = [];
+                }
+            }
+
+            $closedPeriods = $closedPeriodCache[$rangeKey];
+            if (strtoupper(trim((string)($plan['target_scope'] ?? 'MONTHLY'))) !== 'DAILY' && empty($closedPeriods)) {
+                $failedRows[] = $targetLabel . ': belum ada period close CLOSED di rentang target ini.';
+                continue;
+            }
+
+            if (empty($closedPeriods)) {
+                if (!isset($liveMetricNeedMap[$rangeKey])) {
+                    $liveMetricNeedMap[$rangeKey] = [];
+                }
+                foreach ($lines as $line) {
+                    $metricCode = strtoupper(trim((string)($line['metric_code'] ?? '')));
+                    if ($metricCode !== '') {
+                        $liveMetricNeedMap[$rangeKey][$metricCode] = $metricCode;
+                    }
+                }
+            }
+
+            $successIds[] = $targetPlanId;
+        }
+
+        if (empty($successIds)) {
+            return ['ok' => false, 'message' => 'Tidak ada target yang bisa dihitung. ' . implode(' | ', $failedRows)];
+        }
+
+        $liveMetricCache = [];
+        foreach ($liveMetricNeedMap as $rangeKey => $metricCodes) {
+            [$rangeStart, $rangeEnd] = explode('|', $rangeKey, 2);
+            $liveMetricCache[$rangeKey] = $this->collect_progress_live_metric_index($rangeStart, $rangeEnd, array_values($metricCodes));
+        }
+
+        $allLineIds = [];
+        $lineRealizationDateMap = [];
+        foreach ($successIds as $targetPlanId) {
+            $plan = $planMap[$targetPlanId];
+            foreach (($linesMap[$targetPlanId] ?? []) as $line) {
+                $lineId = (int)($line['id'] ?? 0);
+                if ($lineId <= 0) {
+                    continue;
+                }
+                $allLineIds[] = $lineId;
+                $lineRealizationDateMap[$lineId . '|' . (string)($plan['date_end'] ?? '')] = true;
+            }
+        }
+
+        $existingMap = [];
+        if (!empty($allLineIds)) {
+            $existingRows = $this->db->select('id, target_plan_line_id, realization_date')
+                ->from('fin_target_realization')
+                ->where_in('target_plan_line_id', array_values(array_unique($allLineIds)))
+                ->get()->result_array();
+            foreach ($existingRows as $existingRow) {
+                $key = (int)($existingRow['target_plan_line_id'] ?? 0) . '|' . (string)($existingRow['realization_date'] ?? '');
+                if (isset($lineRealizationDateMap[$key])) {
+                    $existingMap[$key] = (int)($existingRow['id'] ?? 0);
+                }
+            }
+        }
+
+        $successCount = 0;
+        $this->db->trans_start();
+        foreach ($successIds as $targetPlanId) {
+            $plan = $planMap[$targetPlanId];
+            $lines = $linesMap[$targetPlanId] ?? [];
+            $dateStart = (string)($plan['date_start'] ?? '');
+            $dateEnd = (string)($plan['date_end'] ?? '');
+            $rangeKey = $dateStart . '|' . $dateEnd;
+            $closedPeriods = $closedPeriodCache[$rangeKey] ?? [];
+            $rawMetricRows = empty($closedPeriods) ? ($liveMetricCache[$rangeKey] ?? []) : [];
+
+            foreach ($lines as $line) {
+                $resolved = $this->resolve_target_line_actual($plan, $line, $closedPeriods, $rawMetricRows);
+                $score = $this->calculate_target_score($line, (float)($resolved['actual_value'] ?? 0));
+
+                $payload = [
+                    'target_plan_id' => $targetPlanId,
+                    'target_plan_line_id' => (int)($line['id'] ?? 0),
+                    'period_close_id' => (int)($resolved['period_close_id'] ?? 0) > 0 ? (int)($resolved['period_close_id'] ?? 0) : null,
+                    'realization_date' => $dateEnd,
+                    'metric_code' => (string)($line['metric_code'] ?? ''),
+                    'target_value_snapshot' => round((float)($line['target_value'] ?? 0), 2),
+                    'actual_value' => round((float)($resolved['actual_value'] ?? 0), 2),
+                    'score_percent' => round((float)($score['score_percent'] ?? 0), 2),
+                    'is_passed' => !empty($score['is_passed']) ? 1 : 0,
+                    'bonus_gate_passed' => !empty($score['bonus_gate_passed']) ? 1 : 0,
+                    'notes' => (string)($resolved['notes'] ?? '') !== '' ? (string)$resolved['notes'] : null,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ];
+
+                $existingKey = (int)($line['id'] ?? 0) . '|' . $dateEnd;
+                if (!empty($existingMap[$existingKey])) {
+                    $this->db->where('id', (int)$existingMap[$existingKey])->update('fin_target_realization', $payload);
+                } else {
+                    $payload['created_at'] = date('Y-m-d H:i:s');
+                    $this->db->insert('fin_target_realization', $payload);
+                }
+            }
+
+            $successCount++;
+        }
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status()) {
+            return ['ok' => false, 'message' => 'Gagal menghitung realisasi target secara bulk.'];
+        }
+
+        return [
+            'ok' => true,
+            'message' => $successCount . ' target berhasil dihitung / ditimpa ulang.',
+            'success_count' => $successCount,
+            'failed_rows' => $failedRows,
+        ];
     }
 
     public function get_target_progress_snapshot(int $targetPlanId, string $asOfDate = ''): array
