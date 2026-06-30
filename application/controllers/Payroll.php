@@ -289,6 +289,7 @@ class Payroll extends MY_Controller
         $detailHeader = $detailId > 0 ? $this->Payroll_model->get_salary_disbursement_by_id($detailId) : null;
         $detailLines = $detailId > 0 ? $this->Payroll_model->list_salary_disbursement_lines($detailId) : [];
         $detailLineBreakdown = $detailId > 0 ? $this->Payroll_model->list_salary_disbursement_line_breakdown($detailId) : [];
+        $detailAccountRecap = $detailId > 0 ? $this->Payroll_model->get_salary_disbursement_account_recap($detailId) : [];
 
         $gen = [
             'payroll_period_id' => (int)$this->input->get('gen_payroll_period_id', true),
@@ -311,6 +312,7 @@ class Payroll extends MY_Controller
             'pg' => $pg,
             'detail_header' => $detailHeader,
             'detail_lines' => $detailLines,
+            'detail_account_recap' => $detailAccountRecap,
             'status_options' => ['DRAFT', 'POSTED', 'PAID', 'VOID'],
             'payroll_period_options' => $this->Payroll_model->get_payroll_period_options(),
             'company_account_options' => $this->Payroll_model->get_company_account_options(),
