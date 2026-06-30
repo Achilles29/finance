@@ -9,6 +9,9 @@ class MaterialFifoManager
     /** @var bool */
     protected $schemaEnsured = false;
 
+    /** @var bool */
+    protected $warehouseAggregateMode = true;
+
     public function __construct()
     {
         $this->ci =& get_instance();
@@ -40,6 +43,29 @@ class MaterialFifoManager
         $receiptDate = $this->normalizeDate((string)($payload['receipt_date'] ?? ($payload['movement_date'] ?? '')));
         if ($receiptDate === null) {
             return ['ok' => false, 'message' => 'receipt_date tidak valid untuk membuat lot inbound.'];
+        }
+
+        if ($this->isWarehouseAggregateMode() && strtoupper((string)($identity['location_scope'] ?? '')) === 'WAREHOUSE') {
+            return $this->applyLotMutation([
+                'location_scope' => 'WAREHOUSE',
+                'division_id' => null,
+                'destination_type' => 'GUDANG',
+                'item_id' => $identity['item_id'],
+                'material_id' => $identity['material_id'],
+                'buy_uom_id' => $identity['buy_uom_id'],
+                'content_uom_id' => $identity['content_uom_id'],
+                'profile_key' => $identity['profile_key'],
+                'lot_no' => $this->buildWarehouseAggregateLotNo($identity),
+                'receipt_date' => $receiptDate,
+                'expiry_date' => null,
+                'unit_cost' => max(0, round((float)($payload['unit_cost'] ?? 0), 6)),
+                'source_table' => 'WAREHOUSE_PROFILE',
+                'source_id' => null,
+                'source_line_id' => null,
+                'receipt_id' => null,
+                'receipt_line_id' => null,
+                'parent_lot_id' => null,
+            ], $qtyIn, 0.0);
         }
 
         $lotNo = $this->nullableString($payload['lot_no'] ?? null);
@@ -107,6 +133,146 @@ class MaterialFifoManager
         ]), false);
         if (!($identity['ok'] ?? false)) {
             return $identity;
+        }
+
+        if ($this->isWarehouseAggregateMode()) {
+            $sync = $this->syncWarehouseAggregateLotToMonthly($identity, $issueDate);
+            if (!($sync['ok'] ?? false)) {
+                return $sync;
+            }
+
+            $warehouseLot = $this->findWarehouseAggregateLot($identity, true);
+            $available = round((float)($warehouseLot['qty_balance'] ?? 0), 4);
+            if ($available + 0.0001 < $qtyNeed) {
+                return [
+                    'ok' => false,
+                    'message' => 'Saldo profil gudang tidak cukup. Dibutuhkan ' . number_format($qtyNeed, 4, '.', '') . ', tersedia ' . number_format($available, 4, '.', '') . '.',
+                ];
+            }
+
+            $issueNo = $this->generateIssueNo($issueDate);
+            $issueData = [
+                'issue_no' => $issueNo,
+                'issue_date' => $issueDate,
+                'issue_datetime' => date('Y-m-d H:i:s'),
+                'location_scope' => 'WAREHOUSE',
+                'division_id' => null,
+                'destination_type' => 'GUDANG',
+                'target_scope' => 'DIVISION',
+                'target_division_id' => $divisionId,
+                'target_destination_type' => $destinationType,
+                'item_id' => $identity['item_id'],
+                'material_id' => $identity['material_id'],
+                'buy_uom_id' => $identity['buy_uom_id'],
+                'content_uom_id' => $identity['content_uom_id'],
+                'profile_key' => $identity['profile_key'],
+                'issue_qty' => $qtyNeed,
+                'total_cost' => 0,
+                'source_module' => $this->nullableString($payload['source_module'] ?? 'PROCUREMENT'),
+                'source_table' => $this->nullableString($payload['source_table'] ?? null),
+                'source_id' => $this->nullableInt($payload['source_id'] ?? null),
+                'source_line_id' => $this->nullableInt($payload['source_line_id'] ?? null),
+                'notes' => $this->nullableString($payload['notes'] ?? null),
+                'status' => 'POSTED',
+            ];
+            $this->ci->db->insert('inv_material_fifo_issue_log', $issueData);
+            $issueId = (int)$this->ci->db->insert_id();
+            if ($issueId <= 0) {
+                return ['ok' => false, 'message' => 'Gagal membuat log issue gudang.'];
+            }
+
+            $lotId = (int)($warehouseLot['id'] ?? 0);
+            $takeQty = $qtyNeed;
+            $unitCost = max(0, round((float)($warehouseLot['unit_cost'] ?? 0), 6));
+            $warehouseMutation = $this->applyLotMutation([
+                'lot_id' => $lotId,
+                'location_scope' => 'WAREHOUSE',
+                'division_id' => null,
+                'destination_type' => 'GUDANG',
+                'item_id' => $this->nullableInt($warehouseLot['item_id'] ?? null),
+                'material_id' => $this->nullableInt($warehouseLot['material_id'] ?? null),
+                'buy_uom_id' => $this->nullableInt($warehouseLot['buy_uom_id'] ?? null),
+                'content_uom_id' => $this->nullableInt($warehouseLot['content_uom_id'] ?? null),
+                'profile_key' => $this->nullableString($warehouseLot['profile_key'] ?? null),
+                'lot_no' => (string)($warehouseLot['lot_no'] ?? $this->buildWarehouseAggregateLotNo($identity)),
+                'receipt_date' => (string)($warehouseLot['receipt_date'] ?? $issueDate),
+                'expiry_date' => null,
+                'unit_cost' => $unitCost,
+                'source_table' => $this->nullableString($warehouseLot['source_table'] ?? 'WAREHOUSE_PROFILE'),
+                'source_id' => $this->nullableInt($warehouseLot['source_id'] ?? null),
+                'source_line_id' => $this->nullableInt($warehouseLot['source_line_id'] ?? null),
+                'receipt_id' => $this->nullableInt($warehouseLot['receipt_id'] ?? null),
+                'receipt_line_id' => $this->nullableInt($warehouseLot['receipt_line_id'] ?? null),
+                'parent_lot_id' => $this->nullableInt($warehouseLot['parent_lot_id'] ?? null),
+            ], 0.0, $takeQty);
+            if (!($warehouseMutation['ok'] ?? false)) {
+                return $warehouseMutation;
+            }
+
+            $divisionLotNo = $this->nullableString($payload['target_lot_no'] ?? null);
+            if ($divisionLotNo === null) {
+                $divisionLotNo = $this->generateDivisionTransferLotNo($issueDate, $issueNo, $divisionId, $destinationType, $identity);
+            }
+
+            $divisionMutation = $this->applyLotMutation([
+                'location_scope' => 'DIVISION',
+                'division_id' => $divisionId,
+                'destination_type' => $destinationType,
+                'item_id' => $identity['item_id'],
+                'material_id' => $identity['material_id'],
+                'buy_uom_id' => $identity['buy_uom_id'],
+                'content_uom_id' => $identity['content_uom_id'],
+                'profile_key' => $identity['profile_key'],
+                'lot_no' => $divisionLotNo,
+                'receipt_date' => $issueDate,
+                'expiry_date' => $this->normalizeDate((string)($payload['expiry_date'] ?? ($payload['profile_expired_date'] ?? ''))),
+                'unit_cost' => $unitCost,
+                'source_table' => $this->nullableString($payload['source_table'] ?? null),
+                'source_id' => $this->nullableInt($payload['source_id'] ?? null),
+                'source_line_id' => $this->nullableInt($payload['source_line_id'] ?? null),
+                'receipt_id' => null,
+                'receipt_line_id' => null,
+                'parent_lot_id' => $lotId > 0 ? $lotId : null,
+            ], $takeQty, 0.0);
+            if (!($divisionMutation['ok'] ?? false)) {
+                return $divisionMutation;
+            }
+
+            $lineCost = round($takeQty * $unitCost, 2);
+            $this->ci->db->insert('inv_material_fifo_issue_line', [
+                'issue_id' => $issueId,
+                'lot_id' => $lotId,
+                'target_lot_id' => (int)($divisionMutation['data']['lot_id'] ?? 0) > 0 ? (int)($divisionMutation['data']['lot_id'] ?? 0) : null,
+                'qty_out' => $takeQty,
+                'unit_cost' => $unitCost,
+                'total_cost' => $lineCost,
+                'source_balance_before' => $available,
+                'source_balance_after' => round((float)($warehouseMutation['data']['qty_balance'] ?? 0), 4),
+                'target_balance_before' => 0,
+                'target_balance_after' => round((float)($divisionMutation['data']['qty_balance'] ?? 0), 4),
+            ]);
+            if ((int)($this->ci->db->insert_id() ?? 0) <= 0) {
+                return ['ok' => false, 'message' => 'Gagal menyimpan detail transfer gudang.'];
+            }
+
+            return [
+                'ok' => true,
+                'message' => 'Transfer stok profil gudang ke division berhasil.',
+                'data' => [
+                    'issue_id' => $issueId,
+                    'issue_no' => $issueNo,
+                    'allocations' => [[
+                        'source_lot_id' => $lotId,
+                        'source_lot_no' => (string)($warehouseLot['lot_no'] ?? $this->buildWarehouseAggregateLotNo($identity)),
+                        'target_lot_id' => (int)($divisionMutation['data']['lot_id'] ?? 0),
+                        'qty_content' => $takeQty,
+                        'unit_cost' => $unitCost,
+                        'total_cost' => $lineCost,
+                    ]],
+                    'total_cost' => $lineCost,
+                    'avg_unit_cost' => $takeQty > 0 ? round($lineCost / $takeQty, 6) : 0.0,
+                ],
+            ];
         }
 
         $coverage = $this->synchronizeWarehouseLotsFromAggregate($identity);
@@ -328,6 +494,115 @@ class MaterialFifoManager
         ]), true);
         if (!($identity['ok'] ?? false)) {
             return $identity;
+        }
+
+        if ($this->isWarehouseAggregateMode()) {
+            $sync = $this->syncWarehouseAggregateLotToMonthly($identity, $issueDate);
+            if (!($sync['ok'] ?? false)) {
+                return $sync;
+            }
+
+            $warehouseLot = $this->findWarehouseAggregateLot($identity, true);
+            $available = round((float)($warehouseLot['qty_balance'] ?? 0), 4);
+            if ($available + 0.0001 < $qtyNeed) {
+                return [
+                    'ok' => false,
+                    'message' => 'Saldo profil gudang tidak cukup. Dibutuhkan ' . number_format($qtyNeed, 4, '.', '') . ', tersedia ' . number_format($available, 4, '.', '') . '.',
+                ];
+            }
+
+            $issueNo = $this->generateIssueNo($issueDate);
+            $issueData = [
+                'issue_no' => $issueNo,
+                'issue_date' => $issueDate,
+                'issue_datetime' => date('Y-m-d H:i:s'),
+                'location_scope' => 'WAREHOUSE',
+                'division_id' => null,
+                'destination_type' => 'GUDANG',
+                'target_scope' => null,
+                'target_division_id' => null,
+                'target_destination_type' => null,
+                'item_id' => $identity['item_id'],
+                'material_id' => $identity['material_id'],
+                'buy_uom_id' => $identity['buy_uom_id'],
+                'content_uom_id' => $identity['content_uom_id'],
+                'profile_key' => $identity['profile_key'],
+                'issue_qty' => $qtyNeed,
+                'total_cost' => 0,
+                'source_module' => $this->nullableString($payload['source_module'] ?? 'INVENTORY_ADJUSTMENT'),
+                'source_table' => $this->nullableString($payload['source_table'] ?? null),
+                'source_id' => $this->nullableInt($payload['source_id'] ?? null),
+                'source_line_id' => $this->nullableInt($payload['source_line_id'] ?? null),
+                'notes' => $this->nullableString($payload['notes'] ?? null),
+                'status' => 'POSTED',
+            ];
+            $this->ci->db->insert('inv_material_fifo_issue_log', $issueData);
+            $issueId = (int)$this->ci->db->insert_id();
+            if ($issueId <= 0) {
+                return ['ok' => false, 'message' => 'Gagal membuat log usage gudang.'];
+            }
+
+            $lotId = (int)($warehouseLot['id'] ?? 0);
+            $unitCost = max(0, round((float)($warehouseLot['unit_cost'] ?? 0), 6));
+            $warehouseMutation = $this->applyLotMutation([
+                'lot_id' => $lotId,
+                'location_scope' => 'WAREHOUSE',
+                'division_id' => null,
+                'destination_type' => 'GUDANG',
+                'item_id' => $this->nullableInt($warehouseLot['item_id'] ?? null),
+                'material_id' => $this->nullableInt($warehouseLot['material_id'] ?? null),
+                'buy_uom_id' => $this->nullableInt($warehouseLot['buy_uom_id'] ?? null),
+                'content_uom_id' => $this->nullableInt($warehouseLot['content_uom_id'] ?? null),
+                'profile_key' => $this->nullableString($warehouseLot['profile_key'] ?? null),
+                'lot_no' => (string)($warehouseLot['lot_no'] ?? $this->buildWarehouseAggregateLotNo($identity)),
+                'receipt_date' => (string)($warehouseLot['receipt_date'] ?? $issueDate),
+                'expiry_date' => null,
+                'unit_cost' => $unitCost,
+                'source_table' => $this->nullableString($warehouseLot['source_table'] ?? 'WAREHOUSE_PROFILE'),
+                'source_id' => $this->nullableInt($warehouseLot['source_id'] ?? null),
+                'source_line_id' => $this->nullableInt($warehouseLot['source_line_id'] ?? null),
+                'receipt_id' => $this->nullableInt($warehouseLot['receipt_id'] ?? null),
+                'receipt_line_id' => $this->nullableInt($warehouseLot['receipt_line_id'] ?? null),
+                'parent_lot_id' => $this->nullableInt($warehouseLot['parent_lot_id'] ?? null),
+            ], 0.0, $qtyNeed);
+            if (!($warehouseMutation['ok'] ?? false)) {
+                return $warehouseMutation;
+            }
+
+            $lineCost = round($qtyNeed * $unitCost, 2);
+            $this->ci->db->insert('inv_material_fifo_issue_line', [
+                'issue_id' => $issueId,
+                'lot_id' => $lotId,
+                'target_lot_id' => null,
+                'qty_out' => $qtyNeed,
+                'unit_cost' => $unitCost,
+                'total_cost' => $lineCost,
+                'source_balance_before' => $available,
+                'source_balance_after' => round((float)($warehouseMutation['data']['qty_balance'] ?? 0), 4),
+                'target_balance_before' => null,
+                'target_balance_after' => null,
+            ]);
+            if ((int)($this->ci->db->insert_id() ?? 0) <= 0) {
+                return ['ok' => false, 'message' => 'Gagal menyimpan detail usage gudang.'];
+            }
+
+            return [
+                'ok' => true,
+                'message' => 'Pemakaian stok profil gudang berhasil diposting.',
+                'data' => [
+                    'issue_id' => $issueId,
+                    'issue_no' => $issueNo,
+                    'allocations' => [[
+                        'source_lot_id' => $lotId,
+                        'source_lot_no' => (string)($warehouseLot['lot_no'] ?? $this->buildWarehouseAggregateLotNo($identity)),
+                        'qty_content' => $qtyNeed,
+                        'unit_cost' => $unitCost,
+                        'total_cost' => $lineCost,
+                    ]],
+                    'total_cost' => $lineCost,
+                    'avg_unit_cost' => $qtyNeed > 0 ? round($lineCost / $qtyNeed, 6) : 0.0,
+                ],
+            ];
         }
 
         $coverage = $this->synchronizeWarehouseLotsFromAggregate($identity);
@@ -1071,6 +1346,13 @@ class MaterialFifoManager
         ]), false);
         if (!($identity['ok'] ?? false)) {
             return $identity;
+        }
+
+        if ($this->isWarehouseAggregateMode()) {
+            return $this->syncWarehouseAggregateLotToMonthly(
+                $identity,
+                (string)($payload['movement_date'] ?? $payload['issue_date'] ?? date('Y-m-d'))
+            );
         }
 
         $lots = $this->findIssueSourceLots($identity, [
@@ -1868,6 +2150,10 @@ class MaterialFifoManager
 
     private function synchronizeWarehouseLotsFromAggregate(array $identity): array
     {
+        if ($this->isWarehouseAggregateMode()) {
+            return $this->syncWarehouseAggregateLotToMonthly($identity, date('Y-m-d'));
+        }
+
         if (!$this->ci->db->table_exists('inv_warehouse_monthly_stock')) {
             return ['ok' => true, 'data' => ['bootstrapped' => false]];
         }
@@ -1941,9 +2227,31 @@ class MaterialFifoManager
         return ['ok' => true, 'data' => ['bootstrapped' => true, 'qty_added' => $missingQty]];
     }
 
-    private function fetchWarehouseAggregateMonthlyStock(array $identity): ?array
+    public function syncWarehouseAggregateProfile(array $payload): array
     {
-        $sql = 'SELECT id, closing_qty_content, avg_cost_per_content
+        $ensure = $this->ensureSchema();
+        if (!($ensure['ok'] ?? false)) {
+            return $ensure;
+        }
+
+        $identity = $this->normalizeLotIdentity(array_merge($payload, [
+            'location_scope' => 'WAREHOUSE',
+            'division_id' => null,
+            'destination_type' => 'GUDANG',
+        ]), false);
+        if (!($identity['ok'] ?? false)) {
+            return $identity;
+        }
+
+        return $this->syncWarehouseAggregateLotToMonthly(
+            $identity,
+            (string)($payload['movement_date'] ?? $payload['issue_date'] ?? date('Y-m-d'))
+        );
+    }
+
+    private function fetchWarehouseAggregateMonthlyStock(array $identity, ?string $cutoffDate = null): ?array
+    {
+        $sql = 'SELECT id, month_key, profile_content_per_buy, closing_qty_content, avg_cost_per_content
             FROM inv_warehouse_monthly_stock
             WHERE item_id <=> ?
               AND buy_uom_id <=> ?
@@ -1955,7 +2263,7 @@ class MaterialFifoManager
             $this->nullableInt($identity['buy_uom_id'] ?? null),
             (int)$identity['content_uom_id'],
             $this->nullableString($identity['profile_key'] ?? null),
-            date('Y-m-01'),
+            date('Y-m-01', strtotime((string)($cutoffDate ?: date('Y-m-d')))),
         ];
 
         if ($this->ci->db->field_exists('material_id', 'inv_warehouse_monthly_stock')) {
@@ -1998,6 +2306,147 @@ class MaterialFifoManager
 
         $date = $this->normalizeDate((string)($row['first_movement_date'] ?? ''));
         return $date ?? date('Y-m-d');
+    }
+
+    private function syncWarehouseAggregateLotToMonthly(array $identity, string $referenceDate): array
+    {
+        if (!$this->ci->db->table_exists('inv_warehouse_monthly_stock')) {
+            return ['ok' => true, 'data' => ['bootstrapped' => false]];
+        }
+
+        $monthlyStock = $this->fetchWarehouseAggregateMonthlyStock($identity, $referenceDate);
+        $desiredQty = round((float)($monthlyStock['closing_qty_content'] ?? 0), 4);
+        $unitCost = max(0, round((float)($monthlyStock['avg_cost_per_content'] ?? 0), 6));
+        $aggregateLot = $this->findWarehouseAggregateLot($identity, true);
+
+        if (!$aggregateLot) {
+            if ($desiredQty <= 0.0001) {
+                return [
+                    'ok' => true,
+                    'data' => [
+                        'qty_balance' => 0.0,
+                        'qty_buy_balance' => 0.0,
+                        'avg_cost_per_content' => $unitCost,
+                        'total_value' => 0.0,
+                        'month_key' => $monthlyStock['month_key'] ?? date('Y-m-01', strtotime($referenceDate)),
+                        'identity_key' => $this->buildMonthlyIdentityKeyFromLotIdentity($identity),
+                    ],
+                ];
+            }
+
+            $create = $this->applyLotMutation([
+                'location_scope' => 'WAREHOUSE',
+                'division_id' => null,
+                'destination_type' => 'GUDANG',
+                'item_id' => $identity['item_id'],
+                'material_id' => $identity['material_id'],
+                'buy_uom_id' => $identity['buy_uom_id'],
+                'content_uom_id' => $identity['content_uom_id'],
+                'profile_key' => $identity['profile_key'],
+                'lot_no' => $this->buildWarehouseAggregateLotNo($identity),
+                'receipt_date' => $this->resolveWarehouseBootstrapDate($identity),
+                'expiry_date' => null,
+                'unit_cost' => $unitCost,
+                'source_table' => 'WAREHOUSE_PROFILE',
+                'source_id' => null,
+                'source_line_id' => null,
+                'receipt_id' => null,
+                'receipt_line_id' => null,
+                'parent_lot_id' => null,
+            ], $desiredQty, 0.0);
+            if (!($create['ok'] ?? false)) {
+                return $create;
+            }
+
+            $aggregateLot = $this->findWarehouseAggregateLot($identity, true);
+        }
+
+        if ($aggregateLot) {
+            $qtyOut = round((float)($aggregateLot['qty_out'] ?? 0), 4);
+            $qtyIn = $desiredQty > 0 ? round($qtyOut + $desiredQty, 4) : $qtyOut;
+            $this->ci->db->where('id', (int)$aggregateLot['id'])->update('inv_material_fifo_lot', [
+                'qty_in' => $qtyIn,
+                'qty_balance' => $desiredQty,
+                'unit_cost' => $unitCost,
+                'status' => $desiredQty > 0 ? 'OPEN' : 'CLOSED',
+            ]);
+            if ($this->ci->db->trans_status() === false) {
+                return ['ok' => false, 'message' => 'Gagal sinkron saldo profil gudang.'];
+            }
+        }
+
+        $sameUom = ($identity['buy_uom_id'] ?? null) !== null
+            && (int)($identity['buy_uom_id'] ?? 0) === (int)($identity['content_uom_id'] ?? 0);
+        $contentPerBuy = $sameUom ? 1.0 : max(0.000001, round((float)($monthlyStock['profile_content_per_buy'] ?? 1), 6));
+        $qtyBuyBalance = $desiredQty > 0.0001 ? round($desiredQty / $contentPerBuy, 4) : 0.0;
+
+        return [
+            'ok' => true,
+            'data' => [
+                'qty_balance' => $desiredQty,
+                'qty_buy_balance' => $qtyBuyBalance,
+                'avg_cost_per_content' => $unitCost,
+                'total_value' => round($desiredQty * $unitCost, 2),
+                'month_key' => $monthlyStock['month_key'] ?? date('Y-m-01', strtotime($referenceDate)),
+                'identity_key' => $this->buildMonthlyIdentityKeyFromLotIdentity($identity),
+            ],
+        ];
+    }
+
+    private function isWarehouseAggregateMode(): bool
+    {
+        return $this->warehouseAggregateMode === true;
+    }
+
+    private function buildWarehouseAggregateLotNo(array $identity): string
+    {
+        return 'WH-PROFILE-' . strtoupper(substr(hash('sha1', implode('|', [
+            (string)($identity['item_id'] ?? 0),
+            (string)($identity['material_id'] ?? 0),
+            (string)($identity['buy_uom_id'] ?? 0),
+            (string)($identity['content_uom_id'] ?? 0),
+            (string)($identity['profile_key'] ?? ''),
+        ])), 0, 16));
+    }
+
+    private function findWarehouseAggregateLot(array $identity, bool $forUpdate = false): ?array
+    {
+        $sql = 'SELECT * FROM inv_material_fifo_lot
+            WHERE location_scope = ?
+              AND division_id IS NULL
+              AND destination_type = ?
+              AND item_id <=> ?
+              AND material_id <=> ?
+              AND buy_uom_id <=> ?
+              AND content_uom_id = ?
+              AND profile_key <=> ?
+              AND lot_no = ?
+            LIMIT 1' . ($forUpdate ? ' FOR UPDATE' : '');
+
+        $row = $this->ci->db->query($sql, [
+            'WAREHOUSE',
+            'GUDANG',
+            $this->nullableInt($identity['item_id'] ?? null),
+            $this->nullableInt($identity['material_id'] ?? null),
+            $this->nullableInt($identity['buy_uom_id'] ?? null),
+            (int)$identity['content_uom_id'],
+            $this->nullableString($identity['profile_key'] ?? null),
+            $this->buildWarehouseAggregateLotNo($identity),
+        ])->row_array();
+
+        return $row ?: null;
+    }
+
+    private function generateDivisionTransferLotNo(string $issueDate, string $issueNo, int $divisionId, string $destinationType, array $identity): string
+    {
+        return substr('DIV-' . date('Ymd', strtotime($issueDate)) . '-' . strtoupper(substr(hash('sha1', implode('|', [
+            $issueNo,
+            $divisionId,
+            $destinationType,
+            (string)($identity['item_id'] ?? 0),
+            (string)($identity['material_id'] ?? 0),
+            (string)($identity['profile_key'] ?? ''),
+        ])), 0, 12)), 0, 80);
     }
 
     private function findLotForUpdate(array $identity): ?array

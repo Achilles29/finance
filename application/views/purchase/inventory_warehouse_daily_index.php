@@ -1,7 +1,7 @@
 <?php
 $initialMonth = (string)($month ?? date('Y-m'));
 $generateUrl = site_url('inventory/stock/opname/generate');
-$lotAuditBaseUrl = site_url('inventory/stock/warehouse/lot');
+$profileAuditBaseUrl = site_url('inventory/fifo-audit');
 $adjustmentStoreUrl = site_url('inventory/stock/adjustment/store');
 $adjustmentPostBaseUrl = site_url('inventory/stock/adjustment/post');
 $initialQ = (string)($q ?? '');
@@ -11,6 +11,8 @@ $initialLimit = (int)($limit ?? 120);
 if ($initialLimit <= 0 || $initialLimit > 1000) {
   $initialLimit = 120;
 }
+$nextOpeningMonth = date('Y-m', strtotime('+1 month', strtotime(substr($initialMonth, 0, 7) . '-01')));
+$nextOpeningUrl = site_url('inventory/stock/stok-awal/warehouse?month=' . rawurlencode($nextOpeningMonth));
 ?>
 
 <div class="mb-2">
@@ -21,16 +23,16 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname gudang bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
     <input type="hidden" name="stock_scope" value="WAREHOUSE">
     <input type="hidden" name="month" value="<?php echo html_escape(substr($initialMonth, 0, 7)); ?>">
-    <input type="hidden" name="back_url" value="inventory-warehouse-daily?month=<?php echo rawurlencode(substr($initialMonth, 0, 7)); ?>">
-    <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal</button>
+    <input type="hidden" name="back_url" value="<?php echo html_escape($nextOpeningUrl); ?>">
+    <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal Bulan Depan</button>
   </form>
   <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-sm btn-dark">Snapshot Harian Gudang</a>
   <a href="<?php echo site_url('inventory/stock/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Stok Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/opening/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Opening Gudang</a>
+  <a href="<?php echo html_escape($nextOpeningUrl); ?>" class="btn btn-sm btn-outline-secondary">Stok Awal Gudang</a>
+  <a href="<?php echo site_url('inventory/stock/opening/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Opening Manual Gudang</a>
   <a href="<?php echo site_url('inventory/stock/warehouse/movement'); ?>" class="btn btn-sm btn-outline-secondary">Keluar Masuk Gudang</a>
   <a href="<?php echo site_url('inventory/stock/warehouse/daily'); ?>" class="btn btn-sm btn-outline-secondary">Stok Bulanan/Daily</a>
-  <a href="<?php echo $lotAuditBaseUrl; ?>" class="btn btn-sm btn-outline-secondary">Halaman Lot</a>
-  <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-sm btn-outline-secondary">Audit FIFO</a>
+  <a href="<?php echo site_url('inventory/fifo-audit?scope=WAREHOUSE'); ?>" class="btn btn-sm btn-outline-secondary">Audit Profil Gudang</a>
 </div>
 
 <style>
@@ -1752,8 +1754,9 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     return isExpandable(group) ? !!state.expanded[group.key] : true;
   }
 
-  function buildWarehouseLotUrl(row){
+  function buildWarehouseProfileAuditUrl(row){
     var params = new URLSearchParams();
+    params.set('scope', 'WAREHOUSE');
     var searchToken = String(row.profile_key || row.item_code || row.material_code || row.item_name || row.material_name || '').trim();
     if (searchToken) {
       params.set('q', searchToken);
@@ -1768,7 +1771,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
       params.set('material_id', String(Number(row.material_id || 0)));
     }
     var query = params.toString();
-    return <?php echo json_encode($lotAuditBaseUrl); ?> + (query ? ('?' + query) : '');
+    return <?php echo json_encode($profileAuditBaseUrl); ?> + (query ? ('?' + query) : '');
   }
 
   function freezeGroupRowHtml(group){
@@ -1795,7 +1798,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
         +   '<div class="pwd-profile-meta is-parent">' + esc(singleUnitInfo) + '</div>'
         +   '<div class="pwd-profile-meta is-parent">Harga satuan ' + esc(money((singleProfile.metrics && singleProfile.metrics.unit_price) || 0)) + '</div>'
         +   '<div class="pwd-profile-meta is-parent">Harga / pack ' + esc(money((singleProfile.metrics && singleProfile.metrics.unit_price_pack) || 0)) + '</div>'
-        +   '<div class="pwd-profile-unit"><a href="' + esc(buildWarehouseLotUrl(singleProfile)) + '">Lihat Lot</a></div>'
+      +   '<div class="pwd-profile-unit"><a href="' + esc(buildWarehouseProfileAuditUrl(singleProfile)) + '">Audit Profil</a></div>'
         + '</div>';
     }
     var rowClass = expandable ? 'pwd-group-row pwd-group-expandable' : 'pwd-group-row pwd-group-single';
@@ -1831,7 +1834,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
           +   '<div class="pwd-profile-meta is-child">' + esc(unitInfo) + '</div>'
           +   '<div class="pwd-profile-meta is-child">Harga satuan ' + esc(money((profile.metrics && profile.metrics.unit_price) || 0)) + '</div>'
           +   '<div class="pwd-profile-meta is-child">Harga / pack ' + esc(money((profile.metrics && profile.metrics.unit_price_pack) || 0)) + '</div>'
-          +   '<div class="pwd-profile-unit"><a href="' + esc(buildWarehouseLotUrl(profile)) + '">Lihat Lot</a></div>'
+          +   '<div class="pwd-profile-unit"><a href="' + esc(buildWarehouseProfileAuditUrl(profile)) + '">Audit Profil</a></div>'
           + '</div>' +
         '</td>' +
         '<td class="pwd-freeze-col-4">' + summaryChildHtml(profile.metrics || {}) + '</td>' +

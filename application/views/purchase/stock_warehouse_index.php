@@ -1,7 +1,7 @@
 <?php
 $baseUrl = site_url('inventory/stock/warehouse');
 $generateUrl = site_url('inventory/stock/opname/generate');
-$lotAuditBaseUrl = site_url('inventory/stock/warehouse/lot');
+$profileAuditBaseUrl = site_url('inventory/fifo-audit');
 $genMonth = date('Y-m');
 if (!empty($date_from ?? '')) {
   $genMonth = date('Y-m', strtotime((string)$date_from));
@@ -386,10 +386,10 @@ $summaryItemCount = count($parentRows);
               $sizeCol = '-';
               if (is_array($singleChild)) {
                 $profileText = trim((string)($singleChild['profile_name'] ?? '-'));
-                $lotUrl = $lotAuditBaseUrl
+                $lotUrl = $profileAuditBaseUrl
                   . '?scope=WAREHOUSE&status=ALL&profile_key=' . rawurlencode((string)($singleChild['profile_key'] ?? ''));
                 $profileCol = html_escape($profileText);
-                $profileCol .= '<div class="small mt-1"><a href="' . html_escape($lotUrl) . '">Lihat Lot</a></div>';
+                $profileCol .= '<div class="small mt-1"><a href="' . html_escape($lotUrl) . '">Audit Profil</a></div>';
                 $brandCol = html_escape((string)($singleChild['profile_brand'] ?? '-'));
                 $descCol = html_escape((string)($singleChild['profile_description'] ?? '-'));
                 $sizeCol = number_format((float)($singleChild['profile_content_per_buy'] ?? 0), 2, ',', '.')
@@ -437,7 +437,7 @@ $summaryItemCount = count($parentRows);
             <?php foreach (($parent['children'] ?? []) as $child): ?>
               <?php
                 $profileText = trim((string)($child['profile_name'] ?? '-'));
-                $lotUrl = $lotAuditBaseUrl
+                $lotUrl = $profileAuditBaseUrl
                   . '?scope=WAREHOUSE&status=ALL&profile_key=' . rawurlencode((string)($child['profile_key'] ?? ''));
                 $childAvgCost = ((float)($child['qty_content_balance'] ?? 0) !== 0.0)
                   ? ((float)($child['total_value'] ?? 0) / (float)($child['qty_content_balance'] ?? 0))
@@ -467,7 +467,7 @@ $summaryItemCount = count($parentRows);
                 </td>
                 <td>
                   <?php echo html_escape($profileText); ?>
-                  <div class="small mt-1"><a href="<?php echo html_escape($lotUrl); ?>">Lihat Lot</a></div>
+                  <div class="small mt-1"><a href="<?php echo html_escape($lotUrl); ?>">Audit Profil</a></div>
                 </td>
                 <td><?php echo html_escape((string)($child['profile_brand'] ?? '-')); ?></td>
                 <td><?php echo html_escape((string)($child['profile_description'] ?? '-')); ?></td>

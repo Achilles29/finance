@@ -364,3 +364,20 @@ diskusikan dan perbaiki yang bisa diperbaiki
 - jadi estimasi bonus masing masing pegawai nanti dapat dilihat di dashboard masing masing berdasarkan hasil generate poolnya.
 
 setelah itu lakukan refractur database dan UI sesuai saranmu. pastikan operasionalable dan user friendly. tampilan tidak membingungkan. form input dengan modal bukan dengan form samping. modul CRUD ada semua.
+
+
+
+
+lakukan perbaikan pada data gudang 
+banyak data yang isi tidak sesuai, contoh BOWL TA seharusnya PCS, tapi jadi ML.
+1. cari data yang satuan isinya tidak sesuai dengan di mst_material. identifikasi berikut kuantitinya, lalu kita sesuakan
+2. posting adjustment IAW20260630-8963 gagal inventory/stock/adjustment/warehouse , kemungkinan karena masalah diatas.
+
+
+- gudang seharusnya tidak perlu LOT agar lebih efisien. cukup stock saja menurut saya. karena proses bisnisnya cukup simpel hanya PO ke gudang, SR ke divisi. nah saat SR ke divisi ini yang baru ter generate LOT. jadi mungkin perlu dilakukan penyesuaian logika PO ke gudang, adjustmen gudang, opening gudang, seharusnya memang tidak perlu lot. itu menurut saya, karena sewaktu SR, purchase melakukan verifikasi profil barang mana yang diambil tidak otomatis seperti pada batch produksi atau POS. bagaimana kalau menurutmu? bantah kalau saya salah. atau kalau sudah kamu sesuaikan ya saya ikut. prinsipnya mana yang lebih efisien
+
+
+
+- SQL sudah saya jalankan. draft belum saya posing.
+ sekarang menyisakan masalah BOWL TA memang sudah berubah ml jadi PCS, tapi kuantiti isinya masih banyak. seharusnya kuantiti isi sama dengan kuantiti pack nya
+ berikut beberapa produk yang gagal post dengan indikasi kasus sama. kalau betul, buatkan sql untuk menyesuaikan kuantiti isi sama seperti kuantiti pack. jadi untuk barang yang sudah kamu ganti satuan isi nya tadi menyesuaikan satuan pack, sesuaikan juga kuantitinya

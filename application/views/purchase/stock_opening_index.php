@@ -17,6 +17,10 @@ $selectedDestination = strtoupper(trim((string)($destination ?? 'ALL')));
 if ($selectedDestination === '') {
   $selectedDestination = $isDivisionScope ? 'OTHER' : 'ALL';
 }
+$selectedMonthValue = $month !== '' ? substr((string)$month, 0, 7) : date('Y-m');
+$selectedMonthDate = $selectedMonthValue . '-01';
+$nextGenerateMonthValue = date('Y-m', strtotime('+1 month', strtotime($selectedMonthDate)));
+$nextGenerateOpeningUrl = site_url('inventory/stock/stok-awal/warehouse?month=' . rawurlencode($nextGenerateMonthValue));
 $tableColspan = $isDivisionScope ? 10 : 8;
 $rowsData = is_array($rows ?? null) ? $rows : [];
 $summaryRows = count($rowsData);
@@ -74,12 +78,12 @@ foreach ($rowsData as $row) {
   <small class="text-muted">Input opening stok per profile. Tanggal posting otomatis tanggal 1 dari Snapshot Month.</small>
 </div>
 <div class="d-flex flex-wrap gap-2 mb-2">
-  <?php if (!$isDivisionScope): ?>
+<?php if (!$isDivisionScope): ?>
   <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname bulan ini dan buat opening bulan berikutnya? Proses dibatalkan jika ada stok minus.');" class="d-inline">
     <input type="hidden" name="stock_scope" value="<?php echo html_escape($stockScope); ?>">
-    <input type="hidden" name="month" value="<?php echo html_escape($month !== '' ? substr((string)$month, 0, 7) : date('Y-m')); ?>">
-    <input type="hidden" name="back_url" value="<?php echo html_escape((string)($base_url_opening ?? 'inventory/stock/opening')); ?>?month=<?php echo rawurlencode($month !== '' ? substr((string)$month, 0, 7) : date('Y-m')); ?>">
-    <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal</button>
+    <input type="hidden" name="month" value="<?php echo html_escape($selectedMonthValue); ?>">
+    <input type="hidden" name="back_url" value="<?php echo html_escape($nextGenerateOpeningUrl); ?>">
+    <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal Bulan Depan</button>
   </form>
   <?php endif; ?>
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => $isDivisionScope ? 'DIVISION' : 'WAREHOUSE', 'active_tab' => 'opening']); ?>
@@ -100,6 +104,13 @@ foreach ($rowsData as $row) {
 <?php endif; ?>
 <?php if ($this->session->flashdata('error')): ?>
   <div class="alert alert-danger mt-3"><?php echo html_escape((string)$this->session->flashdata('error')); ?></div>
+<?php endif; ?>
+<?php if (!$isDivisionScope): ?>
+  <div class="alert alert-info mt-3">
+    Generate dari bulan <strong><?php echo html_escape($selectedMonthValue); ?></strong> akan membuat stok awal otomatis untuk bulan
+    <strong><?php echo html_escape($nextGenerateMonthValue); ?></strong>.
+    <a href="<?php echo html_escape($nextGenerateOpeningUrl); ?>" class="ms-2">Lihat halaman stok awal</a>
+  </div>
 <?php endif; ?>
 
 <?php if ($isDivisionScope): ?>

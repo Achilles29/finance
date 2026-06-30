@@ -1,9 +1,9 @@
 <?php
 $baseUrl = site_url('inventory/stock/warehouse/daily');
 $generateUrl = site_url('inventory/stock/opname/generate');
-$lotAuditBaseUrl = site_url('inventory/stock/warehouse/lot');
+$profileAuditBaseUrl = site_url('inventory/fifo-audit');
 $genMonth = $month !== '' ? substr((string)$month, 0, 7) : date('Y-m');
-$buildLotUrl = static function (array $row) use ($lotAuditBaseUrl): string {
+$buildLotUrl = static function (array $row) use ($profileAuditBaseUrl): string {
   $searchToken = trim((string)($row['profile_key'] ?? ''));
   if ($searchToken === '') {
     $searchToken = trim((string)($row['item_code'] ?? ''));
@@ -19,6 +19,7 @@ $buildLotUrl = static function (array $row) use ($lotAuditBaseUrl): string {
   }
 
   $params = [
+    'scope' => 'WAREHOUSE',
     'q' => $searchToken,
     'profile_key' => trim((string)($row['profile_key'] ?? '')),
     'item_id' => (int)($row['item_id'] ?? 0) > 0 ? (int)($row['item_id'] ?? 0) : null,
@@ -28,7 +29,7 @@ $buildLotUrl = static function (array $row) use ($lotAuditBaseUrl): string {
     return $value !== null && $value !== '';
   });
 
-  return $lotAuditBaseUrl . (!empty($params) ? ('?' . http_build_query($params)) : '');
+  return $profileAuditBaseUrl . (!empty($params) ? ('?' . http_build_query($params)) : '');
 };
 $rowsData = is_array($rows ?? null) ? $rows : [];
 $monthlyMap = [];
@@ -610,7 +611,7 @@ foreach ($monthlyRows as $row) {
                       <?php endforeach; ?>
                     </div>
                     <?php if (is_array($singleChild)): ?>
-                      <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($singleChild)); ?>">Lihat Lot</a></div>
+                      <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($singleChild)); ?>">Audit Profil</a></div>
                     <?php endif; ?>
                   </div>
                 <?php endif; ?>
@@ -668,7 +669,7 @@ foreach ($monthlyRows as $row) {
                       <span class="swd-chip is-child">Brand: <?php echo html_escape((string)($child['profile_brand'] ?? '-')); ?></span>
                       <span class="swd-chip is-child"><?php echo number_format((float)($child['profile_content_per_buy'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape($childUomContent); ?> / <?php echo html_escape($childUomPack); ?></span>
                     </div>
-                    <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($child)); ?>">Lihat Lot</a></div>
+                    <div class="small mt-1"><a href="<?php echo html_escape($buildLotUrl($child)); ?>">Audit Profil</a></div>
                   </div>
                 </td>
                 <td><?php echo html_escape($childUomPack); ?></td>

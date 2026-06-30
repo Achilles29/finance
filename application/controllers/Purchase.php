@@ -759,7 +759,7 @@ class Purchase extends MY_Controller
         }
 
         $data = [
-            'title' => 'Opening Gudang',
+            'title' => 'Opening Manual Gudang',
             'active_menu' => 'purchase.stock.opening.warehouse',
             'stock_scope' => 'WAREHOUSE',
             'is_division_scope' => false,
@@ -775,6 +775,41 @@ class Purchase extends MY_Controller
         ];
 
         $this->render('purchase/stock_opening_index', $data);
+    }
+
+    public function stock_opening_warehouse_generated()
+    {
+        if (!$this->can(self::PAGE_STOCK_WAREHOUSE, 'view')) {
+            $this->require_permission(self::PAGE_ORDER, 'view');
+        }
+
+        $month = trim((string)$this->input->get('month', true));
+        $q = trim((string)$this->input->get('q', true));
+        $perPage = (int)$this->input->get('per_page', true);
+        if ($perPage < 10 || $perPage > 200) {
+            $perPage = 25;
+        }
+        $page = max(1, (int)$this->input->get('page', true));
+
+        $data = [
+            'title' => 'Stok Awal Gudang',
+            'active_menu' => 'inventory.stock.opening.warehouse.generated',
+            'month' => $month,
+            'q' => $q,
+            'per_page' => $perPage,
+            'page' => $page,
+            'rows' => $this->Purchase_model->list_stock_opening_snapshots(
+                'WAREHOUSE',
+                $month,
+                $q,
+                1000,
+                null,
+                null,
+                ['source_type' => 'AUTO_REBUILD']
+            ),
+        ];
+
+        $this->render('purchase/stock_opening_warehouse_generated_index', $data);
     }
 
     public function stock_opening_division_index()
@@ -1824,7 +1859,8 @@ class Purchase extends MY_Controller
             return;
         }
 
-        redirect('inventory/stock/warehouse/daily?month=' . date('Y-m', strtotime((string)($payload['month'] ?? date('Y-m-01')))));
+        $nextMonth = date('Y-m', strtotime('+1 month', strtotime((string)($payload['month'] ?? date('Y-m-01')))));
+        redirect('inventory/stock/stok-awal/warehouse?month=' . $nextMonth);
     }
 
     public function stock_warehouse_daily_index()

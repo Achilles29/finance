@@ -266,8 +266,8 @@ foreach ($rows as $row) {
 </style>
 
 <div class="mb-3">
-  <h4 class="mb-1"><i class="ri ri-stack-line page-title-icon"></i><?php echo html_escape($title ?? 'Audit Lot Material'); ?></h4>
-  <small class="text-muted"><?php echo html_escape((string)($subtitle ?? 'Posisi lot FIFO per scope, profile, dan lokasi stok.')); ?></small>
+  <h4 class="mb-1"><i class="ri ri-stack-line page-title-icon"></i><?php echo html_escape($title ?? ($pageScope === 'WAREHOUSE' ? 'Audit Profil Gudang' : 'Audit Lot Material')); ?></h4>
+  <small class="text-muted"><?php echo html_escape((string)($subtitle ?? ($pageScope === 'WAREHOUSE' ? 'Snapshot profil gudang per barang dan identity stok.' : 'Posisi lot FIFO per scope, profile, dan lokasi stok.'))); ?></small>
 </div>
 <div class="d-flex flex-wrap gap-2 mb-2">
   <?php if ($pageScope === 'WAREHOUSE'): ?>
@@ -275,11 +275,11 @@ foreach ($rows as $row) {
   <?php elseif ($pageScope === 'DIVISION'): ?>
     <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'lot']); ?>
   <?php else: ?>
-    <a href="<?php echo site_url('inventory/stock/warehouse/lot'); ?>" class="btn btn-outline-secondary">Lot Gudang</a>
+    <a href="<?php echo site_url('inventory/stock/warehouse'); ?>" class="btn btn-outline-secondary">Stok Gudang</a>
     <a href="<?php echo site_url('inventory/stock/division/lot'); ?>" class="btn btn-outline-secondary">Lot Bahan Baku</a>
   <?php endif; ?>
-  <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-sm btn-outline-secondary">
-    <i class="ri ri-bar-chart-line me-1"></i>Audit FIFO
+  <a href="<?php echo site_url('inventory/fifo-audit?scope=' . ($pageScope === 'WAREHOUSE' ? 'WAREHOUSE' : 'DIVISION')); ?>" class="btn btn-sm btn-outline-secondary">
+    <i class="ri ri-bar-chart-line me-1"></i><?php echo $pageScope === 'WAREHOUSE' ? 'Audit Profil Gudang' : 'Audit FIFO'; ?>
   </a>
 </div>
 <?php if ($pageScope === 'DIVISION'): ?>

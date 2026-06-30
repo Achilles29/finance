@@ -30,7 +30,7 @@ foreach ($rowsData as $row) {
     <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal</button>
   </form>
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'movement']); ?>
-  <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-sm btn-outline-secondary">Audit FIFO</a>
+  <a href="<?php echo site_url('inventory/fifo-audit?scope=WAREHOUSE'); ?>" class="btn btn-sm btn-outline-secondary">Audit Profil Gudang</a>
 </div>
 
 <div class="card mb-3">

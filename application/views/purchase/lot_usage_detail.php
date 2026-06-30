@@ -127,7 +127,7 @@ $buildSourceLabel = static function (array $row): string {
     </div>
     <div class="d-flex gap-2 flex-wrap">
       <a href="<?php echo site_url('inventory/stock/division/lot'); ?>" class="btn btn-outline-secondary btn-sm">Kembali ke Lot Bahan Baku</a>
-      <a href="<?php echo site_url('inventory/stock/warehouse/lot'); ?>" class="btn btn-outline-secondary btn-sm">Lot Gudang</a>
+      <a href="<?php echo site_url('inventory/fifo-audit?scope=WAREHOUSE'); ?>" class="btn btn-outline-secondary btn-sm">Audit Profil Gudang</a>
     </div>
   </div>
 

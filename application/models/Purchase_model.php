@@ -9042,12 +9042,12 @@ class Purchase_model extends CI_Model
                 ];
             }
         }
-        $needsLotSync = $stockScope === 'DIVISION'
-            && (
-                empty($existingSnapshot['id'])
-                || abs($snapshotQtyContent - $previousOpeningQtyContent) > 0.0001
-                || abs($snapshotAvgCost - $previousOpeningAvgCost) > 0.000001
-            );
+        $needsLotSync = (
+            empty($existingSnapshot['id'])
+            || abs($snapshotQtyContent - $previousOpeningQtyContent) > 0.0001
+            || abs($snapshotAvgCost - $previousOpeningAvgCost) > 0.000001
+            || $previousHistoryIdentity !== null
+        );
         if ($needsLotSync) {
             $lotSync = $this->syncOpeningSnapshotLots($stockScope, $openingTable, $snapshotRow, true);
             if (!($lotSync['ok'] ?? false)) {
@@ -9873,6 +9873,12 @@ class Purchase_model extends CI_Model
                 }
                 return ['ok' => false, 'message' => $message];
             }
+        }
+
+        $warehouseAggregateSync = $this->syncWarehouseAggregateTargets($rebuildTargets);
+        if (!($warehouseAggregateSync['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => (string)($warehouseAggregateSync['message'] ?? 'Gagal sinkron stok profil gudang setelah VOID adjustment.')];
         }
 
         if ($this->db->table_exists('aud_transaction_log')) {
@@ -10780,8 +10786,9 @@ class Purchase_model extends CI_Model
 
     private function syncOpeningSnapshotLots(string $stockScope, string $openingTable, array $snapshot, bool $registerAfterRollback): array
     {
-        if ($stockScope !== 'DIVISION') {
-            return ['ok' => true];
+        $stockScope = strtoupper(trim($stockScope));
+        if (!in_array($stockScope, ['WAREHOUSE', 'DIVISION'], true)) {
+            return ['ok' => false, 'message' => 'Scope opening lot tidak valid.'];
         }
 
         $snapshotId = (int)($snapshot['id'] ?? 0);
@@ -10793,6 +10800,17 @@ class Purchase_model extends CI_Model
         $fifoReady = $this->materialfifomanager->ensureReady();
         if (!($fifoReady['ok'] ?? false)) {
             return $fifoReady;
+        }
+
+        if ($stockScope === 'WAREHOUSE') {
+            return $this->materialfifomanager->syncWarehouseAggregateProfile([
+                'movement_date' => (string)($snapshot['snapshot_month'] ?? date('Y-m-01')),
+                'item_id' => !empty($snapshot['item_id']) ? (int)$snapshot['item_id'] : null,
+                'material_id' => !empty($snapshot['material_id']) ? (int)$snapshot['material_id'] : null,
+                'buy_uom_id' => !empty($snapshot['buy_uom_id']) ? (int)$snapshot['buy_uom_id'] : null,
+                'content_uom_id' => !empty($snapshot['content_uom_id']) ? (int)$snapshot['content_uom_id'] : null,
+                'profile_key' => $this->nullableString($snapshot['profile_key'] ?? null),
+            ]);
         }
 
         $rollback = $this->materialfifomanager->rollbackReceiptInboundLotsBySource($openingTable, $snapshotId, null);
@@ -10808,14 +10826,16 @@ class Purchase_model extends CI_Model
             return ['ok' => true, 'data' => ['lot_count' => 0]];
         }
 
-        $destinationType = strtoupper(trim((string)($snapshot['destination_type'] ?? 'OTHER')));
+        $destinationType = $stockScope === 'DIVISION'
+            ? strtoupper(trim((string)($snapshot['destination_type'] ?? 'OTHER')))
+            : 'GUDANG';
         if ($destinationType === '' || $destinationType === 'ALL') {
-            $destinationType = 'OTHER';
+            $destinationType = $stockScope === 'DIVISION' ? 'OTHER' : 'GUDANG';
         }
 
         $register = $this->materialfifomanager->registerReceiptInboundLot([
-            'location_scope' => 'DIVISION',
-            'division_id' => !empty($snapshot['division_id']) ? (int)$snapshot['division_id'] : null,
+            'location_scope' => $stockScope,
+            'division_id' => $stockScope === 'DIVISION' && !empty($snapshot['division_id']) ? (int)$snapshot['division_id'] : null,
             'destination_type' => $destinationType,
             'item_id' => !empty($snapshot['item_id']) ? (int)$snapshot['item_id'] : null,
             'material_id' => !empty($snapshot['material_id']) ? (int)$snapshot['material_id'] : null,
@@ -16819,6 +16839,12 @@ class Purchase_model extends CI_Model
             }
         }
 
+        $warehouseAggregateSync = $this->syncWarehouseAggregateTargets($rebuildTargets);
+        if (!($warehouseAggregateSync['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return $warehouseAggregateSync;
+        }
+
         if ($this->db->table_exists('aud_transaction_log') && $receiptsTouched > 0) {
             $this->db->insert('aud_transaction_log', [
                 'module_code' => 'PURCHASE',
@@ -17147,6 +17173,12 @@ class Purchase_model extends CI_Model
                     'message' => (string)($rebuild['message'] ?? 'Gagal rebuild histori stok setelah repair profile key receipt.'),
                 ];
             }
+        }
+
+        $warehouseAggregateSync = $this->syncWarehouseAggregateTargets($rebuildTargets);
+        if (!($warehouseAggregateSync['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return $warehouseAggregateSync;
         }
 
         if ($this->db->table_exists('aud_transaction_log') && $receiptsTouched > 0) {
@@ -17575,6 +17607,11 @@ class Purchase_model extends CI_Model
             }
         }
 
+        $warehouseAggregateSync = $this->syncWarehouseAggregateTargets($rebuildTargets);
+        if (!($warehouseAggregateSync['ok'] ?? false)) {
+            return $warehouseAggregateSync;
+        }
+
         return [
             'ok' => true,
             'data' => [
@@ -17754,6 +17791,71 @@ class Purchase_model extends CI_Model
                 'profile_content_uom_code' => $this->nullableString($row['profile_content_uom_code'] ?? ($identity['profile_content_uom_code'] ?? null)),
             ]);
         }
+    }
+
+    private function syncWarehouseAggregateTargets(array $targets): array
+    {
+        if (empty($targets)) {
+            return ['ok' => true, 'data' => ['sync_count' => 0]];
+        }
+
+        $this->load->library('MaterialFifoManager');
+        $ready = $this->materialfifomanager->ensureReady();
+        if (!($ready['ok'] ?? false)) {
+            return $ready;
+        }
+
+        $syncCount = 0;
+        $seen = [];
+        foreach ($targets as $target) {
+            $scope = strtoupper((string)($target['scope'] ?? ''));
+            if ($scope !== 'WAREHOUSE') {
+                continue;
+            }
+
+            $identity = (array)($target['identity'] ?? []);
+            $contentUomId = $this->nullableInt($identity['content_uom_id'] ?? null);
+            $itemId = $this->nullableInt($identity['item_id'] ?? null);
+            $materialId = $this->nullableInt($identity['material_id'] ?? null);
+            if ($contentUomId === null || ($itemId === null && $materialId === null)) {
+                continue;
+            }
+
+            $syncKey = implode('|', [
+                (string)($itemId ?? 0),
+                (string)($materialId ?? 0),
+                (string)($this->nullableInt($identity['buy_uom_id'] ?? null) ?? 0),
+                (string)$contentUomId,
+                (string)($this->nullableString($identity['profile_key'] ?? null) ?? ''),
+            ]);
+            if (isset($seen[$syncKey])) {
+                continue;
+            }
+            $seen[$syncKey] = true;
+
+            $sync = $this->materialfifomanager->syncWarehouseAggregateProfile([
+                'movement_date' => date('Y-m-d'),
+                'item_id' => $itemId,
+                'material_id' => $materialId,
+                'buy_uom_id' => $this->nullableInt($identity['buy_uom_id'] ?? null),
+                'content_uom_id' => $contentUomId,
+                'profile_key' => $this->nullableString($identity['profile_key'] ?? null),
+            ]);
+            if (!($sync['ok'] ?? false)) {
+                $nameLabel = trim((string)($identity['profile_name'] ?? ''));
+                if ($nameLabel === '') {
+                    $nameLabel = $itemId !== null ? ('ITEM#' . $itemId) : ('MATERIAL#' . $materialId);
+                }
+                return [
+                    'ok' => false,
+                    'message' => 'Gagal sinkron stok profil gudang untuk ' . $nameLabel . ': ' . (string)($sync['message'] ?? 'unknown error'),
+                ];
+            }
+
+            $syncCount++;
+        }
+
+        return ['ok' => true, 'data' => ['sync_count' => $syncCount]];
     }
 
     private function purgeInventoryHistoryArtifactsForIdentity(string $rollupTable, string $balanceTable, string $stockScope, array $identity): void

@@ -72,8 +72,8 @@ foreach ($issues as $issueRow) {
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
-    <h4 class="mb-1"><i class="ri ri-git-branch-line page-title-icon"></i><?php echo html_escape($title ?? 'Audit FIFO Material'); ?></h4>
-    <small class="text-muted">Audit khusus lot FIFO material untuk transfer gudang ke divisi dan pemakaian FIFO di divisi.</small>
+    <h4 class="mb-1"><i class="ri ri-git-branch-line page-title-icon"></i><?php echo html_escape($title ?? 'Audit Material & Profil'); ?></h4>
+    <small class="text-muted">Audit transfer profil gudang ke divisi dan pemakaian FIFO material di divisi.</small>
   </div>
 </div>
 

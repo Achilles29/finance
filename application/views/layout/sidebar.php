@@ -91,6 +91,7 @@ if (!function_exists('_get_ri_icon')) {
             'production.component.opname.monthly' => 'ri-file-list-3-line',
             'inventory.stock.opname.warehouse.monthly' => 'ri-file-list-3-line',
             'inventory.stock.opname.division.monthly'  => 'ri-file-list-3-line',
+            'inventory.stock.opening.warehouse.generated' => 'ri-archive-drawer-line',
             'inventory.stock.opening.division.generated' => 'ri-archive-drawer-line',
             'grp.purchase'          => 'ri-shopping-cart-2-line',
             'purchase.stock.adjustment.warehouse' => 'ri-scales-3-line',
@@ -351,18 +352,20 @@ if (!function_exists('_regroup_inventory_children')) {
     // Synthetic items keyed by menu_code → definition
     $syntheticItems = [];
 
-    $lotCode = $scope === 'WAREHOUSE' ? 'purchase.stock.warehouse.lot' : 'purchase.stock.division.lot';
-    $syntheticItems[$lotCode] = [
-      'id' => $scope === 'WAREHOUSE' ? -2201 : -2202,
-      'parent_id' => null,
-      'menu_code' => $lotCode,
-      'menu_label' => $scope === 'WAREHOUSE' ? 'Lot Gudang' : 'Lot Bahan Baku',
-      'icon' => 'ri-stack-line',
-      'url' => $scope === 'WAREHOUSE' ? 'inventory/stock/warehouse/lot' : 'inventory/stock/division/lot',
-      'page_id' => null,
-      'sort_order' => $scope === 'WAREHOUSE' ? 991 : 992,
-      'children' => [],
-    ];
+    if ($scope === 'DIVISION') {
+      $lotCode = 'purchase.stock.division.lot';
+      $syntheticItems[$lotCode] = [
+        'id' => -2202,
+        'parent_id' => null,
+        'menu_code' => $lotCode,
+        'menu_label' => 'Lot Bahan Baku',
+        'icon' => 'ri-stack-line',
+        'url' => 'inventory/stock/division/lot',
+        'page_id' => null,
+        'sort_order' => 992,
+        'children' => [],
+      ];
+    }
 
     $opnameCode = $scope === 'WAREHOUSE'
       ? 'inventory.stock.opname.warehouse.monthly'
@@ -391,6 +394,18 @@ if (!function_exists('_regroup_inventory_children')) {
         'url' => 'inventory/stock/stok-awal/division',
         'page_id' => null,
         'sort_order' => 996,
+        'children' => [],
+      ];
+    } else {
+      $syntheticItems['inventory.stock.opening.warehouse.generated'] = [
+        'id' => -2206,
+        'parent_id' => null,
+        'menu_code' => 'inventory.stock.opening.warehouse.generated',
+        'menu_label' => 'Stok Awal Gudang',
+        'icon' => 'ri-archive-drawer-line',
+        'url' => 'inventory/stock/stok-awal/warehouse',
+        'page_id' => null,
+        'sort_order' => 995,
         'children' => [],
       ];
     }

@@ -15,6 +15,11 @@ class Inventory_warehouse extends Purchase
         parent::stock_opening_warehouse_index();
     }
 
+    public function stok_awal()
+    {
+        parent::stock_opening_warehouse_generated();
+    }
+
     public function adjustment()
     {
         parent::stock_adjustment_warehouse_index();
