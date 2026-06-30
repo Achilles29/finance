@@ -147,3 +147,13 @@ untuk kasus pak fajar:
 - apakah UI absen sekarang sudah mengakomodir jam shift lintas hari untuk security?  baik absen manual dan pengajuan
 
 
+
+
+
+Gagal: Generate ditolak: 13 komponen masih minus di akhir bulan. Lakukan ADJ_PLUS terlebih dahulu.
+
+gagal generate e/production/component-daily?q=&month=2026-06&division_id=0&location_type=&per_page=0 coba cek
+
+saya mau melakukan generate stok opname dan stok awal component.
+pastikan data yang di generate bersih, tidak ada missmatch meskipun data awal ada missmatch, data hasil generate harus bersih mengikuti stock. jika ada perbedaan profile atau lot atau movemen log,  harus dibersihkan mengikut data stock
+jika generate dilakukan lebih dari sekali maka ditimpa
