@@ -2096,39 +2096,21 @@ class Purchase_model extends CI_Model
                 'audit_mismatch_notes' => [],
             ];
 
-            // Seed from monthly stock opening (source of truth for stok awal bulan)
-            $nextOpeningBuy = round((float)($baseRow['qty_buy_opening'] ?? 0), 4);
-            $nextOpeningContent = round((float)($baseRow['qty_content_opening'] ?? 0), 4);
+            // Monthly stock closing is the source of truth for what the user sees as
+            // stock akhir on the daily matrix. We back-propagate day by day so an
+            // incomplete movement sequence does not leave the visible ending stock
+            // different from monthly stock.
+            $nextClosingBuy = round((float)($baseRow['qty_buy_balance'] ?? 0), 4);
+            $nextClosingContent = round((float)($baseRow['qty_content_balance'] ?? 0), 4);
+            $monthlyOpeningBuy = round((float)($baseRow['qty_buy_opening'] ?? 0), 4);
+            $monthlyOpeningContent = round((float)($baseRow['qty_content_opening'] ?? 0), 4);
             $endClosingBuy = round((float)($baseRow['qty_buy_balance'] ?? 0), 4);
             $endClosingContent = round((float)($baseRow['qty_content_balance'] ?? 0), 4);
             $avgCost = round((float)($baseRow['avg_cost_per_content'] ?? 0), 6);
             $totalValue = round((float)($baseRow['total_value'] ?? ($endClosingContent * $avgCost)), 2);
-            $lastDateIdx = count($dates) - 1;
+            $firstRowIndex = count($dailyRows);
 
-            // Pre-compute predicted closing from movement_log to detect gap vs monthly_stock closing.
-            // Gap = monthly_stock.closing - (opening + Σ movement_log deltas).
-            // Non-zero gap means movement_log is incomplete (e.g. phantom correction, manual edit).
-            $predictedClosingContent = $nextOpeningContent;
-            $predictedClosingBuy = $nextOpeningBuy;
-            foreach ($dates as $preDay) {
-                $preRow = $dayMap[(string)$preDay] ?? null;
-                if ($preRow !== null) {
-                    $preAdjC = round($this->resolveDailyMatrixAdjustmentQtyContent($preRow), 4);
-                    $preAdjB = round($this->resolveDailyMatrixAdjustmentQtyBuy($preRow), 4);
-                    $predictedClosingContent = round($predictedClosingContent
-                        + (float)($preRow['in_qty_content'] ?? 0)
-                        - (float)($preRow['out_qty_content'] ?? 0)
-                        + $preAdjC, 4);
-                    $predictedClosingBuy = round($predictedClosingBuy
-                        + (float)($preRow['in_qty_buy'] ?? 0)
-                        - (float)($preRow['out_qty_buy'] ?? 0)
-                        + $preAdjB, 4);
-                }
-            }
-            $logGapContent = round($endClosingContent - $predictedClosingContent, 4);
-            $logHasGap = abs($logGapContent) > 0.001;
-
-            for ($i = 0; $i <= $lastDateIdx; $i++) {
+            for ($i = count($dates) - 1; $i >= 0; $i--) {
                 $day = (string)$dates[$i];
                 $existingRow = $dayMap[$day] ?? null;
                 $row = $this->build_material_daily_base_day_row($baseRow, $day, $existingRow);
@@ -2147,31 +2129,37 @@ class Purchase_model extends CI_Model
                     4
                 );
 
-                $row['opening_qty_buy'] = $nextOpeningBuy;
-                $row['opening_qty_content'] = $nextOpeningContent;
-                // Opening and closing always from monthly_stock (source of truth).
-                // Last day anchored to monthly_stock closing; intermediate days from forward walk.
-                if ($i === $lastDateIdx) {
-                    $row['closing_qty_buy'] = $endClosingBuy;
-                    $row['closing_qty_content'] = $endClosingContent;
+                $row['closing_qty_buy'] = $nextClosingBuy;
+                $row['closing_qty_content'] = $nextClosingContent;
+                $row['opening_qty_buy'] = round($nextClosingBuy - $deltaBuy, 4);
+                $row['opening_qty_content'] = round($nextClosingContent - $deltaContent, 4);
+                if ($i === count($dates) - 1) {
                     $row['total_value'] = $totalValue;
                 } else {
-                    $row['closing_qty_buy'] = round($nextOpeningBuy + $deltaBuy, 4);
-                    $row['closing_qty_content'] = round($nextOpeningContent + $deltaContent, 4);
                     $row['total_value'] = round((float)$row['closing_qty_content'] * $avgCost, 2);
                 }
                 $row['avg_cost_per_content'] = $avgCost;
-                // log_has_gap: movement_log Σdeltas + opening ≠ monthly_stock closing → incomplete log
-                $row['log_has_gap'] = $logHasGap ? 1 : 0;
-                $row['log_gap_content'] = $logGapContent;
                 $row['audit_has_mismatch'] = (int)$mismatchMeta['audit_has_mismatch'];
                 $row['audit_mismatch_row_count'] = (int)$mismatchMeta['audit_mismatch_row_count'];
                 $row['audit_mismatch_qty_content'] = round((float)$mismatchMeta['audit_mismatch_qty_content'], 4);
                 $row['audit_mismatch_notes'] = implode(', ', array_keys((array)$mismatchMeta['audit_mismatch_notes']));
 
                 $dailyRows[] = $row;
-                $nextOpeningBuy = round((float)$row['closing_qty_buy'], 4);
-                $nextOpeningContent = round((float)$row['closing_qty_content'], 4);
+                $nextClosingBuy = round((float)$row['opening_qty_buy'], 4);
+                $nextClosingContent = round((float)$row['opening_qty_content'], 4);
+            }
+
+            $logGapContent = round($monthlyOpeningContent - $nextClosingContent, 4);
+            $logGapBuy = round($monthlyOpeningBuy - $nextClosingBuy, 4);
+            $logHasGap = abs($logGapContent) > 0.001 || abs($logGapBuy) > 0.001;
+            if ($logHasGap) {
+                for ($j = $firstRowIndex; $j < count($dailyRows); $j++) {
+                    if (!isset($dailyRows[$j])) {
+                        continue;
+                    }
+                    $dailyRows[$j]['log_has_gap'] = 1;
+                    $dailyRows[$j]['log_gap_content'] = $logGapContent;
+                }
             }
         }
 
@@ -10709,6 +10697,198 @@ class Purchase_model extends CI_Model
         return !empty($row) ? $row : null;
     }
 
+    private function findMonthlyStockRowForUpdate(string $table, array $criteria): ?array
+    {
+        $sql = 'SELECT * FROM ' . $table . ' WHERE month_key = ? AND identity_key = ?';
+        $params = [
+            $criteria['month_key'] ?? null,
+            $criteria['identity_key'] ?? null,
+        ];
+
+        if ($table === 'inv_division_monthly_stock') {
+            $sql .= ' AND division_id = ? AND destination_type = ?';
+            $params[] = $criteria['division_id'] ?? null;
+            $params[] = $criteria['destination_type'] ?? 'OTHER';
+        }
+
+        $sql .= ' ORDER BY id DESC LIMIT 1 FOR UPDATE';
+
+        $row = $this->db->query($sql, $params)->row_array();
+        return !empty($row) ? $row : null;
+    }
+
+    private function hasMonthlyStockActivity(array $row): bool
+    {
+        $numberFields = [
+            'in_qty_buy', 'in_qty_content', 'in_total_value',
+            'out_qty_buy', 'out_qty_content', 'out_total_value',
+            'discarded_qty_buy', 'discarded_qty_content', 'discarded_total_value',
+            'spoil_qty_buy', 'spoil_qty_content', 'spoilage_total_value',
+            'waste_qty_buy', 'waste_qty_content', 'waste_total_value',
+            'process_loss_qty_buy', 'process_loss_qty_content', 'process_loss_total_value',
+            'variance_qty_buy', 'variance_qty_content', 'variance_total_value',
+            'adjustment_plus_qty_buy', 'adjustment_plus_qty_content', 'adjustment_plus_total_value',
+            'adjustment_minus_qty_buy', 'adjustment_minus_qty_content', 'adjustment_minus_total_value',
+        ];
+        foreach ($numberFields as $field) {
+            if (abs((float)($row[$field] ?? 0)) > 0.0001) {
+                return true;
+            }
+        }
+
+        if ((int)($row['movement_day_count'] ?? 0) > 0 || (int)($row['mutation_count'] ?? 0) > 0) {
+            return true;
+        }
+
+        return trim((string)($row['last_movement_date'] ?? '')) !== ''
+            || trim((string)($row['last_movement_at'] ?? '')) !== ''
+            || trim((string)($row['last_movement_table'] ?? '')) !== ''
+            || (int)($row['last_movement_id'] ?? 0) > 0;
+    }
+
+    private function seedCarryForwardMonthlyOpeningRow(string $stockScope, string $nextMonth, array $sourceRow, string $sourceMonth): array
+    {
+        $table = $stockScope === 'DIVISION' ? 'inv_division_monthly_stock' : 'inv_warehouse_monthly_stock';
+        if (!$this->db->table_exists($table)) {
+            return ['ok' => true, 'seeded' => false, 'skipped' => 'MONTHLY_TABLE_NOT_AVAILABLE'];
+        }
+
+        $identityKey = $this->buildInventoryMonthlyIdentityKey($sourceRow);
+        $criteria = [
+            'month_key' => $nextMonth,
+            'identity_key' => $identityKey,
+        ];
+        if ($stockScope === 'DIVISION') {
+            $criteria['division_id'] = (int)($sourceRow['division_id'] ?? 0);
+            $criteria['destination_type'] = strtoupper((string)($sourceRow['destination_type'] ?? 'OTHER'));
+        }
+
+        $existingRow = $this->findMonthlyStockRowForUpdate($table, $criteria);
+        if (!empty($existingRow) && $this->hasMonthlyStockActivity($existingRow)) {
+            return ['ok' => true, 'seeded' => false, 'skipped' => 'HAS_ACTIVITY'];
+        }
+
+        $tableColumns = $this->listTableFields($table);
+        if (empty($tableColumns)) {
+            return ['ok' => true, 'seeded' => false, 'skipped' => 'TABLE_COLUMNS_NOT_AVAILABLE'];
+        }
+
+        $closingQtyBuy = round((float)($sourceRow['closing_qty_buy'] ?? 0), 4);
+        $closingQtyContent = round((float)($sourceRow['closing_qty_content'] ?? 0), 4);
+        $avgCost = round((float)($sourceRow['avg_cost_per_content'] ?? 0), 6);
+        $openingTotalValue = round((float)($sourceRow['total_value'] ?? ($closingQtyContent * $avgCost)), 2);
+
+        $row = [
+            'month_key' => $nextMonth,
+            'identity_key' => $identityKey,
+            'item_id' => $this->nullableInt($sourceRow['item_id'] ?? null),
+            'material_id' => $this->nullableInt($sourceRow['material_id'] ?? null),
+            'buy_uom_id' => $this->nullableInt($sourceRow['buy_uom_id'] ?? null),
+            'content_uom_id' => $this->nullableInt($sourceRow['content_uom_id'] ?? null) ?? 0,
+            'profile_key' => $this->nullableString($sourceRow['profile_key'] ?? null),
+            'profile_name' => $this->nullableString($sourceRow['profile_name'] ?? null),
+            'profile_brand' => $this->nullableString($sourceRow['profile_brand'] ?? null),
+            'profile_description' => $this->nullableString($sourceRow['profile_description'] ?? null),
+            'profile_expired_date' => $this->normalizeDate((string)($sourceRow['profile_expired_date'] ?? '')),
+            'profile_content_per_buy' => round((float)($sourceRow['profile_content_per_buy'] ?? 0), 6),
+            'profile_buy_uom_code' => $this->nullableString($sourceRow['profile_buy_uom_code'] ?? null),
+            'profile_content_uom_code' => $this->nullableString($sourceRow['profile_content_uom_code'] ?? null),
+            'opening_qty_buy' => $closingQtyBuy,
+            'opening_qty_content' => $closingQtyContent,
+            'opening_total_value' => $openingTotalValue,
+            'in_qty_buy' => 0.0,
+            'in_qty_content' => 0.0,
+            'in_total_value' => 0.0,
+            'out_qty_buy' => 0.0,
+            'out_qty_content' => 0.0,
+            'out_total_value' => 0.0,
+            'discarded_qty_buy' => 0.0,
+            'discarded_qty_content' => 0.0,
+            'discarded_total_value' => 0.0,
+            'spoil_qty_buy' => 0.0,
+            'spoil_qty_content' => 0.0,
+            'spoilage_total_value' => 0.0,
+            'waste_qty_buy' => 0.0,
+            'waste_qty_content' => 0.0,
+            'waste_total_value' => 0.0,
+            'process_loss_qty_buy' => 0.0,
+            'process_loss_qty_content' => 0.0,
+            'process_loss_total_value' => 0.0,
+            'variance_qty_buy' => 0.0,
+            'variance_qty_content' => 0.0,
+            'variance_total_value' => 0.0,
+            'adjustment_plus_qty_buy' => 0.0,
+            'adjustment_plus_qty_content' => 0.0,
+            'adjustment_plus_total_value' => 0.0,
+            'adjustment_minus_qty_buy' => 0.0,
+            'adjustment_minus_qty_content' => 0.0,
+            'adjustment_minus_total_value' => 0.0,
+            'closing_qty_buy' => $closingQtyBuy,
+            'closing_qty_content' => $closingQtyContent,
+            'avg_cost_per_content' => $avgCost,
+            'total_value' => $openingTotalValue,
+            'movement_day_count' => 0,
+            'mutation_count' => 0,
+            'last_movement_date' => null,
+            'last_movement_at' => null,
+            'last_movement_table' => null,
+            'last_movement_id' => null,
+            'source_mode' => 'REBUILD',
+            'notes' => 'Auto carry-forward opening dari generate opname ' . date('Y-m', strtotime($sourceMonth)),
+        ];
+        if ($stockScope === 'DIVISION') {
+            $row['division_id'] = (int)($sourceRow['division_id'] ?? 0);
+            $row['destination_type'] = strtoupper((string)($sourceRow['destination_type'] ?? 'OTHER'));
+        }
+
+        $row = $this->filterExistingColumns($row, $tableColumns);
+        $insertColumns = array_keys($row);
+        if (empty($insertColumns)) {
+            return ['ok' => true, 'seeded' => false, 'skipped' => 'NO_COLUMNS'];
+        }
+
+        $uniqueColumns = $stockScope === 'DIVISION'
+            ? ['month_key', 'division_id', 'destination_type', 'identity_key']
+            : ['month_key', 'identity_key'];
+        $updateColumns = [];
+        foreach ($insertColumns as $column) {
+            if (!in_array($column, $uniqueColumns, true)) {
+                $updateColumns[] = $column;
+            }
+        }
+        if (isset($tableColumns['updated_at'])) {
+            $updateColumns[] = 'updated_at';
+        }
+
+        $updateParts = [];
+        foreach ($updateColumns as $column) {
+            if ($column === 'updated_at') {
+                $updateParts[] = 'updated_at = CURRENT_TIMESTAMP';
+            } else {
+                $updateParts[] = $column . ' = VALUES(' . $column . ')';
+            }
+        }
+
+        $sql = 'INSERT INTO ' . $table . ' (' . implode(', ', $insertColumns) . ') VALUES (' . implode(',', array_fill(0, count($insertColumns), '?')) . ')';
+        if (!empty($updateParts)) {
+            $sql .= ' ON DUPLICATE KEY UPDATE ' . implode(', ', $updateParts);
+        }
+        $params = [];
+        foreach ($insertColumns as $column) {
+            $params[] = $row[$column];
+        }
+        $this->db->query($sql, $params);
+
+        if ($this->db->error()['code']) {
+            return [
+                'ok' => false,
+                'message' => 'Gagal seed monthly stock bulan berikutnya: ' . (string)$this->db->error()['message'],
+            ];
+        }
+
+        return ['ok' => true, 'seeded' => true];
+    }
+
     private function findOpeningSnapshotReplaceCandidate(string $table, array $criteria): ?array
     {
         $hasDestinationType = $this->db->field_exists('destination_type', $table);
@@ -12226,6 +12406,7 @@ class Purchase_model extends CI_Model
             : ['snapshot_month', 'stock_domain', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'];
 
         $carriedRows = 0;
+        $seededMonthlyRows = 0;
         foreach ($aggregated as $row) {
             $closingQtyContent = round((float)($row['closing_qty_content'] ?? 0), 4);
             if ($closingQtyContent <= 0) {
@@ -12284,6 +12465,14 @@ class Purchase_model extends CI_Model
                     return $lotSync;
                 }
             }
+            $monthlySeed = $this->seedCarryForwardMonthlyOpeningRow($stockScope, $nextMonth, $row, $monthKey);
+            if (!($monthlySeed['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return $monthlySeed;
+            }
+            if (!empty($monthlySeed['seeded'])) {
+                $seededMonthlyRows++;
+            }
             $carriedRows++;
         }
 
@@ -12303,6 +12492,7 @@ class Purchase_model extends CI_Model
                     'destination_filter' => $destinationFilter,
                     'generated_rows' => $generatedRows,
                     'carried_rows' => $carriedRows,
+                    'seeded_monthly_rows' => $seededMonthlyRows,
                 ]),
                 'notes' => 'Generate opname bulanan dan carry-forward opening otomatis',
             ]);
@@ -12332,6 +12522,7 @@ class Purchase_model extends CI_Model
                 'source_mode' => $stockScope === 'DIVISION' ? 'MONTHLY_STOCK_TRUTH' : 'MOVEMENT_LOG',
                 'opname_rows' => $generatedRows,
                 'opening_rows' => $carriedRows,
+                'opening_monthly_rows' => $seededMonthlyRows,
             ],
         ];
     }
