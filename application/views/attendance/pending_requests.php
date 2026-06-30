@@ -6,8 +6,10 @@ $divisionOptions = $division_options ?? [];
 $statusOptions = $status_options ?? [];
 $requestTypeOptions = $request_type_options ?? [];
 $approvalHistoryMap = $approval_history_map ?? [];
+$existingDailyMap = $existing_daily_map ?? [];
 $currentUser = $current_user ?? [];
 $userPerms = $user_perms ?? [];
+$statusTabs = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'];
 
 $isSuperadmin = !empty($currentUser['is_superadmin']);
 $canEdit = $isSuperadmin || !empty($userPerms['attendance.pending.index']['can_edit']);
@@ -54,11 +56,48 @@ $statusClass = static function (string $status): string {
     if ($status === 'CANCELLED') return 'secondary';
     return 'warning';
 };
+
+$formatClock = static function ($datetime): string {
+    $raw = trim((string)$datetime);
+    if ($raw === '') {
+        return '-';
+    }
+    $ts = strtotime($raw);
+    return $ts ? date('H:i', $ts) : $raw;
+};
 ?>
 <style>
+  .pending-status-tabs .nav-link {
+    border-radius: 999px;
+    padding: .45rem .95rem;
+    font-weight: 600;
+  }
+  .pending-table-wrap {
+    max-height: 72vh;
+    overflow: auto;
+  }
+  .pending-table {
+    min-width: 1240px;
+  }
+  .pending-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #f8f9fa;
+    white-space: nowrap;
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.06);
+  }
   .pending-table th:last-child,
   .pending-table td:last-child {
     min-width: 320px;
+  }
+  .pending-table th:nth-child(7),
+  .pending-table td:nth-child(7) {
+    min-width: 260px;
+  }
+  .pending-table th:nth-child(9),
+  .pending-table td:nth-child(9) {
+    min-width: 230px;
   }
   .pending-table td:last-child {
     vertical-align: top;
@@ -93,6 +132,14 @@ $statusClass = static function (string $status): string {
     color: #7a6b65;
     line-height: 1.35;
   }
+  .pending-record-box {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .pending-record-box .meta {
+    color: #7a6b65;
+    font-size: 11px;
+  }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -100,12 +147,23 @@ $statusClass = static function (string $status): string {
   <span class="text-muted small">Total: <?php echo (int)$pg['total']; ?></span>
 </div>
 
+<ul class="nav nav-pills pending-status-tabs mb-3 gap-2">
+  <?php foreach ($statusTabs as $statusTab): ?>
+    <?php $isActiveTab = strtoupper((string)($filters['status'] ?? 'PENDING')) === $statusTab; ?>
+    <li class="nav-item">
+      <a class="nav-link <?php echo $isActiveTab ? 'active' : 'text-dark border'; ?>" href="<?php echo site_url('attendance/pending-requests?' . $buildQuery(['status' => $statusTab, 'page' => 1])); ?>">
+        <?php echo html_escape(ucfirst(strtolower($statusTab))); ?>
+      </a>
+    </li>
+  <?php endforeach; ?>
+</ul>
+
 <div class="card mb-3">
   <div class="card-body">
     <form method="get" action="<?php echo site_url('attendance/pending-requests'); ?>" class="row g-2 align-items-end">
+      <input type="hidden" name="status" value="<?php echo html_escape((string)($filters['status'] ?? 'PENDING')); ?>">
       <div class="col-md-3"><label class="form-label mb-1">Cari</label><input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Pegawai/Alasan"></div>
-      <div class="col-md-2"><label class="form-label mb-1">Divisi</label><select name="division_id" class="form-select"><option value="">Semua</option><?php foreach($divisionOptions as $o): ?><option value="<?php echo (int)$o['value']; ?>" <?php echo ((int)($filters['division_id'] ?? 0)===(int)$o['value'])?'selected':''; ?>><?php echo html_escape($o['label']); ?></option><?php endforeach; ?></select></div>
-      <div class="col-md-2"><label class="form-label mb-1">Status</label><select name="status" class="form-select"><option value="">Semua</option><?php foreach($statusOptions as $o): ?><option value="<?php echo html_escape($o); ?>" <?php echo (($filters['status'] ?? '')===$o)?'selected':''; ?>><?php echo html_escape($o); ?></option><?php endforeach; ?></select></div>
+      <div class="col-md-3"><label class="form-label mb-1">Divisi</label><select name="division_id" class="form-select"><option value="">Semua</option><?php foreach($divisionOptions as $o): ?><option value="<?php echo (int)$o['value']; ?>" <?php echo ((int)($filters['division_id'] ?? 0)===(int)$o['value'])?'selected':''; ?>><?php echo html_escape($o['label']); ?></option><?php endforeach; ?></select></div>
       <div class="col-md-2"><label class="form-label mb-1">Jenis</label><select name="request_type" class="form-select"><option value="">Semua</option><?php foreach($requestTypeOptions as $o): ?><option value="<?php echo html_escape($o); ?>" <?php echo (($filters['request_type'] ?? '')===$o)?'selected':''; ?>><?php echo html_escape($o); ?></option><?php endforeach; ?></select></div>
       <div class="col-md-1"><label class="form-label mb-1">Dari</label><input type="date" name="date_start" class="form-control" value="<?php echo html_escape((string)($filters['date_start'] ?? '')); ?>"></div>
       <div class="col-md-1"><label class="form-label mb-1">Sampai</label><input type="date" name="date_end" class="form-control" value="<?php echo html_escape((string)($filters['date_end'] ?? '')); ?>"></div>
@@ -135,7 +193,7 @@ $statusClass = static function (string $status): string {
     <small class="text-muted">Bulk aksi hanya untuk user dengan izin edit.</small>
     <?php endif; ?>
   </div>
-  <div class="table-responsive">
+  <div class="pending-table-wrap">
     <table class="table table-striped mb-0 pending-table">
       <thead>
         <tr>
@@ -144,12 +202,12 @@ $statusClass = static function (string $status): string {
             <input type="checkbox" id="selectAllPending">
             <?php endif; ?>
           </th>
-          <th>Tanggal</th><th>NIP</th><th>Nama</th><th>Divisi</th><th>Jabatan</th><th>Jenis</th><th>Status</th><th>Level</th><th>Alasan</th><th style="min-width:220px;">Aksi</th>
+          <th>Tanggal</th><th>Nama</th><th>Jenis</th><th>Record Absen</th><th>Status</th><th>Level</th><th>Alasan</th><th style="min-width:220px;">Aksi</th>
         </tr>
       </thead>
       <tbody>
       <?php if (empty($rows)): ?>
-        <tr><td colspan="11" class="text-center text-muted py-4">Tidak ada data.</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-4">Tidak ada data.</td></tr>
       <?php else: foreach($rows as $r): ?>
         <?php
           $status = strtoupper((string)($r['status'] ?? 'PENDING'));
@@ -163,6 +221,8 @@ $statusClass = static function (string $status): string {
           foreach ($historyRows as $historyRow) {
               $historyByLevel[(int)($historyRow['approval_level'] ?? 0)] = $historyRow;
           }
+          $dailyKey = (int)($r['employee_id'] ?? 0) . '|' . (string)($r['request_date'] ?? '');
+          $existingDaily = is_array($existingDailyMap[$dailyKey] ?? null) ? $existingDailyMap[$dailyKey] : null;
         ?>
         <tr>
           <td>
@@ -171,11 +231,27 @@ $statusClass = static function (string $status): string {
             <?php endif; ?>
           </td>
           <td><?php echo html_escape((string)$r['request_date']); ?></td>
-          <td><?php echo html_escape((string)$r['employee_code']); ?></td>
-          <td><?php echo html_escape((string)$r['employee_name']); ?></td>
-          <td><?php echo html_escape((string)($r['division_name'] ?? '-')); ?></td>
-          <td><?php echo html_escape((string)($r['position_name'] ?? '-')); ?></td>
+          <td>
+            <div class="fw-semibold"><?php echo html_escape((string)$r['employee_name']); ?></div>
+          </td>
           <td><?php echo html_escape((string)$r['request_type']); ?></td>
+          <td>
+            <?php if ($existingDaily): ?>
+              <div class="pending-record-box">
+                <div class="fw-semibold">
+                  <?php echo html_escape((string)($existingDaily['shift_code'] ?? 'Tanpa Shift')); ?>
+                  <span class="badge bg-light text-dark border ms-1"><?php echo html_escape((string)($existingDaily['attendance_status'] ?? '')); ?></span>
+                </div>
+                <div class="meta">
+                  IN: <?php echo html_escape($formatClock($existingDaily['checkin_at'] ?? '')); ?>
+                  | OUT: <?php echo html_escape($formatClock($existingDaily['checkout_at'] ?? '')); ?>
+                </div>
+                <div class="meta">Sumber: <?php echo html_escape((string)($existingDaily['source_type'] ?? 'AUTO')); ?></div>
+              </div>
+            <?php else: ?>
+              <span class="text-muted small">Belum ada record</span>
+            <?php endif; ?>
+          </td>
           <td><span class="badge bg-<?php echo $statusClass($status); ?>"><?php echo html_escape($status); ?></span></td>
           <td>
             <small><?php echo html_escape($levelLabel); ?></small>
@@ -224,7 +300,7 @@ $statusClass = static function (string $status): string {
           </td>
         </tr>
         <tr class="collapse bg-light" id="pendingTimeline<?php echo $requestId; ?>">
-          <td colspan="11">
+          <td colspan="9">
             <div class="px-2 py-2">
               <div class="small fw-bold mb-2">Riwayat Approval Per Level</div>
               <div class="table-responsive">

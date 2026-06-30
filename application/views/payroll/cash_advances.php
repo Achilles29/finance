@@ -112,6 +112,16 @@ if ($tab === 'recap' && $recapEmployeeId > 0) {
   .ca-status-badge.rejected { background:#ffe8e8; color:#c62828; }
   .ca-status-badge.void { background:#f3f4f6; color:#6b7280; }
   .ca-status-badge.draft { background:#fff4de; color:#b26a00; }
+  .action-icon-btn {
+    width: 42px;
+    height: 42px;
+    padding: 0 !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    font-size: 1.15rem;
+  }
   .ca-pager .pagination .page-link { border-radius: 10px; margin-left: .2rem; border-color: rgba(122,24,36,.12); color: #7a1824; }
   .ca-pager .pagination .page-item.active .page-link { background: #8f1021; border-color: #8f1021; }
   .ca-history-card .card-header, .ca-summary-card .card-header { background: linear-gradient(180deg, #fff, #fff8f5); border-bottom: 1px solid rgba(122,24,36,.08); }

@@ -12,6 +12,67 @@ $activePg = $active_pg ?? ($tab === 'recap' ? $recapPg : $pg);
 $divisionOptions = $division_options ?? [];
 $statusOptions = $status_options ?? [];
 
+$summary = [
+    'row_count' => 0,
+    'present_count' => 0,
+    'late_count' => 0,
+    'open_count' => 0,
+    'alpha_count' => 0,
+    'overtime_minutes' => 0,
+    'gross_total' => 0.0,
+    'thp_total' => 0.0,
+];
+
+if ($tab === 'recap') {
+    foreach ($recapRows as $row) {
+        $summary['row_count']++;
+        $summary['present_count'] += (int)($row['present_days'] ?? 0);
+        $summary['alpha_count'] += (int)($row['alpha_days'] ?? 0);
+        $summary['overtime_minutes'] += (int)($row['overtime_minutes'] ?? 0);
+        $summary['gross_total'] += (float)($row['gross_total'] ?? 0);
+        $summary['thp_total'] += (float)($row['net_total'] ?? 0);
+    }
+} else {
+    foreach ($rows as $row) {
+        $status = strtoupper((string)($row['attendance_status'] ?? 'OFF'));
+        $summary['row_count']++;
+        if (in_array($status, ['PRESENT', 'LATE', 'HOLIDAY'], true)) {
+            $summary['present_count']++;
+        }
+        if ($status === 'LATE') {
+            $summary['late_count']++;
+        }
+        if ($status === 'ALPHA') {
+            $summary['alpha_count']++;
+        }
+        if (!empty($row['checkin_at']) && empty($row['checkout_at']) && $status !== 'HOLIDAY') {
+            $summary['open_count']++;
+        }
+        $summary['overtime_minutes'] += (int)($row['overtime_minutes'] ?? 0);
+        $summary['gross_total'] += (float)($row['gross_amount'] ?? 0);
+        $summary['thp_total'] += (float)($row['daily_salary_amount'] ?? 0);
+    }
+}
+
+$formatCurrency = static function (float $value): string {
+    return 'Rp ' . number_format($value, 2, ',', '.');
+};
+
+$formatMinutes = static function (int $minutes): string {
+    if ($minutes <= 0) {
+        return '0 Jam';
+    }
+    $hours = floor($minutes / 60);
+    $remain = $minutes % 60;
+    if ($hours > 0 && $remain > 0) {
+        return $hours . 'j ' . $remain . 'm';
+    }
+    if ($hours > 0) {
+        return $hours . ' Jam';
+    }
+    return $remain . ' Menit';
+};
+
 $buildQuery = static function ($overrides = []) use ($filters, $activePg, $tab) {
     $base = [
         'tab' => $tab,
@@ -48,6 +109,59 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 };
 ?>
 
+<style>
+  .attendance-daily-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+  }
+  .attendance-daily-card {
+    border: 1px solid rgba(154, 23, 37, 0.08);
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at top right, rgba(195, 39, 57, 0.08), transparent 28%),
+      linear-gradient(135deg, #ffffff, #fff7f2);
+    box-shadow: 0 12px 30px rgba(89, 38, 23, 0.08);
+    padding: 18px 18px 16px;
+    min-height: 112px;
+  }
+  .attendance-daily-card-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: #9a1725;
+    margin-bottom: 10px;
+  }
+  .attendance-daily-card-value {
+    font-size: 27px;
+    line-height: 1;
+    font-weight: 800;
+    color: #2b1a14;
+    margin-bottom: 8px;
+  }
+  .attendance-daily-card-note {
+    font-size: 12px;
+    line-height: 1.45;
+    color: #7a685d;
+  }
+  .attendance-daily-table-wrap {
+    max-height: 72vh;
+    overflow: auto;
+  }
+  .attendance-daily-table {
+    min-width: 1500px;
+  }
+  .attendance-daily-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #f8f9fa;
+    white-space: nowrap;
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.06);
+  }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="mb-0"><?php echo html_escape($title ?? 'Rekap Absensi'); ?></h4>
   <span class="text-muted small">Total: <?php echo (int)($activePg['total'] ?? 0); ?></span>
@@ -61,6 +175,44 @@ $buildPageItems = static function (int $page, int $totalPages): array {
     <a class="nav-link <?php echo $tab === 'daily' ? 'active' : ''; ?>" href="<?php echo site_url('attendance/daily?' . $buildQuery(['tab' => 'daily', 'page' => 1])); ?>">Harian</a>
   </li>
 </ul>
+
+<div class="attendance-daily-summary mb-3">
+  <div class="attendance-daily-card">
+    <div class="attendance-daily-card-label"><?php echo $tab === 'recap' ? 'Pegawai Tampil' : 'Baris Tampil'; ?></div>
+    <div class="attendance-daily-card-value"><?php echo number_format((int)$summary['row_count'], 0, ',', '.'); ?></div>
+    <div class="attendance-daily-card-note">Ringkasan mengikuti tab dan halaman filter yang sedang tampil.</div>
+  </div>
+  <div class="attendance-daily-card">
+    <div class="attendance-daily-card-label"><?php echo $tab === 'recap' ? 'Hari Hadir' : 'Status Hadir'; ?></div>
+    <div class="attendance-daily-card-value"><?php echo number_format((int)$summary['present_count'], 0, ',', '.'); ?></div>
+    <div class="attendance-daily-card-note"><?php echo $tab === 'recap' ? 'Akumulasi hari hadir pada pegawai yang tampil.' : 'Jumlah record hadir, late, dan holiday pada halaman aktif.'; ?></div>
+  </div>
+  <div class="attendance-daily-card">
+    <div class="attendance-daily-card-label"><?php echo $tab === 'recap' ? 'Hari Alpha' : 'Alpha / Open'; ?></div>
+    <div class="attendance-daily-card-value text-danger">
+      <?php echo number_format((int)$summary['alpha_count'], 0, ',', '.'); ?>
+      <?php if ($tab !== 'recap'): ?>
+        <span style="font-size:16px;color:#6b7280;"> / <?php echo number_format((int)$summary['open_count'], 0, ',', '.'); ?></span>
+      <?php endif; ?>
+    </div>
+    <div class="attendance-daily-card-note"><?php echo $tab === 'recap' ? 'Akumulasi hari alpha dari pegawai yang tampil.' : 'Format: alpha / shift yang masih open.'; ?></div>
+  </div>
+  <div class="attendance-daily-card">
+    <div class="attendance-daily-card-label"><?php echo $tab === 'recap' ? 'Total Lembur' : 'Late / Lembur'; ?></div>
+    <div class="attendance-daily-card-value"><?php echo $tab === 'recap' ? html_escape($formatMinutes((int)$summary['overtime_minutes'])) : number_format((int)$summary['late_count'], 0, ',', '.'); ?></div>
+    <div class="attendance-daily-card-note"><?php echo $tab === 'recap' ? 'Akumulasi menit lembur pada hasil filter aktif.' : 'Jumlah record telat. Total lembur: ' . html_escape($formatMinutes((int)$summary['overtime_minutes'])); ?></div>
+  </div>
+  <div class="attendance-daily-card">
+    <div class="attendance-daily-card-label">Total Gross</div>
+    <div class="attendance-daily-card-value" style="font-size:22px;"><?php echo html_escape($formatCurrency((float)$summary['gross_total'])); ?></div>
+    <div class="attendance-daily-card-note">Akumulasi gross dari baris yang sedang tampil.</div>
+  </div>
+  <div class="attendance-daily-card">
+    <div class="attendance-daily-card-label"><?php echo $tab === 'recap' ? 'Total THP' : 'Total THP Harian'; ?></div>
+    <div class="attendance-daily-card-value text-success" style="font-size:22px;"><?php echo html_escape($formatCurrency((float)$summary['thp_total'])); ?></div>
+    <div class="attendance-daily-card-note"><?php echo $tab === 'recap' ? 'Take home pay total pada recap yang tampil.' : 'Akumulasi THP harian dari record yang tampil.'; ?></div>
+  </div>
+</div>
 
 <div class="card mb-3">
   <div class="card-body">
@@ -81,8 +233,8 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 
 <?php if ($tab === 'recap'): ?>
 <div class="card">
-  <div class="table-responsive">
-    <table class="table table-striped mb-0">
+  <div class="attendance-daily-table-wrap">
+    <table class="table table-striped mb-0 attendance-daily-table">
       <thead>
         <tr>
           <th>Pegawai</th>
@@ -146,8 +298,8 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 </div>
 <?php else: ?>
 <div class="card">
-  <div class="table-responsive">
-    <table class="table table-striped mb-0">
+  <div class="attendance-daily-table-wrap">
+    <table class="table table-striped mb-0 attendance-daily-table">
       <thead>
         <tr>
           <th>Tanggal</th>

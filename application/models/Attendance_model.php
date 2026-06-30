@@ -2448,6 +2448,45 @@ class Attendance_model extends CI_Model
         return $map;
     }
 
+    public function pending_request_existing_daily_map(array $rows): array
+    {
+        $employeeIds = [];
+        $dates = [];
+        foreach ($rows as $row) {
+            $employeeId = (int)($row['employee_id'] ?? 0);
+            $requestDate = trim((string)($row['request_date'] ?? ''));
+            if ($employeeId <= 0 || $requestDate === '') {
+                continue;
+            }
+            $employeeIds[$employeeId] = true;
+            $dates[$requestDate] = true;
+        }
+
+        if (empty($employeeIds) || empty($dates)) {
+            return [];
+        }
+
+        $dailyRows = $this->db
+            ->select('ad.employee_id, ad.attendance_date, ad.attendance_status, ad.checkin_at, ad.checkout_at, ad.source_type, ad.shift_id, s.shift_code')
+            ->from('att_daily ad')
+            ->join('att_shift s', 's.id = ad.shift_id', 'left')
+            ->where_in('ad.employee_id', array_keys($employeeIds))
+            ->where_in('ad.attendance_date', array_keys($dates))
+            ->get()
+            ->result_array();
+
+        $map = [];
+        foreach ($dailyRows as $dailyRow) {
+            $key = (int)($dailyRow['employee_id'] ?? 0) . '|' . (string)($dailyRow['attendance_date'] ?? '');
+            if ($key === '0|') {
+                continue;
+            }
+            $map[$key] = $dailyRow;
+        }
+
+        return $map;
+    }
+
     private function build_pending_requests_query(array $f, bool $withSelect): void
     {
         if ($withSelect) {
@@ -3045,6 +3084,7 @@ class Attendance_model extends CI_Model
 
         $inTs = $checkinAt !== '' ? strtotime($checkinAt) : 0;
         $outTs = $checkoutAt !== '' ? strtotime($checkoutAt) : 0;
+        $outTs = $this->normalize_checkout_timestamp($inTs, $outTs, $schedule);
 
         if ($inTs > 0 && $startTs > 0) {
             $lateMinutes = max(0, ((int)floor(($inTs - $startTs) / 60)) - $grace);
@@ -3058,6 +3098,22 @@ class Attendance_model extends CI_Model
         }
 
         return [$lateMinutes, max(0, $workMinutes), $status];
+    }
+
+    private function normalize_checkout_timestamp(int $checkinTs, int $checkoutTs, array $schedule): int
+    {
+        if ($checkinTs <= 0 || $checkoutTs <= 0 || $checkoutTs > $checkinTs) {
+            return $checkoutTs;
+        }
+
+        $startTime = trim((string)($schedule['start_time'] ?? ''));
+        $endTime = trim((string)($schedule['end_time'] ?? ''));
+        $isOvernight = (int)($schedule['is_overnight'] ?? 0) === 1;
+        if ($isOvernight || ($startTime !== '' && $endTime !== '' && $endTime <= $startTime)) {
+            return (int)strtotime('+1 day', $checkoutTs);
+        }
+
+        return $checkoutTs;
     }
 
     private function shift_bounds_from_schedule(string $date, array $schedule): array
@@ -3124,6 +3180,22 @@ class Attendance_model extends CI_Model
     {
         $checkinTs = !empty($dailyRow['checkin_at']) ? strtotime((string)$dailyRow['checkin_at']) : 0;
         $checkoutTs = !empty($dailyRow['checkout_at']) ? strtotime((string)$dailyRow['checkout_at']) : 0;
+        $scheduleMeta = [
+            'start_time' => (string)($dailyRow['start_time'] ?? ''),
+            'end_time' => (string)($dailyRow['end_time'] ?? ''),
+            'is_overnight' => (int)($dailyRow['is_overnight'] ?? 0),
+        ];
+        if ($checkinTs > 0 && $checkoutTs > 0 && ($scheduleMeta['start_time'] === '' || $scheduleMeta['end_time'] === '')) {
+            $shiftMeta = $this->db->select('start_time, end_time, is_overnight')
+                ->from('att_shift')
+                ->where('id', (int)($dailyRow['shift_id'] ?? 0))
+                ->limit(1)
+                ->get()->row_array();
+            if ($shiftMeta) {
+                $scheduleMeta = $shiftMeta;
+            }
+        }
+        $checkoutTs = $this->normalize_checkout_timestamp($checkinTs, $checkoutTs, $scheduleMeta);
         $hasCompletedCheckout = ($checkinTs > 0 && $checkoutTs > $checkinTs);
         $attendanceDate = (string)($dailyRow['attendance_date'] ?? '');
 

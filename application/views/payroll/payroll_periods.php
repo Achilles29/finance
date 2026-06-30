@@ -91,44 +91,55 @@ $buildQuery = static function ($overrides = []) use ($periodFilters, $periodPg) 
     || (abs((float)($auditSummary['raw_vs_attendance_diff_total'] ?? 0)) > 0.009)
     || (abs((float)($auditSummary['transfer_vs_result_final_diff_total'] ?? 0)) > 0.009)
 ) ? 'danger' : 'success'; ?>">
-  <div class="card-header"><strong>Audit Checker Period #<?php echo $periodDetailId; ?></strong></div>
+  <div class="card-header"><strong>Ringkasan Audit Payroll Period #<?php echo $periodDetailId; ?></strong></div>
   <div class="card-body py-2">
+    <?php if ((float)($auditSummary['active_disbursement_transfer_total'] ?? 0) <= 0.009): ?>
+      <div class="alert alert-info py-2 mb-3">
+        Belum ada batch pencairan aktif untuk payroll period ini. Jadi kolom kecocokan dengan pencairan masih wajar terlihat belum cocok. Ini notifikasi audit, bukan error sistem.
+      </div>
+    <?php endif; ?>
+    <?php if (strtoupper((string)($periodAudit['period']['rounding_mode'] ?? 'NONE')) !== 'NONE'): ?>
+      <div class="alert alert-warning py-2 mb-3">
+        Payroll period ini memakai pembulatan <strong><?php echo html_escape((string)($periodAudit['period']['rounding_mode'] ?? '')); ?></strong>.
+        Selisih antara THP riil dan THP final bisa muncul karena efek pembulatan, selama sumber absensinya tetap cocok.
+      </div>
+    <?php endif; ?>
     <div class="row g-2">
-      <div class="col-md-2"><small class="text-muted">Result Rows</small><div class="fw-semibold"><?php echo (int)($auditSummary['result_rows'] ?? 0); ?></div></div>
-      <div class="col-md-2"><small class="text-muted">Result Net Raw</small><div class="fw-semibold"><?php echo number_format((float)($auditSummary['result_net_raw_total'] ?? 0),2,',','.'); ?></div></div>
-      <div class="col-md-2"><small class="text-muted">Result Net Final</small><div class="fw-semibold"><?php echo number_format((float)($auditSummary['result_net_final_total'] ?? 0),2,',','.'); ?></div></div>
-      <div class="col-md-2"><small class="text-muted">Att Daily Net</small><div class="fw-semibold"><?php echo number_format((float)($auditSummary['attendance_net_total'] ?? 0),2,',','.'); ?></div></div>
-      <div class="col-md-2"><small class="text-muted">Transfer Aktif</small><div class="fw-semibold"><?php echo number_format((float)($auditSummary['active_disbursement_transfer_total'] ?? 0),2,',','.'); ?></div></div>
-      <div class="col-md-2"><small class="text-muted">Diff Raw vs Att</small><div class="fw-semibold <?php echo (abs((float)($auditSummary['raw_vs_attendance_diff_total'] ?? 0)) > 0.009) ? 'text-danger' : 'text-success'; ?>"><?php echo number_format((float)($auditSummary['raw_vs_attendance_diff_total'] ?? 0),2,',','.'); ?></div></div>
-      <div class="col-md-2"><small class="text-muted">Diff Transfer vs Final</small><div class="fw-semibold <?php echo (abs((float)($auditSummary['transfer_vs_result_final_diff_total'] ?? 0)) > 0.009) ? 'text-danger' : 'text-success'; ?>"><?php echo number_format((float)($auditSummary['transfer_vs_result_final_diff_total'] ?? 0),2,',','.'); ?></div></div>
-      <div class="col-md-2"><small class="text-muted">Dup Result</small><div class="fw-semibold <?php echo ((int)($auditSummary['result_duplicates'] ?? 0) > 0) ? 'text-danger' : 'text-success'; ?>"><?php echo (int)($auditSummary['result_duplicates'] ?? 0); ?></div></div>
-      <div class="col-md-2"><small class="text-muted">Dup Disbursement Aktif</small><div class="fw-semibold <?php echo ((int)($auditSummary['active_disbursement_duplicates'] ?? 0) > 0) ? 'text-danger' : 'text-success'; ?>"><?php echo (int)($auditSummary['active_disbursement_duplicates'] ?? 0); ?></div></div>
-      <div class="col-md-2"><small class="text-muted">Mismatch Rows</small><div class="fw-semibold <?php echo ((int)($auditSummary['mismatch_rows'] ?? 0) > 0) ? 'text-danger' : 'text-success'; ?>"><?php echo (int)($auditSummary['mismatch_rows'] ?? 0); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Baris Payroll</small><div class="fw-semibold"><?php echo (int)($auditSummary['result_rows'] ?? 0); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">THP Riil Sebelum Pembulatan</small><div class="fw-semibold"><?php echo number_format((float)($auditSummary['result_net_raw_total'] ?? 0),2,',','.'); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">THP Final Payroll</small><div class="fw-semibold"><?php echo number_format((float)($auditSummary['result_net_final_total'] ?? 0),2,',','.'); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">THP dari Absensi</small><div class="fw-semibold"><?php echo number_format((float)($auditSummary['attendance_net_total'] ?? 0),2,',','.'); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Nominal Batch Pencairan Aktif</small><div class="fw-semibold"><?php echo number_format((float)($auditSummary['active_disbursement_transfer_total'] ?? 0),2,',','.'); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Selisih Absensi vs THP Riil</small><div class="fw-semibold <?php echo (abs((float)($auditSummary['raw_vs_attendance_diff_total'] ?? 0)) > 0.009) ? 'text-danger' : 'text-success'; ?>"><?php echo number_format((float)($auditSummary['raw_vs_attendance_diff_total'] ?? 0),2,',','.'); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Selisih Pencairan vs THP Final</small><div class="fw-semibold <?php echo (abs((float)($auditSummary['transfer_vs_result_final_diff_total'] ?? 0)) > 0.009) ? 'text-danger' : 'text-success'; ?>"><?php echo number_format((float)($auditSummary['transfer_vs_result_final_diff_total'] ?? 0),2,',','.'); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Duplikat Payroll</small><div class="fw-semibold <?php echo ((int)($auditSummary['result_duplicates'] ?? 0) > 0) ? 'text-danger' : 'text-success'; ?>"><?php echo (int)($auditSummary['result_duplicates'] ?? 0); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Duplikat Batch Aktif</small><div class="fw-semibold <?php echo ((int)($auditSummary['active_disbursement_duplicates'] ?? 0) > 0) ? 'text-danger' : 'text-success'; ?>"><?php echo (int)($auditSummary['active_disbursement_duplicates'] ?? 0); ?></div></div>
+      <div class="col-md-2"><small class="text-muted">Baris Perlu Dicek</small><div class="fw-semibold <?php echo ((int)($auditSummary['mismatch_rows'] ?? 0) > 0) ? 'text-danger' : 'text-success'; ?>"><?php echo (int)($auditSummary['mismatch_rows'] ?? 0); ?></div></div>
     </div>
   </div>
   <?php if (!empty($auditDupResult) || !empty($auditDupDisb) || !empty($auditMismatchRows)): ?>
   <div class="table-responsive">
     <table class="table table-sm table-striped mb-0">
-      <thead><tr><th>Tipe</th><th>Detail</th></tr></thead>
+      <thead><tr><th>Tipe Temuan</th><th>Penjelasan</th></tr></thead>
       <tbody>
         <?php foreach ($auditDupResult as $x): ?>
-          <tr><td class="text-danger fw-semibold">Duplicate Result</td><td>EmpID <?php echo (int)($x['employee_id'] ?? 0); ?> -> <?php echo html_escape((string)($x['payroll_result_ids'] ?? '')); ?> (<?php echo (int)($x['duplicate_count'] ?? 0); ?> rows)</td></tr>
+          <tr><td class="text-danger fw-semibold">Payroll Ganda</td><td>Pegawai ID <?php echo (int)($x['employee_id'] ?? 0); ?> punya lebih dari satu hasil payroll di period ini: <?php echo html_escape((string)($x['payroll_result_ids'] ?? '')); ?>.</td></tr>
         <?php endforeach; ?>
         <?php foreach ($auditDupDisb as $x): ?>
-          <tr><td class="text-danger fw-semibold">Duplicate Active Disbursement</td><td>ResultID <?php echo (int)($x['payroll_result_id'] ?? 0); ?> -> <?php echo html_escape((string)($x['line_refs'] ?? '')); ?> (<?php echo (int)($x['duplicate_count'] ?? 0); ?> rows)</td></tr>
+          <tr><td class="text-danger fw-semibold">Batch Pencairan Ganda</td><td>Result payroll ID <?php echo (int)($x['payroll_result_id'] ?? 0); ?> muncul lebih dari sekali di batch aktif: <?php echo html_escape((string)($x['line_refs'] ?? '')); ?>.</td></tr>
         <?php endforeach; ?>
         <?php foreach ($auditMismatchRows as $x): ?>
           <tr>
-            <td class="text-warning fw-semibold">Mismatch</td>
+            <td class="text-warning fw-semibold">Perlu Dicek</td>
             <td>
               <?php echo html_escape((string)($x['employee_name_snapshot'] ?? '-')); ?>
               (<?php echo html_escape((string)($x['employee_code_snapshot'] ?? '-')); ?>):
-              Raw <?php echo number_format((float)($x['result_net_raw'] ?? 0),2,',','.'); ?>,
-              Final <?php echo number_format((float)($x['result_net_final'] ?? 0),2,',','.'); ?>,
-              Att <?php echo number_format((float)($x['attendance_net'] ?? 0),2,',','.'); ?>,
-              Transfer <?php echo number_format((float)($x['active_transfer_total'] ?? 0),2,',','.'); ?>,
-              Diff Raw-Att <?php echo number_format((float)($x['diff_raw_vs_attendance'] ?? 0),2,',','.'); ?>,
-              Diff Transfer-Final <?php echo number_format((float)($x['diff_transfer_vs_final'] ?? 0),2,',','.'); ?>
+              THP riil <?php echo number_format((float)($x['result_net_raw'] ?? 0),2,',','.'); ?>,
+              THP final <?php echo number_format((float)($x['result_net_final'] ?? 0),2,',','.'); ?>,
+              absensi <?php echo number_format((float)($x['attendance_net'] ?? 0),2,',','.'); ?>,
+              batch aktif <?php echo number_format((float)($x['active_transfer_total'] ?? 0),2,',','.'); ?>,
+              selisih absensi <?php echo number_format((float)($x['diff_raw_vs_attendance'] ?? 0),2,',','.'); ?>,
+              selisih pencairan <?php echo number_format((float)($x['diff_transfer_vs_final'] ?? 0),2,',','.'); ?>.
             </td>
           </tr>
         <?php endforeach; ?>

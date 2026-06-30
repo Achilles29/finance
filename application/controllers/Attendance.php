@@ -486,6 +486,9 @@ class Attendance extends MY_Controller
             'date_start' => trim((string)$this->input->get('date_start', true)),
             'date_end' => trim((string)$this->input->get('date_end', true)),
         ];
+        if ($filters['status'] === '') {
+            $filters['status'] = 'PENDING';
+        }
         if ($filters['date_start'] === '') {
             $filters['date_start'] = date('Y-m-01');
         }
@@ -502,6 +505,7 @@ class Attendance extends MY_Controller
             return (int)($row['id'] ?? 0);
         }, $rows);
         $approvalHistoryMap = $this->Attendance_model->pending_request_approval_history_map($requestIds);
+        $existingDailyMap = $this->Attendance_model->pending_request_existing_daily_map($rows);
 
         $data = [
             'title' => 'Pengajuan & Approval Absensi',
@@ -509,6 +513,7 @@ class Attendance extends MY_Controller
             'filters' => $filters,
             'rows' => $rows,
             'approval_history_map' => $approvalHistoryMap,
+            'existing_daily_map' => $existingDailyMap,
             'pg' => $pg,
             'division_options' => $this->Attendance_model->get_division_options(),
             'status_options' => ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'],
