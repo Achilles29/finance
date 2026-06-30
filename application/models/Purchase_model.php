@@ -1751,7 +1751,7 @@ class Purchase_model extends CI_Model
             return [];
         }
 
-        $baseRows = $this->list_division_stock_monthly($q, $limit, $destinationFilter, '', $dateTo, $divisionId);
+        $baseRows = $this->list_division_stock_monthly($q, $limit, $destinationFilter, '', $dateTo, $divisionId, true);
         if (empty($baseRows)) {
             return [];
         }
@@ -2183,6 +2183,9 @@ class Purchase_model extends CI_Model
         $targetMonth = date('Y-m-01', strtotime($dateTo ?: date('Y-m-d')));
         $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
         $limit = max(1, min(1000, $limit));
+        // Material daily matrix must follow the exact filtered month.
+        // Do not fallback to the latest previous monthly row, otherwise materials from
+        // older months reappear in the selected window even when the target month has no stock row.
         $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
             ? 'division_code'
             : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
@@ -2191,12 +2194,6 @@ class Purchase_model extends CI_Model
             : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
         $divisionCodeSelect = $divisionCodeColumn !== null ? ('d.' . $divisionCodeColumn . ' AS division_code') : 'CAST(s.division_id AS CHAR) AS division_code';
         $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
-        $latestMonthSubquery = $this->db
-            ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
-            ->from('inv_division_monthly_stock')
-            ->where('month_key <=', $targetMonth)
-            ->group_by(['division_id', 'destination_type', 'identity_key'])
-            ->get_compiled_select();
         $destinationGroupExpr = "CASE
                 WHEN COALESCE(s.destination_type, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'
                 ELSE 'REGULER'
@@ -2222,10 +2219,10 @@ class Purchase_model extends CI_Model
             ->select('s.opening_qty_buy AS qty_buy_opening, s.opening_qty_content AS qty_content_opening, s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content, s.total_value')
             ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
             ->from('inv_division_monthly_stock s')
-            ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
             ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
             ->join('mst_item i', 'i.id = s.item_id', 'left')
             ->join('mst_material m', 'm.id = COALESCE(s.material_id, i.material_id)', 'left')
+            ->where('s.month_key', $targetMonth)
             ->where('COALESCE(s.material_id, i.material_id) IS NOT NULL', null, false)
             // Exclude stale rows: profiled rows must have identity_key = profile_key.
             // Stale rows carry wrong closing values from before Repair Material ID ran.
@@ -2273,20 +2270,13 @@ class Purchase_model extends CI_Model
         }
         $targetMonth = date('Y-m-01', strtotime($dateTo ?: date('Y-m-d')));
         $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
-        $latestMonthSubquery = $this->db
-            ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
-            ->from('inv_division_monthly_stock')
-            ->where('month_key <=', $targetMonth)
-            ->group_by(['division_id', 'destination_type', 'identity_key'])
-            ->get_compiled_select();
-
         $this->db
             ->select('SUM(COALESCE(s.total_value, ROUND(s.closing_qty_content * COALESCE(s.avg_cost_per_content, 0), 2))) AS total_value', false)
             ->select('SUM(s.closing_qty_content) AS closing_qty_content', false)
             ->from('inv_division_monthly_stock s')
-            ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
             ->join('mst_item i', 'i.id = s.item_id', 'left')
             ->join('mst_material m', 'm.id = COALESCE(s.material_id, i.material_id)', 'left')
+            ->where('s.month_key', $targetMonth)
             ->where('COALESCE(s.material_id, i.material_id) IS NOT NULL', null, false)
             ->where('(s.profile_key IS NULL OR s.identity_key = s.profile_key)', null, false);
 
@@ -2328,20 +2318,13 @@ class Purchase_model extends CI_Model
         }
         $targetMonth = date('Y-m-01', strtotime($dateTo ?: date('Y-m-d')));
         $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
-        $latestMonthSubquery = $this->db
-            ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
-            ->from('inv_division_monthly_stock')
-            ->where('month_key <=', $targetMonth)
-            ->group_by(['division_id', 'destination_type', 'identity_key'])
-            ->get_compiled_select();
-
         $this->db
             ->select('COUNT(*) AS cnt', false)
             ->from('inv_division_monthly_stock s')
-            ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
             ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
             ->join('mst_item i', 'i.id = s.item_id', 'left')
             ->join('mst_material m', 'm.id = COALESCE(s.material_id, i.material_id)', 'left')
+            ->where('s.month_key', $targetMonth)
             ->where('COALESCE(s.material_id, i.material_id) IS NOT NULL', null, false)
             ->where('(s.profile_key IS NULL OR s.identity_key = s.profile_key)', null, false);
 
@@ -2982,10 +2965,33 @@ class Purchase_model extends CI_Model
         if ($limit <= 0 || $limit > 2000) {
             $limit = 300;
         }
+        $excludedDivisionIds = $this->listReconcileExcludedDivisionIds();
+        if ($divisionId !== null && $divisionId > 0 && in_array((int)$divisionId, $excludedDivisionIds, true)) {
+            return [
+                'as_of_date' => $asOfDate,
+                'rows' => [],
+                'summary' => [
+                    'total_rows' => 0,
+                    'match_rows' => 0,
+                    'mismatch_rows' => 0,
+                ],
+            ];
+        }
 
-        $balanceRows = $this->list_division_stock($q, 5000, $destinationFilter, '', '', $divisionId);
+        $balanceRows = $this->list_division_stock_monthly($q, 5000, $destinationFilter, '', $asOfDate, $divisionId, true);
         $dailyRows = $this->list_division_daily_snapshot_latest_closing($asOfDate, $q, $divisionId, $destinationFilter);
         $movementRows = $this->list_division_material_movement_closing($asOfDate, $q, $divisionId, $destinationFilter);
+        if (!empty($excludedDivisionIds)) {
+            $balanceRows = array_values(array_filter($balanceRows, static function (array $row) use ($excludedDivisionIds): bool {
+                return !in_array((int)($row['division_id'] ?? 0), $excludedDivisionIds, true);
+            }));
+            $dailyRows = array_values(array_filter($dailyRows, static function (array $row) use ($excludedDivisionIds): bool {
+                return !in_array((int)($row['division_id'] ?? 0), $excludedDivisionIds, true);
+            }));
+            $movementRows = array_values(array_filter($movementRows, static function (array $row) use ($excludedDivisionIds): bool {
+                return !in_array((int)($row['division_id'] ?? 0), $excludedDivisionIds, true);
+            }));
+        }
 
         $balanceMap = $this->aggregateDivisionMaterialCompareSource($balanceRows, 'balance');
         $dailyMap = $this->aggregateDivisionMaterialCompareSource($dailyRows, 'daily');
@@ -3004,8 +3010,22 @@ class Purchase_model extends CI_Model
         ), true);
 
         // Include items that have active FIFO lots but stock=0 (or no stock record at all).
-        $preLotMap     = $this->buildReconcileLotPreMap($divisionId, $destinationFilter);
-        $orphanMetaMap = $this->buildOrphanLotMetaMap($divisionId, $destinationFilter, $preLotMap, $allKeys, $q);
+        $preLotMap     = $this->buildReconcileLotPreMap($divisionId, $destinationFilter, $asOfDate);
+        if (!empty($excludedDivisionIds)) {
+            foreach (array_keys($preLotMap) as $preLotKey) {
+                if (preg_match('/^(\d+)\|/', $preLotKey, $m) && in_array((int)$m[1], $excludedDivisionIds, true)) {
+                    unset($preLotMap[$preLotKey]);
+                }
+            }
+        }
+        $orphanMetaMap = $this->buildOrphanLotMetaMap($divisionId, $destinationFilter, $preLotMap, $allKeys, $q, $asOfDate);
+        if (!empty($excludedDivisionIds)) {
+            foreach (array_keys($orphanMetaMap) as $orphanKey) {
+                if (preg_match('/^(\d+)\|/', $orphanKey, $m) && in_array((int)$m[1], $excludedDivisionIds, true)) {
+                    unset($orphanMetaMap[$orphanKey]);
+                }
+            }
+        }
         foreach (array_keys($orphanMetaMap) as $orphanKey) {
             $allKeys[$orphanKey] = true;
         }
@@ -3179,18 +3199,132 @@ class Purchase_model extends CI_Model
         return $map;
     }
 
+    private function buildDivisionReconcileLotCutoffContext(string $asOfDate = ''): array
+    {
+        $asOfDate = $this->normalizeDate($asOfDate) ?? '';
+        if ($asOfDate === '') {
+            return [
+                'as_of_date' => '',
+                'month_start' => '',
+                'next_month' => '',
+                'material_opening_subquery' => '',
+                'profile_opening_subquery' => '',
+            ];
+        }
+
+        $monthStart = date('Y-m-01', strtotime($asOfDate));
+        $nextMonth = date('Y-m-01', strtotime($monthStart . ' +1 month'));
+        $materialOpeningSubquery = "
+            (
+                SELECT
+                    ol.division_id,
+                    COALESCE(ol.destination_type, 'OTHER') AS destination_type,
+                    COALESCE(ol.material_id, 0) AS material_id
+                FROM inv_material_fifo_lot ol
+                WHERE ol.location_scope = 'DIVISION'
+                  AND ol.status = 'OPEN'
+                  AND ol.qty_balance > 0.0001
+                  AND ol.source_table = 'inv_division_stock_opening_snapshot'
+                  AND ol.receipt_date >= " . $this->db->escape($monthStart) . "
+                  AND ol.receipt_date < " . $this->db->escape($nextMonth) . "
+                GROUP BY ol.division_id, COALESCE(ol.destination_type, 'OTHER'), COALESCE(ol.material_id, 0)
+            ) lot_open_month
+        ";
+        $profileOpeningSubquery = "
+            (
+                SELECT
+                    ol.division_id,
+                    COALESCE(ol.destination_type, 'OTHER') AS destination_type,
+                    COALESCE(ol.material_id, 0) AS material_id,
+                    COALESCE(ol.profile_key, '') AS profile_key
+                FROM inv_material_fifo_lot ol
+                WHERE ol.location_scope = 'DIVISION'
+                  AND ol.status = 'OPEN'
+                  AND ol.qty_balance > 0.0001
+                  AND ol.source_table = 'inv_division_stock_opening_snapshot'
+                  AND ol.receipt_date >= " . $this->db->escape($monthStart) . "
+                  AND ol.receipt_date < " . $this->db->escape($nextMonth) . "
+                GROUP BY ol.division_id, COALESCE(ol.destination_type, 'OTHER'), COALESCE(ol.material_id, 0), COALESCE(ol.profile_key, '')
+            ) lot_open_profile_month
+        ";
+
+        return [
+            'as_of_date' => $asOfDate,
+            'month_start' => $monthStart,
+            'next_month' => $nextMonth,
+            'material_opening_subquery' => $materialOpeningSubquery,
+            'profile_opening_subquery' => $profileOpeningSubquery,
+        ];
+    }
+
+    private function listReconcileExcludedDivisionIds(): array
+    {
+        if (!$this->db->table_exists('mst_operational_division')) {
+            return [];
+        }
+
+        $codeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+            ? 'division_code'
+            : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+        $nameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $selects = ['id'];
+        if ($codeColumn !== null) {
+            $selects[] = $codeColumn . ' AS division_code';
+        } else {
+            $selects[] = "'' AS division_code";
+        }
+        if ($nameColumn !== null) {
+            $selects[] = $nameColumn . ' AS division_name';
+        } else {
+            $selects[] = "'' AS division_name";
+        }
+
+        $rows = $this->db->select(implode(', ', $selects), false)
+            ->from('mst_operational_division')
+            ->get()->result_array();
+
+        $excluded = [];
+        foreach ($rows as $row) {
+            $code = strtoupper(trim((string)($row['division_code'] ?? '')));
+            $name = strtoupper(trim((string)($row['division_name'] ?? '')));
+            if (strpos($code, 'MANAJEMEN') !== false || strpos($name, 'MANAJEMEN') !== false
+                || strpos($code, 'MANAGEMENT') !== false || strpos($name, 'MANAGEMENT') !== false) {
+                $excluded[] = (int)($row['id'] ?? 0);
+            }
+        }
+
+        return array_values(array_unique(array_filter($excluded)));
+    }
+
     /** Pre-fetch FIFO lot totals keyed by "divId|destGroup|M-matId" for use in filter & orphan detection. */
-    private function buildReconcileLotPreMap(?int $divisionId, ?string $destinationFilter): array
+    private function buildReconcileLotPreMap(?int $divisionId, ?string $destinationFilter, string $asOfDate = ''): array
     {
         if (!$this->db->table_exists('inv_material_fifo_lot')) {
             return [];
         }
+        $cutoff = $this->buildDivisionReconcileLotCutoffContext($asOfDate);
         $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
         $sql  = "SELECT l.division_id, ({$destGroupExpr}) AS destination_group,
                         COALESCE(l.material_id,0) AS material_id, SUM(l.qty_balance) AS lot_total
                  FROM inv_material_fifo_lot l
-                 WHERE l.location_scope = 'DIVISION' AND l.status = 'OPEN' AND l.qty_balance > 0.0001";
+                 ";
+        if ($cutoff['material_opening_subquery'] !== '') {
+            $sql .= "LEFT JOIN {$cutoff['material_opening_subquery']}
+                        ON lot_open_month.division_id = l.division_id
+                       AND lot_open_month.destination_type = COALESCE(l.destination_type, 'OTHER')
+                       AND lot_open_month.material_id = COALESCE(l.material_id, 0)
+                    ";
+        }
+        $sql .= "WHERE l.location_scope = 'DIVISION' AND l.status = 'OPEN' AND l.qty_balance > 0.0001";
         $params = [];
+        if ($cutoff['as_of_date'] !== '') {
+            $sql .= ' AND l.receipt_date <= ?';
+            $params[] = $cutoff['as_of_date'];
+            $sql .= ' AND (lot_open_month.division_id IS NULL OR l.receipt_date >= ?)';
+            $params[] = $cutoff['month_start'];
+        }
         if ($divisionId !== null && $divisionId > 0) {
             $sql     .= ' AND l.division_id = ?';
             $params[] = $divisionId;
@@ -3213,11 +3347,12 @@ class Purchase_model extends CI_Model
      * Find materials that have active FIFO lots but no entry in allKeys (no monthly-stock or movement record).
      * Returns a map keyed by "divId|destGroup|M-matId|I-0" with synthetic balance-map-style entries.
      */
-    private function buildOrphanLotMetaMap(?int $divisionId, ?string $destinationFilter, array $preLotMap, array $allKeys, string $q = ''): array
+    private function buildOrphanLotMetaMap(?int $divisionId, ?string $destinationFilter, array $preLotMap, array $allKeys, string $q = '', string $asOfDate = ''): array
     {
         if (empty($preLotMap) || !$this->db->table_exists('inv_material_fifo_lot')) {
             return [];
         }
+        $cutoff = $this->buildDivisionReconcileLotCutoffContext($asOfDate);
         // Build material-level key set already present in allKeys (strip |I-xxx suffix)
         $covered = [];
         foreach (array_keys($allKeys) as $fk) {
@@ -3253,16 +3388,32 @@ class Purchase_model extends CI_Model
             $likeVal = $this->db->escape('%' . $this->db->escape_like_str($q) . '%');
             $qFilter = " AND (m.material_name LIKE {$likeVal} OR m.material_code LIKE {$likeVal})";
         }
+        $cutoffJoin = '';
+        $cutoffWhere = '';
+        if ($cutoff['material_opening_subquery'] !== '') {
+            $cutoffJoin = "
+                LEFT JOIN {$cutoff['material_opening_subquery']}
+                    ON lot_open_month.division_id = l.division_id
+                   AND lot_open_month.destination_type = COALESCE(l.destination_type, 'OTHER')
+                   AND lot_open_month.material_id = COALESCE(l.material_id, 0)
+            ";
+            $cutoffWhere = "
+              AND l.receipt_date <= " . $this->db->escape($cutoff['as_of_date']) . "
+              AND (lot_open_month.division_id IS NULL OR l.receipt_date >= " . $this->db->escape($cutoff['month_start']) . ")
+            ";
+        }
         $sql = "
             SELECT l.division_id, ({$destGroupExpr}) AS destination_group, l.destination_type,
                    COALESCE(l.material_id,0) AS material_id,
                    m.material_code, m.material_name, m.content_uom_id,
                    {$divCodeSelect}, {$divNameSelect}
             FROM inv_material_fifo_lot l
+            {$cutoffJoin}
             LEFT JOIN mst_material m ON m.id = l.material_id
             LEFT JOIN mst_operational_division d ON d.id = l.division_id
             WHERE l.location_scope = 'DIVISION' AND l.status = 'OPEN' AND l.qty_balance > 0.0001
               {$divFilter} AND l.material_id IN ({$matIdsStr}) {$qFilter}
+              {$cutoffWhere}
             GROUP BY l.division_id, destination_group, l.material_id
         ";
         $metaMap = [];
@@ -3321,18 +3472,26 @@ class Purchase_model extends CI_Model
         if (empty($divisionIds)) {
             return;
         }
+        $cutoff = $this->buildDivisionReconcileLotCutoffContext($asOfDate);
 
         // Group lots by (division_id, destination_group, material_id) only — not item_id/profile_key —
         // because the same material can arrive from different purchase batches with different item_ids.
         // Using item_id in the key would cause cross-batch lots to be missed.
         $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
-        $results = $this->db
+        $this->db
             ->select("l.division_id, ({$destGroupExpr}) AS destination_group, COALESCE(l.material_id,0) AS material_id, SUM(l.qty_balance) AS lot_total, SUM(l.qty_balance * COALESCE(l.unit_cost, 0)) AS lot_total_value", false)
             ->from('inv_material_fifo_lot l')
             ->where('l.location_scope', 'DIVISION')
             ->where('l.status', 'OPEN')
             ->where('l.qty_balance >', 0.0001)
-            ->where_in('l.division_id', $divisionIds)
+            ->where_in('l.division_id', $divisionIds);
+        if ($cutoff['material_opening_subquery'] !== '') {
+            $this->db
+                ->join($cutoff['material_opening_subquery'], "lot_open_month.division_id = l.division_id AND lot_open_month.destination_type = COALESCE(l.destination_type, 'OTHER') AND lot_open_month.material_id = COALESCE(l.material_id, 0)", 'left', false)
+                ->where('l.receipt_date <=', $cutoff['as_of_date'])
+                ->where('(lot_open_month.division_id IS NULL OR l.receipt_date >= ' . $this->db->escape($cutoff['month_start']) . ')', null, false);
+        }
+        $results = $this->db
             ->group_by(['l.division_id', 'destination_group', 'l.material_id'])
             ->get()->result_array();
 
@@ -3353,6 +3512,22 @@ class Purchase_model extends CI_Model
         if ($this->db->table_exists('inv_division_monthly_stock')) {
             $divIdsStr = implode(',', $divisionIds);
 
+            $profileLotCutoffJoin = '';
+            $profileLotCutoffWhere = '';
+            if ($cutoff['profile_opening_subquery'] !== '') {
+                $profileLotCutoffJoin = "
+                    LEFT JOIN {$cutoff['profile_opening_subquery']}
+                        ON lot_open_profile_month.division_id = l.division_id
+                       AND lot_open_profile_month.destination_type = COALESCE(l.destination_type, 'OTHER')
+                       AND lot_open_profile_month.material_id = COALESCE(l.material_id, 0)
+                       AND lot_open_profile_month.profile_key = COALESCE(l.profile_key, '')
+                ";
+                $profileLotCutoffWhere = "
+                  AND l.receipt_date <= " . $this->db->escape($cutoff['as_of_date']) . "
+                  AND (lot_open_profile_month.division_id IS NULL OR l.receipt_date >= " . $this->db->escape($cutoff['month_start']) . ")
+                ";
+            }
+
             $profileLotResults = $this->db->query("
                 SELECT l.division_id,
                        CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
@@ -3361,8 +3536,10 @@ class Purchase_model extends CI_Model
                        SUM(l.qty_balance) AS lot_total,
                        SUM(l.qty_balance * COALESCE(l.unit_cost, 0)) AS lot_value
                 FROM inv_material_fifo_lot l
+                {$profileLotCutoffJoin}
                 WHERE l.location_scope = 'DIVISION' AND l.status = 'OPEN' AND l.qty_balance > 0.0001
                   AND l.division_id IN ({$divIdsStr})
+                  {$profileLotCutoffWhere}
                 GROUP BY l.division_id, destination_group, l.material_id, l.profile_key
             ")->result_array();
 
@@ -3376,10 +3553,9 @@ class Purchase_model extends CI_Model
                 $profileBreakdownMap[$matK][$pk]['lot_value'] = round((float)($lr['lot_value'] ?? 0), 2);
             }
 
-            $latestMonthSubP = "SELECT ms2.division_id, ms2.destination_type, ms2.identity_key, MAX(ms2.month_key) AS max_month
-                                FROM inv_division_monthly_stock ms2
-                                WHERE ms2.division_id IN ({$divIdsStr})
-                                GROUP BY ms2.division_id, ms2.destination_type, ms2.identity_key";
+            $targetMonth = $cutoff['month_start'] !== ''
+                ? $cutoff['month_start']
+                : date('Y-m-01', strtotime($asOfDate !== '' ? $asOfDate : date('Y-m-d')));
 
             $profileStockResults = $this->db->query("
                 SELECT ms.division_id,
@@ -3390,12 +3566,9 @@ class Purchase_model extends CI_Model
                        SUM(ms.closing_qty_content) AS stock_balance,
                        SUM(COALESCE(ms.total_value, ROUND(ms.closing_qty_content * COALESCE(ms.avg_cost_per_content, 0), 2))) AS stock_value
                 FROM inv_division_monthly_stock ms
-                INNER JOIN ({$latestMonthSubP}) lm
-                    ON  lm.division_id      = ms.division_id
-                    AND lm.destination_type = ms.destination_type
-                    AND lm.identity_key     = ms.identity_key
-                    AND lm.max_month        = ms.month_key
-                WHERE ms.division_id IN ({$divIdsStr}) AND ms.material_id IS NOT NULL
+                WHERE ms.division_id IN ({$divIdsStr})
+                  AND ms.material_id IS NOT NULL
+                  AND ms.month_key = " . $this->db->escape($targetMonth) . "
                 GROUP BY ms.division_id, destination_group, ms.material_id, ms.profile_key
             ")->result_array();
 
@@ -11938,6 +12111,60 @@ class Purchase_model extends CI_Model
         }));
     }
 
+    private function buildWarehouseMonthlyGenerateSourceRows(string $dateFrom, string $dateTo): array
+    {
+        if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
+            $targetMonth = date('Y-m-01', strtotime($dateTo ?: $dateFrom ?: date('Y-m-d')));
+            $movementDate = $dateTo !== '' ? $dateTo : date('Y-m-t', strtotime($targetMonth));
+
+            $rows = $this->db
+                ->select('s.month_key')
+                ->select($this->db->escape($movementDate) . ' AS movement_date', false)
+                ->select("'ITEM' AS stock_domain", false)
+                ->select('s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id', false)
+                ->select('s.profile_key, s.profile_name, s.profile_brand, s.profile_description, s.profile_expired_date')
+                ->select('COALESCE(NULLIF(s.profile_content_per_buy, 0), 1) AS profile_content_per_buy', false)
+                ->select('s.profile_buy_uom_code, s.profile_content_uom_code')
+                ->select('COALESCE(s.avg_cost_per_content, 0) AS avg_cost_per_content', false)
+                ->select('COALESCE(s.movement_day_count, 0) AS movement_day_count, COALESCE(s.mutation_count, 0) AS mutation_count', false)
+                ->select('COALESCE(s.opening_qty_buy, 0) AS opening_qty_buy, COALESCE(s.opening_qty_content, 0) AS opening_qty_content', false)
+                ->select('COALESCE(s.in_qty_buy, 0) AS in_qty_buy, COALESCE(s.in_qty_content, 0) AS in_qty_content', false)
+                ->select('COALESCE(s.out_qty_buy, 0) AS out_qty_buy, COALESCE(s.out_qty_content, 0) AS out_qty_content', false)
+                ->select('COALESCE(s.discarded_qty_buy, 0) AS discarded_qty_buy, COALESCE(s.discarded_qty_content, 0) AS discarded_qty_content', false)
+                ->select('COALESCE(s.spoil_qty_buy, 0) AS spoil_qty_buy, COALESCE(s.spoil_qty_content, 0) AS spoil_qty_content', false)
+                ->select('COALESCE(s.waste_qty_buy, 0) AS waste_qty_buy, COALESCE(s.waste_qty_content, 0) AS waste_qty_content', false)
+                ->select('COALESCE(s.process_loss_qty_buy, 0) AS process_loss_qty_buy, COALESCE(s.process_loss_qty_content, 0) AS process_loss_qty_content', false)
+                ->select('COALESCE(s.variance_qty_buy, 0) AS variance_qty_buy, COALESCE(s.variance_qty_content, 0) AS variance_qty_content', false)
+                ->select('COALESCE(s.adjustment_plus_qty_buy, 0) AS adjustment_plus_qty_buy, COALESCE(s.adjustment_plus_qty_content, 0) AS adjustment_plus_qty_content', false)
+                ->select('COALESCE(s.adjustment_minus_qty_buy, 0) AS adjustment_qty_buy, COALESCE(s.adjustment_minus_qty_content, 0) AS adjustment_qty_content', false)
+                ->select('COALESCE(s.closing_qty_buy, 0) AS closing_qty_buy, COALESCE(s.closing_qty_content, 0) AS closing_qty_content', false)
+                ->select('COALESCE(s.waste_total_value, 0) AS waste_total_value, COALESCE(s.spoilage_total_value, 0) AS spoilage_total_value, COALESCE(s.process_loss_total_value, 0) AS process_loss_total_value, COALESCE(s.variance_total_value, 0) AS variance_total_value, COALESCE(s.adjustment_plus_total_value, 0) AS adjustment_plus_total_value', false)
+                ->select('COALESCE(s.total_value, ROUND(COALESCE(s.closing_qty_content, 0) * COALESCE(s.avg_cost_per_content, 0), 2)) AS total_value', false)
+                ->from('inv_warehouse_monthly_stock s')
+                ->join('mst_item i', 'i.id = s.item_id', 'left')
+                ->where('s.month_key', $targetMonth)
+                ->order_by('s.item_id', 'ASC')
+                ->order_by('s.profile_name', 'ASC')
+                ->get()
+                ->result_array();
+
+            $rows = $this->filterZeroOpeningClosingDailyRows($rows);
+            if (!empty($rows)) {
+                return $rows;
+            }
+        }
+
+        return $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
+            'WAREHOUSE',
+            '',
+            null,
+            $dateFrom,
+            $dateTo,
+            null,
+            false
+        );
+    }
+
     public function generate_monthly_opname_and_opening(array $payload, int $userId, string $sourceIp = ''): array
     {
         $stockScope = strtoupper(trim((string)($payload['stock_scope'] ?? 'WAREHOUSE')));
@@ -12106,15 +12333,7 @@ class Purchase_model extends CI_Model
 
         $rows = $stockScope === 'DIVISION'
             ? $this->buildDivisionMonthlyGenerateSourceRows($divisionId, $dateFrom, $dateTo, $destinationFilter)
-            : $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
-                $stockScope,
-                '',
-                $divisionId,
-                $dateFrom,
-                $dateTo,
-                $destinationFilter,
-                false
-            );
+            : $this->buildWarehouseMonthlyGenerateSourceRows($dateFrom, $dateTo);
 
         if (empty($rows)) {
             return [
@@ -12508,8 +12727,8 @@ class Purchase_model extends CI_Model
         return [
             'ok' => true,
             'message' => $stockScope === 'DIVISION'
-                ? 'Generate opname bulanan berhasil. Opening bulan berikutnya juga sudah dibuat untuk saldo akhir > 0 dengan source of truth mengikuti stock bulanan final.'
-                : 'Generate opname bulanan berhasil. Opening bulan berikutnya juga sudah dibuat untuk saldo akhir > 0.',
+                ? 'Generate opname bulanan berhasil. Data bulan yang sama ditimpa ulang, lalu opening bulan berikutnya dibentuk lagi untuk saldo akhir > 0 dengan source of truth mengikuti stock bulanan final.'
+                : 'Generate opname gudang berhasil. Data opname bulan sumber dan stok awal bulan berikutnya ditimpa ulang dari stock bulanan sumber.',
             'data' => [
                 'stock_scope' => $stockScope,
                 'month' => $monthKey,
@@ -12919,7 +13138,7 @@ class Purchase_model extends CI_Model
         return array_values($best);
     }
 
-    private function list_division_stock_monthly(string $q, int $limit, ?string $destinationFilter = null, string $dateFrom = '', string $dateTo = '', ?int $divisionId = null): array
+    private function list_division_stock_monthly(string $q, int $limit, ?string $destinationFilter = null, string $dateFrom = '', string $dateTo = '', ?int $divisionId = null, bool $strictMonth = false): array
     {
         $from = $this->normalizeDate($dateFrom);
         $to = $this->normalizeDate($dateTo);
@@ -12936,13 +13155,6 @@ class Purchase_model extends CI_Model
         $hasDivisionName = $divisionNameColumn !== null;
         $divisionCodeSelect = $hasDivisionCode ? ('d.' . $divisionCodeColumn . ' AS division_code') : 'CAST(s.division_id AS CHAR) AS division_code';
         $divisionNameSelect = $hasDivisionName ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
-
-        $latestMonthSubquery = $this->db
-            ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
-            ->from('inv_division_monthly_stock')
-            ->where('month_key <=', $targetMonth)
-            ->group_by(['division_id', 'destination_type', 'identity_key'])
-            ->get_compiled_select();
 
         $destinationGroupExpr = "CASE
                 WHEN COALESCE(s.destination_type, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'
@@ -12971,12 +13183,23 @@ class Purchase_model extends CI_Model
             ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
             ->select('s.profile_expired_date')
             ->from('inv_division_monthly_stock s')
-            ->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
             ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
             ->join('mst_item i', 'i.id = s.item_id', 'left')
             ->join('mst_material m', 'm.id = COALESCE(s.material_id, i.material_id)', 'left')
             ->where('(s.profile_key IS NULL OR s.identity_key = s.profile_key)', null, false)
             ->where('COALESCE(s.material_id, i.material_id) IS NOT NULL', null, false);
+
+        if ($strictMonth) {
+            $this->db->where('s.month_key', $targetMonth);
+        } else {
+            $latestMonthSubquery = $this->db
+                ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
+                ->from('inv_division_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by(['division_id', 'destination_type', 'identity_key'])
+                ->get_compiled_select();
+            $this->db->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false);
+        }
 
         if ($from !== null) {
             $this->db->where($activityDateExpr . ' >= ' . $this->db->escape($from), null, false);

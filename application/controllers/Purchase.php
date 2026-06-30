@@ -1859,7 +1859,11 @@ class Purchase extends MY_Controller
             return;
         }
 
-        $nextMonth = date('Y-m', strtotime('+1 month', strtotime((string)($payload['month'] ?? date('Y-m-01')))));
+        $sourceMonth = trim((string)($payload['month'] ?? date('Y-m')));
+        if (!preg_match('/^\d{4}-\d{2}$/', $sourceMonth)) {
+            $sourceMonth = date('Y-m');
+        }
+        $nextMonth = date('Y-m', strtotime($sourceMonth . '-01 +1 month'));
         redirect('inventory/stock/stok-awal/warehouse?month=' . $nextMonth);
     }
 
@@ -2090,7 +2094,7 @@ class Purchase extends MY_Controller
             $this->require_permission(self::PAGE_ORDER, 'view');
         }
 
-        $divisions           = $this->Purchase_model->list_active_operational_divisions();
+        $divisions           = $this->filterReconcileDivisions($this->Purchase_model->list_active_operational_divisions());
         $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
         $asOfDate            = trim((string)$this->input->get('as_of_date', true));
         if ($asOfDate === '') {
@@ -2098,6 +2102,9 @@ class Purchase extends MY_Controller
         }
         $q                  = trim((string)$this->input->get('q', true));
         $divisionId         = (int)$this->input->get('division_id', true);
+        if ($divisionId > 0 && !$this->isDivisionAllowedForReconcile($divisionId, $divisions)) {
+            $divisionId = 0;
+        }
         $destinationFilter  = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destinationFilter === '') {
             $destinationFilter = 'ALL';
@@ -2117,7 +2124,9 @@ class Purchase extends MY_Controller
             $destinationFilter
         );
 
-        $orphanStock = $this->Purchase_model->list_monthly_stock_no_material_id($divisionId > 0 ? $divisionId : null);
+        $orphanStock = $this->filterReconcileOrphanStock(
+            $this->Purchase_model->list_monthly_stock_no_material_id($divisionId > 0 ? $divisionId : null)
+        );
 
         $this->render('purchase/stock_division_reconcile_index', [
             'title'                => 'Rekonsiliasi Stok Divisi',
@@ -2135,6 +2144,41 @@ class Purchase extends MY_Controller
             'summary'              => $compare['summary'] ?? [],
             'orphan_stock'         => $orphanStock,
         ]);
+    }
+
+    private function filterReconcileDivisions(array $divisions): array
+    {
+        return array_values(array_filter($divisions, static function (array $row): bool {
+            $code = strtoupper(trim((string)($row['division_code'] ?? $row['code'] ?? '')));
+            $name = strtoupper(trim((string)($row['division_name'] ?? $row['name'] ?? '')));
+            return strpos($code, 'MANAJEMEN') === false
+                && strpos($name, 'MANAJEMEN') === false
+                && strpos($code, 'MANAGEMENT') === false
+                && strpos($name, 'MANAGEMENT') === false;
+        }));
+    }
+
+    private function isDivisionAllowedForReconcile(int $divisionId, array $divisions): bool
+    {
+        foreach ($divisions as $row) {
+            if ((int)($row['id'] ?? 0) === $divisionId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function filterReconcileOrphanStock(array $orphanStock): array
+    {
+        foreach (['fixable', 'no_material'] as $bucket) {
+            $rows = is_array($orphanStock[$bucket] ?? null) ? $orphanStock[$bucket] : [];
+            $orphanStock[$bucket] = array_values(array_filter($rows, static function (array $row): bool {
+                $name = strtoupper(trim((string)($row['division_name'] ?? '')));
+                return strpos($name, 'MANAJEMEN') === false && strpos($name, 'MANAGEMENT') === false;
+            }));
+        }
+        $orphanStock['total'] = count($orphanStock['fixable'] ?? []) + count($orphanStock['no_material'] ?? []);
+        return $orphanStock;
     }
 
     public function stock_division_reconcile_audit()

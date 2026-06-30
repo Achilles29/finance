@@ -59,9 +59,10 @@ $openingBaseUrl = site_url('inventory/stock/stok-awal/warehouse');
         </div>
         <div class="alert alert-light border small mb-0">
           <div><strong>Hasil generate:</strong></div>
-          <div>1. Opname bulanan gudang untuk bulan yang dipilih.</div>
-          <div>2. Stok awal bulan berikutnya hanya untuk saldo akhir yang tidak sama dengan 0.</div>
-          <div>3. Nilai sisa opname dan stok awal bulan berikutnya harus sama.</div>
+          <div>1. Opname bulanan gudang untuk bulan sumber yang dipilih.</div>
+          <div>2. Stok awal otomatis dibuat untuk bulan berikutnya, hanya untuk saldo akhir yang tidak sama dengan 0.</div>
+          <div>3. Jika generate diulang, data generate sebelumnya akan ditimpa.</div>
+          <div>4. Nilai sisa opname dan stok awal bulan berikutnya harus sama.</div>
         </div>
       </div>
       <div class="modal-footer">
@@ -95,9 +96,17 @@ $openingBaseUrl = site_url('inventory/stock/stok-awal/warehouse');
   }
 
   function nextMonth(month) {
-    const d = new Date(month + '-01T00:00:00');
-    d.setMonth(d.getMonth() + 1);
-    return d.toISOString().slice(0, 7);
+    const parts = String(month || '').split('-');
+    if (parts.length !== 2) return '';
+    let year = Number(parts[0]);
+    let mon = Number(parts[1]);
+    if (!year || !mon || mon < 1 || mon > 12) return '';
+    mon += 1;
+    if (mon > 12) {
+      mon = 1;
+      year += 1;
+    }
+    return String(year).padStart(4, '0') + '-' + String(mon).padStart(2, '0');
   }
 
   function renderLinks(month) {
@@ -130,7 +139,8 @@ $openingBaseUrl = site_url('inventory/stock/stok-awal/warehouse');
       return;
     }
 
-    if (!confirm('Generate opname gudang bulan ' + month + ' dan buat stok awal bulan ' + nextMonth(month) + '?')) {
+    const targetMonth = nextMonth(month);
+    if (!confirm('Generate opname gudang bulan sumber ' + month + ' dan timpa stok awal bulan ' + targetMonth + ' jika sudah ada?')) {
       return;
     }
 

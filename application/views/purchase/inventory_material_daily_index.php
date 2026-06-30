@@ -2189,6 +2189,19 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         return String(a.profile_description || '').localeCompare(String(b.profile_description || ''), 'id', { sensitivity: 'base' });
       });
 
+      group.children.forEach(function(child, index){
+        child.__source_index = index;
+      });
+
+      var positiveChildren = group.children.filter(function(child){
+        return Number((child.metrics && child.metrics.closing_content) || 0) > 0.0001;
+      });
+      group.display_children = positiveChildren.length > 0 ? positiveChildren : group.children.slice();
+      if (!group.display_children.length && group.children.length) {
+        group.display_children = [group.children[0]];
+      }
+      group.display_alert_metrics = buildDisplayAlertMetrics(group.display_children);
+
       if (agg.closing_content !== 0) {
         agg.hpp = agg.total_value / agg.closing_content;
       } else if (group.children.length > 0) {
@@ -2211,6 +2224,41 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     return Number((metrics && metrics.closing_content) || 0) <= 0.0001;
   }
 
+  function buildDisplayAlertMetrics(children){
+    var metrics = {
+      closing_content: 0,
+      log_has_gap: 0,
+      log_gap_content: 0,
+      audit_has_mismatch: 0,
+      audit_mismatch_row_count: 0,
+      audit_mismatch_qty_content: 0
+    };
+    (children || []).forEach(function(child){
+      metrics.closing_content += Number((child.metrics && child.metrics.closing_content) || 0);
+      if (Number(child.log_has_gap || 0) > 0) {
+        metrics.log_has_gap = 1;
+        metrics.log_gap_content += Number(child.log_gap_content || 0);
+      }
+      if (Number(child.audit_has_mismatch || 0) > 0) {
+        metrics.audit_has_mismatch = 1;
+        metrics.audit_mismatch_row_count += Number(child.audit_mismatch_row_count || 0);
+        metrics.audit_mismatch_qty_content += Number(child.audit_mismatch_qty_content || 0);
+      }
+    });
+    return metrics;
+  }
+
+  function getDisplayChildren(group){
+    if (group && Array.isArray(group.display_children)) {
+      return group.display_children;
+    }
+    return (group && Array.isArray(group.children)) ? group.children : [];
+  }
+
+  function getDisplayAlertMetrics(group){
+    return (group && group.display_alert_metrics) ? group.display_alert_metrics : ((group && group.metrics) || {});
+  }
+
   function rowAlertClass(metrics, auditHasMismatch){
     return (isNonPositiveMetrics(metrics) || Number(auditHasMismatch || 0) > 0) ? ' pmd-stock-alert' : '';
   }
@@ -2226,7 +2274,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     var totalAdj = 0;
 
     (groups || []).forEach(function(group){
-      profileCount += (group.children || []).length;
+      profileCount += getDisplayChildren(group).length;
       if (group.division_id) { divisionSet[String(group.division_id)] = true; }
       if (group.material_id) { materialSet[String(group.material_id)] = true; }
       var m = group.metrics || {};
@@ -2411,7 +2459,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
 
   function isExpandable(group){
-    return Array.isArray(group.children) && group.children.length > 1;
+    return getDisplayChildren(group).length > 1;
   }
 
   function isExpanded(group){
@@ -2444,7 +2492,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
 
   function averageProfileContent(group){
-    var rows = (group && Array.isArray(group.children)) ? group.children : [];
+    var rows = getDisplayChildren(group);
     var values = rows.map(function(child){
       return Number(child.profile_content_per_buy || 0);
     }).filter(function(value){
@@ -2495,12 +2543,14 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
 
   function materialCellHtml(group, profile, expandable, expanded, variant){
     var source = profile || group || {};
-    var firstChild = (group && Array.isArray(group.children) && group.children.length) ? group.children[0] : null;
+    var displayChildren = getDisplayChildren(group);
+    var firstChild = displayChildren.length ? displayChildren[0] : null;
     var materialName = group.material_name || group.item_name || '-';
     var materialCode = group.material_code || group.item_code || '-';
     var chips = [];
     var priceChips = [];
     var actions = [];
+    var displayMetrics = !profile ? getDisplayAlertMetrics(group) : (source.metrics || {});
     var packContent = Number(source.profile_content_per_buy || averageProfileContent(group) || 0);
     var contentUom = source.profile_content_uom_code || (firstChild && firstChild.profile_content_uom_code) || '';
     var buyUom = source.profile_buy_uom_code || (firstChild && firstChild.profile_buy_uom_code) || '-';
@@ -2518,16 +2568,16 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       chips.push('<span class="' + chipClass + '">' + esc(source.profile_name) + '</span>');
     }
     if (!profile && expandable) {
-      chips.push('<span class="' + chipClass + '">' + esc(String((group.children || []).length)) + ' profil</span>');
+      chips.push('<span class="' + chipClass + '">' + esc(String(displayChildren.length)) + ' profil</span>');
     }
-    var logHasGap = profile ? Number(source.log_has_gap || 0) > 0 : Number((source.metrics && source.metrics.log_has_gap) || 0) > 0;
-    var logGapContent = profile ? Number(source.log_gap_content || 0) : Number((source.metrics && source.metrics.log_gap_content) || 0);
+    var logHasGap = profile ? Number(source.log_has_gap || 0) > 0 : Number(displayMetrics.log_has_gap || 0) > 0;
+    var logGapContent = profile ? Number(source.log_gap_content || 0) : Number(displayMetrics.log_gap_content || 0);
     if (logHasGap) {
       var gapSign = logGapContent >= 0 ? '+' : '';
       chips.push('<span class="pmd-alert-chip" title="Movement log tidak lengkap. Selisih: ' + esc(gapSign + num(logGapContent)) + '">⚠ Log Gap ' + esc(gapSign + num(logGapContent)) + '</span>');
-    } else if (Number(source.audit_has_mismatch || 0) > 0) {
-      chips.push('<span class="pmd-alert-chip">Mismatch Log ' + esc(num(source.audit_mismatch_qty_content || 0)) + '</span>');
-    } else if (isNonPositiveMetrics(source.metrics || {})) {
+    } else if (profile ? Number(source.audit_has_mismatch || 0) > 0 : Number(displayMetrics.audit_has_mismatch || 0) > 0) {
+      chips.push('<span class="pmd-alert-chip">Mismatch Log ' + esc(num(profile ? (source.audit_mismatch_qty_content || 0) : (displayMetrics.audit_mismatch_qty_content || 0))) + '</span>');
+    } else if (isNonPositiveMetrics(profile ? (source.metrics || {}) : displayMetrics)) {
       chips.push('<span class="pmd-alert-chip">Stok Habis / Minus</span>');
     }
     if (packContent > 0) {
@@ -2558,19 +2608,20 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   function detailCellHtml(group, profile, summaryHtml){
     var isParent = !profile;
     var detailParts = [];
+    var displayMetrics = isParent ? getDisplayAlertMetrics(group) : (profile || {});
     if (isParent && isExpandable(group)) {
       if (Number((group.metrics && group.metrics.last_unit_price) || 0) > 0) {
         detailParts.push('<span class="pmd-detail-chip">Harga satuan rata-rata ' + esc(money((group.metrics && group.metrics.last_unit_price) || 0)) + '</span>');
       }
     }
-    var detailLogHasGap = profile ? Number(profile.log_has_gap || 0) > 0 : Number((group.metrics && group.metrics.log_has_gap) || 0) > 0;
-    var detailLogGap = profile ? Number(profile.log_gap_content || 0) : Number((group.metrics && group.metrics.log_gap_content) || 0);
+    var detailLogHasGap = profile ? Number(profile.log_has_gap || 0) > 0 : Number(displayMetrics.log_has_gap || 0) > 0;
+    var detailLogGap = profile ? Number(profile.log_gap_content || 0) : Number(displayMetrics.log_gap_content || 0);
     if (detailLogHasGap) {
       var detailGapSign = detailLogGap >= 0 ? '+' : '';
       detailParts.push('<span class="pmd-alert-chip">⚠ Gap movement log: selisih ' + esc(detailGapSign + num(detailLogGap)) + ' — ada pergerakan yang tidak tercatat di movement log (koreksi phantom, edit manual, dll). Opening & closing tetap dari monthly_stock.</span>');
     }
-    if ((profile && Number(profile.audit_has_mismatch || 0) > 0) || (!profile && Number((group.metrics && group.metrics.audit_has_mismatch) || 0) > 0)) {
-      var mismatchSource = profile || (group && group.metrics) || {};
+    if ((profile && Number(profile.audit_has_mismatch || 0) > 0) || (!profile && Number(displayMetrics.audit_has_mismatch || 0) > 0)) {
+      var mismatchSource = profile || displayMetrics || {};
       var mismatchNotes = profile ? String(profile.audit_mismatch_notes || '') : '';
       detailParts.push('<span class="pmd-alert-chip">Log mismatch ' + esc(num(mismatchSource.audit_mismatch_qty_content || 0)) + '</span>');
       if (mismatchNotes) {
@@ -2588,14 +2639,15 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   function freezeGroupRowHtml(group){
     var expandable = isExpandable(group);
     var expanded = isExpanded(group);
-    var singleProfile = (!expandable && Array.isArray(group.children) && group.children.length === 1) ? group.children[0] : null;
+    var displayChildren = getDisplayChildren(group);
+    var singleProfile = (!expandable && displayChildren.length === 1) ? displayChildren[0] : null;
     var divisionText = divisionLabel(group);
     var destinationText = destinationLabel(group);
     var toggleHtml = expandable
       ? '<button type="button" class="pmd-toggle-arrow" title="Expand/Collapse" data-action="toggle-group" data-group-key="' + esc(group.key) + '">' + (expanded ? '&#9662;' : '&#9656;') + '</button>'
       : '<span class="pmd-toggle-static" title="Baris tunggal">&bull;</span>';
     var rowClass = expandable ? 'pmd-group-row pmd-group-expandable' : 'pmd-group-row pmd-group-single';
-    rowClass += rowAlertClass(singleProfile ? singleProfile.metrics : group.metrics, singleProfile ? singleProfile.audit_has_mismatch : (group.metrics && group.metrics.audit_has_mismatch));
+    rowClass += rowAlertClass(singleProfile ? singleProfile.metrics : getDisplayAlertMetrics(group), singleProfile ? singleProfile.audit_has_mismatch : (getDisplayAlertMetrics(group).audit_has_mismatch || 0));
 
     return '' +
       '<tr class="' + rowClass + '">' +
@@ -2606,10 +2658,11 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
 
   function groupRowHtml(group, groupIndex){
-    var singleProfile = (!isExpandable(group) && Array.isArray(group.children) && group.children.length === 1) ? group.children[0] : null;
-    var parentProfileIndex = singleProfile ? 0 : -1;
+    var displayChildren = getDisplayChildren(group);
+    var singleProfile = (!isExpandable(group) && displayChildren.length === 1) ? displayChildren[0] : null;
+    var parentProfileIndex = singleProfile ? Number(singleProfile.__source_index || 0) : -1;
     var rowClass = isExpandable(group) ? 'pmd-group-row pmd-group-expandable' : 'pmd-group-row pmd-group-single';
-    rowClass += rowAlertClass(singleProfile ? singleProfile.metrics : group.metrics, singleProfile ? singleProfile.audit_has_mismatch : (group.metrics && group.metrics.audit_has_mismatch));
+    rowClass += rowAlertClass(singleProfile ? singleProfile.metrics : getDisplayAlertMetrics(group), singleProfile ? singleProfile.audit_has_mismatch : (getDisplayAlertMetrics(group).audit_has_mismatch || 0));
     var packSize = 0;
     if (singleProfile && Number(singleProfile.profile_content_per_buy || 0) > 0) {
       packSize = Number(singleProfile.profile_content_per_buy || 0);
@@ -2704,7 +2757,8 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       freezeHtml += freezeGroupRowHtml(group);
       html += groupRowHtml(group, groupIndex);
       if (isExpandable(group) && isExpanded(group)) {
-        (group.children || []).forEach(function(profile, profileIndex){
+        getDisplayChildren(group).forEach(function(profile){
+          var profileIndex = Number(profile.__source_index || 0);
           freezeHtml += freezeProfileRowHtml(group, profile);
           html += profileRowHtml(group, groupIndex, profile, profileIndex);
         });
