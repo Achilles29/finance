@@ -139,3 +139,24 @@ cek server
 finalkan generate stok gudang, bahan baku. component. pastikan cutoff dan membuat data baru stok dan lot nya sesuai
 finalkan generate keuangan
 
+
+
+
+/attendance/estimate perbaiki tampilan:
+- berikan card ringkasan di atas
+- buat tabelnya scrollable dan freeze di atas
+
+/attendance/pending-requests perbaiki tampilan:
+- buat tabelnya scrollable dan freeze di atas
+- sembunyikan NIP, DIVIS, JABATAN
+- perlebar kolom level agar tidak terlalu tinggi ukuran kolomnya
+- sebelah  kanan JENIS tambahkan kolom yang menampilkan record absen yang sudah ada dari pegawai sesuai shift yang diajukan , kalau tidak ada tulis belum ada record.
+
+
+/attendance/daily perbaiki tampilan:
+- berikan card ringkasan di atas
+- buat tabelnya scrollable dan freeze di atas
+
+
+
+/payroll/cash-advances

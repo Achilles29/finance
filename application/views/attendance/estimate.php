@@ -4,6 +4,44 @@ $rows = $rows ?? [];
 $pg = $pg ?? ['page'=>1,'total_pages'=>1,'per_page'=>25,'total'=>0];
 $divisionOptions = $division_options ?? [];
 
+$summary = [
+    'employee_count' => count($rows),
+    'scheduled_days' => 0,
+    'present_days' => 0,
+    'alpha_days' => 0,
+    'overtime_minutes' => 0,
+    'gross_total' => 0.0,
+    'thp_total' => 0.0,
+];
+
+foreach ($rows as $row) {
+    $summary['scheduled_days'] += (int)($row['scheduled_days'] ?? 0);
+    $summary['present_days'] += (int)($row['present_days'] ?? 0);
+    $summary['alpha_days'] += (int)($row['alpha_days'] ?? 0);
+    $summary['overtime_minutes'] += (int)($row['overtime_minutes'] ?? 0);
+    $summary['gross_total'] += (float)($row['gross_total'] ?? 0);
+    $summary['thp_total'] += (float)($row['net_total'] ?? 0);
+}
+
+$formatCurrency = static function (float $value): string {
+    return 'Rp ' . number_format($value, 2, ',', '.');
+};
+
+$formatMinutes = static function (int $minutes): string {
+    if ($minutes <= 0) {
+        return '0 Jam';
+    }
+    $hours = floor($minutes / 60);
+    $remain = $minutes % 60;
+    if ($hours > 0 && $remain > 0) {
+        return $hours . 'j ' . $remain . 'm';
+    }
+    if ($hours > 0) {
+        return $hours . ' Jam';
+    }
+    return $remain . ' Menit';
+};
+
 $buildQuery = static function ($overrides = []) use ($filters, $pg) {
     $base = [
         'q' => $filters['q'] ?? '',
@@ -37,6 +75,66 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 };
 ?>
 
+<style>
+  .attendance-estimate-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+  }
+
+  .attendance-estimate-card {
+    border: 1px solid rgba(154, 23, 37, 0.08);
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at top right, rgba(195, 39, 57, 0.08), transparent 28%),
+      linear-gradient(135deg, #ffffff, #fff7f2);
+    box-shadow: 0 12px 30px rgba(89, 38, 23, 0.08);
+    padding: 18px 18px 16px;
+    min-height: 118px;
+  }
+
+  .attendance-estimate-card-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: #9a1725;
+    margin-bottom: 10px;
+  }
+
+  .attendance-estimate-card-value {
+    font-size: 27px;
+    line-height: 1;
+    font-weight: 800;
+    color: #2b1a14;
+    margin-bottom: 8px;
+  }
+
+  .attendance-estimate-card-note {
+    font-size: 12px;
+    line-height: 1.45;
+    color: #7a685d;
+  }
+
+  .attendance-estimate-table-wrap {
+    max-height: 72vh;
+    overflow: auto;
+  }
+
+  .attendance-estimate-table {
+    min-width: 1680px;
+  }
+
+  .attendance-estimate-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #f8f9fa;
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.06);
+    white-space: nowrap;
+  }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="mb-0"><?php echo html_escape($title ?? 'Rekap Gaji Bulanan (Absensi)'); ?></h4>
@@ -45,6 +143,39 @@ $buildPageItems = static function (int $page, int $totalPages): array {
   <div class="d-flex align-items-center gap-2">
     <a class="btn btn-outline-secondary btn-sm" href="<?php echo site_url('attendance/meal-calendar'); ?>">Estimasi Uang Makan</a>
     <span class="text-muted small">Total: <?php echo (int)$pg['total']; ?></span>
+  </div>
+</div>
+
+<div class="attendance-estimate-summary mb-3">
+  <div class="attendance-estimate-card">
+    <div class="attendance-estimate-card-label">Pegawai Tampil</div>
+    <div class="attendance-estimate-card-value"><?php echo number_format((int)$summary['employee_count'], 0, ',', '.'); ?></div>
+    <div class="attendance-estimate-card-note">Ringkasan dari baris yang sedang tampil pada filter dan halaman aktif.</div>
+  </div>
+  <div class="attendance-estimate-card">
+    <div class="attendance-estimate-card-label">Hari Terjadwal</div>
+    <div class="attendance-estimate-card-value"><?php echo number_format((int)$summary['scheduled_days'], 0, ',', '.'); ?></div>
+    <div class="attendance-estimate-card-note">Akumulasi total hari kerja terjadwal dari pegawai yang sedang ditampilkan.</div>
+  </div>
+  <div class="attendance-estimate-card">
+    <div class="attendance-estimate-card-label">Hari Hadir</div>
+    <div class="attendance-estimate-card-value"><?php echo number_format((int)$summary['present_days'], 0, ',', '.'); ?></div>
+    <div class="attendance-estimate-card-note">Membantu melihat kepatuhan kehadiran tanpa perlu scan tabel satu per satu.</div>
+  </div>
+  <div class="attendance-estimate-card">
+    <div class="attendance-estimate-card-label">Hari Alpha</div>
+    <div class="attendance-estimate-card-value text-danger"><?php echo number_format((int)$summary['alpha_days'], 0, ',', '.'); ?></div>
+    <div class="attendance-estimate-card-note">Total alpha dari data yang sedang tampil. Card ini cepat menandai periode bermasalah.</div>
+  </div>
+  <div class="attendance-estimate-card">
+    <div class="attendance-estimate-card-label">Total Lembur</div>
+    <div class="attendance-estimate-card-value"><?php echo html_escape($formatMinutes((int)$summary['overtime_minutes'])); ?></div>
+    <div class="attendance-estimate-card-note">Akumulasi menit lembur pada hasil filter aktif.</div>
+  </div>
+  <div class="attendance-estimate-card">
+    <div class="attendance-estimate-card-label">Total THP</div>
+    <div class="attendance-estimate-card-value text-success" style="font-size:22px;"><?php echo html_escape($formatCurrency((float)$summary['thp_total'])); ?></div>
+    <div class="attendance-estimate-card-note">Take home pay total dari baris yang tampil. Cocok untuk cross-check cepat sebelum buka detail.</div>
   </div>
 </div>
 
@@ -62,8 +193,12 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 </div>
 
 <div class="card">
-  <div class="table-responsive">
-    <table class="table table-striped mb-0">
+  <div class="card-body border-bottom py-2 px-3 d-flex justify-content-between align-items-center">
+    <small class="text-muted">Tabel bisa discroll vertikal dan header akan tetap terlihat saat kita menelusuri data panjang.</small>
+    <small class="text-muted">Gaji kotor halaman ini: <?php echo html_escape($formatCurrency((float)$summary['gross_total'])); ?></small>
+  </div>
+  <div class="attendance-estimate-table-wrap">
+    <table class="table table-striped mb-0 attendance-estimate-table">
       <thead>
         <tr>
           <th>Pegawai</th>
