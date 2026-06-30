@@ -1,6 +1,5 @@
 <?php
 $initialMonth = (string)($month ?? date('Y-m'));
-$generateUrl = site_url('inventory/stock/opname/generate');
 $profileAuditBaseUrl = site_url('inventory/fifo-audit');
 $adjustmentStoreUrl = site_url('inventory/stock/adjustment/store');
 $adjustmentPostBaseUrl = site_url('inventory/stock/adjustment/post');
@@ -11,29 +10,18 @@ $initialLimit = (int)($limit ?? 120);
 if ($initialLimit <= 0 || $initialLimit > 1000) {
   $initialLimit = 120;
 }
-$nextOpeningMonth = date('Y-m', strtotime('+1 month', strtotime(substr($initialMonth, 0, 7) . '-01')));
-$nextOpeningUrl = site_url('inventory/stock/stok-awal/warehouse?month=' . rawurlencode($nextOpeningMonth));
 ?>
 
 <div class="mb-2">
   <h4 class="mb-1"><i class="ri ri-calendar-check-line page-title-icon"></i><?php echo html_escape($title ?? 'Inventory Warehouse Daily'); ?></h4>
   <small class="text-muted">Matrix stok gudang per hari dengan ringkasan item yang bisa di-expand per profil.</small>
 </div>
-<div class="d-flex flex-wrap gap-1 align-items-center mb-3">
-  <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname gudang bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
-    <input type="hidden" name="stock_scope" value="WAREHOUSE">
-    <input type="hidden" name="month" value="<?php echo html_escape(substr($initialMonth, 0, 7)); ?>">
-    <input type="hidden" name="back_url" value="<?php echo html_escape($nextOpeningUrl); ?>">
-    <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal Bulan Depan</button>
-  </form>
-  <a href="<?php echo site_url('inventory-warehouse-daily'); ?>" class="btn btn-sm btn-dark">Snapshot Harian Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Stok Gudang</a>
-  <a href="<?php echo html_escape($nextOpeningUrl); ?>" class="btn btn-sm btn-outline-secondary">Stok Awal Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/opening/warehouse'); ?>" class="btn btn-sm btn-outline-secondary">Opening Manual Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/warehouse/movement'); ?>" class="btn btn-sm btn-outline-secondary">Keluar Masuk Gudang</a>
-  <a href="<?php echo site_url('inventory/stock/warehouse/daily'); ?>" class="btn btn-sm btn-outline-secondary">Stok Bulanan/Daily</a>
-  <a href="<?php echo site_url('inventory/fifo-audit?scope=WAREHOUSE'); ?>" class="btn btn-sm btn-outline-secondary">Audit Profil Gudang</a>
+<div class="d-flex flex-wrap gap-2 mb-2">
+  <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'daily_matrix']); ?>
 </div>
+<?php $this->load->view('purchase/_warehouse_stock_generate_btn', [
+  'warehouse_action_params' => ['month' => substr($initialMonth, 0, 7), 'date_from' => $initialDateFrom],
+]); ?>
 
 <style>
   :root {

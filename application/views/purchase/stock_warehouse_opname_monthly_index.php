@@ -1,13 +1,10 @@
 <?php
 $filters  = is_array($filters ?? null) ? $filters : [];
 $rows     = is_array($rows ?? null) ? $rows : [];
-$generateUrl = isset($generate_url) ? $generate_url : site_url('inventory/stock/opname/generate');
 $selectedMonthValue = (string)($filters['month'] ?? date('Y-m'));
 if (!preg_match('/^\d{4}-\d{2}$/', $selectedMonthValue)) {
   $selectedMonthValue = date('Y-m');
 }
-$nextOpeningMonthValue = date('Y-m', strtotime('+1 month', strtotime($selectedMonthValue . '-01')));
-$nextOpeningUrl = site_url('inventory/stock/stok-awal/warehouse?month=' . rawurlencode($nextOpeningMonthValue));
 
 $fmtQty = static function ($v): string {
   $f = round((float)$v, 2);
@@ -20,25 +17,16 @@ $fmtCost = static function ($v): string {
 ?>
 
 <div class="mb-3">
-  <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
-    <div>
-      <h4 class="mb-1"><i class="ri ri-file-list-3-line page-title-icon"></i><?php echo html_escape($page_title ?? 'Stok Opname Bulanan Gudang'); ?></h4>
-      <small class="text-muted">Snapshot stok gudang hasil generate opname bulanan. Output generate terdiri dari opname bulan ini dan stok awal otomatis untuk bulan berikutnya.</small>
-    </div>
-    <div class="d-flex gap-2">
-      <a href="<?php echo html_escape($nextOpeningUrl); ?>" class="btn btn-sm btn-outline-secondary">
-        <i class="ri ri-calendar-check-line me-1"></i>Stok Awal <?php echo html_escape($nextOpeningMonthValue); ?>
-      </a>
-      <button type="button" class="btn btn-sm btn-outline-danger" id="btn-generate-opname">
-        <i class="ri ri-refresh-line me-1"></i>Generate Opname + Stok Awal Bulan Depan
-      </button>
-    </div>
-  </div>
+  <h4 class="mb-1"><i class="ri ri-file-list-3-line page-title-icon"></i><?php echo html_escape($page_title ?? 'Stok Opname Bulanan Gudang'); ?></h4>
+  <small class="text-muted">Snapshot stok gudang hasil generate opname bulanan. Output generate terdiri dari opname bulan ini dan stok awal otomatis untuk bulan berikutnya.</small>
 </div>
 
 <div class="d-flex flex-wrap gap-2 mb-3">
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'opname_monthly']); ?>
 </div>
+<?php $this->load->view('purchase/_warehouse_stock_generate_btn', [
+  'warehouse_action_params' => ['month' => $selectedMonthValue],
+]); ?>
 
 <div class="card mb-3">
   <div class="card-body">
@@ -88,7 +76,6 @@ $fmtCost = static function ($v): string {
               <?php if (!empty($row['profile_brand'])): ?>
                 <div class="text-muted" style="font-size:.72rem"><?php echo html_escape((string)$row['profile_brand']); ?></div>
               <?php endif; ?>
-              <div class="text-muted" style="font-size:.7rem"><?php echo html_escape((string)($row['stock_domain'] ?? '')); ?></div>
             </td>
             <td><?php echo html_escape((string)($row['profile_content_uom_code'] ?? '-')); ?></td>
             <td class="text-end"><?php echo $fmtQty($row['opening_qty_content'] ?? 0); ?></td>
@@ -115,41 +102,3 @@ $fmtCost = static function ($v): string {
   </div>
   <div class="text-muted small mt-1"><?php echo count($rows); ?> baris</div>
 <?php endif; ?>
-
-<script>
-(function () {
-  const generateUrl = <?php echo json_encode($generateUrl); ?>;
-
-  document.getElementById('btn-generate-opname')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btn-generate-opname');
-    const month = document.querySelector('input[name="month"]')?.value || '';
-    if (!month) { alert('Pilih bulan terlebih dahulu.'); return; }
-    const nextMonth = new Date(month + '-01T00:00:00');
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
-    const nextMonthLabel = nextMonth.toISOString().slice(0, 7);
-    if (!confirm('Generate opname gudang bulan ' + month + ' dan buat stok awal bulan ' + nextMonthLabel + '?')) return;
-    btn.disabled = true;
-    btn.textContent = 'Generating...';
-    try {
-      const res = await fetch(generateUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ stock_scope: 'WAREHOUSE', month })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        alert('Gagal: ' + (data.message || res.statusText));
-        btn.disabled = false;
-        btn.innerHTML = '<i class="ri ri-refresh-line me-1"></i>Generate Opname + Stok Awal Bulan Depan';
-        return;
-      }
-      const nextMonth = (data.data && data.data.next_month) ? String(data.data.next_month).slice(0, 7) : nextMonthLabel;
-      window.location.href = <?php echo json_encode(site_url('inventory/stock/stok-awal/warehouse')); ?> + '?month=' + encodeURIComponent(nextMonth);
-    } catch (err) {
-      alert('Error: ' + err.message);
-      btn.disabled = false;
-      btn.innerHTML = '<i class="ri ri-refresh-line me-1"></i>Generate Opname + Stok Awal Bulan Depan';
-    }
-  });
-})();
-</script>

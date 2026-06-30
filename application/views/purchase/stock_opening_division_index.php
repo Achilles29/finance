@@ -366,7 +366,7 @@ tr:hover .btn-quickfill { opacity:1; }
             $divC  = trim((string)($r['division_code'] ?? ''));
             $divN  = trim((string)($r['division_name'] ?? ''));
             $divLabel = $divC !== '' ? ($divC.' - '.$divN) : ($divN ?: (string)($r['division_id'] ?? '-'));
-            $dest  = strtoupper(trim((string)($r['destination_type'] ?? 'OTHER')));
+            $dest  = strtoupper(trim((string)($r['destination_type'] ?? '')));
             $domain = strtoupper(trim((string)($r['stock_domain'] ?? 'ITEM')));
             $matCode = trim((string)($r['material_code'] ?? ''));
             $matName = trim((string)($r['material_name'] ?? ''));
@@ -495,8 +495,8 @@ tr:hover .btn-quickfill { opacity:1; }
                           $dc  = trim((string)($d['code']??''));
                           $dn  = trim((string)($d['name']??''));
                           $dl  = $dc!==''?($dc.' - '.$dn):($dn?:(string)$did);
-                          $destDef = strtoupper(trim((string)($d['destination_default']??'OTHER')));
-                          $destAlw = trim((string)($d['destination_allowed']??'BAR,KITCHEN,BAR_EVENT,KITCHEN_EVENT,OFFICE,OTHER'));
+                          $destDef = strtoupper(trim((string)($d['destination_default']??'BAR')));
+                          $destAlw = trim((string)($d['destination_allowed']??'BAR,KITCHEN,BAR_EVENT,KITCHEN_EVENT,OFFICE'));
                         ?>
                         <option value="<?php echo $did; ?>"
                           data-code="<?php echo html_escape($dc); ?>"
@@ -515,7 +515,6 @@ tr:hover .btn-quickfill { opacity:1; }
                       <option value="BAR_EVENT">BAR_EVENT</option>
                       <option value="KITCHEN_EVENT">KITCHEN_EVENT</option>
                       <option value="OFFICE">OFFICE</option>
-                      <option value="OTHER">OTHER</option>
                     </select>
                   </div>
                   <div class="col-6">
@@ -665,7 +664,7 @@ tr:hover .btn-quickfill { opacity:1; }
   var notesEl            = document.getElementById('notes');
   var saveBtnEl          = document.getElementById('btn-save-opening');
 
-  var destLabels = { BAR:'BAR (Reguler)', KITCHEN:'KITCHEN (Reguler)', BAR_EVENT:'BAR_EVENT', KITCHEN_EVENT:'KITCHEN_EVENT', OFFICE:'OFFICE', OTHER:'OTHER' };
+  var destLabels = { BAR:'BAR (Reguler)', KITCHEN:'KITCHEN (Reguler)', BAR_EVENT:'BAR_EVENT', KITCHEN_EVENT:'KITCHEN_EVENT', OFFICE:'OFFICE' };
   var itemSearchTimer = null;
   var itemLastQ = '';
   var selectedItemMeta = null;
@@ -699,13 +698,13 @@ tr:hover .btn-quickfill { opacity:1; }
       var c = p.trim().toUpperCase();
       if (destLabels[c] && allowed.indexOf(c) === -1) allowed.push(c);
     });
-    return allowed.length ? allowed : ['BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE','OTHER'];
+    return allowed.length ? allowed : ['BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE'];
   }
   function applyDivisionDestRule(forceDefault) {
     if (!destinationEl) return;
     var prev = String(destinationEl.value || '').toUpperCase();
-    var allowed = ['BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE','OTHER'];
-    var defDest = 'OTHER';
+    var allowed = ['BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE'];
+    var defDest = 'BAR';
     if (divisionEl && divisionEl.value) {
       var opt = divisionEl.options[divisionEl.selectedIndex];
       if (opt) {
@@ -750,7 +749,7 @@ tr:hover .btn-quickfill { opacity:1; }
   function syncIoForms() {
     var mv  = snapshotEl  ? String(snapshotEl.value || '')  : '';
     var dv  = divisionEl  ? String(divisionEl.value || '')  : '';
-    var dst = destinationEl ? String(destinationEl.value || '') : 'OTHER';
+    var dst = destinationEl ? String(destinationEl.value || '') : 'BAR';
     ['opn-export-form','opn-export-existing-form','opn-import-form'].forEach(function (fid) {
       var form = document.getElementById(fid);
       if (!form) return;
@@ -937,7 +936,7 @@ tr:hover .btn-quickfill { opacity:1; }
     if (saveBtnEl.disabled) return;
     var snapM   = snapshotEl ? String(snapshotEl.value || '') : '';
     var divId   = divisionEl ? Number(divisionEl.value || 0) : 0;
-    var destVal = destinationEl ? String(destinationEl.value || 'OTHER') : 'OTHER';
+    var destVal = destinationEl ? String(destinationEl.value || 'BAR') : 'BAR';
     var iId     = Number(itemIdEl.value || 0);
     var bUom    = Number(buyUomEl.value || 0);
     var cUom    = Number(contentUomEl.value || 0);

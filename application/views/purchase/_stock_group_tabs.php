@@ -27,19 +27,26 @@ if ($tabScope === 'DIVISION') {
     ];
 } else {
     $links = [
-        ['key' => 'daily_matrix',  'label' => 'Snapshot Harian Gudang', 'url' => site_url('inventory-warehouse-daily')],
-        ['key' => 'stock',         'label' => 'Stok Gudang',            'url' => site_url('inventory/stock/warehouse')],
-        ['key' => 'stok_awal',     'label' => 'Stok Awal Gudang',       'url' => site_url('inventory/stock/stok-awal/warehouse')],
-        ['key' => 'opening',       'label' => 'Opening Manual Gudang',  'url' => site_url('inventory/stock/opening/warehouse')],
-        ['key' => 'adjustment',    'label' => 'Adjustment Gudang',      'url' => site_url('inventory/stock/adjustment/warehouse')],
-        ['key' => 'movement',      'label' => 'Keluar Masuk Gudang',    'url' => site_url('inventory/stock/warehouse/movement')],
-        ['key' => 'daily',         'label' => 'Stok Bulanan/Daily',     'url' => site_url('inventory/stock/warehouse/daily')],
-        ['key' => 'fifo_audit',    'label' => 'Audit Profil Gudang',    'url' => site_url('inventory/fifo-audit?scope=WAREHOUSE')],
-        ['key' => 'opname_monthly','label' => 'Opname Bulanan',         'url' => site_url('inventory/stock/opname/warehouse/monthly')],
+        ['key' => 'daily_matrix',  'label' => 'Inventory Warehouse Daily',                 'url' => site_url('inventory-warehouse-daily')],
+        ['key' => 'stock',         'label' => 'Stok Gudang',                               'url' => site_url('inventory/stock/warehouse')],
+        ['key' => 'daily',         'label' => 'Stok Bulanan / Snapshot Harian Gudang',     'url' => site_url('inventory/stock/warehouse/daily')],
+        ['key' => 'movement',      'label' => 'Keluar Masuk Stok Gudang',                  'url' => site_url('inventory/stock/warehouse/movement')],
+        ['key' => 'stok_awal',     'label' => 'Stok Awal Gudang',                          'url' => site_url('inventory/stock/stok-awal/warehouse')],
+        ['key' => 'opening',       'label' => 'Opening Manual Gudang',                     'url' => site_url('inventory/stock/opening/warehouse')],
+        ['key' => 'adjustment',    'label' => 'Adjustment Stok Gudang',                    'url' => site_url('inventory/stock/adjustment/warehouse')],
+        ['key' => 'opname_monthly','label' => 'Opname Bulanan Gudang',                     'url' => site_url('inventory/stock/opname/warehouse/monthly')],
     ];
 }
 
-foreach ($links as $link):
 ?>
-  <a href="<?php echo $link['url']; ?>" class="<?php echo $buttonClass((string)$link['key']); ?>"><?php echo html_escape((string)$link['label']); ?></a>
-<?php endforeach; ?>
+<div class="d-flex flex-wrap gap-1 align-items-center">
+  <?php foreach ($links as $link): ?>
+    <a href="<?php echo $link['url']; ?>" class="<?php echo $buttonClass((string)$link['key']); ?>"><?php echo html_escape((string)$link['label']); ?></a>
+  <?php endforeach; ?>
+</div>
+<?php if ($tabScope === 'WAREHOUSE' && in_array($activeTab, ['lot', 'fifo_audit'], true)): ?>
+  <div class="d-flex flex-wrap gap-1 align-items-center mt-2">
+    <a href="<?php echo site_url('inventory/stock/warehouse/lot'); ?>" class="<?php echo $buttonClass('lot'); ?>">Audit Profil Gudang</a>
+    <a href="<?php echo site_url('inventory/fifo-audit?scope=WAREHOUSE'); ?>" class="<?php echo $buttonClass('fifo_audit'); ?>">FIFO Audit Gudang</a>
+  </div>
+<?php endif; ?>

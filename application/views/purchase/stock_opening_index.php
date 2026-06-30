@@ -3,7 +3,6 @@ $baseUrl = site_url((string)($base_url_opening ?? 'inventory/stock/opening'));
 $storeUrl = site_url('inventory/stock/opening/store');
 $voidUrlBase = site_url('inventory/stock/opening/void');
 $itemSearchUrl = site_url('inventory/stock/opening/item-search');
-$generateUrl = site_url('inventory/stock/opname/generate');
 $stockOpeningExportUrl = (string)($stock_opening_export_url ?? site_url('inventory/stock/opening/division/export-template'));
 $stockOpeningExportExistingUrl = (string)($stock_opening_export_existing_url ?? site_url('inventory/stock/opening/division/export-existing'));
 $stockOpeningImportUrl = (string)($stock_opening_import_url ?? site_url('inventory/stock/opening/division/import'));
@@ -78,19 +77,15 @@ foreach ($rowsData as $row) {
   <small class="text-muted">Input opening stok per profile. Tanggal posting otomatis tanggal 1 dari Snapshot Month.</small>
 </div>
 <div class="d-flex flex-wrap gap-2 mb-2">
-<?php if (!$isDivisionScope): ?>
-  <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname bulan ini dan buat opening bulan berikutnya? Proses dibatalkan jika ada stok minus.');" class="d-inline">
-    <input type="hidden" name="stock_scope" value="<?php echo html_escape($stockScope); ?>">
-    <input type="hidden" name="month" value="<?php echo html_escape($selectedMonthValue); ?>">
-    <input type="hidden" name="back_url" value="<?php echo html_escape($nextGenerateOpeningUrl); ?>">
-    <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal Bulan Depan</button>
-  </form>
-  <?php endif; ?>
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => $isDivisionScope ? 'DIVISION' : 'WAREHOUSE', 'active_tab' => 'opening']); ?>
 </div>
 <?php if ($isDivisionScope): ?>
 <?php $this->load->view('purchase/_division_stock_generate_btn', [
   'division_action_params' => ['month' => $month !== '' ? substr((string)$month, 0, 7) : date('Y-m'), 'division_id' => (string)(int)$selectedDivisionId, 'destination_type' => $selectedDestination],
+]); ?>
+<?php else: ?>
+<?php $this->load->view('purchase/_warehouse_stock_generate_btn', [
+  'warehouse_action_params' => ['month' => $selectedMonthValue],
 ]); ?>
 <?php endif; ?>
 

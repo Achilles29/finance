@@ -65,6 +65,9 @@ if (preg_match('/^\d{4}-\d{2}$/', $selMonth)) {
 <div class="d-flex flex-wrap gap-2 mb-2">
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'stok_awal']); ?>
 </div>
+<?php $this->load->view('purchase/_warehouse_stock_generate_btn', [
+  'warehouse_action_params' => ['month' => $selMonth],
+]); ?>
 
 <div class="card mb-3">
   <div class="card-body py-3">

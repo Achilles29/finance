@@ -1468,25 +1468,11 @@ class Purchase_model extends CI_Model
             $this->db->where('s.division_id', $divisionId);
         }
 
-        if ($scope === 'DIVISION' && $destinationFilter !== null) {
-            if ($destinationFilter === 'REGULER') {
-                if ($hasDestinationType) {
-                    $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-                } else {
-                    $this->db->where("'OTHER' NOT IN ('BAR_EVENT','KITCHEN_EVENT')", null, false);
-                }
-            } elseif ($destinationFilter === 'EVENT') {
-                if ($hasDestinationType) {
-                    $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-                } else {
-                    $this->db->where("'OTHER' IN ('BAR_EVENT','KITCHEN_EVENT')", null, false);
-                }
+        if ($scope === 'DIVISION') {
+            if ($hasDestinationType) {
+                $this->applyDivisionDestinationFilterToQuery('s.destination_type', $destinationFilter);
             } else {
-                if ($hasDestinationType) {
-                    $this->db->where('s.destination_type', $destinationFilter);
-                } else {
-                    $this->db->where("'OTHER' = " . $this->db->escape($destinationFilter), null, false);
-                }
+                $this->db->where('1 = 0', null, false);
             }
         }
 
@@ -1561,13 +1547,7 @@ class Purchase_model extends CI_Model
         if ($divisionId !== null && $divisionId > 0) {
             $this->db->where('s.division_id', $divisionId);
         }
-        if ($destFilter === 'REGULER') {
-            $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-        } elseif ($destFilter === 'EVENT') {
-            $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-        } elseif ($destFilter !== null && $destFilter !== '') {
-            $this->db->where('s.destination_type', $destFilter);
-        }
+        $this->applyDivisionDestinationFilterToQuery('s.destination_type', $destFilter);
         if ($q !== '') {
             $this->db->group_start()
                 ->like('s.profile_name', $q)
@@ -2257,15 +2237,7 @@ class Purchase_model extends CI_Model
         if ($materialId !== null && $materialId > 0) {
             $this->db->where('COALESCE(s.material_id, i.material_id) =', $materialId, false);
         }
-        if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
-            if ($destinationFilter === 'REGULER') {
-                $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } else {
-                $this->db->where('s.destination_type', $destinationFilter);
-            }
-        }
+        $this->applyDivisionDestinationFilterToQuery('s.destination_type', $destinationFilter);
         if ($q !== '') {
             $this->db->group_start()
                 ->like('i.item_code', $q)
@@ -2324,15 +2296,7 @@ class Purchase_model extends CI_Model
         if ($materialId !== null && $materialId > 0) {
             $this->db->where('COALESCE(s.material_id, i.material_id) =', $materialId, false);
         }
-        if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
-            if ($destinationFilter === 'REGULER') {
-                $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } else {
-                $this->db->where('s.destination_type', $destinationFilter);
-            }
-        }
+        $this->applyDivisionDestinationFilterToQuery('s.destination_type', $destinationFilter);
         if ($q !== '') {
             $this->db->group_start()
                 ->like('i.item_code', $q)
@@ -2387,15 +2351,7 @@ class Purchase_model extends CI_Model
         if ($materialId !== null && $materialId > 0) {
             $this->db->where('COALESCE(s.material_id, i.material_id) =', $materialId, false);
         }
-        if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
-            if ($destinationFilter === 'REGULER') {
-                $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } else {
-                $this->db->where('s.destination_type', $destinationFilter);
-            }
-        }
+        $this->applyDivisionDestinationFilterToQuery('s.destination_type', $destinationFilter);
         if ($q !== '') {
             $this->db->group_start()
                 ->like('i.item_code', $q)
@@ -4525,15 +4481,7 @@ class Purchase_model extends CI_Model
         if ($materialId > 0) {
             $this->db->where('COALESCE(s.material_id, 0) =', $materialId, false);
         }
-        if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
-            if ($destinationFilter === 'REGULER') {
-                $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } else {
-                $this->db->where('s.destination_type', $destinationFilter);
-            }
-        }
+        $this->applyDivisionDestinationFilterToQuery('s.destination_type', $destinationFilter);
         $monthlyRows = $this->db->get()->result_array();
         if (empty($monthlyRows)) {
             return [];
@@ -7709,13 +7657,11 @@ class Purchase_model extends CI_Model
         if ($scope === 'DIVISION' && $divisionId !== null && $divisionId > 0) {
             $this->db->where('l.division_id', $divisionId);
         }
-        if ($scope === 'DIVISION' && $destinationFilter !== null && $destinationFilter !== 'ALL' && $hasDestinationType) {
-            if ($destinationFilter === 'REGULER') {
-                $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+        if ($scope === 'DIVISION') {
+            if ($hasDestinationType) {
+                $this->applyDivisionDestinationFilterToQuery('l.destination_type', $destinationFilter);
             } else {
-                $this->db->where('l.destination_type', $destinationFilter);
+                $this->db->where('1 = 0', null, false);
             }
         }
         if ($from !== null) {
@@ -7847,13 +7793,11 @@ class Purchase_model extends CI_Model
         if ($scope === 'DIVISION' && $divisionId > 0) {
             $this->db->where('l.division_id', $divisionId);
         }
-        if ($scope === 'DIVISION' && $destinationType !== null && $destinationType !== 'ALL' && $hasDestinationType) {
-            if ($destinationType === 'REGULER') {
-                $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
-            } elseif ($destinationType === 'EVENT') {
-                $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+        if ($scope === 'DIVISION') {
+            if ($hasDestinationType) {
+                $this->applyDivisionDestinationFilterToQuery('l.destination_type', $destinationType);
             } else {
-                $this->db->where('l.destination_type', $destinationType);
+                $this->db->where('1 = 0', null, false);
             }
         }
 
@@ -10746,11 +10690,50 @@ class Purchase_model extends CI_Model
             || (int)($row['last_movement_id'] ?? 0) > 0;
     }
 
+    private function purgeGeneratedMonthlyOpeningRows(string $stockScope, string $monthKey, ?int $divisionId = null, ?string $destinationFilter = null): void
+    {
+        $table = $stockScope === 'DIVISION' ? 'inv_division_monthly_stock' : 'inv_warehouse_monthly_stock';
+        if (!$this->db->table_exists($table)) {
+            return;
+        }
+
+        $this->db->where('month_key', $monthKey)
+            ->where('source_mode', 'REBUILD')
+            ->where('COALESCE(movement_day_count, 0) = 0', null, false)
+            ->where('COALESCE(mutation_count, 0) = 0', null, false)
+            ->where('last_movement_date IS NULL', null, false)
+            ->where('last_movement_at IS NULL', null, false)
+            ->where('last_movement_table IS NULL', null, false)
+            ->where('last_movement_id IS NULL', null, false);
+
+        if ($stockScope === 'DIVISION') {
+            if ($divisionId !== null && $divisionId > 0) {
+                $this->db->where('division_id', $divisionId);
+            }
+            $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+            if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
+                if ($destinationFilter === 'REGULER') {
+                    $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                } elseif ($destinationFilter === 'EVENT') {
+                    $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                } else {
+                    $this->db->where('destination_type', $destinationFilter);
+                }
+            }
+        }
+
+        $this->db->delete($table);
+    }
+
     private function seedCarryForwardMonthlyOpeningRow(string $stockScope, string $nextMonth, array $sourceRow, string $sourceMonth): array
     {
         $table = $stockScope === 'DIVISION' ? 'inv_division_monthly_stock' : 'inv_warehouse_monthly_stock';
         if (!$this->db->table_exists($table)) {
             return ['ok' => true, 'seeded' => false, 'skipped' => 'MONTHLY_TABLE_NOT_AVAILABLE'];
+        }
+
+        if ($stockScope === 'DIVISION' && !$this->isValidDivisionDestinationType((string)($sourceRow['destination_type'] ?? ''))) {
+            return ['ok' => true, 'seeded' => false, 'skipped' => 'INVALID_DESTINATION'];
         }
 
         $identityKey = $this->buildInventoryMonthlyIdentityKey($sourceRow);
@@ -11932,13 +11915,16 @@ class Purchase_model extends CI_Model
             50000,
             $destinationFilter
         );
+        $rows = array_values(array_filter($rows, function (array $row): bool {
+            return $this->isValidDivisionDestinationType((string)($row['destination_type'] ?? ''));
+        }));
         $rows = $this->filterZeroOpeningClosingDailyRows($rows);
         if (!empty($rows)) {
             return $rows;
         }
 
         // Fallback for legacy months that still rely on movement log only.
-        return $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
+        $rows = $this->fetchInventoryDailyMatrixSourceRowsFromMovement(
             'DIVISION',
             '',
             $divisionId,
@@ -11947,6 +11933,9 @@ class Purchase_model extends CI_Model
             $destinationFilter,
             false
         );
+        return array_values(array_filter($rows, function (array $row): bool {
+            return $this->isValidDivisionDestinationType((string)($row['destination_type'] ?? ''));
+        }));
     }
 
     public function generate_monthly_opname_and_opening(array $payload, int $userId, string $sourceIp = ''): array
@@ -12349,6 +12338,9 @@ class Purchase_model extends CI_Model
 
         $generatedRows = 0;
         foreach ($aggregated as $row) {
+            if ($stockScope === 'DIVISION' && !$this->isValidDivisionDestinationType((string)($row['destination_type'] ?? ''))) {
+                continue;
+            }
             $row['generated_by'] = $userId > 0 ? $userId : null;
             $upsertRow($opnameTable, $row, $opnameUniqueColumns);
             $generatedRows++;
@@ -12401,6 +12393,8 @@ class Purchase_model extends CI_Model
         }
         $this->db->delete($openingTable);
 
+        $this->purgeGeneratedMonthlyOpeningRows($stockScope, $nextMonth, $divisionId, $destinationFilter);
+
         $openingUniqueColumns = $stockScope === 'DIVISION'
             ? ['snapshot_month', 'division_id', 'destination_type', 'stock_domain', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key']
             : ['snapshot_month', 'stock_domain', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'];
@@ -12408,6 +12402,9 @@ class Purchase_model extends CI_Model
         $carriedRows = 0;
         $seededMonthlyRows = 0;
         foreach ($aggregated as $row) {
+            if ($stockScope === 'DIVISION' && !$this->isValidDivisionDestinationType((string)($row['destination_type'] ?? ''))) {
+                continue;
+            }
             $closingQtyContent = round((float)($row['closing_qty_content'] ?? 0), 4);
             if ($closingQtyContent <= 0) {
                 continue;
@@ -22128,6 +22125,45 @@ class Purchase_model extends CI_Model
         return $this->normalizeDestination($value);
     }
 
+    private function validDivisionDestinationTypes(): array
+    {
+        return ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE'];
+    }
+
+    private function isValidDivisionDestinationType(?string $value): bool
+    {
+        $value = strtoupper(trim((string)$value));
+        return in_array($value, $this->validDivisionDestinationTypes(), true);
+    }
+
+    private function applyDivisionDestinationFilterToQuery(string $column, ?string $destinationFilter): void
+    {
+        $valid = $this->validDivisionDestinationTypes();
+        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+
+        if ($destinationFilter === null || $destinationFilter === 'ALL') {
+            $this->db->where_in($column, $valid);
+            return;
+        }
+
+        if ($destinationFilter === 'REGULER') {
+            $this->db->where_in($column, ['BAR', 'KITCHEN', 'OFFICE']);
+            return;
+        }
+
+        if ($destinationFilter === 'EVENT') {
+            $this->db->where_in($column, ['BAR_EVENT', 'KITCHEN_EVENT']);
+            return;
+        }
+
+        if (in_array($destinationFilter, $valid, true)) {
+            $this->db->where($column, $destinationFilter);
+            return;
+        }
+
+        $this->db->where('1 = 0', null, false);
+    }
+
     private function listTableFields(string $table): array
     {
         if (isset($this->tableFieldsCache[$table])) {
@@ -22755,7 +22791,9 @@ class Purchase_model extends CI_Model
                 ->or_like('o.profile_key', $q)
                 ->group_end();
         }
-        $this->db->order_by('o.stock_domain, o.profile_name', '', false);
+        $this->db->order_by('o.profile_name', 'ASC');
+        $this->db->order_by('o.profile_brand', 'ASC');
+        $this->db->order_by('o.profile_description', 'ASC');
         if ($limit > 0) {
             $this->db->limit($limit);
         }
@@ -22784,9 +22822,7 @@ class Purchase_model extends CI_Model
             $this->db->where('o.division_id', $divisionId);
         }
         $destination = strtoupper(trim((string)($filters['destination_type'] ?? '')));
-        if ($destination !== '') {
-            $this->db->where('o.destination_type', $destination);
-        }
+        $this->applyDivisionDestinationFilterToQuery('o.destination_type', $destination);
         $q = trim((string)($filters['q'] ?? ''));
         if ($q !== '') {
             $this->db->group_start()

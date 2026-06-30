@@ -421,7 +421,6 @@ $paginationQs = http_build_query($pParams);
             <option value="BAR_EVENT" <?php echo $destinationValue === 'BAR_EVENT' ? 'selected' : ''; ?>>Bar Event</option>
             <option value="KITCHEN_EVENT" <?php echo $destinationValue === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>Kitchen Evt</option>
             <option value="OFFICE" <?php echo $destinationValue === 'OFFICE' ? 'selected' : ''; ?>>Office</option>
-            <option value="OTHER" <?php echo $destinationValue === 'OTHER' ? 'selected' : ''; ?>>Other</option>
           </select>
         </div>
         <div>
@@ -463,8 +462,7 @@ $paginationQs = http_build_query($pParams);
     { value: 'KITCHEN', label: 'Kitchen Reg' },
     { value: 'BAR_EVENT', label: 'Bar Event' },
     { value: 'KITCHEN_EVENT', label: 'Kitchen Evt' },
-    { value: 'OFFICE', label: 'Office' },
-    { value: 'OTHER', label: 'Other' }
+    { value: 'OFFICE', label: 'Office' }
   ];
   function esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function syncDestinationOptions(){

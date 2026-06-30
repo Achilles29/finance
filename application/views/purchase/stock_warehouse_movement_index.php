@@ -1,6 +1,5 @@
 <?php
 $baseUrl = site_url('inventory/stock/warehouse/movement');
-$generateUrl = site_url('inventory/stock/opname/generate');
 $genMonth = !empty($date_from ?? '') ? date('Y-m', strtotime((string)$date_from)) : date('Y-m');
 $rowsData = is_array($rows ?? null) ? $rows : [];
 $summaryRows = count($rowsData);
@@ -22,16 +21,12 @@ foreach ($rowsData as $row) {
   <h4 class="mb-1"><i class="ri ri-arrow-left-right-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
   <small class="text-muted">Log keluar masuk stok gudang dari inv_stock_movement_log.</small>
 </div>
-<div class="d-flex flex-wrap gap-1 align-items-center mb-3">
-  <form method="post" action="<?php echo $generateUrl; ?>" onsubmit="return confirm('Generate opname gudang bulan ini dan carry-forward opening bulan berikutnya?');" class="d-inline">
-    <input type="hidden" name="stock_scope" value="WAREHOUSE">
-    <input type="hidden" name="month" value="<?php echo html_escape($genMonth); ?>">
-    <input type="hidden" name="back_url" value="inventory/stock/warehouse/movement?date_from=<?php echo rawurlencode((string)($date_from ?? '')); ?>&date_to=<?php echo rawurlencode((string)($date_to ?? '')); ?>">
-    <button type="submit" class="btn btn-sm btn-outline-danger">Generate Opname + Stok Awal</button>
-  </form>
+<div class="d-flex flex-wrap gap-2 mb-2">
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'movement']); ?>
-  <a href="<?php echo site_url('inventory/fifo-audit?scope=WAREHOUSE'); ?>" class="btn btn-sm btn-outline-secondary">Audit Profil Gudang</a>
 </div>
+<?php $this->load->view('purchase/_warehouse_stock_generate_btn', [
+  'warehouse_action_params' => ['month' => $genMonth, 'date_from' => (string)($date_from ?? '')],
+]); ?>
 
 <div class="card mb-3">
   <div class="card-body py-3">

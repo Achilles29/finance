@@ -84,7 +84,6 @@ $limitValue  = (int)($filters['limit'] ?? 200);
           <option value="BAR_EVENT"     <?php echo ($filters['destination_type'] ?? '') === 'BAR_EVENT'     ? 'selected' : ''; ?>>Bar Event</option>
           <option value="KITCHEN_EVENT" <?php echo ($filters['destination_type'] ?? '') === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>Kitchen Event</option>
           <option value="OFFICE"  <?php echo ($filters['destination_type'] ?? '') === 'OFFICE'  ? 'selected' : ''; ?>>Office</option>
-          <option value="OTHER"   <?php echo ($filters['destination_type'] ?? '') === 'OTHER'   ? 'selected' : ''; ?>>Other</option>
         </select>
       </div>
       <div class="col-md-3">

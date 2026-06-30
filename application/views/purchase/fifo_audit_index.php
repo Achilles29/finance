@@ -80,6 +80,9 @@ foreach ($issues as $issueRow) {
 <div class="d-flex flex-wrap gap-1 align-items-center mb-2">
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'fifo_audit']); ?>
 </div>
+<?php $this->load->view('purchase/_warehouse_stock_generate_btn', [
+  'warehouse_action_params' => ['month' => !empty($date_from) ? date('Y-m', strtotime((string)$date_from)) : date('Y-m'), 'date_from' => (string)($date_from ?? '')],
+]); ?>
 <div class="d-flex flex-wrap gap-1 align-items-center mb-3">
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'fifo_audit']); ?>
 </div>

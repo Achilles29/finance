@@ -292,6 +292,10 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
 <?php $this->load->view('purchase/_division_stock_generate_btn', [
   'division_action_params' => ['month' => (string)($month ?? date('Y-m')), 'division_id' => (string)($division_id ?? ''), 'destination_type' => (string)($destination ?? '')],
 ]); ?>
+<?php else: ?>
+<?php $this->load->view('purchase/_warehouse_stock_generate_btn', [
+  'warehouse_action_params' => ['month' => !empty($date_from) ? date('Y-m', strtotime((string)$date_from)) : date('Y-m'), 'date_from' => (string)$dateFrom],
+]); ?>
 <?php endif; ?>
 
 <div id="adjustment-alert"></div>

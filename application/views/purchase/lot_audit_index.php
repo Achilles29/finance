@@ -282,6 +282,11 @@ foreach ($rows as $row) {
     <i class="ri ri-bar-chart-line me-1"></i><?php echo $pageScope === 'WAREHOUSE' ? 'Audit Profil Gudang' : 'Audit FIFO'; ?>
   </a>
 </div>
+<?php if ($pageScope === 'WAREHOUSE'): ?>
+<?php $this->load->view('purchase/_warehouse_stock_generate_btn', [
+  'warehouse_action_params' => ['month' => !empty($date_from) ? date('Y-m', strtotime((string)$date_from)) : date('Y-m'), 'date_from' => (string)($date_from ?? '')],
+]); ?>
+<?php endif; ?>
 <?php if ($pageScope === 'DIVISION'): ?>
 <?php
 $lotGenMonth = !empty($date_from) ? date('Y-m', strtotime((string)$date_from)) : date('Y-m');
