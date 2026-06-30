@@ -378,6 +378,3 @@ banyak data yang isi tidak sesuai, contoh BOWL TA seharusnya PCS, tapi jadi ML.
 
 
 
-- SQL sudah saya jalankan. draft belum saya posing.
- sekarang menyisakan masalah BOWL TA memang sudah berubah ml jadi PCS, tapi kuantiti isinya masih banyak. seharusnya kuantiti isi sama dengan kuantiti pack nya
- berikut beberapa produk yang gagal post dengan indikasi kasus sama. kalau betul, buatkan sql untuk menyesuaikan kuantiti isi sama seperti kuantiti pack. jadi untuk barang yang sudah kamu ganti satuan isi nya tadi menyesuaikan satuan pack, sesuaikan juga kuantitinya
