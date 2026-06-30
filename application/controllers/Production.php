@@ -451,6 +451,9 @@ class Production extends MY_Controller
         }
 
         $lot = null;
+        $activeLots = [];
+        $identityCurrentQty = 0.0;
+        $isAggregateIdentityAdjust = ($lotId <= 0);
         if ($lotId > 0) {
             $lot = $this->db->where('id', $lotId)->get('inv_component_lot')->row_array();
             if (!$lot) {
@@ -467,7 +470,7 @@ class Production extends MY_Controller
                 return;
             }
 
-            $lot = $this->db
+            $activeLots = $this->db
                 ->where('component_id', $componentId)
                 ->where('uom_id', $uomId)
                 ->where('location_type', $specificLocation)
@@ -475,9 +478,15 @@ class Production extends MY_Controller
                 ->where('qty_balance >', 0)
                 ->order_by('receipt_date', 'ASC')
                 ->order_by('id', 'ASC')
-                ->limit(1)
                 ->get('inv_component_lot')
-                ->row_array();
+                ->result_array();
+
+            if (!empty($activeLots)) {
+                $lot = $activeLots[0];
+                foreach ($activeLots as $activeLot) {
+                    $identityCurrentQty += round((float)($activeLot['qty_balance'] ?? 0), 4);
+                }
+            }
 
             if (!$lot && $targetQty < -0.0001) {
                 $this->json_error('Belum ada lot aktif untuk identity ini. Target lot tidak boleh minus.', 422);
@@ -485,7 +494,9 @@ class Production extends MY_Controller
             }
         }
 
-        $currentQty = round((float)($lot['qty_balance'] ?? 0), 4);
+        $currentQty = $isAggregateIdentityAdjust
+            ? round($identityCurrentQty, 4)
+            : round((float)($lot['qty_balance'] ?? 0), 4);
         $delta = round($targetQty - $currentQty, 4);
         if (abs($delta) < 0.0001) {
             $this->json_error('Saldo target sama dengan saldo lot saat ini.', 422);
@@ -502,63 +513,165 @@ class Production extends MY_Controller
 
         $this->db->trans_start();
         if ($delta < 0) {
-            if ($baseLotId <= 0 || !$lot) {
-                $this->db->trans_complete();
-                $this->json_error('Lot aktif tidak ditemukan untuk adjustment minus.', 422);
-                return;
+            if ($isAggregateIdentityAdjust) {
+                $remainingOutQty = round(abs($delta), 4);
+                if ($remainingOutQty > $currentQty + 0.0001) {
+                    $this->db->trans_complete();
+                    $this->json_error('Saldo lot aktif tidak cukup untuk adjustment minus pada identity ini.', 422);
+                    return;
+                }
+
+                foreach ($activeLots as $activeLot) {
+                    if ($remainingOutQty <= 0.0001) {
+                        break;
+                    }
+
+                    $lotBalance = round((float)($activeLot['qty_balance'] ?? 0), 4);
+                    if ($lotBalance <= 0.0001) {
+                        continue;
+                    }
+
+                    $outQty = round(min($lotBalance, $remainingOutQty), 4);
+                    if ($outQty <= 0.0001) {
+                        continue;
+                    }
+
+                    $issueNo = 'ICLADJ' . date('YmdHis') . substr(md5((string)$activeLot['id'] . '|' . $now . '|' . $remainingOutQty), 0, 6);
+                    $lotUnitCost = round((float)($activeLot['unit_cost'] ?? 0), 6);
+                    $totalCost = round($outQty * $lotUnitCost, 2);
+                    $lotTargetBalance = round($lotBalance - $outQty, 4);
+
+                    $this->db->insert('inv_component_lot_issue_log', [
+                        'issue_no' => $issueNo,
+                        'issue_date' => $adjustDate,
+                        'issue_datetime' => $now,
+                        'location_type' => (string)$activeLot['location_type'],
+                        'division_id' => !empty($activeLot['division_id']) ? (int)$activeLot['division_id'] : $baseDivisionId,
+                        'component_id' => (int)$activeLot['component_id'],
+                        'uom_id' => (int)$activeLot['uom_id'],
+                        'issue_qty' => $outQty,
+                        'total_cost' => $totalCost,
+                        'source_module' => 'COMPONENT_RECONCILE',
+                        'source_table' => 'component_lot_manual_adjustment',
+                        'source_id' => (int)$activeLot['id'],
+                        'source_line_id' => null,
+                        'notes' => 'Lot-only adjustment from component reconcile' . ($notes !== '' ? ': ' . $notes : ''),
+                        'status' => 'POSTED',
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ]);
+                    $issueId = (int)$this->db->insert_id();
+
+                    $this->db->insert('inv_component_lot_issue_line', [
+                        'issue_id' => $issueId,
+                        'lot_id' => (int)$activeLot['id'],
+                        'qty_out' => $outQty,
+                        'unit_cost' => $lotUnitCost,
+                        'total_cost' => $totalCost,
+                        'source_balance_before' => $lotBalance,
+                        'source_balance_after' => $lotTargetBalance,
+                        'created_at' => $now,
+                    ]);
+
+                    $this->db->where('id', (int)$activeLot['id'])->update('inv_component_lot', [
+                        'qty_out_total' => round((float)($activeLot['qty_out_total'] ?? 0) + $outQty, 4),
+                        'qty_balance' => $lotTargetBalance,
+                        'last_issue_at' => $now,
+                        'status' => $lotTargetBalance > 0.0001 ? 'OPEN' : 'CLOSED',
+                        'updated_at' => $now,
+                    ]);
+
+                    $remainingOutQty = round($remainingOutQty - $outQty, 4);
+                }
+            } else {
+                if ($baseLotId <= 0 || !$lot) {
+                    $this->db->trans_complete();
+                    $this->json_error('Lot aktif tidak ditemukan untuk adjustment minus.', 422);
+                    return;
+                }
+                $outQty = round(abs($delta), 4);
+                $issueNo = 'ICLADJ' . date('YmdHis') . substr(md5((string)$baseLotId . '|' . $now), 0, 6);
+                $totalCost = round($outQty * (float)($lot['unit_cost'] ?? 0), 2);
+
+                $this->db->insert('inv_component_lot_issue_log', [
+                    'issue_no' => $issueNo,
+                    'issue_date' => $adjustDate,
+                    'issue_datetime' => $now,
+                    'location_type' => $baseLocationType,
+                    'division_id' => $baseDivisionId,
+                    'component_id' => $baseComponentId,
+                    'uom_id' => $baseUomId,
+                    'issue_qty' => $outQty,
+                    'total_cost' => $totalCost,
+                    'source_module' => 'COMPONENT_RECONCILE',
+                    'source_table' => 'component_lot_manual_adjustment',
+                    'source_id' => $baseLotId,
+                    'source_line_id' => null,
+                    'notes' => 'Lot-only adjustment from component reconcile' . ($notes !== '' ? ': ' . $notes : ''),
+                    'status' => 'POSTED',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+                $issueId = (int)$this->db->insert_id();
+
+                $this->db->insert('inv_component_lot_issue_line', [
+                    'issue_id' => $issueId,
+                    'lot_id' => $baseLotId,
+                    'qty_out' => $outQty,
+                    'unit_cost' => round((float)($lot['unit_cost'] ?? 0), 6),
+                    'total_cost' => $totalCost,
+                    'source_balance_before' => $currentQty,
+                    'source_balance_after' => $targetQty,
+                    'created_at' => $now,
+                ]);
+
+                $this->db->where('id', $baseLotId)->update('inv_component_lot', [
+                    'qty_out_total' => round((float)($lot['qty_out_total'] ?? 0) + $outQty, 4),
+                    'qty_balance' => $targetQty,
+                    'last_issue_at' => $now,
+                    'status' => $targetQty > 0.0001 ? 'OPEN' : 'CLOSED',
+                    'updated_at' => $now,
+                ]);
             }
-            $outQty = round(abs($delta), 4);
-            $issueNo = 'ICLADJ' . date('YmdHis') . substr(md5((string)$baseLotId . '|' . $now), 0, 6);
-            $totalCost = round($outQty * (float)($lot['unit_cost'] ?? 0), 2);
-
-            $this->db->insert('inv_component_lot_issue_log', [
-                'issue_no' => $issueNo,
-                'issue_date' => $adjustDate,
-                'issue_datetime' => $now,
-                'location_type' => $baseLocationType,
-                'division_id' => $baseDivisionId,
-                'component_id' => $baseComponentId,
-                'uom_id' => $baseUomId,
-                'issue_qty' => $outQty,
-                'total_cost' => $totalCost,
-                'source_module' => 'COMPONENT_RECONCILE',
-                'source_table' => 'component_lot_manual_adjustment',
-                'source_id' => $baseLotId,
-                'source_line_id' => null,
-                'notes' => 'Lot-only adjustment from component reconcile' . ($notes !== '' ? ': ' . $notes : ''),
-                'status' => 'POSTED',
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
-            $issueId = (int)$this->db->insert_id();
-
-            $this->db->insert('inv_component_lot_issue_line', [
-                'issue_id' => $issueId,
-                'lot_id' => $baseLotId,
-                'qty_out' => $outQty,
-                'unit_cost' => round((float)($lot['unit_cost'] ?? 0), 6),
-                'total_cost' => $totalCost,
-                'source_balance_before' => $currentQty,
-                'source_balance_after' => $targetQty,
-                'created_at' => $now,
-            ]);
-
-            $this->db->where('id', $baseLotId)->update('inv_component_lot', [
-                'qty_out_total' => round((float)($lot['qty_out_total'] ?? 0) + $outQty, 4),
-                'qty_balance' => $targetQty,
-                'last_issue_at' => $now,
-                'status' => $targetQty > 0.0001 ? 'OPEN' : 'CLOSED',
-                'updated_at' => $now,
-            ]);
         } else {
             $inQty = round($delta, 4);
             $unitCost = $unitCostInput > 0 ? $unitCostInput : round((float)($lot['unit_cost'] ?? 0), 6);
+            if ($unitCost <= 0 && $baseComponentId > 0 && $baseUomId > 0 && $baseLocationType !== '') {
+                $fallbackMonthly = $this->db
+                    ->select('avg_cost')
+                    ->from('inv_component_monthly_stock')
+                    ->where('component_id', $baseComponentId)
+                    ->where('uom_id', $baseUomId)
+                    ->where('location_type', $baseLocationType)
+                    ->where('division_id', $baseDivisionId)
+                    ->order_by('month_key', 'DESC')
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                $unitCost = round((float)($fallbackMonthly['avg_cost'] ?? 0), 6);
+            }
+            if ($unitCost <= 0 && $baseComponentId > 0 && $baseUomId > 0 && $baseLocationType !== '') {
+                $fallbackLot = $this->db
+                    ->select('unit_cost')
+                    ->from('inv_component_lot')
+                    ->where('component_id', $baseComponentId)
+                    ->where('uom_id', $baseUomId)
+                    ->where('location_type', $baseLocationType)
+                    ->where('division_id', $baseDivisionId)
+                    ->where('unit_cost >', 0)
+                    ->order_by('receipt_date', 'DESC')
+                    ->order_by('id', 'DESC')
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                $unitCost = round((float)($fallbackLot['unit_cost'] ?? 0), 6);
+            }
             if ($unitCost <= 0) {
                 $this->db->trans_complete();
                 $this->json_error('Unit cost wajib diisi untuk adjustment lot plus.', 422);
                 return;
             }
-            $lotNo = 'ICLADJ-' . date('YmdHis') . '-' . $baseComponentId . '-' . max($baseLotId, 0);
+            $lotNo = 'ICLADJ-' . date('YmdHis') . '-' . $baseComponentId . '-' . max($baseLotId, 0) . '-' . substr(md5((string)microtime(true) . '|' . $baseComponentId . '|' . $actorEmployeeId), 0, 6);
             $this->db->insert('inv_component_lot', [
                 'location_type' => $baseLocationType,
                 'division_id' => $baseDivisionId,
@@ -585,7 +698,9 @@ class Production extends MY_Controller
         $this->db->trans_complete();
 
         if ($this->db->trans_status() === false) {
-            $this->json_error('Gagal menyimpan adjustment lot.', 422);
+            $dbError = $this->db->error();
+            $dbMessage = trim((string)($dbError['message'] ?? ''));
+            $this->json_error('Gagal menyimpan adjustment lot.' . ($dbMessage !== '' ? ' DB: ' . $dbMessage : ''), 422);
             return;
         }
 

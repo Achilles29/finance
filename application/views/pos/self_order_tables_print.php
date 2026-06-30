@@ -3,162 +3,311 @@
 <head>
   <meta charset="utf-8">
   <title><?php echo html_escape((string)($title ?? 'Print QR Meja')); ?></title>
-  <style>
-    /* ── Reset ─────────────────────────────────────────────── */
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+<style>
+*,*::before,*::after{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+}
 
-    /* ── Control Bar — screen only ──────────────────────────── */
-    #ctrl{
-      font-family:'Segoe UI',system-ui,sans-serif;
-      position:sticky;top:0;z-index:200;
-      background:#18181b;color:#fff;
-      padding:8px 16px;
-      display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;
-      border-bottom:2px solid #7c3aed;
-    }
-    #ctrl .c-title{font-weight:700;font-size:13px;white-space:nowrap;letter-spacing:.02em}
-    #ctrl .c-sep{width:1px;background:#3f3f46;align-self:stretch}
-    #ctrl label{display:flex;align-items:center;gap:5px;font-size:12px;color:#a1a1aa;cursor:pointer;white-space:nowrap}
-    #ctrl label span{color:#e4e4e7}
-    #ctrl input[type=text]{
-      background:#27272a;border:1px solid #52525b;color:#f4f4f5;
-      padding:5px 10px;border-radius:6px;font-size:12px;outline:none;width:200px;
-    }
-    #ctrl input[type=text]::placeholder{color:#71717a}
-    #ctrl input[type=checkbox]{accent-color:#7c3aed;width:14px;height:14px}
-    #ctrl .c-count{
-      margin-left:auto;font-size:11px;color:#71717a;white-space:nowrap;
-    }
-    #ctrl .btn-print{
-      background:#7c3aed;color:#fff;border:none;
-      padding:7px 18px;border-radius:7px;font-size:13px;font-weight:700;
-      cursor:pointer;white-space:nowrap;letter-spacing:.02em;
-    }
-    #ctrl .btn-print:hover{background:#6d28d9}
+/* CONTROL BAR */
+#ctrl{
+  font-family:'Segoe UI',system-ui,sans-serif;
+  position:sticky;
+  top:0;
+  z-index:200;
+  background:#18181b;
+  color:#fff;
+  padding:8px 16px;
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:8px 14px;
+  border-bottom:2px solid #b91c1c;
+}
 
-    /* ── Screen wrapper — simulates A4 landscape page ────────── */
-    @media screen{
-      body{
-        font-family:'Segoe UI',system-ui,sans-serif;
-        background:#525659;
-        min-height:100vh;
-      }
-      .page-wrap{
-        width:297mm;
-        min-height:210mm;
-        background:#fff;
-        margin:16px auto 32px;
-        padding:10mm;
-        box-shadow:0 4px 28px rgba(0,0,0,.45);
-      }
-    }
+#ctrl .c-title{
+  font-weight:700;
+  font-size:13px;
+  white-space:nowrap;
+  letter-spacing:.02em;
+}
 
-    /* ── Print page setup ────────────────────────────────────── */
-    @media print{
-      @page{size:A4 landscape;margin:10mm}
-      body{background:#fff;font-family:'Segoe UI',system-ui,sans-serif}
-      #ctrl{display:none}
-      .page-wrap{
-        width:100%;padding:0;margin:0;
-        box-shadow:none;
-      }
-    }
+#ctrl .c-sep{
+  width:1px;
+  background:#3f3f46;
+  align-self:stretch;
+}
 
-    /* ── Grid — fixed 4 cols, 20mm gap ───────────────────────── */
-    .card-grid{
-      display:grid;
-      grid-template-columns:repeat(4,1fr);
-      gap:20mm;
-    }
+#ctrl label{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  font-size:12px;
+  color:#a1a1aa;
+  cursor:pointer;
+  white-space:nowrap;
+}
 
-    /* ── QR Card ─────────────────────────────────────────────── */
-    /*
-      A4 landscape usable: 277mm × 190mm
-      4 cols + 3×20mm gap → card width  = (277-60)/4 = 54.25mm
-      2 rows + 1×20mm gap → card height = (190-20)/2  = 85mm
-    */
-    .qr-card{
-      width:100%;
-      aspect-ratio:54.25/85;          /* keeps proportion on screen */
-      background:#fff;
-      border-radius:5mm;
-      border:0.3mm solid #c4b5fd;
-      overflow:hidden;
-      display:flex;flex-direction:column;
-      break-inside:avoid;
-      page-break-inside:avoid;
-    }
+#ctrl label span{color:#e4e4e7}
 
-    /* ── Header ──────────────────────────────────────────────── */
-    .qr-card__hd{
-      background:linear-gradient(145deg,#1e1b4b 0%,#4c1d95 55%,#7c3aed 100%);
-      color:#fff;
-      text-align:center;
-      padding:2.2mm 2mm 2mm;
-      flex:0 0 auto;
-    }
-    .qr-card__brand{
-      font-size:5.5pt;font-weight:700;letter-spacing:.18em;
-      text-transform:uppercase;opacity:.65;line-height:1;
-      margin-bottom:1mm;
-    }
-    .qr-card__name{
-      font-size:16pt;font-weight:900;line-height:1;
-      letter-spacing:-.3pt;
-    }
-    .qr-card__sublabel{
-      font-size:5.5pt;opacity:.75;margin-top:.8mm;font-weight:500;line-height:1;
-    }
+#ctrl input[type=text]{
+  background:#27272a;
+  border:1px solid #52525b;
+  color:#f4f4f5;
+  padding:5px 10px;
+  border-radius:6px;
+  font-size:12px;
+  outline:none;
+  width:200px;
+}
 
-    /* ── Body ────────────────────────────────────────────────── */
-    .qr-card__bd{
-      flex:1 1 auto;
-      display:flex;flex-direction:column;align-items:center;
-      justify-content:center;
-      padding:2mm 2.5mm 1.5mm;
-      gap:1.5mm;
-    }
-    .qr-card__qr{
-      background:#fff;
-      border:0.5mm solid #ede9fe;
-      border-radius:2.5mm;
-      padding:1mm;
-      line-height:0;
-    }
-    .qr-card__qr img{
-      width:33mm;height:33mm;
-      display:block;
-    }
+#ctrl input[type=text]::placeholder{color:#71717a}
 
-    /* ── Instruction ─────────────────────────────────────────── */
-    .qr-card__instr{
-      text-align:center;line-height:1.3;
-    }
-    .qr-card__instr-main{
-      font-size:6.5pt;font-weight:800;color:#1e1b4b;letter-spacing:.02em;
-    }
-    .qr-card__instr-sub{
-      font-size:5pt;color:#6b7280;margin-top:.4mm;
-    }
+#ctrl input[type=checkbox]{
+  accent-color:#b91c1c;
+  width:14px;
+  height:14px;
+}
 
-    /* ── Capacity badge ──────────────────────────────────────── */
-    .qr-card__cap{
-      display:inline-flex;align-items:center;gap:1mm;
-      background:#f0fdf4;border:0.3mm solid #86efac;color:#166534;
-      border-radius:99mm;padding:.5mm 2mm;
-      font-size:5pt;font-weight:700;
-    }
+#ctrl .c-count{
+  margin-left:auto;
+  font-size:11px;
+  color:#71717a;
+  white-space:nowrap;
+}
 
-    /* ── Footer ──────────────────────────────────────────────── */
-    .qr-card__ft{
-      background:#faf5ff;border-top:0.25mm solid #ede9fe;
-      padding:1mm 2mm;text-align:center;flex:0 0 auto;
-    }
-    .qr-card__url{
-      font-size:4pt;color:#a78bfa;word-break:break-all;line-height:1.4;
-      font-family:'Courier New',monospace;
-    }
-  </style>
+#ctrl .btn-print{
+  background:#b91c1c;
+  color:#fff;
+  border:none;
+  padding:7px 18px;
+  border-radius:7px;
+  font-size:13px;
+  font-weight:700;
+  cursor:pointer;
+  white-space:nowrap;
+  letter-spacing:.02em;
+}
+
+#ctrl .btn-print:hover{
+  background:#991b1b;
+}
+
+/* SCREEN */
+@media screen{
+  body{
+    font-family:'Segoe UI',system-ui,sans-serif;
+    background:#525659;
+    min-height:100vh;
+  }
+
+  .page-wrap{
+    width:297mm;
+    height:210mm;
+    background:#fff;
+    margin:16px auto 32px;
+    padding:10mm;
+    overflow:hidden;
+    box-shadow:0 4px 28px rgba(0,0,0,.45);
+  }
+}
+
+/* PRINT */
+@media print{
+  @page{
+    size:A4 landscape;
+    margin:10mm;
+  }
+
+  body{
+    background:#fff;
+    font-family:'Segoe UI',system-ui,sans-serif;
+  }
+
+  #ctrl{
+    display:none !important;
+  }
+
+  .page-wrap{
+    width:297mm;
+    min-height:210mm;
+    background:#fff;
+    margin:16px auto 32px;
+    padding:10mm;
+    box-shadow:0 4px 28px rgba(0,0,0,.45);
+  }
+}
+
+/* GRID 4 x 2 */
+.card-grid{
+  width:100%;
+  display:grid;
+  grid-template-columns:repeat(4, 1fr);
+  column-gap:5mm;
+  row-gap:8mm;
+  align-items:start;
+}
+/* CARD */
+.qr-card{
+  width:100%;
+  height:82mm;
+  background:#fff;
+  border:.3mm solid #c4b5fd;
+  border-radius:5mm;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  break-inside:avoid;
+  page-break-inside:avoid;
+}
+
+/* HEADER */
+.qr-card__hd{
+  height:18mm;
+  flex:0 0 18mm;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  text-align:center;
+  padding:0 2mm;
+  background:linear-gradient(135deg,#9f1d26 0%,#c81e2d 55%,#dc2635 100%);
+  color:#fff;
+}
+
+.qr-card__brand{
+  width:100%;
+  font-size:4.5pt;
+  font-weight:700;
+  line-height:1;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  opacity:.75;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  margin-bottom:1mm;
+}
+
+.qr-card__name{
+  width:100%;
+  font-size:14pt;
+  font-weight:900;
+  line-height:1;
+  color:#fff;
+  text-align:center;
+  text-transform:uppercase;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  text-shadow:0 .3mm .8mm rgba(0,0,0,.25);
+}
+
+.qr-card__sublabel{
+  width:100%;
+  font-size:4.5pt;
+  font-weight:700;
+  line-height:1;
+  opacity:.85;
+  margin-top:.8mm;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+/* BODY */
+.qr-card__bd{
+  flex:1 1 auto;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:2mm 2mm 1.5mm;
+  gap:1.2mm;
+}
+
+.qr-card__qr{
+  flex:0 0 auto;
+  background:#fff;
+  border:.45mm solid #ede9fe;
+  border-radius:2.5mm;
+  padding:1mm;
+  line-height:0;
+}
+
+.qr-card__qr img{
+  width:32mm;
+  height:32mm;
+  display:block;
+}
+
+/* INSTRUCTION */
+.qr-card__instr{
+  flex:0 0 auto;
+  width:100%;
+  text-align:center;
+  line-height:1.15;
+}
+
+.qr-card__instr-main{
+  font-size:6pt;
+  font-weight:800;
+  color:#1e1b4b;
+  letter-spacing:.01em;
+  white-space:nowrap;
+}
+
+.qr-card__instr-sub{
+  font-size:4.3pt;
+  color:#6b7280;
+  margin-top:.4mm;
+  white-space:nowrap;
+}
+
+/* CAPACITY */
+.qr-card__cap{
+  flex:0 0 auto;
+  display:inline-flex;
+  align-items:center;
+  gap:1mm;
+  background:#f0fdf4;
+  border:.3mm solid #86efac;
+  color:#166534;
+  border-radius:99mm;
+  padding:.45mm 1.8mm;
+  font-size:4.5pt;
+  font-weight:700;
+  white-space:nowrap;
+}
+
+/* FOOTER */
+.qr-card__ft{
+  flex:0 0 5mm;
+  height:5mm;
+  background:#fff5f5;
+  border-top:.25mm solid #fee2e2;
+  padding:.8mm 1.5mm;
+  text-align:center;
+  overflow:hidden;
+}
+
+.qr-card__url{
+  font-size:3.5pt;
+  color:#b91c1c;
+  line-height:1;
+  font-family:'Courier New',monospace;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+/* Jika URL disembunyikan via JS, body tetap rapi */
+.ctrl-url-el[style*="display: none"]{
+  display:none !important;
+}
+</style>
 </head>
 <body>
 

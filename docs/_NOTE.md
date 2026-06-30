@@ -160,3 +160,4 @@ finalkan generate keuangan
 
 
 /payroll/cash-advances
+/production/component-reconcile
