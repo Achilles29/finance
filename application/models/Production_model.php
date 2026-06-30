@@ -3395,6 +3395,7 @@ class Production_model extends CI_Model
         $divisionId = !empty($payload['division_id']) ? (int)$payload['division_id'] : null;
         $monthStart = $monthKey . '-01';
         $monthEnd = date('Y-m-t', strtotime($monthStart));
+        $opnameMonthKey = $monthEnd;
         $nextMonth = date('Y-m', strtotime('+1 month', strtotime($monthStart)));
         $nextMonthStart = $nextMonth . '-01';
 
@@ -3500,7 +3501,7 @@ class Production_model extends CI_Model
                     (int)($row['uom_id'] ?? 0),
                 ]);
                 $aggregated[$groupKey] = [
-                    'month_key' => $monthStart,
+                    'month_key' => $opnameMonthKey,
                     'location_type' => strtoupper((string)($row['location_type'] ?? '')),
                     'division_id' => !empty($row['division_id']) ? (int)$row['division_id'] : null,
                     'component_id' => (int)($row['component_id'] ?? 0),
@@ -3538,7 +3539,7 @@ class Production_model extends CI_Model
 
                 if (!isset($aggregated[$groupKey])) {
                     $aggregated[$groupKey] = [
-                        'month_key' => $monthStart,
+                        'month_key' => $opnameMonthKey,
                         'location_type' => strtoupper((string)($row['location_type'] ?? '')),
                         'division_id' => !empty($row['division_id']) ? (int)$row['division_id'] : null,
                         'component_id' => (int)($row['component_id'] ?? 0),
@@ -3610,7 +3611,8 @@ class Production_model extends CI_Model
             ->group_start()
                 ->where('source_type <>', 'OPNAME')
                 ->or_where('source_month_key IS NULL', null, false)
-                ->or_where('source_month_key <>', $monthStart)
+                ->or_where('source_month_key <', $monthStart)
+                ->or_where('source_month_key >', $monthEnd)
             ->group_end();
         if ($locationType !== '') {
             $conflictQuery->where('location_type', $locationType);
@@ -3628,7 +3630,8 @@ class Production_model extends CI_Model
 
         $this->db->trans_begin();
 
-        $this->db->where('month_key', $monthStart);
+        $this->db->where('month_key >=', $monthStart);
+        $this->db->where('month_key <=', $monthEnd);
         if ($locationType !== '') {
             $this->db->where('location_type', $locationType);
         }
@@ -3639,7 +3642,8 @@ class Production_model extends CI_Model
 
         $this->db->where('month_key', $nextMonthStart);
         $this->db->where('source_type', 'OPNAME');
-        $this->db->where('source_month_key', $monthStart);
+        $this->db->where('source_month_key >=', $monthStart);
+        $this->db->where('source_month_key <=', $monthEnd);
         if ($locationType !== '') {
             $this->db->where('location_type', $locationType);
         }
@@ -3659,6 +3663,18 @@ class Production_model extends CI_Model
             if ($hasMonthlyStockTable) {
                 $this->load->library('ComponentStockWriter');
             }
+        }
+
+        if ($hasMonthlyStockTable) {
+            $this->db->where('month_key', $nextMonthStart)
+                ->where('source_mode', 'OPENING_CARRY_FORWARD');
+            if ($locationType !== '') {
+                $this->db->where('location_type', $locationType);
+            }
+            if ($divisionId !== null) {
+                $this->db->where('division_id', $divisionId);
+            }
+            $this->db->delete('inv_component_monthly_stock');
         }
 
         $generatedRows = 0;
@@ -3723,7 +3739,7 @@ class Production_model extends CI_Model
                 'opening_avg_cost' => round((float)$row['avg_cost'], 6),
                 'opening_total_value' => round((float)$row['total_value'], 2),
                 'source_type' => 'OPNAME',
-                'source_month_key' => $monthStart,
+                'source_month_key' => $opnameMonthKey,
                 'source_ref_table' => 'inv_component_monthly_opname',
                 'generated_by' => $userId > 0 ? $userId : null,
             ];
@@ -8032,7 +8048,8 @@ class Production_model extends CI_Model
         if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
             $month = date('Y-m');
         }
-        $monthKey = $month . '-01';
+        $monthStart = $month . '-01';
+        $monthEnd = date('Y-m-t', strtotime($monthStart));
 
         $this->db->select('o.*, c.component_code, c.component_name, c.component_type, u.code AS uom_code, u.name AS uom_name, d.division_name, e.employee_name AS generated_by_name', false)
             ->from('inv_component_monthly_opname o')
@@ -8040,7 +8057,8 @@ class Production_model extends CI_Model
             ->join('mst_uom u', 'u.id = o.uom_id', 'left')
             ->join('org_division d', 'd.id = o.division_id', 'left')
             ->join('org_employee e', 'e.id = o.generated_by', 'left')
-            ->where('o.month_key', $monthKey);
+            ->where('o.month_key >=', $monthStart)
+            ->where('o.month_key <=', $monthEnd);
 
         $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
         $this->apply_component_location_filter('o.location_type', $locationType);

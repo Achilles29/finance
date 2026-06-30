@@ -149,6 +149,7 @@ untuk kasus pak fajar:
 
 
 
+SEKARANG PINDAH KE COMPONENT:
 
 Gagal: Generate ditolak: 13 komponen masih minus di akhir bulan. Lakukan ADJ_PLUS terlebih dahulu.
 
@@ -157,6 +158,10 @@ gagal generate e/production/component-daily?q=&month=2026-06&division_id=0&locat
 saya mau melakukan generate stok opname dan stok awal component.
 pastikan data yang di generate bersih, tidak ada missmatch meskipun data awal ada missmatch, data hasil generate harus bersih mengikuti stock. jika ada perbedaan profile atau lot atau movemen log,  harus dibersihkan mengikut data stock
 jika generate dilakukan lebih dari sekali maka ditimpa
+STOCK opname harus akhir bulan (30 juni bukan 1 juni)
+secara umum polanya seperti yang sudah kita lakukan di inventory divisi dan warehouse
 
 
 
+
+cek halaman dan database legacy dari bahan baku, gudang , dan component
