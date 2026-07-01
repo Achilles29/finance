@@ -535,6 +535,9 @@ class PosOrderStockService
                 (array)($rollback['data']['allocations'] ?? [])
             );
             if (!($movementRollback['ok'] ?? false)) {
+                if ($this->is_missing_rollback_movement_message((string)($movementRollback['message'] ?? ''))) {
+                    return $this->post_material_rollback_fallback($header, $line, $reverseQty, $meta, 'FIFO rollback fallback: movement usage lama tidak ditemukan.');
+                }
                 return $movementRollback;
             }
 
@@ -550,6 +553,9 @@ class PosOrderStockService
             $identity = $this->infer_material_identity($line, $divisionId, $destinationType);
             $rollback = $this->rollback_material_aggregate_movement((int)($line['movement_ref_id'] ?? 0), $reverseQty);
             if (!($rollback['ok'] ?? false)) {
+                if ($this->is_missing_rollback_movement_message((string)($rollback['message'] ?? ''))) {
+                    return $this->post_material_rollback_fallback($header, $line, $reverseQty, $meta, 'Aggregate rollback fallback: movement usage lama tidak ditemukan.');
+                }
                 return $rollback;
             }
             $rebuild = $this->rebuild_material_identity_after_pos_rollback([
@@ -727,9 +733,18 @@ class PosOrderStockService
                 (int)($header['id'] ?? 0),
                 (int)($line['id'] ?? 0),
                 $reverseQty,
-                $movementRefType === 'COMPONENT_MOVEMENT' ? (int)($line['movement_ref_id'] ?? 0) : 0
+                $movementRefType === 'COMPONENT_MOVEMENT' ? (int)($line['movement_ref_id'] ?? 0) : 0,
+                [
+                    'component_id' => (int)($line['component_id'] ?? 0),
+                    'uom_id' => (int)($line['required_uom_id'] ?? 0),
+                    'location_type' => $locationType,
+                    'division_id' => $divisionId,
+                ]
             );
             if (!($movementRollback['ok'] ?? false)) {
+                if ($this->is_missing_rollback_movement_message((string)($movementRollback['message'] ?? ''))) {
+                    return $this->post_component_rollback_fallback($header, $line, $reverseQty, $meta, $locationType, $divisionId, 'Component rollback fallback: movement usage lama tidak ditemukan.');
+                }
                 return $movementRollback;
             }
 
@@ -932,7 +947,7 @@ class PosOrderStockService
         return ['ok' => true];
     }
 
-    private function rollback_component_usage_movement(int $commitId, int $commitLineId, float $reverseQty, int $movementId = 0): array
+    private function rollback_component_usage_movement(int $commitId, int $commitLineId, float $reverseQty, int $movementId = 0, array $fallbackContext = []): array
     {
         if (!$this->ci->db->table_exists('inv_component_movement_log')) {
             return ['ok' => true];
@@ -952,6 +967,33 @@ class PosOrderStockService
                 ->where('source_id', $commitId)
                 ->where('source_line_id', $commitLineId)
                 ->where('movement_type', 'USAGE')
+                ->order_by('id', 'DESC')
+                ->limit(1)
+                ->get()
+                ->row_array() ?: null;
+        }
+        if (!$row) {
+            $this->ci->db->from('inv_component_movement_log')
+                ->where('source_table', 'pos_stock_commit')
+                ->where('source_id', $commitId)
+                ->where('movement_type', 'USAGE');
+            if (!empty($fallbackContext['component_id'])) {
+                $this->ci->db->where('component_id', (int)$fallbackContext['component_id']);
+            }
+            if (!empty($fallbackContext['uom_id'])) {
+                $this->ci->db->where('uom_id', (int)$fallbackContext['uom_id']);
+            }
+            if (!empty($fallbackContext['location_type'])) {
+                $this->ci->db->where('location_type', (string)$fallbackContext['location_type']);
+            }
+            if (array_key_exists('division_id', $fallbackContext)) {
+                if ($fallbackContext['division_id'] === null || $fallbackContext['division_id'] === '') {
+                    $this->ci->db->where('division_id IS NULL', null, false);
+                } else {
+                    $this->ci->db->where('division_id', (int)$fallbackContext['division_id']);
+                }
+            }
+            $row = $this->ci->db
                 ->order_by('id', 'DESC')
                 ->limit(1)
                 ->get()
@@ -1013,7 +1055,9 @@ class PosOrderStockService
         }
 
         foreach (array_values($identities) as $identity) {
-            $rebuild = $this->ci->Purchase_model->rebuild_inventory_history_for_identity('DIVISION', $startDate, $identity);
+            $rebuild = $this->ci->Purchase_model->rebuild_inventory_history_for_identity('DIVISION', $startDate, $identity, [
+                'allow_negative_closing' => true,
+            ]);
             if (!($rebuild['ok'] ?? false)) {
                 return $rebuild;
             }
@@ -1031,7 +1075,9 @@ class PosOrderStockService
         }
 
         $this->ci->load->model('Purchase_model');
-        return $this->ci->Purchase_model->rebuild_inventory_history_for_identity('DIVISION', date('Y-m-01', strtotime($movementDate)), $identity);
+        return $this->ci->Purchase_model->rebuild_inventory_history_for_identity('DIVISION', date('Y-m-01', strtotime($movementDate)), $identity, [
+            'allow_negative_closing' => true,
+        ]);
     }
 
     private function rebuild_component_history_after_pos_rollback(array $line, ?string $locationType, ?int $divisionId): array
@@ -2247,5 +2293,88 @@ class PosOrderStockService
         }
 
         return (bool)$this->ci->db->limit(1)->get()->row_array();
+    }
+
+    private function post_material_rollback_fallback(array $header, array $line, float $reverseQty, array $meta, string $reason): array
+    {
+        $scope = $this->resolve_effective_stock_scope_for_line($line, (string)($header['order_scope'] ?? 'REGULAR'));
+        $line = $scope['line'];
+        $divisionId = $scope['division_id'];
+        $destinationType = $scope['destination_type'];
+        $movementDate = $this->resolve_commit_movement_date($header);
+        $identity = $this->infer_material_identity($line, $divisionId, $destinationType);
+        $qtyBuyAbs = $this->resolve_buy_qty_from_profile($reverseQty, (float)($identity['profile_content_per_buy'] ?? 0));
+
+        $post = $this->ci->inventoryledger->post([
+            'movement_scope' => 'DIVISION',
+            'movement_date' => $movementDate,
+            'movement_type' => 'VOID_REVERSE',
+            'division_id' => $divisionId,
+            'destination_type' => $destinationType,
+            'ref_table' => 'pos_stock_commit',
+            'ref_id' => (int)($header['id'] ?? 0),
+            'item_id' => $identity['item_id'],
+            'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
+            'buy_uom_id' => $identity['buy_uom_id'],
+            'content_uom_id' => !empty($line['required_uom_id']) ? (int)$line['required_uom_id'] : null,
+            'qty_buy_delta' => $qtyBuyAbs,
+            'qty_content_delta' => $reverseQty,
+            'profile_key' => $identity['profile_key'],
+            'profile_name' => $identity['profile_name'],
+            'profile_brand' => $identity['profile_brand'],
+            'profile_description' => $identity['profile_description'],
+            'profile_expired_date' => $identity['profile_expired_date'],
+            'profile_content_per_buy' => $identity['profile_content_per_buy'],
+            'profile_buy_uom_code' => $identity['profile_buy_uom_code'],
+            'profile_content_uom_code' => $identity['profile_content_uom_code'],
+            'unit_cost' => round((float)($line['unit_cost_live'] ?? 0), 6),
+            'force_avg_cost_per_content' => round((float)($line['unit_cost_live'] ?? 0), 6),
+            'allow_negative_balance' => true,
+            'notes' => 'POS rollback fallback aggregate reversal. ' . $reason,
+            'created_by' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : null,
+            'manage_transaction' => false,
+        ]);
+        if (!($post['ok'] ?? false)) {
+            return $post;
+        }
+
+        return [
+            'ok' => true,
+            'movement_ref_type' => 'LEDGER_MOVEMENT',
+            'movement_ref_id' => (int)($post['data']['movement_id'] ?? 0),
+            'notes' => $reason,
+        ];
+    }
+
+    private function post_component_rollback_fallback(array $header, array $line, float $reverseQty, array $meta, ?string $locationType, ?int $divisionId, string $reason): array
+    {
+        return $this->post_component_aggregate_movement([
+            'movement_date' => $this->resolve_commit_movement_date($header),
+            'location_type' => $locationType,
+            'division_id' => $divisionId,
+            'component_id' => (int)($line['component_id'] ?? 0),
+            'uom_id' => (int)($line['required_uom_id'] ?? 0),
+            'movement_type' => 'VOID_REVERSE',
+            'qty' => $reverseQty,
+            'unit_cost' => round((float)($line['unit_cost_live'] ?? 0), 6),
+            'source_module' => 'POS',
+            'source_table' => 'pos_stock_commit',
+            'source_id' => (int)($header['id'] ?? 0),
+            'source_line_id' => (int)($line['id'] ?? 0),
+            'notes' => 'POS rollback fallback aggregate reversal. ' . $reason,
+            'actor_employee_id' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : 0,
+            'allow_negative' => true,
+        ]);
+    }
+
+    private function is_missing_rollback_movement_message(string $message): bool
+    {
+        $message = strtolower(trim($message));
+        if ($message === '') {
+            return false;
+        }
+
+        return strpos($message, 'tidak ditemukan') !== false
+            || strpos($message, 'not found') !== false;
     }
 }

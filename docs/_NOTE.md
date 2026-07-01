@@ -127,13 +127,20 @@ lakukan pengecekan di halaman adjustmen seperti daily matrix, daily recon, recon
 buat halaman cost berdasarkan stok component, bukan resep, karena beda, kalau ini untuk cost produk
 
 
+/master/product divisi, klasifikasi dan kategori jadikan 1 kolom, mode stok dan status  jadikan 1 kolom, % hpp dan estimasi profit jadikan  1 kolom, icon kolom aksi jadikan 2 baris
+
+
+
 
 cek backup git
 cek ganti ip
 cek server
 
+finalkan generate stok gudang, bahan baku. component. pastikan cutoff dan membuat data baru stok dan lot nya sesuai
+finalkan generate keuangan
 
-
+setelah update ROLLBACK REFUND dan VOID, guardingnya terlalu ketat. ROLLBACK gagal karena stock minus. harusnya ROLLBACK tetap behasil dengan menambahkan ke stok yang minus sehinggu minusnya berkurang.
+kasus disini adalah ada bahan baku yang habis atau minus, ketok di order POS menjadi minus atau minusnya bertambah. nah ketika void atau refund harusnya tetap rollback dengan mengembalikan ke posisi stok semula 
 
 
 

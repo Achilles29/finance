@@ -14644,7 +14644,7 @@ class Purchase_model extends CI_Model
         ];
     }
 
-    public function rebuild_inventory_history_for_identity(string $stockScope, string $startDate, array $identity): array
+    public function rebuild_inventory_history_for_identity(string $stockScope, string $startDate, array $identity, array $options = []): array
     {
         $stockScope = strtoupper(trim($stockScope));
         if (!in_array($stockScope, ['WAREHOUSE', 'DIVISION'], true)) {
@@ -14693,7 +14693,8 @@ class Purchase_model extends CI_Model
             ->get()
             ->result_array();
 
-        if (!empty($negativeRows)) {
+        $allowNegativeClosing = !empty($options['allow_negative_closing']);
+        if (!empty($negativeRows) && !$allowNegativeClosing) {
             $samples = [];
             foreach ($negativeRows as $row) {
                 $samples[] = trim((string)($row['movement_date'] ?? ''))
@@ -14709,6 +14710,22 @@ class Purchase_model extends CI_Model
                     'negative_samples' => $samples,
                 ],
             ];
+        }
+
+        if (!empty($negativeRows) && $allowNegativeClosing) {
+            $samples = [];
+            foreach ($negativeRows as $row) {
+                $samples[] = trim((string)($row['movement_date'] ?? ''))
+                    . ' | '
+                    . (string)($row['profile_name'] ?? '-')
+                    . ' | closing=' . number_format((float)($row['closing_qty_content'] ?? 0), 4, '.', '');
+            }
+            if (!is_array($rebuild['data'] ?? null)) {
+                $rebuild['data'] = [];
+            }
+            $rebuild['data']['negative_samples'] = $samples;
+            $rebuild['data']['negative_closing_allowed'] = true;
+            $rebuild['message'] = trim((string)($rebuild['message'] ?? 'Repair selesai dijalankan.') . ' Closing minus dibiarkan karena rollback POS memang boleh mengurangi minus tanpa wajib langsung positif.');
         }
 
         return $rebuild;
