@@ -127,39 +127,12 @@ lakukan pengecekan di halaman adjustmen seperti daily matrix, daily recon, recon
 buat halaman cost berdasarkan stok component, bukan resep, karena beda, kalau ini untuk cost produk
 
 
-/master/product divisi, klasifikasi dan kategori jadikan 1 kolom, mode stok dan status  jadikan 1 kolom, % hpp dan estimasi profit jadikan  1 kolom, icon kolom aksi jadikan 2 baris
-
-
-
 
 cek backup git
 cek ganti ip
 cek server
 
-finalkan generate stok gudang, bahan baku. component. pastikan cutoff dan membuat data baru stok dan lot nya sesuai
-finalkan generate keuangan
 
-/payroll/payroll-periods
-
-
-untuk kasus pak fajar:
-- buatkan sql untuk repair databasenya
-- apakah UI absen sekarang sudah mengakomodir jam shift lintas hari untuk security?  baik absen manual dan pengajuan
-
-
-
-
-SEKARANG PINDAH KE COMPONENT:
-
-Gagal: Generate ditolak: 13 komponen masih minus di akhir bulan. Lakukan ADJ_PLUS terlebih dahulu.
-
-gagal generate e/production/component-daily?q=&month=2026-06&division_id=0&location_type=&per_page=0 coba cek
-
-saya mau melakukan generate stok opname dan stok awal component.
-pastikan data yang di generate bersih, tidak ada missmatch meskipun data awal ada missmatch, data hasil generate harus bersih mengikuti stock. jika ada perbedaan profile atau lot atau movemen log,  harus dibersihkan mengikut data stock
-jika generate dilakukan lebih dari sekali maka ditimpa
-STOCK opname harus akhir bulan (30 juni bukan 1 juni)
-secara umum polanya seperti yang sudah kita lakukan di inventory divisi dan warehouse
 
 
 
