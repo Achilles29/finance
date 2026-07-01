@@ -301,6 +301,10 @@ class ComponentStockWriter
         } catch (RuntimeException $e) {
             $db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
+        } catch (Throwable $e) {
+            $db->trans_rollback();
+            log_message('error', 'ComponentStockWriter::post_adjustment fatal: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+            return ['ok' => false, 'message' => $this->formatThrowableMessage('Posting adjustment gagal di backend.', $e)];
         }
 
         $db->trans_complete();
@@ -533,7 +537,7 @@ class ComponentStockWriter
         } catch (Throwable $e) {
             $db->trans_rollback();
             log_message('error', 'ComponentStockWriter::post_batch fatal: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
-            return ['ok' => false, 'message' => 'Posting batch gagal di backend. ' . $e->getMessage()];
+            return ['ok' => false, 'message' => $this->formatThrowableMessage('Posting batch gagal di backend.', $e)];
         } finally {
             $db->db_debug = $originalDbDebug;
         }
@@ -927,6 +931,7 @@ class ComponentStockWriter
             'item_id' => $itemId,
             'material_id' => $materialId,
             'content_uom_id' => $uomId,
+            'movement_date' => $movementDate,
         ]);
         if (!($preflight['ok'] ?? false)) {
             return [
@@ -1612,5 +1617,21 @@ class ComponentStockWriter
     {
         $locationType = strtoupper(trim($locationType));
         return in_array($locationType, ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT'], true) ? $locationType : null;
+    }
+
+    private function formatThrowableMessage(string $prefix, Throwable $e): string
+    {
+        $message = trim((string)$e->getMessage());
+        if ($message === '') {
+            $message = 'Unknown error.';
+        }
+
+        $file = basename((string)$e->getFile());
+        $line = (int)$e->getLine();
+        if ($file !== '') {
+            $message .= ' [' . $file . ':' . $line . ']';
+        }
+
+        return trim($prefix . ' ' . $message);
     }
 }

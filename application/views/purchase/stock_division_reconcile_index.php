@@ -982,8 +982,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
           <tr>
             <th>Profil</th>
             <th class="text-end">Opening Monthly</th>
-            <th class="text-end">Opening Snapshot</th>
-            <th class="text-end">Prev Closing</th>
+            <th class="text-end">Closing Bulan Lalu</th>
             <th class="text-end">Delta Log</th>
             <th class="text-end">Closing Monthly</th>
             <th class="text-end">Gap</th>
@@ -1242,7 +1241,6 @@ document.addEventListener('DOMContentLoaded', function () {
     ].map(function(it){return '<div class="rec-audit-metric"><span class="label">'+it[0]+'</span><div class="value">'+it[1]+'</div><div class="text-muted small">'+it[2]+'</div></div>';}).join('');
     var gapPathLabel = {
       NO_GAP: 'Sudah foot',
-      RESTORE_OPENING_FROM_SNAPSHOT: 'Pulihkan opening dari snapshot',
       SEED_OPENING_FROM_PREV_MONTH_CLOSING: 'Isi opening dari closing bulan lalu',
       REVIEW_MOVEMENT_HISTORY: 'Review histori movement',
       NO_MONTH_MOVEMENT_REVIEW_MONTHLY: 'Review monthly tanpa movement bulan ini'
@@ -1253,14 +1251,13 @@ document.addEventListener('DOMContentLoaded', function () {
       return '<tr>'
         + '<td>'+escHtml(g.profile_name||g.profile_key||'-')+'<div class="text-muted small">'+escHtml(String(g.profile_key||'').slice(0,12))+'</div></td>'
         + '<td class="text-end">'+fmtQty(g.monthly_opening_qty_content||0)+'</td>'
-        + '<td class="text-end">'+(g.snapshot_opening_qty_content==null?'<span class="text-muted">-</span>':fmtQty(g.snapshot_opening_qty_content))+'</td>'
         + '<td class="text-end">'+(g.prev_closing_qty_content==null?'<span class="text-muted">-</span>':fmtQty(g.prev_closing_qty_content))+'</td>'
         + '<td class="text-end">'+fmtQty(g.net_non_opening_delta||0)+'</td>'
         + '<td class="text-end">'+fmtQty(g.monthly_closing_qty_content||0)+'</td>'
         + '<td class="text-end '+gapCls+'">'+(gap>0?'+':'')+fmtQty(gap)+'</td>'
         + '<td>'+escHtml(gapPathLabel[g.suggested_repair_path] || g.suggested_repair_path || '-')+'</td>'
         + '</tr>';
-    }).join('')||'<tr><td colspan="8" class="text-center text-muted py-3">Tidak ada gap movement log per profil.</td></tr>';
+    }).join('')||'<tr><td colspan="7" class="text-center text-muted py-3">Tidak ada gap movement log per profil.</td></tr>';
     auditBktEl.innerHTML=buckets.map(function(b){return '<tr><td>'+escHtml(b.bucket_label||b.bucket_code||'-')+'</td><td class="text-end">'+Number(b.count||0)+'</td><td class="text-end">'+fmtQty(b.delta_content||0)+'</td><td class="text-end">'+fmtQty(b.delta_buy||0)+'</td><td class="text-end">'+fmtQty(b.mutation_value||0)+'</td><td>'+escHtml(b.last_movement_date||'-')+'<div class="text-muted small">'+escHtml(b.last_movement_no||'-')+'</div></td></tr>';}).join('')||'<tr><td colspan="6" class="text-center text-muted py-3">Belum ada bucket log.</td></tr>';
     auditMvtEl.innerHTML=movements.map(function(r){return '<tr><td>'+escHtml(r.movement_date||'-')+'</td><td>'+escHtml(r.movement_no||'-')+'</td><td>'+escHtml(r.source_label||'-')+'<div class="text-muted small">'+escHtml(r.source_bucket_label||'-')+'</div></td><td class="text-end">'+fmtQty(r.qty_content_before||0)+'</td><td class="text-end">'+fmtQty(r.qty_content_delta||0)+'</td><td class="text-end">'+fmtQty(r.qty_content_after||0)+'</td><td>'+escHtml(r.movement_type_label||r.movement_type||'-')+'</td><td>'+escHtml(r.notes||'-')+'</td></tr>';}).join('')||'<tr><td colspan="8" class="text-center text-muted py-3">Belum ada movement sumber.</td></tr>';
     auditCard.scrollIntoView({behavior:'smooth',block:'start'});
@@ -1325,7 +1322,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (gapRepairAllBtn) {
     gapRepairAllBtn.addEventListener('click', async function() {
       var ok = await askConfirm(
-        'Repair semua gap movement log yang anchor-nya aman sesuai filter aktif?\n\nSaat ini sistem hanya akan memperbaiki kasus yang bisa dipulihkan dari opening snapshot atau closing bulan sebelumnya. Kasus lain tetap dibiarkan untuk review manual.',
+        'Repair semua gap movement log yang anchor-nya aman sesuai filter aktif?\n\nSaat ini sistem hanya akan memperbaiki kasus yang bisa dipulihkan dari closing bulan sebelumnya. Kasus lain tetap dibiarkan untuk review manual.',
         {title:'Repair Gap Opening', confirmText:'Repair Gap', cancelText:'Batal'}
       );
       if (!ok) return;

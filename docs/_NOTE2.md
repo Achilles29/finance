@@ -368,13 +368,9 @@ setelah itu lakukan refractur database dan UI sesuai saranmu. pastikan operasion
 
 
 
-lakukan perbaikan pada data gudang 
-banyak data yang isi tidak sesuai, contoh BOWL TA seharusnya PCS, tapi jadi ML.
-1. cari data yang satuan isinya tidak sesuai dengan di mst_material. identifikasi berikut kuantitinya, lalu kita sesuakan
-2. posting adjustment IAW20260630-8963 gagal inventory/stock/adjustment/warehouse , kemungkinan karena masalah diatas.
+tambahkan ringkasan adjustment gudang, kitchen, bar di dashboard
 
 
-- gudang seharusnya tidak perlu LOT agar lebih efisien. cukup stock saja menurut saya. karena proses bisnisnya cukup simpel hanya PO ke gudang, SR ke divisi. nah saat SR ke divisi ini yang baru ter generate LOT. jadi mungkin perlu dilakukan penyesuaian logika PO ke gudang, adjustmen gudang, opening gudang, seharusnya memang tidak perlu lot. itu menurut saya, karena sewaktu SR, purchase melakukan verifikasi profil barang mana yang diambil tidak otomatis seperti pada batch produksi atau POS. bagaimana kalau menurutmu? bantah kalau saya salah. atau kalau sudah kamu sesuaikan ya saya ikut. prinsipnya mana yang lebih efisien
-
+cek self order kasir nya harus nya sesuai kasir aktif, verifikasi kalau sudah PAID ya statusnya harusnya PAID
 
 

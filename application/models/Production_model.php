@@ -3784,6 +3784,20 @@ class Production_model extends CI_Model
                 $openingId = (int)($openingRecord['id'] ?? 0);
                 if ($openingId > 0) {
                     $this->componentlotmanager->voidInboundLotsBySource('inv_component_monthly_opening', $openingId);
+                    $closeCarryForward = $this->componentlotmanager->closeCarryForwardSourceLots([
+                        'location_type' => (string)$row['location_type'],
+                        'division_id'   => $row['division_id'],
+                        'component_id'  => (int)$row['component_id'],
+                        'uom_id'        => (int)$row['uom_id'],
+                        'reference_date'=> $nextMonthStart,
+                    ]);
+                    if (!($closeCarryForward['ok'] ?? false)) {
+                        $this->db->trans_rollback();
+                        return [
+                            'ok'      => false,
+                            'message' => 'Generate opname gagal saat menutup lot component bulan lama: ' . (string)($closeCarryForward['message'] ?? ''),
+                        ];
+                    }
                     $residualCutoffLotQuery = $this->db->where('location_type', (string)$row['location_type'])
                         ->where('component_id', (int)$row['component_id'])
                         ->where('uom_id', (int)$row['uom_id'])

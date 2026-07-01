@@ -200,24 +200,23 @@ class PosStockCommitService
             $processedState = strtoupper((string)($processedMap[$lineKey] ?? $header['process_state_snapshot'] ?? 'NONE'));
             $processedState = $this->normalize_enum($processedState, $this->allowedProcessStates, 'NONE');
 
-            $defaultPolicy = $processedState === 'NONE' ? 'RETURN_TO_STOCK' : 'ADJUSTMENT_ONLY';
-            if (strtoupper((string)($line['source_role'] ?? 'MAIN')) === 'OPTIONAL' && $processedState === 'NONE') {
-                $defaultPolicy = 'RETURN_TO_STOCK';
-            }
+            $defaultPolicy = 'RETURN_TO_STOCK';
             if ((float)($line['committed_qty'] ?? 0) <= (float)($line['reversed_qty'] ?? 0)) {
                 $defaultPolicy = 'NO_RETURN';
             }
 
-            $canReturn = $defaultPolicy === 'RETURN_TO_STOCK';
+            $canReturn = $defaultPolicy !== 'NO_RETURN';
             $planned[] = $line + [
                 'line_key' => $lineKey,
                 'processed_state' => $processedState,
                 'remaining_qty' => max(0, round((float)($line['committed_qty'] ?? 0) - (float)($line['reversed_qty'] ?? 0), 4)),
                 'suggested_return_policy' => $defaultPolicy,
                 'can_return_to_stock' => $canReturn ? 1 : 0,
-                'warning_message' => $canReturn
-                    ? null
-                    : 'Line ini sudah diproses atau sudah direversal, jadi pengembalian stok normal tidak disarankan.',
+                'warning_message' => $defaultPolicy === 'NO_RETURN'
+                    ? 'Line ini sudah habis direversal.'
+                    : ($processedState !== 'NONE'
+                        ? 'Item fisik sudah diproses. Saat void/refund, sistem tetap rollback stok dan LOT dulu. Jika kasir memilih tidak kembalikan stok, sistem akan lanjut posting adjustment.'
+                        : null),
             ];
         }
 

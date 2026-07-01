@@ -345,7 +345,7 @@ $isPaidWorkspace = $workspaceMode === 'PAID';
               <label class="pos-reversal-policy-card active" id="reversal_policy_return_card">
                 <input class="d-none" type="radio" name="reversal_stock_policy" id="reversal_policy_return" value="RETURN_TO_STOCK" checked>
                 <div class="pos-reversal-policy-title">Kembalikan ke stok</div>
-                <div class="pos-reversal-policy-note mt-1">Stok yang sebelumnya sudah berkurang akan ditambah lagi untuk line yang belum diproses.</div>
+                <div class="pos-reversal-policy-note mt-1">Rollback pemakaian stok. Bahan baku, komponen, dan LOT dibatalkan ke kondisi sebelum transaksi.</div>
               </label>
               <label class="pos-reversal-policy-card" id="reversal_policy_adjust_card">
                 <input class="d-none" type="radio" name="reversal_stock_policy" id="reversal_policy_adjust" value="ADJUSTMENT_ONLY">
@@ -362,7 +362,7 @@ $isPaidWorkspace = $workspaceMode === 'PAID';
               <option value="AUTO_SPOIL">Spoil otomatis</option>
               <option value="AUTO_ADJUSTMENT">Penyesuaian otomatis</option>
             </select>
-            <div class="small text-muted mt-1">Dipakai untuk line yang sudah diproses atau sengaja tidak dikembalikan ke stok.</div>
+            <div class="small text-muted mt-1">Dipakai saat kasir memilih tidak kembalikan stok. Sistem akan rollback stok dan LOT dulu, lalu posting adjustment sesuai pilihan ini.</div>
           </div>
           <div class="col-md-6 d-none" id="reversal_reason_wrap">
             <label class="form-label small text-muted mb-1">Alasan</label>
@@ -1208,7 +1208,7 @@ document.addEventListener('DOMContentLoaded', function () {
           order_line_extra_id: orderLineExtraId,
           qty: Math.max(0, Number(extraQty?.value || 0)),
           processed_state: String(sourceLine.process_status || 'NOT_PROCESSED').toUpperCase(),
-          return_to_stock: returnToStock && String(sourceLine.process_status || '').toUpperCase() === 'NOT_PROCESSED',
+          return_to_stock: returnToStock,
           notes: reason,
         });
       });
@@ -1221,7 +1221,7 @@ document.addEventListener('DOMContentLoaded', function () {
         order_line_id: orderLineId,
         qty,
         processed_state: String(sourceLine.process_status || 'NOT_PROCESSED').toUpperCase(),
-        return_to_stock: returnToStock && String(sourceLine.process_status || '').toUpperCase() === 'NOT_PROCESSED',
+        return_to_stock: returnToStock,
         notes: reason,
         extras: extraSelections.filter((extra) => extra.order_line_extra_id > 0 && extra.qty > 0),
       });
@@ -1261,7 +1261,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const processed = String(line.process_status || 'NOT_PROCESSED').toUpperCase();
       const isProcessed = processed !== 'NOT_PROCESSED';
       const flagClass = isProcessed ? 'adjust' : 'return';
-      const flagLabel = isProcessed ? 'Masuk Adjustment' : 'Bisa Kembali ke Stok';
+      const flagLabel = isProcessed ? 'Sudah Diproses' : 'Belum Diproses';
       const processedLabel = processStatusLabel(processed);
       const extras = Array.isArray(line.extras) ? line.extras : [];
       return `
@@ -1283,7 +1283,7 @@ document.addEventListener('DOMContentLoaded', function () {
               <input type="number" class="form-control form-control-sm reversal-product-qty pos-reversal-qty-input" min="0" step="0.01" value="${Number(line.qty || 0)}">
             </div>
             <div class="col-md-9">
-              <div class="small text-muted">Status proses: <strong>${escapeHtml(processedLabel)}</strong>${isProcessed ? ' • Stok akan diarahkan ke adjustment.' : ' • Stok boleh dikembalikan.'}</div>
+              <div class="small text-muted">Status proses fisik: <strong>${escapeHtml(processedLabel)}</strong>${isProcessed ? ' • Sistem tetap rollback stok dan LOT lebih dulu. Jika dipilih tidak kembalikan stok, sistem lanjut posting adjustment.' : ''}</div>
             </div>
           </div>
           ${extras.length ? `<div class="pos-reversal-extra-list">${extras.map((extra) => `

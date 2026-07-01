@@ -4550,7 +4550,7 @@ class Purchase_model extends CI_Model
         if ($suspectTable === 'MOVEMENT_LOG_GAP' && !$hasLotMismatch && !$hasLotValueMismatch && !$hasProfileMismatch && !$hasProfileValueMismatch) {
             $repairableGapProfiles = array_values(array_filter($gapProfiles, static function ($gap) {
                 $action = strtoupper((string)($gap['suggested_repair_path'] ?? ''));
-                return in_array($action, ['RESTORE_OPENING_FROM_SNAPSHOT', 'SEED_OPENING_FROM_PREV_MONTH_CLOSING'], true);
+                return $action === 'SEED_OPENING_FROM_PREV_MONTH_CLOSING';
             }));
 
             $choices = [
@@ -4572,7 +4572,7 @@ class Purchase_model extends CI_Model
                 array_splice($choices, 1, 0, [[
                     'mode' => 'repair_log_gap_opening',
                     'label' => 'Pakai Anchor Riwayat',
-                    'description' => 'Pulihkan opening monthly dari opening snapshot atau closing bulan sebelumnya bila anchor tersebut tersedia dan dipercaya.',
+                    'description' => 'Pulihkan opening monthly dari closing bulan sebelumnya bila anchor tersebut tersedia dan dipercaya.',
                     'recommended' => false,
                 ]]);
             }
@@ -4871,16 +4871,6 @@ class Purchase_model extends CI_Model
             return [];
         }
 
-        $snapshotRows = $this->db
-            ->select('snapshot_month, division_id, COALESCE(destination_type, "OTHER") AS destination_type, item_id, COALESCE(material_id, 0) AS material_id, COALESCE(profile_key, "") AS profile_key, ROUND(COALESCE(opening_qty_buy, 0), 4) AS opening_qty_buy, ROUND(COALESCE(opening_qty_content, 0), 4) AS opening_qty_content', false)
-            ->from('inv_division_stock_opening_snapshot')
-            ->where('snapshot_month', $targetMonth)
-            ->get()->result_array();
-        $snapshotMap = [];
-        foreach ($snapshotRows as $row) {
-            $snapshotMap[$this->build_division_gap_scope_key($row)] = $row;
-        }
-
         $prevRows = $this->db
             ->select('month_key, division_id, COALESCE(destination_type, "OTHER") AS destination_type, item_id, COALESCE(material_id, 0) AS material_id, COALESCE(profile_key, "") AS profile_key, ROUND(COALESCE(closing_qty_buy, 0), 4) AS prev_closing_qty_buy, ROUND(COALESCE(closing_qty_content, 0), 4) AS prev_closing_qty_content', false)
             ->from('inv_division_monthly_stock')
@@ -4907,7 +4897,6 @@ class Purchase_model extends CI_Model
         $results = [];
         foreach ($monthlyRows as $row) {
             $scopeKey = $this->build_division_gap_scope_key($row);
-            $snapshot = $snapshotMap[$scopeKey] ?? null;
             $prev = $prevMap[$scopeKey] ?? null;
             $movement = $movementMap[$scopeKey] ?? null;
 
@@ -4919,11 +4908,6 @@ class Purchase_model extends CI_Model
             $predictedFromMonthly = round($monthlyOpeningContent + $netDeltaContent, 4);
             $gapFromMonthly = round($monthlyClosingContent - $predictedFromMonthly, 4);
 
-            $snapshotOpeningContent = round((float)($snapshot['opening_qty_content'] ?? 0), 4);
-            $snapshotOpeningBuy = round((float)($snapshot['opening_qty_buy'] ?? 0), 4);
-            $predictedFromSnapshot = $snapshot !== null ? round($snapshotOpeningContent + $netDeltaContent, 4) : null;
-            $gapFromSnapshot = $snapshot !== null ? round($monthlyClosingContent - (float)$predictedFromSnapshot, 4) : null;
-
             $prevClosingContent = round((float)($prev['prev_closing_qty_content'] ?? 0), 4);
             $prevClosingBuy = round((float)($prev['prev_closing_qty_buy'] ?? 0), 4);
             $predictedFromPrev = $prev !== null ? round($prevClosingContent + $netDeltaContent, 4) : null;
@@ -4932,8 +4916,6 @@ class Purchase_model extends CI_Model
             $suggested = 'REVIEW_MOVEMENT_HISTORY';
             if (abs($gapFromMonthly) <= 0.0001) {
                 $suggested = 'NO_GAP';
-            } elseif ($snapshot !== null && abs((float)$gapFromSnapshot) <= 0.0001) {
-                $suggested = 'RESTORE_OPENING_FROM_SNAPSHOT';
             } elseif ($prev !== null && abs((float)$gapFromPrev) <= 0.0001) {
                 $suggested = 'SEED_OPENING_FROM_PREV_MONTH_CLOSING';
             } elseif (empty($movement['month_movement_rows'])) {
@@ -4954,8 +4936,6 @@ class Purchase_model extends CI_Model
                 'profile_name' => (string)($row['profile_name'] ?? ''),
                 'monthly_opening_qty_content' => $monthlyOpeningContent,
                 'monthly_opening_qty_buy' => $monthlyOpeningBuy,
-                'snapshot_opening_qty_content' => $snapshot !== null ? $snapshotOpeningContent : null,
-                'snapshot_opening_qty_buy' => $snapshot !== null ? $snapshotOpeningBuy : null,
                 'prev_closing_qty_content' => $prev !== null ? $prevClosingContent : null,
                 'prev_closing_qty_buy' => $prev !== null ? $prevClosingBuy : null,
                 'monthly_closing_qty_content' => $monthlyClosingContent,
@@ -4963,10 +4943,8 @@ class Purchase_model extends CI_Model
                 'net_non_opening_delta' => $netDeltaContent,
                 'net_non_opening_delta_buy' => $netDeltaBuy,
                 'predicted_closing_from_monthly_opening' => $predictedFromMonthly,
-                'predicted_closing_from_snapshot' => $predictedFromSnapshot,
                 'predicted_closing_from_prev_month' => $predictedFromPrev,
                 'gap_from_monthly_opening' => $gapFromMonthly,
-                'gap_from_snapshot_opening' => $gapFromSnapshot,
                 'gap_from_prev_month' => $gapFromPrev,
                 'opening_repost_rows' => (int)($movement['opening_repost_rows'] ?? 0),
                 'month_movement_rows' => (int)($movement['month_movement_rows'] ?? 0),
@@ -5006,7 +4984,7 @@ class Purchase_model extends CI_Model
         $updated = [];
         foreach ($gapProfiles as $gap) {
             $path = strtoupper((string)($gap['suggested_repair_path'] ?? ''));
-            if (!in_array($path, ['RESTORE_OPENING_FROM_SNAPSHOT', 'SEED_OPENING_FROM_PREV_MONTH_CLOSING'], true)) {
+            if ($path !== 'SEED_OPENING_FROM_PREV_MONTH_CLOSING') {
                 continue;
             }
             $applied = $this->apply_division_gap_opening_anchor_repair($gap, $path);
@@ -5016,7 +4994,7 @@ class Purchase_model extends CI_Model
         }
 
         if (empty($updated)) {
-            return ['ok' => false, 'message' => 'Gap terdeteksi, tetapi belum ada anchor aman (opening snapshot / closing bulan lalu) untuk repair otomatis.', 'data' => ['gap_profiles' => $gapProfiles]];
+            return ['ok' => false, 'message' => 'Gap terdeteksi, tetapi belum ada anchor aman dari closing bulan lalu untuk repair otomatis.', 'data' => ['gap_profiles' => $gapProfiles]];
         }
 
         return [
@@ -5103,7 +5081,7 @@ class Purchase_model extends CI_Model
         $skipped = [];
         foreach ($gapProfiles as $gap) {
             $path = strtoupper((string)($gap['suggested_repair_path'] ?? ''));
-            if (!in_array($path, ['RESTORE_OPENING_FROM_SNAPSHOT', 'SEED_OPENING_FROM_PREV_MONTH_CLOSING'], true)) {
+            if ($path !== 'SEED_OPENING_FROM_PREV_MONTH_CLOSING') {
                 $skipped[] = [
                     'monthly_id' => (int)($gap['monthly_id'] ?? 0),
                     'profile_key' => (string)($gap['profile_key'] ?? ''),
@@ -5140,19 +5118,13 @@ class Purchase_model extends CI_Model
     private function apply_division_gap_opening_anchor_repair(array $gap, string $path): ?array
     {
         $path = strtoupper(trim($path));
-        if (!in_array($path, ['RESTORE_OPENING_FROM_SNAPSHOT', 'SEED_OPENING_FROM_PREV_MONTH_CLOSING'], true)) {
+        if ($path !== 'SEED_OPENING_FROM_PREV_MONTH_CLOSING') {
             return null;
         }
 
-        $targetOpeningContent = $path === 'RESTORE_OPENING_FROM_SNAPSHOT'
-            ? (float)($gap['snapshot_opening_qty_content'] ?? 0)
-            : (float)($gap['prev_closing_qty_content'] ?? 0);
-        $targetOpeningBuy = $path === 'RESTORE_OPENING_FROM_SNAPSHOT'
-            ? (float)($gap['snapshot_opening_qty_buy'] ?? 0)
-            : (float)($gap['prev_closing_qty_buy'] ?? 0);
-        $note = $path === 'RESTORE_OPENING_FROM_SNAPSHOT'
-            ? 'Repair log gap opening from opening snapshot'
-            : 'Repair log gap opening from previous month closing';
+        $targetOpeningContent = (float)($gap['prev_closing_qty_content'] ?? 0);
+        $targetOpeningBuy = (float)($gap['prev_closing_qty_buy'] ?? 0);
+        $note = 'Repair log gap opening from previous month closing';
 
         $this->db
             ->set('opening_qty_content', round($targetOpeningContent, 4))
@@ -8802,8 +8774,8 @@ class Purchase_model extends CI_Model
 
         $limit = max(1, min(5000, $limit));
 
-        $corePostingExists = $this->db->query("SHOW TABLES FROM core LIKE 'm_posting_type'")->num_rows() > 0;
-        $corePurchaseExists = $this->db->query("SHOW TABLES FROM core LIKE 'm_purchase_type'")->num_rows() > 0;
+        $corePostingExists = $this->coreTableExists('m_posting_type');
+        $corePurchaseExists = $this->coreTableExists('m_purchase_type');
         if (!$corePostingExists || !$corePurchaseExists) {
             return [
                 'ok' => false,
@@ -11373,6 +11345,22 @@ class Purchase_model extends CI_Model
             return ['ok' => true, 'data' => ['lot_count' => 0]];
         }
 
+        $closeCarryForward = $this->materialfifomanager->closeCarryForwardSourceLots([
+            'division_id' => $stockScope === 'DIVISION' && !empty($snapshot['division_id']) ? (int)$snapshot['division_id'] : null,
+            'destination_type' => $stockScope === 'DIVISION'
+                ? strtoupper(trim((string)($snapshot['destination_type'] ?? 'OTHER')))
+                : null,
+            'item_id' => !empty($snapshot['item_id']) ? (int)$snapshot['item_id'] : null,
+            'material_id' => !empty($snapshot['material_id']) ? (int)$snapshot['material_id'] : null,
+            'buy_uom_id' => !empty($snapshot['buy_uom_id']) ? (int)$snapshot['buy_uom_id'] : null,
+            'content_uom_id' => !empty($snapshot['content_uom_id']) ? (int)$snapshot['content_uom_id'] : null,
+            'profile_key' => $this->nullableString($snapshot['profile_key'] ?? null),
+            'reference_date' => (string)($snapshot['snapshot_month'] ?? date('Y-m-01')),
+        ]);
+        if (!($closeCarryForward['ok'] ?? false)) {
+            return $closeCarryForward;
+        }
+
         $destinationType = $stockScope === 'DIVISION'
             ? strtoupper(trim((string)($snapshot['destination_type'] ?? 'OTHER')))
             : 'GUDANG';
@@ -12976,7 +12964,7 @@ class Purchase_model extends CI_Model
 
         $limit = max(1, min(5000, $limit));
 
-        $coreExists = $this->db->query("SHOW TABLES FROM core LIKE 'pur_purchase_catalog'")->num_rows() > 0;
+        $coreExists = $this->coreTableExists('pur_purchase_catalog');
         if (!$coreExists) {
             return [
                 'ok' => false,
@@ -12984,10 +12972,10 @@ class Purchase_model extends CI_Model
             ];
         }
 
-        $coreItemExists = $this->db->query("SHOW TABLES FROM core LIKE 'm_item'")->num_rows() > 0;
-        $coreMaterialExists = $this->db->query("SHOW TABLES FROM core LIKE 'm_material'")->num_rows() > 0;
-        $coreVendorExists = $this->db->query("SHOW TABLES FROM core LIKE 'm_vendor'")->num_rows() > 0;
-        $coreUomExists = $this->db->query("SHOW TABLES FROM core LIKE 'm_uom'")->num_rows() > 0;
+        $coreItemExists = $this->coreTableExists('m_item');
+        $coreMaterialExists = $this->coreTableExists('m_material');
+        $coreVendorExists = $this->coreTableExists('m_vendor');
+        $coreUomExists = $this->coreTableExists('m_uom');
         if (!$coreItemExists || !$coreMaterialExists || !$coreVendorExists || !$coreUomExists) {
             return [
                 'ok' => false,
@@ -22944,6 +22932,28 @@ class Purchase_model extends CI_Model
             ->row_array();
 
         return !empty($row);
+    }
+
+    private function coreTableExists(string $table): bool
+    {
+        $table = trim($table);
+        if ($table === '') {
+            return false;
+        }
+
+        $query = $this->db->query(
+            'SELECT 1
+             FROM information_schema.tables
+             WHERE table_schema = ?
+               AND table_name = ?
+             LIMIT 1',
+            ['core', $table]
+        );
+        if ($query === false) {
+            return false;
+        }
+
+        return !empty($query->row_array());
     }
 
     private function writePurchaseTxnLog(array $payload): array

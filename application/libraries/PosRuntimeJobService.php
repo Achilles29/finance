@@ -490,6 +490,13 @@ class PosRuntimeJobService
                   AND j.run_after <= ?
                   AND (
                       j.status = 'QUEUED'
+                      OR (
+                          j.status = 'PROCESSING'
+                          AND (
+                              j.started_at IS NULL
+                              OR j.started_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                          )
+                      )
                       OR (j.status = 'FAILED' AND j.attempts < j.max_attempts)
                   )";
         $params = [date('Y-m-d H:i:s')];

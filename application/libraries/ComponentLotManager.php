@@ -9,6 +9,9 @@ class ComponentLotManager
     /** @var bool */
     protected $schemaEnsured = false;
 
+    /** @var string|null */
+    protected $lastBuilderQueryError = null;
+
     public function __construct()
     {
         $this->ci =& get_instance();
@@ -89,6 +92,14 @@ class ComponentLotManager
             return ['ok' => false, 'message' => 'qty_out lot component wajib lebih besar dari nol.'];
         }
 
+        $referenceDate = $issueDate;
+        $cutoffWindow = $this->resolveMonthCutoffWindow([
+            'location_type' => $locationType,
+            'division_id' => $divisionId,
+            'component_id' => $componentId,
+            'uom_id' => $uomId,
+        ], $referenceDate);
+
         $lots = [];
         if ($selectedLotId !== null) {
             $selectedLot = $this->findLotById($selectedLotId, true);
@@ -106,6 +117,20 @@ class ComponentLotManager
             if (strtoupper(trim((string)($selectedLot['status'] ?? ''))) !== 'OPEN' || (float)($selectedLot['qty_balance'] ?? 0) <= 0) {
                 return ['ok' => false, 'message' => 'Lot component yang dipilih sudah tidak aktif atau saldonya habis.'];
             }
+            $selectedReceiptDate = $this->normalizeDate((string)($selectedLot['receipt_date'] ?? ''));
+            if ($selectedReceiptDate !== null && $referenceDate !== null && $selectedReceiptDate > $referenceDate) {
+                return ['ok' => false, 'message' => 'Lot component yang dipilih berasal dari tanggal setelah transaksi.'];
+            }
+            if (
+                $cutoffWindow['use_month_cutoff']
+                && (
+                    $selectedReceiptDate === null
+                    || $selectedReceiptDate < (string)$cutoffWindow['month_start']
+                    || $selectedReceiptDate >= (string)$cutoffWindow['next_month']
+                )
+            ) {
+                return ['ok' => false, 'message' => 'Lot component yang dipilih berasal dari bulan sebelumnya. Gunakan lot bulan berjalan.'];
+            }
             $lots = [$selectedLot];
         } else {
             $lots = $this->findOpenLots([
@@ -113,7 +138,11 @@ class ComponentLotManager
                 'division_id' => $divisionId,
                 'component_id' => $componentId,
                 'uom_id' => $uomId,
+                'reference_date' => $referenceDate,
             ]);
+            if ($this->lastBuilderQueryError !== null) {
+                return ['ok' => false, 'message' => $this->lastBuilderQueryError];
+            }
         }
 
         $available = 0.0;
@@ -245,7 +274,7 @@ class ComponentLotManager
         ];
     }
 
-    public function rollbackIssueLotsBySource(string $sourceTable, int $sourceId, ?int $sourceLineId = null, string $voidNote = ''): array
+    public function rollbackIssueLotsBySource(string $sourceTable, int $sourceId, ?int $sourceLineId = null, string $voidNote = '', ?float $rollbackQty = null): array
     {
         $ensure = $this->ensureSchema();
         if (!($ensure['ok'] ?? false)) {
@@ -265,22 +294,38 @@ class ComponentLotManager
         }
         $issueLogs = $this->ci->db->order_by('id', 'DESC')->get()->result_array();
         if (empty($issueLogs)) {
-            return ['ok' => true, 'data' => ['issue_count' => 0]];
+            return ['ok' => true, 'data' => ['issue_count' => 0, 'rolled_qty' => 0.0, 'allocations' => []]];
         }
 
         $voided = 0;
+        $remaining = $rollbackQty !== null ? round(max(0, $rollbackQty), 4) : null;
+        $rolledQty = 0.0;
+        $allocations = [];
         foreach ($issueLogs as $log) {
+            if ($remaining !== null && $remaining <= 0.0001) {
+                break;
+            }
+
             $lines = $this->ci->db->from('inv_component_lot_issue_line')
                 ->where('issue_id', (int)($log['id'] ?? 0))
                 ->order_by('id', 'DESC')
                 ->get()
                 ->result_array();
+            $issueRolledQty = 0.0;
             foreach ($lines as $line) {
+                if ($remaining !== null && $remaining <= 0.0001) {
+                    break;
+                }
+
                 $lot = $this->findLotById((int)($line['lot_id'] ?? 0), true);
                 if (!$lot) {
                     return ['ok' => false, 'message' => 'Lot component untuk rollback issue tidak ditemukan.'];
                 }
                 $qtyOut = round((float)($line['qty_out'] ?? 0), 4);
+                $rollbackLineQty = $remaining === null ? $qtyOut : round(min($qtyOut, $remaining), 4);
+                if ($rollbackLineQty <= 0) {
+                    continue;
+                }
                 $unitCost = max(0, round((float)($line['unit_cost'] ?? ($lot['unit_cost'] ?? 0)), 6));
                 $rollback = $this->applyLotMutation([
                     'lot_id' => (int)$lot['id'],
@@ -297,26 +342,74 @@ class ComponentLotManager
                     'source_id' => $this->nullableInt($lot['source_id'] ?? null),
                     'source_line_id' => $this->nullableInt($lot['source_line_id'] ?? null),
                     'parent_lot_id' => $this->nullableInt($lot['parent_lot_id'] ?? null),
-                ], $qtyOut, 0.0);
+                ], 0.0, -1 * $rollbackLineQty);
                 if (!($rollback['ok'] ?? false)) {
                     return $rollback;
                 }
+
+                $newIssueQty = round($qtyOut - $rollbackLineQty, 4);
+                $this->ci->db->where('id', (int)($line['id'] ?? 0))->update('inv_component_lot_issue_line', [
+                    'qty_out' => $newIssueQty,
+                    'total_cost' => round($newIssueQty * $unitCost, 2),
+                    'source_balance_after' => round((float)($line['source_balance_after'] ?? 0) + $rollbackLineQty, 4),
+                ]);
+                if ($this->ci->db->trans_status() === false) {
+                    return ['ok' => false, 'message' => 'Gagal update detail issue lot component saat rollback.'];
+                }
+
+                $issueRolledQty = round($issueRolledQty + $rollbackLineQty, 4);
+                $rolledQty = round($rolledQty + $rollbackLineQty, 4);
+                if ($remaining !== null) {
+                    $remaining = round($remaining - $rollbackLineQty, 4);
+                }
+                $allocations[] = [
+                    'issue_id' => (int)($log['id'] ?? 0),
+                    'issue_line_id' => (int)($line['id'] ?? 0),
+                    'lot_id' => (int)($line['lot_id'] ?? 0),
+                    'qty_rolled' => $rollbackLineQty,
+                    'qty_remaining' => $newIssueQty,
+                ];
             }
 
             $notes = trim((string)($log['notes'] ?? ''));
             $note = trim($voidNote);
-            if ($note !== '') {
+            $remainingIssue = $this->ci->db->select('COALESCE(SUM(qty_out),0) AS qty_out, COALESCE(SUM(total_cost),0) AS total_cost', false)
+                ->from('inv_component_lot_issue_line')
+                ->where('issue_id', (int)($log['id'] ?? 0))
+                ->get()
+                ->row_array() ?: ['qty_out' => 0, 'total_cost' => 0];
+            $issueQtyAfter = round((float)($remainingIssue['qty_out'] ?? 0), 4);
+            $issueStatus = $issueQtyAfter <= 0.0001 ? 'VOID' : 'POSTED';
+            if ($issueStatus === 'VOID' && $note !== '') {
                 $notes = $notes !== '' ? ($notes . ' | ' . $note) : $note;
+            } elseif ($issueRolledQty > 0) {
+                $partialNote = 'Partial rollback ' . rtrim(rtrim(number_format($issueRolledQty, 4, '.', ''), '0'), '.');
+                $notes = $notes !== '' ? ($notes . ' | ' . $partialNote) : $partialNote;
             }
             $this->ci->db->where('id', (int)($log['id'] ?? 0))->update('inv_component_lot_issue_log', [
-                'status' => 'VOID',
+                'issue_qty' => $issueQtyAfter,
+                'total_cost' => round((float)($remainingIssue['total_cost'] ?? 0), 2),
+                'status' => $issueStatus,
                 'notes' => $notes !== '' ? $notes : null,
                 'updated_at' => date('Y-m-d H:i:s'),
             ]);
-            $voided++;
+            if ($issueStatus === 'VOID') {
+                $voided++;
+            }
         }
 
-        return ['ok' => true, 'data' => ['issue_count' => $voided]];
+        if ($remaining !== null && $remaining > 0.0001) {
+            return ['ok' => false, 'message' => 'Rollback lot component tidak lengkap.'];
+        }
+
+        return [
+            'ok' => true,
+            'data' => [
+                'issue_count' => $voided,
+                'rolled_qty' => $rolledQty,
+                'allocations' => $allocations,
+            ],
+        ];
     }
 
     public function voidInboundLotsBySource(string $sourceTable, int $sourceId, ?int $sourceLineId = null, string $voidNote = ''): array
@@ -358,6 +451,60 @@ class ComponentLotManager
         }
 
         return ['ok' => true, 'data' => ['lot_count' => count($lots)]];
+    }
+
+    public function closeCarryForwardSourceLots(array $payload): array
+    {
+        $ensure = $this->ensureSchema();
+        if (!($ensure['ok'] ?? false)) {
+            return $ensure;
+        }
+
+        $locationType = strtoupper(trim((string)($payload['location_type'] ?? '')));
+        $divisionId = $this->nullableInt($payload['division_id'] ?? null);
+        $componentId = (int)($payload['component_id'] ?? 0);
+        $uomId = (int)($payload['uom_id'] ?? 0);
+        $referenceDate = $this->normalizeDate((string)($payload['reference_date'] ?? $payload['movement_date'] ?? $payload['issue_date'] ?? ''));
+
+        if (!$this->validLocation($locationType) || $componentId <= 0 || $uomId <= 0 || $referenceDate === null) {
+            return ['ok' => false, 'message' => 'Identitas carry-forward lot component tidak valid.'];
+        }
+
+        $monthStart = date('Y-m-01', strtotime($referenceDate));
+        $now = date('Y-m-d H:i:s');
+
+        $this->ci->db->from('inv_component_lot')
+            ->where('location_type', $locationType)
+            ->where('division_id', $divisionId)
+            ->where('component_id', $componentId)
+            ->where('uom_id', $uomId)
+            ->where('status', 'OPEN')
+            ->where('qty_balance >', 0, false)
+            ->where('receipt_date <', $monthStart);
+        $lots = $this->ci->db->get()->result_array();
+        if (empty($lots)) {
+            return ['ok' => true, 'data' => ['closed_count' => 0]];
+        }
+
+        $closed = 0;
+        foreach ($lots as $lot) {
+            $lotId = (int)($lot['id'] ?? 0);
+            $balance = round((float)($lot['qty_balance'] ?? 0), 4);
+            if ($lotId <= 0 || $balance <= 0.0001) {
+                continue;
+            }
+
+            $newQtyOut = round((float)($lot['qty_out_total'] ?? 0) + $balance, 4);
+            $this->ci->db->where('id', $lotId)->update('inv_component_lot', [
+                'qty_out_total' => $newQtyOut,
+                'qty_balance' => 0,
+                'status' => 'CLOSED',
+                'updated_at' => $now,
+            ]);
+            $closed++;
+        }
+
+        return ['ok' => true, 'data' => ['closed_count' => $closed]];
     }
 
     public function listLots(array $filters = [], int $limit = 200): array
@@ -589,7 +736,7 @@ class ComponentLotManager
 
     private function findOpenLots(array $identity): array
     {
-        return $this->ci->db->from('inv_component_lot')
+        $this->ci->db->from('inv_component_lot')
             ->where('location_type', (string)$identity['location_type'])
             ->where('division_id', $this->nullableInt($identity['division_id'] ?? null))
             ->where('component_id', (int)$identity['component_id'])
@@ -597,9 +744,99 @@ class ComponentLotManager
             ->where('status', 'OPEN')
             ->where('qty_balance >', 0)
             ->order_by('receipt_date', 'ASC')
-            ->order_by('id', 'ASC')
-            ->get()
-            ->result_array();
+            ->order_by('id', 'ASC');
+
+        $referenceDate = $this->normalizeDate((string)($identity['reference_date'] ?? ''));
+        if ($referenceDate !== null) {
+            $this->ci->db->where('receipt_date <=', $referenceDate);
+        }
+
+        $cutoffWindow = $this->resolveMonthCutoffWindow($identity, $referenceDate);
+        if ($cutoffWindow['use_month_cutoff']) {
+            $this->ci->db->where('receipt_date >=', (string)$cutoffWindow['month_start']);
+            $this->ci->db->where('receipt_date <', (string)$cutoffWindow['next_month']);
+        }
+
+        return $this->safeBuilderResultArray('ComponentLotManager::findOpenLots');
+    }
+
+    private function safeBuilderResultArray(string $context): array
+    {
+        $this->lastBuilderQueryError = null;
+        $sql = $this->ci->db->get_compiled_select('', false);
+        $query = $this->ci->db->get();
+        if ($query === false) {
+            $dbError = $this->ci->db->error();
+            $this->lastBuilderQueryError = $context
+                . ' query failed: '
+                . (string)($dbError['message'] ?? 'unknown DB error');
+            log_message(
+                'error',
+                $this->lastBuilderQueryError
+                . ' | SQL: ' . preg_replace('/\s+/', ' ', trim((string)$sql))
+            );
+            return [];
+        }
+
+        return $query->result_array();
+    }
+
+    private function resolveMonthCutoffWindow(array $identity, ?string $referenceDate): array
+    {
+        $context = [
+            'use_month_cutoff' => false,
+            'month_start' => null,
+            'next_month' => null,
+        ];
+
+        if ($referenceDate === null || !$this->ci->db->table_exists('inv_component_lot')) {
+            return $context;
+        }
+
+        $locationType = strtoupper(trim((string)($identity['location_type'] ?? '')));
+        $divisionId = $this->nullableInt($identity['division_id'] ?? null);
+        $componentId = $this->nullableInt($identity['component_id'] ?? null);
+        $uomId = $this->nullableInt($identity['uom_id'] ?? null);
+        if (!$this->validLocation($locationType) || $componentId === null || $uomId === null) {
+            return $context;
+        }
+
+        $monthStart = date('Y-m-01', strtotime($referenceDate));
+        $nextMonth = date('Y-m-01', strtotime($monthStart . ' +1 month'));
+        $hasOpeningRow = $this->ci->db->query(
+            'SELECT id
+             FROM inv_component_lot
+             WHERE location_type = ?
+               AND division_id <=> ?
+               AND component_id = ?
+               AND uom_id = ?
+               AND status = ?
+               AND qty_balance > 0
+               AND source_table = ?
+               AND receipt_date >= ?
+               AND receipt_date < ?
+             LIMIT 1',
+            [
+                $locationType,
+                $divisionId,
+                $componentId,
+                $uomId,
+                'OPEN',
+                'inv_component_monthly_opening',
+                $monthStart,
+                $nextMonth,
+            ]
+        )->row_array();
+        $hasOpening = !empty($hasOpeningRow);
+
+        if (!$hasOpening) {
+            return $context;
+        }
+
+        $context['use_month_cutoff'] = true;
+        $context['month_start'] = $monthStart;
+        $context['next_month'] = $nextMonth;
+        return $context;
     }
 
     private function findLotById(int $lotId, bool $forUpdate): ?array

@@ -15,6 +15,8 @@ class InventoryLedger
     protected $ci;
     /** @var array<string, bool> */
     protected $columnNullableCache = [];
+    /** @var array<int, string>|null */
+    protected $movementTypeEnumValues = null;
 
     public function __construct()
     {
@@ -53,6 +55,13 @@ class InventoryLedger
             return [
                 'ok' => false,
                 'message' => 'movement_type tidak valid.',
+            ];
+        }
+        $movementTypeForStorage = $this->normalizeMovementTypeForStorage($movementType);
+        if ($movementTypeForStorage === null) {
+            return [
+                'ok' => false,
+                'message' => 'movement_type ' . $movementType . ' belum didukung oleh skema inv_stock_movement_log saat ini.',
             ];
         }
 
@@ -136,7 +145,7 @@ class InventoryLedger
             'movement_date' => $movementDate,
             'movement_scope' => $scope,
             'division_id' => $scope === 'DIVISION' ? $divisionId : null,
-            'movement_type' => $movementType,
+            'movement_type' => $movementTypeForStorage,
             'ref_table' => $this->nullableString($payload['ref_table'] ?? null),
             'ref_id' => $this->nullableInt($payload['ref_id'] ?? null),
             'receipt_id' => $this->nullableInt($payload['receipt_id'] ?? null),
@@ -184,21 +193,23 @@ class InventoryLedger
         $movementId = (int)$this->ci->db->insert_id();
 
         if ($movementId <= 0) {
+            $dbError = $this->ci->db->error();
             if ($manageTransaction) {
                 $this->ci->db->trans_rollback();
             }
             return [
                 'ok' => false,
-                'message' => 'Gagal menulis movement log.',
+                'message' => 'Gagal menulis movement log: ' . $this->formatDbErrorMessage($dbError),
             ];
         }
 
         if ($manageTransaction) {
             if ($this->ci->db->trans_status() === false) {
+                $dbError = $this->ci->db->error();
                 $this->ci->db->trans_rollback();
                 return [
                     'ok' => false,
-                    'message' => 'Gagal posting inventory ledger.',
+                    'message' => 'Gagal posting inventory ledger: ' . $this->formatDbErrorMessage($dbError),
                 ];
             }
             $this->ci->db->trans_commit();
@@ -977,6 +988,66 @@ class InventoryLedger
         } while ($this->ci->db->where('movement_no', $no)->count_all_results('inv_stock_movement_log') > 0);
 
         return $no;
+    }
+
+    private function normalizeMovementTypeForStorage(string $movementType): ?string
+    {
+        $movementType = strtoupper(trim($movementType));
+        $available = $this->getMovementTypeEnumValues();
+        if (empty($available) || in_array($movementType, $available, true)) {
+            return $movementType;
+        }
+
+        if ($movementType === 'VOID_REVERSE') {
+            if (in_array('ADJUSTMENT_IN', $available, true)) {
+                return 'ADJUSTMENT_IN';
+            }
+            if (in_array('ADJUSTMENT', $available, true)) {
+                return 'ADJUSTMENT';
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function getMovementTypeEnumValues(): array
+    {
+        if ($this->movementTypeEnumValues !== null) {
+            return $this->movementTypeEnumValues;
+        }
+
+        $this->movementTypeEnumValues = [];
+        if (!$this->ci->db->table_exists('inv_stock_movement_log')) {
+            return $this->movementTypeEnumValues;
+        }
+
+        $query = $this->ci->db->query("SHOW COLUMNS FROM inv_stock_movement_log LIKE 'movement_type'");
+        $row = $query ? $query->row_array() : [];
+        $type = (string)($row['Type'] ?? '');
+        if ($type !== '' && preg_match_all("/'([^']+)'/", $type, $matches)) {
+            $this->movementTypeEnumValues = array_values(array_unique(array_map('strval', (array)$matches[1])));
+        }
+
+        return $this->movementTypeEnumValues;
+    }
+
+    private function formatDbErrorMessage(array $dbError): string
+    {
+        $code = isset($dbError['code']) ? (int)$dbError['code'] : 0;
+        $message = trim((string)($dbError['message'] ?? ''));
+        if ($code > 0 && $message !== '') {
+            return '[' . $code . '] ' . $message;
+        }
+        if ($message !== '') {
+            return $message;
+        }
+        if ($code > 0) {
+            return 'DB error code ' . $code;
+        }
+        return 'unknown DB error';
     }
 
     private function normalizeDate(string $raw): ?string

@@ -12,6 +12,9 @@ class MaterialFifoManager
     /** @var bool */
     protected $warehouseAggregateMode = true;
 
+    /** @var string|null */
+    protected $lastBuilderQueryError = null;
+
     public function __construct()
     {
         $this->ci =& get_instance();
@@ -791,6 +794,7 @@ class MaterialFifoManager
         if (!($identity['ok'] ?? false)) {
             return $identity;
         }
+        $identity['reference_date'] = $issueDate;
 
         $broadSearchOptions = [
             'allow_any_item_id' => true,
@@ -808,10 +812,16 @@ class MaterialFifoManager
             'allow_any_buy_uom'  => ($identity['buy_uom_id'] ?? null) === null,
             'allow_any_profile_key' => $hasMaterialId,
         ]);
+        if ($this->lastBuilderQueryError !== null) {
+            return ['ok' => false, 'message' => $this->lastBuilderQueryError];
+        }
 
         // Broad fallback (also relax content_uom) when the above still finds nothing.
         if (empty($divisionLots) && $hasMaterialId) {
             $divisionLots = $this->findIssueSourceLots($identity, $broadSearchOptions);
+            if ($this->lastBuilderQueryError !== null) {
+                return ['ok' => false, 'message' => $this->lastBuilderQueryError];
+            }
         }
 
         $available = 0.0;
@@ -825,6 +835,9 @@ class MaterialFifoManager
         // profile_key / item_id values, so only one batch was visible in the strict search.
         if ($available + 0.0001 < $qtyNeed && !empty($divisionLots) && ($identity['material_id'] ?? null) !== null) {
             $broadLots = $this->findIssueSourceLots($identity, $broadSearchOptions);
+            if ($this->lastBuilderQueryError !== null) {
+                return ['ok' => false, 'message' => $this->lastBuilderQueryError];
+            }
             $broadAvailable = 0.0;
             foreach ($broadLots as $lot) {
                 $broadAvailable += round((float)($lot['qty_balance'] ?? 0), 4);
@@ -1074,12 +1087,19 @@ class MaterialFifoManager
         if (!($identity['ok'] ?? false)) {
             return $identity;
         }
+        $referenceDate = $this->normalizeDate((string)($payload['reference_date'] ?? $payload['issue_date'] ?? $payload['movement_date'] ?? $payload['as_of_date'] ?? ''));
+        if ($referenceDate !== null) {
+            $identity['reference_date'] = $referenceDate;
+        }
 
         $lots = $this->findIssueSourceLots($identity, [
             'allow_any_item_id' => ($identity['item_id'] ?? null) === null && ($identity['material_id'] ?? null) !== null,
             'allow_any_buy_uom' => ($identity['buy_uom_id'] ?? null) === null,
             'allow_any_profile_key' => ($identity['profile_key'] ?? null) === null,
         ]);
+        if ($this->lastBuilderQueryError !== null) {
+            return ['ok' => false, 'message' => $this->lastBuilderQueryError];
+        }
         $matchedMode = 'EXACT';
         if (empty($lots) && ($identity['material_id'] ?? null) !== null) {
             $lots = $this->findIssueSourceLots($identity, [
@@ -1088,6 +1108,9 @@ class MaterialFifoManager
                 'allow_any_content_uom' => true,
                 'allow_any_profile_key' => true,
             ]);
+            if ($this->lastBuilderQueryError !== null) {
+                return ['ok' => false, 'message' => $this->lastBuilderQueryError];
+            }
             $matchedMode = 'BROAD';
         }
 
@@ -1156,6 +1179,10 @@ class MaterialFifoManager
         if (!($identity['ok'] ?? false)) {
             return $identity;
         }
+        $referenceDate = $this->normalizeDate((string)($payload['reference_date'] ?? $payload['movement_date'] ?? $payload['issue_date'] ?? ''));
+        if ($referenceDate !== null) {
+            $identity['reference_date'] = $referenceDate;
+        }
 
         $lots = $this->findIssueSourceLots($identity, [
             'allow_any_item_id' => false,
@@ -1163,6 +1190,9 @@ class MaterialFifoManager
             'allow_any_content_uom' => false,
             'allow_any_profile_key' => false,
         ]);
+        if ($this->lastBuilderQueryError !== null) {
+            return ['ok' => false, 'message' => $this->lastBuilderQueryError];
+        }
 
         // Fallback: when strict search finds no lots and profile_key is set, relax buy_uom
         // matching. Profile_key already uniquely identifies the catalog so buy_uom is redundant.
@@ -1175,6 +1205,9 @@ class MaterialFifoManager
                 'allow_any_content_uom' => false,
                 'allow_any_profile_key' => false,
             ]);
+            if ($this->lastBuilderQueryError !== null) {
+                return ['ok' => false, 'message' => $this->lastBuilderQueryError];
+            }
         }
 
         $qtyBalance = 0.0;
@@ -1506,6 +1539,80 @@ class MaterialFifoManager
         return ['ok' => true, 'data' => ['lot_count' => count($lots)]];
     }
 
+    public function closeCarryForwardSourceLots(array $payload): array
+    {
+        $ensure = $this->ensureSchema();
+        if (!($ensure['ok'] ?? false)) {
+            return $ensure;
+        }
+
+        $identity = $this->normalizeLotIdentity(array_merge($payload, [
+            'location_scope' => 'DIVISION',
+        ]), false);
+        if (!($identity['ok'] ?? false)) {
+            return $identity;
+        }
+
+        $referenceDate = $this->normalizeDate((string)($payload['reference_date'] ?? $payload['movement_date'] ?? $payload['issue_date'] ?? ''));
+        if ($referenceDate === null) {
+            return ['ok' => false, 'message' => 'Tanggal carry-forward lot divisi tidak valid.'];
+        }
+
+        $monthStart = date('Y-m-01', strtotime($referenceDate));
+        $now = date('Y-m-d H:i:s');
+
+        $this->ci->db->from('inv_material_fifo_lot')
+            ->where('location_scope', 'DIVISION')
+            ->where('division_id', $this->nullableInt($identity['division_id'] ?? null))
+            ->where('destination_type', (string)$identity['destination_type'])
+            ->where('material_id', (int)$identity['material_id'])
+            ->where('content_uom_id', (int)$identity['content_uom_id'])
+            ->where('status', 'OPEN')
+            ->where('qty_balance >', 0, false)
+            ->where('receipt_date <', $monthStart);
+
+        if (($identity['item_id'] ?? null) === null) {
+            $this->ci->db->where('item_id IS NULL', null, false);
+        } else {
+            $this->ci->db->where('item_id', (int)$identity['item_id']);
+        }
+        if (($identity['buy_uom_id'] ?? null) === null) {
+            $this->ci->db->where('buy_uom_id IS NULL', null, false);
+        } else {
+            $this->ci->db->where('buy_uom_id', (int)$identity['buy_uom_id']);
+        }
+        if (($identity['profile_key'] ?? null) === null) {
+            $this->ci->db->where('profile_key IS NULL', null, false);
+        } else {
+            $this->ci->db->where('profile_key', (string)$identity['profile_key']);
+        }
+
+        $lots = $this->safeBuilderResultArray('MaterialFifoManager::closeLotsBeforeCutoff');
+        if (empty($lots)) {
+            return ['ok' => true, 'data' => ['closed_count' => 0]];
+        }
+
+        $closed = 0;
+        foreach ($lots as $lot) {
+            $lotId = (int)($lot['id'] ?? 0);
+            $balance = round((float)($lot['qty_balance'] ?? 0), 4);
+            if ($lotId <= 0 || $balance <= 0.0001) {
+                continue;
+            }
+
+            $newQtyOut = round((float)($lot['qty_out'] ?? 0) + $balance, 4);
+            $this->ci->db->where('id', $lotId)->update('inv_material_fifo_lot', [
+                'qty_out' => $newQtyOut,
+                'qty_balance' => 0,
+                'status' => 'CLOSED',
+                'updated_at' => $now,
+            ]);
+            $closed++;
+        }
+
+        return ['ok' => true, 'data' => ['closed_count' => $closed]];
+    }
+
     public function rollbackTransferLotsBySource(string $sourceTable, int $sourceId, ?int $sourceLineId = null, string $voidNote = ''): array
     {
         $ensure = $this->ensureSchema();
@@ -1635,6 +1742,172 @@ class MaterialFifoManager
         }
 
         return ['ok' => true, 'data' => ['issue_count' => count($issues), 'line_count' => $lineCount]];
+    }
+
+    public function rollbackDivisionUsageLotsBySource(string $sourceTable, int $sourceId, ?int $sourceLineId = null, string $voidNote = '', ?float $rollbackQty = null): array
+    {
+        $ensure = $this->ensureSchema();
+        if (!($ensure['ok'] ?? false)) {
+            return $ensure;
+        }
+
+        if ($sourceTable === '' || $sourceId <= 0) {
+            return ['ok' => false, 'message' => 'Sumber rollback lot divisi tidak valid.'];
+        }
+
+        $this->ci->db->from('inv_material_fifo_issue_log')
+            ->where('source_table', $sourceTable)
+            ->where('source_id', $sourceId)
+            ->where('status', 'POSTED');
+        if ($sourceLineId !== null) {
+            $this->ci->db->where('source_line_id', $sourceLineId);
+        }
+        $issues = $this->ci->db->order_by('id', 'DESC')->get()->result_array();
+        if (empty($issues)) {
+            return ['ok' => true, 'data' => ['issue_count' => 0, 'line_count' => 0, 'rolled_qty' => 0.0, 'allocations' => []]];
+        }
+
+        $lineCount = 0;
+        $now = date('Y-m-d H:i:s');
+        $remaining = $rollbackQty !== null ? round(max(0, $rollbackQty), 4) : null;
+        $rolledQty = 0.0;
+        $allocations = [];
+
+        foreach ($issues as $issue) {
+            if ($remaining !== null && $remaining <= 0.0001) {
+                break;
+            }
+
+            $issueId = (int)($issue['id'] ?? 0);
+            if ($issueId <= 0) {
+                continue;
+            }
+
+            $lines = $this->ci->db
+                ->from('inv_material_fifo_issue_line')
+                ->where('issue_id', $issueId)
+                ->order_by('id', 'DESC')
+                ->get()
+                ->result_array();
+
+            $issueRolledQty = 0.0;
+            foreach ($lines as $line) {
+                if ($remaining !== null && $remaining <= 0.0001) {
+                    break;
+                }
+
+                $lotId = (int)($line['lot_id'] ?? 0);
+                $qtyOut = round((float)($line['qty_out'] ?? 0), 4);
+                if ($lotId <= 0 || $qtyOut <= 0) {
+                    continue;
+                }
+
+                $rollbackLineQty = $remaining === null ? $qtyOut : round(min($qtyOut, $remaining), 4);
+                if ($rollbackLineQty <= 0) {
+                    continue;
+                }
+
+                $lot = $this->findLotById($lotId, true);
+                if (!$lot) {
+                    return ['ok' => false, 'message' => 'Lot sumber pemakaian divisi tidak ditemukan saat rollback FIFO.'];
+                }
+
+                $currentOut = round((float)($lot['qty_out'] ?? 0), 4);
+                $currentBalance = round((float)($lot['qty_balance'] ?? 0), 4);
+                $newOut = round($currentOut - $rollbackLineQty, 4);
+                $newBalance = round($currentBalance + $rollbackLineQty, 4);
+
+                if ($newOut < -0.0001 || $newBalance < -0.0001) {
+                    return ['ok' => false, 'message' => 'Rollback pemakaian FIFO menghasilkan saldo lot tidak valid.'];
+                }
+
+                if (abs($newOut) < 0.0001) {
+                    $newOut = 0.0;
+                }
+                if (abs($newBalance) < 0.0001) {
+                    $newBalance = 0.0;
+                }
+
+                $this->ci->db->where('id', $lotId)->update('inv_material_fifo_lot', [
+                    'qty_out' => $newOut,
+                    'qty_balance' => $newBalance,
+                    'status' => $newBalance > 0 ? 'OPEN' : 'CLOSED',
+                    'updated_at' => $now,
+                ]);
+                if ($this->ci->db->trans_status() === false) {
+                    return ['ok' => false, 'message' => 'Gagal update lot FIFO saat rollback pemakaian divisi.'];
+                }
+
+                $lineUnitCost = max(0, round((float)($line['unit_cost'] ?? ($lot['unit_cost'] ?? 0)), 6));
+                $newIssueQty = round($qtyOut - $rollbackLineQty, 4);
+                $this->ci->db->where('id', (int)($line['id'] ?? 0))->update('inv_material_fifo_issue_line', [
+                    'qty_out' => $newIssueQty,
+                    'total_cost' => round($newIssueQty * $lineUnitCost, 2),
+                    'source_balance_after' => round((float)($line['source_balance_after'] ?? $currentBalance) + $rollbackLineQty, 4),
+                ]);
+                if ($this->ci->db->trans_status() === false) {
+                    return ['ok' => false, 'message' => 'Gagal update detail issue FIFO saat rollback pemakaian divisi.'];
+                }
+
+                $lineCount++;
+                $issueRolledQty = round($issueRolledQty + $rollbackLineQty, 4);
+                $rolledQty = round($rolledQty + $rollbackLineQty, 4);
+                if ($remaining !== null) {
+                    $remaining = round($remaining - $rollbackLineQty, 4);
+                }
+                $allocations[] = [
+                    'issue_id' => $issueId,
+                    'issue_line_id' => (int)($line['id'] ?? 0),
+                    'lot_id' => $lotId,
+                    'qty_rolled' => $rollbackLineQty,
+                    'qty_remaining' => $newIssueQty,
+                ];
+            }
+
+            $note = trim($voidNote);
+            if ($note === '') {
+                $note = 'Rollback FIFO usage';
+            }
+            $existingNotes = trim((string)($issue['notes'] ?? ''));
+            $remainingIssue = $this->ci->db->select('COALESCE(SUM(qty_out),0) AS qty_out, COALESCE(SUM(total_cost),0) AS total_cost', false)
+                ->from('inv_material_fifo_issue_line')
+                ->where('issue_id', $issueId)
+                ->get()
+                ->row_array() ?: ['qty_out' => 0, 'total_cost' => 0];
+            $issueQtyAfter = round((float)($remainingIssue['qty_out'] ?? 0), 4);
+            $issueStatus = $issueQtyAfter <= 0.0001 ? 'VOID' : 'POSTED';
+            $issueNote = $existingNotes;
+            if ($issueStatus === 'VOID') {
+                $issueNote = $issueNote !== '' ? ($issueNote . ' | ' . $note) : $note;
+            } elseif ($issueRolledQty > 0) {
+                $partialNote = 'Partial rollback ' . rtrim(rtrim(number_format($issueRolledQty, 4, '.', ''), '0'), '.');
+                $issueNote = $issueNote !== '' ? ($issueNote . ' | ' . $partialNote) : $partialNote;
+            }
+            $this->ci->db->where('id', $issueId)->update('inv_material_fifo_issue_log', [
+                'issue_qty' => $issueQtyAfter,
+                'total_cost' => round((float)($remainingIssue['total_cost'] ?? 0), 2),
+                'status' => $issueStatus,
+                'voided_at' => $issueStatus === 'VOID' ? $now : null,
+                'notes' => $issueNote !== '' ? $issueNote : null,
+            ]);
+            if ($this->ci->db->trans_status() === false) {
+                return ['ok' => false, 'message' => 'Gagal menutup issue FIFO pemakaian divisi.'];
+            }
+        }
+
+        if ($remaining !== null && $remaining > 0.0001) {
+            return ['ok' => false, 'message' => 'Rollback FIFO bahan baku tidak lengkap.'];
+        }
+
+        return [
+            'ok' => true,
+            'data' => [
+                'issue_count' => count($issues),
+                'line_count' => $lineCount,
+                'rolled_qty' => $rolledQty,
+                'allocations' => $allocations,
+            ],
+        ];
     }
 
     private function ensureSchema(): array
@@ -2087,7 +2360,7 @@ class MaterialFifoManager
             $this->ci->db->where('profile_key', (string)$identity['profile_key']);
         }
 
-        return $this->ci->db->get()->result_array();
+        return $this->safeBuilderResultArray('MaterialFifoManager::findOpenLots');
     }
 
     private function findIssueSourceLots(array $identity, array $options = []): array
@@ -2104,6 +2377,18 @@ class MaterialFifoManager
             ->where('qty_balance >', 0, false)
             ->order_by('receipt_date', 'ASC')
             ->order_by('id', 'ASC');
+
+        $referenceDate = $this->normalizeDate((string)($identity['reference_date'] ?? ''));
+        if ($referenceDate !== null) {
+            $this->ci->db->where('receipt_date <=', $referenceDate);
+        }
+
+        $divisionCutoff = $this->resolveDivisionLotCutoffWindow($identity, $referenceDate);
+        if ($divisionCutoff['use_month_cutoff']) {
+            $this->ci->db->where('receipt_date >=', $divisionCutoff['month_start']);
+            $this->ci->db->where('receipt_date <', $divisionCutoff['next_month']);
+        }
+
         if (!$allowAnyContentUom) {
             $this->ci->db->where('content_uom_id', (int)$identity['content_uom_id']);
         }
@@ -2145,7 +2430,67 @@ class MaterialFifoManager
             }
         }
 
-        return $this->ci->db->get()->result_array();
+        return $this->safeBuilderResultArray('MaterialFifoManager::findIssueSourceLots');
+    }
+
+    private function resolveDivisionLotCutoffWindow(array $identity, ?string $referenceDate): array
+    {
+        $context = [
+            'use_month_cutoff' => false,
+            'month_start' => null,
+            'next_month' => null,
+        ];
+
+        if (strtoupper((string)($identity['location_scope'] ?? '')) !== 'DIVISION') {
+            return $context;
+        }
+        if ($referenceDate === null || !$this->ci->db->table_exists('inv_material_fifo_lot')) {
+            return $context;
+        }
+
+        $divisionId = $this->nullableInt($identity['division_id'] ?? null);
+        $destinationType = $this->normalizeDestinationType((string)($identity['destination_type'] ?? ''));
+        $materialId = $this->nullableInt($identity['material_id'] ?? null);
+        if ($divisionId === null || $destinationType === null || $materialId === null) {
+            return $context;
+        }
+
+        $monthStart = date('Y-m-01', strtotime($referenceDate));
+        $nextMonth = date('Y-m-01', strtotime($monthStart . ' +1 month'));
+        $hasOpeningRow = $this->ci->db->query(
+            'SELECT id
+             FROM inv_material_fifo_lot
+             WHERE location_scope = ?
+               AND status = ?
+               AND qty_balance > 0
+               AND source_table = ?
+               AND division_id <=> ?
+               AND destination_type = ?
+               AND material_id = ?
+               AND receipt_date >= ?
+               AND receipt_date < ?
+             LIMIT 1',
+            [
+                'DIVISION',
+                'OPEN',
+                'inv_division_stock_opening_snapshot',
+                $divisionId,
+                $destinationType,
+                $materialId,
+                $monthStart,
+                $nextMonth,
+            ]
+        )->row_array();
+        $hasOpening = !empty($hasOpeningRow);
+
+        if (!$hasOpening) {
+            return $context;
+        }
+
+        $context['use_month_cutoff'] = true;
+        $context['month_start'] = $monthStart;
+        $context['next_month'] = $nextMonth;
+        return $context;
     }
 
     private function synchronizeWarehouseLotsFromAggregate(array $identity): array
@@ -2489,7 +2834,28 @@ class MaterialFifoManager
         } else {
             $this->ci->db->where('source_line_id', $sourceLineId);
         }
-        return $this->ci->db->get()->result_array();
+        return $this->safeBuilderResultArray('MaterialFifoManager::findLotsBySource');
+    }
+
+    private function safeBuilderResultArray(string $context): array
+    {
+        $this->lastBuilderQueryError = null;
+        $sql = $this->ci->db->get_compiled_select('', false);
+        $query = $this->ci->db->get();
+        if ($query === false) {
+            $dbError = $this->ci->db->error();
+            $this->lastBuilderQueryError = $context
+                . ' query failed: '
+                . (string)($dbError['message'] ?? 'unknown DB error');
+            log_message(
+                'error',
+                $this->lastBuilderQueryError
+                . ' | SQL: ' . preg_replace('/\s+/', ' ', trim((string)$sql))
+            );
+            return [];
+        }
+
+        return $query->result_array();
     }
 
     private function findLotById(int $lotId, bool $forUpdate = false): ?array

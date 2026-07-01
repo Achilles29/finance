@@ -186,6 +186,33 @@ $GLOBALS['auditTab'] = $auditTab;
   .sca-chip.bad { background:#fde9e8; color:#b42318; }
   .sca-chip.unknown { background:#f1f5f9; color:#64748b; }
   .sca-job-list { display:grid; gap:.75rem; }
+  .sca-job-section-head {
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:.75rem;
+    flex-wrap:wrap;
+    margin-bottom:.75rem;
+  }
+  .sca-job-section-note { color:#8a776f; font-size:.78rem; }
+  .sca-job-mini-kpis { display:flex; gap:.55rem; flex-wrap:wrap; }
+  .sca-job-mini-kpi {
+    min-width:110px;
+    border:1px solid rgba(225,210,199,.82);
+    border-radius:14px;
+    background:#fffaf7;
+    padding:.55rem .7rem;
+  }
+  .sca-job-mini-kpi .label {
+    display:block;
+    font-size:.65rem;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:#8a776f;
+    font-weight:800;
+    margin-bottom:.15rem;
+  }
+  .sca-job-mini-kpi .value { font-size:1rem; font-weight:900; color:#2f2628; }
   .sca-job-card {
     border:1px solid rgba(225,210,199,.82); border-radius:16px; background:#fff; padding:.85rem .95rem;
   }
@@ -194,9 +221,31 @@ $GLOBALS['auditTab'] = $auditTab;
   }
   .sca-job-title { font-weight:900; color:#2f2628; }
   .sca-job-meta { font-size:.76rem; color:#8a776f; line-height:1.45; }
+  .sca-job-meta-grid {
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+    gap:.45rem .8rem;
+    margin-top:.45rem;
+  }
+  .sca-job-meta-item {
+    font-size:.75rem;
+    color:#5f524b;
+    line-height:1.45;
+  }
+  .sca-job-meta-item .label {
+    display:block;
+    font-size:.64rem;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:#9a877b;
+    font-weight:800;
+  }
   .sca-job-error {
     margin-top:.55rem; padding:.7rem .8rem; border-radius:14px; background:#fff1f2; color:#9f1239; font-size:.78rem;
+    white-space:pre-wrap;
+    word-break:break-word;
   }
+  .sca-job-actions { margin-top:.75rem; display:flex; gap:.5rem; flex-wrap:wrap; }
   .sca-job-badges { display:flex; flex-wrap:wrap; gap:.35rem; }
   .sca-job-badge {
     display:inline-flex; align-items:center; padding:.2rem .56rem; border-radius:999px; font-size:.68rem; font-weight:900;
@@ -245,7 +294,7 @@ $GLOBALS['auditTab'] = $auditTab;
           <div class="sca-filter-actions">
             <a href="<?php echo html_escape(site_url('pos/stock-live')); ?>" class="btn btn-outline-secondary">Buka Stock Live POS</a>
             <button type="button" class="btn btn-outline-primary" id="sca_process_all_btn">Proses Pending</button>
-            <button type="button" class="btn btn-outline-danger" id="sca_retry_failed_btn">Retry Semua Gagal</button>
+            <button type="button" class="btn btn-outline-danger" id="sca_retry_failed_btn" data-failed-count="<?php echo (int)count($failedJobs); ?>">Retry Semua Gagal</button>
             <button type="button" class="btn btn-outline-secondary" id="sca_reload_jobs_btn">Refresh Job</button>
           </div>
         </form>
@@ -668,7 +717,15 @@ $GLOBALS['auditTab'] = $auditTab;
         </div>
         <div class="row g-3">
           <div class="col-lg-6">
-            <div class="small text-uppercase fw-bold text-muted mb-2">Sedang Antre / Diproses</div>
+            <div class="sca-job-section-head">
+              <div>
+                <div class="small text-uppercase fw-bold text-muted mb-1">Sedang Antre / Diproses</div>
+                <div class="sca-job-section-note">Job yang masih antri atau sedang berjalan. Jika macet lebih dari 5 menit, backend akan memperlakukannya sebagai kandidat retry.</div>
+              </div>
+              <div class="sca-job-mini-kpis">
+                <div class="sca-job-mini-kpi"><span class="label">Aktif</span><div class="value"><?php echo number_format(count($activeJobs)); ?></div></div>
+              </div>
+            </div>
             <div class="sca-job-list" id="sca_active_job_list">
               <?php if (empty($activeJobs)): ?>
                 <div class="text-muted small">Belum ada job aktif.</div>
@@ -679,6 +736,12 @@ $GLOBALS['auditTab'] = $auditTab;
                       <div>
                         <div class="sca-job-title"><?php echo html_escape((string)($job['order_no'] ?? '-')); ?></div>
                         <div class="sca-job-meta"><?php echo html_escape((string)($job['job_code'] ?? '-')); ?> | <?php echo html_escape((string)($job['commit_no'] ?? '-')); ?></div>
+                        <div class="sca-job-meta-grid">
+                          <div class="sca-job-meta-item"><span class="label">Outlet / Kasir</span><?php echo html_escape((string)($job['outlet_name'] ?? '-')); ?> | <?php echo html_escape((string)($job['cashier_employee_name'] ?? '-')); ?></div>
+                          <div class="sca-job-meta-item"><span class="label">Percobaan</span><?php echo (int)($job['attempts'] ?? 0); ?> / <?php echo (int)($job['max_attempts'] ?? 0); ?></div>
+                          <div class="sca-job-meta-item"><span class="label">Snapshot</span><?php echo html_escape((string)($job['commit_no'] ?? '-')); ?> (ID <?php echo (int)($job['snapshot_id'] ?? 0); ?>)</div>
+                          <div class="sca-job-meta-item"><span class="label">Waktu Mulai</span><?php echo html_escape((string)($job['started_at'] ?? ($job['created_at'] ?? '-'))); ?></div>
+                        </div>
                       </div>
                       <div class="sca-job-badges">
                         <span class="sca-job-badge <?php echo strtolower((string)($job['status'] ?? 'queued')); ?>"><?php echo html_escape((string)($job['status'] ?? '-')); ?></span>
@@ -691,7 +754,16 @@ $GLOBALS['auditTab'] = $auditTab;
             </div>
           </div>
           <div class="col-lg-6">
-            <div class="small text-uppercase fw-bold text-muted mb-2">Job Gagal</div>
+            <div class="sca-job-section-head">
+              <div>
+                <div class="small text-uppercase fw-bold text-muted mb-1">Job Gagal</div>
+                <div class="sca-job-section-note">Kalau retry masih gagal, pesan di bawah ini sudah memuat error backend yang lebih mentah agar sumber masalah cepat ditemukan.</div>
+              </div>
+              <div class="sca-job-mini-kpis">
+                <div class="sca-job-mini-kpi"><span class="label">Gagal</span><div class="value"><?php echo number_format(count($failedJobs)); ?></div></div>
+                <div class="sca-job-mini-kpi"><span class="label">Snapshot FAILED</span><div class="value"><?php echo number_format(count($failedCommitSnapshots)); ?></div></div>
+              </div>
+            </div>
             <div class="sca-job-list" id="sca_failed_job_list">
               <?php if (empty($failedJobs)): ?>
                 <div class="text-muted small">Belum ada job gagal.</div>
@@ -702,6 +774,12 @@ $GLOBALS['auditTab'] = $auditTab;
                       <div>
                         <div class="sca-job-title"><?php echo html_escape((string)($job['order_no'] ?? '-')); ?></div>
                         <div class="sca-job-meta"><?php echo html_escape((string)($job['job_code'] ?? '-')); ?> | <?php echo html_escape((string)($job['commit_no'] ?? '-')); ?></div>
+                        <div class="sca-job-meta-grid">
+                          <div class="sca-job-meta-item"><span class="label">Outlet / Kasir</span><?php echo html_escape((string)($job['outlet_name'] ?? '-')); ?> | <?php echo html_escape((string)($job['cashier_employee_name'] ?? '-')); ?></div>
+                          <div class="sca-job-meta-item"><span class="label">Percobaan</span><?php echo (int)($job['attempts'] ?? 0); ?> / <?php echo (int)($job['max_attempts'] ?? 0); ?></div>
+                          <div class="sca-job-meta-item"><span class="label">Snapshot</span><?php echo html_escape((string)($job['commit_no'] ?? '-')); ?> (ID <?php echo (int)($job['snapshot_id'] ?? 0); ?>)</div>
+                          <div class="sca-job-meta-item"><span class="label">Retry Setelah</span><?php echo html_escape((string)($job['run_after'] ?? '-')); ?></div>
+                        </div>
                       </div>
                       <div class="sca-job-badges">
                         <span class="sca-job-badge failed"><?php echo html_escape((string)($job['status'] ?? 'FAILED')); ?></span>
@@ -709,7 +787,7 @@ $GLOBALS['auditTab'] = $auditTab;
                       </div>
                     </div>
                     <div class="sca-job-error"><?php echo nl2br(html_escape((string)($job['last_error'] ?? '-'))); ?></div>
-                    <div class="mt-3 d-flex gap-2 flex-wrap">
+                    <div class="sca-job-actions">
                       <button type="button" class="btn btn-sm btn-outline-primary sca_retry_job_btn" data-job-id="<?php echo (int)($job['id'] ?? 0); ?>">Retry</button>
                       <a href="<?php echo html_escape(site_url('pos/orders/draft?q=' . rawurlencode((string)($job['order_no'] ?? '')))); ?>" class="btn btn-sm btn-outline-secondary">Buka Order</a>
                       <?php $jobOrderStatus = strtoupper(trim((string)($job['order_status'] ?? ''))); ?>
@@ -948,17 +1026,13 @@ document.addEventListener('DOMContentLoaded', function () {
   const retryFailedBtn = document.getElementById('sca_retry_failed_btn');
   if (retryFailedBtn) {
     retryFailedBtn.addEventListener('click', async function () {
-      const confirmed = await askConfirm('Retry semua job FAILED yang tampil sekarang? Jalankan ini setelah SQL repair selesai diterapkan.', { title: 'Retry Semua Job Gagal POS' });
+      const totalFailed = Number(this.dataset.failedCount || 0);
+      const confirmed = await askConfirm('Retry semua job FAILED yang tampil sekarang (' + totalFailed + ' job)? Jalankan ini setelah repair data/backend selesai diterapkan.', { title: 'Retry Semua Job Gagal POS' });
       if (!confirmed) return;
       setButtonLoading(this, 'Retry semua...');
       try {
-        const json = await postJson('<?php echo site_url('pos/orders/runtime-jobs/retry-failed-all'); ?>', { limit: 15 });
-        await showAlert(
-          'Processed: ' + Number((json.processed_count || 0)) + '\n'
-          + 'Success: ' + Number((json.success_count || 0)) + '\n'
-          + 'Failed: ' + Number((json.failed_count || 0)),
-          'Retry Semua Job Gagal POS'
-        );
+        const json = await postJson('<?php echo site_url('pos/orders/runtime-jobs/retry-failed-all'); ?>', { limit: totalFailed > 0 ? totalFailed : 50 });
+        await showAlert(scaBatchRetryDetail(json), 'Retry Semua Job Gagal POS');
         window.location.reload();
       } catch (e) {
         await showAlert(e.message || 'Gagal retry semua job FAILED.', 'Retry Semua Job Gagal POS');
@@ -991,6 +1065,27 @@ document.addEventListener('DOMContentLoaded', function () {
         lines.push('• ' + String(r.label || '-') + ': ' + msg);
       });
       if (failed.length > 10) lines.push('... dan ' + (failed.length - 10) + ' lainnya.');
+    }
+    return lines.join('\n');
+  }
+
+  function scaBatchRetryDetail(json) {
+    var lines = [
+      'Diproses: ' + Number(json.processed_count || 0),
+      'Berhasil: ' + Number(json.success_count || 0),
+      'Gagal: ' + Number(json.failed_count || 0)
+    ];
+    var jobs = Array.isArray(json.jobs) ? json.jobs : [];
+    var failed = jobs.filter(function (row) { return !row.ok; });
+    if (failed.length) {
+      lines.push('');
+      lines.push('Contoh gagal:');
+      failed.slice(0, 10).forEach(function (row) {
+        lines.push('• ' + String(row.order_no || ('Job #' + String(row.job_id || '-'))) + ': ' + String(row.message || 'tanpa detail'));
+      });
+      if (failed.length > 10) {
+        lines.push('... dan ' + (failed.length - 10) + ' job gagal lainnya.');
+      }
     }
     return lines.join('\n');
   }

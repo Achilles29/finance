@@ -339,7 +339,7 @@ $initDateTo   = ($filters['date_to']   ?? '') !== '' ? $filters['date_to']   : $
         <div class="alert alert-warning border-0 d-none" id="refund_empty_hint">Snapshot refund belum tersedia untuk order ini.</div>
         <div class="pos-paid-refund-help mb-3">
           <div class="fw-semibold mb-1">Refund hanya untuk order yang sudah dibayar.</div>
-          <div class="small mb-0">Pilih line yang akan direfund dulu. Setelah itu baru tentukan apakah stok dikembalikan atau diarahkan ke adjustment, lalu pilih rekening pengembalian.</div>
+          <div class="small mb-0">Pilih line yang akan direfund dulu. Setelah itu tentukan apakah sistem hanya rollback stok dan LOT, atau rollback dulu lalu posting adjustment, kemudian pilih rekening pengembalian.</div>
         </div>
         <div class="mb-3">
           <div class="pos-paid-refund-toolbar mb-2">
@@ -358,7 +358,7 @@ $initDateTo   = ($filters['date_to']   ?? '') !== '' ? $filters['date_to']   : $
               <label class="pos-paid-policy-card active" id="refund_policy_return_card">
                 <input class="d-none" type="radio" name="refund_stock_policy" id="refund_policy_return" value="RETURN_TO_STOCK" checked>
                 <div class="pos-paid-policy-title">Kembalikan ke stok</div>
-                <div class="pos-paid-policy-note mt-1">Dipakai untuk item yang belum terpakai dan secara fisik kembali ke stok/divisi.</div>
+                <div class="pos-paid-policy-note mt-1">Rollback pemakaian stok. Bahan baku, komponen, dan LOT dikembalikan ke kondisi sebelum transaksi.</div>
               </label>
               <label class="pos-paid-policy-card" id="refund_policy_adjust_card">
                 <input class="d-none" type="radio" name="refund_stock_policy" id="refund_policy_adjust" value="ADJUSTMENT_ONLY">
@@ -1023,7 +1023,7 @@ document.addEventListener('DOMContentLoaded', function () {
               <div class="pos-paid-mini-note">${escapeHtml(line.product_code || '-')} | Qty ${number(line.qty || 0, 0)} | Status item ${escapeHtml(lineStatusLabel(line.line_status || '-'))}</div>
               ${extras.length ? '<div class="pos-paid-mini-note mt-2">Pilih produk = extra ikut otomatis. Untuk refund extra saja, kosongkan produk lalu pilih extra di bawah.</div>' : ''}
             </div>
-            <span class="pos-paid-refund-flag ${isProcessed ? 'adjust' : 'return'}">${escapeHtml(isProcessed ? 'Masuk Adjustment' : 'Bisa Kembali ke Stok')}</span>
+            <span class="pos-paid-refund-flag ${isProcessed ? 'adjust' : 'return'}">${escapeHtml(isProcessed ? 'Sudah Diproses' : 'Belum Diproses')}</span>
           </div>
           <div class="row g-2 mt-2 align-items-end">
             <div class="col-md-3">
@@ -1031,7 +1031,7 @@ document.addEventListener('DOMContentLoaded', function () {
               <input type="number" class="form-control form-control-sm refund-product-qty" min="0" step="1" inputmode="numeric" data-max-qty="${sanitizeWholeQty(line.qty || 0, line.qty || 0)}" value="${sanitizeWholeQty(line.qty || 0, line.qty || 0)}">
             </div>
             <div class="col-md-9">
-              <div class="small text-muted">Status proses: <strong>${escapeHtml(processStatusLabel(processed))}</strong>${isProcessed ? ' • Stok akan diarahkan ke adjustment.' : ' • Stok boleh dikembalikan.'}</div>
+              <div class="small text-muted">Status proses fisik: <strong>${escapeHtml(processStatusLabel(processed))}</strong>${isProcessed ? ' • Sistem tetap rollback stok dan LOT lebih dulu. Jika dipilih tidak kembalikan stok, sistem lanjut posting adjustment.' : ''}</div>
             </div>
           </div>
           ${extras.length ? `<div class="pos-paid-refund-extra-list">${extras.map((extra) => `
@@ -1097,7 +1097,7 @@ document.addEventListener('DOMContentLoaded', function () {
           order_line_extra_id: orderLineExtraId,
           qty: sanitizeWholeQty(extraQty?.value || 0, sourceExtra?.qty || 0),
           processed_state: String(sourceLine.process_status || 'NOT_PROCESSED').toUpperCase(),
-          return_to_stock: returnToStock && String(sourceLine.process_status || '').toUpperCase() === 'NOT_PROCESSED',
+          return_to_stock: returnToStock,
           notes: reason,
         });
       });
@@ -1106,7 +1106,7 @@ document.addEventListener('DOMContentLoaded', function () {
         order_line_id: orderLineId,
         qty,
         processed_state: String(sourceLine.process_status || 'NOT_PROCESSED').toUpperCase(),
-        return_to_stock: returnToStock && String(sourceLine.process_status || '').toUpperCase() === 'NOT_PROCESSED',
+        return_to_stock: returnToStock,
         notes: reason,
         extras: extraSelections.filter((extra) => extra.order_line_extra_id > 0 && extra.qty > 0),
       });

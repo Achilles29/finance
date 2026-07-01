@@ -2882,7 +2882,7 @@ public function self_order_tables_print()
 
         $payload = $this->request_payload();
         $outletId = max(0, (int)($payload['outlet_id'] ?? 0));
-        $limit = max(1, min(25, (int)($payload['limit'] ?? 10)));
+        $limit = max(1, min(200, (int)($payload['limit'] ?? 50)));
         if ($outletId <= 0) {
             $this->json_error('Pilih outlet dulu sebelum memproses semua pending queue POS.', 422);
             return;

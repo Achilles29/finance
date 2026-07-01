@@ -1473,15 +1473,15 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
             <label class="cashier-reversal-policy-card active" id="cashier_reversal_return_card">
               <input class="d-none" type="radio" name="cashier_reversal_policy" id="cashier_reversal_return" value="RETURN_TO_STOCK" checked>
               <div class="cashier-reversal-policy-title">Kembalikan ke stok</div>
-              <div class="cashier-reversal-policy-note mt-1">Bahan yang sudah terpotong akan dikembalikan lagi ke stok. Tidak ada adjustment yang dibuat.</div>
+              <div class="cashier-reversal-policy-note mt-1">Rollback pemakaian stok. Bahan baku, komponen, dan LOT dikembalikan ke kondisi sebelum transaksi. Tidak membuat adjustment.</div>
             </label>
             <label class="cashier-reversal-policy-card" id="cashier_reversal_adjust_card">
               <input class="d-none" type="radio" name="cashier_reversal_policy" id="cashier_reversal_adjust" value="ADJUSTMENT_ONLY">
               <div class="cashier-reversal-policy-title">Jangan kembalikan ke stok</div>
-              <div class="cashier-reversal-policy-note mt-1">Bahan tidak dikembalikan ke stok, jadi void akan dicatat sebagai adjustment seperti waste, spoil, atau penyesuaian lainnya.</div>
+              <div class="cashier-reversal-policy-note mt-1">Sistem tetap rollback bahan baku, komponen, dan LOT terlebih dulu, lalu memposting adjustment seperti waste, spoil, atau penyesuaian lainnya.</div>
             </label>
           </div>
-          <div class="cashier-reversal-policy-hint mb-3" id="cashier_reversal_policy_hint">Jika stok dikembalikan, sistem hanya mengembalikan bahan ke stok dan tidak membuat adjustment.</div>
+          <div class="cashier-reversal-policy-hint mb-3" id="cashier_reversal_policy_hint">Jika stok dikembalikan, sistem membatalkan pemakaian bahan baku, komponen, dan LOT tanpa membuat adjustment.</div>
           <div class="row g-3">
             <div class="col-md-6 d-none" id="cashier_reversal_adjustment_wrap">
               <label class="form-label small text-muted mb-1">Tipe Adjustment</label>
@@ -2480,8 +2480,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function reversalProcessingLabel(processStatus) {
     return String(processStatus || '').toUpperCase() === 'NOT_PROCESSED'
-      ? 'Bisa dikembalikan ke stok'
-      : 'Akan dicatat sebagai penyesuaian';
+      ? 'Belum diproses'
+      : 'Sudah diproses';
   }
 
   function orderStatusChip(status) {
@@ -4697,8 +4697,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     if (policyHint) {
       policyHint.textContent = usesReturn
-        ? 'Jika stok dikembalikan, sistem hanya mengembalikan bahan ke stok dan tidak membuat adjustment.'
-        : 'Jika stok tidak dikembalikan, pilih tipe adjustment yang mewakili waste, spoil, atau penyesuaian lainnya.';
+        ? 'Jika stok dikembalikan, sistem membatalkan pemakaian bahan baku, komponen, dan LOT tanpa membuat adjustment.'
+        : 'Jika stok tidak dikembalikan, sistem akan rollback stok dan LOT lebih dulu, lalu memposting adjustment sesuai tipe yang dipilih.';
     }
   }
 
@@ -4819,6 +4819,7 @@ document.addEventListener('DOMContentLoaded', function () {
     container.innerHTML = lines.map((line) => {
       const extras = Array.isArray(line.extras) ? line.extras : [];
       const processingLabel = reversalProcessingLabel(line.process_status || '');
+      const isProcessed = String(line.process_status || 'NOT_PROCESSED').toUpperCase() !== 'NOT_PROCESSED';
       return `
         <div class="cashier-reversal-line" data-line-id="${Number(line.id || 0)}">
           <div class="cashier-reversal-item-head">
@@ -4831,7 +4832,7 @@ document.addEventListener('DOMContentLoaded', function () {
               <input type="number" class="form-control form-control-sm cashier-reversal-product-qty cashier-reversal-qty-input" min="0" step="0.01" value="${Number(line.qty || 0)}" disabled>
             </div>
           </div>
-          <div class="small text-muted mt-1">${escapeHtml(processingLabel)}</div>
+          <div class="small text-muted mt-1">Status proses fisik: <strong>${escapeHtml(processingLabel)}</strong>${isProcessed ? ' • Sistem tetap rollback stok dan LOT lebih dulu sebelum menentukan return/adjustment.' : ''}</div>
           ${extras.length ? `<div class="cashier-reversal-extra-list">${extras.map((extra) => `
             <div class="cashier-reversal-extra-row" data-extra-id="${Number(extra.id || 0)}">
               <div class="cashier-reversal-item-head">
@@ -4889,7 +4890,7 @@ document.addEventListener('DOMContentLoaded', function () {
           order_line_extra_id: orderLineExtraId,
           qty: Math.max(0, Number(extraQty?.value || 0)),
           processed_state: String(sourceLine.process_status || 'NOT_PROCESSED').toUpperCase(),
-          return_to_stock: returnToStock && String(sourceLine.process_status || '').toUpperCase() === 'NOT_PROCESSED',
+          return_to_stock: returnToStock,
           notes: reason,
         });
       });
@@ -4902,7 +4903,7 @@ document.addEventListener('DOMContentLoaded', function () {
         order_line_id: orderLineId,
         qty,
         processed_state: String(sourceLine.process_status || 'NOT_PROCESSED').toUpperCase(),
-        return_to_stock: returnToStock && String(sourceLine.process_status || '').toUpperCase() === 'NOT_PROCESSED',
+        return_to_stock: returnToStock,
         notes: reason,
         extras: extraSelections.filter((extra) => extra.order_line_extra_id > 0 && extra.qty > 0),
       });

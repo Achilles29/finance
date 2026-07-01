@@ -10222,7 +10222,7 @@ class Pos_model extends CI_Model
                 $processedState = $defaultLineProcessStatus;
             }
             $isProcessed = in_array($processedState, ['PROCESSED', 'SERVED'], true);
-            $lineReturnToStock = !$isProcessed && (!empty($requestedLine['return_to_stock']) || !empty($options['default_return_to_stock']));
+            $lineReturnToStock = !empty($requestedLine['return_to_stock']) || !empty($options['default_return_to_stock']);
 
             if ($hasRequestedProduct) {
                 $qtySelected = round((float)($requestedLine['qty'] ?? $qtyBefore), 4);

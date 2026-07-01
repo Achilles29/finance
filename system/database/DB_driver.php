@@ -1233,6 +1233,12 @@ abstract class CI_DB_driver {
 		}
 
 		$query = $this->query($this->_count_string.$this->escape_identifiers('numrows').' FROM '.$this->protect_identifiers($table, TRUE, NULL, FALSE));
+		if ($query === FALSE)
+		{
+			$this->_reset_select();
+			return 0;
+		}
+
 		if ($query->num_rows() === 0)
 		{
 			return 0;
@@ -1266,6 +1272,10 @@ abstract class CI_DB_driver {
 
 		$this->data_cache['table_names'] = array();
 		$query = $this->query($sql);
+		if ($query === FALSE)
+		{
+			return $this->data_cache['table_names'];
+		}
 
 		foreach ($query->result_array() as $row)
 		{
@@ -1308,7 +1318,9 @@ abstract class CI_DB_driver {
 	 */
 	public function table_exists($table_name)
 	{
-		return in_array($this->protect_identifiers($table_name, TRUE, FALSE, FALSE), $this->list_tables());
+		$tables = $this->list_tables();
+		return is_array($tables)
+			&& in_array($this->protect_identifiers($table_name, TRUE, FALSE, FALSE), $tables);
 	}
 
 	// --------------------------------------------------------------------
@@ -1328,6 +1340,10 @@ abstract class CI_DB_driver {
 
 		$query = $this->query($sql);
 		$fields = array();
+		if ($query === FALSE)
+		{
+			return $fields;
+		}
 
 		foreach ($query->result_array() as $row)
 		{
@@ -1366,7 +1382,8 @@ abstract class CI_DB_driver {
 	 */
 	public function field_exists($field_name, $table_name)
 	{
-		return in_array($field_name, $this->list_fields($table_name));
+		$fields = $this->list_fields($table_name);
+		return is_array($fields) && in_array($field_name, $fields);
 	}
 
 	// --------------------------------------------------------------------

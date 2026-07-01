@@ -1307,44 +1307,48 @@ class Production extends MY_Controller
         $this->require_permission('production.component.adjustment.index', 'edit');
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
-        $id = (int)$id;
-        $header = $this->Production_model->get_component_adjustment($id);
-        if (!$header) {
-            $this->db->db_debug = $dbDebugBefore;
-            $this->json_error('Adjustment tidak ditemukan.', 404);
-            return;
-        }
-        if (strtoupper((string)$header['status']) !== 'DRAFT') {
-            $this->db->db_debug = $dbDebugBefore;
-            $this->json_error('Hanya adjustment DRAFT yang bisa diposting.', 422);
-            return;
-        }
-
-        $lines = $this->Production_model->get_component_adjustment_lines($id);
-        if (empty($header['division_id'])) {
-            $resolvedDivision = $this->Production_model->resolve_component_adjustment_division($lines);
-            if (!($resolvedDivision['ok'] ?? false)) {
-                $this->db->db_debug = $dbDebugBefore;
-                $this->json_error((string)($resolvedDivision['message'] ?? 'Divisi adjustment tidak bisa ditentukan untuk posting.'), 422);
+        try {
+            $id = (int)$id;
+            $header = $this->Production_model->get_component_adjustment($id);
+            if (!$header) {
+                $this->json_error('Adjustment tidak ditemukan.', 404);
                 return;
             }
-            $header['division_id'] = (int)($resolvedDivision['division_id'] ?? 0);
+            if (strtoupper((string)$header['status']) !== 'DRAFT') {
+                $this->json_error('Hanya adjustment DRAFT yang bisa diposting.', 422);
+                return;
+            }
+
+            $lines = $this->Production_model->get_component_adjustment_lines($id);
+            if (empty($header['division_id'])) {
+                $resolvedDivision = $this->Production_model->resolve_component_adjustment_division($lines);
+                if (!($resolvedDivision['ok'] ?? false)) {
+                    $this->json_error((string)($resolvedDivision['message'] ?? 'Divisi adjustment tidak bisa ditentukan untuk posting.'), 422);
+                    return;
+                }
+                $header['division_id'] = (int)($resolvedDivision['division_id'] ?? 0);
+                $this->db->where('id', $id)->update('inv_component_adjustment', [
+                    'division_id' => $header['division_id'],
+                ]);
+            }
+            $post = $this->componentstockwriter->post_adjustment($header, $lines, (int)($this->current_user['employee_id'] ?? 0));
+            if (!($post['ok'] ?? false)) {
+                $this->json_error((string)($post['message'] ?? 'Posting adjustment gagal.'), 422);
+                return;
+            }
             $this->db->where('id', $id)->update('inv_component_adjustment', [
-                'division_id' => $header['division_id'],
+                'status' => 'POSTED',
+                'posted_at' => date('Y-m-d H:i:s'),
+                'posted_by' => !empty($this->current_user['employee_id']) ? (int)$this->current_user['employee_id'] : null,
             ]);
-        }
-        $post = $this->componentstockwriter->post_adjustment($header, $lines, (int)($this->current_user['employee_id'] ?? 0));
-        $this->db->db_debug = $dbDebugBefore;
-        if (!($post['ok'] ?? false)) {
-            $this->json_error((string)($post['message'] ?? 'Posting adjustment gagal.'), 422);
+            $this->json_ok(['id' => $id]);
+        } catch (Throwable $e) {
+            log_message('error', 'component_adjustment_post fatal: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+            $this->json_error('Posting adjustment gagal di backend. ' . $e->getMessage() . ' [' . basename((string)$e->getFile()) . ':' . (int)$e->getLine() . ']', 500);
             return;
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
         }
-        $this->db->where('id', $id)->update('inv_component_adjustment', [
-            'status' => 'POSTED',
-            'posted_at' => date('Y-m-d H:i:s'),
-            'posted_by' => !empty($this->current_user['employee_id']) ? (int)$this->current_user['employee_id'] : null,
-        ]);
-        $this->json_ok(['id' => $id]);
     }
 
     public function component_adjustment_void($id)
@@ -2388,28 +2392,33 @@ class Production extends MY_Controller
 
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
-        $save = $this->Production_model->save_component_adjustment($header, [$line], $userId);
-        if (!($save['ok'] ?? false)) {
-            $this->db->db_debug = $dbDebugBefore;
-            $this->json_error((string)($save['message'] ?? 'Gagal menyimpan adjustment.'), 422);
-            return;
-        }
+        try {
+            $save = $this->Production_model->save_component_adjustment($header, [$line], $userId);
+            if (!($save['ok'] ?? false)) {
+                $this->json_error((string)($save['message'] ?? 'Gagal menyimpan adjustment.'), 422);
+                return;
+            }
 
-        $adjId  = (int)($save['id'] ?? 0);
-        $adjHdr = $this->Production_model->get_component_adjustment($adjId);
-        $adjLines = $this->Production_model->get_component_adjustment_lines($adjId);
-        $post   = $this->componentstockwriter->post_adjustment($adjHdr, $adjLines, $userId);
-        if (!($post['ok'] ?? false)) {
-            $this->db->db_debug = $dbDebugBefore;
-            $this->json_error('Tersimpan tapi gagal posting: ' . (string)($post['message'] ?? ''), 422);
+            $adjId  = (int)($save['id'] ?? 0);
+            $adjHdr = $this->Production_model->get_component_adjustment($adjId);
+            $adjLines = $this->Production_model->get_component_adjustment_lines($adjId);
+            $post   = $this->componentstockwriter->post_adjustment($adjHdr, $adjLines, $userId);
+            if (!($post['ok'] ?? false)) {
+                $this->json_error('Tersimpan tapi gagal posting: ' . (string)($post['message'] ?? ''), 422);
+                return;
+            }
+            $this->db->where('id', $adjId)->update('inv_component_adjustment', [
+                'status'    => 'POSTED',
+                'posted_at' => date('Y-m-d H:i:s'),
+                'posted_by' => $userId > 0 ? $userId : null,
+            ]);
+        } catch (Throwable $e) {
+            log_message('error', 'component_daily_recon_adjust fatal: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+            $this->json_error('Adjustment component gagal di backend. ' . $e->getMessage() . ' [' . basename((string)$e->getFile()) . ':' . (int)$e->getLine() . ']', 500);
             return;
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
         }
-        $this->db->where('id', $adjId)->update('inv_component_adjustment', [
-            'status'    => 'POSTED',
-            'posted_at' => date('Y-m-d H:i:s'),
-            'posted_by' => $userId > 0 ? $userId : null,
-        ]);
-        $this->db->db_debug = $dbDebugBefore;
 
         // Tag daily-recon record
         if ($this->db->table_exists('inv_component_stock_opname') && $adjId > 0) {
