@@ -69,17 +69,6 @@ class Production extends MY_Controller
         $this->require_permission('production.component.daily.index', 'view');
         $filters = $this->daily_filters();
         $matrix = $this->Production_model->component_daily_matrix($filters, 500);
-        if (empty($matrix['rows'])) {
-            $latestMonth = $this->Production_model->latest_component_daily_month([
-                'location_type' => (string)($filters['location_type'] ?? ''),
-                'division_id' => (int)($filters['division_id'] ?? 0),
-                'type' => (string)($filters['type'] ?? ''),
-            ]);
-            if ($latestMonth !== null && $latestMonth !== (string)$filters['month']) {
-                $filters['month'] = $latestMonth;
-                $matrix = $this->Production_model->component_daily_matrix($filters, 500);
-            }
-        }
 
         $this->render('production/component_daily_index', [
             'page_title' => 'Daily Matrix Base/Prepare',
@@ -95,17 +84,6 @@ class Production extends MY_Controller
         $this->require_permission('production.component.daily.index', 'view');
         $filters = $this->daily_filters();
         $matrix = $this->Production_model->component_daily_matrix($filters, 1500);
-        if (empty($matrix['rows'])) {
-            $latestMonth = $this->Production_model->latest_component_daily_month([
-                'location_type' => (string)($filters['location_type'] ?? ''),
-                'division_id' => (int)($filters['division_id'] ?? 0),
-                'type' => (string)($filters['type'] ?? ''),
-            ]);
-            if ($latestMonth !== null && $latestMonth !== (string)$filters['month']) {
-                $filters['month'] = $latestMonth;
-                $matrix = $this->Production_model->component_daily_matrix($filters, 1500);
-            }
-        }
         $this->json_ok($matrix);
     }
 
@@ -114,17 +92,6 @@ class Production extends MY_Controller
         $this->require_permission('production.component.daily.index', 'view');
         $filters = $this->daily_filters();
         $rows = $this->Production_model->component_monthly_rows($filters, 500);
-        if (empty($rows)) {
-            $latestMonth = $this->Production_model->latest_component_daily_month([
-                'location_type' => (string)($filters['location_type'] ?? ''),
-                'division_id' => (int)($filters['division_id'] ?? 0),
-                'type' => (string)($filters['type'] ?? ''),
-            ]);
-            if ($latestMonth !== null && $latestMonth !== (string)$filters['month']) {
-                $filters['month'] = $latestMonth;
-                $rows = $this->Production_model->component_monthly_rows($filters, 500);
-            }
-        }
 
         $this->render('production/component_monthly_index', [
             'page_title' => 'Stok Bulanan Base/Prepare',
@@ -1486,6 +1453,7 @@ class Production extends MY_Controller
             $payload = [
                 'component_id' => (int)$this->input->get('component_id', true),
                 'location_type' => (string)$this->input->get('location_type', true),
+                'batch_date' => (string)$this->input->get('batch_date', true),
                 'scaling_mode' => (string)$this->input->get('scaling_mode', true),
                 'batch_count' => (float)$this->input->get('batch_count', true),
                 'reference_line_no' => (int)$this->input->get('reference_line_no', true),
@@ -1495,6 +1463,7 @@ class Production extends MY_Controller
         $preview = $this->Production_model->component_batch_preview([
             'component_id' => (int)($payload['component_id'] ?? 0),
             'location_type' => (string)($payload['location_type'] ?? ''),
+            'batch_date' => (string)($payload['batch_date'] ?? date('Y-m-d')),
             'scaling_mode' => (string)($payload['scaling_mode'] ?? 'BATCH'),
             'batch_count' => (float)($payload['batch_count'] ?? 0),
             'reference_line_no' => (int)($payload['reference_line_no'] ?? 0),
@@ -1643,12 +1612,17 @@ class Production extends MY_Controller
         $componentType = strtoupper(trim((string)$this->input->get('component_type', true)));
         $divisionId = (int)$this->input->get('division_id', true);
         $locationType = $this->normalize_location_type($this->input->get('location_type', true));
+        $batchDate = trim((string)$this->input->get('batch_date', true));
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $batchDate)) {
+            $batchDate = '';
+        }
 
         $rows = $this->Production_model->search_picker_options($entity, $q, $limit, [
             'exclude_id' => $excludeId,
             'component_type' => $componentType,
             'division_id' => $divisionId > 0 ? $divisionId : null,
             'location_type' => $locationType,
+            'batch_date' => $batchDate,
         ]);
         $this->json_ok(['rows' => $rows]);
     }
@@ -2461,12 +2435,17 @@ class Production extends MY_Controller
 
     private function stock_filters()
     {
+        $month = trim((string)$this->input->get('month', true));
+        if (!preg_match('/^\d{4}\-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
         $perPage = (int)$this->input->get('per_page', true);
         if (!in_array($perPage, [25, 50, 100, 200, 0], true)) {
             $perPage = 25;
         }
         return [
             'q'             => trim((string)$this->input->get('q', true)),
+            'month'         => $month,
             'location_type' => $this->normalize_location_filter($this->input->get('location_type', true)),
             'type'          => $this->normalize_component_type_filter($this->input->get('type', true)),
             'division_id'   => (int)$this->input->get('division_id', true),

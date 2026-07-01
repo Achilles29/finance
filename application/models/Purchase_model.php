@@ -12390,6 +12390,13 @@ class Purchase_model extends CI_Model
                 'message' => 'Parameter month tidak valid.',
             ];
         }
+        $currentMonthKey = date('Y-m-01');
+        if ($monthKey >= $currentMonthKey) {
+            return [
+                'ok' => false,
+                'message' => 'Generate opname bulanan hanya boleh untuk bulan yang sudah selesai. Pilih bulan sebelum ' . date('Y-m', strtotime($currentMonthKey)) . '.',
+            ];
+        }
 
         $dateFrom = $monthKey;
         $dateTo = date('Y-m-t', strtotime($monthKey));

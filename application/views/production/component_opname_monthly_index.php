@@ -76,7 +76,15 @@ $locSharePct = $totalNilai > 0 ? round($topLocVal / $totalNilai * 100) : 0;
       <h4 class="mb-1"><i class="ri ri-file-list-3-line page-title-icon"></i><?php echo html_escape($page_title ?? 'Stok Opname Bulanan Component'); ?></h4>
       <small class="text-muted">Snapshot stok component hasil generate opname bulanan — posisi akhir bulan per lokasi &amp; divisi.</small>
     </div>
-    <button type="button" class="btn btn-sm btn-outline-danger" id="btn-generate-opname">
+    <button
+      type="button"
+      class="btn btn-sm btn-outline-danger js-component-generate-trigger"
+      id="btn-generate-opname"
+      data-month="<?php echo html_escape((string)($filters['month'] ?? date('Y-m'))); ?>"
+      data-location-type="<?php echo html_escape((string)($filters['location_type'] ?? '')); ?>"
+      data-division-id="<?php echo html_escape((string)($filters['division_id'] ?? '')); ?>"
+      data-bs-toggle="modal"
+      data-bs-target="#componentGenerateModal">
       <i class="ri ri-refresh-line me-1"></i>Generate Opname + Stok Awal
     </button>
   </div>
@@ -345,90 +353,6 @@ $locSharePct = $totalNilai > 0 ? round($topLocVal / $totalNilai * 100) : 0;
 
 <script>
 (function () {
-  /* ── Generate button ─────────────────────────────────────── */
-  const generateUrl = <?php echo json_encode($generateUrl); ?>;
-  const btnLabel = '<i class="ri ri-refresh-line me-1"></i>Generate Opname + Stok Awal';
-
-  function escH(v) {
-    return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-  }
-  function askConfirm(msg, title) {
-    if (window.FinanceUI && typeof window.FinanceUI.confirm === 'function')
-      return window.FinanceUI.confirm(msg, { title: title || 'Konfirmasi', confirmText: 'Generate', cancelText: 'Batal' });
-    return Promise.resolve(window.confirm(msg));
-  }
-  function showError(title, message, samples) {
-    let body = '<p class="mb-2">' + escH(message) + '</p>';
-    if (samples && samples.length > 0) {
-      body += '<p class="mb-1 fw-bold text-danger" style="font-size:.82rem">Komponen yang perlu ADJ_PLUS:</p>';
-      body += '<div style="max-height:260px;overflow-y:auto"><table class="table table-sm table-bordered mb-0" style="font-size:.75rem;font-family:monospace">';
-      body += '<thead class="table-danger"><tr><th>Kode</th><th>Nama</th><th>Lokasi/Divisi</th><th class="text-center">Hari Minus</th><th class="text-end">Terparah</th><th>Tgl Terparah</th></tr></thead><tbody>';
-      samples.forEach(s => {
-        body += '<tr><td>' + escH(s.code) + '</td><td>' + escH(s.name) + '</td>'
-          + '<td>' + escH(s.location_type||'-') + '/' + escH(s.division_name||'-') + '</td>'
-          + '<td class="text-center text-danger fw-bold">' + (s.negative_days||0) + '</td>'
-          + '<td class="text-end text-danger">' + (parseFloat(s.worst_closing||0).toLocaleString('id-ID',{minimumFractionDigits:2})) + '</td>'
-          + '<td>' + escH(s.worst_date||'-') + '</td></tr>';
-      });
-      body += '</tbody></table></div>';
-      body += '<p class="mt-2 mb-0 text-muted" style="font-size:.78rem">Buka <strong>/production/component-daily-recon</strong> lalu lakukan <em>ADJ_PLUS</em>.</p>';
-    }
-    if (window.FinanceUI && typeof window.FinanceUI.alert === 'function')
-      window.FinanceUI.alert(body, { title, isHtml: true });
-    else alert(title + '\n\n' + message);
-  }
-
-  document.getElementById('btn-generate-opname')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btn-generate-opname');
-    const month = document.querySelector('input[name="month"]')?.value || '';
-    const locationType = document.querySelector('select[name="location_type"]')?.value || '';
-    const divisionId = document.querySelector('select[name="division_id"]')?.value || '';
-    if (!month) { showError('Validasi', 'Pilih bulan terlebih dahulu.', null); return; }
-    const yearMonth = month.length === 7 ? month : month.substring(0, 7);
-    const nextMonthDate = new Date(yearMonth + '-01');
-    nextMonthDate.setMonth(nextMonthDate.getMonth() + 1);
-    const nextMonth = nextMonthDate.toISOString().substring(0, 7);
-    const confirmed = await askConfirm(
-      'Generate opname bulan ' + yearMonth + ' dan buat stok awal bulan ' + nextMonth + '.\n\n'
-      + '• Data lama bulan yang sama akan ditimpa.\n• Closing minus akhir bulan akan memblokir generate.\n\nLanjutkan?',
-      'Generate Opname Bulanan');
-    if (!confirmed) return;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Generating…';
-    try {
-      const res = await fetch(generateUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ month: yearMonth, location_type: locationType, division_id: divisionId })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        showError('Generate Ditolak', data.message || res.statusText, data?.data?.negative_samples ?? null);
-        btn.disabled = false; btn.innerHTML = btnLabel; return;
-      }
-      const d = data.data || {}, warnings = d.mid_month_warnings ?? [];
-      let body = '<p class="mb-1">Generate berhasil!</p><ul class="mb-2" style="font-size:.85rem">'
-        + '<li>Bulan: <strong>' + escH(d.month || yearMonth) + '</strong></li>'
-        + '<li>Opname dibuat: <strong>' + (d.generated_rows ?? '-') + '</strong> baris</li>'
-        + '<li>Opening bulan ' + escH(d.next_month || nextMonth) + ': <strong>' + (d.carried_rows ?? '-') + '</strong> baris</li>'
-        + '</ul>';
-      if (warnings.length > 0) {
-        body += '<div class="alert alert-warning py-2 mb-2" style="font-size:.8rem"><strong>⚠ ' + warnings.length
-          + ' komponen sempat minus di tengah bulan</strong> — nilai avg_cost mungkin tidak akurat. Disarankan Repair di Component Reconcile.<ul class="mb-0 mt-1">';
-        warnings.forEach(w => { body += '<li>' + escH(w.code) + ' — ' + escH(w.name) + ' (' + escH(w.location_type) + '/' + escH(w.division_name) + ') · ' + w.negative_days + ' hari, terparah ' + (w.worst_closing ?? '') + '</li>'; });
-        body += '</ul></div>';
-      }
-      body += '<p class="mb-0 text-muted" style="font-size:.8rem">Halaman akan di-refresh.</p>';
-      if (window.FinanceUI && typeof window.FinanceUI.alert === 'function')
-        await window.FinanceUI.alert(body, { title: 'Berhasil', isHtml: true });
-      else alert('Generate berhasil!');
-      window.location.reload();
-    } catch (err) {
-      showError('Error', err.message, null);
-      btn.disabled = false; btn.innerHTML = btnLabel;
-    }
-  });
-
   /* ── Client-side pagination + live search ─────────────────── */
   const tbody   = document.getElementById('opname-tbody');
   const qInput  = document.getElementById('opname-q');

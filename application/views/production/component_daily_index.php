@@ -38,6 +38,66 @@ $lotAverageCost = static function (array $lotSummary): float {
 };
 $isCurrentMonthView = $selectedMonth === date('Y-m');
 $dailyMatrixColspan = (int)(4 + count($dates));
+$summaryRows = count($rows);
+$summaryClosingQty = 0.0;
+$summaryOpeningQty = 0.0;
+$summaryInQty = 0.0;
+$summaryOutQty = 0.0;
+$summaryAdjQty = 0.0;
+$summaryValue = 0.0;
+$summaryPositive = 0;
+$summaryZero = 0;
+$summaryNegative = 0;
+$summaryBase = 0;
+$summaryPrepare = 0;
+$summaryReguler = 0;
+$summaryEvent = 0;
+$summaryDivisionValues = [];
+foreach ($rows as $summaryRow) {
+  $rowClosing = (float)($summaryRow['total_closing'] ?? 0);
+  $rowOpening = (float)($summaryRow['total_opening'] ?? 0);
+  $rowIn = (float)($summaryRow['total_in'] ?? 0);
+  $rowOut = (float)($summaryRow['total_out'] ?? 0);
+  $rowAdj = (float)($summaryRow['total_adj'] ?? 0);
+  $rowValue = (float)($summaryRow['total_value'] ?? 0);
+  $summaryClosingQty += $rowClosing;
+  $summaryOpeningQty += $rowOpening;
+  $summaryInQty += $rowIn;
+  $summaryOutQty += $rowOut;
+  $summaryAdjQty += $rowAdj;
+  $summaryValue += $rowValue;
+
+  if ($rowClosing > 0.0001) {
+    $summaryPositive++;
+  } elseif ($rowClosing < -0.0001) {
+    $summaryNegative++;
+  } else {
+    $summaryZero++;
+  }
+
+  $componentType = strtoupper(trim((string)($summaryRow['component_type'] ?? '')));
+  if ($componentType === 'BASE') {
+    $summaryBase++;
+  } elseif ($componentType === 'PREPARE') {
+    $summaryPrepare++;
+  }
+
+  $locationType = strtoupper(trim((string)($summaryRow['location_type'] ?? '')));
+  if ($locationType === 'BAR_EVENT' || $locationType === 'KITCHEN_EVENT') {
+    $summaryEvent++;
+  } else {
+    $summaryReguler++;
+  }
+
+  $divisionName = trim((string)($summaryRow['division_name'] ?? '-'));
+  $summaryDivisionValues[$divisionName] = ($summaryDivisionValues[$divisionName] ?? 0) + $rowValue;
+}
+arsort($summaryDivisionValues);
+$topDivisionName = key($summaryDivisionValues) ?: '-';
+$topDivisionValue = (float)(reset($summaryDivisionValues) ?: 0);
+$topDivisionShare = $summaryValue > 0 ? round(($topDivisionValue / $summaryValue) * 100, 1) : 0.0;
+$summaryTurnoverBase = $summaryOpeningQty + max($summaryInQty, 0);
+$summaryUsageRate = $summaryTurnoverBase > 0 ? round((max($summaryOutQty, 0) / $summaryTurnoverBase) * 100, 1) : 0.0;
 ?>
 
 <style>
@@ -619,7 +679,84 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
 };
 ?>
 
-<div class="card mb-3 mt-3">
+<?php if ($summaryRows > 0): ?>
+<div class="row g-2 mb-3 mt-3">
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card h-100 border-0 shadow-sm">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="rounded-2 p-1" style="background:#e8f4fd"><i class="ri ri-box-3-line text-primary" style="font-size:1.1rem"></i></span>
+          <span class="text-muted" style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Baris Matrix</span>
+        </div>
+        <div class="fw-bold" style="font-size:1.05rem;color:#1565c0"><?php echo number_format($summaryRows, 0, ',', '.'); ?></div>
+        <div class="text-muted" style="font-size:.72rem"><?php echo number_format($summaryBase, 0, ',', '.'); ?> BASE • <?php echo number_format($summaryPrepare, 0, ',', '.'); ?> PREPARE</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card h-100 border-0 shadow-sm">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="rounded-2 p-1" style="background:#e8f5e9"><i class="ri ri-scales-3-line text-success" style="font-size:1.1rem"></i></span>
+          <span class="text-muted" style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Closing Qty</span>
+        </div>
+        <div class="fw-bold" style="font-size:1.05rem;color:#2e7d32"><?php echo number_format($summaryClosingQty, 2, ',', '.'); ?></div>
+        <div class="text-muted" style="font-size:.72rem"><?php echo $summaryPositive; ?> positif • <?php echo $summaryZero; ?> nol • <?php echo $summaryNegative; ?> minus</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card h-100 border-0 shadow-sm">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="rounded-2 p-1" style="background:#fff8e1"><i class="ri ri-exchange-funds-line text-warning" style="font-size:1.1rem"></i></span>
+          <span class="text-muted" style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Flow Bulan</span>
+        </div>
+        <div class="fw-bold" style="font-size:1.05rem;color:#f57f17">In <?php echo number_format($summaryInQty, 2, ',', '.'); ?></div>
+        <div class="text-muted" style="font-size:.72rem">Out <?php echo number_format($summaryOutQty, 2, ',', '.'); ?> • Adj <?php echo ($summaryAdjQty >= 0 ? '+' : '') . number_format($summaryAdjQty, 2, ',', '.'); ?></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card h-100 border-0 shadow-sm">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="rounded-2 p-1" style="background:#eaf1ff"><i class="ri ri-money-dollar-circle-line" style="font-size:1.1rem;color:#3949ab"></i></span>
+          <span class="text-muted" style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Nilai Stok</span>
+        </div>
+        <div class="fw-bold" style="font-size:1.05rem;color:#3949ab">Rp <?php echo number_format($summaryValue, 0, ',', '.'); ?></div>
+        <div class="text-muted" style="font-size:.72rem">Avg nilai per baris Rp <?php echo number_format($summaryRows > 0 ? ($summaryValue / $summaryRows) : 0, 0, ',', '.'); ?></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card h-100 border-0 shadow-sm">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="rounded-2 p-1" style="background:#fce4ec"><i class="ri ri-pie-chart-2-line text-danger" style="font-size:1.1rem"></i></span>
+          <span class="text-muted" style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Coverage Lokasi</span>
+        </div>
+        <div class="fw-bold" style="font-size:1.05rem;color:#c62828"><?php echo number_format($summaryReguler, 0, ',', '.'); ?> Reg</div>
+        <div class="text-muted" style="font-size:.72rem"><?php echo number_format($summaryEvent, 0, ',', '.'); ?> Event • usage rate <?php echo number_format($summaryUsageRate, 1, ',', '.'); ?>%</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card h-100 border-0 shadow-sm">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="rounded-2 p-1" style="background:#ede7f6"><i class="ri ri-building-line" style="font-size:1.1rem;color:#6a1b9a"></i></span>
+          <span class="text-muted" style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Top Divisi</span>
+        </div>
+        <div class="fw-bold" style="font-size:1rem;color:#6a1b9a"><?php echo html_escape($topDivisionName); ?></div>
+        <div class="text-muted" style="font-size:.72rem"><?php echo number_format($topDivisionShare, 1, ',', '.'); ?>% • Rp <?php echo number_format($topDivisionValue, 0, ',', '.'); ?></div>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
+
+<div class="card mb-3">
   <div class="card-body">
     <form method="get" action="<?php echo site_url('production/component-daily'); ?>" class="row g-2 align-items-end">
       <div class="col-md-3">
@@ -1634,6 +1771,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
     const params = new URLSearchParams({
       component_id: String(state.componentId),
       location_type: String(state.locationType),
+      batch_date: String(fields.date.value || ''),
       scaling_mode: mode,
       batch_count: String(fields.batchCount.value || ''),
       reference_line_no: String(fields.referenceLine.value || ''),
@@ -1710,6 +1848,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
   });
 
   fields.scalingMode.addEventListener('change', () => { syncModeUi(); loadPreview(); });
+  fields.date.addEventListener('change', loadPreview);
   fields.batchCount.addEventListener('input', loadPreview);
   fields.batchCount.addEventListener('change', loadPreview);
   fields.referenceLine.addEventListener('change', loadPreview);

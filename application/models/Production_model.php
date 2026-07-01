@@ -373,72 +373,57 @@ class Production_model extends CI_Model
 
     public function component_stock_rows(array $filters, $limit = 200)
     {
-        $q = trim((string)($filters['q'] ?? ''));
-        $locationType = strtoupper(trim((string)($filters['location_type'] ?? '')));
-        $componentType = strtoupper(trim((string)($filters['type'] ?? '')));
-        $divisionId = !empty($filters['division_id']) ? (int)$filters['division_id'] : 0;
-        $divisionNameColumn = $this->division_name_column();
-        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
-
         if ($this->db->table_exists('inv_component_monthly_stock')) {
-            $targetMonth = date('Y-m-01');
-            $latestMonthSubquery = $this->db
-                ->select('location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key', false)
-                ->from('inv_component_monthly_stock')
-                ->where('month_key <=', $targetMonth)
-                ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
-                ->get_compiled_select();
-
-            $this->db->select(" 
-                s.location_type,
-                s.division_id,
-                {$divisionNameSelect},
-                s.component_id,
-                c.component_code,
-                c.component_name,
-                c.component_type,
-                s.uom_id,
-                u.code AS uom_code,
-                u.name AS uom_name,
-                s.closing_qty AS qty_on_hand,
-                s.avg_cost,
-                s.total_value,
-                COALESCE(s.last_movement_at, CONCAT(s.month_key, ' 00:00:00')) AS last_txn_at,
-                COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, ' 00:00:00')) AS updated_at
-            ", false);
-            $this->db->from('inv_component_monthly_stock s');
-            $this->db->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false);
-            $this->db->join('mst_component c', 'c.id = s.component_id', 'inner');
-            $this->db->join('mst_operational_division d', 'd.id = s.division_id', 'left');
-            $this->db->join('mst_uom u', 'u.id = s.uom_id', 'left');
-            $this->db->join('mst_component_category cat', 'cat.id = c.component_category_id', 'left');
-
-            $this->apply_component_location_filter('s.location_type', $locationType);
-            if ($divisionId > 0) {
-                $this->db->where('s.division_id', $divisionId);
+            $targetMonth = trim((string)($filters['month'] ?? date('Y-m')));
+            if (!preg_match('/^\d{4}\-\d{2}$/', $targetMonth)) {
+                $targetMonth = date('Y-m');
             }
-            if (in_array($componentType, ['BASE', 'PREPARE'], true)) {
-                $this->db->where('c.component_type', $componentType);
+            $seedRows = $this->fetch_component_monthly_projection_seed_rows($filters, $targetMonth . '-01', true);
+            if (empty($seedRows)) {
+                return [];
             }
-            if ($q !== '') {
-                $this->db->group_start();
-                $this->db
-                    ->like('c.component_name', $q)
-                    ->or_like('c.component_code', $q);
-                if ($divisionNameColumn !== null) {
-                    $this->db->or_like('d.' . $divisionNameColumn, $q);
+
+            $rows = [];
+            foreach ($seedRows as $seedRow) {
+                $rows[] = [
+                    'location_type' => (string)($seedRow['location_type'] ?? ''),
+                    'division_id' => $seedRow['division_id'] !== null ? (int)$seedRow['division_id'] : null,
+                    'division_name' => (string)($seedRow['division_name'] ?? '-'),
+                    'component_id' => (int)($seedRow['component_id'] ?? 0),
+                    'component_code' => (string)($seedRow['component_code'] ?? ''),
+                    'component_name' => (string)($seedRow['component_name'] ?? ''),
+                    'component_type' => (string)($seedRow['component_type'] ?? ''),
+                    'uom_id' => (int)($seedRow['uom_id'] ?? 0),
+                    'uom_code' => (string)($seedRow['uom_code'] ?? ''),
+                    'uom_name' => (string)($seedRow['uom_name'] ?? ''),
+                    'qty_on_hand' => round((float)($seedRow['closing_qty'] ?? 0), 4),
+                    'avg_cost' => round((float)($seedRow['avg_cost'] ?? 0), 6),
+                    'total_value' => round((float)($seedRow['total_value'] ?? 0), 2),
+                    'last_txn_at' => (string)($seedRow['last_movement_at'] ?? '') !== ''
+                        ? (string)$seedRow['last_movement_at']
+                        : ((string)($seedRow['month_key'] ?? '') !== '' ? (string)$seedRow['month_key'] . ' 00:00:00' : ''),
+                    'updated_at' => (string)($seedRow['updated_at'] ?? ''),
+                ];
+            }
+
+            usort($rows, function (array $left, array $right): int {
+                $displayCompare = $this->compare_component_display_rows($left, $right);
+                if ($displayCompare !== 0) {
+                    return $displayCompare;
                 }
-                $this->db->group_end();
+
+                $locationCompare = strcmp((string)($left['location_type'] ?? ''), (string)($right['location_type'] ?? ''));
+                if ($locationCompare !== 0) {
+                    return $locationCompare;
+                }
+
+                return ((int)($left['component_id'] ?? 0) <=> (int)($right['component_id'] ?? 0));
+            });
+
+            if ($limit > 0 && count($rows) > $limit) {
+                $rows = array_slice($rows, 0, $limit);
             }
 
-            $this->apply_component_display_order(
-                $divisionNameColumn !== null ? ('d.' . $divisionNameColumn) : 's.division_id',
-                'c.component_type',
-                'c.component_name'
-            );
-            $this->db->order_by('s.location_type', 'ASC');
-            $this->db->limit(max(1, (int)$limit));
-            $rows = $this->db->get()->result_array();
             return $this->attach_component_lot_summaries($rows);
         }
 
@@ -1100,7 +1085,7 @@ class Production_model extends CI_Model
 
         $liveMap = [];
         if ($this->db->table_exists('inv_component_monthly_stock')) {
-            $liveRows = $this->fetch_component_monthly_projection_seed_rows($filters, $asOfMonth);
+            $liveRows = $this->fetch_component_monthly_projection_seed_rows($filters, $asOfMonth, true);
             foreach ($liveRows as $row) {
                 $key = $this->component_identity_key((string)($row['location_type'] ?? ''), $row['division_id'] ?? null, (int)($row['component_id'] ?? 0), (int)($row['uom_id'] ?? 0));
                 $liveMap[$key] = [
@@ -1308,7 +1293,7 @@ class Production_model extends CI_Model
             ];
         }
 
-        $this->attach_component_lot_totals($rows);
+        $this->attach_component_lot_totals($rows, $asOfDate);
         $this->attach_component_daily_check($rows);
 
         usort($rows, function (array $left, array $right): int {
@@ -1413,7 +1398,7 @@ class Production_model extends CI_Model
         ]];
     }
 
-    private function attach_component_lot_totals(array &$rows): void
+    private function attach_component_lot_totals(array &$rows, ?string $asOfDate = null): void
     {
         foreach ($rows as &$row) { $row['lot_qty'] = 0.0; $row['lot_count'] = 0; $row['lot_rows'] = []; }
         unset($row);
@@ -1422,13 +1407,25 @@ class Production_model extends CI_Model
             static function ($r) { return isset($r['component_id']) ? (int)$r['component_id'] : null; }, $rows
         ))));
         if (empty($componentIds)) { return; }
+        $windowStart = null;
+        $windowEnd = null;
+        if (is_string($asOfDate) && preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
+            $windowStart = substr($asOfDate, 0, 7) . '-01';
+            $windowEnd = $asOfDate;
+        }
         // Aggregated lot totals
-        $results = $this->db
+        $lotTotalQuery = $this->db
             ->select('l.location_type, COALESCE(l.division_id,0) AS division_id, l.component_id, l.uom_id, SUM(l.qty_balance) AS lot_total', false)
             ->from('inv_component_lot l')
             ->where('l.status', 'OPEN')
             ->where('l.qty_balance >', 0.0001)
-            ->where_in('l.component_id', $componentIds)
+            ->where_in('l.component_id', $componentIds);
+        if ($windowStart !== null && $windowEnd !== null) {
+            $lotTotalQuery
+                ->where('l.receipt_date >=', $windowStart)
+                ->where('l.receipt_date <=', $windowEnd);
+        }
+        $results = $lotTotalQuery
             ->group_by(['l.location_type', 'l.division_id', 'l.component_id', 'l.uom_id'])
             ->get()->result_array();
         $lotMap = [];
@@ -1438,10 +1435,16 @@ class Production_model extends CI_Model
             $lotMap[$k] = round((float)($r['lot_total'] ?? 0), 4);
         }
         // Individual lot rows (all statuses, for expandable child rows)
-        $lotDetailRows = $this->db
+        $lotDetailQuery = $this->db
             ->select('l.id, l.location_type, COALESCE(l.division_id,0) AS division_id, l.component_id, l.uom_id, l.lot_no, l.receipt_date, l.expiry_date, l.unit_cost, l.qty_in_total, l.qty_out_total, l.qty_balance, l.status', false)
             ->from('inv_component_lot l')
-            ->where_in('l.component_id', $componentIds)
+            ->where_in('l.component_id', $componentIds);
+        if ($windowStart !== null && $windowEnd !== null) {
+            $lotDetailQuery
+                ->where('l.receipt_date >=', $windowStart)
+                ->where('l.receipt_date <=', $windowEnd);
+        }
+        $lotDetailRows = $lotDetailQuery
             ->order_by('l.location_type')->order_by('l.division_id')->order_by('l.receipt_date')->order_by('l.id')
             ->get()->result_array();
         $lotRowsMap = [];
@@ -2445,7 +2448,7 @@ class Production_model extends CI_Model
         return strtoupper(trim($locationType)) . '|' . $normalizedDivisionId . '|' . $componentId . '|' . $uomId;
     }
 
-    private function fetch_component_monthly_projection_seed_rows(array $filters, string $targetMonth): array
+    private function fetch_component_monthly_projection_seed_rows(array $filters, string $targetMonth, bool $exactMonthOnly = false): array
     {
         if (!$this->db->table_exists('inv_component_monthly_stock')) {
             return [];
@@ -2460,19 +2463,27 @@ class Production_model extends CI_Model
         $divisionNameColumn = $this->division_name_column();
         $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
-        $latestMonthSubquery = $this->db
-            ->select('location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key', false)
-            ->from('inv_component_monthly_stock')
-            ->where('month_key <=', $targetMonth)
-            ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
-            ->get_compiled_select();
+        $latestMonthSubquery = '';
+        if (!$exactMonthOnly) {
+            $latestMonthSubquery = $this->db
+                ->select('location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key', false)
+                ->from('inv_component_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
+                ->get_compiled_select();
+        }
 
-        $this->db->select('s.id, s.month_key, s.location_type, s.division_id, ' . $divisionNameSelect . ', s.component_id, c.component_code, c.component_name, c.component_type, s.uom_id, u.code AS uom_code, s.opening_qty, s.opening_total_value, s.closing_qty, s.avg_cost, s.total_value, s.last_movement_at, s.source_mode, COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
+        $this->db->select('s.id, s.month_key, s.location_type, s.division_id, ' . $divisionNameSelect . ', s.component_id, c.component_code, c.component_name, c.component_type, s.uom_id, u.code AS uom_code, u.name AS uom_name, s.opening_qty, s.opening_total_value, s.closing_qty, s.avg_cost, s.total_value, s.last_movement_at, s.source_mode, COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
             ->from('inv_component_monthly_stock s')
-            ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
             ->join('mst_component c', 'c.id = s.component_id', 'inner')
             ->join('mst_operational_division d', 'd.id = s.division_id', 'left')
             ->join('mst_uom u', 'u.id = s.uom_id', 'left');
+
+        if ($exactMonthOnly) {
+            $this->db->where('s.month_key', $targetMonth);
+        } else {
+            $this->db->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false);
+        }
 
         $this->apply_component_location_filter('s.location_type', $locationType);
         if ($divisionId > 0) {
@@ -2589,7 +2600,10 @@ class Production_model extends CI_Model
         }
 
         $monthKey = date('Y-m-01', strtotime($startDate));
-        $seedRows = $this->fetch_component_monthly_projection_seed_rows($filters, $monthKey);
+        $seedRows = $this->fetch_component_monthly_projection_seed_rows($filters, $monthKey, true);
+        if (empty($seedRows)) {
+            return [];
+        }
         $stateMap = [];
         $metaMap = [];
         $seedMonthMap = [];
@@ -3377,6 +3391,13 @@ class Production_model extends CI_Model
                 'message' => 'Parameter bulan tidak valid.',
             ];
         }
+        $currentMonthKey = date('Y-m');
+        if ($monthKey >= $currentMonthKey) {
+            return [
+                'ok' => false,
+                'message' => 'Generate opname bulanan component hanya boleh untuk bulan yang sudah selesai. Pilih bulan sebelum ' . $currentMonthKey . '.',
+            ];
+        }
 
         if (!$this->db->table_exists('inv_component_monthly_opname')) {
             return [
@@ -3763,6 +3784,28 @@ class Production_model extends CI_Model
                 $openingId = (int)($openingRecord['id'] ?? 0);
                 if ($openingId > 0) {
                     $this->componentlotmanager->voidInboundLotsBySource('inv_component_monthly_opening', $openingId);
+                    $residualCutoffLotQuery = $this->db->where('location_type', (string)$row['location_type'])
+                        ->where('component_id', (int)$row['component_id'])
+                        ->where('uom_id', (int)$row['uom_id'])
+                        ->where('receipt_date', $nextMonthStart)
+                        ->where('source_table', 'inv_component_monthly_stock')
+                        ->where('status', 'OPEN')
+                        ->where('qty_balance >', 0.0001);
+                    if ($row['division_id'] !== null) {
+                        $residualCutoffLotQuery->where('division_id', (int)$row['division_id']);
+                    } else {
+                        $residualCutoffLotQuery->where('division_id IS NULL', null, false);
+                    }
+                    $residualCutoffLots = $residualCutoffLotQuery->get('inv_component_lot')->result_array();
+                    foreach ($residualCutoffLots as $residualCutoffLot) {
+                        $qtyInTotal = round((float)($residualCutoffLot['qty_in_total'] ?? 0), 4);
+                        $this->db->where('id', (int)$residualCutoffLot['id'])->update('inv_component_lot', [
+                            'qty_out_total' => $qtyInTotal,
+                            'qty_balance'   => 0,
+                            'status'        => 'CLOSED',
+                            'updated_at'    => date('Y-m-d H:i:s'),
+                        ]);
+                    }
                     $lotResult = $this->componentlotmanager->registerProductionInboundLot([
                         'location_type' => (string)$row['location_type'],
                         'division_id'   => $row['division_id'],
@@ -4611,6 +4654,10 @@ class Production_model extends CI_Model
     public function component_batch_preview(array $header): array
     {
         $componentId = (int)($header['component_id'] ?? 0);
+        $batchDate = trim((string)($header['batch_date'] ?? date('Y-m-d')));
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $batchDate)) {
+            $batchDate = date('Y-m-d');
+        }
         $component = $this->component_batch_component_context($componentId);
         if (!$component) {
             return ['ok' => false, 'message' => 'Output component batch tidak ditemukan.'];
@@ -4686,6 +4733,7 @@ class Production_model extends CI_Model
         }
 
         $state = [
+            'batch_date' => $batchDate,
             'line_no' => 1,
             'preview_lines' => [],
             'posting_lines' => [],
@@ -4741,6 +4789,7 @@ class Production_model extends CI_Model
                 'uom_code' => (string)($component['uom_code'] ?? ''),
                 'uom_name' => (string)($component['uom_name'] ?? ''),
             ],
+            'batch_date' => $batchDate,
             'location_type' => $locationType,
             'location_group' => $this->location_to_group($locationType),
             'scaling_mode' => $scalingMode,
@@ -4789,6 +4838,7 @@ class Production_model extends CI_Model
         $preview = $this->component_batch_preview([
             'component_id' => $outputComponentId,
             'location_type' => $locationType,
+            'batch_date' => (string)($header['batch_date'] ?? date('Y-m-d')),
             'scaling_mode' => (string)($header['scaling_mode'] ?? 'BATCH'),
             'batch_count' => (float)($header['batch_count'] ?? 0),
             'reference_line_no' => (int)($header['reference_line_no'] ?? 0),
@@ -5130,7 +5180,14 @@ class Production_model extends CI_Model
                 $effectiveLocationType = $isEvent ? 'KITCHEN_EVENT' : 'KITCHEN';
             }
         }
-        $stockState = $this->component_batch_material_stock_state($materialId, $itemId, $uomId, $effectiveDivisionId, $effectiveLocationType);
+        $stockState = $this->component_batch_material_stock_state(
+            $materialId,
+            $itemId,
+            $uomId,
+            $effectiveDivisionId,
+            $effectiveLocationType,
+            (string)($state['batch_date'] ?? '')
+        );
         $stockKey = (string)($stockState['stock_key'] ?? ($materialId . '|' . $itemId . '|' . $uomId . '|' . $effectiveDivisionId . '|' . $effectiveLocationType));
         $availableQty = array_key_exists($stockKey, $state['material_stock'])
             ? (float)$state['material_stock'][$stockKey]['available_qty']
@@ -5213,7 +5270,13 @@ class Production_model extends CI_Model
         }
 
         $uomId = (int)($line['uom_id'] ?? $subComponent['uom_id'] ?? 0);
-        $stockState = $this->component_batch_component_stock_state($subComponentId, $uomId, $effectiveDivisionId, $locationType);
+        $stockState = $this->component_batch_component_stock_state(
+            $subComponentId,
+            $uomId,
+            $effectiveDivisionId,
+            $locationType,
+            (string)($state['batch_date'] ?? '')
+        );
         $stockKey = $subComponentId . '|' . $uomId . '|' . $effectiveDivisionId . '|' . $locationType;
         $availableQty = array_key_exists($stockKey, $state['component_stock'])
             ? (float)$state['component_stock'][$stockKey]['available_qty']
@@ -5375,47 +5438,18 @@ class Production_model extends CI_Model
         return ['cost_contribution' => $costContribution];
     }
 
-    private function component_batch_material_stock_state(int $materialId, ?int $itemId, int $uomId, int $divisionId, string $locationType): array
+    private function component_batch_material_stock_state(int $materialId, ?int $itemId, int $uomId, int $divisionId, string $locationType, ?string $asOfDate = null): array
     {
-        if ($materialId > 0 && $divisionId > 0) {
-            $this->load->library('MaterialFifoManager');
-            $fifoReady = $this->materialfifomanager->ensureReady();
-            if (($fifoReady['ok'] ?? false)) {
-                $preview = $this->materialfifomanager->previewDivisionUsageState([
-                    'division_id' => $divisionId,
-                    'destination_type' => $locationType,
-                    'item_id' => $itemId,
-                    'material_id' => $materialId,
-                    'content_uom_id' => $uomId,
-                ]);
-                if (($preview['ok'] ?? false)) {
-                    $data = (array)($preview['data'] ?? []);
-                    return [
-                        'available_qty' => round((float)($data['available_qty'] ?? 0), 4),
-                        'unit_cost' => round((float)($data['avg_unit_cost'] ?? 0), 6),
-                        'stock_key' => (string)($data['stock_key'] ?? ($materialId . '|' . $itemId . '|' . $uomId . '|' . $divisionId . '|' . $locationType)),
-                    ];
-                }
-            }
-        }
-
         $availableQty = 0.0;
         $unitCost = 0.0;
         $stockKey = $materialId . '|' . $itemId . '|' . $uomId . '|' . $divisionId . '|' . $locationType;
+        $targetMonth = $this->normalize_component_batch_target_month($asOfDate);
         if ($materialId > 0 && $divisionId > 0 && $this->db->table_exists('inv_division_monthly_stock')) {
             $destinationType = $locationType;
-            $targetMonth = date('Y-m-01');
-            $latestMonthSubquery = $this->db
-                ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
-                ->from('inv_division_monthly_stock')
-                ->where('month_key <=', $targetMonth)
-                ->group_by(['division_id', 'destination_type', 'identity_key'])
-                ->get_compiled_select();
-
-            $queryStock = static function ($db, string $latestMonthSql, int $targetDivisionId, int $targetMaterialId, string $targetDestinationType, ?int $targetItemId = null, int $targetUomId = 0): array {
+            $queryStock = static function ($db, string $targetMonthKey, int $targetDivisionId, int $targetMaterialId, string $targetDestinationType, ?int $targetItemId = null, int $targetUomId = 0): array {
                 $db->select('SUM(COALESCE(s.closing_qty_content,0)) AS qty_balance, AVG(COALESCE(s.avg_cost_per_content,0)) AS avg_cost_per_content', false)
                     ->from('inv_division_monthly_stock s')
-                    ->join('(' . $latestMonthSql . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
+                    ->where('s.month_key', $targetMonthKey)
                     ->where('s.division_id', $targetDivisionId)
                     ->where('s.material_id', $targetMaterialId)
                     ->where('s.destination_type', $targetDestinationType);
@@ -5428,13 +5462,13 @@ class Production_model extends CI_Model
                 return (array)$db->get()->row_array();
             };
 
-            $row = $queryStock($this->db, $latestMonthSubquery, $divisionId, $materialId, $destinationType, $itemId, $uomId);
+            $row = $queryStock($this->db, $targetMonth, $divisionId, $materialId, $destinationType, $itemId, $uomId);
             if ((float)($row['qty_balance'] ?? 0) <= 0) {
                 // Some legacy monthly rows carry the content quantity on a different item/UOM profile.
-                // Fall back to the material bucket for the same division + destination so preview matches live formula availability.
-                $row = $queryStock($this->db, $latestMonthSubquery, $divisionId, $materialId, $destinationType, null, 0);
+                // Fall back to the material bucket for the same division + destination within the same month snapshot.
+                $row = $queryStock($this->db, $targetMonth, $divisionId, $materialId, $destinationType, null, 0);
                 if ((float)($row['qty_balance'] ?? 0) > 0) {
-                    $stockKey = 'MFB|' . $materialId . '|' . $divisionId . '|' . $destinationType;
+                    $stockKey = 'MFB|' . $materialId . '|' . $divisionId . '|' . $destinationType . '|' . $targetMonth;
                 }
             }
             $availableQty = (float)($row['qty_balance'] ?? 0);
@@ -5451,7 +5485,7 @@ class Production_model extends CI_Model
         ];
     }
 
-    public function component_stock_snapshot(int $componentId, int $uomId = 0, ?int $divisionId = null, string $locationType = '', ?int $selectedLotId = null): array
+    public function component_stock_snapshot(int $componentId, int $uomId = 0, ?int $divisionId = null, string $locationType = '', ?int $selectedLotId = null, ?string $asOfDate = null): array
     {
         $componentId = (int)$componentId;
         $uomId = (int)$uomId;
@@ -5460,18 +5494,11 @@ class Production_model extends CI_Model
 
         $availableQty = 0.0;
         $unitCost = 0.0;
+        $targetMonth = $this->normalize_component_batch_target_month($asOfDate);
         if ($componentId > 0 && $this->db->table_exists('inv_component_monthly_stock')) {
-            $targetMonth = date('Y-m-01');
-            $latestMonthSubquery = $this->db
-                ->select('location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key', false)
-                ->from('inv_component_monthly_stock')
-                ->where('month_key <=', $targetMonth)
-                ->group_by(['location_type', 'division_id', 'component_id', 'uom_id'])
-                ->get_compiled_select();
-
             $this->db->select('SUM(COALESCE(s.closing_qty,0)) AS qty_balance, AVG(COALESCE(s.avg_cost,0)) AS avg_cost', false)
                 ->from('inv_component_monthly_stock s')
-                ->join('(' . $latestMonthSubquery . ') lm', 'lm.location_type = s.location_type AND lm.division_id <=> s.division_id AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key', 'inner', false)
+                ->where('s.month_key', $targetMonth)
                 ->where('s.component_id', $componentId);
             if ($locationType !== '') {
                 $this->db->where('s.location_type', $locationType);
@@ -5490,7 +5517,7 @@ class Production_model extends CI_Model
             $fallback = $this->db->select('hpp_standard')->from('mst_component')->where('id', $componentId)->limit(1)->get()->row_array();
             $unitCost = (float)($fallback['hpp_standard'] ?? 0);
         }
-        $lotSummary = $this->component_lot_summary($locationType, $divisionId, $componentId, $uomId);
+        $lotSummary = $this->component_lot_summary($locationType, $divisionId, $componentId, $uomId, $asOfDate);
         $selectedLot = $this->resolve_component_selected_lot($lotSummary, $selectedLotId);
         if ($selectedLot !== null) {
             $availableQty = (float)($selectedLot['qty_balance'] ?? 0);
@@ -5505,9 +5532,18 @@ class Production_model extends CI_Model
         ];
     }
 
-    private function component_batch_component_stock_state(int $componentId, int $uomId, int $divisionId, string $locationType): array
+    private function component_batch_component_stock_state(int $componentId, int $uomId, int $divisionId, string $locationType, ?string $asOfDate = null): array
     {
-        return $this->component_stock_snapshot($componentId, $uomId, $divisionId > 0 ? $divisionId : null, $locationType, null);
+        return $this->component_stock_snapshot($componentId, $uomId, $divisionId > 0 ? $divisionId : null, $locationType, null, $asOfDate);
+    }
+
+    private function normalize_component_batch_target_month(?string $asOfDate = null): string
+    {
+        $asOfDate = trim((string)$asOfDate);
+        if (preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $asOfDate)) {
+            return substr($asOfDate, 0, 7) . '-01';
+        }
+        return date('Y-m-01');
     }
 
     private function component_batch_preview_row(array $payload): array
@@ -6522,10 +6558,11 @@ class Production_model extends CI_Model
             ->result_array();
 
         $locationType = strtoupper(trim((string)($options['location_type'] ?? '')));
-        return $this->attach_component_picker_lot_meta($rows, $locationType, $divisionId > 0 ? $divisionId : null);
+        $batchDate = trim((string)($options['batch_date'] ?? ''));
+        return $this->attach_component_picker_lot_meta($rows, $locationType, $divisionId > 0 ? $divisionId : null, $batchDate);
     }
 
-    private function attach_component_picker_lot_meta(array $rows, string $locationType = '', ?int $divisionId = null): array
+    private function attach_component_picker_lot_meta(array $rows, string $locationType = '', ?int $divisionId = null, ?string $asOfDate = null): array
     {
         if (empty($rows)) {
             return $rows;
@@ -6534,25 +6571,29 @@ class Production_model extends CI_Model
         foreach ($rows as &$row) {
             $componentId = (int)($row['id'] ?? 0);
             $uomId = (int)($row['uom_id'] ?? 0);
-            $summary = $this->component_lot_summary($locationType, $divisionId, $componentId, $uomId);
+            $snapshot = $this->component_stock_snapshot($componentId, $uomId, $divisionId, $locationType, null, $asOfDate);
+            $summary = is_array($snapshot['lot_summary'] ?? null) ? $snapshot['lot_summary'] : $this->empty_component_lot_summary();
             $row['lot_count'] = (int)($summary['lot_count'] ?? 0);
             $row['lot_preview'] = $this->component_lot_preview_text($summary);
             $row['lot_strategy'] = (int)($summary['lot_count'] ?? 0) > 1 ? 'FIFO lot aktif' : 'Lot tunggal';
-            $row['available_qty'] = round((float)($summary['balance_qty'] ?? 0), 4);
-            $row['avg_cost'] = round($this->component_lot_average_cost($summary), 6);
+            $row['available_qty'] = round((float)($snapshot['available_qty'] ?? 0), 4);
+            $row['avg_cost'] = round((float)($snapshot['unit_cost'] ?? $this->component_lot_average_cost($summary)), 6);
         }
         unset($row);
 
         return $rows;
     }
 
-    private function component_lot_summary(string $locationType, ?int $divisionId, int $componentId, int $uomId): array
+    private function component_lot_summary(string $locationType, ?int $divisionId, int $componentId, int $uomId, ?string $asOfDate = null): array
     {
         $summary = $this->empty_component_lot_summary();
         $summary['location_scope'] = $locationType;
         if ($componentId <= 0 || $uomId <= 0 || !$this->db->table_exists('inv_component_lot')) {
             return $summary;
         }
+        $hasCutoffDate = is_string($asOfDate) && preg_match('/^\d{4}\-\d{2}\-\d{2}$/', trim($asOfDate));
+        $targetMonth = $hasCutoffDate ? $this->normalize_component_batch_target_month($asOfDate) : '';
+        $targetMonthEnd = $hasCutoffDate ? date('Y-m-t', strtotime($targetMonth)) : '';
 
         $query = $this->db->select('l.id, l.lot_no, l.receipt_date, l.expiry_date, l.unit_cost, l.qty_balance, l.status')
             ->from('inv_component_lot l')
@@ -6561,6 +6602,10 @@ class Production_model extends CI_Model
             ->where('l.uom_id', $uomId)
             ->where('l.qty_balance >', 0)
             ->where_in('l.status', ['OPEN']);
+        if ($hasCutoffDate) {
+            $query->where('l.receipt_date >=', $targetMonth)
+                ->where('l.receipt_date <=', $targetMonthEnd);
+        }
         if ($locationType !== '') {
             $query->where('l.location_type', $locationType);
         }

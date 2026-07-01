@@ -743,6 +743,7 @@ $cbFmt = static function ($num): string {
   const form = document.getElementById('frmBatch');
   const outputComponentId = document.getElementById('batch-output-component-id');
   const outputComponentSearch = document.getElementById('batch-output-component-search');
+  const batchDateInput = form ? form.querySelector('input[name="batch_date"]') : null;
   const outputQty = document.getElementById('batch-output-qty');
   const outputQtyLabel = document.getElementById('batch-output-qty-label');
   const outputUom = document.getElementById('batch-output-uom');
@@ -1060,6 +1061,7 @@ $cbFmt = static function ($num): string {
       previewRequestController = new AbortController();
       const query = new URLSearchParams({
         component_id: componentId, location_type: locationType,
+        batch_date: String(batchDateInput?.value || ''),
         scaling_mode: mode,
         batch_count: batchCountValue > 0 ? String(batchCountValue) : '',
         reference_line_no: String(referenceLineNo.value||''),
@@ -1093,6 +1095,11 @@ $cbFmt = static function ($num): string {
   function bindOutputPicker() {
     window.ProductionAjaxPicker.bind(outputComponentSearch, {
       entity: 'COMPONENT',
+      params: () => ({
+        batch_date: String(batchDateInput?.value || ''),
+        location_type: String(locationTypeInput?.value || ''),
+        division_id: String(divisionIdInput?.value || ''),
+      }),
       renderLabel: pickerLabel,
       renderSubLabel: pickerSubLabel,
       onType: () => {
@@ -1121,6 +1128,7 @@ $cbFmt = static function ($num): string {
   scalingMode?.addEventListener('change', () => { syncScalingMode(); schedulePreview(); });
   batchCount?.addEventListener('input', schedulePreview);
   batchCount?.addEventListener('change', schedulePreview);
+  batchDateInput?.addEventListener('change', schedulePreview);
   referenceLineNo?.addEventListener('change', schedulePreview);
   referenceActualQty?.addEventListener('input', schedulePreview);
   referenceActualQty?.addEventListener('change', schedulePreview);

@@ -2,6 +2,7 @@
 $filters   = is_array($filters ?? null) ? $filters : [];
 $rows      = is_array($rows ?? null) ? $rows : [];
 $divisions = is_array($divisions ?? null) ? $divisions : [];
+$selectedMonth = (string)($filters['month'] ?? date('Y-m'));
 
 $locationFilterOptions = ['' => 'Semua Lokasi', 'REGULER' => 'Reguler', 'EVENT' => 'Event'];
 
@@ -169,7 +170,7 @@ $countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand']
   <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
     <div>
       <h4 class="mb-1"><i class="ri ri-scales-3-line page-title-icon"></i><?php echo html_escape($page_title ?? 'Stok Base/Prepare'); ?></h4>
-      <small class="text-muted">Read-only saldo live base/prepare per lokasi.</small>
+      <small class="text-muted">Read-only saldo component per bulan sesuai snapshot/generate bulan yang dipilih.</small>
     </div>
   </div>
 </div>
@@ -182,6 +183,7 @@ $countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand']
 ]); ?>
 <?php $this->load->view('production/_component_action_buttons', [
   'component_action_params' => array_filter([
+    'month'         => (string)($filters['month'] ?? ''),
     'division_id'   => !empty($filters['division_id']) ? (int)$filters['division_id'] : '',
     'location_type' => (string)($filters['location_type'] ?? ''),
   ], static fn($v) => $v !== '' && $v !== 0 && $v !== '0'),
@@ -234,6 +236,10 @@ $countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand']
       <div class="col-md-3">
         <label class="form-label mb-1">Cari</label>
         <input type="text" name="q" class="form-control form-control-sm" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Nama / kode / divisi">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label mb-1">Bulan</label>
+        <input type="month" name="month" class="form-control form-control-sm" value="<?php echo html_escape($selectedMonth); ?>">
       </div>
       <div class="col-md-2">
         <label class="form-label mb-1">Divisi</label>

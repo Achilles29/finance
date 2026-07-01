@@ -702,7 +702,15 @@ $topDivisions = array_slice($divisionValues, 0, 4, true);
         <div><div class="lbl">Nilai</div><div class="val" style="font-size:.85rem">Rp <?php echo number_format($snapValue, 2, ',', '.'); ?></div></div>
       </div>
       <div>
-        <button type="button" class="btn btn-outline-danger" id="btn-generate-monthly-opening">Generate Opname + Opening</button>
+        <button
+          type="button"
+          class="btn btn-outline-danger js-component-generate-trigger"
+          id="btn-generate-monthly-opening"
+          data-month="<?php echo html_escape($month); ?>"
+          data-location-type="<?php echo html_escape($selectedLocationType); ?>"
+          data-division-id="<?php echo html_escape($selectedDivisionId > 0 ? (string)$selectedDivisionId : ''); ?>"
+          data-bs-toggle="modal"
+          data-bs-target="#componentGenerateModal">Generate Opname + Opening</button>
       </div>
     </div>
   </div>
@@ -806,7 +814,6 @@ $topDivisions = array_slice($divisionValues, 0, 4, true);
   const postBaseUrl    = '<?php echo site_url('production/component-openings/post'); ?>';
   const deleteBaseUrl  = '<?php echo site_url('production/component-openings/delete'); ?>';
   const voidBaseUrl    = '<?php echo site_url('production/component-openings/void'); ?>';
-  const generateUrl    = '<?php echo site_url('production/component-openings/generate-monthly'); ?>';
   const autoOpenModal  = <?php echo json_encode(!empty($editPayload)); ?>;
   let perPage          = <?php echo (int)$perPage; ?>;
 
@@ -1119,18 +1126,6 @@ $topDivisions = array_slice($divisionValues, 0, 4, true);
     try { await postJson(voidBaseUrl+'/'+btn.dataset.id,{}); window.location.reload(); }
     catch (error) { renderAlert('danger',error.message||'Gagal void opening.'); clearButtonBusy(btn); }
   }));
-
-  document.getElementById('btn-generate-monthly-opening')?.addEventListener('click', async event => {
-    const btn = event.currentTarget;
-    const monthValue = String(document.getElementById('monthly-month')?.value||'');
-    if (!monthValue) { renderAlert('warning','Pilih bulan snapshot terlebih dahulu.'); return; }
-    if (!(await uiConfirm('Generate opname penutup bulan '+monthValue+' dan opening bulan berikutnya?',{title:'Generate Carry-Forward Opening',okText:'Generate Opening',cancelText:'Batal'}))) return;
-    setButtonBusy(btn,'Generating...');
-    try {
-      await postJson(generateUrl, {month:monthValue, location_type:String(document.getElementById('monthly-location-type')?.value||''), division_id:String(document.getElementById('monthly-division-id')?.value||'')});
-      window.location.search = new URLSearchParams({date_from:monthValue+'-01',date_to:monthValue+'-'+(new Date(monthValue+'-01').toLocaleString('en-CA',{day:'2-digit'})),location_type:String(document.getElementById('monthly-location-type')?.value||''),division_id:String(document.getElementById('monthly-division-id')?.value||''),q:'<?php echo html_escape($q); ?>'}).toString();
-    } catch (error) { renderAlert('danger',error.message||'Gagal generate carry-forward bulanan.'); clearButtonBusy(btn); }
-  });
 
   // — Init —
   syncSpreadsheetForms();
