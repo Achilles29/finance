@@ -1201,6 +1201,10 @@ class PosOrderStockService
         if (!empty($materialGroups)) {
             $this->ci->load->model('Purchase_model');
             foreach (array_values($materialGroups) as $group) {
+                $group = $this->filter_pos_reversal_material_adjustment_group($group);
+                if (empty($group['lines'])) {
+                    continue;
+                }
                 $save = $this->ci->Purchase_model->save_stock_adjustment(
                     (array)($group['header'] ?? []),
                     (array)($group['lines'] ?? []),
@@ -1224,6 +1228,10 @@ class PosOrderStockService
             $actorEmployeeId = !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : 0;
 
             foreach (array_values($componentGroups) as $group) {
+                $group = $this->filter_pos_reversal_component_adjustment_group($group);
+                if (empty($group['lines'])) {
+                    continue;
+                }
                 $save = $this->ci->Production_model->save_component_adjustment(
                     (array)($group['header'] ?? []),
                     (array)($group['lines'] ?? []),
@@ -1251,6 +1259,69 @@ class PosOrderStockService
         }
 
         return ['ok' => true, 'adjustment_doc_count' => $adjustmentDocCount];
+    }
+
+    private function filter_pos_reversal_material_adjustment_group(array $group): array
+    {
+        $movementDate = (string)($group['header']['adjustment_date'] ?? date('Y-m-d'));
+        $filteredLines = [];
+        foreach ((array)($group['lines'] ?? []) as $line) {
+            $requestedQty = round(
+                max(
+                    (float)($line['qty_waste_content'] ?? 0),
+                    (float)($line['qty_spoil_content'] ?? 0),
+                    (float)($line['qty_variance_content'] ?? 0)
+                ),
+                4
+            );
+            if ($requestedQty <= 0) {
+                continue;
+            }
+
+            $balance = $this->load_material_balance_snapshot_for_adjustment_line($line, (array)($group['header'] ?? []), $movementDate);
+            $currentQty = round((float)($balance['qty_on_hand'] ?? 0), 4);
+            if ($currentQty < -0.0001 || $currentQty + 0.0001 < $requestedQty) {
+                continue;
+            }
+            $filteredLines[] = $line;
+        }
+        $group['lines'] = $filteredLines;
+        return $group;
+    }
+
+    private function filter_pos_reversal_component_adjustment_group(array $group): array
+    {
+        $header = (array)($group['header'] ?? []);
+        $movementDate = (string)($header['adjustment_date'] ?? date('Y-m-d'));
+        $locationType = strtoupper(trim((string)($header['location_type'] ?? '')));
+        $divisionId = isset($header['division_id']) ? (int)$header['division_id'] : null;
+        $filteredLines = [];
+
+        foreach ((array)($group['lines'] ?? []) as $line) {
+            $componentId = (int)($line['component_id'] ?? 0);
+            $uomId = (int)($line['uom_id'] ?? 0);
+            $requestedQty = round(
+                max(
+                    (float)($line['qty_spoil'] ?? 0),
+                    (float)($line['qty_waste'] ?? 0),
+                    (float)($line['qty_adjust_neg'] ?? 0)
+                ),
+                4
+            );
+            if ($componentId <= 0 || $uomId <= 0 || $requestedQty <= 0) {
+                continue;
+            }
+
+            $balance = $this->load_component_balance_snapshot($locationType, $divisionId, $componentId, $uomId, $movementDate);
+            $currentQty = round((float)($balance['qty_on_hand'] ?? 0), 4);
+            if ($currentQty < -0.0001 || $currentQty + 0.0001 < $requestedQty) {
+                continue;
+            }
+            $filteredLines[] = $line;
+        }
+
+        $group['lines'] = $filteredLines;
+        return $group;
     }
 
     private function apply_material_adjustment_mode_to_line(array &$linePayload, float $qtyContent, string $adjustmentMode, string $reasonCode): void
@@ -2034,6 +2105,63 @@ class PosOrderStockService
         }
 
         return [];
+    }
+
+    private function load_material_balance_snapshot_for_adjustment_line(array $line, array $header, string $movementDate): array
+    {
+        if (!$this->ci->db->table_exists('inv_division_monthly_stock')) {
+            return [];
+        }
+
+        $divisionId = (int)($header['division_id'] ?? 0);
+        $destinationType = strtoupper(trim((string)($header['destination_type'] ?? 'OTHER')));
+        $contentUomId = (int)($line['content_uom_id'] ?? 0);
+        if ($divisionId <= 0 || $destinationType === 'OTHER' || $contentUomId <= 0) {
+            return [];
+        }
+
+        $targetMonth = date('Y-m-01', strtotime($movementDate));
+        $this->ci->db->select('closing_qty_content AS qty_on_hand, avg_cost_per_content AS avg_cost, total_value, month_key, updated_at, last_movement_at', false)
+            ->from('inv_division_monthly_stock')
+            ->where('division_id', $divisionId)
+            ->where('destination_type', $destinationType)
+            ->where('content_uom_id', $contentUomId)
+            ->where('month_key <=', $targetMonth);
+
+        if (!empty($line['item_id'])) {
+            $this->ci->db->where('item_id', (int)$line['item_id']);
+        } else {
+            $this->ci->db->where('item_id IS NULL', null, false);
+        }
+        if (!empty($line['material_id'])) {
+            $this->ci->db->where('material_id', (int)$line['material_id']);
+        } else {
+            $this->ci->db->where('material_id IS NULL', null, false);
+        }
+        if (!empty($line['buy_uom_id'])) {
+            $this->ci->db->where('buy_uom_id', (int)$line['buy_uom_id']);
+        } else {
+            $this->ci->db->where('buy_uom_id IS NULL', null, false);
+        }
+
+        $profileKey = trim((string)($line['profile_key'] ?? ''));
+        if ($profileKey !== '') {
+            $this->ci->db->where('profile_key', $profileKey);
+        } else {
+            $this->ci->db->where("(profile_key IS NULL OR profile_key = '')", null, false);
+        }
+
+        if ($this->ci->db->field_exists('source_mode', 'inv_division_monthly_stock')) {
+            $this->ci->db->order_by("CASE WHEN source_mode = 'REBUILD' THEN 0 WHEN source_mode = 'LIVE' THEN 1 ELSE 2 END", '', false);
+        }
+
+        return $this->ci->db
+            ->order_by('month_key', 'DESC')
+            ->order_by('updated_at', 'DESC')
+            ->order_by('last_movement_at', 'DESC')
+            ->limit(1)
+            ->get()
+            ->row_array() ?: [];
     }
 
     private function resolve_preferred_item_identity_for_material(int $materialId, ?int $buyUomId, ?int $contentUomId, ?string $profileKey = null): array

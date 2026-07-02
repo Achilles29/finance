@@ -381,3 +381,10 @@ cek self order kasir nya harus nya sesuai kasir aktif, verifikasi kalau sudah PA
 hapus catatan "Rollback pemakaian stok. Bahan baku, komponen, dan LOT dikembalikan ke kondisi sebelum transaksi. Tidak membuat adjustment. " dan "Sistem tetap rollback bahan baku, komponen, dan LOT terlebih dulu, lalu memposting adjustment seperti waste, spoil, atau penyesuaian lainnya." dan "Jika stok tidak dikembalikan, sistem akan rollback stok dan LOT lebih dulu, lalu memposting adjustment sesuai tipe yang dipilih." di modal kasir.
 
 saya perjelas pertanyaan saya yang tadi, adjustment punya reason enum untuk masing masing jenis. nah saat pilih tipe adjustmen di void ini nanti masuk yang mana reasonnya??
+
+
+saya test di lokal, jadi transaksi tidak terjadi disini (server)
+
+masih ada warning "Stok komponen tidak cukup untuk movement WASTE. Stok saat ini: -50.00, dibutuhkan: 10.00. Lakukan produksi batch atau adjustment plus terlebih dahulu untuk menutup deficit." 
+1. harusnya dimunculkan komponent apa yang tidak cukup.
+2. kalau dilihat dari notif kemungkinan memang sebelumnya stok bahan baku / komponent sudah minus, jadi tidak mungkin di adjustmen. untuk kasus ini jika ada yang minus, maka abaikan yang minus tidak usah lakukan adjustmen , fokus yang bisa saja.

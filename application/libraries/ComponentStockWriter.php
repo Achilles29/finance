@@ -213,7 +213,7 @@ class ComponentStockWriter
                         'notes' => $note !== '' ? $note : ('Adjustment ' . $movementType),
                     ]);
                     if (!($lotIssue['ok'] ?? false)) {
-                        throw new RuntimeException((string)($lotIssue['message'] ?? 'Posting issue lot adjustment gagal.'));
+                        throw new RuntimeException($this->format_component_adjustment_error($componentId, $uomId, (string)($lotIssue['message'] ?? 'Posting issue lot adjustment gagal.')));
                     }
 
                     $avgUnitCost = round((float)($lotIssue['data']['avg_unit_cost'] ?? 0), 6);
@@ -737,8 +737,9 @@ class ComponentStockWriter
         $valueBefore = round((float)($authoritativeBalance['total_value'] ?? ($qtyBefore * $avgBefore)), 2);
         $qtyAfter = round($qtyBefore + $qtyIn - $qtyOut, 4);
         if (!$isIn && $qtyAfter < -0.0001) {
+            $componentName = $this->resolve_component_name((int)$p['component_id']);
             throw new RuntimeException(
-                'Stok komponen tidak cukup untuk movement ' . $movementType . '. '
+                'Stok komponen ' . $componentName . ' tidak cukup untuk movement ' . $movementType . '. '
                 . 'Stok saat ini: ' . number_format($qtyBefore, 2) . ', dibutuhkan: ' . number_format($qtyOut, 2) . '. '
                 . 'Lakukan produksi batch atau adjustment plus terlebih dahulu untuk menutup deficit.'
             );
@@ -1550,6 +1551,30 @@ class ComponentStockWriter
         }
 
         return [];
+    }
+
+    private function resolve_component_name(int $componentId): string
+    {
+        if ($componentId <= 0) {
+            return 'component';
+        }
+
+        $row = $this->ci->db
+            ->select('component_name')
+            ->from('mst_component')
+            ->where('id', $componentId)
+            ->limit(1)
+            ->get()
+            ->row_array() ?: [];
+
+        $name = trim((string)($row['component_name'] ?? ''));
+        return $name !== '' ? $name : ('component #' . $componentId);
+    }
+
+    private function format_component_adjustment_error(int $componentId, int $uomId, string $message): string
+    {
+        $name = $this->resolve_component_name($componentId);
+        return 'Komponen ' . $name . ': ' . trim($message);
     }
 
     private function current_avg_cost(string $locationType, ?int $divisionId, int $componentId, int $uomId): float
