@@ -274,7 +274,7 @@ class ComponentLotManager
         ];
     }
 
-    public function rollbackIssueLotsBySource(string $sourceTable, int $sourceId, ?int $sourceLineId = null, string $voidNote = '', ?float $rollbackQty = null): array
+    public function rollbackIssueLotsBySource(string $sourceTable, int $sourceId, ?int $sourceLineId = null, string $voidNote = '', ?float $rollbackQty = null, bool $allowPartialIncomplete = false): array
     {
         $ensure = $this->ensureSchema();
         if (!($ensure['ok'] ?? false)) {
@@ -399,7 +399,20 @@ class ComponentLotManager
         }
 
         if ($remaining !== null && $remaining > 0.0001) {
-            return ['ok' => false, 'message' => 'Rollback lot component tidak lengkap.'];
+            if (!$allowPartialIncomplete) {
+                return ['ok' => false, 'message' => 'Rollback lot component tidak lengkap.'];
+            }
+            return [
+                'ok' => true,
+                'message' => 'Rollback lot component parsial. Sisa akan dipulihkan lewat fallback.',
+                'data' => [
+                    'issue_count' => $voided,
+                    'rolled_qty' => $rolledQty,
+                    'remaining_qty' => round($remaining, 4),
+                    'is_partial' => true,
+                    'allocations' => $allocations,
+                ],
+            ];
         }
 
         return [
@@ -407,6 +420,8 @@ class ComponentLotManager
             'data' => [
                 'issue_count' => $voided,
                 'rolled_qty' => $rolledQty,
+                'remaining_qty' => 0.0,
+                'is_partial' => false,
                 'allocations' => $allocations,
             ],
         ];

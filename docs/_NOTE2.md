@@ -388,3 +388,10 @@ saya test di lokal, jadi transaksi tidak terjadi disini (server)
 masih ada warning "Stok komponen tidak cukup untuk movement WASTE. Stok saat ini: -50.00, dibutuhkan: 10.00. Lakukan produksi batch atau adjustment plus terlebih dahulu untuk menutup deficit." 
 1. harusnya dimunculkan komponent apa yang tidak cukup.
 2. kalau dilihat dari notif kemungkinan memang sebelumnya stok bahan baku / komponent sudah minus, jadi tidak mungkin di adjustmen. untuk kasus ini jika ada yang minus, maka abaikan yang minus tidak usah lakukan adjustmen , fokus yang bisa saja.
+
+
+
+cek void / refund yang "Jangan Kembalikan Ke stok"
+- adjustmen sudah terinput
+- tapi kenapa stok tidak berkuang
+- di daily tidak muncujul di ADJ sesuai tanggal

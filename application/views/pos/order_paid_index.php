@@ -358,12 +358,10 @@ $initDateTo   = ($filters['date_to']   ?? '') !== '' ? $filters['date_to']   : $
               <label class="pos-paid-policy-card active" id="refund_policy_return_card">
                 <input class="d-none" type="radio" name="refund_stock_policy" id="refund_policy_return" value="RETURN_TO_STOCK" checked>
                 <div class="pos-paid-policy-title">Kembalikan ke stok</div>
-                <div class="pos-paid-policy-note mt-1">Rollback pemakaian stok. Bahan baku, komponen, dan LOT dikembalikan ke kondisi sebelum transaksi.</div>
               </label>
               <label class="pos-paid-policy-card" id="refund_policy_adjust_card">
                 <input class="d-none" type="radio" name="refund_stock_policy" id="refund_policy_adjust" value="ADJUSTMENT_ONLY">
                 <div class="pos-paid-policy-title">Jangan kembalikan ke stok</div>
-                <div class="pos-paid-policy-note mt-1">Pakai saat barang sudah terlanjur terpakai, rusak, atau perlu dicatat sebagai adjustment.</div>
               </label>
             </div>
           </div>
@@ -382,6 +380,7 @@ $initDateTo   = ($filters['date_to']   ?? '') !== '' ? $filters['date_to']   : $
               <option value="">Pilih alasan...</option>
             </select>
             <input type="text" class="form-control mt-2 d-none" id="refund_reason_other" placeholder="Tulis alasan lainnya">
+            <div class="small text-muted mt-1" id="refund_reason_hint"></div>
           </div>
           <div class="col-md-6">
             <label class="form-label small text-muted mb-1">Metode Refund</label>
@@ -442,6 +441,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const refundModal   = refundModalEl && window.bootstrap ? new bootstrap.Modal(refundModalEl) : null;
   const refundReasonCode  = document.getElementById('refund_reason_code');
   const refundReasonOther = document.getElementById('refund_reason_other');
+  const refundReasonHint  = document.getElementById('refund_reason_hint');
   const refundReasonWrap  = document.getElementById('refund_reason_wrap');
   const refundAdjustmentWrap = document.getElementById('refund_adjustment_wrap');
   const refundMethodField    = document.getElementById('refund_payment_method_id');
@@ -911,6 +911,25 @@ document.addEventListener('DOMContentLoaded', function () {
       if (usesReturn) adjustmentField.value = 'NONE';
       adjustmentField.disabled = usesReturn;
     }
+    refreshRefundReasonHint();
+  }
+
+  function refreshRefundReasonHint() {
+    if (!refundReasonHint) return;
+    if (refundUsesStockReturn()) {
+      refundReasonHint.textContent = '';
+      return;
+    }
+    const adjustmentMode = String(document.getElementById('refund_adjustment_mode')?.value || 'AUTO_WASTE').toUpperCase();
+    if (adjustmentMode === 'AUTO_WASTE') {
+      refundReasonHint.textContent = 'Alasan ini disimpan sebagai reason waste. Bahan baku: waste_reason_code. Komponen: waste_reason_code.';
+      return;
+    }
+    if (adjustmentMode === 'AUTO_SPOIL') {
+      refundReasonHint.textContent = 'Alasan ini disimpan sebagai reason spoil. Bahan baku: spoil_reason_code. Komponen: spoil_reason_code.';
+      return;
+    }
+    refundReasonHint.textContent = 'Alasan ini disimpan sebagai reason penyesuaian minus. Bahan baku: variance_reason_code. Komponen: adjustment_minus_reason_code.';
   }
 
   function refreshRefundReasonOther() {
@@ -936,6 +955,11 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('refund_policy_adjust').checked = false;
     document.getElementById('refund_adjustment_mode').value = 'NONE';
     document.getElementById('refund_reason').value = '';
+    if (refundReasonCode) refundReasonCode.value = '';
+    if (refundReasonOther) {
+      refundReasonOther.value = '';
+      refundReasonOther.classList.add('d-none');
+    }
     refundMethodField.value = '';
     refundReferenceField.value = '';
     fillRefundReasonOptions();
@@ -1129,6 +1153,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (refundSubmitInFlight) throw new Error('Refund sedang diproses.');
     refundSubmitInFlight = true;
     updateRefundSubmitState();
+    let completed = false;
     const payload = buildRefundPayload();
     try {
       if (!payload.lines.length) throw new Error('Tidak ada line yang bisa diproses untuk refund.');
@@ -1144,9 +1169,12 @@ document.addEventListener('DOMContentLoaded', function () {
       if (printFailures.length) { message += '\n\nSebagian printer gagal menerima slip refund:\n'; message += printFailures.map((entry) => `- ${entry.name}: ${entry.reason}`).join('\n'); }
       alert(message);
       await loadRecents();
+      completed = true;
     } finally {
-      refundSubmitInFlight = false;
-      updateRefundSubmitState();
+      if (!completed) {
+        refundSubmitInFlight = false;
+        updateRefundSubmitState();
+      }
     }
   }
 
@@ -1244,12 +1272,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
   document.getElementById('refund_policy_return')?.addEventListener('change', refreshRefundPolicyCards);
   document.getElementById('refund_policy_adjust')?.addEventListener('change', refreshRefundPolicyCards);
+  document.getElementById('refund_adjustment_mode')?.addEventListener('change', refreshRefundReasonHint);
   refundReasonCode?.addEventListener('change', refreshRefundReasonOther);
   refundMethodField?.addEventListener('change', refreshRefundAccountInfo);
   document.getElementById('refund_check_all')?.addEventListener('click', () => toggleAllRefundLines(true));
   document.getElementById('refund_uncheck_all')?.addEventListener('click', () => toggleAllRefundLines(false));
   document.getElementById('btn-save-refund').addEventListener('click', async () => {
     try { await submitRefund(); } catch (e) { alert(e.message); }
+  });
+  refundModalEl?.addEventListener('hidden.bs.modal', () => {
+    refundSubmitInFlight = false;
+    updateRefundSubmitState();
   });
 
   /* ── Init ───────────────────────────────────────────────── */

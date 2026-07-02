@@ -2521,7 +2521,8 @@ class PosOrderStockService
             (int)($header['id'] ?? 0),
             (int)($line['id'] ?? 0),
             (string)($meta['notes'] ?? 'Void/refund POS'),
-            $reverseQty
+            $reverseQty,
+            true
         );
         if (!($rollback['ok'] ?? false)) {
             return $rollback;
