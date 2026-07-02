@@ -1123,6 +1123,7 @@ class Pos_model extends CI_Model
         if (!in_array($stockCommitStatus, ['PENDING', 'QUEUED', 'PROCESSING', 'POSTED', 'FAILED', 'REVERSED', 'NOT_REQUIRED'], true)) {
             $stockCommitStatus = 'QUEUED';
         }
+        $activeSession = $actorEmployeeId > 0 ? $this->find_active_cashier_session($actorEmployeeId) : null;
 
         $previousDbDebug = $this->db->db_debug;
         $this->db->db_debug = false;
@@ -1145,8 +1146,51 @@ class Pos_model extends CI_Model
             if ($actorEmployeeId > 0 && $this->db->field_exists('cashier_employee_id', 'pos_order')) {
                 $payload['cashier_employee_id'] = $actorEmployeeId;
             }
+            if (!empty($activeSession)) {
+                if (empty($row['terminal_id']) && $this->db->field_exists('terminal_id', 'pos_order')) {
+                    $payload['terminal_id'] = !empty($activeSession['terminal_id']) ? (int)$activeSession['terminal_id'] : null;
+                }
+                if (empty($row['shift_id']) && $this->db->field_exists('shift_id', 'pos_order')) {
+                    $payload['shift_id'] = !empty($activeSession['shift_id']) ? (int)$activeSession['shift_id'] : null;
+                }
+                if (empty($row['cashier_session_id']) && $this->db->field_exists('cashier_session_id', 'pos_order')) {
+                    $payload['cashier_session_id'] = !empty($activeSession['id']) ? (int)$activeSession['id'] : null;
+                }
+                if (empty($row['outlet_id']) && $this->db->field_exists('outlet_id', 'pos_order')) {
+                    $payload['outlet_id'] = !empty($activeSession['outlet_id']) ? (int)$activeSession['outlet_id'] : null;
+                }
+            }
 
             $this->db->where('id', $orderId)->update('pos_order', $this->filter_table_payload('pos_order', $payload));
+            if ($this->db->table_exists('pos_payment')) {
+                $paymentPayload = [];
+                if ($actorEmployeeId > 0 && $this->db->field_exists('cashier_employee_id', 'pos_payment')) {
+                    $paymentPayload['cashier_employee_id'] = $actorEmployeeId;
+                }
+                if ($this->db->field_exists('shift_id', 'pos_payment')) {
+                    $paymentPayload['shift_id'] = array_key_exists('shift_id', $payload)
+                        ? $payload['shift_id']
+                        : (!empty($row['shift_id']) ? (int)$row['shift_id'] : null);
+                }
+                if ($this->db->field_exists('cashier_session_id', 'pos_payment')) {
+                    $paymentPayload['cashier_session_id'] = array_key_exists('cashier_session_id', $payload)
+                        ? $payload['cashier_session_id']
+                        : (!empty($row['cashier_session_id']) ? (int)$row['cashier_session_id'] : null);
+                }
+                if ($isPaid) {
+                    if ($this->db->field_exists('payment_status', 'pos_payment')) {
+                        $paymentPayload['payment_status'] = 'PAID';
+                    }
+                    if ($this->db->field_exists('paid_at', 'pos_payment') && !empty($payload['paid_at'])) {
+                        $paymentPayload['paid_at'] = $payload['paid_at'];
+                    }
+                }
+                if (!empty($paymentPayload)) {
+                    $this->db->where('order_id', $orderId)
+                        ->where('payment_type', 'FINAL')
+                        ->update('pos_payment', $this->filter_table_payload('pos_payment', $paymentPayload));
+                }
+            }
             if ($isPaid && $verifyDestination === 'ACTIVE_CASHIER') {
                 $note = 'Self order QRIS diverifikasi ke order aktif meski pembayaran sudah diterima.';
             } elseif ($isPaid) {

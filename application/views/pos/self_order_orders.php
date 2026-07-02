@@ -864,7 +864,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       destinationWrap.classList.toggle('d-none', !hasPaidQris);
     }
     if (destinationEl) {
-      destinationEl.value = 'ACTIVE_CASHIER';
+      destinationEl.value = hasPaidQris ? 'PAID_ORDER' : 'ACTIVE_CASHIER';
     }
     syncVerifyDestinationSummary();
     document.getElementById('self_order_verify_hint').textContent = hasPaidQris
@@ -919,7 +919,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     const btn = document.getElementById('self_order_submit_verify');
     const destinationEl = document.getElementById('self_order_verify_destination');
     const verifyDestination = (verifyRow.payment_mode === 'QRIS' && Number(verifyRow.is_paid || 0) === 1 && destinationEl)
-      ? String(destinationEl.value || 'ACTIVE_CASHIER')
+      ? String(destinationEl.value || 'PAID_ORDER')
       : 'ACTIVE_CASHIER';
     const originalHtml = btn.innerHTML;
     btn.disabled = true;
