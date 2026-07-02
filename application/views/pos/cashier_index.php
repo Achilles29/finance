@@ -1473,15 +1473,12 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
             <label class="cashier-reversal-policy-card active" id="cashier_reversal_return_card">
               <input class="d-none" type="radio" name="cashier_reversal_policy" id="cashier_reversal_return" value="RETURN_TO_STOCK" checked>
               <div class="cashier-reversal-policy-title">Kembalikan ke stok</div>
-              <div class="cashier-reversal-policy-note mt-1">Rollback pemakaian stok. Bahan baku, komponen, dan LOT dikembalikan ke kondisi sebelum transaksi. Tidak membuat adjustment.</div>
             </label>
             <label class="cashier-reversal-policy-card" id="cashier_reversal_adjust_card">
               <input class="d-none" type="radio" name="cashier_reversal_policy" id="cashier_reversal_adjust" value="ADJUSTMENT_ONLY">
               <div class="cashier-reversal-policy-title">Jangan kembalikan ke stok</div>
-              <div class="cashier-reversal-policy-note mt-1">Sistem tetap rollback bahan baku, komponen, dan LOT terlebih dulu, lalu memposting adjustment seperti waste, spoil, atau penyesuaian lainnya.</div>
             </label>
           </div>
-          <div class="cashier-reversal-policy-hint mb-3" id="cashier_reversal_policy_hint">Jika stok dikembalikan, sistem membatalkan pemakaian bahan baku, komponen, dan LOT tanpa membuat adjustment.</div>
           <div class="row g-3">
             <div class="col-md-6 d-none" id="cashier_reversal_adjustment_wrap">
               <label class="form-label small text-muted mb-1">Tipe Adjustment</label>
@@ -1499,6 +1496,7 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
                 <option value="">Pilih alasan...</option>
               </select>
               <input type="text" class="form-control mt-2 d-none" id="cashier_reversal_reason_other" placeholder="Tulis alasan lainnya">
+              <div class="small text-muted mt-1" id="cashier_reversal_reason_hint"></div>
             </div>
             <div class="col-12">
               <label class="form-label small text-muted mb-1">Catatan Audit</label>
@@ -1917,6 +1915,7 @@ document.addEventListener('DOMContentLoaded', function () {
   let paymentVoucherSearchTimer = null;
   let paymentPrepareInFlight = false;
   let paymentSubmitInFlight = false;
+  let reversalSubmitInFlight = false;
   let closePreview = null;
   const closeDenominations = [500, 1000, 5000, 10000, 20000, 50000, 100000];
 
@@ -2019,6 +2018,8 @@ document.addEventListener('DOMContentLoaded', function () {
   const reversalReasonWrap = document.getElementById('cashier_reversal_reason_wrap');
   const reversalReasonCode = document.getElementById('cashier_reversal_reason_code');
   const reversalReasonOther = document.getElementById('cashier_reversal_reason_other');
+  const reversalReasonHint = document.getElementById('cashier_reversal_reason_hint');
+  const saveVoidButton = document.getElementById('cashier_save_void');
   const saveDraftButton = document.getElementById('cashier_save_draft');
   const confirmOrderButton = document.getElementById('cashier_confirm_order');
   const extraGroupsContainer = document.getElementById('cashier_extra_groups');
@@ -2035,6 +2036,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const savingTitle = document.getElementById('cashier_saving_title');
   const savingBody = document.getElementById('cashier_saving_body');
   const defaultSaveDraftLabel = saveDraftButton ? saveDraftButton.textContent : 'Simpan Draft';
+  const defaultSaveVoidLabel = saveVoidButton ? saveVoidButton.textContent : 'Simpan Void';
   const defaultConfirmOrderLabel = confirmOrderButton ? confirmOrderButton.textContent : 'Simpan Transaksi';
   const defaultOrderReprintLabel = orderReprintSubmitButton ? orderReprintSubmitButton.textContent : 'Kirim ke Printer';
   const submitCloseButton = document.getElementById('cashier_submit_close');
@@ -4682,7 +4684,6 @@ document.addEventListener('DOMContentLoaded', function () {
   function refreshReversalPolicyCards() {
     const usesReturn = reversalUsesStockReturn();
     const adjustmentSelect = document.getElementById('cashier_reversal_adjustment');
-    const policyHint = document.getElementById('cashier_reversal_policy_hint');
     document.getElementById('cashier_reversal_return_card')?.classList.toggle('active', usesReturn);
     document.getElementById('cashier_reversal_adjust_card')?.classList.toggle('active', !usesReturn);
     reversalAdjustmentWrap?.classList.toggle('d-none', usesReturn);
@@ -4695,11 +4696,38 @@ document.addEventListener('DOMContentLoaded', function () {
         adjustmentSelect.value = 'AUTO_WASTE';
       }
     }
-    if (policyHint) {
-      policyHint.textContent = usesReturn
-        ? 'Jika stok dikembalikan, sistem membatalkan pemakaian bahan baku, komponen, dan LOT tanpa membuat adjustment.'
-        : 'Jika stok tidak dikembalikan, sistem akan rollback stok dan LOT lebih dulu, lalu memposting adjustment sesuai tipe yang dipilih.';
+    refreshReversalReasonHint();
+  }
+
+  function refreshReversalReasonHint() {
+    if (!reversalReasonHint) {
+      return;
     }
+    if (reversalUsesStockReturn()) {
+      reversalReasonHint.textContent = '';
+      return;
+    }
+    const adjustmentMode = String(document.getElementById('cashier_reversal_adjustment')?.value || 'AUTO_WASTE').toUpperCase();
+    if (adjustmentMode === 'AUTO_WASTE') {
+      reversalReasonHint.textContent = 'Alasan ini disimpan sebagai reason waste. Bahan baku: waste_reason_code. Komponen: waste_reason_code.';
+      return;
+    }
+    if (adjustmentMode === 'AUTO_SPOIL') {
+      reversalReasonHint.textContent = 'Alasan ini disimpan sebagai reason spoil. Bahan baku: spoil_reason_code. Komponen: spoil_reason_code.';
+      return;
+    }
+    reversalReasonHint.textContent = 'Alasan ini disimpan sebagai reason penyesuaian minus. Bahan baku: variance_reason_code. Komponen: adjustment_minus_reason_code.';
+  }
+
+  function setReversalSubmitState(isLoading) {
+    reversalSubmitInFlight = !!isLoading;
+    if (!saveVoidButton) {
+      return;
+    }
+    saveVoidButton.disabled = reversalSubmitInFlight;
+    saveVoidButton.innerHTML = reversalSubmitInFlight
+      ? '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Menyimpan...'
+      : defaultSaveVoidLabel;
   }
 
   function fillReversalReasonOptions() {
@@ -4728,6 +4756,13 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('cashier_reversal_adjust').checked = false;
     document.getElementById('cashier_reversal_adjustment').value = 'NONE';
     document.getElementById('cashier_reversal_reason').value = '';
+    if (reversalReasonCode) {
+      reversalReasonCode.value = '';
+    }
+    if (reversalReasonOther) {
+      reversalReasonOther.value = '';
+      reversalReasonOther.classList.add('d-none');
+    }
     fillReversalReasonOptions();
     refreshReversalPolicyCards();
   }
@@ -4946,11 +4981,16 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   async function submitReversal() {
+    if (reversalSubmitInFlight) {
+      return;
+    }
     const reversalMode = activeReversalKind();
     const saveUrl = reversalMode === 'REFUND'
       ? '<?php echo site_url('pos/orders/refund/save'); ?>'
       : '<?php echo site_url('pos/orders/void/save'); ?>';
     const successLabel = reversalMode === 'REFUND' ? 'Refund' : 'Void';
+    let completed = false;
+    setReversalSubmitState(true);
     showSavingOverlay(reversalMode);
     try {
       const payload = buildReversalPayload();
@@ -4973,8 +5013,12 @@ document.addEventListener('DOMContentLoaded', function () {
       }
       await loadRecents();
       await loadCatalog().catch(() => {});
+      completed = true;
     } finally {
       hideSavingOverlay();
+      if (!completed) {
+        setReversalSubmitState(false);
+      }
     }
   }
 
@@ -5149,6 +5193,11 @@ document.addEventListener('DOMContentLoaded', function () {
       activeExtraLineIndex = null;
     });
   }
+  if (reversalModalEl) {
+    reversalModalEl.addEventListener('hidden.bs.modal', () => {
+      setReversalSubmitState(false);
+    });
+  }
   if (reviewModalEl) {
     reviewModalEl.addEventListener('hidden.bs.modal', () => {
       pendingReviewAction = null;
@@ -5240,8 +5289,9 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   document.getElementById('cashier_reversal_return')?.addEventListener('change', refreshReversalPolicyCards);
   document.getElementById('cashier_reversal_adjust')?.addEventListener('change', refreshReversalPolicyCards);
+  document.getElementById('cashier_reversal_adjustment')?.addEventListener('change', refreshReversalReasonHint);
   reversalReasonCode?.addEventListener('change', refreshReasonOtherVisibility);
-  document.getElementById('cashier_save_void').addEventListener('click', async () => {
+  saveVoidButton?.addEventListener('click', async () => {
     try { await submitReversal(); } catch (e) { alert(e.message); }
   });
 

@@ -374,3 +374,10 @@ tambahkan ringkasan adjustment gudang, kitchen, bar di dashboard
 cek self order kasir nya harus nya sesuai kasir aktif, verifikasi kalau sudah PAID ya statusnya harusnya PAID
 
 
+- saat klik "Simpan Void" berikan spinner pada tombol "Simpan Void" sampai tertutup, karena kadang lama, kasir bisa klik lebih dari sekali karena dikira belum berfungsi
+- gagal saat void "Jangan Kembalikan Ke Stok", stok component ter rollback tapi belum terjadi adjusment. saat menunggu rawan klik lagi karena notif lama muncul dan tidak ada spinner, ketika di klik lagi stok bisa bertambah
+
+
+hapus catatan "Rollback pemakaian stok. Bahan baku, komponen, dan LOT dikembalikan ke kondisi sebelum transaksi. Tidak membuat adjustment. " dan "Sistem tetap rollback bahan baku, komponen, dan LOT terlebih dulu, lalu memposting adjustment seperti waste, spoil, atau penyesuaian lainnya." dan "Jika stok tidak dikembalikan, sistem akan rollback stok dan LOT lebih dulu, lalu memposting adjustment sesuai tipe yang dipilih." di modal kasir.
+
+saya perjelas pertanyaan saya yang tadi, adjustment punya reason enum untuk masing masing jenis. nah saat pilih tipe adjustmen di void ini nanti masuk yang mana reasonnya??

@@ -714,18 +714,9 @@ class PosOrderStockService
         $movementRefType = $this->resolve_component_movement_ref_type($header, $line);
         $movementDate = $this->resolve_commit_movement_date($header);
 
-        if ($movementRefType === 'COMPONENT_LOT_ISSUE' && file_exists(APPPATH . 'libraries/ComponentLotManager.php')) {
-            $this->ci->load->library('ComponentLotManager');
-            $rollback = $this->ci->componentlotmanager->rollbackIssueLotsBySource(
-                'pos_stock_commit',
-                (int)($header['id'] ?? 0),
-                (int)($line['id'] ?? 0),
-                (string)($meta['notes'] ?? 'Void/refund POS'),
-                $reverseQty
-            );
-            if (!($rollback['ok'] ?? false)) {
-                return $rollback;
-            }
+        $lotRollback = $this->rollback_or_restore_component_lots($header, $line, $reverseQty, $meta, $movementDate, $locationType, $divisionId);
+        if (!($lotRollback['ok'] ?? false)) {
+            return $lotRollback;
         }
 
         if (in_array($movementRefType, ['COMPONENT_LOT_ISSUE', 'COMPONENT_MOVEMENT'], true)) {
@@ -756,7 +747,7 @@ class PosOrderStockService
             return ['ok' => true];
         }
 
-        return $this->post_component_aggregate_movement([
+        $fallback = $this->post_component_aggregate_movement([
             'movement_date' => $movementDate,
             'location_type' => $locationType,
             'division_id' => $divisionId,
@@ -773,6 +764,11 @@ class PosOrderStockService
             'actor_employee_id' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : 0,
             'allow_negative' => true,
         ]);
+        if (!($fallback['ok'] ?? false)) {
+            return $fallback;
+        }
+
+        return $this->rebuild_component_history_after_pos_rollback($line, $locationType, $divisionId);
     }
 
     private function apply_material_fifo_usage_rollback_to_movements(array $header, array $line, array $issueData, int $divisionId, string $destinationType, array $allocations): array
@@ -1342,6 +1338,12 @@ class PosOrderStockService
             if (in_array($reasonCode, ['PERMINTAAN_CUSTOMER', 'SALAH_ITEM'], true)) {
                 return 'cancel_order';
             }
+            if (in_array($reasonCode, ['SALAH_INPUT', 'PRODUK_BERMASALAH'], true)) {
+                return 'kitchen_error';
+            }
+            if (in_array($reasonCode, ['STOK_TIDAK_SIAP', 'KETERLAMBATAN_LAYANAN'], true)) {
+                return 'overproduction';
+            }
             return 'other';
         }
 
@@ -1349,12 +1351,21 @@ class PosOrderStockService
             if (in_array($reasonCode, ['PRODUK_BERMASALAH', 'KUALITAS_PRODUK', 'KELUHAN_RASA'], true)) {
                 return 'contamination';
             }
+            if ($reasonCode === 'STOK_TIDAK_SIAP') {
+                return 'improper_storage';
+            }
             return 'other';
         }
 
         if ($category === 'VARIANCE') {
-            if (in_array($reasonCode, ['SALAH_INPUT', 'KOREKSI_SHIFT'], true)) {
+            if ($reasonCode === 'SALAH_INPUT') {
+                return 'counting_error';
+            }
+            if ($reasonCode === 'KOREKSI_SHIFT') {
                 return 'system_mismatch';
+            }
+            if (in_array($reasonCode, ['STOK_TIDAK_SIAP', 'KETERLAMBATAN_LAYANAN'], true)) {
+                return 'unrecorded_usage';
             }
             return 'other';
         }
@@ -1367,14 +1378,38 @@ class PosOrderStockService
         $category = strtoupper(trim($category));
         $reasonCode = strtoupper(trim($reasonCode));
 
-        if ($category === 'WASTE' && in_array($reasonCode, ['PERMINTAAN_CUSTOMER', 'SALAH_ITEM'], true)) {
-            return 'cancel_order';
+        if ($category === 'WASTE') {
+            if (in_array($reasonCode, ['PERMINTAAN_CUSTOMER', 'SALAH_ITEM'], true)) {
+                return 'cancel_order';
+            }
+            if (in_array($reasonCode, ['SALAH_INPUT', 'PRODUK_BERMASALAH'], true)) {
+                return 'kitchen_error';
+            }
+            if (in_array($reasonCode, ['STOK_TIDAK_SIAP', 'KETERLAMBATAN_LAYANAN'], true)) {
+                return 'overproduction';
+            }
+            return 'other';
         }
-        if ($category === 'ADJUSTMENT_MINUS' && in_array($reasonCode, ['SALAH_INPUT', 'KOREKSI_SHIFT'], true)) {
-            return 'system_mismatch';
+        if ($category === 'ADJUSTMENT_MINUS') {
+            if ($reasonCode === 'SALAH_INPUT') {
+                return 'counting_error';
+            }
+            if ($reasonCode === 'KOREKSI_SHIFT') {
+                return 'system_mismatch';
+            }
+            if (in_array($reasonCode, ['STOK_TIDAK_SIAP', 'KETERLAMBATAN_LAYANAN'], true)) {
+                return 'unrecorded_usage';
+            }
+            return 'other';
         }
-        if ($category === 'SPOIL' && in_array($reasonCode, ['PRODUK_BERMASALAH', 'KUALITAS_PRODUK', 'KELUHAN_RASA'], true)) {
-            return 'contamination';
+        if ($category === 'SPOIL' || $category === 'SPOILAGE') {
+            if (in_array($reasonCode, ['PRODUK_BERMASALAH', 'KUALITAS_PRODUK', 'KELUHAN_RASA'], true)) {
+                return 'contamination';
+            }
+            if ($reasonCode === 'STOK_TIDAK_SIAP') {
+                return 'improper_storage';
+            }
+            return 'other';
         }
 
         return 'other';
@@ -2343,6 +2378,94 @@ class PosOrderStockService
             'movement_ref_type' => 'LEDGER_MOVEMENT',
             'movement_ref_id' => (int)($post['data']['movement_id'] ?? 0),
             'notes' => $reason,
+        ];
+    }
+
+    private function rollback_or_restore_component_lots(array $header, array $line, float $reverseQty, array $meta, string $movementDate, ?string $locationType, ?int $divisionId): array
+    {
+        if ($reverseQty <= 0 || $locationType === null || !file_exists(APPPATH . 'libraries/ComponentLotManager.php')) {
+            return ['ok' => true];
+        }
+
+        $this->ci->load->library('ComponentLotManager');
+        $rollback = $this->ci->componentlotmanager->rollbackIssueLotsBySource(
+            'pos_stock_commit',
+            (int)($header['id'] ?? 0),
+            (int)($line['id'] ?? 0),
+            (string)($meta['notes'] ?? 'Void/refund POS'),
+            $reverseQty
+        );
+        if (!($rollback['ok'] ?? false)) {
+            return $rollback;
+        }
+
+        $rolledQty = round((float)($rollback['data']['rolled_qty'] ?? 0), 4);
+        $remainingQty = round($reverseQty - $rolledQty, 4);
+        if ($remainingQty <= 0.0001) {
+            return ['ok' => true, 'data' => ['rolled_qty' => $rolledQty, 'restored_qty' => 0.0]];
+        }
+
+        $restore = $this->register_component_rollback_fallback_lot($header, $line, $remainingQty, $meta, $movementDate, $locationType, $divisionId);
+        if (!($restore['ok'] ?? false)) {
+            return $restore;
+        }
+
+        return [
+            'ok' => true,
+            'data' => [
+                'rolled_qty' => $rolledQty,
+                'restored_qty' => $remainingQty,
+                'lot_id' => (int)($restore['data']['id'] ?? 0),
+            ],
+        ];
+    }
+
+    private function register_component_rollback_fallback_lot(array $header, array $line, float $qty, array $meta, string $movementDate, string $locationType, ?int $divisionId): array
+    {
+        if ($qty <= 0.0001) {
+            return ['ok' => true];
+        }
+
+        $componentId = (int)($line['component_id'] ?? 0);
+        $uomId = (int)($line['required_uom_id'] ?? 0);
+        if ($componentId <= 0 || $uomId <= 0) {
+            return ['ok' => false, 'message' => 'Identitas komponen tidak valid untuk rollback lot POS.'];
+        }
+
+        $commitId = (int)($header['id'] ?? 0);
+        $commitLineId = (int)($line['id'] ?? 0);
+        $lotNo = sprintf(
+            'POSR%sC%sL%s',
+            date('Ymd', strtotime($movementDate)),
+            str_pad((string)max(0, $commitId), 4, '0', STR_PAD_LEFT),
+            str_pad((string)max(0, $commitLineId), 4, '0', STR_PAD_LEFT)
+        );
+
+        $register = $this->ci->componentlotmanager->registerProductionInboundLot([
+            'location_type' => $locationType,
+            'division_id' => $divisionId,
+            'component_id' => $componentId,
+            'uom_id' => $uomId,
+            'qty_in' => round($qty, 4),
+            'unit_cost' => round((float)($line['unit_cost_live'] ?? 0), 6),
+            'lot_no' => $lotNo,
+            'receipt_date' => $movementDate,
+            'source_module' => 'POS',
+            'source_table' => 'pos_stock_commit',
+            'source_id' => $commitId > 0 ? $commitId : null,
+            'source_line_id' => $commitLineId > 0 ? $commitLineId : null,
+        ]);
+        if (!($register['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'message' => (string)($register['message'] ?? 'Gagal membentuk lot rollback komponen untuk POS.'),
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'data' => (array)($register['data'] ?? []),
+            'message' => 'Lot rollback sintetis dibuat untuk menutup histori lot POS yang hilang.',
         ];
     }
 
