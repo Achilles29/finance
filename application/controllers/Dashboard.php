@@ -297,6 +297,7 @@ class Dashboard extends MY_Controller
               AND p.is_active = 1
             ORDER BY
                 FIELD(pac.availability_status, 'OUT', 'LIMITED', 'AVAILABLE'),
+                pac.estimated_available_qty ASC,
                 pd.name,
                 pc.name,
                 p.product_name
@@ -726,18 +727,22 @@ class Dashboard extends MY_Controller
     {
         $query = $this->dashboard_warehouse_monthly_query(
             "SELECT
-                COALESCE(s.profile_name, m.material_name, i.item_name, CONCAT('Item #', s.item_id)) AS item_name,
-                s.closing_qty_content AS qty,
-                GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) AS threshold,
-                COALESCE(s.total_value, 0) AS total_value,
-                CASE WHEN s.closing_qty_content < 0 THEN 'minus' ELSE 'kritis' END AS severity
+                COALESCE(NULLIF(MAX(i.item_name), ''), NULLIF(MAX(m.material_name), ''), NULLIF(MAX(s.profile_name), ''), CONCAT('Item #', MAX(s.item_id))) AS item_name,
+                SUM(s.closing_qty_content) AS qty,
+                MAX(GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)) AS threshold,
+                SUM(COALESCE(s.total_value, 0)) AS total_value,
+                CASE WHEN SUM(s.closing_qty_content) < 0 THEN 'minus' ELSE 'kritis' END AS severity
              FROM inv_warehouse_monthly_stock s
              INNER JOIN ({latest_month_subquery}) lm
                 ON lm.identity_key = s.identity_key AND lm.month_key = s.month_key
              LEFT JOIN mst_item i ON i.id = s.item_id
              LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
-             WHERE s.closing_qty_content <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
-             ORDER BY s.closing_qty_content ASC
+             GROUP BY CASE
+                        WHEN COALESCE(s.material_id, i.material_id, 0) > 0 THEN CONCAT('MAT:', COALESCE(s.material_id, i.material_id))
+                        ELSE CONCAT('ITEM:', COALESCE(s.item_id, 0))
+                      END
+             HAVING SUM(s.closing_qty_content) <= MAX(GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0))
+             ORDER BY SUM(s.closing_qty_content) ASC, item_name ASC
              LIMIT 20"
         );
         return $query ? $query->result_array() : [];
@@ -751,12 +756,12 @@ class Dashboard extends MY_Controller
 
         $query = $this->dashboard_division_monthly_query(
             "SELECT
-                COALESCE(s.profile_name, m.material_name, i.item_name, CONCAT('Item #', s.item_id)) AS item_name,
+                COALESCE(NULLIF(MAX(i.item_name), ''), NULLIF(MAX(m.material_name), ''), NULLIF(MAX(s.profile_name), ''), CONCAT('Item #', MAX(s.item_id))) AS item_name,
                 {$locationSelect} AS location_name,
-                s.closing_qty_content AS qty,
-                GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) AS threshold,
-                COALESCE(s.total_value, 0) AS total_value,
-                CASE WHEN s.closing_qty_content < 0 THEN 'minus' ELSE 'kritis' END AS severity
+                SUM(s.closing_qty_content) AS qty,
+                MAX(GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)) AS threshold,
+                SUM(COALESCE(s.total_value, 0)) AS total_value,
+                CASE WHEN SUM(s.closing_qty_content) < 0 THEN 'minus' ELSE 'kritis' END AS severity
              FROM inv_division_monthly_stock s
              INNER JOIN ({latest_month_subquery}) lm
                 ON lm.division_id = s.division_id AND lm.destination_type = s.destination_type
@@ -764,9 +769,13 @@ class Dashboard extends MY_Controller
              LEFT JOIN mst_item i ON i.id = s.item_id
              LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
              LEFT JOIN mst_operational_division d ON d.id = s.division_id
-             WHERE s.closing_qty_content <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
-             ORDER BY s.closing_qty_content ASC
-             LIMIT 20"
+             GROUP BY s.division_id, s.destination_type,
+                      CASE
+                        WHEN COALESCE(s.material_id, i.material_id, 0) > 0 THEN CONCAT('MAT:', COALESCE(s.material_id, i.material_id))
+                        ELSE CONCAT('ITEM:', COALESCE(s.item_id, 0))
+                      END
+             HAVING SUM(s.closing_qty_content) <= MAX(GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0))
+             ORDER BY {$locationSelect} ASC, SUM(s.closing_qty_content) ASC, item_name ASC"
         );
         return $query ? $query->result_array() : [];
     }
@@ -791,9 +800,9 @@ class Dashboard extends MY_Controller
                AND lm.component_id = s.component_id AND lm.uom_id = s.uom_id AND lm.month_key = s.month_key
              LEFT JOIN mst_component c ON c.id = s.component_id
              LEFT JOIN mst_operational_division d ON d.id = s.division_id
-             WHERE s.closing_qty <= GREATEST(COALESCE(c.min_stock, 0), 0)
-             ORDER BY s.closing_qty ASC
-             LIMIT 20"
+             WHERE s.closing_qty < 0
+                OR s.closing_qty <= GREATEST(COALESCE(c.min_stock, 0), 0)
+             ORDER BY {$locationSelect} ASC, s.closing_qty ASC, item_name ASC"
         );
         return $query ? $query->result_array() : [];
     }
@@ -890,15 +899,25 @@ class Dashboard extends MY_Controller
         $query = $this->dashboard_warehouse_monthly_query(
             "SELECT COUNT(*) AS total_rows,
                     COALESCE(SUM(CASE
-                        WHEN s.closing_qty_content <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
+                        WHEN agg.qty_balance <= agg.threshold_qty
                         THEN 1 ELSE 0 END), 0) AS critical_count,
-                    COALESCE(SUM(s.total_value), 0) AS total_value
-             FROM inv_warehouse_monthly_stock s
-             INNER JOIN ({latest_month_subquery}) lm
-                ON lm.identity_key = s.identity_key
-               AND lm.month_key = s.month_key
-             LEFT JOIN mst_item i ON i.id = s.item_id
-             LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)"
+                    COALESCE(SUM(agg.total_value), 0) AS total_value
+             FROM (
+                SELECT
+                    SUM(s.closing_qty_content) AS qty_balance,
+                    MAX(GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)) AS threshold_qty,
+                    SUM(COALESCE(s.total_value, 0)) AS total_value
+                FROM inv_warehouse_monthly_stock s
+                INNER JOIN ({latest_month_subquery}) lm
+                   ON lm.identity_key = s.identity_key
+                  AND lm.month_key = s.month_key
+                LEFT JOIN mst_item i ON i.id = s.item_id
+                LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
+                GROUP BY CASE
+                           WHEN COALESCE(s.material_id, i.material_id, 0) > 0 THEN CONCAT('MAT:', COALESCE(s.material_id, i.material_id))
+                           ELSE CONCAT('ITEM:', COALESCE(s.item_id, 0))
+                         END
+             ) agg"
         );
 
         return $query !== null ? $query->row_array() : null;
@@ -909,17 +928,28 @@ class Dashboard extends MY_Controller
         $query = $this->dashboard_division_monthly_query(
             "SELECT COUNT(*) AS total_rows,
                     COALESCE(SUM(CASE
-                        WHEN s.closing_qty_content <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
+                        WHEN agg.qty_balance <= agg.threshold_qty
                         THEN 1 ELSE 0 END), 0) AS critical_count,
-                    COALESCE(SUM(s.total_value), 0) AS total_value
-             FROM inv_division_monthly_stock s
-             INNER JOIN ({latest_month_subquery}) lm
-                ON lm.division_id = s.division_id
-               AND lm.destination_type = s.destination_type
-               AND lm.identity_key = s.identity_key
-               AND lm.month_key = s.month_key
-             LEFT JOIN mst_item i ON i.id = s.item_id
-             LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)"
+                    COALESCE(SUM(agg.total_value), 0) AS total_value
+             FROM (
+                SELECT
+                    SUM(s.closing_qty_content) AS qty_balance,
+                    MAX(GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)) AS threshold_qty,
+                    SUM(COALESCE(s.total_value, 0)) AS total_value
+                FROM inv_division_monthly_stock s
+                INNER JOIN ({latest_month_subquery}) lm
+                   ON lm.division_id = s.division_id
+                  AND lm.destination_type = s.destination_type
+                  AND lm.identity_key = s.identity_key
+                  AND lm.month_key = s.month_key
+                LEFT JOIN mst_item i ON i.id = s.item_id
+                LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
+                GROUP BY s.division_id, s.destination_type,
+                         CASE
+                           WHEN COALESCE(s.material_id, i.material_id, 0) > 0 THEN CONCAT('MAT:', COALESCE(s.material_id, i.material_id))
+                           ELSE CONCAT('ITEM:', COALESCE(s.item_id, 0))
+                         END
+             ) agg"
         );
 
         return $query !== null ? $query->row_array() : null;
@@ -929,20 +959,25 @@ class Dashboard extends MY_Controller
     {
         $query = $this->dashboard_warehouse_monthly_query(
             "SELECT 'Gudang' AS stock_scope,
-                    COALESCE(s.profile_name, m.material_name, i.item_name, CONCAT('Item #', s.item_id)) AS item_name,
+                    COALESCE(NULLIF(MAX(i.item_name), ''), NULLIF(MAX(m.material_name), ''), NULLIF(MAX(s.profile_name), ''), CONCAT('Item #', MAX(s.item_id))) AS item_name,
                     'Gudang Pusat' AS location_name,
-                    s.closing_qty_content AS qty_balance,
-                    GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) AS threshold_qty,
-                    COALESCE(s.total_value, 0) AS total_value
+                    SUM(s.closing_qty_content) AS qty_balance,
+                    MAX(GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)) AS threshold_qty,
+                    SUM(COALESCE(s.total_value, 0)) AS total_value
              FROM inv_warehouse_monthly_stock s
              INNER JOIN ({latest_month_subquery}) lm
                 ON lm.identity_key = s.identity_key
                AND lm.month_key = s.month_key
              LEFT JOIN mst_item i ON i.id = s.item_id
              LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
-             WHERE s.closing_qty_content <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
-             ORDER BY (GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) - s.closing_qty_content) DESC,
-                      s.closing_qty_content ASC
+             GROUP BY CASE
+                        WHEN COALESCE(s.material_id, i.material_id, 0) > 0 THEN CONCAT('MAT:', COALESCE(s.material_id, i.material_id))
+                        ELSE CONCAT('ITEM:', COALESCE(s.item_id, 0))
+                      END
+             HAVING SUM(s.closing_qty_content) <= MAX(GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0))
+             ORDER BY (MAX(GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)) - SUM(s.closing_qty_content)) DESC,
+                      SUM(s.closing_qty_content) ASC,
+                      item_name ASC
              LIMIT 5"
         );
 
@@ -959,11 +994,11 @@ class Dashboard extends MY_Controller
 
         $query = $this->dashboard_division_monthly_query(
             "SELECT 'Divisi' AS stock_scope,
-                    COALESCE(s.profile_name, m.material_name, i.item_name, CONCAT('Item #', s.item_id)) AS item_name,
+                    COALESCE(NULLIF(MAX(i.item_name), ''), NULLIF(MAX(m.material_name), ''), NULLIF(MAX(s.profile_name), ''), CONCAT('Item #', MAX(s.item_id))) AS item_name,
                     {$divisionLocationSelect} AS location_name,
-                    s.closing_qty_content AS qty_balance,
-                    GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) AS threshold_qty,
-                    COALESCE(s.total_value, 0) AS total_value
+                    SUM(s.closing_qty_content) AS qty_balance,
+                    MAX(GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)) AS threshold_qty,
+                    SUM(COALESCE(s.total_value, 0)) AS total_value
              FROM inv_division_monthly_stock s
              INNER JOIN ({latest_month_subquery}) lm
                 ON lm.division_id = s.division_id
@@ -973,10 +1008,16 @@ class Dashboard extends MY_Controller
              LEFT JOIN mst_item i ON i.id = s.item_id
              LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
              LEFT JOIN mst_operational_division d ON d.id = s.division_id
-             WHERE s.closing_qty_content <= GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)
-               {$divisionWhere}
-             ORDER BY (GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0) - s.closing_qty_content) DESC,
-                      s.closing_qty_content ASC
+             WHERE 1=1 {$divisionWhere}
+             GROUP BY s.division_id, s.destination_type,
+                      CASE
+                        WHEN COALESCE(s.material_id, i.material_id, 0) > 0 THEN CONCAT('MAT:', COALESCE(s.material_id, i.material_id))
+                        ELSE CONCAT('ITEM:', COALESCE(s.item_id, 0))
+                      END
+             HAVING SUM(s.closing_qty_content) <= MAX(GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0))
+             ORDER BY (MAX(GREATEST(COALESCE(NULLIF(m.reorder_level_content, 0), NULLIF(i.min_stock_content, 0), 0), 0)) - SUM(s.closing_qty_content)) DESC,
+                      SUM(s.closing_qty_content) ASC,
+                      item_name ASC
              LIMIT 15"
         );
 
@@ -1005,7 +1046,8 @@ class Dashboard extends MY_Controller
         $componentQuery = $this->dashboard_component_monthly_query(
             "SELECT COUNT(*) AS total_rows,
                     COALESCE(SUM(CASE
-                        WHEN s.closing_qty <= GREATEST(COALESCE(c.min_stock, 0), 0)
+                        WHEN s.closing_qty < 0
+                          OR s.closing_qty <= GREATEST(COALESCE(c.min_stock, 0), 0)
                         THEN 1 ELSE 0 END), 0) AS critical_count,
                     COALESCE(SUM(s.total_value), 0) AS total_value
              FROM inv_component_monthly_stock s
@@ -1047,8 +1089,12 @@ class Dashboard extends MY_Controller
                AND lm.month_key = s.month_key
              LEFT JOIN mst_component c ON c.id = s.component_id
              LEFT JOIN mst_operational_division d ON d.id = s.division_id
-             WHERE s.closing_qty <= GREATEST(COALESCE(c.min_stock, 0), 0)
-             ORDER BY (GREATEST(COALESCE(c.min_stock, 0), 0) - s.closing_qty) DESC,
+             WHERE s.closing_qty < 0
+                OR s.closing_qty <= GREATEST(COALESCE(c.min_stock, 0), 0)
+             ORDER BY (CASE
+                         WHEN s.closing_qty < 0 THEN ABS(s.closing_qty) + GREATEST(COALESCE(c.min_stock, 0), 0)
+                         ELSE GREATEST(COALESCE(c.min_stock, 0), 0) - s.closing_qty
+                       END) DESC,
                       s.closing_qty ASC
              LIMIT 5"
         );
@@ -1160,7 +1206,11 @@ class Dashboard extends MY_Controller
         $targetMonth = $this->db->escape(date('Y-m-01'));
         $latestMonthSubquery = "SELECT location_type, division_id, component_id, uom_id, MAX(month_key) AS month_key
                                 FROM inv_component_monthly_stock
-                                WHERE month_key <= {$targetMonth}
+                                WHERE month_key = (
+                                    SELECT MAX(month_key)
+                                    FROM inv_component_monthly_stock
+                                    WHERE month_key <= {$targetMonth}
+                                )
                                 GROUP BY location_type, division_id, component_id, uom_id";
 
         return $this->dashboard_safe_query(str_replace('{latest_month_subquery}', $latestMonthSubquery, $sql));
@@ -1175,7 +1225,11 @@ class Dashboard extends MY_Controller
         $targetMonth = $this->db->escape(date('Y-m-01'));
         $latestMonthSubquery = "SELECT identity_key, MAX(month_key) AS month_key
                                 FROM inv_warehouse_monthly_stock
-                                WHERE month_key <= {$targetMonth}
+                                WHERE month_key = (
+                                    SELECT MAX(month_key)
+                                    FROM inv_warehouse_monthly_stock
+                                    WHERE month_key <= {$targetMonth}
+                                )
                                 GROUP BY identity_key";
 
         return $this->dashboard_safe_query(str_replace('{latest_month_subquery}', $latestMonthSubquery, $sql));
@@ -1190,7 +1244,11 @@ class Dashboard extends MY_Controller
         $targetMonth = $this->db->escape(date('Y-m-01'));
         $latestMonthSubquery = "SELECT division_id, destination_type, identity_key, MAX(month_key) AS month_key
                                 FROM inv_division_monthly_stock
-                                WHERE month_key <= {$targetMonth}
+                                WHERE month_key = (
+                                    SELECT MAX(month_key)
+                                    FROM inv_division_monthly_stock
+                                    WHERE month_key <= {$targetMonth}
+                                )
                                 GROUP BY division_id, destination_type, identity_key";
 
         return $this->dashboard_safe_query(str_replace('{latest_month_subquery}', $latestMonthSubquery, $sql));

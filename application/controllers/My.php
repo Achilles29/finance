@@ -76,6 +76,16 @@ class My extends MY_Controller
 
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
+        $attendanceAlerts = [];
+        $revisionWindowDays = $this->My_portal_model->attendance_revision_window_days();
+        $revisionMinDate = date('Y-m-d', strtotime(date('Y-m-d') . ' -' . $revisionWindowDays . ' day'));
+        $revisionMaxDate = date('Y-m-d');
+        if ($employee) {
+            $policy = $this->My_portal_model->get_active_policy();
+            $attendanceAlerts = $this->My_portal_model->get_attendance_gap_alerts((int)$employee['id'], date('Y-m-d'), $policy);
+        }
+
+        $leaveUrl = site_url('my/leave-requests' . (!empty($employeeId) && $this->is_superadmin() ? ('?employee_id=' . $employeeId) : ''));
 
         $data = [
             'title' => 'Portal Pegawai',
@@ -83,6 +93,11 @@ class My extends MY_Controller
             'employee' => $employee,
             'employee_options' => $this->is_superadmin() ? $this->My_portal_model->get_employee_options() : [],
             'selected_employee_id' => $employeeId,
+            'attendance_alerts' => $attendanceAlerts,
+            'revision_window_days' => $revisionWindowDays,
+            'revision_min_date' => $revisionMinDate,
+            'revision_max_date' => $revisionMaxDate,
+            'leave_url' => $leaveUrl,
         ];
         $this->render('my/index', $data);
     }
@@ -506,6 +521,7 @@ class My extends MY_Controller
                 'requested_checkout_at' => trim((string)$this->input->post('requested_checkout_at', true)),
                 'requested_status' => strtoupper(trim((string)$this->input->post('requested_status', true))),
                 'reason' => trim((string)$this->input->post('reason', true)),
+                'allow_past_revision_override' => $this->is_superadmin(),
             ]);
             $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan pengajuan.'));
             $suffix = $this->is_superadmin() ? ('?employee_id=' . (int)$employee['id']) : '';
@@ -532,6 +548,9 @@ class My extends MY_Controller
         $total = $this->My_portal_model->count_my_leave_requests((int)$employee['id'], $filters);
         $pg = $this->build_pagination($total, $perPage, $page);
         $rows = $this->My_portal_model->list_my_leave_requests((int)$employee['id'], $filters, $pg['per_page'], $pg['offset']);
+        $revisionWindowDays = $this->My_portal_model->attendance_revision_window_days();
+        $revisionMinDate = date('Y-m-d', strtotime(date('Y-m-d') . ' -' . $revisionWindowDays . ' day'));
+        $revisionMaxDate = date('Y-m-d');
 
         $this->render('my/leave_requests', [
             'title' => 'Pengajuan Absensi Saya',
@@ -545,6 +564,9 @@ class My extends MY_Controller
             'status_options' => ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'],
             'request_type_options' => ['LEAVE', 'SICK', 'MISSING_CHECKIN', 'MISSING_CHECKOUT', 'STATUS_CORRECTION'],
             'status_correction_options' => ['PRESENT', 'LATE', 'ALPHA', 'SICK', 'LEAVE', 'OFF'],
+            'revision_window_days' => $revisionWindowDays,
+            'revision_min_date' => $revisionMinDate,
+            'revision_max_date' => $revisionMaxDate,
         ]);
     }
 

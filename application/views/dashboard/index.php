@@ -511,6 +511,7 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
             <?php
             $status     = strtoupper((string)($pr['availability_status'] ?? 'AVAILABLE'));
             $qty        = (float)($pr['qty'] ?? 0);
+            $qtyFloor   = floor($qty);
             $bn         = (string)($pr['bottleneck_name_snapshot'] ?? '');
             $isDirty    = !empty($pr['is_dirty']);
             $pillClass  = $status === 'OUT' ? 'minus' : ($status === 'LIMITED' ? 'kritis' : 'ok');
@@ -528,7 +529,7 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
                 </div>
                 <div class="fd-prod-right">
                   <div>
-                    <div class="fd-prod-qty"><?= number_format($qty, 2, ',', '.') ?></div>
+                    <div class="fd-prod-qty"><?= number_format($qtyFloor, 0, ',', '.') ?></div>
                     <div class="fd-prod-uom"><?= htmlspecialchars((string)($pr['uom_code'] ?? '')) ?></div>
                   </div>
                   <span class="fd-pill <?= $pillClass ?>"><?= $statusLabel ?></span>

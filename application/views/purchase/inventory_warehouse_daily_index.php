@@ -1073,6 +1073,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     if (state.date_from) { p.set('date_from', state.date_from); }
     if (state.date_to) { p.set('date_to', state.date_to); }
     p.set('limit', String(state.limit));
+    p.set('_ts', String(Date.now()));
     return p.toString();
   }
 
@@ -1496,6 +1497,115 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     return map;
   }
 
+  function profileDedupKey(child){
+    var profileKey = String(child.profile_key || '').trim().toUpperCase();
+    if (profileKey) {
+      return [
+        String(child.stock_domain || '').toUpperCase(),
+        Number(child.item_id || 0),
+        Number(child.material_id || 0),
+        Number(child.buy_uom_id || 0),
+        Number(child.content_uom_id || 0),
+        profileKey
+      ].join('|');
+    }
+    return [
+      String(child.stock_domain || '').toUpperCase(),
+      Number(child.item_id || 0),
+      Number(child.material_id || 0),
+      Number(child.buy_uom_id || 0),
+      Number(child.content_uom_id || 0),
+      String(child.profile_name || '').trim().toUpperCase(),
+      String(child.profile_brand || '').trim().toUpperCase(),
+      String(child.profile_description || '').trim().toUpperCase()
+    ].join('|');
+  }
+
+  function dailyEntryScore(entry){
+    if (!entry || typeof entry !== 'object') { return -1; }
+    return Math.abs(Number(entry.opening || 0))
+      + Math.abs(Number(entry.in || 0))
+      + Math.abs(Number(entry.out || 0))
+      + Math.abs(Number(entry.adjustment || 0))
+      + Math.abs(Number(entry.closing || 0))
+      + Math.abs(Number(entry.total_value || 0))
+      + Math.abs(Number(entry.mutations || 0));
+  }
+
+  function mergeDailyEntry(existing, incoming){
+    var left = existing && typeof existing === 'object' ? existing : null;
+    var right = incoming && typeof incoming === 'object' ? incoming : null;
+    if (!left) { return right || { opening: 0, in: 0, out: 0, adjustment: 0, closing: 0, mutations: 0, total_value: 0 }; }
+    if (!right) { return left; }
+
+    var leftScore = dailyEntryScore(left);
+    var rightScore = dailyEntryScore(right);
+    if (rightScore > leftScore + 0.0001) { return right; }
+    if (leftScore > rightScore + 0.0001) { return left; }
+
+    return {
+      opening: Math.abs(Number(right.opening || 0)) > Math.abs(Number(left.opening || 0)) ? Number(right.opening || 0) : Number(left.opening || 0),
+      in: Math.abs(Number(right.in || 0)) > Math.abs(Number(left.in || 0)) ? Number(right.in || 0) : Number(left.in || 0),
+      out: Math.abs(Number(right.out || 0)) > Math.abs(Number(left.out || 0)) ? Number(right.out || 0) : Number(left.out || 0),
+      adjustment: Math.abs(Number(right.adjustment || 0)) > Math.abs(Number(left.adjustment || 0)) ? Number(right.adjustment || 0) : Number(left.adjustment || 0),
+      closing: Math.abs(Number(right.closing || 0)) > Math.abs(Number(left.closing || 0)) ? Number(right.closing || 0) : Number(left.closing || 0),
+      mutations: Math.abs(Number(right.mutations || 0)) > Math.abs(Number(left.mutations || 0)) ? Number(right.mutations || 0) : Number(left.mutations || 0),
+      total_value: Math.abs(Number(right.total_value || 0)) > Math.abs(Number(left.total_value || 0)) ? Number(right.total_value || 0) : Number(left.total_value || 0)
+    };
+  }
+
+  function dedupeChildren(children, dates){
+    var map = {};
+    var order = [];
+
+    (children || []).forEach(function(child){
+      var key = profileDedupKey(child);
+      if (!map[key]) {
+        map[key] = {
+          stock_domain: String(child.stock_domain || ''),
+          item_id: Number(child.item_id || 0),
+          material_id: Number(child.material_id || 0),
+          buy_uom_id: Number(child.buy_uom_id || 0),
+          content_uom_id: Number(child.content_uom_id || 0),
+          profile_key: String(child.profile_key || ''),
+          profile_name: String(child.profile_name || ''),
+          profile_brand: String(child.profile_brand || ''),
+          profile_description: String(child.profile_description || ''),
+          profile_expired_date: String(child.profile_expired_date || ''),
+          profile_content_per_buy: Number(child.profile_content_per_buy || 0),
+          profile_buy_uom_code: String(child.profile_buy_uom_code || ''),
+          profile_content_uom_code: String(child.profile_content_uom_code || ''),
+          daily: {},
+          daily_pack: {},
+          metrics: null
+        };
+        order.push(key);
+      }
+
+      var target = map[key];
+      if (!target.profile_name && child.profile_name) { target.profile_name = String(child.profile_name || ''); }
+      if (!target.profile_brand && child.profile_brand) { target.profile_brand = String(child.profile_brand || ''); }
+      if (!target.profile_description && child.profile_description) { target.profile_description = String(child.profile_description || ''); }
+      if (!target.profile_expired_date && child.profile_expired_date) { target.profile_expired_date = String(child.profile_expired_date || ''); }
+      if (!(Number(target.profile_content_per_buy || 0) > 0) && Number(child.profile_content_per_buy || 0) > 0) {
+        target.profile_content_per_buy = Number(child.profile_content_per_buy || 0);
+      }
+      if (!target.profile_buy_uom_code && child.profile_buy_uom_code) { target.profile_buy_uom_code = String(child.profile_buy_uom_code || ''); }
+      if (!target.profile_content_uom_code && child.profile_content_uom_code) { target.profile_content_uom_code = String(child.profile_content_uom_code || ''); }
+
+      dates.forEach(function(dateKey){
+        target.daily[dateKey] = mergeDailyEntry(target.daily[dateKey], child.daily && child.daily[dateKey] ? child.daily[dateKey] : null);
+      });
+    });
+
+    return order.map(function(key){
+      var child = map[key];
+      child.daily_pack = convertDailyToPack(child.daily, Number(child.profile_content_per_buy || 0), dates);
+      child.metrics = calcMetrics(child.daily, Number(child.profile_content_per_buy || 0), dates);
+      return child;
+    });
+  }
+
   function buildGroups(rows, dates){
     var map = {};
     var order = [];
@@ -1554,6 +1664,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
 
     order.forEach(function(key){
       var group = map[key];
+      group.children = dedupeChildren(group.children, dates);
       var summaryDaily = {};
       var summaryDailyPack = {};
       dates.forEach(function(dateKey){
@@ -2009,7 +2120,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     tableBody.innerHTML = '<tr><td colspan="999" class="pwd-loading">Memuat data...</td></tr>';
     showMessage(true, '');
 
-    fetch(matrixUrl + '?' + buildQuery(), { headers: { 'Accept': 'application/json' } })
+    fetch(matrixUrl + '?' + buildQuery(), { cache: 'no-store', headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' } })
       .then(parseJson)
       .then(function(result){
         var data = (result && result.data) ? result.data : {};

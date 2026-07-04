@@ -506,6 +506,7 @@ class Attendance extends MY_Controller
         }, $rows);
         $approvalHistoryMap = $this->Attendance_model->pending_request_approval_history_map($requestIds);
         $existingDailyMap = $this->Attendance_model->pending_request_existing_daily_map($rows);
+        $scheduleMap = $this->Attendance_model->pending_request_schedule_map($rows);
 
         $data = [
             'title' => 'Pengajuan & Approval Absensi',
@@ -514,6 +515,7 @@ class Attendance extends MY_Controller
             'rows' => $rows,
             'approval_history_map' => $approvalHistoryMap,
             'existing_daily_map' => $existingDailyMap,
+            'schedule_map' => $scheduleMap,
             'pg' => $pg,
             'division_options' => $this->Attendance_model->get_division_options(),
             'status_options' => ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'],

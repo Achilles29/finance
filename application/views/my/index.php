@@ -7,6 +7,9 @@ $profileUrl = site_url('my/profile' . (!empty($selectedEmployeeId) ? ('?employee
 $scheduleUrl = site_url('my/schedule' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
 $payrollUrl = site_url('my/payroll' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
 $bonusUrl = site_url('my/bonus' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
+$leaveUrl = $leave_url ?? site_url('my/leave-requests' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
+$attendanceAlerts = is_array($attendance_alerts ?? null) ? $attendance_alerts : [];
+$revisionWindowDays = (int)($revision_window_days ?? 7);
 ?>
 
 <div class="my-mobile-shell d-block d-md-none">
@@ -76,6 +79,29 @@ $bonusUrl = site_url('my/bonus' . (!empty($selectedEmployeeId) ? ('?employee_id=
   </div>
 </div>
 <?php else: ?>
+<?php if (!empty($attendanceAlerts)): ?>
+<div class="mb-3">
+  <div class="alert alert-danger border-0 shadow-sm mb-2">
+    <div class="fw-semibold mb-1">Perhatian</div>
+    <div class="small">Pengajuan revisi absensi hanya dapat dilakukan paling lambat <?php echo $revisionWindowDays; ?> (tujuh) hari kalender sejak tanggal shift. Setelah melewati batas waktu tersebut, pengajuan tidak dapat diproses.</div>
+  </div>
+  <?php foreach ($attendanceAlerts as $alert): ?>
+    <?php
+      $severity = strtolower(trim((string)($alert['severity'] ?? 'warning')));
+      $alertClass = $severity === 'danger' ? 'alert-danger' : 'alert-warning';
+    ?>
+    <div class="alert <?php echo $alertClass; ?> border-0 shadow-sm mb-2">
+      <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-2">
+        <div>
+          <div class="fw-semibold mb-1"><?php echo html_escape((string)($alert['title'] ?? 'Notifikasi Absensi')); ?></div>
+          <div class="small"><?php echo html_escape((string)($alert['message'] ?? '')); ?></div>
+        </div>
+        <a href="<?php echo $leaveUrl; ?>" class="btn btn-sm btn-outline-dark">Tindak Lanjut</a>
+      </div>
+    </div>
+  <?php endforeach; ?>
+</div>
+<?php endif; ?>
 <div class="row g-3 d-none d-md-flex">
   <div class="col-md-4">
     <div class="card border-0 shadow-sm h-100">

@@ -75,6 +75,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     border:1px solid rgba(224,209,198,.7); border-radius:14px; padding:.75rem .85rem; background:#fffdfb;
   }
   .self-order-line-card + .self-order-line-card, .self-order-payment-card + .self-order-payment-card { margin-top:.6rem; }
+  .self-order-line-preview { display:grid; gap:.6rem; }
   .self-order-extra-list { margin-top:.45rem; display:grid; gap:.35rem; }
   .self-order-extra-chip { display:inline-flex; align-items:center; gap:.35rem; padding:.18rem .5rem; border-radius:999px; background:#fff1e8; color:#9a4e0f; font-size:.72rem; font-weight:700; margin-right:.35rem; }
   .self-order-modal-note {
@@ -247,6 +248,10 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
           </select>
           <div class="small text-muted mt-2" id="self_order_verify_destination_note">Order QRIS yang sudah lunas tetap bisa masuk order aktif dulu agar kasir sempat cek stok dan penyesuaian.</div>
         </div>
+        <div class="self-order-section-label mb-2">Preview Line Order</div>
+        <div class="self-order-line-preview" id="self_order_verify_lines">
+          <div class="self-order-empty">Memuat line order...</div>
+        </div>
         <div class="self-order-modal-note" id="self_order_verify_hint">Order yang diverifikasi akan langsung dicetak sesuai setting printer outlet.</div>
       </div>
       <div class="modal-footer">
@@ -339,6 +344,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
   let verifyBusy = false;
   let rejectRow = null;
   let rejectBusy = false;
+  const orderDetailCache = new Map();
   let incomingPollBusy = false;
   let incomingBaselineReady = false;
   let audioReady = false;
@@ -629,6 +635,48 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     return pieces.join(' | ');
   }
 
+  async function loadOrderDetailOnce(orderId) {
+    const safeOrderId = Number(orderId || 0);
+    if (safeOrderId <= 0) {
+      throw new Error('Order self order tidak valid.');
+    }
+    if (orderDetailCache.has(safeOrderId)) {
+      return orderDetailCache.get(safeOrderId);
+    }
+    const detail = await getJson(`<?php echo site_url('pos/self-order/orders/detail'); ?>/${safeOrderId}`);
+    orderDetailCache.set(safeOrderId, detail);
+    return detail;
+  }
+
+  function renderOrderLineCards(lines, emptyMessage = 'Belum ada line order.') {
+    if (!Array.isArray(lines) || !lines.length) {
+      return `<div class="self-order-empty">${escapeHtml(emptyMessage)}</div>`;
+    }
+    return lines.map((line) => {
+      const extras = Array.isArray(line.extras) ? line.extras : [];
+      return `
+        <div class="self-order-line-card">
+          <div class="d-flex justify-content-between align-items-start gap-2">
+            <div>
+              <div class="fw-semibold">${escapeHtml(line.product_name || line.bundle_name || '-')}</div>
+              <div class="self-order-subtle">${escapeHtml(line.product_code || line.bundle_code || '')}</div>
+            </div>
+            <div class="text-end">
+              <div class="fw-semibold">x${Number(line.qty || 0)}</div>
+              <div class="self-order-subtle">${money(line.net_amount || 0)}</div>
+            </div>
+          </div>
+          ${String(line.notes || '').trim() !== '' ? `<div class="self-order-subtle mt-2">Catatan: ${escapeHtml(line.notes)}</div>` : ''}
+          ${extras.length ? `<div class="self-order-extra-list">${extras.map((extra) => {
+            const extraLabel = `${escapeHtml(extra.extra_name || '-')} x${Number(extra.qty || 0)}`;
+            const extraNote = String(extra.notes || '').trim() !== '' ? ` • ${escapeHtml(extra.notes)}` : '';
+            return `<span class="self-order-extra-chip">${extraLabel}${extraNote}</span>`;
+          }).join('')}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
   function renderPager(meta) {
     const total = Number(meta.total || 0);
     const page = Number(meta.page || 1);
@@ -711,7 +759,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
         showInfoModal(String(btn.dataset.verifyMessage || row.verify_message || 'Order self order belum siap diverifikasi.'), 'Status Verifikasi');
         return;
       }
-      openVerify(row);
+      openVerify(row).catch((e) => showInfoModal(e && e.message ? e.message : 'Gagal membuka verifikasi.'));
     }));
     body.querySelectorAll('.btn-self-order-reject').forEach((btn) => btn.addEventListener('click', () => {
       const row = rows.find((item) => Number(item.id || 0) === Number(btn.dataset.id || 0));
@@ -788,7 +836,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
   }
 
   async function openDetail(orderId) {
-    const json = await getJson(`<?php echo site_url('pos/self-order/orders/detail'); ?>/${Number(orderId || 0)}`);
+    const json = await loadOrderDetailOnce(orderId);
     const header = json.header || {};
     const lines = Array.isArray(json.lines) ? json.lines : [];
     const payments = Array.isArray(json.payments) ? json.payments : [];
@@ -814,25 +862,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       detailNotes.push('Pesanan ini sudah ditolak kasir.');
     }
     document.getElementById('self_order_detail_note').textContent = detailNotes.length ? detailNotes.join(' | ') : 'Tidak ada catatan order.';
-    document.getElementById('self_order_detail_lines').innerHTML = lines.length ? lines.map((line) => {
-      const extras = Array.isArray(line.extras) ? line.extras : [];
-      return `
-        <div class="self-order-line-card">
-          <div class="d-flex justify-content-between align-items-start gap-2">
-            <div>
-              <div class="fw-semibold">${escapeHtml(line.product_name || line.bundle_name || '-')}</div>
-              <div class="self-order-subtle">${escapeHtml(line.product_code || line.bundle_code || '')}</div>
-            </div>
-            <div class="text-end">
-              <div class="fw-semibold">x${Number(line.qty || 0)}</div>
-              <div class="self-order-subtle">${money(line.net_amount || 0)}</div>
-            </div>
-          </div>
-          ${String(line.notes || '').trim() !== '' ? `<div class="self-order-subtle mt-2">${escapeHtml(line.notes)}</div>` : ''}
-          ${extras.length ? `<div class="self-order-extra-list">${extras.map((extra) => `<span class="self-order-extra-chip">${escapeHtml(extra.extra_name || '-')} x${Number(extra.qty || 0)}</span>`).join('')}</div>` : ''}
-        </div>
-      `;
-    }).join('') : '<div class="self-order-empty">Belum ada line order.</div>';
+    document.getElementById('self_order_detail_lines').innerHTML = renderOrderLineCards(lines);
     document.getElementById('self_order_detail_payments').innerHTML = payments.length ? payments.map((payment) => {
       const paymentLines = Array.isArray(payment.lines) ? payment.lines : [];
       const paymentLineHtml = paymentLines.length
@@ -854,12 +884,16 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     showModal(detailModalEl, detailModal);
   }
 
-  function openVerify(row) {
+  async function openVerify(row) {
     verifyRow = row;
     const destinationWrap = document.getElementById('self_order_verify_destination_wrap');
     const destinationEl = document.getElementById('self_order_verify_destination');
+    const verifyLinesEl = document.getElementById('self_order_verify_lines');
     const hasPaidQris = row.payment_mode === 'QRIS' && Number(row.is_paid || 0) === 1;
     document.getElementById('self_order_verify_meta').textContent = `${row.order_no || '-'} | ${row.customer_name_display || 'Walk in'} | ${row.payment_mode === 'QRIS' ? 'QRIS' : 'Bayar di Kasir'}`;
+    if (verifyLinesEl) {
+      verifyLinesEl.innerHTML = '<div class="self-order-empty">Memuat line order...</div>';
+    }
     if (destinationWrap) {
       destinationWrap.classList.toggle('d-none', !hasPaidQris);
     }
@@ -872,6 +906,16 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       : (row.payment_mode === 'QRIS'
       ? 'Order QRIS belum bisa diverifikasi sebelum pembayaran diterima.'
       : 'Order akan masuk ke workspace order aktif. Kasir tetap bisa menagih customer di payment panel setelah pesanan diverifikasi.');
+    try {
+      const detail = await loadOrderDetailOnce(Number(row.id || 0));
+      if (verifyLinesEl) {
+        verifyLinesEl.innerHTML = renderOrderLineCards(Array.isArray(detail.lines) ? detail.lines : [], 'Line order belum tersedia.');
+      }
+    } catch (e) {
+      if (verifyLinesEl) {
+        verifyLinesEl.innerHTML = `<div class="self-order-empty">${escapeHtml(e && e.message ? e.message : 'Gagal memuat line order.')}</div>`;
+      }
+    }
     showModal(verifyModalEl, verifyModal);
   }
 

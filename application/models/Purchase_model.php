@@ -1675,12 +1675,20 @@ class Purchase_model extends CI_Model
         string $dateTo,
         int $limit
     ): array {
-        $dates = $this->buildDateSeries($dateFrom, $dateTo);
-        if (empty($dates)) {
+        $selectedDates = $this->buildDateSeries($dateFrom, $dateTo);
+        if (empty($selectedDates)) {
             return [];
         }
 
-        $baseRows = $this->list_warehouse_stock_monthly($q, $limit, '', $dateTo, true);
+        $monthStart = date('Y-m-01', strtotime($dateTo ?: $dateFrom ?: date('Y-m-d')));
+        $monthEnd = date('Y-m-t', strtotime($monthStart));
+        $rebuildDates = $this->buildDateSeries($monthStart, $monthEnd);
+        if (empty($rebuildDates)) {
+            return [];
+        }
+        $selectedDateMap = array_fill_keys($selectedDates, true);
+
+        $baseRows = $this->fetch_warehouse_daily_monthly_base_rows($q, $dateTo, $limit);
         if (empty($baseRows)) {
             return [];
         }
@@ -1691,8 +1699,8 @@ class Purchase_model extends CI_Model
                 'WAREHOUSE',
                 '',
                 null,
-                $dateFrom,
-                $dateTo,
+                $monthStart,
+                $monthEnd,
                 null,
                 false
             );
@@ -1726,8 +1734,8 @@ class Purchase_model extends CI_Model
                 ? round($storedValue, 2)
                 : round((float)($baseRow['qty_content_balance'] ?? 0) * $avgCost, 2);
 
-            for ($i = count($dates) - 1; $i >= 0; $i--) {
-                $day = (string)$dates[$i];
+            for ($i = count($rebuildDates) - 1; $i >= 0; $i--) {
+                $day = (string)$rebuildDates[$i];
                 $existingRow = $dayMap[$day] ?? null;
                 $row = $this->build_warehouse_daily_base_day_row($baseRow, $day, $existingRow);
                 $adjustmentContent = round($this->resolveDailyMatrixAdjustmentQtyContent($row), 4);
@@ -1753,11 +1761,13 @@ class Purchase_model extends CI_Model
                 $row['opening_qty_pack'] = round((float)$row['opening_qty_buy'], 4);
                 $row['adjustment_qty_pack'] = round((float)$adjustmentBuy, 4);
                 $row['avg_cost_per_content'] = $avgCost;
-                $row['total_value'] = $i === count($dates) - 1
+                $row['total_value'] = $day === $monthEnd
                     ? $totalValue
                     : round((float)$row['closing_qty_content'] * $avgCost, 2);
 
-                $dailyRows[] = $row;
+                if (isset($selectedDateMap[$day])) {
+                    $dailyRows[] = $row;
+                }
                 $nextClosingBuy = round((float)$row['opening_qty_buy'], 4);
                 $nextClosingContent = round((float)$row['opening_qty_content'], 4);
             }
@@ -1766,8 +1776,8 @@ class Purchase_model extends CI_Model
             $logGapBuy = round($monthlyOpeningBuy - $nextClosingBuy, 4);
             $logHasGap = abs($logGapContent) > 0.001 || abs($logGapBuy) > 0.001;
             if ($logHasGap) {
-                $firstIndex = count($dailyRows) - count($dates);
-                for ($j = $firstIndex; $j < count($dailyRows); $j++) {
+                $firstIndex = count($dailyRows) - count($selectedDates);
+                for ($j = max(0, $firstIndex); $j < count($dailyRows); $j++) {
                     if (!isset($dailyRows[$j])) {
                         continue;
                     }
@@ -1778,6 +1788,51 @@ class Purchase_model extends CI_Model
         }
 
         return $dailyRows;
+    }
+
+    private function fetch_warehouse_daily_monthly_base_rows(string $q, string $dateTo, int $limit): array
+    {
+        if (!$this->db->table_exists('inv_warehouse_monthly_stock')) {
+            return [];
+        }
+
+        $targetMonth = date('Y-m-01', strtotime($dateTo ?: date('Y-m-d')));
+        $limit = max(1, min(1000, $limit));
+
+        $this->db
+            ->select('s.id, "ITEM" AS stock_domain, s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id, i.item_code, i.item_name, m.material_code, m.material_name, s.profile_key, s.profile_name, s.profile_brand, s.profile_description', false)
+            ->select('s.profile_content_per_buy, s.profile_buy_uom_code, s.profile_content_uom_code')
+            ->select('s.opening_qty_buy AS qty_buy_opening, s.opening_qty_content AS qty_content_opening, s.closing_qty_buy AS qty_buy_balance, s.closing_qty_content AS qty_content_balance, s.avg_cost_per_content, s.total_value')
+            ->select('COALESCE(s.updated_at, s.last_movement_at, CONCAT(s.month_key, " 00:00:00")) AS updated_at', false)
+            ->select('s.profile_expired_date')
+            ->from('inv_warehouse_monthly_stock s')
+            ->join('mst_item i', 'i.id = s.item_id', 'left')
+            ->join('mst_material m', 'm.id = COALESCE(s.material_id, i.material_id)', 'left')
+            ->where('s.month_key', $targetMonth)
+            // Warehouse daily matrix must follow the exact filtered month.
+            // Do not fallback to older monthly rows when the selected month already has its own profile set.
+            ->where('(s.profile_key IS NULL OR s.identity_key = s.profile_key)', null, false);
+
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('i.item_code', $q)
+                ->or_like('i.item_name', $q)
+                ->or_like('m.material_code', $q)
+                ->or_like('m.material_name', $q)
+                ->or_like('s.profile_name', $q)
+                ->or_like('s.profile_brand', $q)
+                ->or_like('s.profile_description', $q)
+                ->or_like('s.profile_key', $q)
+                ->group_end();
+        }
+
+        $query = $this->db
+            ->order_by('s.item_id', 'ASC')
+            ->order_by('s.profile_name', 'ASC')
+            ->limit($limit)
+            ->get();
+
+        return $query ? $query->result_array() : [];
     }
 
     private function build_warehouse_daily_base_day_row(array $baseRow, string $day, ?array $existingRow = null): array

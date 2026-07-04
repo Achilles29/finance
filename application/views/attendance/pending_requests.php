@@ -7,6 +7,7 @@ $statusOptions = $status_options ?? [];
 $requestTypeOptions = $request_type_options ?? [];
 $approvalHistoryMap = $approval_history_map ?? [];
 $existingDailyMap = $existing_daily_map ?? [];
+$scheduleMap = $schedule_map ?? [];
 $currentUser = $current_user ?? [];
 $userPerms = $user_perms ?? [];
 $statusTabs = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'];
@@ -140,6 +141,13 @@ $formatClock = static function ($datetime): string {
     color: #7a6b65;
     font-size: 11px;
   }
+  .pending-record-box .schedule-box {
+    background: #f8f5ff;
+    border: 1px solid #ddd4ff;
+    border-radius: 10px;
+    padding: .45rem .6rem;
+    margin-bottom: .45rem;
+  }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -223,6 +231,7 @@ $formatClock = static function ($datetime): string {
           }
           $dailyKey = (int)($r['employee_id'] ?? 0) . '|' . (string)($r['request_date'] ?? '');
           $existingDaily = is_array($existingDailyMap[$dailyKey] ?? null) ? $existingDailyMap[$dailyKey] : null;
+          $scheduleRow = is_array($scheduleMap[$dailyKey] ?? null) ? $scheduleMap[$dailyKey] : null;
         ?>
         <tr>
           <td>
@@ -236,8 +245,32 @@ $formatClock = static function ($datetime): string {
           </td>
           <td><?php echo html_escape((string)$r['request_type']); ?></td>
           <td>
-            <?php if ($existingDaily): ?>
+            <?php if ($scheduleRow || $existingDaily): ?>
               <div class="pending-record-box">
+                <?php if ($scheduleRow): ?>
+                  <div class="schedule-box">
+                    <div class="fw-semibold">
+                      Jadwal Shift:
+                      <?php echo html_escape(trim((string)($scheduleRow['shift_code'] ?? '')) !== '' ? (string)($scheduleRow['shift_code'] ?? '-') : '-'); ?>
+                      <?php if (trim((string)($scheduleRow['shift_name'] ?? '')) !== ''): ?>
+                        <span class="text-muted">- <?php echo html_escape((string)($scheduleRow['shift_name'] ?? '')); ?></span>
+                      <?php endif; ?>
+                    </div>
+                    <div class="meta">
+                      Jam:
+                      <?php echo html_escape(trim((string)($scheduleRow['start_time'] ?? '')) !== '' ? substr((string)$scheduleRow['start_time'], 0, 5) : '-'); ?>
+                      -
+                      <?php echo html_escape(trim((string)($scheduleRow['end_time'] ?? '')) !== '' ? substr((string)$scheduleRow['end_time'], 0, 5) : '-'); ?>
+                      <?php if ((int)($scheduleRow['is_overnight'] ?? 0) === 1): ?>
+                        <span class="badge bg-dark ms-1">Overnight</span>
+                      <?php endif; ?>
+                    </div>
+                    <?php if (trim((string)($scheduleRow['notes'] ?? '')) !== ''): ?>
+                      <div class="meta">Catatan jadwal: <?php echo html_escape((string)($scheduleRow['notes'] ?? '')); ?></div>
+                    <?php endif; ?>
+                  </div>
+                <?php endif; ?>
+                <?php if ($existingDaily): ?>
                 <div class="fw-semibold">
                   <?php echo html_escape((string)($existingDaily['shift_code'] ?? 'Tanpa Shift')); ?>
                   <span class="badge bg-light text-dark border ms-1"><?php echo html_escape((string)($existingDaily['attendance_status'] ?? '')); ?></span>
@@ -247,6 +280,9 @@ $formatClock = static function ($datetime): string {
                   | OUT: <?php echo html_escape($formatClock($existingDaily['checkout_at'] ?? '')); ?>
                 </div>
                 <div class="meta">Sumber: <?php echo html_escape((string)($existingDaily['source_type'] ?? 'AUTO')); ?></div>
+                <?php else: ?>
+                <div class="meta">Belum ada record absensi pada tanggal ini.</div>
+                <?php endif; ?>
               </div>
             <?php else: ?>
               <span class="text-muted small">Belum ada record</span>

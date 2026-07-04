@@ -2487,6 +2487,45 @@ class Attendance_model extends CI_Model
         return $map;
     }
 
+    public function pending_request_schedule_map(array $rows): array
+    {
+        $employeeIds = [];
+        $dates = [];
+        foreach ($rows as $row) {
+            $employeeId = (int)($row['employee_id'] ?? 0);
+            $requestDate = trim((string)($row['request_date'] ?? ''));
+            if ($employeeId <= 0 || $requestDate === '') {
+                continue;
+            }
+            $employeeIds[$employeeId] = true;
+            $dates[$requestDate] = true;
+        }
+
+        if (empty($employeeIds) || empty($dates) || !$this->db->table_exists('att_shift_schedule')) {
+            return [];
+        }
+
+        $scheduleRows = $this->db
+            ->select('ss.employee_id, ss.schedule_date, ss.shift_id, ss.notes, s.shift_code, s.shift_name, s.start_time, s.end_time, COALESCE(s.is_overnight, 0) AS is_overnight', false)
+            ->from('att_shift_schedule ss')
+            ->join('att_shift s', 's.id = ss.shift_id', 'left')
+            ->where_in('ss.employee_id', array_keys($employeeIds))
+            ->where_in('ss.schedule_date', array_keys($dates))
+            ->get()
+            ->result_array();
+
+        $map = [];
+        foreach ($scheduleRows as $scheduleRow) {
+            $key = (int)($scheduleRow['employee_id'] ?? 0) . '|' . (string)($scheduleRow['schedule_date'] ?? '');
+            if ($key === '0|') {
+                continue;
+            }
+            $map[$key] = $scheduleRow;
+        }
+
+        return $map;
+    }
+
     private function build_pending_requests_query(array $f, bool $withSelect): void
     {
         if ($withSelect) {

@@ -111,8 +111,21 @@ class My_portal_model extends CI_Model
         if ($requestDate === '') {
             return ['ok' => false, 'message' => 'Tanggal pengajuan wajib diisi.'];
         }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $requestDate) || strtotime($requestDate) === false) {
+            return ['ok' => false, 'message' => 'Tanggal pengajuan tidak valid.'];
+        }
         if ($reason === '') {
             return ['ok' => false, 'message' => 'Alasan pengajuan wajib diisi.'];
+        }
+
+        $allowPastRevisionOverride = !empty($payload['allow_past_revision_override']);
+        $revisionWindowDays = $this->attendance_revision_window_days();
+        $cutoffDate = date('Y-m-d', strtotime(date('Y-m-d') . ' -' . $revisionWindowDays . ' day'));
+        if (!$allowPastRevisionOverride && $requestDate < $cutoffDate) {
+            return [
+                'ok' => false,
+                'message' => 'Pengajuan revisi absensi hanya dapat diajukan paling lambat ' . $revisionWindowDays . ' (tujuh) hari kalender sejak tanggal shift.',
+            ];
         }
 
         $requestedCheckinAt = null;
@@ -160,6 +173,11 @@ class My_portal_model extends CI_Model
         ]);
 
         return ['ok' => true, 'message' => 'Pengajuan berhasil dibuat.'];
+    }
+
+    public function attendance_revision_window_days(): int
+    {
+        return 7;
     }
 
     private function can_submit_pending_request(int $employeeId, array $policy): bool
@@ -429,6 +447,126 @@ class My_portal_model extends CI_Model
         }
 
         return $state;
+    }
+
+    public function get_attendance_gap_alerts(int $employeeId, string $today, array $policy = []): array
+    {
+        if ($employeeId <= 0 || $today === '') {
+            return [];
+        }
+
+        if (empty($policy)) {
+            $policy = $this->get_active_policy();
+        }
+
+        $phAttendanceMode = strtoupper((string)($policy['ph_attendance_mode'] ?? 'AUTO_PRESENT'));
+        $closeMinutes = (int)($policy['checkout_close_minutes_after'] ?? 180);
+        if ($closeMinutes < 0) {
+            $closeMinutes = 180;
+        }
+
+        $nowTs = time();
+        $monthStart = date('Y-m-01', strtotime($today));
+        $scheduleRows = $this->db->select('ss.schedule_date')
+            ->from('att_shift_schedule ss')
+            ->where('ss.employee_id', $employeeId)
+            ->where('ss.schedule_date >=', $monthStart)
+            ->where('ss.schedule_date <=', $today)
+            ->order_by('ss.schedule_date', 'DESC')
+            ->get()
+            ->result_array();
+
+        $datesToCheck = [];
+        foreach ($scheduleRows as $scheduleRow) {
+            $scheduleDate = (string)($scheduleRow['schedule_date'] ?? '');
+            if ($scheduleDate !== '') {
+                $datesToCheck[] = $scheduleDate;
+            }
+        }
+
+        if (empty($datesToCheck)) {
+            return [];
+        }
+
+        $alerts = [];
+        $seen = [];
+
+        foreach ($datesToCheck as $date) {
+            $schedule = $this->get_schedule_with_shift($employeeId, $date);
+            if (!$schedule) {
+                continue;
+            }
+
+            $shiftCode = strtoupper(trim((string)($schedule['shift_code'] ?? '')));
+            if (in_array($shiftCode, ['PH', 'PHB'], true) && $phAttendanceMode === 'AUTO_PRESENT') {
+                continue;
+            }
+
+            [$startTs, $endTs] = $this->shift_bounds(
+                $date,
+                (string)($schedule['start_time'] ?? ''),
+                (string)($schedule['end_time'] ?? ''),
+                (int)($schedule['is_overnight'] ?? 0)
+            );
+            if ($startTs <= 0 || $endTs <= 0) {
+                continue;
+            }
+
+            $daily = $this->db->select('checkin_at, checkout_at, attendance_status')
+                ->from('att_daily')
+                ->where('employee_id', $employeeId)
+                ->where('attendance_date', $date)
+                ->limit(1)
+                ->get()
+                ->row_array();
+
+            $checkinTs = !empty($daily['checkin_at']) ? strtotime((string)$daily['checkin_at']) : 0;
+            $checkoutTs = !empty($daily['checkout_at']) ? strtotime((string)$daily['checkout_at']) : 0;
+            $shiftLabel = trim((string)(($schedule['shift_code'] ?? '') . ' - ' . ($schedule['shift_name'] ?? '')));
+            if ($shiftLabel === '-' || $shiftLabel === '') {
+                $shiftLabel = trim((string)($schedule['shift_code'] ?? 'Tanpa shift'));
+            }
+            $timeLabel = trim((string)(
+                (trim((string)($schedule['start_time'] ?? '')) !== '' ? substr((string)$schedule['start_time'], 0, 5) : '-')
+                . ' - ' .
+                (trim((string)($schedule['end_time'] ?? '')) !== '' ? substr((string)$schedule['end_time'], 0, 5) : '-')
+            ));
+
+            if ($nowTs > $startTs && $checkinTs <= 0) {
+                $key = 'CHECKIN|' . $date;
+                if (!isset($seen[$key])) {
+                    $seen[$key] = true;
+                    $alerts[] = [
+                        'type' => 'MISSING_CHECKIN',
+                        'severity' => ($date < $today || $nowTs > $endTs) ? 'danger' : 'warning',
+                        'date' => $date,
+                        'title' => 'Absen masuk belum tercatat',
+                        'message' => 'Jadwal shift ' . $shiftLabel . ' (' . $timeLabel . ') pada ' . date('d-m-Y', strtotime($date)) . ' sudah berjalan, tetapi check-in belum ada.',
+                    ];
+                }
+                continue;
+            }
+
+            if ($checkinTs > 0 && $checkoutTs <= 0 && $nowTs > $endTs) {
+                $key = 'CHECKOUT|' . $date;
+                if (!isset($seen[$key])) {
+                    $seen[$key] = true;
+                    $alerts[] = [
+                        'type' => 'MISSING_CHECKOUT',
+                        'severity' => ($date < $today || $nowTs > ($endTs + ($closeMinutes * 60))) ? 'danger' : 'warning',
+                        'date' => $date,
+                        'title' => 'Absen pulang belum tercatat',
+                        'message' => 'Anda sudah check-in untuk shift ' . $shiftLabel . ' (' . $timeLabel . ') pada ' . date('d-m-Y', strtotime($date)) . ', tetapi check-out belum ada.',
+                    ];
+                }
+            }
+        }
+
+        usort($alerts, static function (array $left, array $right): int {
+            return strcmp((string)($right['date'] ?? ''), (string)($left['date'] ?? ''));
+        });
+
+        return $alerts;
     }
 
     private function get_presence_events_by_type(int $employeeId, string $date): array
