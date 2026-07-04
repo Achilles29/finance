@@ -435,7 +435,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <?php foreach ($rows as $r): ?>
             <tr class="<?php echo $canDragReorder ? 'master-sort-row' : ''; ?>" <?php echo $canDragReorder ? 'data-master-sort-row="1" draggable="true" data-row-id="' . (int)$r['id'] . '"' : ''; ?>>
               <?php if ($isReorderableMaster): ?>
-                <td class="master-reorder-handle"><?php if ($canDragReorder): ?><i class="ri ri-drag-move-2-line"></i><?php endif; ?></td>
+                <td class="master-reorder-handle" <?php echo $canDragReorder ? 'data-master-sort-handle="1"' : ''; ?>><?php if ($canDragReorder): ?><i class="ri ri-drag-move-2-line"></i><?php endif; ?></td>
               <?php endif; ?>
               <td class="number-cell"><?php echo $no++; ?></td>
               <?php foreach ($cfg['columns'] as $col): ?>
@@ -1043,6 +1043,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
       var draggedRow = null;
       var startOrder = [];
       var saving = false;
+      var dropSaved = false;
 
       function currentOrder() {
         return Array.prototype.slice.call(tbody.querySelectorAll('[data-master-sort-row]')).map(function (row) {
@@ -1086,12 +1087,39 @@ $buildPageItems = static function (int $page, int $totalPages): array {
         });
       }
 
+      function finalizeReorder() {
+        var newOrder = currentOrder();
+        if (newOrder.join(',') !== startOrder.join(',')) {
+          saveOrder(newOrder);
+        }
+      }
+
       rows.forEach(function (row) {
+        var handle = row.querySelector('[data-master-sort-handle]');
+        if (handle) {
+          handle.setAttribute('draggable', 'true');
+          handle.addEventListener('dragstart', function (e) {
+            if (saving) {
+              e.preventDefault();
+              return;
+            }
+            dropSaved = false;
+            draggedRow = row;
+            startOrder = currentOrder();
+            row.classList.add('is-dragging');
+            if (e.dataTransfer) {
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', row.getAttribute('data-row-id') || '');
+            }
+          });
+        }
+
         row.addEventListener('dragstart', function (e) {
           if (saving) {
             e.preventDefault();
             return;
           }
+          dropSaved = false;
           draggedRow = row;
           startOrder = currentOrder();
           row.classList.add('is-dragging');
@@ -1129,16 +1157,18 @@ $buildPageItems = static function (int $page, int $totalPages): array {
             tbody.insertBefore(draggedRow, row);
           }
           clearDragMarkers();
+          dropSaved = true;
+          finalizeReorder();
         });
 
         row.addEventListener('dragend', function () {
           row.classList.remove('is-dragging');
           clearDragMarkers();
-          var newOrder = currentOrder();
-          draggedRow = null;
-          if (newOrder.join(',') !== startOrder.join(',')) {
-            saveOrder(newOrder);
+          if (!dropSaved) {
+            finalizeReorder();
           }
+          draggedRow = null;
+          dropSaved = false;
         });
       });
     }

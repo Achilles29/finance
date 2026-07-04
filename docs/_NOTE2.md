@@ -374,3 +374,4 @@ tambahkan ringkasan adjustment gudang, kitchen, bar di dashboard
 cek self order kasir nya harus nya sesuai kasir aktif, verifikasi kalau sudah PAID ya statusnya harusnya PAID
 
 
+https://core.namuacoffee.com/pos/reports/payment-accounts?q=&outlet_id=0&status=PAID&payment_type=ALL&date_from=2026-07-01&date_to=2026-07-03 ada pembayaran midtrans, tapi kok nggak masuk kas midtrans https://core.namuacoffee.com/finance/accounts , lalu masuk mana?

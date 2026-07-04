@@ -165,14 +165,53 @@ class Master_model extends CI_Model
         return $this->db->get_where($table, ['id' => $id])->row_array() ?: null;
     }
 
+    private function next_sort_order(string $table): int
+    {
+        if (!$this->db->table_exists($table) || !$this->db->field_exists('sort_order', $table)) {
+            return 1;
+        }
+
+        $row = $this->db
+            ->select('COALESCE(MAX(sort_order), 0) AS max_sort_order', false)
+            ->from($table)
+            ->get()
+            ->row_array();
+
+        return max(1, ((int)($row['max_sort_order'] ?? 0)) + 1);
+    }
+
+    private function normalize_sort_order(string $table, array $data, ?int $id = null): array
+    {
+        if (!$this->db->field_exists('sort_order', $table) || !array_key_exists('sort_order', $data)) {
+            return $data;
+        }
+
+        $raw = $data['sort_order'];
+        if ($raw === '' || $raw === null) {
+            if ($id !== null && $id > 0) {
+                $existing = $this->get_by_id($table, $id);
+                $existingSort = (int)($existing['sort_order'] ?? 0);
+                $data['sort_order'] = $existingSort > 0 ? $existingSort : $this->next_sort_order($table);
+            } else {
+                $data['sort_order'] = $this->next_sort_order($table);
+            }
+            return $data;
+        }
+
+        $data['sort_order'] = max(1, (int)$raw);
+        return $data;
+    }
+
     public function insert(string $table, array $data): int
     {
+        $data = $this->normalize_sort_order($table, $data);
         $this->db->insert($table, $data);
         return (int)$this->db->insert_id();
     }
 
     public function update(string $table, int $id, array $data): bool
     {
+        $data = $this->normalize_sort_order($table, $data, $id);
         return $this->db->where('id', $id)->update($table, $data);
     }
 
@@ -362,7 +401,8 @@ class Master_model extends CI_Model
             $this->db->group_end();
         }
 
-        $this->apply_grouped_product_master_order($table, $alias);
+        $preferOwnSort = in_array($table, ['mst_product_classification', 'mst_product_category'], true);
+        $this->apply_grouped_product_master_order($table, $alias, $preferOwnSort);
         $this->db->limit($limit, $offset);
 
         return $this->db->get()->result_array();
@@ -396,7 +436,7 @@ class Master_model extends CI_Model
         return $this->db->get()->result_array();
     }
 
-    private function apply_grouped_product_master_order(string $table, string $alias = 't'): void
+    private function apply_grouped_product_master_order(string $table, string $alias = 't', bool $preferOwnSort = false): void
     {
         if ($table === 'mst_product_division') {
             $this->db->order_by($alias . '.sort_order', 'ASC');
@@ -404,16 +444,33 @@ class Master_model extends CI_Model
             return;
         }
 
-        $this->db->order_by('pd.sort_order', 'ASC');
-        $this->db->order_by('pd.id', 'ASC');
-
         if ($table === 'mst_product_classification') {
+            if ($preferOwnSort) {
+                $this->db->order_by($alias . '.sort_order', 'ASC');
+                $this->db->order_by($alias . '.id', 'ASC');
+                $this->db->order_by('pd.sort_order', 'ASC');
+                $this->db->order_by('pd.id', 'ASC');
+                return;
+            }
+            $this->db->order_by('pd.sort_order', 'ASC');
+            $this->db->order_by('pd.id', 'ASC');
             $this->db->order_by($alias . '.sort_order', 'ASC');
             $this->db->order_by($alias . '.id', 'ASC');
             return;
         }
 
         if ($table === 'mst_product_category') {
+            if ($preferOwnSort) {
+                $this->db->order_by($alias . '.sort_order', 'ASC');
+                $this->db->order_by($alias . '.id', 'ASC');
+                $this->db->order_by('pd.sort_order', 'ASC');
+                $this->db->order_by('pd.id', 'ASC');
+                $this->db->order_by('pc.sort_order', 'ASC');
+                $this->db->order_by('pc.id', 'ASC');
+                return;
+            }
+            $this->db->order_by('pd.sort_order', 'ASC');
+            $this->db->order_by('pd.id', 'ASC');
             $this->db->order_by('pc.sort_order', 'ASC');
             $this->db->order_by('pc.id', 'ASC');
             $this->db->order_by($alias . '.sort_order', 'ASC');
@@ -422,6 +479,8 @@ class Master_model extends CI_Model
         }
 
         if ($table === 'mst_product') {
+            $this->db->order_by('pd.sort_order', 'ASC');
+            $this->db->order_by('pd.id', 'ASC');
             $this->db->order_by('pc.sort_order', 'ASC');
             $this->db->order_by('pc.id', 'ASC');
             $this->db->order_by('cat.sort_order', 'ASC');

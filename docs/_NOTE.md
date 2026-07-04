@@ -139,9 +139,12 @@ cek server
 finalkan generate stok gudang, bahan baku. component. pastikan cutoff dan membuat data baru stok dan lot nya sesuai
 finalkan generate keuangan
 
-setelah update ROLLBACK REFUND dan VOID, guardingnya terlalu ketat. ROLLBACK gagal karena stock minus. harusnya ROLLBACK tetap behasil dengan menambahkan ke stok yang minus sehinggu minusnya berkurang.
-kasus disini adalah ada bahan baku yang habis atau minus, ketok di order POS menjadi minus atau minusnya bertambah. nah ketika void atau refund harusnya tetap rollback dengan mengembalikan ke posisi stok semula 
-
-
 
 cek halaman dan database legacy dari bahan baku, gudang , dan component
+
+
+perbaiki directory member /order . ketersediaan stok produk agar membaca mst_product.stock_mode. jika AUTO maka seperti resep sekarang , sepeti pada directory core /product/availability dan atau /pos/stock-live. jika MANUAL_AVAILABLE maka pakasa tersedia, jika MANUAL_AVAILABLE maka paksa habis
+
+
+
+produk dengan stock mode auto, yang sesuai resep habis kasih badge "Sold Out" ,  produk yang stok sesuai resepnya dibawah 5 kasih badge "Limited"

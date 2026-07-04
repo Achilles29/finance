@@ -13362,6 +13362,15 @@ class Purchase_model extends CI_Model
         $to = $this->normalizeDate($dateTo);
         $targetMonth = date('Y-m-01', strtotime($to ?: date('Y-m-d')));
         $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+        $latestMonthSubquery = '';
+        if (!$strictMonth) {
+            $latestMonthSubquery = $this->db
+                ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
+                ->from('inv_division_monthly_stock')
+                ->where('month_key <=', $targetMonth)
+                ->group_by(['division_id', 'destination_type', 'identity_key'])
+                ->get_compiled_select();
+        }
 
         $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
             ? 'division_code'
@@ -13410,12 +13419,6 @@ class Purchase_model extends CI_Model
         if ($strictMonth) {
             $this->db->where('s.month_key', $targetMonth);
         } else {
-            $latestMonthSubquery = $this->db
-                ->select('division_id, destination_type, identity_key, MAX(month_key) AS month_key', false)
-                ->from('inv_division_monthly_stock')
-                ->where('month_key <=', $targetMonth)
-                ->group_by(['division_id', 'destination_type', 'identity_key'])
-                ->get_compiled_select();
             $this->db->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false);
         }
 

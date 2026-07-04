@@ -1231,6 +1231,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
               <option value="">Pilih salah satu...</option>
               <option value="SPOIL">Spoil</option>
               <option value="WASTE">Waste</option>
+              <option value="PROCESS_LOSS">Process Loss</option>
               <option value="MINUS">Minus</option>
               <option value="PLUS">Plus</option>
             </select>
@@ -1363,6 +1364,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   var adjustActionMeta = {
     SPOIL: { label: 'Spoil', reasonLabel: 'Alasan Spoil', reasonCategory: 'SPOILAGE' },
     WASTE: { label: 'Waste', reasonLabel: 'Alasan Waste', reasonCategory: 'WASTE' },
+    PROCESS_LOSS: { label: 'Process Loss', reasonLabel: 'Alasan Process Loss', reasonCategory: 'PROCESS_LOSS' },
     MINUS: { label: 'Minus', reasonLabel: 'Alasan Minus', reasonCategory: 'VARIANCE' },
     PLUS: { label: 'Plus', reasonLabel: 'Alasan Plus', reasonCategory: 'ADJUSTMENT_PLUS' }
   };
@@ -1768,17 +1770,19 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     var qtyInput = Number(document.getElementById('pmdQtyInput').value || 0);
     var unitCostInput = Number(document.getElementById('pmdAutoCostDisplay').value || adjustContext.defaultUnitCostInput || 0);
     if (!adjustActionMeta[action]) {
-      throw new Error('Pilih dulu salah satu jenis koreksi: spoil, waste, minus, atau plus.');
+      throw new Error('Pilih dulu salah satu jenis koreksi: spoil, waste, process loss, minus, atau plus.');
     }
     if (!(qtyInput > 0)) {
       throw new Error('Qty koreksi harus lebih dari nol.');
     }
     var qtyWaste = 0;
     var qtySpoil = 0;
+    var qtyProcessLoss = 0;
     var qtyVariance = 0;
     var qtyPlus = 0;
     if (action === 'WASTE') { qtyWaste = qtyInput; }
     if (action === 'SPOIL') { qtySpoil = qtyInput; }
+    if (action === 'PROCESS_LOSS') { qtyProcessLoss = qtyInput; }
     if (action === 'MINUS') { qtyVariance = qtyInput; }
     if (action === 'PLUS') { qtyPlus = qtyInput; }
 
@@ -1806,8 +1810,8 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         waste_reason_code: action === 'WASTE' ? (document.getElementById('pmdReasonSelect').value || 'other') : 'other',
         qty_spoil_content: qtySpoil,
         spoil_reason_code: action === 'SPOIL' ? (document.getElementById('pmdReasonSelect').value || 'other') : 'other',
-        qty_process_loss_content: 0,
-        process_loss_reason_code: 'other',
+        qty_process_loss_content: qtyProcessLoss,
+        process_loss_reason_code: action === 'PROCESS_LOSS' ? (document.getElementById('pmdReasonSelect').value || 'other') : 'other',
         qty_variance_content: qtyVariance,
         variance_reason_code: action === 'MINUS' ? (document.getElementById('pmdReasonSelect').value || 'other') : 'other',
         qty_adjustment_plus_content: qtyPlus,
