@@ -12,6 +12,7 @@ $baseUrl      = site_url('inventory/stock/daily-recon/division');
 $dataUrl      = site_url('inventory/stock/daily-recon/division/data');
 $savePhysUrl  = site_url('inventory/stock/daily-recon/division/save-physical');
 $quickAdjUrl  = site_url('inventory/stock/daily-recon/division/quick-adjust');
+$confirmReconUrl = site_url('inventory/stock/daily-recon/division/confirm');
 $profileMergeUrl = site_url('inventory/stock/division/reconcile/profile-merge');
 
 $destOptions = [
@@ -374,6 +375,14 @@ tr.opn-grp-header.expanded .opn-grp-arrow { transform: rotate(90deg); color: #3b
         <span id="opnMinusBadge" class="badge bg-danger" style="display:none;font-size:.68rem;cursor:pointer"></span>
       </div>
       <div class="d-flex gap-2">
+        <?php if ($canCreate): ?>
+          <button class="btn btn-sm btn-warning" id="opnConfirmOpen" type="button" style="font-size:.74rem">
+            <i class="ri ri-door-open-line me-1"></i>Konfirmasi Buka
+          </button>
+          <button class="btn btn-sm btn-success" id="opnConfirmClose" type="button" style="font-size:.74rem">
+            <i class="ri ri-door-closed-line me-1"></i>Konfirmasi Tutup
+          </button>
+        <?php endif; ?>
         <button class="btn btn-sm btn-light" id="btnFilterMinus" style="display:none;font-size:.74rem">
           <i class="ri ri-arrow-down-circle-line me-1"></i>Hanya Minus
         </button>
@@ -439,6 +448,7 @@ tr.opn-grp-header.expanded .opn-grp-arrow { transform: rotate(90deg); color: #3b
 const DATA_URL   = '<?= $dataUrl ?>';
 const SAVE_URL   = '<?= $savePhysUrl ?>';
 const ADJ_URL    = '<?= $quickAdjUrl ?>';
+const CONFIRM_RECON_URL = '<?= $confirmReconUrl ?>';
 const PROFILE_MERGE_URL = '<?= $profileMergeUrl ?>';
 const MATERIAL_USAGE_BASE = '<?= site_url('master/material/usage/') ?>';
 const CAN_CREATE = <?= $canCreate ? 'true' : 'false' ?>;
@@ -776,7 +786,7 @@ function renderTable(divisions) {
                 var joinBtn = CAN_CREATE
                     ? '<button type="button" class="btn btn-sm btn-outline-dark" onclick="event.stopPropagation();openOpmProfileMerge(\'' + grpIid + '\')"><i class="ri ri-links-line me-1"></i>Join</button>'
                     : '';
-                html += '<tr id="grp-row-' + grpIid + '" class="opn-grp-header' + (grpNeg ? ' opn-row-minus' : '') + '"'
+                html += '<tr id="grp-row-' + grpIid + '" class="opn-grp-header expanded' + (grpNeg ? ' opn-row-minus' : '') + '"'
                     + ' data-system-val="' + sysTotal + '" data-div-id="' + esc(String(div.division_id)) + '"'
                     + ' onclick="opnToggleGrp(\'' + grpIid + '\')">'
                     + '<td class="opn-div-cell">' + esc(div.division_name)
@@ -784,7 +794,7 @@ function renderTable(divisions) {
                     + '</td>'
                     + '<td class="opn-kat-cell" style="font-size:.8rem">' + esc(mat.category_name || '—') + '</td>'
                     + '<td class="text-start" style="font-size:.8rem"><div class="opn-name-cell">'
-                    + '<span class="opn-arrow-wrap"><i id="grp-icon-' + grpIid + '" class="ri ri-arrow-right-s-line opn-grp-arrow text-muted" style="font-size:1.05rem"></i></span>'
+                    + '<span class="opn-arrow-wrap"><i id="grp-icon-' + grpIid + '" class="ri ri-arrow-down-s-line opn-grp-arrow text-muted" style="font-size:1.05rem"></i></span>'
                     + '<div class="opn-name-body"><span class="fw-semibold">'
                     + (mat.material_id > 0 ? '<a href="' + MATERIAL_USAGE_BASE + mat.material_id + '" class="opn-mat-link" target="_blank">' + esc(mat.material_name) + '</a>' : esc(mat.material_name))
                     + '</span>'
@@ -825,7 +835,7 @@ function renderTable(divisions) {
                 if (profNeg && !multiProf) minusCount++;
                 var profClass = profNeg ? 'opn-row-minus' : '';
                 var profAttrs = multiProf
-                    ? 'class="' + profClass + '" data-grp="' + grpIid + '" data-system-val="' + p.system_qty_content + '" data-div-id="' + esc(String(div.division_id)) + '" style="display:none"'
+                    ? 'class="' + profClass + '" data-grp="' + grpIid + '" data-system-val="' + p.system_qty_content + '" data-div-id="' + esc(String(div.division_id)) + '"'
                     : 'class="' + profClass + '" data-system-val="' + p.system_qty_content + '" data-div-id="' + esc(String(div.division_id)) + '"';
 
                 if (p.is_recipe_only) {
@@ -906,6 +916,41 @@ function _liveUpdateAdjRow(iid, p) {
     if (adjColEl) adjColEl.outerHTML = adjColHtml(p, iid);
     var row = el('row-' + iid);
     if (row) { var tdAction = row.querySelector('td.action-cell'); if (tdAction) tdAction.outerHTML = actionCell(p, iid); }
+}
+
+function confirmDailyRecon(stage) {
+    var form = el('opnForm');
+    if (!form) return;
+    var date = form.querySelector('[name=opname_date]')?.value || '';
+    var divisionId = Number(form.querySelector('[name=division_id]')?.value || 0);
+    if (divisionId <= 0) {
+        showAlert('warning', 'Pilih satu divisi dulu sebelum konfirmasi daily recon.');
+        return;
+    }
+    var label = stage === 'OPEN' ? 'buka kasir' : 'tutup kasir';
+    if (!confirm('Konfirmasi daily recon bahan baku untuk ' + label + ' pada tanggal ' + date + '?')) {
+        return;
+    }
+    fetch(CONFIRM_RECON_URL, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+            opname_date: date,
+            division_id: divisionId,
+            stage: stage,
+            notes: 'Konfirmasi dari halaman daily recon bahan baku'
+        })
+    })
+    .then(function (r) { return r.json().then(function (j) { return { status: r.status, json: j }; }); })
+    .then(function (res) {
+        if (res.status >= 400 || !res.json.ok) {
+            showAlert('danger', res.json.message || 'Konfirmasi daily recon gagal.');
+            return;
+        }
+        showAlert('success', res.json.message || 'Daily recon bahan baku sudah dikonfirmasi.');
+    })
+    .catch(function (e) { showAlert('danger', 'Konfirmasi daily recon gagal: ' + e.message); });
 }
 
 /* ── Save physical qty ────────────────────────────────────── */
@@ -1237,6 +1282,8 @@ function loadData(showSpinner) {
 /* ── Event bindings ───────────────────────────────────────── */
 el('opnLoad').addEventListener('click', function () { loadData(true); });
 el('opnRefresh').addEventListener('click', function () { loadData(false); });
+if (el('opnConfirmOpen')) el('opnConfirmOpen').addEventListener('click', function () { confirmDailyRecon('OPEN'); });
+if (el('opnConfirmClose')) el('opnConfirmClose').addEventListener('click', function () { confirmDailyRecon('CLOSE'); });
 
 // AJAX debounce on search (450ms)
 var searchTimer = null;

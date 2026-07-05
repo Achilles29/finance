@@ -42,6 +42,10 @@ class Inventory_division extends Purchase
             $opnameDate = date('Y-m-d');
         }
         $divisionId  = (int)$this->input->get('division_id', true);
+        $scopeDivisionId = $this->active_division_id();
+        if ($scopeDivisionId !== null) {
+            $divisionId = $scopeDivisionId;
+        }
         $destination = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destination === '') {
             $destination = 'ALL';
@@ -51,6 +55,11 @@ class Inventory_division extends Purchase
         $isSuperadmin = !empty($this->current_user['is_superadmin']);
         $canCreate    = $isSuperadmin || $this->can(self::PAGE_OPNAME, 'create');
         $divisions    = $this->Purchase_model->list_active_operational_divisions();
+        if ($scopeDivisionId !== null) {
+            $divisions = array_values(array_filter($divisions, static function (array $row) use ($scopeDivisionId): bool {
+                return (int)($row['id'] ?? 0) === $scopeDivisionId;
+            }));
+        }
 
         $this->render('inventory/stock_opname_division_index', [
             'title'       => 'Daily Recon Bahan Baku Divisi',
@@ -61,6 +70,7 @@ class Inventory_division extends Purchase
             'q'           => $q,
             'divisions'   => $divisions,
             'can_create'  => $canCreate,
+            'division_scope_id' => $scopeDivisionId,
         ]);
     }
 
@@ -73,6 +83,10 @@ class Inventory_division extends Purchase
             $opnameDate = date('Y-m-d');
         }
         $divisionId  = (int)$this->input->get('division_id', true);
+        $scopeDivisionId = $this->active_division_id();
+        if ($scopeDivisionId !== null) {
+            $divisionId = $scopeDivisionId;
+        }
         $destination = strtoupper(trim((string)$this->input->get('destination', true)));
         $q           = trim((string)$this->input->get('q', true));
 
@@ -88,7 +102,7 @@ class Inventory_division extends Purchase
 
         $latestSub = "SELECT division_id, destination_type, identity_key, MAX(month_key) AS max_month
                       FROM inv_division_monthly_stock
-                      WHERE month_key <= " . $this->db->escape($targetMonth) . "
+                      WHERE month_key = " . $this->db->escape($targetMonth) . "
                       {$subDivWhere}
                       GROUP BY division_id, destination_type, identity_key";
 
@@ -118,6 +132,12 @@ class Inventory_division extends Purchase
         $catNameExpr  = $hasCatTable ? "COALESCE(cat.name, '')" : "''";
         $catIdExpr    = $hasCatTable ? 'COALESCE(cat.id, 0)' : '0';
         $catOrderExpr = $hasCatTable ? 'COALESCE(cat.id, 99999),' : '';
+        $matActiveWhere = $this->db->field_exists('is_active', 'mst_material')
+            ? 'AND (m.id IS NULL OR COALESCE(m.is_active, 1) = 1)'
+            : '';
+        $itemActiveWhere = $this->db->field_exists('is_active', 'mst_item')
+            ? 'AND (i.id IS NULL OR COALESCE(i.is_active, 1) = 1)'
+            : '';
 
         $sql = "
             SELECT
@@ -161,6 +181,8 @@ class Inventory_division extends Purchase
             {$catJoin}
             WHERE dms.material_id IS NOT NULL
               AND (dms.profile_key IS NULL OR dms.identity_key = dms.profile_key)
+              {$matActiveWhere}
+              {$itemActiveWhere}
               {$divWhereMain}
               {$destWhere}
               {$qWhere}
@@ -173,7 +195,8 @@ class Inventory_division extends Purchase
         $stockRows = ($r = $this->db->query($sql)) ? $r->result_array() : [];
 
         // ── Append recipe-only materials (active in recipes but no stock record) ──
-        if ($destination !== 'EVENT' && $this->db->table_exists('mst_product_recipe')) {
+        $includeRecipeOnlyRows = false;
+        if ($includeRecipeOnlyRows && $destination !== 'EVENT' && $this->db->table_exists('mst_product_recipe')) {
             $existingKeys = [];
             foreach ($stockRows as $stockR) {
                 if (!empty($stockR['material_id']) && !empty($stockR['division_id'])) {
@@ -569,6 +592,80 @@ class Inventory_division extends Purchase
         }
 
         $this->jsonOk(['adjustment_id' => $adjId], 'Adjustment berhasil diposting.');
+    }
+
+    public function opname_confirm_recon()
+    {
+        $this->require_permission(self::PAGE_OPNAME, 'create');
+
+        $payload = $this->request_payload();
+        $date = trim((string)($payload['opname_date'] ?? date('Y-m-d')));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            $this->jsonError('Tanggal recon tidak valid.', 422);
+            return;
+        }
+
+        $divisionId = (int)($payload['division_id'] ?? 0);
+        $scopeDivisionId = $this->active_division_id();
+        if ($scopeDivisionId !== null) {
+            $divisionId = $scopeDivisionId;
+        }
+        $stage = strtoupper(trim((string)($payload['stage'] ?? '')));
+        $notes = trim((string)($payload['notes'] ?? ''));
+        $userId = (int)($this->current_user['employee_id'] ?? ($this->current_user['id'] ?? 0));
+
+        if ($divisionId <= 0) {
+            $this->jsonError('Pilih satu divisi terlebih dahulu sebelum konfirmasi recon.', 422);
+            return;
+        }
+        if (!in_array($stage, ['OPEN', 'CLOSE'], true)) {
+            $this->jsonError('Tahap recon harus OPEN atau CLOSE.', 422);
+            return;
+        }
+        if (!$this->db->table_exists('inv_daily_recon_checkpoint')) {
+            $this->jsonError('Tabel checkpoint daily recon belum tersedia. Jalankan SQL setup 2026-07-05a dulu.', 500);
+            return;
+        }
+
+        $this->upsert_daily_recon_checkpoint($date, 'MATERIAL', $divisionId, $stage, 'inventory/stock/daily-recon/division', $notes, $userId);
+        $this->jsonOk([
+            'opname_date' => $date,
+            'division_id' => $divisionId,
+            'stage' => $stage,
+        ], 'Konfirmasi daily recon bahan baku berhasil disimpan.');
+    }
+
+    private function upsert_daily_recon_checkpoint(string $date, string $domain, int $divisionId, string $stage, string $sourcePage, string $notes, int $userId): void
+    {
+        $existing = $this->db->select('id')
+            ->from('inv_daily_recon_checkpoint')
+            ->where('checkpoint_date', $date)
+            ->where('recon_domain', $domain)
+            ->where('division_id', $divisionId)
+            ->where('checkpoint_stage', $stage)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $row = [
+            'checkpoint_date' => $date,
+            'recon_domain' => $domain,
+            'division_id' => $divisionId,
+            'checkpoint_stage' => $stage,
+            'source_page' => $sourcePage,
+            'notes' => $notes !== '' ? $notes : null,
+            'confirmed_by' => $userId > 0 ? $userId : null,
+            'confirmed_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+
+        if (!empty($existing['id'])) {
+            $this->db->where('id', (int)$existing['id'])->update('inv_daily_recon_checkpoint', $row);
+            return;
+        }
+
+        $row['created_at'] = date('Y-m-d H:i:s');
+        $this->db->insert('inv_daily_recon_checkpoint', $row);
     }
 
     private function jsonOk(array $data = [], string $message = ''): void

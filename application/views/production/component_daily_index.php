@@ -899,7 +899,9 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
                         <strong><?php echo number_format((float)($lotSummary['min_unit_cost'] ?? 0), 2, ',', '.'); ?><?php if ((float)($lotSummary['max_unit_cost'] ?? 0) !== (float)($lotSummary['min_unit_cost'] ?? 0)): ?> - <?php echo number_format((float)($lotSummary['max_unit_cost'] ?? 0), 2, ',', '.'); ?><?php endif; ?></strong>
                       </div>
                     </div>
-                    <div class="summary-sub mt-2"><?php echo $hasLotChildren ? 'Parent menampilkan total saldo dan rata-rata. Expand untuk melihat tiap lot.' : (!empty($lotSummary['has_mixed_cost']) ? 'Cost campur pada lot aktif tunggal ini.' : 'Cost lot aktif masih seragam.'); ?></div>
+                    <div class="summary-sub mt-2">
+                      <?php echo $hasLotChildren ? 'Parent mengikuti monthly stock. Expand untuk melihat tiap lot.' : (!empty($lotSummary['has_mixed_cost']) ? 'Ringkasan dari monthly stock. Cost lot aktif campur.' : 'Ringkasan dari monthly stock. Cost lot aktif seragam.'); ?>
+                    </div>
                   </div>
                 </td>
                 <?php foreach ($dates as $date): ?>

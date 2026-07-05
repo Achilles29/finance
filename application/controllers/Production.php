@@ -1975,6 +1975,10 @@ class Production extends MY_Controller
             $locationType = '';
         }
         $divisionId = (int)$this->input->get('division_id', true);
+        $scopeDivisionId = $this->active_division_id();
+        if ($scopeDivisionId !== null) {
+            $divisionId = $scopeDivisionId;
+        }
         $type       = strtoupper(trim((string)$this->input->get('type', true)));
         if (!in_array($type, ['BASE', 'PREPARE'], true)) {
             $type = '';
@@ -1993,6 +1997,7 @@ class Production extends MY_Controller
             'q'             => $q,
             'divisions'     => $this->active_divisions(),
             'can_create'    => $canCreate,
+            'division_scope_id' => $scopeDivisionId,
         ]);
     }
 
@@ -2014,6 +2019,10 @@ class Production extends MY_Controller
             $locationType = '';
         }
         $divisionId = (int)$this->input->get('division_id', true);
+        $scopeDivisionId = $this->active_division_id();
+        if ($scopeDivisionId !== null) {
+            $divisionId = $scopeDivisionId;
+        }
         $type       = strtoupper(trim((string)$this->input->get('type', true)));
         if (!in_array($type, ['BASE', 'PREPARE'], true)) {
             $type = '';
@@ -2033,7 +2042,7 @@ class Production extends MY_Controller
 
         $latestSub = "SELECT location_type, division_id, component_id, uom_id, MAX(month_key) AS max_month
                       FROM inv_component_monthly_stock
-                      WHERE month_key <= " . $this->db->escape($targetMonth) . "
+                      WHERE month_key = " . $this->db->escape($targetMonth) . "
                       GROUP BY location_type, division_id, component_id, uom_id";
 
         $where = '';
@@ -2049,6 +2058,9 @@ class Production extends MY_Controller
         if ($q !== '') {
             $qLike  = $this->db->escape('%' . $q . '%');
             $where .= " AND (c.component_name LIKE {$qLike} OR c.component_code LIKE {$qLike})";
+        }
+        if ($this->db->field_exists('is_active', 'mst_component')) {
+            $where .= " AND COALESCE(c.is_active, 1) = 1";
         }
 
         $catNameExpr = $this->db->field_exists('name', 'mst_component_category') ? 'cat.name' : 'NULL';
@@ -2440,6 +2452,83 @@ class Production extends MY_Controller
             ['adjustment_id' => $adjId],
             'Adjustment ' . $scopeLabel . ' berhasil diposting. Adj #' . $adjId . ' sudah tercatat.'
         );
+    }
+
+    public function component_daily_recon_confirm()
+    {
+        $this->require_permission(
+            $this->can(self::PAGE_COMPONENT_DAILY_RECON, 'create') ? self::PAGE_COMPONENT_DAILY_RECON : 'production.component.daily.index',
+            'create'
+        );
+
+        $payload = $this->request_payload();
+        $date = trim((string)($payload['opname_date'] ?? date('Y-m-d')));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            $this->json_error('Tanggal recon tidak valid.', 422);
+            return;
+        }
+
+        $divisionId = (int)($payload['division_id'] ?? 0);
+        $scopeDivisionId = $this->active_division_id();
+        if ($scopeDivisionId !== null) {
+            $divisionId = $scopeDivisionId;
+        }
+        $stage = strtoupper(trim((string)($payload['stage'] ?? '')));
+        $notes = trim((string)($payload['notes'] ?? ''));
+        $userId = (int)($this->current_user['employee_id'] ?? ($this->current_user['id'] ?? 0));
+
+        if ($divisionId <= 0) {
+            $this->json_error('Pilih satu divisi terlebih dahulu sebelum konfirmasi recon.', 422);
+            return;
+        }
+        if (!in_array($stage, ['OPEN', 'CLOSE'], true)) {
+            $this->json_error('Tahap recon harus OPEN atau CLOSE.', 422);
+            return;
+        }
+        if (!$this->db->table_exists('inv_daily_recon_checkpoint')) {
+            $this->json_error('Tabel checkpoint daily recon belum tersedia. Jalankan SQL setup 2026-07-05a dulu.', 500);
+            return;
+        }
+
+        $this->upsert_daily_recon_checkpoint($date, 'COMPONENT', $divisionId, $stage, 'production/component-daily-recon', $notes, $userId);
+        $this->json_ok([
+            'opname_date' => $date,
+            'division_id' => $divisionId,
+            'stage' => $stage,
+        ], 'Konfirmasi daily recon component berhasil disimpan.');
+    }
+
+    private function upsert_daily_recon_checkpoint(string $date, string $domain, int $divisionId, string $stage, string $sourcePage, string $notes, int $userId): void
+    {
+        $existing = $this->db->select('id')
+            ->from('inv_daily_recon_checkpoint')
+            ->where('checkpoint_date', $date)
+            ->where('recon_domain', $domain)
+            ->where('division_id', $divisionId)
+            ->where('checkpoint_stage', $stage)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $row = [
+            'checkpoint_date' => $date,
+            'recon_domain' => $domain,
+            'division_id' => $divisionId,
+            'checkpoint_stage' => $stage,
+            'source_page' => $sourcePage,
+            'notes' => $notes !== '' ? $notes : null,
+            'confirmed_by' => $userId > 0 ? $userId : null,
+            'confirmed_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+
+        if (!empty($existing['id'])) {
+            $this->db->where('id', (int)$existing['id'])->update('inv_daily_recon_checkpoint', $row);
+            return;
+        }
+
+        $row['created_at'] = date('Y-m-d H:i:s');
+        $this->db->insert('inv_daily_recon_checkpoint', $row);
     }
 
     private function stock_filters()
@@ -2892,7 +2981,14 @@ class Production extends MY_Controller
 
     private function active_divisions(): array
     {
-        return $this->db->select('id, code, name')->from('mst_operational_division')->where('is_active', 1)->order_by('name', 'ASC')->get()->result_array();
+        $scopeDivisionId = $this->active_division_id();
+        $query = $this->db->select('id, code, name')
+            ->from('mst_operational_division')
+            ->where('is_active', 1);
+        if ($scopeDivisionId !== null) {
+            $query->where('id', $scopeDivisionId);
+        }
+        return $query->order_by('name', 'ASC')->get()->result_array();
     }
 
     private function active_product_divisions(): array

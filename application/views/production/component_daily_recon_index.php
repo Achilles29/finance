@@ -140,6 +140,14 @@ $REASONS = function_exists('component_adjustment_reason_options')
 
   <!-- Toolbar -->
   <div class="d-flex gap-2 mb-2 align-items-center">
+    <?php if ($canCreate): ?>
+      <button id="btnConfirmOpenRecon" type="button" class="btn btn-sm btn-warning">
+        <i class="ri ri-door-open-line me-1"></i>Konfirmasi Buka
+      </button>
+      <button id="btnConfirmCloseRecon" type="button" class="btn btn-sm btn-success">
+        <i class="ri ri-door-closed-line me-1"></i>Konfirmasi Tutup
+      </button>
+    <?php endif; ?>
     <button id="btnFilterMinus" class="btn btn-sm btn-outline-danger" style="display:none">
       <i class="ri ri-arrow-down-line me-1"></i>Tampilkan Minus
       <span id="cmpMinusBadge" class="badge bg-danger ms-1" style="display:none">0</span>
@@ -178,6 +186,7 @@ const DATA_URL       = '<?php echo site_url('production/component-daily-recon/da
 const USAGE_BASE_URL = '<?php echo site_url('production/component-masters/usage/'); ?>';
 const SAVE_URL     = '<?php echo site_url('production/component-daily-recon/save-physical'); ?>';
 const ADJ_URL      = '<?php echo site_url('production/component-daily-recon/quick-adjust'); ?>';
+const CONFIRM_RECON_URL = '<?php echo site_url('production/component-daily-recon/confirm'); ?>';
 const ADJ_PAGE_URL = '<?php echo site_url('production/component-adjustments'); ?>';
 const CAN_CREATE   = <?php echo $canCreate ? 'true' : 'false'; ?>;
 const RECON_DATE   = '<?php echo html_escape($reconDate); ?>';
@@ -213,6 +222,37 @@ function showFlash(message, isError = false) {
     box.textContent = message || '';
     box.classList.toggle('error', !!isError);
     box.style.display = message ? '' : 'none';
+}
+
+async function confirmDailyRecon(stage) {
+    if (DIV_ID <= 0) {
+        showFlash('Pilih satu divisi dulu sebelum konfirmasi daily recon.', true);
+        return;
+    }
+    const label = stage === 'OPEN' ? 'buka kasir' : 'tutup kasir';
+    if (!confirm('Konfirmasi daily recon component untuk ' + label + ' pada tanggal ' + RECON_DATE + '?')) {
+        return;
+    }
+    try {
+        const response = await fetch(CONFIRM_RECON_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({
+                opname_date: RECON_DATE,
+                division_id: DIV_ID,
+                stage: stage,
+                notes: 'Konfirmasi dari halaman daily recon component'
+            }),
+        });
+        const data = await parseJsonResponse(response);
+        if (!data.ok) {
+            showFlash(data.message || 'Konfirmasi daily recon gagal.', true);
+            return;
+        }
+        showFlash(data.message || 'Daily recon component sudah dikonfirmasi.', false);
+    } catch (err) {
+        showFlash('Konfirmasi daily recon gagal: ' + err.message, true);
+    }
 }
 async function parseJsonResponse(response) {
     const raw = await response.text();
@@ -364,9 +404,9 @@ function renderTable(groups) {
                     <td class="text-end text-muted small">Lot detail</td>
                     <td class="text-center">
                         <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
-                                id="expand-${iid}" data-expanded="false" data-lot-count="${row.lot_count}"
+                                id="expand-${iid}" data-expanded="true" data-lot-count="${row.lot_count}"
                                 onclick="cmpToggleLots('${iid}')">
-                            <i class="ri ri-arrow-right-s-line"></i> ${row.lot_count} lot
+                            <i class="ri ri-arrow-down-s-line"></i> ${row.lot_count} lot
                         </button>
                     </td>
                 </tr>`;
@@ -399,7 +439,7 @@ function renderTable(groups) {
                     const lotCls = parseFloat(lot.system_qty) < -0.001 ? 'cmp-row-minus' : '';
 
                     html += `<tr id="row-${lotIid}" class="lot-child lot-child-${iid} ${lotCls}"
-                                 style="display:none" data-system-val="${lot.system_qty}" data-div-id="${row.division_id}">
+                                 data-system-val="${lot.system_qty}" data-div-id="${row.division_id}">
                         <td class="cmp-div-cell" style="padding-left:20px;border-left:3px solid #e2e8f0">
                             <div class="text-muted fw-semibold" style="font-size:.72rem">Lot ${esc(lot.lot_no)}</div>
                             <div class="text-muted" style="font-size:.67rem">${esc(lot.receipt_date || '')}</div>
@@ -654,6 +694,14 @@ function applyMinusFilter() {
     });
 }
 document.addEventListener('click', function (e) {
+    if (e.target.closest('#btnConfirmOpenRecon')) {
+        confirmDailyRecon('OPEN');
+        return;
+    }
+    if (e.target.closest('#btnConfirmCloseRecon')) {
+        confirmDailyRecon('CLOSE');
+        return;
+    }
     if (e.target.closest('#btnFilterMinus') || e.target.closest('#cmpMinusBadge')) {
         showOnlyMinus = !showOnlyMinus;
         applyMinusFilter();

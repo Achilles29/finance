@@ -911,6 +911,7 @@ class Production_model extends CI_Model
         $matrixRows = array_values($grouped);
         $matrixRows = $this->attach_component_lot_summaries($matrixRows);
         $matrixRows = $this->attach_component_daily_lot_rows($matrixRows, $dates, $windowStart, $windowEnd);
+        $matrixRows = $this->attach_component_monthly_summary_to_daily_rows($matrixRows, $filters, $windowStart);
         if ($limit > 0 && count($matrixRows) > $limit) {
             $matrixRows = array_slice($matrixRows, 0, $limit);
         }
@@ -924,6 +925,73 @@ class Production_model extends CI_Model
             'dates' => $dates,
             'rows' => $matrixRows,
         ];
+    }
+
+    private function attach_component_monthly_summary_to_daily_rows(array $rows, array $filters, string $monthStart): array
+    {
+        if (empty($rows) || !$this->db->table_exists('inv_component_monthly_stock')) {
+            return $rows;
+        }
+
+        $monthlyRows = $this->fetch_component_monthly_generate_source_rows($filters, $monthStart);
+        if (empty($monthlyRows)) {
+            return $rows;
+        }
+
+        $monthlyMap = [];
+        foreach ($monthlyRows as $monthlyRow) {
+            $key = $this->component_identity_key(
+                (string)($monthlyRow['location_type'] ?? ''),
+                $monthlyRow['division_id'] ?? null,
+                (int)($monthlyRow['component_id'] ?? 0),
+                (int)($monthlyRow['uom_id'] ?? 0)
+            );
+
+            $adjustmentQty = round(
+                (float)($monthlyRow['adjustment_plus_qty'] ?? 0)
+                - (float)($monthlyRow['adjustment_minus_qty'] ?? 0)
+                - (float)($monthlyRow['waste_qty'] ?? 0)
+                - (float)($monthlyRow['spoil_qty'] ?? 0),
+                4
+            );
+
+            $monthlyMap[$key] = [
+                'total_opening' => round((float)($monthlyRow['opening_qty'] ?? 0), 4),
+                'total_in' => round((float)($monthlyRow['in_qty'] ?? 0), 4),
+                'total_out' => round((float)($monthlyRow['out_qty'] ?? 0), 4),
+                'total_adj' => $adjustmentQty,
+                'total_closing' => round((float)($monthlyRow['closing_qty'] ?? 0), 4),
+                'avg_cost' => round((float)($monthlyRow['avg_cost'] ?? 0), 6),
+                'total_value' => round((float)($monthlyRow['total_value'] ?? 0), 2),
+                'monthly_source_mode' => (string)($monthlyRow['source_mode'] ?? ''),
+            ];
+        }
+
+        foreach ($rows as &$row) {
+            $key = $this->component_identity_key(
+                (string)($row['location_type'] ?? ''),
+                $row['division_id'] ?? null,
+                (int)($row['component_id'] ?? 0),
+                (int)($row['uom_id'] ?? 0)
+            );
+            if (!isset($monthlyMap[$key])) {
+                continue;
+            }
+
+            $summary = $monthlyMap[$key];
+            $row['total_opening'] = $summary['total_opening'];
+            $row['total_in'] = $summary['total_in'];
+            $row['total_out'] = $summary['total_out'];
+            $row['total_adj'] = $summary['total_adj'];
+            $row['total_closing'] = $summary['total_closing'];
+            $row['avg_cost'] = $summary['avg_cost'];
+            $row['total_value'] = $summary['total_value'];
+            $row['monthly_source_mode'] = $summary['monthly_source_mode'];
+            $row['summary_source'] = 'MONTHLY_STOCK';
+        }
+        unset($row);
+
+        return $rows;
     }
 
     private function _component_monthly_rows_from_stock(array $filters, int $limit): ?array

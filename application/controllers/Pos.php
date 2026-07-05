@@ -1699,6 +1699,7 @@ public function self_order_tables_print()
         $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
         $this->require_permission($pageCode, 'edit');
         $payload = $this->request_payload();
+        $reconStatus = $this->Pos_model->daily_recon_gate_status('OPEN');
         $result = $this->Pos_model->open_cashier_session($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal membuka kasir POS.'), 422);
@@ -1707,7 +1708,71 @@ public function self_order_tables_print()
         $this->json_ok([
             'session' => (array)($result['session'] ?? []),
             'already_open' => !empty($result['already_open']),
+            'daily_recon_status' => $reconStatus,
         ]);
+    }
+
+    public function cashier_recon_status()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+
+        $stage = strtoupper(trim((string)$this->input->get('stage', true)));
+        $date = trim((string)$this->input->get('date', true));
+        $this->json_ok([
+            'status' => $this->Pos_model->daily_recon_gate_status($stage, $date),
+        ]);
+    }
+
+    public function daily_recon_settings()
+    {
+        $pageCode = 'pos.daily_recon_settings.index';
+        $this->require_permission($pageCode, 'view');
+
+        $mode = strtoupper(trim($this->pos_app_config_value('pos.daily_recon_gate_mode', 'OPEN_AND_CLOSE')));
+        if (!in_array($mode, ['OFF', 'OPEN_ONLY', 'CLOSE_ONLY', 'OPEN_AND_CLOSE'], true)) {
+            $mode = 'OPEN_AND_CLOSE';
+        }
+
+        $policy = strtoupper(trim($this->pos_app_config_value('pos.daily_recon_gate_policy', 'WARN_ONLY')));
+        if ($policy === '') {
+            $policy = 'WARN_ONLY';
+        }
+
+        $this->render('pos/daily_recon_settings', [
+            'page_title' => 'Pengaturan Gate Daily Recon POS',
+            'active_menu' => 'pos.daily_recon_settings',
+            'mode' => $mode,
+            'policy' => $policy,
+            'can_edit' => $this->can($pageCode, 'edit'),
+        ]);
+    }
+
+    public function daily_recon_settings_save()
+    {
+        $pageCode = 'pos.daily_recon_settings.index';
+        $this->require_permission($pageCode, 'edit');
+
+        $mode = strtoupper(trim((string)$this->input->post('daily_recon_gate_mode', true)));
+        if (!in_array($mode, ['OFF', 'OPEN_ONLY', 'CLOSE_ONLY', 'OPEN_AND_CLOSE'], true)) {
+            $this->session->set_flashdata('error', 'Mode gate daily recon tidak valid.');
+            redirect('pos/daily-recon-settings');
+            return;
+        }
+
+        $this->save_pos_app_config(
+            'pos.daily_recon_gate_mode',
+            $mode,
+            'Mode gate daily recon sebelum buka/tutup POS: OFF, OPEN_ONLY, CLOSE_ONLY, OPEN_AND_CLOSE.'
+        );
+        $this->save_pos_app_config(
+            'pos.daily_recon_gate_policy',
+            'WARN_ONLY',
+            'Kebijakan gate daily recon POS. WARN_ONLY: kasir diberi warning, proses tidak diblokir.'
+        );
+
+        $this->session->set_flashdata('success', 'Pengaturan gate daily recon POS berhasil disimpan.');
+        redirect('pos/daily-recon-settings');
     }
 
     public function cashier_close()
@@ -1715,6 +1780,7 @@ public function self_order_tables_print()
         $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
         $this->require_permission($pageCode, 'edit');
         $payload = $this->request_payload();
+        $reconStatus = $this->Pos_model->daily_recon_gate_status('CLOSE');
         $result = $this->Pos_model->close_cashier_session($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menutup kasir POS.'), 422);
@@ -1730,6 +1796,7 @@ public function self_order_tables_print()
             'shift_id' => $shiftId,
             'summary' => (array)($result['summary'] ?? []),
             'report' => (array)($result['report'] ?? []),
+            'daily_recon_status' => $reconStatus,
             'direct_print_targets' => (array)(($directPrint['ok'] ?? false) ? ($directPrint['targets'] ?? []) : []),
             'print_prepare_message' => !($directPrint['ok'] ?? false)
                 ? (string)($directPrint['message'] ?? 'Payload direct print tutup kasir gagal disiapkan.')
@@ -1750,6 +1817,7 @@ public function self_order_tables_print()
             'shift_id' => (int)($result['shift_id'] ?? 0),
             'session' => (array)($result['session'] ?? []),
             'report' => (array)($result['report'] ?? []),
+            'daily_recon_status' => $this->Pos_model->daily_recon_gate_status('CLOSE'),
         ]);
     }
 
@@ -4538,6 +4606,54 @@ public function self_order_tables_print()
             return false;
         }
         return true;
+    }
+
+    private function pos_app_config_value(string $key, string $default = ''): string
+    {
+        if ($key === '' || !$this->db->table_exists('sys_app_config')) {
+            return $default;
+        }
+
+        $row = $this->db->select('config_value')
+            ->from('sys_app_config')
+            ->where('config_key', $key)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        return $row ? (string)($row['config_value'] ?? $default) : $default;
+    }
+
+    private function save_pos_app_config(string $key, string $value, string $description = ''): void
+    {
+        if ($key === '' || !$this->db->table_exists('sys_app_config')) {
+            return;
+        }
+
+        $row = [
+            'config_group' => 'pos',
+            'config_key' => $key,
+            'config_value' => $value,
+            'description' => $description,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+        if ($this->db->field_exists('updated_by', 'sys_app_config')) {
+            $row['updated_by'] = (int)($this->current_user['id'] ?? 0) ?: null;
+        }
+
+        $existing = $this->db->select('config_key')
+            ->from('sys_app_config')
+            ->where('config_key', $key)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        if ($existing) {
+            $this->db->where('config_key', $key)->update('sys_app_config', $row);
+            return;
+        }
+
+        $this->db->insert('sys_app_config', $row);
     }
 
     private function json_ok(array $data = []): void 

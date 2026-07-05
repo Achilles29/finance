@@ -2176,6 +2176,8 @@ class Pos_model extends CI_Model
         }
 
         $now = date('Y-m-d H:i:s');
+        $previousDbDebug = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
         $this->db->trans_begin();
         try {
             $orderRow = $this->db->query('SELECT * FROM pos_order WHERE id = ? LIMIT 1 FOR UPDATE', [$orderId])->row_array();
@@ -2255,10 +2257,12 @@ class Pos_model extends CI_Model
             $nextOrderStatus = $isFullyPaid ? 'PAID' : 'PAID_PARTIAL';
 
             $paymentNo = $this->generate_pos_payment_no('FINAL', $now);
+            $sessionShiftId = !empty($session['shift_id']) ? (int)$session['shift_id'] : 0;
+            $paymentShiftId = $this->local_record_exists('pos_shift', $sessionShiftId) ? $sessionShiftId : null;
             $paymentPayload = [
                 'payment_no' => $paymentNo,
                 'order_id' => $orderId,
-                'shift_id' => !empty($session['shift_id']) ? (int)$session['shift_id'] : null,
+                'shift_id' => $paymentShiftId,
                 'cashier_session_id' => !empty($session['id']) ? (int)$session['id'] : null,
                 'cashier_employee_id' => $actorEmployeeId,
                 'member_id' => !empty($orderRow['member_id']) ? (int)$orderRow['member_id'] : null,
@@ -2280,7 +2284,7 @@ class Pos_model extends CI_Model
             $this->db->insert('pos_payment', $this->filter_table_payload('pos_payment', $paymentPayload));
             $paymentId = (int)$this->db->insert_id();
             if ($paymentId <= 0) {
-                throw new RuntimeException('Gagal membuat dokumen pembayaran POS.');
+                throw new RuntimeException($this->db_error_message('Gagal membuat dokumen pembayaran POS.'));
             }
 
             $paymentLineNo = 1;
@@ -2299,7 +2303,7 @@ class Pos_model extends CI_Model
                 $this->db->insert('pos_payment_line', $this->filter_table_payload('pos_payment_line', $paymentLinePayload));
                 $paymentLineId = (int)$this->db->insert_id();
                 if ($paymentLineId <= 0) {
-                    throw new RuntimeException('Gagal menyimpan detail pembayaran POS.');
+                    throw new RuntimeException($this->db_error_message('Gagal menyimpan detail pembayaran POS.'));
                 }
 
                 $financeResult = $this->post_company_account_mutation([
@@ -2351,9 +2355,10 @@ class Pos_model extends CI_Model
             }
 
             if ($this->db->trans_status() === false) {
-                throw new RuntimeException('Gagal menyimpan pembayaran POS.');
+                throw new RuntimeException($this->db_error_message('Gagal menyimpan pembayaran POS.'));
             }
             $this->db->trans_commit();
+            $this->db->db_debug = $previousDbDebug;
 
             return [
                 'ok' => true,
@@ -2369,6 +2374,7 @@ class Pos_model extends CI_Model
             ];
         } catch (Throwable $e) {
             $this->db->trans_rollback();
+            $this->db->db_debug = $previousDbDebug;
             return ['ok' => false, 'message' => $e->getMessage()];
         }
     }
@@ -3500,6 +3506,10 @@ class Pos_model extends CI_Model
         $this->db->where('id', $accountId)->update('fin_company_account', [
             'current_balance' => $balanceAfter,
         ]);
+        if ($this->db->affected_rows() < 0 || $this->db->trans_status() === false) {
+            return ['ok' => false, 'message' => $this->db_error_message('Gagal update saldo rekening POS.')];
+        }
+
         $this->db->insert('fin_account_mutation_log', [
             'mutation_no' => $this->generate_account_mutation_no($mutationDate),
             'mutation_date' => date('Y-m-d', strtotime($mutationDate)),
@@ -3515,9 +3525,12 @@ class Pos_model extends CI_Model
             'notes' => $this->nullable_text($payload['notes'] ?? null),
             'created_by' => !empty($payload['created_by']) ? (int)$payload['created_by'] : null,
         ]);
+        if ((int)$this->db->insert_id() <= 0) {
+            return ['ok' => false, 'message' => $this->db_error_message('Gagal menyimpan mutasi rekening POS.')];
+        }
 
         if ($this->db->trans_status() === false) {
-            return ['ok' => false, 'message' => 'Gagal menyimpan mutasi rekening POS.'];
+            return ['ok' => false, 'message' => $this->db_error_message('Gagal menyimpan mutasi rekening POS.')];
         }
 
         return [
@@ -4822,6 +4835,128 @@ class Pos_model extends CI_Model
         }
 
         return $options;
+    }
+
+    public function daily_recon_gate_status(string $stage, string $date = ''): array
+    {
+        $stage = strtoupper(trim($stage));
+        if (!in_array($stage, ['OPEN', 'CLOSE'], true)) {
+            $stage = 'OPEN';
+        }
+
+        $date = trim($date);
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            $date = date('Y-m-d');
+        }
+
+        $mode = strtoupper(trim($this->sys_app_config_value('pos.daily_recon_gate_mode', 'OFF')));
+        if (!in_array($mode, ['OFF', 'OPEN_ONLY', 'CLOSE_ONLY', 'OPEN_AND_CLOSE'], true)) {
+            $mode = 'OFF';
+        }
+
+        $enabled = $mode === 'OPEN_AND_CLOSE'
+            || ($mode === 'OPEN_ONLY' && $stage === 'OPEN')
+            || ($mode === 'CLOSE_ONLY' && $stage === 'CLOSE');
+
+        if (!$enabled) {
+            return [
+                'enabled' => false,
+                'stage' => $stage,
+                'date' => $date,
+                'complete' => true,
+                'missing' => [],
+                'message' => 'Gate daily recon POS sedang nonaktif untuk tahap ini.',
+            ];
+        }
+
+        if (!$this->db->table_exists('inv_daily_recon_checkpoint')) {
+            return [
+                'enabled' => true,
+                'stage' => $stage,
+                'date' => $date,
+                'complete' => false,
+                'missing' => [['division_name' => 'Setup', 'domain_label' => 'Tabel checkpoint']],
+                'message' => 'Tabel checkpoint daily recon belum tersedia. Jalankan SQL setup 2026-07-05a terlebih dahulu.',
+            ];
+        }
+
+        $requiredDivisions = $this->pos_stock_recon_required_divisions();
+        if (empty($requiredDivisions)) {
+            return [
+                'enabled' => true,
+                'stage' => $stage,
+                'date' => $date,
+                'complete' => true,
+                'missing' => [],
+                'message' => 'Tidak ada divisi POS yang perlu dicek.',
+            ];
+        }
+
+        $divisionIds = array_map(static fn($row) => (int)$row['id'], $requiredDivisions);
+        $rows = $this->db->select('division_id, recon_domain')
+            ->from('inv_daily_recon_checkpoint')
+            ->where('checkpoint_date', $date)
+            ->where('checkpoint_stage', $stage)
+            ->where_in('division_id', $divisionIds)
+            ->where_in('recon_domain', ['MATERIAL', 'COMPONENT'])
+            ->get()
+            ->result_array();
+
+        $done = [];
+        foreach ($rows as $row) {
+            $done[(int)$row['division_id'] . '|' . strtoupper((string)$row['recon_domain'])] = true;
+        }
+
+        $missing = [];
+        foreach ($requiredDivisions as $division) {
+            foreach (['MATERIAL' => 'Bahan baku', 'COMPONENT' => 'Component'] as $domain => $label) {
+                if (!isset($done[(int)$division['id'] . '|' . $domain])) {
+                    $missing[] = [
+                        'division_id' => (int)$division['id'],
+                        'division_code' => (string)($division['code'] ?? ''),
+                        'division_name' => (string)($division['name'] ?? ''),
+                        'domain' => $domain,
+                        'domain_label' => $label,
+                    ];
+                }
+            }
+        }
+
+        $complete = empty($missing);
+        $stageLabel = $stage === 'OPEN' ? 'buka kasir' : 'tutup kasir';
+        return [
+            'enabled' => true,
+            'stage' => $stage,
+            'date' => $date,
+            'complete' => $complete,
+            'policy' => strtoupper(trim($this->sys_app_config_value('pos.daily_recon_gate_policy', 'WARN_ONLY'))),
+            'missing' => $missing,
+            'message' => $complete
+                ? 'Daily recon bahan baku dan component sudah lengkap untuk ' . $stageLabel . '.'
+                : 'Daily recon belum lengkap untuk ' . $stageLabel . '. Mohon lakukan konfirmasi di halaman Daily Recon bahan baku dan component.',
+        ];
+    }
+
+    private function pos_stock_recon_required_divisions(): array
+    {
+        if (!$this->db->table_exists('mst_operational_division')) {
+            return [];
+        }
+
+        $codeCol = $this->db->field_exists('code', 'mst_operational_division') ? 'code' : 'id';
+        $nameCol = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : $codeCol);
+
+        $this->db->select('id, ' . $codeCol . ' AS code, ' . $nameCol . ' AS name', false)
+            ->from('mst_operational_division')
+            ->where("UPPER(TRIM({$codeCol})) IN ('BAR','KITCHEN')", null, false);
+
+        if ($this->db->field_exists('is_active', 'mst_operational_division')) {
+            $this->db->where('COALESCE(is_active, 1) = 1', null, false);
+        }
+
+        return $this->db->order_by($codeCol, 'ASC')->get()->result_array();
     }
 
     public function sales_channel_options(): array
@@ -11573,6 +11708,23 @@ class Pos_model extends CI_Model
     {
         $value = trim((string)$value);
         return $value === '' ? null : $value;
+    }
+
+    private function sys_app_config_value(string $key, string $default = ''): string
+    {
+        $key = trim($key);
+        if ($key === '' || !$this->db->table_exists('sys_app_config')) {
+            return $default;
+        }
+
+        $row = $this->db->select('config_value')
+            ->from('sys_app_config')
+            ->where('config_key', $key)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        return $row ? (string)($row['config_value'] ?? $default) : $default;
     }
 
     private function filter_table_payload(string $table, array $payload): array

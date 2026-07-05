@@ -394,3 +394,15 @@ perbaiki juga logika tampilan core /pos/self-order/orders dan verifikasinya agar
 
 - Stok Produk Live POS tambahkan kolom yang menunjukan berapa sisa produk yang dapat dibuat untuk masing masing bahan berdasarkan Stok Live dan Per saji nya
 
+
+
+
+self order belum generate poin saat verifikasi
+member di finance belum sesai
+
+
+
+modul pengaturad untuk mengaktifkan dan menontaktifkan confignya dimana?
+dan apakah sudah masuk rbac?
+
+/inventory/stock/daily-recon/division

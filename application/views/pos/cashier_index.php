@@ -1864,6 +1864,7 @@ document.addEventListener('DOMContentLoaded', function () {
     'terminal_id' => $defaultLaunchTerminalId,
     'opening_cash' => $defaultLaunchOpeningCash,
   ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE); ?> || {};
+  const cashierReconStatusUrl = '<?php echo site_url('pos/cashier/recon-status'); ?>';
   const catalogFiltersData = <?php echo json_encode([
     'divisions' => $catalogDivisions,
   ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE); ?>;
@@ -2399,7 +2400,35 @@ document.addEventListener('DOMContentLoaded', function () {
     syncCloseCashTotals();
   }
 
+  function reconWarningText(status) {
+    const missing = Array.isArray(status && status.missing) ? status.missing : [];
+    const lines = missing.slice(0, 8).map((row) => {
+      const division = row.division_code || row.division_name || '-';
+      return `- ${division}: ${row.domain_label || row.domain || '-'}`;
+    });
+    if (missing.length > 8) {
+      lines.push(`- dan ${missing.length - 8} item lain`);
+    }
+    return [
+      (status && status.message) || 'Daily recon belum lengkap.',
+      '',
+      lines.length ? 'Yang belum dikonfirmasi:' : '',
+      ...lines,
+      '',
+      'Recon tetap dilakukan di halaman Daily Recon bahan baku dan Component.',
+      'Lanjutkan proses kasir sekarang?'
+    ].filter(Boolean).join('\n');
+  }
+
+  async function confirmDailyReconGate(stage) {
+    const json = await getJson(cashierReconStatusUrl + '?stage=' + encodeURIComponent(stage));
+    const status = json.status || {};
+    if (!status.enabled || status.complete) return true;
+    return window.confirm(reconWarningText(status));
+  }
+
   async function openCloseModalPreview() {
+    if (!(await confirmDailyReconGate('CLOSE'))) return;
     if (closeShiftMeta) closeShiftMeta.textContent = 'Memuat preview shift aktif...';
     const json = await getJson('<?php echo site_url('pos/cashier/close-preview'); ?>');
     resetCloseForm();
@@ -5024,6 +5053,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   async function openCashierSession() {
     if (!launchOutlet || !launchTerminal || !launchOpeningCash) return;
+    if (!(await confirmDailyReconGate('OPEN'))) return;
     const payload = {
       outlet_id: Number(launchOutlet.value || 0),
       terminal_id: Number(launchTerminal.value || 0),
