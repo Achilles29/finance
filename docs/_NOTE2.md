@@ -413,3 +413,4 @@ dan apakah sudah masuk rbac?
 modifikasi:
 - ketika pengaturan diaktifkan, maka tutup / buka kasir belum bisa dilakukan setelah di recon sesuai pengaturan 
 - gunakan cek list untuk memilih bahan yang wajib di recon
+- tambahkan modul di pos cashier untuk menampilkan modal alret warning, jika setelah simpan order ada stok bahan baku dan component habis atau minus. dan untuk segera menindaklanjutinya. tambahkan di pengaturan untuk mengangktifkan / menonaktifkan. 
