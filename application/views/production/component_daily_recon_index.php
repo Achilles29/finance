@@ -230,6 +230,11 @@ async function confirmDailyRecon(stage) {
         return;
     }
     const label = stage === 'OPEN' ? 'buka kasir' : 'tutup kasir';
+    const pending = requiredReconPending(stage);
+    if (pending.length > 0) {
+        showRequiredReconWarning(stage, pending);
+        return;
+    }
     if (!confirm('Konfirmasi daily recon component untuk ' + label + ' pada tanggal ' + RECON_DATE + '?')) {
         return;
     }
@@ -254,6 +259,68 @@ async function confirmDailyRecon(stage) {
         showFlash('Konfirmasi daily recon gagal: ' + err.message, true);
     }
 }
+
+function requiredReconPending(stage) {
+    const pending = [];
+    Object.values(profileMap).forEach(function (row) {
+        if (!row || !row.must_row_confirm) return;
+        const ok = stage === 'OPEN' ? !!row.confirmed_open : !!row.confirmed_close;
+        if (ok) return;
+        pending.push({
+            name: row.lot_no ? ((row.component_name || 'Component') + ' / Lot ' + row.lot_no) : (row.component_name || row.recon_line_key || 'Component'),
+            reason: row.must_row_confirm_reason || 'wajib recon per baris',
+        });
+    });
+    return pending;
+}
+
+function showRequiredReconWarning(stage, pending) {
+    const label = stage === 'OPEN' ? 'buka kasir' : 'tutup kasir';
+    const list = pending.slice(0, 12).map(function (item) {
+        return '- ' + item.name + ' (' + item.reason + ')';
+    }).join('\n');
+    const more = pending.length > 12 ? '\n+ ' + (pending.length - 12) + ' item lainnya' : '';
+    showFlash('Konfirmasi semua untuk ' + label + ' belum bisa disimpan. Baris berikut wajib dicek satu per satu dulu:\n' + list + more, true);
+}
+
+window.cmpConfirmReconRow = function (iid, stage) {
+    const row = profileMap[iid];
+    if (!row) return;
+    if (DIV_ID <= 0) {
+        showFlash('Pilih satu divisi dulu sebelum konfirmasi baris recon.', true);
+        return;
+    }
+    fetch(CONFIRM_RECON_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify({
+            scope: 'ROW',
+            opname_date: RECON_DATE,
+            division_id: DIV_ID,
+            stage: stage,
+            line_key: row.recon_line_key || '',
+            line_label: row.lot_no ? ((row.component_name || 'Component') + ' / Lot ' + row.lot_no) : (row.component_name || ''),
+            component_id: row.component_id || 0,
+            uom_id: row.uom_id || 0,
+            lot_id: row.lot_id || 0,
+            required_reason: row.must_row_confirm_reason || '',
+            notes: 'Konfirmasi baris dari daily recon component'
+        }),
+    })
+    .then(parseJsonResponse)
+    .then(data => {
+        if (!data.ok) {
+            showFlash(data.message || 'Konfirmasi baris gagal.', true);
+            return;
+        }
+        if (stage === 'OPEN') row.confirmed_open = true;
+        if (stage === 'CLOSE') row.confirmed_close = true;
+        const actCell = el('acell-' + iid);
+        if (actCell) actCell.outerHTML = actionCell(row, iid);
+        showFlash(data.message || 'Baris recon berhasil dikonfirmasi.', false);
+    })
+    .catch(err => showFlash('Konfirmasi baris gagal: ' + err.message, true));
+};
 async function parseJsonResponse(response) {
     const raw = await response.text();
     try {
@@ -264,6 +331,8 @@ async function parseJsonResponse(response) {
 }
 
 const profileMap = {};
+let currentGroups = [];
+let reconConfirmMode = 'BULK_ALLOWED';
 
 function selisihHtml(sel, iid) {
     if (sel === null || sel === undefined) return `<span id="sel-${iid}" class="text-muted small">—</span>`;
@@ -334,17 +403,36 @@ function adjColHtml(row, iid) {
 }
 
 function actionCell(row, iid) {
-    if (!CAN_CREATE || row.adjustment_id) return `<td id="acell-${iid}"></td>`;
+    if (!CAN_CREATE) return `<td id="acell-${iid}"></td>`;
+    const reconHtml = reconRowButtons(row, iid);
+    if (row.adjustment_id) return `<td id="acell-${iid}">${reconHtml}</td>`;
     const sel = row.selisih;
     if (sel !== null && Math.abs(Number(sel)) >= 0.001) {
         return `<td id="acell-${iid}">
+            <div class="d-flex flex-column gap-1">
             <button class="btn btn-sm btn-danger w-100" id="adjbtn-${iid}"
                     onclick="cmpPostAdj('${iid}')">
                 <i class="ri ri-upload-2-line me-1"></i>Posting
             </button>
+            ${reconHtml}
+            </div>
         </td>`;
     }
-    return `<td id="acell-${iid}"></td>`;
+    return `<td id="acell-${iid}">${reconHtml}</td>`;
+}
+
+function reconRowButtons(row, iid) {
+    if (!row || !row.must_row_confirm) return '';
+    const reason = row.must_row_confirm_reason
+        ? `<div class="text-muted" style="font-size:.62rem;line-height:1.1">${esc(row.must_row_confirm_reason)}</div>`
+        : '';
+    const openBtn = row.confirmed_open
+        ? `<span class="badge bg-success-subtle text-success border border-success-subtle">Buka OK</span>`
+        : `<button type="button" class="btn btn-sm btn-outline-warning py-0" onclick="event.stopPropagation();cmpConfirmReconRow('${iid}','OPEN')">Buka</button>`;
+    const closeBtn = row.confirmed_close
+        ? `<span class="badge bg-success-subtle text-success border border-success-subtle">Tutup OK</span>`
+        : `<button type="button" class="btn btn-sm btn-outline-success py-0" onclick="event.stopPropagation();cmpConfirmReconRow('${iid}','CLOSE')">Tutup</button>`;
+    return `<div class="cmp-row-confirm d-flex flex-column gap-1">${reason}<div class="d-flex gap-1 justify-content-center">${openBtn}${closeBtn}</div></div>`;
 }
 
 // ── Expand / collapse lots ────────────────────────────────────
@@ -369,6 +457,7 @@ function renderTable(groups) {
 
     let html = '';
     let total = 0, base = 0, prep = 0, counted = 0, minus = 0;
+    Object.keys(profileMap).forEach(function (key) { delete profileMap[key]; });
 
     groups.forEach(function (grp) {
         grp.rows.forEach(function (row) {
@@ -402,12 +491,14 @@ function renderTable(groups) {
                     ${buildValueCell(`sysval-${iid}`, row.system_qty, rowAvgCost)}
                     <td class="text-end cmp-value-cell text-muted">${parentPhysicalQty === null ? '-' : fmt4(parentPhysicalQty)}</td>
                     <td class="text-end text-muted small">Lot detail</td>
-                    <td class="text-center">
+                    <td class="cmp-adj-col"></td>
+                    <td id="acell-${iid}" class="text-center">
                         <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
                                 id="expand-${iid}" data-expanded="true" data-lot-count="${row.lot_count}"
                                 onclick="cmpToggleLots('${iid}')">
                             <i class="ri ri-arrow-down-s-line"></i> ${row.lot_count} lot
                         </button>
+                        ${reconRowButtons(row, iid)}
                     </td>
                 </tr>`;
 
@@ -430,6 +521,11 @@ function renderTable(groups) {
                         physical_qty: lot.physical_qty,
                         selisih: lot.selisih,
                         adjustment_id: lot.adjustment_id,
+                        recon_line_key: lot.recon_line_key,
+                        must_row_confirm: lot.must_row_confirm,
+                        must_row_confirm_reason: lot.must_row_confirm_reason,
+                        confirmed_open: lot.confirmed_open,
+                        confirmed_close: lot.confirmed_close,
                     };
 
                     if (lot.physical_qty !== null) counted++;
@@ -735,7 +831,9 @@ function loadData() {
                 if (tbody) tbody.innerHTML = `<tr><td colspan="12" class="text-center text-danger py-4">Gagal memuat data.</td></tr>`;
                 return;
             }
-            renderTable(data.rows || []);
+            currentGroups = data.rows || [];
+            reconConfirmMode = (data.meta && data.meta.confirm_mode) || 'BULK_ALLOWED';
+            renderTable(currentGroups);
             if (showOnlyMinus) applyMinusFilter();
         })
         .catch(err => {

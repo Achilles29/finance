@@ -406,3 +406,10 @@ modul pengaturad untuk mengaktifkan dan menontaktifkan confignya dimana?
 dan apakah sudah masuk rbac?
 
 /inventory/stock/daily-recon/division
+
+
+
+
+modifikasi:
+- ketika pengaturan diaktifkan, maka tutup / buka kasir belum bisa dilakukan setelah di recon sesuai pengaturan 
+- gunakan cek list untuk memilih bahan yang wajib di recon

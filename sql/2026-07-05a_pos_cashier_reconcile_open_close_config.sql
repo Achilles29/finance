@@ -34,6 +34,35 @@ CREATE TABLE IF NOT EXISTS inv_daily_recon_checkpoint (
   KEY idx_inv_daily_recon_checkpoint_user (confirmed_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS inv_daily_recon_checkpoint_line (
+  id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  checkpoint_date DATE NOT NULL,
+  recon_domain ENUM('MATERIAL','COMPONENT') NOT NULL,
+  division_id BIGINT(20) UNSIGNED NOT NULL,
+  checkpoint_stage ENUM('OPEN','CLOSE') NOT NULL,
+  line_key VARCHAR(191) NOT NULL,
+  line_label VARCHAR(180) NOT NULL DEFAULT '',
+  item_id BIGINT(20) UNSIGNED NULL,
+  material_id BIGINT(20) UNSIGNED NULL,
+  profile_key VARCHAR(80) NULL,
+  component_id BIGINT(20) UNSIGNED NULL,
+  uom_id BIGINT(20) UNSIGNED NULL,
+  lot_id BIGINT(20) UNSIGNED NULL,
+  required_reason VARCHAR(120) NULL,
+  source_page VARCHAR(120) NOT NULL DEFAULT '',
+  notes VARCHAR(255) NULL,
+  confirmed_by BIGINT(20) UNSIGNED NULL,
+  confirmed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_inv_daily_recon_checkpoint_line (checkpoint_date, recon_domain, division_id, checkpoint_stage, line_key),
+  KEY idx_inv_daily_recon_checkpoint_line_scope (checkpoint_date, recon_domain, division_id, checkpoint_stage),
+  KEY idx_inv_daily_recon_checkpoint_line_material (material_id),
+  KEY idx_inv_daily_recon_checkpoint_line_component (component_id),
+  KEY idx_inv_daily_recon_checkpoint_line_user (confirmed_by)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT INTO sys_app_config (config_group, config_key, config_value, description, updated_at)
 VALUES
   (
@@ -48,6 +77,27 @@ VALUES
     'pos.daily_recon_gate_policy',
     'WARN_ONLY',
     'Kebijakan gate daily recon POS. Saat ini WARN_ONLY: kasir diberi warning, proses tidak diblokir.',
+    CURRENT_TIMESTAMP
+  ),
+  (
+    'pos',
+    'pos.daily_recon_confirm_mode',
+    'BULK_ALLOWED',
+    'Mode konfirmasi daily recon: BULK_ALLOWED atau ROW_REQUIRED.',
+    CURRENT_TIMESTAMP
+  ),
+  (
+    'pos',
+    'pos.daily_recon_required_materials',
+    '',
+    'Daftar bahan baku yang wajib recon per baris. Isi material_id, material_code, atau nama; pisahkan baris/koma.',
+    CURRENT_TIMESTAMP
+  ),
+  (
+    'pos',
+    'pos.daily_recon_required_components',
+    '',
+    'Daftar component yang wajib recon per baris. Isi component_id, component_code, atau nama; pisahkan baris/koma.',
     CURRENT_TIMESTAMP
   )
 ON DUPLICATE KEY UPDATE
@@ -117,7 +167,13 @@ COMMIT;
 
 SELECT config_key, config_value
 FROM sys_app_config
-WHERE config_key IN ('pos.daily_recon_gate_mode', 'pos.daily_recon_gate_policy')
+WHERE config_key IN (
+  'pos.daily_recon_gate_mode',
+  'pos.daily_recon_gate_policy',
+  'pos.daily_recon_confirm_mode',
+  'pos.daily_recon_required_materials',
+  'pos.daily_recon_required_components'
+)
 ORDER BY config_key;
 
 SELECT 'sys_page.pos.daily_recon_settings.index' AS seed_key, COUNT(*) AS total_rows

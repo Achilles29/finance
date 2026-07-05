@@ -1738,12 +1738,19 @@ public function self_order_tables_print()
         if ($policy === '') {
             $policy = 'WARN_ONLY';
         }
+        $confirmMode = strtoupper(trim($this->pos_app_config_value('pos.daily_recon_confirm_mode', 'BULK_ALLOWED')));
+        if (!in_array($confirmMode, ['BULK_ALLOWED', 'ROW_REQUIRED'], true)) {
+            $confirmMode = 'BULK_ALLOWED';
+        }
 
         $this->render('pos/daily_recon_settings', [
             'page_title' => 'Pengaturan Gate Daily Recon POS',
             'active_menu' => 'pos.daily_recon_settings',
             'mode' => $mode,
             'policy' => $policy,
+            'confirm_mode' => $confirmMode,
+            'required_materials' => $this->pos_app_config_value('pos.daily_recon_required_materials', ''),
+            'required_components' => $this->pos_app_config_value('pos.daily_recon_required_components', ''),
             'can_edit' => $this->can($pageCode, 'edit'),
         ]);
     }
@@ -1759,6 +1766,14 @@ public function self_order_tables_print()
             redirect('pos/daily-recon-settings');
             return;
         }
+        $confirmMode = strtoupper(trim((string)$this->input->post('daily_recon_confirm_mode', true)));
+        if (!in_array($confirmMode, ['BULK_ALLOWED', 'ROW_REQUIRED'], true)) {
+            $this->session->set_flashdata('error', 'Mode konfirmasi daily recon tidak valid.');
+            redirect('pos/daily-recon-settings');
+            return;
+        }
+        $requiredMaterials = trim((string)$this->input->post('daily_recon_required_materials', true));
+        $requiredComponents = trim((string)$this->input->post('daily_recon_required_components', true));
 
         $this->save_pos_app_config(
             'pos.daily_recon_gate_mode',
@@ -1769,6 +1784,21 @@ public function self_order_tables_print()
             'pos.daily_recon_gate_policy',
             'WARN_ONLY',
             'Kebijakan gate daily recon POS. WARN_ONLY: kasir diberi warning, proses tidak diblokir.'
+        );
+        $this->save_pos_app_config(
+            'pos.daily_recon_confirm_mode',
+            $confirmMode,
+            'Mode konfirmasi daily recon: BULK_ALLOWED atau ROW_REQUIRED.'
+        );
+        $this->save_pos_app_config(
+            'pos.daily_recon_required_materials',
+            $requiredMaterials,
+            'Daftar bahan baku yang wajib recon per baris. Isi material_id, material_code, atau nama; pisahkan baris/koma.'
+        );
+        $this->save_pos_app_config(
+            'pos.daily_recon_required_components',
+            $requiredComponents,
+            'Daftar component yang wajib recon per baris. Isi component_id, component_code, atau nama; pisahkan baris/koma.'
         );
 
         $this->session->set_flashdata('success', 'Pengaturan gate daily recon POS berhasil disimpan.');

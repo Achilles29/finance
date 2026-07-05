@@ -2096,6 +2096,26 @@ class Production extends MY_Controller
         ";
 
         $stockRows = ($r = $this->db->query($sql)) ? $r->result_array() : [];
+        $confirmMode = $this->daily_recon_confirm_mode();
+        $requiredComponentTokens = $this->daily_recon_required_tokens('pos.daily_recon_required_components');
+        $componentLineKeys = [];
+        foreach ($stockRows as &$stockRow) {
+            $stockRow['recon_line_key'] = $this->component_recon_line_key($stockRow);
+            $componentLineKeys[(string)$stockRow['recon_line_key']] = (string)$stockRow['recon_line_key'];
+        }
+        unset($stockRow);
+
+        $confirmedComponentLines = [];
+        if ($divisionId > 0 && $this->db->table_exists('inv_daily_recon_checkpoint_line')) {
+            foreach ($this->db->select('line_key, checkpoint_stage')
+                ->from('inv_daily_recon_checkpoint_line')
+                ->where('checkpoint_date', $opnameDate)
+                ->where('recon_domain', 'COMPONENT')
+                ->where('division_id', $divisionId)
+                ->get()->result_array() as $lineRow) {
+                $confirmedComponentLines[(string)$lineRow['line_key'] . '|' . strtoupper((string)$lineRow['checkpoint_stage'])] = true;
+            }
+        }
 
         // ── Load lot data for multi-lot expand/collapse ───────────────────────
         // Key: "compId|uomId|divId" — location_type sengaja diabaikan agar
@@ -2184,6 +2204,33 @@ class Production extends MY_Controller
                         'selisih'           => $lotSel,
                         'adjustment_id'     => ($lotOpname && !empty($lotOpname['adjustment_id'])) ? (int)$lotOpname['adjustment_id'] : null,
                     ];
+                    $lotReasons = [];
+                    if ($confirmMode === 'ROW_REQUIRED') {
+                        $lotReasons[] = 'mode wajib satu per satu';
+                    }
+                    if ($lotCount > 1) {
+                        $lotReasons[] = $lotCount . ' lot aktif';
+                    }
+                    if ($this->daily_recon_token_matches($requiredComponentTokens, [
+                        (string)($r['component_id'] ?? ''),
+                        (string)($r['component_code'] ?? ''),
+                        (string)($r['component_name'] ?? ''),
+                    ])) {
+                        $lotReasons[] = 'daftar wajib recon';
+                    }
+                    $lotLineKey = $this->component_recon_line_key([
+                        'division_id' => $divId,
+                        'location_type' => $locType,
+                        'component_id' => (int)$r['component_id'],
+                        'uom_id' => (int)$r['uom_id'],
+                        'lot_id' => $lotId,
+                    ]);
+                    $lastIdx = count($lotSubRows) - 1;
+                    $lotSubRows[$lastIdx]['recon_line_key'] = $lotLineKey;
+                    $lotSubRows[$lastIdx]['must_row_confirm'] = !empty($lotReasons);
+                    $lotSubRows[$lastIdx]['must_row_confirm_reason'] = implode(', ', array_unique($lotReasons));
+                    $lotSubRows[$lastIdx]['confirmed_open'] = isset($confirmedComponentLines[$lotLineKey . '|OPEN']);
+                    $lotSubRows[$lastIdx]['confirmed_close'] = isset($confirmedComponentLines[$lotLineKey . '|CLOSE']);
                 }
             }
 
@@ -2210,6 +2257,26 @@ class Production extends MY_Controller
                 'lot_count'      => $lotCount,
                 'lots'           => $lotSubRows,
             ];
+            $mustReasons = [];
+            if ($confirmMode === 'ROW_REQUIRED') {
+                $mustReasons[] = 'mode wajib satu per satu';
+            }
+            if ($lotCount > 1) {
+                $mustReasons[] = $lotCount . ' lot aktif';
+            }
+            if ($this->daily_recon_token_matches($requiredComponentTokens, [
+                (string)($row['component_id'] ?? ''),
+                (string)($row['component_code'] ?? ''),
+                (string)($row['component_name'] ?? ''),
+            ])) {
+                $mustReasons[] = 'daftar wajib recon';
+            }
+            $lineKey = $this->component_recon_line_key($row);
+            $row['recon_line_key'] = $lineKey;
+            $row['must_row_confirm'] = !empty($mustReasons);
+            $row['must_row_confirm_reason'] = implode(', ', array_unique($mustReasons));
+            $row['confirmed_open'] = isset($confirmedComponentLines[$lineKey . '|OPEN']);
+            $row['confirmed_close'] = isset($confirmedComponentLines[$lineKey . '|CLOSE']);
 
             $gkey = $divId . '|' . $locType;
             if (!isset($groups[$gkey])) {
@@ -2229,6 +2296,7 @@ class Production extends MY_Controller
                 'opname_date'      => $opnameDate,
                 'total_components' => count($stockRows),
                 'total_groups'     => count($groups),
+                'confirm_mode'     => $confirmMode,
             ],
         ]);
     }
@@ -2474,6 +2542,7 @@ class Production extends MY_Controller
             $divisionId = $scopeDivisionId;
         }
         $stage = strtoupper(trim((string)($payload['stage'] ?? '')));
+        $scope = strtoupper(trim((string)($payload['scope'] ?? 'ALL')));
         $notes = trim((string)($payload['notes'] ?? ''));
         $userId = (int)($this->current_user['employee_id'] ?? ($this->current_user['id'] ?? 0));
 
@@ -2487,6 +2556,36 @@ class Production extends MY_Controller
         }
         if (!$this->db->table_exists('inv_daily_recon_checkpoint')) {
             $this->json_error('Tabel checkpoint daily recon belum tersedia. Jalankan SQL setup 2026-07-05a dulu.', 500);
+            return;
+        }
+
+        if ($scope === 'ROW') {
+            if (!$this->db->table_exists('inv_daily_recon_checkpoint_line')) {
+                $this->json_error('Tabel detail checkpoint daily recon belum tersedia. Jalankan SQL setup 2026-07-05a dulu.', 500);
+                return;
+            }
+            $lineKey = trim((string)($payload['line_key'] ?? ''));
+            if ($lineKey === '') {
+                $this->json_error('line_key wajib diisi untuk konfirmasi per baris.', 422);
+                return;
+            }
+            $this->upsert_daily_recon_checkpoint_line($date, 'COMPONENT', $divisionId, $stage, [
+                'line_key' => $lineKey,
+                'line_label' => trim((string)($payload['line_label'] ?? '')),
+                'component_id' => !empty($payload['component_id']) ? (int)$payload['component_id'] : null,
+                'uom_id' => !empty($payload['uom_id']) ? (int)$payload['uom_id'] : null,
+                'lot_id' => !empty($payload['lot_id']) ? (int)$payload['lot_id'] : null,
+                'required_reason' => trim((string)($payload['required_reason'] ?? '')),
+                'source_page' => 'production/component-daily-recon',
+                'notes' => $notes,
+                'confirmed_by' => $userId,
+            ]);
+            $this->json_ok([
+                'opname_date' => $date,
+                'division_id' => $divisionId,
+                'stage' => $stage,
+                'line_key' => $lineKey,
+            ], 'Baris component berhasil dikonfirmasi.');
             return;
         }
 
@@ -2529,6 +2628,111 @@ class Production extends MY_Controller
 
         $row['created_at'] = date('Y-m-d H:i:s');
         $this->db->insert('inv_daily_recon_checkpoint', $row);
+    }
+
+    private function upsert_daily_recon_checkpoint_line(string $date, string $domain, int $divisionId, string $stage, array $line): void
+    {
+        $lineKey = trim((string)($line['line_key'] ?? ''));
+        if ($lineKey === '') {
+            return;
+        }
+
+        $existing = $this->db->select('id')
+            ->from('inv_daily_recon_checkpoint_line')
+            ->where('checkpoint_date', $date)
+            ->where('recon_domain', $domain)
+            ->where('division_id', $divisionId)
+            ->where('checkpoint_stage', $stage)
+            ->where('line_key', $lineKey)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $row = [
+            'checkpoint_date' => $date,
+            'recon_domain' => $domain,
+            'division_id' => $divisionId,
+            'checkpoint_stage' => $stage,
+            'line_key' => $lineKey,
+            'line_label' => trim((string)($line['line_label'] ?? '')),
+            'component_id' => $line['component_id'] ?? null,
+            'uom_id' => $line['uom_id'] ?? null,
+            'lot_id' => $line['lot_id'] ?? null,
+            'required_reason' => trim((string)($line['required_reason'] ?? '')) ?: null,
+            'source_page' => trim((string)($line['source_page'] ?? '')),
+            'notes' => trim((string)($line['notes'] ?? '')) ?: null,
+            'confirmed_by' => !empty($line['confirmed_by']) ? (int)$line['confirmed_by'] : null,
+            'confirmed_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+
+        if (!empty($existing['id'])) {
+            $this->db->where('id', (int)$existing['id'])->update('inv_daily_recon_checkpoint_line', $row);
+            return;
+        }
+
+        $row['created_at'] = date('Y-m-d H:i:s');
+        $this->db->insert('inv_daily_recon_checkpoint_line', $row);
+    }
+
+    private function component_recon_line_key(array $row): string
+    {
+        return implode('|', [
+            'C',
+            (int)($row['division_id'] ?? 0),
+            strtoupper((string)($row['location_type'] ?? 'REGULER')),
+            (int)($row['component_id'] ?? 0),
+            (int)($row['uom_id'] ?? 0),
+            (int)($row['lot_id'] ?? 0),
+        ]);
+    }
+
+    private function daily_recon_confirm_mode(): string
+    {
+        $mode = strtoupper(trim($this->daily_recon_config_value('pos.daily_recon_confirm_mode', 'BULK_ALLOWED')));
+        return in_array($mode, ['BULK_ALLOWED', 'ROW_REQUIRED'], true) ? $mode : 'BULK_ALLOWED';
+    }
+
+    private function daily_recon_config_value(string $key, string $default = ''): string
+    {
+        if ($key === '' || !$this->db->table_exists('sys_app_config')) {
+            return $default;
+        }
+        $row = $this->db->select('config_value')
+            ->from('sys_app_config')
+            ->where('config_key', $key)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        return $row ? (string)($row['config_value'] ?? $default) : $default;
+    }
+
+    private function daily_recon_required_tokens(string $configKey): array
+    {
+        $raw = $this->daily_recon_config_value($configKey, '');
+        $parts = preg_split('/[\r\n,;]+/', $raw) ?: [];
+        $tokens = [];
+        foreach ($parts as $part) {
+            $token = strtoupper(trim((string)$part));
+            if ($token !== '') {
+                $tokens[$token] = true;
+            }
+        }
+        return $tokens;
+    }
+
+    private function daily_recon_token_matches(array $tokens, array $candidates): bool
+    {
+        if (empty($tokens)) {
+            return false;
+        }
+        foreach ($candidates as $candidate) {
+            $value = strtoupper(trim((string)$candidate));
+            if ($value !== '' && isset($tokens[$value])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function stock_filters()

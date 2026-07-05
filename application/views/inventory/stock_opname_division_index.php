@@ -468,6 +468,7 @@ let currentData   = [];
 let saveTimers    = {};
 let divFilterId   = null;
 let showOnlyMinus = false;
+let reconConfirmMode = 'BULK_ALLOWED';
 const profileMap  = {};
 const materialGroupMap = {};
 
@@ -664,22 +665,119 @@ function adjColHtml(p, iid) {
 
 function actionCell(p, iid) {
     if (!CAN_CREATE) return '<td class="action-cell"></td>';
-    if (p.adjustment_id) return '<td class="action-cell"></td>';
+    var reconHtml = reconRowButtons(p, iid);
+    if (p.adjustment_id) return '<td class="action-cell">' + reconHtml + '</td>';
     const sel = p.selisih;
     if (sel !== null && Math.abs(Number(sel)) >= 0.001) {
-        return '<td class="action-cell"><button class="btn btn-sm btn-danger w-100" id="adjbtn-' + iid + '" onclick="opnPostAdj(\'' + iid + '\')">'
-            + '<i class="ri ri-upload-2-line me-1"></i>Posting</button></td>';
+        return '<td class="action-cell"><div class="d-flex flex-column gap-1">'
+            + '<button class="btn btn-sm btn-danger w-100" id="adjbtn-' + iid + '" onclick="opnPostAdj(\'' + iid + '\')">'
+            + '<i class="ri ri-upload-2-line me-1"></i>Posting</button>'
+            + reconHtml
+            + '</div></td>';
     }
     if (sel !== null) {
-        return '<td class="action-cell text-center"><span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">'
-            + '<i class="ri ri-check-line me-1"></i>Match</span></td>';
+        return '<td class="action-cell text-center"><div class="d-flex flex-column gap-1 align-items-stretch">'
+            + '<span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">'
+            + '<i class="ri ri-check-line me-1"></i>Match</span>'
+            + reconHtml
+            + '</div></td>';
     }
-    return '<td class="action-cell"></td>';
+    return '<td class="action-cell">' + reconHtml + '</td>';
 }
+
+function reconRowButtons(p, iid) {
+    if (!p || !p.must_row_confirm) return '';
+    var reason = p.must_row_confirm_reason ? '<div class="text-muted" style="font-size:.62rem;line-height:1.1">' + esc(p.must_row_confirm_reason) + '</div>' : '';
+    var openBtn = p.confirmed_open
+        ? '<span class="badge bg-success-subtle text-success border border-success-subtle">Buka OK</span>'
+        : '<button type="button" class="btn btn-sm btn-outline-warning py-0" onclick="event.stopPropagation();opnConfirmReconRow(\'' + iid + '\',\'OPEN\')">Buka</button>';
+    var closeBtn = p.confirmed_close
+        ? '<span class="badge bg-success-subtle text-success border border-success-subtle">Tutup OK</span>'
+        : '<button type="button" class="btn btn-sm btn-outline-success py-0" onclick="event.stopPropagation();opnConfirmReconRow(\'' + iid + '\',\'CLOSE\')">Tutup</button>';
+    return '<div class="opn-row-confirm d-flex flex-column gap-1">' + reason
+        + '<div class="d-flex gap-1 justify-content-center">' + openBtn + closeBtn + '</div></div>';
+}
+
+function requiredReconPending(stage) {
+    var pending = [];
+    currentData.forEach(function (div) {
+        (div.materials || []).forEach(function (mat) {
+            (mat.profiles || []).forEach(function (p) {
+                if (!p.must_row_confirm) return;
+                var ok = stage === 'OPEN' ? !!p.confirmed_open : !!p.confirmed_close;
+                if (ok) return;
+                pending.push({
+                    name: p.material_name || p.item_name || p.profile_name || p.recon_line_key || 'Bahan baku',
+                    reason: p.must_row_confirm_reason || 'wajib recon per baris'
+                });
+            });
+        });
+    });
+    return pending;
+}
+
+function showRequiredReconWarning(stage, pending) {
+    var label = stage === 'OPEN' ? 'buka kasir' : 'tutup kasir';
+    var rows = pending.slice(0, 12).map(function (item) {
+        return '<li><strong>' + esc(item.name) + '</strong> <span class="text-muted">(' + esc(item.reason) + ')</span></li>';
+    }).join('');
+    var more = pending.length > 12 ? '<li>+' + (pending.length - 12) + ' item lainnya</li>' : '';
+    showAlert('warning',
+        'Konfirmasi semua untuk ' + label + ' belum bisa disimpan. Baris berikut wajib dicek satu per satu dulu:<ul class="mb-0 mt-2">'
+        + rows + more + '</ul>'
+    );
+}
+
+window.opnConfirmReconRow = function (iid, stage) {
+    var p = profileMap[iid];
+    var form = el('opnForm');
+    if (!p || !form) return;
+    var date = form.querySelector('[name=opname_date]')?.value || '';
+    var divisionId = Number(form.querySelector('[name=division_id]')?.value || p.division_id || 0);
+    if (divisionId <= 0) {
+        showAlert('warning', 'Pilih satu divisi dulu sebelum konfirmasi baris recon.');
+        return;
+    }
+    fetch(CONFIRM_RECON_URL, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+            scope: 'ROW',
+            opname_date: date,
+            division_id: divisionId,
+            stage: stage,
+            line_key: p.recon_line_key || '',
+            line_label: p.material_name || p.item_name || p.profile_name || '',
+            item_id: p.item_id || 0,
+            material_id: p.material_id || 0,
+            profile_key: p.profile_key || '',
+            required_reason: p.must_row_confirm_reason || '',
+            notes: 'Konfirmasi baris dari daily recon bahan baku'
+        })
+    })
+    .then(function (r) { return r.json().then(function (j) { return { status: r.status, json: j }; }); })
+    .then(function (res) {
+        if (res.status >= 400 || !res.json.ok) {
+            showAlert('danger', res.json.message || 'Konfirmasi baris gagal.');
+            return;
+        }
+        if (stage === 'OPEN') p.confirmed_open = true;
+        if (stage === 'CLOSE') p.confirmed_close = true;
+        var row = el('row-' + iid);
+        if (row) {
+            var tdAction = row.querySelector('td.action-cell');
+            if (tdAction) tdAction.outerHTML = actionCell(p, iid);
+        }
+        showAlert('success', res.json.message || 'Baris recon berhasil dikonfirmasi.');
+    })
+    .catch(function (e) { showAlert('danger', 'Konfirmasi baris gagal: ' + e.message); });
+};
 
 /* ── Render table ─────────────────────────────────────────── */
 function renderTable(divisions) {
     const tbody = el('opnTbody');
+    Object.keys(profileMap).forEach(function (key) { delete profileMap[key]; });
     Object.keys(materialGroupMap).forEach(function (key) { delete materialGroupMap[key]; });
     if (!divisions.length) {
         el('opnTableWrap').style.display   = 'none';
@@ -928,6 +1026,11 @@ function confirmDailyRecon(stage) {
         return;
     }
     var label = stage === 'OPEN' ? 'buka kasir' : 'tutup kasir';
+    var pending = requiredReconPending(stage);
+    if (pending.length > 0) {
+        showRequiredReconWarning(stage, pending);
+        return;
+    }
     if (!confirm('Konfirmasi daily recon bahan baku untuk ' + label + ' pada tanggal ' + date + '?')) {
         return;
     }
@@ -1270,6 +1373,7 @@ function loadData(showSpinner) {
         el('opnLoading').classList.add('d-none');
         if (!data.ok) { showAlert('danger', data.message || 'Gagal memuat data.'); return; }
         currentData = data.rows || [];
+        reconConfirmMode = (data.meta && data.meta.confirm_mode) || 'BULK_ALLOWED';
         renderTable(currentData);
         updateSummary();
     })

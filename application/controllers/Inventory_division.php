@@ -193,6 +193,7 @@ class Inventory_division extends Purchase
         ";
 
         $stockRows = ($r = $this->db->query($sql)) ? $r->result_array() : [];
+        $this->attach_material_daily_recon_flags($stockRows, $opnameDate, $divisionId);
 
         // ── Append recipe-only materials (active in recipes but no stock record) ──
         $includeRecipeOnlyRows = false;
@@ -343,6 +344,12 @@ class Inventory_division extends Purchase
                 'opname_notes'        => '',
                 'adjustment_id'       => ($opname && !empty($opname['adjustment_id']))
                     ? (int)$opname['adjustment_id'] : null,
+                'lot_count'            => (int)($r['lot_count'] ?? 0),
+                'recon_line_key'       => (string)($r['recon_line_key'] ?? ''),
+                'must_row_confirm'     => !empty($r['must_row_confirm']),
+                'must_row_confirm_reason' => (string)($r['must_row_confirm_reason'] ?? ''),
+                'confirmed_open'       => !empty($r['confirmed_open']),
+                'confirmed_close'      => !empty($r['confirmed_close']),
             ];
 
             if (!isset($divisionGroups[$divId])) {
@@ -392,6 +399,7 @@ class Inventory_division extends Purchase
                     'total_divisions'  => count($result),
                     'total_materials'  => $totalMaterials,
                     'total_profiles'   => $totalProfiles,
+                    'confirm_mode'     => $this->daily_recon_confirm_mode(),
                 ],
             ]));
     }
@@ -611,6 +619,7 @@ class Inventory_division extends Purchase
             $divisionId = $scopeDivisionId;
         }
         $stage = strtoupper(trim((string)($payload['stage'] ?? '')));
+        $scope = strtoupper(trim((string)($payload['scope'] ?? 'ALL')));
         $notes = trim((string)($payload['notes'] ?? ''));
         $userId = (int)($this->current_user['employee_id'] ?? ($this->current_user['id'] ?? 0));
 
@@ -624,6 +633,36 @@ class Inventory_division extends Purchase
         }
         if (!$this->db->table_exists('inv_daily_recon_checkpoint')) {
             $this->jsonError('Tabel checkpoint daily recon belum tersedia. Jalankan SQL setup 2026-07-05a dulu.', 500);
+            return;
+        }
+
+        if ($scope === 'ROW') {
+            if (!$this->db->table_exists('inv_daily_recon_checkpoint_line')) {
+                $this->jsonError('Tabel detail checkpoint daily recon belum tersedia. Jalankan SQL setup 2026-07-05a dulu.', 500);
+                return;
+            }
+            $lineKey = trim((string)($payload['line_key'] ?? ''));
+            if ($lineKey === '') {
+                $this->jsonError('line_key wajib diisi untuk konfirmasi per baris.', 422);
+                return;
+            }
+            $this->upsert_daily_recon_checkpoint_line($date, 'MATERIAL', $divisionId, $stage, [
+                'line_key' => $lineKey,
+                'line_label' => trim((string)($payload['line_label'] ?? '')),
+                'item_id' => !empty($payload['item_id']) ? (int)$payload['item_id'] : null,
+                'material_id' => !empty($payload['material_id']) ? (int)$payload['material_id'] : null,
+                'profile_key' => trim((string)($payload['profile_key'] ?? '')),
+                'required_reason' => trim((string)($payload['required_reason'] ?? '')),
+                'source_page' => 'inventory/stock/daily-recon/division',
+                'notes' => $notes,
+                'confirmed_by' => $userId,
+            ]);
+            $this->jsonOk([
+                'opname_date' => $date,
+                'division_id' => $divisionId,
+                'stage' => $stage,
+                'line_key' => $lineKey,
+            ], 'Baris bahan baku berhasil dikonfirmasi.');
             return;
         }
 
@@ -666,6 +705,215 @@ class Inventory_division extends Purchase
 
         $row['created_at'] = date('Y-m-d H:i:s');
         $this->db->insert('inv_daily_recon_checkpoint', $row);
+    }
+
+    private function upsert_daily_recon_checkpoint_line(string $date, string $domain, int $divisionId, string $stage, array $line): void
+    {
+        $lineKey = trim((string)($line['line_key'] ?? ''));
+        if ($lineKey === '') {
+            return;
+        }
+
+        $existing = $this->db->select('id')
+            ->from('inv_daily_recon_checkpoint_line')
+            ->where('checkpoint_date', $date)
+            ->where('recon_domain', $domain)
+            ->where('division_id', $divisionId)
+            ->where('checkpoint_stage', $stage)
+            ->where('line_key', $lineKey)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $row = [
+            'checkpoint_date' => $date,
+            'recon_domain' => $domain,
+            'division_id' => $divisionId,
+            'checkpoint_stage' => $stage,
+            'line_key' => $lineKey,
+            'line_label' => trim((string)($line['line_label'] ?? '')),
+            'item_id' => $line['item_id'] ?? null,
+            'material_id' => $line['material_id'] ?? null,
+            'profile_key' => trim((string)($line['profile_key'] ?? '')) ?: null,
+            'required_reason' => trim((string)($line['required_reason'] ?? '')) ?: null,
+            'source_page' => trim((string)($line['source_page'] ?? '')),
+            'notes' => trim((string)($line['notes'] ?? '')) ?: null,
+            'confirmed_by' => !empty($line['confirmed_by']) ? (int)$line['confirmed_by'] : null,
+            'confirmed_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+
+        if (!empty($existing['id'])) {
+            $this->db->where('id', (int)$existing['id'])->update('inv_daily_recon_checkpoint_line', $row);
+            return;
+        }
+
+        $row['created_at'] = date('Y-m-d H:i:s');
+        $this->db->insert('inv_daily_recon_checkpoint_line', $row);
+    }
+
+    private function attach_material_daily_recon_flags(array &$rows, string $date, int $divisionId): void
+    {
+        if (empty($rows)) {
+            return;
+        }
+
+        $requiredTokens = $this->daily_recon_required_tokens('pos.daily_recon_required_materials');
+        $lineKeys = [];
+        $materialIds = [];
+        foreach ($rows as $idx => &$row) {
+            $materialId = (int)($row['material_id'] ?? 0);
+            if ($materialId > 0) {
+                $materialIds[$materialId] = $materialId;
+            }
+            $lineKey = $this->material_recon_line_key($row);
+            $row['recon_line_key'] = $lineKey;
+            $lineKeys[$lineKey] = $lineKey;
+        }
+        unset($row);
+
+        $lotCounts = [];
+        if (!empty($materialIds) && $this->db->table_exists('inv_material_fifo_lot')) {
+            $lotRows = $this->db->select("
+                    division_id,
+                    COALESCE(destination_type, 'OTHER') AS destination_type,
+                    COALESCE(item_id, 0) AS item_id,
+                    COALESCE(material_id, 0) AS material_id,
+                    COALESCE(buy_uom_id, 0) AS buy_uom_id,
+                    COALESCE(content_uom_id, 0) AS content_uom_id,
+                    COALESCE(profile_key, '') AS profile_key,
+                    COUNT(*) AS lot_count
+                ", false)
+                ->from('inv_material_fifo_lot')
+                ->where('location_scope', 'DIVISION')
+                ->where('status', 'OPEN')
+                ->where('ABS(COALESCE(qty_balance, 0)) > 0.0001', null, false)
+                ->where_in('material_id', array_values($materialIds));
+            if ($divisionId > 0) {
+                $lotRows->where('division_id', $divisionId);
+            }
+            foreach ($lotRows
+                ->group_by(['division_id', 'destination_type', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'])
+                ->get()->result_array() as $lotRow) {
+                $lotCounts[$this->material_lot_count_key($lotRow)] = (int)($lotRow['lot_count'] ?? 0);
+            }
+        }
+
+        $confirmed = [];
+        if (!empty($lineKeys) && $this->db->table_exists('inv_daily_recon_checkpoint_line')) {
+            foreach ($this->db->select('line_key, checkpoint_stage')
+                ->from('inv_daily_recon_checkpoint_line')
+                ->where('checkpoint_date', $date)
+                ->where('recon_domain', 'MATERIAL')
+                ->where('division_id', $divisionId)
+                ->where_in('line_key', array_values($lineKeys))
+                ->get()->result_array() as $lineRow) {
+                $confirmed[(string)$lineRow['line_key'] . '|' . strtoupper((string)$lineRow['checkpoint_stage'])] = true;
+            }
+        }
+
+        $confirmMode = $this->daily_recon_confirm_mode();
+        foreach ($rows as &$row) {
+            $lotCount = $lotCounts[$this->material_lot_count_key($row)] ?? 0;
+            $reasons = [];
+            if ($confirmMode === 'ROW_REQUIRED') {
+                $reasons[] = 'mode wajib satu per satu';
+            }
+            if ($lotCount > 1) {
+                $reasons[] = $lotCount . ' lot aktif';
+            }
+            if ($this->daily_recon_token_matches($requiredTokens, [
+                (string)($row['material_id'] ?? ''),
+                (string)($row['material_code'] ?? ''),
+                (string)($row['material_name'] ?? ''),
+                (string)($row['profile_name'] ?? ''),
+            ])) {
+                $reasons[] = 'daftar wajib recon';
+            }
+
+            $lineKey = (string)($row['recon_line_key'] ?? '');
+            $row['lot_count'] = $lotCount;
+            $row['must_row_confirm'] = !empty($reasons);
+            $row['must_row_confirm_reason'] = implode(', ', array_unique($reasons));
+            $row['confirmed_open'] = isset($confirmed[$lineKey . '|OPEN']);
+            $row['confirmed_close'] = isset($confirmed[$lineKey . '|CLOSE']);
+        }
+        unset($row);
+    }
+
+    private function material_recon_line_key(array $row): string
+    {
+        return implode('|', [
+            'M',
+            (int)($row['division_id'] ?? 0),
+            strtoupper((string)($row['destination_type'] ?? 'OTHER')),
+            (int)($row['item_id'] ?? 0),
+            (int)($row['material_id'] ?? 0),
+            (int)($row['buy_uom_id'] ?? 0),
+            (int)($row['content_uom_id'] ?? 0),
+            (string)($row['identity_key'] ?? ($row['profile_key'] ?? '')),
+        ]);
+    }
+
+    private function material_lot_count_key(array $row): string
+    {
+        return implode('|', [
+            (int)($row['division_id'] ?? 0),
+            strtoupper((string)($row['destination_type'] ?? 'OTHER')),
+            (int)($row['item_id'] ?? 0),
+            (int)($row['material_id'] ?? 0),
+            (int)($row['buy_uom_id'] ?? 0),
+            (int)($row['content_uom_id'] ?? 0),
+            (string)($row['profile_key'] ?? ''),
+        ]);
+    }
+
+    private function daily_recon_confirm_mode(): string
+    {
+        $mode = strtoupper(trim($this->daily_recon_config_value('pos.daily_recon_confirm_mode', 'BULK_ALLOWED')));
+        return in_array($mode, ['BULK_ALLOWED', 'ROW_REQUIRED'], true) ? $mode : 'BULK_ALLOWED';
+    }
+
+    private function daily_recon_config_value(string $key, string $default = ''): string
+    {
+        if ($key === '' || !$this->db->table_exists('sys_app_config')) {
+            return $default;
+        }
+        $row = $this->db->select('config_value')
+            ->from('sys_app_config')
+            ->where('config_key', $key)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        return $row ? (string)($row['config_value'] ?? $default) : $default;
+    }
+
+    private function daily_recon_required_tokens(string $configKey): array
+    {
+        $raw = $this->daily_recon_config_value($configKey, '');
+        $parts = preg_split('/[\r\n,;]+/', $raw) ?: [];
+        $tokens = [];
+        foreach ($parts as $part) {
+            $token = strtoupper(trim((string)$part));
+            if ($token !== '') {
+                $tokens[$token] = true;
+            }
+        }
+        return $tokens;
+    }
+
+    private function daily_recon_token_matches(array $tokens, array $candidates): bool
+    {
+        if (empty($tokens)) {
+            return false;
+        }
+        foreach ($candidates as $candidate) {
+            $value = strtoupper(trim((string)$candidate));
+            if ($value !== '' && isset($tokens[$value])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function jsonOk(array $data = [], string $message = ''): void

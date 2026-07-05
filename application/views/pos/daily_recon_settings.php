@@ -1,6 +1,9 @@
 <?php
 $mode = strtoupper(trim((string)($mode ?? 'OPEN_AND_CLOSE')));
 $policy = strtoupper(trim((string)($policy ?? 'WARN_ONLY')));
+$confirmMode = strtoupper(trim((string)($confirm_mode ?? 'BULK_ALLOWED')));
+$requiredMaterials = (string)($required_materials ?? '');
+$requiredComponents = (string)($required_components ?? '');
 $canEdit = !empty($can_edit);
 
 $modeLabels = [
@@ -19,6 +22,17 @@ $modeLabels = [
     'OPEN_AND_CLOSE' => [
         'title' => 'Cek saat buka dan tutup kasir',
         'desc' => 'Mode paling lengkap: sistem mengecek konfirmasi daily recon saat awal dan akhir shift.',
+    ],
+];
+
+$confirmModeLabels = [
+    'BULK_ALLOWED' => [
+        'title' => 'Boleh konfirmasi semua',
+        'desc' => 'User bisa konfirmasi semua, kecuali ada item multi-lot atau item wajib recon yang belum dicek per baris.',
+    ],
+    'ROW_REQUIRED' => [
+        'title' => 'Wajib satu per satu',
+        'desc' => 'Setiap baris wajib dikonfirmasi dari halaman recon sebelum checkpoint divisi dianggap aman.',
     ],
 ];
 ?>
@@ -128,6 +142,40 @@ $modeLabels = [
         <div class="pos-recon-info">
           <strong>Alur yang dipakai:</strong>
           <span>Divisi melakukan recon di <code>/inventory/stock/daily-recon/division</code> dan <code>/production/component-daily-recon</code>, lalu menekan konfirmasi buka/tutup. POS hanya membaca checkpoint tersebut.</span>
+        </div>
+
+        <hr class="my-4">
+
+        <div class="mb-3">
+          <h5 class="mb-1">Mode konfirmasi di halaman recon</h5>
+          <div class="text-muted small">
+            Item dengan lebih dari satu lot otomatis wajib dicek per baris. Daftar wajib di bawah ini menambah item yang tidak boleh dilewati oleh tombol konfirmasi semua.
+          </div>
+        </div>
+
+        <div class="pos-recon-mode-grid mb-4" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+          <?php foreach ($confirmModeLabels as $key => $item): ?>
+            <label class="pos-recon-mode <?php echo $confirmMode === $key ? 'is-active' : ''; ?>">
+              <div class="d-flex align-items-center">
+                <input type="radio" name="daily_recon_confirm_mode" value="<?php echo html_escape($key); ?>" <?php echo $confirmMode === $key ? 'checked' : ''; ?> <?php echo !$canEdit ? 'disabled' : ''; ?>>
+                <span class="pos-recon-mode-title"><?php echo html_escape($item['title']); ?></span>
+              </div>
+              <div class="pos-recon-mode-desc"><?php echo html_escape($item['desc']); ?></div>
+            </label>
+          <?php endforeach; ?>
+        </div>
+
+        <div class="row g-3">
+          <div class="col-lg-6">
+            <label class="form-label fw-semibold">Bahan baku wajib recon per baris</label>
+            <textarea class="form-control" name="daily_recon_required_materials" rows="5" <?php echo !$canEdit ? 'disabled' : ''; ?> placeholder="Contoh:&#10;ICE CREAM VANILLA&#10;BB-EXL-...&#10;123"><?php echo html_escape($requiredMaterials); ?></textarea>
+            <div class="form-text">Isi material ID, kode, atau nama. Pisahkan dengan koma atau baris baru.</div>
+          </div>
+          <div class="col-lg-6">
+            <label class="form-label fw-semibold">Component wajib recon per baris</label>
+            <textarea class="form-control" name="daily_recon_required_components" rows="5" <?php echo !$canEdit ? 'disabled' : ''; ?> placeholder="Contoh:&#10;CHICKEN CUBE 40&#10;PREP-DASH-...&#10;77"><?php echo html_escape($requiredComponents); ?></textarea>
+            <div class="form-text">Isi component ID, kode, atau nama. Pisahkan dengan koma atau baris baru.</div>
+          </div>
         </div>
       <?php echo form_close(); ?>
     </div>
