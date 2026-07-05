@@ -35,6 +35,8 @@ class Dashboard extends MY_Controller
             'pos_scope_rows' => $this->dashboard_pos_scope_rows($filters),
             'stock_breakdown' => $this->dashboard_stock_breakdown(),
             'stock_product_live' => $this->dashboard_stock_product_live(),
+            'adjustment_summary' => $this->dashboard_adjustment_summary(),
+            'top_selling_products' => $this->dashboard_top_selling_products(),
             'prod_live_hidden_cats' => $this->dashboard_load_prod_live_hidden_cats(),
             'critical_stock_rows' => $this->dashboard_critical_stock_rows(0),
             'negative_stock_rows' => $this->dashboard_negative_stock_rows(),
@@ -216,6 +218,9 @@ class Dashboard extends MY_Controller
                 'qty_per_serve'   => (float)$r['qty'],
                 'uom_code'        => (string)$r['uom_code'],
                 'stock_qty'       => $stockQty,
+                'available_servings' => (float)$r['qty'] > 0
+                    ? max(0, floor($stockQty / (float)$r['qty']))
+                    : null,
                 'division_id'     => $divId,
                 'is_bottleneck'   => $stockQty <= 0,
             ];
@@ -306,6 +311,507 @@ class Dashboard extends MY_Controller
 
         $rows = $productRows ? $productRows->result_array() : [];
         return ['summary' => $summary, 'rows' => $rows];
+    }
+
+    private function dashboard_adjustment_summary(): array
+    {
+        return [
+            'daily' => $this->dashboard_adjustment_period_block('Hari Ini', date('Y-m-d'), date('Y-m-d')),
+            'weekly' => $this->dashboard_adjustment_period_block('Minggu Ini', date('Y-m-d', strtotime('monday this week')), date('Y-m-d')),
+            'monthly' => $this->dashboard_adjustment_period_block('Bulan Ini', date('Y-m-01'), date('Y-m-d')),
+        ];
+    }
+
+    private function dashboard_adjustment_period_block(string $label, string $dateFrom, string $dateTo): array
+    {
+        return [
+            'label' => $label,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'warehouse' => $this->dashboard_stock_adjustment_scope_summary('WAREHOUSE', $dateFrom, $dateTo),
+            'division' => $this->dashboard_stock_adjustment_scope_summary('DIVISION', $dateFrom, $dateTo),
+            'component' => $this->dashboard_component_adjustment_summary($dateFrom, $dateTo),
+        ];
+    }
+
+    private function dashboard_stock_adjustment_scope_summary(string $scope, string $dateFrom, string $dateTo): array
+    {
+        if (
+            !$this->dashboard_table_ready('inv_stock_adjustment')
+            || !$this->dashboard_table_ready('inv_stock_adjustment_line')
+        ) {
+            return ['rows' => [], 'totals' => ['group_count' => 0, 'line_count' => 0, 'doc_count' => 0, 'value_out_total' => 0.0, 'value_plus_total' => 0.0, 'net_value_total' => 0.0]];
+        }
+
+        $scope = strtoupper(trim($scope));
+        if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
+            $scope = 'WAREHOUSE';
+        }
+
+        $divisionNameColumn = $this->dashboard_division_name_column();
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $summaryRows = $this->db
+            ->select('COALESCE(l.material_id, i.material_id, 0) AS material_id', false)
+            ->select('COALESCE(l.item_id, 0) AS item_id', false)
+            ->select('COALESCE(m.material_code, i.item_code, "-") AS object_code', false)
+            ->select('COALESCE(m.material_name, i.item_name, "Tanpa Nama") AS object_name', false)
+            ->select('h.division_id, COALESCE(h.destination_type, "OTHER") AS destination_type', false)
+            ->select($divisionNameSelect, false)
+            ->select('COUNT(DISTINCT h.id) AS doc_count', false)
+            ->select('COUNT(*) AS line_count', false)
+            ->select('SUM(COALESCE(l.qty_waste_content, 0)) AS qty_waste', false)
+            ->select('SUM(COALESCE(l.qty_spoil_content, 0)) AS qty_spoil', false)
+            ->select('SUM(COALESCE(l.qty_process_loss_content, 0)) AS qty_process_loss', false)
+            ->select('SUM(COALESCE(l.qty_variance_content, 0)) AS qty_variance', false)
+            ->select('SUM(COALESCE(l.qty_adjustment_plus_content, 0)) AS qty_plus', false)
+            ->select('SUM(COALESCE(l.qty_waste_content, 0) * COALESCE(l.unit_cost, 0)) AS value_waste', false)
+            ->select('SUM(COALESCE(l.qty_spoil_content, 0) * COALESCE(l.unit_cost, 0)) AS value_spoil', false)
+            ->select('SUM(COALESCE(l.qty_process_loss_content, 0) * COALESCE(l.unit_cost, 0)) AS value_process_loss', false)
+            ->select('SUM(COALESCE(l.qty_variance_content, 0) * COALESCE(l.unit_cost, 0)) AS value_variance', false)
+            ->select('SUM(COALESCE(l.qty_adjustment_plus_content, 0) * COALESCE(l.unit_cost, 0)) AS value_plus', false)
+            ->from('inv_stock_adjustment h')
+            ->join('inv_stock_adjustment_line l', 'l.adjustment_id = h.id', 'inner')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->join('mst_material m', 'm.id = COALESCE(l.material_id, i.material_id)', 'left')
+            ->join('mst_operational_division d', 'd.id = h.division_id', 'left')
+            ->where('h.stock_scope', $scope)
+            ->where('h.status', 'POSTED')
+            ->where('h.adjustment_date >=', $dateFrom)
+            ->where('h.adjustment_date <=', $dateTo)
+            ->group_by('COALESCE(l.material_id, i.material_id, 0)', false)
+            ->group_by('COALESCE(l.item_id, 0)', false);
+
+        if ($scope === 'DIVISION') {
+            $summaryRows
+                ->group_by('h.division_id')
+                ->group_by('COALESCE(h.destination_type, "OTHER")', false);
+        }
+
+        $summaryRows = $summaryRows
+            ->order_by('SUM(COALESCE(l.qty_waste_content, 0) * COALESCE(l.unit_cost, 0)) + SUM(COALESCE(l.qty_spoil_content, 0) * COALESCE(l.unit_cost, 0)) + SUM(COALESCE(l.qty_process_loss_content, 0) * COALESCE(l.unit_cost, 0)) + SUM(COALESCE(l.qty_variance_content, 0) * COALESCE(l.unit_cost, 0))', 'DESC', false)
+            ->order_by('object_name', 'ASC')
+            ->get()
+            ->result_array();
+
+        $displayRows = array_slice($summaryRows, 0, 50);
+
+        $detailRows = $this->db
+            ->select('COALESCE(l.material_id, i.material_id, 0) AS material_id', false)
+            ->select('COALESCE(l.item_id, 0) AS item_id', false)
+            ->select('COALESCE(m.material_code, i.item_code, "-") AS object_code', false)
+            ->select('COALESCE(m.material_name, i.item_name, "Tanpa Nama") AS object_name', false)
+            ->select('h.adjustment_no, h.adjustment_date, h.division_id, COALESCE(h.destination_type, "OTHER") AS destination_type, h.notes AS header_notes', false)
+            ->select($divisionNameSelect, false)
+            ->select('l.profile_name, l.profile_brand, l.profile_description, l.profile_content_uom_code, l.unit_cost, l.note', false)
+            ->select('COALESCE(l.qty_waste_content, 0) AS qty_waste', false)
+            ->select('COALESCE(l.qty_spoil_content, 0) AS qty_spoil', false)
+            ->select('COALESCE(l.qty_process_loss_content, 0) AS qty_process_loss', false)
+            ->select('COALESCE(l.qty_variance_content, 0) AS qty_variance', false)
+            ->select('COALESCE(l.qty_adjustment_plus_content, 0) AS qty_plus', false)
+            ->from('inv_stock_adjustment h')
+            ->join('inv_stock_adjustment_line l', 'l.adjustment_id = h.id', 'inner')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->join('mst_material m', 'm.id = COALESCE(l.material_id, i.material_id)', 'left')
+            ->join('mst_operational_division d', 'd.id = h.division_id', 'left')
+            ->where('h.stock_scope', $scope)
+            ->where('h.status', 'POSTED')
+            ->where('h.adjustment_date >=', $dateFrom)
+            ->where('h.adjustment_date <=', $dateTo)
+            ->order_by('h.adjustment_date', 'DESC')
+            ->order_by('h.id', 'DESC')
+            ->order_by('l.line_no', 'ASC')
+            ->get()
+            ->result_array();
+
+        $detailMap = [];
+        $docNoSet = [];
+        $visibleGroupKeys = [];
+        foreach ($displayRows as $visibleRow) {
+            $visibleGroupKeys[$this->dashboard_stock_adjustment_group_key(
+                $scope,
+                (int)($visibleRow['material_id'] ?? 0),
+                (int)($visibleRow['item_id'] ?? 0),
+                (int)($visibleRow['division_id'] ?? 0),
+                (string)($visibleRow['destination_type'] ?? '')
+            )] = true;
+        }
+        foreach ($detailRows as $detailRow) {
+            $groupKey = $this->dashboard_stock_adjustment_group_key(
+                $scope,
+                (int)($detailRow['material_id'] ?? 0),
+                (int)($detailRow['item_id'] ?? 0),
+                (int)($detailRow['division_id'] ?? 0),
+                (string)($detailRow['destination_type'] ?? '')
+            );
+            $adjustmentNo = (string)($detailRow['adjustment_no'] ?? '');
+            if ($adjustmentNo !== '') {
+                $docNoSet[$adjustmentNo] = true;
+            }
+            if (!isset($visibleGroupKeys[$groupKey])) {
+                continue;
+            }
+            if (!isset($detailMap[$groupKey])) {
+                $detailMap[$groupKey] = [];
+            }
+            $detailMap[$groupKey][] = [
+                'adjustment_no' => $adjustmentNo,
+                'adjustment_date' => (string)($detailRow['adjustment_date'] ?? ''),
+                'profile_label' => trim(implode(' | ', array_filter([
+                    (string)($detailRow['profile_name'] ?? ''),
+                    (string)($detailRow['profile_brand'] ?? ''),
+                    (string)($detailRow['profile_description'] ?? ''),
+                ], static function ($value): bool {
+                    return trim((string)$value) !== '';
+                }))),
+                'uom_code' => (string)($detailRow['profile_content_uom_code'] ?? ''),
+                'qty_waste' => (float)($detailRow['qty_waste'] ?? 0),
+                'qty_spoil' => (float)($detailRow['qty_spoil'] ?? 0),
+                'qty_process_loss' => (float)($detailRow['qty_process_loss'] ?? 0),
+                'qty_variance' => (float)($detailRow['qty_variance'] ?? 0),
+                'qty_plus' => (float)($detailRow['qty_plus'] ?? 0),
+                'unit_cost' => (float)($detailRow['unit_cost'] ?? 0),
+                'note' => (string)($detailRow['note'] ?? ''),
+                'header_notes' => (string)($detailRow['header_notes'] ?? ''),
+            ];
+        }
+
+        $rows = [];
+        $totals = ['group_count' => 0, 'line_count' => 0, 'doc_count' => 0, 'value_out_total' => 0.0, 'value_plus_total' => 0.0, 'net_value_total' => 0.0];
+        foreach ($summaryRows as $row) {
+            $valueOutTotal = round(
+                (float)($row['value_waste'] ?? 0)
+                + (float)($row['value_spoil'] ?? 0)
+                + (float)($row['value_process_loss'] ?? 0)
+                + (float)($row['value_variance'] ?? 0),
+                2
+            );
+            $valuePlusTotal = round((float)($row['value_plus'] ?? 0), 2);
+            $netValueTotal = round($valuePlusTotal - $valueOutTotal, 2);
+            $totals['group_count']++;
+            $totals['line_count'] += (int)($row['line_count'] ?? 0);
+            $totals['value_out_total'] = round($totals['value_out_total'] + $valueOutTotal, 2);
+            $totals['value_plus_total'] = round($totals['value_plus_total'] + $valuePlusTotal, 2);
+            $totals['net_value_total'] = round($totals['net_value_total'] + $netValueTotal, 2);
+        }
+        foreach ($displayRows as $row) {
+            $valueOutTotal = round(
+                (float)($row['value_waste'] ?? 0)
+                + (float)($row['value_spoil'] ?? 0)
+                + (float)($row['value_process_loss'] ?? 0)
+                + (float)($row['value_variance'] ?? 0),
+                2
+            );
+            $valuePlusTotal = round((float)($row['value_plus'] ?? 0), 2);
+            $netValueTotal = round($valuePlusTotal - $valueOutTotal, 2);
+            $groupKey = $this->dashboard_stock_adjustment_group_key(
+                $scope,
+                (int)($row['material_id'] ?? 0),
+                (int)($row['item_id'] ?? 0),
+                (int)($row['division_id'] ?? 0),
+                (string)($row['destination_type'] ?? '')
+            );
+            $locationName = $scope === 'WAREHOUSE'
+                ? 'Gudang'
+                : trim(implode(' · ', array_filter([
+                    (string)($row['division_name'] ?? ''),
+                    $this->dashboard_destination_label((string)($row['destination_type'] ?? '')),
+                ])));
+
+            $rows[] = [
+                'group_key' => $groupKey,
+                'object_code' => (string)($row['object_code'] ?? '-'),
+                'object_name' => (string)($row['object_name'] ?? 'Tanpa Nama'),
+                'location_name' => $locationName !== '' ? $locationName : ($scope === 'DIVISION' ? '-' : 'Gudang'),
+                'doc_count' => (int)($row['doc_count'] ?? 0),
+                'line_count' => (int)($row['line_count'] ?? 0),
+                'qty_waste' => (float)($row['qty_waste'] ?? 0),
+                'qty_spoil' => (float)($row['qty_spoil'] ?? 0),
+                'qty_process_loss' => (float)($row['qty_process_loss'] ?? 0),
+                'qty_variance' => (float)($row['qty_variance'] ?? 0),
+                'qty_plus' => (float)($row['qty_plus'] ?? 0),
+                'value_out_total' => $valueOutTotal,
+                'value_plus_total' => $valuePlusTotal,
+                'net_value_total' => $netValueTotal,
+                'details' => $detailMap[$groupKey] ?? [],
+            ];
+        }
+        $totals['doc_count'] = count($docNoSet);
+
+        return ['rows' => $rows, 'totals' => $totals];
+    }
+
+    private function dashboard_component_adjustment_summary(string $dateFrom, string $dateTo): array
+    {
+        if (
+            !$this->dashboard_table_ready('inv_component_adjustment')
+            || !$this->dashboard_table_ready('inv_component_adjustment_line')
+        ) {
+            return ['rows' => [], 'totals' => ['group_count' => 0, 'line_count' => 0, 'doc_count' => 0, 'value_out_total' => 0.0, 'value_plus_total' => 0.0, 'net_value_total' => 0.0]];
+        }
+
+        $divisionNameColumn = $this->dashboard_division_name_column();
+        $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
+
+        $summaryRows = $this->db
+            ->select('l.component_id, COALESCE(c.component_code, "-") AS object_code, COALESCE(c.component_name, "Tanpa Nama") AS object_name', false)
+            ->select('h.division_id, h.location_type', false)
+            ->select($divisionNameSelect, false)
+            ->select('COUNT(DISTINCT h.id) AS doc_count', false)
+            ->select('COUNT(*) AS line_count', false)
+            ->select('SUM(COALESCE(l.qty_waste, 0)) AS qty_waste', false)
+            ->select('SUM(COALESCE(l.qty_spoil, 0)) AS qty_spoil', false)
+            ->select('SUM(COALESCE(l.qty_adjust_neg, 0)) AS qty_minus', false)
+            ->select('SUM(COALESCE(l.qty_adjust_pos, 0)) AS qty_plus', false)
+            ->select('SUM(COALESCE(l.qty_waste, 0) * COALESCE(l.unit_cost, 0)) AS value_waste', false)
+            ->select('SUM(COALESCE(l.qty_spoil, 0) * COALESCE(l.unit_cost, 0)) AS value_spoil', false)
+            ->select('SUM(COALESCE(l.qty_adjust_neg, 0) * COALESCE(l.unit_cost, 0)) AS value_minus', false)
+            ->select('SUM(COALESCE(l.qty_adjust_pos, 0) * COALESCE(l.unit_cost, 0)) AS value_plus', false)
+            ->from('inv_component_adjustment h')
+            ->join('inv_component_adjustment_line l', 'l.adjustment_id = h.id', 'inner')
+            ->join('mst_component c', 'c.id = l.component_id', 'left')
+            ->join('mst_operational_division d', 'd.id = h.division_id', 'left')
+            ->where('h.status', 'POSTED')
+            ->where('h.adjustment_date >=', $dateFrom)
+            ->where('h.adjustment_date <=', $dateTo)
+            ->group_by('l.component_id')
+            ->group_by('h.division_id')
+            ->group_by('h.location_type')
+            ->order_by('SUM(COALESCE(l.qty_waste, 0) * COALESCE(l.unit_cost, 0)) + SUM(COALESCE(l.qty_spoil, 0) * COALESCE(l.unit_cost, 0)) + SUM(COALESCE(l.qty_adjust_neg, 0) * COALESCE(l.unit_cost, 0))', 'DESC', false)
+            ->order_by('object_name', 'ASC')
+            ->get()
+            ->result_array();
+
+        $displayRows = array_slice($summaryRows, 0, 50);
+
+        $detailRows = $this->db
+            ->select('l.component_id, COALESCE(c.component_code, "-") AS object_code, COALESCE(c.component_name, "Tanpa Nama") AS object_name', false)
+            ->select('h.adjustment_no, h.adjustment_date, h.division_id, h.location_type, h.notes AS header_notes', false)
+            ->select($divisionNameSelect, false)
+            ->select('u.code AS uom_code, l.unit_cost, l.note', false)
+            ->select('COALESCE(l.qty_waste, 0) AS qty_waste', false)
+            ->select('COALESCE(l.qty_spoil, 0) AS qty_spoil', false)
+            ->select('COALESCE(l.qty_adjust_neg, 0) AS qty_minus', false)
+            ->select('COALESCE(l.qty_adjust_pos, 0) AS qty_plus', false)
+            ->from('inv_component_adjustment h')
+            ->join('inv_component_adjustment_line l', 'l.adjustment_id = h.id', 'inner')
+            ->join('mst_component c', 'c.id = l.component_id', 'left')
+            ->join('mst_uom u', 'u.id = l.uom_id', 'left')
+            ->join('mst_operational_division d', 'd.id = h.division_id', 'left')
+            ->where('h.status', 'POSTED')
+            ->where('h.adjustment_date >=', $dateFrom)
+            ->where('h.adjustment_date <=', $dateTo)
+            ->order_by('h.adjustment_date', 'DESC')
+            ->order_by('h.id', 'DESC')
+            ->order_by('l.line_no', 'ASC')
+            ->get()
+            ->result_array();
+
+        $detailMap = [];
+        $docNoSet = [];
+        $visibleGroupKeys = [];
+        foreach ($displayRows as $visibleRow) {
+            $visibleGroupKeys[$this->dashboard_component_adjustment_group_key(
+                (int)($visibleRow['component_id'] ?? 0),
+                (int)($visibleRow['division_id'] ?? 0),
+                (string)($visibleRow['location_type'] ?? '')
+            )] = true;
+        }
+        foreach ($detailRows as $detailRow) {
+            $groupKey = $this->dashboard_component_adjustment_group_key(
+                (int)($detailRow['component_id'] ?? 0),
+                (int)($detailRow['division_id'] ?? 0),
+                (string)($detailRow['location_type'] ?? '')
+            );
+            $adjustmentNo = (string)($detailRow['adjustment_no'] ?? '');
+            if ($adjustmentNo !== '') {
+                $docNoSet[$adjustmentNo] = true;
+            }
+            if (!isset($visibleGroupKeys[$groupKey])) {
+                continue;
+            }
+            if (!isset($detailMap[$groupKey])) {
+                $detailMap[$groupKey] = [];
+            }
+            $detailMap[$groupKey][] = [
+                'adjustment_no' => $adjustmentNo,
+                'adjustment_date' => (string)($detailRow['adjustment_date'] ?? ''),
+                'uom_code' => (string)($detailRow['uom_code'] ?? ''),
+                'qty_waste' => (float)($detailRow['qty_waste'] ?? 0),
+                'qty_spoil' => (float)($detailRow['qty_spoil'] ?? 0),
+                'qty_minus' => (float)($detailRow['qty_minus'] ?? 0),
+                'qty_plus' => (float)($detailRow['qty_plus'] ?? 0),
+                'unit_cost' => (float)($detailRow['unit_cost'] ?? 0),
+                'note' => (string)($detailRow['note'] ?? ''),
+                'header_notes' => (string)($detailRow['header_notes'] ?? ''),
+            ];
+        }
+
+        $rows = [];
+        $totals = ['group_count' => 0, 'line_count' => 0, 'doc_count' => 0, 'value_out_total' => 0.0, 'value_plus_total' => 0.0, 'net_value_total' => 0.0];
+        foreach ($summaryRows as $row) {
+            $valueOutTotal = round(
+                (float)($row['value_waste'] ?? 0)
+                + (float)($row['value_spoil'] ?? 0)
+                + (float)($row['value_minus'] ?? 0),
+                2
+            );
+            $valuePlusTotal = round((float)($row['value_plus'] ?? 0), 2);
+            $netValueTotal = round($valuePlusTotal - $valueOutTotal, 2);
+            $totals['group_count']++;
+            $totals['line_count'] += (int)($row['line_count'] ?? 0);
+            $totals['value_out_total'] = round($totals['value_out_total'] + $valueOutTotal, 2);
+            $totals['value_plus_total'] = round($totals['value_plus_total'] + $valuePlusTotal, 2);
+            $totals['net_value_total'] = round($totals['net_value_total'] + $netValueTotal, 2);
+        }
+        foreach ($displayRows as $row) {
+            $valueOutTotal = round(
+                (float)($row['value_waste'] ?? 0)
+                + (float)($row['value_spoil'] ?? 0)
+                + (float)($row['value_minus'] ?? 0),
+                2
+            );
+            $valuePlusTotal = round((float)($row['value_plus'] ?? 0), 2);
+            $netValueTotal = round($valuePlusTotal - $valueOutTotal, 2);
+            $groupKey = $this->dashboard_component_adjustment_group_key(
+                (int)($row['component_id'] ?? 0),
+                (int)($row['division_id'] ?? 0),
+                (string)($row['location_type'] ?? '')
+            );
+            $locationName = trim(implode(' · ', array_filter([
+                (string)($row['division_name'] ?? ''),
+                (string)($row['location_type'] ?? ''),
+            ])));
+
+            $rows[] = [
+                'group_key' => $groupKey,
+                'object_code' => (string)($row['object_code'] ?? '-'),
+                'object_name' => (string)($row['object_name'] ?? 'Tanpa Nama'),
+                'location_name' => $locationName !== '' ? $locationName : '-',
+                'doc_count' => (int)($row['doc_count'] ?? 0),
+                'line_count' => (int)($row['line_count'] ?? 0),
+                'qty_waste' => (float)($row['qty_waste'] ?? 0),
+                'qty_spoil' => (float)($row['qty_spoil'] ?? 0),
+                'qty_minus' => (float)($row['qty_minus'] ?? 0),
+                'qty_plus' => (float)($row['qty_plus'] ?? 0),
+                'value_out_total' => $valueOutTotal,
+                'value_plus_total' => $valuePlusTotal,
+                'net_value_total' => $netValueTotal,
+                'details' => $detailMap[$groupKey] ?? [],
+            ];
+        }
+        $totals['doc_count'] = count($docNoSet);
+
+        return ['rows' => $rows, 'totals' => $totals];
+    }
+
+    private function dashboard_top_selling_products(): array
+    {
+        return [
+            'daily' => [
+                'label' => 'Hari Ini',
+                'groups' => $this->dashboard_top_selling_products_window(date('Y-m-d'), date('Y-m-d')),
+            ],
+            'weekly' => [
+                'label' => 'Minggu Ini',
+                'groups' => $this->dashboard_top_selling_products_window(date('Y-m-d', strtotime('monday this week')), date('Y-m-d')),
+            ],
+            'monthly' => [
+                'label' => 'Bulan Ini',
+                'groups' => $this->dashboard_top_selling_products_window(date('Y-m-01'), date('Y-m-d')),
+            ],
+        ];
+    }
+
+    private function dashboard_top_selling_products_window(string $dateFrom, string $dateTo): array
+    {
+        if (!$this->dashboard_table_ready('pos_order') || !$this->dashboard_table_ready('pos_order_line')) {
+            return [];
+        }
+
+        $eventDateExpr = $this->dashboard_pos_event_date_expr('o');
+        $rows = $this->db
+            ->select('CASE WHEN l.line_type = "BUNDLE_HEADER" AND l.bundle_id IS NOT NULL THEN CONCAT("BND-", l.bundle_id) ELSE CONCAT("PRD-", l.product_id) END AS row_key', false)
+            ->select('COALESCE(b.bundle_name, p.product_name, "-") AS product_name', false)
+            ->select('COALESCE(b.bundle_code, p.product_code, "-") AS product_code', false)
+            ->select('COALESCE(pd_bundle.name, pd_product.name, "-") AS division_name', false)
+            ->select('SUM(COALESCE(l.qty, 0)) AS qty_total', false)
+            ->select('SUM(COALESCE(l.net_amount, 0)) AS net_total', false)
+            ->select('COUNT(DISTINCT o.id) AS order_count', false)
+            ->from('pos_order_line l')
+            ->join('pos_order o', 'o.id = l.order_id', 'inner')
+            ->join('mst_product p', 'p.id = l.product_id', 'left')
+            ->join('mst_product_category pc', 'pc.id = p.product_category_id', 'left')
+            ->join('mst_product_division pd_product', 'pd_product.id = pc.product_division_id', 'left')
+            ->join('pos_product_bundle b', 'b.id = l.bundle_id', 'left')
+            ->join('mst_product_division pd_bundle', 'pd_bundle.id = b.product_division_id', 'left')
+            ->where_not_in('o.status', $this->dashboard_pos_excluded_statuses())
+            ->where_not_in('l.line_status', ['VOID', 'REFUNDED_FULL'])
+            ->where_in('l.line_type', ['PRODUCT', 'BUNDLE_HEADER'])
+            ->where('COALESCE(pd_bundle.name, pd_product.name) IN ("FOOD","BEVERAGE")', null, false)
+            ->where($eventDateExpr . " >= '" . $dateFrom . "'", null, false)
+            ->where($eventDateExpr . " <= '" . $dateTo . "'", null, false)
+            ->group_by('row_key', false)
+            ->group_by('COALESCE(pd_bundle.name, pd_product.name)', false)
+            ->order_by('qty_total', 'DESC', false)
+            ->order_by('net_total', 'DESC', false)
+            ->get()
+            ->result_array();
+
+        $grouped = [
+            'FOOD' => ['label' => 'Food', 'rows' => []],
+            'BEVERAGE' => ['label' => 'Beverage', 'rows' => []],
+        ];
+        foreach ($rows as $row) {
+            $divisionName = strtoupper(trim((string)($row['division_name'] ?? '')));
+            if (!isset($grouped[$divisionName])) {
+                continue;
+            }
+            $grouped[$divisionName]['rows'][] = [
+                'product_name' => (string)($row['product_name'] ?? '-'),
+                'product_code' => (string)($row['product_code'] ?? '-'),
+                'division_name' => (string)($row['division_name'] ?? '-'),
+                'qty_total' => (float)($row['qty_total'] ?? 0),
+                'net_total' => (float)($row['net_total'] ?? 0),
+                'order_count' => (int)($row['order_count'] ?? 0),
+            ];
+        }
+        return $grouped;
+    }
+
+    private function dashboard_stock_adjustment_group_key(string $scope, int $materialId, int $itemId, int $divisionId, string $destinationType): string
+    {
+        return implode('|', [
+            strtoupper($scope),
+            $materialId,
+            $itemId,
+            $scope === 'DIVISION' ? $divisionId : 0,
+            $scope === 'DIVISION' ? strtoupper(trim($destinationType)) : 'GUDANG',
+        ]);
+    }
+
+    private function dashboard_component_adjustment_group_key(int $componentId, int $divisionId, string $locationType): string
+    {
+        return implode('|', [
+            $componentId,
+            $divisionId,
+            strtoupper(trim($locationType)),
+        ]);
+    }
+
+    private function dashboard_destination_label(string $destinationType): string
+    {
+        $map = [
+            'GUDANG' => 'Gudang',
+            'BAR' => 'Bar Reguler',
+            'KITCHEN' => 'Kitchen Reguler',
+            'BAR_EVENT' => 'Bar Event',
+            'KITCHEN_EVENT' => 'Kitchen Event',
+            'OFFICE' => 'Office',
+            'OTHER' => 'Reguler',
+        ];
+        $key = strtoupper(trim($destinationType));
+        return $map[$key] ?? ($key !== '' ? $key : 'Reguler');
     }
 
     private function require_registered_page_permission(string $pageCode): void

@@ -382,3 +382,15 @@ https://core.namuacoffee.com/pos/reports/payment-accounts?q=&outlet_id=0&status=
 perbaiki juga logika tampilan core /pos/self-order/orders dan verifikasinya agar catatn masuk ke database pos order line saat verifikasi
 
 /order tampilan extra belum memperhatikan urutan grup extra
+
+
+- Penjualan Produk Terbanyak pisahkan Food dan Beverage. Event tidak usah
+- Ringkasan Adjustment buat juga hari ini, minggu ini, bulan ini. lalu cek di Ringkasan Per Tab nilai total sepertinya belum menjumlahkan rinciannya
+
+
+
+- Ringkasan Adjustment tetap dibuat scrollabel, namun tinggi kolom sejajar dengan kolom sebelahnya, agar tidak turun kebawah banget kalau banyak baris
+- Penjualan Produk Terbanyak jangan batasi 20, tapi tampilkan semua, namun tinggi kolom cukup 20 dan buat scrollabel
+
+- Stok Produk Live POS tambahkan kolom yang menunjukan berapa sisa produk yang dapat dibuat untuk masing masing bahan berdasarkan Stok Live dan Per saji nya
+

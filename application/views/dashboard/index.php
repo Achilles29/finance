@@ -7,6 +7,16 @@ $posStatusRows    = is_array($pos_status_rows  ?? null) ? $pos_status_rows  : []
 $posScopeRows     = is_array($pos_scope_rows   ?? null) ? $pos_scope_rows   : [];
 $stockBreakdown   = is_array($stock_breakdown  ?? null) ? $stock_breakdown  : ['warehouse' => [], 'division' => [], 'component' => []];
 $stockProductLive = is_array($stock_product_live ?? null) ? $stock_product_live : ['summary' => [], 'rows' => []];
+$adjustmentSummary = is_array($adjustment_summary ?? null) ? $adjustment_summary : [
+    'daily' => ['label' => 'Hari Ini', 'warehouse' => ['rows' => [], 'totals' => []], 'division' => ['rows' => [], 'totals' => []], 'component' => ['rows' => [], 'totals' => []]],
+    'weekly' => ['label' => 'Minggu Ini', 'warehouse' => ['rows' => [], 'totals' => []], 'division' => ['rows' => [], 'totals' => []], 'component' => ['rows' => [], 'totals' => []]],
+    'monthly' => ['label' => 'Bulan Ini', 'warehouse' => ['rows' => [], 'totals' => []], 'division' => ['rows' => [], 'totals' => []], 'component' => ['rows' => [], 'totals' => []]],
+];
+$topSellingProducts = is_array($top_selling_products ?? null) ? $top_selling_products : [
+    'daily' => ['label' => 'Hari Ini', 'groups' => ['FOOD' => ['label' => 'Food', 'rows' => []], 'BEVERAGE' => ['label' => 'Beverage', 'rows' => []]]],
+    'weekly' => ['label' => 'Minggu Ini', 'groups' => ['FOOD' => ['label' => 'Food', 'rows' => []], 'BEVERAGE' => ['label' => 'Beverage', 'rows' => []]]],
+    'monthly' => ['label' => 'Bulan Ini', 'groups' => ['FOOD' => ['label' => 'Food', 'rows' => []], 'BEVERAGE' => ['label' => 'Beverage', 'rows' => []]]],
+];
 $criticalStockRows  = is_array($critical_stock_rows   ?? null) ? $critical_stock_rows   : [];
 $negativeStockRows   = is_array($negative_stock_rows    ?? null) ? $negative_stock_rows    : [];
 $recentActivity      = is_array($recent_activity        ?? null) ? $recent_activity        : [];
@@ -132,13 +142,55 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
   .fd-prod-summ-val.orange { color:#e65100; }
   .fd-prod-summ-val.green { color:#2e7d32; }
   .fd-prod-summ-lbl { font-size:.73rem; font-weight:700; color:#8b7772; text-transform:uppercase; margin-top:.2rem; }
+  .fd-adjust-grid { display:grid; gap:1rem; grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr); align-items:stretch; }
+  .fd-adjust-panel { display:flex; flex-direction:column; overflow:hidden; min-height:0; }
+  .fd-adjust-panel-summary { height:760px; }
+  .fd-adjust-panel-list { height:760px; }
+  .fd-adjust-period { display:flex; flex-direction:column; flex:1; min-height:0; }
+  .fd-adj-content { display:flex; flex-direction:column; flex:1; min-height:0; }
+  .fd-adjust-scroll { flex:1; min-height:0; max-height:none; overflow-y:auto; display:grid; gap:.7rem; padding-right:.25rem; scrollbar-width:thin; }
+  .fd-adjust-panel-list .fd-adjust-scroll { max-height:620px; }
+  .fd-adjust-panel-summary .fd-adjust-scroll { max-height:680px; }
+  .fd-adjust-scroll::-webkit-scrollbar { width:4px; }
+  .fd-adjust-scroll::-webkit-scrollbar-thumb { background:rgba(170,95,78,.25); border-radius:4px; }
+  .fd-adjust-card { border-radius:16px; border:1px solid rgba(170,95,78,.14); background:#fffaf7; padding:.9rem 1rem; }
+  .fd-adjust-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.8rem; }
+  .fd-adjust-title { font-weight:800; color:#6f2119; }
+  .fd-adjust-code { margin-top:.12rem; color:#8b7772; font-size:.8rem; }
+  .fd-adjust-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.55rem; margin-top:.72rem; }
+  .fd-adjust-metric { border-radius:12px; border:1px solid rgba(170,95,78,.12); background:#fff; padding:.5rem .6rem; }
+  .fd-adjust-metric .lbl { display:block; font-size:.69rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:#8b7772; }
+  .fd-adjust-metric .val { display:block; margin-top:.18rem; font-weight:800; color:#6f2119; }
+  .fd-adjust-metric .val.plus { color:#2e7d32; }
+  .fd-adjust-metric .val.minus { color:#c62828; }
+  .fd-adjust-detail { margin-top:.72rem; border-top:1px dashed rgba(170,95,78,.18); padding-top:.72rem; }
+  .fd-adjust-detail summary { cursor:pointer; list-style:none; font-size:.82rem; font-weight:800; color:#8f2d23; }
+  .fd-adjust-detail summary::-webkit-details-marker { display:none; }
+  .fd-adjust-detail-list { display:grid; gap:.5rem; margin-top:.65rem; }
+  .fd-adjust-detail-item { border-radius:12px; border:1px solid rgba(170,95,78,.12); background:#fff; padding:.6rem .72rem; }
+  .fd-adjust-detail-top { display:flex; justify-content:space-between; gap:.75rem; align-items:flex-start; }
+  .fd-adjust-detail-meta { color:#8b7772; font-size:.78rem; margin-top:.14rem; }
+  .fd-topprod-period-grid { display:grid; gap:1rem; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .fd-topprod-card { padding:1rem; background:linear-gradient(160deg,rgba(255,247,242,.96),rgba(255,255,255,.98)); }
+  .fd-topprod-scroll { max-height:820px; overflow-y:auto; padding-right:.25rem; scrollbar-width:thin; }
+  .fd-topprod-scroll::-webkit-scrollbar { width:4px; }
+  .fd-topprod-scroll::-webkit-scrollbar-thumb { background:rgba(170,95,78,.25); border-radius:4px; }
+  .fd-topprod-subtitle { margin:.2rem 0 .45rem; font-size:.8rem; font-weight:800; color:#8f2d23; text-transform:uppercase; letter-spacing:.04em; }
+  .fd-topprod-row { display:flex; align-items:flex-start; justify-content:space-between; gap:.7rem; border-radius:14px; padding:.72rem .78rem; background:#fff; border:1px solid rgba(170,95,78,.12); }
+  .fd-topprod-rank { width:1.9rem; height:1.9rem; border-radius:999px; display:inline-flex; align-items:center; justify-content:center; background:#8f2d23; color:#fff; font-size:.76rem; font-weight:800; flex-shrink:0; }
+  .fd-topprod-name { font-weight:800; color:#6f2119; }
+  .fd-topprod-meta { margin-top:.15rem; color:#8b7772; font-size:.79rem; }
+  .fd-topprod-qty { font-weight:800; color:#6f2119; text-align:right; }
+  .fd-topprod-net { margin-top:.15rem; color:#2e7d32; font-size:.78rem; font-weight:700; text-align:right; }
   @media (max-width:1399.98px) {
     .fd-kpi { grid-template-columns:repeat(3,minmax(0,1fr)); }
     .fd-3col { grid-template-columns:1fr; }
+    .fd-topprod-period-grid { grid-template-columns:1fr; }
   }
   @media (max-width:991.98px) {
-    .fd-chart-grid, .fd-2col { grid-template-columns:1fr; }
+    .fd-chart-grid, .fd-2col, .fd-adjust-grid { grid-template-columns:1fr; }
     .fd-2scope { grid-template-columns:1fr; }
+    .fd-adjust-panel-summary, .fd-adjust-panel-list { height:auto; }
   }
   @media (max-width:767.98px) { .fd-kpi { grid-template-columns:1fr; } }
   /* Category filter */
@@ -546,6 +598,232 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
     <?php endif; ?>
   </section>
 
+  <!-- Ringkasan Adjustment -->
+  <section class="fd-adjust-grid">
+    <div class="fd-card p-3 fd-adjust-panel fd-adjust-panel-list">
+      <div class="fd-sec-head">
+        <div>
+          <h2 class="fd-sec-title">Ringkasan Adjustment</h2>
+          <p class="fd-sec-sub">Ringkasan per bahan/komponen untuk hari ini, minggu ini, dan bulan ini. Breakdown menampilkan line detail, bukan hanya nomor nota.</p>
+        </div>
+        <span class="fd-pill">3 periode</span>
+      </div>
+
+      <div class="fd-tabs" id="adjPeriodTabs">
+        <?php foreach (['daily' => 'Hari Ini', 'weekly' => 'Minggu Ini', 'monthly' => 'Bulan Ini'] as $periodKey => $periodLabel): ?>
+          <button class="fd-tab<?= $periodKey === 'daily' ? ' on' : '' ?>" data-adjperiod="<?= htmlspecialchars($periodKey) ?>"><?= htmlspecialchars($periodLabel) ?></button>
+        <?php endforeach; ?>
+      </div>
+
+      <?php foreach (['daily', 'weekly', 'monthly'] as $periodKey): ?>
+        <?php $periodBlock = (array)($adjustmentSummary[$periodKey] ?? []); ?>
+        <div class="fd-adj-period<?= $periodKey === 'daily' ? '' : ' d-none' ?>" data-adjperiod="<?= htmlspecialchars($periodKey) ?>">
+          <div class="fd-tabs" id="adjScopeTabs-<?= htmlspecialchars($periodKey) ?>">
+            <?php foreach (['warehouse' => 'Gudang', 'division' => 'Bahan Baku', 'component' => 'Component'] as $adjKey => $adjLabel): ?>
+              <button class="fd-sub-tab<?= $adjKey === 'warehouse' ? ' on' : '' ?>" data-adjscope="<?= htmlspecialchars($adjKey) ?>" data-adjperiod="<?= htmlspecialchars($periodKey) ?>">
+                <?= htmlspecialchars($adjLabel) ?> (<?= count((array)($periodBlock[$adjKey]['rows'] ?? [])) ?>)
+              </button>
+            <?php endforeach; ?>
+          </div>
+
+          <?php foreach (['warehouse' => 'Gudang', 'division' => 'Bahan Baku', 'component' => 'Component'] as $adjKey => $adjLabel): ?>
+            <?php $adjRows = (array)($periodBlock[$adjKey]['rows'] ?? []); ?>
+            <div class="fd-adj-content<?= $adjKey === 'warehouse' ? '' : ' d-none' ?>" data-adjperiod="<?= htmlspecialchars($periodKey) ?>" data-adjscope="<?= htmlspecialchars($adjKey) ?>">
+              <?php if (empty($adjRows)): ?>
+                <div class="fd-empty">Belum ada adjustment <?= strtolower($adjLabel) ?> pada periode <?= htmlspecialchars(strtolower((string)($periodBlock['label'] ?? '-'))) ?>.</div>
+              <?php else: ?>
+                <div class="fd-adjust-scroll">
+                  <?php foreach ($adjRows as $adjRow): ?>
+                    <?php
+                    $detailRows = (array)($adjRow['details'] ?? []);
+                    $qtyOutTotal = $adjKey === 'component'
+                      ? (float)($adjRow['qty_waste'] ?? 0) + (float)($adjRow['qty_spoil'] ?? 0) + (float)($adjRow['qty_minus'] ?? 0)
+                      : (float)($adjRow['qty_waste'] ?? 0) + (float)($adjRow['qty_spoil'] ?? 0) + (float)($adjRow['qty_process_loss'] ?? 0) + (float)($adjRow['qty_variance'] ?? 0);
+                    ?>
+                    <div class="fd-adjust-card">
+                      <div class="fd-adjust-head">
+                        <div>
+                          <div class="fd-adjust-title"><?= htmlspecialchars((string)($adjRow['object_name'] ?? '-')) ?></div>
+                          <div class="fd-adjust-code"><?= htmlspecialchars((string)($adjRow['object_code'] ?? '-')) ?> · <?= htmlspecialchars((string)($adjRow['location_name'] ?? '-')) ?> · <?= (int)($adjRow['doc_count'] ?? 0) ?> nota / <?= (int)($adjRow['line_count'] ?? 0) ?> line</div>
+                        </div>
+                        <span class="fd-pill"><?= $cur((float)($adjRow['net_value_total'] ?? 0)) ?></span>
+                      </div>
+                      <div class="fd-adjust-metrics">
+                        <div class="fd-adjust-metric">
+                          <span class="lbl">Qty Keluar</span>
+                          <span class="val minus"><?= number_format($qtyOutTotal, 2, ',', '.') ?></span>
+                        </div>
+                        <div class="fd-adjust-metric">
+                          <span class="lbl">Adj Plus</span>
+                          <span class="val plus"><?= number_format((float)($adjRow['qty_plus'] ?? 0), 2, ',', '.') ?></span>
+                        </div>
+                        <div class="fd-adjust-metric">
+                          <span class="lbl">Net Value</span>
+                          <span class="val <?= ((float)($adjRow['net_value_total'] ?? 0)) >= 0 ? 'plus' : 'minus' ?>"><?= $cur((float)($adjRow['net_value_total'] ?? 0)) ?></span>
+                        </div>
+                      </div>
+                      <div class="fd-adjust-metrics">
+                        <div class="fd-adjust-metric">
+                          <span class="lbl">Waste</span>
+                          <span class="val minus"><?= number_format((float)($adjRow['qty_waste'] ?? 0), 2, ',', '.') ?></span>
+                        </div>
+                        <div class="fd-adjust-metric">
+                          <span class="lbl">Spoil</span>
+                          <span class="val minus"><?= number_format((float)($adjRow['qty_spoil'] ?? 0), 2, ',', '.') ?></span>
+                        </div>
+                        <div class="fd-adjust-metric">
+                          <span class="lbl"><?= $adjKey === 'component' ? 'Minus' : 'Variance / Loss' ?></span>
+                          <span class="val minus"><?= number_format($adjKey === 'component' ? (float)($adjRow['qty_minus'] ?? 0) : ((float)($adjRow['qty_process_loss'] ?? 0) + (float)($adjRow['qty_variance'] ?? 0)), 2, ',', '.') ?></span>
+                        </div>
+                      </div>
+
+                      <details class="fd-adjust-detail">
+                        <summary>Lihat breakdown detail (<?= count($detailRows) ?> line)</summary>
+                        <?php if (empty($detailRows)): ?>
+                          <div class="fd-empty" style="padding:.7rem 0 0">Tidak ada detail line.</div>
+                        <?php else: ?>
+                          <div class="fd-adjust-detail-list">
+                            <?php foreach ($detailRows as $detailRow): ?>
+                              <?php
+                              $detailQtyOut = $adjKey === 'component'
+                                ? (float)($detailRow['qty_waste'] ?? 0) + (float)($detailRow['qty_spoil'] ?? 0) + (float)($detailRow['qty_minus'] ?? 0)
+                                : (float)($detailRow['qty_waste'] ?? 0) + (float)($detailRow['qty_spoil'] ?? 0) + (float)($detailRow['qty_process_loss'] ?? 0) + (float)($detailRow['qty_variance'] ?? 0);
+                              $detailMeta = trim(implode(' · ', array_filter([
+                                (string)($detailRow['adjustment_no'] ?? ''),
+                                (string)($detailRow['adjustment_date'] ?? ''),
+                                (string)($detailRow['profile_label'] ?? ''),
+                              ])));
+                              $detailNote = trim(implode(' | ', array_filter([
+                                (string)($detailRow['note'] ?? ''),
+                                (string)($detailRow['header_notes'] ?? ''),
+                              ])));
+                              ?>
+                              <div class="fd-adjust-detail-item">
+                                <div class="fd-adjust-detail-top">
+                                  <div>
+                                    <div class="fd-adjust-title" style="font-size:.9rem"><?= htmlspecialchars($detailMeta !== '' ? $detailMeta : '-') ?></div>
+                                    <div class="fd-adjust-detail-meta"><?= htmlspecialchars($detailNote !== '' ? $detailNote : 'Tanpa catatan') ?></div>
+                                  </div>
+                                  <div class="text-end">
+                                    <div class="fd-adjust-title" style="font-size:.9rem"><?= number_format($detailQtyOut, 2, ',', '.') ?><?= !empty($detailRow['uom_code']) ? ' ' . htmlspecialchars((string)$detailRow['uom_code']) : '' ?></div>
+                                    <div class="fd-adjust-detail-meta">+<?= number_format((float)($detailRow['qty_plus'] ?? 0), 2, ',', '.') ?> · <?= $cur(((float)($detailRow['qty_plus'] ?? 0) - $detailQtyOut) * (float)($detailRow['unit_cost'] ?? 0)) ?></div>
+                                  </div>
+                                </div>
+                              </div>
+                            <?php endforeach; ?>
+                          </div>
+                        <?php endif; ?>
+                      </details>
+                    </div>
+                  <?php endforeach; ?>
+                </div>
+              <?php endif; ?>
+            </div>
+          <?php endforeach; ?>
+        </div>
+      <?php endforeach; ?>
+    </div>
+
+    <div class="fd-card p-3 fd-adjust-panel fd-adjust-panel-summary">
+      <div class="fd-sec-head">
+        <div>
+          <h2 class="fd-sec-title">Ringkasan Per Tab</h2>
+          <p class="fd-sec-sub">Angka utama menampilkan total net value. Nilai keluar menunjukkan total sisi pengurang, dan plus menunjukkan total adjustment penambah.</p>
+        </div>
+      </div>
+      <div class="fd-adjust-scroll">
+        <?php foreach (['daily', 'weekly', 'monthly'] as $periodKey): ?>
+          <?php $periodBlock = (array)($adjustmentSummary[$periodKey] ?? []); ?>
+          <div style="margin-bottom:1rem">
+            <div class="fd-sec-title" style="font-size:.95rem;margin-bottom:.6rem"><?= htmlspecialchars((string)($periodBlock['label'] ?? '-')) ?></div>
+            <div class="fd-list">
+              <?php foreach (['warehouse' => 'Gudang', 'division' => 'Bahan Baku', 'component' => 'Component'] as $adjKey => $adjLabel): ?>
+                <?php $adjTotals = (array)($periodBlock[$adjKey]['totals'] ?? []); ?>
+                <div class="fd-item">
+                  <div>
+                    <div class="fd-item-title"><?= htmlspecialchars($adjLabel) ?></div>
+                    <div class="fd-item-meta"><?= (int)($adjTotals['group_count'] ?? 0) ?> bahan · <?= (int)($adjTotals['doc_count'] ?? 0) ?> nota · <?= (int)($adjTotals['line_count'] ?? 0) ?> line</div>
+                  </div>
+                  <div class="text-end">
+                    <div class="fd-item-title"><?= $cur((float)($adjTotals['net_value_total'] ?? 0)) ?></div>
+                    <div class="fd-item-meta">Keluar <?= $cur((float)($adjTotals['value_out_total'] ?? 0)) ?> · Plus <?= $cur((float)($adjTotals['value_plus_total'] ?? 0)) ?></div>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          </div>
+        <?php endforeach; ?>
+      </div>
+    </div>
+  </section>
+
+  <!-- Produk Terbanyak -->
+  <section class="fd-card p-3">
+    <div class="fd-sec-head">
+      <div>
+        <h2 class="fd-sec-title">Penjualan Produk Terbanyak</h2>
+        <p class="fd-sec-sub">Peringkat berdasarkan qty terjual. Dipisah per hari ini, minggu ini, dan bulan ini.</p>
+      </div>
+    </div>
+    <div class="fd-tabs" id="topProdPeriodTabs">
+      <?php foreach (['daily' => 'Hari Ini', 'weekly' => 'Minggu Ini', 'monthly' => 'Bulan Ini'] as $periodKey => $periodLabel): ?>
+        <button class="fd-tab<?= $periodKey === 'daily' ? ' on' : '' ?>" data-topperiod="<?= htmlspecialchars($periodKey) ?>"><?= htmlspecialchars($periodLabel) ?></button>
+      <?php endforeach; ?>
+    </div>
+
+    <?php foreach (['daily', 'weekly', 'monthly'] as $periodKey): ?>
+      <?php
+      $periodBlock = (array)($topSellingProducts[$periodKey] ?? []);
+      $periodGroups = (array)($periodBlock['groups'] ?? []);
+      $periodCount = 0;
+      foreach ($periodGroups as $groupBlock) { $periodCount += count((array)($groupBlock['rows'] ?? [])); }
+      ?>
+      <div class="fd-topprod-period<?= $periodKey === 'daily' ? '' : ' d-none' ?>" data-topperiod="<?= htmlspecialchars($periodKey) ?>">
+        <div class="fd-sec-head" style="margin-bottom:.75rem">
+          <div>
+            <h2 class="fd-sec-title"><?= htmlspecialchars((string)($periodBlock['label'] ?? '-')) ?></h2>
+            <p class="fd-sec-sub">Top produk berdasarkan qty, dipisah Food dan Beverage.</p>
+          </div>
+          <span class="fd-pill"><?= $periodCount ?> baris</span>
+        </div>
+        <div class="fd-topprod-period-grid">
+          <?php foreach (['FOOD', 'BEVERAGE'] as $groupKey): ?>
+            <?php
+            $groupBlock = (array)($periodGroups[$groupKey] ?? ['label' => $groupKey, 'rows' => []]);
+            $periodRows = (array)($groupBlock['rows'] ?? []);
+            ?>
+            <div class="fd-card fd-topprod-card">
+              <div class="fd-topprod-subtitle"><?= htmlspecialchars((string)($groupBlock['label'] ?? $groupKey)) ?></div>
+              <div class="fd-topprod-scroll">
+                <div class="fd-list">
+                <?php if (empty($periodRows)): ?>
+                  <div class="fd-empty" style="padding:.5rem 0">Belum ada penjualan <?= htmlspecialchars(strtolower((string)($groupBlock['label'] ?? $groupKey))) ?>.</div>
+                <?php else: ?>
+                  <?php foreach ($periodRows as $idx => $periodRow): ?>
+                    <div class="fd-topprod-row">
+                      <div class="d-flex align-items-start gap-2">
+                        <span class="fd-topprod-rank"><?= (int)$idx + 1 ?></span>
+                        <div>
+                          <div class="fd-topprod-name"><?= htmlspecialchars((string)($periodRow['product_name'] ?? '-')) ?></div>
+                          <div class="fd-topprod-meta"><?= htmlspecialchars((string)($periodRow['product_code'] ?? '-')) ?> · <?= (int)($periodRow['order_count'] ?? 0) ?> order</div>
+                        </div>
+                      </div>
+                      <div>
+                        <div class="fd-topprod-qty"><?= number_format((float)($periodRow['qty_total'] ?? 0), 0, ',', '.') ?></div>
+                        <div class="fd-topprod-net"><?= $cur((float)($periodRow['net_total'] ?? 0)) ?></div>
+                      </div>
+                    </div>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+                </div>
+              </div>
+            </div>
+          <?php endforeach; ?>
+        </div>
+      </div>
+    <?php endforeach; ?>
+  </section>
+
   <!-- Scope -->
   <section class="fd-2scope">
     <?php if (empty($posScopeRows)): ?>
@@ -845,6 +1123,47 @@ window.addEventListener('load', function () {
     });
   });
 
+  // Adjustment period tabs
+  const adjPeriodBtns = document.querySelectorAll('#adjPeriodTabs .fd-tab');
+  adjPeriodBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const periodKey = btn.dataset.adjperiod;
+      adjPeriodBtns.forEach(function (node) { node.classList.remove('on'); });
+      btn.classList.add('on');
+      document.querySelectorAll('.fd-adj-period').forEach(function (panel) {
+        panel.classList.toggle('d-none', panel.dataset.adjperiod !== periodKey);
+      });
+    });
+  });
+
+  // Adjustment scope tabs per period
+  document.querySelectorAll('[id^="adjScopeTabs-"]').forEach(function (container) {
+    container.querySelectorAll('.fd-sub-tab').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const periodKey = btn.dataset.adjperiod;
+        const scopeKey = btn.dataset.adjscope;
+        container.querySelectorAll('.fd-sub-tab').forEach(function (node) { node.classList.remove('on'); });
+        btn.classList.add('on');
+        document.querySelectorAll('.fd-adj-content[data-adjperiod="' + periodKey + '"]').forEach(function (panel) {
+          panel.classList.toggle('d-none', panel.dataset.adjscope !== scopeKey);
+        });
+      });
+    });
+  });
+
+  // Top product period tabs
+  const topProdBtns = document.querySelectorAll('#topProdPeriodTabs .fd-tab');
+  topProdBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const periodKey = btn.dataset.topperiod;
+      topProdBtns.forEach(function (node) { node.classList.remove('on'); });
+      btn.classList.add('on');
+      document.querySelectorAll('.fd-topprod-period').forEach(function (panel) {
+        panel.classList.toggle('d-none', panel.dataset.topperiod !== periodKey);
+      });
+    });
+  });
+
   // Division sub-tabs
   bindTabs('dvSubTabs', '.fd-dv-loc', 'dvloc');
   bindTabs('cpSubTabs', '.fd-cp-loc', 'cploc');
@@ -966,10 +1285,13 @@ window.addEventListener('load', function () {
           return;
         }
         let html = '<table style="width:100%;font-size:.83rem;border-collapse:collapse">';
-        html += '<tr style="color:#8b7772;font-weight:700"><th style="padding:.3rem 0;text-align:left">Bahan</th><th style="padding:.3rem;text-align:center">Jenis Sumber</th><th style="padding:.3rem;text-align:center">Peran</th><th style="padding:.3rem;text-align:right">Per Saji</th><th style="padding:.3rem;text-align:right">Stok Live</th></tr>';
+        html += '<tr style="color:#8b7772;font-weight:700"><th style="padding:.3rem 0;text-align:left">Bahan</th><th style="padding:.3rem;text-align:center">Jenis Sumber</th><th style="padding:.3rem;text-align:center">Peran</th><th style="padding:.3rem;text-align:right">Per Saji</th><th style="padding:.3rem;text-align:right">Stok Live</th><th style="padding:.3rem;text-align:right">Sisa Produk</th></tr>';
         data.data.recipe.forEach(function(r) {
           const stockCls = r.stock_qty <= 0 ? 'bad' : 'ok';
           const stockFmt = Number(r.stock_qty).toLocaleString('id-ID', {minimumFractionDigits:2,maximumFractionDigits:2});
+          const servingFmt = (r.available_servings === null || typeof r.available_servings === 'undefined')
+            ? '-'
+            : Number(r.available_servings).toLocaleString('id-ID', {maximumFractionDigits:0});
           const srcType  = r.source_type || '-';
           html += '<tr style="border-top:1px solid rgba(170,95,78,.1)">';
           html += '<td style="padding:.32rem 0"><span class="fd-item-title">' + (r.ingredient_name||'-') + '</span></td>';
@@ -977,6 +1299,7 @@ window.addEventListener('load', function () {
           html += '<td style="padding:.32rem;text-align:center"><span class="fd-pill" style="font-size:.7rem">' + (r.ingredient_role||'-') + '</span></td>';
           html += '<td style="padding:.32rem;text-align:right">' + Number(r.qty_per_serve).toLocaleString('id-ID',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' ' + (r.uom_code||'') + '</td>';
           html += '<td style="padding:.32rem;text-align:right"><span class="fd-recipe-stock ' + stockCls + '">' + stockFmt + '</span></td>';
+          html += '<td style="padding:.32rem;text-align:right"><span class="fd-recipe-stock ' + stockCls + '">' + servingFmt + '</span></td>';
           html += '</tr>';
         });
         html += '</table>';
