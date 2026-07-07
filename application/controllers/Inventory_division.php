@@ -810,14 +810,16 @@ class Inventory_division extends Purchase
 
         $confirmed = [];
         if (!empty($lineKeys) && $this->db->table_exists('inv_daily_recon_checkpoint_line')) {
-            foreach ($this->db->select('line_key, checkpoint_stage')
-                ->from('inv_daily_recon_checkpoint_line')
-                ->where('checkpoint_date', $date)
-                ->where('recon_domain', 'MATERIAL')
-                ->where('division_id', $divisionId)
-                ->where_in('line_key', array_values($lineKeys))
-                ->get()->result_array() as $lineRow) {
-                $confirmed[(string)$lineRow['line_key'] . '|' . strtoupper((string)$lineRow['checkpoint_stage'])] = true;
+            foreach (array_chunk(array_values($lineKeys), 120) as $lineKeyChunk) {
+                foreach ($this->db->select('line_key, checkpoint_stage')
+                    ->from('inv_daily_recon_checkpoint_line')
+                    ->where('checkpoint_date', $date)
+                    ->where('recon_domain', 'MATERIAL')
+                    ->where('division_id', $divisionId)
+                    ->where_in('line_key', $lineKeyChunk)
+                    ->get()->result_array() as $lineRow) {
+                    $confirmed[(string)$lineRow['line_key'] . '|' . strtoupper((string)$lineRow['checkpoint_stage'])] = true;
+                }
             }
         }
 

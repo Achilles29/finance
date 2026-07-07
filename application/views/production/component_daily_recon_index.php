@@ -72,6 +72,71 @@ $REASONS = function_exists('component_adjustment_reason_options')
 .cmp-value-cell { font-size:.76rem; white-space:nowrap; }
 .cmp-flash { border-radius:12px; border:1px solid #c7e7d3; background:#edf9f1; color:#166534; padding:.65rem .85rem; font-size:.82rem; }
 .cmp-flash.error { border-color:#f3c1c1; background:#fff1f2; color:#b42318; }
+.cmp-required-warning {
+    display:grid;
+    grid-template-columns:auto 1fr;
+    gap:.75rem;
+    align-items:flex-start;
+}
+.cmp-required-warning-icon {
+    width:34px;
+    height:34px;
+    border-radius:12px;
+    display:grid;
+    place-items:center;
+    color:#fff;
+    background:linear-gradient(135deg,#b42318,#f59e0b);
+}
+.cmp-required-warning-title {
+    font-weight:800;
+    color:#8f1d16;
+    margin-bottom:.15rem;
+}
+.cmp-required-warning-subtitle {
+    color:#7f544d;
+    font-size:.78rem;
+    margin-bottom:.6rem;
+}
+.cmp-required-warning-list {
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:.4rem;
+}
+.cmp-required-warning-item {
+    border:1px solid #f2c6c6;
+    background:#fffafa;
+    border-radius:12px;
+    padding:.45rem .55rem;
+    min-width:0;
+}
+.cmp-required-warning-name {
+    color:#3b2421;
+    font-weight:800;
+    font-size:.78rem;
+    line-height:1.18;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+.cmp-required-warning-reason {
+    display:inline-block;
+    margin-top:.25rem;
+    border-radius:999px;
+    background:#fff4cf;
+    color:#8a5b00;
+    padding:.08rem .42rem;
+    font-size:.68rem;
+    font-weight:800;
+}
+.cmp-required-warning-more {
+    color:#8f1d16;
+    font-size:.76rem;
+    font-weight:800;
+    margin-top:.55rem;
+}
+@media (max-width:768px) {
+    .cmp-required-warning-list { grid-template-columns:1fr; }
+}
 </style>
 
 <!-- Filter -->
@@ -216,10 +281,14 @@ const fmtValue = v => isNaN(parseFloat(v)) ? '—' : Number(v).toLocaleString('i
 function cssid(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, '_'); }
 function round4(v) { return Math.round((parseFloat(v) || 0) * 10000) / 10000; }
 function calcValue(qty, unitCost) { return round4(qty) * (parseFloat(unitCost) || 0); }
-function showFlash(message, isError = false) {
+function showFlash(message, isError = false, asHtml = false) {
     const box = el('cmpFlash');
     if (!box) return;
-    box.textContent = message || '';
+    if (asHtml) {
+        box.innerHTML = message || '';
+    } else {
+        box.textContent = message || '';
+    }
     box.classList.toggle('error', !!isError);
     box.style.display = message ? '' : 'none';
 }
@@ -276,11 +345,28 @@ function requiredReconPending(stage) {
 
 function showRequiredReconWarning(stage, pending) {
     const label = stage === 'OPEN' ? 'buka kasir' : 'tutup kasir';
-    const list = pending.slice(0, 12).map(function (item) {
-        return '- ' + item.name + ' (' + item.reason + ')';
-    }).join('\n');
-    const more = pending.length > 12 ? '\n+ ' + (pending.length - 12) + ' item lainnya' : '';
-    showFlash('Konfirmasi semua untuk ' + label + ' belum bisa disimpan. Baris berikut wajib dicek satu per satu dulu:\n' + list + more, true);
+    const items = pending.slice(0, 8).map(function (item) {
+        return '<div class="cmp-required-warning-item">'
+            + '<div class="cmp-required-warning-name" title="' + esc(item.name || '') + '">' + esc(item.name || 'Component') + '</div>'
+            + '<span class="cmp-required-warning-reason">' + esc(item.reason || 'wajib recon') + '</span>'
+            + '</div>';
+    }).join('');
+    const more = pending.length > 8
+        ? '<div class="cmp-required-warning-more">+' + (pending.length - 8) + ' item lainnya wajib dicek satu per satu.</div>'
+        : '';
+    showFlash(
+        '<div class="cmp-required-warning">'
+        + '<div class="cmp-required-warning-icon"><i class="ri ri-alert-line"></i></div>'
+        + '<div>'
+        + '<div class="cmp-required-warning-title">Konfirmasi semua untuk ' + esc(label) + ' belum bisa disimpan</div>'
+        + '<div class="cmp-required-warning-subtitle">' + pending.length + ' baris wajib direkon satu per satu dulu karena multi-lot, stok minus, atau masuk daftar wajib recon.</div>'
+        + '<div class="cmp-required-warning-list">' + items + '</div>'
+        + more
+        + '</div>'
+        + '</div>',
+        true,
+        true
+    );
 }
 
 window.cmpConfirmReconRow = function (iid, stage) {

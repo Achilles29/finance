@@ -417,3 +417,12 @@ modifikasi:
 
 
 /inventory/stock/daily-recon/division
+
+
+
+Error memuat data: Response bukan JSON. A PHP Error was encountered Severity: Warning Message: preg_match(): Compilation failed: regular expression is too large at offset 49881 Filename: database/DB_query_builder.php Line Number: 2424 Backtrace: File: /www/www
+Tanggal
+Divisi
+Tujuan
+
+
